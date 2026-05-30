@@ -13,6 +13,13 @@ from agent_system.registry.agent_registry import AgentRegistry
 from soul import SoulFacade
 from soul.catalog_store import SoulCatalogStore
 from soul.image_asset_service import SoulImageAssetError, SoulImageAssetService
+from soul.projection_catalog_service import (
+    SoulProjectionCatalogError,
+    build_projection_catalog,
+    delete_projection_card,
+    select_projection_card,
+    upsert_projection_card,
+)
 from soul.registry import (
     ACTIVE_SEED_PATH,
     BUILTIN_SEED_PATHS,
@@ -78,6 +85,31 @@ class SoulCommonContractSaveRequest(BaseModel):
     content: str = Field(..., min_length=1)
     version: str = Field(default="v1", max_length=40)
     cache_scope: str = Field(default="static", max_length=40)
+
+
+class SoulProjectionCardCreateRequest(BaseModel):
+    projection_id: str = Field(default="", max_length=160)
+    soul_id: str = Field(default="hebo", min_length=1, max_length=160)
+    projection_kind: str = Field(default="worker_agent_projection", max_length=120)
+    owner_system: str = Field(default="orchestration_system", max_length=160)
+    source_task_graph_refs: list[str] = Field(default_factory=list)
+    projection_nodes: list[dict[str, Any]] = Field(default_factory=list)
+    identity_anchor: str = Field(default="", max_length=2000)
+    role_type: str = Field(default="", max_length=120)
+    task_mode: str = Field(default="", max_length=120)
+    agent_profile_id: str = Field(default="", max_length=160)
+    projection_name: str = Field(default="", max_length=160)
+    posture_tags: list[str] = Field(default_factory=list)
+    expression_density: str = Field(default="normal", max_length=80)
+    attention_focus: list[str] = Field(default_factory=list)
+    risk_notes: list[str] = Field(default_factory=list)
+    projection_prompt: str = Field(default="", max_length=4000)
+    skill_views: list[dict[str, Any]] = Field(default_factory=list)
+    tool_views: list[dict[str, Any]] = Field(default_factory=list)
+    usage_summary: str = Field(default="", max_length=1200)
+    memory_policy_summary: str = Field(default="", max_length=1200)
+    output_contract_summary: str = Field(default="", max_length=1200)
+    select_after_create: bool = False
 
 
 def _project_root_from_backend(base_dir: Path) -> Path:
@@ -181,6 +213,45 @@ async def save_soul_common_contract(prompt_id: str, payload: SoulCommonContractS
     store.save_bucket("common_contracts", next_items)
     runtime.refresh_indexes_for_path("soul/common_contracts/catalog.json")
     return SoulFacade(runtime.base_dir).build_catalog()
+
+
+@router.get("/soul/projections")
+async def soul_projections() -> dict[str, Any]:
+    runtime = require_runtime()
+    return build_projection_catalog(runtime.base_dir)
+
+
+@router.post("/soul/projections")
+async def create_soul_projection(payload: SoulProjectionCardCreateRequest) -> dict[str, Any]:
+    runtime = require_runtime()
+    try:
+        catalog = upsert_projection_card(runtime.base_dir, payload.model_dump())
+    except SoulProjectionCatalogError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    runtime.refresh_indexes_for_path("soul/projections/catalog.json")
+    return catalog
+
+
+@router.post("/soul/projections/{projection_id}/select")
+async def select_soul_projection(projection_id: str) -> dict[str, Any]:
+    runtime = require_runtime()
+    try:
+        catalog = select_projection_card(runtime.base_dir, projection_id)
+    except SoulProjectionCatalogError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    runtime.refresh_indexes_for_path("soul/projections/catalog.json")
+    return catalog
+
+
+@router.delete("/soul/projections/{projection_id}")
+async def delete_soul_projection(projection_id: str) -> dict[str, Any]:
+    runtime = require_runtime()
+    try:
+        catalog = delete_projection_card(runtime.base_dir, projection_id)
+    except SoulProjectionCatalogError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    runtime.refresh_indexes_for_path("soul/projections/catalog.json")
+    return catalog
 
 
 @router.get("/soul/{soul_id}/activity")

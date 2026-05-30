@@ -136,6 +136,9 @@ def test_query_runtime_exposes_graph_harness_facade() -> None:
 
 
 def test_graph_harness_starts_published_config_and_creates_node_work_order() -> None:
+    from harness.runtime.compiler import RuntimeCompiler
+    from query.runtime import _graph_node_contract_from_work_order
+
     runtime = _runtime("graph-task-runtime-start-")
     registry = TaskFlowRegistry(runtime.base_dir)
     graph = registry.upsert_task_graph(
@@ -207,7 +210,40 @@ def test_graph_harness_starts_published_config_and_creates_node_work_order() -> 
     assert graph_slot["graph_identity"]["work_order_id"] == start.node_work_orders[0].work_order_id
     assert graph_slot["graph_identity"]["node_id"] == "draft"
     assert graph_slot["node_contract"]["prompt_contract"]["role_prompt"] == "你是一名内容起草员。"
+    initial_context = graph_slot["edge_contracts"]["inbound_edge_contexts"][0]
+    assert initial_context["packet_type"] == "graph_initial_input"
+    assert initial_context["source_node_id"] == "__graph_input__"
+    assert initial_context["target_input_slot"] == "initial_inputs"
+    assert initial_context["payload"]["initial_inputs"] == {"goal": "smoke"}
     assert graph_slot["memory_contract"]["namespace_id"].startswith("graphmem:")
+    contract = _graph_node_contract_from_work_order(start.node_work_orders[0]).to_dict()
+    packet = RuntimeCompiler().compile_task_execution_packet(
+        session_id="session:test",
+        task_run={
+            "task_run_id": "gtask:test:start-node",
+            "session_id": "session:test",
+            "task_id": "task.test.draft",
+            "task_contract_ref": "gcontract:test",
+            "owner_agent_seat_id": "draft",
+            "agent_id": "agent:0",
+            "agent_profile_id": "main_interactive_agent",
+            "execution_runtime_kind": "single_agent_task",
+            "status": "running",
+            "diagnostics": {"contract": contract, "graph_run_id": start.graph_run.graph_run_id, "graph_node_id": "draft"},
+        },
+        contract=contract,
+        observations=[],
+        runtime_assembly={
+            "assembly_id": "rtasm:test",
+            "profile": {"mode": "professional", "interaction_mode": "task_execution"},
+            "task_environment": {"environment_id": "env.test"},
+            "operation_authorization": {"allowed_operations": []},
+        },
+    ).packet
+    stable_payload = json.loads(packet.model_messages[1]["content"].split("\n", 1)[1])
+    visible_initial = stable_payload["task_contract"]["graph_slot"]["edge_contracts"]["inbound_edge_contexts"][0]["payload"]["initial_inputs"]
+    assert visible_initial == {"goal": "smoke"}
+    assert "input_package" not in packet.model_messages[1]["content"]
     work_order_summary = start.loop_state.work_order_index[start.node_work_orders[0].work_order_id]
     assert work_order_summary["node_id"] == "draft"
     assert work_order_summary["work_order_ref"]
@@ -581,6 +617,7 @@ def test_graph_edge_contract_payload_projects_artifact_text_without_agent_tool(t
 
 
 def test_graph_node_task_contract_keeps_model_visible_artifact_payload(tmp_path: Path) -> None:
+    from harness.runtime.compiler import RuntimeCompiler
     from query.runtime import _graph_node_contract_from_work_order
 
     runtime = _runtime("graph-node-contract-artifact-payload-")
@@ -627,13 +664,40 @@ def test_graph_node_task_contract_keeps_model_visible_artifact_payload(tmp_path:
     )
 
     contract = _graph_node_contract_from_work_order(advance.node_work_orders[0]).to_dict()
-    visible_input = contract["resource_requirements"]["input_package"]
-    inbound = visible_input["inbound_context"][0]
+    task_run = {
+        "task_run_id": "gtask:test:artifact-payload",
+        "session_id": "session-test",
+        "task_id": "task.test.review",
+        "task_contract_ref": "gcontract:test",
+        "owner_agent_seat_id": "review",
+        "agent_id": "agent:0",
+        "agent_profile_id": "main_interactive_agent",
+        "execution_runtime_kind": "single_agent_task",
+        "status": "running",
+        "diagnostics": {"contract": contract, "graph_run_id": start.graph_run.graph_run_id, "graph_node_id": "review"},
+    }
+    packet = RuntimeCompiler().compile_task_execution_packet(
+        session_id="session-test",
+        task_run=task_run,
+        contract=contract,
+        observations=[],
+        runtime_assembly={
+            "assembly_id": "rtasm:test",
+            "profile": {"mode": "professional", "interaction_mode": "task_execution"},
+            "task_environment": {"environment_id": "env.test"},
+            "operation_authorization": {"allowed_operations": []},
+        },
+    ).packet
+    stable_payload = json.loads(packet.model_messages[1]["content"].split("\n", 1)[1])
+    visible_contract = stable_payload["task_contract"]
+    inbound = visible_contract["graph_slot"]["edge_contracts"]["inbound_edge_contexts"][0]
 
     assert inbound["edge_id"] == "edge.draft.review"
     assert inbound["payload"]["artifact_payloads"][0]["content"] == "世界设定正文"
-    assert "upstream_results" not in visible_input
-    assert "hidden_control_refs" not in visible_input
+    assert "resource_requirements" not in visible_contract
+    assert "input_package" not in json.dumps(stable_payload, ensure_ascii=False)
+    assert "upstream_results" not in json.dumps(visible_contract, ensure_ascii=False)
+    assert "hidden_control_refs" not in json.dumps(visible_contract, ensure_ascii=False)
 
 
 def test_graph_edge_artifact_text_projection_accepts_project_root_relative_refs(tmp_path: Path, monkeypatch) -> None:

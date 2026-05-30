@@ -951,34 +951,20 @@ def _permission_mode_provider(*, permission_service: Any | None, settings_servic
 
 def _graph_node_contract_from_work_order(work_order: Any) -> TaskRunContract:
     contracts = dict(getattr(work_order, "expected_result_contract", {}) or {})
-    input_package = dict(getattr(work_order, "input_package", {}) or {})
     graph_slot = dict(getattr(work_order, "graph_slot", {}) or {})
     if not graph_slot:
         raise ValueError("GraphNodeWorkOrder missing graph_slot")
     if str(graph_slot.get("authority") or "") != "harness.graph.node_execution_slot":
         raise ValueError("GraphNodeWorkOrder graph_slot authority mismatch")
     node_contract = dict(graph_slot.get("node_contract") or {})
-    prompt_contract = dict(node_contract.get("prompt_contract") or input_package.get("prompt_contract") or input_package.get("prompt") or {})
-    runtime_profile = {
-        **dict(input_package.get("runtime_profile") or {}),
-        **{
-            key: value
-            for key, value in {
-                "runtime_mode": node_contract.get("runtime_mode"),
-                "model_requirement": node_contract.get("model_requirement"),
-                "reasoning_policy": node_contract.get("reasoning_policy"),
-                "tool_contract": node_contract.get("tool_contract"),
-                "permission_contract": node_contract.get("permission_contract"),
-            }.items()
-            if value
-        },
-    }
-    task_environment_id = str(
-        input_package.get("task_environment_id")
-        or dict(input_package.get("task_environment") or {}).get("task_environment_id")
-        or dict(input_package.get("task_environment") or {}).get("environment_id")
-        or ""
-    ).strip()
+    prompt_contract = dict(node_contract.get("prompt_contract") or {})
+    runtime_mode = _graph_node_runtime_mode_from_node_contract(node_contract)
+    task_environment_id = _graph_slot_task_environment_id(graph_slot)
+    runtime_profile = _graph_node_runtime_profile(
+        node_contract=node_contract,
+        runtime_mode=runtime_mode,
+        task_environment_id=task_environment_id,
+    )
     criteria = [
         "完成当前图节点职责，并输出可被下游节点消费的结果。",
         "如产生文件或记忆候选，需要在输出中列出真实引用。",
@@ -992,7 +978,7 @@ def _graph_node_contract_from_work_order(work_order: Any) -> TaskRunContract:
         user_visible_goal=work_order.message or f"完成图节点 {work_order.node_id}。",
         task_run_goal=work_order.message or f"完成图节点 {work_order.node_id}。",
         completion_criteria=tuple(criteria),
-        resource_requirements=_graph_node_resource_requirements(work_order),
+        resource_requirements={},
         permission_requirements=dict(getattr(work_order, "permission_scope", {}) or {}),
         acceptance_policy=contracts,
         recovery_policy=dict(getattr(work_order, "retry_policy", {}) or {}),
@@ -1005,95 +991,66 @@ def _graph_node_contract_from_work_order(work_order: Any) -> TaskRunContract:
     )
 
 
-def _graph_node_resource_requirements(work_order: Any) -> dict[str, Any]:
-    return {
-        "graph_state": dict(getattr(work_order, "graph_state", {}) or {}),
-        "input_package": _model_visible_input_package(dict(getattr(work_order, "input_package", {}) or {})),
-        "context_refs": dict(getattr(work_order, "context_refs", {}) or {}),
-        "artifact_space_ref": str(getattr(work_order, "artifact_space_ref", "") or ""),
-        "memory_space_ref": str(getattr(work_order, "memory_space_ref", "") or ""),
-        "file_access_table_refs": list(getattr(work_order, "file_access_table_refs", ()) or ()),
-        "artifact_repository_targets": [
-            dict(item)
-            for item in list(getattr(work_order, "artifact_repository_targets", ()) or ())
-            if isinstance(item, dict)
-        ],
-        "memory_repository_targets": [
-            dict(item)
-            for item in list(getattr(work_order, "memory_repository_targets", ()) or ())
-            if isinstance(item, dict)
-        ],
+def _graph_slot_task_environment_id(graph_slot: dict[str, Any]) -> str:
+    output_contract = dict(graph_slot.get("output_contract") or {})
+    environment_projection = dict(output_contract.get("environment_projection") or {})
+    return str(
+        environment_projection.get("task_environment_id")
+        or environment_projection.get("target_environment_id")
+        or environment_projection.get("environment_id")
+        or ""
+    ).strip()
+
+
+def _graph_node_runtime_mode_from_node_contract(node_contract: dict[str, Any]) -> str:
+    mode = str(node_contract.get("runtime_mode") or "").strip().lower()
+    return mode if mode in {"role", "standard", "professional", "custom"} else "professional"
+
+
+def _graph_node_runtime_profile(
+    *,
+    node_contract: dict[str, Any],
+    runtime_mode: str,
+    task_environment_id: str = "",
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "mode": runtime_mode,
+        "runtime_mode": runtime_mode,
+        "runtime_mode_policy": {"source": "graph_slot.node_contract"},
     }
-
-
-def _model_visible_input_package(input_package: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "package_id": str(input_package.get("package_id") or ""),
-        "authority": str(input_package.get("authority") or "harness.graph_node_input_package"),
-        "node_identity": dict(input_package.get("node_identity") or {}),
-        "prompt_contract": dict(input_package.get("prompt_contract") or input_package.get("prompt") or {}),
-        "task_environment_id": str(input_package.get("task_environment_id") or ""),
-        "runtime_scope": dict(input_package.get("runtime_scope") or {}),
-        "runtime_profile": _compact_runtime_profile(dict(input_package.get("runtime_profile") or {})),
-        "agent_instruction": str(input_package.get("agent_instruction") or ""),
-        "input_contract": dict(input_package.get("input_contract") or {}),
-        "output_contract": dict(input_package.get("output_contract") or {}),
-        "initial_inputs": dict(input_package.get("initial_inputs") or {}),
-        "loop_context": dict(input_package.get("loop_context") or {}),
-        "inbound_context": [dict(item) for item in list(input_package.get("inbound_context") or []) if isinstance(item, dict)],
-        "memory_view": dict(input_package.get("memory_view") or {}),
-        "artifact_view": dict(input_package.get("artifact_view") or {}),
-        "file_view": dict(input_package.get("file_view") or {}),
-        "issue_view": dict(input_package.get("issue_view") or {}),
-        "environment_refs": dict(input_package.get("environment_refs") or {}),
-        "artifact_space_ref": str(input_package.get("artifact_space_ref") or ""),
-        "memory_space_ref": str(input_package.get("memory_space_ref") or ""),
-        "file_access_table_refs": [str(item) for item in list(input_package.get("file_access_table_refs") or []) if str(item)],
-        "artifact_repository_targets": [
-            dict(item) for item in list(input_package.get("artifact_repository_targets") or []) if isinstance(item, dict)
-        ],
-        "memory_repository_targets": [
-            dict(item) for item in list(input_package.get("memory_repository_targets") or []) if isinstance(item, dict)
-        ],
-        "permission_summary": dict(input_package.get("permission_summary") or {}),
-        "tool_capability_table": dict(input_package.get("tool_capability_table") or {}),
-        "expected_result_contract": dict(input_package.get("expected_result_contract") or {}),
-    }
-
-
-def _compact_runtime_profile(profile: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "mode": str(profile.get("mode") or ""),
-        "runtime_mode": str(profile.get("runtime_mode") or profile.get("mode") or ""),
-        "task_environment_id": str(profile.get("task_environment_id") or ""),
-        "runtime_mode_policy": dict(profile.get("runtime_mode_policy") or profile.get("mode_policy") or {}),
-    }
+    if task_environment_id:
+        payload["task_environment_id"] = task_environment_id
+    for key, value in {
+        "model_requirement": node_contract.get("model_requirement"),
+        "reasoning_policy": node_contract.get("reasoning_policy"),
+        "tool_contract": node_contract.get("tool_contract"),
+        "skill_contract": node_contract.get("skill_contract"),
+        "permission_contract": node_contract.get("permission_contract"),
+    }.items():
+        if value:
+            payload[key] = dict(value) if isinstance(value, dict) else value
+    return payload
 
 
 def _graph_node_task_selection(graph_config: Any, work_order: Any) -> dict[str, Any]:
     mode = _graph_node_runtime_mode(graph_config, work_order)
-    input_package = dict(getattr(work_order, "input_package", {}) or {})
     graph_slot = dict(getattr(work_order, "graph_slot", {}) or {})
     node_contract = dict(graph_slot.get("node_contract") or {})
-    package_profile = dict(input_package.get("runtime_profile") or {})
     task_environment_id = str(
         getattr(graph_config, "task_environment_id", "")
-        or input_package.get("task_environment_id")
-        or dict(input_package.get("task_environment") or {}).get("environment_id")
+        or _graph_slot_task_environment_id(graph_slot)
         or ""
     )
     runtime_profile = {
-        **package_profile,
         "mode": mode,
         "runtime_mode": mode,
         "task_environment_id": task_environment_id,
         "model_requirement": dict(node_contract.get("model_requirement") or {}),
         "reasoning_policy": dict(node_contract.get("reasoning_policy") or {}),
-        "tool_policy": dict(getattr(work_order, "tool_scope", {}) or getattr(graph_config, "tools", {}) or {}),
-        "permission_policy": dict(getattr(work_order, "permission_scope", {}) or getattr(graph_config, "permissions", {}) or {}),
+        "tool_policy": dict(getattr(work_order, "tool_scope", {}) or node_contract.get("tool_contract") or getattr(graph_config, "tools", {}) or {}),
+        "permission_policy": dict(getattr(work_order, "permission_scope", {}) or node_contract.get("permission_contract") or getattr(graph_config, "permissions", {}) or {}),
         "runtime_mode_policy": {
-            **dict(package_profile.get("runtime_mode_policy") or package_profile.get("mode_policy") or {}),
-            "source": "graph_node_work_order",
+            "source": "graph_slot.node_contract",
             "graph_run_id": work_order.graph_run_id,
             "node_id": work_order.node_id,
         },
@@ -1103,22 +1060,16 @@ def _graph_node_task_selection(graph_config: Any, work_order: Any) -> dict[str, 
         "task_environment_id": task_environment_id,
         "runtime_mode": mode,
         "runtime_profile": runtime_profile,
-        "prompt_contract": dict(node_contract.get("prompt_contract") or input_package.get("prompt_contract") or input_package.get("prompt") or {}),
+        "prompt_contract": dict(node_contract.get("prompt_contract") or {}),
         "allowed_operations": list(dict(getattr(work_order, "tool_scope", {}) or {}).get("allowed_operations") or []),
     }
 
 
 def _graph_node_runtime_mode(graph_config: Any, work_order: Any) -> str:
-    input_package = dict(getattr(work_order, "input_package", {}) or {})
     graph_slot = dict(getattr(work_order, "graph_slot", {}) or {})
     node_contract = dict(graph_slot.get("node_contract") or {})
-    prompt = dict(input_package.get("prompt") or {})
     candidates = [
         node_contract.get("runtime_mode"),
-        dict(getattr(work_order, "dispatch_context", {}) or {}).get("runtime_mode"),
-        dict(input_package.get("runtime_profile") or {}).get("mode"),
-        dict(input_package.get("metadata") or {}).get("runtime_mode"),
-        prompt.get("runtime_mode"),
         dict(getattr(graph_config, "agents", {}) or {}).get("runtime_mode"),
     ]
     for value in candidates:
@@ -1155,11 +1106,9 @@ def _graph_node_origin(work_order: Any) -> dict[str, str]:
 
 def _graph_node_runtime_scope(work_order: Any) -> dict[str, Any]:
     graph_state = dict(getattr(work_order, "graph_state", {}) or {})
-    input_package = dict(getattr(work_order, "input_package", {}) or {})
     dispatch_context = dict(getattr(work_order, "dispatch_context", {}) or {})
     return {
         **dict(graph_state.get("runtime_scope") or {}),
-        **dict(input_package.get("runtime_scope") or {}),
         **dict(dispatch_context.get("runtime_scope") or {}),
         "graph_run_id": str(getattr(work_order, "graph_run_id", "") or ""),
         "task_run_id": str(getattr(work_order, "task_run_id", "") or ""),

@@ -22,6 +22,7 @@ class AgentDescriptor:
     builtin: bool = False
     editable: bool = True
     default_soul_id: str = ""
+    default_projection_id: str = ""
     created_at: float = 0.0
     updated_at: float = 0.0
     metadata: dict[str, Any] = field(default_factory=dict)
@@ -101,6 +102,7 @@ class AgentDescriptor:
             "enabled",
             "editable",
             "default_soul_id",
+            "default_projection_id",
             "metadata",
         )
 

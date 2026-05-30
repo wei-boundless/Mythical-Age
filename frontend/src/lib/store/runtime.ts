@@ -14,6 +14,7 @@ import {
   getWorkspaceContext,
   getOrchestrationHarnessTaskRunLiveMonitor,
   getOrchestrationHarnessSessionLiveMonitor,
+  getOrchestrationRuntimeOptions,
   pauseOrchestrationHarnessTaskRun,
   getRagMode,
   resumeOrchestrationHarnessTaskRun,
@@ -31,7 +32,6 @@ import {
   switchSoulSystemSeed,
   truncateSessionMessages
 } from "@/lib/api";
-import { buildMainAgentTaskSelection } from "@/lib/mainAgentAssemblyModes";
 import type { GlobalRuntimeMonitor, RuntimeMonitorEventPayload, SessionRuntimeAttachment } from "@/lib/api";
 import {
   ACTIVE_SOUL_PATH,
@@ -44,6 +44,7 @@ import {
 
 import { createIdleSessionActivity, type Store } from "./core";
 import { reduceStreamEvent, startStreamingTurn, type StreamSession } from "./events";
+import { normalizeDefaultRuntimeMode, runtimeModeCatalogFrom } from "../runtimeModeConfig";
 import { isVisibleRuntimeMonitorItem, runtimeWorkProjectionFromMonitorItem, visibleRuntimeMonitorItems } from "../runtimeWorkProjection";
 import type { ChatMode, ChatModelSelection, MainAgentAssemblyMode, Message, RuntimeProgressEntry, SearchPolicySource, StoreActions, StoreState, TaskGraphMonitorBinding, TaskSelectionState, WorkspaceView } from "./types";
 import { toUiMessages } from "./utils";
@@ -273,14 +274,17 @@ export class WorkspaceRuntime {
   }
 
   private async loadWorkspaceMetadata() {
-    const [rag, skills, souls, modelProviderConfig, soulImageAssetConfig, workspaceContext] = await Promise.all([
+    const [rag, skills, souls, modelProviderConfig, soulImageAssetConfig, workspaceContext, runtimeOptions] = await Promise.all([
       getRagMode().catch(() => null),
       listSkills().catch(() => []),
       this.loadSouls().catch(() => ({ options: [], activeSoulKey: null })),
       getModelProviderConfig().catch(() => null),
       getSoulImageAssetConfig().catch(() => null),
-      getWorkspaceContext().catch(() => null)
+      getWorkspaceContext().catch(() => null),
+      getOrchestrationRuntimeOptions().catch(() => null)
     ]);
+    const runtimeModeCatalog = runtimeOptions ? runtimeModeCatalogFrom(runtimeOptions.options?.runtime_modes) : [];
+    const runtimeModeIds = new Set(runtimeModeCatalog.map((mode) => mode.mode));
     this.store.setState((prev) => ({
       ...prev,
       ragMode: Boolean(rag?.enabled),
@@ -295,7 +299,14 @@ export class WorkspaceRuntime {
       soulOptions: souls.options,
       activeSoulKey: souls.activeSoulKey,
       selectedChatMode: this.resolveSelectedChatMode(prev.selectedChatModelId, modelProviderConfig),
-      thinkingEnabled: String(modelProviderConfig?.thinking_mode || "").trim().toLowerCase() === "enabled"
+      thinkingEnabled: String(modelProviderConfig?.thinking_mode || "").trim().toLowerCase() === "enabled",
+      mainAgentRuntimeModes: runtimeModeCatalog.length ? runtimeModeCatalog : prev.mainAgentRuntimeModes,
+      mainAgentDefaultRuntimeMode: runtimeModeCatalog.length
+        ? normalizeDefaultRuntimeMode(runtimeOptions?.options?.default_runtime_mode, runtimeModeCatalog.map((mode) => mode.mode))
+        : prev.mainAgentDefaultRuntimeMode,
+      mainAgentAssemblyMode: runtimeModeCatalog.length && !runtimeModeIds.has(prev.mainAgentAssemblyMode)
+        ? normalizeDefaultRuntimeMode(runtimeOptions?.options?.default_runtime_mode, runtimeModeCatalog.map((mode) => mode.mode))
+        : prev.mainAgentAssemblyMode
     }));
   }
 

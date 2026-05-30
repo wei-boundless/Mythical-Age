@@ -12,7 +12,6 @@ import {
 } from "@/components/workspace/views/orchestration/OrchestrationWorkbenchUi";
 import type { OrchestrationCapabilityItem } from "@/lib/api";
 import {
-  BUILTIN_RUNTIME_MODES,
   normalizeDefaultRuntimeMode,
   normalizeRuntimeModes,
   runtimeModeCatalogFrom,

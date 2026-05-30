@@ -1,6 +1,3 @@
-export const BUILTIN_RUNTIME_MODE_IDS = ["role", "standard", "professional", "custom"] as const;
-export type BuiltinRuntimeModeId = (typeof BUILTIN_RUNTIME_MODE_IDS)[number];
-
 export type RuntimeModeConfig = {
   mode: string;
   label: string;
@@ -12,46 +9,15 @@ export type RuntimeModeConfig = {
   description?: string;
 };
 
-const BUILTIN_MODE_SET = new Set<string>(BUILTIN_RUNTIME_MODE_IDS);
-
-export const BUILTIN_RUNTIME_MODES: RuntimeModeConfig[] = [
-  {
-    mode: "role",
-    label: "角色模式",
-    interaction_mode: "role_mode",
-    recipe_id: "runtime.recipe.role_interaction",
-    projection_strength: "primary",
-    builtin: true,
-    editable: false,
-  },
-  {
-    mode: "standard",
-    label: "标准模式",
-    interaction_mode: "standard_mode",
-    recipe_id: "runtime.recipe.standard_task",
-    projection_strength: "companion",
-    builtin: true,
-    editable: false,
-  },
-  {
-    mode: "professional",
-    label: "专家模式",
-    interaction_mode: "professional_mode",
-    recipe_id: "runtime.recipe.professional_task",
-    projection_strength: "style_only",
-    builtin: true,
-    editable: false,
-  },
-  {
-    mode: "custom",
-    label: "自定义模式",
-    interaction_mode: "custom_mode",
-    recipe_id: "runtime.recipe.custom",
-    projection_strength: "manual",
-    builtin: true,
-    editable: true,
-  },
-];
+export const FALLBACK_RUNTIME_MODE: RuntimeModeConfig = {
+  mode: "custom",
+  label: "自定义模式",
+  interaction_mode: "custom_mode",
+  recipe_id: "runtime.recipe.custom",
+  projection_strength: "manual",
+  builtin: true,
+  editable: true,
+};
 
 export function dedupeRuntimeValues(values: unknown): string[] {
   const rawValues = typeof values === "string" ? [values] : Array.isArray(values) ? values : [];
@@ -60,14 +26,12 @@ export function dedupeRuntimeValues(values: unknown): string[] {
 
 export function runtimeModeCatalogFrom(rawCatalog: unknown): RuntimeModeConfig[] {
   const byId = new Map<string, RuntimeModeConfig>();
-  for (const mode of BUILTIN_RUNTIME_MODES) {
-    byId.set(mode.mode, { ...mode });
-  }
   for (const item of arrayOfRecords(rawCatalog)) {
     const mode = normalizeModeRecord(item);
-    if (BUILTIN_MODE_SET.has(mode.mode)) byId.set(mode.mode, { ...(byId.get(mode.mode) ?? {}), ...mode });
+    if (mode.mode) byId.set(mode.mode, { ...(byId.get(mode.mode) ?? {}), ...mode });
   }
-  return Array.from(byId.values());
+  const modes = Array.from(byId.values());
+  return modes.length ? modes : [{ ...FALLBACK_RUNTIME_MODE }];
 }
 
 export function normalizeRuntimeModes(values: unknown, catalog: RuntimeModeConfig[], fallback = "custom"): string[] {
@@ -95,8 +59,8 @@ function normalizeModeRecord(record: Record<string, unknown>): RuntimeModeConfig
     interaction_mode: String(record.interaction_mode || "").trim() || undefined,
     recipe_id: String(record.recipe_id || "").trim() || undefined,
     projection_strength: String(record.projection_strength || "").trim() || undefined,
-    builtin: Boolean(record.builtin ?? BUILTIN_MODE_SET.has(mode)),
-    editable: Boolean(record.editable ?? (!BUILTIN_MODE_SET.has(mode) || mode === "custom")),
+    builtin: Boolean(record.builtin ?? false),
+    editable: Boolean(record.editable ?? mode === "custom"),
     description: String(record.description || "").trim() || undefined,
   };
 }

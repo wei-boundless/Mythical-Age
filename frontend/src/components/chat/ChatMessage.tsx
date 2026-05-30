@@ -2,7 +2,6 @@
 
 import { Check, Pencil, X } from "lucide-react";
 import { useState } from "react";
-import Image from "next/image";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -47,6 +46,8 @@ export function ChatMessage({
   const assistantMark = assistantName.slice(0, 1) || "灵";
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(content);
+  const [failedImageSrc, setFailedImageSrc] = useState("");
+  const imageUnavailable = Boolean(image?.src && failedImageSrc === image.src);
 
   return (
     <article
@@ -122,17 +123,23 @@ export function ChatMessage({
           </div>
         ) : isUser ? (
           content
-        ) : image?.src ? (
+        ) : image?.src && !imageUnavailable ? (
           <figure className="chat-image-message">
-            <Image
+            {/* Generated local assets are final files served from public/. */}
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
               alt={image.alt || "生成图像"}
-              height={1024}
+              loading="lazy"
+              onError={() => setFailedImageSrc(image.src)}
               src={image.src}
-              unoptimized
-              width={1024}
             />
             {image.caption ? <figcaption>{image.caption}</figcaption> : null}
           </figure>
+        ) : imageUnavailable ? (
+          <div className="chat-image-message chat-image-message--missing">
+            <p>图像文件不可用。</p>
+            <span>{image?.src}</span>
+          </div>
         ) : (
           <ReactMarkdown remarkPlugins={[remarkGfm]}>
             {content || (runtimeProgress.length ? "" : "正在思考...")}

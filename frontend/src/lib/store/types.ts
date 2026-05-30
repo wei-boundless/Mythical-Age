@@ -144,7 +144,18 @@ export type ChatModelSelection = {
 
 export type ChatMode = "chat" | "image";
 
-export type MainAgentAssemblyMode = "role" | "standard" | "professional";
+export type MainAgentAssemblyMode = string;
+
+export type MainAgentRuntimeModeOption = {
+  mode: string;
+  label: string;
+  interaction_mode?: string;
+  recipe_id?: string;
+  projection_strength?: string;
+  description?: string;
+  builtin?: boolean;
+  editable?: boolean;
+};
 
 export type MemoryInspectorTarget = {
   source: "manual";
@@ -227,6 +238,8 @@ export type StoreState = {
   selectedChatMode: ChatMode;
   thinkingEnabled: boolean;
   mainAgentAssemblyMode: MainAgentAssemblyMode;
+  mainAgentRuntimeModes: MainAgentRuntimeModeOption[];
+  mainAgentDefaultRuntimeMode: MainAgentAssemblyMode;
   skills: SkillSummary[];
   soulOptions: SoulSummary[];
   activeSoulKey: SoulKey | null;

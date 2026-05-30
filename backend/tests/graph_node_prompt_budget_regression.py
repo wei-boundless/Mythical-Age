@@ -109,6 +109,11 @@ def test_graph_node_task_packet_does_not_embed_full_graph_policy() -> None:
     assert "graph_identity" not in all_message_content
     assert "state_refs" not in all_message_content
     assert "runtime_controls" not in all_message_content
+    assert "input_package" not in all_message_content
     assert "gchk:hidden" not in all_message_content
     assert "gwork:test:target_node:1" not in all_message_content
     assert "grun:test" not in all_message_content
+    task_contract = stable_payload["task_contract"]
+    assert "resource_requirements" not in task_contract
+    assert "prompt_contract" not in task_contract
+    assert task_contract["graph_slot"]["node_contract"]["prompt_contract"]["role_prompt"] == "你是一名测试执行员。"

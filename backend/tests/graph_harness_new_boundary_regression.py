@@ -43,5 +43,6 @@ def test_graph_loop_does_not_materialize_agent_input_package_inline() -> None:
     assert "harness.graph_node_input_package" not in loop_text
     assert "harness.graph_edge_handoff_packet" not in loop_text
     assert "agent_instruction" not in loop_text
-    assert "harness.graph_node_input_package" in materializer_text
+    assert "harness.graph_node_input_package" not in materializer_text
+    assert "harness.graph.node_materialization_package" in materializer_text
     assert "harness.graph.context_materializer" in materializer_text

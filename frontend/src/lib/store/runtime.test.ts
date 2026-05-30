@@ -12,6 +12,7 @@ const api = vi.hoisted(() => ({
   getModelProviderConfig: vi.fn(),
   getOrchestrationHarnessTaskRunLiveMonitor: vi.fn(),
   getOrchestrationHarnessSessionLiveMonitor: vi.fn(),
+  getOrchestrationRuntimeOptions: vi.fn(),
   pauseOrchestrationHarnessTaskRun: vi.fn(),
   getRagMode: vi.fn(),
   resumeOrchestrationHarnessTaskRun: vi.fn(),
@@ -43,6 +44,7 @@ vi.mock("@/lib/api", () => ({
   getGraphRunMonitor: api.getGraphRunMonitor,
   getOrchestrationHarnessTaskRunLiveMonitor: api.getOrchestrationHarnessTaskRunLiveMonitor,
   getOrchestrationHarnessSessionLiveMonitor: api.getOrchestrationHarnessSessionLiveMonitor,
+  getOrchestrationRuntimeOptions: api.getOrchestrationRuntimeOptions,
   pauseOrchestrationHarnessTaskRun: api.pauseOrchestrationHarnessTaskRun,
   getRagMode: api.getRagMode,
   resumeOrchestrationHarnessTaskRun: api.resumeOrchestrationHarnessTaskRun,
@@ -61,10 +63,6 @@ vi.mock("@/lib/api", () => ({
   streamChat: api.streamChat,
   switchSoulSystemSeed: vi.fn(),
   truncateSessionMessages: vi.fn(),
-}));
-
-vi.mock("@/lib/mainAgentAssemblyModes", () => ({
-  buildMainAgentTaskSelection: vi.fn((selection) => selection),
 }));
 
 vi.mock("@/lib/souls", () => ({
@@ -205,6 +203,19 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     api.getSoulImageAssetConfig.mockResolvedValue(null);
     api.getWorkspaceContext.mockReset();
     api.getWorkspaceContext.mockResolvedValue(null);
+    api.getOrchestrationRuntimeOptions.mockReset();
+    api.getOrchestrationRuntimeOptions.mockResolvedValue({
+      authority: "orchestration.runtime_options",
+      options: {
+        runtime_modes: [
+          { mode: "role", label: "角色模式" },
+          { mode: "standard", label: "标准模式" },
+          { mode: "professional", label: "专家模式" },
+          { mode: "custom", label: "自定义模式" },
+        ],
+        default_runtime_mode: "role",
+      },
+    });
     api.listSessions.mockReset();
     api.listSessions.mockResolvedValue([]);
     api.listSkills.mockReset();

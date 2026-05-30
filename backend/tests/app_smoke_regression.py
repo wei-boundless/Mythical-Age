@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import sys
 from pathlib import Path
 
@@ -34,13 +35,23 @@ async def _fake_missing_terminal_astream(_request):
 
 async def _fake_image_generate(self, **kwargs):
     target_id = str(kwargs.get("target_id") or "chat-turn").replace(":", "-")
+    filename = f"chat-{target_id}.png"
+    output_path = self.public_dir / filename
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_bytes(base64.b64decode(_ONE_PIXEL_PNG_BASE64))
     return {
-        "asset_path": f"/souls/generated/chat-{target_id}.png",
-        "file_path": f"D:/tmp/chat-{target_id}.png",
+        "asset_path": f"/souls/generated/{filename}",
+        "file_path": str(output_path),
         "reused": False,
-        "bytes": 1234,
+        "bytes": output_path.stat().st_size,
         "revised_prompt": "revised prompt",
     }
+
+
+_ONE_PIXEL_PNG_BASE64 = (
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAFgwJ/"
+    "l6S9WQAAAABJRU5ErkJggg=="
+)
 
 
 def test_chat_accepts_per_turn_model_selection() -> None:
@@ -90,6 +101,8 @@ def test_chat_routes_gpt_image_2_to_image_generation() -> None:
 
         original_generate = SoulImageAssetService.generate
         SoulImageAssetService.generate = _fake_image_generate  # type: ignore[method-assign]
+        session_id = ""
+        generated_path: Path | None = None
         try:
             created = client.post("/api/sessions", json={"title": "Image generation"})
             assert created.status_code == 200
@@ -118,8 +131,10 @@ def test_chat_routes_gpt_image_2_to_image_generation() -> None:
             assert response.status_code == 200
             assert response.json()["content"] == "已生成图像。"
             image = response.json()["image"]
+            generated_path = BACKEND_DIR.parent / "frontend" / "public" / Path(*image["src"].strip("/").split("/"))
             assert image["src"].startswith(f"/souls/generated/chat-turn-{session_id}-")
             assert image["src"].endswith(".png")
+            assert generated_path.exists()
             assert response.json()["image"] == {
                 "src": image["src"],
                 "alt": "a blue glass mountain at sunset",
@@ -134,6 +149,10 @@ def test_chat_routes_gpt_image_2_to_image_generation() -> None:
             }
         finally:
             SoulImageAssetService.generate = original_generate  # type: ignore[method-assign]
+            if generated_path is not None and generated_path.exists():
+                generated_path.unlink()
+            if session_id:
+                client.delete(f"/api/sessions/{session_id}")
 
 
 def test_api_smoke_flow() -> None:

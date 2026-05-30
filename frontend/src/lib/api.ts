@@ -1271,6 +1271,7 @@ export type OrchestrationAgentRuntimeCatalog = {
     operations: OperationDescriptor[];
     task_graphs: string[];
     runtime_modes?: Array<Record<string, unknown>>;
+    default_runtime_mode?: string;
     memory_scopes: string[];
     context_sections: string[];
     approval_policies: string[];

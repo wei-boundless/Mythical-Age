@@ -773,9 +773,9 @@ runtime compiler 可以渲染 graph_slot 的模型可见部分，但不得把 gr
 迁移规则：
 
 ```text
-GraphNodeWorkOrder.input_package 只能作为模型可见投影的临时承载。
-完成迁移后，input_package 不再拥有契约权威。
-TaskRunContract.resource_requirements.input_package 不得继续承载图节点契约权威。
+GraphNodeWorkOrder.input_package 只能作为 materializer 内部装配数据。
+完成迁移后，模型可见投影必须来自 graph_slot。
+TaskRunContract.resource_requirements.input_package 不得继续承载或投影图节点契约。
 缺少 graph_slot 的图节点 work order 必须 fail closed。
 ```
 
@@ -1724,7 +1724,7 @@ fatal_failed
 - 图状态只有一个权威结构。
 - `GraphNodeWorkOrder`、`TaskRunContract`、`RuntimeEnvelope` 均有明确 graph_slot 承载点。
 - `waiting_human_gate`、`waiting_executor_resume` 有独立状态或明确诊断，不再复用泛化 `blocked`。
-- `resource_requirements.input_package` 不再拥有图契约权威，只能作为迁移期模型可见投影。
+- `resource_requirements.input_package` 不再拥有图契约权威，也不再作为图节点模型可见投影。
 - 节点输出政策有一等结构，不再由 GraphNodeExecutor 猜 final answer。
 - 旧链路不再被 runtime 消费。
 - 节点、边、记忆、循环模板和 resolved contract 命名清晰。

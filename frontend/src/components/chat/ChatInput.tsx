@@ -4,14 +4,7 @@ import { ArrowUp, BrainCircuit, Lightbulb, Square } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import type { ModelProviderConfig, SoulImageAssetConfig } from "@/lib/api";
-import type { MainAgentAssemblyMode } from "@/lib/store/types";
-
-const MAIN_AGENT_MODE_ORDER: MainAgentAssemblyMode[] = ["role", "standard", "professional"];
-const MAIN_AGENT_MODE_LABELS: Record<MainAgentAssemblyMode, string> = {
-  role: "角色模式",
-  standard: "标准模式",
-  professional: "专家模式",
-};
+import type { MainAgentAssemblyMode, MainAgentRuntimeModeOption } from "@/lib/store/types";
 
 export function ChatInput({
   disabled,
@@ -25,6 +18,7 @@ export function ChatInput({
   onToggleThinking,
   thinkingEnabled,
   mainAgentAssemblyMode,
+  mainAgentRuntimeModes,
   selectedChatModelId,
 }: {
   disabled: boolean;
@@ -38,11 +32,16 @@ export function ChatInput({
   onToggleThinking: (enabled: boolean) => void;
   thinkingEnabled: boolean;
   mainAgentAssemblyMode: MainAgentAssemblyMode;
+  mainAgentRuntimeModes: MainAgentRuntimeModeOption[];
   selectedChatModelId: string;
 }) {
   const [value, setValue] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const modelOptions = useMemo(() => buildChatModelOptions(modelProviderConfig, soulImageAssetConfig), [modelProviderConfig, soulImageAssetConfig]);
+  const runtimeModeOptions = useMemo(
+    () => buildMainAgentRuntimeModeOptions(mainAgentRuntimeModes, mainAgentAssemblyMode),
+    [mainAgentRuntimeModes, mainAgentAssemblyMode],
+  );
   const inputDisabled = disabled || submitting;
   const activeModelId = modelOptions.some((option) => option.id === selectedChatModelId)
     ? selectedChatModelId
@@ -123,13 +122,13 @@ export function ChatInput({
             <label className="chat-mode-select">
               <select
                 aria-label="选择主 Agent 模式"
-                disabled={inputDisabled}
+                disabled={inputDisabled || runtimeModeOptions.length <= 1}
                 onChange={(event) => onSelectMainAgentAssemblyMode(event.target.value as MainAgentAssemblyMode)}
                 value={mainAgentAssemblyMode}
               >
-                {MAIN_AGENT_MODE_ORDER.map((mode) => (
-                  <option key={mode} value={mode}>
-                    {MAIN_AGENT_MODE_LABELS[mode]}
+                {runtimeModeOptions.map((mode) => (
+                  <option key={mode.mode} value={mode.mode}>
+                    {mode.label || mode.mode}
                   </option>
                 ))}
               </select>
@@ -210,6 +209,26 @@ function resolveActiveChatModel(selectionId: string, config: ModelProviderConfig
   const normalizedProvider = provider.trim().toLowerCase();
   const model = modelParts.join("::").trim();
   return normalizedProvider && model ? { provider: normalizedProvider, model } : null;
+}
+
+function buildMainAgentRuntimeModeOptions(
+  modes: MainAgentRuntimeModeOption[],
+  selectedMode: MainAgentAssemblyMode,
+) {
+  const normalized = modes
+    .map((mode) => ({
+      ...mode,
+      mode: String(mode.mode || "").trim(),
+      label: String(mode.label || mode.mode || "").trim(),
+    }))
+    .filter((mode) => mode.mode);
+  if (normalized.some((mode) => mode.mode === selectedMode)) {
+    return normalized;
+  }
+  const selected = String(selectedMode || "").trim();
+  return selected
+    ? [{ mode: selected, label: selected }, ...normalized]
+    : normalized;
 }
 
 function supportsHiddenReasoning(provider: string, model: string, config: ModelProviderConfig | null) {

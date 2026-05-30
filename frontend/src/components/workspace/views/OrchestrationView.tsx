@@ -56,6 +56,7 @@ import {
 } from "@/lib/runtimeModeConfig";
 
 type AgentCategory = "main_agent" | "builtin_agent" | "custom_agent";
+type AgentDirectorySection = "main_agent" | "builtin_system_agent" | "builtin_specialist_agent" | "custom_agent";
 type OrchestrationLayer = "identity" | "groups" | "runtime_permissions" | "runtime_config" | "model_runtime" | "context_memory" | "collaboration" | "overview" | "diagnostics";
 type AssemblySelectionKind = "agent" | "group" | "empty";
 
@@ -69,12 +70,37 @@ type AgentGroupDraft = OrchestrationAgentGroup & {
 };
 
 const CATEGORY_ORDER: AgentCategory[] = ["main_agent", "builtin_agent", "custom_agent"];
+const DIRECTORY_SECTION_ORDER: AgentDirectorySection[] = [
+  "main_agent",
+  "builtin_system_agent",
+  "builtin_specialist_agent",
+  "custom_agent",
+];
 const DEFAULT_SUB_AGENT_GROUP_ID = "__default_sub_agent_group__";
+
+const EMPTY_PROJECTION_CATALOG: SoulProjectionCatalog = {
+  selected_projection_id: "",
+  cards: [],
+};
 
 const CATEGORY_LABELS: Record<AgentCategory, string> = {
   main_agent: "主 Agent",
   builtin_agent: "内置 Agent",
   custom_agent: "子 Agent",
+};
+
+const DIRECTORY_SECTION_LABELS: Record<AgentDirectorySection, string> = {
+  main_agent: "主 Agent",
+  builtin_system_agent: "系统 Agent",
+  builtin_specialist_agent: "专业内置 Agent",
+  custom_agent: "子 Agent",
+};
+
+const DIRECTORY_SECTION_DESCRIPTIONS: Record<AgentDirectorySection, string> = {
+  main_agent: "主会话入口与最终整合输出",
+  builtin_system_agent: "系统管理与平台治理 Agent",
+  builtin_specialist_agent: "知识、PDF、表格、网页等专业 Agent",
+  custom_agent: "可分组、可委派的任务执行 Agent",
 };
 
 const EMPTY_AGENT_DRAFT: AgentDraft = {
@@ -108,6 +134,7 @@ const EMPTY_RUNTIME_DRAFT: RuntimeDraft = {
   trace_policy: "runtime_event_log",
   lifecycle_policy: "orchestration_managed",
   model_profile: {},
+  runtime_mode_catalog: [],
   metadata: { managed_by: "orchestration_console" },
 };
 
@@ -231,6 +258,23 @@ function agentCategory(agent: Record<string, unknown> | null | undefined): Agent
   return CATEGORY_ORDER.includes(value as AgentCategory) ? (value as AgentCategory) : "custom_agent";
 }
 
+function recordOf(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+function agentDirectorySection(agent: Record<string, unknown> | null | undefined): AgentDirectorySection {
+  const category = agentCategory(agent);
+  if (category !== "builtin_agent") {
+    return category;
+  }
+  const metadata = recordOf(agent?.metadata);
+  const builtinKind = String(agent?.builtin_kind || metadata.builtin_kind || "").trim();
+  const role = String(metadata.role || "").trim();
+  return builtinKind === "specialist" || role === "worker_specialist"
+    ? "builtin_specialist_agent"
+    : "builtin_system_agent";
+}
+
 function isGroupEligibleAgent(agent: Record<string, unknown> | null | undefined) {
   return Boolean(agent?.group_eligible) || agentCategory(agent) === "custom_agent";
 }
@@ -297,17 +341,26 @@ function agentDraftFrom(agent?: Record<string, unknown> | null): AgentDraft {
   };
 }
 
-function runtimeDraftFrom(agentId: string, profile?: Partial<OrchestrationAgentRuntimeProfile>): RuntimeDraft {
+function runtimeDraftFrom(
+  agentId: string,
+  profile?: Partial<OrchestrationAgentRuntimeProfile>,
+  fallbackRuntimeModeCatalog: Array<Record<string, unknown>> = [],
+): RuntimeDraft {
   const merged = { ...EMPTY_RUNTIME_DRAFT, ...(profile ?? {}), agent_id: agentId };
   const profileId = String(merged.agent_profile_id || `${agentId.replace(/[:]/g, "_")}_runtime`);
   const allowedOps = uniqueList(merged.allowed_operations).length ? uniqueList(merged.allowed_operations) : ["op.model_response"];
-  const enabledModes = normalizeRuntimeModes((merged as Record<string, unknown>).enabled_runtime_modes, runtimeModeCatalogFrom(merged.runtime_mode_catalog), "custom");
+  const rawModeCatalog = Array.isArray(merged.runtime_mode_catalog) && merged.runtime_mode_catalog.length
+    ? merged.runtime_mode_catalog
+    : fallbackRuntimeModeCatalog;
+  const modeCatalog = runtimeModeCatalogFrom(rawModeCatalog);
+  const enabledModes = normalizeRuntimeModes((merged as Record<string, unknown>).enabled_runtime_modes, modeCatalog, "custom");
   const defaultMode = normalizeDefaultRuntimeMode((merged as Record<string, unknown>).default_runtime_mode, enabledModes);
   return {
     ...merged,
     agent_profile_id: profileId,
     enabled_runtime_modes: enabledModes,
     default_runtime_mode: defaultMode,
+    runtime_mode_catalog: modeCatalog,
     allowed_operations: allowedOps,
     blocked_operations: uniqueList(merged.blocked_operations),
     allowed_memory_scopes: uniqueList(merged.allowed_memory_scopes),
@@ -399,7 +452,7 @@ export function OrchestrationView() {
   const [soulCatalog, setSoulCatalog] = useState<SoulSystemCatalog | null>(null);
   const [selectedAgentId, setSelectedAgentId] = useState("");
   const [selectedGroupId, setSelectedGroupId] = useState("");
-  const [activeCategory, setActiveCategory] = useState<AgentCategory>("custom_agent");
+  const [activeSection, setActiveSection] = useState<AgentDirectorySection>("custom_agent");
   const [activeLayer, setActiveLayer] = useState<OrchestrationLayer>("groups");
   const [query, setQuery] = useState("");
   const [agentMode, setAgentMode] = useState<"existing" | "new">("existing");
@@ -419,7 +472,7 @@ export function OrchestrationView() {
       const [payload, runtimeOptions, projections, souls] = await Promise.all([
         getOrchestrationAgents(),
         getOrchestrationRuntimeOptions(),
-        getSoulProjectionCards(),
+        getSoulProjectionCards().catch(() => EMPTY_PROJECTION_CATALOG),
         getSoulSystemCatalog(),
       ]);
       const mergedPayload = mergeOrchestrationOptions(payload, runtimeOptions.options);
@@ -494,7 +547,7 @@ export function OrchestrationView() {
               : requestedLayer === "eligibility"
                 ? "diagnostics"
                 : requestedLayer;
-    const validLayers: OrchestrationLayer[] = ["identity", "groups", "runtime_permissions", "model_runtime", "context_memory", "collaboration", "overview", "diagnostics"];
+    const validLayers: OrchestrationLayer[] = ["identity", "groups", "runtime_permissions", "runtime_config", "model_runtime", "context_memory", "collaboration", "overview", "diagnostics"];
     if (focusLayer && validLayers.includes(focusLayer)) {
       setActiveLayer(focusLayer);
     }
@@ -507,7 +560,7 @@ export function OrchestrationView() {
         setSelectedGroupId("");
         setAgentMode("existing");
         setGroupMode("existing");
-        setActiveCategory(category);
+        setActiveSection(agentDirectorySection(focusedAgent));
         if (category === "custom_agent") {
           const group = agentGroups.find((item) => item.member_agent_ids.some((memberId) => String(memberId) === focusAgentId));
           setSelectedGroupId(group?.group_id || DEFAULT_SUB_AGENT_GROUP_ID);
@@ -521,8 +574,8 @@ export function OrchestrationView() {
 
   const selectedAgent = agents.find((agent) => String(agent.agent_id) === selectedAgentId) ?? null;
   const selectedGroup = agentGroups.find((group) => group.group_id === selectedGroupId) ?? null;
-  const selectedDefaultSubAgentGroup = activeCategory === "custom_agent" && selectedGroupId === DEFAULT_SUB_AGENT_GROUP_ID;
-  const selectionKind: AssemblySelectionKind = activeCategory === "custom_agent" && activeLayer === "groups" && !selectedDefaultSubAgentGroup
+  const selectedDefaultSubAgentGroup = activeSection === "custom_agent" && selectedGroupId === DEFAULT_SUB_AGENT_GROUP_ID;
+  const selectionKind: AssemblySelectionKind = activeSection === "custom_agent" && activeLayer === "groups" && !selectedDefaultSubAgentGroup
     ? "group"
     : selectedAgent || agentMode === "new"
       ? "agent"
@@ -537,8 +590,13 @@ export function OrchestrationView() {
   const contextSectionOptionItems = useMemo(() => catalog?.options.context_section_options ?? [], [catalog]);
   const approvalPolicyOptions = useMemo(() => catalog?.options.approval_policy_options ?? [], [catalog]);
   const tracePolicyOptions = useMemo(() => catalog?.options.trace_policy_options ?? [], [catalog]);
+  const runtimeModeLabels = useMemo(
+    () => new Map(runtimeModeCatalogFrom(catalog?.options.runtime_modes).map((mode) => [mode.mode, mode.label || mode.mode])),
+    [catalog],
+  );
   const runtimeOptionLabels = useMemo(
     () => new Map([
+      ...runtimeModeLabels,
       ...optionLabelMap(operationOptionItems),
       ...optionLabelMap(memoryScopeOptionItems),
       ...optionLabelMap(contextSectionOptionItems),
@@ -550,6 +608,7 @@ export function OrchestrationView() {
       contextSectionOptionItems,
       memoryScopeOptionItems,
       operationOptionItems,
+      runtimeModeLabels,
       tracePolicyOptions,
     ],
   );
@@ -580,12 +639,13 @@ export function OrchestrationView() {
     if (savedIds.size !== groupDraftMemberIds.size) return true;
     return Array.from(groupDraftMemberIds).some((agentId) => !savedIds.has(agentId));
   }, [groupDraftMemberIds, selectedGroup]);
-  const groupedAgents = useMemo(
+  const directoryGroups = useMemo(
     () =>
-      CATEGORY_ORDER.map((category) => ({
-        category,
-        label: CATEGORY_LABELS[category],
-        items: visibleAgents.filter((agent) => agentCategory(agent) === category),
+      DIRECTORY_SECTION_ORDER.map((section) => ({
+        section,
+        label: DIRECTORY_SECTION_LABELS[section],
+        description: DIRECTORY_SECTION_DESCRIPTIONS[section],
+        items: visibleAgents.filter((agent) => agentDirectorySection(agent) === section),
       })),
     [visibleAgents],
   );
@@ -593,10 +653,10 @@ export function OrchestrationView() {
   useEffect(() => {
     if (!selectedAgent) return;
     setAgentDraft(agentDraftFrom(selectedAgent));
-    setRuntimeDraft(runtimeDraftFrom(String(selectedAgent.agent_id), selectedProfile));
+    setRuntimeDraft(runtimeDraftFrom(String(selectedAgent.agent_id), selectedProfile, catalog?.options.runtime_modes ?? []));
     setAgentMode("existing");
-    setActiveCategory(agentCategory(selectedAgent));
-  }, [selectedAgentId, selectedAgent]); // eslint-disable-line react-hooks/exhaustive-deps
+    setActiveSection(agentDirectorySection(selectedAgent));
+  }, [selectedAgentId, selectedAgent, catalog?.options.runtime_modes]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (groupMode === "new") return;
@@ -605,7 +665,7 @@ export function OrchestrationView() {
 
   useEffect(() => {
     if (loading || groupMode === "new") return;
-    if (activeCategory !== "custom_agent") return;
+    if (activeSection !== "custom_agent") return;
     if (selectedGroupId === DEFAULT_SUB_AGENT_GROUP_ID) return;
     if (selectedGroupId && agentGroups.some((group) => group.group_id === selectedGroupId)) return;
     const firstGroupId = agentGroups[0]?.group_id || DEFAULT_SUB_AGENT_GROUP_ID;
@@ -616,7 +676,7 @@ export function OrchestrationView() {
         setActiveLayer("groups");
     }
   }, [
-    activeCategory,
+    activeSection,
     activeLayer,
     agentGroups,
     groupMode,
@@ -625,7 +685,7 @@ export function OrchestrationView() {
     selectedGroupId,
   ]);
 
-  const activeGroup = groupedAgents.find((group) => group.category === activeCategory);
+  const activeDirectoryGroup = directoryGroups.find((group) => group.section === activeSection);
   const agentDeleteBlocked = false;
   const profileMissing = Boolean(selectedAgent && !selectedProfile.agent_profile_id);
   const allowedOps = uniqueList(runtimeDraft.allowed_operations);
@@ -641,8 +701,8 @@ export function OrchestrationView() {
   const modelSummary = modelProfile.provider || modelProfile.model
     ? `${modelProfile.provider || "继承默认"} / ${modelProfile.model || "继承模型"}`
     : "继承系统默认";
-  const categoryCounts = groupedAgents.reduce<Record<string, number>>((acc, group) => {
-    acc[group.category] = group.items.length;
+  const sectionCounts = directoryGroups.reduce<Record<string, number>>((acc, group) => {
+    acc[group.section] = group.items.length;
     return acc;
   }, {});
   const eligibilityChecks = [
@@ -663,9 +723,17 @@ export function OrchestrationView() {
   ];
   const layerTabs: Array<[OrchestrationLayer, string, string]> = selectionKind === "group"
     ? [["groups", "分组", String(splitList(groupDraft.member_agent_ids_text).length)]]
-    : activeCategory === "custom_agent"
+    : activeSection === "custom_agent"
       ? [["groups", "分组", String(agentGroups.length)], ...agentLayerTabs]
       : agentLayerTabs;
+  const assemblyNavGroups = selectionKind === "group"
+    ? [{ title: "Agent 组", items: layerTabs }]
+    : [
+        { title: "对象定义", items: layerTabs.filter(([value]) => value === "groups" || value === "identity" || value === "overview") },
+        { title: "运行边界", items: layerTabs.filter(([value]) => value === "runtime_permissions" || value === "runtime_config" || value === "model_runtime") },
+        { title: "上下文协作", items: layerTabs.filter(([value]) => value === "context_memory" || value === "collaboration") },
+        { title: "核验", items: layerTabs.filter(([value]) => value === "diagnostics") },
+      ].filter((group) => group.items.length);
   const activeLayerTab = layerTabs.find(([value]) => value === activeLayer) ?? layerTabs[0] ?? ["identity", "身份", ""];
   const activeLayerLabel = selectionKind === "group" ? "Agent 组" : activeLayerTab[1];
   const activeLayerHint = selectionKind === "group"
@@ -717,11 +785,11 @@ export function OrchestrationView() {
       };
   const selectionKindLabel = selectionKind === "group" ? "Agent 组" : selectionKind === "agent" ? "Agent" : "待选";
 
-  function selectCategory(category: AgentCategory) {
-    setActiveCategory(category);
-    const first = visibleAgents.find((agent) => agentCategory(agent) === category);
+  function selectCategory(section: AgentDirectorySection) {
+    setActiveSection(section);
+    const first = visibleAgents.find((agent) => agentDirectorySection(agent) === section);
     setAgentMode("existing");
-    if (category === "custom_agent") {
+    if (section === "custom_agent") {
       setActiveLayer("groups");
       setGroupMode("existing");
       const firstGroup = agentGroups[0];
@@ -741,9 +809,10 @@ export function OrchestrationView() {
     setGroupMode("existing");
     if (agentCategory(agent) === "custom_agent") {
       const group = agentGroups.find((item) => item.member_agent_ids.some((memberId) => String(memberId) === agentId));
-      setActiveCategory("custom_agent");
+      setActiveSection("custom_agent");
       setSelectedGroupId(group?.group_id || DEFAULT_SUB_AGENT_GROUP_ID);
     } else {
+      setActiveSection(agentDirectorySection(agent));
       setSelectedGroupId("");
     }
     setActiveLayer("identity");
@@ -780,7 +849,7 @@ export function OrchestrationView() {
     setGroupMode("existing");
     setSelectedAgentId("");
     setSelectedGroupId(DEFAULT_SUB_AGENT_GROUP_ID);
-    setActiveCategory("custom_agent");
+    setActiveSection("custom_agent");
     setActiveLayer("identity");
     setAgentDraft({
       ...EMPTY_AGENT_DRAFT,
@@ -791,6 +860,7 @@ export function OrchestrationView() {
       ...EMPTY_RUNTIME_DRAFT,
       agent_id: draftAgentId,
       agent_profile_id: `${draftAgentId.replace(/[:]/g, "_")}_runtime`,
+      runtime_mode_catalog: catalog?.options.runtime_modes ?? [],
       metadata: { ...EMPTY_RUNTIME_DRAFT.metadata },
     });
     setNotice("已进入新子 Agent 草稿。先保存 Agent 名册，再配置运行档案。");
@@ -874,7 +944,7 @@ export function OrchestrationView() {
   }
 
   function startBlankGroupDraft() {
-    setActiveCategory("custom_agent");
+    setActiveSection("custom_agent");
     setActiveLayer("groups");
     setGroupMode("new");
     setSelectedGroupId("");
@@ -909,8 +979,10 @@ export function OrchestrationView() {
     try {
       const payload = await deleteOrchestrationAgent(String(targetAgent.agent_id));
       const firstCustomAgent = payload.agents.find((agent) => agentCategory(agent) === "custom_agent");
+      const nextAgent = firstCustomAgent ?? payload.agents[0] ?? null;
       setCatalog(payload);
-      setSelectedAgentId(String(firstCustomAgent?.agent_id || payload.agents[0]?.agent_id || ""));
+      setSelectedAgentId(String(nextAgent?.agent_id || ""));
+      setActiveSection(agentDirectorySection(nextAgent));
       setGroupMode("existing");
       setNotice(`${displayName(targetAgent)} 已删除。`);
     } catch (exc) {
@@ -933,7 +1005,7 @@ export function OrchestrationView() {
       setSelectedGroupId(nextGroupId);
       setSelectedAgentId("");
       setGroupMode("existing");
-      setActiveCategory("custom_agent");
+      setActiveSection("custom_agent");
       setActiveLayer("groups");
       setNotice(`${currentGroup?.title || selectedGroupId} 已删除。`);
     } catch (exc) {
@@ -984,11 +1056,11 @@ export function OrchestrationView() {
 
       <section className="boundary-workbench orchestration-workbench orchestration-definition-center">
         <OrchestrationDirectoryRail
-          activeCategory={activeCategory}
-          activeGroupItems={activeGroup?.items ?? []}
+          activeSection={activeSection}
+          activeSectionItems={activeDirectoryGroup?.items ?? []}
           agentGroups={agentGroups}
           agents={agents}
-          categoryCounts={categoryCounts}
+          sectionCounts={sectionCounts}
           loading={loading}
           query={query}
           selectAgent={selectAgent}
@@ -1016,12 +1088,19 @@ export function OrchestrationView() {
         />
 
         <main className="boundary-main orchestration-config-main">
-          <nav className="boundary-layer-tabs orchestration-config-tabs" aria-label="编排配置页面">
-            {layerTabs.map(([value, label, meta]) => (
-              <button className={activeLayer === value ? "boundary-layer-tabs__item boundary-layer-tabs__item--active" : "boundary-layer-tabs__item"} key={value} onClick={() => setActiveLayer(value)} type="button">
-                <span>{label}</span>
-                <small>{meta}</small>
-              </button>
+          <nav className="orchestration-assembly-nav" aria-label="编排配置页面">
+            {assemblyNavGroups.map((group) => (
+              <section className="orchestration-assembly-nav__group" key={group.title}>
+                <span>{group.title}</span>
+                <div>
+                  {group.items.map(([value, label, meta]) => (
+                    <button className={activeLayer === value ? "orchestration-assembly-nav__item orchestration-assembly-nav__item--active" : "orchestration-assembly-nav__item"} key={value} onClick={() => setActiveLayer(value)} type="button">
+                      <strong>{label}</strong>
+                      <small>{meta}</small>
+                    </button>
+                  ))}
+                </div>
+              </section>
             ))}
           </nav>
 

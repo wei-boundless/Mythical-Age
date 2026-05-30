@@ -23,6 +23,7 @@ export function ChatPanel() {
     thinkingEnabled,
     setThinkingEnabled,
     mainAgentAssemblyMode,
+    mainAgentRuntimeModes,
     setMainAgentAssemblyMode,
     selectedChatModelId,
     setSelectedChatModel,
@@ -93,6 +94,7 @@ export function ChatPanel() {
           onSend={sendMessage}
           onStop={stopCurrentStream}
           mainAgentAssemblyMode={mainAgentAssemblyMode}
+          mainAgentRuntimeModes={mainAgentRuntimeModes}
           modelProviderConfig={modelProviderConfig}
           soulImageAssetConfig={soulImageAssetConfig}
           onSelectMainAgentAssemblyMode={setMainAgentAssemblyMode}

@@ -17,7 +17,7 @@ from capability_system.tool_packages import parse_tool_package_selection
 from harness.runtime import assemble_runtime
 from orchestration import ControlKernel, TaskContract, build_base_unit_catalog
 from orchestration.resource_inventory import build_runtime_resource_inventory
-from agent_system.profiles.runtime_mode_config import mode_config_catalog
+from agent_system.profiles.runtime_mode_config import DEFAULT_RUNTIME_MODE, mode_config_catalog
 from task_system import TaskFlowRegistry
 
 router = APIRouter()
@@ -65,6 +65,7 @@ class OrchestrationAgentUpsertRequest(BaseModel):
     enabled: bool = True
     editable: bool = True
     default_soul_id: str = Field(default="", max_length=160)
+    default_projection_id: str = Field(default="", max_length=160)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -390,6 +391,7 @@ def _empty_orchestration_runtime_options() -> dict[str, Any]:
         "operations": [],
         "task_graphs": [],
         "runtime_modes": [],
+        "default_runtime_mode": DEFAULT_RUNTIME_MODE,
         "memory_scopes": [],
         "context_sections": [],
         "approval_policies": [],
@@ -431,6 +433,7 @@ async def orchestration_runtime_options() -> dict[str, Any]:
             "operations": [item.to_dict() for item in operations],
             "task_graphs": task_graph_refs,
             "runtime_modes": mode_config_catalog(),
+            "default_runtime_mode": DEFAULT_RUNTIME_MODE,
             "memory_scopes": memory_scopes,
             "context_sections": context_sections,
             "approval_policies": approval_policies,
@@ -491,6 +494,7 @@ async def upsert_orchestration_agent(
             enabled=payload.enabled,
             editable=payload.editable,
             default_soul_id=payload.default_soul_id,
+            default_projection_id=payload.default_projection_id,
             metadata={**payload.metadata, "managed_by": "orchestration_console"},
         )
     except PermissionError as exc:

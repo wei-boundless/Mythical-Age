@@ -13,10 +13,10 @@ from .scheduler_view import upstream_dependency_node_ids
 
 
 class GraphContextMaterializer:
-    """Builds graph node work orders and agent-visible input packages.
+    """Builds graph node work orders and internal materialization packages.
 
-    GraphLoop owns state progression. This materializer owns the runtime packet
-    that an agent node can understand.
+    GraphLoop owns state progression. This materializer owns the graph slot
+    assembly data; RuntimeCompiler decides the model-visible projection.
     """
 
     authority = "harness.graph.context_materializer"
@@ -123,6 +123,13 @@ class GraphContextMaterializer:
         loop_context = dict(input_package.get("loop_context") or {})
         memory_view = dict(input_package.get("memory_view") or {})
         output_contract = dict(input_package.get("output_contract") or {})
+        slot_inbound_context = _slot_inbound_contexts(
+            graph_config=graph_config,
+            state=state,
+            node_id=node_id,
+            input_package=input_package,
+            inbound_context=inbound_context,
+        )
         read_protocols = list(dict(memory_view.get("graph_memory_policy") or {}).get("read_rules") or [])
         memory_resolution = self._memory_context.resolve_for_node(
             graph_config=graph_config,
@@ -132,7 +139,7 @@ class GraphContextMaterializer:
             read_protocols=read_protocols,
         )
         slot = GraphNodeExecutionSlot(
-            slot_id=f"gslot:{safe_id(state.graph_run_id)}:{safe_id(node_id)}:{safe_id(stable_hash([input_package.get('package_id'), inbound_context, loop_context])[:12])}",
+            slot_id=f"gslot:{safe_id(state.graph_run_id)}:{safe_id(node_id)}:{safe_id(stable_hash([input_package.get('package_id'), slot_inbound_context, loop_context])[:12])}",
             graph_identity={
                 "graph_run_id": state.graph_run_id,
                 "root_task_run_id": state.task_run_id,
@@ -145,8 +152,8 @@ class GraphContextMaterializer:
             },
             node_contract=_node_contract_from_input_package(graph_config=graph_config, node=node, input_package=input_package),
             edge_contracts={
-                "inbound_flow_packets": _inbound_flow_packets(inbound_context),
-                "inbound_edge_contexts": [dict(item) for item in inbound_context if isinstance(item, dict)],
+                "inbound_flow_packets": _inbound_flow_packets(slot_inbound_context),
+                "inbound_edge_contexts": slot_inbound_context,
                 "outbound_edge_policies": [
                     _outbound_edge_policy(dict(edge))
                     for edge in build_outbound_flow_edges(graph_config, node_id)
@@ -231,7 +238,7 @@ class GraphContextMaterializer:
         environment_refs = _environment_refs(graph_config)
         return {
             "package_id": f"gin:{safe_id(state.graph_run_id)}:{safe_id(node_id)}:{safe_id(stable_hash([initial_inputs, loop_context, inbound_context])[:12])}",
-            "authority": "harness.graph_node_input_package",
+            "authority": "harness.graph.node_materialization_package",
             "materializer_authority": self.authority,
             "node_identity": {
                 "node_id": node_id,
@@ -242,7 +249,6 @@ class GraphContextMaterializer:
                 "agent_profile_id": str(node.get("agent_profile_id") or ""),
             },
             "prompt_contract": prompt_contract,
-            "prompt": prompt_contract,
             "task_environment_id": str(graph_config.task_environment_id or ""),
             "task_environment": dict(graph_config.environment or {}),
             "runtime_scope": _runtime_scope_from_state(state),
@@ -288,6 +294,55 @@ class GraphContextMaterializer:
         return context
 
 
+def _slot_inbound_contexts(
+    *,
+    graph_config: GraphHarnessConfig,
+    state: GraphLoopState,
+    node_id: str,
+    input_package: dict[str, Any],
+    inbound_context: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    contexts = [dict(item) for item in inbound_context if isinstance(item, dict)]
+    initial_inputs = dict(input_package.get("initial_inputs") or {})
+    if not initial_inputs or not _is_graph_start_node(graph_config, node_id):
+        return contexts
+    contexts.insert(
+        0,
+        {
+            "context_id": "graph_initial_input",
+            "packet_type": "graph_initial_input",
+            "source_node_id": "__graph_input__",
+            "target_node_id": node_id,
+            "edge_id": f"graph_input::{node_id}",
+            "payload_contract_id": "contract.graph.initial_inputs",
+            "packet_contract_id": "contract.graph.initial_inputs",
+            "target_context_key": "graph_initial_inputs",
+            "target_input_slot": "initial_inputs",
+            "delivery_policy": "contract_payload",
+            "payload": {
+                "initial_inputs": initial_inputs,
+                "graph_id": graph_config.graph_id,
+                "project_id": str(initial_inputs.get("project_id") or ""),
+                "authority": "harness.graph.initial_input_payload",
+            },
+            "artifact_refs": [],
+            "memory_refs": [],
+            "result_refs": [],
+            "authority": "harness.graph.initial_input_context",
+        },
+    )
+    return contexts
+
+
+def _is_graph_start_node(graph_config: GraphHarnessConfig, node_id: str) -> bool:
+    start_node_ids = {
+        str(item)
+        for item in list(dict(graph_config.control or {}).get("start_node_ids") or [])
+        if str(item)
+    }
+    return node_id in start_node_ids
+
+
 def _edge_packet_entries(edge_state: dict[str, Any]) -> list[dict[str, Any]]:
     entries: list[dict[str, Any]] = []
     for item in list(edge_state.get("packet_refs") or []):
@@ -319,7 +374,7 @@ def _node_contract_from_input_package(
             "executor": dict(node.get("executor") or {}),
             "authority": "harness.graph.node_agent_assembly_projection",
         },
-        "prompt_contract": dict(input_package.get("prompt_contract") or input_package.get("prompt") or {}),
+        "prompt_contract": dict(input_package.get("prompt_contract") or {}),
         "model_requirement": dict(dict(node_contract.get("contract_bindings") or {}).get("runtime") or {}).get("model_requirement", {}),
         "runtime_mode": str(runtime_profile.get("runtime_mode") or runtime_profile.get("mode") or ""),
         "reasoning_policy": dict(runtime_profile.get("reasoning_policy") or {}),

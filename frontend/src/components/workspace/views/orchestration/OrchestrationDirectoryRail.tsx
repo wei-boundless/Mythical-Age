@@ -4,7 +4,7 @@ import { Loader2, Network, Plus, Search, Trash2, Users } from "lucide-react";
 
 import { OrchestrationToolbarButton } from "@/components/workspace/views/orchestration/OrchestrationWorkbenchUi";
 
-type AgentCategory = "main_agent" | "builtin_agent" | "custom_agent";
+type AgentDirectorySection = "main_agent" | "builtin_system_agent" | "builtin_specialist_agent" | "custom_agent";
 type AssemblySelectionKind = "agent" | "group" | "empty";
 const DEFAULT_SUB_AGENT_GROUP_ID = "__default_sub_agent_group__";
 
@@ -35,8 +35,8 @@ export function OrchestrationDirectoryRail({
   loading,
   query,
   setQuery,
-  activeCategory,
-  categoryCounts,
+  activeSection,
+  sectionCounts,
   selectCategory,
   agentGroups,
   selectedGroupId,
@@ -45,7 +45,7 @@ export function OrchestrationDirectoryRail({
   ungroupedCustomAgents,
   selectedAgentId,
   selectAgent,
-  activeGroupItems,
+  activeSectionItems,
   selectionKind,
   saving,
   startBlankAgentDraft,
@@ -57,9 +57,9 @@ export function OrchestrationDirectoryRail({
   loading: boolean;
   query: string;
   setQuery: (value: string) => void;
-  activeCategory: AgentCategory;
-  categoryCounts: Record<string, number>;
-  selectCategory: (category: AgentCategory) => void;
+  activeSection: AgentDirectorySection;
+  sectionCounts: Record<string, number>;
+  selectCategory: (section: AgentDirectorySection) => void;
   agentGroups: Array<{ group_id: string; title: string; member_agent_ids: string[] }>;
   selectedGroupId: string;
   selectSubAgentGroup: (groupId: string) => void;
@@ -67,7 +67,7 @@ export function OrchestrationDirectoryRail({
   ungroupedCustomAgents: Array<Record<string, unknown>>;
   selectedAgentId: string;
   selectAgent: (agentId: string) => void;
-  activeGroupItems: Array<Record<string, unknown>>;
+  activeSectionItems: Array<Record<string, unknown>>;
   selectionKind: AssemblySelectionKind;
   saving: "" | "agent" | "runtime" | "group" | "create" | "delete";
   startBlankAgentDraft: () => void | Promise<void>;
@@ -75,15 +75,17 @@ export function OrchestrationDirectoryRail({
   removeAgentById: (agentId: string, agentName: string) => void;
   removeSelectedGroup: () => void;
 }) {
-  const categoryLabels: Record<AgentCategory, string> = {
+  const sectionLabels: Record<AgentDirectorySection, string> = {
     main_agent: "主 Agent",
-    builtin_agent: "内置 Agent",
+    builtin_system_agent: "系统 Agent",
+    builtin_specialist_agent: "专业内置 Agent",
     custom_agent: "子 Agent",
   };
 
-  const categoryDescriptions: Record<AgentCategory, string> = {
+  const sectionDescriptions: Record<AgentDirectorySection, string> = {
     main_agent: "主会话入口与最终整合输出",
-    builtin_agent: "系统管理与内置专业 Agent",
+    builtin_system_agent: "系统管理与平台治理 Agent",
+    builtin_specialist_agent: "知识、PDF、表格、网页等专业 Agent",
     custom_agent: "可分组、可委派的任务执行 Agent",
   };
   function AgentRow({
@@ -133,38 +135,43 @@ export function OrchestrationDirectoryRail({
     );
   }
 
-  const mainAgents = activeCategory === "main_agent" ? activeGroupItems : agents.filter((agent) => String(agent.agent_category || agent.profile_type || "") === "main_agent");
-  const builtinAgents = activeCategory === "builtin_agent" ? activeGroupItems : agents.filter((agent) => String(agent.agent_category || agent.profile_type || "") === "builtin_agent");
-  const customAgentCount = categoryCounts.custom_agent ?? (agentGroups.reduce((sum, group) => sum + group.member_agent_ids.length, 0) + ungroupedCustomAgents.length);
+  const customAgentCount = sectionCounts.custom_agent ?? (agentGroups.reduce((sum, group) => sum + group.member_agent_ids.length, 0) + ungroupedCustomAgents.length);
   const groupingRows = [
     {
       id: "main_agent",
       title: "主 Agent",
-      count: categoryCounts.main_agent ?? mainAgents.length,
-      active: activeCategory === "main_agent",
+      count: sectionCounts.main_agent ?? 0,
+      active: activeSection === "main_agent",
       onClick: () => selectCategory("main_agent"),
     },
     {
-      id: "builtin_agent",
-      title: "内置 Agent",
-      count: categoryCounts.builtin_agent ?? builtinAgents.length,
-      active: activeCategory === "builtin_agent",
-      onClick: () => selectCategory("builtin_agent"),
+      id: "builtin_system_agent",
+      title: "系统 Agent",
+      count: sectionCounts.builtin_system_agent ?? 0,
+      active: activeSection === "builtin_system_agent",
+      onClick: () => selectCategory("builtin_system_agent"),
+    },
+    {
+      id: "builtin_specialist_agent",
+      title: "专业内置 Agent",
+      count: sectionCounts.builtin_specialist_agent ?? 0,
+      active: activeSection === "builtin_specialist_agent",
+      onClick: () => selectCategory("builtin_specialist_agent"),
     },
     {
       id: "custom_agent",
       title: "子 Agent",
       count: customAgentCount,
-      active: activeCategory === "custom_agent",
+      active: activeSection === "custom_agent",
       onClick: () => {
         selectCategory("custom_agent");
       },
     },
   ];
 
-  const directoryStatusLabel = activeCategory === "custom_agent"
+  const directoryStatusLabel = activeSection === "custom_agent"
     ? `${agentGroups.length + 1} 组 / ${customAgentCount} 个 Agent`
-    : `${activeGroupItems.length} 项`;
+    : `${activeSectionItems.length} 项`;
 
   return (
     <aside className="boundary-rail orchestration-subagent-rail orchestration-practical-rail">
@@ -190,12 +197,12 @@ export function OrchestrationDirectoryRail({
         ))}
       </div>
       <div className="orchestration-section-title orchestration-section-title--compact">
-        <span>{activeCategory === "custom_agent" ? "子 Agent" : categoryLabels[activeCategory]}</span>
-        <small>{directoryStatusLabel} · {activeCategory === "custom_agent" ? "行进入配置" : categoryDescriptions[activeCategory]}</small>
+        <span>{sectionLabels[activeSection]}</span>
+        <small>{directoryStatusLabel} · {activeSection === "custom_agent" ? "行进入配置" : sectionDescriptions[activeSection]}</small>
       </div>
       <div className="boundary-list boundary-list--scroll orchestration-practical-list">
         {loading ? <div className="boundary-empty"><Loader2 className="spin" size={16} />加载中</div> : null}
-        {activeCategory === "custom_agent" ? (
+        {activeSection === "custom_agent" ? (
           <>
             {agentGroups.map((group) => (
               <div className={group.group_id === selectedGroupId && selectionKind === "group" ? "orchestration-practical-group orchestration-practical-group--active" : "orchestration-practical-group"} key={group.group_id}>
@@ -235,22 +242,22 @@ export function OrchestrationDirectoryRail({
             </div>
           </>
         ) : null}
-        {(activeCategory === "custom_agent" ? [] : activeGroupItems).map((agent) => <AgentRow agent={agent} key={String(agent.agent_id)} />)}
+        {(activeSection === "custom_agent" ? [] : activeSectionItems).map((agent) => <AgentRow agent={agent} key={String(agent.agent_id)} />)}
         {!loading && (
-          activeCategory === "custom_agent"
+          activeSection === "custom_agent"
             ? !agentGroups.length && !ungroupedCustomAgents.length
-            : !activeGroupItems.length
+            : !activeSectionItems.length
         ) ? <div className="boundary-empty">当前层级暂无 Agent。</div> : null}
       </div>
       <div className="orchestration-directory-actions orchestration-directory-actions--practical">
-        {activeCategory === "custom_agent" ? (
+        {activeSection === "custom_agent" ? (
           <>
           <OrchestrationToolbarButton onClick={startBlankGroupDraft} variant="ghost">
             <Network size={14} />
             新建组
           </OrchestrationToolbarButton>
           <OrchestrationToolbarButton
-            disabled={!selectedGroupId || saving === "delete"}
+            disabled={!selectedGroupId || selectedGroupId === DEFAULT_SUB_AGENT_GROUP_ID || saving === "delete"}
             onClick={removeSelectedGroup}
             variant="danger"
           >
@@ -259,7 +266,7 @@ export function OrchestrationDirectoryRail({
           </OrchestrationToolbarButton>
           </>
         ) : null}
-        {activeCategory === "custom_agent" ? (
+        {activeSection === "custom_agent" ? (
           <OrchestrationToolbarButton onClick={startBlankAgentDraft} variant="ghost">
             <Plus size={14} />
             新建 Agent

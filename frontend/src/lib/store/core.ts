@@ -68,6 +68,8 @@ export function getDefaultState(): StoreState {
     selectedChatMode: "chat",
     thinkingEnabled: false,
     mainAgentAssemblyMode: "role",
+    mainAgentRuntimeModes: [],
+    mainAgentDefaultRuntimeMode: "role",
     skills: [],
     soulOptions: [],
     activeSoulKey: null,

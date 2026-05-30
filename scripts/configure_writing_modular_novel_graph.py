@@ -60,6 +60,11 @@ VOLUME_MAX_WORDS = CHAPTERS_PER_VOLUME * CHAPTER_MAX_WORDS
 TARGET_WORDS = TARGET_VOLUMES * VOLUME_TARGET_WORDS
 CHAPTER_REQUESTED_COUNT = TARGET_VOLUMES * CHAPTERS_PER_VOLUME
 WRITING_LONG_OUTPUT_TOKENS = 65536
+WRITING_DESIGN_OUTPUT_TOKENS = 32768
+WRITING_CHAPTER_DRAFT_OUTPUT_TOKENS = 32768
+WRITING_MEMORY_OUTPUT_TOKENS = 12288
+WRITING_REVIEW_OUTPUT_TOKENS = 8192
+WRITING_ROUTER_OUTPUT_TOKENS = 4096
 
 REPOSITORY_NODES = (
     {
@@ -3496,20 +3501,52 @@ def _chapter_initial_graph_loop_inputs() -> dict[str, Any]:
 
 
 def _model_requirement(node_id: str) -> dict[str, Any]:
-    preferred = WRITING_LONG_OUTPUT_TOKENS
+    preferred = _preferred_output_tokens_for_node(node_id)
+    min_output = min(8192, max(2048, preferred // 2))
+    capability_tags = ["structured_artifact_refs", "creative_writing"]
+    if preferred >= WRITING_DESIGN_OUTPUT_TOKENS:
+        capability_tags.insert(0, "long_output")
     return {
         "profile_ref": MODEL_PROFILE_REF,
         "provider_family": "deepseek",
         "model_family": "deepseek-v4",
-        "capability_tags": ["long_output", "structured_artifact_refs", "creative_writing"],
+        "capability_tags": capability_tags,
         "min_context_tokens": 200000,
-        "min_output_tokens": 8192,
+        "min_output_tokens": min_output,
         "preferred_output_tokens": preferred,
         "thinking_mode": "disabled",
         "streaming_required": True,
         "fallback_allowed": True,
         "metadata": {"configured_by": MANAGED_BY, "node_id": node_id},
     }
+
+
+def _preferred_output_tokens_for_node(node_id: str) -> int:
+    normalized = str(node_id or "").rsplit("::", 1)[-1]
+    if normalized == "chapter_draft":
+        return WRITING_CHAPTER_DRAFT_OUTPUT_TOKENS
+    if normalized in {"final_assemble"}:
+        return WRITING_LONG_OUTPUT_TOKENS
+    if normalized.endswith("_review") or normalized in {"extension_review", "world_review", "character_review", "outline_review", "chapter_review", "volume_review", "final_review"}:
+        return WRITING_REVIEW_OUTPUT_TOKENS
+    if normalized.startswith("memory_") or normalized.endswith("_commit") or normalized in {"baseline_memory_seed", "extension_commit", "volume_commit", "memory_finalize"}:
+        return WRITING_MEMORY_OUTPUT_TOKENS
+    if normalized.endswith("_router") or normalized in {"next_volume_router", "chapter_progress_router"}:
+        return WRITING_ROUTER_OUTPUT_TOKENS
+    if normalized in {
+        "project_brief",
+        "world_design",
+        "character_design",
+        "plot_design",
+        "design_sync",
+        "outline_design",
+        "volume_plan",
+        "chapter_outline",
+        "volume_postmortem",
+        "world_outline_extension_proposal",
+    }:
+        return WRITING_DESIGN_OUTPUT_TOKENS
+    return WRITING_MEMORY_OUTPUT_TOKENS
 
 
 def _graph_contract_id(graph_id: str) -> str:

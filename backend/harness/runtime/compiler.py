@@ -1656,6 +1656,9 @@ def _task_contract_stable_payload(contract: dict[str, Any]) -> dict[str, Any]:
         payload.pop("created_from_packet_ref", None)
         payload.pop("source_contract_ref", None)
         payload.pop("external_plan_ref", None)
+        payload.pop("resource_requirements", None)
+        payload.pop("prompt_contract", None)
+        payload.pop("runtime_profile", None)
     resource_requirements = dict(payload.get("resource_requirements") or {})
     if resource_requirements:
         payload["resource_requirements"] = _resource_requirements_stable_payload(resource_requirements)
@@ -1749,6 +1752,12 @@ def _inbound_context_stable_payload(value: Any) -> list[dict[str, Any]]:
 
 def _bounded_graph_payload(payload: dict[str, Any]) -> dict[str, Any]:
     result: dict[str, Any] = {}
+    if isinstance(payload.get("initial_inputs"), dict):
+        result["initial_inputs"] = _truncate_value(dict(payload.get("initial_inputs") or {}), max_chars=30000)
+    if payload.get("graph_id"):
+        result["graph_id"] = str(payload.get("graph_id") or "")
+    if payload.get("project_id"):
+        result["project_id"] = str(payload.get("project_id") or "")
     if "handoff_summary" in payload:
         result["handoff_summary"] = str(payload.get("handoff_summary") or "")[:1200]
     if isinstance(payload.get("artifact_refs"), list):

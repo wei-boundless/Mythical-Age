@@ -299,6 +299,7 @@ class AgentRegistry:
         lifecycle_state: str | None = None,
         editable: bool | None = None,
         default_soul_id: str = "",
+        default_projection_id: str = "",
         metadata: dict[str, Any] | None = None,
         owner_system: str | None = None,
         governance_status: str | None = None,
@@ -314,6 +315,7 @@ class AgentRegistry:
         current = self.get_agent(target)
         timestamp = time.time()
         current_soul_id = current.default_soul_id if current is not None else ""
+        current_projection_id = current.default_projection_id if current is not None else ""
         current_description = current.description if current is not None else ""
         current_editable = current.editable if current is not None else True
         current_metadata = dict(current.metadata) if current is not None else {}
@@ -333,6 +335,7 @@ class AgentRegistry:
             builtin=current.builtin if current is not None else False,
             editable=bool(editable if editable is not None else current_editable),
             default_soul_id=normalized_soul_id,
+            default_projection_id=str(default_projection_id or current_projection_id).strip(),
             created_at=current.created_at if current is not None else timestamp,
             updated_at=timestamp,
             metadata=dict(metadata or current_metadata),
@@ -471,6 +474,7 @@ def _migrate_agent_payload(payload: dict[str, Any]) -> dict[str, Any]:
         "builtin": bool(payload.get("builtin", str(payload.get("lifecycle_state") or "") == "system_builtin")),
         "editable": bool(payload.get("editable", True)),
         "default_soul_id": normalized_soul_id,
+        "default_projection_id": str(payload.get("default_projection_id") or "").strip(),
         "created_at": float(payload.get("created_at") or 0.0),
         "updated_at": float(payload.get("updated_at") or 0.0),
         "metadata": {
@@ -505,6 +509,7 @@ def _agent_from_dict(payload: dict[str, Any]) -> AgentDescriptor:
         builtin=bool(payload.get("builtin", False)),
         editable=bool(payload.get("editable", True)),
         default_soul_id=str(payload.get("default_soul_id") or ""),
+        default_projection_id=str(payload.get("default_projection_id") or ""),
         created_at=float(payload.get("created_at") or 0.0),
         updated_at=float(payload.get("updated_at") or 0.0),
         metadata=dict(payload.get("metadata") or {}),

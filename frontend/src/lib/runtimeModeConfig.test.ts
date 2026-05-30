@@ -7,18 +7,22 @@ import {
 } from "./runtimeModeConfig";
 
 describe("runtime mode config", () => {
-  it("keeps the catalog fixed to the four supported modes", () => {
+  it("uses the backend catalog as the mode source of truth", () => {
     const catalog = runtimeModeCatalogFrom([
       { mode: "role", label: "角色模式覆盖" },
-      { mode: "custom.saved", label: "不应出现" },
+      { mode: "custom.saved", label: "自定义保存模式" },
     ]);
 
-    expect(catalog.map((mode) => mode.mode)).toEqual(["role", "standard", "professional", "custom"]);
+    expect(catalog.map((mode) => mode.mode)).toEqual(["role", "custom.saved"]);
     expect(catalog.find((mode) => mode.mode === "role")?.label).toBe("角色模式覆盖");
   });
 
   it("normalizes runtime modes without deriving execution channels", () => {
-    const catalog = runtimeModeCatalogFrom([]);
+    const catalog = runtimeModeCatalogFrom([
+      { mode: "role", label: "角色模式" },
+      { mode: "professional", label: "专家模式" },
+      { mode: "custom", label: "自定义模式" },
+    ]);
 
     expect(normalizeRuntimeModes(["role", "professional"], catalog)).toEqual(["role", "professional"]);
     expect(normalizeRuntimeModes(["readonly_exploration"], catalog)).toEqual(["custom"]);
