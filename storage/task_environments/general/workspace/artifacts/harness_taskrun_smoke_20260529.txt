@@ -1,3 +1,0 @@
-harness taskrun smoke ok
-此为单 agent TaskRun 实测产物，在通用工作区 artifacts 区域由 main_interactive_agent 创建。
-实际完成时间：2026-05-29 12:00:00 UTC（受沙箱限制无法获取精确系统时间）。
