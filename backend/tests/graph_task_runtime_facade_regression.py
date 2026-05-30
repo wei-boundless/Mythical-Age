@@ -206,9 +206,12 @@ def test_graph_harness_starts_published_config_and_creates_node_work_order() -> 
     assert monitor is not None
     assert monitor["graph_run_id"] == start.graph_run.graph_run_id
     assert monitor["graph_loop_state"]["graph_id"] == graph.graph_id
+    assert monitor["task_run_monitor"]["authority"] == "single_agent_runtime_monitor.item"
+    assert monitor["runtime_monitor"]["task_run_id"] == start.task_run.task_run_id
     assert monitor["active_node_work_order_count"] == 1
     assert monitor["active_node_work_orders"][0]["work_order_id"] == start.node_work_orders[0].work_order_id
     assert "input_package" not in monitor["active_node_work_orders"][0]
+    assert monitor["event_window"]["kind"] == "tail"
     trace = runtime.single_agent_runtime_host.get_trace(start.task_run.task_run_id)
     assert trace is not None
     assert trace["graph_run_count"] == 1
@@ -1291,6 +1294,7 @@ def test_graph_run_monitor_exposes_node_runtime_views_after_runner() -> None:
     assert set(views) == {"draft", "review"}
     assert views["draft"]["status"] == "completed"
     assert views["draft"]["node_executor_task_run_id"]
+    assert views["draft"]["node_executor_task_run_monitor"]["authority"] == "single_agent_runtime_monitor.item"
     assert views["draft"]["result"]["node_executor_task_run_id"] == views["draft"]["node_executor_task_run_id"]
     assert "outputs" not in views["draft"]["result"]
     assert views["draft"]["work_order"] == {}

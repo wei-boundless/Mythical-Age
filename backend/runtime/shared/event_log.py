@@ -8,9 +8,11 @@ import threading
 import time
 import uuid
 from pathlib import Path
+from json import JSONDecodeError
 from typing import Any
 
-from .event_index import RuntimeEventIndex
+from .event_index import RuntimeEventIndex, read_event_tail_raw
+from .event_payload_store import RuntimeEventPayloadStore
 from .events import RuntimeEvent, RuntimeEventType
 
 
@@ -30,6 +32,7 @@ class RuntimeEventLog:
         self.event_dir = self.root_dir / "events"
         self.event_dir.mkdir(parents=True, exist_ok=True)
         self.index = RuntimeEventIndex(self.root_dir)
+        self.payload_store = RuntimeEventPayloadStore(self.root_dir)
         self._subscriptions: list[RuntimeEventSubscription] = []
         self._subscription_lock = threading.RLock()
         self._write_lock = threading.RLock()
@@ -51,8 +54,25 @@ class RuntimeEventLog:
                 event_type=event_type,
                 offset=offset,
                 created_at=time.time(),
+                payload={},
+                refs={},
+            )
+            compact_payload, compact_refs = self.payload_store.externalize_if_needed(
+                task_run_id=task_run_id,
+                event_id=event.event_id,
+                offset=offset,
+                event_type=str(event_type),
                 payload=dict(payload or {}),
                 refs=dict(refs or {}),
+            )
+            event = RuntimeEvent(
+                event_id=event.event_id,
+                task_run_id=event.task_run_id,
+                event_type=event.event_type,
+                offset=event.offset,
+                created_at=event.created_at,
+                payload=compact_payload,
+                refs=compact_refs,
             )
             with path.open("a", encoding="utf-8", newline="\n") as handle:
                 handle.write(json.dumps(event.to_dict(), ensure_ascii=False) + "\n")
@@ -95,17 +115,20 @@ class RuntimeEventLog:
             except JSONDecodeError:
                 continue
             events.append(
-                RuntimeEvent(
-                    event_id=str(payload.get("event_id") or ""),
-                    task_run_id=str(payload.get("task_run_id") or task_run_id),
-                    event_type=payload.get("event_type", "loop_error"),
-                    offset=int(payload.get("offset") or 0),
-                    created_at=float(payload.get("created_at") or 0.0),
-                    payload=dict(payload.get("payload") or {}),
-                    refs=dict(payload.get("refs") or {}),
+                self._event_from_payload(
+                    self.payload_store.hydrate_event_payload(payload if isinstance(payload, dict) else {}),
+                    task_run_id=task_run_id,
                 )
             )
         return events
+
+    def list_event_window(self, task_run_id: str, *, limit: int = 240, include_payloads: bool = False) -> list[RuntimeEvent]:
+        if include_payloads:
+            return [
+                self._event_from_payload(self.payload_store.hydrate_event_payload(item), task_run_id=task_run_id)
+                for item in read_event_tail_raw(self._event_path(task_run_id), tail_limit=max(1, int(limit or 240)))
+            ]
+        return self.list_recent_events(task_run_id, limit=limit)
 
     def list_recent_events(self, task_run_id: str, *, limit: int = 160) -> list[RuntimeEvent]:
         if max(1, int(limit or 160)) <= 0:
@@ -113,14 +136,17 @@ class RuntimeEventLog:
         path = self._event_path(task_run_id)
         if not path.exists():
             return []
-        events = self.index.list_recent_events(task_run_id, limit=max(1, int(limit or 160)))
+        events = self.index.list_recent_events(task_run_id, limit=max(1, int(limit or 160)), event_path=path)
         if events:
             return events
         self.index.next_offset(task_run_id=task_run_id, event_path=path)
-        return self.index.list_recent_events(task_run_id, limit=max(1, int(limit or 160)))
+        return self.index.list_recent_events(task_run_id, limit=max(1, int(limit or 160)), event_path=path)
 
     def event_count(self, task_run_id: str) -> int:
         return self.index.event_count(task_run_id, event_path=self._event_path(task_run_id))
+
+    def estimated_event_count(self, task_run_id: str) -> int:
+        return self.index.estimated_event_count(task_run_id, event_path=self._event_path(task_run_id))
 
     def delete_events(self, task_run_id: str) -> bool:
         path = self._event_path(task_run_id)
@@ -129,6 +155,7 @@ class RuntimeEventLog:
         with self._write_lock:
             path.unlink(missing_ok=True)
             self.index.delete_index(task_run_id)
+            self.payload_store.delete_payloads_for_task(task_run_id)
         return True
 
     def next_offset(self, task_run_id: str) -> int:
@@ -149,6 +176,17 @@ class RuntimeEventLog:
 
     def _event_path(self, task_run_id: str) -> Path:
         return self.event_dir / f"{_safe_id(task_run_id)}.jsonl"
+
+    def _event_from_payload(self, payload: dict[str, Any], *, task_run_id: str) -> RuntimeEvent:
+        return RuntimeEvent(
+            event_id=str(payload.get("event_id") or ""),
+            task_run_id=str(payload.get("task_run_id") or task_run_id),
+            event_type=payload.get("event_type", "loop_error"),
+            offset=int(payload.get("offset") or 0),
+            created_at=float(payload.get("created_at") or 0.0),
+            payload=dict(payload.get("payload") or {}),
+            refs=dict(payload.get("refs") or {}),
+        )
 
 
 def _put_event_drop_oldest(queue: asyncio.Queue[RuntimeEvent], event: RuntimeEvent) -> None:

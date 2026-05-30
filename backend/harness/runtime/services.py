@@ -18,6 +18,7 @@ class AgentRuntimeServices:
     event_log: Any
     prompt_accounting_ledger: Any
     state_index: Any
+    monitor_projector: Any
     runtime_objects: Any
     graph_checkpoint_store: Any
     execution_store: Any
@@ -62,6 +63,7 @@ class AgentRuntimeServices:
             event_log=host.event_log,
             prompt_accounting_ledger=getattr(host, "prompt_accounting_ledger", None),
             state_index=host.state_index,
+            monitor_projector=host.monitor_projector,
             runtime_objects=host.runtime_objects,
             graph_checkpoint_store=host.graph_checkpoint_store,
             execution_store=host.execution_store,
@@ -91,10 +93,13 @@ class AgentRuntimeServices:
         return self.get_trace_callback(task_run_id, **kwargs)
 
     def event_count(self, task_run_id: str) -> int:
+        estimator = getattr(self.event_log, "estimated_event_count", None)
+        if callable(estimator):
+            return int(estimator(task_run_id))
         counter = getattr(self.event_log, "event_count", None)
         if callable(counter):
             return int(counter(task_run_id))
-        return len(self.event_log.list_events(task_run_id))
+        return 0
 
 
 def _default_environment_services(host: Any) -> tuple[Any | None, Any | None]:

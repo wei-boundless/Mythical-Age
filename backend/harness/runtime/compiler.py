@@ -275,6 +275,8 @@ class RuntimeCompiler:
         agent_profile_ref = str(agent_profile_ref or assembly_payload.get("agent_profile_ref") or "main_interactive_agent")
         task_environment_ref = str(environment_payload.get("environment_id") or "env.general.workspace")
         task_run_id = str(task_run.get("task_run_id") or "")
+        task_run_diagnostics = dict(task_run.get("diagnostics") or {})
+        executor_epoch = int(task_run_diagnostics.get("executor_epoch") or 0)
         mode_policy = {
             "mode": str(profile_payload.get("mode") or "professional"),
             "interaction_mode": str(profile_payload.get("interaction_mode") or "task_execution"),
@@ -391,7 +393,7 @@ class RuntimeCompiler:
             "observations": [dict(item) for item in list(observations or [])],
             "work_history": _work_rollout_payload(work_rollout),
         }
-        packet_id = f"rtpacket:{task_run_id}:task_execution:{invocation_index}"
+        packet_id = f"rtpacket:{task_run_id}:task_execution:{executor_epoch}:{invocation_index}"
         model_messages, segment_plan = _model_messages_and_segment_plan(
             packet_id=packet_id,
             invocation_kind="task_execution",
@@ -465,7 +467,14 @@ class RuntimeCompiler:
             ),
             packet_id=packet_id,
             dynamic_projection_refs=("agent_visible_runtime_projection", "operation_authorization"),
-            volatile_state_refs=("runtime_envelope", "execution_state", "observations", "work_history"),
+            volatile_state_refs=(
+                "runtime_envelope",
+                "execution_state",
+                "pending_user_steers",
+                "active_contract_revisions",
+                "observations",
+                "work_history",
+            ),
         ).to_dict()
         prompt_manifest["segment_plan_ref"] = segment_plan.segment_plan_id
         packet = RuntimeInvocationPacket(
@@ -836,6 +845,20 @@ def task_execution_action_schema() -> dict[str, Any]:
                 {"path": "真实交付物路径", "kind": "artifact kind", "summary": "产物说明"}
             ],
             "verification": "简短说明自审和验收结果",
+            "consumed_steer_refs": [
+                "如果本轮处理了 pending_user_steers 中的某条用户补充要求，填写对应 steer_id；未处理则留空"
+            ],
+            "contract_revision_decisions": [
+                {
+                    "revision_id": "active_contract_revisions 中的 revision_id",
+                    "steer_ref": "对应 steer_id",
+                    "status": "accepted|needs_user|rejected",
+                    "reason": "简短说明为什么这样裁决",
+                    "requires_user_confirmation": False,
+                    "proposed_goal": "",
+                    "proposed_acceptance_criteria": [],
+                }
+            ],
         },
     }
 
@@ -1116,6 +1139,15 @@ def _runtime_projection_instruction(projection: dict[str, Any]) -> str:
         "- 每次输出 JSON 时必须填写 public_progress_note：这是一句给用户看的当前阶段说明，"
         "用于让用户理解你正在推进什么；不要写思维链、隐藏系统规则、runtime、TaskRun、执行器、packet、内部模块名或协议校验细节。"
     )
+    if projection.get("invocation_kind") == "task_execution":
+        lines.append(
+            "- 如果当前执行状态里有 pending_user_steers，你必须先判断并处理这些用户补充要求；"
+            "只有确实处理了某条补充要求时，才能在 diagnostics.consumed_steer_refs 中填写对应 steer_id。"
+        )
+        lines.append(
+            "- 如果当前执行状态里有 active_contract_revisions，你必须裁决它们是否改变目标、验收标准、范围或约束；"
+            "把裁决写入 diagnostics.contract_revision_decisions。未裁决前不能宣布完成。"
+        )
     if bool(task_lifecycle.get("request_task_run_allowed") is True):
         lines.append(
             "- 当目标需要真实交付物、持续执行、文件修改、命令验证、浏览器验证或失败恢复时，可以请求进入持续处理流程。"

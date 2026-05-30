@@ -127,6 +127,12 @@ class TaskRunMonitorProjector:
             "latest_step_status": str(latest_step.get("status") or diagnostics.get("latest_step_status") or ""),
             "artifact_count": len(list(diagnostics.get("artifact_refs") or [])),
             "artifact_refs": list(diagnostics.get("artifact_refs") or [])[:10],
+            "pending_user_steer_count": int(diagnostics.get("pending_user_steer_count") or 0),
+            "latest_user_steer_ref": str(diagnostics.get("latest_user_steer_ref") or ""),
+            "active_contract_revision_count": int(diagnostics.get("active_contract_revision_count") or 0),
+            "latest_contract_revision_ref": str(diagnostics.get("latest_contract_revision_ref") or ""),
+            "executor_epoch": int(diagnostics.get("executor_epoch") or 0),
+            "next_invocation_index": int(diagnostics.get("next_invocation_index") or 0),
             "route": route,
             "graph_run_id": graph_run_id,
             "graph_harness_config_id": graph_harness_config_id,
@@ -149,9 +155,15 @@ class TaskRunMonitorProjector:
                 return list(reader(task_run_id))
             except Exception:
                 return []
-        return list(self.event_log.list_events(task_run_id))[-max(1, int(limit or 240)) :]
+        return []
 
     def _event_count(self, task_run_id: str, *, events: list[Any]) -> int:
+        estimator = getattr(self.event_log, "estimated_event_count", None)
+        if callable(estimator):
+            try:
+                return int(estimator(task_run_id))
+            except Exception:
+                return len(events)
         counter = getattr(self.event_log, "event_count", None)
         if callable(counter):
             try:

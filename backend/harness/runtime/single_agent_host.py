@@ -98,11 +98,26 @@ class SingleAgentRuntimeHost:
         *,
         include_payloads: bool = False,
         include_model_messages: bool = False,
+        event_limit: int | None = None,
     ) -> dict[str, Any] | None:
         task_run = self.state_index.get_task_run(task_run_id)
         if task_run is None:
             return None
-        events = [item.to_dict() for item in self.event_log.list_events(task_run_id)]
+        requested_limit = max(1, min(int(event_limit or 240), 1000))
+        if include_payloads:
+            if event_limit is None:
+                events = [item.to_dict() for item in self.event_log.list_events(task_run_id)]
+            else:
+                events = [
+                    item.to_dict()
+                    for item in self.event_log.list_event_window(
+                        task_run_id,
+                        limit=requested_limit,
+                        include_payloads=True,
+                    )
+                ]
+        else:
+            events = [item.to_dict() for item in self.event_log.list_recent_events(task_run_id, limit=requested_limit)]
         graph_runs = self._graph_runs_for_task_run(task_run)
         if not include_payloads:
             events = [
@@ -112,12 +127,19 @@ class SingleAgentRuntimeHost:
                 }
                 for event in events
             ]
+        event_count = _event_count(self.event_log, task_run_id, fallback=len(events))
         return {
             "task_run": task_run.to_dict(),
             "graph_runs": graph_runs,
             "graph_run_count": len(graph_runs),
             "events": events,
-            "event_count": len(events),
+            "event_count": event_count,
+            "event_window": {
+                "kind": "full_payload" if include_payloads and event_limit is None else ("bounded_full_payload_tail" if include_payloads else "tail"),
+                "limit": requested_limit,
+                "returned": len(events),
+                "include_payloads": include_payloads,
+            },
             "authority": "single_agent_runtime_host.task_run_trace",
         }
 
@@ -193,6 +215,22 @@ def _redact_payload(payload: dict[str, Any], *, include_model_messages: bool) ->
     if isinstance(packet, dict) and "model_messages" in packet:
         redacted["packet"] = {**packet, "model_messages": "[redacted]"}
     return redacted
+
+
+def _event_count(event_log: Any, task_run_id: str, *, fallback: int) -> int:
+    estimator = getattr(event_log, "estimated_event_count", None)
+    if callable(estimator):
+        try:
+            return int(estimator(task_run_id))
+        except Exception:
+            return int(fallback)
+    counter = getattr(event_log, "event_count", None)
+    if callable(counter):
+        try:
+            return int(counter(task_run_id))
+        except Exception:
+            return int(fallback)
+    return int(fallback)
 
 
 def _existing_artifact_refs(values: list[Any], *, project_root: Path) -> list[dict[str, Any]]:

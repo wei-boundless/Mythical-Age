@@ -407,6 +407,15 @@ class QueryRuntime:
         host = self.single_agent_runtime_host
         plan = build_resume_plan(host, context=context, user_message=user_message)
         if plan.decision == "same_run_resume":
+            instruction = str(user_message or "").strip()
+            if instruction:
+                append_user_work_instruction(
+                    host,
+                    context.task_run_id,
+                    content=instruction,
+                    turn_id=turn_id,
+                    intent="conversation_continue",
+                )
             result = resume_paused_task_run(host, context.task_run_id, reason="conversation_continue", requested_by="user")
             if result.get("ok"):
                 self._schedule_active_task_run_executor(context.task_run_id, scheduler="conversation_continue")
@@ -422,6 +431,15 @@ class QueryRuntime:
                 plan=plan,
             )
         if plan.decision == "already_running":
+            instruction = str(user_message or "").strip()
+            if instruction:
+                append_user_work_instruction(
+                    host,
+                    context.task_run_id,
+                    content=instruction,
+                    turn_id=turn_id,
+                    intent="conversation_steer_while_running",
+                )
             return default_response or "我正在接着处理，新的进展会继续更新在这里。"
         if plan.decision == "completed_iteration":
             return active_work_status_reply(build_active_work_context(host, session_id=context.session_id) or context)

@@ -185,7 +185,7 @@ export function TaskGraphPublishRunPage({
     setRunTraceLoading(true);
     setRunTraceError("");
     try {
-      const trace = await getOrchestrationHarnessTrace(taskRunId.trim(), { includePayloads: false, includeModelMessages: false });
+      const trace = await getOrchestrationHarnessTrace(taskRunId.trim(), { includePayloads: false, includeModelMessages: false, eventLimit: 160 });
       const latestGraphRun = taskGraphRunsFromTrace(trace)[0] ?? {};
       const nextGraphRunId = String(latestGraphRun.graph_run_id ?? "").trim();
       const nextConfigId = String(latestGraphRun.config_id ?? latestGraphRun.graph_harness_config_id ?? "").trim();

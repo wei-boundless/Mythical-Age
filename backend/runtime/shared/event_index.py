@@ -109,9 +109,11 @@ class RuntimeEventIndex:
             tail.append(compact_event_for_tail(event.to_dict()))
             self._write_tail(event.task_run_id, tail[-self.tail_limit :])
 
-    def list_recent_events(self, task_run_id: str, *, limit: int = 160) -> list[RuntimeEvent]:
+    def list_recent_events(self, task_run_id: str, *, limit: int = 160, event_path: Path | None = None) -> list[RuntimeEvent]:
         requested = max(1, int(limit or 160))
         rows = self._load_tail(task_run_id)[-requested:]
+        if not rows and event_path is not None:
+            rows = read_event_tail(event_path, tail_limit=requested)
         return [_event_from_payload(compact_event_for_tail(item), task_run_id=task_run_id) for item in rows]
 
     def event_count(self, task_run_id: str, *, event_path: Path) -> int:
@@ -120,6 +122,20 @@ class RuntimeEventIndex:
         if stat is not None and self._cursor_matches(cursor, stat):
             return max(cursor.physical_line_count, cursor.next_offset)
         return self.next_offset(task_run_id=task_run_id, event_path=event_path)
+
+    def estimated_event_count(self, task_run_id: str, *, event_path: Path) -> int:
+        cursor = self._load_cursor(task_run_id)
+        if max(cursor.physical_line_count, cursor.next_offset) > 0:
+            return max(cursor.physical_line_count, cursor.next_offset)
+        rows = self._load_tail(task_run_id)
+        if not rows:
+            rows = read_event_tail(event_path, tail_limit=1)
+        if not rows:
+            return 0
+        try:
+            return max(0, int(rows[-1].get("offset") or 0) + 1)
+        except (TypeError, ValueError):
+            return len(rows)
 
     def delete_index(self, task_run_id: str) -> None:
         self._cursor_path(task_run_id).unlink(missing_ok=True)
@@ -211,6 +227,40 @@ def rebuild_event_index(*, task_run_id: str, event_path: Path, tail_limit: int =
     return cursor, tail
 
 
+def read_event_tail(event_path: Path, *, tail_limit: int = DEFAULT_TAIL_LIMIT, max_bytes: int = 8 * 1024 * 1024) -> list[dict[str, Any]]:
+    return [compact_event_for_tail(item) for item in read_event_tail_raw(event_path, tail_limit=tail_limit, max_bytes=max_bytes)]
+
+
+def read_event_tail_raw(event_path: Path, *, tail_limit: int = DEFAULT_TAIL_LIMIT, max_bytes: int = 8 * 1024 * 1024) -> list[dict[str, Any]]:
+    requested = max(1, int(tail_limit or DEFAULT_TAIL_LIMIT))
+    path = Path(event_path)
+    if not path.exists():
+        return []
+    try:
+        size = path.stat().st_size
+        read_size = min(size, max(64 * 1024, int(max_bytes)))
+        with path.open("rb") as stream:
+            stream.seek(max(0, size - read_size))
+            data = stream.read(read_size)
+    except OSError:
+        return []
+    rows: list[dict[str, Any]] = []
+    lines = data.splitlines()
+    if size > read_size and lines:
+        lines = lines[1:]
+    for raw_line in lines[-requested:]:
+        stripped = raw_line.strip()
+        if not stripped:
+            continue
+        try:
+            payload = json.loads(stripped.decode("utf-8"))
+        except (UnicodeDecodeError, JSONDecodeError):
+            continue
+        if isinstance(payload, dict):
+            rows.append(payload)
+    return rows[-requested:]
+
+
 def _event_from_payload(payload: dict[str, Any], *, task_run_id: str) -> RuntimeEvent:
     return RuntimeEvent(
         event_id=str(payload.get("event_id") or ""),
@@ -236,6 +286,9 @@ def compact_event_for_tail(event: dict[str, Any]) -> dict[str, Any]:
         "terminal_reason",
         "error",
         "reason",
+        "payload_externalized",
+        "payload_ref",
+        "payload_size_bytes",
     ):
         value = payload.get(key)
         if value not in (None, "", [], {}):

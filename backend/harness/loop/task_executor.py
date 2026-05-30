@@ -29,8 +29,20 @@ from harness.runtime import RuntimeCompiler, TaskExecutorServices, assemble_runt
 from harness.runtime.public_progress import public_action_progress_summary, public_runtime_progress_summary
 
 from .admission import admit_model_action
+from .executor_sequence import claim_executor_sequence, next_model_action_request_id
 from .model_action_runtime import call_model_invoker, compact_text, model_action_timeout_seconds, parse_json_object
 from .model_action_protocol import ModelActionRequest, model_action_request_from_payload
+from .task_contract_revision import (
+    apply_contract_revision_decisions,
+    ensure_revision_for_steer,
+    list_active_task_contract_revisions,
+)
+from .task_steering import (
+    create_active_task_steer,
+    list_pending_task_steers,
+    mark_task_steers_consumed,
+    mark_task_steers_included,
+)
 from .task_lifecycle import TaskLifecycleRecord, finish_task_lifecycle
 from .work_rollout import append_work_rollout_item, ensure_work_rollout, work_rollout_summary
 
@@ -334,69 +346,25 @@ def append_user_work_instruction(
     instruction = str(content or "").strip()
     if not instruction:
         return _conflict(task_run_id, "user_work_instruction_empty")
-    now = time.time()
-    observation = {
-        "observation_id": f"rtobs:{task_run_id}:user:{uuid.uuid4().hex[:8]}",
-        "task_run_id": task_run_id,
-        "observation_type": "user_work_instruction",
-        "source": "conversation.user",
-        "request_ref": str(turn_id or ""),
-        "directive_ref": "conversation:user_work_instruction",
-        "content_chars": len(instruction),
-        "payload": {
-            "tool_name": "user_instruction",
-            "tool_args": {"source": "conversation.user", "intent": intent},
-            "result": instruction,
-            "structured_payload": {
-                "user_instruction": instruction,
-                "intent": intent,
-                "turn_id": str(turn_id or ""),
-            },
-        },
-        "needs_model_followup": True,
-        "created_at": now,
-        "authority": "orchestration.runtime_observation",
-    }
-    runtime_host.runtime_objects.put_object("observation", observation["observation_id"], observation)
-    event = runtime_host.event_log.append(
+    result = create_active_task_steer(
+        runtime_host,
         task_run_id,
-        "user_work_instruction_recorded",
-        payload={"observation": observation},
-        refs={"task_run_ref": task_run_id, "turn_ref": str(turn_id or ""), "observation_ref": observation["observation_id"]},
+        content=instruction,
+        turn_id=turn_id,
+        intent=intent,
+        steer_kind="instruction",
+        priority="high",
     )
-    updated = replace(
-        task_run,
-        updated_at=event.created_at or now,
-        latest_event_offset=event.offset,
-        diagnostics={
-            **dict(task_run.diagnostics or {}),
-            "latest_step": "user_work_instruction_recorded",
-            "latest_step_status": str(getattr(task_run, "status", "") or "running"),
-            "latest_step_summary": "已收到你的补充说明，会在后续处理里纳入。",
-        },
-    )
-    runtime_host.state_index.upsert_task_run(updated)
+    updated = runtime_host.state_index.get_task_run(task_run_id) or task_run
     _record_task_step_summary(
         runtime_host,
         task_run_id=task_run_id,
-        step="user_work_instruction_recorded",
-        status=str(getattr(task_run, "status", "") or "running"),
-        summary="已收到你的补充说明，会在后续处理里纳入。",
-        refs={"observation_ref": observation["observation_id"]},
-    )
-    append_work_rollout_item(
-        runtime_host,
-        task_run=updated,
-        item_type="user_instruction",
-        title="收到补充要求",
+        step="active_task_steer_recorded",
         status=str(getattr(updated, "status", "") or "running"),
-        summary="已收到你的补充说明，会在后续处理里纳入。",
-        agent_brief_output=instruction,
-        event_offset=event.offset,
-        refs={"observation_ref": observation["observation_id"], "turn_ref": str(turn_id or "")},
-        payload={"user_instruction": instruction, "intent": intent},
+        summary="已收到你的补充说明，会在后续处理里优先纳入。",
+        refs={"steer_ref": str(dict(result.get("steer") or {}).get("steer_id") or "")},
     )
-    return {"ok": True, "accepted": True, "task_run": updated.to_dict(), "observation": observation}
+    return {**result, "task_run": updated.to_dict()}
 
 
 def recover_interrupted_task_executors(runtime_host: Any) -> dict[str, Any]:
@@ -476,6 +444,11 @@ async def execute_task_run(
     control_result = _apply_runtime_control_boundary(runtime_host, task_run=task_run, agent_run=None, boundary="executor_start")
     if control_result is not None:
         return control_result
+    if is_task_run_executor_claimed(task_run):
+        diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
+        executor_status = str(diagnostics.get("executor_status") or "")
+        if executor_status == "running":
+            return _conflict(task_run_id, "task_run_executor_already_running")
     if not is_task_run_executable(task_run) and not is_task_run_executor_claimed(task_run):
         return _conflict(task_run_id, f"task_run_not_executable:{task_run.status}")
 
@@ -516,6 +489,13 @@ async def execute_task_run(
         payload={"task_run": task_run.to_dict(), "runtime_assembly": runtime_assembly.to_dict()},
         refs={"task_run_ref": task_run.task_run_id},
     )
+    sequence = claim_executor_sequence(runtime_host, task_run)
+    runtime_host.event_log.append(
+        task_run.task_run_id,
+        "task_run_executor_claimed",
+        payload={"sequence": sequence.to_dict()},
+        refs={"task_run_ref": task_run.task_run_id, "executor_epoch": sequence.executor_epoch},
+    )
     ensure_work_rollout(runtime_host, task_run, status="running")
     _record_task_step_summary(
         runtime_host,
@@ -535,17 +515,24 @@ async def execute_task_run(
     execution_state: dict[str, Any] = dict(observation_context["execution_state"])
     artifact_refs: list[dict[str, Any]] = list(observation_context["artifact_refs"])
     compiler = RuntimeCompiler()
+    projected_task = runtime_host.state_index.get_task_run(task_run.task_run_id) or task_run
     current_task = replace(
-        task_run,
+        projected_task,
         status="running",
         updated_at=time.time(),
         terminal_reason="",
-        diagnostics={**_diagnostics_for_executor_start(diagnostics), "executor_status": "running"},
+        diagnostics={
+            **_diagnostics_for_executor_start(dict(getattr(projected_task, "diagnostics", {}) or diagnostics)),
+            "executor_status": "running",
+            "executor_epoch": sequence.executor_epoch,
+            "next_invocation_index": sequence.next_invocation_index,
+        },
     )
     runtime_host.state_index.upsert_task_run(current_task)
     agent_run = _ensure_executor_agent_run(runtime_host, task_run=current_task)
 
-    for step_index in range(1, max(1, int(max_steps or _MAX_TASK_EXECUTION_STEPS)) + 1):
+    for local_step_index in range(1, max(1, int(max_steps or _MAX_TASK_EXECUTION_STEPS)) + 1):
+        step_index = sequence.next_invocation_index + local_step_index - 1
         control_result = _apply_runtime_control_boundary(runtime_host, task_run=current_task, agent_run=agent_run, boundary=f"step_start:{step_index}")
         if control_result is not None:
             return control_result
@@ -571,8 +558,35 @@ async def execute_task_run(
                 "task_run_ref": current_task.task_run_id,
                 "runtime_envelope_ref": compilation.envelope.envelope_id,
                 "runtime_invocation_packet_ref": compilation.packet.packet_id,
+                "executor_epoch": sequence.executor_epoch,
+                "invocation_index": step_index,
             },
         )
+        runtime_host.state_index.upsert_task_run(
+            replace(
+                current_task,
+                latest_event_offset=packet_event.offset,
+                diagnostics={
+                    **dict(getattr(current_task, "diagnostics", {}) or {}),
+                    "executor_epoch": sequence.executor_epoch,
+                    "next_invocation_index": step_index + 1,
+                    "active_packet_ref": compilation.packet.packet_id,
+                },
+            )
+        )
+        current_task = runtime_host.state_index.get_task_run(current_task.task_run_id) or current_task
+        included_steer_ids = [
+            str(item.get("steer_id") or "")
+            for item in list(dict(execution_state.get("system_projection") or {}).get("pending_user_steers") or [])
+            if isinstance(item, dict) and str(item.get("steer_id") or "")
+        ]
+        if included_steer_ids:
+            mark_task_steers_included(
+                runtime_host,
+                current_task.task_run_id,
+                steer_ids=included_steer_ids,
+                packet_ref=compilation.packet.packet_id,
+            )
         _record_task_step_summary(
             runtime_host,
             task_run_id=current_task.task_run_id,
@@ -606,6 +620,7 @@ async def execute_task_run(
                 session_id=current_task.session_id,
                 packet_ref=compilation.packet.packet_id,
                 step_index=step_index,
+                executor_epoch=sequence.executor_epoch,
                 model_runtime=services.model_runtime,
                 packet=compilation.packet,
             )
@@ -693,7 +708,21 @@ async def execute_task_run(
             agent_brief_output=compact_text(action_request.final_answer, limit=300) if action_request.action_type == "respond" else "",
             presentation_source="model_action.public_progress_note" if action_request.public_progress_note else "model_action.action_type_fallback",
             refs={"action_request_ref": action_request.request_id},
+            )
+        consumed_steer_ids = _consumed_steer_ids(action_request, included_steer_ids)
+        apply_contract_revision_decisions(
+            runtime_host,
+            current_task.task_run_id,
+            decisions=_contract_revision_decisions(action_request),
+            action_ref=action_request.request_id,
         )
+        if consumed_steer_ids:
+            mark_task_steers_consumed(
+                runtime_host,
+                current_task.task_run_id,
+                steer_ids=consumed_steer_ids,
+                action_ref=action_request.request_id,
+            )
         append_work_rollout_item(
             runtime_host,
             task_run=current_task,
@@ -810,6 +839,59 @@ async def execute_task_run(
             continue
 
         if action_request.action_type == "respond":
+            current_pending_steer_ids = [
+                str(item.get("steer_id") or "")
+                for item in list_pending_task_steers(runtime_host, current_task.task_run_id)
+                if str(item.get("steer_id") or "")
+            ]
+            consumed_set = set(consumed_steer_ids)
+            unconsumed_steer_ids = _dedupe_strings(
+                [
+                    *[item for item in included_steer_ids if item not in consumed_set],
+                    *[item for item in current_pending_steer_ids if item not in consumed_set],
+                ]
+            )
+            for steer in list_pending_task_steers(runtime_host, current_task.task_run_id):
+                ensure_revision_for_steer(runtime_host, current_task.task_run_id, steer)
+            active_revisions = list_active_task_contract_revisions(runtime_host, current_task.task_run_id)
+            if unconsumed_steer_ids or active_revisions:
+                repair_observation = _active_steer_completion_repair_observation(
+                    task_run_id=current_task.task_run_id,
+                    packet_ref=compilation.packet.packet_id,
+                    action_request=action_request,
+                    pending_steer_ids=unconsumed_steer_ids,
+                    active_revisions=active_revisions,
+                )
+                raw_observations.append(repair_observation)
+                runtime_host.runtime_objects.put_object("observation", repair_observation["observation_id"], repair_observation)
+                runtime_host.event_log.append(
+                    current_task.task_run_id,
+                    "task_completion_repair_required",
+                    payload={
+                        "observation": repair_observation,
+                        "pending_steer_ids": unconsumed_steer_ids,
+                        "active_contract_revision_ids": [str(item.get("revision_id") or "") for item in active_revisions],
+                    },
+                    refs={"task_run_ref": current_task.task_run_id, "observation_ref": repair_observation["observation_id"]},
+                )
+                _record_task_step_summary(
+                    runtime_host,
+                    task_run_id=current_task.task_run_id,
+                    step=f"task_completion_pending_steer_required:{step_index}",
+                    status="running",
+                    summary="用户补充要求或目标修订尚未被明确处理，正在继续推进。",
+                )
+                observation_context = _observations_for_packet(
+                    runtime_host,
+                    current_task.task_run_id,
+                    current_fingerprint=runtime_fingerprint,
+                    pending_observations=raw_observations,
+                )
+                raw_observations = list(observation_context["raw_observations"])
+                observations = list(observation_context["packet_observations"])
+                execution_state = dict(observation_context["execution_state"])
+                artifact_refs = _dedupe_artifacts([*list(observation_context["artifact_refs"]), *artifact_refs])
+                continue
             candidate_artifacts = _dedupe_artifacts([*artifact_refs, *_artifacts_from_action(action_request)])
             verdict = _verify_completion(
                 runtime_host=runtime_host,
@@ -895,6 +977,7 @@ async def _invoke_task_model_action(
     task_run_id: str,
     session_id: str,
     invocation_index: int,
+    executor_epoch: int = 0,
 ) -> tuple[ModelActionRequest | None, dict[str, Any]]:
     invoker = getattr(model_runtime, "invoke_messages", None)
     if not callable(invoker):
@@ -919,7 +1002,15 @@ async def _invoke_task_model_action(
         timeout=timeout_seconds,
     )
     payload = parse_json_object(getattr(response, "content", response))
-    payload.setdefault("request_id", f"model-action:{task_run_id}:{invocation_index}")
+    payload.setdefault(
+        "request_id",
+        next_model_action_request_id(
+            task_run_id=task_run_id,
+            executor_epoch=executor_epoch,
+            invocation_index=invocation_index,
+            suffix=uuid.uuid4().hex[:8],
+        ),
+    )
     return model_action_request_from_payload(payload, turn_id=task_run_id)
 
 
@@ -930,6 +1021,7 @@ async def _await_task_model_action_with_status(
     session_id: str,
     packet_ref: str,
     step_index: int,
+    executor_epoch: int = 0,
     model_runtime: Any,
     packet: Any,
 ) -> tuple[ModelActionRequest | None, dict[str, Any]]:
@@ -940,6 +1032,7 @@ async def _await_task_model_action_with_status(
             task_run_id=task_run_id,
             session_id=session_id,
             invocation_index=step_index,
+            executor_epoch=executor_epoch,
         )
     )
     wait_round = 0
@@ -1598,12 +1691,18 @@ def _pause_executor_for_model_recovery(
 ) -> dict[str, Any]:
     now = time.time()
     error_payload = _model_error_payload(error)
+    executor_epoch = int(dict(getattr(task_run, "diagnostics", {}) or {}).get("executor_epoch") or 0)
     observation = {
         "observation_id": f"rtobs:{task_run.task_run_id}:{uuid.uuid4().hex[:8]}",
         "task_run_id": task_run.task_run_id,
         "observation_type": "executor_error",
         "source": "system:model_runtime",
-        "request_ref": f"model-action:{task_run.task_run_id}:{step_index}",
+        "request_ref": next_model_action_request_id(
+            task_run_id=task_run.task_run_id,
+            executor_epoch=executor_epoch,
+            invocation_index=step_index,
+            suffix="model-call-failed",
+        ),
         "directive_ref": packet_ref,
         "content_chars": len(str(error_payload.get("detail") or "")),
         "payload": error_payload,
@@ -1979,6 +2078,22 @@ def _observations_for_packet(
         for observation in deduped
     ]
     projection = _build_execution_state_projection(records)
+    pending_steers = list_pending_task_steers(runtime_host, task_run_id)
+    for steer in pending_steers:
+        ensure_revision_for_steer(runtime_host, task_run_id, steer)
+    active_revisions = list_active_task_contract_revisions(runtime_host, task_run_id)
+    if pending_steers:
+        projection = {
+            **projection,
+            "pending_user_steers": [_steer_for_projection(item) for item in pending_steers],
+            "pending_user_steer_count": len(pending_steers),
+        }
+    if active_revisions:
+        projection = {
+            **projection,
+            "active_contract_revisions": [_contract_revision_for_projection(item) for item in active_revisions],
+            "active_contract_revision_count": len(active_revisions),
+        }
     return {
         "raw_observations": deduped,
         "tool_observation_records": records,
@@ -1999,6 +2114,62 @@ def _observations_for_packet(
             ]
         ),
     }
+
+
+def _steer_for_projection(steer: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "steer_id": str(steer.get("steer_id") or ""),
+        "submission_ref": str(steer.get("submission_ref") or ""),
+        "task_run_id": str(steer.get("task_run_id") or ""),
+        "steer_kind": str(steer.get("steer_kind") or "instruction"),
+        "priority": str(steer.get("priority") or "normal"),
+        "consumption_state": str(steer.get("consumption_state") or "pending"),
+        "content": compact_text(str(steer.get("content") or ""), limit=1200),
+        "created_at": float(steer.get("created_at") or 0.0),
+        "authority": "harness.loop.active_task_steer.model_projection",
+    }
+
+
+def _contract_revision_for_projection(revision: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "revision_id": str(revision.get("revision_id") or ""),
+        "task_run_id": str(revision.get("task_run_id") or ""),
+        "submission_ref": str(revision.get("submission_ref") or ""),
+        "steer_ref": str(revision.get("steer_ref") or ""),
+        "revision_kind": str(revision.get("revision_kind") or "continuation_instruction"),
+        "status": str(revision.get("status") or "pending_agent_triage"),
+        "instruction": compact_text(str(revision.get("instruction") or ""), limit=1200),
+        "proposed_goal": compact_text(str(revision.get("proposed_goal") or ""), limit=600),
+        "proposed_acceptance_criteria": [
+            compact_text(str(item), limit=300)
+            for item in list(revision.get("proposed_acceptance_criteria") or [])
+            if str(item)
+        ],
+        "impact": dict(revision.get("impact") or {}),
+        "authority": "harness.loop.task_contract_revision.model_projection",
+    }
+
+
+def _consumed_steer_ids(action_request: ModelActionRequest, included_steer_ids: list[str]) -> list[str]:
+    wanted = {str(item or "").strip() for item in included_steer_ids if str(item or "").strip()}
+    diagnostics = dict(action_request.diagnostics or {})
+    raw = diagnostics.get("consumed_steer_refs")
+    if raw is None:
+        raw = diagnostics.get("consumed_user_steer_refs")
+    result: list[str] = []
+    for item in list(raw or []):
+        steer_id = str(item or "").strip()
+        if steer_id in wanted and steer_id not in result:
+            result.append(steer_id)
+    return result
+
+
+def _contract_revision_decisions(action_request: ModelActionRequest) -> list[dict[str, Any]]:
+    diagnostics = dict(action_request.diagnostics or {})
+    raw = diagnostics.get("contract_revision_decisions")
+    if raw is None:
+        raw = diagnostics.get("task_contract_revision_decisions")
+    return [dict(item) for item in list(raw or []) if isinstance(item, dict)]
 
 
 def _tool_record_from_observation(observation: dict[str, Any], *, current_fingerprint: dict[str, Any]) -> dict[str, Any]:
@@ -2524,6 +2695,41 @@ def _completion_repair_observation(*, task_run_id: str, packet_ref: str, action_
     }
 
 
+def _active_steer_completion_repair_observation(
+    *,
+    task_run_id: str,
+    packet_ref: str,
+    action_request: ModelActionRequest,
+    pending_steer_ids: list[str],
+    active_revisions: list[dict[str, Any]],
+) -> dict[str, Any]:
+    active_revision_ids = [str(item.get("revision_id") or "") for item in active_revisions if str(item.get("revision_id") or "")]
+    return {
+        "observation_id": f"rtobs:{task_run_id}:pending-steer:{uuid.uuid4().hex[:8]}",
+        "task_run_id": task_run_id,
+        "observation_type": "executor_error",
+        "source": "system:task_completion_validator",
+        "request_ref": action_request.request_id,
+        "directive_ref": packet_ref,
+        "content_chars": 0,
+        "payload": {
+            "error_code": "pending_user_steer_unconsumed",
+            "pending_steer_ids": list(pending_steer_ids),
+            "active_contract_revision_ids": active_revision_ids,
+            "repair_instruction": (
+                "处理 pending_user_steers 前不能直接完成。你需要真正纳入用户补充要求，并在 diagnostics.consumed_steer_refs "
+                "列出已处理的 steer_id；如果补充要求改变目标、验收或范围，还需要在 diagnostics.contract_revision_decisions "
+                "中裁决对应 revision_id。"
+            ),
+            "rejected_action_request": action_request.to_dict(),
+        },
+        "needs_model_followup": True,
+        "created_at": time.time(),
+        "authority": "orchestration.runtime_observation",
+        "error": "pending_user_steer_unconsumed",
+    }
+
+
 def _model_protocol_repair_observation(
     *,
     task_run_id: str,
@@ -2541,7 +2747,7 @@ def _model_protocol_repair_observation(
         "task_run_id": task_run_id,
         "observation_type": "executor_error",
         "source": "system:model_action_protocol",
-        "request_ref": f"model-action:{task_run_id}:{step_index}",
+        "request_ref": f"model-action-protocol:{task_run_id}:invocation:{step_index}:{uuid.uuid4().hex[:8]}",
         "directive_ref": packet_ref,
         "content_chars": len(message),
         "payload": {

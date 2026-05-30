@@ -269,6 +269,15 @@ def test_health_system_monitor_governance_and_task_record_maintenance_contracts(
         assert "monitor_authority" in monitor_payload
         assert "recommended_actions" in monitor_payload
 
+        tasks = client.get("/api/health-system/tasks?limit=5")
+        assert tasks.status_code == 200
+        task_payload = tasks.json()
+        if task_payload["tasks"]:
+            task = task_payload["tasks"][0]
+            assert "monitor" in task
+            assert "monitor_bucket" in task
+            assert "monitor_lifecycle" in task
+
 
 def test_health_conversation_routes_trace_analysis_mode() -> None:
     registry = HealthRegistry(BACKEND_DIR)

@@ -62,7 +62,7 @@ def main() -> int:
     parser = _build_parser()
     args = parser.parse_args()
 
-    base_dir = Path(__file__).resolve().parents[1]
+    base_dir = Path(__file__).resolve().parents[5]
     layout = ProjectLayout.from_backend_dir(base_dir)
     durable_layout = durable_memory_layout_from_backend_dir(base_dir)
     adapter = MultimodalParserAdapter(repo_root=base_dir.parent, ocr_language=args.ocr_language)

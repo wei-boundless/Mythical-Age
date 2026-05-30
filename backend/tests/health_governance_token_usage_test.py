@@ -4,6 +4,7 @@ import time
 from types import SimpleNamespace
 
 from health_system.governance import HealthGovernanceBuilder
+from harness.runtime.monitor_projection import TaskRunMonitorProjector
 from runtime.prompt_accounting import ModelTokenUsageRecord, PromptAccountingLedger
 from runtime.shared.models import TaskRun
 
@@ -353,20 +354,24 @@ def test_health_governance_reports_rollout_and_checkout_lineage_risks() -> None:
             "lineage": {"root_task_run_id": "taskrun:root", "parent_task_run_id": "taskrun:root"},
         },
     )
+    state_index = StateIndexStub([interrupted_without_checkout, missing_rollout, failed_checkout_a, failed_checkout_b])
+    event_log = EventLogStub({
+        "taskrun:interrupted": [EventStub("task_run_finished", {"terminal_reason": "user_aborted"})],
+        "taskrun:missing-rollout": [EventStub("step_summary_recorded", {"summary": "waiting"})],
+        "taskrun:root:checkout:a": [EventStub("loop_error", {"error": "failed"})],
+        "taskrun:root:checkout:b": [EventStub("loop_error", {"error": "failed"})],
+    })
+    monitor_projector = TaskRunMonitorProjector(event_log)
     runtime_host = SimpleNamespace(
-        state_index=StateIndexStub([interrupted_without_checkout, missing_rollout, failed_checkout_a, failed_checkout_b]),
-        event_log=EventLogStub({
-            "taskrun:interrupted": [EventStub("task_run_finished", {"terminal_reason": "user_aborted"})],
-            "taskrun:missing-rollout": [EventStub("step_summary_recorded", {"summary": "waiting"})],
-            "taskrun:root:checkout:a": [EventStub("loop_error", {"error": "failed"})],
-            "taskrun:root:checkout:b": [EventStub("loop_error", {"error": "failed"})],
-        }),
+        state_index=state_index,
+        event_log=event_log,
+        monitor_projector=monitor_projector,
         runtime_objects=RuntimeObjectsStub({
             "rtobj:work_rollout:taskrun_root_checkout_a": {"rollout_id": "workrollout:a"},
             "rtobj:work_rollout:taskrun_root_checkout_b": {"rollout_id": "workrollout:b"},
         }),
         prompt_accounting_ledger=None,
-        list_global_live_monitor=lambda limit: {"summary": {}, "task_runs": []},
+        list_global_live_monitor=lambda limit: monitor_projector.build_global_monitor(state_index.list_task_runs(), now=now, limit=limit),
     )
     runtime = SimpleNamespace(query_runtime=SimpleNamespace(single_agent_runtime_host=runtime_host))
 

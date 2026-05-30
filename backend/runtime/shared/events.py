@@ -97,6 +97,16 @@ RuntimeEventType = Literal[
     "runtime_file_management_prepared",
     "agent_runtime_planning_phase_checked",
     "agent_runtime_closeout_phase_checked",
+    "user_submission_recorded",
+    "active_task_steer_recorded",
+    "active_task_steer_included",
+    "active_task_steer_consumed",
+    "active_task_steer_rejected",
+    "active_task_steer_superseded",
+    "task_contract_revision_recorded",
+    "task_contract_revision_decided",
+    "task_run_executor_claimed",
+    "task_run_executor_scheduled",
 ]
 
 
@@ -125,4 +135,3 @@ class RuntimeEvent:
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
-

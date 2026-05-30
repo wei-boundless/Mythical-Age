@@ -437,6 +437,51 @@ def terminalize_task_run_ledger(
     )
 
 
+def finalize_runtime_task_run_ledger(
+    *,
+    ledger: TaskRunLedger,
+    terminal_reason: str,
+    final_content: str = "",
+    output_refs: tuple[str, ...] = (),
+) -> tuple[TaskRunLedger, list[dict[str, Any]]]:
+    """Terminalize a runtime ledger without inventing completion for unfinished steps."""
+
+    status = task_run_terminal_status(terminal_reason)
+    transitions: list[dict[str, Any]] = []
+    finalized = ledger
+    current_step = current_task_step_run(finalized)
+    if status == "failed" and current_step is not None and current_step.status == "running":
+        finalized = fail_task_run_step(
+            finalized,
+            step_id=current_step.step_id,
+            completed_at=time.time(),
+            failure_reason=terminal_reason or "runtime_failed",
+            output_refs=tuple(output_refs or ()),
+            diagnostics={"transition_reason": terminal_reason or "runtime_failed"},
+        )
+        failed_step = find_task_step_run(finalized, current_step.step_id)
+        transitions.append(
+            {
+                "event_type": "step_failed",
+                "step_id": current_step.step_id,
+                "step_run": failed_step.to_dict() if failed_step is not None else {},
+                "reason": terminal_reason or "runtime_failed",
+            }
+        )
+    current_step_id = "" if status == "completed" else finalized.current_step_id
+    finalized = terminalize_task_run_ledger(
+        finalized,
+        status=status,
+        current_step_id=current_step_id,
+        diagnostics={
+            "terminal_reason": terminal_reason,
+            "final_content": final_content,
+            "output_refs": list(output_refs or ()),
+        },
+    )
+    return finalized, transitions
+
+
 def project_task_result_from_ledger(
     ledger: TaskRunLedger,
     *,

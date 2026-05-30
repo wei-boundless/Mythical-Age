@@ -2106,12 +2106,19 @@ export type GraphRunMonitorView = {
   graph_run_id: string;
   graph_run: Record<string, unknown>;
   task_run: Record<string, unknown> | null;
+  task_run_monitor?: HarnessTaskRunLiveMonitor | Record<string, unknown> | null;
+  runtime_monitor?: HarnessTaskRunLiveMonitor | Record<string, unknown> | null;
   graph_harness_config: GraphHarnessConfigPayload | Record<string, unknown>;
   graph_loop_state: Record<string, unknown>;
   active_node_work_orders: Array<Record<string, unknown>>;
   active_node_work_order_count: number;
   events: Array<Record<string, unknown>>;
   event_count: number;
+  event_window?: {
+    kind?: string;
+    limit?: number;
+    returned?: number;
+  };
 };
 
 export type GraphRunDispatchReadyResult = {
@@ -3577,6 +3584,7 @@ export async function getOrchestrationHarnessTrace(
   options?: {
     includePayloads?: boolean;
     includeModelMessages?: boolean;
+    eventLimit?: number;
   }
 ) {
   const params = new URLSearchParams();
@@ -3585,6 +3593,9 @@ export async function getOrchestrationHarnessTrace(
   }
   if (options?.includeModelMessages) {
     params.set("include_model_messages", "true");
+  }
+  if (options?.eventLimit) {
+    params.set("event_limit", String(options.eventLimit));
   }
   const suffix = params.toString() ? `?${params.toString()}` : "";
   return request<HarnessTaskRunTrace>(
@@ -3700,10 +3711,14 @@ export async function runGraphRunUntilIdle(
   );
 }
 
-export async function getGraphRunMonitor(graphRunId: string, graphHarnessConfigId = "") {
-  const query = graphHarnessConfigId ? `?graph_harness_config_id=${encodeURIComponent(graphHarnessConfigId)}` : "";
+export async function getGraphRunMonitor(graphRunId: string, graphHarnessConfigId = "", eventLimit = 80) {
+  const params = new URLSearchParams();
+  if (graphHarnessConfigId) {
+    params.set("graph_harness_config_id", graphHarnessConfigId);
+  }
+  params.set("event_limit", String(Math.max(1, Math.min(Number(eventLimit || 80), 240))));
   return request<GraphRunMonitorView>(
-    `/orchestration/harness/graph-runs/${encodeURIComponent(graphRunId)}/monitor${query}`
+    `/orchestration/harness/graph-runs/${encodeURIComponent(graphRunId)}/monitor?${params.toString()}`
   );
 }
 

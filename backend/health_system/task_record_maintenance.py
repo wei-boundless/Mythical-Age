@@ -227,13 +227,19 @@ class HealthTaskRecordMaintenanceService:
         }
 
     def _event_count(self, task_run_id: str) -> int:
+        estimator = getattr(self.event_log, "estimated_event_count", None)
+        if callable(estimator):
+            try:
+                return int(estimator(task_run_id))
+            except Exception:
+                return 0
         counter = getattr(self.event_log, "event_count", None)
         if callable(counter):
             try:
                 return int(counter(task_run_id))
             except Exception:
                 return 0
-        return len(self.event_log.list_events(task_run_id))
+        return 0
 
     def _monitor_by_task_run_id(self) -> dict[str, dict[str, Any]]:
         try:

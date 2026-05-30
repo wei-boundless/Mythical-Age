@@ -78,10 +78,22 @@ def _recent_events(runtime_host: Any, task_run_id: str, *, limit: int) -> list[A
             return list(reader(task_run_id))
         except Exception:
             return []
-    return list(runtime_host.event_log.list_events(task_run_id))[-max(1, int(limit or 160)) :]
+    legacy_reader = getattr(runtime_host.event_log, "list_events", None)
+    if callable(legacy_reader):
+        try:
+            return list(legacy_reader(task_run_id))[-max(1, int(limit or 160)) :]
+        except Exception:
+            return []
+    return []
 
 
 def _event_count(runtime_host: Any, task_run_id: str, *, fallback: int) -> int:
+    estimator = getattr(runtime_host.event_log, "estimated_event_count", None)
+    if callable(estimator):
+        try:
+            return int(estimator(task_run_id))
+        except Exception:
+            return int(fallback)
     counter = getattr(runtime_host.event_log, "event_count", None)
     if callable(counter):
         try:
@@ -112,14 +124,17 @@ def _latest_interaction_turn_id(events: list[dict[str, Any]]) -> str:
         event_type = str(event.get("event_type") or "")
         payload = dict(event.get("payload") or {})
         refs = dict(event.get("refs") or {})
-        if event_type == "user_work_instruction_recorded":
+        if event_type in {"user_work_instruction_recorded", "active_task_steer_recorded"}:
+            steer = dict(payload.get("steer") or {})
             observation = dict(payload.get("observation") or {})
             observation_payload = dict(observation.get("payload") or {})
             structured_payload = dict(observation_payload.get("structured_payload") or {})
             for candidate in (
                 refs.get("turn_ref"),
+                dict(payload.get("submission") or {}).get("turn_id"),
                 observation.get("request_ref"),
                 structured_payload.get("turn_id"),
+                steer.get("turn_id"),
             ):
                 turn_id = _valid_turn_ref(candidate)
                 if turn_id:
@@ -195,12 +210,14 @@ def _progress_entries(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
         if event_type in {"task_run_lifecycle_started", "task_run_executor_started"}:
             entries.append(_entry(event, title="处理已开始", body="后续进展会继续汇总。", kind="task_order"))
             continue
-        if event_type == "user_work_instruction_recorded":
+        if event_type in {"user_work_instruction_recorded", "active_task_steer_recorded"}:
+            steer = dict(payload.get("steer") or {})
             observation = dict(payload.get("observation") or {})
             observation_payload = dict(observation.get("payload") or {})
             structured_payload = dict(observation_payload.get("structured_payload") or {})
             instruction = str(
-                structured_payload.get("user_instruction")
+                steer.get("content")
+                or structured_payload.get("user_instruction")
                 or observation_payload.get("result")
                 or ""
             ).strip()

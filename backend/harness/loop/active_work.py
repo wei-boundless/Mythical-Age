@@ -7,6 +7,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any, Literal
 
 from .model_action_runtime import call_model_invoker, parse_json_object
+from .task_steering import list_pending_task_steers
 from .work_rollout import ensure_work_rollout, work_rollout_summary
 from harness.runtime.public_progress import public_runtime_progress_summary
 
@@ -588,6 +589,12 @@ def _load_task_contract(runtime_host: Any, task_run: Any) -> dict[str, Any]:
 
 
 def _user_instruction_count(runtime_host: Any, task_run_id: str) -> int:
+    try:
+        pending_steers = list_pending_task_steers(runtime_host, task_run_id)
+    except Exception:
+        pending_steers = []
+    if pending_steers:
+        return len(pending_steers)
     count = 0
     try:
         events = runtime_host.event_log.list_events(task_run_id)

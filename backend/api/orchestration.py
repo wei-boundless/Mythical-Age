@@ -135,7 +135,7 @@ async def start_task_graph_harness_run(
 
 
 @router.get("/orchestration/harness/graph-runs/{graph_run_id}/monitor")
-async def get_graph_run_monitor(graph_run_id: str, graph_harness_config_id: str = "") -> dict[str, Any]:
+async def get_graph_run_monitor(graph_run_id: str, graph_harness_config_id: str = "", event_limit: int = 80) -> dict[str, Any]:
     runtime = require_runtime()
     graph_config = None
     if graph_harness_config_id:
@@ -145,6 +145,7 @@ async def get_graph_run_monitor(graph_run_id: str, graph_harness_config_id: str 
     monitor = runtime.query_runtime.graph_harness.get_graph_run_monitor(
         graph_run_id,
         graph_config=graph_config,
+        event_limit=max(1, min(int(event_limit or 80), 240)),
     )
     if monitor is None:
         raise HTTPException(status_code=404, detail="GraphRun monitor not found")

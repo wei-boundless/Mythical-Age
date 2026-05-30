@@ -59,6 +59,10 @@ function loopState(monitor: GraphRunMonitorView | null) {
   return recordValue(monitor?.graph_loop_state);
 }
 
+function runtimeMonitor(monitor: GraphRunMonitorView | null) {
+  return recordValue(monitor?.task_run_monitor || monitor?.runtime_monitor);
+}
+
 function nodeStatusMap(state: Record<string, unknown>) {
   const statuses = new Map<string, string>();
   for (const nodeId of stringArray(state.ready_node_ids)) statuses.set(nodeId, "ready");
@@ -124,11 +128,12 @@ export function TaskGraphRunInteractionDock({
   const failedNodeIds = stringArray(state.failed_node_ids);
   const blockedNodeIds = stringArray(state.blocked_node_ids);
   const activeOrders = Array.isArray(monitor?.active_node_work_orders) ? monitor.active_node_work_orders : [];
+  const taskRunMonitor = useMemo(() => runtimeMonitor(monitor), [monitor]);
   const graphRunId = textValue(binding?.graph_run_id || monitor?.graph_run_id);
   const graphHarnessConfigId = textValue(binding?.graph_harness_config_id || state.config_id);
-  const taskRunId = textValue(binding?.task_run_id || recordValue(monitor?.task_run).task_run_id);
+  const taskRunId = textValue(binding?.task_run_id || taskRunMonitor.task_run_id || recordValue(monitor?.task_run).task_run_id);
   const graphId = textValue(binding?.graph_id || state.graph_id || recordValue(monitor?.graph_run).graph_id);
-  const runtimeStatus = textValue(state.status || recordValue(monitor?.graph_run).status);
+  const runtimeStatus = textValue(taskRunMonitor.lifecycle || taskRunMonitor.status || state.status || recordValue(monitor?.graph_run).status);
   const boundLabel = binding?.title || graphId || (graphRunId ? compactId(graphRunId) : "未绑定 GraphRun");
   const latestAt = latestMonitorTime(monitor);
   const lastUpdatedLabel = formatClock(latestAt);

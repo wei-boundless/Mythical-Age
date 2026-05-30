@@ -5,13 +5,13 @@ from task_system.tasks.run_models import (
     build_task_run_ledger,
     complete_task_run_step,
     current_task_step_run,
+    finalize_runtime_task_run_ledger,
     project_task_result_from_ledger,
     start_task_run_step,
 )
 from task_system.planning.execution_recipe_models import ExecutionRecipe
 from task_system.tasks.spec_models import TaskSpec
 from task_system.tasks.step_models import TaskStepBlueprint
-from harness.loop.agent_finalization import finalize_runtime_task_run_ledger
 
 
 def _recipe(*steps: TaskStepBlueprint) -> ExecutionRecipe:

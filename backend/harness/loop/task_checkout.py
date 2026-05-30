@@ -159,6 +159,14 @@ def _put_checkout_contract(
         "contract_id": contract_id,
         "contract_source": "checkout_resume",
         "source_contract_ref": str(getattr(source, "task_contract_ref", "") or contract.get("source_contract_ref") or ""),
+        "current_user_revision": {
+            "revision_id": f"taskrev:{child_task_run_id}:{uuid.uuid4().hex[:8]}",
+            "revision_kind": "continuation_instruction",
+            "user_instruction": str(user_instruction or ""),
+            "status": "pending_agent_triage" if str(user_instruction or "").strip() else "none",
+            "authority": "harness.loop.task_contract_revision",
+        },
+        "current_user_instruction": str(user_instruction or ""),
         "recovery_policy": {
             **dict(contract.get("recovery_policy") or {}),
             "resume_mode": "checkout_fork",
@@ -169,7 +177,6 @@ def _put_checkout_contract(
             **dict(contract.get("prompt_contract") or {}),
             "resume_context": {
                 "summary": rollout_summary,
-                "user_instruction": str(user_instruction or ""),
                 "guidance": (
                     "你正在继续一项被用户中断过的工作。上次工作可能已经部分修改了文件或执行了工具。"
                     "继续前先检查当前工作区和已有结果，再决定下一步。不要假设中断前的最后动作一定完整成功。"

@@ -72,8 +72,6 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "build_user_message_commit_decision": (".commit_gate", "build_user_message_commit_decision"),
     "derive_replay_policy": ("runtime", "derive_replay_policy"),
     "resolve_execution_dispatch": (".execution_scheduler", "resolve_execution_dispatch"),
-    "summarize_runtime_loop_events": (".monitor", "summarize_runtime_loop_events"),
-    "summarize_runtime_loop_trace": (".monitor", "summarize_runtime_loop_trace"),
 }
 
 __all__ = list(_EXPORTS)

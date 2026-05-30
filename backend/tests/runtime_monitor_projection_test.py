@@ -10,6 +10,12 @@ class EventLogStub:
     def list_events(self, task_run_id):
         return list(self._events.get(task_run_id, []))
 
+    def list_recent_events(self, task_run_id, *, limit=240):
+        return list(self._events.get(task_run_id, []))[-max(1, int(limit or 240)) :]
+
+    def event_count(self, task_run_id):
+        return len(self._events.get(task_run_id, []))
+
 
 class EventStub:
     def __init__(self, *, event_type, created_at, payload=None, event_id="event:1", offset=0):
@@ -175,6 +181,29 @@ def test_latest_step_summary_is_exposed_from_event_log():
 
     assert item["latest_step_summary"] == "已读取文件。"
     assert item["latest_step_name"] == "tool_result"
+
+
+def test_active_task_steer_and_executor_sequence_diagnostics_are_exposed():
+    projector = TaskRunMonitorProjector(EventLogStub())
+    run = task_run(
+        diagnostics={
+            "pending_user_steer_count": 2,
+            "latest_user_steer_ref": "steer:taskrun:latest",
+            "active_contract_revision_count": 1,
+            "latest_contract_revision_ref": "taskrev:taskrun:latest",
+            "executor_epoch": 3,
+            "next_invocation_index": 9,
+        }
+    )
+
+    item = projector.project_task_run(run, now=150.0)
+
+    assert item["pending_user_steer_count"] == 2
+    assert item["latest_user_steer_ref"] == "steer:taskrun:latest"
+    assert item["active_contract_revision_count"] == 1
+    assert item["latest_contract_revision_ref"] == "taskrev:taskrun:latest"
+    assert item["executor_epoch"] == 3
+    assert item["next_invocation_index"] == 9
 
 
 def test_missing_time_fields_enter_diagnostics():

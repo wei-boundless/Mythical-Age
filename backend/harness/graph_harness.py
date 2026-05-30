@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import time
 from typing import Any
 
 from runtime.shared.models import TaskRun
@@ -210,32 +211,44 @@ class GraphHarness:
     def get_task_run(self, task_run_id: str) -> Any | None:
         return self.state_index.get_task_run(task_run_id)
 
-    def get_graph_run_monitor(self, graph_run_id: str, *, graph_config: GraphHarnessConfig | None = None) -> dict[str, Any] | None:
+    def get_graph_run_monitor(self, graph_run_id: str, *, graph_config: GraphHarnessConfig | None = None, event_limit: int = 80) -> dict[str, Any] | None:
         state = self._loop.get_state(graph_run_id)
         graph_run = self.get_graph_run(graph_run_id)
         if state is None and graph_run is None:
             return None
         config_payload = graph_config.to_dict() if graph_config is not None else {}
         task_run_id = state.task_run_id if state is not None else str(dict(graph_run or {}).get("task_run_id") or "")
-        events = self._services.event_log.list_events(task_run_id) if task_run_id else []
+        event_limit = max(1, min(int(event_limit or 80), 240))
+        events = self._recent_events(task_run_id, limit=event_limit) if task_run_id else []
+        event_count = self._estimated_event_count(task_run_id, fallback=len(events)) if task_run_id else 0
         active_work_orders = _active_work_orders_from_state(state)
+        task_run = self.get_task_run(task_run_id) if task_run_id else None
+        task_run_monitor = self._task_run_monitor(task_run)
         node_runtime_views = _node_runtime_views(
             state=state,
             events=events,
             task_run_lookup=self.get_task_run,
+            task_run_monitor_lookup=self._task_run_monitor_by_id,
         )
         return {
             "authority": "harness.graph_run_monitor",
             "graph_run_id": graph_run_id,
             "graph_run": graph_run or {},
-            "task_run": _task_run_summary(self.get_task_run(task_run_id)) if task_run_id else None,
+            "task_run": _task_run_summary(task_run) if task_run_id else None,
+            "task_run_monitor": task_run_monitor or None,
+            "runtime_monitor": task_run_monitor or None,
             "graph_harness_config": config_payload,
             "graph_loop_state": _loop_state_public_view(state) if state is not None else {},
             "active_node_work_orders": active_work_orders,
             "active_node_work_order_count": len(active_work_orders),
             "node_runtime_views": node_runtime_views,
             "events": [item.to_dict() for item in events],
-            "event_count": len(events),
+            "event_count": event_count,
+            "event_window": {
+                "kind": "tail",
+                "limit": event_limit,
+                "returned": len(events),
+            },
         }
 
     def get_trace(self, task_run_id: str, **kwargs: Any) -> dict[str, Any] | None:
@@ -243,6 +256,43 @@ class GraphHarness:
 
     def event_count(self, task_run_id: str) -> int:
         return self._services.event_count(task_run_id)
+
+    def _recent_events(self, task_run_id: str, *, limit: int) -> list[Any]:
+        reader = getattr(self._services.event_log, "list_recent_events", None)
+        if callable(reader):
+            return list(reader(task_run_id, limit=limit))
+        return []
+
+    def _estimated_event_count(self, task_run_id: str, *, fallback: int) -> int:
+        counter = getattr(self._services.event_log, "estimated_event_count", None)
+        if callable(counter):
+            try:
+                return int(counter(task_run_id))
+            except Exception:
+                pass
+        counter = getattr(self._services.event_log, "event_count", None)
+        if callable(counter):
+            try:
+                return int(counter(task_run_id))
+            except Exception:
+                pass
+        return int(fallback)
+
+    def _task_run_monitor_by_id(self, task_run_id: str) -> dict[str, Any]:
+        task_run = self.get_task_run(task_run_id) if task_run_id else None
+        return self._task_run_monitor(task_run)
+
+    def _task_run_monitor(self, task_run: Any | None) -> dict[str, Any]:
+        if task_run is None:
+            return {}
+        projector = getattr(self._services, "monitor_projector", None)
+        project = getattr(projector, "project_task_run", None)
+        if callable(project):
+            try:
+                return dict(project(task_run, now=time.time()) or {})
+            except Exception:
+                return {}
+        return {}
 
 
 def _safe_ref_id(value: str) -> str:
@@ -289,7 +339,7 @@ def _active_work_orders_from_state(state: Any | None) -> list[dict[str, Any]]:
     return orders
 
 
-def _node_runtime_views(*, state: Any | None, events: list[Any], task_run_lookup: Any) -> list[dict[str, Any]]:
+def _node_runtime_views(*, state: Any | None, events: list[Any], task_run_lookup: Any, task_run_monitor_lookup: Any | None = None) -> list[dict[str, Any]]:
     if state is None:
         return []
     node_states = {key: dict(value) for key, value in dict(getattr(state, "node_states", {}) or {}).items()}
@@ -306,6 +356,7 @@ def _node_runtime_views(*, state: Any | None, events: list[Any], task_run_lookup
         )
         task_run = task_run_lookup(task_run_id) if task_run_id else None
         task_payload = _task_run_summary(task_run)
+        task_monitor = task_run_monitor_lookup(task_run_id) if callable(task_run_monitor_lookup) and task_run_id else {}
         work_order_summary = dict(getattr(state, "work_order_index", {}).get(work_order_id) or {}) if work_order_id else {}
         views.append(
             {
@@ -317,6 +368,7 @@ def _node_runtime_views(*, state: Any | None, events: list[Any], task_run_lookup
                 "work_order_summary": work_order_summary,
                 "node_executor_task_run_id": task_run_id,
                 "node_executor_task_run": task_payload or None,
+                "node_executor_task_run_monitor": task_monitor or None,
                 "latest_step": task_payload.get("latest_step") or {},
                 "artifact_refs": list(result.get("artifact_refs") or []),
                 "artifact_materialization_receipt_count": int(result.get("artifact_materialization_receipt_count") or 0),

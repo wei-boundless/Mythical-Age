@@ -12,10 +12,6 @@ from .store import HealthStore
 from .task_record_maintenance import HealthTaskRecordMaintenanceService
 
 
-ACTIVE_STATUSES = {"created", "queued", "running", "waiting_approval", "paused"}
-WAITING_EXECUTOR_STATUSES = {"waiting_executor"}
-FAILED_STATUSES = {"failed", "aborted", "cancelled"}
-WARNING_STATUSES = {"waiting_approval", "paused"}
 CHECKOUTABLE_TERMINAL_REASONS = {
     "user_aborted",
     "stream_cancelled",
@@ -47,9 +43,9 @@ class HealthGovernanceBuilder:
         recommendations = self._recommendations(risks=risks, token_usage=token_usage, efficiency=efficiency)
         summary = {
             "task_count": len(tasks),
-            "running_task_count": sum(1 for item in tasks if item["status"] in ACTIVE_STATUSES),
-            "waiting_task_count": sum(1 for item in tasks if item["status"] in WARNING_STATUSES),
-            "failed_task_count": sum(1 for item in tasks if item["status"] in FAILED_STATUSES),
+            "running_task_count": sum(1 for item in tasks if self._task_bucket(item) == "running"),
+            "waiting_task_count": sum(1 for item in tasks if self._task_action_required(item)),
+            "failed_task_count": sum(1 for item in tasks if self._task_bucket(item) == "failed"),
             "risk_event_count": len(risks),
             "critical_risk_count": sum(1 for item in risks if item["severity"] == "critical"),
             "high_risk_count": sum(1 for item in risks if item["severity"] == "high"),
@@ -78,14 +74,15 @@ class HealthGovernanceBuilder:
             key=lambda item: float(item.updated_at or item.created_at or 0.0),
             reverse=True,
         )[: max(1, min(int(limit or 100), 300))]
-        tasks = [self._task_record(task_run) for task_run in task_runs]
+        monitor_index = self._monitor_index(limit=max(100, len(task_runs)))
+        tasks = [self._task_record(task_run, monitor_index=monitor_index) for task_run in task_runs]
         return {
             "authority": "health_system.governance.tasks",
             "tasks": tasks,
             "summary": {
                 "task_count": len(tasks),
-                "running_task_count": sum(1 for item in tasks if item["status"] in ACTIVE_STATUSES),
-                "failed_task_count": sum(1 for item in tasks if item["status"] in FAILED_STATUSES),
+                "running_task_count": sum(1 for item in tasks if self._task_bucket(item) == "running"),
+                "failed_task_count": sum(1 for item in tasks if self._task_bucket(item) == "failed"),
             },
             "updated_at": self.now,
         }
@@ -94,7 +91,8 @@ class HealthGovernanceBuilder:
         task_run = self.state_index.get_task_run(task_run_id)
         if task_run is None:
             raise KeyError(task_run_id)
-        record = self._task_record(task_run)
+        monitor_index = self._monitor_index(limit=120)
+        record = self._task_record(task_run, monitor_index=monitor_index)
         monitor = self.runtime_host.get_task_run_live_monitor(task_run_id) or {}
         graph_monitor: dict[str, Any] = {}
         events = [item.to_dict() for item in self._recent_events(task_run_id, limit=160)]
@@ -205,7 +203,7 @@ class HealthGovernanceBuilder:
             return None
         return HealthStore(base_dir)
 
-    def _task_record(self, task_run: Any) -> dict[str, Any]:
+    def _task_record(self, task_run: Any, *, monitor_index: dict[str, dict[str, Any]] | None = None) -> dict[str, Any]:
         task_run_id = str(task_run.task_run_id or "")
         events = self._recent_events(task_run_id, limit=240)
         event_dicts = [item.to_dict() for item in events]
@@ -215,7 +213,8 @@ class HealthGovernanceBuilder:
         worker_results = self.state_index.list_task_worker_spawn_results(task_run_id)
         supervision_records = self.state_index.list_task_supervision_records(task_run_id)
         status = str(task_run.status or "unknown")
-        duration = self._duration(task_run.created_at, task_run.updated_at, status=status)
+        monitor = self._task_monitor(task_run, monitor_index=monitor_index)
+        duration = self._duration(task_run.created_at, task_run.updated_at, monitor=monitor)
         tool_count = sum(1 for item in event_dicts if "tool" in str(item.get("event_type") or ""))
         error_count = sum(
             1
@@ -225,8 +224,8 @@ class HealthGovernanceBuilder:
         )
         token_summary = self._task_token_summary(task_run, event_dicts)
         token_total = int(token_summary.get("effective_total_tokens") or token_summary.get("total_tokens") or 0)
-        risk_level = self._risk_level(status=status, duration_seconds=duration, error_count=error_count)
-        latest_risk = self._latest_task_risk_title(status=status, duration_seconds=duration, error_count=error_count)
+        risk_level = self._risk_level(monitor=monitor, duration_seconds=duration, error_count=error_count)
+        latest_risk = self._latest_task_risk_title(monitor=monitor, duration_seconds=duration, error_count=error_count)
         return {
             "task_run_id": task_run_id,
             "session_id": str(task_run.session_id or ""),
@@ -243,6 +242,11 @@ class HealthGovernanceBuilder:
             "agent_profile_id": str(task_run.agent_profile_id or ""),
             "runtime_lane": self._task_runtime_lane(task_run),
             "status": status,
+            "monitor": monitor,
+            "monitor_bucket": str(monitor.get("bucket") or ""),
+            "monitor_lifecycle": str(monitor.get("lifecycle") or ""),
+            "monitor_action_required": bool(monitor.get("action_required") is True),
+            "monitor_stale": bool(monitor.get("stale") is True),
             "terminal_reason": str(task_run.terminal_reason or ""),
             "created_at": float(task_run.created_at or 0.0),
             "updated_at": float(task_run.updated_at or 0.0),
@@ -282,9 +286,15 @@ class HealthGovernanceBuilder:
                 return list(reader(task_run_id))
             except Exception:
                 return []
-        return list(self.runtime_host.event_log.list_events(task_run_id))[-max(1, int(limit or 240)) :]
+        return []
 
     def _event_count(self, task_run_id: str, *, fallback: int) -> int:
+        estimator = getattr(self.runtime_host.event_log, "estimated_event_count", None)
+        if callable(estimator):
+            try:
+                return int(estimator(task_run_id))
+            except Exception:
+                return int(fallback)
         counter = getattr(self.runtime_host.event_log, "event_count", None)
         if callable(counter):
             try:
@@ -292,6 +302,27 @@ class HealthGovernanceBuilder:
             except Exception:
                 return int(fallback)
         return int(fallback)
+
+    def _task_monitor(self, task_run: Any, *, monitor_index: dict[str, dict[str, Any]] | None = None) -> dict[str, Any]:
+        projector = getattr(self.runtime_host, "monitor_projector", None)
+        project = getattr(projector, "project_task_run", None)
+        if callable(project):
+            try:
+                return dict(project(task_run, now=self.now) or {})
+            except Exception:
+                return {}
+        task_run_id = str(getattr(task_run, "task_run_id", "") or "")
+        if task_run_id and monitor_index is not None:
+            return dict(monitor_index.get(task_run_id) or {})
+        return {}
+
+    def _monitor_index(self, *, limit: int = 120) -> dict[str, dict[str, Any]]:
+        monitor = self._global_monitor(limit=limit)
+        return {
+            str(item.get("task_run_id") or ""): dict(item)
+            for item in list(monitor.get("task_runs") or [])
+            if isinstance(item, dict) and str(item.get("task_run_id") or "")
+        }
 
     def _global_monitor(self, *, limit: int) -> dict[str, Any]:
         try:
@@ -332,14 +363,14 @@ class HealthGovernanceBuilder:
         duration = float(task.get("duration_seconds") or 0.0)
         error_count = int(task.get("error_count") or 0)
         lineage = dict(lineage or self._task_lineage_index())
-        if status in FAILED_STATUSES:
+        if self._task_bucket(task) == "failed":
             risks.append(self._risk("task", "critical", task_run_id, "任务运行失败", task.get("terminal_reason") or "任务已进入失败或中止状态。"))
-        if status in WARNING_STATUSES:
+        if self._task_action_required(task):
             risks.append(self._risk("task", "high", task_run_id, "任务等待处理", "任务处于等待确认或暂停状态，需要人工处理或恢复。"))
         waiting_age = max(0.0, self.now - float(task.get("updated_at") or task.get("created_at") or self.now))
-        if status in WAITING_EXECUTOR_STATUSES and waiting_age > 600:
+        if str(self._task_monitor_from_record(task).get("status") or "") == "waiting_executor" and waiting_age > 600:
             risks.append(self._risk("task", "warning", task_run_id, "等待继续时间过长", f"任务已等待约 {int(waiting_age)} 秒，建议检查是否需要用户继续、恢复或处理阻塞。", risk_code="stale_waiting_executor"))
-        if status in ACTIVE_STATUSES and duration > 1800:
+        if self._task_bucket(task) == "running" and duration > 1800:
             risks.append(self._risk("efficiency", "high", task_run_id, "任务运行时间过长", f"任务已运行约 {int(duration)} 秒，建议检查是否卡住或空转。"))
         if error_count > 0:
             risks.append(self._risk("task", "warning", task_run_id, "任务事件包含错误", f"最近事件中发现 {error_count} 个错误信号。"))
@@ -351,11 +382,10 @@ class HealthGovernanceBuilder:
             risks.append(self._risk("task", "warning", task_run_id, "缺少可恢复历史", "该任务具备恢复语义，但没有对应 WorkRollout 记录，继续时上下文可能不完整。", risk_code="missing_rollout_for_resumable_task"))
         if self._is_repeated_checkout_failure(task_run_id, lineage):
             risks.append(self._risk("task", "high", task_run_id, "连续恢复尝试失败", "同一工作已经出现多个 checkout attempt 失败，需要检查中断点、工具副作用和恢复策略。", risk_code="repeated_checkout_failure"))
-        graph_status = str(graph_monitor.get("status") or "")
-        if graph_status in FAILED_STATUSES:
+        graph_task_monitor = dict(graph_monitor.get("task_run_monitor") or graph_monitor.get("runtime_monitor") or {})
+        if str(graph_task_monitor.get("bucket") or "") == "failed":
             risks.append(self._risk("task", "critical", task_run_id, "任务图运行失败", "任务图监控显示运行失败。"))
-        monitor_status = str(dict(monitor.get("task_run") or {}).get("status") or "")
-        if monitor_status in WARNING_STATUSES:
+        if bool(monitor.get("action_required") is True):
             risks.append(self._risk("task", "high", task_run_id, "监控显示任务等待处理", "实时监控显示任务需要处理。"))
         return risks
 
@@ -421,10 +451,13 @@ class HealthGovernanceBuilder:
         summary = dict(monitor.get("summary") or {})
         if monitor.get("error"):
             risks.append(self._risk("system", "high", "runtime_monitor", "运行监控读取失败", str(monitor.get("error") or "")))
-        if int(summary.get("stale") or 0) > 0:
-            risks.append(self._risk("system", "warning", "runtime_monitor", "存在停滞运行", f"{summary.get('stale')} 个运行长时间未更新。"))
-        if int(summary.get("waiting") or 0) > 0:
-            risks.append(self._risk("task", "high", "runtime_monitor", "存在等待处理任务", f"{summary.get('waiting')} 个任务正在等待确认或人工处理。"))
+        task_runs = [dict(item) for item in list(monitor.get("task_runs") or []) if isinstance(item, dict)]
+        stale_count = sum(1 for item in task_runs if item.get("stale"))
+        action_required_count = int(summary.get("action_required") or 0) or sum(1 for item in task_runs if item.get("action_required"))
+        if stale_count > 0:
+            risks.append(self._risk("system", "warning", "runtime_monitor", "存在停滞运行", f"{stale_count} 个运行长时间未更新。"))
+        if action_required_count > 0:
+            risks.append(self._risk("task", "high", "runtime_monitor", "存在等待处理任务", f"{action_required_count} 个任务正在等待确认或人工处理。"))
         risks.extend(self._environment_risks())
         risks.extend(self._instrumentation_risks())
         return risks
@@ -853,33 +886,43 @@ class HealthGovernanceBuilder:
                 values.append(str(value))
         return values
 
-    def _duration(self, created_at: float, updated_at: float, *, status: str) -> float:
+    def _duration(self, created_at: float, updated_at: float, *, monitor: dict[str, Any]) -> float:
         created = float(created_at or 0.0)
         updated = float(updated_at or 0.0)
         if not created:
             return 0.0
-        end = self.now if status in ACTIVE_STATUSES else updated or self.now
+        end = self.now if str(monitor.get("resource_class") or "") == "dynamic" else updated or self.now
         return max(0.0, end - created)
 
-    def _risk_level(self, *, status: str, duration_seconds: float, error_count: int) -> str:
-        if status in FAILED_STATUSES:
+    def _risk_level(self, *, monitor: dict[str, Any], duration_seconds: float, error_count: int) -> str:
+        if str(monitor.get("bucket") or "") == "failed":
             return "critical"
-        if status in WARNING_STATUSES or (status in ACTIVE_STATUSES and duration_seconds > 1800):
+        if bool(monitor.get("action_required") is True) or (str(monitor.get("bucket") or "") == "running" and duration_seconds > 1800):
             return "high"
         if error_count > 0 or duration_seconds > 600:
             return "warning"
         return "normal"
 
-    def _latest_task_risk_title(self, *, status: str, duration_seconds: float, error_count: int) -> str:
-        if status in FAILED_STATUSES:
+    def _latest_task_risk_title(self, *, monitor: dict[str, Any], duration_seconds: float, error_count: int) -> str:
+        if str(monitor.get("bucket") or "") == "failed":
             return "任务运行失败"
-        if status in WARNING_STATUSES:
+        if bool(monitor.get("action_required") is True):
             return "任务等待处理"
-        if status in ACTIVE_STATUSES and duration_seconds > 1800:
+        if str(monitor.get("bucket") or "") == "running" and duration_seconds > 1800:
             return "任务可能卡住"
         if error_count > 0:
             return "存在错误事件"
         return ""
+
+    @staticmethod
+    def _task_monitor_from_record(task: dict[str, Any]) -> dict[str, Any]:
+        return dict(task.get("monitor") or {})
+
+    def _task_bucket(self, task: dict[str, Any]) -> str:
+        return str(self._task_monitor_from_record(task).get("bucket") or "")
+
+    def _task_action_required(self, task: dict[str, Any]) -> bool:
+        return bool(self._task_monitor_from_record(task).get("action_required") is True)
 
     def _risk(self, scope: str, severity: str, target_ref: str, title: str, summary: str, *, risk_code: str = "") -> dict[str, Any]:
         return {
