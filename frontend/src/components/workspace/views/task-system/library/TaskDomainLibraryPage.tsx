@@ -64,7 +64,7 @@ export function TaskDomainLibraryPage({
   onDeleteDomain: () => void;
   onSaveDomain: () => void;
   onSaveEntry: () => void;
-  onSelectLayer: (layer: "tasks" | "graphs" | "contracts") => void;
+  onSelectLayer: (layer: "environments" | "contracts") => void;
   onSetDomainDraft: Dispatch<SetStateAction<TaskDomainRecord>>;
   onSetEditingDomainName: (editing: boolean) => void;
   onSetEntryDraft: Dispatch<SetStateAction<ConversationEntryPolicy>>;
@@ -77,7 +77,7 @@ export function TaskDomainLibraryPage({
       <main className="task-management-workbench task-management-workbench--full">
         <header className="task-management-titlebar">
           <div>
-            <span>任务域库</span>
+            <span>具体任务库</span>
             {editingDomainName ? (
               <input
                 autoFocus
@@ -90,9 +90,9 @@ export function TaskDomainLibraryPage({
                 value={domainDraft.title}
               />
             ) : (
-              <h3>{selectedDomain?.title || "任务域"}</h3>
+              <h3>{selectedDomain?.title || "具体任务"}</h3>
             )}
-            <p>任务域只负责分类、入口策略和域级边界，不编辑图模块和运行产物。</p>
+            <p>这里维护环境下的具体任务分组、入口策略和任务边界，不承载图编辑和运行产物。</p>
           </div>
           <div className="boundary-actions">
             <ToolbarButton onClick={() => onSetEditingDomainName(true)}>
@@ -109,7 +109,7 @@ export function TaskDomainLibraryPage({
 
         <section className="boundary-card">
           <header>
-            <strong>任务域设置</strong>
+            <strong>具体任务分组</strong>
             <span>{selectedDomain?.domain_id || domainDraft.domain_id}</span>
           </header>
           <div className="boundary-form">
@@ -119,16 +119,16 @@ export function TaskDomainLibraryPage({
                 onChange={(event) => onSetDomainDraft((value) => ({ ...value, enabled: event.target.checked }))}
                 type="checkbox"
               />
-              启用任务域
+              启用任务分组
             </label>
-            <Field label="任务域描述" wide>
+            <Field label="任务分组描述" wide>
               <textarea
                 onChange={(event) => onSetDomainDraft((value) => ({ ...value, description: event.target.value }))}
                 value={domainDraft.description}
               />
             </Field>
             <SystemFields>
-              <Field label="任务域 ID">
+              <Field label="任务分组 ID">
                 <input
                   onChange={(event) => onSetDomainDraft((value) => ({ ...value, domain_id: event.target.value }))}
                   value={domainDraft.domain_id}
@@ -153,8 +153,7 @@ export function TaskDomainLibraryPage({
               <Save size={15} />保存入口策略
             </ToolbarButton>
             <div className="task-domain-quick-jumps">
-              <ToolbarButton onClick={() => onSelectLayer("tasks")}>任务定义库</ToolbarButton>
-              <ToolbarButton onClick={() => onSelectLayer("graphs")}>任务图库</ToolbarButton>
+              <ToolbarButton onClick={() => onSelectLayer("environments")}>任务环境</ToolbarButton>
               <ToolbarButton onClick={() => onSelectLayer("contracts")}>契约库</ToolbarButton>
             </div>
           </div>

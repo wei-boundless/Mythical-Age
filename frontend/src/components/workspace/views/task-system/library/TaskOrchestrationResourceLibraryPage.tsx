@@ -86,7 +86,7 @@ export function TaskOrchestrationResourceLibraryPage({
           <p><span>模型需求</span><strong>图工作台 / contract_bindings.runtime.model_requirement</strong></p>
         </div>
         <div className="boundary-actions">
-          <ToolbarButton disabled={!selectedTaskGraphId} onClick={onOpenWorkbench}>进入图工作台</ToolbarButton>
+          <ToolbarButton onClick={onOpenWorkbench}>进入图工作台</ToolbarButton>
           <ToolbarButton onClick={() => onOpenOrchestration({ layer: "runtime", reason: "从当前任务图检查所有 Agent 运行档案。" })}>管理运行档案</ToolbarButton>
         </div>
       </section>

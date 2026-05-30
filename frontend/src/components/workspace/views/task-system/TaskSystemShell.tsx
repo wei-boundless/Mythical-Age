@@ -5,8 +5,6 @@ import { AlertTriangle, CheckCircle2, RefreshCw } from "lucide-react";
 
 import { TaskSystemToolbarButton as ToolbarButton } from "./TaskSystemWorkbenchUi";
 
-export type TaskSystemShellLayer = "management" | "editor";
-
 export type TaskSystemShellNavItem<T extends string> = {
   value: T;
   label: string;
@@ -26,12 +24,10 @@ export function TaskSystemShell<T extends string>({
   contextSlot,
   error,
   layerSlot,
-  mode,
   navItems,
   notice,
   onRefresh,
   onSelectLayer,
-  onBackToGraphs,
   path,
   title,
 }: {
@@ -40,12 +36,10 @@ export function TaskSystemShell<T extends string>({
   contextSlot?: ReactNode;
   error?: string;
   layerSlot?: ReactNode;
-  mode: TaskSystemShellLayer;
   navItems: Array<TaskSystemShellNavItem<T>>;
   notice?: string;
   onRefresh: () => void;
   onSelectLayer: (layer: T) => void;
-  onBackToGraphs?: () => void;
   path: string;
   title: string;
 }) {
@@ -107,17 +101,14 @@ export function TaskSystemShell<T extends string>({
   );
 
   return (
-    <div className={`workspace-view boundary-console task-system-boundary task-system-boundary--${mode}`}>
-      <header className={mode === "editor" ? "task-system-database-header task-system-database-header--editor" : "task-system-database-header"}>
+    <div className="workspace-view boundary-console task-system-boundary task-system-boundary--management">
+      <header className="task-system-database-header">
         <div>
-          <span>{mode === "editor" ? "任务图编辑器" : "任务系统"}</span>
+          <span>任务系统</span>
           <h2>{title}</h2>
           <p>{path}</p>
         </div>
         <div className="task-system-database-header__actions">
-          {mode === "editor" && onBackToGraphs ? (
-            <ToolbarButton onClick={onBackToGraphs}>返回任务图库</ToolbarButton>
-          ) : null}
           <ToolbarButton onClick={onRefresh}><RefreshCw size={15} />刷新</ToolbarButton>
         </div>
       </header>
@@ -125,16 +116,11 @@ export function TaskSystemShell<T extends string>({
       {error ? <div className="boundary-notice boundary-notice--error"><AlertTriangle size={16} />{error}</div> : null}
       {notice ? <div className="boundary-notice"><CheckCircle2 size={16} />{notice}</div> : null}
 
-      {mode === "editor" ? (
-        <section className="task-system-boundary__editor">
-          {children}
-        </section>
-      ) : (
-        <section
-          className="task-system-database-layout task-system-database-layout--resizable"
-          style={{ "--task-system-sidebar-width": `${sidebarWidth}px` } as CSSProperties}
-        >
-          <aside className="task-system-database-sidebar" aria-label="任务系统数据库导航">
+      <section
+        className="task-system-database-layout task-system-database-layout--resizable"
+        style={{ "--task-system-sidebar-width": `${sidebarWidth}px` } as CSSProperties}
+      >
+        <aside className="task-system-database-sidebar" aria-label="任务系统数据库导航">
             <header className="task-system-workspace-head">
               <div>
                 <strong>任务系统</strong>
@@ -159,8 +145,7 @@ export function TaskSystemShell<T extends string>({
           <main className="task-system-database-workspace">
             {children}
           </main>
-        </section>
-      )}
+      </section>
     </div>
   );
 }

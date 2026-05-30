@@ -22,6 +22,10 @@ READABLE_PREFIXES = (
     "capability_system/units/skills/",
     "capability_system/units/mcp/",
     "capability_system/units/registries/",
+    "backend/",
+    "frontend/",
+    "docs/",
+    "scripts/",
 )
 
 EDITABLE_PREFIXES = (
@@ -32,6 +36,29 @@ EDITABLE_PREFIXES = (
     "knowledge/",
     "capability_system/units/skills/",
     "capability_system/units/mcp/",
+)
+
+READABLE_PROJECT_FILES = frozenset(
+    {
+        ".gitignore",
+        "AGENTS.md",
+        "README.md",
+        "package.json",
+        "package-lock.json",
+        "pnpm-lock.yaml",
+        "pyproject.toml",
+        "pytest.ini",
+        "requirements.txt",
+        "tsconfig.json",
+        "vitest.config.ts",
+    }
+)
+
+PROJECT_READABLE_PREFIXES = (
+    "backend/",
+    "frontend/",
+    "docs/",
+    "scripts/",
 )
 
 
@@ -70,8 +97,7 @@ def _resolve_path(relative_path: str, *, for_write: bool = False) -> Path:
     capability_paths = CapabilitySystemPaths.from_base_dir(runtime.base_dir)
 
     normalized = relative_path.replace("\\", "/").strip("/")
-    allowed_prefixes = EDITABLE_PREFIXES if for_write else READABLE_PREFIXES
-    if not normalized.startswith(allowed_prefixes):
+    if not _is_allowed_workspace_path(normalized, for_write=for_write):
         detail = "Path is not in the editable whitelist" if for_write else "Path is not in the readable whitelist"
         raise HTTPException(status_code=400, detail=detail)
 
@@ -90,12 +116,24 @@ def _resolve_path(relative_path: str, *, for_write: bool = False) -> Path:
     elif normalized.startswith("capability_system/units/"):
         candidate = (runtime.base_dir / normalized).resolve()
         allowed_root = capability_paths.units_dir.resolve()
+    elif not for_write and (
+        normalized in READABLE_PROJECT_FILES
+        or normalized.startswith(PROJECT_READABLE_PREFIXES)
+    ):
+        candidate = (layout.project_root / normalized).resolve()
+        allowed_root = layout.project_root.resolve()
     else:
         candidate = (runtime.base_dir / normalized).resolve()
         allowed_root = runtime.base_dir.resolve()
     if allowed_root not in candidate.parents and candidate != allowed_root:
         raise HTTPException(status_code=400, detail="Path traversal detected")
     return candidate
+
+
+def _is_allowed_workspace_path(normalized: str, *, for_write: bool) -> bool:
+    if for_write:
+        return normalized.startswith(EDITABLE_PREFIXES)
+    return normalized in READABLE_PROJECT_FILES or normalized.startswith(READABLE_PREFIXES)
 
 
 @router.get("/files")

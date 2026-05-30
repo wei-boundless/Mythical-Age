@@ -182,7 +182,7 @@ export function TaskGraphContractPreviewPanel({
       ) : (
         <div className={previewError ? "task-graph-note task-graph-note--danger" : "task-graph-note"}>
           <strong>{previewError ? "图契约不可用" : "尚未编译图契约"}</strong>
-          <span>{previewError || "点击“编译图契约”后，任务系统会从 TaskGraphDefinition 编译出 GraphHarnessConfig 和 loop 调度视图。"}</span>
+          <span>{previewError || "点击“编译图契约”后，图工作台会从 TaskGraphDefinition 编译出 GraphHarnessConfig 和 loop 调度视图。"}</span>
         </div>
       )}
     </section>

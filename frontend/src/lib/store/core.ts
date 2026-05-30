@@ -103,6 +103,6 @@ export function getDefaultState(): StoreState {
     taskGraphRunInteractionOpen: false,
     orchestrationInspectorTarget: null,
     taskSelection: null,
-    taskSystemRuntimeNavigationTarget: null
+    centerWorkspaceTarget: null
   };
 }

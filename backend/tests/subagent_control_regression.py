@@ -17,6 +17,7 @@ from capability_system.tool_definitions import build_tool_instances, get_tool_de
 from harness.agent_control.controller import SubagentControl
 from harness.runtime.assembly import assemble_runtime
 from runtime.memory.state_index import RuntimeStateIndex
+from runtime.shared.runtime_object_store import RuntimeObjectStore
 from runtime.shared.models import AgentRun, TaskRun
 
 
@@ -103,6 +104,10 @@ async def _subagent_control_lifecycle_roundtrip() -> None:
             expected_outputs=["summary"],
         )
         assert spawned["ok"] is True
+        child_task = state.get_task_run(spawned["subtask_run_ref"])
+        assert child_task is not None
+        assert child_task.status == "waiting_executor"
+        assert child_task.execution_runtime_kind == "subagent_task"
         child_ref = spawned["subagent_run_ref"]
         listed = await controller.list_subagents(task_run=task, parent_agent_run=parent)
         assert listed["count"] == 1
@@ -123,6 +128,7 @@ async def _subagent_control_background_execution_roundtrip() -> None:
     with TemporaryDirectory() as tmp:
         root = Path(tmp)
         state = RuntimeStateIndex(root)
+        runtime_objects = RuntimeObjectStore(root)
         task = TaskRun(task_run_id="tr2", session_id="s1", task_id="task2")
         state.upsert_task_run(task)
         parent = AgentRun(agent_run_id="ag2", task_run_id="tr2", agent_id="agent:0", agent_profile_id="main_interactive_agent", status="running")
@@ -145,7 +151,15 @@ async def _subagent_control_background_execution_roundtrip() -> None:
                 replace(
                     child,
                     status="completed",
-                    result_ref="result-1",
+                    result_ref=runtime_objects.put_object(
+                        "agent_run_result",
+                        f"{child.agent_run_id}:result",
+                        {
+                            "final_answer": "子 agent 搜索完成： https://github.com/example/project",
+                            "artifact_refs": [{"path": "storage/task_environments/research/web/artifacts/report.md"}],
+                            "observation_refs": ["rtobs:child:1"],
+                        },
+                    ),
                     updated_at=time.time(),
                 )
             )
@@ -159,7 +173,7 @@ async def _subagent_control_background_execution_roundtrip() -> None:
             )
             return {"ok": True, "task_run_id": task_run_id, "max_steps": max_steps}
 
-        host = type("Host", (), {"backend_dir": root, "state_index": state, "event_log": _FakeEventLog()})()
+        host = type("Host", (), {"backend_dir": root, "state_index": state, "event_log": _FakeEventLog(), "runtime_objects": runtime_objects})()
         services = type("Services", (), {"execute_task_run_callback": _execute_task_run})()
         controller = SubagentControl(host, services=services)
         assembly = {
@@ -193,6 +207,9 @@ async def _subagent_control_background_execution_roundtrip() -> None:
         assert waited["status"] == "completed"
         assert waited["no_update"] is False
         assert waited["messages"]
+        assert waited["result_available"] is True
+        assert waited["result"]["final_answer"] == "子 agent 搜索完成： https://github.com/example/project"
+        assert waited["result"]["artifact_refs"] == [{"path": "storage/task_environments/research/web/artifacts/report.md"}]
 
 
 async def _wait_for_subagent_state(

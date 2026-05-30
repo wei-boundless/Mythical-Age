@@ -482,10 +482,11 @@ export function buildTimelinePreflightIssues(
     if (Object.keys(loopPolicy).length && !hasLoopStopCondition(loopPolicy)) {
       issues.push({ code: "timeline_node_loop_stop_missing", message: "节点循环策略缺少停止条件。", severity: "error", node_id: nodeId });
     }
-    if (nodeBlocksPhaseExit(node) && ["async", "background"].includes(String(node.execution_mode ?? "")) && !nodeCompletionPolicy(node)) {
+    const nodeType = String(node.node_type ?? "");
+    if (nodeBlocksPhaseExit(node) && ["async", "background"].includes(String(node.execution_mode ?? "")) && nodeType !== "graph_module" && !nodeCompletionPolicy(node)) {
       issues.push({ code: "timeline_blocking_async_completion_missing", message: "阻塞阶段退出的异步/后台节点缺少 completion_policy。", severity: "error", node_id: nodeId });
     }
-    if (["memory", "memory_resource", "memory_read", "memory_write", "memory_handoff", "memory_commit", "memory_finalize"].includes(String(node.node_type ?? ""))) {
+    if (["memory", "memory_resource", "memory_read", "memory_write", "memory_handoff", "memory_commit", "memory_finalize"].includes(nodeType)) {
       const phase = phaseDefinitions.find((item) => item.phase_id === nodePhaseId(node));
       const requiresReviewGate = String(node.node_type ?? "") === "memory_commit" || String(node.metadata && asRecord(node.metadata).operation || "") === "commit";
       if (requiresReviewGate && !phase?.review_gate_node_id && !String(asRecord(node.metadata).commit_gate_node_id ?? "").trim()) {

@@ -80,7 +80,11 @@ class SendSubagentMessageTool(_SubagentLifecycleTool):
 
 class WaitSubagentTool(_SubagentLifecycleTool):
     name: str = "wait_subagent"
-    description: str = "Check a child agent mailbox once and return new status/messages/result refs without blocking the main loop."
+    description: str = (
+        "Check a child agent mailbox once and return new status/messages without blocking the main loop. "
+        "When the child is completed, the result field contains the subagent final_answer and artifact refs; "
+        "use that result directly instead of searching memory or artifact folders for the child output."
+    )
     args_schema: type[BaseModel] = WaitSubagentInput
 
 
@@ -94,4 +98,3 @@ class CloseSubagentTool(_SubagentLifecycleTool):
     name: str = "close_subagent"
     description: str = "Close or kill a child agent run that is no longer needed or should stop."
     args_schema: type[BaseModel] = CloseSubagentInput
-

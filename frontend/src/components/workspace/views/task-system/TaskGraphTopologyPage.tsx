@@ -14,6 +14,9 @@ import {
 
 import { CoordinationTopologyGraph as TaskGraphTopologyCanvas } from "@/components/coordination/CoordinationTopologyGraph";
 
+import type { ContractSpec } from "@/lib/api";
+
+import { TaskGraphContractBindingInspector } from "./TaskGraphContractBindingInspector";
 import { graphEdgeSource, graphEdgeTarget, isTaskGraphPublishedState } from "./taskGraphDraftV2";
 import type { TaskGraphEditorFocus } from "./taskGraphEditorFocus";
 import { buildTaskGraphMemoryModel } from "./taskGraphMemoryMatrix";
@@ -28,6 +31,7 @@ type TaskGraphTopologyPageProps = Pick<
   | "addTaskGraphRoleNode"
   | "addTaskGraphSuccessorNode"
   | "addTaskGraphTaskNode"
+  | "contractSpecs"
   | "handleTopologyNodeClick"
   | "linkingFromNodeId"
   | "removeTaskGraphEdge"
@@ -42,6 +46,8 @@ type TaskGraphTopologyPageProps = Pick<
   | "setSelectedGraphEdgeId"
   | "setSelectedGraphNodeId"
   | "taskGraphDraftV2"
+  | "updateTaskGraphEdge"
+  | "updateTaskGraphNode"
 > & {
   editorFocus?: TaskGraphEditorFocus;
   onEditorFocus?: (focus: Partial<TaskGraphEditorFocus> & { layer?: TaskGraphEditorFocus["layer"] }) => void;
@@ -144,6 +150,15 @@ function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
 
+function stringValue(value: unknown, fallback = "") {
+  const next = String(value ?? "").trim();
+  return next || fallback;
+}
+
+function contractTitle(contract: ContractSpec) {
+  return stringValue(contract.title_zh ?? contract.title_en ?? contract.contract_id, contract.contract_id);
+}
+
 function edgeFlowKind(edge: Record<string, unknown>): EdgeFlowFilter {
   const edgeType = String(edge.edge_type ?? edge.mode ?? "").trim();
   const metadata = asRecord(edge.metadata);
@@ -197,6 +212,7 @@ export function TaskGraphTopologyPage({
   addTaskGraphRoleNode,
   addTaskGraphSuccessorNode,
   addTaskGraphTaskNode,
+  contractSpecs,
   editorFocus,
   handleTopologyNodeClick,
   linkingFromNodeId,
@@ -213,6 +229,8 @@ export function TaskGraphTopologyPage({
   setSelectedGraphEdgeId,
   setSelectedGraphNodeId,
   taskGraphDraftV2,
+  updateTaskGraphEdge,
+  updateTaskGraphNode,
   onOpenMemoryLayer,
 }: TaskGraphTopologyPageProps) {
   const [edgeFlowFilter, setEdgeFlowFilter] = useState<EdgeFlowFilter>("all");
@@ -258,6 +276,11 @@ export function TaskGraphTopologyPage({
   const selectedRepositoryWriteCount = selectedRepository ? memoryModel.memoryEdges.filter((edge) => edge.repositoryNodeId === selectedRepository.nodeId && edge.operation === "write_candidate").length : 0;
   const selectedRepositoryCommitCount = selectedRepository ? memoryModel.memoryEdges.filter((edge) => edge.repositoryNodeId === selectedRepository.nodeId && edge.operation === "commit").length : 0;
   const selectedEdgeSummary = selectedEdgeControlSummary(selectedGraphEdge);
+  const contractOptions = contractSpecs.map((item) => item.contract_id);
+  const formatContract = (contractId: string) => {
+    const contract = contractSpecs.find((item) => item.contract_id === contractId);
+    return contract ? `${contractTitle(contract)} · ${contract.contract_id}` : contractId || "未绑定契约";
+  };
 
   return (
     <section className="task-graph-topology-page" aria-label="TaskGraph 拓扑编排">
@@ -375,18 +398,87 @@ export function TaskGraphTopologyPage({
         </div>
       </main>
 
-      <aside className="task-graph-topology-inspector" aria-label="拓扑选择详情">
-        <section className="task-graph-topology-panel">
+      <aside className="task-graph-topology-inspector" aria-label="拓扑契约检查器">
+        <section className="task-graph-topology-panel task-graph-topology-panel--inspector-head">
           <header className="task-graph-topology-panel__head">
             <MousePointer2 size={16} />
-            <strong>选择</strong>
+            <strong>契约检查器</strong>
           </header>
           <div className="task-graph-topology-selection">
-            <span>节点</span>
-            <strong>{selectedGraphNode ? taskGraphDisplayName(selectedNodeId, selectedGraphNode, graphMetadata, selectedNodeTitle(selectedGraphNode)) : selectedNodeTitle(selectedGraphNode)}</strong>
-            <small>{selectedNodeId || "无"}</small>
+            <span>{selectedGraphEdge ? "边契约" : selectedGraphNode ? "节点契约" : "未选择"}</span>
+            <strong>
+              {selectedGraphEdge
+                ? selectedEdgeTitle(selectedGraphEdge)
+                : selectedGraphNode
+                  ? taskGraphDisplayName(selectedNodeId, selectedGraphNode, graphMetadata, selectedNodeTitle(selectedGraphNode))
+                  : "点击画布中的节点或边"}
+            </strong>
+            <small>{selectedGraphEdge ? selectedEdgeId : selectedNodeId || "无"}</small>
           </div>
-          {selectedGraphNode ? (
+        </section>
+
+        {selectedGraphNode ? (
+          <section className="task-graph-topology-contract-panel" aria-label="节点契约配置">
+            <TaskGraphContractBindingInspector
+              contractOptions={contractOptions}
+              fieldKeysBySection={{
+                schema: ["input_contract_id", "output_contract_id"],
+                execution: ["node_contract_id", "executor_policy_ref", "toolset_ref", "skillset_ref"],
+                memory: ["memory_read_policy_ref", "dynamic_memory_read_policy_ref", "memory_writeback_policy_ref"],
+                output: ["output_policy_ref", "primary_content_key", "artifact_materialization_policy.target_repository_id", "artifact_materialization_policy.target_collection_id", "artifact_materialization_policy.required"],
+                artifact: ["artifact_policy.artifact_target", "artifact_policy.visibility_policy", "artifact_policy.required", "artifact_ref_policy_ref"],
+                acceptance: ["review_gate_policy_ref", "human_gate_policy.mode", "human_gate_policy.blocking", "acceptance_policy_ref"],
+                runtime: ["model_requirement.profile_ref", "model_requirement.provider_family", "model_requirement.min_output_tokens", "model_requirement.preferred_output_tokens", "model_requirement.capability_tags", "model_requirement.streaming_required", "length_budget.enabled", "length_budget.budget_scope", "length_budget.measurement_mode", "length_budget.unit_kind", "length_budget.unit_label_zh", "length_budget.target_units", "length_budget.min_units", "length_budget.max_units", "length_budget.batch_unit_count", "length_budget.repair_policy.mode", "length_budget.repair_policy.max_repair_rounds", "length_budget.acceptance_policy.require_continuity", "length_budget.acceptance_policy.require_formal_headings"],
+                governance: ["thread_ledger_policy_ref", "issue_ledger_policy_ref", "context_boundary_policy_ref"],
+              }}
+              formatContract={formatContract}
+              onChange={(patch) => updateTaskGraphNode(selectedNodeId, patch)}
+              sections={["schema", "execution", "memory", "output", "artifact", "acceptance", "runtime", "governance"]}
+              target={selectedGraphNode}
+            />
+          </section>
+        ) : null}
+
+        {selectedGraphEdge ? (
+          <section className="task-graph-topology-contract-panel" aria-label="边契约配置">
+            <TaskGraphContractBindingInspector
+              contractOptions={contractOptions}
+              fieldKeysBySection={{
+                schema: ["payload_contract_id"],
+                handoff: ["handoff_contract_id", "ack_policy", "ack_required", "wait_policy", "failure_propagation_policy", "result_delivery_policy"],
+                memory: ["working_memory_handoff_policy.carry_kinds", "working_memory_handoff_policy.carry_scopes"],
+                artifact: ["artifact_ref_policy_ref"],
+                temporal: ["trigger_timing", "visibility_timing", "acknowledgement_timing", "propagation_timing"],
+                governance: ["context_boundary_policy_ref"],
+              }}
+              formatContract={formatContract}
+              onChange={(patch) => updateTaskGraphEdge(selectedEdgeId, patch)}
+              sections={["schema", "handoff", "memory", "artifact", "temporal", "governance"]}
+              target={selectedGraphEdge}
+            />
+          </section>
+        ) : null}
+
+        {!selectedGraphNode && !selectedGraphEdge ? (
+          <section className="task-graph-topology-panel">
+            <div className="task-graph-note">
+              <strong>等待选择对象</strong>
+              <span>点击画布节点配置节点契约，点击边配置通信契约。契约写入当前 TaskGraphDefinition，发布时直接进入 GraphHarnessConfig。</span>
+            </div>
+          </section>
+        ) : null}
+
+        {selectedGraphNode ? (
+          <section className="task-graph-topology-panel">
+            <header className="task-graph-topology-panel__head">
+              <MousePointer2 size={16} />
+              <strong>节点摘要</strong>
+            </header>
+            <div className="task-graph-topology-selection">
+              <span>节点</span>
+              <strong>{taskGraphDisplayName(selectedNodeId, selectedGraphNode, graphMetadata, selectedNodeTitle(selectedGraphNode))}</strong>
+              <small>{selectedNodeId || "无"}</small>
+            </div>
             <div className="task-graph-topology-resource-summary">
               <p><span>类型</span><strong>{nodeKindLabel(selectedNodeKind)}</strong></p>
               <p><span>生命周期</span><strong>{String(selectedGraphNode.phase_id ?? "未分配")}</strong></p>
@@ -395,116 +487,116 @@ export function TaskGraphTopologyPage({
               <p><span>入边</span><strong>{incomingSelectedEdgeCount}</strong></p>
               <p><span>出边</span><strong>{outgoingSelectedEdgeCount}</strong></p>
             </div>
-          ) : null}
-          {isResourceNode(selectedGraphNode) ? (
-            <div className="task-graph-topology-resource-summary">
-              <p><span>读取</span><strong>{selectedRepositoryReadCount}</strong></p>
-              <p><span>写候选</span><strong>{selectedRepositoryWriteCount}</strong></p>
-              <p><span>提交</span><strong>{selectedRepositoryCommitCount}</strong></p>
-              <p><span>集合</span><strong>{selectedRepository?.collections.length ?? 0}</strong></p>
-            </div>
-          ) : null}
-          <div className="task-graph-topology-actions task-graph-topology-actions--stacked">
             {isResourceNode(selectedGraphNode) ? (
-              <button
-                disabled={!selectedNodeId}
-                onClick={() => {
-                  if (onEditorFocus) {
-                    onEditorFocus({ layer: "memory", facet: "repositories", node_id: selectedNodeId, repository_id: selectedRepository?.nodeId ?? selectedNodeId });
-                  } else {
-                    onOpenMemoryLayer?.();
-                  }
-                }}
-                type="button"
-              >
+              <div className="task-graph-topology-resource-summary">
+                <p><span>读取</span><strong>{selectedRepositoryReadCount}</strong></p>
+                <p><span>写候选</span><strong>{selectedRepositoryWriteCount}</strong></p>
+                <p><span>提交</span><strong>{selectedRepositoryCommitCount}</strong></p>
+                <p><span>集合</span><strong>{selectedRepository?.collections.length ?? 0}</strong></p>
+              </div>
+            ) : null}
+            <div className="task-graph-topology-actions task-graph-topology-actions--stacked">
+              {isResourceNode(selectedGraphNode) ? (
+                <button
+                  disabled={!selectedNodeId}
+                  onClick={() => {
+                    if (onEditorFocus) {
+                      onEditorFocus({ layer: "memory", facet: "repositories", node_id: selectedNodeId, repository_id: selectedRepository?.nodeId ?? selectedNodeId });
+                    } else {
+                      onOpenMemoryLayer?.();
+                    }
+                  }}
+                  type="button"
+                >
+                  <GitBranch size={15} />
+                  <span>配置仓库结构</span>
+                </button>
+              ) : null}
+              {!isResourceNode(selectedGraphNode) ? (
+                <button disabled={!selectedNodeId} onClick={() => onEditorFocus?.({ layer: "responsibility", facet: "cognition", node_id: selectedNodeId })} type="button">
+                  <Route size={15} />
+                  <span>查看执行认知包</span>
+                </button>
+              ) : null}
+              <button disabled={!selectedNodeId} onClick={() => onEditorFocus?.({ layer: "timeline", facet: "clock", node_id: selectedNodeId })} type="button">
                 <GitBranch size={15} />
-                <span>配置仓库结构</span>
+                <span>查看生命周期诊断</span>
               </button>
-            ) : null}
-            {!isResourceNode(selectedGraphNode) ? (
-              <button disabled={!selectedNodeId} onClick={() => onEditorFocus?.({ layer: "responsibility", facet: "cognition", node_id: selectedNodeId })} type="button">
-                <Route size={15} />
-                <span>查看执行认知包</span>
+              <button disabled={!selectedNodeCanMutate} onClick={() => setLinkingFromNodeId(selectedNodeId)} type="button">
+                <Link2 size={15} />
+                <span>设为连线起点</span>
               </button>
-            ) : null}
-            <button disabled={!selectedNodeId} onClick={() => onEditorFocus?.({ layer: "timeline", facet: "clock", node_id: selectedNodeId })} type="button">
-              <GitBranch size={15} />
-              <span>查看生命周期诊断</span>
-            </button>
-            <button disabled={!selectedNodeCanMutate} onClick={() => setLinkingFromNodeId(selectedNodeId)} type="button">
-              <Link2 size={15} />
-              <span>设为连线起点</span>
-            </button>
-            <button disabled={!selectedNodeCanMutate} onClick={() => addTaskGraphSuccessorNode(selectedNodeId)} type="button">
-              <Plus size={15} />
-              <span>添加后继</span>
-            </button>
-            <button disabled={!selectedNodeCanMutate} onClick={() => removeTaskGraphNode(selectedNodeId)} type="button">
-              <Trash2 size={15} />
-              <span>删除节点</span>
-            </button>
-          </div>
-        </section>
+              <button disabled={!selectedNodeCanMutate} onClick={() => addTaskGraphSuccessorNode(selectedNodeId)} type="button">
+                <Plus size={15} />
+                <span>添加后继</span>
+              </button>
+              <button disabled={!selectedNodeCanMutate} onClick={() => removeTaskGraphNode(selectedNodeId)} type="button">
+                <Trash2 size={15} />
+                <span>删除节点</span>
+              </button>
+            </div>
+          </section>
+        ) : null}
 
-        <section className="task-graph-topology-panel">
-          <header className="task-graph-topology-panel__head">
-            <GitBranch size={16} />
-            <strong>边</strong>
-          </header>
-          <div className="task-graph-topology-selection">
-            <span>连接</span>
-            <strong>{selectedEdgeTitle(selectedGraphEdge)}</strong>
-            <small>{selectedEdgeId || "无"}</small>
-          </div>
-          {selectedGraphEdge ? (
+        {selectedGraphEdge ? (
+          <section className="task-graph-topology-panel">
+            <header className="task-graph-topology-panel__head">
+              <GitBranch size={16} />
+              <strong>边摘要</strong>
+            </header>
+            <div className="task-graph-topology-selection">
+              <span>连接</span>
+              <strong>{selectedEdgeTitle(selectedGraphEdge)}</strong>
+              <small>{selectedEdgeId || "无"}</small>
+            </div>
             <div className="task-graph-topology-resource-summary">
               <p><span>类型</span><strong>{selectedEdgeKind}</strong></p>
               <p><span>图层</span><strong>{selectedEdgeFlow}</strong></p>
               <p><span>起点</span><strong>{graphEdgeSource(selectedGraphEdge)}</strong></p>
               <p><span>终点</span><strong>{graphEdgeTarget(selectedGraphEdge)}</strong></p>
             </div>
-          ) : null}
-          {selectedEdgeSummary ? (
-            <div className="task-graph-note">
-              <strong>边的控制含义</strong>
-              <span>{selectedEdgeSummary}</span>
+            {selectedEdgeSummary ? (
+              <div className="task-graph-note">
+                <strong>边的控制含义</strong>
+                <span>{selectedEdgeSummary}</span>
+              </div>
+            ) : null}
+            <div className="task-graph-topology-actions task-graph-topology-actions--stacked">
+              {selectedEdgeFlow === "memory" ? (
+                <button disabled={!selectedEdgeId} onClick={() => onEditorFocus?.({ layer: "memory", facet: "selector", edge_id: selectedEdgeId })} type="button">
+                  <GitBranch size={15} />
+                  <span>配置 Selector</span>
+                </button>
+              ) : null}
+              {selectedEdgeFlow === "artifact" ? (
+                <button disabled={!selectedEdgeId} onClick={() => onEditorFocus?.({ layer: "memory", facet: "artifact_context", edge_id: selectedEdgeId })} type="button">
+                  <GitBranch size={15} />
+                  <span>配置产物上下文</span>
+                </button>
+              ) : null}
+              {selectedEdgeFlow === "revision" ? (
+                <button disabled={!selectedEdgeId} onClick={() => onEditorFocus?.({ layer: "timeline", facet: "revision", edge_id: selectedEdgeId })} type="button">
+                  <GitBranch size={15} />
+                  <span>配置返修交接</span>
+                </button>
+              ) : null}
+              {selectedEdgeId ? (
+                <button disabled={!selectedEdgeId} onClick={() => onEditorFocus?.({ layer: "contracts", facet: "payload", edge_id: selectedEdgeId })} type="button">
+                  <GitBranch size={15} />
+                  <span>配置载荷契约</span>
+                </button>
+              ) : null}
+              <button disabled={!selectedEdgeCanMutate} onClick={() => reverseTaskGraphEdge(selectedEdgeId)} type="button">
+                <ArrowRightLeft size={15} />
+                <span>反转方向</span>
+              </button>
+              <button disabled={!selectedEdgeCanMutate} onClick={() => removeTaskGraphEdge(selectedEdgeId)} type="button">
+                <Trash2 size={15} />
+                <span>删除边</span>
+              </button>
             </div>
-          ) : null}
-          <div className="task-graph-topology-actions task-graph-topology-actions--stacked">
-            {selectedEdgeFlow === "memory" ? (
-              <button disabled={!selectedEdgeId} onClick={() => onEditorFocus?.({ layer: "memory", facet: "selector", edge_id: selectedEdgeId })} type="button">
-                <GitBranch size={15} />
-                <span>配置 Selector</span>
-              </button>
-            ) : null}
-            {selectedEdgeFlow === "artifact" ? (
-              <button disabled={!selectedEdgeId} onClick={() => onEditorFocus?.({ layer: "memory", facet: "artifact_context", edge_id: selectedEdgeId })} type="button">
-                <GitBranch size={15} />
-                <span>配置产物上下文</span>
-              </button>
-            ) : null}
-            {selectedEdgeFlow === "revision" ? (
-              <button disabled={!selectedEdgeId} onClick={() => onEditorFocus?.({ layer: "timeline", facet: "revision", edge_id: selectedEdgeId })} type="button">
-                <GitBranch size={15} />
-                <span>配置返修交接</span>
-              </button>
-            ) : null}
-            {selectedEdgeId ? (
-              <button disabled={!selectedEdgeId} onClick={() => onEditorFocus?.({ layer: "contracts", facet: "payload", edge_id: selectedEdgeId })} type="button">
-                <GitBranch size={15} />
-                <span>配置载荷契约</span>
-              </button>
-            ) : null}
-            <button disabled={!selectedEdgeCanMutate} onClick={() => reverseTaskGraphEdge(selectedEdgeId)} type="button">
-              <ArrowRightLeft size={15} />
-              <span>反转方向</span>
-            </button>
-            <button disabled={!selectedEdgeCanMutate} onClick={() => removeTaskGraphEdge(selectedEdgeId)} type="button">
-              <Trash2 size={15} />
-              <span>删除边</span>
-            </button>
-          </div>
-        </section>
+          </section>
+        ) : null}
       </aside>
     </section>
   );

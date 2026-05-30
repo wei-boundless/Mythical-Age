@@ -110,7 +110,7 @@ def _is_task_run_resumable_for_user_control(task_run: Any) -> bool:
 
 
 def _is_single_agent_task_run(task_run: Any) -> bool:
-    return str(getattr(task_run, "execution_runtime_kind", "") or "") == "single_agent_task"
+    return str(getattr(task_run, "execution_runtime_kind", "") or "") in {"single_agent_task", "subagent_task"}
 
 
 def request_task_run_pause(runtime_host: Any, task_run_id: str, *, reason: str = "", requested_by: str = "user") -> dict[str, Any]:
@@ -446,7 +446,7 @@ def recover_interrupted_task_executors(runtime_host: Any) -> dict[str, Any]:
     recovered: list[str] = []
     skipped_graph_node_task_run_ids: list[str] = []
     for task_run in runtime_host.state_index.list_task_runs():
-        if str(getattr(task_run, "execution_runtime_kind", "") or "") != "single_agent_task":
+        if not _is_single_agent_task_run(task_run):
             continue
         if _origin_kind(task_run) == "graph_node_assigned":
             skipped_graph_node_task_run_ids.append(task_run.task_run_id)
@@ -515,7 +515,8 @@ async def execute_task_run(
     task_run = runtime_host.state_index.get_task_run(task_run_id)
     if task_run is None:
         return _not_found(task_run_id)
-    if str(getattr(task_run, "execution_runtime_kind", "") or "") != "single_agent_task":
+    runtime_kind = str(getattr(task_run, "execution_runtime_kind", "") or "")
+    if runtime_kind not in {"single_agent_task", "subagent_task"}:
         return _conflict(task_run_id, "not_single_agent_task_run")
     control_result = _apply_runtime_control_boundary(runtime_host, task_run=task_run, agent_run=None, boundary="executor_start")
     if control_result is not None:

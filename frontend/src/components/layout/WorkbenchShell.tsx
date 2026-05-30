@@ -29,6 +29,12 @@ const LEFT_WIDTH_KEY = "agentWorkbench.leftWidth";
 const RIGHT_WIDTH_KEY = "agentWorkbench.rightWidth";
 const LEFT_COLLAPSED_KEY = "agentWorkbench.leftCollapsed";
 const RIGHT_COLLAPSED_KEY = "agentWorkbench.rightCollapsed";
+const PANEL_RAIL_WIDTH = 44;
+const RESIZE_HANDLE_WIDTH = 8;
+const WORKBENCH_CENTER_MIN_WIDTH = 520;
+const WORKBENCH_CENTER_COMPACT_MIN_WIDTH = 340;
+const WORKBENCH_EDGE_GUTTER = 10;
+
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
 }
@@ -41,9 +47,72 @@ function clampRightWidth(value: number) {
   return clamp(value, 240, 820);
 }
 
+function workbenchCenterMinWidth(viewportWidth: number) {
+  if (!Number.isFinite(viewportWidth) || viewportWidth <= 0) {
+    return WORKBENCH_CENTER_MIN_WIDTH;
+  }
+  return clamp(Math.floor(viewportWidth * 0.42), WORKBENCH_CENTER_COMPACT_MIN_WIDTH, WORKBENCH_CENTER_MIN_WIDTH);
+}
+
+function fitWorkbenchPanelWidths({
+  inspectorWidth,
+  leftCollapsed,
+  rightCollapsed,
+  sidebarWidth,
+  viewportWidth,
+}: {
+  inspectorWidth: number;
+  leftCollapsed: boolean;
+  rightCollapsed: boolean;
+  sidebarWidth: number;
+  viewportWidth: number;
+}) {
+  const centerMinWidth = workbenchCenterMinWidth(viewportWidth);
+  const leftMin = leftCollapsed ? PANEL_RAIL_WIDTH : 180;
+  const rightMin = rightCollapsed ? PANEL_RAIL_WIDTH : 240;
+  let leftWidth = leftCollapsed ? PANEL_RAIL_WIDTH : clampLeftWidth(sidebarWidth);
+  let rightWidth = rightCollapsed ? PANEL_RAIL_WIDTH : clampRightWidth(inspectorWidth);
+  const handleWidth = (leftCollapsed ? 0 : RESIZE_HANDLE_WIDTH) + (rightCollapsed ? 0 : RESIZE_HANDLE_WIDTH);
+  const maxCombinedWidth = Number.isFinite(viewportWidth) && viewportWidth > 0
+    ? Math.max(leftMin + rightMin, viewportWidth - centerMinWidth - handleWidth - WORKBENCH_EDGE_GUTTER)
+    : Number.POSITIVE_INFINITY;
+  const overflow = leftWidth + rightWidth - maxCombinedWidth;
+
+  if (overflow > 0 && Number.isFinite(overflow)) {
+    const leftRoom = Math.max(0, leftWidth - leftMin);
+    const rightRoom = Math.max(0, rightWidth - rightMin);
+    const room = leftRoom + rightRoom;
+    if (room > 0) {
+      const leftReduction = Math.min(leftRoom, overflow * (leftRoom / room));
+      const rightReduction = Math.min(rightRoom, overflow - leftReduction);
+      leftWidth -= leftReduction;
+      rightWidth -= rightReduction;
+      const remainder = leftWidth + rightWidth - maxCombinedWidth;
+      if (remainder > 0) {
+        if (leftWidth - leftMin >= rightWidth - rightMin) {
+          leftWidth = Math.max(leftMin, leftWidth - remainder);
+        } else {
+          rightWidth = Math.max(rightMin, rightWidth - remainder);
+        }
+      }
+    }
+  }
+
+  return {
+    centerMinWidth,
+    leftWidth: Math.round(leftWidth),
+    rightWidth: Math.round(rightWidth),
+  };
+}
+
 function compactFileName(path: string) {
   const parts = path.split("/");
   return parts[parts.length - 1] || path;
+}
+
+function isEditableWorkspacePath(path: string, editablePrefixes: string[] = []) {
+  const normalized = path.replace(/\\/g, "/").replace(/^\/+/, "");
+  return editablePrefixes.some((prefix) => normalized.startsWith(prefix));
 }
 
 function formatSessionTime(timestamp: number) {
@@ -303,7 +372,9 @@ function MainToolbar({
     inspectorPath,
     saveInspector,
     sessionActivity,
+    workspaceContext,
   } = useAppStore();
+  const editable = isEditableWorkspacePath(inspectorPath, workspaceContext?.editable_prefixes);
   const title = centerPanel === "file" ? "文件" : "会话";
   const streaming = Boolean(currentSessionId && activeStreamSessionIds.includes(currentSessionId));
   const activityLabel = streaming
@@ -344,15 +415,36 @@ function MainToolbar({
         >
           {rightPanelCollapsed ? <PanelRightOpen size={15} /> : <PanelRightClose size={15} />}
         </button>
-        <button disabled={!inspectorDirty} onClick={() => void saveInspector()} type="button">保存</button>
+        <button disabled={!inspectorDirty || !editable} onClick={() => void saveInspector()} type="button">保存</button>
       </div>
     </header>
   );
 }
 
+function useViewportWidth() {
+  const [viewportWidth, setViewportWidth] = useState(0);
+
+  useEffect(() => {
+    const update = () => setViewportWidth(window.innerWidth);
+    update();
+    window.addEventListener("resize", update);
+    return () => window.removeEventListener("resize", update);
+  }, []);
+
+  return viewportWidth;
+}
+
 function CenterFilePage({ onReturnToChat }: { onReturnToChat: () => void }) {
-  const { inspectorContent, inspectorDirty, inspectorPath, saveInspector, updateInspectorContent } = useAppStore();
+  const { inspectorContent, inspectorDirty, inspectorPath, saveInspector, updateInspectorContent, workspaceContext } = useAppStore();
   const [editing, setEditing] = useState(false);
+  const editable = isEditableWorkspacePath(inspectorPath, workspaceContext?.editable_prefixes);
+
+  useEffect(() => {
+    if (!editable && editing) {
+      setEditing(false);
+    }
+  }, [editable, editing]);
+
   return (
     <section className="workbench-file-page" aria-label="文件查看">
       <header>
@@ -362,7 +454,9 @@ function CenterFilePage({ onReturnToChat }: { onReturnToChat: () => void }) {
         </div>
         <div className="workbench-file-page__actions">
           <button onClick={onReturnToChat} type="button">返回会话</button>
-          {editing ? (
+          {!editable ? (
+            <span className="workbench-file-page__badge">只读</span>
+          ) : editing ? (
             <button disabled={!inspectorDirty} onClick={() => void saveInspector().then(() => setEditing(false))} type="button">保存</button>
           ) : (
             <button onClick={() => setEditing(true)} type="button">编辑</button>
@@ -431,6 +525,7 @@ export function WorkbenchShell({
   const [leftCollapsed, setLeftCollapsed] = useState(false);
   const [rightCollapsed, setRightCollapsed] = useState(false);
   const [centerPanel, setCenterPanel] = useState<CenterPanel>("chat");
+  const viewportWidth = useViewportWidth();
   usePersistedWorkbenchWidths();
 
   useEffect(() => {
@@ -446,8 +541,15 @@ export function WorkbenchShell({
     window.localStorage.setItem(RIGHT_COLLAPSED_KEY, String(rightCollapsed));
   }, [rightCollapsed]);
 
-  const effectiveLeftWidth = leftCollapsed ? 44 : clampLeftWidth(sidebarWidth);
-  const effectiveRightWidth = rightCollapsed ? 44 : clampRightWidth(inspectorWidth);
+  const layout = fitWorkbenchPanelWidths({
+    inspectorWidth,
+    leftCollapsed,
+    rightCollapsed,
+    sidebarWidth,
+    viewportWidth,
+  });
+  const effectiveLeftWidth = layout.leftWidth;
+  const effectiveRightWidth = layout.rightWidth;
   const left = leftPanel ?? (
     <WorkspaceManagerPanel
       onOpenFile={(path) => {
@@ -461,14 +563,27 @@ export function WorkbenchShell({
     <main
       className={["agent-workbench agent-workbench--chat-only", className].filter(Boolean).join(" ")}
       style={{
-        gridTemplateColumns: `${effectiveLeftWidth}px ${leftCollapsed ? "0px" : "8px"} minmax(0, 1fr) ${rightCollapsed ? `0px ${effectiveRightWidth}px` : `8px ${effectiveRightWidth}px`}`,
+        gridTemplateColumns: `${effectiveLeftWidth}px ${leftCollapsed ? "0px" : `${RESIZE_HANDLE_WIDTH}px`} minmax(${layout.centerMinWidth}px, 1fr) ${rightCollapsed ? `0px ${effectiveRightWidth}px` : `${RESIZE_HANDLE_WIDTH}px ${effectiveRightWidth}px`}`,
       }}
     >
       {leftCollapsed ? (
         <CollapsedPanelRail label={leftPanelLabel} onOpen={() => setLeftCollapsed(false)} side="left" />
       ) : left}
       {leftCollapsed ? null : (
-        <ResizeHandle label={`调整${leftPanelLabel}宽度`} onResize={(delta) => setSidebarWidth(clampLeftWidth(sidebarWidth + delta))} side="left" />
+        <ResizeHandle
+          label={`调整${leftPanelLabel}宽度`}
+          onResize={(delta) => {
+            const nextLayout = fitWorkbenchPanelWidths({
+              inspectorWidth: effectiveRightWidth,
+              leftCollapsed,
+              rightCollapsed,
+              sidebarWidth: effectiveLeftWidth + delta,
+              viewportWidth,
+            });
+            setSidebarWidth(nextLayout.leftWidth);
+          }}
+          side="left"
+        />
       )}
       {leftCollapsed ? <div aria-hidden="true" /> : null}
       <section className="workbench-center" aria-label="主任务环境">
@@ -485,7 +600,20 @@ export function WorkbenchShell({
         </div>
       </section>
       {rightCollapsed ? null : (
-        <ResizeHandle label={`调整${rightPanelLabel}宽度`} onResize={(delta) => setInspectorWidth(clampRightWidth(inspectorWidth + delta))} side="right" />
+        <ResizeHandle
+          label={`调整${rightPanelLabel}宽度`}
+          onResize={(delta) => {
+            const nextLayout = fitWorkbenchPanelWidths({
+              inspectorWidth: effectiveRightWidth + delta,
+              leftCollapsed,
+              rightCollapsed,
+              sidebarWidth: effectiveLeftWidth,
+              viewportWidth,
+            });
+            setInspectorWidth(nextLayout.rightWidth);
+          }}
+          side="right"
+        />
       )}
       {rightCollapsed ? <div aria-hidden="true" /> : null}
       {rightCollapsed ? (

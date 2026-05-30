@@ -210,10 +210,11 @@ export type TaskGraphMonitorBinding = {
   bound_at: number;
 };
 
-export type TaskSystemRuntimeNavigationTarget = {
-  task_run_id: string;
-  layer: "runtime" | "agent-runtime-phase";
+export type CenterWorkspaceTarget = {
+  layer: "task-graph";
+  mode?: "editor" | "monitor";
   graph_id?: string;
+  task_run_id?: string;
   requested_at: number;
 };
 
@@ -274,7 +275,7 @@ export type StoreState = {
   taskGraphRunInteractionOpen: boolean;
   orchestrationInspectorTarget: OrchestrationInspectorTarget | null;
   taskSelection: TaskSelectionState | null;
-  taskSystemRuntimeNavigationTarget: TaskSystemRuntimeNavigationTarget | null;
+  centerWorkspaceTarget: CenterWorkspaceTarget | null;
 };
 
 export type StoreActions = {
@@ -315,7 +316,8 @@ export type StoreActions = {
   setTaskSelection: (selection: TaskSelectionState | null) => void;
   selectGlobalRuntimeMonitorTaskRun: (taskRunId: string) => void;
   openGlobalRuntimeMonitorTaskRun: (taskRunId: string) => void;
-  clearTaskSystemRuntimeNavigationTarget: () => void;
+  openTaskGraphWorkspace: (target?: Omit<CenterWorkspaceTarget, "layer" | "requested_at">) => void;
+  clearCenterWorkspaceTarget: () => void;
   refreshGlobalRuntimeMonitor: () => Promise<void>;
 };
 

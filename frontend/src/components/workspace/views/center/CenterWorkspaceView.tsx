@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointer
 
 import { ChatPanel } from "@/components/chat/ChatPanel";
 import { CoordinationTopologyGraph, type CoordinationTopologyEdge, type CoordinationTopologyNode } from "@/components/coordination/CoordinationTopologyGraph";
+import { GraphTaskWorkspace } from "@/components/workspace/views/task-graph-workbench/GraphTaskWorkspace";
 import {
   getGraphRunMonitor,
   getTaskSystemOverview,
@@ -35,12 +36,15 @@ function clamp(value: number, min: number, max: number) {
 export function CenterWorkspaceView() {
   const {
     bindTaskGraphMonitorRun,
+    centerWorkspaceTarget,
+    clearCenterWorkspaceTarget,
     currentSessionId,
     setTaskGraphRunInteractionOpen,
     taskGraphBoundRunMonitor,
     taskGraphMonitorBinding,
   } = useAppStore();
   const [layer, setLayer] = useState<CenterWorkspaceLayer>("chat");
+  const [graphWorkspaceMode, setGraphWorkspaceMode] = useState<"editor" | "monitor">("editor");
   const [overview, setOverview] = useState<TaskSystemOverview | null>(null);
   const [loadingOverview, setLoadingOverview] = useState(false);
   const [overviewError, setOverviewError] = useState("");
@@ -145,6 +149,20 @@ export function CenterWorkspaceView() {
   const informationItems = useMemo(() => buildCenterWorkspaceInformationItems(activeMonitor), [activeMonitor]);
   const activeNodeId = graphActiveNodeId(activeMonitor) || selectedGraph?.entry_node_id || "";
   const focusedNodeId = selectedNodeId || activeNodeId;
+
+  useEffect(() => {
+    if (!centerWorkspaceTarget) {
+      return;
+    }
+    if (centerWorkspaceTarget.layer === "task-graph") {
+      setLayer("task-graph");
+      setGraphWorkspaceMode(centerWorkspaceTarget.mode ?? "editor");
+      if (centerWorkspaceTarget.graph_id) {
+        setSelectedGraphId(centerWorkspaceTarget.graph_id);
+      }
+    }
+    clearCenterWorkspaceTarget();
+  }, [centerWorkspaceTarget, clearCenterWorkspaceTarget]);
 
   useEffect(() => {
     const saved = Number(window.localStorage.getItem(GRAPH_PANEL_WIDTH_KEY));
@@ -321,11 +339,43 @@ export function CenterWorkspaceView() {
         </div>
       ) : (
         <div className="center-workspace__graph-layer">
-          <div
-            className="center-workspace__graph-body"
-            ref={graphBodyRef}
-            style={{ gridTemplateColumns: `minmax(0, ${graphPanelRatio}fr) 8px minmax(160px, ${1 - graphPanelRatio}fr)` }}
-          >
+          <header className="center-workspace__graph-workbench-head" aria-label="图任务工作台模式">
+            <div>
+              <span>图任务工作台</span>
+              <strong>{graphWorkspaceMode === "editor" ? "编辑台" : "运行监控"}</strong>
+            </div>
+            <div className="center-workspace__graph-workbench-tabs">
+              <button
+                aria-pressed={graphWorkspaceMode === "editor"}
+                className={graphWorkspaceMode === "editor" ? "center-workspace__graph-workbench-tab center-workspace__graph-workbench-tab--active" : "center-workspace__graph-workbench-tab"}
+                onClick={() => setGraphWorkspaceMode("editor")}
+                type="button"
+              >
+                编辑台
+              </button>
+              <button
+                aria-pressed={graphWorkspaceMode === "monitor"}
+                className={graphWorkspaceMode === "monitor" ? "center-workspace__graph-workbench-tab center-workspace__graph-workbench-tab--active" : "center-workspace__graph-workbench-tab"}
+                onClick={() => setGraphWorkspaceMode("monitor")}
+                type="button"
+              >
+                运行监控
+              </button>
+            </div>
+          </header>
+
+          {graphWorkspaceMode === "editor" ? (
+            <GraphTaskWorkspace
+              onSelectedGraphChange={setSelectedGraphId}
+              requestedGraphId={selectedGraphId}
+            />
+          ) : (
+            <>
+              <div
+                className="center-workspace__graph-body"
+                ref={graphBodyRef}
+                style={{ gridTemplateColumns: `minmax(0, ${graphPanelRatio}fr) 8px minmax(160px, ${1 - graphPanelRatio}fr)` }}
+              >
             <section className="center-workspace__structure" aria-label="任务结构">
               <header className="center-workspace__panel-head">
                 <div>
@@ -420,7 +470,7 @@ export function CenterWorkspaceView() {
                   <div className="center-workspace__monitor-empty">
                     <Network size={20} />
                     <strong>{selectedGraph ? "等待运行输出" : "先选择一个任务"}</strong>
-                    <span>{selectedGraph ? "运行后这里显示各节点的输出、结果引用和产物。" : "先在底部选择任务环境和具体任务。"}</span>
+                    <span>{selectedGraph ? "运行后这里显示各节点的输出、结果引用和产物。" : "先在底部选择图资源边界和具体任务。"}</span>
                   </div>
                 )}
               </div>
@@ -463,7 +513,7 @@ export function CenterWorkspaceView() {
             <div className="center-workspace__composer-footer">
               <div className="center-workspace__composer-target" aria-label="任务选择">
                 <label>
-                  <span>任务环境</span>
+                  <span>图资源边界</span>
                   <select
                     disabled={starting || loadingOverview || !taskEnvironmentIds.length}
                     onChange={(event) => {
@@ -501,6 +551,8 @@ export function CenterWorkspaceView() {
               </button>
             </div>
           </form>
+            </>
+          )}
         </div>
       )}
     </section>

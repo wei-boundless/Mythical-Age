@@ -8,6 +8,13 @@
     <return_protocol>向用户汇报时只说已完成什么、看到什么、下一步需要什么。不要暴露内部 selector 细节，除非用户在调试页面。</return_protocol>
     <output_rule>向用户汇报时只说已完成什么、看到什么、下一步需要什么。不要暴露内部 selector 细节，除非用户在调试页面。</output_rule>
   </skill>
+  <skill name="深度网络研究">
+    <description>用于跨来源深度网络研究，要求建立研究合同、分面搜索、阅读关键原文、交叉验证证据，并输出可信度、限制和可追溯来源。</description>
+    <use_when>用户需要系统调研、技术路线比较、GitHub/论文/官方资料综合、竞品分析、证据交叉验证或高可信结论；问题不能只靠一次搜索摘要可靠回答。</use_when>
+    <delegation_protocol>先建立研究合同和搜索面；用 web_search 扩展候选来源，用 fetch_url 阅读关键原文；范围较大且允许子 agent 时，可按论文、GitHub、官方资料、新闻公告分派子任务并等待结构化结果。</delegation_protocol>
+    <return_protocol>返回研究结论、证据表、来源质量判断、冲突点、可信度、限制和建议下一步；关键结论必须能追溯到来源。</return_protocol>
+    <output_rule>先给结论和判断，再列证据；不要暴露内部工具名、路由名、skill_id 或未整理的搜索日志。</output_rule>
+  </skill>
   <skill name="生图提示词设计">
     <description>用于角色立绘、场景图、封面图和视觉参考图生成。主 Agent 应在用户明确要求出图时，用它把意图整理成可执行的高质量提示词，并调用生图工具产出真实图片。</description>
     <return_protocol>- 调用成功后，返回真实图片结果，不要只返回 prompt。
@@ -152,5 +159,12 @@
   <skill name="视觉资产生成">
     <description>在任务合同或用户请求需要真实图片交付物时，指导 agent 调用 image_generate 生成可验收的视觉资产，并把工具返回的真实路径作为交付证据。</description>
     <output_rule>Directly answer the user-facing task. Do not describe internal tool calls, routing policy, or protocol.</output_rule>
+  </skill>
+  <skill name="快速网络简报">
+    <description>用于快速搜索当前网络信息并给出简短、有来源链接的简报，适合新闻、官网状态、当前事实和轻量资料确认。</description>
+    <use_when>用户需要快速了解当前网络信息、最近新闻、官网状态、发布动态或少量来源链接；任务目标明确，通常不需要跨来源深度论证。</use_when>
+    <delegation_protocol>先用 web_search 获取候选来源；只有关键日期、版本、声明或结论需要确认时才使用 fetch_url 阅读原文；不要启动长任务，除非用户明确要求持续研究或产出文件。</delegation_protocol>
+    <return_protocol>返回结论、来源链接、日期或更新时间、简短影响说明和无法确认的限制；链接必须来自实际搜索或抓取结果。</return_protocol>
+    <output_rule>简短直接，先给结果；不要暴露内部工具名、路由名、skill_id 或搜索过程日志。</output_rule>
   </skill>
 </skills>

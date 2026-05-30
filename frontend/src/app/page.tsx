@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, type ReactNode } from "react";
-import { BookOpen, Database, HeartPulse, LayoutGrid, MessageSquare, MonitorCog, Network, Settings, Sparkles, Workflow } from "lucide-react";
+import { Database, HeartPulse, LayoutGrid, MessageSquare, Network, Settings, Sparkles, Workflow } from "lucide-react";
 
 import { AppProvider, useAppStore } from "@/lib/store";
 import { lazy, Suspense } from "react";
@@ -45,11 +45,10 @@ const WORKSPACE_QUERY_VIEWS = new Set<WorkspaceView>([
 ]);
 
 const WORKSPACE_TONES = new Set(["water", "leaf", "gold", "ember", "lumen"]);
+const TASK_ENVIRONMENT_VIEWS = new Set<WorkspaceView>(["chat", "creative", "code-environment"]);
 
 const SYSTEM_NAV_ITEMS: Array<{ view: WorkspaceView; label: string; icon: typeof MessageSquare }> = [
-  { view: "chat", label: "会话", icon: MessageSquare },
-  { view: "creative", label: "创作", icon: BookOpen },
-  { view: "code-environment", label: "开发", icon: MonitorCog },
+  { view: "chat", label: "工作台", icon: MessageSquare },
   { view: "memory", label: "记忆", icon: Database },
   { view: "task-system", label: "任务", icon: Workflow },
   { view: "orchestration", label: "编排", icon: Network },
@@ -76,7 +75,9 @@ function SystemPageShell({
         <nav>
           {SYSTEM_NAV_ITEMS.map((item) => {
             const Icon = item.icon;
-            const active = activeWorkspaceView === item.view;
+            const active = item.view === "chat"
+              ? TASK_ENVIRONMENT_VIEWS.has(activeWorkspaceView)
+              : activeWorkspaceView === item.view;
             return (
               <button
                 aria-label={item.label}

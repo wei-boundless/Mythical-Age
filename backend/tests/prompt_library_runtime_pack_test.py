@@ -273,10 +273,12 @@ def test_runtime_compiler_assembles_agent_and_environment_prompt_refs() -> None:
 
     assert "agent.main_interactive_agent.work_role.v1" in manifest["stable_prompt_refs"]
     assert "environment.development.sandbox.v1" in manifest["stable_prompt_refs"]
-    assert manifest["cache_boundary"]["static_section_count"] == 3
-    assert manifest["cache_boundary"]["cache_scope_counts"]["static_environment"] == 1
+    assert "strategy.development.execution.v1" in manifest["stable_prompt_refs"]
+    assert manifest["cache_boundary"]["static_section_count"] == 4
+    assert manifest["cache_boundary"]["cache_scope_counts"]["static_environment"] == 2
     assert "通用主 agent" in result.packet.system_instructions
     assert "开发沙盒资源边界" in result.packet.system_instructions
+    assert "开发执行 agent" in result.packet.system_instructions
     assert "python_symbol_search" in result.packet.system_instructions
     assert "python_code_outline" in result.packet.system_instructions
     assert "python_parse_check" in result.packet.system_instructions
@@ -284,6 +286,11 @@ def test_runtime_compiler_assembles_agent_and_environment_prompt_refs() -> None:
     assert stable_payload["task_environment"]["environment_prompts"] == [
         {
             "prompt_id": "environment.development.sandbox.v1",
+            "content_omitted": True,
+            "content_source": "prompt_library",
+        },
+        {
+            "prompt_id": "strategy.development.execution.v1",
             "content_omitted": True,
             "content_source": "prompt_library",
         }

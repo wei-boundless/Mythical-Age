@@ -1,6 +1,6 @@
 {
   "version": 3,
-  "skill_count": 7,
+  "skill_count": 9,
   "skills": [
     {
       "schema_version": 3,
@@ -126,6 +126,153 @@
         "delegation_protocol": "",
         "return_protocol": "向用户汇报时只说已完成什么、看到什么、下一步需要什么。不要暴露内部 selector 细节，除非用户在调试页面。",
         "output_rule": "向用户汇报时只说已完成什么、看到什么、下一步需要什么。不要暴露内部 selector 细节，除非用户在调试页面。"
+      },
+      "validation_errors": []
+    },
+    {
+      "schema_version": 3,
+      "name": "deep-web-research",
+      "title": "深度网络研究",
+      "description": "用于跨来源深度网络研究，要求建立研究合同、分面搜索、阅读关键原文、交叉验证证据，并输出可信度、限制和可追溯来源。",
+      "path": "capability_system/units/skills/deep-web-research/SKILL.md",
+      "supported_modalities": [
+        "web",
+        "text",
+        "code",
+        "research"
+      ],
+      "supported_task_kinds": [
+        "deep_web_research",
+        "technical_landscape_research",
+        "competitor_research",
+        "github_project_research",
+        "evidence_triangulation",
+        "source_quality_review"
+      ],
+      "supported_source_kinds": [
+        "website",
+        "official_page",
+        "paper",
+        "github",
+        "documentation",
+        "news",
+        "benchmark"
+      ],
+      "capability_tags": [
+        "deep_search",
+        "web_research",
+        "evidence_triage",
+        "source_verification",
+        "github_research",
+        "citation-aware"
+      ],
+      "preferred_route": "op.web_search",
+      "forbidden_routes": [],
+      "routing_hints": [
+        "深度搜索",
+        "深入调研",
+        "技术调研",
+        "竞品分析",
+        "GitHub",
+        "论文",
+        "方案比较",
+        "证据",
+        "来源可靠性",
+        "尽调"
+      ],
+      "examples": [
+        "深度调研情感识别相关模型和 GitHub 项目",
+        "比较几个 AI 编码 Agent 的架构设计",
+        "找出这个技术方向的主流方案、代表项目和风险"
+      ],
+      "activation_policy": "model_visible",
+      "context_mode": "inline",
+      "route_authority": "candidate_only",
+      "reference_paths": [],
+      "requires_operations": [
+        "op.web_search",
+        "op.fetch_url"
+      ],
+      "requires_capabilities": [
+        "tool:web_search",
+        "tool:fetch_url"
+      ],
+      "runtime": {
+        "name": "deep-web-research",
+        "title": "深度网络研究",
+        "description": "用于跨来源深度网络研究，要求建立研究合同、分面搜索、阅读关键原文、交叉验证证据，并输出可信度、限制和可追溯来源。",
+        "path": "capability_system/units/skills/deep-web-research/SKILL.md",
+        "supported_modalities": [
+          "web",
+          "text",
+          "code",
+          "research"
+        ],
+        "supported_task_kinds": [
+          "deep_web_research",
+          "technical_landscape_research",
+          "competitor_research",
+          "github_project_research",
+          "evidence_triangulation",
+          "source_quality_review"
+        ],
+        "supported_source_kinds": [
+          "website",
+          "official_page",
+          "paper",
+          "github",
+          "documentation",
+          "news",
+          "benchmark"
+        ],
+        "capability_tags": [
+          "deep_search",
+          "web_research",
+          "evidence_triage",
+          "source_verification",
+          "github_research",
+          "citation-aware"
+        ],
+        "preferred_route": "op.web_search",
+        "forbidden_routes": [],
+        "routing_hints": [
+          "深度搜索",
+          "深入调研",
+          "技术调研",
+          "竞品分析",
+          "GitHub",
+          "论文",
+          "方案比较",
+          "证据",
+          "来源可靠性",
+          "尽调"
+        ],
+        "examples": [
+          "深度调研情感识别相关模型和 GitHub 项目",
+          "比较几个 AI 编码 Agent 的架构设计",
+          "找出这个技术方向的主流方案、代表项目和风险"
+        ],
+        "activation_policy": "model_visible",
+        "context_mode": "inline",
+        "route_authority": "candidate_only",
+        "reference_paths": [],
+        "requires_operations": [
+          "op.web_search",
+          "op.fetch_url"
+        ],
+        "requires_capabilities": [
+          "tool:web_search",
+          "tool:fetch_url"
+        ]
+      },
+      "prompt": {
+        "name": "deep-web-research",
+        "title": "深度网络研究",
+        "capability": "用于跨来源深度网络研究，要求建立研究合同、分面搜索、阅读关键原文、交叉验证证据，并输出可信度、限制和可追溯来源。",
+        "use_when": "用户需要系统调研、技术路线比较、GitHub/论文/官方资料综合、竞品分析、证据交叉验证或高可信结论；问题不能只靠一次搜索摘要可靠回答。",
+        "delegation_protocol": "先建立研究合同和搜索面；用 web_search 扩展候选来源，用 fetch_url 阅读关键原文；范围较大且允许子 agent 时，可按论文、GitHub、官方资料、新闻公告分派子任务并等待结构化结果。",
+        "return_protocol": "返回研究结论、证据表、来源质量判断、冲突点、可信度、限制和建议下一步；关键结论必须能追溯到来源。",
+        "output_rule": "先给结论和判断，再列证据；不要暴露内部工具名、路由名、skill_id 或未整理的搜索日志。"
       },
       "validation_errors": []
     },
@@ -904,6 +1051,135 @@
         "delegation_protocol": "",
         "return_protocol": "",
         "output_rule": "Directly answer the user-facing task. Do not describe internal tool calls, routing policy, or protocol."
+      },
+      "validation_errors": []
+    },
+    {
+      "schema_version": 3,
+      "name": "web-search-briefing",
+      "title": "快速网络简报",
+      "description": "用于快速搜索当前网络信息并给出简短、有来源链接的简报，适合新闻、官网状态、当前事实和轻量资料确认。",
+      "path": "capability_system/units/skills/web-search-briefing/SKILL.md",
+      "supported_modalities": [
+        "web",
+        "text"
+      ],
+      "supported_task_kinds": [
+        "recent_news_briefing",
+        "quick_web_lookup",
+        "source_link_summary",
+        "current_status_check"
+      ],
+      "supported_source_kinds": [
+        "website",
+        "search_result",
+        "news",
+        "official_page"
+      ],
+      "capability_tags": [
+        "web_search",
+        "current_information",
+        "news_briefing",
+        "fast_evidence",
+        "citation-aware"
+      ],
+      "preferred_route": "op.web_search",
+      "forbidden_routes": [],
+      "routing_hints": [
+        "最近",
+        "最新",
+        "新闻",
+        "资讯",
+        "查一下",
+        "官网",
+        "当前",
+        "今天",
+        "这周"
+      ],
+      "examples": [
+        "整理最近一周 AI 资讯",
+        "查一下这个产品现在是否发布",
+        "帮我找几个官方来源链接"
+      ],
+      "activation_policy": "model_visible",
+      "context_mode": "inline",
+      "route_authority": "candidate_only",
+      "reference_paths": [],
+      "requires_operations": [
+        "op.web_search",
+        "op.fetch_url"
+      ],
+      "requires_capabilities": [
+        "tool:web_search",
+        "tool:fetch_url"
+      ],
+      "runtime": {
+        "name": "web-search-briefing",
+        "title": "快速网络简报",
+        "description": "用于快速搜索当前网络信息并给出简短、有来源链接的简报，适合新闻、官网状态、当前事实和轻量资料确认。",
+        "path": "capability_system/units/skills/web-search-briefing/SKILL.md",
+        "supported_modalities": [
+          "web",
+          "text"
+        ],
+        "supported_task_kinds": [
+          "recent_news_briefing",
+          "quick_web_lookup",
+          "source_link_summary",
+          "current_status_check"
+        ],
+        "supported_source_kinds": [
+          "website",
+          "search_result",
+          "news",
+          "official_page"
+        ],
+        "capability_tags": [
+          "web_search",
+          "current_information",
+          "news_briefing",
+          "fast_evidence",
+          "citation-aware"
+        ],
+        "preferred_route": "op.web_search",
+        "forbidden_routes": [],
+        "routing_hints": [
+          "最近",
+          "最新",
+          "新闻",
+          "资讯",
+          "查一下",
+          "官网",
+          "当前",
+          "今天",
+          "这周"
+        ],
+        "examples": [
+          "整理最近一周 AI 资讯",
+          "查一下这个产品现在是否发布",
+          "帮我找几个官方来源链接"
+        ],
+        "activation_policy": "model_visible",
+        "context_mode": "inline",
+        "route_authority": "candidate_only",
+        "reference_paths": [],
+        "requires_operations": [
+          "op.web_search",
+          "op.fetch_url"
+        ],
+        "requires_capabilities": [
+          "tool:web_search",
+          "tool:fetch_url"
+        ]
+      },
+      "prompt": {
+        "name": "web-search-briefing",
+        "title": "快速网络简报",
+        "capability": "用于快速搜索当前网络信息并给出简短、有来源链接的简报，适合新闻、官网状态、当前事实和轻量资料确认。",
+        "use_when": "用户需要快速了解当前网络信息、最近新闻、官网状态、发布动态或少量来源链接；任务目标明确，通常不需要跨来源深度论证。",
+        "delegation_protocol": "先用 web_search 获取候选来源；只有关键日期、版本、声明或结论需要确认时才使用 fetch_url 阅读原文；不要启动长任务，除非用户明确要求持续研究或产出文件。",
+        "return_protocol": "返回结论、来源链接、日期或更新时间、简短影响说明和无法确认的限制；链接必须来自实际搜索或抓取结果。",
+        "output_rule": "简短直接，先给结果；不要暴露内部工具名、路由名、skill_id 或搜索过程日志。"
       },
       "validation_errors": []
     }

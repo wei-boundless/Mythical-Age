@@ -1,77 +1,212 @@
 "use client";
 
-import { useEffect, useMemo, useState, type CSSProperties } from "react";
-import { AlertTriangle, CheckCircle2, ChevronDown, ChevronRight, Cpu, File, Folder, FolderOpen, MonitorCog, RefreshCw, TerminalSquare } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  AlertTriangle,
+  CheckCircle2,
+  Cpu,
+  FileCode2,
+  GitBranch,
+  MonitorCog,
+  RefreshCw,
+  ShieldCheck,
+  TerminalSquare,
+  Wrench,
+} from "lucide-react";
 
+import { ChatPanel } from "@/components/chat/ChatPanel";
+import { WorkbenchShell } from "@/components/layout/WorkbenchShell";
 import {
   getCodeEnvironment,
+  getCodeEnvironmentGitStatus,
   getCodeEnvironmentWorkspaceTree,
   getPiSidecarStatus,
   runPiSidecarReadOnlyCommand,
   startPiSidecar,
   stopPiSidecar,
+  type CodeEnvironmentGitStatus,
   type CodeEnvironmentStatus,
-  type CodeEnvironmentTreeNode,
   type CodeEnvironmentWorkspaceTree,
   type PiSidecarCommandResponse,
   type PiSidecarStatus,
 } from "@/lib/api";
-import { WorkspaceModeSwitcher } from "@/components/layout/WorkspaceModeSwitcher";
 
 function hostConfig() {
   const config = globalThis.__MYTHICAL_AGENT_HOST__ || (typeof window !== "undefined" ? window.mythicalAgentHost?.getConfig() : undefined);
   return {
-    mode: config?.hostMode || "web",
+    mode: config?.hostMode === "desktop" ? "desktop" : "web",
     localRuntimeAvailable: Boolean(config?.localRuntimeAvailable),
     codeEnvironmentHostAvailable: Boolean(config?.codeEnvironmentHostAvailable),
   } as const;
 }
 
-function statusLabel(environment: CodeEnvironmentStatus | null) {
+function environmentStatusLabel(environment: CodeEnvironmentStatus | null) {
   if (!environment) return "检测中";
-  if (!environment.pi.enabled) return "已关闭";
-  if (environment.pi.mode === "sidecar_ready") return "环境就绪";
-  if (environment.pi.mode === "error") return "环境异常";
+  if (!environment.pi.enabled) return "未启用";
+  if (environment.pi.mode === "sidecar_running") return "运行中";
+  if (environment.pi.mode === "sidecar_ready") return "就绪";
+  if (environment.pi.mode === "error") return "异常";
   if (environment.pi.cli_built) return "可连接";
-  return "专业模式可用";
+  return "诊断";
 }
 
-function WorkspaceTreeNodeView({ node }: { node: CodeEnvironmentTreeNode }) {
-  const isDirectory = node.kind === "directory";
-  const [expanded, setExpanded] = useState(node.depth === 0);
-  const visibleName = node.name || "project";
-  const hasChildren = isDirectory && node.children.length > 0;
+function diagnosticLabel(level: string) {
+  if (level === "error") return "错误";
+  if (level === "warning") return "警告";
+  return "信息";
+}
+
+function DevelopmentRightPanel({
+  commandResult,
+  environment,
+  error,
+  gitStatus,
+  loading,
+  sidecar,
+  sidecarLoading,
+  workspaceTree,
+  onRefresh,
+  onRunSidecarAction,
+}: {
+  commandResult: PiSidecarCommandResponse | null;
+  environment: CodeEnvironmentStatus | null;
+  error: string;
+  gitStatus: CodeEnvironmentGitStatus | null;
+  loading: boolean;
+  sidecar: PiSidecarStatus | null;
+  sidecarLoading: boolean;
+  workspaceTree: CodeEnvironmentWorkspaceTree | null;
+  onRefresh: () => void;
+  onRunSidecarAction: (action: "start" | "stop" | "get_state" | "get_available_models") => void;
+}) {
+  const diagnostics = environment?.pi.diagnostics ?? [];
+  const gitItems = gitStatus?.items ?? [];
+  const running = Boolean(sidecar?.running);
+  const projectReady = Boolean(environment?.pi.enabled);
+  const sidecarReady = Boolean(environment?.pi.available && environment.pi.cli_built && environment.pi.sidecar_enabled);
+  const projectRoot = environment?.pi.workspace_root || workspaceTree?.root_path || "未检测";
+
   return (
-    <li>
-      <button
-        aria-expanded={hasChildren ? expanded : undefined}
-        className={isDirectory ? "code-environment-tree-row code-environment-tree-row--directory" : "code-environment-tree-row"}
-        onClick={() => {
-          if (hasChildren) setExpanded((value) => !value);
-        }}
-        style={{ "--tree-depth": node.depth } as CSSProperties}
-        title={node.path || visibleName}
-        type="button"
-      >
-        {hasChildren ? (expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />) : <span className="code-environment-tree-row__spacer" />}
-        {isDirectory ? (expanded ? <FolderOpen size={14} /> : <Folder size={14} />) : <File size={14} />}
-        <span>{visibleName}</span>
-        {node.truncated ? <small>截断</small> : null}
-      </button>
-      {hasChildren && expanded ? (
-        <ul>
-          {node.children.map((child) => (
-            <WorkspaceTreeNodeView key={`${child.kind}:${child.path}`} node={child} />
-          ))}
-        </ul>
-      ) : null}
-    </li>
+    <aside className="workbench-right-panel development-right-panel" aria-label="开发环境状态">
+      <header className="workbench-panel-head workbench-panel-head--right">
+        <div>
+          <strong>开发状态</strong>
+          <span>{environmentStatusLabel(environment)}</span>
+        </div>
+        <button className="workbench-icon-button" disabled={loading} onClick={onRefresh} title="刷新开发状态" type="button">
+          <RefreshCw size={15} />
+        </button>
+      </header>
+
+      <div className="development-right-body">
+        {error ? <div className="development-alert development-alert--error">{error}</div> : null}
+
+        <section className="development-status-grid" aria-label="开发环境摘要">
+          <article className={projectReady ? "development-status-card development-status-card--ready" : "development-status-card"}>
+            {projectReady ? <CheckCircle2 size={16} /> : <AlertTriangle size={16} />}
+            <div>
+              <span>项目模式</span>
+              <strong>{projectReady ? "已启用" : "未启用"}</strong>
+            </div>
+          </article>
+          <article className={running ? "development-status-card development-status-card--ready" : "development-status-card"}>
+            {running ? <CheckCircle2 size={16} /> : <TerminalSquare size={16} />}
+            <div>
+              <span>Sidecar</span>
+              <strong>{running ? `PID ${sidecar?.pid || ""}` : sidecarReady ? "待启动" : "诊断"}</strong>
+            </div>
+          </article>
+        </section>
+
+        <section className="development-detail-panel">
+          <header>
+            <MonitorCog size={15} />
+            <strong>运行边界</strong>
+            <span>{environment?.pi.mode || "unknown"}</span>
+          </header>
+          <dl>
+            <div><dt>工作区</dt><dd title={projectRoot}>{projectRoot}</dd></div>
+            <div><dt>Node</dt><dd>{environment?.pi.node_version || "未检测"}</dd></div>
+            <div><dt>工具包</dt><dd>{environment?.pi.coding_agent_package_name || environment?.pi.package_name || "未检测"}</dd></div>
+            <div><dt>项目树</dt><dd>{workspaceTree ? `${workspaceTree.total_entries} 项` : "未加载"}</dd></div>
+          </dl>
+        </section>
+
+        <section className="development-detail-panel">
+          <header>
+            <GitBranch size={15} />
+            <strong>Git</strong>
+            <span>{gitStatus?.branch || "未读取"}</span>
+          </header>
+          {gitStatus?.available ? (
+            <div className="development-git-list">
+              {gitItems.length ? gitItems.slice(0, 14).map((item) => (
+                <div className="development-git-row" key={`${item.status}:${item.path}`}>
+                  <span>{item.status}</span>
+                  <strong title={item.path}>{item.path}</strong>
+                </div>
+              )) : <div className="development-empty">工作树无变更。</div>}
+            </div>
+          ) : (
+            <div className="development-empty">{gitStatus?.error || "Git 状态未加载。"}</div>
+          )}
+        </section>
+
+        <section className="development-detail-panel">
+          <header>
+            <ShieldCheck size={15} />
+            <strong>诊断</strong>
+            <span>{diagnostics.length ? `${diagnostics.length} 项` : "通过"}</span>
+          </header>
+          <div className="development-diagnostic-list">
+            {diagnostics.length ? diagnostics.map((item) => (
+              <article className={`development-diagnostic development-diagnostic--${item.level}`} key={`${item.code}:${item.path || item.message}`}>
+                <span>{diagnosticLabel(item.level)}</span>
+                <strong>{item.code}</strong>
+                <p>{item.message}</p>
+                {item.path ? <small title={item.path}>{item.path}</small> : null}
+              </article>
+            )) : <div className="development-empty">没有阻断项。</div>}
+          </div>
+        </section>
+
+        <section className="development-detail-panel">
+          <header>
+            <TerminalSquare size={15} />
+            <strong>Sidecar</strong>
+            <span>{running ? "running" : "stopped"}</span>
+          </header>
+          <div className="development-sidecar-actions">
+            <button disabled={sidecarLoading || !sidecarReady || running} onClick={() => onRunSidecarAction("start")} type="button">启动</button>
+            <button disabled={sidecarLoading || !running} onClick={() => onRunSidecarAction("stop")} type="button">停止</button>
+            <button disabled={sidecarLoading || !running} onClick={() => onRunSidecarAction("get_state")} type="button">状态</button>
+            <button disabled={sidecarLoading || !running} onClick={() => onRunSidecarAction("get_available_models")} type="button">模型</button>
+          </div>
+          <dl>
+            <div><dt>CLI</dt><dd title={environment?.pi.pi_cli_path}>{environment?.pi.pi_cli_path || "未检测"}</dd></div>
+            <div><dt>stderr</dt><dd title={sidecar?.stderr_tail}>{sidecar?.stderr_tail || "无输出"}</dd></div>
+          </dl>
+        </section>
+
+        {commandResult ? (
+          <section className="development-detail-panel">
+            <header>
+              <Wrench size={15} />
+              <strong>只读命令</strong>
+              <span>{commandResult.command}</span>
+            </header>
+            <pre className="development-command-result">{JSON.stringify(commandResult, null, 2)}</pre>
+          </section>
+        ) : null}
+      </div>
+    </aside>
   );
 }
 
 export function CodeEnvironmentView({ embedded = false }: { embedded?: boolean }) {
   const [environment, setEnvironment] = useState<CodeEnvironmentStatus | null>(null);
   const [workspaceTree, setWorkspaceTree] = useState<CodeEnvironmentWorkspaceTree | null>(null);
+  const [gitStatus, setGitStatus] = useState<CodeEnvironmentGitStatus | null>(null);
   const [sidecar, setSidecar] = useState<PiSidecarStatus | null>(null);
   const [commandResult, setCommandResult] = useState<PiSidecarCommandResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -79,33 +214,30 @@ export function CodeEnvironmentView({ embedded = false }: { embedded?: boolean }
   const [error, setError] = useState("");
   const host = useMemo(() => hostConfig(), []);
 
-  async function load() {
+  const loadEnvironment = useCallback(async () => {
     setLoading(true);
     setError("");
     try {
-      const [nextEnvironment, nextSidecar, nextWorkspaceTree] = await Promise.all([
+      const [nextEnvironment, nextSidecar, nextGitStatus, nextWorkspaceTree] = await Promise.all([
         getCodeEnvironment(host),
         getPiSidecarStatus(),
-        getCodeEnvironmentWorkspaceTree(),
+        getCodeEnvironmentGitStatus(),
+        getCodeEnvironmentWorkspaceTree({ maxDepth: 4, maxEntries: 4000 }),
       ]);
       setEnvironment(nextEnvironment);
       setSidecar(nextSidecar.status);
+      setGitStatus(nextGitStatus);
       setWorkspaceTree(nextWorkspaceTree);
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : String(loadError));
     } finally {
       setLoading(false);
     }
-  }
+  }, [host]);
 
   useEffect(() => {
-    void load();
-  }, []);
-
-  const diagnostics = environment?.pi.diagnostics || [];
-  const projectReady = Boolean(environment?.pi.enabled);
-  const ready = Boolean(environment?.pi.available && environment.pi.cli_built && environment.pi.sidecar_enabled);
-  const running = Boolean(sidecar?.running);
+    void loadEnvironment();
+  }, [loadEnvironment]);
 
   async function runSidecarAction(action: "start" | "stop" | "get_state" | "get_available_models") {
     setSidecarLoading(true);
@@ -122,197 +254,49 @@ export function CodeEnvironmentView({ embedded = false }: { embedded?: boolean }
       setError(actionError instanceof Error ? actionError.message : String(actionError));
     } finally {
       setSidecarLoading(false);
-      void load();
+      void loadEnvironment();
     }
   }
 
+  const branchLabel = gitStatus?.branch || "未读取";
+  const statusText = environmentStatusLabel(environment);
+
   return (
-    <section className={embedded ? "code-environment-console code-environment-console--embedded" : "code-environment-console"} aria-label="专业模式代码环境">
-      <header className="code-environment-console__header">
-        <div>
-          <span>专业模式</span>
-          <h1>{embedded ? "代码环境" : "专业模式代码环境"}</h1>
+    <WorkbenchShell
+      className={embedded ? "development-environment-shell development-environment-shell--embedded" : "development-environment-shell"}
+      rightPanel={(
+        <DevelopmentRightPanel
+          commandResult={commandResult}
+          environment={environment}
+          error={error}
+          gitStatus={gitStatus}
+          loading={loading}
+          onRefresh={() => void loadEnvironment()}
+          onRunSidecarAction={(action) => void runSidecarAction(action)}
+          sidecar={sidecar}
+          sidecarLoading={sidecarLoading}
+          workspaceTree={workspaceTree}
+        />
+      )}
+      rightPanelLabel="开发状态"
+    >
+      <section className="workbench-view-host development-center-host" aria-label="开发任务对话">
+        <div className="development-center-banner">
+          <div>
+            <span>开发环境</span>
+            <strong>专业 Coding Agent</strong>
+          </div>
+          <div>
+            <FileCode2 size={15} />
+            <span>{branchLabel}</span>
+          </div>
+          <div>
+            <Cpu size={15} />
+            <span>{statusText}</span>
+          </div>
         </div>
-        <div className="code-environment-console__actions">
-          <WorkspaceModeSwitcher />
-          <button disabled={loading} onClick={() => void load()} type="button">
-            <RefreshCw size={15} />
-            <span>刷新</span>
-          </button>
-        </div>
-      </header>
-
-      <div className="code-environment-status-grid">
-        <article className={ready ? "code-environment-status-card code-environment-status-card--ready" : "code-environment-status-card"}>
-          {projectReady ? <CheckCircle2 size={20} /> : <AlertTriangle size={20} />}
-          <div>
-            <span>项目模式</span>
-            <strong>{projectReady ? "已启用" : statusLabel(environment)}</strong>
-          </div>
-        </article>
-        <article className={running ? "code-environment-status-card code-environment-status-card--ready" : "code-environment-status-card"}>
-          {running ? <CheckCircle2 size={20} /> : <TerminalSquare size={20} />}
-          <div>
-            <span>Pi Sidecar</span>
-            <strong>{running ? `运行中 · ${sidecar?.pid || ""}` : environment?.pi.sidecar_enabled ? "未启动" : "诊断模式"}</strong>
-          </div>
-        </article>
-        <article className="code-environment-status-card">
-          <MonitorCog size={20} />
-          <div>
-            <span>Host</span>
-            <strong>{host.mode === "desktop" ? "Electron 本地壳" : "Web 工作台"}</strong>
-          </div>
-        </article>
-        <article className="code-environment-status-card">
-          <Cpu size={20} />
-          <div>
-            <span>Node</span>
-            <strong>{environment?.pi.node_version || "未检测"}</strong>
-          </div>
-        </article>
-        <article className="code-environment-status-card">
-          <TerminalSquare size={20} />
-          <div>
-            <span>RPC</span>
-            <strong>{environment?.pi.rpc_source_available ? "源码存在" : "未发现"}</strong>
-          </div>
-        </article>
-      </div>
-
-      {error ? <div className="code-environment-alert code-environment-alert--error">{error}</div> : null}
-
-      <div className="code-environment-workspace-layout">
-        <section className="code-environment-panel code-environment-workspace">
-          <header>
-            <strong>项目文件</strong>
-            <span>{workspaceTree ? `${workspaceTree.total_entries} 项` : loading ? "加载中" : "未加载"}</span>
-          </header>
-          {workspaceTree ? (
-            <>
-              <div className="code-environment-workspace__root">
-                <strong>{workspaceTree.root_name}</strong>
-                <span title={workspaceTree.root_path}>{workspaceTree.root_path}</span>
-              </div>
-              <ul className="code-environment-tree">
-                <WorkspaceTreeNodeView node={workspaceTree.tree} />
-              </ul>
-              {workspaceTree.truncated ? <div className="code-environment-empty">文件较多，当前只显示前 {workspaceTree.max_entries} 项。</div> : null}
-            </>
-          ) : (
-            <div className="code-environment-empty">{loading ? "正在读取项目目录。" : "未发现可显示文件。"}</div>
-          )}
-        </section>
-
-        <div className="code-environment-layout">
-          <section className="code-environment-panel">
-            <header>
-              <strong>运行边界</strong>
-              <span>项目主控</span>
-            </header>
-            <dl className="code-environment-kv">
-              <div>
-                <dt>能力归属</dt>
-                <dd>本项目 runtime / profile / tool / permission</dd>
-              </div>
-              <div>
-                <dt>入口</dt>
-                <dd>主页面任务入口和本页环境诊断共用专业模式后端能力</dd>
-              </div>
-              <div>
-                <dt>Pi</dt>
-                <dd>{environment?.pi.sidecar_enabled ? "可选 sidecar" : "可选依赖，当前仅诊断"}</dd>
-              </div>
-              <div>
-                <dt>工作区策略</dt>
-                <dd>{environment?.pi.workspace_root_policy || "project_root"}</dd>
-              </div>
-            </dl>
-          </section>
-
-          <section className="code-environment-panel">
-            <header>
-              <strong>Pi 环境</strong>
-              <span>{loading ? "检测中" : environment?.pi.mode || "未知"}</span>
-            </header>
-            <dl className="code-environment-kv">
-              <div>
-                <dt>源码</dt>
-                <dd title={environment?.pi.pi_source_root}>{environment?.pi.pi_source_root || "未检测"}</dd>
-              </div>
-              <div>
-                <dt>CLI</dt>
-                <dd title={environment?.pi.pi_cli_path}>{environment?.pi.pi_cli_path || "未检测"}</dd>
-              </div>
-              <div>
-                <dt>工作区</dt>
-                <dd title={environment?.pi.workspace_root}>{environment?.pi.workspace_root || "未检测"}</dd>
-              </div>
-              <div>
-                <dt>配置</dt>
-                <dd>{environment?.pi.sidecar_mode || "diagnostic_only"}</dd>
-              </div>
-              <div>
-                <dt>包</dt>
-                <dd>{environment?.pi.coding_agent_package_name || environment?.pi.package_name || "未检测"}</dd>
-              </div>
-            </dl>
-          </section>
-
-          <section className="code-environment-panel">
-            <header>
-              <strong>Sidecar 控制</strong>
-              <span>{running ? "running" : "stopped"}</span>
-            </header>
-            <div className="code-environment-actions">
-              <button disabled={sidecarLoading || !ready || running} onClick={() => void runSidecarAction("start")} type="button">启动</button>
-              <button disabled={sidecarLoading || !running} onClick={() => void runSidecarAction("stop")} type="button">停止</button>
-              <button disabled={sidecarLoading || !running} onClick={() => void runSidecarAction("get_state")} type="button">get_state</button>
-              <button disabled={sidecarLoading || !running} onClick={() => void runSidecarAction("get_available_models")} type="button">models</button>
-            </div>
-            <dl className="code-environment-kv">
-              <div>
-                <dt>PID</dt>
-                <dd>{sidecar?.pid || "无"}</dd>
-              </div>
-              <div>
-                <dt>stderr</dt>
-                <dd title={sidecar?.stderr_tail}>{sidecar?.stderr_tail || "无输出"}</dd>
-              </div>
-            </dl>
-          </section>
-        </div>
-      </div>
-
-      {commandResult ? (
-        <section className="code-environment-panel code-environment-panel--wide">
-          <header>
-            <strong>只读命令结果</strong>
-            <span>{commandResult.command}</span>
-          </header>
-          <pre className="code-environment-command-result">{JSON.stringify(commandResult, null, 2)}</pre>
-        </section>
-      ) : null}
-
-      <section className="code-environment-panel code-environment-panel--wide">
-        <header>
-          <strong>诊断</strong>
-          <span>{diagnostics.length ? `${diagnostics.length} 项` : "无阻断项"}</span>
-        </header>
-        {diagnostics.length ? (
-          <div className="code-environment-diagnostics">
-            {diagnostics.map((item) => (
-              <article className={`code-environment-diagnostic code-environment-diagnostic--${item.level}`} key={`${item.code}:${item.path || item.message}`}>
-                <strong>{item.code}</strong>
-                <p>{item.message}</p>
-                {item.path ? <span title={item.path}>{item.path}</span> : null}
-              </article>
-            ))}
-          </div>
-        ) : (
-          <div className="code-environment-empty">环境检查没有发现阻断项。</div>
-        )}
+        <ChatPanel />
       </section>
-    </section>
+    </WorkbenchShell>
   );
 }

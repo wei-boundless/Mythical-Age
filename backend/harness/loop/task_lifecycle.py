@@ -168,7 +168,11 @@ def start_task_lifecycle(
             "origin": origin,
             **origin,
             "contract": contract.to_dict(),
-            "runtime_task_selection": _runtime_task_selection_from_contract(contract),
+            "runtime_task_selection": _runtime_task_selection_from_contract(
+                contract,
+                selected_skill_ids=action_request.selected_skill_ids,
+            ),
+            "selected_skill_ids": list(action_request.selected_skill_ids),
             "model_selection": model_selection_snapshot,
             "model_selection_binding": {
                 "scope": "task_run",
@@ -387,7 +391,11 @@ def _dedupe_tuple(values: tuple[str, ...]) -> tuple[str, ...]:
     return tuple(result)
 
 
-def _runtime_task_selection_from_contract(contract: TaskRunContract) -> dict[str, Any]:
+def _runtime_task_selection_from_contract(
+    contract: TaskRunContract,
+    *,
+    selected_skill_ids: tuple[str, ...] = (),
+) -> dict[str, Any]:
     runtime_profile = dict(contract.runtime_profile or {})
     mode = str(runtime_profile.get("runtime_mode") or runtime_profile.get("mode") or "professional")
     mode_policy = dict(runtime_profile.get("runtime_mode_policy") or runtime_profile.get("mode_policy") or {})
@@ -401,6 +409,8 @@ def _runtime_task_selection_from_contract(contract: TaskRunContract) -> dict[str
     }
     if contract.task_environment_id:
         selection["task_environment_id"] = contract.task_environment_id
+    if selected_skill_ids:
+        selection["selected_skill_ids"] = list(selected_skill_ids)
     if contract.external_plan_ref:
         selection["engagement_plan_ref"] = contract.external_plan_ref
     if contract.source_contract_ref:

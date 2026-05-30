@@ -79,7 +79,7 @@ export function TaskContractLibraryPage({
           <ToolbarButton disabled={saving === "contract-spec"} onClick={() => onSelectPanel("library")}>
             <ClipboardList size={15} />管理契约
           </ToolbarButton>
-          <ToolbarButton disabled={!selectedTaskGraphId} onClick={onOpenWorkbench}>
+          <ToolbarButton onClick={onOpenWorkbench}>
             <Network size={15} />进入图工作台
           </ToolbarButton>
         </div>

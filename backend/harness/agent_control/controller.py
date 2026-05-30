@@ -215,13 +215,16 @@ class SubagentControl:
                     seen = True
             messages = filtered
         visible = [item.to_dict() for item in messages if item.direction in {"child_to_parent", "system"}]
+        result = _child_result_payload(self.runtime_host, child)
         return {
             "ok": True,
             "status": child.status,
             "subagent_run_ref": child.agent_run_id,
             "messages": visible,
-            "no_update": not bool(visible),
+            "no_update": not bool(visible or result),
             "result_ref": child.result_ref,
+            "result_available": bool(result),
+            "result": result,
         }
 
     async def list_subagents(self, *, task_run: Any, parent_agent_run: AgentRun, status: str = "") -> dict[str, Any]:
@@ -405,7 +408,7 @@ class SubagentControl:
             agent_id=str(child_agent_run.agent_id),
             agent_profile_id=str(target_profile.agent_profile_id),
             execution_runtime_kind="subagent_task",
-            status="created",
+            status="waiting_executor",
             created_at=time.time(),
             updated_at=time.time(),
             diagnostics={
@@ -427,6 +430,7 @@ class SubagentControl:
                     "context_refs": list(context_refs),
                     "expected_outputs": list(expected_outputs),
                 },
+                "executor_status": "waiting_executor",
             },
         )
         self.runtime_host.state_index.upsert_task_run(child_task_run)
@@ -496,9 +500,67 @@ def _child_summary(child: AgentRun) -> dict[str, Any]:
     }
 
 
+def _child_result_payload(runtime_host: Any, child: AgentRun) -> dict[str, Any]:
+    payload: dict[str, Any] = {}
+    result_ref = str(child.result_ref or "").strip()
+    if result_ref:
+        store = getattr(runtime_host, "runtime_objects", None)
+        get_object = getattr(store, "get_object", None)
+        if callable(get_object):
+            try:
+                resolved = get_object(result_ref)
+            except Exception:
+                resolved = {}
+            if isinstance(resolved, dict):
+                payload.update(resolved)
+
+    state_index = getattr(runtime_host, "state_index", None)
+    list_results = getattr(state_index, "list_task_agent_run_results", None)
+    if callable(list_results):
+        try:
+            results = list_results(child.task_run_id)
+        except Exception:
+            results = []
+        for item in results:
+            if str(getattr(item, "agent_run_id", "") or "") != child.agent_run_id:
+                continue
+            output_ref = str(getattr(item, "output_ref", "") or "").strip()
+            if output_ref and not payload:
+                store = getattr(runtime_host, "runtime_objects", None)
+                get_object = getattr(store, "get_object", None)
+                if callable(get_object):
+                    try:
+                        resolved = get_object(output_ref)
+                    except Exception:
+                        resolved = {}
+                    if isinstance(resolved, dict):
+                        payload.update(resolved)
+            payload.setdefault("summary", str(getattr(item, "summary", "") or ""))
+            payload.setdefault("artifact_refs", list(getattr(item, "artifact_refs", ()) or ()))
+            payload.setdefault("result_ref", output_ref or result_ref)
+            break
+
+    final_answer = str(payload.get("final_answer") or "").strip()
+    artifact_refs = list(payload.get("artifact_refs") or []) if isinstance(payload.get("artifact_refs"), list) else []
+    if not final_answer and not artifact_refs:
+        return {}
+    return {
+        "status": str(child.status or ""),
+        "result_ref": str(payload.get("result_ref") or result_ref),
+        "final_answer": final_answer,
+        "summary": str(payload.get("summary") or final_answer[:500]).strip(),
+        "artifact_refs": artifact_refs,
+        "observation_refs": list(payload.get("observation_refs") or []) if isinstance(payload.get("observation_refs"), list) else [],
+        "authority": "orchestration.subagent_result_projection",
+    }
+
+
 def _raw_service_callback(services: Any, name: str) -> Any:
-    try:
-        value = inspect.getattr_static(services, name)
-    except AttributeError:
-        value = getattr(services, name, None)
+    if services is None:
+        return None
+    value = getattr(services, name, None)
+    if inspect.ismethod(value) and getattr(value, "__self__", None) is services:
+        static_value = inspect.getattr_static(services, name, None)
+        if callable(static_value):
+            return static_value
     return value

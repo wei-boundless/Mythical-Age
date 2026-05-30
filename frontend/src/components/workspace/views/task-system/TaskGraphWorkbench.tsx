@@ -337,6 +337,7 @@ export function TaskGraphWorkbench({
           addTaskGraphRoleNode={addTaskGraphRoleNode}
           addTaskGraphSuccessorNode={addTaskGraphSuccessorNode}
           addTaskGraphTaskNode={addTaskGraphTaskNode}
+          contractSpecs={rest.contractSpecs}
           handleTopologyNodeClick={rest.handleTopologyNodeClick}
           editorFocus={editorFocus}
           linkingFromNodeId={rest.linkingFromNodeId}
@@ -354,6 +355,8 @@ export function TaskGraphWorkbench({
           setSelectedGraphEdgeId={rest.setSelectedGraphEdgeId}
           setSelectedGraphNodeId={rest.setSelectedGraphNodeId}
           taskGraphDraftV2={taskGraphDraftV2}
+          updateTaskGraphEdge={updateTaskGraphEdge}
+          updateTaskGraphNode={updateTaskGraphNode}
         />
       );
     }

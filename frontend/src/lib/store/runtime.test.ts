@@ -351,7 +351,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
 
     runtime.actions.openGlobalRuntimeMonitorTaskRun("taskrun:master");
 
-    expect(store.getState().activeWorkspaceView).toBe("task-system");
+    expect(store.getState().activeWorkspaceView).toBe("chat");
     expect(store.getState().globalRuntimeMonitorSelectedTaskRunId).toBe("taskrun:master");
     expect(store.getState().taskGraphMonitorBinding).toMatchObject({
       task_run_id: "taskrun:master",
@@ -362,9 +362,10 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       title: "长篇小说",
     });
     expect(store.getState().taskGraphRunInteractionOpen).toBe(false);
-    expect(store.getState().taskSystemRuntimeNavigationTarget).toMatchObject({
+    expect(store.getState().centerWorkspaceTarget).toMatchObject({
       task_run_id: "taskrun:master",
-      layer: "runtime",
+      layer: "task-graph",
+      mode: "monitor",
       graph_id: "graph.writing.master",
     });
   });
@@ -410,7 +411,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(store.getState().activeWorkspaceView).toBe("chat");
     expect(store.getState().currentSessionId).toBe("session-a");
     expect(store.getState().globalRuntimeMonitorSelectedTaskRunId).toBe("taskrun:turn:session-a:1:abc");
-    expect(store.getState().taskSystemRuntimeNavigationTarget).toBeNull();
+    expect(store.getState().centerWorkspaceTarget).toBeNull();
   });
 
   it("ignores stale global monitor snapshots after a newer revision has landed", () => {

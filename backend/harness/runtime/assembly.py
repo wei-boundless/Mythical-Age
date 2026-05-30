@@ -11,8 +11,10 @@ from agent_system.profiles.runtime_mode_config import (
     STANDARD_MODE,
     runtime_mode_catalog,
 )
+from capability_system.skill_registry import SkillRegistry
 from capability_system.tool_authorization import build_authorized_tool_set
 from soul.assembly_service import SoulAssemblyService
+from task_system.contracts.runtime_contracts import SkillRuntimeView, skill_runtime_view_from_skill_definition
 from task_system.environments import build_task_environment_catalog, task_environment_registry_from_backend_dir
 
 from .operation_projection import project_operation_authorization
@@ -81,6 +83,8 @@ class RuntimeAssembly:
     task_environment: dict[str, Any] = field(default_factory=dict)
     agent_prompt_refs: tuple[str, ...] = ()
     environment_prompt_refs: tuple[str, ...] = ()
+    skill_runtime_views: tuple[dict[str, Any], ...] = ()
+    selected_skill_ids: tuple[str, ...] = ()
     available_tools: tuple[dict[str, Any], ...] = ()
     tool_names: tuple[str, ...] = ()
     filtered_tools: tuple[dict[str, str], ...] = ()
@@ -101,6 +105,8 @@ class RuntimeAssembly:
         payload["execution_strategy"] = dict(self.execution_strategy)
         payload["agent_prompt_refs"] = list(self.agent_prompt_refs)
         payload["environment_prompt_refs"] = list(self.environment_prompt_refs)
+        payload["skill_runtime_views"] = [dict(item) for item in self.skill_runtime_views]
+        payload["selected_skill_ids"] = list(self.selected_skill_ids)
         payload["rejected_capabilities"] = [dict(item) for item in self.rejected_capabilities]
         return payload
 
@@ -169,6 +175,14 @@ def assemble_runtime(
         for name in visible_tool_names
         if definitions_by_name.get(name) is not None
     )
+    skill_runtime_views = _skill_runtime_views_for_profile(
+        backend_dir=backend_dir,
+        allowed_operations=tuple(sorted(allowed_operations)),
+    )
+    selected_skill_ids = _visible_selected_skill_ids(
+        selection.get("selected_skill_ids"),
+        visible_skill_ids=tuple(str(item.get("skill_id") or "") for item in skill_runtime_views),
+    )
     return RuntimeAssembly(
         assembly_id=f"rtasm:{turn_id}:{profile.mode}",
         session_id=session_id,
@@ -185,6 +199,8 @@ def assemble_runtime(
         task_environment=task_environment,
         agent_prompt_refs=_agent_prompt_refs(agent_runtime_profile),
         environment_prompt_refs=_environment_prompt_refs(task_environment),
+        skill_runtime_views=skill_runtime_views,
+        selected_skill_ids=selected_skill_ids,
         available_tools=available_tools,
         tool_names=visible_tool_names,
         filtered_tools=tuple(
@@ -207,6 +223,10 @@ def assemble_runtime(
             "operation_authorization": {
                 "allowed_operation_count": len(operation_projection.allowed_operations),
                 "denied_operation_count": len(operation_projection.denied_operations),
+            },
+            "skill_runtime": {
+                "candidate_count": len(skill_runtime_views),
+                "selected_skill_ids": list(selected_skill_ids),
             },
         },
     )
@@ -315,6 +335,52 @@ def _environment_prompt_refs(environment_payload: dict[str, Any]) -> tuple[str, 
         for item in list(environment_payload.get("environment_prompts") or [])
         if isinstance(item, dict) and str(item.get("prompt_id") or "").strip()
     )
+
+
+def _skill_runtime_views_for_profile(
+    *,
+    backend_dir: Path,
+    allowed_operations: tuple[str, ...],
+) -> tuple[dict[str, Any], ...]:
+    allowed = {str(item or "").strip() for item in allowed_operations if str(item or "").strip()}
+    if not allowed:
+        return ()
+    registry = SkillRegistry(Path(backend_dir).resolve())
+    views: list[SkillRuntimeView] = []
+    for skill in registry.skills:
+        if str(skill.runtime.activation_policy or "") != "model_visible":
+            continue
+        required = {
+            str(item or "").strip()
+            for item in tuple(skill.runtime.requires_operations or ())
+            if str(item or "").strip()
+        }
+        if required and not required.issubset(allowed):
+            continue
+        views.append(
+            skill_runtime_view_from_skill_definition(
+                skill,
+                task_reason="Candidate capability available under the current agent operation boundary.",
+            )
+        )
+    return tuple(view.to_dict() for view in views)
+
+
+def _visible_selected_skill_ids(value: Any, *, visible_skill_ids: tuple[str, ...]) -> tuple[str, ...]:
+    visible = {str(item or "").strip() for item in visible_skill_ids if str(item or "").strip()}
+    selected: list[str] = []
+    seen: set[str] = set()
+    raw_values = value if isinstance(value, (list, tuple)) else ([value] if value else [])
+    for raw in raw_values:
+        item = str(raw or "").strip()
+        if not item:
+            continue
+        normalized = item if item.startswith("skill.") else f"skill.{item}"
+        if normalized not in visible or normalized in seen:
+            continue
+        seen.add(normalized)
+        selected.append(normalized)
+    return tuple(selected)
 
 
 def _agent_work_role_prompt_id(agent_profile_id: str) -> str:

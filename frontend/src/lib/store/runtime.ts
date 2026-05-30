@@ -46,7 +46,7 @@ import { createIdleSessionActivity, type Store } from "./core";
 import { reduceStreamEvent, startStreamingTurn, type StreamSession } from "./events";
 import { normalizeDefaultRuntimeMode, runtimeModeCatalogFrom } from "../runtimeModeConfig";
 import { isVisibleRuntimeMonitorItem, runtimeWorkProjectionFromMonitorItem, visibleRuntimeMonitorItems } from "../runtimeWorkProjection";
-import type { ChatMode, ChatModelSelection, MainAgentAssemblyMode, Message, RuntimeProgressEntry, SearchPolicySource, StoreActions, StoreState, TaskGraphMonitorBinding, TaskSelectionState, WorkspaceView } from "./types";
+import type { CenterWorkspaceTarget, ChatMode, ChatModelSelection, MainAgentAssemblyMode, Message, RuntimeProgressEntry, SearchPolicySource, StoreActions, StoreState, TaskGraphMonitorBinding, TaskSelectionState, WorkspaceView } from "./types";
 import { toUiMessages } from "./utils";
 
 type HarnessSessionMonitor = NonNullable<Awaited<ReturnType<typeof getOrchestrationHarnessSessionLiveMonitor>>["monitor"]>;
@@ -201,8 +201,11 @@ export class WorkspaceRuntime {
       openGlobalRuntimeMonitorTaskRun: (taskRunId) => {
         this.openGlobalRuntimeMonitorTaskRun(taskRunId);
       },
-      clearTaskSystemRuntimeNavigationTarget: () => {
-        this.clearTaskSystemRuntimeNavigationTarget();
+      openTaskGraphWorkspace: (target) => {
+        this.openTaskGraphWorkspace(target);
+      },
+      clearCenterWorkspaceTarget: () => {
+        this.clearCenterWorkspaceTarget();
       },
       refreshGlobalRuntimeMonitor: async () => {
         await this.refreshGlobalRuntimeMonitor();
@@ -1423,6 +1426,28 @@ export class WorkspaceRuntime {
     this.syncWorkspaceViewUrl(view);
   }
 
+  private openTaskGraphWorkspace(target: Omit<CenterWorkspaceTarget, "layer" | "requested_at"> = {}) {
+    this.store.setState((prev) => ({
+      ...prev,
+      activeWorkspaceView: "chat",
+      centerWorkspaceTarget: {
+        layer: "task-graph",
+        mode: target.mode ?? "editor",
+        graph_id: String(target.graph_id ?? "").trim() || undefined,
+        task_run_id: String(target.task_run_id ?? "").trim() || undefined,
+        requested_at: Date.now(),
+      },
+    }));
+    this.syncWorkspaceViewUrl("chat");
+  }
+
+  private clearCenterWorkspaceTarget() {
+    this.store.setState((prev) => ({
+      ...prev,
+      centerWorkspaceTarget: null,
+    }));
+  }
+
   private syncWorkspaceViewUrl(view: WorkspaceView) {
     if (typeof window === "undefined") {
       return;
@@ -2526,32 +2551,29 @@ export class WorkspaceRuntime {
       })
       : null;
 
+    const openGraphWorkspace = work.workKind === "task_graph_run";
+    const selectedGraphId = String(selected.graph_id ?? "").trim();
     this.store.setState((prev) => ({
       ...prev,
-      activeWorkspaceView: "task-system",
+      activeWorkspaceView: openGraphWorkspace ? "chat" : "orchestration",
       globalRuntimeMonitorSelectedTaskRunId: normalized,
       globalRuntimeMonitorSelectedLiveMonitor: null,
       globalRuntimeMonitorSelectedGraphMonitor: null,
       taskGraphMonitorBinding: taskGraphBinding ?? prev.taskGraphMonitorBinding,
       taskGraphRunInteractionOpen: false,
-      taskSystemRuntimeNavigationTarget: {
+      centerWorkspaceTarget: openGraphWorkspace ? {
+        layer: "task-graph",
+        mode: "monitor",
+        graph_id: work.graphId || selectedGraphId || undefined,
         task_run_id: normalized,
-        layer: work.workKind === "agent_runtime_run" ? "agent-runtime-phase" : "runtime",
-        graph_id: work.graphId,
         requested_at: Date.now(),
-      },
+      } : prev.centerWorkspaceTarget,
     }));
+    this.syncWorkspaceViewUrl(openGraphWorkspace ? "chat" : "orchestration");
     if (taskGraphBinding) {
       this.startTaskGraphMonitorPolling(taskGraphBinding.graph_run_id, taskGraphBinding.graph_harness_config_id);
     }
     this.queueSelectedGlobalRuntimeMonitorDetailRefresh(normalized, this.store.getState().globalRuntimeMonitorRevision);
-  }
-
-  private clearTaskSystemRuntimeNavigationTarget() {
-    this.store.setState((prev) => ({
-      ...prev,
-      taskSystemRuntimeNavigationTarget: null,
-    }));
   }
 
   private async loadGlobalRuntimeMonitorTaskRunDetail(taskRunId: string, revision?: string) {

@@ -13,6 +13,7 @@ from prompt_library import (
     build_runtime_prompt_manifest,
     default_pack_ref_for_invocation,
 )
+from task_system.contracts.runtime_contracts import expand_selected_skill_bodies, render_skill_candidate_cards
 
 from .envelope import RuntimeEnvelope
 from .invocation_packet import RuntimeInvocationPacket
@@ -127,18 +128,21 @@ class RuntimeCompiler:
         )
         agent_instruction = _agent_prompt_instruction(agent_prompt_assembly)
         soul_instruction = _soul_instruction(soul_role_prompt)
+        skill_candidate_instruction = _skill_candidate_instruction(assembly_payload)
         system = _join_prompt_sections(
             prompt_assembly.content,
             soul_instruction,
             agent_instruction,
             environment_instruction,
             runtime_instruction,
+            skill_candidate_instruction,
         )
         stable_payload = {
             "schema": schema,
             "task_environment": _environment_stable_payload(environment_payload),
             "available_tools": _stable_tool_catalog_payload(tool_payloads),
             "tool_catalog_hash": _stable_json_hash([dict(item) for item in tool_payloads]),
+            "skill_candidates": _skill_candidate_payload(assembly_payload),
         }
         dynamic_payload = {
             "operation_authorization": dict(assembly_payload.get("operation_authorization") or {}),
@@ -172,6 +176,15 @@ class RuntimeCompiler:
                     content=_packet_payload_content("Turn action stable contract", stable_payload),
                     kind="task_stable",
                     source_ref="turn_action_stable_contract",
+                    cache_scope="session",
+                    cache_role="session_stable",
+                    compression_role="preserve",
+                ),
+                _message_spec(
+                    role="system",
+                    content=skill_candidate_instruction,
+                    kind="skill_candidates",
+                    source_ref="runtime_skill_candidates",
                     cache_scope="session",
                     cache_role="session_stable",
                     compression_role="preserve",
@@ -367,6 +380,10 @@ class RuntimeCompiler:
             _runtime_projection_instruction(agent_visible_runtime_projection),
             _work_rollout_instruction(work_rollout),
         )
+        active_skill_instruction, active_skill_meta = _active_skill_instruction(
+            base_dir=self.base_dir,
+            assembly_payload=assembly_payload,
+        )
         environment_instruction = _environment_instruction(
             environment_payload,
             environment_prompt_assembly=environment_prompt_assembly,
@@ -375,6 +392,7 @@ class RuntimeCompiler:
         system = _join_prompt_sections(
             prompt_assembly.content,
             agent_instruction,
+            active_skill_instruction,
             environment_instruction,
             runtime_instruction,
         )
@@ -384,6 +402,8 @@ class RuntimeCompiler:
             "task_environment": _environment_stable_payload(environment_payload),
             "available_tools": _stable_tool_catalog_payload(tool_payloads),
             "tool_catalog_hash": _stable_json_hash([dict(item) for item in tool_payloads]),
+            "skill_candidates": _skill_candidate_payload(assembly_payload),
+            "active_skills": active_skill_meta,
         }
         if task_run_context_enabled:
             stable_payload["task_run"] = _task_run_stable_payload(task_run, graph_runtime_projection=graph_runtime_projection)
@@ -434,6 +454,15 @@ class RuntimeCompiler:
                     kind="agent_stable",
                     source_ref=",".join(_string_tuple(assembly_payload.get("agent_prompt_refs"))),
                     cache_scope="session",
+                    cache_role="session_stable",
+                    compression_role="preserve",
+                ),
+                _message_spec(
+                    role="system",
+                    content=active_skill_instruction,
+                    kind="active_skills",
+                    source_ref=",".join(active_skill_meta.get("source_refs") or ()),
+                    cache_scope="task",
                     cache_role="session_stable",
                     compression_role="preserve",
                 ),
@@ -608,18 +637,21 @@ class RuntimeCompiler:
         )
         agent_instruction = _agent_prompt_instruction(agent_prompt_assembly)
         soul_instruction = _soul_instruction(soul_role_prompt)
+        skill_candidate_instruction = _skill_candidate_instruction(assembly_payload)
         system = _join_prompt_sections(
             prompt_assembly.content,
             soul_instruction,
             agent_instruction,
             environment_instruction,
             runtime_instruction,
+            skill_candidate_instruction,
         )
         stable_payload = {
             "schema": schema,
             "task_environment": _environment_stable_payload(environment_payload),
             "available_tools": _stable_tool_catalog_payload(tool_payloads),
             "tool_catalog_hash": _stable_json_hash([dict(item) for item in tool_payloads]),
+            "skill_candidates": _skill_candidate_payload(assembly_payload),
         }
         dynamic_payload = {
             "operation_authorization": dict(assembly_payload.get("operation_authorization") or {}),
@@ -654,6 +686,15 @@ class RuntimeCompiler:
                     content=_packet_payload_content("Observation followup stable contract", stable_payload),
                     kind="task_stable",
                     source_ref="observation_followup_stable_contract",
+                    cache_scope="session",
+                    cache_role="session_stable",
+                    compression_role="preserve",
+                ),
+                _message_spec(
+                    role="system",
+                    content=skill_candidate_instruction,
+                    kind="skill_candidates",
+                    source_ref="runtime_skill_candidates",
                     cache_scope="session",
                     cache_role="session_stable",
                     compression_role="preserve",
@@ -805,6 +846,7 @@ def model_action_request_schema(turn_id: str) -> dict[str, Any]:
         "user_question": "",
         "blocking_reason": "",
         "tool_call": {"tool_name": "", "args": {}},
+        "selected_skill_ids": ["可选；从候选 Skills 中选择需要激活的 skill_id，例如 skill.deep-web-research"],
         "task_contract_seed": {
             "user_visible_goal": "面向用户的正式任务目标，必填",
             "task_run_goal": "给执行生命周期使用的任务目标，必填",
@@ -852,6 +894,7 @@ def task_execution_action_schema() -> dict[str, Any]:
         "user_question": "",
         "blocking_reason": "",
         "tool_call": {"tool_name": "", "args": {}},
+        "selected_skill_ids": ["可选；当前任务执行中需要继续激活的 skill_id"],
         "task_contract_seed": {},
         "completion_contract": {},
         "permission_request": {},
@@ -1397,6 +1440,76 @@ def _stable_tool_catalog_payload(tool_payloads: tuple[dict[str, Any], ...]) -> l
             payload["input_schema_hash"] = _stable_json_hash(input_schema)
         catalog.append(payload)
     return catalog
+
+
+def _skill_candidate_payload(assembly_payload: dict[str, Any]) -> list[dict[str, Any]]:
+    candidates: list[dict[str, Any]] = []
+    for item in list(assembly_payload.get("skill_runtime_views") or []):
+        if not isinstance(item, dict):
+            continue
+        candidates.append(
+            _drop_empty_payload(
+                {
+                    "skill_id": str(item.get("skill_id") or ""),
+                    "title": str(item.get("title") or ""),
+                    "capability": str(item.get("method_summary") or ""),
+                    "output_boundary": str(item.get("output_boundary") or ""),
+                    "required_operations": [
+                        str(operation)
+                        for operation in list(item.get("required_operations") or [])
+                        if str(operation)
+                    ],
+                }
+            )
+        )
+    return candidates
+
+
+def _skill_candidate_instruction(assembly_payload: dict[str, Any]) -> str:
+    cards = render_skill_candidate_cards(
+        [
+            dict(item)
+            for item in list(assembly_payload.get("skill_runtime_views") or [])
+            if isinstance(item, dict)
+        ]
+    )
+    if not cards:
+        return ""
+    return _join_prompt_sections(
+        cards,
+        (
+            "Skill 使用规则：如果某个候选 skill 能改善当前任务，请在 selected_skill_ids 中填写对应 skill_id。"
+            "候选卡片不是完整技能说明；进入持续任务后，运行时会展开已选择 skill 的全文。"
+            "不要把 skill_id、内部路由或工具名暴露给用户。"
+        ),
+    )
+
+
+def _active_skill_instruction(*, base_dir: Path, assembly_payload: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+    selected_skill_ids = [
+        str(item).strip()
+        for item in list(assembly_payload.get("selected_skill_ids") or [])
+        if str(item).strip()
+    ]
+    if not selected_skill_ids:
+        return "", {"accepted_skill_ids": [], "rejected_skill_ids": [], "source_refs": []}
+    try:
+        return expand_selected_skill_bodies(
+            base_dir=base_dir,
+            skill_runtime_views=[
+                dict(item)
+                for item in list(assembly_payload.get("skill_runtime_views") or [])
+                if isinstance(item, dict)
+            ],
+            selected_skill_ids=selected_skill_ids,
+        )
+    except Exception:
+        return "", {
+            "accepted_skill_ids": [],
+            "rejected_skill_ids": selected_skill_ids,
+            "source_refs": [],
+            "error": "skill_expansion_failed",
+        }
 
 
 def _input_schema_summary(schema: dict[str, Any]) -> dict[str, Any]:

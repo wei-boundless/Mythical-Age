@@ -17,6 +17,7 @@ class ModelActionRequest:
     user_question: str = ""
     blocking_reason: str = ""
     tool_call: dict[str, Any] = field(default_factory=dict)
+    selected_skill_ids: tuple[str, ...] = ()
     task_contract_seed: dict[str, Any] = field(default_factory=dict)
     completion_contract: dict[str, Any] = field(default_factory=dict)
     permission_request: dict[str, Any] = field(default_factory=dict)
@@ -30,6 +31,7 @@ class ModelActionRequest:
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
+        payload["selected_skill_ids"] = list(self.selected_skill_ids)
         payload["task_contract_seed"] = dict(self.task_contract_seed or {})
         payload["tool_call"] = dict(self.tool_call or {})
         payload["completion_contract"] = dict(self.completion_contract or {})
@@ -57,6 +59,7 @@ def model_action_request_from_payload(
     if raw_turn_id != str(turn_id or "").strip():
         errors.append("turn_id_mismatch")
     tool_call = raw.get("tool_call") or {}
+    selected_skill_ids = _string_tuple(raw.get("selected_skill_ids"))
     task_contract_seed = raw.get("task_contract_seed") or {}
     completion_contract = raw.get("completion_contract") or {}
     permission_request = raw.get("permission_request") or {}
@@ -116,6 +119,7 @@ def model_action_request_from_payload(
         user_question=user_question,
         blocking_reason=blocking_reason,
         tool_call=dict(tool_call),
+        selected_skill_ids=selected_skill_ids,
         task_contract_seed=dict(task_contract_seed),
         completion_contract=dict(completion_contract),
         permission_request=dict(permission_request),
@@ -143,3 +147,16 @@ def _public_progress_note(value: Any) -> str:
         text = text.replace(source, replacement)
     text = " ".join(text.split())
     return text[:160].rstrip()
+
+
+def _string_tuple(value: Any) -> tuple[str, ...]:
+    raw_values = value if isinstance(value, (list, tuple)) else ([value] if value else [])
+    result: list[str] = []
+    seen: set[str] = set()
+    for raw in raw_values:
+        item = str(raw or "").strip()
+        if not item or item in seen:
+            continue
+        seen.add(item)
+        result.append(item)
+    return tuple(result)
