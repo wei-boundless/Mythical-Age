@@ -49,6 +49,7 @@ from harness.loop.task_executor import (
     resume_paused_task_run,
     stop_task_run,
 )
+from harness.loop.task_run_recovery_state import should_auto_continue_task_run
 from harness.loop.task_lifecycle import TaskLifecycleRecord, TaskRunContract
 from harness.graph.models import safe_id
 from runtime.shared.models import AgentRun, TaskRun
@@ -356,6 +357,7 @@ class QueryRuntime:
                 context=context,
                 turn_id=turn_id,
                 user_message=user_message,
+                appended_instruction=decision.appended_instruction,
                 default_response=response,
             )
         elif action == "pause_active_work":
@@ -402,12 +404,13 @@ class QueryRuntime:
         context: ActiveWorkContext,
         turn_id: str,
         user_message: str,
+        appended_instruction: str = "",
         default_response: str,
     ) -> str:
         host = self.single_agent_runtime_host
         plan = build_resume_plan(host, context=context, user_message=user_message)
         if plan.decision == "same_run_resume":
-            instruction = str(user_message or "").strip()
+            instruction = str(appended_instruction or "").strip()
             if instruction:
                 append_user_work_instruction(
                     host,
@@ -431,7 +434,7 @@ class QueryRuntime:
                 plan=plan,
             )
         if plan.decision == "already_running":
-            instruction = str(user_message or "").strip()
+            instruction = str(appended_instruction or "").strip()
             if instruction:
                 append_user_work_instruction(
                     host,
@@ -558,6 +561,11 @@ class QueryRuntime:
             self._task_executor_services_for_task_run(task_run),
             task_run.task_run_id,
             max_steps=max(1, int(max_steps or 12)),
+            graph_node_authorization={
+                "graph_run_id": work_order.graph_run_id,
+                "graph_work_order_id": work_order.work_order_id,
+                "graph_node_id": work_order.node_id,
+            },
         )
 
     def _task_executor_services(self, *, agent_id: str = "agent:0") -> TaskExecutorServices:
@@ -860,17 +868,14 @@ class QueryRuntime:
 
 
 def _task_executor_should_auto_continue(runtime_host: Any, *, task_run_id: str, result: dict[str, Any]) -> bool:
-    if str(result.get("error") or "") != "task_execution_step_budget_exhausted":
+    if str(result.get("error") or "") not in {"task_execution_step_budget_exhausted", "user_interrupt_replan_required"}:
         return False
     if not bool(result.get("retryable")):
         return False
     task_run = runtime_host.state_index.get_task_run(task_run_id)
     if task_run is None:
         return False
-    diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
-    control = diagnostics.get("runtime_control")
-    control_state = str(dict(control or {}).get("state") or "") if isinstance(control, dict) else ""
-    return str(getattr(task_run, "status", "") or "") == "waiting_executor" and control_state not in {"pause_requested", "paused", "stop_requested", "stopped"}
+    return should_auto_continue_task_run(task_run)
 
 
 def _mark_query_scheduled_task_failed(runtime_host: Any, *, task_run_id: str, error: str) -> None:

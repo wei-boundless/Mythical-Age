@@ -954,7 +954,7 @@ CHAPTER_NODES: tuple[NodeSpec, ...] = (
             "每章都要服务商业连载阅读体验：开局有承接和当章目标，中段至少展开两个以上有效场景或一个足够饱满的长场景，必须出现阻碍、反应、推进和转折，结尾形成自然的章末牵引，留下新的压力、期待、反转、奖励或疑问。爽点要以铺垫、触发、出手、代价、反馈和余波形成兑现，来源可以是角色选择、实力变化、身份反差、资源获得、局势翻盘或认知揭示。",
             "写作时不要为了赶进度而概述事件。你要把人物如何看见、如何判断、如何犹豫、如何开口、如何行动、如何承受后果写出来；世界信息必须落到可感知的物象、规则后果、人物利益、村落秩序、场域危险和对话压力里。读者应该读到小说现场，而不是读到剧情说明。",
             "你必须先完成写前取材判断，再进入正文。写前取材判断只允许简短列出本批采用的世界规则、人物当前状态、上一批承接、正文事实索引、活跃伏笔、到期伏笔、禁改边界和本批叙事目标；它必须来自基准库、动态记忆库、正文记忆库、当前卷计划和当前批次细纲，不能凭空补设定。",
-            "当预装记忆包不足以确认某个规则、人物状态、正文事实、伏笔状态或前后承接时，你必须主动搜索任务记忆数据库，并在写前取材判断中记录检索意图、采用的记忆条目和未命中的风险。你只能检索任务记忆库，不能把未检索到的猜测当作已成立事实。",
+            "如果预装记忆包不足以确认某个规则、人物状态、正文事实、伏笔状态或前后承接，你不能自行搜索、补猜或扩大设定；必须在写前取材判断中标记缺口，并只使用当前任务包、上游交接包和预装记忆包中已经确认的内容完成本批正文。",
             "写前取材判断之后必须输出完整小说正文，正文才是主体。正文要尊重世界规则、角色动机、前后连续性和批次目标；如果旧产物或提示中出现其他章号，以当前任务包允许章号范围为准。你不能跳写未授权章节，也不能为方便剧情临时改世界规则。若发现必须新增设定才能写通，只能在正文后标为待审扩展建议，不能当作已成立事实写进正文核心逻辑。",
         ),
     ),
@@ -1465,8 +1465,8 @@ def _upsert_agents(backend_dir: Path) -> None:
             long_output_timeout_seconds=max(float(writing_model_profile.long_output_timeout_seconds or 0), 600.0),
             max_retries=max(int(writing_model_profile.max_retries or 0), 2),
             temperature=writing_model_profile.temperature,
-            thinking_mode="enabled",
-            reasoning_effort=writing_model_profile.reasoning_effort or "high",
+            thinking_mode="disabled",
+            reasoning_effort="",
             stream_policy=dict(writing_model_profile.stream_policy),
             fallback_profile_ref=writing_model_profile.fallback_profile_ref,
             capability_tags=tuple(writing_model_profile.capability_tags),
@@ -1477,8 +1477,9 @@ def _upsert_agents(backend_dir: Path) -> None:
             agent_profile_id=str(getattr(current, "agent_profile_id", "") or f"{agent_id.removeprefix('agent:')}_runtime"),
             enabled_runtime_modes=(STANDARD_MODE, CUSTOM_MODE),
             default_runtime_mode=STANDARD_MODE,
-            allowed_operations=tuple(dict.fromkeys(("op.model_response", "op.memory_read", *extra_ops))),
+            allowed_operations=tuple(dict.fromkeys(("op.model_response", *extra_ops))),
             blocked_operations=(
+                "op.memory_read",
                 "op.read_file",
                 "op.search_files",
                 "op.search_text",
@@ -1516,8 +1517,9 @@ def _upsert_agents(backend_dir: Path) -> None:
                 "pseudo_tool_output_forbidden": True,
                 "model_may_not_request_file_reads": True,
                 "file_and_memory_side_effects_owned_by": "orchestration_runtime",
-                "agent_side_memory_read_allowed": True,
-                "agent_side_memory_read_tool": "memory_search",
+                "agent_side_memory_read_allowed": False,
+                "agent_side_memory_read_tool": "",
+                "memory_access_model": "graph_protocol_preloaded_memory_pack",
                 "generic_length_metric_tool_enabled": bool(extra_ops),
             },
         )
@@ -2913,17 +2915,18 @@ def _memory_read_policy(node: NodeSpec) -> dict[str, Any]:
 
 def _dynamic_memory_read_policy(node: NodeSpec) -> dict[str, Any]:
     return {
-        "enabled": any(repo_id in node.readable_repositories for repo_id in ("memory.writing.mutable", "memory.writing.manuscript")),
-        "allow_dynamic_read": any(repo_id in node.readable_repositories for repo_id in ("memory.writing.mutable", "memory.writing.manuscript")),
-        "dynamic_read_tool_name": "memory_search" if node.node_id == "chapter_draft" else "",
+        "enabled": False,
+        "allow_dynamic_read": False,
+        "dynamic_read_tool_name": "",
         "memory_scope": "writing_modular_novel",
         "repository_node_id": "memory.writing.mutable",
-        "repository_node_ids": [repo_id for repo_id in ("memory.writing.mutable", "memory.writing.manuscript") if repo_id in node.readable_repositories],
+        "repository_node_ids": [],
+        "collection_ids": [],
         "version_selector": "latest_committed_before_stage_start",
         "summary_only": False,
         "prefer_canonical_text": True,
         "allow_artifact_text_expansion": True,
-        "max_dynamic_reads_per_node_run": 8 if node.node_id in {"chapter_draft", "chapter_review", "volume_review", "final_assemble"} else 4,
+        "max_dynamic_reads_per_node_run": 0,
         "max_temporal_neighbors": 2,
     }
 
@@ -3102,7 +3105,7 @@ def _executor_policy(node: NodeSpec) -> dict[str, Any]:
 
 
 def _node_operation_policy(*, node_id: str) -> dict[str, Any]:
-    allowed = ["op.model_response", "op.memory_read"]
+    allowed = ["op.model_response"]
     optional: list[str] = []
     if node_id in {"chapter_draft", "chapter_review", "volume_review", "final_review", "chapter_progress_router"}:
         allowed.append("op.text_metric")
@@ -3320,49 +3323,8 @@ def _working_memory_policy() -> dict[str, Any]:
 
 
 def _node_tool_execution_policy(node: NodeSpec) -> dict[str, Any]:
-    if node.node_id != "chapter_draft":
-        return {}
-    return {
-        "authority": "task_graph.contract_bound_tool_policy",
-        "enabled": True,
-        "allowed_tool_names": ["memory_search"],
-        "allowed_operation_refs": ["op.memory_read"],
-        "denied_tool_names": [
-            "read_file",
-            "read_structured_file",
-            "search_text",
-            "search_files",
-            "web_search",
-            "fetch_url",
-            "write_file",
-            "edit_file",
-            "terminal",
-            "python_repl",
-            "delegate_to_agent",
-        ],
-        "max_tool_rounds_per_task_run": 6,
-        "max_tool_calls_per_task_run": 8,
-        "max_tool_calls_per_round": 1,
-        "read_only": True,
-        "requires_evidence_packet": True,
-        "database_search_only": True,
-        "memory_search_policy": {
-            "tool_name": "memory_search",
-            "task_run_id_binding": "root_task_run_id",
-            "repositories": ["memory.writing.baseline", "memory.writing.mutable", "memory.writing.manuscript"],
-            "collections": [
-                "world_bible",
-                "outline_bible",
-                "character_bible",
-                "approved_chapter_batches",
-                "chapter_summaries",
-                "manuscript_fact_index",
-                "scene_continuity",
-                "chapter_hooks",
-            ],
-            "max_results_per_call": 8,
-        },
-    }
+    _ = node
+    return {}
 
 
 def _graph_contract_bindings(graph_id: str) -> dict[str, Any]:
@@ -3470,7 +3432,7 @@ def _model_requirement(node_id: str) -> dict[str, Any]:
         "min_context_tokens": 200000,
         "min_output_tokens": 8192,
         "preferred_output_tokens": preferred,
-        "thinking_mode": "enabled",
+        "thinking_mode": "disabled",
         "streaming_required": True,
         "fallback_allowed": True,
         "metadata": {"configured_by": MANAGED_BY, "node_id": node_id},

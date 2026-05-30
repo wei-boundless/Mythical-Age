@@ -45,7 +45,7 @@ class GraphHarness:
         self._agent_harness = agent_harness
         self._runtime = GraphRuntime(services=services)
         self._loop = GraphLoop(services=services)
-        self._resume = GraphResumeService(graph_loop=self._loop)
+        self._resume = GraphResumeService(graph_loop=self._loop, services=services)
         self._work_order_executor = GraphNodeWorkOrderExecutor(services=services)
         self._runner = GraphRunRunner(
             services=services,

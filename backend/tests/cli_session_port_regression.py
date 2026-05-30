@@ -251,6 +251,69 @@ def test_task_run_watch_exits_on_waiting_executor() -> None:
     assert "任务保持可续跑状态" in stdout.getvalue()
 
 
+def test_task_run_watch_exits_on_aborted() -> None:
+    class FakeClient:
+        def __init__(self) -> None:
+            self.monitor_calls = 0
+
+        def get_task_run_monitor(self, task_run_id: str):
+            self.monitor_calls += 1
+            return {
+                "status": "aborted",
+                "event_count": 4,
+                "terminal_reason": "user_aborted",
+                "latest_event": {
+                    "event_type": "step_summary_recorded",
+                    "payload": {"step": "task_run_stopped", "summary": "任务已按用户要求停止。"},
+                },
+            }
+
+        def get_task_run_trace(self, task_run_id: str, *, include_payloads: bool = False):
+            return {"task_run": {"status": "aborted", "terminal_reason": "user_aborted", "diagnostics": {}}}
+
+    client = FakeClient()
+    args = build_parser().parse_args(["task-run", "watch", "taskrun:test"])
+    stdout = io.StringIO()
+
+    code = run_command(args, client=client, store=CliStateStore(), stdout=stdout, stderr=io.StringIO())  # type: ignore[arg-type]
+
+    assert code == 1
+    assert client.monitor_calls == 1
+    assert "user_aborted" in stdout.getvalue()
+
+
+def test_task_run_control_commands_call_backend_client() -> None:
+    class FakeClient:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, str, dict[str, object]]] = []
+
+        def pause_task_run(self, task_run_id: str, *, reason: str = ""):
+            self.calls.append(("pause", task_run_id, {"reason": reason}))
+            return {"ok": True, "task_run_id": task_run_id}
+
+        def resume_task_run(self, task_run_id: str, *, max_steps: int = 12):
+            self.calls.append(("resume", task_run_id, {"max_steps": max_steps}))
+            return {"ok": True, "task_run_id": task_run_id}
+
+        def stop_task_run(self, task_run_id: str, *, reason: str = ""):
+            self.calls.append(("stop", task_run_id, {"reason": reason}))
+            return {"ok": True, "task_run_id": task_run_id}
+
+    client = FakeClient()
+    stdout = io.StringIO()
+    store = CliStateStore()
+
+    assert run_command(build_parser().parse_args(["task-run", "pause", "taskrun:test", "--reason", "p"]), client=client, store=store, stdout=stdout, stderr=io.StringIO()) == 0  # type: ignore[arg-type]
+    assert run_command(build_parser().parse_args(["task-run", "resume", "taskrun:test", "--max-steps", "3", "--no-watch"]), client=client, store=store, stdout=stdout, stderr=io.StringIO()) == 0  # type: ignore[arg-type]
+    assert run_command(build_parser().parse_args(["task-run", "stop", "taskrun:test", "--reason", "s"]), client=client, store=store, stdout=stdout, stderr=io.StringIO()) == 0  # type: ignore[arg-type]
+
+    assert client.calls == [
+        ("pause", "taskrun:test", {"reason": "p"}),
+        ("resume", "taskrun:test", {"max_steps": 3}),
+        ("stop", "taskrun:test", {"reason": "s"}),
+    ]
+
+
 def test_interactive_mode_sends_plain_text_and_exits(tmp_path: Path) -> None:
     state_path = tmp_path / "state.json"
     store = CliStateStore(state_path)

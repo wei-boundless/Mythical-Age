@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import asdict, dataclass, field
+from pathlib import Path
 from typing import Any
 
 from .models import GraphHarnessConfig, GraphLoopState, NodeResultEnvelope, safe_id
@@ -269,10 +270,61 @@ def _visible_payload_for_edge(*, edge: dict[str, Any], result: dict[str, Any]) -
             dict(result.get("outputs") or {}),
             context_filter_policy=dict(edge.get("context_filter_policy") or {}),
         )
+        artifact_payload = _artifact_text_payload(artifact_refs, edge=edge)
+        if artifact_payload:
+            base_refs = {**base_refs, "artifact_payloads": artifact_payload}
         if output_payload:
             return {**base_refs, "bounded_outputs": output_payload}
         return base_refs
     return {"handoff_summary": handoff_summary}
+
+
+def _artifact_text_payload(refs: list[str], *, edge: dict[str, Any]) -> list[dict[str, Any]]:
+    policy = dict(edge.get("artifact_ref_policy") or {})
+    if policy.get("include_text") is False or policy.get("expand_text") is False:
+        return []
+    if str(edge.get("result_delivery_policy") or "") == "refs_only":
+        return []
+    max_refs = _int_value(policy.get("max_text_refs") or policy.get("max_refs") or 2, 2)
+    max_chars = _int_value(policy.get("max_text_chars") or policy.get("max_chars") or 30000, 30000)
+    if max_refs <= 0 or max_chars <= 0:
+        return []
+    payloads: list[dict[str, Any]] = []
+    for ref in refs[:max_refs]:
+        text, truncated = _read_artifact_text(ref, max_chars=max_chars)
+        if not text:
+            continue
+        payloads.append(
+            {
+                "artifact_ref": ref,
+                "content": text,
+                "truncated": truncated,
+                "max_chars": max_chars,
+                "authority": "harness.graph.flow_packet.artifact_text_projection",
+            }
+        )
+    return payloads
+
+
+def _read_artifact_text(ref: str, *, max_chars: int) -> tuple[str, bool]:
+    raw = Path(str(ref or "")).expanduser()
+    candidates = [raw] if raw.is_absolute() else [
+        Path.cwd() / raw,
+        Path.cwd().parent / raw,
+        Path(__file__).resolve().parents[3] / raw,
+    ]
+    for path in candidates:
+        try:
+            resolved = path.resolve()
+        except OSError:
+            continue
+        try:
+            if resolved.is_file():
+                content = resolved.read_text(encoding="utf-8", errors="replace")
+                return content[:max_chars].rstrip(), len(content) > max_chars
+        except OSError:
+            continue
+    return "", False
 
 
 def _filter_outputs(outputs: dict[str, Any], *, context_filter_policy: dict[str, Any]) -> dict[str, Any]:

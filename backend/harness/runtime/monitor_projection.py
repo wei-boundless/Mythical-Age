@@ -232,8 +232,10 @@ class TaskRunMonitorProjector:
             return "failed"
         if control_state == "paused":
             return "paused"
-        if control_state in {"pause_requested", "stop_requested"}:
+        if control_state in {"pause_requested", "stop_requested", "replan_requested"}:
             return "running"
+        if control_state == "interrupted_for_replan":
+            return "waiting"
         if stale:
             return "stale"
         if action_required:
@@ -315,7 +317,7 @@ class TaskRunMonitorProjector:
             reasons.append("terminal_status_with_waiting_event")
         if status in RUNNING_TASK_RUN_STATUSES and str(getattr(task_run, "terminal_reason", "") or "") in TERMINAL_TASK_RUN_STATUSES:
             reasons.append("running_status_with_terminal_reason")
-        if control_state and control_state not in {"running", "pause_requested", "paused", "resume_requested", "stop_requested", "stopped"}:
+        if control_state and control_state not in {"running", "pause_requested", "paused", "resume_requested", "stop_requested", "stopped", "replan_requested", "interrupted_for_replan"}:
             reasons.append("unknown_runtime_control_state")
         return reasons
 

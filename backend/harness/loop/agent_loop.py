@@ -25,6 +25,7 @@ from .task_lifecycle import (
     task_launch_supervision_policy,
     wait_task_launch_supervision,
 )
+from .task_run_recovery_state import recovery_state_for_task_run, should_auto_continue_task_run
 
 
 _MAX_TURN_ACTIONS = 6
@@ -1100,13 +1101,14 @@ def _schedule_task_executor(runtime_host: Any, task_run_id: str) -> None:
             error="task_run_not_found",
         )
         return
-    if str(current_task_run.status or "") != "waiting_executor":
+    recovery_state = recovery_state_for_task_run(current_task_run)
+    if not recovery_state.executable:
         runtime_host.event_log.append(
             task_run_id,
             "task_run_executor_schedule_rejected",
             payload={
                 "task_run_id": task_run_id,
-                "reason": "task_run_not_waiting_executor",
+                "reason": f"task_run_not_executable:{recovery_state.reason}",
                 "status": str(current_task_run.status or ""),
             },
             refs={"task_run_ref": task_run_id},
@@ -1249,10 +1251,7 @@ def _task_executor_should_continue(runtime_host: Any, *, task_run_id: str, resul
     task_run = runtime_host.state_index.get_task_run(task_run_id)
     if task_run is None:
         return False
-    diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
-    control = diagnostics.get("runtime_control")
-    control_state = str(dict(control or {}).get("state") or "") if isinstance(control, dict) else ""
-    return str(task_run.status or "") == "waiting_executor" and control_state not in {"pause_requested", "paused", "stop_requested", "stopped"}
+    return should_auto_continue_task_run(task_run)
 
 
 def _mark_task_executor_schedule_failed(runtime_host: Any, *, task_run_id: str, error: str) -> None:

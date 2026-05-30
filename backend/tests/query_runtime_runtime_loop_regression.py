@@ -849,6 +849,45 @@ def test_running_task_run_is_not_externally_executable_unless_executor_claimed()
     assert is_task_run_executor_claimed(claimed_running) is True
 
 
+def test_waiting_executor_with_stale_running_diagnostics_is_resumable_not_running() -> None:
+    from harness.loop.active_work import build_active_work_context
+    from harness.loop.resume_policy import build_resume_plan
+    from harness.loop.task_executor import is_task_run_executable, is_task_run_executor_claimed
+
+    runtime = build_query_runtime()
+    task_run_id = _seed_active_work(
+        runtime,
+        task_run_id="taskrun:stale-running-waiting",
+        session_id="session-stale-running-waiting",
+    )
+    host = runtime.single_agent_runtime_host
+    task_run = host.state_index.get_task_run(task_run_id)
+    assert task_run is not None
+    host.state_index.upsert_task_run(
+        replace(
+            task_run,
+            status="waiting_executor",
+            terminal_reason="waiting_executor",
+            diagnostics={
+                **dict(task_run.diagnostics or {}),
+                "executor_status": "running",
+                "runtime_control": {"state": "resume_requested", "authority": "orchestration.task_run_control"},
+            },
+        )
+    )
+
+    context = build_active_work_context(host, session_id="session-stale-running-waiting")
+    task_run = host.state_index.get_task_run(task_run_id)
+
+    assert task_run is not None
+    assert context is not None
+    assert context.running is False
+    assert context.resumable is True
+    assert is_task_run_executor_claimed(task_run) is False
+    assert is_task_run_executable(task_run) is True
+    assert build_resume_plan(host, context=context, user_message="继续").decision == "same_run_resume"
+
+
 def test_execute_task_run_rejects_duplicate_running_claim() -> None:
     runtime = build_query_runtime(
         model_runtime=SingleMessageModelRuntimeStub(
@@ -1167,9 +1206,135 @@ def test_task_run_executor_blocks_repeated_invalid_model_actions_as_recoverable(
     assert result["ok"] is False
     assert result["error"] == "model_action_protocol_repair_required"
     assert task_run is not None
-    assert task_run.status == "blocked"
+    assert task_run.status == "waiting_executor"
     assert task_run.terminal_reason == "model_action_protocol_repair_required"
+    assert dict(task_run.diagnostics or {}).get("executor_status") == "waiting_executor"
     assert dict(dict(task_run.diagnostics or {}).get("recoverable_error") or {}).get("retryable") is True
+
+
+def test_recoverable_terminal_closeout_clears_stale_running_executor_status() -> None:
+    runtime = build_query_runtime(
+        model_runtime=_TaskExecutorSequenceModelRuntime(
+            task_actions=[
+                {"authority": "harness.loop.model_action_request", "request_id": "model-action:test:bad-1", "turn_id": "", "action_type": ""},
+                {"authority": "harness.loop.model_action_request", "request_id": "model-action:test:bad-2", "turn_id": "", "action_type": ""},
+                {"authority": "harness.loop.model_action_request", "request_id": "model-action:test:bad-3", "turn_id": "", "action_type": ""},
+            ],
+            agent_turn_action_request=_action_request(
+                action_type="request_task_run",
+                task_contract_seed={"user_visible_goal": "清理运行态。", "task_run_goal": "清理运行态。", "completion_criteria": ["可恢复阻塞不残留 running"]},
+            ),
+        )
+    )
+    task_run_id = _seed_active_work(
+        runtime,
+        task_run_id="taskrun:recoverable-closeout-clears-running",
+        session_id="session-recoverable-closeout-clears-running",
+    )
+
+    result = asyncio.run(runtime.execute_task_run(task_run_id, max_steps=4))
+    task_run = runtime.single_agent_runtime_host.state_index.get_task_run(task_run_id)
+
+    assert result["ok"] is False
+    assert task_run is not None
+    diagnostics = dict(task_run.diagnostics or {})
+    assert task_run.status == "waiting_executor"
+    assert diagnostics.get("executor_status") == "waiting_executor"
+    assert dict(diagnostics.get("runtime_control") or {}).get("state") != "running"
+    assert diagnostics.get("recovery_action") == "rerun_task_executor"
+
+
+def test_ask_user_blocks_as_waiting_executor_without_running_lease() -> None:
+    runtime = build_query_runtime(
+        model_runtime=_TaskExecutorSequenceModelRuntime(
+            task_actions=[
+                _action_request(
+                    action_type="ask_user",
+                    public_progress_note="需要用户确认下一步。",
+                    diagnostics={},
+                )
+                | {"user_question": "请确认下一步。"},
+            ],
+            agent_turn_action_request=_action_request(
+                action_type="request_task_run",
+                task_contract_seed={"user_visible_goal": "等待用户输入。", "task_run_goal": "等待用户输入。", "completion_criteria": ["必须等待用户"]},
+            ),
+        )
+    )
+    task_run_id = _seed_active_work(
+        runtime,
+        task_run_id="taskrun:ask-user-waiting",
+        session_id="session-ask-user-waiting",
+    )
+
+    result = asyncio.run(runtime.execute_task_run(task_run_id, max_steps=2))
+    task_run = runtime.single_agent_runtime_host.state_index.get_task_run(task_run_id)
+
+    assert result["ok"] is False
+    assert result["error"] == "user_input_required"
+    assert task_run is not None
+    diagnostics = dict(task_run.diagnostics or {})
+    assert task_run.status == "waiting_executor"
+    assert task_run.terminal_reason == "user_input_required"
+    assert diagnostics.get("executor_status") == "waiting_executor"
+    assert diagnostics.get("recovery_action") == "resume_task_run"
+
+
+def test_resume_recoverable_blocked_task_preserves_recovery_and_becomes_schedulable() -> None:
+    from harness.loop.task_executor import is_task_run_executable, resume_paused_task_run
+
+    runtime = build_query_runtime()
+    host = runtime.single_agent_runtime_host
+    contract = TaskRunContract(
+        contract_id="task-contract:resume-recoverable-blocked",
+        contract_source="test",
+        user_visible_goal="恢复可恢复阻塞。",
+        task_run_goal="恢复可恢复阻塞。",
+        completion_criteria=("可恢复阻塞可以被继续调度",),
+    )
+    contract_ref = host.runtime_objects.put_object("task_run_contract", contract.contract_id, contract.to_dict())
+    host.runtime_objects.put_object(
+        "task_lifecycle",
+        "taskrun:resume-recoverable-blocked",
+        TaskLifecycleRecord(
+            task_run_id="taskrun:resume-recoverable-blocked",
+            contract_ref=contract_ref,
+            status="blocked",
+            created_at=1.0,
+            updated_at=1.0,
+            terminal_reason="model_call_recovery_required",
+        ).to_dict(),
+    )
+    host.state_index.upsert_task_run(
+        TaskRun(
+            task_run_id="taskrun:resume-recoverable-blocked",
+            session_id="session-resume-recoverable-blocked",
+            task_id="task:resume-recoverable-blocked",
+            task_contract_ref=contract_ref,
+            execution_runtime_kind="single_agent_task",
+            status="blocked",
+            terminal_reason="model_call_recovery_required",
+            diagnostics={
+                "contract": contract.to_dict(),
+                "executor_status": "blocked",
+                "recoverable_error": {"error_code": "model_call_failed", "retryable": True},
+                "recovery_action": "rerun_task_executor",
+            },
+        )
+    )
+
+    result = resume_paused_task_run(host, "taskrun:resume-recoverable-blocked", reason="继续")
+    task_run = host.state_index.get_task_run("taskrun:resume-recoverable-blocked")
+
+    assert result["ok"] is True
+    assert task_run is not None
+    diagnostics = dict(task_run.diagnostics or {})
+    assert task_run.status == "waiting_executor"
+    assert task_run.terminal_reason == "waiting_executor"
+    assert diagnostics.get("executor_status") == "waiting_executor"
+    assert diagnostics.get("recovery_action") == "rerun_task_executor"
+    assert dict(diagnostics.get("recoverable_error") or {}).get("retryable") is True
+    assert is_task_run_executable(task_run) is True
 
 
 def test_task_run_executor_step_budget_exhaustion_waits_for_next_run() -> None:
@@ -1738,6 +1903,7 @@ def test_active_work_running_continue_records_steer_without_duplicate_executor()
             "authority": "harness.loop.active_work_turn_decision",
             "action": "continue_active_work",
             "response": "我正在接着处理，新的进展会继续更新在这里。",
+            "appended_instruction": "优先修美术资源加载",
             "confidence": 0.95,
         }
     ])
@@ -1767,7 +1933,38 @@ def test_active_work_running_continue_records_steer_without_duplicate_executor()
     assert any(event.get("type") == "done" and "进展" in str(event.get("content") or "") for event in events)
     assert "active_task_steer_recorded" in event_types
     assert "task_run_executor_scheduled" not in event_types
-    assert steer.get("content") == "继续，但优先修美术资源加载"
+    assert steer.get("content") == "优先修美术资源加载"
+
+
+def test_active_work_running_plain_continue_does_not_create_work_instruction() -> None:
+    model = _ActiveWorkDecisionModelRuntime([
+        {
+            "authority": "harness.loop.active_work_turn_decision",
+            "action": "continue_active_work",
+            "response": "我正在接着处理，新的进展会继续更新在这里。",
+            "confidence": 0.95,
+        }
+    ])
+    runtime = build_query_runtime(model_runtime=model)
+    task_run_id = _seed_active_work(runtime, task_run_id="taskrun:active-work-running-plain-continue", status="running")
+    task_run = runtime.single_agent_runtime_host.state_index.get_task_run(task_run_id)
+    runtime.single_agent_runtime_host.state_index.upsert_task_run(
+        replace(task_run, diagnostics={**dict(task_run.diagnostics or {}), "executor_status": "running"})
+    )
+
+    async def _collect() -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime.astream(QueryRequest(session_id="session-active-work", message="继续")):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_collect())
+    trace = runtime.single_agent_runtime_host.get_trace(task_run_id, include_payloads=True)
+    event_types = [str(dict(item).get("event_type") or "") for item in list(dict(trace or {}).get("events") or [])]
+
+    assert any(event.get("type") == "done" and "进展" in str(event.get("content") or "") for event in events)
+    assert "active_task_steer_recorded" not in event_types
+    assert "task_run_executor_scheduled" not in event_types
 
 
 def test_pending_active_task_steer_is_injected_into_task_execution_packet() -> None:
@@ -1860,12 +2057,17 @@ def test_late_active_task_steer_blocks_completion_before_next_packet() -> None:
         def __init__(self) -> None:
             self.started = asyncio.Event()
             self.release = asyncio.Event()
+            self.cancelled = asyncio.Event()
 
         async def invoke_messages(self, messages, **kwargs):
             source = str(dict(kwargs.get("accounting_context") or {}).get("source") or "")
             if source == "harness.loop.task_executor.model_action":
                 self.started.set()
-                await asyncio.wait_for(self.release.wait(), timeout=5)
+                try:
+                    await asyncio.wait_for(self.release.wait(), timeout=5)
+                except asyncio.CancelledError:
+                    self.cancelled.set()
+                    raise
                 return SimpleNamespace(
                     content=json.dumps(
                         _action_request(
@@ -1893,7 +2095,9 @@ def test_late_active_task_steer_blocks_completion_before_next_packet() -> None:
             intent="conversation_steer_while_model_waiting",
         )
         model.release.set()
-        return await asyncio.wait_for(executor_task, timeout=10)
+        result = await asyncio.wait_for(executor_task, timeout=10)
+        await asyncio.wait_for(model.cancelled.wait(), timeout=1)
+        return result
 
     result = asyncio.run(_run())
     trace = host.get_trace(task_run_id, include_payloads=True)
@@ -1901,11 +2105,257 @@ def test_late_active_task_steer_blocks_completion_before_next_packet() -> None:
     task_run = host.state_index.get_task_run(task_run_id)
 
     assert result["ok"] is False
-    assert result["error"] == "task_execution_step_budget_exhausted"
+    assert result["error"] == "user_interrupt_replan_required"
     assert "active_task_steer_recorded" in event_types
-    assert "task_completion_repair_required" in event_types
+    assert "task_run_replan_requested" in event_types
+    assert "task_run_interrupted_for_replan" in event_types
     assert task_run is not None
-    assert task_run.status != "completed"
+    assert task_run.status == "waiting_executor"
+
+
+def test_running_task_steer_cancels_inflight_model_call_and_replans() -> None:
+    from harness.loop.task_executor import append_user_work_instruction
+
+    class InterruptibleModelRuntime:
+        def __init__(self) -> None:
+            self.started = asyncio.Event()
+            self.cancelled = asyncio.Event()
+
+        async def invoke_messages(self, messages, **kwargs):
+            source = str(dict(kwargs.get("accounting_context") or {}).get("source") or "")
+            if source == "harness.loop.task_executor.model_action":
+                self.started.set()
+                try:
+                    await asyncio.sleep(60)
+                except asyncio.CancelledError:
+                    self.cancelled.set()
+                    raise
+            return SimpleNamespace(content=json.dumps(_action_request(action_type="respond", final_answer="unused")))
+
+    model = InterruptibleModelRuntime()
+    runtime = build_query_runtime(model_runtime=model)
+    host = runtime.single_agent_runtime_host
+    task_run_id = _seed_active_work(runtime, task_run_id="taskrun:running-steer-replan")
+
+    async def _run() -> dict[str, object]:
+        executor_task = asyncio.create_task(runtime.execute_task_run(task_run_id, max_steps=2))
+        await asyncio.wait_for(model.started.wait(), timeout=5)
+        append_user_work_instruction(
+            host,
+            task_run_id,
+            content="推翻之前方向，先重新规划并优先处理新要求。",
+            turn_id="turn:running-steer-replan:1",
+            intent="conversation_steer_while_running",
+        )
+        result = await asyncio.wait_for(executor_task, timeout=5)
+        await asyncio.wait_for(model.cancelled.wait(), timeout=1)
+        return result
+
+    result = asyncio.run(_run())
+    task_run = host.state_index.get_task_run(task_run_id)
+    trace = host.get_trace(task_run_id, include_payloads=True)
+    event_types = [str(dict(item).get("event_type") or "") for item in list(dict(trace or {}).get("events") or [])]
+    diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
+
+    assert result["ok"] is False
+    assert result["error"] == "user_interrupt_replan_required"
+    assert task_run is not None
+    assert task_run.status == "waiting_executor"
+    assert diagnostics["executor_status"] == "waiting_executor"
+    assert diagnostics["recovery_action"] == "resume_task_run"
+    assert dict(diagnostics.get("runtime_control") or {}).get("state") == "interrupted_for_replan"
+    assert "task_run_replan_requested" in event_types
+    assert "task_run_interrupted_for_replan" in event_types
+
+
+def test_running_task_pause_cancels_inflight_model_call_without_auto_replan() -> None:
+    from harness.loop.task_executor import request_task_run_pause
+
+    class InterruptibleModelRuntime:
+        def __init__(self) -> None:
+            self.started = asyncio.Event()
+            self.cancelled = asyncio.Event()
+
+        async def invoke_messages(self, messages, **kwargs):
+            source = str(dict(kwargs.get("accounting_context") or {}).get("source") or "")
+            if source == "harness.loop.task_executor.model_action":
+                self.started.set()
+                try:
+                    await asyncio.sleep(60)
+                except asyncio.CancelledError:
+                    self.cancelled.set()
+                    raise
+            return SimpleNamespace(content=json.dumps(_action_request(action_type="respond", final_answer="unused")))
+
+    model = InterruptibleModelRuntime()
+    runtime = build_query_runtime(model_runtime=model)
+    host = runtime.single_agent_runtime_host
+    task_run_id = _seed_active_work(runtime, task_run_id="taskrun:running-pause")
+
+    async def _run() -> dict[str, object]:
+        executor_task = asyncio.create_task(runtime.execute_task_run(task_run_id, max_steps=2))
+        await asyncio.wait_for(model.started.wait(), timeout=5)
+        request_task_run_pause(host, task_run_id, reason="test_pause", requested_by="user")
+        result = await asyncio.wait_for(executor_task, timeout=5)
+        await asyncio.wait_for(model.cancelled.wait(), timeout=1)
+        return result
+
+    result = asyncio.run(_run())
+    task_run = host.state_index.get_task_run(task_run_id)
+    diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
+
+    assert result["ok"] is False
+    assert result["error"] == "task_run_paused"
+    assert task_run is not None
+    assert task_run.status == "waiting_executor"
+    assert diagnostics["executor_status"] == "waiting_executor"
+    assert dict(diagnostics.get("runtime_control") or {}).get("state") == "paused"
+
+
+def test_running_task_stop_cancels_inflight_model_call_and_finishes_aborted() -> None:
+    from harness.loop.task_executor import stop_task_run
+
+    class InterruptibleModelRuntime:
+        def __init__(self) -> None:
+            self.started = asyncio.Event()
+            self.cancelled = asyncio.Event()
+
+        async def invoke_messages(self, messages, **kwargs):
+            source = str(dict(kwargs.get("accounting_context") or {}).get("source") or "")
+            if source == "harness.loop.task_executor.model_action":
+                self.started.set()
+                try:
+                    await asyncio.sleep(60)
+                except asyncio.CancelledError:
+                    self.cancelled.set()
+                    raise
+            return SimpleNamespace(content=json.dumps(_action_request(action_type="respond", final_answer="unused")))
+
+    model = InterruptibleModelRuntime()
+    runtime = build_query_runtime(model_runtime=model)
+    host = runtime.single_agent_runtime_host
+    task_run_id = _seed_active_work(runtime, task_run_id="taskrun:running-stop")
+
+    async def _run() -> dict[str, object]:
+        executor_task = asyncio.create_task(runtime.execute_task_run(task_run_id, max_steps=2))
+        await asyncio.wait_for(model.started.wait(), timeout=5)
+        stop_task_run(host, task_run_id, reason="test_stop", requested_by="user")
+        result = await asyncio.wait_for(executor_task, timeout=5)
+        await asyncio.wait_for(model.cancelled.wait(), timeout=1)
+        return result
+
+    result = asyncio.run(_run())
+    task_run = host.state_index.get_task_run(task_run_id)
+    diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
+
+    assert result["ok"] is False
+    assert result["error"] == "user_aborted"
+    assert task_run is not None
+    assert task_run.status == "aborted"
+    assert diagnostics["executor_status"] == "stopped"
+    assert dict(diagnostics.get("runtime_control") or {}).get("state") == "stopped"
+    assert "recovery_action" not in diagnostics
+    assert "recoverable_error" not in diagnostics
+    assert "pending_user_steer_count" not in diagnostics
+    assert "active_contract_revision_count" not in diagnostics
+
+
+def test_scheduler_restarts_after_running_steer_and_next_packet_contains_instruction() -> None:
+    from harness.loop.task_executor import append_user_work_instruction
+
+    class ReplanningModelRuntime:
+        def __init__(self) -> None:
+            self.first_started = asyncio.Event()
+            self.first_cancelled = asyncio.Event()
+            self.second_started = asyncio.Event()
+            self.messages_by_call: list[str] = []
+            self.host = None
+            self.task_run_id = ""
+
+        async def invoke_messages(self, messages, **kwargs):
+            source = str(dict(kwargs.get("accounting_context") or {}).get("source") or "")
+            if source != "harness.loop.task_executor.model_action":
+                return SimpleNamespace(content=json.dumps(_action_request(action_type="respond", final_answer="unused")))
+            self.messages_by_call.append(json.dumps(messages, ensure_ascii=False))
+            if len(self.messages_by_call) == 1:
+                self.first_started.set()
+                try:
+                    await asyncio.sleep(60)
+                except asyncio.CancelledError:
+                    self.first_cancelled.set()
+                    raise
+            self.second_started.set()
+            steer_refs: list[str] = []
+            if self.host is not None:
+                from harness.loop.task_steering import list_pending_task_steers
+                from harness.loop.task_contract_revision import list_active_task_contract_revisions
+
+                steer_refs = [
+                    str(item.get("steer_id") or "")
+                    for item in list_pending_task_steers(self.host, self.task_run_id)
+                    if str(item.get("steer_id") or "")
+                ]
+                revision_decisions = [
+                    {"revision_id": str(item.get("revision_id") or ""), "status": "accepted"}
+                    for item in list_active_task_contract_revisions(self.host, self.task_run_id)
+                    if str(item.get("revision_id") or "")
+                ]
+            else:
+                revision_decisions = []
+            return SimpleNamespace(
+                content=json.dumps(
+                    _action_request(
+                        action_type="respond",
+                        final_answer="已按新要求完成。",
+                        diagnostics={
+                            "consumed_steer_refs": list(dict.fromkeys(steer_refs)),
+                            "contract_revision_decisions": revision_decisions,
+                        },
+                    ),
+                    ensure_ascii=False,
+                )
+            )
+
+    model = ReplanningModelRuntime()
+    runtime = build_query_runtime(model_runtime=model)
+    host = runtime.single_agent_runtime_host
+    task_run_id = _seed_active_work(runtime, task_run_id="taskrun:scheduler-replan")
+    model.host = host
+    model.task_run_id = task_run_id
+
+    async def _run() -> None:
+        schedule_result = runtime._schedule_active_task_run_executor(task_run_id, scheduler="test_scheduler_replan", max_steps=2)
+        assert schedule_result["scheduled"] is True
+        await asyncio.wait_for(model.first_started.wait(), timeout=5)
+        append_user_work_instruction(
+            host,
+            task_run_id,
+            content="自然语言改方向：先做稳定性高压验证。",
+            turn_id="turn:scheduler-replan:1",
+            intent="conversation_steer_while_running",
+        )
+        await asyncio.wait_for(model.first_cancelled.wait(), timeout=5)
+        await asyncio.wait_for(model.second_started.wait(), timeout=5)
+        for _ in range(100):
+            task_run = host.state_index.get_task_run(task_run_id)
+            if task_run is not None and task_run.status == "completed":
+                return
+            await asyncio.sleep(0.02)
+        raise AssertionError("scheduler did not complete restarted task run")
+
+    asyncio.run(_run())
+    task_run = host.state_index.get_task_run(task_run_id)
+    trace = host.get_trace(task_run_id, include_payloads=True)
+    event_types = [str(dict(item).get("event_type") or "") for item in list(dict(trace or {}).get("events") or [])]
+
+    assert task_run is not None
+    assert task_run.status == "completed"
+    assert model.first_cancelled.is_set()
+    assert len(model.messages_by_call) >= 2
+    assert "自然语言改方向：先做稳定性高压验证。" in model.messages_by_call[1]
+    assert "task_run_interrupted_for_replan" in event_types
+    assert "task_run_executor_rescheduled" in event_types
+    assert "active_task_steer_consumed" in event_types
 
 
 def test_role_mode_allows_soul_prompt_but_blocks_task_lifecycle() -> None:

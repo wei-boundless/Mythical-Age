@@ -7,6 +7,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any, Literal
 
 from .model_action_runtime import call_model_invoker, parse_json_object
+from .task_run_recovery_state import recovery_state_for_task_run
 from .task_steering import list_pending_task_steers
 from .work_rollout import ensure_work_rollout, work_rollout_summary
 from harness.runtime.public_progress import public_runtime_progress_summary
@@ -201,7 +202,7 @@ def active_work_context_from_candidate(candidate: WorkContinuationCandidate) -> 
         latest_progress=candidate.latest_progress,
         latest_step_name=candidate.latest_step_name,
         resumable=candidate.same_run_allowed,
-        running=candidate.continuation_kind == "active" and candidate.status in {"created", "running"},
+        running=candidate.continuation_kind == "active",
         paused=candidate.continuation_kind == "paused",
         execution_runtime_kind="single_agent_task",
         continuation_kind=candidate.continuation_kind,
@@ -439,7 +440,8 @@ def _candidate_from_task_run(runtime_host: Any, *, session_id: str, task_run: An
     if not isinstance(control, dict):
         control = diagnostics.get("runtime_control") if isinstance(diagnostics.get("runtime_control"), dict) else {}
     control_state = str(item.get("control_state") or dict(control or {}).get("state") or "").strip()
-    continuation_kind = _continuation_kind(status=status, terminal_reason=terminal_reason, control_state=control_state, diagnostics=diagnostics)
+    recovery_state = recovery_state_for_task_run(task_run)
+    continuation_kind = _continuation_kind(status=status, terminal_reason=terminal_reason, control_state=control_state, diagnostics=diagnostics, recovery_state=recovery_state)
     if continuation_kind == "ignore":
         return None
     latest_progress = _first_text(
@@ -495,24 +497,28 @@ def _candidate_from_task_run(runtime_host: Any, *, session_id: str, task_run: An
     )
 
 
-def _continuation_kind(*, status: str, terminal_reason: str, control_state: str, diagnostics: dict[str, Any]) -> str:
-    executor_status = str(diagnostics.get("executor_status") or "")
+def _continuation_kind(*, status: str, terminal_reason: str, control_state: str, diagnostics: dict[str, Any], recovery_state: Any | None = None) -> str:
+    state = recovery_state
+    if state is not None and state.graph_controlled:
+        return "ignore"
+    if state is not None and state.checkoutable_terminal and status in {"aborted", "failed", "cancelled", "error"}:
+        return "interrupted_checkoutable"
+    if state is not None and state.completed_iteration:
+        return "completed_iteration"
+    if state is not None and state.running_claimed:
+        return "active"
+    if status == "waiting_approval":
+        return "waiting_user"
+    if state is not None and state.paused and status == "waiting_executor":
+        return "paused"
+    if state is not None and state.same_run_resumable:
+        return "waiting"
     if status in {"aborted", "failed", "cancelled", "error"} and _is_checkoutable_terminal(terminal_reason, diagnostics):
         return "interrupted_checkoutable"
     if status in {"completed", "success"}:
         return "completed_iteration"
-    if status in {"created", "running"} or (
-        status in _ACTIVE_WORK_STATUSES and executor_status in {"scheduled", "running"}
-    ):
+    if status in {"created", "running"}:
         return "active"
-    if status == "waiting_approval":
-        return "waiting_user"
-    if status == "waiting_executor" and control_state == "paused":
-        return "paused"
-    if status == "waiting_executor":
-        return "waiting"
-    if status == "blocked" and dict(diagnostics.get("recoverable_error") or {}).get("retryable", True):
-        return "blocked_recoverable"
     return "ignore"
 
 

@@ -6,6 +6,7 @@ from dataclasses import asdict, dataclass
 from typing import Any, Literal
 
 from .active_work import ActiveWorkContext
+from .task_run_recovery_state import recovery_state_for_task_run
 
 
 ResumePlanDecision = Literal[
@@ -48,15 +49,16 @@ def build_resume_plan(
     event_offset = int(getattr(task_run, "latest_event_offset", -1) or -1) if task_run is not None else -1
     decision: ResumePlanDecision
     reason: str
+    recovery_state = recovery_state_for_task_run(task_run) if task_run is not None else None
     if task_run is None:
         decision = "refuse"
         reason = "task_run_not_found"
-    elif context.running:
+    elif recovery_state is not None and (recovery_state.running_claimed or context.running):
         decision = "already_running"
         reason = "work_already_running"
-    elif context.same_run_allowed or context.resumable or _is_recoverable_blocked_context(context, task_run):
+    elif recovery_state is not None and (recovery_state.same_run_resumable or context.same_run_allowed or context.resumable):
         decision = "same_run_resume"
-        reason = "non_terminal_resume_available"
+        reason = recovery_state.reason or "non_terminal_resume_available"
     elif context.checkout_allowed or context.continuation_kind == "interrupted_checkoutable":
         decision = "checkout_fork"
         reason = "terminal_interrupted_requires_checkout"

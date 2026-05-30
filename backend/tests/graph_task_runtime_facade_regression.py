@@ -469,6 +469,117 @@ def test_graph_edge_handoff_filters_outputs_by_delivery_policy() -> None:
     assert packet["visibility"]["delivery_policy"] == "contract_payload_and_refs"
 
 
+def test_graph_edge_contract_payload_projects_artifact_text_without_agent_tool(tmp_path: Path) -> None:
+    runtime = _runtime("graph-edge-artifact-text-")
+    artifact_path = tmp_path / "world.md"
+    artifact_path.write_text("世界设定正文\n" + "洪荒规则" * 200, encoding="utf-8")
+    registry = TaskFlowRegistry(runtime.base_dir)
+    graph = registry.upsert_task_graph(
+        graph_id="graph.test.artifact_text_projection",
+        title="Artifact Text Projection",
+        graph_kind="multi_agent",
+        entry_node_id="draft",
+        output_node_id="review",
+        nodes=(
+            {"node_id": "draft", "node_type": "agent", "title": "起草", "task_id": "task.test.draft", "agent_id": "agent:0"},
+            {"node_id": "review", "node_type": "agent", "title": "审核", "task_id": "task.test.review", "agent_id": "agent:0"},
+        ),
+        edges=(
+            {
+                "edge_id": "edge.draft.review",
+                "source_node_id": "draft",
+                "target_node_id": "review",
+                "edge_type": "handoff",
+                "result_delivery_policy": "contract_payload_and_refs",
+                "artifact_ref_policy": {"max_refs": 1, "max_text_chars": 12},
+            },
+        ),
+        runtime_policy={"coordinator_agent_id": "agent:0"},
+        publish_state="published",
+        enabled=True,
+    )
+    graph_config = publish_graph_harness_config_for_graph(base_dir=runtime.base_dir, graph_id=graph.graph_id)
+    start = runtime.graph_harness.start_run(session_id="session:test", task_id="", graph_config=graph_config)
+    advance = runtime.graph_harness.accept_node_result(
+        graph_config=graph_config,
+        graph_run_id=start.graph_run.graph_run_id,
+        result=NodeResultEnvelope(
+            result_id="nresult:test:draft:artifact-text",
+            graph_run_id=start.graph_run.graph_run_id,
+            task_run_id=start.task_run.task_run_id,
+            node_id="draft",
+            work_order_id=start.node_work_orders[0].work_order_id,
+            artifact_refs=(str(artifact_path),),
+            handoff_summary="summary",
+        ),
+    )
+
+    inbound = advance.node_work_orders[0].input_package["inbound_context"][0]
+    payload = inbound["payload"]
+    packet = _runtime_object_payload(runtime, inbound["packet_ref"])
+
+    assert payload["artifact_refs"] == [str(artifact_path)]
+    assert payload["artifact_payloads"][0]["artifact_ref"] == str(artifact_path)
+    assert payload["artifact_payloads"][0]["content"] == "世界设定正文\n洪荒规则洪"
+    assert payload["artifact_payloads"][0]["truncated"] is True
+    assert packet["visible_payload"]["artifact_payloads"][0]["authority"] == "harness.graph.flow_packet.artifact_text_projection"
+
+
+def test_graph_edge_artifact_text_projection_accepts_project_root_relative_refs(tmp_path: Path, monkeypatch) -> None:
+    runtime = _runtime("graph-edge-artifact-root-relative-")
+    project_root = Path(__file__).resolve().parents[2]
+    artifact_dir = project_root / ".tmp" / "graph_edge_artifact_text"
+    artifact_dir.mkdir(parents=True, exist_ok=True)
+    artifact_path = artifact_dir / "world.md"
+    artifact_path.write_text("项目根相对正文", encoding="utf-8")
+    relative_ref = artifact_path.relative_to(project_root).as_posix()
+    monkeypatch.chdir(BACKEND_DIR)
+    registry = TaskFlowRegistry(runtime.base_dir)
+    graph = registry.upsert_task_graph(
+        graph_id="graph.test.artifact_project_root_relative",
+        title="Artifact Project Root Relative",
+        graph_kind="multi_agent",
+        entry_node_id="draft",
+        output_node_id="review",
+        nodes=(
+            {"node_id": "draft", "node_type": "agent", "title": "起草", "task_id": "task.test.draft", "agent_id": "agent:0"},
+            {"node_id": "review", "node_type": "agent", "title": "审核", "task_id": "task.test.review", "agent_id": "agent:0"},
+        ),
+        edges=(
+            {
+                "edge_id": "edge.draft.review",
+                "source_node_id": "draft",
+                "target_node_id": "review",
+                "edge_type": "handoff",
+                "result_delivery_policy": "contract_payload_and_refs",
+            },
+        ),
+        runtime_policy={"coordinator_agent_id": "agent:0"},
+        publish_state="published",
+        enabled=True,
+    )
+    graph_config = publish_graph_harness_config_for_graph(base_dir=runtime.base_dir, graph_id=graph.graph_id)
+    start = runtime.graph_harness.start_run(session_id="session:test", task_id="", graph_config=graph_config)
+    advance = runtime.graph_harness.accept_node_result(
+        graph_config=graph_config,
+        graph_run_id=start.graph_run.graph_run_id,
+        result=NodeResultEnvelope(
+            result_id="nresult:test:draft:artifact-root-relative",
+            graph_run_id=start.graph_run.graph_run_id,
+            task_run_id=start.task_run.task_run_id,
+            node_id="draft",
+            work_order_id=start.node_work_orders[0].work_order_id,
+            artifact_refs=(relative_ref,),
+            handoff_summary="summary",
+        ),
+    )
+
+    payload = advance.node_work_orders[0].input_package["inbound_context"][0]["payload"]
+
+    assert payload["artifact_payloads"][0]["artifact_ref"] == relative_ref
+    assert payload["artifact_payloads"][0]["content"] == "项目根相对正文"
+
+
 def test_graph_edge_summary_only_does_not_expose_outputs() -> None:
     runtime = _runtime("graph-edge-summary-only-")
     registry = TaskFlowRegistry(runtime.base_dir)
@@ -645,6 +756,126 @@ def test_graph_resume_reconnects_active_work_orders_from_checkpoint() -> None:
     assert resumed.reason == "active_work_orders_reconnected"
     assert resumed.active_work_orders[0]["work_order_id"] == start.node_work_orders[0].work_order_id
     assert resumed.node_work_orders == ()
+
+
+def test_graph_resume_recovers_stale_active_graph_node_executor() -> None:
+    runtime = _runtime("graph-task-resume-stale-active-")
+    registry = TaskFlowRegistry(runtime.base_dir)
+    graph = registry.upsert_task_graph(
+        graph_id="graph.test.resume_stale_active",
+        title="Resume Stale Active",
+        graph_kind="multi_agent",
+        entry_node_id="draft",
+        output_node_id="draft",
+        nodes=(
+            {"node_id": "draft", "node_type": "agent", "title": "起草", "task_id": "task.test.draft", "agent_id": "agent:0"},
+        ),
+        runtime_policy={"coordinator_agent_id": "agent:0"},
+        publish_state="published",
+        enabled=True,
+    )
+    graph_config = publish_graph_harness_config_for_graph(base_dir=runtime.base_dir, graph_id=graph.graph_id)
+    start = runtime.graph_harness.start_run(session_id="session:test", task_id="", graph_config=graph_config)
+    work_order = start.node_work_orders[0]
+    task_run_id = f"gtask:{work_order.graph_run_id.replace(':', '_')}:{work_order.node_id}:{work_order.work_order_id.replace(':', '_')}"
+    runtime.single_agent_runtime_host.state_index.upsert_task_run(
+        TaskRun(
+            task_run_id=task_run_id,
+            session_id="session:test",
+            task_id="task.test.draft",
+            execution_runtime_kind="single_agent_task",
+            status="running",
+            created_at=1.0,
+            updated_at=1.0,
+            diagnostics={
+                "executor_status": "running",
+                "origin_kind": "graph_node_assigned",
+                "origin": {
+                    "origin_kind": "graph_node_assigned",
+                    "origin_authority": "harness.graph_loop",
+                    "origin_ref": work_order.work_order_id,
+                    "parent_run_ref": work_order.graph_run_id,
+                    "graph_run_id": work_order.graph_run_id,
+                    "node_id": work_order.node_id,
+                },
+                "graph_run_id": work_order.graph_run_id,
+                "graph_work_order_id": work_order.work_order_id,
+                "graph_node_id": work_order.node_id,
+            },
+        )
+    )
+
+    resumed = runtime.graph_harness.resume_run(
+        graph_config=graph_config,
+        graph_run_id=start.graph_run.graph_run_id,
+    )
+    recovered = runtime.single_agent_runtime_host.state_index.get_task_run(task_run_id)
+
+    assert resumed.resumed is True
+    assert resumed.reason == "active_work_orders_reconnected"
+    assert recovered is not None
+    assert recovered.status == "waiting_executor"
+    diagnostics = dict(recovered.diagnostics or {})
+    assert diagnostics["executor_status"] == "waiting_executor"
+    assert diagnostics["recovery_action"] == "rerun_task_executor"
+    assert resumed.events[0]["event_type"] == "graph_node_executor_recovered_after_runtime_restart"
+
+
+def test_graph_runner_executes_recovered_stale_graph_node_executor() -> None:
+    runtime = _task_execution_runtime("graph-task-run-recovered-stale-active-")
+    registry = TaskFlowRegistry(runtime.base_dir)
+    graph = registry.upsert_task_graph(
+        graph_id="graph.test.run_recovered_stale_active",
+        title="Run Recovered Stale Active",
+        graph_kind="multi_agent",
+        entry_node_id="draft",
+        output_node_id="draft",
+        nodes=(
+            {"node_id": "draft", "node_type": "agent", "title": "起草", "task_id": "task.test.draft", "agent_id": "agent:0"},
+        ),
+        runtime_policy={"coordinator_agent_id": "agent:0"},
+        publish_state="published",
+        enabled=True,
+    )
+    graph_config = publish_graph_harness_config_for_graph(base_dir=runtime.base_dir, graph_id=graph.graph_id)
+    start = runtime.graph_harness.start_run(session_id="session:test", task_id="", graph_config=graph_config)
+    work_order = start.node_work_orders[0]
+    task_run = runtime._create_graph_node_task_run(graph_config=graph_config, work_order=work_order)
+    runtime.single_agent_runtime_host.state_index.upsert_task_run(
+        TaskRun(
+            **{
+                **task_run.to_dict(),
+                "status": "running",
+                "created_at": 1.0,
+                "updated_at": 1.0,
+                "diagnostics": {
+                    **dict(task_run.diagnostics or {}),
+                    "executor_status": "running",
+                    "latest_step": "model_action_invocation_started",
+                },
+            }
+        )
+    )
+
+    resumed = runtime.graph_harness.resume_run(
+        graph_config=graph_config,
+        graph_run_id=start.graph_run.graph_run_id,
+    )
+    result = asyncio.run(
+        runtime.graph_harness.run_until_idle(
+            graph_config=graph_config,
+            graph_run_id=start.graph_run.graph_run_id,
+            max_node_executions=1,
+            max_node_steps=4,
+        )
+    )
+    state = runtime.graph_harness.get_checkpoint_state(start.graph_run.graph_run_id)
+
+    assert resumed.events[0]["event_type"] == "graph_node_executor_recovered_after_runtime_restart"
+    assert result.executed_work_order_count == 1
+    assert result.accepted_result_count == 1
+    assert state["status"] == "completed"
+    assert state["completed_node_ids"] == ["draft"]
 
 
 def test_graph_resume_fails_closed_on_config_hash_mismatch() -> None:

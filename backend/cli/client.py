@@ -92,6 +92,32 @@ class AgentCliClient:
             raise AgentCliClientError("Backend returned an invalid task execution payload.")
         return dict(payload)
 
+    def pause_task_run(self, task_run_id: str, *, reason: str = "") -> dict[str, Any]:
+        return self._task_run_control_request(task_run_id, "pause", reason=reason)
+
+    def resume_task_run(self, task_run_id: str, *, max_steps: int = 12) -> dict[str, Any]:
+        payload = self._json_request(
+            "POST",
+            f"/orchestration/harness/task-runs/{_quote_path(task_run_id)}/resume",
+            {"max_steps": max_steps},
+        )
+        if not isinstance(payload, dict):
+            raise AgentCliClientError("Backend returned an invalid task resume payload.")
+        return dict(payload)
+
+    def stop_task_run(self, task_run_id: str, *, reason: str = "") -> dict[str, Any]:
+        return self._task_run_control_request(task_run_id, "stop", reason=reason)
+
+    def _task_run_control_request(self, task_run_id: str, action: str, *, reason: str = "") -> dict[str, Any]:
+        payload = self._json_request(
+            "POST",
+            f"/orchestration/harness/task-runs/{_quote_path(task_run_id)}/{action}",
+            {"reason": reason},
+        )
+        if not isinstance(payload, dict):
+            raise AgentCliClientError(f"Backend returned an invalid task {action} payload.")
+        return dict(payload)
+
     def get_config(self) -> dict[str, Any]:
         return {"api_base": self.api_base}
 
