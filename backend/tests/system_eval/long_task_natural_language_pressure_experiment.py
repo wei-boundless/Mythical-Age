@@ -140,7 +140,14 @@ class PressureModelRuntime:
                 action_type="block",
                 final_answer="",
                 public_progress_note="已处理当前控制指令，等待下一步。",
-                diagnostics=diagnostics,
+                diagnostics={
+                    **diagnostics,
+                    "recoverable_error": {
+                        "error_code": "pressure_checkpoint_waiting_for_next_user_control",
+                        "retryable": True,
+                    },
+                    "recovery_action": "resume_task_run",
+                },
             ),
             "blocking_reason": "pressure_checkpoint_waiting_for_next_user_control",
         }

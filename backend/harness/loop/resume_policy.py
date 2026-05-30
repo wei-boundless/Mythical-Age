@@ -54,7 +54,7 @@ def build_resume_plan(
     elif context.running:
         decision = "already_running"
         reason = "work_already_running"
-    elif context.same_run_allowed or context.resumable:
+    elif context.same_run_allowed or context.resumable or _is_recoverable_blocked_context(context, task_run):
         decision = "same_run_resume"
         reason = "non_terminal_resume_available"
     elif context.checkout_allowed or context.continuation_kind == "interrupted_checkoutable":
@@ -81,6 +81,16 @@ def build_resume_plan(
     )
     _record_resume_plan(runtime_host, plan, user_message=user_message)
     return plan
+
+
+def _is_recoverable_blocked_context(context: ActiveWorkContext, task_run: Any) -> bool:
+    if context.status != "blocked":
+        return False
+    diagnostics = dict(getattr(task_run, "diagnostics", {}) or {}) if task_run is not None else {}
+    recoverable = diagnostics.get("recoverable_error")
+    if isinstance(recoverable, dict) and recoverable.get("retryable") is not False:
+        return True
+    return str(diagnostics.get("recovery_action") or "") in {"resume_task_run", "rerun_task_executor"}
 
 
 def _record_resume_plan(runtime_host: Any, plan: ResumePlan, *, user_message: str) -> None:

@@ -1606,9 +1606,24 @@ def _finish_executor_terminal(runtime_host: Any, *, task_run: Any, agent_run: An
         replace(agent_run, status="failed" if status == "failed" else "completed", updated_at=now, diagnostics={**dict(agent_run.diagnostics or {}), "terminal_reason": terminal_reason})
     )
     lifecycle = _load_lifecycle(runtime_host, task_run)
+    terminal_payload = dict(payload or {})
+    action_request_payload = dict(terminal_payload.get("action_request") or {})
+    action_diagnostics = dict(action_request_payload.get("diagnostics") or {})
+    promoted_terminal_diagnostics = {
+        key: action_diagnostics[key]
+        for key in ("recoverable_error", "recovery_action")
+        if key in action_diagnostics
+    }
     finished_task, finished_lifecycle, event = finish_task_lifecycle(
         runtime_host,
-        task_run=replace(task_run, diagnostics={**dict(task_run.diagnostics or {}), **dict(payload or {})}),
+        task_run=replace(
+            task_run,
+            diagnostics={
+                **dict(task_run.diagnostics or {}),
+                **terminal_payload,
+                **promoted_terminal_diagnostics,
+            },
+        ),
         lifecycle=lifecycle,
         status=status,  # type: ignore[arg-type]
         terminal_reason=terminal_reason,
