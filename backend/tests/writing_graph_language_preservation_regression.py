@@ -255,24 +255,36 @@ def test_current_node_input_package_does_not_expose_downstream_prompt_or_unrelat
     )
     draft = next(node for node in graph_config.nodes if node["node_id"] == "draft")
 
-    order = GraphContextMaterializer(services=None).build_work_order(
+    materializer = GraphContextMaterializer(services=None)
+    inbound_context = materializer.inbound_context_for_node(graph_config=graph_config, state=state, node_id="draft")
+    input_package = materializer.build_input_package(
         graph_config=graph_config,
         state=state,
         node=draft,
+        inbound_context=inbound_context,
     )
-    package_text = str(order.input_package)
-    resource_nodes = order.file_view_request["graph_resource_policy"]["resource_nodes"]
+    package_text = str(input_package)
+    resource_nodes = input_package["file_view"]["graph_resource_policy"]["resource_nodes"]
 
     assert "下游专属审核角色文本不得进入起草节点" not in package_text
     assert "memory.commit" not in package_text
     assert all(
         item["target_node_id"] == "draft"
-        for item in order.memory_view_request["graph_memory_policy"]["read_rules"]
+        for item in input_package["memory_view"]["graph_memory_policy"]["read_rules"]
     )
     assert "readable_by" not in package_text
     assert "write_owner_node_ids" not in package_text
     assert all(item["node_id"] != "memory.commit" for item in resource_nodes)
     assert all(item["current_node_can_read"] for item in resource_nodes)
+
+    try:
+        materializer.build_work_order(graph_config=graph_config, state=state, node=draft)
+        raised = None
+    except ValueError as exc:
+        raised = exc
+
+    assert raised is not None
+    assert "formal_memory_service" in str(raised)
 
 
 def test_graph_harness_config_rejects_unknown_scheduler_role() -> None:

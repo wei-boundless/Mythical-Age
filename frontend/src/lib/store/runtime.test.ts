@@ -1117,41 +1117,57 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     });
   });
 
-  it("sends DeepSeek thinking controls for the system default chat model", async () => {
+  it("sends hidden reasoning controls for a reasoning-capable system default chat model", async () => {
     vi.useRealTimers();
     api.streamChat.mockResolvedValue({ terminalEvent: "done" });
     api.listSessions.mockResolvedValue([{
-      id: "session:deepseek",
-      title: "DeepSeek",
+      id: "session:reasoning",
+      title: "Reasoning",
       created_at: 1,
       updated_at: 1,
       message_count: 1,
     }]);
     const store = createStore<StoreState>({
       ...getDefaultState(),
-      currentSessionId: "session:deepseek",
+      currentSessionId: "session:reasoning",
       modelProviderConfig: {
-        provider: "deepseek",
-        model: "deepseek-v4-pro",
-        base_url: "https://api.deepseek.com/v1",
-        credential_ref: "provider:deepseek:primary",
+        provider: "openai",
+        model: "gpt-5",
+        base_url: "https://api.openai.com/v1",
+        credential_ref: "provider:openai:primary",
         api_key_configured: true,
         fallback_provider: "",
         fallback_model: "",
         fallback_base_url: "",
         fallback_credential_ref: "",
         fallback_api_key_configured: false,
-        supported_providers: {},
+        supported_providers: {
+          openai: {
+            provider: "openai",
+            default_model: "gpt-5",
+            default_base_url: "https://api.openai.com/v1",
+            credential_ref: "provider:openai:primary",
+            capability_tags: ["reasoning", "openai_compatible"],
+          },
+        },
         provider_catalog: {
           authority: "runtime.model_provider_catalog",
-          default_provider: "deepseek",
-          default_model: "deepseek-v4-pro",
-          providers: {},
+          default_provider: "openai",
+          default_model: "gpt-5",
+          providers: {
+            openai: {
+              provider: "openai",
+              default_model: "gpt-5",
+              default_base_url: "https://api.openai.com/v1",
+              credential_ref: "provider:openai:primary",
+              capability_tags: ["reasoning", "openai_compatible"],
+            },
+          },
           credential_refs: [],
         },
         authority: "runtime.model_provider",
       },
-      deepSeekThinkingEnabled: true,
+      thinkingEnabled: true,
     });
     const runtime = new WorkspaceRuntime(store);
 
@@ -1160,10 +1176,10 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(api.streamChat).toHaveBeenCalledTimes(1);
     expect(api.streamChat.mock.calls[0]?.[0]?.model_selection).toEqual({
       selection_id: "system-default",
-      provider: "deepseek",
-      model: "deepseek-v4-pro",
-      base_url: "https://api.deepseek.com/v1",
-      credential_ref: "provider:deepseek:primary",
+      provider: "openai",
+      model: "gpt-5",
+      base_url: "https://api.openai.com/v1",
+      credential_ref: "provider:openai:primary",
       thinking_mode: "enabled",
       reasoning_effort: "max",
     });

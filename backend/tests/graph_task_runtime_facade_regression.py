@@ -15,6 +15,7 @@ from harness.graph.models import NodeResultEnvelope
 from harness.loop.task_executor import recover_interrupted_task_executors
 from runtime.shared.models import TaskRun
 from query import QueryRuntime
+from query.runtime import _graph_node_task_run_id
 from task_system import TaskFlowRegistry
 from task_system.compiler.graph_harness_config_publisher import publish_graph_harness_config_for_graph
 from tests.support.runtime_stubs import (
@@ -188,6 +189,10 @@ def test_graph_harness_starts_published_config_and_creates_node_work_order() -> 
 
     assert start.task_run.status == "running"
     assert start.graph_run.graph_id == graph.graph_id
+    assert start.envelope.static_topology_view["start_node_ids"] == ["draft"]
+    assert start.envelope.static_topology_view["terminal_node_ids"] == ["review"]
+    assert start.envelope.contract_index["edge_protocol_index"]["edge.draft.review"]["edge_id"] == "edge.draft.review"
+    assert start.loop_state.diagnostics["static_topology_view"]["executable_node_ids"] == ["draft", "review"]
     assert start.loop_state.config_id == graph_config.config_id
     assert start.node_work_orders[0].node_id == "draft"
     assert start.node_work_orders[0].work_kind == "agent"
@@ -197,6 +202,12 @@ def test_graph_harness_starts_published_config_and_creates_node_work_order() -> 
     assert start.node_work_orders[0].input_package["materializer_authority"] == "harness.graph.context_materializer"
     assert start.node_work_orders[0].input_package["node_identity"]["node_id"] == "draft"
     assert "内容起草员" in start.node_work_orders[0].input_package["agent_instruction"]
+    graph_slot = start.node_work_orders[0].graph_slot
+    assert graph_slot["authority"] == "harness.graph.node_execution_slot"
+    assert graph_slot["graph_identity"]["work_order_id"] == start.node_work_orders[0].work_order_id
+    assert graph_slot["graph_identity"]["node_id"] == "draft"
+    assert graph_slot["node_contract"]["prompt_contract"]["role_prompt"] == "你是一名内容起草员。"
+    assert graph_slot["memory_contract"]["namespace_id"].startswith("graphmem:")
     work_order_summary = start.loop_state.work_order_index[start.node_work_orders[0].work_order_id]
     assert work_order_summary["node_id"] == "draft"
     assert work_order_summary["work_order_ref"]
@@ -431,6 +442,10 @@ def test_graph_loop_accepts_node_result_and_advances_to_next_node() -> None:
     assert inbound["packet_authority"] == "harness.graph_flow_packet"
     assert inbound["payload"]["handoff_summary"] == ""
     assert "bounded_outputs" not in inbound["payload"]
+    review_slot = advance.node_work_orders[0].graph_slot
+    assert review_slot["edge_contracts"]["inbound_edge_contexts"][0]["edge_id"] == "edge.draft.review"
+    assert review_slot["edge_contracts"]["inbound_flow_packets"][0]["edge_id"] == "edge.draft.review"
+    assert review_slot["state_refs"]["inbound_packet_refs"][0]["packet_ref"] == inbound["packet_ref"]
     edge_state = advance.loop_state.edge_states["edge.draft.review"]
     assert edge_state["status"] == "ready"
     assert edge_state["latest_packet_ref"] == inbound["packet_ref"]
@@ -882,7 +897,7 @@ def test_graph_resume_recovers_stale_active_graph_node_executor() -> None:
     graph_config = publish_graph_harness_config_for_graph(base_dir=runtime.base_dir, graph_id=graph.graph_id)
     start = runtime.graph_harness.start_run(session_id="session:test", task_id="", graph_config=graph_config)
     work_order = start.node_work_orders[0]
-    task_run_id = f"gtask:{work_order.graph_run_id.replace(':', '_')}:{work_order.node_id}:{work_order.work_order_id.replace(':', '_')}"
+    task_run_id = _graph_node_task_run_id(work_order)
     runtime.single_agent_runtime_host.state_index.upsert_task_run(
         TaskRun(
             task_run_id=task_run_id,
@@ -1961,6 +1976,89 @@ def test_graph_agent_node_writes_formal_memory_candidate_and_commit() -> None:
     assert overview["versions"][0]["canonical_text"] == "图节点确认世界观设定。"
 
 
+def test_graph_memory_commit_preserves_plural_record_kinds_for_required_reads() -> None:
+    runtime = _task_execution_runtime("graph-formal-memory-record-kinds-")
+    registry = TaskFlowRegistry(runtime.base_dir)
+    graph = registry.upsert_task_graph(
+        graph_id="graph.test.formal_memory_record_kinds",
+        title="Formal Memory Record Kinds",
+        graph_kind="multi_agent",
+        entry_node_id="draft",
+        output_node_id="reader",
+        nodes=(
+            {
+                "node_id": "memory.world",
+                "node_type": "memory_repository",
+                "title": "世界观记忆库",
+                "metadata": {
+                    "memory_repository": {
+                        "repository_id": "memory.world",
+                        "collections": [{"collection_id": "world"}],
+                    }
+                },
+            },
+            {"node_id": "draft", "node_type": "agent", "title": "起草", "task_id": "task.test.draft", "agent_id": "agent:0"},
+            {"node_id": "reader", "node_type": "agent", "title": "读取", "task_id": "task.test.reader", "agent_id": "agent:0"},
+        ),
+        edges=(
+            {
+                "edge_id": "edge.draft.memory",
+                "source_node_id": "draft",
+                "target_node_id": "memory.world",
+                "edge_type": "memory_commit",
+                "metadata": {
+                    "repository": "memory.world",
+                    "collection": "world",
+                    "record_key": "world.current",
+                    "record_kinds": ["world_fact"],
+                    "source_output_key": "world_memory_candidate",
+                    "commit_visibility_policy": {"visible_after": "same_clock"},
+                },
+            },
+            {
+                "edge_id": "edge.memory.reader",
+                "source_node_id": "memory.world",
+                "target_node_id": "reader",
+                "edge_type": "memory_read",
+                "metadata": {
+                    "repository": "memory.world",
+                    "collection": "world",
+                    "record_kinds": ["world_fact"],
+                    "on_missing": "block",
+                    "model_visible_label": "世界观记忆",
+                },
+            },
+            {"edge_id": "edge.draft.reader", "source_node_id": "draft", "target_node_id": "reader", "edge_type": "handoff"},
+        ),
+        runtime_policy={"coordinator_agent_id": "agent:0", "task_environment_id": "env.development.sandbox"},
+        publish_state="published",
+        enabled=True,
+    )
+    graph_config = publish_graph_harness_config_for_graph(base_dir=runtime.base_dir, graph_id=graph.graph_id)
+    start = runtime.graph_harness.start_run(session_id="session:test", task_id="", graph_config=graph_config)
+
+    result = asyncio.run(
+        runtime.graph_harness.run_until_idle(
+            graph_config=graph_config,
+            graph_run_id=start.graph_run.graph_run_id,
+            max_node_executions=2,
+            max_node_steps=1,
+        )
+    )
+    state = runtime.graph_harness.get_checkpoint_state(start.graph_run.graph_run_id)
+    reader_order_ref = (state.get("result_index") or {}).get("reader", {}).get("result_ref")
+    reader_result = _runtime_object_payload(runtime, reader_order_ref)
+    overview = runtime.graph_harness._services.formal_memory_service.overview(
+        task_run_id=start.task_run.task_run_id,
+        repository_id="memory.world",
+        collection_id="world",
+    )
+
+    assert result.status == "completed"
+    assert overview["versions"][0]["record_kind"] == "world_fact"
+    assert reader_result["status"] == "completed"
+
+
 def test_graph_formal_memory_write_fails_when_repository_not_declared() -> None:
     runtime = _task_execution_runtime("graph-formal-memory-undeclared-")
     registry = TaskFlowRegistry(runtime.base_dir)
@@ -2162,7 +2260,7 @@ def test_graph_run_runner_rejects_reused_non_graph_node_task_run() -> None:
     graph_config = publish_graph_harness_config_for_graph(base_dir=runtime.base_dir, graph_id=graph.graph_id)
     start = runtime.graph_harness.start_run(session_id="session:test", task_id="", graph_config=graph_config)
     work_order = start.node_work_orders[0]
-    hijacked_id = f"gtask:{work_order.graph_run_id.replace(':', '_')}:{work_order.node_id}:{work_order.work_order_id.replace(':', '_')}"
+    hijacked_id = _graph_node_task_run_id(work_order)
     existing = TaskRun(
         task_run_id=hijacked_id,
         session_id="session:test",

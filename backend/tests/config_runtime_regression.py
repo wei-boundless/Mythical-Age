@@ -185,6 +185,8 @@ def test_soul_image_asset_generation_falls_back_on_model_endpoint_incompatibilit
     assert generated["bytes"] == len(png)
     assert [call["model"] for call in calls[:2]] == ["image-2"] * 2
     assert calls[2]["model"] == "image-2-compatible"
+    assert "response_format" not in calls[0]
+    assert calls[1]["response_format"] == "b64_json"
 
 
 def test_soul_image_asset_generation_resizes_small_requested_size_locally(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -293,18 +295,20 @@ def test_soul_image_asset_generation_uses_output_size_for_local_resize(monkeypat
             target_id="output-size-test",
             asset_kind="chat",
             size="1024x1024",
+            quality="low",
             output_size="128x128",
             overwrite=True,
         )
     )
 
     assert calls[0]["size"] == "1024x1024"
+    assert calls[0]["quality"] == "low"
     assert generated["requested_size"] == "128x128"
     assert generated["provider_size"] == "1024x1024"
     assert generated["final_size"] == "128x128"
 
 
-def test_soul_image_asset_generation_reports_structured_attempts_after_failures(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_soul_image_asset_generation_does_not_auto_retry_transient_gateway_failure(monkeypatch: pytest.MonkeyPatch) -> None:
     import asyncio
     import pytest
 
@@ -314,6 +318,7 @@ def test_soul_image_asset_generation_reports_structured_attempts_after_failures(
     monkeypatch.setenv("SOUL_IMAGE_API_BASE_URL", "https://images.example.test/v1")
     monkeypatch.setenv("SOUL_IMAGE_MODEL", "image-2")
     monkeypatch.setenv("SOUL_IMAGE_API_KEY", "image-key")
+    calls: list[dict[str, object]] = []
 
     class _Response:
         status_code = 504
@@ -334,6 +339,7 @@ def test_soul_image_asset_generation_reports_structured_attempts_after_failures(
             return None
 
         async def post(self, *args, **kwargs):
+            calls.append(dict(kwargs.get("json") or {}))
             return _Response()
 
     monkeypatch.setattr("soul.image_asset_service.httpx.AsyncClient", _Client)
@@ -342,10 +348,70 @@ def test_soul_image_asset_generation_reports_structured_attempts_after_failures(
         asyncio.run(service.generate(prompt="test image", target_id="failure-test", asset_kind="chat", overwrite=True))
 
     error = exc_info.value.to_dict()
-    assert error["code"] == "all_image_generation_attempts_failed"
+    assert error["code"] == "image_provider_transient_error"
     assert error["retryable"] is True
     assert error["attempts"]
     assert error["attempts"][0]["code"] == "image_provider_transient_error"
+    assert len(calls) == 1
+    assert "response_format" not in calls[0]
+
+
+def test_soul_image_asset_generation_honors_explicit_model_and_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
+    import asyncio
+    import base64
+    import io
+
+    from PIL import Image
+    from soul.image_asset_service import SoulImageAssetService
+
+    service = SoulImageAssetService(BACKEND_DIR)
+    monkeypatch.setenv("SOUL_IMAGE_API_BASE_URL", "https://images.example.test/v1")
+    monkeypatch.setenv("SOUL_IMAGE_MODEL", "env-image-model")
+    monkeypatch.setenv("SOUL_IMAGE_API_KEY", "image-key")
+    source = io.BytesIO()
+    Image.new("RGBA", (1024, 1024), (10, 20, 30, 255)).save(source, format="PNG")
+    calls: list[dict[str, object]] = []
+    timeouts: list[object] = []
+
+    class _Response:
+        status_code = 200
+        text = "{}"
+        headers = {"content-type": "application/json"}
+
+        def json(self):
+            return {"data": [{"b64_json": base64.b64encode(source.getvalue()).decode("ascii")}], "created": 1}
+
+    class _Client:
+        def __init__(self, *args, **kwargs):
+            timeouts.append(kwargs.get("timeout"))
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        async def post(self, _endpoint, headers=None, json=None):
+            calls.append(dict(json or {}))
+            return _Response()
+
+    monkeypatch.setattr("soul.image_asset_service.httpx.AsyncClient", _Client)
+
+    generated = asyncio.run(
+        service.generate(
+            prompt="test image",
+            target_id="explicit-model-test",
+            asset_kind="chat",
+            model="gpt-image-2",
+            request_timeout_seconds=45,
+            overwrite=True,
+        )
+    )
+
+    assert calls[0]["model"] == "gpt-image-2"
+    assert generated["model"] == "gpt-image-2"
+    assert timeouts
+    assert getattr(timeouts[0], "read", None) == 45
 
 
 def test_runtime_config_console_includes_soul_image_asset_group() -> None:

@@ -3,9 +3,11 @@ from __future__ import annotations
 import time
 from typing import Any
 
-from .flow_edges import build_inbound_flow_edges
+from .flow_edges import build_inbound_flow_edges, build_outbound_flow_edges
 from .flow_packet import flow_packet_inbound_projection
-from .models import GraphHarnessConfig, GraphLoopState, GraphNodeWorkOrder, safe_id, stable_hash
+from .loop_engine import LoopEngine
+from .memory_context import MemoryContextAssembler
+from .models import GraphHarnessConfig, GraphLoopState, GraphNodeExecutionSlot, GraphNodeWorkOrder, safe_id, stable_hash
 from .runtime_objects import load_flow_packet
 from .scheduler_view import upstream_dependency_node_ids
 
@@ -21,6 +23,8 @@ class GraphContextMaterializer:
 
     def __init__(self, *, services: Any | None = None) -> None:
         self._services = services
+        self._memory_context = MemoryContextAssembler(services=services)
+        self._loop_engine = LoopEngine()
 
     def build_work_order(
         self,
@@ -39,10 +43,19 @@ class GraphContextMaterializer:
             node=node,
             inbound_context=inbound_context,
         )
-        environment_refs = _environment_refs(graph_config)
         dispatch_seq = len(tuple(dict(state.result_history or {}).get(node_id) or ())) + 1
+        work_order_id = f"gwork:{safe_id(state.graph_run_id)}:{safe_id(node_id)}:{dispatch_seq}:{state.event_cursor + 1}:{int(time.time() * 1000)}"
+        graph_slot = self.build_graph_slot(
+            graph_config=graph_config,
+            state=state,
+            node=node,
+            work_order_id=work_order_id,
+            input_package=input_package,
+            inbound_context=inbound_context,
+        )
+        environment_refs = _environment_refs(graph_config)
         return GraphNodeWorkOrder(
-            work_order_id=f"gwork:{safe_id(state.graph_run_id)}:{safe_id(node_id)}:{dispatch_seq}:{state.event_cursor + 1}:{int(time.time() * 1000)}",
+            work_order_id=work_order_id,
             work_kind=_graph_work_kind(executor_type),
             graph_run_id=state.graph_run_id,
             task_run_id=state.task_run_id,
@@ -56,11 +69,13 @@ class GraphContextMaterializer:
             message=str(input_package.get("agent_instruction") or ""),
             explicit_inputs=dict(input_package.get("initial_inputs") or {}),
             input_package=input_package,
+            graph_slot=graph_slot,
             graph_state={
                 "graph_run_id": state.graph_run_id,
                 "graph_id": graph_config.graph_id,
                 "config_id": graph_config.config_id,
                 "runtime_scope": _runtime_scope_from_state(state),
+                "graph_clock_seq": state.event_cursor + 1,
                 "completed_node_ids": list(state.completed_node_ids),
                 "failed_node_ids": list(state.failed_node_ids),
                 "upstream_node_ids": list(upstream_dependency_node_ids(graph_config, node_id)),
@@ -86,12 +101,120 @@ class GraphContextMaterializer:
                 "graph_run_id": state.graph_run_id,
                 "config_id": graph_config.config_id,
                 "runtime_scope": _runtime_scope_from_state(state),
+                "graph_clock_seq": state.event_cursor + 1,
                 "dispatch_event_id": f"dispatch:{state.graph_run_id}:{node_id}:{int(time.time() * 1000)}",
                 "executor": executor,
                 "inbound_context_count": len(inbound_context),
                 "materializer": self.authority,
             },
         )
+
+    def build_graph_slot(
+        self,
+        *,
+        graph_config: GraphHarnessConfig,
+        state: GraphLoopState,
+        node: dict[str, Any],
+        work_order_id: str,
+        input_package: dict[str, Any],
+        inbound_context: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        node_id = str(node.get("node_id") or "")
+        loop_context = dict(input_package.get("loop_context") or {})
+        memory_view = dict(input_package.get("memory_view") or {})
+        output_contract = dict(input_package.get("output_contract") or {})
+        read_protocols = list(dict(memory_view.get("graph_memory_policy") or {}).get("read_rules") or [])
+        memory_resolution = self._memory_context.resolve_for_node(
+            graph_config=graph_config,
+            state=state,
+            node=node,
+            work_order_id=work_order_id,
+            read_protocols=read_protocols,
+        )
+        slot = GraphNodeExecutionSlot(
+            slot_id=f"gslot:{safe_id(state.graph_run_id)}:{safe_id(node_id)}:{safe_id(stable_hash([input_package.get('package_id'), inbound_context, loop_context])[:12])}",
+            graph_identity={
+                "graph_run_id": state.graph_run_id,
+                "root_task_run_id": state.task_run_id,
+                "node_executor_task_run_id": "",
+                "config_id": graph_config.config_id,
+                "config_hash": graph_config.content_hash,
+                "graph_id": graph_config.graph_id,
+                "node_id": node_id,
+                "work_order_id": str(work_order_id or ""),
+            },
+            node_contract=_node_contract_from_input_package(graph_config=graph_config, node=node, input_package=input_package),
+            edge_contracts={
+                "inbound_flow_packets": _inbound_flow_packets(inbound_context),
+                "inbound_edge_contexts": [dict(item) for item in inbound_context if isinstance(item, dict)],
+                "outbound_edge_policies": [
+                    _outbound_edge_policy(dict(edge))
+                    for edge in build_outbound_flow_edges(graph_config, node_id)
+                ],
+                "authority": "harness.graph.edge_contract_projection",
+            },
+            memory_contract={
+                "namespace_id": _memory_namespace_id(graph_config=graph_config, state=state),
+                "read_protocols": read_protocols,
+                "resolved_snapshots": list(memory_resolution.get("resolved_snapshots") or []),
+                "write_candidate_protocols": list(dict(memory_view.get("graph_memory_policy") or {}).get("write_rules") or []),
+                "commit_protocols": list(dict(memory_view.get("graph_memory_policy") or {}).get("commit_rules") or []),
+                "memory_receipt_refs": list(memory_resolution.get("memory_receipt_refs") or []),
+                "diagnostics": dict(memory_resolution.get("diagnostics") or {}),
+                "memory_space_ref": str(input_package.get("memory_space_ref") or ""),
+                "authority": "harness.graph.memory_contract_projection",
+            },
+            loop_contract={
+                "loop_context": loop_context,
+                "scope_id": str(loop_context.get("scope_id") or ""),
+                "variables": dict(dict(loop_context.get("active_frame") or {}).get("variables") or {}),
+                "dynamic_bindings": dict(dict(loop_context.get("node_loop") or {}).get("bindings") or {}),
+                "authority": "harness.graph.loop_contract_projection",
+            },
+            output_contract={
+                "output_policy": dict(dict(output_contract.get("contract_bindings") or {}).get("output") or {}),
+                "artifact_targets": _output_artifact_targets(input_package),
+                "formal_memory_targets": [],
+                "environment_projection": _output_environment_projection(graph_config),
+                "expected_result_contract": dict(input_package.get("expected_result_contract") or {}),
+                "authority": "harness.graph.output_contract_projection",
+            },
+            state_refs={
+                "inbound_packet_refs": _inbound_packet_refs(inbound_context),
+                "artifact_refs": [],
+                "checkpoint_ref": "",
+                "prior_result_refs": [dict(item) for item in dict(state.result_index or {}).values() if isinstance(item, dict)],
+                "authority": "harness.graph.node_state_refs",
+            },
+            runtime_controls={
+                "retry_policy": dict(node.get("retry") or {}),
+                "timeout_policy": dict(node.get("timeout") or {}),
+                "failure_policy": dict(node.get("failure_policy") or {}),
+                "resume_policy": dict(node.get("resume_policy") or {}),
+                "disconnect_policy": dict(node.get("disconnect_policy") or {}),
+                "post_node_gate_policy": dict(dict(node.get("gates") or {}).get("post_node_gate_policy") or dict(node.get("metadata") or {}).get("post_node_gate_policy") or {}),
+                "authority": "harness.graph.runtime_controls_projection",
+            },
+            visibility={
+                "system_control_only": ["graph_identity", "state_refs", "runtime_controls"],
+                "runtime_consumable": [
+                    "node_contract.model_requirement",
+                    "node_contract.tool_contract",
+                    "node_contract.permission_contract",
+                    "memory_contract.read_protocols",
+                    "memory_contract.commit_protocols",
+                    "output_contract.artifact_targets",
+                ],
+                "model_visible_projection": [
+                    "node_contract.prompt_contract",
+                    "edge_contracts.inbound_edge_contexts",
+                    "memory_contract.resolved_snapshots",
+                    "output_contract.output_policy",
+                ],
+                "authority": "harness.graph.node_execution_slot_visibility",
+            },
+        )
+        return slot.to_dict()
 
     def build_input_package(
         self,
@@ -104,7 +227,7 @@ class GraphContextMaterializer:
         node_id = str(node.get("node_id") or "")
         prompt_contract = _prompt_contract(node)
         initial_inputs = dict(state.initial_inputs or {})
-        loop_context = _loop_context_for_node(state=state, node=node)
+        loop_context = self._loop_engine.context_for_node(state=state, node=node)
         environment_refs = _environment_refs(graph_config)
         return {
             "package_id": f"gin:{safe_id(state.graph_run_id)}:{safe_id(node_id)}:{safe_id(stable_hash([initial_inputs, loop_context, inbound_context])[:12])}",
@@ -165,30 +288,6 @@ class GraphContextMaterializer:
         return context
 
 
-def _loop_context_for_node(*, state: GraphLoopState, node: dict[str, Any]) -> dict[str, Any]:
-    node_loop = dict(node.get("loop") or {})
-    scope_id = str(node_loop.get("scope_id") or "").strip()
-    frames = dict(dict(state.loop_state or {}).get("frames") or {})
-    active_frame = dict(frames.get(scope_id) or {}) if scope_id else {}
-    history = [
-        dict(item)
-        for item in list(dict(state.loop_state or {}).get("route_history") or [])
-        if isinstance(item, dict) and (not scope_id or str(item.get("scope_id") or "") == scope_id)
-    ]
-    return {
-        "authority": "harness.graph.loop_context",
-        "scope_id": scope_id,
-        "node_loop": node_loop,
-        "active_frame": active_frame,
-        "route_history": history,
-        "result_history_counts": {
-            key: len(list(value or []))
-            for key, value in dict(state.result_history or {}).items()
-        },
-        "contract_inputs": dict(state.initial_inputs or {}),
-    }
-
-
 def _edge_packet_entries(edge_state: dict[str, Any]) -> list[dict[str, Any]]:
     entries: list[dict[str, Any]] = []
     for item in list(edge_state.get("packet_refs") or []):
@@ -202,6 +301,175 @@ def _edge_packet_entries(edge_state: dict[str, Any]) -> list[dict[str, Any]]:
     if latest_ref and all(str(item.get("packet_ref") or "") != latest_ref for item in entries):
         entries.append({"packet_ref": latest_ref, "packet_id": str(edge_state.get("latest_packet_id") or "")})
     return entries
+
+
+def _node_contract_from_input_package(
+    *,
+    graph_config: GraphHarnessConfig,
+    node: dict[str, Any],
+    input_package: dict[str, Any],
+) -> dict[str, Any]:
+    runtime_profile = dict(input_package.get("runtime_profile") or {})
+    node_contract = dict(input_package.get("output_contract") or {})
+    return {
+        "node_identity": dict(input_package.get("node_identity") or {}),
+        "agent_assembly": {
+            "agent_id": str(node.get("agent_id") or ""),
+            "agent_profile_id": str(node.get("agent_profile_id") or ""),
+            "executor": dict(node.get("executor") or {}),
+            "authority": "harness.graph.node_agent_assembly_projection",
+        },
+        "prompt_contract": dict(input_package.get("prompt_contract") or input_package.get("prompt") or {}),
+        "model_requirement": dict(dict(node_contract.get("contract_bindings") or {}).get("runtime") or {}).get("model_requirement", {}),
+        "runtime_mode": str(runtime_profile.get("runtime_mode") or runtime_profile.get("mode") or ""),
+        "reasoning_policy": dict(runtime_profile.get("reasoning_policy") or {}),
+        "tool_contract": dict(node.get("tools") or graph_config.tools or {}),
+        "skill_contract": dict(dict(node_contract.get("contract_bindings") or {}).get("skills") or {}),
+        "permission_contract": dict(node.get("permissions") or graph_config.permissions or {}),
+        "input_contract": dict(input_package.get("input_contract") or {}),
+        "output_contract": node_contract,
+        "memory_permission": dict(node.get("memory") or {}),
+        "acceptance_policy": dict(dict(node_contract.get("contract_bindings") or {}).get("acceptance") or {}),
+        "authority": "harness.graph.node_contract_projection",
+    }
+
+
+def _inbound_flow_packets(inbound_context: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [
+        {
+            "packet_id": str(item.get("packet_id") or ""),
+            "packet_ref": str(item.get("packet_ref") or ""),
+            "packet_type": str(item.get("packet_type") or ""),
+            "source_node_id": str(item.get("source_node_id") or ""),
+            "target_node_id": str(item.get("target_node_id") or ""),
+            "edge_id": str(item.get("edge_id") or item.get("source_edge_id") or ""),
+            "payload_contract_id": str(item.get("payload_contract_id") or item.get("packet_contract_id") or ""),
+            "packet_contract_id": str(item.get("packet_contract_id") or item.get("payload_contract_id") or ""),
+            "target_context_key": str(item.get("target_context_key") or ""),
+            "target_input_slot": str(item.get("target_input_slot") or ""),
+            "delivery_policy": str(item.get("delivery_policy") or ""),
+            "visibility": dict(item.get("visibility") or {}),
+            "lineage": dict(item.get("lineage") or {}),
+            "authority": "harness.graph.inbound_flow_packet_ref",
+        }
+        for item in inbound_context
+        if isinstance(item, dict)
+    ]
+
+
+def _inbound_packet_refs(inbound_context: list[dict[str, Any]]) -> list[dict[str, str]]:
+    refs: list[dict[str, str]] = []
+    for item in inbound_context:
+        if not isinstance(item, dict):
+            continue
+        packet_ref = str(item.get("packet_ref") or "")
+        packet_id = str(item.get("packet_id") or "")
+        if not packet_ref and not packet_id:
+            continue
+        refs.append(
+            {
+                "packet_id": packet_id,
+                "packet_ref": packet_ref,
+                "edge_id": str(item.get("edge_id") or item.get("source_edge_id") or ""),
+            }
+        )
+    return refs
+
+
+def _outbound_edge_policy(edge: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "edge_id": str(edge.get("edge_id") or ""),
+        "target_node_id": str(edge.get("target_node_id") or ""),
+        "edge_type": str(edge.get("edge_type") or ""),
+        "scheduler_role": str(edge.get("scheduler_role") or ""),
+        "semantic_role": str(edge.get("semantic_role") or ""),
+        "payload_contract_id": str(edge.get("payload_contract_id") or ""),
+        "packet_contract_id": _edge_packet_contract_id(edge),
+        "source_output_selector": _edge_source_output_selector(edge),
+        "target_context_key": _edge_target_context_key(edge),
+        "target_input_slot": _edge_target_input_slot(edge),
+        "projection_policy": dict(edge.get("context_filter_policy") or {}),
+        "visibility_policy": dict(edge.get("visibility_policy") or {}),
+        "receipt_policy": {"ack_required": bool(edge.get("ack_required", True)), "ack_policy": str(edge.get("ack_policy") or "")},
+        "authority": "harness.graph.outbound_edge_policy_projection",
+    }
+
+
+def _memory_namespace_id(*, graph_config: GraphHarnessConfig, state: GraphLoopState) -> str:
+    runtime_scope = dict(dict(state.diagnostics or {}).get("runtime_scope") or {})
+    runtime_namespace = dict(runtime_scope.get("graph_task_memory_namespace") or {})
+    runtime_namespace_id = str(runtime_namespace.get("namespace_id") or runtime_scope.get("memory_namespace_id") or "").strip()
+    if runtime_namespace_id:
+        return runtime_namespace_id
+    memory_scope = dict(graph_config.memory or {}).get("graph_task_memory_namespace")
+    if isinstance(memory_scope, dict):
+        explicit = str(memory_scope.get("namespace_id") or "").strip()
+        if explicit and bool(memory_scope.get("shared") is True):
+            return explicit
+    return f"graphmem:{safe_id(state.graph_run_id)}"
+
+
+def _edge_packet_contract_id(edge: dict[str, Any]) -> str:
+    bindings = dict(edge.get("contract_bindings") or {})
+    schema = dict(bindings.get("schema") or {})
+    handoff = dict(bindings.get("handoff") or {})
+    return str(edge.get("packet_contract_id") or handoff.get("packet_contract_id") or edge.get("payload_contract_id") or schema.get("payload_contract_id") or "").strip()
+
+
+def _edge_source_output_selector(edge: dict[str, Any]) -> str:
+    policy = dict(edge.get("context_filter_policy") or {})
+    artifact_policy = dict(edge.get("artifact_ref_policy") or {})
+    bindings = dict(edge.get("contract_bindings") or {})
+    handoff = dict(bindings.get("handoff") or {})
+    candidates = [
+        handoff.get("source_output_selector"),
+        policy.get("source_output_selector"),
+        artifact_policy.get("source_output_key"),
+        _first_string(policy.get("include_output_keys")),
+    ]
+    for value in candidates:
+        text = str(value or "").strip()
+        if text:
+            return text
+    return ""
+
+
+def _first_string(value: Any) -> str:
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, dict):
+        for key, enabled in value.items():
+            text = str(key or "").strip()
+            if text and enabled:
+                return text
+        return ""
+    for item in list(value or []):
+        text = str(item or "").strip()
+        if text:
+            return text
+    return ""
+
+
+def _edge_target_context_key(edge: dict[str, Any]) -> str:
+    metadata = dict(edge.get("metadata") or {})
+    artifact_policy = dict(edge.get("artifact_ref_policy") or {})
+    bindings = dict(edge.get("contract_bindings") or {})
+    handoff = dict(bindings.get("handoff") or {})
+    return str(
+        edge.get("target_context_key")
+        or handoff.get("target_context_key")
+        or metadata.get("target_context_key")
+        or metadata.get("target_input_key")
+        or artifact_policy.get("target_input_key")
+        or ""
+    ).strip()
+
+
+def _edge_target_input_slot(edge: dict[str, Any]) -> str:
+    metadata = dict(edge.get("metadata") or {})
+    bindings = dict(edge.get("contract_bindings") or {})
+    handoff = dict(bindings.get("handoff") or {})
+    return str(edge.get("target_input_slot") or handoff.get("target_input_slot") or metadata.get("target_input_slot") or metadata.get("input_alias") or "").strip()
 
 
 def _prompt_contract(node: dict[str, Any]) -> dict[str, Any]:
@@ -281,6 +549,43 @@ def _issue_view_request(*, graph_config: GraphHarnessConfig, node: dict[str, Any
             if str(dict(item).get("resource_type") or dict(item).get("node_type") or "") == "issue_ledger"
             and _resource_visible_to_node(dict(item), node_id=node_id)
         ]
+    }
+
+
+def _output_artifact_targets(input_package: dict[str, Any]) -> list[dict[str, Any]]:
+    output_contract = dict(input_package.get("output_contract") or {})
+    bindings = dict(output_contract.get("contract_bindings") or {})
+    output_binding = dict(bindings.get("output") or {})
+    artifact_binding = dict(bindings.get("artifact") or {})
+    artifact_policy = dict(artifact_binding.get("artifact_policy") or artifact_binding)
+    artifact_view = dict(input_package.get("artifact_view") or {})
+    node_artifact_policy = dict(artifact_view.get("node_artifact_policy") or {})
+    candidates = [
+        dict(output_binding.get("artifact_materialization_policy") or {}).get("artifact_targets"),
+        output_binding.get("artifact_targets"),
+        artifact_binding.get("artifact_targets"),
+        artifact_policy.get("artifact_targets"),
+        artifact_policy.get("artifacts"),
+        node_artifact_policy.get("artifact_targets"),
+        node_artifact_policy.get("artifacts"),
+    ]
+    for value in candidates:
+        targets = [dict(item) for item in list(value or []) if isinstance(item, dict)]
+        if targets:
+            return targets
+    return []
+
+
+def _output_environment_projection(graph_config: GraphHarnessConfig) -> dict[str, Any]:
+    environment = dict(graph_config.environment or {})
+    storage = dict(environment.get("storage_space") or {})
+    artifact_policy = dict(environment.get("artifact_policy") or {})
+    return {
+        "task_environment_id": str(graph_config.task_environment_id or environment.get("environment_id") or ""),
+        "environment_artifact_root": str(storage.get("artifact_root") or ""),
+        "environment_storage_root": str(storage.get("environment_storage_root") or ""),
+        "environment_artifact_repository": str(artifact_policy.get("artifact_root") or artifact_policy.get("artifact_repository_id") or ""),
+        "authority": "harness.graph.output_environment_projection",
     }
 
 

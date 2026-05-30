@@ -46,6 +46,31 @@ def test_graph_node_task_packet_does_not_embed_full_graph_policy() -> None:
         task_ref="task.test.target_node",
         message="完成目标节点。",
         input_package=input_package,
+        graph_slot={
+            "authority": "harness.graph.node_execution_slot",
+            "slot_id": "gslot:test:target_node",
+            "graph_identity": {
+                "graph_run_id": "grun:test",
+                "root_task_run_id": "taskrun:test",
+                "config_id": "ghcfg:test",
+                "config_hash": "hash",
+                "node_id": "target_node",
+                "work_order_id": "gwork:test:target_node:1",
+            },
+            "node_contract": {
+                "node_identity": {"node_id": "target_node", "title": "目标节点"},
+                "prompt_contract": {"role_prompt": "你是一名测试执行员。"},
+                "output_contract": {"output_contract_id": "contract.test.output"},
+            },
+            "edge_contracts": {},
+            "memory_contract": {
+                "read_protocols": read_rules,
+                "resolved_snapshots": [],
+            },
+            "output_contract": {"expected_result_contract": {"output_contract_id": "contract.test.output"}},
+            "state_refs": {"checkpoint_ref": "gchk:hidden"},
+            "runtime_controls": {"retry_policy": {"max_attempts": 1}},
+        },
         expected_result_contract={"output_contract_id": "contract.test.output"},
     )
     contract = _graph_node_contract_from_work_order(work_order).to_dict()
@@ -80,3 +105,10 @@ def test_graph_node_task_packet_does_not_embed_full_graph_policy() -> None:
     assert len(packet.model_messages[1]["content"]) < 80000
     assert "contract" not in stable_payload["task_run"]["diagnostics"]
     assert "other_node_79" not in packet.model_messages[1]["content"]
+    all_message_content = "".join(message["content"] for message in packet.model_messages)
+    assert "graph_identity" not in all_message_content
+    assert "state_refs" not in all_message_content
+    assert "runtime_controls" not in all_message_content
+    assert "gchk:hidden" not in all_message_content
+    assert "gwork:test:target_node:1" not in all_message_content
+    assert "grun:test" not in all_message_content

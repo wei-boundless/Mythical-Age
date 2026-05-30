@@ -15,6 +15,7 @@ from query.models import QueryRequest
 from runtime.shared.models import AgentRunResult, TaskRun
 from harness.loop.task_lifecycle import TaskLifecycleRecord, TaskRunContract
 from tests.support.runtime_stubs import (
+    PrimarySettingsStub,
     SingleMessageModelRuntimeStub,
     build_query_runtime,
 )
@@ -90,6 +91,11 @@ def test_direct_agent_response_does_not_start_task_run() -> None:
 
 
 def test_agent_action_request_launches_task_run_and_initializes_todo() -> None:
+    model_selection = {
+        "provider": "test-provider",
+        "model": "turn-bound-test-model",
+        "timeout_seconds": 7,
+    }
     runtime = build_query_runtime(
         model_runtime=SingleMessageModelRuntimeStub(
             agent_turn_action_request=_action_request(
@@ -107,7 +113,13 @@ def test_agent_action_request_launches_task_run_and_initializes_todo() -> None:
 
     async def _collect() -> list[dict[str, object]]:
         events: list[dict[str, object]] = []
-        async for event in runtime.astream(QueryRequest(session_id="session-taskrun", message="请交付产物。")):
+        async for event in runtime.astream(
+            QueryRequest(
+                session_id="session-taskrun",
+                message="请交付产物。",
+                model_selection=model_selection,
+            )
+        ):
             events.append(event)
         return events
 
@@ -147,6 +159,8 @@ def test_agent_action_request_launches_task_run_and_initializes_todo() -> None:
     assert task_run is not None
     assert dict(task_run.diagnostics or {}).get("origin_kind") == "agent_requested"
     assert dict(dict(task_run.diagnostics or {}).get("origin") or {}).get("origin_authority") == "harness.agent_loop"
+    assert dict(task_run.diagnostics or {}).get("model_selection") == model_selection
+    assert dict(dict(task_run.diagnostics or {}).get("model_selection_binding") or {}).get("scope") == "task_run"
     contract = runtime.single_agent_runtime_host.runtime_objects.get_object(task_run.task_contract_ref)
     assert dict(contract or {}).get("origin", {}).get("origin_kind") == "agent_requested"
 
@@ -953,6 +967,257 @@ def test_execute_task_run_accepts_scheduled_claim_start() -> None:
     result = asyncio.run(runtime.execute_task_run(task_run.task_run_id, max_steps=1))
 
     assert result["ok"] is True
+
+
+def test_task_executor_uses_task_bound_model_selection_for_runtime_packet_and_invocation(monkeypatch) -> None:
+    from harness.loop import task_executor as task_executor_module
+
+    model_selection = {
+        "provider": "test-provider",
+        "model": "task-bound-test-model",
+        "timeout_seconds": 11,
+    }
+    captured_timeout_selection: dict[str, object] = {}
+    original_timeout = task_executor_module.model_action_timeout_seconds
+
+    def _capturing_timeout(model_runtime, *, model_selection):
+        captured_timeout_selection.update(dict(model_selection or {}))
+        return original_timeout(model_runtime, model_selection=model_selection)
+
+    monkeypatch.setattr(task_executor_module, "model_action_timeout_seconds", _capturing_timeout)
+
+    class _CapturingModelRuntime:
+        def __init__(self) -> None:
+            self.calls: list[dict[str, object]] = []
+
+        async def invoke_messages(self, messages, **kwargs):
+            self.calls.append({"messages": list(messages or []), "kwargs": dict(kwargs)})
+            return SimpleNamespace(
+                content=json.dumps(
+                    _action_request(action_type="respond", final_answer="绑定模型配置执行完成。"),
+                    ensure_ascii=False,
+                )
+            )
+
+    model_runtime = _CapturingModelRuntime()
+    runtime = build_query_runtime(model_runtime=model_runtime)
+    host = runtime.single_agent_runtime_host
+    contract = TaskRunContract(
+        contract_id="task-contract:model-selection-binding",
+        contract_source="test",
+        user_visible_goal="验证单节点任务绑定模型配置。",
+        task_run_goal="执行器必须使用 task 创建时冻结的模型配置。",
+        completion_criteria=("执行器使用 task-bound model_selection",),
+    )
+    contract_ref = host.runtime_objects.put_object("task_run_contract", contract.contract_id, contract.to_dict())
+    lifecycle = TaskLifecycleRecord(
+        task_run_id="taskrun:model-selection-binding",
+        contract_ref=contract_ref,
+        status="waiting_executor",
+        created_at=1.0,
+        updated_at=1.0,
+    )
+    host.runtime_objects.put_object("task_lifecycle", lifecycle.task_run_id, lifecycle.to_dict())
+    host.state_index.upsert_task_run(
+        TaskRun(
+            task_run_id=lifecycle.task_run_id,
+            session_id="session-model-selection-binding",
+            task_id="task:model-selection-binding",
+            task_contract_ref=contract_ref,
+            agent_profile_id="main_interactive_agent",
+            execution_runtime_kind="single_agent_task",
+            status="waiting_executor",
+            created_at=1.0,
+            updated_at=1.0,
+            diagnostics={
+                "turn_id": "turn:session-model-selection-binding:1",
+                "contract": contract.to_dict(),
+                "model_selection": model_selection,
+            },
+        )
+    )
+
+    result = asyncio.run(runtime.execute_task_run(lifecycle.task_run_id, max_steps=1))
+
+    trace = host.get_trace(lifecycle.task_run_id, include_payloads=True)
+    events = [dict(item) for item in list(dict(trace or {}).get("events") or [])]
+    started_payload = dict(
+        next(
+            item
+            for item in events
+            if str(item.get("event_type") or "") == "task_run_executor_started"
+        ).get("payload") or {}
+    )
+    packet_payload = dict(
+        next(
+            item
+            for item in events
+            if str(item.get("event_type") or "") == "runtime_invocation_packet_compiled"
+        ).get("payload") or {}
+    )
+    envelope = dict(packet_payload.get("envelope") or {})
+
+    assert result["ok"] is True
+    assert model_runtime.calls
+    assert dict(dict(model_runtime.calls[0]).get("kwargs") or {}).get("model_spec") == model_selection
+    assert captured_timeout_selection == model_selection
+    assert dict(dict(started_payload.get("runtime_assembly") or {}).get("model_selection") or {}) == model_selection
+    assert dict(dict(envelope.get("diagnostics") or {}).get("model_selection") or {}) == model_selection
+
+
+def test_execute_task_run_uses_task_bound_agent_profile_for_runtime_assembly() -> None:
+    class _CapturingModelRuntime:
+        async def invoke_messages(self, messages, **kwargs):
+            return SimpleNamespace(
+                content=json.dumps(
+                    _action_request(action_type="respond", final_answer="绑定 profile 执行完成。"),
+                    ensure_ascii=False,
+                )
+            )
+
+    runtime = build_query_runtime(model_runtime=_CapturingModelRuntime())
+    runtime.agent_runtime_registry.upsert_profile(
+        agent_id="agent:3",
+        agent_profile_id="custom_single_agent_task_profile",
+        enabled_runtime_modes=("professional",),
+        default_runtime_mode="professional",
+        allowed_operations=("op.model_response",),
+        metadata={"work_role_prompt": "你是单 agent 专用执行员。"},
+    )
+    host = runtime.single_agent_runtime_host
+    contract = TaskRunContract(
+        contract_id="task-contract:profile-binding",
+        contract_source="test",
+        user_visible_goal="验证单节点任务绑定 profile。",
+        task_run_goal="执行器必须使用 task_run.agent_profile_id 组装 runtime。",
+        completion_criteria=("执行器使用 task-bound agent profile",),
+    )
+    contract_ref = host.runtime_objects.put_object("task_run_contract", contract.contract_id, contract.to_dict())
+    lifecycle = TaskLifecycleRecord(
+        task_run_id="taskrun:profile-binding",
+        contract_ref=contract_ref,
+        status="waiting_executor",
+        created_at=1.0,
+        updated_at=1.0,
+    )
+    host.runtime_objects.put_object("task_lifecycle", lifecycle.task_run_id, lifecycle.to_dict())
+    host.state_index.upsert_task_run(
+        TaskRun(
+            task_run_id=lifecycle.task_run_id,
+            session_id="session-profile-binding",
+            task_id="task:profile-binding",
+            task_contract_ref=contract_ref,
+            agent_id="agent:3",
+            agent_profile_id="custom_single_agent_task_profile",
+            execution_runtime_kind="single_agent_task",
+            status="waiting_executor",
+            created_at=1.0,
+            updated_at=1.0,
+            diagnostics={
+                "turn_id": "turn:session-profile-binding:1",
+                "contract": contract.to_dict(),
+            },
+        )
+    )
+
+    result = asyncio.run(runtime.execute_task_run(lifecycle.task_run_id, max_steps=1))
+
+    trace = host.get_trace(lifecycle.task_run_id, include_payloads=True)
+    events = [dict(item) for item in list(dict(trace or {}).get("events") or [])]
+    started_payload = dict(
+        next(
+            item
+            for item in events
+            if str(item.get("event_type") or "") == "task_run_executor_started"
+        ).get("payload") or {}
+    )
+    assembly = dict(started_payload.get("runtime_assembly") or {})
+    agent_runs = host.state_index.list_task_agent_runs(lifecycle.task_run_id)
+    agent_run_results = host.state_index.list_task_agent_run_results(lifecycle.task_run_id)
+
+    assert result["ok"] is True
+    assert assembly["agent_profile_ref"] == "custom_single_agent_task_profile"
+    assert assembly["agent_prompt_refs"] == ["agent.custom_single_agent_task_profile.work_role.v1"]
+    assert agent_runs[-1].agent_id == "agent:3"
+    assert agent_run_results[-1].agent_id == "agent:3"
+
+
+def test_schedule_task_run_executor_marks_startup_exception_blocked() -> None:
+    runtime = build_query_runtime()
+    host = runtime.single_agent_runtime_host
+    contract = TaskRunContract(
+        contract_id="task-contract:schedule-failure",
+        contract_source="test",
+        user_visible_goal="验证调度异常落盘。",
+        task_run_goal="调度器必须把 executor 启动异常写回 TaskRun。",
+        completion_criteria=("启动异常被标记为 blocked",),
+    )
+    contract_ref = host.runtime_objects.put_object("task_run_contract", contract.contract_id, contract.to_dict())
+    host.state_index.upsert_task_run(
+        TaskRun(
+            task_run_id="taskrun:schedule-failure",
+            session_id="session-schedule-failure",
+            task_id="task:schedule-failure",
+            task_contract_ref=contract_ref,
+            agent_profile_id="missing_single_agent_profile",
+            execution_runtime_kind="single_agent_task",
+            status="waiting_executor",
+            diagnostics={"contract": contract.to_dict()},
+        )
+    )
+
+    async def _run() -> dict[str, object]:
+        scheduled = runtime.schedule_task_run_executor(
+            "taskrun:schedule-failure",
+            scheduler="test_schedule_failure",
+            max_steps=1,
+        )
+        for _ in range(10):
+            await asyncio.sleep(0)
+            current = host.state_index.get_task_run("taskrun:schedule-failure")
+            if current is not None and current.status == "blocked":
+                break
+        return scheduled
+
+    scheduled = asyncio.run(_run())
+
+    task_run = host.state_index.get_task_run("taskrun:schedule-failure")
+    diagnostics = dict(task_run.diagnostics or {}) if task_run is not None else {}
+    events = [item.event_type for item in host.event_log.list_events("taskrun:schedule-failure")]
+
+    assert scheduled["ok"] is True
+    assert scheduled["scheduled"] is True
+    assert task_run is not None
+    assert task_run.status == "blocked"
+    assert diagnostics["latest_step"] == "task_executor_schedule_failed"
+    assert diagnostics["recoverable_error"]["retryable"] is True
+    assert "missing_single_agent_profile" in diagnostics["recoverable_error"]["detail"]
+    assert "task_run_executor_schedule_failed" in events
+
+
+def test_task_executor_services_include_backend_config_for_runtime_fingerprint() -> None:
+    from harness.loop.task_executor import _safe_backend_config
+
+    class _SettingsWithBackendConfig(PrimarySettingsStub):
+        def task_executor_backend_config(self) -> dict[str, object]:
+            return {
+                "soul_image_assets": {
+                    "base_url": "https://image.example.test/v1",
+                    "model": "image-test-model",
+                    "api_key_present": True,
+                }
+            }
+
+    runtime = build_query_runtime(settings_service=_SettingsWithBackendConfig())
+
+    services = runtime._task_executor_services()
+    config = _safe_backend_config(services.backend_config)
+
+    assert config["image_generation"] == {
+        "base_url": "https://image.example.test/v1",
+        "model": "image-test-model",
+        "api_key_present": True,
+    }
 
 
 def test_task_contract_preserves_runtime_fields_without_goal_aliases() -> None:
@@ -2915,6 +3180,72 @@ def test_task_run_artifact_view_returns_only_existing_files() -> None:
     assert view["artifact_refs"][0]["exists"] is True
 
 
+def test_running_task_artifact_view_includes_tool_observation_refs() -> None:
+    runtime = build_query_runtime()
+    host = runtime.single_agent_runtime_host
+    project_root = Path(runtime.base_dir).resolve().parent
+    canonical_artifact = project_root / "storage/task_environments/general/workspace/artifacts/plan.md"
+    canonical_artifact.parent.mkdir(parents=True, exist_ok=True)
+    canonical_artifact.write_text("# canonical plan", encoding="utf-8")
+    sandbox_artifact = project_root / "storage/runtime_state/sandboxes/taskrun_test_running_artifacts/storage/task_environments/general/workspace/artifacts/plan.md"
+    sandbox_artifact.parent.mkdir(parents=True, exist_ok=True)
+    sandbox_artifact.write_text("# sandbox plan", encoding="utf-8")
+    task_run_id = "taskrun:test:running-artifacts"
+    host.state_index.upsert_task_run(
+        TaskRun(
+            task_run_id=task_run_id,
+            session_id="session-running-artifacts",
+            task_id="task:running-artifacts",
+            status="running",
+            created_at=100.0,
+            updated_at=110.0,
+            execution_runtime_kind="single_agent_task",
+            diagnostics={
+                "artifact_refs": [
+                    {
+                        "path": "storage/task_environments/general/workspace/artifacts/plan.md",
+                        "absolute_path": str(canonical_artifact),
+                        "kind": "file",
+                        "source": "write_file",
+                    }
+                ]
+            },
+        )
+    )
+    host.event_log.append(
+        task_run_id,
+        "task_tool_observation_recorded",
+        payload={
+            "observation": {
+                "payload": {
+                    "tool_name": "write_file",
+                    "result_envelope": {
+                        "artifact_refs": [
+                            {
+                                "path": "storage/task_environments/general/workspace/artifacts/plan.md",
+                                "absolute_path": str(sandbox_artifact),
+                                "kind": "file",
+                                "source": "write_file",
+                            }
+                        ],
+                    },
+                },
+            },
+        },
+    )
+
+    view = host.get_task_run_artifacts(task_run_id)
+    monitor = host.get_task_run_live_monitor(task_run_id)
+
+    assert view["created_files"] == [
+        "storage/task_environments/general/workspace/artifacts/plan.md"
+    ]
+    assert view["artifact_refs"][0]["exists"] is True
+    assert monitor is not None
+    assert monitor["artifact_count"] == 1
+    assert monitor["artifact_refs"][0]["source"] == "write_file"
+
+
 def test_task_observation_projection_separates_stale_and_active_failures() -> None:
     from harness.loop.task_executor import _observations_for_packet
 
@@ -2979,6 +3310,58 @@ def test_task_observation_projection_separates_stale_and_active_failures() -> No
     assert projection["historical_failures"][0]["current_runtime_fact"] is False
     assert projection["active_failures"][0]["tool_name"] == "read_file"
     assert projection["active_failures"][0]["error"]["message"] == "file missing"
+
+
+def test_task_observation_projection_extracts_structured_error_from_tool_json_result() -> None:
+    from harness.loop.task_executor import _observations_for_packet
+
+    runtime = build_query_runtime()
+    host = runtime.single_agent_runtime_host
+    task_run_id = "taskrun:test:image-json-error"
+    fingerprint = {
+        "tool_registry_hash": "tools-v1",
+        "tool_config_hash": "image-config-v1",
+        "sandbox_policy_hash": "sandbox-v1",
+        "permission_policy_hash": "permission-v1",
+        "backend_config_hash": "backend-v1",
+    }
+    host.event_log.append(
+        task_run_id,
+        "task_tool_observation_recorded",
+        payload={
+            "observation": {
+                "observation_id": "obs:image-json-error",
+                "task_run_id": task_run_id,
+                "observation_type": "tool_result",
+                "source": "tool:image_generate",
+                "payload": {
+                    "tool_name": "image_generate",
+                    "tool_args": {"prompt": "mine", "quality": "low"},
+                    "result": json.dumps(
+                        {
+                            "ok": False,
+                            "error": "gateway timeout",
+                            "structured_error": {
+                                "code": "image_provider_transient_error",
+                                "message": "Image API failed with status 504",
+                                "retryable": True,
+                                "origin": "image_provider",
+                            },
+                        }
+                    ),
+                    "runtime_fingerprint": fingerprint,
+                },
+            }
+        },
+    )
+
+    context = _observations_for_packet(host, task_run_id, current_fingerprint=fingerprint)
+    projection = context["execution_state"]["system_projection"]
+
+    assert projection["current_facts"] == []
+    assert projection["active_failures"][0]["tool_name"] == "image_generate"
+    assert projection["active_failures"][0]["error"]["code"] == "image_provider_transient_error"
+    assert projection["active_failures"][0]["error"]["origin"] == "image_provider"
 
 
 def test_task_observation_projection_treats_missing_fingerprint_failure_as_historical() -> None:

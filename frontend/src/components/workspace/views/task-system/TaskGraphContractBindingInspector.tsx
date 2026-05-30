@@ -16,6 +16,7 @@ type ContractBindingSectionId =
   | "schema"
   | "execution"
   | "memory"
+  | "output"
   | "artifact"
   | "handoff"
   | "acceptance"
@@ -76,6 +77,19 @@ const CONTRACT_BINDING_SECTIONS: ContractBindingSectionSpec[] = [
       { kind: "text", label: "写回策略", path: ["memory_writeback_policy_ref"], placeholder: "writeback policy", wide: true },
       { kind: "list", label: "交接记忆 Kind", path: ["working_memory_handoff_policy", "carry_kinds"], placeholder: "handoff_note, decision" },
       { kind: "list", label: "交接记忆 Scope", path: ["working_memory_handoff_policy", "carry_scopes"], placeholder: "edge_scope, artifact_scope" },
+    ],
+  },
+  {
+    id: "output",
+    title: "Output",
+    aside: "切分 / 落盘 / 登记",
+    description: "声明模型输出如何抽取、验收、落盘并登记到产物区。",
+    fields: [
+      { kind: "contract", label: "输出政策", path: ["output_policy_ref"], wide: true },
+      { kind: "text", label: "主内容键", path: ["primary_content_key"], placeholder: "final_answer / chapter_draft_text" },
+      { kind: "text", label: "目标仓库", path: ["artifact_materialization_policy", "target_repository_id"], placeholder: "repo.writing.artifact_repository", wide: true },
+      { kind: "text", label: "目标集合", path: ["artifact_materialization_policy", "target_collection_id"], placeholder: "chapter_drafts" },
+      { kind: "boolean", label: "必须落盘", path: ["artifact_materialization_policy", "required"] },
     ],
   },
   {

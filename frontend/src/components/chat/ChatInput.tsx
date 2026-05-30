@@ -22,8 +22,8 @@ export function ChatInput({
   onStop,
   onSelectChatModel,
   onSelectMainAgentAssemblyMode,
-  onToggleDeepSeekThinking,
-  deepSeekThinkingEnabled,
+  onToggleThinking,
+  thinkingEnabled,
   mainAgentAssemblyMode,
   selectedChatModelId,
 }: {
@@ -35,8 +35,8 @@ export function ChatInput({
   onStop: () => void;
   onSelectChatModel: (selectionId: string) => void;
   onSelectMainAgentAssemblyMode: (mode: MainAgentAssemblyMode) => void;
-  onToggleDeepSeekThinking: (enabled: boolean) => void;
-  deepSeekThinkingEnabled: boolean;
+  onToggleThinking: (enabled: boolean) => void;
+  thinkingEnabled: boolean;
   mainAgentAssemblyMode: MainAgentAssemblyMode;
   selectedChatModelId: string;
 }) {
@@ -48,8 +48,7 @@ export function ChatInput({
     ? selectedChatModelId
     : "system-default";
   const activeModel = resolveActiveChatModel(activeModelId, modelProviderConfig);
-  const showDeepSeekThinkingToggle = activeModel?.provider === "deepseek"
-    && !activeModel.model.toLowerCase().includes("image");
+  const showThinkingToggle = Boolean(activeModel && supportsHiddenReasoning(activeModel.provider, activeModel.model, modelProviderConfig));
   const submit = async () => {
     const nextValue = value.trim();
     if (inputDisabled || !nextValue) {
@@ -106,14 +105,14 @@ export function ChatInput({
                 ))}
               </select>
             </label>
-            {showDeepSeekThinkingToggle ? (
+            {showThinkingToggle ? (
               <button
-                aria-label="DeepSeek 思考模式"
-                aria-pressed={deepSeekThinkingEnabled}
-                className={deepSeekThinkingEnabled ? "chat-thinking-toggle chat-thinking-toggle--active" : "chat-thinking-toggle"}
+                aria-label="隐藏推理模式"
+                aria-pressed={thinkingEnabled}
+                className={thinkingEnabled ? "chat-thinking-toggle chat-thinking-toggle--active" : "chat-thinking-toggle"}
                 disabled={inputDisabled}
-                onClick={() => onToggleDeepSeekThinking(!deepSeekThinkingEnabled)}
-                title="DeepSeek 思考模式"
+                onClick={() => onToggleThinking(!thinkingEnabled)}
+                title="隐藏推理模式"
                 type="button"
               >
                 <Lightbulb size={15} />
@@ -211,4 +210,49 @@ function resolveActiveChatModel(selectionId: string, config: ModelProviderConfig
   const normalizedProvider = provider.trim().toLowerCase();
   const model = modelParts.join("::").trim();
   return normalizedProvider && model ? { provider: normalizedProvider, model } : null;
+}
+
+function supportsHiddenReasoning(provider: string, model: string, config: ModelProviderConfig | null) {
+  const normalizedProvider = provider.trim().toLowerCase();
+  const normalizedModel = model.trim().toLowerCase();
+  if (!normalizedProvider || !normalizedModel || normalizedModel.includes("image")) {
+    return false;
+  }
+  if (!providerCapabilityTags(config, normalizedProvider).has("reasoning")) {
+    return false;
+  }
+  if (normalizedProvider === "deepseek") {
+    return true;
+  }
+  if (normalizedProvider === "openai") {
+    return isOpenAIReasoningModel(normalizedModel);
+  }
+  return false;
+}
+
+function providerCapabilityTags(config: ModelProviderConfig | null, provider: string) {
+  const option = providerCatalogOption(config, provider);
+  return new Set((option?.capability_tags || []).map((tag) => String(tag || "").trim().toLowerCase()).filter(Boolean));
+}
+
+function providerCatalogOption(config: ModelProviderConfig | null, provider: string) {
+  if (!config) {
+    return undefined;
+  }
+  const normalizedProvider = provider.trim().toLowerCase();
+  const providers = {
+    ...(config.supported_providers || {}),
+    ...(config.provider_catalog?.providers || {}),
+  };
+  return providers[provider]
+    || providers[normalizedProvider]
+    || Object.entries(providers).find(([key]) => key.trim().toLowerCase() === normalizedProvider)?.[1];
+}
+
+function isOpenAIReasoningModel(model: string) {
+  const normalized = model.trim().toLowerCase();
+  return normalized.startsWith("gpt-5")
+    || normalized.startsWith("o1")
+    || normalized.startsWith("o3")
+    || normalized.startsWith("o4");
 }

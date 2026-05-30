@@ -148,6 +148,7 @@ class SingleAgentRuntimeHost:
         raw_refs: list[Any] = []
         if task_run is not None:
             raw_refs.extend(list(dict(task_run.diagnostics or {}).get("artifact_refs") or []))
+        raw_refs.extend(_artifact_refs_from_task_events(self.event_log, task_run_id))
         for result in self.state_index.list_task_agent_run_results(task_run_id):
             raw_refs.extend(list(result.artifact_refs or ()))
             raw_refs.extend(list(dict(result.diagnostics or {}).get("artifact_refs") or []))
@@ -247,11 +248,62 @@ def _existing_artifact_refs(values: list[Any], *, project_root: Path) -> list[di
         if not _inside(resolved, root) or not resolved.exists() or not resolved.is_file():
             continue
         rel = resolved.relative_to(root).as_posix()
-        if rel in seen:
+        key = str(ref.get("path") or rel)
+        if key in seen:
             continue
-        seen.add(rel)
+        seen.add(key)
         result.append({**ref, "path": rel, "absolute_path": str(resolved), "exists": True, "size_bytes": resolved.stat().st_size})
     return result
+
+
+def _artifact_refs_from_task_events(event_log: Any, task_run_id: str) -> list[dict[str, Any]]:
+    reader = getattr(event_log, "list_events", None)
+    if not callable(reader):
+        return []
+    try:
+        events = list(reader(task_run_id))
+    except Exception:
+        return []
+    refs: list[dict[str, Any]] = []
+    for event in events:
+        event_payload = _event_payload(event)
+        observation = dict(event_payload.get("observation") or {})
+        payload = dict(observation.get("payload") or {})
+        refs.extend(_artifact_refs_from_payload(payload))
+    return _dedupe_artifact_refs(refs)
+
+
+def _event_payload(event: Any) -> dict[str, Any]:
+    if hasattr(event, "payload"):
+        payload = getattr(event, "payload", None)
+    elif isinstance(event, dict):
+        payload = event.get("payload")
+    else:
+        payload = None
+    return dict(payload or {}) if isinstance(payload, dict) else {}
+
+
+def _artifact_refs_from_payload(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    envelope = dict(payload.get("result_envelope") or {})
+    structured = dict(payload.get("structured_payload") or envelope.get("structured_payload") or {})
+    return [
+        dict(item)
+        for item in list(payload.get("artifact_refs") or envelope.get("artifact_refs") or structured.get("artifact_refs") or [])
+        if isinstance(item, dict)
+    ]
+
+
+def _dedupe_artifact_refs(refs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for ref in refs:
+        key = str(ref.get("path") or ref.get("src") or ref.get("absolute_path") or ref)
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        result.append(dict(ref))
+    return result
+
 
 def _inside(path: Path, root: Path) -> bool:
     return path == root or root in path.parents

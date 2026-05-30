@@ -29,6 +29,7 @@ class RuntimeEnvelope:
     budget_policy: dict[str, Any] = field(default_factory=dict)
     approval_policy: dict[str, Any] = field(default_factory=dict)
     recovery_policy: dict[str, Any] = field(default_factory=dict)
+    graph_slot: dict[str, Any] = field(default_factory=dict)
     diagnostics: dict[str, Any] = field(default_factory=dict)
     authority: str = "harness.runtime.envelope"
 

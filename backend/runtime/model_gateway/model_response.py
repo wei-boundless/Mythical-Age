@@ -357,7 +357,7 @@ class ModelResponseRuntimeExecutor:
         reasoning_content = str(additional_kwargs.get("reasoning_content") or "").strip()
         stream_preview_text = ""
         if stream_enabled and delta_index <= 0:
-            stream_preview_text = raw_content.strip() or reasoning_content
+            stream_preview_text = raw_content.strip()
         if stream_preview_text and emit_content_delta:
             yield {
                 "type": "content_delta",

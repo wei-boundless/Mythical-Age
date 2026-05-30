@@ -15,9 +15,12 @@ from soul.image_asset_service import SoulImageAssetError, SoulImageAssetService
 
 class ImageGenerationInput(BaseModel):
     prompt: str = Field(..., description="Precise visual prompt for the image model.")
+    model: str = Field(default="", description="Optional image model override, for example gpt-image-2. Leave blank to use backend config.")
     target_id: str = Field(default="", description="Optional stable asset id. Leave blank to auto-generate.")
     asset_kind: str = Field(default="chat", description="Asset kind used in the saved filename.")
     size: str = Field(default="1024x1024", description="Provider generation size. Use 1024x1024 unless the provider explicitly supports another size.")
+    quality: str = Field(default="", description="Optional provider quality such as low, medium, high, auto, or standard.")
+    request_timeout_seconds: float = Field(default=55.0, ge=30.0, le=120.0, description="Single provider request timeout. Keep below gateway limits for long-running agent tasks.")
     output_size: str = Field(default="", description="Optional final PNG size for local resizing, for example 128x128. This is not sent to the image provider.")
     overwrite: bool = Field(default=True, description="Overwrite an existing generated asset with the same id.")
 
@@ -39,21 +42,27 @@ class ImageGenerationTool(BaseTool):
     def _run(
         self,
         prompt: str,
+        model: str = "",
         target_id: str = "",
         asset_kind: str = "chat",
         size: str = "1024x1024",
+        quality: str = "",
+        request_timeout_seconds: float = 55.0,
         output_size: str = "",
         overwrite: bool = True,
         run_manager: CallbackManagerForToolRun | None = None,
     ) -> str:
-        return asyncio.run(self._arun(prompt, target_id, asset_kind, size, output_size, overwrite, None))
+        return asyncio.run(self._arun(prompt, model, target_id, asset_kind, size, quality, request_timeout_seconds, output_size, overwrite, None))
 
     async def _arun(
         self,
         prompt: str,
+        model: str = "",
         target_id: str = "",
         asset_kind: str = "chat",
         size: str = "1024x1024",
+        quality: str = "",
+        request_timeout_seconds: float = 55.0,
         output_size: str = "",
         overwrite: bool = True,
         run_manager: AsyncCallbackManagerForToolRun | None = None,
@@ -68,6 +77,9 @@ class ImageGenerationTool(BaseTool):
                 target_id=safe_target,
                 asset_kind=str(asset_kind or "chat").strip() or "chat",
                 size=str(size or "1024x1024").strip() or "1024x1024",
+                quality=str(quality or "").strip(),
+                model=str(model or "").strip(),
+                request_timeout_seconds=float(request_timeout_seconds or 55.0),
                 output_size=str(output_size or "").strip(),
                 overwrite=bool(overwrite),
             )
@@ -90,6 +102,8 @@ class ImageGenerationTool(BaseTool):
                     "revised_prompt": generated.get("revised_prompt") or "",
                     "provider_size": generated.get("provider_size") or "",
                     "final_size": generated.get("final_size") or "",
+                    "model": generated.get("model") or str(model or ""),
+                    "duration_ms": generated.get("duration_ms") or 0,
                 },
             },
             ensure_ascii=False,

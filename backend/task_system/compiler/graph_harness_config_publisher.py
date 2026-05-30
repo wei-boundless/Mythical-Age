@@ -258,11 +258,16 @@ def _project_graph_for_harness(
     if not projection["terminal_node_ids"]:
         projection["terminal_node_ids"] = _derive_terminal_node_ids(list(projection["nodes"]), list(projection["edges"]))
     else:
+        explicit_terminal_ids = [str(item) for item in list(projection["terminal_node_ids"] or []) if str(item)]
         projection["terminal_node_ids"] = list(
             dict.fromkeys(
                 [
-                    *[str(item) for item in list(projection["terminal_node_ids"] or []) if str(item)],
-                    *_derive_terminal_node_ids(list(projection["nodes"]), list(projection["edges"])),
+                    *explicit_terminal_ids,
+                    *_derived_branch_terminal_node_ids(
+                        nodes=list(projection["nodes"]),
+                        edges=list(projection["edges"]),
+                        explicit_terminal_ids=explicit_terminal_ids,
+                    ),
                 ]
             )
         )
@@ -658,6 +663,7 @@ def _edge_protocol_entry(
     artifact_ref_policy = dict(edge.get("artifact_ref_policy") or {})
     working_memory_handoff_policy = dict(edge.get("working_memory_handoff_policy") or {})
     metadata = dict(edge.get("metadata") or {})
+    handoff_bindings = dict(dict(edge.get("contract_bindings") or {}).get("handoff") or {})
     include_output_keys = _string_list(
         context_filter_policy.get("include_output_keys")
         or context_filter_policy.get("allowed_output_keys")
@@ -666,6 +672,8 @@ def _edge_protocol_entry(
     )
     target_input_keys = _dedupe_strings(
         [
+            *_string_list(edge.get("target_input_slot") or edge.get("target_context_key")),
+            *_string_list(handoff_bindings.get("target_input_slot") or handoff_bindings.get("target_context_key")),
             *_string_list(metadata.get("input_alias") or metadata.get("target_input_key")),
             *_string_list(artifact_ref_policy.get("target_input_key")),
             *_string_list(dict(edge.get("revision_policy") or {}).get("target_input_key")),
@@ -675,6 +683,7 @@ def _edge_protocol_entry(
     )
     source_output_keys = _dedupe_strings(
         [
+            *_string_list(edge.get("source_output_selector") or handoff_bindings.get("source_output_selector")),
             *include_output_keys,
             *_string_list(artifact_ref_policy.get("source_output_key")),
             *_string_list(dict(memory_rule or {}).get("source_output_key")),
@@ -690,8 +699,18 @@ def _edge_protocol_entry(
             "semantic_role": str(edge.get("semantic_role") or ""),
             "scheduler_role": str(edge.get("scheduler_role") or ""),
             "payload_contract_id": payload_contract_id,
+            "packet_contract_id": str(edge.get("packet_contract_id") or handoff_bindings.get("packet_contract_id") or payload_contract_id),
             "source_output_keys": source_output_keys,
             "target_input_keys": target_input_keys,
+            "target_context_key": str(
+                edge.get("target_context_key")
+                or handoff_bindings.get("target_context_key")
+                or metadata.get("target_context_key")
+                or metadata.get("target_input_key")
+                or artifact_ref_policy.get("target_input_key")
+                or ""
+            ),
+            "target_input_slot": str(edge.get("target_input_slot") or handoff_bindings.get("target_input_slot") or metadata.get("target_input_slot") or metadata.get("input_alias") or ""),
             "delivery_policy": str(edge.get("result_delivery_policy") or ""),
             "context_filter_policy": context_filter_policy,
             "artifact_ref_policy": artifact_ref_policy,
@@ -976,6 +995,7 @@ def _node_config(node: dict[str, Any], *, graph_id: str) -> dict[str, Any]:
         "gates": {
             "review_gate_policy": dict(node.get("review_gate_policy") or {}),
             "human_gate_policy": dict(node.get("human_gate_policy") or metadata.get("human_gate_policy") or {}),
+            "post_node_gate_policy": dict(node.get("post_node_gate_policy") or metadata.get("post_node_gate_policy") or {}),
         },
         "retry": dict(node.get("quality_retry_policy") or metadata.get("quality_retry_policy") or {}),
         "loop": _node_loop_contract(node, metadata=raw_metadata),
@@ -1069,6 +1089,8 @@ def _edge_config(edge: dict[str, Any]) -> dict[str, Any]:
     metadata = dict(edge.get("metadata") or {})
     contract_bindings = dict(edge.get("contract_bindings") or {})
     schema_bindings = dict(contract_bindings.get("schema") or {})
+    handoff_bindings = dict(contract_bindings.get("handoff") or {})
+    artifact_ref_policy = dict(edge.get("artifact_ref_policy") or {})
     edge_type = str(edge.get("mode") or edge.get("edge_type") or "handoff")
     return {
         "edge_id": str(edge.get("edge_id") or ""),
@@ -1083,9 +1105,13 @@ def _edge_config(edge: dict[str, Any]) -> dict[str, Any]:
         "failure_propagation_policy": str(edge.get("failure_propagation_policy") or "fail_downstream"),
         "result_delivery_policy": str(edge.get("result_delivery_policy") or "contract_payload_and_refs"),
         "payload_contract_id": str(edge.get("payload_contract_id") or schema_bindings.get("payload_contract_id") or ""),
+        "packet_contract_id": str(edge.get("packet_contract_id") or handoff_bindings.get("packet_contract_id") or edge.get("payload_contract_id") or schema_bindings.get("payload_contract_id") or ""),
+        "source_output_selector": str(edge.get("source_output_selector") or handoff_bindings.get("source_output_selector") or artifact_ref_policy.get("source_output_key") or ""),
+        "target_context_key": str(edge.get("target_context_key") or handoff_bindings.get("target_context_key") or metadata.get("target_context_key") or metadata.get("target_input_key") or artifact_ref_policy.get("target_input_key") or ""),
+        "target_input_slot": str(edge.get("target_input_slot") or handoff_bindings.get("target_input_slot") or metadata.get("target_input_slot") or metadata.get("input_alias") or ""),
         "contract_bindings": contract_bindings,
         "context_filter_policy": dict(edge.get("context_filter_policy") or {}),
-        "artifact_ref_policy": dict(edge.get("artifact_ref_policy") or {}),
+        "artifact_ref_policy": artifact_ref_policy,
         "working_memory_handoff_policy": dict(edge.get("working_memory_handoff_policy") or {}),
         "temporal_policy": dict(metadata.get("temporal_policy") or {}),
         "revision_policy": dict(metadata.get("revision_policy") or {}),
@@ -1259,6 +1285,38 @@ def _derive_terminal_node_ids(nodes: list[dict[str, Any]], edges: list[dict[str,
     node_ids = [str(node.get("node_id") or "") for node in executable_nodes if str(node.get("node_id") or "")]
     sources = {str(edge.get("source_node_id") or "") for edge in edges if _scheduler_role_for_edge(edge_type=str(edge.get("edge_type") or ""), metadata=dict(edge.get("metadata") or {})) == "dependency"}
     return [node_id for node_id in node_ids if node_id not in sources]
+
+
+def _derived_branch_terminal_node_ids(
+    *,
+    nodes: list[dict[str, Any]],
+    edges: list[dict[str, Any]],
+    explicit_terminal_ids: list[str],
+) -> list[str]:
+    derived = _derive_terminal_node_ids(nodes, edges)
+    reachable_from_explicit = _scheduler_reachable_node_ids(edges=edges, source_node_ids=explicit_terminal_ids)
+    return [node_id for node_id in derived if node_id not in set(explicit_terminal_ids) and node_id not in reachable_from_explicit]
+
+
+def _scheduler_reachable_node_ids(*, edges: list[dict[str, Any]], source_node_ids: list[str]) -> set[str]:
+    adjacency: dict[str, list[str]] = {}
+    for edge in edges:
+        if _scheduler_role_for_edge(edge_type=str(edge.get("edge_type") or ""), metadata=dict(edge.get("metadata") or {})) != "dependency":
+            continue
+        source = str(edge.get("source_node_id") or "")
+        target = str(edge.get("target_node_id") or "")
+        if source and target:
+            adjacency.setdefault(source, []).append(target)
+    seen: set[str] = set()
+    frontier = [str(item) for item in source_node_ids if str(item)]
+    while frontier:
+        source = frontier.pop(0)
+        for target in adjacency.get(source, []):
+            if target in seen:
+                continue
+            seen.add(target)
+            frontier.append(target)
+    return seen
 
 
 def _edge_payload(edge: Any) -> dict[str, Any]:

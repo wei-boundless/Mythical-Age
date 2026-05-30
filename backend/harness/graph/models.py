@@ -94,6 +94,10 @@ class GraphRuntimeEnvelope:
     config_hash: str
     graph_id: str
     initial_inputs: dict[str, Any] = field(default_factory=dict)
+    static_topology_view: dict[str, Any] = field(default_factory=dict)
+    contract_index: dict[str, Any] = field(default_factory=dict)
+    state_machine_spec: dict[str, Any] = field(default_factory=dict)
+    loop_control_spec: dict[str, Any] = field(default_factory=dict)
     runtime_services_ref: str = ""
     permission_scope: dict[str, Any] = field(default_factory=dict)
     file_scope: dict[str, Any] = field(default_factory=dict)
@@ -228,6 +232,46 @@ class GraphLoopState:
 
 
 @dataclass(frozen=True, slots=True)
+class GraphNodeExecutionSlot:
+    slot_id: str
+    graph_identity: dict[str, Any] = field(default_factory=dict)
+    node_contract: dict[str, Any] = field(default_factory=dict)
+    edge_contracts: dict[str, Any] = field(default_factory=dict)
+    memory_contract: dict[str, Any] = field(default_factory=dict)
+    loop_contract: dict[str, Any] = field(default_factory=dict)
+    output_contract: dict[str, Any] = field(default_factory=dict)
+    state_refs: dict[str, Any] = field(default_factory=dict)
+    runtime_controls: dict[str, Any] = field(default_factory=dict)
+    visibility: dict[str, Any] = field(default_factory=dict)
+    authority: str = "harness.graph.node_execution_slot"
+
+    def __post_init__(self) -> None:
+        if self.authority != "harness.graph.node_execution_slot":
+            raise ValueError("GraphNodeExecutionSlot authority must be harness.graph.node_execution_slot")
+        if not self.slot_id:
+            raise ValueError("GraphNodeExecutionSlot requires slot_id")
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, payload: dict[str, Any]) -> "GraphNodeExecutionSlot":
+        return cls(
+            slot_id=str(payload.get("slot_id") or ""),
+            graph_identity=dict(payload.get("graph_identity") or {}),
+            node_contract=dict(payload.get("node_contract") or {}),
+            edge_contracts=dict(payload.get("edge_contracts") or {}),
+            memory_contract=dict(payload.get("memory_contract") or {}),
+            loop_contract=dict(payload.get("loop_contract") or {}),
+            output_contract=dict(payload.get("output_contract") or {}),
+            state_refs=dict(payload.get("state_refs") or {}),
+            runtime_controls=dict(payload.get("runtime_controls") or {}),
+            visibility=dict(payload.get("visibility") or {}),
+            authority=str(payload.get("authority") or "harness.graph.node_execution_slot"),
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class GraphNodeWorkOrder:
     work_order_id: str
     work_kind: str
@@ -243,6 +287,7 @@ class GraphNodeWorkOrder:
     message: str = ""
     explicit_inputs: dict[str, Any] = field(default_factory=dict)
     input_package: dict[str, Any] = field(default_factory=dict)
+    graph_slot: dict[str, Any] = field(default_factory=dict)
     graph_state: dict[str, Any] = field(default_factory=dict)
     context_refs: dict[str, Any] = field(default_factory=dict)
     memory_view_request: dict[str, Any] = field(default_factory=dict)
@@ -305,6 +350,7 @@ class GraphNodeWorkOrder:
             message=str(payload.get("message") or ""),
             explicit_inputs=dict(payload.get("explicit_inputs") or {}),
             input_package=dict(payload.get("input_package") or {}),
+            graph_slot=dict(payload.get("graph_slot") or {}),
             graph_state=dict(payload.get("graph_state") or {}),
             context_refs=dict(payload.get("context_refs") or {}),
             memory_view_request=dict(payload.get("memory_view_request") or {}),

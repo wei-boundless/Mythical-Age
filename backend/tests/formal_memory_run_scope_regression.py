@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+import sys
 import time
+from pathlib import Path
 
 from capability_system.tool_runtime import ToolRuntime
 from memory_system.formal_memory_service import FormalMemoryService
@@ -10,6 +12,10 @@ from orchestration.runtime_directive import RuntimeDirective
 from runtime.shared.action_request import RuntimeActionRequest
 from runtime.shared.execution_record import OperationExecutionRecord
 from runtime.tool_runtime.tool_executor import ToolRuntimeExecutor
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
 
 def _edge() -> dict:
@@ -97,6 +103,60 @@ def test_formal_memory_defaults_to_task_run_isolation(tmp_path) -> None:
         clock_seq=3,
     )
     assert selected_two["required_records"] == []
+
+
+def test_writing_graph_memory_repository_nodes_and_edges_share_graph_task_namespace(tmp_path) -> None:
+    from scripts.configure_writing_modular_novel_graph import REPOSITORY_NODES, _memory_edge, _repository_node_payload
+
+    artifact_index_spec = next(item for item in REPOSITORY_NODES if item["node_id"] == "memory.writing.artifact_index")
+    repository_node = _repository_node_payload(artifact_index_spec)
+    repository_policy = repository_node["metadata"]["memory_repository"]["lifecycle_policy"]
+    edge = _memory_edge(
+        "edge.artifact_index.project_brief",
+        "project_brief",
+        "memory.writing.artifact_index",
+        "commit",
+        "commit_refs",
+        ("artifact_ref",),
+        "产物索引",
+    )
+    edge_policy = edge["metadata"]["lifecycle_policy"]
+
+    assert repository_policy == edge_policy
+    assert repository_policy["scope_kind"] == "run_scoped"
+    assert repository_policy["namespace_policy"] == "graph_task_instance"
+    assert repository_policy["scope_id_source"] == "graph_task_memory_namespace"
+
+    service = FormalMemoryService(tmp_path)
+    runtime_scope = {"graph_task_memory_namespace": {"namespace_id": "graphmem:writing:test"}}
+    service.sync_graph_spec_for_scope(
+        graph_id="graph.writing.modular_novel.design_init",
+        task_run_id="taskrun:writing:test",
+        runtime_scope=runtime_scope,
+        graph_spec={"resource_nodes": [repository_node]},
+    )
+    candidate, _write_txn = service.write_candidate_from_edge(
+        edge={
+            "repository": "memory.writing.artifact_index",
+            "collection": "commit_refs",
+            "record_key": "project_brief.artifact",
+            "record_kind": "artifact_ref",
+            "lifecycle_policy": edge_policy,
+        },
+        candidate={
+            "canonical_text": "",
+            "summary": "project_brief artifact",
+            "record_key": "project_brief.artifact",
+            "record_kind": "artifact_ref",
+            "artifact_refs": ["storage/task_environments/creation/writing/artifacts/project_brief.md"],
+        },
+        task_run_id="taskrun:writing:test",
+        node_run_id="taskrun:writing:test:project_brief",
+        source_node_id="project_brief",
+        runtime_scope=runtime_scope,
+    )
+
+    assert candidate.effective_repository_id == "run:graphmem_writing_test:memory.writing.artifact_index"
 
 
 def test_formal_memory_durable_scope_can_be_shared_across_runs(tmp_path) -> None:

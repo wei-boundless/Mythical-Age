@@ -63,6 +63,7 @@ CONTRACT_BINDING_SECTIONS = {
     "schema",
     "execution",
     "unit_batch",
+    "output",
     "artifact",
     "memory",
     "handoff",

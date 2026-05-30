@@ -285,9 +285,6 @@ def build_tool_action_request(task_run_id: str, event: dict[str, Any], *, step_i
     payload = dict(event.get("tool_call") or event.get("payload") or {})
     tool_name = str(payload.get("tool_name") or payload.get("name") or event.get("tool_name") or "")
     assistant_content_preview = str(event.get("assistant_content") or "").strip()
-    assistant_reasoning_preview = str(
-        dict(event.get("assistant_additional_kwargs") or {}).get("reasoning_content") or ""
-    ).strip()
     return RuntimeActionRequest(
         request_id=f"rtact:{task_run_id}:{uuid.uuid4().hex[:8]}",
         task_run_id=task_run_id,
@@ -300,7 +297,6 @@ def build_tool_action_request(task_run_id: str, event: dict[str, Any], *, step_i
             "tool_call": payload,
             "execution_state": "requested_not_dispatched",
             "assistant_content_preview": assistant_content_preview,
-            "assistant_reasoning_preview": assistant_reasoning_preview,
         },
         created_at=time.time(),
     )

@@ -498,6 +498,15 @@ class QueryRuntime:
         scheduler: str,
         max_steps: int = _CONVERSATION_TASK_EXECUTION_STEPS,
     ) -> dict[str, Any]:
+        return self.schedule_task_run_executor(task_run_id, scheduler=scheduler, max_steps=max_steps)
+
+    def schedule_task_run_executor(
+        self,
+        task_run_id: str,
+        *,
+        scheduler: str,
+        max_steps: int = _CONVERSATION_TASK_EXECUTION_STEPS,
+    ) -> dict[str, Any]:
         runtime_host = self.single_agent_runtime_host
         task_run = runtime_host.state_index.get_task_run(task_run_id)
         if task_run is None:
@@ -553,7 +562,9 @@ class QueryRuntime:
         return await self.model_runtime.generate_title(first_user_message)
 
     async def execute_task_run(self, task_run_id: str, *, max_steps: int = 12) -> dict[str, Any]:
-        return await execute_task_run(self._task_executor_services(), task_run_id, max_steps=max_steps)
+        task_run = self.single_agent_runtime_host.state_index.get_task_run(task_run_id)
+        services = self._task_executor_services_for_task_run(task_run) if task_run is not None else self._task_executor_services()
+        return await execute_task_run(services, task_run_id, max_steps=max_steps)
 
     async def execute_graph_agent_work_order(self, *, graph_config: Any, work_order: Any, max_steps: int = 12) -> dict[str, Any]:
         task_run = self._create_graph_node_task_run(graph_config=graph_config, work_order=work_order)
@@ -592,6 +603,14 @@ class QueryRuntime:
             raise ValueError("AgentRuntimeProfile not found: agent:0")
         return profile
 
+    def _task_executor_backend_config(self) -> dict[str, Any]:
+        provider = getattr(self.settings_service, "task_executor_backend_config", None)
+        if callable(provider):
+            payload = provider()
+            if isinstance(payload, dict):
+                return dict(payload)
+        return dict(getattr(self, "config", {}) or {})
+
     def _task_executor_services_with_profile(self, profile: Any) -> TaskExecutorServices:
         return TaskExecutorServices(
             runtime_host=self.single_agent_runtime_host,
@@ -600,7 +619,7 @@ class QueryRuntime:
             tool_runtime_executor=self.tool_runtime_executor,
             tool_instances=tuple(self._all_tool_instances()),
             agent_runtime_profile=profile,
-            backend_config=dict(getattr(self, "config", {}) or {}),
+            backend_config=self._task_executor_backend_config(),
             assistant_message_committer=lambda payload: self._apply_assistant_message_commit(
                 str(dict(payload or {}).get("session_id") or ""),
                 payload,
@@ -651,6 +670,7 @@ class QueryRuntime:
                 "graph_harness_config_id": graph_config.config_id,
                 "graph_node_id": work_order.node_id,
                 "graph_work_order_id": work_order.work_order_id,
+                "graph_clock_seq": _graph_node_clock_seq(work_order),
                 "runtime_scope": _graph_node_runtime_scope(work_order),
                 **_graph_node_public_scope_fields(work_order),
                 "runtime_task_selection": runtime_selection,
@@ -932,8 +952,27 @@ def _permission_mode_provider(*, permission_service: Any | None, settings_servic
 def _graph_node_contract_from_work_order(work_order: Any) -> TaskRunContract:
     contracts = dict(getattr(work_order, "expected_result_contract", {}) or {})
     input_package = dict(getattr(work_order, "input_package", {}) or {})
-    prompt_contract = dict(input_package.get("prompt_contract") or input_package.get("prompt") or {})
-    runtime_profile = dict(input_package.get("runtime_profile") or {})
+    graph_slot = dict(getattr(work_order, "graph_slot", {}) or {})
+    if not graph_slot:
+        raise ValueError("GraphNodeWorkOrder missing graph_slot")
+    if str(graph_slot.get("authority") or "") != "harness.graph.node_execution_slot":
+        raise ValueError("GraphNodeWorkOrder graph_slot authority mismatch")
+    node_contract = dict(graph_slot.get("node_contract") or {})
+    prompt_contract = dict(node_contract.get("prompt_contract") or input_package.get("prompt_contract") or input_package.get("prompt") or {})
+    runtime_profile = {
+        **dict(input_package.get("runtime_profile") or {}),
+        **{
+            key: value
+            for key, value in {
+                "runtime_mode": node_contract.get("runtime_mode"),
+                "model_requirement": node_contract.get("model_requirement"),
+                "reasoning_policy": node_contract.get("reasoning_policy"),
+                "tool_contract": node_contract.get("tool_contract"),
+                "permission_contract": node_contract.get("permission_contract"),
+            }.items()
+            if value
+        },
+    }
     task_environment_id = str(
         input_package.get("task_environment_id")
         or dict(input_package.get("task_environment") or {}).get("task_environment_id")
@@ -961,6 +1000,7 @@ def _graph_node_contract_from_work_order(work_order: Any) -> TaskRunContract:
         task_environment_id=task_environment_id,
         runtime_profile=runtime_profile,
         prompt_contract=prompt_contract,
+        graph_slot=graph_slot,
         origin=_graph_node_origin(work_order),
     )
 
@@ -1033,6 +1073,8 @@ def _compact_runtime_profile(profile: dict[str, Any]) -> dict[str, Any]:
 def _graph_node_task_selection(graph_config: Any, work_order: Any) -> dict[str, Any]:
     mode = _graph_node_runtime_mode(graph_config, work_order)
     input_package = dict(getattr(work_order, "input_package", {}) or {})
+    graph_slot = dict(getattr(work_order, "graph_slot", {}) or {})
+    node_contract = dict(graph_slot.get("node_contract") or {})
     package_profile = dict(input_package.get("runtime_profile") or {})
     task_environment_id = str(
         getattr(graph_config, "task_environment_id", "")
@@ -1045,6 +1087,8 @@ def _graph_node_task_selection(graph_config: Any, work_order: Any) -> dict[str, 
         "mode": mode,
         "runtime_mode": mode,
         "task_environment_id": task_environment_id,
+        "model_requirement": dict(node_contract.get("model_requirement") or {}),
+        "reasoning_policy": dict(node_contract.get("reasoning_policy") or {}),
         "tool_policy": dict(getattr(work_order, "tool_scope", {}) or getattr(graph_config, "tools", {}) or {}),
         "permission_policy": dict(getattr(work_order, "permission_scope", {}) or getattr(graph_config, "permissions", {}) or {}),
         "runtime_mode_policy": {
@@ -1059,15 +1103,18 @@ def _graph_node_task_selection(graph_config: Any, work_order: Any) -> dict[str, 
         "task_environment_id": task_environment_id,
         "runtime_mode": mode,
         "runtime_profile": runtime_profile,
-        "prompt_contract": dict(input_package.get("prompt_contract") or input_package.get("prompt") or {}),
+        "prompt_contract": dict(node_contract.get("prompt_contract") or input_package.get("prompt_contract") or input_package.get("prompt") or {}),
         "allowed_operations": list(dict(getattr(work_order, "tool_scope", {}) or {}).get("allowed_operations") or []),
     }
 
 
 def _graph_node_runtime_mode(graph_config: Any, work_order: Any) -> str:
     input_package = dict(getattr(work_order, "input_package", {}) or {})
+    graph_slot = dict(getattr(work_order, "graph_slot", {}) or {})
+    node_contract = dict(graph_slot.get("node_contract") or {})
     prompt = dict(input_package.get("prompt") or {})
     candidates = [
+        node_contract.get("runtime_mode"),
         dict(getattr(work_order, "dispatch_context", {}) or {}).get("runtime_mode"),
         dict(input_package.get("runtime_profile") or {}).get("mode"),
         dict(input_package.get("metadata") or {}).get("runtime_mode"),
@@ -1118,6 +1165,18 @@ def _graph_node_runtime_scope(work_order: Any) -> dict[str, Any]:
         "task_run_id": str(getattr(work_order, "task_run_id", "") or ""),
         "authority": "query_runtime.graph_node_runtime_scope",
     }
+
+
+def _graph_node_clock_seq(work_order: Any) -> int:
+    for payload in (
+        dict(getattr(work_order, "dispatch_context", {}) or {}),
+        dict(getattr(work_order, "graph_state", {}) or {}),
+    ):
+        try:
+            return int(payload.get("graph_clock_seq"))
+        except (TypeError, ValueError):
+            continue
+    return 0
 
 
 def _graph_node_public_scope_fields(work_order: Any) -> dict[str, str]:

@@ -362,7 +362,6 @@ function toolRequestProjection(eventType: string, payload: Record<string, unknow
     preview
     || text(requestPayload.command_preview)
     || text(requestPayload.assistant_content_preview)
-    || text(requestPayload.assistant_reasoning_preview)
     || short(toolCall.args)
     || text(actionRequest.request_type)
     || "已发起工具请求",

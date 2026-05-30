@@ -64,7 +64,10 @@ class SoulImageAssetGenerateRequest(BaseModel):
     target_id: str = Field(..., min_length=1)
     asset_kind: str = Field(default="world", min_length=1)
     prompt: str = Field(..., min_length=1)
+    model: str = Field(default="")
     size: str = Field(default="1024x1024")
+    quality: str = Field(default="")
+    request_timeout_seconds: float | None = Field(default=None)
     output_size: str = Field(default="")
     overwrite: bool = False
 
@@ -205,11 +208,37 @@ async def generate_soul_image_asset(payload: SoulImageAssetGenerateRequest) -> d
             target_id=payload.target_id,
             asset_kind=payload.asset_kind,
             size=payload.size,
+            quality=payload.quality,
+            model=payload.model,
+            request_timeout_seconds=payload.request_timeout_seconds,
             output_size=payload.output_size,
             overwrite=payload.overwrite,
         )
     except SoulImageAssetError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise HTTPException(status_code=_image_error_http_status(exc), detail=exc.to_dict()) from exc
+
+
+def _image_error_http_status(exc: SoulImageAssetError) -> int:
+    code = str(exc.code or "")
+    if code in {"timeout", "image_download_timeout"}:
+        return 504
+    if code == "image_provider_transient_error":
+        status = 0
+        for attempt in reversed(exc.attempts):
+            try:
+                status = int(attempt.get("http_status") or 0)
+            except (TypeError, ValueError):
+                status = 0
+            if status:
+                break
+        if status in {408, 429, 500, 502, 503, 504}:
+            return status
+        return 502
+    if code in {"image_provider_auth_error"}:
+        return 502
+    if code in {"image_endpoint_not_found", "model_endpoint_incompatible"}:
+        return 502
+    return 400
 
 
 @router.post("/soul/modes/preview")

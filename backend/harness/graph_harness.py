@@ -129,6 +129,21 @@ class GraphHarness:
             max_requests=max_requests,
         )
 
+    def apply_human_gate_decision(
+        self,
+        *,
+        graph_config: GraphHarnessConfig,
+        graph_run_id: str,
+        decision: dict[str, Any],
+        max_requests: int | None = None,
+    ) -> GraphLoopAdvance:
+        return self._loop.apply_human_gate_decision_and_checkpoint(
+            graph_config=graph_config,
+            graph_run_id=graph_run_id,
+            decision=dict(decision or {}),
+            max_requests=max_requests,
+        )
+
     async def execute_work_order(
         self,
         *,

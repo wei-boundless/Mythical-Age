@@ -7,6 +7,7 @@ from typing import Any
 from runtime.shared.models import TaskRun
 
 from .models import GraphHarnessConfig, GraphRun, GraphRuntimeEnvelope, safe_id
+from .scheduler_view import build_scheduler_view
 
 
 @dataclass(frozen=True, slots=True)
@@ -103,6 +104,10 @@ class GraphRuntime:
         memory_space = dict(environment.get("memory_space") or {})
         artifact_policy = dict(environment.get("artifact_policy") or {})
         sandbox_policy = dict(environment.get("sandbox_policy") or {})
+        static_topology_view = _static_topology_view(graph_config)
+        contract_index = _contract_index(graph_config)
+        state_machine_spec = _state_machine_spec(graph_config=graph_config, static_topology_view=static_topology_view)
+        loop_control_spec = _loop_control_spec(graph_config)
         envelope = GraphRuntimeEnvelope(
             envelope_id=f"grtenv:{safe_id(graph_run_id)}",
             graph_run_id=graph_run_id,
@@ -112,6 +117,10 @@ class GraphRuntime:
             config_hash=graph_config.content_hash,
             graph_id=graph_config.graph_id,
             initial_inputs=dict(initial_inputs or {}),
+            static_topology_view=static_topology_view,
+            contract_index=contract_index,
+            state_machine_spec=state_machine_spec,
+            loop_control_spec=loop_control_spec,
             runtime_services_ref="single_agent_runtime_host",
             permission_scope=dict(graph_config.permissions or {}),
             file_scope={
@@ -127,6 +136,8 @@ class GraphRuntime:
                 "memory_space": memory_space,
                 "graph_memory_policy": dict(graph_config.memory or {}),
                 "runtime_scope": runtime_scope,
+                "graph_task_memory_namespace": dict(runtime_scope.get("graph_task_memory_namespace") or {}),
+                "memory_namespace_id": str(runtime_scope.get("memory_namespace_id") or ""),
                 **_public_scope_fields(runtime_scope),
                 "authority": "harness.graph_runtime_envelope.memory_scope",
             },
@@ -152,6 +163,8 @@ class GraphRuntime:
                 "graph_run_id": graph_run_id,
                 "graph_run": graph_run.to_dict(),
                 "graph_runtime_envelope": envelope.to_dict(),
+                "static_topology_view": static_topology_view,
+                "contract_index": contract_index,
                 "formal_memory_sync": memory_sync,
             },
             refs={
@@ -190,6 +203,86 @@ class GraphRuntime:
             "synced": True,
             "authority": "harness.graph_runtime.formal_memory_sync",
         }
+
+
+def _static_topology_view(graph_config: GraphHarnessConfig) -> dict[str, Any]:
+    scheduler = build_scheduler_view(graph_config)
+    inbound: dict[str, list[str]] = {}
+    outbound: dict[str, list[str]] = {}
+    edge_index: dict[str, dict[str, Any]] = {}
+    node_index = {
+        str(node.get("node_id") or ""): {
+            "node_id": str(node.get("node_id") or ""),
+            "node_type": str(node.get("node_type") or ""),
+            "node_class": str(node.get("node_class") or ""),
+            "executor_type": str(dict(node.get("executor") or {}).get("executor_type") or "agent"),
+        }
+        for node in graph_config.nodes
+        if str(node.get("node_id") or "")
+    }
+    for edge in graph_config.edges:
+        edge_id = str(edge.get("edge_id") or "")
+        if not edge_id:
+            continue
+        source = str(edge.get("source_node_id") or "")
+        target = str(edge.get("target_node_id") or "")
+        outbound.setdefault(source, []).append(edge_id)
+        inbound.setdefault(target, []).append(edge_id)
+        edge_index[edge_id] = {
+            "edge_id": edge_id,
+            "source_node_id": source,
+            "target_node_id": target,
+            "edge_type": str(edge.get("edge_type") or ""),
+            "scheduler_role": str(edge.get("scheduler_role") or ""),
+            "semantic_role": str(edge.get("semantic_role") or ""),
+        }
+    return {
+        "node_index": node_index,
+        "edge_index": edge_index,
+        "inbound_edges_by_node": inbound,
+        "outbound_edges_by_node": outbound,
+        "start_node_ids": list(scheduler.start_node_ids),
+        "terminal_node_ids": list(scheduler.terminal_node_ids),
+        "executable_node_ids": list(scheduler.executable_node_ids),
+        "dependency_edge_ids": [str(edge.get("edge_id") or "") for edge in scheduler.dependency_edges],
+        "authority": "harness.graph_runtime.static_topology_view",
+    }
+
+
+def _contract_index(graph_config: GraphHarnessConfig) -> dict[str, Any]:
+    contracts = dict(graph_config.contracts or {})
+    return {
+        "node_protocol_index": dict(contracts.get("node_protocol_index") or {}),
+        "edge_protocol_index": dict(contracts.get("edge_protocol_index") or {}),
+        "node_contracts": list(contracts.get("node_contracts") or []),
+        "edge_contracts": list(contracts.get("edge_contracts") or []),
+        "runtime_contracts": list(contracts.get("runtime_contracts") or []),
+        "acceptance_contracts": list(contracts.get("acceptance_contracts") or []),
+        "authority": "harness.graph_runtime.contract_index",
+    }
+
+
+def _state_machine_spec(*, graph_config: GraphHarnessConfig, static_topology_view: dict[str, Any]) -> dict[str, Any]:
+    control = dict(graph_config.control or {})
+    return {
+        "start_node_ids": list(static_topology_view.get("start_node_ids") or []),
+        "terminal_node_ids": list(static_topology_view.get("terminal_node_ids") or []),
+        "dependency_edge_ids": list(static_topology_view.get("dependency_edge_ids") or []),
+        "scheduling_policy": dict(control.get("scheduling_policy") or {}),
+        "failure_policy": dict(control.get("failure_policy") or {}),
+        "checkpoint_policy": dict(control.get("checkpoint_policy") or {}),
+        "resume_policy": dict(control.get("resume_policy") or {}),
+        "human_gate_policy": dict(control.get("human_gate_policy") or {}),
+        "authority": "harness.graph_runtime.state_machine_spec",
+    }
+
+
+def _loop_control_spec(graph_config: GraphHarnessConfig) -> dict[str, Any]:
+    return {
+        "loop_frames": [dict(item) for item in graph_config.loop_frames],
+        "batch_policy": dict(dict(graph_config.control or {}).get("batch_policy") or {}),
+        "authority": "harness.graph_runtime.loop_control_spec",
+    }
 
 
 def _graph_run_origin(*, diagnostics: dict[str, Any], graph_config: GraphHarnessConfig) -> dict[str, str]:
@@ -259,8 +352,62 @@ def _graph_runtime_scope(
     else:
         scope["project_id"] = f"graphrun.{safe_id(graph_run_id)}"
         scope["scope_source"] = "harness.graph_runtime.generated_graph_run_project_scope"
+    graph_task_memory_namespace = _graph_task_memory_namespace(
+        graph_config=graph_config,
+        graph_run_id=graph_run_id,
+        task_run_id=task_run_id,
+    )
+    scope["graph_task_memory_namespace"] = graph_task_memory_namespace
+    scope["memory_namespace_id"] = graph_task_memory_namespace["namespace_id"]
     scope["authority"] = "harness.graph_runtime.runtime_scope"
     return scope
+
+
+def _graph_task_memory_namespace(
+    *,
+    graph_config: GraphHarnessConfig,
+    graph_run_id: str,
+    task_run_id: str,
+) -> dict[str, Any]:
+    policy = dict(dict(graph_config.memory or {}).get("graph_task_memory_namespace") or {})
+    raw_namespace = str(policy.get("namespace_id") or "").strip()
+    namespace_template = str(policy.get("namespace_template") or policy.get("namespace_id_template") or "").strip()
+    shared = bool(policy.get("shared") is True) or str(policy.get("isolation") or policy.get("scope_kind") or "") in {
+        "explicit_shared",
+        "durable_shared",
+    }
+    if namespace_template:
+        namespace_id = _format_namespace_template(namespace_template, graph_run_id=graph_run_id, task_run_id=task_run_id)
+        source = "graph_config_namespace_template"
+    elif raw_namespace and ("{graph_run_id}" in raw_namespace or "{root_task_run_id}" in raw_namespace or "{task_run_id}" in raw_namespace):
+        namespace_id = _format_namespace_template(raw_namespace, graph_run_id=graph_run_id, task_run_id=task_run_id)
+        source = "graph_config_namespace_template"
+    elif raw_namespace and shared:
+        namespace_id = raw_namespace
+        source = "graph_config_explicit_shared_namespace"
+    else:
+        namespace_id = f"graphmem:{safe_id(graph_run_id)}"
+        source = "graph_runtime_default_graph_run_namespace"
+    return {
+        "namespace_id": namespace_id,
+        "scope_kind": "graph_task_instance" if not shared else "explicit_shared",
+        "isolation": "per_graph_run" if not shared else "explicit_shared",
+        "source": source,
+        "graph_run_id": graph_run_id,
+        "root_task_run_id": task_run_id,
+        "authority": "harness.graph_runtime.graph_task_memory_namespace",
+    }
+
+
+def _format_namespace_template(template: str, *, graph_run_id: str, task_run_id: str) -> str:
+    return template.format(
+        graph_run_id=safe_id(graph_run_id),
+        raw_graph_run_id=graph_run_id,
+        task_run_id=safe_id(task_run_id),
+        root_task_run_id=safe_id(task_run_id),
+        raw_task_run_id=task_run_id,
+        raw_root_task_run_id=task_run_id,
+    )
 
 
 def _public_scope_fields(runtime_scope: dict[str, Any]) -> dict[str, str]:

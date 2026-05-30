@@ -61,8 +61,6 @@ TARGET_WORDS = TARGET_VOLUMES * VOLUME_TARGET_WORDS
 CHAPTER_REQUESTED_COUNT = TARGET_VOLUMES * CHAPTERS_PER_VOLUME
 WRITING_LONG_OUTPUT_TOKENS = 65536
 
-ARTIFACT_ROOT = "output/novel_artifacts/modular_novel/runs"
-
 REPOSITORY_NODES = (
     {
         "node_id": "memory.writing.baseline",
@@ -2092,10 +2090,10 @@ def _repository_lifecycle_policy(spec: dict[str, Any]) -> dict[str, Any]:
     node_id = str(spec.get("node_id") or "")
     if node_id.startswith("memory.writing."):
         return {
-            "scope_kind": "project_scoped",
-            "scope_id_source": "runtime_project_id",
+            "scope_kind": "run_scoped",
+            "namespace_policy": "graph_task_instance",
+            "scope_id_source": "graph_task_memory_namespace",
             "scope_required": True,
-            "fallback_scope_kind": "run_scoped",
         }
     return {"scope_kind": "run_scoped"}
 
@@ -2160,6 +2158,7 @@ def _node_contract_bindings(
     resolved_unit_batch = dict(unit_batch_bindings or _node_unit_batch_contract(node))
     resolved_governance = dict(governance_policy or _node_governance_policy(node))
     resolved_memory_write = dict(memory_write_policy or _memory_write_policy(node))
+    resolved_output_policy = _output_policy(node, artifact_policy=resolved_artifact_policy)
     binding = _basic_node_contract_bindings(
         input_contract_id=node.input_contract_id,
         output_contract_id=node.output_contract_id,
@@ -2178,6 +2177,7 @@ def _node_contract_bindings(
                 "workflow_role": node.role,
                 "agent_id": _node_agent_id(node),
             },
+            "output": resolved_output_policy,
             "artifact": {
                 "artifact_policy": resolved_artifact_policy,
                 "artifact_context_policy": _artifact_context_policy(node),
@@ -2428,10 +2428,10 @@ def _memory_edge(edge_id: str, source: str, target: str, operation: str, collect
 def _memory_repository_lifecycle_policy(repository: str) -> dict[str, Any]:
     if str(repository or "").startswith("memory.writing."):
         return {
-            "scope_kind": "project_scoped",
-            "scope_id_source": "runtime_project_id",
+            "scope_kind": "run_scoped",
+            "namespace_policy": "graph_task_instance",
+            "scope_id_source": "graph_task_memory_namespace",
             "scope_required": True,
-            "fallback_scope_kind": "run_scoped",
         }
     return {"scope_kind": "run_scoped"}
 
@@ -2510,19 +2510,92 @@ def _artifact_policy(node: NodeSpec) -> dict[str, Any]:
     return {
         "enabled": bool(node.artifact_paths),
         "required": bool(node.artifact_paths),
-        "default_artifact_root": ARTIFACT_ROOT,
+        "target_environment_id": ENVIRONMENT_ID,
+        "target_repository_id": "repo.writing.artifact_repository",
+        "target_collection_id": _output_collection_id(node),
+        "root_policy": "environment_artifact_repository",
         "subdir_template": "{project_id}",
         "source": "native_modular_writing_graph.node_spec",
         "artifacts": [
             {
                 "path": path,
                 "required": True,
-                "content_source": "final_content",
+                "content_source": "final_answer",
                 "fallback_to_full_content": True,
             }
             for path in node.artifact_paths
         ],
     }
+
+
+def _output_policy(node: NodeSpec, *, artifact_policy: dict[str, Any]) -> dict[str, Any]:
+    has_artifacts = bool(node.artifact_paths)
+    collection_id = _output_collection_id(node)
+    return {
+        "output_contract_id": node.output_contract_id,
+        "output_kind": _output_kind(node),
+        "primary_content_key": "final_answer",
+        "required_sections": _output_required_sections(node),
+        "content_extraction_policy": {
+            "mode": "model_action_final_answer",
+            "primary_content_key": "final_answer",
+            "fallback_to_full_content": True,
+        },
+        "artifact_materialization_policy": {
+            "required": has_artifacts,
+            "target_repository_id": "repo.writing.artifact_repository",
+            "target_collection_id": collection_id,
+            "environment_artifact_area": ENVIRONMENT_ID,
+            "artifact_targets": list(artifact_policy.get("artifacts") or []),
+        },
+        "artifact_repository_policy": {
+            "target_repository_id": "repo.writing.artifact_repository",
+            "target_collection_id": collection_id,
+            "lifecycle_policy": {"scope_kind": "run_scoped", "namespace_policy": "graph_task_instance"},
+        },
+        "official_work_commit_policy": {
+            "commit_required": False,
+            "committed_only_after": "review_and_memory_commit",
+        },
+        "no_artifact_output": not has_artifacts,
+        "authority": "writing_modular_novel.output_policy",
+    }
+
+
+def _output_kind(node: NodeSpec) -> str:
+    if node.node_id == "chapter_draft":
+        return "chapter_draft"
+    if node.node_id.endswith("review") or node.node_type == "review_gate":
+        return "review_report"
+    if node.node_type in {"memory_commit", "memory_finalize"} or node.write_mode in COMMIT_WRITE_MODES:
+        return "memory_commit_receipt"
+    if "world" in node.node_id:
+        return "world_candidate"
+    if "outline" in node.node_id:
+        return "outline_candidate"
+    return "graph_node_output"
+
+
+def _output_required_sections(node: NodeSpec) -> list[str]:
+    if node.node_id == "chapter_draft":
+        return ["写前取材判断", "章节正文候选"]
+    if node.node_id.endswith("review") or node.node_type == "review_gate":
+        return ["审核裁决", "问题清单", "是否允许进入下一阶段"]
+    if node.node_type in {"memory_commit", "memory_finalize"} or node.write_mode in COMMIT_WRITE_MODES:
+        return ["提交回执", "写入摘要"]
+    return ["节点交付内容"]
+
+
+def _output_collection_id(node: NodeSpec) -> str:
+    if node.node_id == "chapter_draft":
+        return "chapter_drafts"
+    if node.node_id.endswith("review") or node.node_type == "review_gate":
+        return "review_reports"
+    if node.node_type in {"memory_commit", "memory_finalize"} or node.write_mode in COMMIT_WRITE_MODES:
+        return "commit_receipts"
+    if not node.artifact_paths:
+        return "runtime_outputs"
+    return "draft_workspace"
 
 
 def _artifact_context_policy(node: NodeSpec, *, include_revision: bool = True) -> dict[str, Any]:

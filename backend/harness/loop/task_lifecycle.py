@@ -32,6 +32,7 @@ class TaskRunContract:
     task_environment_id: str = ""
     runtime_profile: dict[str, Any] = field(default_factory=dict)
     prompt_contract: dict[str, Any] = field(default_factory=dict)
+    graph_slot: dict[str, Any] = field(default_factory=dict)
     origin: dict[str, Any] = field(default_factory=dict)
     authority: str = "harness.loop.task_run_contract"
 
@@ -124,6 +125,7 @@ def contract_from_action_request(
         task_environment_id=str(task_environment_id or "").strip(),
         runtime_profile=dict(seed.get("runtime_profile") or {}),
         prompt_contract=dict(seed.get("prompt_contract") or {}),
+        graph_slot=dict(seed.get("graph_slot") or {}),
     )
     return contract, []
 
@@ -137,12 +139,14 @@ def start_task_lifecycle(
     action_request: ModelActionRequest,
     contract: TaskRunContract,
     agent_profile_ref: str,
+    model_selection: dict[str, Any] | None = None,
 ) -> tuple[TaskRun, AgentRun, TaskLifecycleRecord, list[dict[str, Any]]]:
     now = time.time()
     task_run_id = f"taskrun:{turn_id}:{uuid.uuid4().hex[:8]}"
     agent_run_id = f"agrun:{task_run_id}:main"
     origin = _task_lifecycle_origin(action_request=action_request, turn_id=turn_id)
     contract = _contract_with_origin(contract, origin)
+    model_selection_snapshot = _model_selection_snapshot(model_selection)
     contract_ref = runtime_host.runtime_objects.put_object(
         "task_run_contract",
         contract.contract_id,
@@ -165,6 +169,13 @@ def start_task_lifecycle(
             **origin,
             "contract": contract.to_dict(),
             "runtime_task_selection": _runtime_task_selection_from_contract(contract),
+            "model_selection": model_selection_snapshot,
+            "model_selection_binding": {
+                "scope": "task_run",
+                "source": "agent_turn",
+                "turn_id": turn_id,
+                "authority": "harness.loop.single_agent_task_model_selection",
+            },
         },
     )
     agent_run = AgentRun(
@@ -358,6 +369,10 @@ def _dict_tuple(value: Any) -> tuple[dict[str, Any], ...]:
     else:
         values = []
     return tuple(dict(item) for item in values if isinstance(item, dict))
+
+
+def _model_selection_snapshot(model_selection: dict[str, Any] | None) -> dict[str, Any]:
+    return dict(model_selection) if isinstance(model_selection, dict) else {}
 
 
 def _dedupe_tuple(values: tuple[str, ...]) -> tuple[str, ...]:

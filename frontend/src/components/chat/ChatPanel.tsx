@@ -20,8 +20,8 @@ export function ChatPanel() {
     workspaceInitializing,
     modelProviderConfig,
     soulImageAssetConfig,
-    deepSeekThinkingEnabled,
-    setDeepSeekThinkingEnabled,
+    thinkingEnabled,
+    setThinkingEnabled,
     mainAgentAssemblyMode,
     setMainAgentAssemblyMode,
     selectedChatModelId,
@@ -98,8 +98,8 @@ export function ChatPanel() {
           onSelectMainAgentAssemblyMode={setMainAgentAssemblyMode}
           onSelectChatModel={setSelectedChatModel}
           selectedChatModelId={selectedChatModelId}
-          deepSeekThinkingEnabled={deepSeekThinkingEnabled}
-          onToggleDeepSeekThinking={setDeepSeekThinkingEnabled}
+          thinkingEnabled={thinkingEnabled}
+          onToggleThinking={setThinkingEnabled}
         />
       </div>
     </section>

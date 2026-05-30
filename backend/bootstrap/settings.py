@@ -168,6 +168,16 @@ class AppSettingsService:
             "authority": "runtime.context_budget_presets",
         }
 
+    def task_executor_backend_config(self) -> dict[str, Any]:
+        image_payload = SoulImageAssetService(self.base_dir).config_summary()
+        return {
+            "soul_image_assets": {
+                "base_url": str(image_payload.get("base_url") or ""),
+                "model": str(image_payload.get("model") or ""),
+                "api_key_present": bool(image_payload.get("api_key_present")),
+            }
+        }
+
     def model_provider_payload(self) -> dict[str, Any]:
         from agent_system.models.model_profile_resolver import build_provider_catalog
 

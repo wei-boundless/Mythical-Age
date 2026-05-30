@@ -9,8 +9,9 @@ if str(BACKEND_DIR) not in sys.path:
 
 from harness.graph.flow_edges import build_inbound_flow_edges, build_outbound_flow_edges
 from harness.graph.context_materializer import GraphContextMaterializer
+from harness.graph.flow_packet import build_flow_packet, flow_packet_inbound_projection
 from harness.graph.models import GraphLoopState
-from harness.graph.models import GraphHarnessConfig
+from harness.graph.models import GraphHarnessConfig, NodeResultEnvelope
 from harness.graph.scheduler_view import build_scheduler_view
 from task_system.compiler.graph_harness_config_publisher import build_graph_harness_config_from_graph
 from task_system.graphs.task_graph_models import TaskGraphDefinition, TaskGraphEdgeDefinition, TaskGraphNodeDefinition
@@ -97,6 +98,66 @@ def test_context_edge_becomes_flow_edge_without_affecting_scheduler_readiness() 
     assert [item["edge_id"] for item in plan_outbound] == ["edge.plan.review.artifact"]
 
 
+def test_flow_packet_preserves_edge_contract_target_slot() -> None:
+    graph_config = _config(
+        (
+            {
+                "edge_id": "edge.draft.review.structured",
+                "source_node_id": "draft",
+                "target_node_id": "review",
+                "edge_type": "structured_handoff",
+                "semantic_role": "control",
+                "scheduler_role": "dependency",
+                "result_delivery_policy": "contract_payload_and_refs",
+                "payload_contract_id": "contract.draft.review.payload",
+                "contract_bindings": {
+                    "handoff": {
+                        "packet_contract_id": "packet.contract.draft.review",
+                        "target_context_key": "draft_packet",
+                        "target_input_slot": "review_inputs.draft",
+                    }
+                },
+                "context_filter_policy": {"include_output_keys": ["public"], "max_chars": 64},
+            },
+        )
+    )
+    state = GraphLoopState(
+        state_id="gstate:test:flow_packet",
+        graph_run_id="grun:test:flow_packet",
+        task_run_id="taskrun:test:flow_packet",
+        session_id="session:test",
+        config_id=graph_config.config_id,
+        config_hash=graph_config.content_hash,
+        graph_id=graph_config.graph_id,
+        status="running",
+    )
+    result = NodeResultEnvelope(
+        result_id="nresult:test:draft",
+        graph_run_id=state.graph_run_id,
+        task_run_id=state.task_run_id,
+        node_id="draft",
+        work_order_id="gwork:test:draft",
+        outputs={"public": "visible", "secret": "hidden"},
+    )
+
+    packet = build_flow_packet(
+        graph_config=graph_config,
+        state=state,
+        edge=dict(graph_config.edges[0]),
+        result=result,
+        result_ref="rtobj:nresult:test:draft",
+    )
+    inbound = flow_packet_inbound_projection(packet, packet_ref="rtobj:flowpkt:test")
+
+    assert packet.packet_contract_id == "packet.contract.draft.review"
+    assert packet.target_context_key == "draft_packet"
+    assert packet.target_input_slot == "review_inputs.draft"
+    assert inbound["packet_contract_id"] == "packet.contract.draft.review"
+    assert inbound["target_context_key"] == "draft_packet"
+    assert inbound["target_input_slot"] == "review_inputs.draft"
+    assert inbound["payload"]["bounded_outputs"] == {"public": "visible"}
+
+
 def test_resource_flow_edges_materialize_as_view_requests_not_result_context() -> None:
     graph_config = _config(
         (
@@ -141,12 +202,28 @@ def test_resource_flow_edges_materialize_as_view_requests_not_result_context() -
     )
     node = {"node_id": "draft", "node_type": "agent", "title": "起草"}
 
-    order = GraphContextMaterializer(services=None).build_work_order(graph_config=graph_config, state=state, node=node)
+    materializer = GraphContextMaterializer(services=None)
+    inbound_context = materializer.inbound_context_for_node(graph_config=graph_config, state=state, node_id="draft")
+    package = materializer.build_input_package(
+        graph_config=graph_config,
+        state=state,
+        node=node,
+        inbound_context=inbound_context,
+    )
 
-    assert order.input_package["inbound_context"] == []
-    assert [item["edge_id"] for item in order.memory_view_request["graph_memory_policy"]["read_rules"]] == ["edge.plan.draft.memory"]
-    assert [item["edge_id"] for item in order.artifact_view_request["graph_artifact_policy"]["context_edges"]] == ["edge.plan.draft.artifact"]
-    assert [item["edge_id"] for item in order.file_view_request["graph_resource_policy"]["file_context_edges"]] == ["edge.plan.draft.file"]
+    assert package["inbound_context"] == []
+    assert [item["edge_id"] for item in package["memory_view"]["graph_memory_policy"]["read_rules"]] == ["edge.plan.draft.memory"]
+    assert [item["edge_id"] for item in package["artifact_view"]["graph_artifact_policy"]["context_edges"]] == ["edge.plan.draft.artifact"]
+    assert [item["edge_id"] for item in package["file_view"]["graph_resource_policy"]["file_context_edges"]] == ["edge.plan.draft.file"]
+
+    try:
+        materializer.build_work_order(graph_config=graph_config, state=state, node=node)
+        raised = None
+    except ValueError as exc:
+        raised = exc
+
+    assert raised is not None
+    assert "formal_memory_service" in str(raised)
 
 
 def test_published_graph_includes_node_and_edge_protocol_indexes() -> None:

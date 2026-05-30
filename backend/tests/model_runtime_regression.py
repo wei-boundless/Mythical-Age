@@ -770,6 +770,60 @@ def test_openai_compatible_runtime_passes_max_completion_tokens() -> None:
     assert model.max_retries == 0
 
 
+def test_openai_reasoning_model_sends_reasoning_effort_when_thinking_enabled() -> None:
+    runtime = _runtime(
+        retries=0,
+        thinking_mode="enabled",
+        reasoning_effort="max",
+    )
+    model = runtime._build_chat_model_for_spec(
+        ModelSpec(
+            provider="openai",
+            model="gpt-5",
+            api_key="openai-key",
+            base_url="https://api.openai.com/v1",
+        )
+    )
+
+    assert model.reasoning_effort == "high"
+
+
+def test_openai_chat_model_omits_reasoning_effort_when_not_reasoning_capable() -> None:
+    runtime = _runtime(
+        retries=0,
+        thinking_mode="enabled",
+        reasoning_effort="max",
+    )
+    model = runtime._build_chat_model_for_spec(
+        ModelSpec(
+            provider="openai",
+            model="gpt-4.1-mini",
+            api_key="openai-key",
+            base_url="https://api.openai.com/v1",
+        )
+    )
+
+    assert model.reasoning_effort is None
+
+
+def test_openai_reasoning_model_omits_reasoning_effort_when_thinking_disabled() -> None:
+    runtime = _runtime(
+        retries=0,
+        thinking_mode="disabled",
+        reasoning_effort="max",
+    )
+    model = runtime._build_chat_model_for_spec(
+        ModelSpec(
+            provider="openai",
+            model="gpt-5",
+            api_key="openai-key",
+            base_url="https://api.openai.com/v1",
+        )
+    )
+
+    assert model.reasoning_effort is None
+
+
 def test_model_runtime_reads_long_output_settings_dynamically() -> None:
     runtime = _runtime(
         timeout=45,

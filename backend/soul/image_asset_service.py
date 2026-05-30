@@ -50,6 +50,9 @@ class SoulImageAssetService:
             "configured": self.configured(),
             "base_url": self._base_url(),
             "model": self._model(),
+            "quality": self._quality(),
+            "request_timeout_seconds": self._request_timeout_seconds(),
+            "concurrency": self._request_concurrency(),
             "api_key_present": bool(self._api_key()),
             "public_dir": str(self.public_dir),
         }
@@ -75,6 +78,9 @@ class SoulImageAssetService:
         target_id: str,
         asset_kind: str = "world",
         size: str = "1024x1024",
+        quality: str = "",
+        model: str = "",
+        request_timeout_seconds: float | None = None,
         output_size: str = "",
         overwrite: bool = False,
     ) -> dict[str, Any]:
@@ -102,8 +108,14 @@ class SoulImageAssetService:
 
         attempts: list[dict[str, Any]] = []
         data: dict[str, Any] | None = None
-        for payload in self._generation_payloads(prompt=clean_prompt, size=provider_size):
-            result = await self._post_generation_payload_concurrently(endpoint=endpoint, headers=headers, payload=payload)
+        started_at = time.monotonic()
+        for payload in self._generation_payloads(prompt=clean_prompt, size=provider_size, quality=quality, model=model):
+            result = await self._post_generation_payload_concurrently(
+                endpoint=endpoint,
+                headers=headers,
+                payload=payload,
+                request_timeout_seconds=request_timeout_seconds,
+            )
             attempts.extend(list(result.get("attempts") or []))
             if result.get("data") is not None:
                 data = dict(result.get("data") or {})
@@ -171,19 +183,24 @@ class SoulImageAssetService:
             "requested_size": _format_size(requested_size) if requested_size else str(size or ""),
             "provider_size": provider_size,
             "final_size": _format_size(final_size) if final_size else "",
+            "duration_ms": int((time.monotonic() - started_at) * 1000),
+            "model": str(first_item.get("model") or data.get("model") or model or self._model()),
         }
 
-    def _generation_payloads(self, *, prompt: str, size: str) -> list[dict[str, Any]]:
+    def _generation_payloads(self, *, prompt: str, size: str, quality: str = "", model: str = "") -> list[dict[str, Any]]:
         payloads: list[dict[str, Any]] = []
-        for model in self._model_candidates():
+        normalized_quality = _normalize_quality(quality or self._quality())
+        for candidate_model in self._model_candidates(primary_override=model):
             base = {
-                "model": model,
+                "model": candidate_model,
                 "prompt": prompt,
                 "size": size,
                 "n": 1,
             }
-            payloads.append({**base, "response_format": "b64_json"})
+            if normalized_quality:
+                base["quality"] = normalized_quality
             payloads.append(dict(base))
+            payloads.append({**base, "response_format": "b64_json"})
         result: list[dict[str, Any]] = []
         seen: set[str] = set()
         for payload in payloads:
@@ -194,8 +211,8 @@ class SoulImageAssetService:
             result.append(payload)
         return result
 
-    def _model_candidates(self) -> list[str]:
-        primary = self._model()
+    def _model_candidates(self, *, primary_override: str = "") -> list[str]:
+        primary = str(primary_override or "").strip() or self._model()
         override = dict(runtime_config.load().get("soul_image_assets") or {})
         configured = override.get("fallback_models") or override.get("model_fallbacks") or []
         env_fallbacks = [
@@ -210,10 +227,25 @@ class SoulImageAssetService:
             values.extend(item.strip() for item in configured.split(",") if item.strip())
         return _dedupe_strings(values)
 
-    async def _post_generation_payload_concurrently(self, *, endpoint: str, headers: dict[str, str], payload: dict[str, Any]) -> dict[str, Any]:
+    async def _post_generation_payload_concurrently(
+        self,
+        *,
+        endpoint: str,
+        headers: dict[str, str],
+        payload: dict[str, Any],
+        request_timeout_seconds: float | None = None,
+    ) -> dict[str, Any]:
         concurrency = self._request_concurrency()
         tasks = [
-            asyncio.create_task(self._post_generation_payload(endpoint=endpoint, headers=headers, payload=payload, attempt_index=index + 1))
+            asyncio.create_task(
+                self._post_generation_payload(
+                    endpoint=endpoint,
+                    headers=headers,
+                    payload=payload,
+                    attempt_index=index + 1,
+                    request_timeout_seconds=request_timeout_seconds,
+                )
+            )
             for index in range(concurrency)
         ]
         attempts: list[dict[str, Any]] = []
@@ -238,9 +270,18 @@ class SoulImageAssetService:
             await asyncio.gather(*tasks, return_exceptions=True)
         return {"data": None, "attempts": attempts, "api_error": last_api_error}
 
-    async def _post_generation_payload(self, *, endpoint: str, headers: dict[str, str], payload: dict[str, Any], attempt_index: int) -> dict[str, Any]:
+    async def _post_generation_payload(
+        self,
+        *,
+        endpoint: str,
+        headers: dict[str, str],
+        payload: dict[str, Any],
+        attempt_index: int,
+        request_timeout_seconds: float | None = None,
+    ) -> dict[str, Any]:
+        request_timeout = _normalize_request_timeout(request_timeout_seconds, default=self._request_timeout_seconds())
         try:
-            async with httpx.AsyncClient(timeout=httpx.Timeout(self._request_timeout_seconds(), connect=20.0)) as client:
+            async with httpx.AsyncClient(timeout=httpx.Timeout(request_timeout, connect=min(20.0, request_timeout))) as client:
                 response = await client.post(endpoint, headers=headers, json=payload)
         except httpx.TimeoutException:
             attempt = _attempt_error(payload=payload, code="timeout", message="Image API request timed out", retryable=True, attempt_index=attempt_index)
@@ -295,13 +336,18 @@ class SoulImageAssetService:
         return str(os.getenv("SOUL_IMAGE_MODEL") or override.get("model") or "gpt-image-2").strip()
 
     @staticmethod
+    def _quality() -> str:
+        override = dict(runtime_config.load().get("soul_image_assets") or {})
+        return str(os.getenv("SOUL_IMAGE_QUALITY") or override.get("quality") or "").strip()
+
+    @staticmethod
     def _request_timeout_seconds() -> float:
         override = dict(runtime_config.load().get("soul_image_assets") or {})
-        raw = os.getenv("SOUL_IMAGE_REQUEST_TIMEOUT_SECONDS") or override.get("request_timeout_seconds") or 600
+        raw = os.getenv("SOUL_IMAGE_REQUEST_TIMEOUT_SECONDS") or override.get("request_timeout_seconds") or 55
         try:
-            return max(30.0, float(raw))
+            return _normalize_request_timeout(float(raw), default=55.0)
         except (TypeError, ValueError):
-            return 600.0
+            return 55.0
 
     @staticmethod
     def _request_concurrency() -> int:
@@ -375,7 +421,7 @@ def _attempt_success(*, payload: dict[str, Any], attempt_index: int) -> dict[str
 
 
 def _should_try_next_payload(api_error: dict[str, Any]) -> bool:
-    return str(api_error.get("code") or "") in {"model_endpoint_incompatible", "image_provider_transient_error"} and bool(api_error.get("retryable", True))
+    return str(api_error.get("code") or "") == "model_endpoint_incompatible" and bool(api_error.get("retryable", True))
 
 
 def _format_generation_failure(attempts: list[dict[str, Any]]) -> str:
@@ -419,6 +465,26 @@ def _provider_generation_size(requested: str) -> str:
     if requested_size in {(1024, 1024), (1024, 1536), (1536, 1024)}:
         return _format_size(requested_size)
     return "1024x1024"
+
+
+def _normalize_quality(value: str) -> str:
+    normalized = str(value or "").strip().lower()
+    aliases = {
+        "normal": "standard",
+        "std": "standard",
+    }
+    normalized = aliases.get(normalized, normalized)
+    if normalized in {"low", "medium", "high", "auto", "standard", "hd"}:
+        return normalized
+    return ""
+
+
+def _normalize_request_timeout(value: float | int | str | None, *, default: float) -> float:
+    try:
+        parsed = float(value if value is not None else default)
+    except (TypeError, ValueError):
+        parsed = float(default)
+    return min(120.0, max(30.0, parsed))
 
 
 def _resolve_generation_and_output_sizes(*, size: str, output_size: str) -> tuple[str, tuple[int, int] | None]:

@@ -129,8 +129,8 @@ export class WorkspaceRuntime {
       setSelectedChatMode: (mode) => {
         this.setSelectedChatMode(mode);
       },
-      setDeepSeekThinkingEnabled: (enabled) => {
-        this.setDeepSeekThinkingEnabled(enabled);
+      setThinkingEnabled: (enabled) => {
+        this.setThinkingEnabled(enabled);
       },
       setMainAgentAssemblyMode: (mode) => {
         this.setMainAgentAssemblyMode(mode);
@@ -295,7 +295,7 @@ export class WorkspaceRuntime {
       soulOptions: souls.options,
       activeSoulKey: souls.activeSoulKey,
       selectedChatMode: this.resolveSelectedChatMode(prev.selectedChatModelId, modelProviderConfig),
-      deepSeekThinkingEnabled: String(modelProviderConfig?.thinking_mode || "").trim().toLowerCase() === "enabled"
+      thinkingEnabled: String(modelProviderConfig?.thinking_mode || "").trim().toLowerCase() === "enabled"
     }));
   }
 
@@ -1092,8 +1092,8 @@ export class WorkspaceRuntime {
     this.store.setState((prev) => ({ ...prev, selectedChatMode: mode }));
   }
 
-  private setDeepSeekThinkingEnabled(enabled: boolean) {
-    this.store.setState((prev) => ({ ...prev, deepSeekThinkingEnabled: enabled }));
+  private setThinkingEnabled(enabled: boolean) {
+    this.store.setState((prev) => ({ ...prev, thinkingEnabled: enabled }));
   }
 
   private chatModelSelectionPayload(state: StoreState): ChatModelSelection | undefined {
@@ -1102,8 +1102,8 @@ export class WorkspaceRuntime {
       return undefined;
     }
     const { selectionId, provider, model, baseUrl, credentialRef } = resolved;
-    const isDeepSeekTextModel = this.isDeepSeekChatModel(provider, model, state.selectedChatMode);
-    if (selectionId === "system-default" && !isDeepSeekTextModel) {
+    const supportsHiddenReasoning = this.supportsHiddenReasoning(provider, model, state.selectedChatMode, state.modelProviderConfig);
+    if (selectionId === "system-default" && !supportsHiddenReasoning) {
       return undefined;
     }
     const payload: ChatModelSelection = {
@@ -1113,9 +1113,9 @@ export class WorkspaceRuntime {
       base_url: baseUrl,
       credential_ref: credentialRef,
     };
-    if (isDeepSeekTextModel) {
-      payload.thinking_mode = state.deepSeekThinkingEnabled ? "enabled" : "disabled";
-      payload.reasoning_effort = state.deepSeekThinkingEnabled ? "max" : "high";
+    if (supportsHiddenReasoning) {
+      payload.thinking_mode = state.thinkingEnabled ? "enabled" : "disabled";
+      payload.reasoning_effort = state.thinkingEnabled ? "max" : "high";
     }
     return payload;
   }
@@ -1126,7 +1126,6 @@ export class WorkspaceRuntime {
       return null;
     }
     const selectionId = state.selectedChatModelId || "system-default";
-    const catalog = config.provider_catalog;
     let provider = "";
     let model = "";
     if (selectionId === "system-default") {
@@ -1140,7 +1139,7 @@ export class WorkspaceRuntime {
     if (!provider || !model) {
       return null;
     }
-    const option = catalog?.providers?.[provider];
+    const option = this.providerCatalogOption(config, provider);
     const isPrimaryConfigured = provider === config.provider && model === config.model;
     const isFallbackConfigured = provider === config.fallback_provider && model === config.fallback_model;
     if (!isPrimaryConfigured && !isFallbackConfigured) {
@@ -1161,10 +1160,47 @@ export class WorkspaceRuntime {
     };
   }
 
-  private isDeepSeekChatModel(provider: string, model: string, mode: ChatMode) {
-    return mode !== "image"
-      && provider.trim().toLowerCase() === "deepseek"
-      && !model.trim().toLowerCase().includes("image");
+  private supportsHiddenReasoning(
+    provider: string,
+    model: string,
+    mode: ChatMode,
+    config: StoreState["modelProviderConfig"],
+  ) {
+    const normalizedProvider = provider.trim().toLowerCase();
+    const normalizedModel = model.trim().toLowerCase();
+    if (mode === "image" || !normalizedProvider || !normalizedModel || normalizedModel.includes("image")) {
+      return false;
+    }
+    const tags = this.providerCapabilityTags(config, normalizedProvider);
+    if (!tags.has("reasoning")) {
+      return false;
+    }
+    if (normalizedProvider === "deepseek") {
+      return true;
+    }
+    if (normalizedProvider === "openai") {
+      return isOpenAIReasoningModel(normalizedModel);
+    }
+    return false;
+  }
+
+  private providerCapabilityTags(config: StoreState["modelProviderConfig"], provider: string) {
+    const option = this.providerCatalogOption(config, provider);
+    return new Set((option?.capability_tags || []).map((tag) => String(tag || "").trim().toLowerCase()).filter(Boolean));
+  }
+
+  private providerCatalogOption(config: StoreState["modelProviderConfig"], provider: string) {
+    if (!config) {
+      return undefined;
+    }
+    const normalizedProvider = provider.trim().toLowerCase();
+    const providers = {
+      ...(config.supported_providers || {}),
+      ...(config.provider_catalog?.providers || {}),
+    };
+    return providers[provider]
+      || providers[normalizedProvider]
+      || Object.entries(providers).find(([key]) => key.trim().toLowerCase() === normalizedProvider)?.[1];
   }
 
   private resolveSelectedChatMode(selectionId: string, config: StoreState["modelProviderConfig"]) {
@@ -2594,4 +2630,12 @@ export class WorkspaceRuntime {
   private errorMessage(error: unknown, fallback: string) {
     return error instanceof Error && error.message.trim() ? error.message : fallback;
   }
+}
+
+function isOpenAIReasoningModel(model: string) {
+  const normalized = model.trim().toLowerCase();
+  return normalized.startsWith("gpt-5")
+    || normalized.startsWith("o1")
+    || normalized.startsWith("o3")
+    || normalized.startsWith("o4");
 }

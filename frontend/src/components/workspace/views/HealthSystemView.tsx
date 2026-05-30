@@ -15,370 +15,96 @@ import {
   TimerReset,
   WalletCards,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
 
 import {
-  getHealthSystemOverview,
-  getHealthSystemTaskRecordMaintenance,
-  getHealthSystemTaskDetail,
-  pruneHealthSystemTaskRecords,
-  type HealthRiskEvent,
-  type HealthSystemOverview,
-  type HealthTaskRecordMaintenance,
-  type HealthTaskRecord,
-} from "@/lib/api";
-
-type HealthPage = "overview" | "tasks" | "maintenance" | "system" | "cost";
-type TokenChartMode = "daily" | "six_hour";
+  compactNumber,
+  costConclusion,
+  durationLabel,
+  numberValue,
+  percentLabel,
+  riskClass,
+  riskLabel,
+  riskLabelValue,
+  signedTokenLabel,
+  statusLabel,
+  statusLabelValue,
+  taskDisplayTitle,
+  taskSecondaryLabel,
+  taskTitle,
+  timeLabel,
+  tokenLabel,
+  tokenSourceClass,
+  tokenSourceLabel,
+  type HealthPage,
+} from "@/features/health/healthFormatters";
+import { useHealthSystemController } from "@/features/health/useHealthSystemController";
+import type { HealthRiskEvent, HealthTaskRecord } from "@/lib/api";
 
 const pages: Array<{ key: HealthPage; title: string; subtitle: string; icon: typeof HeartPulse }> = [
   { key: "overview", title: "总览", subtitle: "风险、成本、效率", icon: HeartPulse },
   { key: "tasks", title: "任务健康", subtitle: "任务记录与风险", icon: Activity },
   { key: "maintenance", title: "任务记录管理", subtitle: "预检与回执", icon: Trash2 },
-  { key: "system", title: "系统风险", subtitle: "监控与运行环境", icon: ShieldAlert },
   { key: "cost", title: "运行成本", subtitle: "Token 与效率", icon: WalletCards },
 ];
 
-function numberValue(value: unknown, fallback = 0) {
-  const parsed = Number(value ?? fallback);
-  return Number.isFinite(parsed) ? parsed : fallback;
-}
-
-function timeLabel(value: unknown) {
-  const seconds = numberValue(value);
-  if (!seconds) return "-";
-  return new Date(seconds * 1000).toLocaleString();
-}
-
-function durationLabel(seconds: unknown) {
-  const total = Math.max(0, Math.round(numberValue(seconds)));
-  if (total < 60) return `${total}s`;
-  const minutes = Math.floor(total / 60);
-  const rest = total % 60;
-  if (minutes < 60) return `${minutes}m ${rest}s`;
-  const hours = Math.floor(minutes / 60);
-  return `${hours}h ${minutes % 60}m`;
-}
-
-function tokenLabel(value: unknown) {
-  const tokens = numberValue(value);
-  if (tokens >= 1_000_000) return `${(tokens / 1_000_000).toFixed(2)}M`;
-  if (tokens >= 1_000) return `${(tokens / 1_000).toFixed(1)}K`;
-  return String(Math.round(tokens));
-}
-
-function tokenSourceLabel(value: unknown) {
-  const source = String(value || "");
-  const map: Record<string, string> = {
-    provider_usage: "provider usage 精确记录",
-    local_prediction: "请求前本地预测",
-    trace_estimate: "旧任务轨迹估算",
-    none: "暂无记录",
-  };
-  return map[source] || source || "暂无记录";
-}
-
-function tokenBuckets(value: unknown) {
-  return Array.isArray(value)
-    ? value.map((item) => item as Record<string, unknown>)
-    : [];
-}
-
-function compactNumber(value: number) {
-  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
-  if (value >= 1_000) return `${(value / 1_000).toFixed(value >= 10_000 ? 0 : 1)}k`;
-  return String(Math.round(value));
-}
-
-function percentLabel(value: number) {
-  if (!Number.isFinite(value)) return "0%";
-  return `${Math.round(Math.max(0, Math.min(1, value)) * 100)}%`;
-}
-
-function signedTokenLabel(value: number) {
-  const sign = value > 0 ? "+" : value < 0 ? "-" : "";
-  return `${sign}${tokenLabel(Math.abs(value))}`;
-}
-
-function tokenSourceClass(value: unknown) {
-  const source = String(value || "");
-  if (source === "provider_usage") return "health-token-source health-token-source--exact";
-  if (source === "local_prediction") return "health-token-source health-token-source--predicted";
-  if (source === "trace_estimate") return "health-token-source health-token-source--trace";
-  return "health-token-source";
-}
-
-function statusLabel(status: string) {
-  const map: Record<string, string> = {
-    created: "已创建",
-    queued: "排队中",
-    running: "运行中",
-    waiting_approval: "等待确认",
-    paused: "已暂停",
-    completed: "已完成",
-    failed: "失败",
-    aborted: "已中止",
-    cancelled: "已取消",
-  };
-  return map[status] || status || "未知";
-}
-
-function statusLabelValue(value: unknown) {
-  return statusLabel(String(value || ""));
-}
-
-function riskLabel(level: string) {
-  const map: Record<string, string> = {
-    normal: "正常",
-    info: "提示",
-    warning: "注意",
-    high: "高风险",
-    critical: "严重",
-  };
-  return map[level] || level || "正常";
-}
-
-function riskLabelValue(value: unknown) {
-  return riskLabel(String(value || ""));
-}
-
-function riskClass(level: string) {
-  if (level === "critical") return "health-pill health-pill--danger";
-  if (level === "high") return "health-pill health-pill--warning";
-  if (level === "warning") return "health-pill health-pill--notice";
-  return "health-pill";
-}
-
-function byRisk(a: HealthTaskRecord, b: HealthTaskRecord) {
-  const order: Record<string, number> = { critical: 0, high: 1, warning: 2, normal: 3 };
-  return (order[a.risk_level] ?? 9) - (order[b.risk_level] ?? 9)
-    || numberValue(b.updated_at) - numberValue(a.updated_at);
-}
-
-function publicTitle(value: unknown) {
-  const candidate = String(value ?? "").trim();
-  if (!candidate) return "";
-  const lowered = candidate.toLowerCase();
-  if (
-    lowered.startsWith("task:")
-    || lowered.startsWith("taskrun:")
-    || lowered.startsWith("turn:")
-    || lowered.startsWith("turnrun:")
-    || lowered.startsWith("session:")
-    || lowered.startsWith("taskinst:")
-    || lowered.startsWith("coordrun:")
-  ) {
-    return "";
-  }
-  return candidate;
-}
-
-function runOrdinal(value: unknown) {
-  const text = String(value ?? "");
-  const match = text.match(/:([0-9]+)(?::[^:]*)?$/);
-  return match ? ` #${match[1]}` : "";
-}
-
-function taskDisplayTitle(task: Pick<HealthTaskRecord, "title" | "task_id" | "task_run_id" | "status"> | Record<string, unknown> | null) {
-  if (!task) return "未选择任务";
-  const rawTitle = "title" in task ? task.title : undefined;
-  const rawTaskId = "task_id" in task ? task.task_id : undefined;
-  const rawRunId = "task_run_id" in task ? task.task_run_id : undefined;
-  const title = publicTitle(rawTitle) || publicTitle(rawTaskId);
-  if (title) return title;
-  const status = String(("status" in task ? task.status : "") || "");
-  if (status === "failed") return `会话运行失败${runOrdinal(rawRunId)}`;
-  if (status === "completed" || status === "success") return `会话运行完成${runOrdinal(rawRunId)}`;
-  if (status === "blocked" || status === "waiting_approval") return `会话运行等待处理${runOrdinal(rawRunId)}`;
-  return `会话运行${runOrdinal(rawRunId)}`;
-}
-
-function taskSecondaryLabel(row: Record<string, unknown>) {
-  const agent = publicTitle(row.agent_id);
-  if (agent) return agent;
-  return sessionLabel(row.session_id);
-}
-
-function sessionLabel(value: unknown) {
-  const text = String(value ?? "").trim();
-  if (!text) return "会话记录";
-  const match = text.match(/session-([a-f0-9]{6})/i);
-  if (match) return `会话 ${match[1]}`;
-  if (text.toLowerCase().startsWith("session:") || text.toLowerCase().startsWith("session-")) {
-    return "会话记录";
-  }
-  return text;
-}
-
-function taskTitle(task: HealthTaskRecord | null) {
-  return taskDisplayTitle(task);
-}
-
-function costConclusion(overview: HealthSystemOverview) {
-  const highPressure = numberValue(overview.token_usage.summary.high_pressure_session_count);
-  const slowTasks = numberValue(overview.efficiency.summary.slow_task_count);
-  if (highPressure > 0 && slowTasks > 0) {
-    return "Token 压力和慢任务同时存在，建议优先检查上下文注入、任务循环和工具等待。";
-  }
-  if (highPressure > 0) {
-    return "当前主要压力来自高 token 会话，建议压缩上下文或拆分任务。";
-  }
-  if (slowTasks > 0) {
-    return "当前主要压力来自慢任务，建议检查执行等待、循环重试和人工确认。";
-  }
-  return "当前运行成本处于可控状态，继续观察趋势和高消耗任务即可。";
-}
-
 export function HealthSystemView() {
-  const [activePage, setActivePage] = useState<HealthPage>("overview");
-  const [overview, setOverview] = useState<HealthSystemOverview | null>(null);
-  const [maintenance, setMaintenance] = useState<HealthTaskRecordMaintenance | null>(null);
-  const [tokenChartMode, setTokenChartMode] = useState<TokenChartMode>("daily");
-  const [selectedTaskId, setSelectedTaskId] = useState("");
-  const [taskDetail, setTaskDetail] = useState<Record<string, unknown> | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [detailLoading, setDetailLoading] = useState(false);
-  const [error, setError] = useState("");
-  const [maintenanceBusy, setMaintenanceBusy] = useState("");
-  const [maintenanceMessage, setMaintenanceMessage] = useState("");
-
-  const loadOverview = useCallback(async () => {
-    setLoading(true);
-    setError("");
-    try {
-      const payload = await getHealthSystemOverview();
-      setOverview(payload);
-      const firstTask = [...(payload.tasks ?? [])].sort(byRisk)[0];
-      setSelectedTaskId((current) => current || firstTask?.task_run_id || "");
-    } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : "健康系统数据加载失败");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    void loadOverview();
-  }, [loadOverview]);
-
-  const loadMaintenance = useCallback(async () => {
-    try {
-      const payload = await getHealthSystemTaskRecordMaintenance("static", 24 * 60 * 60);
-      setMaintenance(payload);
-    } catch {
-      setMaintenance(null);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (activePage === "maintenance") {
-      void loadMaintenance();
-    }
-  }, [activePage, loadMaintenance]);
-
-  useEffect(() => {
-    if (!selectedTaskId) {
-      setTaskDetail(null);
-      return;
-    }
-    let cancelled = false;
-    setDetailLoading(true);
-    void getHealthSystemTaskDetail(selectedTaskId)
-      .then((payload) => {
-        if (!cancelled) setTaskDetail(payload);
-      })
-      .catch(() => {
-        if (!cancelled) setTaskDetail(null);
-      })
-      .finally(() => {
-        if (!cancelled) setDetailLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [selectedTaskId]);
-
-  const tasks = useMemo(() => [...(overview?.tasks ?? [])].sort(byRisk), [overview]);
-  const selectedTask = useMemo(
-    () => tasks.find((task) => task.task_run_id === selectedTaskId) ?? tasks[0] ?? null,
-    [selectedTaskId, tasks],
-  );
-  const risks = overview?.risks ?? [];
-  const systemRisks = overview?.system_risks ?? [];
-  const tokenTasks = overview?.token_usage?.tasks ?? [];
-  const efficiencyTasks = overview?.efficiency?.tasks ?? [];
-  const monitorGovernance = overview?.monitor_governance ?? null;
-  const tokenUsage = overview?.token_usage;
-  const dailyTokenBuckets = tokenBuckets(tokenUsage?.daily);
-  const sixHourTokenBuckets = tokenBuckets(tokenUsage?.six_hour);
-  const activeTokenBuckets = tokenChartMode === "daily" ? dailyTokenBuckets : sixHourTokenBuckets;
-  const maxActiveTokenBucket = Math.max(1, ...activeTokenBuckets.map((bucket) => numberValue(bucket.tokens)));
-  const tokenChartTitle = tokenChartMode === "daily" ? "最近 7 天" : "最近 24 小时";
-  const tokenChartBucketLabel = tokenChartMode === "daily" ? "日期" : "6 小时窗口";
-  const tokenChartTicks = [1, 0.75, 0.5, 0.25, 0].map((ratio) => Math.round(maxActiveTokenBucket * ratio));
-  const tokenLinePoints = activeTokenBuckets.map((bucket, index, buckets) => {
-    const x = buckets.length <= 1 ? 50 : (index / (buckets.length - 1)) * 100;
-    const value = numberValue(bucket.tokens);
-    const y = 92 - (value / maxActiveTokenBucket) * 76;
-    return { bucket, value, x, y };
-  });
-  const tokenLinePolyline = tokenLinePoints.map((point) => `${point.x},${point.y}`).join(" ");
-  const tokenLineArea = tokenLinePoints.length
-    ? `0,92 ${tokenLinePolyline} 100,92`
-    : "";
-  const tokenSummary = tokenUsage?.summary ?? {};
-  const exactTokenTotal = numberValue(tokenSummary.exact_total_tokens ?? tokenSummary.total_tokens);
-  const predictedTokenTotal = numberValue(tokenSummary.predicted_total_tokens);
-  const traceTokenTotal = numberValue(tokenSummary.trace_estimate_total_tokens);
-  const cacheSavingsTotal = numberValue(tokenSummary.cache_savings_tokens);
-  const cachedTokenTotal = numberValue(tokenSummary.cached_tokens);
-  const providerUsageTaskCount = numberValue(tokenSummary.provider_usage_task_count);
-  const predictionOnlyTaskCount = numberValue(tokenSummary.prediction_only_task_count);
-  const traceEstimateTaskCount = numberValue(tokenSummary.trace_estimate_task_count);
-  const tokenRecordCount = Math.max(0, numberValue(tokenSummary.record_count));
-  const missingTokenTaskCount = Math.max(0, tokenRecordCount - providerUsageTaskCount - predictionOnlyTaskCount - traceEstimateTaskCount);
-  const providerCoverage = tokenRecordCount ? providerUsageTaskCount / tokenRecordCount : 0;
-  const providerCoverageCaption = tokenRecordCount
-    ? `${providerUsageTaskCount} / ${tokenRecordCount} 个任务已有 provider usage`
-    : "暂无可核算任务";
-  const predictionDelta = exactTokenTotal > 0 ? predictedTokenTotal - exactTokenTotal : 0;
-  const predictionDeltaRatio = exactTokenTotal > 0 ? Math.abs(predictionDelta) / exactTokenTotal : 0;
-  const cacheSavingsRatio = exactTokenTotal + cacheSavingsTotal > 0
-    ? cacheSavingsTotal / (exactTokenTotal + cacheSavingsTotal)
-    : 0;
-  const sourceStructureTotal = Math.max(1, providerUsageTaskCount + predictionOnlyTaskCount + traceEstimateTaskCount + missingTokenTaskCount);
-  const tokenInsight = providerCoverage >= 0.8
-    ? "账本真值覆盖充分，可以直接用精确消耗判断成本。"
-    : providerCoverage > 0
-      ? "部分任务已有 provider usage，仍有任务只停留在预测或旧轨迹估算。"
-      : "当前主要依赖预测或旧轨迹估算，精确账单真值还不足。";
-
-  const maintenanceSummary = maintenance?.summary ?? {};
-  const maintenanceCandidates = maintenance?.candidates ?? [];
-  const protectedMaintenanceCandidates = maintenanceCandidates.filter((item) => !Boolean(item.eligible));
-  const monitorSummary = monitorGovernance?.summary ?? ((overview?.monitor as Record<string, any> | undefined)?.summary as Record<string, any> | undefined) ?? {};
-
-  async function pruneRecords(bucket: "static" | "completed" | "failed" | "diagnostics", taskRunIds: string[] = []) {
-    setMaintenanceBusy(taskRunIds.length ? taskRunIds[0] : bucket);
-    setMaintenanceMessage("");
-    setError("");
-    try {
-      const result = await pruneHealthSystemTaskRecords({
-        bucket,
-        task_run_ids: taskRunIds,
-        dry_run: false,
-        min_age_seconds: 24 * 60 * 60,
-      });
-      setMaintenanceMessage(`维护完成：删除 ${result.deleted_task_run_ids.length} 条，保护 ${result.protected_task_run_ids?.length ?? result.skipped.length} 条。回执 ${String(result.maintenance_receipt?.receipt_id || "未持久化")}`);
-      setSelectedTaskId((current) => result.deleted_task_run_ids.includes(current) ? "" : current);
-      await loadMaintenance();
-      await loadOverview();
-    } catch (pruneError) {
-      setError(pruneError instanceof Error ? pruneError.message : "任务记录清理失败");
-    } finally {
-      setMaintenanceBusy("");
-    }
-  }
+  const {
+    activePage,
+    detailLoading,
+    error,
+    loadMaintenance,
+    loadOverview,
+    loading,
+    maintenance,
+    maintenanceBusy,
+    maintenanceMessage,
+    overview,
+    pruneRecords,
+    setActivePage,
+    setSelectedTaskId,
+    setTokenChartMode,
+    taskDetail,
+    tokenChartMode,
+    view,
+  } = useHealthSystemController();
+  const {
+    activeTokenBuckets,
+    cacheSavingsRatio,
+    cacheSavingsTotal,
+    cachedTokenTotal,
+    efficiencyTasks,
+    exactTokenTotal,
+    maintenanceCandidates,
+    maintenanceSummary,
+    maxActiveTokenBucket,
+    missingTokenTaskCount,
+    monitorGovernance,
+    monitorRevision,
+    monitorSummary,
+    predictedTokenTotal,
+    predictionDelta,
+    predictionDeltaRatio,
+    predictionOnlyTaskCount,
+    protectedMaintenanceCandidates,
+    providerCoverage,
+    providerCoverageCaption,
+    providerUsageTaskCount,
+    risks,
+    selectedTask,
+    sourceStructureTotal,
+    systemRisks,
+    tasks,
+    tokenChartBucketLabel,
+    tokenChartTicks,
+    tokenChartTitle,
+    tokenInsight,
+    tokenLineArea,
+    tokenLinePoints,
+    tokenLinePolyline,
+    tokenTasks,
+    traceEstimateTaskCount,
+    traceTokenTotal,
+  } = view;
 
   return (
     <div className="workspace-view health-system-view health-governance-view">
@@ -455,10 +181,10 @@ export function HealthSystemView() {
               <section className="health-semantic-box">
                 <span>监控归属</span>
                 <p>运行监控页面负责实时状态查看；健康系统只汇总监控事实、风险和建议，不接管运行监控界面。</p>
-                <p>Revision：{monitorGovernance?.revision || String((overview.monitor as Record<string, any>)?.revision || "-")}</p>
+                <p>Revision：{monitorRevision}</p>
               </section>
             </article>
-            <RiskList title="监控风险摘要" risks={monitorGovernance?.risk_escalations ?? []} />
+            <RiskList title="系统风险摘要" risks={systemRisks.length ? systemRisks : (monitorGovernance?.risk_escalations ?? [])} />
           </section>
         </section>
       ) : null}
@@ -554,25 +280,6 @@ export function HealthSystemView() {
                 </div>
               ) : null}
             </div>
-          </article>
-        </section>
-      ) : null}
-
-      {overview && activePage === "system" ? (
-        <section className="health-system-grid">
-          <RiskList title="系统风险" risks={systemRisks} />
-          <article className="health-system-card">
-            <PanelHead title="监控连接" subtitle="实时运行监控" />
-            <Metric label="运行中" value={String(monitorSummary.running ?? 0)} />
-            <Metric label="等待处理" value={String(monitorSummary.action_required ?? monitorSummary.waiting ?? 0)} danger={numberValue(monitorSummary.action_required ?? monitorSummary.waiting) > 0} />
-            <Metric label="停滞" value={String(monitorSummary.stale ?? 0)} danger={numberValue(monitorSummary.stale) > 0} />
-            <Metric label="诊断" value={String(monitorSummary.diagnostics ?? 0)} danger={numberValue(monitorSummary.diagnostics) > 0} />
-            {monitorGovernance?.recommended_actions?.length ? (
-              <section className="health-semantic-box">
-                <span>健康系统汇总</span>
-                <p>{monitorGovernance.recommended_actions[0]?.summary || monitorGovernance.recommended_actions[0]?.title}</p>
-              </section>
-            ) : null}
           </article>
         </section>
       ) : null}

@@ -85,6 +85,12 @@ class TaskRunMonitorProjector:
             or diagnostics.get("agent_brief_output")
             or ""
         )
+        artifact_refs = _dedupe_artifact_refs(
+            [
+                *[dict(item) for item in list(diagnostics.get("artifact_refs") or []) if isinstance(item, dict)],
+                *_artifact_refs_from_event_log(self.event_log, str(getattr(task_run, "task_run_id", "") or "")),
+            ]
+        )
         graph_id = str(route.get("graph_id") or "")
         graph_run_id = str(diagnostics.get("graph_run_id") or "")
         graph_harness_config_id = str(diagnostics.get("graph_harness_config_id") or "")
@@ -125,8 +131,8 @@ class TaskRunMonitorProjector:
             "agent_brief_output": agent_brief,
             "latest_step_name": str(latest_step.get("step") or diagnostics.get("latest_step") or ""),
             "latest_step_status": str(latest_step.get("status") or diagnostics.get("latest_step_status") or ""),
-            "artifact_count": len(list(diagnostics.get("artifact_refs") or [])),
-            "artifact_refs": list(diagnostics.get("artifact_refs") or [])[:10],
+            "artifact_count": len(artifact_refs),
+            "artifact_refs": artifact_refs[:10],
             "pending_user_steer_count": int(diagnostics.get("pending_user_steer_count") or 0),
             "latest_user_steer_ref": str(diagnostics.get("latest_user_steer_ref") or ""),
             "active_contract_revision_count": int(diagnostics.get("active_contract_revision_count") or 0),
@@ -412,3 +418,60 @@ def _is_chat_scoped(*, task_run_id: str, task_id: str) -> bool:
 def _looks_internal_identifier(value: str) -> bool:
     lowered = value.strip().lower()
     return lowered.startswith(("task:", "taskrun:", "turn:", "turnrun:", "session:", "taskinst:", "coordrun:"))
+
+
+def _artifact_refs_from_events(events: list[Any]) -> list[dict[str, Any]]:
+    refs: list[dict[str, Any]] = []
+    for event in events:
+        payload = _event_payload(event)
+        observation = dict(payload.get("observation") or {})
+        refs.extend(_artifact_refs_from_payload(dict(observation.get("payload") or {})))
+    return _dedupe_artifact_refs(refs)
+
+
+def _artifact_refs_from_event_log(event_log: Any, task_run_id: str) -> list[dict[str, Any]]:
+    reader = getattr(event_log, "list_event_window", None)
+    if callable(reader):
+        try:
+            return _artifact_refs_from_events(list(reader(task_run_id, limit=240, include_payloads=True)))
+        except Exception:
+            pass
+    reader = getattr(event_log, "list_events", None)
+    if callable(reader):
+        try:
+            return _artifact_refs_from_events(list(reader(task_run_id))[-240:])
+        except Exception:
+            pass
+    return []
+
+
+def _event_payload(event: Any) -> dict[str, Any]:
+    if hasattr(event, "payload"):
+        payload = getattr(event, "payload", None)
+    elif isinstance(event, dict):
+        payload = event.get("payload")
+    else:
+        payload = None
+    return dict(payload or {}) if isinstance(payload, dict) else {}
+
+
+def _artifact_refs_from_payload(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    envelope = dict(payload.get("result_envelope") or {})
+    structured = dict(payload.get("structured_payload") or envelope.get("structured_payload") or {})
+    return [
+        dict(item)
+        for item in list(payload.get("artifact_refs") or envelope.get("artifact_refs") or structured.get("artifact_refs") or [])
+        if isinstance(item, dict)
+    ]
+
+
+def _dedupe_artifact_refs(refs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for ref in refs:
+        key = str(ref.get("path") or ref.get("src") or ref.get("absolute_path") or ref)
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        result.append(dict(ref))
+    return result

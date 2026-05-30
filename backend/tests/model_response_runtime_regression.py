@@ -12,6 +12,7 @@ if str(BACKEND_DIR) not in sys.path:
 
 from runtime.model_gateway.model_response import ModelResponseRuntimeExecutor
 from runtime.model_gateway.model_runtime import ModelRuntimeError
+from runtime.shared.action_request import build_tool_action_request
 from orchestration import RuntimeDirective
 from harness.runtime.runtime_policy import model_stream_policy_from_task_execution_assembly
 
@@ -106,6 +107,14 @@ class _PartialThenHangingStreamRuntime:
         yield SimpleNamespace(content="partial answer")
         await asyncio.sleep(10)
         yield SimpleNamespace(content="late stream content")
+
+    async def invoke_messages(self, _messages):
+        return SimpleNamespace(content="unused fallback")
+
+
+class _ReasoningOnlyToolStreamRuntime:
+    async def astream_messages_with_tools(self, _messages, _tools, **_kwargs):
+        yield SimpleNamespace(content="", additional_kwargs={"reasoning_content": "hidden chain"})
 
     async def invoke_messages(self, _messages):
         return SimpleNamespace(content="unused fallback")
@@ -282,6 +291,43 @@ def test_stream_model_response_timeout_after_partial_output_commits_partial_done
     assert events[-1]["completion_state"] == "partial_timeout"
     assert events[-1]["terminal_reason"] == "model_response_timeout_after_partial_output"
     assert events[-1]["answer_canonical_state"] == "partial_timeout"
+
+
+def test_stream_preview_does_not_emit_hidden_reasoning_content() -> None:
+    executor = ModelResponseRuntimeExecutor(model_runtime=_ReasoningOnlyToolStreamRuntime())
+
+    async def _collect():
+        events = []
+        async for event in executor.stream(
+            user_message="run",
+            model_messages=[{"role": "user", "content": "run"}],
+            directive=_directive(),
+            tool_instances=[SimpleNamespace(name="inspect")],
+            model_stream_policy={"enabled": True},
+        ):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_collect())
+
+    assert not any(
+        event.get("type") == "content_delta" and event.get("content") == "hidden chain"
+        for event in events
+    )
+
+
+def test_tool_action_request_does_not_surface_hidden_reasoning_preview() -> None:
+    request = build_tool_action_request(
+        "task-run:test",
+        {
+            "tool_call": {"name": "inspect", "args": {"path": "README.md"}},
+            "assistant_content": "",
+            "assistant_additional_kwargs": {"reasoning_content": "hidden chain"},
+        },
+    )
+
+    assert request.payload["assistant_content_preview"] == ""
+    assert "assistant_reasoning_preview" not in request.payload
 
 
 def test_model_response_policy_caps_underlying_model_spec_timeout() -> None:

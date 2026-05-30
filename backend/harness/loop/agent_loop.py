@@ -691,6 +691,7 @@ async def run_agent_invocation_stream(
                 action_request=action_request,
                 contract=contract,
                 agent_profile_ref=agent_profile_ref,
+                model_selection=dict(request.model_selection or {}),
             )
             for event in events:
                 yield event

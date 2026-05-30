@@ -156,8 +156,13 @@ class FormalMemoryService:
             or scope_context.get("project_id")
             or ""
         ).strip()
+        graph_task_namespace_id = str(
+            scope_context.get("memory_namespace_id")
+            or dict(scope_context.get("graph_task_memory_namespace") or {}).get("namespace_id")
+            or ""
+        ).strip()
         if scope_kind == "run_scoped":
-            scope_id = task_run_id or requested_scope_id
+            scope_id = graph_task_namespace_id or task_run_id or requested_scope_id
             if not scope_id:
                 raise ValueError(f"run_scoped formal memory requires task_run_id or explicit scope_id: {logical_id}")
             effective_repository_id = f"run:{_safe_scope_id(scope_id)}:{logical_id}"

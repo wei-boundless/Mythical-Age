@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from .models import GraphHarnessConfig, GraphNodeWorkOrder, NodeResultEnvelope, safe_id
+from .output_policy import resolve_output_policy
 from .runtime_objects import node_result_summary, work_order_summary
 
 
@@ -127,8 +128,10 @@ class GraphNodeWorkOrderExecutor:
             )
         final_answer = str(executor_result.get("final_answer") or task_run_payload.get("diagnostics", {}).get("final_answer") or "")
         artifact_refs = _artifact_refs_from_executor_result(executor_result, task_run_payload=task_run_payload)
+        model_output_payload = _model_output_payload(final_answer=final_answer, task_run_payload=task_run_payload)
         contract_artifact_refs, contract_artifact_errors = _contract_artifact_refs_from_final_content(
             final_answer=final_answer,
+            model_output_payload=model_output_payload,
             services=self._services,
             graph_config=graph_config,
             work_order=work_order,
@@ -314,22 +317,19 @@ def _artifact_refs_from_executor_result(executor_result: dict[str, Any], *, task
 def _contract_artifact_refs_from_final_content(
     *,
     final_answer: str,
+    model_output_payload: dict[str, Any],
     services: Any,
     graph_config: GraphHarnessConfig,
     work_order: GraphNodeWorkOrder,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    policy = _node_artifact_policy(work_order)
-    if not policy or policy.get("enabled") is False:
+    resolved_output_policy = resolve_output_policy(graph_config=graph_config, work_order=work_order)
+    if bool(resolved_output_policy.get("no_artifact_output") is True):
         return [], []
-    artifacts = [
-        dict(item)
-        for item in list(policy.get("artifacts") or policy.get("artifact_targets") or [])
-        if isinstance(item, dict)
-    ]
+    artifacts = [dict(item) for item in list(resolved_output_policy.get("artifact_targets") or []) if isinstance(item, dict)]
     if not artifacts:
         return [], []
     values = _artifact_template_values(graph_config=graph_config, work_order=work_order)
-    root = _contract_artifact_root(policy=policy, services=services, graph_config=graph_config, work_order=work_order, values=values)
+    root = _contract_artifact_root(policy=resolved_output_policy, services=services, graph_config=graph_config, work_order=work_order, values=values)
     if root is None:
         required = any(bool(item.get("required")) for item in artifacts)
         if required:
@@ -350,8 +350,12 @@ def _contract_artifact_refs_from_final_content(
                 )
             continue
         rendered_path = _render_artifact_template(raw_path, values).replace("\\", "/").lstrip("/")
-        content_source = str(artifact.get("content_source") or "final_content").strip()
-        content = _artifact_content_for_source(content_source=content_source, final_answer=final_answer)
+        content_source = str(artifact.get("content_source") or resolved_output_policy.get("primary_content_key") or "final_answer").strip()
+        content = _artifact_content_for_source(
+            content_source=content_source,
+            final_answer=final_answer,
+            model_output_payload=model_output_payload,
+        )
         if not content and bool(artifact.get("fallback_to_full_content")):
             content = str(final_answer or "").strip()
         if not content:
@@ -664,18 +668,37 @@ def _contract_artifact_root(
         return _resolve_inside_workspace(workspace_root=workspace_root, value=explicit_root)
     environment = dict(graph_config.environment or {})
     storage_space = dict(environment.get("storage_space") or {})
+    environment_projection = dict(policy.get("environment_projection") or {})
+    output_policy = dict(policy.get("output_policy") or {})
+    artifact_materialization = dict(policy.get("artifact_materialization_policy") or {})
+    raw_policy_root = str(
+        artifact_materialization.get("artifact_root")
+        or output_policy.get("artifact_root")
+        or policy.get("artifact_root")
+        or ""
+    ).strip()
+    environment_root = str(environment_projection.get("environment_artifact_root") or storage_space.get("artifact_root") or work_order.artifact_space_ref or "").strip()
+    policy_root = "" if raw_policy_root.startswith("repo.") else raw_policy_root
     root_value = str(
-        policy.get("artifact_root")
+        policy_root
+        or artifact_materialization.get("default_artifact_root")
+        or output_policy.get("default_artifact_root")
         or policy.get("default_artifact_root")
+        or environment_root
         or policy.get("root")
-        or storage_space.get("artifact_root")
-        or work_order.artifact_space_ref
         or ""
     ).strip()
     root = _resolve_inside_workspace(workspace_root=workspace_root, value=_render_artifact_template(root_value, values))
     if root is None:
         return None
-    subdir_template = str(policy.get("subdir_template") or policy.get("scope_template") or "").strip()
+    subdir_template = str(
+        artifact_materialization.get("subdir_template")
+        or artifact_materialization.get("scope_template")
+        or output_policy.get("subdir_template")
+        or policy.get("subdir_template")
+        or policy.get("scope_template")
+        or ""
+    ).strip()
     if subdir_template:
         subdir = _sanitize_relative_path(_render_artifact_template(subdir_template, values))
         if subdir:
@@ -699,7 +722,21 @@ def _explicit_artifact_root(work_order: GraphNodeWorkOrder) -> str:
 
 
 def _artifact_materialization_root(*, graph_config: GraphHarnessConfig, work_order: GraphNodeWorkOrder) -> str:
-    return str(_explicit_artifact_root(work_order) or work_order.artifact_space_ref or _environment_artifact_root(graph_config)).strip()
+    resolved = resolve_output_policy(graph_config=graph_config, work_order=work_order)
+    environment_projection = dict(resolved.get("environment_projection") or {})
+    artifact_materialization = dict(resolved.get("artifact_materialization_policy") or {})
+    output_policy = dict(resolved.get("output_policy") or {})
+    values = _artifact_template_values(graph_config=graph_config, work_order=work_order)
+    raw_policy_root = str(artifact_materialization.get("artifact_root") or output_policy.get("artifact_root") or "").strip()
+    policy_root = "" if raw_policy_root.startswith("repo.") else raw_policy_root
+    return str(
+        _explicit_artifact_root(work_order)
+        or _render_artifact_template(policy_root, values)
+        or _render_artifact_template(str(artifact_materialization.get("default_artifact_root") or output_policy.get("default_artifact_root") or "").strip(), values)
+        or environment_projection.get("environment_artifact_root")
+        or work_order.artifact_space_ref
+        or _environment_artifact_root(graph_config)
+    ).strip()
 
 
 def _artifact_template_values(*, graph_config: GraphHarnessConfig, work_order: GraphNodeWorkOrder) -> dict[str, Any]:
@@ -733,10 +770,29 @@ def _artifact_template_values(*, graph_config: GraphHarnessConfig, work_order: G
     return values
 
 
-def _artifact_content_for_source(*, content_source: str, final_answer: str) -> str:
+def _model_output_payload(*, final_answer: str, task_run_payload: dict[str, Any]) -> dict[str, Any]:
+    diagnostics = dict(task_run_payload.get("diagnostics") or {})
+    final_action_diagnostics = dict(diagnostics.get("final_action_diagnostics") or {})
+    return {
+        "final_answer": str(final_answer or ""),
+        "final_content": str(final_answer or ""),
+        "full_content": str(final_answer or ""),
+        "model_response": str(final_answer or ""),
+        "diagnostics": diagnostics,
+        "final_action_diagnostics": final_action_diagnostics,
+        **final_action_diagnostics,
+    }
+
+
+def _artifact_content_for_source(*, content_source: str, final_answer: str, model_output_payload: dict[str, Any]) -> str:
     source = str(content_source or "").strip()
     if source in {"", "final_content", "final_answer", "full_content", "model_response"}:
         return str(final_answer or "").strip()
+    value = _nested_lookup(dict(model_output_payload or {}), source)
+    if isinstance(value, str):
+        return value.strip()
+    if value is not None:
+        return str(value).strip()
     return ""
 
 
@@ -855,21 +911,13 @@ def _dedupe_artifact_ref_dicts(refs: list[dict[str, Any]]) -> list[dict[str, Any
 
 
 def _artifact_repository_policy(*, graph_config: GraphHarnessConfig, work_order: GraphNodeWorkOrder) -> dict[str, Any]:
-    node_policy = dict(work_order.artifact_view_request.get("node_artifact_policy") or {})
-    graph_policy = dict(work_order.artifact_view_request.get("graph_artifact_policy") or graph_config.artifacts or {})
-    environment_policy = dict(work_order.artifact_view_request.get("environment_artifact_policy") or dict(graph_config.environment or {}).get("artifact_policy") or {})
-    repository_id = str(
-        node_policy.get("repository_id")
-        or graph_policy.get("repository_id")
-        or environment_policy.get("repository_id")
-        or environment_policy.get("artifact_repository_id")
-        or environment_policy.get("artifact_root")
-        or "artifact.repository.default"
-    ).strip()
+    resolved = resolve_output_policy(graph_config=graph_config, work_order=work_order)
+    repository_policy = dict(resolved.get("artifact_repository_policy") or {})
+    repository_id = str(repository_policy.get("repository_id") or "artifact.repository.default").strip()
     return {
         "repository_id": repository_id or "artifact.repository.default",
-        "collection_id": str(node_policy.get("collection_id") or graph_policy.get("collection_id") or "default").strip() or "default",
-        "lifecycle_policy": dict(node_policy.get("lifecycle_policy") or graph_policy.get("lifecycle_policy") or {}),
+        "collection_id": str(repository_policy.get("collection_id") or "default").strip() or "default",
+        "lifecycle_policy": dict(repository_policy.get("lifecycle_policy") or {}),
     }
 
 
@@ -920,6 +968,18 @@ def _normalize_memory_edge(raw_edge: dict[str, Any]) -> dict[str, Any]:
     metadata = dict(edge.get("metadata") or {})
     selector = dict(edge.get("selector") or metadata.get("selector") or {})
     edge_type = str(edge.get("edge_type") or metadata.get("memory_edge_type") or "").strip()
+    record_kinds = _string_list(
+        edge.get("record_kinds")
+        or metadata.get("record_kinds")
+        or selector.get("record_kinds")
+        or selector.get("record_kind")
+    )
+    record_kind = str(
+        edge.get("record_kind")
+        or metadata.get("record_kind")
+        or selector.get("record_kind")
+        or (record_kinds[0] if record_kinds else "")
+    ).strip()
     return {
         **edge,
         "edge_type": edge_type,
@@ -929,7 +989,8 @@ def _normalize_memory_edge(raw_edge: dict[str, Any]) -> dict[str, Any]:
         "collection": str(edge.get("collection") or edge.get("collection_id") or metadata.get("collection") or selector.get("collection") or "").strip(),
         "selector": selector,
         "record_key": str(edge.get("record_key") or metadata.get("record_key") or selector.get("record_key") or "").strip(),
-        "record_kind": str(edge.get("record_kind") or metadata.get("record_kind") or selector.get("record_kind") or "").strip(),
+        "record_kind": record_kind,
+        "record_kinds": record_kinds,
         "source_output_key": str(edge.get("source_output_key") or metadata.get("source_output_key") or selector.get("source_output_key") or "").strip(),
         "candidate_ref_key": str(edge.get("candidate_ref_key") or metadata.get("candidate_ref_key") or "").strip(),
         "verdict_key": str(edge.get("verdict_key") or metadata.get("verdict_key") or "").strip(),
@@ -995,16 +1056,19 @@ def _candidate_for_edge(candidate: dict[str, Any], *, edge: dict[str, Any]) -> d
 
 def _formal_memory_service_edge(edge: dict[str, Any]) -> dict[str, Any]:
     selector = dict(edge.get("selector") or {})
+    record_kinds = _string_list(edge.get("record_kinds") or selector.get("record_kinds"))
     return {
         **dict(edge or {}),
         "repository": str(edge.get("repository") or edge.get("repository_id") or "").strip(),
         "repository_id": str(edge.get("repository") or edge.get("repository_id") or "").strip(),
         "collection": str(edge.get("collection") or edge.get("collection_id") or "").strip(),
         "collection_id": str(edge.get("collection") or edge.get("collection_id") or "").strip(),
+        "record_kinds": record_kinds,
         "selector": {
             **selector,
             **({"record_key": str(edge.get("record_key") or "")} if str(edge.get("record_key") or "") else {}),
             **({"record_kind": str(edge.get("record_kind") or "")} if str(edge.get("record_kind") or "") else {}),
+            **({"record_kinds": record_kinds} if record_kinds else {}),
         },
         "lifecycle_policy": dict(edge.get("lifecycle_policy") or {}),
         "commit_visibility_policy": dict(edge.get("commit_visibility_policy") or {}),
@@ -1066,6 +1130,12 @@ def _edge_commits_memory(*, edge: dict[str, Any], graph_config: GraphHarnessConf
 def _candidate_artifact_refs(candidate: dict[str, Any]) -> list[str]:
     refs = candidate.get("artifact_refs") or dict(candidate.get("payload") or {}).get("artifact_refs") or []
     return [str(item or "").strip() for item in list(refs or []) if str(item or "").strip()]
+
+
+def _string_list(value: Any) -> list[str]:
+    if isinstance(value, str):
+        return [value.strip()] if value.strip() else []
+    return [str(item).strip() for item in list(value or []) if str(item).strip()]
 
 
 def _runtime_scope(*, graph_config: GraphHarnessConfig, work_order: GraphNodeWorkOrder, task_run_payload: dict[str, Any]) -> dict[str, Any]:

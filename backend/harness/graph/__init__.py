@@ -5,6 +5,7 @@ from .models import (
     GRAPH_HARNESS_CONFIG_SCHEMA_VERSION,
     GraphHarnessConfig,
     GraphLoopState,
+    GraphNodeExecutionSlot,
     GraphNodeWorkOrder,
     GraphRun,
     GraphResultEnvelope,
@@ -17,6 +18,10 @@ from .flow_edges import build_inbound_flow_edges, build_outbound_flow_edges
 from .scheduler_view import SchedulerView, build_scheduler_view
 from .checkpoint_store import GraphCheckpointRecord, GraphCheckpointStore
 from .context_materializer import GraphContextMaterializer
+from .loop_engine import LoopEngine
+from .memory_context import MemoryContextAssembler
+from .output_policy import OutputPolicyResolver
+from .state_machine import GraphStateMachine, GraphStatusSnapshot
 from .langgraph_checkpoint_store import LangGraphCheckpointStore
 from .resume import GraphResumeResult, GraphResumeService
 from .runner import GraphRunRunner, GraphRunRunnerResult
@@ -26,12 +31,18 @@ __all__ = [
     "GRAPH_HARNESS_CONFIG_SCHEMA_VERSION",
     "GraphHarnessConfig",
     "GraphLoopState",
+    "GraphNodeExecutionSlot",
     "FlowPacket",
     "build_inbound_flow_edges",
     "build_outbound_flow_edges",
     "GraphCheckpointRecord",
     "GraphCheckpointStore",
     "GraphContextMaterializer",
+    "LoopEngine",
+    "MemoryContextAssembler",
+    "OutputPolicyResolver",
+    "GraphStateMachine",
+    "GraphStatusSnapshot",
     "GraphResumeResult",
     "GraphResumeService",
     "GraphRunRunner",

@@ -40,6 +40,9 @@ class FlowPacket:
     target_port_id: str = ""
     scope_id: str = ""
     contract_id: str = ""
+    packet_contract_id: str = ""
+    target_context_key: str = ""
+    target_input_slot: str = ""
     a2a_message_type: str = ""
     payload_summary: str = ""
     payload_refs: tuple[dict[str, Any], ...] = ()
@@ -99,6 +102,9 @@ class FlowPacket:
             target_port_id=str(payload.get("target_port_id") or ""),
             scope_id=str(payload.get("scope_id") or ""),
             contract_id=str(payload.get("contract_id") or ""),
+            packet_contract_id=str(payload.get("packet_contract_id") or payload.get("contract_id") or ""),
+            target_context_key=str(payload.get("target_context_key") or ""),
+            target_input_slot=str(payload.get("target_input_slot") or ""),
             a2a_message_type=str(payload.get("a2a_message_type") or ""),
             payload_summary=str(payload.get("payload_summary") or ""),
             payload_refs=tuple(dict(item) for item in list(payload.get("payload_refs") or []) if isinstance(item, dict)),
@@ -168,6 +174,9 @@ def build_flow_packet(
         edge_id=edge_id,
         scope_id=str(edge.get("scope_id") or metadata.get("scope_id") or ""),
         contract_id=_contract_id(edge),
+        packet_contract_id=_packet_contract_id(edge),
+        target_context_key=_target_context_key(edge),
+        target_input_slot=_target_input_slot(edge),
         a2a_message_type=str(edge.get("a2a_message_type") or ""),
         payload_summary=str(result.handoff_summary or "")[:1200],
         payload_refs=(
@@ -218,6 +227,9 @@ def flow_packet_inbound_projection(packet: FlowPacket, *, packet_ref: str = "") 
         "source_edge_id": packet.edge_id,
         "edge_id": packet.edge_id,
         "payload_contract_id": packet.contract_id,
+        "packet_contract_id": packet.packet_contract_id,
+        "target_context_key": packet.target_context_key,
+        "target_input_slot": packet.target_input_slot,
         "payload": dict(packet.visible_payload or {}),
         "delivery_policy": str(dict(packet.visibility or {}).get("delivery_policy") or ""),
         "ack_required": bool(dict(packet.visibility or {}).get("ack_required", True)),
@@ -243,6 +255,34 @@ def _contract_id(edge: dict[str, Any]) -> str:
     schema = dict(bindings.get("schema") or {})
     handoff = dict(bindings.get("handoff") or {})
     return str(edge.get("payload_contract_id") or schema.get("payload_contract_id") or handoff.get("packet_contract_id") or "").strip()
+
+
+def _packet_contract_id(edge: dict[str, Any]) -> str:
+    bindings = dict(edge.get("contract_bindings") or {})
+    handoff = dict(bindings.get("handoff") or {})
+    return str(edge.get("packet_contract_id") or handoff.get("packet_contract_id") or _contract_id(edge)).strip()
+
+
+def _target_context_key(edge: dict[str, Any]) -> str:
+    metadata = dict(edge.get("metadata") or {})
+    artifact_policy = dict(edge.get("artifact_ref_policy") or {})
+    bindings = dict(edge.get("contract_bindings") or {})
+    handoff = dict(bindings.get("handoff") or {})
+    return str(
+        edge.get("target_context_key")
+        or handoff.get("target_context_key")
+        or metadata.get("target_context_key")
+        or metadata.get("target_input_key")
+        or artifact_policy.get("target_input_key")
+        or ""
+    ).strip()
+
+
+def _target_input_slot(edge: dict[str, Any]) -> str:
+    metadata = dict(edge.get("metadata") or {})
+    bindings = dict(edge.get("contract_bindings") or {})
+    handoff = dict(bindings.get("handoff") or {})
+    return str(edge.get("target_input_slot") or handoff.get("target_input_slot") or metadata.get("target_input_slot") or metadata.get("input_alias") or "").strip()
 
 
 def _delivery_policy(edge: dict[str, Any]) -> str:

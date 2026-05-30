@@ -30,7 +30,10 @@ async def run_direct_system_route(
     from soul.image_asset_service import SoulImageAssetError, SoulImageAssetService
 
     asset_kind = str(image_generation.get("asset_kind") or "chat").strip() or "chat"
+    model = str(image_generation.get("model") or "").strip()
     size = str(image_generation.get("size") or "1024x1024").strip() or "1024x1024"
+    quality = str(image_generation.get("quality") or "").strip()
+    request_timeout_seconds = image_generation.get("request_timeout_seconds")
     target_id = str(image_generation.get("target_id") or turn_id).strip() or turn_id
     try:
         generated = await SoulImageAssetService(base_dir).generate(
@@ -38,6 +41,9 @@ async def run_direct_system_route(
             target_id=target_id,
             asset_kind=asset_kind,
             size=size,
+            quality=quality,
+            model=model,
+            request_timeout_seconds=float(request_timeout_seconds) if request_timeout_seconds is not None else None,
             overwrite=bool(image_generation.get("overwrite") or False),
         )
     except SoulImageAssetError as exc:

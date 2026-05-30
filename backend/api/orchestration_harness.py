@@ -3,10 +3,9 @@ from __future__ import annotations
 import asyncio
 import json
 import time
-from dataclasses import replace
 from typing import Any
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -140,7 +139,6 @@ async def get_harness_task_run_live_monitor(task_run_id: str) -> dict[str, Any]:
 @router.post("/orchestration/harness/task-runs/{task_run_id}/execute")
 async def execute_harness_task_run(
     task_run_id: str,
-    background_tasks: BackgroundTasks,
     payload: TaskRunExecuteRequest | None = None,
 ) -> dict[str, Any]:
     runtime = require_runtime()
@@ -154,39 +152,21 @@ async def execute_harness_task_run(
         raise HTTPException(status_code=409, detail="task_run_executor_already_running")
     if not is_task_run_executable(task_run):
         raise HTTPException(status_code=409, detail=f"task_run_not_executable:{task_run.status}")
-    scheduled_event = runtime_host.event_log.append(
+    max_steps = payload.max_steps if payload is not None else 12
+    schedule_result = runtime.query_runtime.schedule_task_run_executor(
         task_run_id,
-        "task_run_executor_scheduled",
-        payload={"task_run_id": task_run_id, "max_steps": payload.max_steps if payload is not None else 12},
-        refs={"task_run_ref": task_run_id},
+        scheduler="task_run_execute_api",
+        max_steps=max_steps,
     )
-    runtime_host.state_index.upsert_task_run(
-        replace(
-            task_run,
-            status="running",
-            updated_at=scheduled_event.created_at or time.time(),
-            latest_event_offset=scheduled_event.offset,
-            terminal_reason="",
-            diagnostics={
-                **dict(task_run.diagnostics or {}),
-                "executor_status": "scheduled",
-                "latest_step": "task_executor_scheduled",
-                "latest_step_status": "running",
-                "latest_step_summary": "正在准备继续处理。",
-            },
-        )
-    )
-    background_tasks.add_task(
-        runtime.query_runtime.execute_task_run,
-        task_run_id,
-        max_steps=(payload.max_steps if payload is not None else 12),
-    )
+    if not schedule_result.get("ok") or not schedule_result.get("scheduled"):
+        raise HTTPException(status_code=409, detail=str(schedule_result.get("reason") or "task_run_schedule_rejected"))
+    updated_task_run = runtime_host.state_index.get_task_run(task_run_id) or task_run
     return {
         "ok": True,
         "accepted": True,
         "background_started": True,
         "task_run_id": task_run_id,
-        "status": task_run.status,
+        "status": updated_task_run.status,
         "monitor_url": f"/api/orchestration/harness/task-runs/{task_run_id}/live-monitor",
         "trace_url": f"/api/orchestration/harness/task-runs/{task_run_id}",
     }
@@ -214,7 +194,6 @@ async def pause_harness_task_run(
 @router.post("/orchestration/harness/task-runs/{task_run_id}/resume")
 async def resume_harness_task_run(
     task_run_id: str,
-    background_tasks: BackgroundTasks,
     payload: TaskRunExecuteRequest | None = None,
 ) -> dict[str, Any]:
     runtime = require_runtime()
@@ -232,37 +211,19 @@ async def resume_harness_task_run(
     if not is_task_run_executable(task_run):
         raise HTTPException(status_code=409, detail=f"task_run_not_executable:{task_run.status}")
     max_steps = payload.max_steps if payload is not None else 12
-    scheduled_event = runtime_host.event_log.append(
+    schedule_result = runtime.query_runtime.schedule_task_run_executor(
         task_run_id,
-        "task_run_executor_scheduled",
-        payload={"task_run_id": task_run_id, "max_steps": max_steps, "scheduler": "task_run_resume_api"},
-        refs={"task_run_ref": task_run_id},
-    )
-    runtime_host.state_index.upsert_task_run(
-        replace(
-            task_run,
-            status="running",
-            updated_at=scheduled_event.created_at or time.time(),
-            latest_event_offset=scheduled_event.offset,
-            terminal_reason="",
-            diagnostics={
-                **dict(task_run.diagnostics or {}),
-                "executor_status": "scheduled",
-                "latest_step": "task_executor_scheduled",
-                "latest_step_status": "running",
-                "latest_step_summary": "继续请求已接入，正在从原进度接着处理。",
-            },
-        )
-    )
-    background_tasks.add_task(
-        runtime.query_runtime.execute_task_run,
-        task_run_id,
+        scheduler="task_run_resume_api",
         max_steps=max_steps,
     )
+    if not schedule_result.get("ok") or not schedule_result.get("scheduled"):
+        raise HTTPException(status_code=409, detail=str(schedule_result.get("reason") or "task_run_schedule_rejected"))
+    updated_task_run = runtime_host.state_index.get_task_run(task_run_id) or task_run
     return {
         **result,
         "background_started": True,
         "task_run_id": task_run_id,
+        "status": updated_task_run.status,
         "monitor_url": f"/api/orchestration/harness/task-runs/{task_run_id}/live-monitor",
         "trace_url": f"/api/orchestration/harness/task-runs/{task_run_id}",
     }

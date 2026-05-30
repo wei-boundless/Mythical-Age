@@ -660,7 +660,7 @@ class ModelRuntime:
                 raise RuntimeError("langchain-deepseek is not installed")
             if not spec.api_key:
                 raise RuntimeError("Missing API key for provider deepseek")
-            thinking_enabled = self._thinking_mode_for_spec(spec) == "enabled"
+            thinking_enabled = self._thinking_enabled_for_spec(spec)
             extra_body: dict[str, Any] = {
                 "thinking": {
                     "type": "enabled" if thinking_enabled else "disabled"
@@ -683,15 +683,19 @@ class ModelRuntime:
         if not spec.api_key:
             raise RuntimeError(f"Missing API key for provider {spec.provider}")
 
-        return ChatOpenAI(
-            model=spec.model,
-            api_key=spec.api_key,
-            base_url=spec.base_url,
-            temperature=temperature,
-            timeout=timeout_seconds,
-            max_retries=0,
-            max_completion_tokens=max_output_tokens,
-        )
+        model_kwargs: dict[str, Any] = {
+            "model": spec.model,
+            "api_key": spec.api_key,
+            "base_url": spec.base_url,
+            "temperature": temperature,
+            "timeout": timeout_seconds,
+            "max_retries": 0,
+            "max_completion_tokens": max_output_tokens,
+        }
+        reasoning_effort = self._chat_openai_reasoning_effort_for_spec(spec)
+        if reasoning_effort:
+            model_kwargs["reasoning_effort"] = reasoning_effort
+        return ChatOpenAI(**model_kwargs)
 
     def _get_chat_model_for_spec(self, spec: ModelSpec):
         key = self._chat_model_pool_key(spec)
@@ -1094,8 +1098,18 @@ class ModelRuntime:
     def _thinking_mode_for_spec(self, spec: ModelSpec) -> str:
         return str(spec.thinking_mode or self.thinking_mode or "disabled").strip().lower()
 
+    def _thinking_enabled_for_spec(self, spec: ModelSpec) -> bool:
+        return self._thinking_mode_for_spec(spec) == "enabled"
+
     def _reasoning_effort_for_spec(self, spec: ModelSpec) -> str:
         return str(spec.reasoning_effort or self.reasoning_effort or "high").strip().lower()
+
+    def _chat_openai_reasoning_effort_for_spec(self, spec: ModelSpec) -> str | None:
+        if not self._thinking_enabled_for_spec(spec):
+            return None
+        if not _supports_chat_openai_reasoning_effort(spec):
+            return None
+        return _normalize_chat_openai_reasoning_effort(self._reasoning_effort_for_spec(spec))
 
     def _map_error(self, exc: Exception, spec: ModelSpec) -> ModelRuntimeError:
         if isinstance(exc, ModelRuntimeError):
@@ -1207,6 +1221,29 @@ def _deepseek_thinking_disallows_tool_choice(spec: ModelSpec | None) -> bool:
     provider = str(spec.provider or "").strip().lower()
     thinking_mode = str(spec.thinking_mode or "disabled").strip().lower()
     return provider == "deepseek" and thinking_mode == "enabled"
+
+
+def _supports_chat_openai_reasoning_effort(spec: ModelSpec) -> bool:
+    provider = str(spec.provider or "").strip().lower()
+    if provider != "openai":
+        return False
+    defaults = dict(LLM_PROVIDER_DEFAULTS.get(provider) or {})
+    tags = {str(tag or "").strip().lower() for tag in defaults.get("capability_tags") or []}
+    return "reasoning" in tags and _is_openai_reasoning_model(spec.model)
+
+
+def _is_openai_reasoning_model(model: str) -> bool:
+    normalized = str(model or "").strip().lower()
+    return normalized.startswith(("gpt-5", "o1", "o3", "o4"))
+
+
+def _normalize_chat_openai_reasoning_effort(effort: str) -> str:
+    normalized = str(effort or "").strip().lower()
+    if normalized == "max":
+        return "high"
+    if normalized in {"minimal", "low", "medium", "high"}:
+        return normalized
+    return "high"
 
 
 def _normalize_tool_call_options(

@@ -529,13 +529,14 @@ async def execute_task_run(
     agent_profile = services.agent_runtime_profile
     diagnostics = dict(task_run.diagnostics or {})
     turn_id = str(diagnostics.get("turn_id") or task_run.task_id or task_run.task_run_id)
+    model_selection = _task_model_selection(task_run)
     runtime_assembly = assemble_runtime(
         backend_dir=services.backend_dir,
         session_id=task_run.session_id,
         turn_id=turn_id,
         agent_invocation_id=f"aginvoke:{task_run.task_run_id}:executor",
         request_task_selection=_task_selection_from_task_run(task_run),
-        model_selection={},
+        model_selection=model_selection,
         agent_runtime_profile=agent_profile,
         tool_instances=services.all_tool_instances(),
         definitions_by_name=dict(runtime_host.tool_authorization_index.definitions_by_name or {}),
@@ -612,6 +613,7 @@ async def execute_task_run(
             observations=observations,
             execution_state=execution_state,
             artifact_refs=artifact_refs,
+            model_selection=model_selection,
             compiler=compiler,
             sequence=sequence,
             max_steps=max_steps,
@@ -636,6 +638,7 @@ async def _execute_claimed_task_run(
     observations: list[dict[str, Any]],
     execution_state: dict[str, Any],
     artifact_refs: list[dict[str, Any]],
+    model_selection: dict[str, Any],
     compiler: RuntimeCompiler,
     sequence: Any,
     max_steps: int,
@@ -654,7 +657,7 @@ async def _execute_claimed_task_run(
             execution_state=execution_state,
             work_rollout=work_rollout_summary(runtime_host, current_task),
             agent_profile_ref=current_task.agent_profile_id,
-            model_selection={},
+            model_selection=model_selection,
             available_tools=runtime_available_tools,
             runtime_assembly=runtime_assembly,
             invocation_index=step_index,
@@ -732,6 +735,7 @@ async def _execute_claimed_task_run(
                 executor_epoch=sequence.executor_epoch,
                 model_runtime=services.model_runtime,
                 packet=compilation.packet,
+                model_selection=model_selection,
             )
         except TaskRunExecutorInterrupted as exc:
             interrupted_task = runtime_host.state_index.get_task_run(current_task.task_run_id) or current_task
@@ -1099,17 +1103,18 @@ async def _invoke_task_model_action(
     task_run_id: str,
     session_id: str,
     invocation_index: int,
+    model_selection: dict[str, Any],
     executor_epoch: int = 0,
 ) -> tuple[ModelActionRequest | None, dict[str, Any]]:
     invoker = getattr(model_runtime, "invoke_messages", None)
     if not callable(invoker):
         return None, {"status": "invalid", "validation_errors": ["model_runtime_unavailable"]}
-    timeout_seconds = model_action_timeout_seconds(model_runtime, model_selection={})
+    timeout_seconds = model_action_timeout_seconds(model_runtime, model_selection=model_selection)
     response = await asyncio.wait_for(
         call_model_invoker(
             invoker,
             list(packet.model_messages),
-            model_selection={},
+            model_selection=model_selection,
             accounting_context={
                 "request_id": f"modelreq:{packet.packet_id}:{invocation_index}",
                 "session_id": session_id,
@@ -1146,6 +1151,7 @@ async def _await_task_model_action_with_status(
     executor_epoch: int = 0,
     model_runtime: Any,
     packet: Any,
+    model_selection: dict[str, Any],
 ) -> tuple[ModelActionRequest | None, dict[str, Any]]:
     task = asyncio.create_task(
         _invoke_task_model_action(
@@ -1154,6 +1160,7 @@ async def _await_task_model_action_with_status(
             task_run_id=task_run_id,
             session_id=session_id,
             invocation_index=step_index,
+            model_selection=model_selection,
             executor_epoch=executor_epoch,
         )
     )
@@ -1374,6 +1381,12 @@ def _task_selection_from_task_run(task_run: Any) -> dict[str, Any]:
         "runtime_mode": str(original.get("runtime_mode") or runtime_profile.get("mode") or "professional"),
         "runtime_profile": runtime_profile,
     }
+
+
+def _task_model_selection(task_run: Any) -> dict[str, Any]:
+    diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
+    selection = diagnostics.get("model_selection")
+    return dict(selection) if isinstance(selection, dict) else {}
 
 
 def _origin_kind(task_run: Any) -> str:
@@ -2356,7 +2369,7 @@ def _ensure_executor_agent_run(runtime_host: Any, *, task_run: Any) -> Any:
     agent_run = AgentRun(
         agent_run_id=f"agrun:{task_run.task_run_id}:main",
         task_run_id=task_run.task_run_id,
-        agent_id="agent:0",
+        agent_id=str(getattr(task_run, "agent_id", "") or "agent:0"),
         agent_profile_id=task_run.agent_profile_id,
         status="running",
         execution_runtime_kind="single_agent_task",
@@ -2797,6 +2810,22 @@ def _structured_error_from_observation(observation: dict[str, Any]) -> dict[str,
                 "retryable": bool(error.get("retryable", source.get("retryable", True))),
                 "origin": str(error.get("origin") or source.get("origin") or "tool_provider"),
             }
+    parsed_result = _json_payload(payload.get("result"))
+    parsed_error = parsed_result.get("structured_error")
+    if isinstance(parsed_error, dict) and parsed_error:
+        return {
+            "code": str(parsed_error.get("code") or parsed_result.get("error_code") or parsed_result.get("code") or "tool_error"),
+            "message": str(parsed_error.get("message") or parsed_result.get("error") or parsed_error),
+            "retryable": bool(parsed_error.get("retryable", parsed_result.get("retryable", True))),
+            "origin": str(parsed_error.get("origin") or _error_origin(observation)),
+        }
+    if parsed_result.get("ok") is False and parsed_result.get("error"):
+        return {
+            "code": str(parsed_result.get("error_code") or parsed_result.get("code") or "tool_error"),
+            "message": str(parsed_result.get("error") or ""),
+            "retryable": bool(parsed_result.get("retryable", True)),
+            "origin": _error_origin(observation),
+        }
     message = str(payload.get("error") or envelope.get("error") or observation.get("error") or tool_result.get("error") or "")
     if message:
         structured_error = payload.get("structured_error")
@@ -2916,7 +2945,7 @@ def _safe_backend_config(backend_config: dict[str, Any]) -> dict[str, Any]:
         "image_generation": {
             "base_url": str(image.get("base_url") or image.get("api_base") or ""),
             "model": str(image.get("model") or ""),
-            "api_key_present": bool(image.get("api_key") or image.get("key")),
+            "api_key_present": bool(image.get("api_key_present") or image.get("api_key") or image.get("key")),
         }
     }
 
