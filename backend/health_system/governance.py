@@ -7,6 +7,7 @@ from harness.loop.work_rollout import work_rollout_ref
 from runtime.environment import RuntimeEnvironment, check_runtime_connection_health
 from runtime.prompt_accounting import TokenCounterRegistry
 
+from .artifact_governance_view import HealthArtifactGovernanceViewBuilder
 from .store import HealthStore
 from .task_record_maintenance import HealthTaskRecordMaintenanceService
 
@@ -42,6 +43,7 @@ class HealthGovernanceBuilder:
         efficiency = self._efficiency(tasks)
         system_risks = self._system_risks(monitor=monitor)
         monitor_governance = self._monitor_governance(monitor=monitor)
+        artifact_governance = self.build_artifact_governance()
         recommendations = self._recommendations(risks=risks, token_usage=token_usage, efficiency=efficiency)
         summary = {
             "task_count": len(tasks),
@@ -53,6 +55,7 @@ class HealthGovernanceBuilder:
             "high_risk_count": sum(1 for item in risks if item["severity"] == "high"),
             "token_total": int(token_usage["summary"].get("total_tokens") or 0),
             "slow_task_count": int(efficiency["summary"].get("slow_task_count") or 0),
+            "artifact_size_mb": float(dict(artifact_governance.get("summary") or {}).get("size_mb") or 0.0),
         }
         return {
             "authority": "health_system.governance",
@@ -65,6 +68,7 @@ class HealthGovernanceBuilder:
             "recommendations": recommendations,
             "monitor": monitor,
             "monitor_governance": monitor_governance,
+            "artifact_governance": artifact_governance,
             "updated_at": self.now,
         }
 
@@ -93,7 +97,7 @@ class HealthGovernanceBuilder:
         record = self._task_record(task_run)
         monitor = self.runtime_host.get_task_run_live_monitor(task_run_id) or {}
         graph_monitor: dict[str, Any] = {}
-        events = [item.to_dict() for item in self.runtime_host.event_log.list_events(task_run_id)[-160:]]
+        events = [item.to_dict() for item in self._recent_events(task_run_id, limit=160)]
         risks = self._task_risks(record, monitor=monitor, graph_monitor=graph_monitor)
         prompt_accounting = self._task_prompt_accounting_detail(task_run_id)
         return {
@@ -134,6 +138,20 @@ class HealthGovernanceBuilder:
     def build_monitor_governance(self) -> dict[str, Any]:
         monitor = self._global_monitor(limit=120)
         return self._monitor_governance(monitor=monitor)
+
+    def build_artifact_governance(self) -> dict[str, Any]:
+        base_dir = getattr(self.runtime, "base_dir", None)
+        if base_dir is None:
+            return {
+                "authority": "health_system.artifact_governance",
+                "mode": "unavailable",
+                "summary": {},
+                "large_ports": [],
+                "diagnostic_ports": [],
+                "runtime_fact_ports": [],
+                "error": "runtime.base_dir is unavailable",
+            }
+        return HealthArtifactGovernanceViewBuilder(base_dir).build_view()
 
     def build_token_usage(self, *, limit: int = 100) -> dict[str, Any]:
         return self._token_usage(self.build_tasks(limit=limit)["tasks"])
@@ -189,8 +207,9 @@ class HealthGovernanceBuilder:
 
     def _task_record(self, task_run: Any) -> dict[str, Any]:
         task_run_id = str(task_run.task_run_id or "")
-        events = self.runtime_host.event_log.list_events(task_run_id)
+        events = self._recent_events(task_run_id, limit=240)
         event_dicts = [item.to_dict() for item in events]
+        event_count = self._event_count(task_run_id, fallback=len(events))
         agent_runs = self.state_index.list_task_agent_runs(task_run_id)
         worker_requests = self.state_index.list_task_worker_spawn_requests(task_run_id)
         worker_results = self.state_index.list_task_worker_spawn_results(task_run_id)
@@ -232,7 +251,7 @@ class HealthGovernanceBuilder:
             "worker_request_count": len(worker_requests),
             "worker_result_count": len(worker_results),
             "tool_call_count": tool_count,
-            "event_count": len(events),
+            "event_count": event_count,
             "error_count": error_count,
             "token_total": token_total,
             "token_source": self._token_source(token_summary),
@@ -253,6 +272,26 @@ class HealthGovernanceBuilder:
                 "session": str(task_run.session_id or ""),
             },
         }
+
+    def _recent_events(self, task_run_id: str, *, limit: int = 240) -> list[Any]:
+        reader = getattr(self.runtime_host.event_log, "list_recent_events", None)
+        if callable(reader):
+            try:
+                return list(reader(task_run_id, limit=limit))
+            except TypeError:
+                return list(reader(task_run_id))
+            except Exception:
+                return []
+        return list(self.runtime_host.event_log.list_events(task_run_id))[-max(1, int(limit or 240)) :]
+
+    def _event_count(self, task_run_id: str, *, fallback: int) -> int:
+        counter = getattr(self.runtime_host.event_log, "event_count", None)
+        if callable(counter):
+            try:
+                return int(counter(task_run_id))
+            except Exception:
+                return int(fallback)
+        return int(fallback)
 
     def _global_monitor(self, *, limit: int) -> dict[str, Any]:
         try:

@@ -9,7 +9,7 @@ The active chat/retrieval path is:
 2. `RetrievalBootstrapper` discovers and converts source documents.
 3. `knowledge_system.ingestion` cleans blocks and builds hierarchical index units.
 4. `LlamaIndexRetrievalBackend` stores dense vectors in Qdrant and lexical BM25
-   data under `storage/indexes`.
+   data under the external indexes root resolved by `ProjectLayout.indexes_dir`.
 5. Retrieval fuses dense and lexical candidates, coalesces related hits, reranks
    candidates, and emits evidence for the runtime.
 
@@ -45,9 +45,13 @@ Binary `.doc/.ppt/.xls` files are recognized, but the parser will only produce a
 
 ## Directories
 
-- Knowledge source directory: `backend/knowledge`
-- Index root: `storage/indexes`
-- Document conversion cache: `storage/document_cache`
+- Knowledge source directory: `ProjectLayout.knowledge_storage_dir`
+- Index root: `ProjectLayout.indexes_dir`
+- Document conversion cache: `ProjectLayout.document_cache_dir`
+
+By default these RAG data roots live outside the project at `../langchain-agent-data`.
+Use `APP_EXTERNAL_DATA_ROOT`, `APP_KNOWLEDGE_ROOT`, `APP_INDEXES_ROOT`, or
+`APP_DOCUMENT_CACHE_ROOT` to override them.
 
 ## Minimal usage
 

@@ -38,7 +38,11 @@ class WorkspaceFileService:
 
     def __init__(self, root_dir: str | Path) -> None:
         self.root_dir = Path(root_dir).resolve()
-        self.workspace_root = ProjectLayout.from_backend_dir(self.root_dir).project_root.resolve()
+        self.layout = ProjectLayout.from_backend_dir(self.root_dir)
+        self.workspace_root = self.layout.project_root.resolve()
+        self._logical_roots = {
+            "knowledge": self.layout.knowledge_storage_dir.resolve(),
+        }
 
     def resolve(self, path: str = ".", *, require_path: bool = False) -> Path:
         raw = str(path or "").strip()
@@ -50,13 +54,25 @@ class WorkspaceFileService:
         if "://" in normalized:
             raise ValueError("Path uses URL syntax.")
         candidate = Path(normalized)
-        resolved = candidate.resolve() if candidate.is_absolute() else (self.workspace_root / candidate).resolve()
-        if not self._is_inside_workspace(resolved):
+        logical_target = self._resolve_logical_root(normalized)
+        resolved = (
+            candidate.resolve()
+            if candidate.is_absolute()
+            else logical_target
+            if logical_target is not None
+            else (self.workspace_root / candidate).resolve()
+        )
+        if not self._is_inside_allowed_root(resolved):
             raise ValueError("Path traversal detected.")
         return resolved
 
     def relative_path(self, path: str | Path) -> str:
         resolved = Path(path).resolve()
+        for prefix, root in self._logical_roots.items():
+            try:
+                return f"{prefix}/{resolved.relative_to(root).as_posix()}".rstrip("/")
+            except ValueError:
+                continue
         try:
             return resolved.relative_to(self.workspace_root).as_posix()
         except ValueError:
@@ -156,26 +172,52 @@ class WorkspaceFileService:
             raise ValueError("invalid pattern")
         limit = max(1, min(int(max_results or 80), 300))
         matches: list[str] = []
-        for directory, dirnames, filenames in os.walk(self.workspace_root):
-            dirnames[:] = [
-                dirname
-                for dirname in dirnames
-                if not self.is_excluded(Path(directory) / dirname)
-            ]
-            candidates = [
-                Path(directory) / dirname
-                for dirname in dirnames
-            ] + [
-                Path(directory) / filename
-                for filename in filenames
-            ]
-            for candidate in candidates:
-                rel = self.relative_path(candidate)
-                if _glob_matches(rel, normalized):
-                    matches.append(rel)
-                    if len(matches) >= limit:
-                        return sorted(dict.fromkeys(matches))
+        for walk_root in self._glob_walk_roots(normalized):
+            for directory, dirnames, filenames in os.walk(walk_root):
+                dirnames[:] = [
+                    dirname
+                    for dirname in dirnames
+                    if not self.is_excluded(Path(directory) / dirname)
+                ]
+                candidates = [
+                    Path(directory) / dirname
+                    for dirname in dirnames
+                ] + [
+                    Path(directory) / filename
+                    for filename in filenames
+                ]
+                for candidate in candidates:
+                    rel = self.relative_path(candidate)
+                    if _glob_matches(rel, normalized):
+                        matches.append(rel)
+                        if len(matches) >= limit:
+                            return sorted(dict.fromkeys(matches))
         return sorted(dict.fromkeys(matches))[:limit]
+
+    def _glob_walk_roots(self, normalized_pattern: str) -> list[Path]:
+        head = normalized_pattern.split("/", 1)[0]
+        logical_root = self._logical_roots.get(head)
+        if logical_root is not None:
+            return [logical_root] if logical_root.exists() else []
+        roots = [self.workspace_root]
+        for root in self._logical_roots.values():
+            if root.exists() and not (root == self.workspace_root or self.workspace_root in root.parents):
+                roots.append(root)
+        return roots
+
+    def iter_files(self, root: Path) -> list[Path]:
+        found: list[Path] = []
+        for path in root.rglob("*"):
+            if path.is_file():
+                found.append(path)
+        return found
+
+    def is_external_root(self, root: Path) -> bool:
+        resolved = root.resolve()
+        return not (resolved == self.workspace_root or self.workspace_root in resolved.parents)
+
+    def search_root_args_are_workspace_relative(self, roots: Iterable[Path]) -> bool:
+        return not any(self.is_external_root(root) for root in roots)
 
     def is_excluded(self, path: Path, *, include_default_search_excludes: bool = False) -> bool:
         parts = {part.lower() for part in path.parts}
@@ -188,8 +230,20 @@ class WorkspaceFileService:
                     return True
         return False
 
-    def _is_inside_workspace(self, path: Path) -> bool:
-        return path == self.workspace_root or self.workspace_root in path.parents
+    def _resolve_logical_root(self, normalized_path: str) -> Path | None:
+        normalized = normalized_path.replace("\\", "/").strip("/")
+        if not normalized:
+            return None
+        head, _, tail = normalized.partition("/")
+        root = self._logical_roots.get(head)
+        if root is None:
+            return None
+        return (root / tail).resolve() if tail else root
+
+    def _is_inside_allowed_root(self, path: Path) -> bool:
+        if path == self.workspace_root or self.workspace_root in path.parents:
+            return True
+        return any(path == root or root in path.parents for root in self._logical_roots.values())
 
 
 def _glob_matches(relative_path: str, pattern: str) -> bool:

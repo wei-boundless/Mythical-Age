@@ -37,7 +37,7 @@ def main() -> None:
 
     structured_reader = runtime.get_instance("read_structured_file")
     assert structured_reader is not None
-    structured_result = structured_reader.invoke({"path": "backend/knowledge/E-commerce Data/faq.json"})
+    structured_result = structured_reader.invoke({"path": "knowledge/E-commerce Data/faq.json"})
     assert "root_type: dict" in structured_result or "root_type: list" in structured_result
 
     text_metric = runtime.get_instance("text_metric")

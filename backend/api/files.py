@@ -84,6 +84,9 @@ def _resolve_path(relative_path: str, *, for_write: bool = False) -> Path:
     elif normalized.startswith("sessions/"):
         candidate = (layout.sessions_dir / normalized.removeprefix("sessions/")).resolve()
         allowed_root = layout.sessions_dir.resolve()
+    elif normalized.startswith("knowledge/"):
+        candidate = (layout.knowledge_storage_dir / normalized.removeprefix("knowledge/")).resolve()
+        allowed_root = layout.knowledge_storage_dir.resolve()
     elif normalized.startswith("capability_system/units/"):
         candidate = (runtime.base_dir / normalized).resolve()
         allowed_root = capability_paths.units_dir.resolve()

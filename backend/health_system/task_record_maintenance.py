@@ -188,7 +188,7 @@ class HealthTaskRecordMaintenanceService:
         age_seconds = max(0.0, self.now - max(created_at, updated_at))
         bucket = str(monitor.get("bucket") or self._bucket_from_status(status))
         resource_class = str(monitor.get("resource_class") or ("dynamic" if status in ACTIVE_TASK_STATUSES else "static"))
-        event_count = len(self.event_log.list_events(task_run_id))
+        event_count = self._event_count(task_run_id)
         token_summary = self._token_summary(task_run_id)
         protection_reasons: list[str] = []
         if status in ACTIVE_TASK_STATUSES or resource_class == "dynamic" or bucket == "running":
@@ -226,6 +226,15 @@ class HealthTaskRecordMaintenanceService:
             "protection_reasons": protection_reasons,
         }
 
+    def _event_count(self, task_run_id: str) -> int:
+        counter = getattr(self.event_log, "event_count", None)
+        if callable(counter):
+            try:
+                return int(counter(task_run_id))
+            except Exception:
+                return 0
+        return len(self.event_log.list_events(task_run_id))
+
     def _monitor_by_task_run_id(self) -> dict[str, dict[str, Any]]:
         try:
             monitor = dict(self.runtime_host.list_global_live_monitor(limit=500) or {})
@@ -257,6 +266,10 @@ class HealthTaskRecordMaintenanceService:
         summarizer = getattr(self.prompt_accounting_ledger, "summarize_task", None)
         if not callable(summarizer):
             return {}
+        try:
+            return dict(summarizer(task_run_id) or {})
+        except Exception:
+            return {}
 
     def _has_lineage(self, task_run: Any, *, diagnostics: dict[str, Any]) -> bool:
         lineage = dict(diagnostics.get("lineage") or {})
@@ -279,10 +292,6 @@ class HealthTaskRecordMaintenanceService:
             if parent_id == task_run_id or root_id == task_run_id:
                 return True
         return False
-        try:
-            return dict(summarizer(task_run_id) or {})
-        except Exception:
-            return {}
 
     def _recent_maintenance_receipts(self) -> list[dict[str, Any]]:
         if self.store is None:

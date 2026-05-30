@@ -4,6 +4,8 @@ import re
 from pathlib import Path
 from typing import Any
 
+from project_layout import ProjectLayout
+
 
 class StructuredDataCatalog:
     DATASET_CANDIDATES: tuple[tuple[str, tuple[str, ...]], ...] = (
@@ -206,9 +208,10 @@ class StructuredDataCatalog:
 
     @classmethod
     def list_dataset_paths(cls, root_dir: Path) -> list[Path]:
+        knowledge_dir = ProjectLayout.from_backend_dir(root_dir).knowledge_storage_dir.resolve()
         found: list[Path] = []
         for relative_path, _keywords in cls.DATASET_CANDIDATES:
-            candidate = (root_dir / relative_path).resolve()
+            candidate = cls._resolve_knowledge_relative_path(knowledge_dir, relative_path)
             if candidate.exists() and candidate.is_file():
                 found.append(candidate)
         return found
@@ -218,8 +221,9 @@ class StructuredDataCatalog:
         normalized = (path or "").strip()
         if not normalized:
             normalized = cls.default_path_for_query(query)
-        candidate = (root_dir / normalized).resolve()
-        if root_dir not in candidate.parents and candidate != root_dir:
+        knowledge_dir = ProjectLayout.from_backend_dir(root_dir).knowledge_storage_dir.resolve()
+        candidate = cls._resolve_knowledge_relative_path(knowledge_dir, normalized)
+        if knowledge_dir not in candidate.parents and candidate != knowledge_dir:
             raise ValueError("检测到非法路径访问。")
         return candidate
 
@@ -261,7 +265,9 @@ class StructuredDataCatalog:
 
     @classmethod
     def relative_path(cls, root_dir: Path, path: Path) -> str:
-        return str(path.relative_to(root_dir)).replace("\\", "/")
+        knowledge_dir = ProjectLayout.from_backend_dir(root_dir).knowledge_storage_dir.resolve()
+        relative = path.resolve().relative_to(knowledge_dir).as_posix()
+        return f"knowledge/{relative}".rstrip("/")
 
     @classmethod
     def resolve_dataset_path_from_history(cls, root_dir: Path, history: list[dict[str, Any]]) -> Path | None:
@@ -325,6 +331,13 @@ class StructuredDataCatalog:
             scored.append((score, candidate))
         scored.sort(key=lambda item: item[0], reverse=True)
         return scored
+
+    @staticmethod
+    def _resolve_knowledge_relative_path(knowledge_dir: Path, path: str) -> Path:
+        normalized = str(path or "").replace("\\", "/").strip("/")
+        if normalized.lower().startswith("knowledge/"):
+            normalized = normalized.split("/", 1)[1]
+        return (knowledge_dir / normalized).resolve()
 
     @classmethod
     def _extract_tokens(cls, text: str) -> list[str]:

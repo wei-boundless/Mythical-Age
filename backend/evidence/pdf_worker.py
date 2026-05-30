@@ -8,6 +8,7 @@ from typing import Any
 
 from capability_system.units.mcp.local.pdf.agent import PDFCanonicalResult, PDFReadAgentRuntime, PDFReadRequest
 from capability_system.units.mcp.local.pdf.analysis import PdfAnalysisCatalog
+from project_layout import ProjectLayout
 from evidence.models import (
     DocumentCandidate,
     EvidenceArtifact,
@@ -214,8 +215,9 @@ class PDFWorker:
         matched = PdfAnalysisCatalog._match_filename(self.root_dir, candidates, normalized)
         if matched is not None:
             return matched
-        resolved = (self.root_dir / normalized).resolve()
-        if resolved != self.root_dir and self.root_dir not in resolved.parents:
+        resolved = PdfAnalysisCatalog.resolve_pdf_path(self.root_dir, normalized, normalized)
+        allowed_root = ProjectLayout.from_backend_dir(self.root_dir).knowledge_storage_dir.resolve()
+        if resolved != allowed_root and allowed_root not in resolved.parents:
             raise ValueError("illegal_pdf_path")
         if not resolved.exists():
             raise ValueError("pdf_file_not_found")

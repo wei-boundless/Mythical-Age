@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import os
 from pathlib import Path
 import shutil
 
@@ -10,6 +11,7 @@ class ProjectLayout:
     backend_dir: Path
     project_root: Path
     storage_root: Path
+    external_data_root: Path
 
     @classmethod
     def from_backend_dir(cls, backend_dir: str | Path) -> "ProjectLayout":
@@ -18,10 +20,16 @@ class ProjectLayout:
             project_root = resolved_backend.parent
         else:
             project_root = resolved_backend
+        storage_root = project_root / "storage"
         return cls(
             backend_dir=resolved_backend,
             project_root=project_root,
-            storage_root=project_root / "storage",
+            storage_root=storage_root,
+            external_data_root=_resolve_path_env(
+                "APP_EXTERNAL_DATA_ROOT",
+                default=project_root.parent / f"{project_root.name}-data",
+                base_dir=project_root,
+            ),
         )
 
     @classmethod
@@ -33,6 +41,11 @@ class ProjectLayout:
                 backend_dir=project_root / "backend",
                 project_root=project_root,
                 storage_root=project_root / "storage",
+                external_data_root=_resolve_path_env(
+                    "APP_EXTERNAL_DATA_ROOT",
+                    default=project_root.parent / f"{project_root.name}-data",
+                    base_dir=project_root,
+                ),
             )
         if resolved_root.name == "storage":
             project_root = resolved_root.parent
@@ -40,6 +53,11 @@ class ProjectLayout:
                 backend_dir=project_root / "backend",
                 project_root=project_root,
                 storage_root=resolved_root,
+                external_data_root=_resolve_path_env(
+                    "APP_EXTERNAL_DATA_ROOT",
+                    default=project_root.parent / f"{project_root.name}-data",
+                    base_dir=project_root,
+                ),
             )
         return cls.from_backend_dir(resolved_root)
 
@@ -73,15 +91,27 @@ class ProjectLayout:
 
     @property
     def indexes_dir(self) -> Path:
-        return self.storage_root / "indexes"
+        return _resolve_path_env(
+            "APP_INDEXES_ROOT",
+            default=self.external_data_root / "indexes",
+            base_dir=self.project_root,
+        )
 
     @property
     def document_cache_dir(self) -> Path:
-        return self.storage_root / "document_cache"
+        return _resolve_path_env(
+            "APP_DOCUMENT_CACHE_ROOT",
+            default=self.external_data_root / "document_cache",
+            base_dir=self.project_root,
+        )
 
     @property
     def modality_artifacts_dir(self) -> Path:
-        return self.storage_root / "modality_artifacts"
+        return _resolve_path_env(
+            "APP_MODALITY_ARTIFACTS_ROOT",
+            default=self.external_data_root / "modality_artifacts",
+            base_dir=self.project_root,
+        )
 
     @property
     def capability_system_dir(self) -> Path:
@@ -101,15 +131,25 @@ class ProjectLayout:
 
     @property
     def knowledge_storage_dir(self) -> Path:
-        return self.storage_root / "knowledge"
+        return _resolve_path_env(
+            "APP_KNOWLEDGE_ROOT",
+            default=self.external_data_root / "knowledge",
+            base_dir=self.project_root,
+        )
 
     def ensure_storage_dirs(self) -> None:
         self._migrate_storage_dir(self.storage_root / "indexes_v2", self.indexes_dir)
+        self._migrate_storage_dir(self.storage_root / "indexes", self.indexes_dir)
         self._migrate_storage_dir(self.storage_root / "document_cache_v2", self.document_cache_dir)
+        self._migrate_storage_dir(self.storage_root / "document_cache", self.document_cache_dir)
+        self._migrate_storage_dir(self.storage_root / "modality_artifacts", self.modality_artifacts_dir)
+        self._migrate_storage_dir(self.project_root / "knowledge", self.knowledge_storage_dir)
         self._migrate_storage_dir(self.backend_dir / "knowledge", self.knowledge_storage_dir)
+        self._migrate_storage_dir(self.storage_root / "knowledge", self.knowledge_storage_dir)
         self._migrate_storage_dir(self.health_system_dir / "maintenance" / "test_system", self.test_system_dir)
         for path in (
             self.storage_root,
+            self.external_data_root,
             self.durable_memory_dir,
             self.session_memory_dir,
             self.working_memory_dir,
@@ -130,16 +170,57 @@ class ProjectLayout:
 
     @staticmethod
     def _migrate_storage_dir(source_path: Path, target_path: Path) -> None:
-        if not source_path.exists():
+        source = source_path.resolve()
+        target = target_path.resolve()
+        if source == target or not source.exists():
             return
-        target_path.parent.mkdir(parents=True, exist_ok=True)
-        if not target_path.exists():
-            shutil.move(str(source_path), str(target_path))
+        if target in source.parents:
             return
-        if any(target_path.iterdir()):
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if not target.exists():
+            shutil.move(str(source), str(target))
             return
-        shutil.rmtree(target_path)
-        shutil.move(str(source_path), str(target_path))
+        if not source.is_dir() or not target.is_dir():
+            return
+        if not any(source.iterdir()):
+            shutil.rmtree(source)
+            return
+        if ProjectLayout._merge_directory_without_overwrite(source, target):
+            shutil.rmtree(source)
+
+    @staticmethod
+    def _merge_directory_without_overwrite(source_dir: Path, target_dir: Path) -> bool:
+        for source_item in source_dir.rglob("*"):
+            relative = source_item.relative_to(source_dir)
+            target_item = target_dir / relative
+            if source_item.is_dir():
+                continue
+            if target_item.exists():
+                try:
+                    if target_item.read_bytes() == source_item.read_bytes():
+                        continue
+                except OSError:
+                    pass
+                return False
+        for source_item in source_dir.rglob("*"):
+            relative = source_item.relative_to(source_dir)
+            target_item = target_dir / relative
+            if source_item.is_dir():
+                target_item.mkdir(parents=True, exist_ok=True)
+                continue
+            if target_item.exists():
+                continue
+            target_item.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(source_item), str(target_item))
+        return True
+
+
+def _resolve_path_env(name: str, *, default: Path, base_dir: Path) -> Path:
+    raw = os.getenv(name)
+    if raw and raw.strip():
+        candidate = Path(raw.strip()).expanduser()
+        return candidate.resolve() if candidate.is_absolute() else (base_dir / candidate).resolve()
+    return default.resolve()
 
 
 def ensure_project_storage(backend_dir: str | Path) -> ProjectLayout:

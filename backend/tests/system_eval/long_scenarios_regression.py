@@ -8,6 +8,7 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 from tests.system_eval.long_scenarios import SCENARIO_SETS, SCENARIOS, scenario_map
+from project_layout import ProjectLayout
 
 
 def test_long_scenarios_have_unique_ids_and_turns() -> None:
@@ -19,11 +20,11 @@ def test_long_scenarios_have_unique_ids_and_turns() -> None:
 
 def test_long_scenarios_core_assets_exist() -> None:
     root = BACKEND_DIR
-    storage_root = BACKEND_DIR.parent / "storage"
+    knowledge_root = ProjectLayout.from_backend_dir(BACKEND_DIR).knowledge_storage_dir
     required_paths = [
-        storage_root / "knowledge" / "AI Knowledge" / "2025年AI治理报告：回归现实主义.pdf",
-        storage_root / "knowledge" / "E-commerce Data" / "inventory.xlsx",
-        storage_root / "knowledge" / "E-commerce Data" / "employees.xlsx",
+        knowledge_root / "AI Knowledge" / "2025年AI治理报告：回归现实主义.pdf",
+        knowledge_root / "E-commerce Data" / "inventory.xlsx",
+        knowledge_root / "E-commerce Data" / "employees.xlsx",
         root / "tests" / "fixtures" / "sandbox_file_ops" / "source_brief.md",
         root / "tests" / "fixtures" / "professional_task_suite" / "buggy_counter.py",
         root / "tests" / "fixtures" / "professional_task_suite" / "failing_sixty_turn_summary.json",

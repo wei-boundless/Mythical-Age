@@ -4,13 +4,13 @@ import asyncio
 from dataclasses import dataclass
 import hashlib
 import json
-from json import JSONDecodeError
 import threading
 import time
 import uuid
 from pathlib import Path
 from typing import Any
 
+from .event_index import RuntimeEventIndex
 from .events import RuntimeEvent, RuntimeEventType
 
 
@@ -29,6 +29,7 @@ class RuntimeEventLog:
         self.root_dir = Path(root_dir)
         self.event_dir = self.root_dir / "events"
         self.event_dir.mkdir(parents=True, exist_ok=True)
+        self.index = RuntimeEventIndex(self.root_dir)
         self._subscriptions: list[RuntimeEventSubscription] = []
         self._subscription_lock = threading.RLock()
         self._write_lock = threading.RLock()
@@ -42,7 +43,8 @@ class RuntimeEventLog:
         refs: dict[str, Any] | None = None,
     ) -> RuntimeEvent:
         with self._write_lock:
-            offset = self.next_offset(task_run_id)
+            path = self._event_path(task_run_id)
+            offset = self.index.next_offset(task_run_id=task_run_id, event_path=path)
             event = RuntimeEvent(
                 event_id=f"rtevt:{task_run_id}:{offset}:{uuid.uuid4().hex[:8]}",
                 task_run_id=task_run_id,
@@ -52,9 +54,9 @@ class RuntimeEventLog:
                 payload=dict(payload or {}),
                 refs=dict(refs or {}),
             )
-            path = self._event_path(task_run_id)
             with path.open("a", encoding="utf-8", newline="\n") as handle:
                 handle.write(json.dumps(event.to_dict(), ensure_ascii=False) + "\n")
+            self.index.record_append(event, event_path=path)
         self._publish(event)
         return event
 
@@ -105,34 +107,32 @@ class RuntimeEventLog:
             )
         return events
 
+    def list_recent_events(self, task_run_id: str, *, limit: int = 160) -> list[RuntimeEvent]:
+        if max(1, int(limit or 160)) <= 0:
+            return []
+        path = self._event_path(task_run_id)
+        if not path.exists():
+            return []
+        events = self.index.list_recent_events(task_run_id, limit=max(1, int(limit or 160)))
+        if events:
+            return events
+        self.index.next_offset(task_run_id=task_run_id, event_path=path)
+        return self.index.list_recent_events(task_run_id, limit=max(1, int(limit or 160)))
+
+    def event_count(self, task_run_id: str) -> int:
+        return self.index.event_count(task_run_id, event_path=self._event_path(task_run_id))
+
     def delete_events(self, task_run_id: str) -> bool:
         path = self._event_path(task_run_id)
         if not path.exists():
             return False
         with self._write_lock:
             path.unlink(missing_ok=True)
+            self.index.delete_index(task_run_id)
         return True
 
     def next_offset(self, task_run_id: str) -> int:
-        path = self._event_path(task_run_id)
-        if not path.exists():
-            return 0
-        physical_line_count = 0
-        max_seen_offset = -1
-        for line in path.read_text(encoding="utf-8").splitlines():
-            stripped = line.strip()
-            if not stripped:
-                continue
-            physical_line_count += 1
-            try:
-                payload = json.loads(stripped)
-            except JSONDecodeError:
-                continue
-            try:
-                max_seen_offset = max(max_seen_offset, int(payload.get("offset") or 0))
-            except (TypeError, ValueError):
-                continue
-        return max(physical_line_count, max_seen_offset + 1)
+        return self.index.next_offset(task_run_id=task_run_id, event_path=self._event_path(task_run_id))
 
     def _publish(self, event: RuntimeEvent) -> None:
         with self._subscription_lock:

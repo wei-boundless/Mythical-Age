@@ -31,6 +31,7 @@ class PdfAnalysisCatalog:
         normalized = (path or "").strip()
         knowledge_dir = ProjectLayout.from_backend_dir(root_dir).knowledge_storage_dir.resolve()
         if normalized:
+            normalized = PdfAnalysisCatalog._strip_knowledge_prefix(normalized)
             candidate = (knowledge_dir / normalized).resolve()
             if knowledge_dir not in candidate.parents and candidate != knowledge_dir:
                 raise ValueError("检测到非法路径访问。")
@@ -52,7 +53,8 @@ class PdfAnalysisCatalog:
     @staticmethod
     def relative_path(root_dir: Path, path: Path) -> str:
         knowledge_dir = ProjectLayout.from_backend_dir(root_dir).knowledge_storage_dir.resolve()
-        return str(path.resolve().relative_to(knowledge_dir)).replace("\\", "/")
+        relative = path.resolve().relative_to(knowledge_dir).as_posix()
+        return f"knowledge/{relative}".rstrip("/")
 
     @staticmethod
     def extract_explicit_pdf_references(text: str) -> list[str]:
@@ -142,17 +144,24 @@ class PdfAnalysisCatalog:
 
     @staticmethod
     def _match_filename(root_dir: Path, candidates: list[Path], filename: str) -> Path | None:
-        normalized = filename.strip().lower()
+        normalized = PdfAnalysisCatalog._strip_knowledge_prefix(filename).strip().lower()
         for candidate in candidates:
             if candidate.name.lower() == normalized:
                 return candidate
             rel = PdfAnalysisCatalog.relative_path(root_dir, candidate).lower()
-            if rel.endswith(normalized):
+            if rel.endswith(normalized) or rel.removeprefix("knowledge/").endswith(normalized):
                 return candidate
         stem = Path(filename).stem.lower()
         for candidate in candidates:
             if candidate.stem.lower() == stem:
                 return candidate
         return None
+
+    @staticmethod
+    def _strip_knowledge_prefix(path: str) -> str:
+        normalized = str(path or "").replace("\\", "/").strip("/")
+        if normalized.lower().startswith("knowledge/"):
+            return normalized.split("/", 1)[1]
+        return normalized
 
 

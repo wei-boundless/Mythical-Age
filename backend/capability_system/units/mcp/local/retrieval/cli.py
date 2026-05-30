@@ -105,7 +105,11 @@ def main() -> int:
     if args.command == "clean":
         if not args.path.strip():
             parser.error("--path is required when command is `clean`")
-        file_path = (base_dir / args.path).resolve()
+        normalized_path = args.path.strip().replace("\\", "/").strip("/")
+        if normalized_path.lower().startswith("knowledge/"):
+            file_path = (layout.knowledge_storage_dir / normalized_path.split("/", 1)[1]).resolve()
+        else:
+            file_path = (base_dir / normalized_path).resolve()
         if not file_path.exists():
             parser.error("the provided --path does not exist")
         chunks = adapter.parse_file(file_path)

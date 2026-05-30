@@ -1071,20 +1071,24 @@ def _search_text(
     if glob:
         args.extend(["--glob", glob])
     args.append(query)
-    args.extend(files.relative_path(root) for root in safe_roots)
-    try:
-        completed = subprocess.run(
-            ["rg", *args],
-            cwd=files.workspace_root,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            timeout=8.0,
-            check=False,
-        )
-    except (FileNotFoundError, subprocess.TimeoutExpired, PermissionError):
+    completed = None
+    if files.search_root_args_are_workspace_relative(safe_roots):
+        args.extend(files.relative_path(root) for root in safe_roots)
+        try:
+            completed = subprocess.run(
+                ["rg", *args],
+                cwd=files.workspace_root,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=8.0,
+                check=False,
+            )
+        except (FileNotFoundError, subprocess.TimeoutExpired, PermissionError):
+            completed = None
+    if completed is None:
         return _fallback_search_text(
             files,
             query=query,

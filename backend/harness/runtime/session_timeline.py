@@ -39,7 +39,7 @@ def _runtime_attachment(runtime_host: Any, task_run: Any, *, max_progress_entrie
     if not task_run_id:
         return {}
     diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
-    events = [item.to_dict() for item in runtime_host.event_log.list_events(task_run_id)]
+    events = [item.to_dict() for item in _recent_events(runtime_host, task_run_id, limit=max_progress_entries * 8)]
     monitor = runtime_host.monitor_projector.project_task_run(task_run, now=_latest_now(events, task_run))
     final_answer = str(diagnostics.get("final_answer") or "")
     artifact_refs = list(diagnostics.get("artifact_refs") or [])
@@ -58,7 +58,7 @@ def _runtime_attachment(runtime_host: Any, task_run: Any, *, max_progress_entrie
         "latest_step": dict(monitor.get("latest_step") or {}),
         "latest_step_summary": public_runtime_progress_summary(monitor.get("latest_step_summary") or ""),
         "latest_event_type": str(monitor.get("latest_event_type") or ""),
-        "event_count": len(events),
+        "event_count": _event_count(runtime_host, task_run_id, fallback=len(events)),
         "progress_entries": progress_entries,
         "artifact_refs": artifact_refs,
         "final_answer": final_answer,
@@ -67,6 +67,28 @@ def _runtime_attachment(runtime_host: Any, task_run: Any, *, max_progress_entrie
         "updated_at": float(getattr(task_run, "updated_at", 0.0) or 0.0),
         "authority": "session_runtime_timeline.attachment",
     }
+
+
+def _recent_events(runtime_host: Any, task_run_id: str, *, limit: int) -> list[Any]:
+    reader = getattr(runtime_host.event_log, "list_recent_events", None)
+    if callable(reader):
+        try:
+            return list(reader(task_run_id, limit=max(1, int(limit or 160))))
+        except TypeError:
+            return list(reader(task_run_id))
+        except Exception:
+            return []
+    return list(runtime_host.event_log.list_events(task_run_id))[-max(1, int(limit or 160)) :]
+
+
+def _event_count(runtime_host: Any, task_run_id: str, *, fallback: int) -> int:
+    counter = getattr(runtime_host.event_log, "event_count", None)
+    if callable(counter):
+        try:
+            return int(counter(task_run_id))
+        except Exception:
+            return int(fallback)
+    return int(fallback)
 
 
 def _latest_now(events: list[dict[str, Any]], task_run: Any) -> float:

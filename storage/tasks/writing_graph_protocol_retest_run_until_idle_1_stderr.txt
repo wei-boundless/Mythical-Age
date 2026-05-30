@@ -1,9 +1,0 @@
-﻿Invoke-RestMethod : The underlying connection was closed: An unexpected error occurred on a receive.
-At D:\AI应用\langchain-agent\storage\tasks\writing_graph_protocol_retest_run_until_idle_1.ps1:12 char:15
-+ ... $response = Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:800 ...
-+                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    + CategoryInfo          : InvalidOperation: (System.Net.HttpWebRequest:HttpWebRequest) [Invoke-RestMethod], WebExc 
-   eption
-    + FullyQualifiedErrorId : WebCmdletWebResponseException,Microsoft.PowerShell.Commands.InvokeRestMethodCommand
- 
-

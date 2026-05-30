@@ -91,6 +91,9 @@ class AgentRuntimeServices:
         return self.get_trace_callback(task_run_id, **kwargs)
 
     def event_count(self, task_run_id: str) -> int:
+        counter = getattr(self.event_log, "event_count", None)
+        if callable(counter):
+            return int(counter(task_run_id))
         return len(self.event_log.list_events(task_run_id))
 
 

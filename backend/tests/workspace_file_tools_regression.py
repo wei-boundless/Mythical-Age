@@ -13,13 +13,14 @@ from capability_system.units.tools.search_files_tool import SearchFilesTool
 from capability_system.units.tools.write_file_tool import EditFileTool, WriteFileTool
 
 
-def test_workspace_file_tools_use_project_root_when_initialized_from_backend(tmp_path: Path) -> None:
+def test_workspace_file_tools_use_external_knowledge_root_when_initialized_from_backend(tmp_path: Path, monkeypatch) -> None:
     workspace = tmp_path / "project"
     backend_dir = workspace / "backend"
-    root_knowledge = workspace / "knowledge"
+    root_knowledge = tmp_path / "external-rag" / "knowledge"
     backend_knowledge = backend_dir / "knowledge"
     root_knowledge.mkdir(parents=True)
     backend_knowledge.mkdir(parents=True)
+    monkeypatch.setenv("APP_KNOWLEDGE_ROOT", str(root_knowledge))
     (root_knowledge / "note.md").write_text("root knowledge", encoding="utf-8")
     (backend_knowledge / "note.md").write_text("backend knowledge", encoding="utf-8")
 
@@ -61,13 +62,14 @@ def test_workspace_file_tools_reject_path_traversal_from_project_root(tmp_path: 
     assert outside.read_text(encoding="utf-8") == "outside"
 
 
-def test_workspace_search_defaults_do_not_duplicate_backend_knowledge_root(tmp_path: Path) -> None:
+def test_workspace_search_defaults_do_not_duplicate_backend_knowledge_root(tmp_path: Path, monkeypatch) -> None:
     workspace = tmp_path / "project"
     backend_dir = workspace / "backend"
-    root_knowledge = workspace / "knowledge"
+    root_knowledge = tmp_path / "external-rag" / "knowledge"
     backend_knowledge = backend_dir / "knowledge"
     root_knowledge.mkdir(parents=True)
     backend_knowledge.mkdir(parents=True)
+    monkeypatch.setenv("APP_KNOWLEDGE_ROOT", str(root_knowledge))
     (root_knowledge / "shared-note.md").write_text("root", encoding="utf-8")
     (backend_knowledge / "shared-note.md").write_text("backend", encoding="utf-8")
 

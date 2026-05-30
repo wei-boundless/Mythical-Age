@@ -21,7 +21,7 @@ class CollectionConfig:
 
 def build_default_collections(base_dir: Path) -> dict[str, CollectionConfig]:
     layout = ProjectLayout.from_backend_dir(base_dir)
-    indexes_dir = layout.storage_root / "indexes"
+    indexes_dir = layout.indexes_dir
     knowledge_dir = layout.knowledge_storage_dir
     benchmark_dir = base_dir / "knowledge-benchmark"
     durable_memory_layout = durable_memory_layout_from_backend_dir(base_dir)

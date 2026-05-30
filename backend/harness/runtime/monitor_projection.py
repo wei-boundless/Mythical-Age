@@ -29,9 +29,10 @@ class TaskRunMonitorProjector:
 
     def project_task_run(self, task_run: Any, *, now: float) -> dict[str, Any]:
         current_time = float(now)
-        events = self.event_log.list_events(task_run.task_run_id)
+        events = self._recent_events(str(getattr(task_run, "task_run_id", "") or ""), limit=240)
         latest_event = events[-1].to_dict() if events else {}
         latest_step = self._latest_step_summary(events)
+        event_count = self._event_count(str(getattr(task_run, "task_run_id", "") or ""), events=events)
         diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
         created_at = float(getattr(task_run, "created_at", 0.0) or 0.0)
         updated_at = float(getattr(task_run, "updated_at", 0.0) or 0.0)
@@ -135,9 +136,29 @@ class TaskRunMonitorProjector:
             "project_title": self._public_text(diagnostics.get("project_title")),
             "project_runtime_status": None,
             "has_graph_run": has_graph_run,
-            "event_count": len(events),
+            "event_count": event_count,
             "authority": "single_agent_runtime_monitor.item",
         }
+
+    def _recent_events(self, task_run_id: str, *, limit: int) -> list[Any]:
+        reader = getattr(self.event_log, "list_recent_events", None)
+        if callable(reader):
+            try:
+                return list(reader(task_run_id, limit=limit))
+            except TypeError:
+                return list(reader(task_run_id))
+            except Exception:
+                return []
+        return list(self.event_log.list_events(task_run_id))[-max(1, int(limit or 240)) :]
+
+    def _event_count(self, task_run_id: str, *, events: list[Any]) -> int:
+        counter = getattr(self.event_log, "event_count", None)
+        if callable(counter):
+            try:
+                return int(counter(task_run_id))
+            except Exception:
+                return len(events)
+        return len(events)
 
     def build_global_monitor(self, task_runs: list[Any], *, now: float, limit: int) -> dict[str, Any]:
         requested_limit = max(1, min(int(limit or 20), 100))

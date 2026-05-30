@@ -108,11 +108,13 @@ class SearchFilesTool(BaseTool):
             return "Search failed: no safe search roots."
 
         limit = max(1, min(int(max_results or 20), 100))
-        root_args = [self._files.relative_path(root) for root in safe_roots]
-        completed = _run_rg(
-            ["--files", *_default_search_exclude_args(using_default_roots), *root_args],
-            cwd=self._files.workspace_root,
-        )
+        completed = None
+        if self._files.search_root_args_are_workspace_relative(safe_roots):
+            root_args = [self._files.relative_path(root) for root in safe_roots]
+            completed = _run_rg(
+                ["--files", *_default_search_exclude_args(using_default_roots), *root_args],
+                cwd=self._files.workspace_root,
+            )
         paths: list[str] = []
         if completed is not None and completed.returncode in {0, 1}:
             paths = [line.strip().replace("\\", "/") for line in completed.stdout.splitlines() if line.strip()]
@@ -188,9 +190,10 @@ class SearchTextTool(BaseTool):
         if str(glob or "").strip():
             args.extend(["--glob", str(glob).strip()])
         args.append(normalized_query)
-        args.extend(self._files.relative_path(root) for root in safe_roots)
-
-        completed = _run_rg(args, cwd=self._files.workspace_root)
+        completed = None
+        if self._files.search_root_args_are_workspace_relative(safe_roots):
+            args.extend(self._files.relative_path(root) for root in safe_roots)
+            completed = _run_rg(args, cwd=self._files.workspace_root)
         if completed is None:
             return self._fallback_search(
                 normalized_query,

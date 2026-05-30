@@ -139,6 +139,12 @@ async def health_system_monitor_governance() -> dict[str, Any]:
     return HealthGovernanceBuilder(runtime).build_monitor_governance()
 
 
+@router.get("/health-system/artifact-governance")
+async def health_system_artifact_governance() -> dict[str, Any]:
+    runtime = require_runtime()
+    return HealthGovernanceBuilder(runtime).build_artifact_governance()
+
+
 @router.get("/health-system/token-usage")
 async def health_system_token_usage(limit: int = 100) -> dict[str, Any]:
     runtime = require_runtime()
