@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import json
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -299,11 +300,22 @@ def test_task_run_control_commands_call_backend_client() -> None:
             self.calls.append(("stop", task_run_id, {"reason": reason}))
             return {"ok": True, "task_run_id": task_run_id}
 
+        def get_task_run_monitor(self, task_run_id: str):
+            return {
+                "status": "waiting_executor",
+                "event_count": 1,
+                "terminal_reason": "waiting_executor",
+                "latest_event": {"event_type": "step_summary_recorded", "payload": {"step": "task_run_paused", "summary": "已暂停。"}},
+            }
+
+        def get_task_run_trace(self, task_run_id: str, *, include_payloads: bool = False):
+            return {"task_run": {"status": "waiting_executor", "terminal_reason": "waiting_executor", "diagnostics": {"recoverable_error": {"user_message": "已暂停。"}}}}
+
     client = FakeClient()
     stdout = io.StringIO()
     store = CliStateStore()
 
-    assert run_command(build_parser().parse_args(["task-run", "pause", "taskrun:test", "--reason", "p"]), client=client, store=store, stdout=stdout, stderr=io.StringIO()) == 0  # type: ignore[arg-type]
+    assert run_command(build_parser().parse_args(["task-run", "pause", "taskrun:test", "--reason", "p", "--no-watch"]), client=client, store=store, stdout=stdout, stderr=io.StringIO()) == 0  # type: ignore[arg-type]
     assert run_command(build_parser().parse_args(["task-run", "resume", "taskrun:test", "--max-steps", "3", "--no-watch"]), client=client, store=store, stdout=stdout, stderr=io.StringIO()) == 0  # type: ignore[arg-type]
     assert run_command(build_parser().parse_args(["task-run", "stop", "taskrun:test", "--reason", "s"]), client=client, store=store, stdout=stdout, stderr=io.StringIO()) == 0  # type: ignore[arg-type]
 
@@ -312,6 +324,65 @@ def test_task_run_control_commands_call_backend_client() -> None:
         ("resume", "taskrun:test", {"max_steps": 3}),
         ("stop", "taskrun:test", {"reason": "s"}),
     ]
+
+
+def test_task_run_pause_watches_until_waiting_by_default() -> None:
+    class FakeClient:
+        def __init__(self) -> None:
+            self.pause_calls = 0
+            self.monitor_calls = 0
+
+        def pause_task_run(self, task_run_id: str, *, reason: str = ""):
+            self.pause_calls += 1
+            return {"ok": True, "task_run_id": task_run_id}
+
+        def get_task_run_monitor(self, task_run_id: str):
+            self.monitor_calls += 1
+            return {
+                "status": "waiting_executor",
+                "event_count": 2,
+                "terminal_reason": "waiting_executor",
+                "latest_event": {"event_type": "step_summary_recorded", "payload": {"step": "task_run_paused", "summary": "已暂停。"}},
+            }
+
+        def get_task_run_trace(self, task_run_id: str, *, include_payloads: bool = False):
+            return {"task_run": {"status": "waiting_executor", "terminal_reason": "waiting_executor", "diagnostics": {"recoverable_error": {"user_message": "已暂停。"}}}}
+
+    client = FakeClient()
+    stdout = io.StringIO()
+
+    code = run_command(build_parser().parse_args(["task-run", "pause", "taskrun:test"]), client=client, store=CliStateStore(), stdout=stdout, stderr=io.StringIO())  # type: ignore[arg-type]
+
+    assert code == 0
+    assert client.pause_calls == 1
+    assert client.monitor_calls == 1
+    assert "pause requested taskrun:test" in stdout.getvalue()
+    assert "已暂停" in stdout.getvalue()
+
+
+def test_task_run_trace_prints_backend_trace() -> None:
+    class FakeClient:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, str, dict[str, object]]] = []
+
+        def get_task_run_trace(self, task_run_id: str, *, include_payloads: bool = False):
+            self.calls.append(("trace", task_run_id, {"include_payloads": include_payloads}))
+            return {"task_run": {"task_run_id": task_run_id, "status": "aborted"}}
+
+    client = FakeClient()
+    stdout = io.StringIO()
+
+    code = run_command(
+        build_parser().parse_args(["task-run", "trace", "taskrun:test", "--include-payloads"]),
+        client=client,
+        store=CliStateStore(),
+        stdout=stdout,
+        stderr=io.StringIO(),
+    )  # type: ignore[arg-type]
+
+    assert code == 0
+    assert client.calls == [("trace", "taskrun:test", {"include_payloads": True})]
+    assert json.loads(stdout.getvalue()) == {"task_run": {"task_run_id": "taskrun:test", "status": "aborted"}}
 
 
 def test_interactive_mode_sends_plain_text_and_exits(tmp_path: Path) -> None:

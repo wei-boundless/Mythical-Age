@@ -51,7 +51,7 @@ from harness.loop.task_executor import (
 )
 from harness.loop.task_run_recovery_state import should_auto_continue_task_run
 from harness.loop.task_lifecycle import TaskLifecycleRecord, TaskRunContract
-from harness.graph.models import safe_id
+from harness.graph.models import safe_id, stable_hash
 from runtime.shared.models import AgentRun, TaskRun
 
 logger = logging.getLogger(__name__)
@@ -610,7 +610,7 @@ class QueryRuntime:
     def _create_graph_node_task_run(self, *, graph_config: Any, work_order: Any) -> TaskRun:
         runtime_host = self.single_agent_runtime_host
         now = time.time()
-        node_task_run_id = f"gtask:{safe_id(work_order.graph_run_id)}:{safe_id(work_order.node_id)}:{safe_id(work_order.work_order_id)}"
+        node_task_run_id = _graph_node_task_run_id(work_order)
         existing = runtime_host.state_index.get_task_run(node_task_run_id)
         if existing is not None:
             _validate_existing_graph_node_task_run(existing, graph_run_id=work_order.graph_run_id, work_order_id=work_order.work_order_id)
@@ -1128,6 +1128,20 @@ def _graph_node_public_scope_fields(work_order: Any) -> dict[str, str]:
         if value:
             result[key] = value
     return result
+
+
+def _graph_node_task_run_id(work_order: Any) -> str:
+    work_order_id = str(getattr(work_order, "work_order_id", "") or "")
+    work_order_hash = stable_hash(work_order_id)[:16]
+    graph_part = safe_id(getattr(work_order, "graph_run_id", ""), limit=56)
+    node_part = safe_id(getattr(work_order, "node_id", ""), limit=48)
+    order_part = safe_id(work_order_id, limit=32)
+    return (
+        f"gtask:{work_order_hash}:"
+        f"{graph_part}:"
+        f"{node_part}:"
+        f"{order_part}"
+    )
 
 
 def _validate_existing_graph_node_task_run(task_run: TaskRun, *, graph_run_id: str, work_order_id: str) -> None:

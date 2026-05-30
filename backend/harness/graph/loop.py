@@ -368,6 +368,7 @@ class GraphLoop:
                 checkpoint=checkpoint.to_dict() if checkpoint is not None else {},
             )
         node_states = {key: dict(value) for key, value in state.node_states.items()}
+        edge_states = {key: dict(value) for key, value in state.edge_states.items()}
         now = time.time()
         for node_id in targets:
             node = dict(node_states.get(node_id) or {})
@@ -377,10 +378,16 @@ class GraphLoop:
             node["updated_at"] = now
             node.pop("blocked_reason", None)
             node_states[node_id] = node
+            edge_states = _reset_outgoing_failed_edges(
+                edge_states=edge_states,
+                source_node_id=node_id,
+                updated_at=now,
+            )
         next_state = _replace_state(
             state,
             status="running",
             node_states=node_states,
+            edge_states=edge_states,
             ready_node_ids=tuple(dict.fromkeys([*state.ready_node_ids, *targets])),
             running_node_ids=(),
             blocked_node_ids=tuple(item for item in state.blocked_node_ids if item not in set(targets)),
@@ -392,6 +399,54 @@ class GraphLoop:
             self._append_event(
                 next_state.task_run_id,
                 "graph_blocked_nodes_requeued",
+                payload={
+                    "graph_run_id": next_state.graph_run_id,
+                    "node_ids": list(targets),
+                    "graph_loop_state": _loop_state_summary(next_state),
+                },
+                refs={"graph_run_ref": next_state.graph_run_id, "graph_harness_config_ref": next_state.config_id},
+            )
+        ]
+        return GraphLoopStart(loop_state=next_state, checkpoint=checkpoint, events=tuple(events))
+
+    def reset_source_failed_edges_for_nodes_and_checkpoint(
+        self,
+        *,
+        state: GraphLoopState,
+        node_ids: tuple[str, ...],
+    ) -> GraphLoopStart:
+        targets = tuple(dict.fromkeys(str(item) for item in node_ids if str(item)))
+        if not targets:
+            checkpoint = self.get_latest_checkpoint(state.graph_run_id)
+            return GraphLoopStart(
+                loop_state=state,
+                checkpoint=checkpoint.to_dict() if checkpoint is not None else {},
+            )
+        edge_states = {key: dict(value) for key, value in state.edge_states.items()}
+        now = time.time()
+        for node_id in targets:
+            edge_states = _reset_outgoing_failed_edges(
+                edge_states=edge_states,
+                source_node_id=node_id,
+                updated_at=now,
+            )
+        state_patch: dict[str, Any] = {}
+        if state.status == "blocked" and any(node_id in dict(state.active_work_orders or {}) for node_id in targets):
+            state_patch["status"] = "running"
+            state_patch["terminal_reason"] = ""
+        if edge_states == state.edge_states and not state_patch:
+            checkpoint = self.get_latest_checkpoint(state.graph_run_id)
+            return GraphLoopStart(
+                loop_state=state,
+                checkpoint=checkpoint.to_dict() if checkpoint is not None else {},
+            )
+        next_state = _replace_state(state, edge_states=edge_states, **state_patch)
+        next_state = _advance_event_cursor(next_state)
+        checkpoint = self._write_state(next_state)
+        events = [
+            self._append_event(
+                next_state.task_run_id,
+                "graph_source_failed_edges_reset_for_active_nodes",
                 payload={
                     "graph_run_id": next_state.graph_run_id,
                     "node_ids": list(targets),
@@ -1030,6 +1085,28 @@ def _state_with_work_orders(
         ready_node_ids=tuple(item for item in state.ready_node_ids if item not in active),
         running_node_ids=tuple(dict.fromkeys([*state.running_node_ids, *(item.node_id for item in work_orders)])),
     )
+
+
+def _reset_outgoing_failed_edges(
+    *,
+    edge_states: dict[str, dict[str, Any]],
+    source_node_id: str,
+    updated_at: float,
+) -> dict[str, dict[str, Any]]:
+    next_edges = {key: dict(value) for key, value in edge_states.items()}
+    for edge_id, edge_state in list(next_edges.items()):
+        if str(edge_state.get("source_node_id") or "") != source_node_id:
+            continue
+        if str(edge_state.get("status") or "") != "source_failed":
+            continue
+        edge_state["status"] = "pending"
+        edge_state["updated_at"] = updated_at
+        edge_state.pop("packet_refs", None)
+        edge_state.pop("latest_packet_id", None)
+        edge_state.pop("latest_packet_ref", None)
+        edge_state.pop("latest_packet", None)
+        next_edges[edge_id] = edge_state
+    return next_edges
 
 
 def _initial_node_status(node: dict[str, Any], *, start_ids: set[str]) -> str:

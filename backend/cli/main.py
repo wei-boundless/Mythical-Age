@@ -67,6 +67,7 @@ def build_parser() -> argparse.ArgumentParser:
     pause_parser = task_run_subparsers.add_parser("pause", help="Pause a running TaskRun")
     pause_parser.add_argument("task_run_id")
     pause_parser.add_argument("--reason", default="cli_pause")
+    pause_parser.add_argument("--no-watch", action="store_true", help="Only request pause and print the accepted payload")
     resume_parser = task_run_subparsers.add_parser("resume", help="Resume a paused or waiting TaskRun")
     resume_parser.add_argument("task_run_id")
     resume_parser.add_argument("--max-steps", type=int, default=12)
@@ -76,6 +77,9 @@ def build_parser() -> argparse.ArgumentParser:
     stop_parser.add_argument("--reason", default="cli_stop")
     watch_parser = task_run_subparsers.add_parser("watch", help="Watch a TaskRun until it reaches a terminal state")
     watch_parser.add_argument("task_run_id")
+    trace_parser = task_run_subparsers.add_parser("trace", help="Print a TaskRun trace")
+    trace_parser.add_argument("task_run_id")
+    trace_parser.add_argument("--include-payloads", action="store_true")
 
     config_parser = subparsers.add_parser("config", help="Show CLI config")
     config_parser.add_argument("config_command", choices=["show"])
@@ -349,8 +353,14 @@ def _run_task_run_command(
         return _watch_task_run(args.task_run_id, client=client, stdout=stdout)
     if args.task_run_command == "pause":
         result = client.pause_task_run(args.task_run_id, reason=str(args.reason or "cli_pause"))
-        _print_json(result, stdout)
-        return 0 if result.get("ok") else 1
+        if bool(getattr(args, "no_watch", False)):
+            _print_json(result, stdout)
+            return 0 if result.get("ok") else 1
+        if not result.get("ok"):
+            _print_json(result, stdout)
+            return 1
+        print(f"pause requested {args.task_run_id}", file=stdout)
+        return _watch_task_run(args.task_run_id, client=client, stdout=stdout)
     if args.task_run_command == "resume":
         result = client.resume_task_run(args.task_run_id, max_steps=max(1, int(args.max_steps or 12)))
         if bool(getattr(args, "no_watch", False)):
@@ -364,6 +374,15 @@ def _run_task_run_command(
         return 0 if result.get("ok") else 1
     if args.task_run_command == "watch":
         return _watch_task_run(args.task_run_id, client=client, stdout=stdout)
+    if args.task_run_command == "trace":
+        _print_json(
+            client.get_task_run_trace(
+                args.task_run_id,
+                include_payloads=bool(getattr(args, "include_payloads", False)),
+            ),
+            stdout,
+        )
+        return 0
     return 2
 
 

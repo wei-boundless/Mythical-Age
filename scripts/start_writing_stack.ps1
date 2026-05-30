@@ -3,6 +3,7 @@ param(
     [int]$BindPort = 8003,
     [string]$PythonExe = "C:\Users\admin\.conda\envs\agent\python.exe",
     [switch]$SkipBackendRestart,
+    [switch]$ForceBackendRestart,
     [switch]$SkipRunStart,
     [string]$GraphId = "graph.writing.modular_novel.master",
     [string]$TaskId = "task.writing.modular_novel.master",
@@ -99,6 +100,24 @@ function Test-IsProjectBackendProcess {
     return $usesProjectRoot -or $usesFixedBackendEntry
 }
 
+function Get-BackendListeners {
+    param([int]$BackendPort)
+
+    $listeners = @(Get-NetTCPConnection -LocalPort $BackendPort -State Listen -ErrorAction SilentlyContinue)
+    foreach ($listener in $listeners) {
+        $processInfo = $null
+        if ($listener.OwningProcess) {
+            $processInfo = Get-CimInstance Win32_Process -Filter "ProcessId=$($listener.OwningProcess)" -ErrorAction SilentlyContinue
+        }
+        [pscustomobject]@{
+            port = $BackendPort
+            pid = [int]$listener.OwningProcess
+            project_backend = ($processInfo -and (Test-IsProjectBackendProcess -ProcessInfo $processInfo -ExpectedBackendRoot $BackendRoot -ExpectedBackendPort $BackendPort))
+            command_line = if ($processInfo) { [string]$processInfo.CommandLine } else { "" }
+        }
+    }
+}
+
 function Start-BackendProcess {
     param(
         [string]$WorkingDirectory,
@@ -152,9 +171,21 @@ function Wait-BackendHealthy {
     throw "Backend did not become healthy within $TimeoutSeconds seconds.`n$tail"
 }
 
-if (-not $SkipBackendRestart) {
-    Ensure-OutputDir
-    Clear-LegacyBackendLogs
+$backendRestarted = $false
+Ensure-OutputDir
+Clear-LegacyBackendLogs
+
+if ($SkipBackendRestart -and $ForceBackendRestart) {
+    throw "Use either -SkipBackendRestart or -ForceBackendRestart, not both."
+}
+
+$backendHealthy = Test-BackendHealth -Url $HealthUrl
+$backendListeners = @(Get-BackendListeners -BackendPort $BindPort)
+if ($SkipBackendRestart -and -not $backendHealthy) {
+    throw "Backend is not healthy at $HealthUrl. Remove -SkipBackendRestart or start the service first."
+}
+
+if ($ForceBackendRestart -or ((-not $backendHealthy) -and $backendListeners.Count -eq 0)) {
     Stop-BackendProcesses -BackendPort $BindPort -StoredPidFile $PidFile -ExpectedBackendRoot $BackendRoot
     Start-Sleep -Seconds 1
     $backendProcess = Start-BackendProcess `
@@ -166,8 +197,10 @@ if (-not $SkipBackendRestart) {
         -BindHost $BindHost `
         -BindPort $BindPort
     Wait-BackendHealthy -Url $HealthUrl -TimeoutSeconds $StartupTimeoutSeconds -StdErrLog $ErrLog
-} elseif (-not (Test-BackendHealth -Url $HealthUrl)) {
-    throw "Backend is not healthy at $HealthUrl. Remove -SkipBackendRestart or restart the service first."
+    $backendRestarted = $true
+} elseif (-not $backendHealthy) {
+    $details = $backendListeners | ConvertTo-Json -Depth 4
+    throw "Backend port $BindPort is occupied but health check failed. Refusing to restart an existing backend without -ForceBackendRestart because it may have active SSE or TaskRun work.`n$details"
 }
 
 $result = [ordered]@{
@@ -177,7 +210,7 @@ $result = [ordered]@{
         pid_file = $PidFile
         stdout_log = $OutLog
         stderr_log = $ErrLog
-        restarted = (-not $SkipBackendRestart)
+        restarted = $backendRestarted
     }
 }
 

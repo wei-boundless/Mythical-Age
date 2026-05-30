@@ -17,6 +17,7 @@ from task_system.environments import (
     resolve_task_environment,
     task_environment_registry_from_backend_dir,
 )
+from agent_system.profiles.runtime_profile_registry import AgentRuntimeRegistry
 from agent_system.profiles.runtime_profile_registry import default_agent_runtime_profiles
 from capability_system.tool_authorization import build_tool_authorization_index
 from capability_system.tool_definitions import build_tool_instances, get_tool_definitions
@@ -55,6 +56,101 @@ def test_default_task_environments_are_grouped_scene_platforms() -> None:
 
     assert general.sandbox_policy.shell_policy == "denied"
     assert general.execution_policy.shell_execution_policy == "denied"
+
+
+def test_configured_system_eval_dual_node_environment_is_isolated() -> None:
+    registry = task_environment_registry_from_backend_dir(BACKEND_DIR)
+    definition = registry.require("env.system_eval.dual_node")
+    resolved = resolve_task_environment("env.system_eval.dual_node", registry=registry)
+    payload = resolved.to_dict()
+
+    assert definition.record.group_id == "environment_group.system_eval"
+    assert definition.record.environment_kind == "custom"
+    assert definition.spec.resource_space.storage_namespace == "system_eval/dual_node"
+    assert definition.spec.file_management.file_profile_refs == ()
+    assert definition.spec.file_management.required_repository_kinds == ("system_eval_artifacts",)
+    assert definition.spec.memory_space.environment_memory_refs == ()
+    assert definition.spec.memory_space.write_policy == "none"
+    assert definition.spec.sandbox_policy.enabled is True
+    assert definition.spec.sandbox_policy.workspace_access == "project_read_sandbox_write"
+    assert definition.spec.sandbox_policy.write_policy == "sandbox_or_system_eval_artifacts"
+    assert definition.spec.execution_policy.sandbox_required is True
+    assert definition.spec.execution_policy.real_workspace_access == "read_only"
+    assert definition.spec.execution_policy.write_scope_policy == "sandbox_or_system_eval_artifacts"
+    assert definition.spec.execution_policy.shell_execution_policy == "sandboxed"
+    assert definition.spec.execution_policy.browser_execution_policy == "sandboxed"
+    assert definition.spec.execution_policy.network_execution_policy == "allowed"
+    assert "op.shell" in definition.spec.sandbox_policy.side_effect_operations
+    assert "op.browser_control" in definition.spec.sandbox_policy.side_effect_operations
+    assert "op.web_search" in definition.spec.sandbox_policy.side_effect_operations
+    assert payload["storage_space"]["environment_storage_root"] == "storage/task_environments/system_eval/dual_node"
+    assert payload["file_access_tables"] == []
+    assert "file_profile.writing_manuscript" not in str(payload)
+    assert "creation/writing" not in str(payload)
+    assert "development/sandbox" not in str(payload)
+
+
+def test_system_eval_dual_node_uses_main_and_health_agent_profiles() -> None:
+    registry = task_environment_registry_from_backend_dir(BACKEND_DIR)
+    main_profile = AgentRuntimeRegistry(BACKEND_DIR).get_profile("agent:0")
+    health_profile = AgentRuntimeRegistry(BACKEND_DIR).get_profile("agent:3")
+    definitions = get_tool_definitions()
+    index = build_tool_authorization_index(definitions)
+
+    assert main_profile is not None
+    assert main_profile.agent_profile_id == "main_interactive_agent"
+    assert health_profile is not None
+    assert health_profile.agent_profile_id == "health_management_agent"
+    assert health_profile.runtime_template_id == "builtin.system.health_manager"
+
+    main_assembly = assemble_runtime(
+        backend_dir=BACKEND_DIR,
+        session_id="session-system-eval-main",
+        turn_id="turn-system-eval-main",
+        agent_invocation_id="agent-invocation-system-eval-main",
+        request_task_selection={
+            "runtime_mode": "professional",
+            "task_environment_id": "env.system_eval.dual_node",
+        },
+        model_selection={},
+        agent_runtime_profile=main_profile,
+        tool_instances=build_tool_instances(BACKEND_DIR),
+        definitions_by_name=index.definitions_by_name,
+    ).to_dict()
+    monitor_assembly = assemble_runtime(
+        backend_dir=BACKEND_DIR,
+        session_id="session-system-eval-monitor",
+        turn_id="turn-system-eval-monitor",
+        agent_invocation_id="agent-invocation-system-eval-monitor",
+        request_task_selection={
+            "runtime_mode": "professional",
+            "task_environment_id": "env.system_eval.dual_node",
+        },
+        model_selection={},
+        agent_runtime_profile=health_profile,
+        tool_instances=build_tool_instances(BACKEND_DIR),
+        definitions_by_name=index.definitions_by_name,
+    ).to_dict()
+
+    assert dict(main_assembly.get("task_environment") or {}).get("environment_id") == "env.system_eval.dual_node"
+    assert dict(monitor_assembly.get("task_environment") or {}).get("environment_id") == "env.system_eval.dual_node"
+    assert main_assembly["agent_profile_ref"] == "main_interactive_agent"
+    assert monitor_assembly["agent_profile_ref"] == "health_management_agent"
+
+    main_decisions = {
+        str(item.get("operation_id") or ""): dict(item)
+        for item in list(dict(main_assembly.get("operation_authorization") or {}).get("decisions") or [])
+    }
+    monitor_decisions = {
+        str(item.get("operation_id") or ""): dict(item)
+        for item in list(dict(monitor_assembly.get("operation_authorization") or {}).get("decisions") or [])
+    }
+    assert main_decisions["op.shell"]["final_decision"] == "allow"
+    assert main_decisions["op.web_search"]["final_decision"] == "allow"
+    assert monitor_decisions["op.read_file"]["final_decision"] == "allow"
+    assert monitor_decisions["op.search_text"]["final_decision"] == "allow"
+    assert monitor_decisions["op.write_file"]["final_decision"] == "deny"
+    assert monitor_decisions["op.shell"]["final_decision"] == "deny"
 
 
 def test_task_definitions_do_not_declare_skill_authority() -> None:

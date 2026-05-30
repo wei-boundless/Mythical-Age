@@ -1,0 +1,152 @@
+{
+  "environments": [
+    {
+      "record": {
+        "default_visibility": "system",
+        "description": "Isolated system evaluation boundary for dual-node agent graph experiments. It is not a writing, development, or production task environment.",
+        "enabled": true,
+        "environment_id": "env.system_eval.dual_node",
+        "environment_kind": "custom",
+        "group_id": "environment_group.system_eval",
+        "metadata": {
+          "managed_by": "codex_system_eval_environment",
+          "purpose": "dual_node_agent_runtime_evaluation"
+        },
+        "owner": "system",
+        "title": "System Eval Dual Node"
+      },
+      "spec": {
+        "artifact_policy": {
+          "artifact_root": "system_eval_artifacts",
+          "cleanup_policy": "test_run_retention",
+          "naming_policy": "test_run_scoped",
+          "overwrite_policy": "versioned_no_blind_overwrite",
+          "publish_policy": "verification_required"
+        },
+        "environment_id": "env.system_eval.dual_node",
+        "environment_prompts": [
+          {
+            "cache_scope": "static_environment",
+            "content": "你处在系统评测资源边界中。这个环境只用于验证 agent runtime、任务图协议、状态恢复、边协议和监控判定，不用于真实业务创作、开发交付或生产写入。\n\n你只能处理当前评测合同声明的输入、输出和证据。主执行节点必须输出可机读的结构化证据；测试节点必须按证据判定通过或失败，不能替主节点补证据，不能把自然语言总结当作协议事实。\n\n评测产物只能写入 system eval artifact 范围。不得写入写作正式作品库、开发真实工作区、业务记忆库或生产数据。遇到缺少证据、轮次不足、协议字段缺失、状态不一致或完成门禁未满足时，必须 fail closed，并把失败项写入 verdict。",
+            "prompt_id": "environment.system_eval.dual_node.v1",
+            "prompt_kind": "environment",
+            "version": "v1"
+          }
+        ],
+        "execution_policy": {
+          "browser_execution_policy": "sandboxed",
+          "max_runtime_policy": "task_decided",
+          "network_execution_policy": "allowed",
+          "real_workspace_access": "read_only",
+          "sandbox_mode": "workspace_overlay",
+          "sandbox_required": true,
+          "shell_execution_policy": "sandboxed",
+          "side_effect_policy": "system_eval_artifact_boundary",
+          "write_scope_policy": "sandbox_or_system_eval_artifacts"
+        },
+        "file_management": {
+          "artifact_projection_policy": "environment_artifact_projection",
+          "canonical_write_policy": "none",
+          "constraints": {
+            "business_environment_reuse": "denied",
+            "development_workspace_write": "denied",
+            "production_data_write": "denied",
+            "system_eval_artifact_write": "allowed",
+            "writing_repository_write": "denied"
+          },
+          "file_profile_refs": [],
+          "memory_projection_policy": "none",
+          "required_repository_kinds": [
+            "system_eval_artifacts"
+          ]
+        },
+        "lifecycle_policy": {
+          "cleanup_scope": "test_run",
+          "graph_run_reuse": "denied",
+          "purpose": "runtime_protocol_evaluation"
+        },
+        "memory_space": {
+          "environment_memory_refs": [],
+          "project_knowledge_refs": [],
+          "projection_policy": "none",
+          "read_policy": "none",
+          "retrieval_index_refs": [],
+          "shared_context_refs": [],
+          "write_policy": "none"
+        },
+        "metadata": {
+          "allowed_graph_id_prefix": "graph.system_eval.",
+          "forbidden_environment_refs": [
+            "env.creation.writing",
+            "env.development.sandbox"
+          ],
+          "managed_by": "codex_system_eval_environment"
+        },
+        "observability_policy": {
+          "require_edge_payload_capture": true,
+          "require_monitor_verdict": true,
+          "require_node_traces": true,
+          "require_round_evidence": true
+        },
+        "resource_space": {
+          "artifact_root_policy": "system_eval_artifacts",
+          "artifact_storage_policy": "environment_scoped_artifacts",
+          "browser_environment_policy": "local_browser",
+          "cache_storage_policy": "environment_scoped_cache",
+          "external_service_policy": "task_decided",
+          "managed_file_environment_policy": "none",
+          "material_mount_policy": "none",
+          "mcp_environment_policy": "none",
+          "project_file_policy": "read_only",
+          "runtime_state_root_policy": "environment_scoped_runtime_state",
+          "storage_namespace": "system_eval/dual_node",
+          "storage_root_policy": "environment_scoped",
+          "workspace_policy": "project_read_sandbox_write"
+        },
+        "risk_policy": {
+          "approval_required_risk_levels": [
+            "external_write"
+          ],
+          "audit_receipt_policy": "required",
+          "auto_denied_risk_levels": [
+            "real_workspace_write",
+            "production_write",
+            "destructive_unbounded"
+          ],
+          "default_permission_mode": "deny_by_default",
+          "denial_tracking_policy": "record_denials",
+          "reviewer_required_operations": []
+        },
+        "sandbox_policy": {
+          "browser_policy": "sandboxed",
+          "enabled": true,
+          "network_policy": "allowed",
+          "sandbox_mode": "workspace_overlay",
+          "sandbox_root_policy": "runtime_allocated",
+          "shell_policy": "sandboxed",
+          "side_effect_operations": [
+            "op.write_file",
+            "op.edit_file",
+            "op.shell",
+            "op.browser_control",
+            "op.web_search",
+            "op.fetch_url"
+          ],
+          "side_effect_policy": "system_eval_artifact_boundary",
+          "workspace_access": "project_read_sandbox_write",
+          "write_policy": "sandbox_or_system_eval_artifacts"
+        },
+        "spec_id": "envspec.system_eval.dual_node.v1"
+      }
+    }
+  ],
+  "groups": [
+    {
+      "authority": "task_system.task_environment_group",
+      "description": "Isolated environments for runtime, graph protocol, state recovery, and agent behavior evaluations.",
+      "enabled": true,
+      "group_id": "environment_group.system_eval",
+      "title": "System Evaluation"
+    }
+  ]
+}

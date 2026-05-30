@@ -70,6 +70,9 @@ class LangGraphCheckpointStore:
         return dict(record.state) if record is not None else None
 
     def get_latest_checkpoint(self, graph_run_id: str) -> GraphCheckpointRecord | None:
+        records = self.list_checkpoints(graph_run_id)
+        if records:
+            return _latest_checkpoint_record(records)
         checkpoint_tuple = self._saver.get_tuple(_config(graph_run_id))
         if checkpoint_tuple is None:
             return None
@@ -112,7 +115,18 @@ def _config(graph_run_id: str) -> dict[str, Any]:
 def _checkpoint_id(payload: dict[str, Any]) -> str:
     graph_run_id = str(payload.get("graph_run_id") or "graph")
     cursor = _event_cursor(payload)
-    return f"gchk:{_safe_id(graph_run_id)}:{cursor}"
+    return f"gchk:{_safe_id(graph_run_id)}:{cursor:020d}"
+
+
+def _latest_checkpoint_record(records: tuple[GraphCheckpointRecord, ...]) -> GraphCheckpointRecord:
+    return max(
+        records,
+        key=lambda item: (
+            int(getattr(item, "event_cursor", -1) or -1),
+            float(dict(getattr(item, "metadata", {}) or {}).get("created_at") or 0.0),
+            str(getattr(item, "checkpoint_id", "") or ""),
+        ),
+    )
 
 
 def _record_from_checkpoint_tuple(

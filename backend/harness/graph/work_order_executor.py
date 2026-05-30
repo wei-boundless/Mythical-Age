@@ -151,6 +151,7 @@ class GraphNodeWorkOrderExecutor:
         )
         postprocess_errors = [*contract_artifact_errors, *artifact_errors, *memory_errors]
         result_status = "completed" if ok and not postprocess_errors else "failed"
+        structured_outputs = _structured_agent_outputs(task_run_payload)
         return NodeResultEnvelope(
             result_id=f"nresult:{safe_id(work_order.graph_run_id)}:{safe_id(work_order.node_id)}:{safe_id(work_order.work_order_id)}",
             graph_run_id=work_order.graph_run_id,
@@ -163,6 +164,7 @@ class GraphNodeWorkOrderExecutor:
                 "node_executor_task_run_id": task_run_id,
                 "executor_status": str(task_run_payload.get("status") or ("completed" if ok else "failed")),
                 "artifact_refs": artifact_refs,
+                **structured_outputs,
             },
             artifact_refs=tuple(str(item.get("path") or item.get("src") or item.get("absolute_path") or "") for item in artifact_refs if isinstance(item, dict)),
             memory_candidates=tuple(memory_candidates),
@@ -401,6 +403,24 @@ def _public_executor_result(result: dict[str, Any] | None) -> dict[str, Any]:
         "event": _event_summary(payload.get("event")),
         "lifecycle": _lifecycle_summary(payload.get("lifecycle")),
     }
+
+
+def _structured_agent_outputs(task_run_payload: dict[str, Any]) -> dict[str, Any]:
+    diagnostics = dict(task_run_payload.get("diagnostics") or {})
+    final_action_diagnostics = dict(diagnostics.get("final_action_diagnostics") or {})
+    allowed_keys = (
+        "semantic_evidence",
+        "monitor_verdict",
+        "structured_output",
+        "node_output",
+    )
+    outputs: dict[str, Any] = {}
+    for key in allowed_keys:
+        value = final_action_diagnostics.get(key)
+        if isinstance(value, (dict, list, str, int, float, bool)) or value is None:
+            if value is not None:
+                outputs[key] = value
+    return outputs
 
 
 def _task_run_summary(task_run: Any | None) -> dict[str, Any]:

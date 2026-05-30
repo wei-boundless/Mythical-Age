@@ -80,14 +80,20 @@ class GraphResumeService:
                 events=tuple(recovered),
             )
         if active:
+            reset = self._graph_loop.reset_source_failed_edges_for_nodes_and_checkpoint(
+                state=state,
+                node_ids=tuple(str(item.get("node_id") or "") for item in active),
+            )
+            state = reset.loop_state
+            checkpoint = dict(reset.checkpoint)
             return GraphResumeResult(
                 graph_run_id=graph_run_id,
                 resumed=True,
                 reason="active_work_orders_reconnected",
                 loop_state=state,
-                checkpoint=checkpoint.to_dict(),
+                checkpoint=checkpoint,
                 active_work_orders=active,
-                events=tuple(recovered),
+                events=tuple([*recovered, *reset.events]),
             )
         if state.status == "blocked" and dispatch_ready:
             blocked = _blocked_replay_node_ids(state)

@@ -140,7 +140,7 @@ def test_health_system_rejects_old_test_launch_command(tmp_path) -> None:
     assert response["receipt"]["blocked_reasons"] == ["unsupported_command_type"]
 
 
-def test_agent3_identity_remains_but_old_health_runtime_config_is_absent(tmp_path) -> None:
+def test_agent3_identity_and_health_runtime_profile_are_available(tmp_path) -> None:
     agent_registry = AgentRegistry(tmp_path)
     profile = AgentRuntimeRegistry(tmp_path).get_profile("agent:3")
     agent = agent_registry.get_agent("agent:3")
@@ -148,7 +148,14 @@ def test_agent3_identity_remains_but_old_health_runtime_config_is_absent(tmp_pat
 
     assert agent is not None
     assert agent.agent_id == "agent:3"
-    assert profile is None
+    assert profile is not None
+    assert profile.agent_profile_id == "health_management_agent"
+    assert profile.runtime_template_id == "builtin.system.health_manager"
+    assert "op.model_response" in profile.allowed_operations
+    assert "op.read_file" in profile.allowed_operations
+    assert "op.search_text" in profile.allowed_operations
+    assert "op.write_file" in profile.blocked_operations
+    assert "op.shell" in profile.blocked_operations
     assert registry.get_flow("flow.health.issue_triage") is None
     assert registry.get_specific_task_record("task.health.issue_triage") is None
     assert all(not item.workflow_id.startswith("workflow.health.") for item in registry.workflow_registry.list_workflows())

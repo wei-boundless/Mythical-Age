@@ -1464,7 +1464,7 @@ def _resource_requirements_stable_payload(resource_requirements: dict[str, Any])
 
 def _input_package_stable_payload(input_package: dict[str, Any]) -> dict[str, Any]:
     payload = dict(input_package or {})
-    payload.pop("inbound_context", None)
+    payload["inbound_context"] = _inbound_context_stable_payload(payload.get("inbound_context"))
     payload.pop("upstream_results", None)
     payload.pop("upstream_handoff_packets", None)
     payload.pop("handoff_packets", None)
@@ -1480,6 +1480,90 @@ def _input_package_stable_payload(input_package: dict[str, Any]) -> dict[str, An
             payload[key] = _bounded_view_payload(dict(payload.get(key) or {}))
     payload.pop("hidden_control_refs", None)
     return payload
+
+
+def _inbound_context_stable_payload(value: Any) -> list[dict[str, Any]]:
+    items: list[dict[str, Any]] = []
+    for item in list(value or []):
+        if not isinstance(item, dict):
+            continue
+        payload = dict(item.get("payload") or {})
+        items.append(
+            {
+                "context_id": str(item.get("context_id") or ""),
+                "packet_id": str(item.get("packet_id") or ""),
+                "packet_ref": str(item.get("packet_ref") or ""),
+                "packet_type": str(item.get("packet_type") or ""),
+                "source_node_id": str(item.get("source_node_id") or ""),
+                "target_node_id": str(item.get("target_node_id") or ""),
+                "edge_id": str(item.get("edge_id") or item.get("source_edge_id") or ""),
+                "payload_contract_id": str(item.get("payload_contract_id") or ""),
+                "delivery_policy": str(item.get("delivery_policy") or ""),
+                "payload": _bounded_graph_payload(payload),
+                "artifact_refs": _bounded_dict_list(item.get("artifact_refs"), limit=12),
+                "memory_refs": _bounded_dict_list(item.get("memory_refs"), limit=12),
+                "result_refs": _bounded_dict_list(item.get("result_refs"), limit=8),
+                "receipt_refs": _bounded_dict_list(item.get("receipt_refs"), limit=12),
+                "visibility": dict(item.get("visibility") or {}),
+                "lineage": {
+                    key: str(value)
+                    for key, value in dict(item.get("lineage") or {}).items()
+                    if key
+                    in {
+                        "source_authority",
+                        "graph_config_id",
+                        "graph_config_hash",
+                        "result_id",
+                        "result_ref",
+                        "work_order_id",
+                        "edge_id",
+                        "source_node_id",
+                        "target_node_id",
+                    }
+                },
+                "authority": "harness.graph.inbound_context.model_visible",
+            }
+        )
+    return items
+
+
+def _bounded_graph_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    if "handoff_summary" in payload:
+        result["handoff_summary"] = str(payload.get("handoff_summary") or "")[:1200]
+    if isinstance(payload.get("artifact_refs"), list):
+        result["artifact_refs"] = [str(item) for item in list(payload.get("artifact_refs") or [])[:12] if str(item)]
+    if isinstance(payload.get("receipt_refs"), list):
+        result["receipt_refs"] = _bounded_dict_list(payload.get("receipt_refs"), limit=12)
+    if isinstance(payload.get("bounded_outputs"), dict):
+        result["bounded_outputs"] = _truncate_value(dict(payload.get("bounded_outputs") or {}), max_chars=30000)
+    if isinstance(payload.get("artifact_payloads"), list):
+        result["artifact_payloads"] = [
+            _bounded_artifact_payload(dict(item))
+            for item in list(payload.get("artifact_payloads") or [])[:8]
+            if isinstance(item, dict)
+        ]
+    return result
+
+
+def _bounded_artifact_payload(item: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "artifact_ref": str(item.get("artifact_ref") or ""),
+        "content": str(item.get("content") or "")[:30000],
+        "truncated": bool(item.get("truncated") is True),
+        "max_chars": int(item.get("max_chars") or 30000),
+        "authority": str(item.get("authority") or "harness.graph.flow_packet.artifact_text_projection"),
+    }
+
+
+def _truncate_value(value: Any, *, max_chars: int) -> Any:
+    if isinstance(value, str):
+        return value[:max_chars]
+    if isinstance(value, dict):
+        return {str(key): _truncate_value(item, max_chars=max_chars) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_truncate_value(item, max_chars=max_chars) for item in value]
+    return value
 
 
 def _bounded_view_payload(view: dict[str, Any]) -> dict[str, Any]:
