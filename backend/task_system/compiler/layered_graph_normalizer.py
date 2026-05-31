@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from task_system.graphs.semantic_relations import get_semantic_relation_preset
 from task_system.graphs.task_graph_models import TaskGraphDefinition, TaskGraphEdgeDefinition, TaskGraphNodeDefinition
 
 
@@ -29,6 +30,7 @@ def normalize_task_graph_layers(graph: TaskGraphDefinition) -> dict[str, Any]:
     edges = list(graph.edges)
     resource_nodes = [_resource_node_payload(node) for node in nodes if _is_resource_node(node)]
     temporal_edges = _temporal_edges(graph=graph, nodes=nodes, edges=edges)
+    semantic_relations = [_semantic_relation_payload(edge) for edge in edges if _is_semantic_relation_edge(edge)]
     memory_edges = [_memory_edge_payload(edge) for edge in edges if _is_memory_edge(edge)]
     artifact_context_edges = [_artifact_context_edge_payload(edge) for edge in edges if _is_artifact_context_edge(edge)]
     revision_edges = [_revision_edge_payload(edge) for edge in edges if _is_revision_edge(edge)]
@@ -42,6 +44,7 @@ def normalize_task_graph_layers(graph: TaskGraphDefinition) -> dict[str, Any]:
     issues = _layer_issues(
         graph=graph,
         resource_nodes=resource_nodes,
+        semantic_relations=semantic_relations,
         temporal_edges=temporal_edges,
         memory_edges=memory_edges,
         artifact_context_edges=artifact_context_edges,
@@ -53,11 +56,13 @@ def normalize_task_graph_layers(graph: TaskGraphDefinition) -> dict[str, Any]:
         "graph_id": graph.graph_id,
         "layers": {
             "execution": {"enabled": True, "node_count": len(nodes), "edge_count": len(edges)},
+            "semantic": {"enabled": True, "relation_count": len(semantic_relations)},
             "timeline": {"enabled": True, "edge_count": len(temporal_edges), "loop_frame_count": len(loop_frames)},
             "memory": {"enabled": True, "resource_count": len(resource_nodes), "edge_count": len(memory_edges)},
             "artifact_context": {"enabled": True, "edge_count": len(artifact_context_edges)},
             "revision": {"enabled": True, "edge_count": len(revision_edges)},
         },
+        "semantic_relations": semantic_relations,
         "resource_nodes": resource_nodes,
         "temporal_edges": temporal_edges,
         "memory_edges": memory_edges,
@@ -70,6 +75,7 @@ def normalize_task_graph_layers(graph: TaskGraphDefinition) -> dict[str, Any]:
         "issues": issues,
         "summary": {
             "resource_node_count": len(resource_nodes),
+            "semantic_relation_count": len(semantic_relations),
             "temporal_edge_count": len(temporal_edges),
             "memory_edge_count": len(memory_edges),
             "artifact_context_edge_count": len(artifact_context_edges),
@@ -183,6 +189,36 @@ def _temporal_edge_payload(edge: TaskGraphEdgeDefinition) -> dict[str, Any]:
         "derived": False,
         "metadata": metadata,
         "authority": "task_system.temporal_edge",
+    }
+
+
+def _is_semantic_relation_edge(edge: TaskGraphEdgeDefinition) -> bool:
+    metadata = dict(edge.metadata or {})
+    bindings = dict(edge.contract_bindings or {})
+    semantic_bindings = dict(bindings.get("semantic") or {})
+    return bool(metadata.get("semantic_relation_id") or semantic_bindings.get("relation_id"))
+
+
+def _semantic_relation_payload(edge: TaskGraphEdgeDefinition) -> dict[str, Any]:
+    metadata = dict(edge.metadata or {})
+    bindings = dict(edge.contract_bindings or {})
+    semantic_bindings = dict(bindings.get("semantic") or {})
+    relation_id = str(metadata.get("semantic_relation_id") or semantic_bindings.get("relation_id") or "").strip()
+    preset = get_semantic_relation_preset(relation_id)
+    parameters = dict(metadata.get("semantic_parameters") or semantic_bindings.get("parameters") or {})
+    return {
+        "edge_id": edge.edge_id,
+        "source_node_id": edge.source_node_id,
+        "target_node_id": edge.target_node_id,
+        "relation_id": relation_id,
+        "title_zh": str(metadata.get("semantic_title_zh") or semantic_bindings.get("title_zh") or (preset.title_zh if preset else "") or ""),
+        "category": str(metadata.get("semantic_category") or semantic_bindings.get("category") or (preset.category if preset else "") or ""),
+        "edge_type": edge.edge_type,
+        "payload_contract_id": edge.payload_contract_id,
+        "contract_family_id": str(metadata.get("contract_family_id") or semantic_bindings.get("contract_family_id") or (preset.contract_family_id if preset else "") or ""),
+        "parameters": parameters,
+        "known": preset is not None,
+        "authority": "task_system.task_graph_semantic_relation",
     }
 
 
@@ -658,6 +694,7 @@ def _layer_issues(
     *,
     graph: TaskGraphDefinition,
     resource_nodes: list[dict[str, Any]],
+    semantic_relations: list[dict[str, Any]],
     temporal_edges: list[dict[str, Any]],
     memory_edges: list[dict[str, Any]],
     artifact_context_edges: list[dict[str, Any]],
@@ -667,6 +704,16 @@ def _layer_issues(
     issues: list[dict[str, Any]] = []
     if memory_protocol:
         issues.extend(dict(item) for item in list(memory_protocol.get("issues") or []) if isinstance(item, dict))
+    for relation in semantic_relations:
+        if not relation.get("known"):
+            issues.append(
+                _issue(
+                    "semantic_relation_unknown",
+                    f"任务图关系预设不存在：{str(relation.get('relation_id') or '')}",
+                    edge_id=str(relation.get("edge_id") or ""),
+                    severity="warning",
+                )
+            )
     resource_ids = {str(item.get("node_id") or "") for item in resource_nodes}
     node_ids = {node.node_id for node in graph.nodes}
     for edge in memory_edges:

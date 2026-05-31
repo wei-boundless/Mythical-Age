@@ -23,6 +23,9 @@ __all__ = [
     "FailurePolicy",
     "HumanGatePolicy",
     "ContractValidationIssue",
+    "WritingContractFamily",
+    "list_writing_contract_families",
+    "resolve_writing_contract",
     "TaskContractRegistry",
     "TaskExecutionPolicy",
     "TaskMemoryRequestProfile",
@@ -32,6 +35,10 @@ __all__ = [
     "TaskGraphEdgeDefinition",
     "TaskGraphValidationIssue",
     "TaskGraphStandardView",
+    "TaskGraphSemanticRelationPreset",
+    "list_semantic_relation_presets",
+    "semantic_relation_catalog",
+    "resolve_semantic_relation",
     "ComposableGraphView",
     "ComposableUnit",
     "UnitInterface",
@@ -179,6 +186,18 @@ def __getattr__(name: str) -> Any:
         from task_system.registry.contract_registry import TaskContractRegistry
 
         return TaskContractRegistry
+    if name in {"WritingContractFamily", "list_writing_contract_families", "resolve_writing_contract"}:
+        from task_system.contracts.writing_contract_families import (
+            WritingContractFamily,
+            list_writing_contract_families,
+            resolve_writing_contract,
+        )
+
+        return {
+            "WritingContractFamily": WritingContractFamily,
+            "list_writing_contract_families": list_writing_contract_families,
+            "resolve_writing_contract": resolve_writing_contract,
+        }[name]
     if name in {
         "TaskGraphDefinition",
         "TaskGraphNodeDefinition",
@@ -237,6 +256,20 @@ def __getattr__(name: str) -> Any:
             "TaskGraphStandardView": TaskGraphStandardView,
             "build_task_graph_standard_view": build_task_graph_standard_view,
             "apply_task_graph_standard_view_update": apply_task_graph_standard_view_update,
+        }[name]
+    if name in {"TaskGraphSemanticRelationPreset", "list_semantic_relation_presets", "semantic_relation_catalog", "resolve_semantic_relation"}:
+        from task_system.graphs.semantic_relations import (
+            TaskGraphSemanticRelationPreset,
+            list_semantic_relation_presets,
+            semantic_relation_catalog,
+            resolve_semantic_relation,
+        )
+
+        return {
+            "TaskGraphSemanticRelationPreset": TaskGraphSemanticRelationPreset,
+            "list_semantic_relation_presets": list_semantic_relation_presets,
+            "semantic_relation_catalog": semantic_relation_catalog,
+            "resolve_semantic_relation": resolve_semantic_relation,
         }[name]
     if name in {
         "BatchAcceptancePolicy",

@@ -5,6 +5,7 @@ from typing import Any, Literal
 
 from agent_system.identity import normalize_agent_id
 from agent_system.models.model_profile_models import contains_raw_secret, sanitize_model_profile_payload
+from task_system.graphs.semantic_relations import resolve_semantic_relation
 
 
 TaskGraphKind = Literal["single_agent", "multi_agent", "coordination"]
@@ -71,6 +72,7 @@ CONTRACT_BINDING_SECTIONS = {
     "runtime",
     "governance",
     "temporal",
+    "semantic",
 }
 RUNTIME_CONTRACT_KEYS = {
     "execution_mode",
@@ -345,6 +347,7 @@ def task_graph_node_from_dict(payload: dict[str, Any]) -> TaskGraphNodeDefinitio
 
 
 def task_graph_edge_from_dict(payload: dict[str, Any]) -> TaskGraphEdgeDefinition:
+    payload = _apply_semantic_relation_payload(dict(payload))
     _reject_raw_contract_binding_secrets(
         payload.get("contract_bindings"),
         scope="TaskGraph edge contract_bindings",
@@ -402,6 +405,33 @@ def task_graph_edge_from_dict(payload: dict[str, Any]) -> TaskGraphEdgeDefinitio
         failure_policy=failure_policy,
         metadata=metadata,
     )
+
+
+def _apply_semantic_relation_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    metadata = dict(payload.get("metadata") or {})
+    contract_bindings = _contract_bindings_payload(payload.get("contract_bindings"))
+    semantic_bindings = dict(contract_bindings.get("semantic") or {})
+    relation_id = str(
+        payload.get("semantic_relation_id")
+        or metadata.get("semantic_relation_id")
+        or semantic_bindings.get("relation_id")
+        or ""
+    ).strip()
+    if not relation_id:
+        return payload
+    parameters = {
+        **dict(semantic_bindings.get("parameters") or {}),
+        **dict(metadata.get("semantic_parameters") or {}),
+        **dict(payload.get("semantic_parameters") or {}),
+    }
+    resolved = resolve_semantic_relation(relation_id, parameters)
+    resolved_metadata = dict(resolved.get("metadata") or {})
+    resolved_bindings = _contract_bindings_payload(resolved.get("contract_bindings"))
+    payload["edge_type"] = str(resolved.get("edge_type") or payload.get("edge_type") or "handoff").strip() or "handoff"
+    payload["payload_contract_id"] = str(resolved.get("payload_contract_id") or payload.get("payload_contract_id") or "").strip()
+    payload["metadata"] = {**metadata, **resolved_metadata}
+    payload["contract_bindings"] = _merge_contract_bindings(resolved_bindings, contract_bindings)
+    return payload
 
 
 def task_graph_from_dict(payload: dict[str, Any]) -> TaskGraphDefinition:

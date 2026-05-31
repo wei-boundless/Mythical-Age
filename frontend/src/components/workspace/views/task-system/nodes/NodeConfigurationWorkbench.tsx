@@ -1,21 +1,38 @@
 "use client";
 
-import { AlertTriangle, Cpu, GitBranch, Plus, Save, Search, ShieldCheck, Sparkles, Trash2 } from "lucide-react";
+import { AlertTriangle, Plus, Save, Search, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 import { useConfirmDialog } from "@/components/layout/ConfirmDialogProvider";
 import {
   TaskSystemField,
-  TaskSystemSelectField,
   TaskSystemToolbarButton,
 } from "@/components/workspace/views/task-system/TaskSystemWorkbenchUi";
+import { Metric } from "@/components/workspace/views/task-system/managementPrimitives";
 import type {
   ContractSpec,
   OrchestrationAgentRuntimeCatalog,
-  OrchestrationCapabilityItem,
   TaskNodeConfigurationSpec,
   TaskSystemOverview,
 } from "@/lib/api";
+
+import {
+  taskEnvironmentDisplayTitle,
+  userVisibleEnvironmentItems,
+} from "../environment/environmentPresentation";
+import {
+  NodeCapabilityTab,
+  NodeContractTab,
+  NodeDetailTab,
+  NodeExecutionTab,
+  NodePreviewTab,
+} from "./NodeConfigurationTabs";
+import {
+  newNodeConfiguration,
+  nodeConfigTitle,
+  normalizeNodeConfiguration,
+  recordId,
+} from "./nodeConfigurationModel";
 
 type NodeTab = "detail" | "execution" | "contracts" | "capability" | "preview";
 
@@ -26,127 +43,6 @@ const NODE_TABS: Array<{ value: NodeTab; label: string }> = [
   { value: "capability", label: "能力与权限" },
   { value: "preview", label: "装配预览" },
 ];
-
-function toJson(value: unknown) {
-  return JSON.stringify(value ?? {}, null, 2);
-}
-
-function parseJsonObject(value: string, label: string) {
-  const text = String(value ?? "").trim();
-  const parsed = text ? JSON.parse(text) : {};
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    throw new Error(`${label} 必须是 JSON 对象`);
-  }
-  return parsed as Record<string, unknown>;
-}
-
-function splitLines(value: string) {
-  return value.split(/[\n,，]/).map((item) => item.trim()).filter(Boolean);
-}
-
-function nodeConfigTitle(spec: TaskNodeConfigurationSpec | null | undefined) {
-  if (!spec) return "未选择节点配置";
-  return spec.title || spec.node_config_id;
-}
-
-function newNodeConfiguration(): TaskNodeConfigurationSpec {
-  return {
-    node_config_id: "nodecfg.custom.agent",
-    title: "新节点配置",
-    description: "",
-    node_kind: "agent",
-    environment_scope: [],
-    role_prompt: "你是一名任务节点执行员。\n你只负责当前节点契约声明的职责。\n你必须按输入契约理解任务，按输出契约交付结果。\n当资源、权限或上游输入不足时，你需要停止并说明缺口。",
-    executor_ref: {
-      agent_selection_policy: "explicit_agent",
-    },
-    contract_bindings: {},
-    model_requirements: {},
-    tool_policy: {},
-    memory_policy: {},
-    artifact_policy: {},
-    failure_policy: {
-      failure_mode: "fail_closed",
-      retry_allowed: false,
-    },
-    human_gate_policy: {
-      required: false,
-      gate_type: "none",
-    },
-    metadata: { managed_by: "task_node_configuration_console" },
-    enabled: true,
-  };
-}
-
-function normalizeNodeConfiguration(spec: TaskNodeConfigurationSpec): TaskNodeConfigurationSpec {
-  const fallback = newNodeConfiguration();
-  return {
-    ...fallback,
-    ...spec,
-    environment_scope: spec.environment_scope ?? [],
-    executor_ref: spec.executor_ref ?? {},
-    contract_bindings: spec.contract_bindings ?? {},
-    model_requirements: spec.model_requirements ?? {},
-    tool_policy: spec.tool_policy ?? {},
-    memory_policy: spec.memory_policy ?? {},
-    artifact_policy: spec.artifact_policy ?? {},
-    failure_policy: spec.failure_policy ?? {},
-    human_gate_policy: spec.human_gate_policy ?? {},
-    metadata: spec.metadata ?? {},
-    enabled: spec.enabled ?? true,
-  };
-}
-
-function recordId(value: Record<string, unknown>, keys: string[]) {
-  for (const key of keys) {
-    const raw = String(value[key] ?? "").trim();
-    if (raw) return raw;
-  }
-  return "";
-}
-
-function capabilityLabel(item: OrchestrationCapabilityItem) {
-  return item.title ? `${item.title} · ${item.capability_id}` : item.capability_id;
-}
-
-function JsonObjectEditor({
-  label,
-  onChange,
-  rows = 6,
-  value,
-}: {
-  label: string;
-  onChange: (value: Record<string, unknown>) => void;
-  rows?: number;
-  value: Record<string, unknown>;
-}) {
-  const [text, setText] = useState(toJson(value));
-  const [error, setError] = useState("");
-
-  useEffect(() => {
-    setText(toJson(value));
-    setError("");
-  }, [value]);
-
-  function update(nextText: string) {
-    setText(nextText);
-    try {
-      onChange(parseJsonObject(nextText, label));
-      setError("");
-    } catch {
-      setError(`${label} 不是合法 JSON，对象暂未写入草稿。`);
-    }
-  }
-
-  return (
-    <TaskSystemField label={label} wide>
-      <div className={error ? "task-system-json-editor task-system-json-editor--invalid" : "task-system-json-editor"}>
-        <textarea rows={rows} value={text} onChange={(event) => update(event.target.value)} spellCheck={false} />
-        {error ? <small>{error}</small> : null}
-      </div>
-    </TaskSystemField>
-  );
-}
 
 export function NodeConfigurationWorkbench({
   activePage,
@@ -216,11 +112,14 @@ export function NodeConfigurationWorkbench({
   );
   const profileOptions = nodeRuntimeCatalog?.profiles?.map((profile) => profile.agent_profile_id).filter(Boolean) ?? [];
   const capabilityItems = nodeRuntimeCatalog?.options?.capability_items ?? [];
-  const environmentOptions = environmentItems.map((item) => ({
+  const visibleEnvironmentItems = userVisibleEnvironmentItems(environmentItems);
+  const environmentOptions = visibleEnvironmentItems.map((item) => ({
     value: item.record.environment_id,
-    label: item.record.title || item.record.environment_id,
+    label: taskEnvironmentDisplayTitle(item),
   }));
+  const environmentLabelById = new Map(environmentOptions.map((item) => [item.value, item.label]));
   const contractOptions = contractSpecs.map((item) => item.contract_id).filter(Boolean);
+  const contractFamilies = taskSystemOverview?.contract_management?.contract_families ?? [];
   const draftIssues = issues.filter((item) => String(item.node_config_id ?? "") === draft.node_config_id);
   const draftUsage = usageIndex[draft.node_config_id] ?? [];
 
@@ -358,7 +257,7 @@ export function NodeConfigurationWorkbench({
                   type="button"
                 >
                   <strong>{nodeConfigTitle(spec)}<small>{spec.node_config_id}</small></strong>
-                  <span>{spec.environment_scope?.[0] || "通用"}</span>
+                  <span>{spec.environment_scope?.[0] ? environmentLabelById.get(spec.environment_scope[0]) ?? "自定义环境" : "通用"}</span>
                   <span>{String(spec.executor_ref?.agent_id ?? spec.executor_ref?.agent_profile_id ?? "未绑定")}</span>
                   <span>{usageCount}</span>
                   <em className={issueCount ? "task-system-status task-system-status--warn" : "task-system-status"}>{issueCount ? `${issueCount} 问题` : "正常"}</em>
@@ -390,12 +289,12 @@ export function NodeConfigurationWorkbench({
             ))}
           </nav>
           <div className="task-system-inspector-body">
-            {activeTab === "detail" ? <DetailTab draft={draft} onChange={setDraft} environmentOptions={environmentOptions} /> : null}
-            {activeTab === "execution" ? <ExecutionTab agentOptions={agentOptions} draft={draft} onChange={setDraft} profileOptions={profileOptions} /> : null}
-            {activeTab === "contracts" ? <ContractTab contractOptions={contractOptions} draft={draft} onChange={setDraft} /> : null}
-            {activeTab === "capability" ? <CapabilityTab capabilityItems={capabilityItems} draft={draft} onChange={setDraft} /> : null}
+            {activeTab === "detail" ? <NodeDetailTab draft={draft} onChange={setDraft} environmentOptions={environmentOptions} /> : null}
+            {activeTab === "execution" ? <NodeExecutionTab agentOptions={agentOptions} draft={draft} onChange={setDraft} profileOptions={profileOptions} /> : null}
+            {activeTab === "contracts" ? <NodeContractTab contractFamilies={contractFamilies} contractOptions={contractOptions} draft={draft} onChange={setDraft} /> : null}
+            {activeTab === "capability" ? <NodeCapabilityTab capabilityItems={capabilityItems} draft={draft} onChange={setDraft} /> : null}
             {activeTab === "preview" ? (
-              <PreviewTab
+              <NodePreviewTab
                 draftIssues={draftIssues}
                 draftUsage={draftUsage}
                 environmentOptions={environmentOptions}
@@ -410,263 +309,5 @@ export function NodeConfigurationWorkbench({
         </section>
       </section>
     </main>
-  );
-}
-
-function Metric({ label, tone = "neutral", value }: { label: string; tone?: "neutral" | "warn" | "ok"; value: number }) {
-  return (
-    <article className={`task-system-metric task-system-metric--${tone}`}>
-      <span>{label}</span>
-      <strong>{value}</strong>
-    </article>
-  );
-}
-
-function DetailTab({
-  draft,
-  environmentOptions,
-  onChange,
-}: {
-  draft: TaskNodeConfigurationSpec;
-  environmentOptions: Array<{ value: string; label: string }>;
-  onChange: (draft: TaskNodeConfigurationSpec) => void;
-}) {
-  return (
-    <section className="task-system-inspector-section">
-      <header><Cpu size={15} /><strong>角色与职责</strong><span>写给 agent 的节点角色 prompt</span></header>
-      <div className="boundary-form">
-        <TaskSystemField label="节点配置 ID"><input value={draft.node_config_id} onChange={(event) => onChange({ ...draft, node_config_id: event.target.value })} /></TaskSystemField>
-        <TaskSystemField label="名称"><input value={draft.title} onChange={(event) => onChange({ ...draft, title: event.target.value })} /></TaskSystemField>
-        <TaskSystemSelectField label="节点类型" value={draft.node_kind || "agent"} options={["agent", "coordinator", "review_gate", "tool", "manual_gate", "runtime_monitor"]} onChange={(node_kind) => onChange({ ...draft, node_kind })} />
-        <label className="boundary-check"><input checked={draft.enabled !== false} onChange={(event) => onChange({ ...draft, enabled: event.target.checked })} type="checkbox" />启用节点配置</label>
-        <TaskSystemField label="说明" wide><textarea value={draft.description || ""} onChange={(event) => onChange({ ...draft, description: event.target.value })} /></TaskSystemField>
-        <TaskSystemField label="环境范围" wide>
-          <textarea
-            value={(draft.environment_scope ?? []).join("\n")}
-            onChange={(event) => onChange({ ...draft, environment_scope: splitLines(event.target.value) })}
-            placeholder={environmentOptions.map((item) => item.value).join("\n")}
-          />
-        </TaskSystemField>
-        <TaskSystemField label="角色 Prompt" wide>
-          <textarea
-            className="task-system-role-prompt"
-            value={draft.role_prompt || ""}
-            onChange={(event) => onChange({ ...draft, role_prompt: event.target.value })}
-          />
-        </TaskSystemField>
-      </div>
-    </section>
-  );
-}
-
-function ExecutionTab({
-  agentOptions,
-  draft,
-  onChange,
-  profileOptions,
-}: {
-  agentOptions: Array<{ value: string; label: string }>;
-  draft: TaskNodeConfigurationSpec;
-  onChange: (draft: TaskNodeConfigurationSpec) => void;
-  profileOptions: string[];
-}) {
-  const executorRef = draft.executor_ref ?? {};
-  function patchExecutor(patch: Record<string, unknown>) {
-    onChange({ ...draft, executor_ref: { ...executorRef, ...patch } });
-  }
-  return (
-    <div className="task-system-inspector-stack">
-      <section className="task-system-inspector-section">
-        <header><GitBranch size={15} /><strong>执行者引用</strong><span>只引用 agent 和 runtime profile</span></header>
-        <div className="boundary-form">
-          <TaskSystemField label="Agent">
-            <select value={String(executorRef.agent_id ?? "")} onChange={(event) => patchExecutor({ agent_id: event.target.value })}>
-              <option value="">不绑定 Agent</option>
-              {agentOptions.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
-            </select>
-          </TaskSystemField>
-          <TaskSystemField label="运行档案">
-            <select value={String(executorRef.agent_profile_id ?? "")} onChange={(event) => patchExecutor({ agent_profile_id: event.target.value })}>
-              <option value="">不绑定运行档案</option>
-              {profileOptions.map((item) => <option key={item} value={item}>{item}</option>)}
-            </select>
-          </TaskSystemField>
-          <TaskSystemSelectField
-            label="选择策略"
-            value={String(executorRef.agent_selection_policy ?? "explicit_agent")}
-            options={["explicit_agent", "profile_match", "orchestration_default"]}
-            onChange={(agent_selection_policy) => patchExecutor({ agent_selection_policy })}
-          />
-        </div>
-      </section>
-      <section className="task-system-inspector-section">
-        <header><Cpu size={15} /><strong>模型要求</strong><span>能力、预算和流式约束</span></header>
-        <div className="boundary-form">
-          <JsonObjectEditor label="模型要求" value={draft.model_requirements ?? {}} onChange={(model_requirements) => onChange({ ...draft, model_requirements })} />
-          <JsonObjectEditor label="执行者引用 JSON" value={executorRef} onChange={(executor_ref) => onChange({ ...draft, executor_ref })} />
-        </div>
-      </section>
-    </div>
-  );
-}
-
-function ContractTab({
-  contractOptions,
-  draft,
-  onChange,
-}: {
-  contractOptions: string[];
-  draft: TaskNodeConfigurationSpec;
-  onChange: (draft: TaskNodeConfigurationSpec) => void;
-}) {
-  const bindings = draft.contract_bindings ?? {};
-  function patchBinding(key: string, value: string) {
-    onChange({ ...draft, contract_bindings: { ...bindings, [key]: value } });
-  }
-  return (
-    <section className="task-system-inspector-section">
-      <header><ShieldCheck size={15} /><strong>契约绑定</strong><span>节点只绑定契约 ID，不复制契约主数据</span></header>
-      <div className="boundary-form">
-        <OptionalContractSelect label="输入契约" value={String(bindings.input_contract_id ?? "")} options={contractOptions} onChange={(value) => patchBinding("input_contract_id", value)} />
-        <OptionalContractSelect label="输出契约" value={String(bindings.output_contract_id ?? "")} options={contractOptions} onChange={(value) => patchBinding("output_contract_id", value)} />
-        <OptionalContractSelect label="节点执行契约" value={String(bindings.node_contract_id ?? "")} options={contractOptions} onChange={(value) => patchBinding("node_contract_id", value)} />
-        <JsonObjectEditor label="契约绑定 JSON" value={bindings} onChange={(contract_bindings) => onChange({ ...draft, contract_bindings })} />
-      </div>
-    </section>
-  );
-}
-
-function OptionalContractSelect({
-  label,
-  onChange,
-  options,
-  value,
-}: {
-  label: string;
-  onChange: (value: string) => void;
-  options: string[];
-  value: string;
-}) {
-  return (
-    <TaskSystemField label={label}>
-      <select value={value} onChange={(event) => onChange(event.target.value)}>
-        <option value="">不绑定</option>
-        {options.map((item) => <option key={item} value={item}>{item}</option>)}
-      </select>
-    </TaskSystemField>
-  );
-}
-
-function CapabilityTab({
-  capabilityItems,
-  draft,
-  onChange,
-}: {
-  capabilityItems: OrchestrationCapabilityItem[];
-  draft: TaskNodeConfigurationSpec;
-  onChange: (draft: TaskNodeConfigurationSpec) => void;
-}) {
-  const toolPolicy = draft.tool_policy ?? {};
-  const operationSet = new Set((Array.isArray(toolPolicy.allowed_operations) ? toolPolicy.allowed_operations : []).map((item) => String(item)));
-  function toggleOperations(item: OrchestrationCapabilityItem) {
-    const next = new Set(operationSet);
-    for (const operationId of item.operation_ids ?? []) {
-      if (next.has(operationId)) next.delete(operationId);
-      else next.add(operationId);
-    }
-    onChange({ ...draft, tool_policy: { ...toolPolicy, allowed_operations: Array.from(next) } });
-  }
-  return (
-    <div className="task-system-inspector-stack">
-      <section className="task-system-inspector-section">
-        <header><Sparkles size={15} /><strong>能力候选</strong><span>{capabilityItems.length} capabilities</span></header>
-        <div className="task-system-capability-grid">
-          {capabilityItems.slice(0, 36).map((item) => {
-            const active = (item.operation_ids ?? []).some((operationId) => operationSet.has(operationId));
-            return (
-              <button
-                className={active ? "task-system-capability-chip task-system-capability-chip--active" : "task-system-capability-chip"}
-                key={item.capability_id}
-                onClick={() => toggleOperations(item)}
-                type="button"
-              >
-                <strong>{capabilityLabel(item)}</strong>
-                <span>{item.operation_ids?.join(", ") || item.source_label}</span>
-              </button>
-            );
-          })}
-          {!capabilityItems.length ? <div className="boundary-empty">暂未加载能力候选。刷新后会从编排能力目录读取。</div> : null}
-        </div>
-      </section>
-      <section className="task-system-inspector-section">
-        <header><ShieldCheck size={15} /><strong>权限边界</strong><span>工具、记忆、产物、失败和人工门</span></header>
-        <div className="boundary-form">
-          <JsonObjectEditor label="工具策略" value={draft.tool_policy ?? {}} onChange={(tool_policy) => onChange({ ...draft, tool_policy })} />
-          <JsonObjectEditor label="记忆策略" value={draft.memory_policy ?? {}} onChange={(memory_policy) => onChange({ ...draft, memory_policy })} />
-          <JsonObjectEditor label="产物策略" value={draft.artifact_policy ?? {}} onChange={(artifact_policy) => onChange({ ...draft, artifact_policy })} />
-          <JsonObjectEditor label="失败策略" value={draft.failure_policy ?? {}} onChange={(failure_policy) => onChange({ ...draft, failure_policy })} />
-          <JsonObjectEditor label="人工门控策略" value={draft.human_gate_policy ?? {}} onChange={(human_gate_policy) => onChange({ ...draft, human_gate_policy })} />
-          <JsonObjectEditor label="扩展元数据" value={draft.metadata ?? {}} onChange={(metadata) => onChange({ ...draft, metadata })} />
-        </div>
-      </section>
-    </div>
-  );
-}
-
-function PreviewTab({
-  draftIssues,
-  draftUsage,
-  environmentOptions,
-  onPreview,
-  preview,
-  previewEnvironmentId,
-  saving,
-  setPreviewEnvironmentId,
-}: {
-  draftIssues: Array<Record<string, unknown>>;
-  draftUsage: Array<Record<string, unknown>>;
-  environmentOptions: Array<{ value: string; label: string }>;
-  onPreview: () => void;
-  preview: Record<string, unknown> | null;
-  previewEnvironmentId: string;
-  saving: boolean;
-  setPreviewEnvironmentId: (value: string) => void;
-}) {
-  return (
-    <div className="task-system-inspector-stack">
-      <section className="task-system-inspector-section">
-        <header><Cpu size={15} /><strong>装配预览</strong><span>由后端合成 runtime start packet 预览</span></header>
-        <div className="boundary-form">
-          <TaskSystemField label="预览任务环境">
-            <select value={previewEnvironmentId} onChange={(event) => setPreviewEnvironmentId(event.target.value)}>
-              <option value="">使用节点默认环境</option>
-              {environmentOptions.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
-            </select>
-          </TaskSystemField>
-          <div className="boundary-actions">
-            <TaskSystemToolbarButton disabled={saving} onClick={onPreview} variant="primary"><Cpu size={14} />生成预览</TaskSystemToolbarButton>
-          </div>
-        </div>
-        <pre className="task-system-runtime-preview">{preview ? JSON.stringify(preview, null, 2) : "尚未生成装配预览。"}</pre>
-      </section>
-      <section className="task-system-inspector-section">
-        <header><AlertTriangle size={15} /><strong>引用和问题</strong><span>{draftUsage.length} references / {draftIssues.length} issues</span></header>
-        <div className="task-system-usage-list">
-          {draftUsage.map((item, index) => (
-            <article className="task-system-usage-row" key={`${String(item.graph_id ?? "")}-${String(item.node_id ?? "")}-${index}`}>
-              <strong>{String(item.graph_id ?? "")}</strong>
-              <span>{String(item.node_id ?? "")}</span>
-            </article>
-          ))}
-          {draftIssues.map((item, index) => (
-            <article className="task-system-usage-row task-system-usage-row--warn" key={`${String(item.code ?? "")}-${index}`}>
-              <strong>{String(item.code ?? "")}</strong>
-              <span>{String(item.message ?? "")}</span>
-            </article>
-          ))}
-          {!draftUsage.length && !draftIssues.length ? <div className="boundary-empty">当前节点配置没有引用问题。</div> : null}
-        </div>
-      </section>
-    </div>
   );
 }

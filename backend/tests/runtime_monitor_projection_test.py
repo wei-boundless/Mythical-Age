@@ -187,6 +187,43 @@ def test_latest_step_summary_is_exposed_from_event_log():
     assert item["latest_step_name"] == "tool_result"
 
 
+def test_latest_public_action_state_is_exposed_and_kept_separate_from_wait_heartbeat():
+    events = [
+        EventStub(
+            event_type="step_summary_recorded",
+            created_at=125.0,
+            offset=1,
+            payload={
+                "step": "model_action_received:3",
+                "status": "running",
+                "summary": "我已确认产物存在，下一步做最终验收。",
+                "public_progress_note": "已确认产物存在，下一步做最终验收。",
+                "observation": "HTML 产物文件存在。",
+                "public_action_state": {
+                    "current_judgment": "主要交付物已满足合同。",
+                    "next_action": "执行最终验收并给出 artifact 路径。",
+                    "completion_status": "verifying",
+                },
+            },
+        ),
+        EventStub(
+            event_type="task_model_action_wait_heartbeat",
+            created_at=140.0,
+            offset=2,
+            payload={"step": "task_model_action_waiting:4", "status": "running", "wait_round": 1},
+        ),
+    ]
+    projector = RuntimeMonitorProjector(EventLogStub({"taskrun:turn:session-a:1:abc": events}))
+
+    item = projector.project_task_run(task_run(updated_at=140.0), now=150.0)
+
+    assert item["latest_step_summary"] == "已确认产物存在，下一步做最终验收。"
+    assert item["latest_progress"]["observation"] == "HTML 产物文件存在。"
+    assert item["latest_progress"]["current_judgment"] == "主要交付物已满足合同。"
+    assert item["latest_progress"]["next_action"] == "执行最终验收并给出 artifact 路径。"
+    assert item["latest_progress"]["completion_status"] == "verifying"
+
+
 def test_stale_model_wait_reports_diagnostic_cause_not_generic_waiting():
     event = EventStub(
         event_type="step_summary_recorded",
@@ -201,7 +238,7 @@ def test_stale_model_wait_reports_diagnostic_cause_not_generic_waiting():
     assert "stale_runtime_activity" in item["diagnostic_reasons"]
     assert "模型响应已超过" in item["latest_step_summary"]
     assert "诊断状态" in item["latest_public_progress_note"]
-    assert item["latest_step_summary"] != "仍在处理中，正在等待下一步结果。"
+    assert item["latest_progress"]["current_judgment"] == ""
 
 
 def test_active_task_steer_and_executor_sequence_diagnostics_are_exposed():

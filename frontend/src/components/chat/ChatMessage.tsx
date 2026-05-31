@@ -21,7 +21,6 @@ export function ChatMessage({
   runtimeAttachments = [],
   toolCalls,
   retrievals,
-  assistantName = "河伯",
   canEdit = false,
   onResendEdit
 }: {
@@ -38,12 +37,10 @@ export function ChatMessage({
   runtimeAttachments?: SessionRuntimeAttachment[];
   toolCalls: ToolCall[];
   retrievals: RetrievalResult[];
-  assistantName?: string;
   canEdit?: boolean;
   onResendEdit?: (messageId: string, value: string) => Promise<void>;
 }) {
   const isUser = role === "user";
-  const assistantMark = assistantName.slice(0, 1) || "灵";
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(content);
   const [failedImageSrc, setFailedImageSrc] = useState("");
@@ -58,30 +55,20 @@ export function ChatMessage({
           : "message-shell--assistant chat-message-shell--assistant"
       }`}
     >
-      <div className="chat-message-shell__head">
-        <div className="chat-message-shell__identity">
-          <div className={`message-emblem ${isUser ? "message-emblem--user" : ""}`}>
-            {isUser ? "你" : assistantMark}
-          </div>
-          <p className="chat-message-shell__label">
-            {isUser ? "用户" : assistantName}
-          </p>
-        </div>
-        {isUser && canEdit ? (
-          <button
-            aria-label="编辑消息"
-            className="message-edit-button"
-            onClick={() => {
-              setDraft(content);
-              setEditing(true);
-            }}
-            title="编辑"
-            type="button"
-          >
-            <Pencil size={13} />
-          </button>
-        ) : null}
-      </div>
+      {isUser && canEdit ? (
+        <button
+          aria-label="编辑消息"
+          className="message-edit-button"
+          onClick={() => {
+            setDraft(content);
+            setEditing(true);
+          }}
+          title="编辑"
+          type="button"
+        >
+          <Pencil size={13} />
+        </button>
+      ) : null}
       {!isUser && <RetrievalCard results={retrievals} />}
       <div className={isUser ? "chat-message-shell__content whitespace-pre-wrap leading-7" : "chat-message-shell__content markdown"}>
         {isUser && editing ? (

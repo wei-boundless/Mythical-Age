@@ -704,6 +704,7 @@ export function projectRuntimeStreamEvent(event: string, data: Record<string, un
   }
   if (event === "agent_turn_terminal") {
     const runtimeEvent = record(data.event);
+    const runtimeEventType = text(runtimeEvent.event_type);
     const payload = record(runtimeEvent.payload);
     const status = text(payload.status);
     const reason = text(payload.terminal_reason);
@@ -714,15 +715,21 @@ export function projectRuntimeStreamEvent(event: string, data: Record<string, un
       || reason === "waiting_executor"
       || reason === "task_executor_scheduled"
       || taskRunStatus === "waiting_executor";
-    const failed = text(runtimeEvent.event_type) === "agent_turn_failed" || status === "failed";
+    const failed = runtimeEventType === "agent_turn_failed"
+      || runtimeEventType === "agent_turn_blocked"
+      || status === "failed"
+      || status === "blocked"
+      || taskRunStatus === "failed"
+      || taskRunStatus === "blocked";
     const title = waiting ? "继续在后台处理" : failed ? "处理失败" : "本轮完成";
+    const publicReason = publicRuntimeText(reason || status);
     return {
       stageStatus: title,
       activityTitle: title,
-      activityDetail: publicRuntimeText(reason || status),
+      activityDetail: failed ? "详情已写入会话。" : publicReason,
       level: waiting ? "waiting" : failed ? "error" : "success",
       progressEntry: entry("agent_turn_terminal", title, {
-        body: publicRuntimeText(reason || status),
+        body: publicReason,
         level: waiting ? "waiting" : failed ? "error" : "success",
         kind: "terminal",
         statusText: waiting ? "等待" : failed ? "失败" : "完成",
@@ -779,14 +786,15 @@ export function projectRuntimeStreamEvent(event: string, data: Record<string, un
     };
   }
   if (event === "error") {
+    const errorText = text(data.content ?? data.error) || "请求执行失败";
     return {
       stageStatus: "出错",
       activityTitle: "处理失败",
-      activityDetail: text(data.error),
+      activityDetail: "详情已写入会话。",
       level: "error",
       terminalEvent: "error",
       progressEntry: entry("error", "处理失败", {
-        body: text(data.error) || "请求执行失败",
+        body: errorText,
         level: "error",
         kind: "terminal",
         statusText: "失败",

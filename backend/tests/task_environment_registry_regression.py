@@ -68,9 +68,18 @@ def test_configured_system_eval_dual_node_environment_is_isolated() -> None:
     definition = registry.require("env.system_eval.dual_node")
     resolved = resolve_task_environment("env.system_eval.dual_node", registry=registry)
     payload = resolved.to_dict()
+    management = build_task_environment_catalog(registry=registry).management_payload()
+    system_eval_item = next(
+        item
+        for item in management["environments"]
+        if item["record"]["environment_id"] == "env.system_eval.dual_node"
+    )
 
     assert definition.record.group_id == "environment_group.system_eval"
     assert definition.record.environment_kind == "custom"
+    assert system_eval_item["definition_source"] == "configured"
+    assert system_eval_item["management_scope"] == "system_internal"
+    assert management["summary"]["system_internal_environment_count"] == 1
     assert definition.spec.resource_space.storage_namespace == "system_eval/dual_node"
     assert definition.spec.file_management.file_profile_refs == ()
     assert definition.spec.file_management.required_repository_kinds == ("system_eval_artifacts",)
@@ -367,6 +376,11 @@ def test_task_environment_catalog_is_single_normalized_resource_surface() -> Non
 
     assert management["authority"] == "task_system.task_environment_catalog"
     assert management["summary"]["environment_count"] == 6
+    assert management["summary"]["builtin_template_count"] == 6
+    assert management["summary"]["workspace_environment_count"] == 0
+    assert management["summary"]["system_internal_environment_count"] == 0
+    assert writing_item["definition_source"] == "builtin_default"
+    assert writing_item["management_scope"] == "builtin_template"
     assert "resource_space" in development
     assert "memory_space" in development
     assert "file_access_tables" in development

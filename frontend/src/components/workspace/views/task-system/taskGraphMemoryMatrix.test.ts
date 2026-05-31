@@ -109,9 +109,13 @@ describe("TaskGraph memory matrix", () => {
     expect(edge.source_node_id).toBe("memory.project");
     expect(edge.target_node_id).toBe("draft");
     expect(edge.metadata).toMatchObject({
-      repository: "memory.project",
-      collection: "requirements",
-      selector: { collection: "requirements" },
+      semantic_relation_id: "memory.read_required",
+      semantic_parameters: {
+        repository_id: "memory.project",
+        collection_id: "requirements",
+        record_kind: "requirements_record",
+      },
     });
+    expect(edge.contract_bindings).toBeUndefined();
   });
 });

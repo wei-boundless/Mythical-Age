@@ -78,7 +78,7 @@ async def run_agent_invocation_stream(
         turn_id=turn_id,
         step="turn_started",
         status="running",
-        summary="已收到请求，正在整理上下文。",
+        summary="已收到请求，正在准备处理。",
     )
     if not runtime_assembly_payload:
         content = "本轮缺少 runtime assembly，系统已按 fail-closed 停止。"
@@ -149,7 +149,7 @@ async def run_agent_invocation_stream(
             turn_id=turn_id,
             step="runtime_packet_compiled",
             status="running",
-            summary="正在整理上下文，准备判断下一步。",
+            summary="已同步会话上下文。",
             refs={"runtime_invocation_packet_ref": compilation.packet.packet_id},
         )
 
@@ -159,7 +159,7 @@ async def run_agent_invocation_stream(
             turn_id=turn_id,
             step=f"model_action_invocation_started:{action_index}",
             status="running",
-            summary="正在处理这一步。",
+            summary="正在根据当前请求判断下一步。",
             refs={"runtime_invocation_packet_ref": compilation.packet.packet_id},
         )
         model_action_task: asyncio.Task | None = None
@@ -184,15 +184,28 @@ async def run_agent_invocation_stream(
                 if done:
                     break
                 wait_round += 1
-                yield _record_step_summary(
-                    runtime_host,
-                    task_run_id=turn_task_run.task_run_id,
-                    turn_id=turn_id,
-                    step=f"model_action_waiting:{action_index}",
-                    status="running",
-                    summary="正在思考。",
-                    refs={"runtime_invocation_packet_ref": compilation.packet.packet_id},
+                runtime_host.event_log.append(
+                    turn_task_run.task_run_id,
+                    "turn_model_action_wait_heartbeat",
+                    payload={
+                        "turn_id": turn_id,
+                        "step": f"model_action_waiting:{action_index}",
+                        "status": "running",
+                        "wait_round": wait_round,
+                        "summary": "正在思考下一步处理方式。",
+                    },
+                    refs={"turn_ref": turn_id, "runtime_invocation_packet_ref": compilation.packet.packet_id},
                 )
+                if wait_round == 1:
+                    yield _record_step_summary(
+                        runtime_host,
+                        task_run_id=turn_task_run.task_run_id,
+                        turn_id=turn_id,
+                        step=f"model_action_waiting:{action_index}",
+                        status="running",
+                        summary="正在思考下一步处理方式。",
+                        refs={"runtime_invocation_packet_ref": compilation.packet.packet_id},
+                    )
             action_request, diagnostics = await model_action_task
         except (asyncio.CancelledError, GeneratorExit):
             if model_action_task is not None and not model_action_task.done():
@@ -349,6 +362,7 @@ async def run_agent_invocation_stream(
             },
         )
         yield {"type": "model_action_request", "event": action_event.to_dict()}
+        public_action_state = _action_public_state(action_request)
         yield _record_step_summary(
             runtime_host,
             task_run_id=turn_task_run.task_run_id,
@@ -358,6 +372,9 @@ async def run_agent_invocation_stream(
             summary=_action_progress_note(action_request),
             public_progress_note=action_request.public_progress_note,
             agent_brief_output=compact_text(action_request.final_answer, limit=300) if action_request.action_type == "respond" else "",
+            current_judgment=public_action_state.get("current_judgment", ""),
+            next_action=public_action_state.get("next_action", ""),
+            completion_status=public_action_state.get("completion_status", ""),
             presentation_source="model_action.public_progress_note" if action_request.public_progress_note else "model_action.action_type_fallback",
             refs={"action_request_ref": action_request.request_id},
         )
@@ -898,7 +915,11 @@ async def _invoke_model_action(
     )
     payload = parse_json_object(getattr(response, "content", response))
     payload.setdefault("request_id", f"model-action:{turn_id}:{invocation_index}")
-    return model_action_request_from_payload(payload, turn_id=turn_id, require_public_progress_note=True)
+    return model_action_request_from_payload(
+        payload,
+        turn_id=turn_id,
+        require_public_progress_note=True,
+    )
 
 
 async def _commit_assistant_message(
@@ -1400,11 +1421,17 @@ def _record_step_summary(
     refs: dict[str, Any] | None = None,
     public_progress_note: str = "",
     agent_brief_output: str = "",
+    current_judgment: str = "",
+    next_action: str = "",
+    completion_status: str = "",
     presentation_source: str = "",
 ) -> dict[str, Any]:
     visible_summary = public_runtime_progress_summary(summary)
     visible_note = public_runtime_progress_summary(public_progress_note)
     visible_brief = public_runtime_progress_summary(agent_brief_output)
+    visible_judgment = public_runtime_progress_summary(current_judgment)
+    visible_next_action = public_runtime_progress_summary(next_action)
+    visible_completion_status = public_runtime_progress_summary(completion_status)
     payload = {
         "turn_id": turn_id,
         "step": step,
@@ -1415,6 +1442,18 @@ def _record_step_summary(
         payload["public_progress_note"] = visible_note
     if visible_brief:
         payload["agent_brief_output"] = visible_brief
+    public_action_state = {
+        key: value
+        for key, value in {
+            "current_judgment": visible_judgment,
+            "next_action": visible_next_action,
+            "completion_status": visible_completion_status,
+        }.items()
+        if value
+    }
+    if public_action_state:
+        payload["public_action_state"] = public_action_state
+        payload.update(public_action_state)
     if presentation_source:
         payload["presentation_source"] = presentation_source
     event = runtime_host.event_log.append(
@@ -1435,6 +1474,11 @@ def _record_step_summary(
                     "latest_step": step,
                     "latest_step_status": status,
                     "latest_step_summary": visible_summary,
+                    **({"latest_public_progress_note": visible_note or visible_summary} if (visible_note or visible_summary) else {}),
+                    **({"latest_public_action_state": public_action_state} if public_action_state else {}),
+                    **({"latest_current_judgment": visible_judgment} if visible_judgment else {}),
+                    **({"latest_next_action": visible_next_action} if visible_next_action else {}),
+                    **({"latest_completion_status": visible_completion_status} if visible_completion_status else {}),
                 },
             )
         )
@@ -1443,12 +1487,35 @@ def _record_step_summary(
         "step": step,
         "status": status,
         "summary": visible_summary,
+        "public_action_state": public_action_state,
         "event": event.to_dict(),
     }
 
 
 def _action_progress_note(action_request: ModelActionRequest) -> str:
-    return public_runtime_progress_summary(action_request.public_progress_note) or public_action_progress_summary(action_request.action_type)
+    state = _action_public_state(action_request)
+    return (
+        public_runtime_progress_summary(action_request.public_progress_note)
+        or public_runtime_progress_summary(state.get("next_action") or "")
+        or public_runtime_progress_summary(state.get("current_judgment") or "")
+        or public_action_progress_summary(action_request.action_type)
+    )
+
+
+def _action_public_state(action_request: ModelActionRequest) -> dict[str, Any]:
+    state = dict(action_request.public_action_state or {})
+    result: dict[str, Any] = {}
+    for key in ("current_judgment", "next_action", "completion_status"):
+        value = public_runtime_progress_summary(state.get(key) or "")
+        if value:
+            result[key] = value
+    evidence_refs = [str(item or "").strip() for item in list(state.get("evidence_refs") or []) if str(item or "").strip()]
+    open_risks = [public_runtime_progress_summary(item) for item in list(state.get("open_risks") or []) if public_runtime_progress_summary(item)]
+    if evidence_refs:
+        result["evidence_refs"] = evidence_refs[:8]
+    if open_risks:
+        result["open_risks"] = open_risks[:6]
+    return result
 
 
 def _build_task_contract_error_observation(

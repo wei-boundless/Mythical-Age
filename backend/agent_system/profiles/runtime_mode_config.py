@@ -66,11 +66,7 @@ MODE_CONFIGS: dict[str, AgentRuntimeModeConfig] = {
         self_review_policy={"enabled": False, "before_final": "basic_consistency"},
         step_summary_policy={"enabled": True, "detail": "compact"},
         approval_policy={"permission_scope": "role_conversation_readonly"},
-        prompt_pack_refs_by_invocation={
-            "turn_action": ("runtime.pack.turn_action.v1",),
-            "task_execution": ("runtime.pack.task_execution.v1",),
-            "tool_observation_followup": ("runtime.pack.observation_followup.v1",),
-        },
+        prompt_pack_refs_by_invocation={},
     ),
     STANDARD_MODE: AgentRuntimeModeConfig(
         mode=STANDARD_MODE,
@@ -97,11 +93,7 @@ MODE_CONFIGS: dict[str, AgentRuntimeModeConfig] = {
         self_review_policy={"enabled": True, "before_final": "check_answer_or_task_state"},
         step_summary_policy={"enabled": True, "detail": "compact"},
         approval_policy={"permission_scope": "standard_agent_profile_ceiling"},
-        prompt_pack_refs_by_invocation={
-            "turn_action": ("runtime.pack.turn_action.v1",),
-            "task_execution": ("runtime.pack.task_execution.v1",),
-            "tool_observation_followup": ("runtime.pack.observation_followup.v1",),
-        },
+        prompt_pack_refs_by_invocation={},
     ),
     PROFESSIONAL_MODE: AgentRuntimeModeConfig(
         mode=PROFESSIONAL_MODE,
@@ -133,11 +125,7 @@ MODE_CONFIGS: dict[str, AgentRuntimeModeConfig] = {
         },
         step_summary_policy={"enabled": True, "detail": "stepwise"},
         approval_policy={"permission_scope": "professional_agent_profile_ceiling"},
-        prompt_pack_refs_by_invocation={
-            "turn_action": ("runtime.pack.turn_action.v1",),
-            "task_execution": ("runtime.pack.task_execution.v1",),
-            "tool_observation_followup": ("runtime.pack.observation_followup.v1",),
-        },
+        prompt_pack_refs_by_invocation={},
     ),
     CUSTOM_MODE: AgentRuntimeModeConfig(
         mode=CUSTOM_MODE,

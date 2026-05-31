@@ -14,6 +14,7 @@ from task_system import (
     TaskWorkflowRegistry,
     apply_task_graph_standard_view_update,
     build_task_graph_standard_view,
+    semantic_relation_catalog,
 )
 from task_system.compiler.graph_harness_config_publisher import (
     build_graph_harness_config_from_graph,
@@ -658,6 +659,7 @@ def _task_system_payload(base_dir) -> dict[str, object]:
     task_graph_models = registry.list_task_graphs()
     full_task_graphs = [item.to_dict() for item in task_graph_models]
     task_graphs = [_task_graph_overview_item(item) for item in task_graph_models]
+    semantic_relations = semantic_relation_catalog()
     topology_templates = [item.to_dict() for item in registry.list_topology_templates()]
     communication_protocols = [item.to_dict() for item in registry.list_task_communication_protocols()]
     task_environment_management = build_task_environment_catalog(
@@ -747,6 +749,8 @@ def _task_system_payload(base_dir) -> dict[str, object]:
         "task_graph_management": {
             "task_graphs": task_graphs,
             "task_graph_specs": [],
+            "semantic_relation_catalog": semantic_relations,
+            "semantic_relations": semantic_relations["relations"],
             "topology_templates": [],
             "communication_protocols": communication_protocols,
             "a2a": {

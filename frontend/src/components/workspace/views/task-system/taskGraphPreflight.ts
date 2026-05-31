@@ -71,7 +71,14 @@ function contractBindingPath(target: Record<string, unknown>, section: string, p
 }
 
 function edgePayloadContractId(edge: Record<string, unknown>) {
-  return contractBindingValue(edge, "schema", "payload_contract_id") || stringValue(edge.payload_contract_id ?? edge.contract_id);
+  const semanticRelationId = stringValue(
+    edge.semantic_relation_id
+    ?? recordValue(edge.metadata).semantic_relation_id
+    ?? contractBindingSection(edge, "semantic").relation_id,
+  );
+  return contractBindingValue(edge, "schema", "payload_contract_id")
+    || stringValue(edge.payload_contract_id ?? edge.contract_id)
+    || (semanticRelationId ? `semantic:${semanticRelationId}` : "");
 }
 
 function stringArrayValue(value: unknown): string[] {
@@ -561,7 +568,7 @@ export function buildTaskGraphPreflightReport({
     }
   });
   memoryModel.memoryEdges.forEach((memoryEdge) => {
-    const metadata = recordValue(memoryEdge.edge.metadata);
+    const metadata = recordValue(memoryEdge.resolvedMetadata);
     const selector = recordValue(metadata.selector);
     const explicitCollection = stringValue(selector.collection ?? metadata.collection);
     const explicitRepository = stringValue(metadata.repository ?? metadata.repository_id ?? memoryEdge.repositoryId);

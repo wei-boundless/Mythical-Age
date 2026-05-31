@@ -88,6 +88,7 @@ class RuntimeAssembly:
     available_tools: tuple[dict[str, Any], ...] = ()
     tool_names: tuple[str, ...] = ()
     filtered_tools: tuple[dict[str, str], ...] = ()
+    control_capabilities: dict[str, Any] = field(default_factory=dict)
     operation_authorization: dict[str, Any] = field(default_factory=dict)
     soul_role_prompt: dict[str, Any] = field(default_factory=dict)
     rejected_capabilities: tuple[dict[str, str], ...] = ()
@@ -100,6 +101,7 @@ class RuntimeAssembly:
         payload["available_tools"] = [dict(item) for item in self.available_tools]
         payload["tool_names"] = list(self.tool_names)
         payload["filtered_tools"] = [dict(item) for item in self.filtered_tools]
+        payload["control_capabilities"] = dict(self.control_capabilities)
         payload["operation_authorization"] = dict(self.operation_authorization)
         payload["engagement_contract"] = dict(self.engagement_contract)
         payload["execution_strategy"] = dict(self.execution_strategy)
@@ -166,6 +168,30 @@ def assemble_runtime(
         for tool in list(tool_instances or [])
         if str(getattr(tool, "name", "") or "")
     }
+    control_capabilities = _control_capabilities_for_runtime(
+        profile=profile,
+        selection=selection,
+        visible_tool_names=visible_tool_names,
+        engagement_contract=engagement_contract,
+    )
+    if bool(control_capabilities.get("conversation_only") is True) and visible_tool_names:
+        visibility_filtered = (
+            *visibility_filtered,
+            *(
+                {
+                    "tool_name": str(tool_name),
+                    "reason": "conversation_only_capability_hides_tools",
+                }
+                for tool_name in visible_tool_names
+            ),
+        )
+        visible_tool_names = ()
+        control_capabilities = _control_capabilities_for_runtime(
+            profile=profile,
+            selection=selection,
+            visible_tool_names=visible_tool_names,
+            engagement_contract=engagement_contract,
+        )
     available_tools = tuple(
         _tool_view(
             tool_name=name,
@@ -210,6 +236,7 @@ def assemble_runtime(
                 *visibility_filtered,
             ]
         ),
+        control_capabilities=control_capabilities,
         operation_authorization=operation_projection.to_dict(),
         soul_role_prompt=soul_role_prompt,
         rejected_capabilities=tuple(rejected),
@@ -224,6 +251,7 @@ def assemble_runtime(
                 "allowed_operation_count": len(operation_projection.allowed_operations),
                 "denied_operation_count": len(operation_projection.denied_operations),
             },
+            "control_capabilities": dict(control_capabilities),
             "skill_runtime": {
                 "candidate_count": len(skill_runtime_views),
                 "selected_skill_ids": list(selected_skill_ids),
@@ -498,6 +526,90 @@ def _profile_operations(agent_runtime_profile: Any | None) -> tuple[str, ...]:
     if operations:
         return operations
     return ("op.model_response",)
+
+
+def _control_capabilities_for_runtime(
+    *,
+    profile: RuntimeAssemblyProfile,
+    selection: dict[str, Any],
+    visible_tool_names: tuple[str, ...],
+    engagement_contract: dict[str, Any],
+) -> dict[str, Any]:
+    explicit = _merge_dicts(
+        selection.get("control_capabilities"),
+        dict(selection.get("runtime_profile") or {}).get("control_capabilities"),
+        dict(selection.get("runtime_profile") or {}).get("runtime_control_capabilities"),
+    )
+    interaction = dict(profile.interaction_policy or {})
+    task_lifecycle = dict(profile.task_lifecycle_policy or {})
+    context_policy = dict(profile.context_policy or {})
+    subagent = dict(profile.subagent_policy or {})
+    permission = dict(profile.permission_policy or {})
+    active_work_context = str(
+        context_policy.get("active_work_context")
+        or context_policy.get("task_run_context")
+        or context_policy.get("task_context")
+        or ""
+    ).strip().lower()
+    active_work_disabled = active_work_context in {"disabled", "none", "off", "false", "0", "readonly"}
+    task_run_allowed = task_lifecycle.get("request_task_run") is not False
+    subagent_enabled = bool(subagent.get("enabled") is True)
+    style = str(interaction.get("style") or "").strip()
+    permission_scope = str(permission.get("permission_scope") or permission.get("scope") or "").strip()
+    policy_conversation_only = (
+        task_lifecycle.get("request_task_run") is False
+        and active_work_disabled
+        and not subagent_enabled
+        and (
+            style == "role_conversation"
+            or permission_scope == "role_conversation_readonly"
+            or str(interaction.get("task_orientation") or "").strip() == "conversation_first"
+        )
+    )
+    explicit_conversation_only = explicit.get("conversation_only")
+    if explicit_conversation_only is None:
+        conversation_only = bool(policy_conversation_only)
+    else:
+        conversation_only = bool(explicit_conversation_only is True)
+    may_emit_assistant_message = bool(explicit.get("may_emit_assistant_message", True) is not False)
+    may_call_tools = bool(
+        explicit.get("may_call_tools")
+        if "may_call_tools" in explicit
+        else (bool(visible_tool_names) and not conversation_only)
+    )
+    may_request_task_run = bool(
+        explicit.get("may_request_task_run")
+        if "may_request_task_run" in explicit
+        else (task_run_allowed and not conversation_only)
+    )
+    may_control_active_work = bool(
+        explicit.get("may_control_active_work")
+        if "may_control_active_work" in explicit
+        else (not active_work_disabled and not conversation_only)
+    )
+    may_use_subagents = bool(
+        explicit.get("may_use_subagents")
+        if "may_use_subagents" in explicit
+        else (subagent_enabled and not conversation_only)
+    )
+    has_explicit_contract = bool(engagement_contract or selection.get("task_contract") or selection.get("task_contract_seed"))
+    requires_json_action_protocol = bool(
+        explicit.get("requires_json_action_protocol")
+        if "requires_json_action_protocol" in explicit
+        else (not conversation_only and (may_call_tools or may_request_task_run or may_use_subagents or has_explicit_contract))
+    )
+    return {
+        "authority": "harness.runtime.control_capabilities",
+        "conversation_only": conversation_only,
+        "may_emit_assistant_message": may_emit_assistant_message,
+        "may_call_tools": may_call_tools,
+        "may_request_task_run": may_request_task_run,
+        "may_control_active_work": may_control_active_work,
+        "may_use_subagents": may_use_subagents,
+        "requires_json_action_protocol": requires_json_action_protocol,
+        "has_explicit_contract": has_explicit_contract,
+        "visible_tool_count": 0 if conversation_only else len(visible_tool_names),
+    }
 
 
 def _subagent_policy(*, agent_runtime_profile: Any | None, mode_policy: dict[str, Any], mode: str) -> dict[str, Any]:

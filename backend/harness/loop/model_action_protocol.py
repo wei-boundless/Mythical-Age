@@ -13,6 +13,7 @@ class ModelActionRequest:
     turn_id: str
     action_type: ModelActionType
     public_progress_note: str = ""
+    public_action_state: dict[str, Any] = field(default_factory=dict)
     final_answer: str = ""
     user_question: str = ""
     blocking_reason: str = ""
@@ -34,6 +35,7 @@ class ModelActionRequest:
         payload["selected_skill_ids"] = list(self.selected_skill_ids)
         payload["task_contract_seed"] = dict(self.task_contract_seed or {})
         payload["tool_call"] = dict(self.tool_call or {})
+        payload["public_action_state"] = dict(self.public_action_state or {})
         payload["completion_contract"] = dict(self.completion_contract or {})
         payload["permission_request"] = dict(self.permission_request or {})
         payload["engagement_request"] = dict(self.engagement_request or {})
@@ -46,6 +48,7 @@ def model_action_request_from_payload(
     *,
     turn_id: str,
     require_public_progress_note: bool = False,
+    require_public_action_state: bool = False,
 ) -> tuple[ModelActionRequest | None, dict[str, Any]]:
     raw = dict(payload or {})
     errors: list[str] = []
@@ -83,8 +86,11 @@ def model_action_request_from_payload(
     user_question = str(raw.get("user_question") or "").strip()
     blocking_reason = str(raw.get("blocking_reason") or "").strip()
     public_progress_note = _public_progress_note(raw.get("public_progress_note"))
+    public_action_state = _public_action_state(raw.get("public_action_state"))
     if require_public_progress_note and not public_progress_note:
         errors.append("public_progress_note_required")
+    if require_public_action_state and not _has_public_action_state(public_action_state):
+        errors.append("public_action_state_required")
     if action_type == "respond" and not final_answer:
         errors.append("final_answer_required_for_respond")
     if action_type == "ask_user" and not user_question:
@@ -115,6 +121,7 @@ def model_action_request_from_payload(
         turn_id=raw_turn_id,
         action_type=action_type,  # type: ignore[arg-type]
         public_progress_note=public_progress_note,
+        public_action_state=public_action_state,
         final_answer=final_answer,
         user_question=user_question,
         blocking_reason=blocking_reason,
@@ -136,17 +143,37 @@ def _public_progress_note(value: Any) -> str:
     text = str(value or "").strip()
     if not text:
         return ""
-    for source, replacement in (
-        ("runtime packet", "上下文"),
-        ("RuntimeInvocationPacket", "上下文"),
-        ("TaskRun", "当前工作"),
-        ("task run", "当前工作"),
-        ("执行器", "处理流程"),
-        ("回灌", "交回"),
-    ):
-        text = text.replace(source, replacement)
     text = " ".join(text.split())
     return text[:160].rstrip()
+
+
+_PUBLIC_ACTION_COMPLETION_STATUSES = {"working", "verifying", "ready_to_finish", "blocked"}
+
+
+def _public_action_state(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    normalized: dict[str, Any] = {}
+    current_judgment = _public_progress_note(value.get("current_judgment"))
+    next_action = _public_progress_note(value.get("next_action"))
+    completion_status = str(value.get("completion_status") or "").strip()
+    evidence_refs = _string_tuple(value.get("evidence_refs"))
+    open_risks = _string_tuple(value.get("open_risks"))
+    if current_judgment:
+        normalized["current_judgment"] = current_judgment[:220].rstrip()
+    if next_action:
+        normalized["next_action"] = next_action[:220].rstrip()
+    if completion_status in _PUBLIC_ACTION_COMPLETION_STATUSES:
+        normalized["completion_status"] = completion_status
+    if evidence_refs:
+        normalized["evidence_refs"] = list(evidence_refs[:8])
+    if open_risks:
+        normalized["open_risks"] = list(open_risks[:6])
+    return normalized
+
+
+def _has_public_action_state(state: dict[str, Any]) -> bool:
+    return bool(str(state.get("current_judgment") or "").strip() and str(state.get("next_action") or "").strip())
 
 
 def _string_tuple(value: Any) -> tuple[str, ...]:

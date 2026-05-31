@@ -1,11 +1,15 @@
 "use client";
 
-import { Plus } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useConfirmDialog } from "@/components/layout/ConfirmDialogProvider";
 import { ContractManagementWorkbench } from "@/components/workspace/views/task-system/contracts/ContractManagementWorkbench";
 import { contractSpecTitle } from "@/components/workspace/views/task-system/contracts/contractUtils";
+import { EnvironmentContextPicker } from "@/components/workspace/views/task-system/environment/EnvironmentContextPicker";
+import {
+  taskEnvironmentDisplayTitle,
+  taskEnvironmentLoadSummary,
+} from "@/components/workspace/views/task-system/environment/environmentPresentation";
 import {
   TaskEnvironmentManagementWorkbench,
   defaultEnvironmentDraft,
@@ -18,7 +22,6 @@ import {
 } from "@/components/workspace/views/task-system/environment/TaskEnvironmentManagementWorkbench";
 import { NodeConfigurationWorkbench } from "@/components/workspace/views/task-system/nodes/NodeConfigurationWorkbench";
 import { TaskSystemShell } from "@/components/workspace/views/task-system/TaskSystemShell";
-import { TaskGraphChromeSelect, TaskSystemToolbarButton as ToolbarButton } from "@/components/workspace/views/task-system/TaskSystemWorkbenchUi";
 import {
   deleteTaskSystemContract,
   deleteTaskSystemEnvironment,
@@ -53,20 +56,10 @@ type LayerNavItem<T extends string> = {
   detail: string;
 };
 
-function dictOf(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
-}
-
-function recordFieldText(record: Record<string, unknown> | null | undefined, keys: string[], fallback = "-") {
-  for (const key of keys) {
-    const value = record?.[key];
-    if (value !== null && value !== undefined && String(value).trim()) return String(value);
-  }
-  return fallback;
-}
-
 function environmentRecordTitle(environmentId: string, overview?: TaskSystemOverview | null) {
-  const record = overview?.task_environment_management?.records?.find((item) => item.environment_id === environmentId);
+  const item = taskEnvironmentItem(environmentId, overview);
+  if (item) return taskEnvironmentDisplayTitle(item);
+  const record = overview?.task_environment_management?.records?.find((entry) => entry.environment_id === environmentId);
   return record?.title || environmentId;
 }
 
@@ -378,14 +371,15 @@ export function TaskSystemView() {
     return previewTaskSystemNodeConfigurationRuntime(nodeConfigId, { environment_id: environmentId });
   }
 
-  const selectedEnvironmentLabel = selectedEnvironmentItem?.record.title || environmentDraft.title || selectedEnvironmentId || "未选择任务环境";
-  const selectedEnvironmentStorageRoot = recordFieldText(dictOf(selectedEnvironmentItem?.storage_space), ["environment_storage_root"], "未声明存储");
+  const selectedEnvironmentLabel = selectedEnvironmentItem
+    ? taskEnvironmentDisplayTitle(selectedEnvironmentItem)
+    : environmentDraft.title || selectedEnvironmentId || "未选择任务环境";
   const domainItems: Array<LayerNavItem<TaskSystemDomain>> = [
     {
       value: "environments",
       label: "环境管理",
-      meta: selectedEnvironmentItem?.record.title || `${environmentItems.length} 个环境`,
-      detail: "环境类型、资源装载、Prompts、环境内任务和环境任务图",
+      meta: selectedEnvironmentItem ? taskEnvironmentDisplayTitle(selectedEnvironmentItem) : `${environmentItems.length} 个环境`,
+      detail: "环境类型、资源装载、环境说明、环境内任务和环境任务图",
     },
     {
       value: "contracts",
@@ -401,49 +395,34 @@ export function TaskSystemView() {
     },
   ];
   const environmentPages: Array<LayerNavItem<EnvironmentSubpage>> = [
-    { value: "types", label: "环境类型", meta: `${kindTemplates.length} templates`, detail: "kind、分组、默认策略模板" },
-    { value: "loadout", label: "资源装载", meta: selectedEnvironmentId || "-", detail: "文件、记忆、知识、检索和存储空间" },
-    { value: "prompts", label: "环境 Prompts", meta: environmentDraft.prompt_id || "-", detail: "agent 可见的环境说明" },
-    { value: "tasks", label: "环境内任务", meta: `${consolePayload?.environment_task_inventory?.summary?.task_inventory_count ?? 0} tasks`, detail: "TaskAssignment 归属和默认链路" },
-    { value: "graphs", label: "环境任务图", meta: `${consolePayload?.environment_graph_inventory?.summary?.graph_inventory_count ?? 0} graphs`, detail: "任务图归属、发布态和健康摘要" },
+    { value: "types", label: "环境类型", meta: `${kindTemplates.length} 类模板`, detail: "按用途预设默认资源和策略" },
+    { value: "loadout", label: "资源装载", meta: selectedEnvironmentItem ? taskEnvironmentLoadSummary(selectedEnvironmentItem) : "未保存", detail: "资料、记忆、检索和产物空间" },
+    { value: "prompts", label: "环境说明", meta: `${selectedEnvironmentItem?.environment_prompts?.length ?? (environmentDraft.prompt_content.trim() ? 1 : 0)} 条`, detail: "Agent 进入环境后可读取的说明" },
+    { value: "tasks", label: "环境内任务", meta: `${consolePayload?.environment_task_inventory?.summary?.task_inventory_count ?? 0} 项任务`, detail: "任务归属和默认执行链路" },
+    { value: "graphs", label: "环境任务图", meta: `${consolePayload?.environment_graph_inventory?.summary?.graph_inventory_count ?? 0} 张图`, detail: "任务图归属、发布态和健康摘要" },
   ];
   const contractPages: Array<LayerNavItem<ContractSubpage>> = [
-    { value: "catalog", label: "契约目录", meta: `${contractSpecs.length} specs`, detail: "筛选、搜索和定位契约" },
-    { value: "detail", label: "契约详情", meta: "Inspector", detail: "Schema、产物、验收和策略" },
-    { value: "usage", label: "使用影响", meta: `${consolePayload?.contract_usage_index?.summary?.usage_count ?? 0} refs`, detail: "任务、图、节点和边引用" },
+    { value: "catalog", label: "契约目录", meta: `${contractSpecs.length} 个契约`, detail: "筛选、搜索和定位契约" },
+    { value: "detail", label: "契约详情", meta: "详情", detail: "输入输出、产物、验收和策略" },
+    { value: "usage", label: "使用影响", meta: `${consolePayload?.contract_usage_index?.summary?.usage_count ?? 0} 处引用`, detail: "任务、图、节点和边引用" },
   ];
   const nodePages: Array<LayerNavItem<NodeSubpage>> = [
-    { value: "catalog", label: "节点目录", meta: `${consolePayload?.node_configuration_management?.summary?.node_configuration_count ?? 0} configs`, detail: "按环境、执行者和问题筛选" },
-    { value: "detail", label: "节点详情", meta: "Role Prompt", detail: "角色、职责、边界和执行者引用" },
-    { value: "capability", label: "能力与权限", meta: `${nodeRuntimeCatalog?.options?.capability_items?.length ?? 0} capabilities`, detail: "工具、记忆、产物和失败边界" },
-    { value: "preview", label: "装配预览", meta: "Runtime packet", detail: "后端合成 agent 实际可见输入" },
+    { value: "catalog", label: "节点目录", meta: `${consolePayload?.node_configuration_management?.summary?.node_configuration_count ?? 0} 个配置`, detail: "按环境、执行者和问题筛选" },
+    { value: "detail", label: "节点详情", meta: "角色说明", detail: "角色、职责、边界和执行者引用" },
+    { value: "capability", label: "能力与权限", meta: `${nodeRuntimeCatalog?.options?.capability_items?.length ?? 0} 项能力`, detail: "工具、记忆、产物和失败边界" },
+    { value: "preview", label: "装配预览", meta: "可见输入", detail: "Agent 实际会拿到的运行输入" },
   ];
 
   const contextSlot = (
-    <div className="task-system-context-stack">
-      <section className="task-system-project-selector task-system-project-selector--root" aria-label="当前任务环境">
-        <div>
-          <span>任务环境</span>
-          <strong>{selectedEnvironmentLabel}</strong>
-        </div>
-        <TaskGraphChromeSelect
-          emptyLabel="暂无任务环境"
-          label="任务环境"
-          onChange={(environmentId) => {
-            setSelectedEnvironmentId(environmentId);
-            setEnvironmentDraft(environmentDraftFromItem(taskEnvironmentItem(environmentId, consolePayload)));
-          }}
-          options={environmentItems.map((item) => ({
-            value: item.record.environment_id,
-            label: item.record.title || item.record.environment_id,
-          }))}
-          placeholder="选择任务环境"
-          value={selectedEnvironmentId}
-        />
-        <small>{selectedEnvironmentId || selectedEnvironmentStorageRoot}</small>
-        <ToolbarButton onClick={createEnvironmentDraft}><Plus size={15} />新环境</ToolbarButton>
-      </section>
-    </div>
+    <EnvironmentContextPicker
+      environmentItems={environmentItems}
+      onCreate={createEnvironmentDraft}
+      onSelectEnvironment={(environmentId) => {
+        setSelectedEnvironmentId(environmentId);
+        setEnvironmentDraft(environmentDraftFromItem(taskEnvironmentItem(environmentId, consolePayload)));
+      }}
+      selectedEnvironmentId={selectedEnvironmentId}
+    />
   );
 
   const subpageItems = activeDomain === "environments"

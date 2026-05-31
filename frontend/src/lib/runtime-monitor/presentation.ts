@@ -40,34 +40,8 @@ export function monitorStatusLabel(item: RuntimeMonitorItem) {
 }
 
 export function publicMonitorText(value: unknown) {
-  let candidate = String(value ?? "")
-    .replace(/(?:taskrun|taskinst|rtevt|event|runtime|orderrun|order)[:_-][^\s]+/gi, "")
-    .replace(/(?:^|\s)(?:harness|backend|runtime|query|agent_system|capability_system|health_system|task_system)(?:\.[A-Za-z0-9_-]+){2,}(?=\s|$)/gi, " ")
-    .replace(/\bRuntimeInvocationPacket\b/gi, "上下文")
-    .replace(/\bruntime packet\b/gi, "上下文")
-    .replace(/\bruntime assembly\b/gi, "上下文")
-    .replace(/\bTaskRun\b/gi, "当前工作")
-    .replace(/\bruntime\b/gi, "处理流程")
-    .replace(/\bagent\b/gi, "助手")
-    .replace(/执行器/g, "处理流程")
-    .replace(/正式任务/g, "当前工作")
-    .replace(/任务合同/g, "目标")
-    .replace(/任务生命周期/g, "处理流程")
-    .replace(/任务运行时/g, "上下文")
-    .replace(/任务运行/g, "处理进展")
-    .replace(/会话运行/g, "处理进展")
-    .replace(/运行装配/g, "整理上下文")
-    .replace(/回灌/g, "交回")
-    .replace(/系统已/g, "已")
+  const candidate = String(value ?? "")
     .replace(/\s+/g, " ")
-    .trim();
-  candidate = candidate
-    .replace(/^已为当前任务步骤装配 上下文，并交给 助手 判断下一步。?$/i, "正在整理上下文，准备继续处理。")
-    .replace(/^已为当前步骤装配 上下文，并交给 助手 判断下一步。?$/i, "正在整理上下文，准备继续处理。")
-    .replace(/^任务 上下文 已送入模型，正在等待 助手 返回任务动作。?$/i, "正在分析当前目标和已有进展，准备决定下一步。")
-    .replace(/^上下文 已送入模型，正在等待 助手 返回任务动作。?$/i, "正在分析当前目标和已有进展，准备决定下一步。")
-    .replace(/^已执行 助手 请求的任务工具调用。?$/i, "工具调用完成。")
-    .replace(/^已执行 助手 请求的任务工具调用，并把真实观察交回给 助手。?$/i, "工具调用完成，结果已交回助手。")
     .trim();
   return looksInternalIdentifier(candidate) ? "" : candidate;
 }
@@ -87,7 +61,9 @@ export function monitorProgressLabel(item: RuntimeMonitorItem, fallback = "") {
     : {};
   return publicMonitorText(progress.tool_status)
     || publicMonitorText(progress.observation)
-    || publicMonitorText(progress.judgment)
+    || publicMonitorText(progress.current_judgment)
+    || publicMonitorText(progress.next_action)
+    || publicMonitorText(progress.completion_status)
     || publicMonitorText(progress.summary)
     || publicMonitorText(item.latest_public_progress_note)
     || publicMonitorText(item.latest_step_summary)

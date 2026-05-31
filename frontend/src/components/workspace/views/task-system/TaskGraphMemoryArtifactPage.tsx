@@ -85,6 +85,12 @@ function listText(value: unknown) {
   return Array.isArray(value) ? value.map((item) => String(item)).filter(Boolean).join("\n") : "";
 }
 
+function compactRecord(payload: Record<string, unknown>) {
+  return Object.fromEntries(
+    Object.entries(payload).filter(([, value]) => value !== "" && value !== null && value !== undefined && !(Array.isArray(value) && value.length === 0)),
+  );
+}
+
 function repositoryCollectionsFromNode(node?: Record<string, unknown>) {
   const metadata = asRecord(node?.metadata);
   const memoryRepository = asRecord(metadata.memory_repository);
@@ -144,6 +150,30 @@ function operationLabel(value: MatrixOperationValue) {
     commit: "提交",
   };
   return labels[value];
+}
+
+function semanticParameterPatchFromMemoryPatch(patch: Record<string, unknown>) {
+  const selector = asRecord(patch.selector);
+  const visibility = asRecord(patch.commit_visibility_policy);
+  return compactRecord({
+    repository_id: patch.repository_id ?? patch.repository,
+    collection_id: patch.collection_id ?? patch.collection ?? selector.collection,
+    record_key: patch.record_key ?? selector.record_key,
+    record_kind: patch.record_kind ?? selector.record_kind,
+    record_keys: selector.record_keys,
+    record_kinds: selector.record_kinds,
+    limit: selector.limit,
+    on_missing: patch.on_missing,
+    source_output_key: patch.source_output_key,
+    candidate_ref_key: patch.candidate_ref_key,
+    approval_source_node_id: patch.approval_source_node_id,
+    verdict_key: patch.verdict_key,
+    required_verdict: patch.required_verdict,
+    model_visible_label: patch.model_visible_label,
+    usage_instruction: patch.usage_instruction,
+    version_selector: patch.version_selector,
+    visible_after: visibility.visible_after,
+  });
 }
 
 function artifactContextEdges(edges: Array<Record<string, unknown>>) {
@@ -421,11 +451,12 @@ export function TaskGraphMemoryArtifactPage({
   const patchSelectedMemoryEdgeMetadata = (patch: Record<string, unknown>) => {
     if (!selectedMemoryEdge) return;
     const edgeMetadata = asRecord(selectedMemoryEdge.edge.metadata);
+    const semanticParameters = compactRecord({
+      ...asRecord(edgeMetadata.semantic_parameters),
+      ...semanticParameterPatchFromMemoryPatch(patch),
+    });
     updateTaskGraphEdge(selectedMemoryEdge.edgeId, {
-      metadata: {
-        ...edgeMetadata,
-        ...patch,
-      },
+      metadata: { ...edgeMetadata, ...patch, semantic_parameters: semanticParameters },
     });
   };
 
@@ -984,14 +1015,14 @@ export function TaskGraphMemoryArtifactPage({
                   <input
                     onChange={(event) => patchSelectedMemoryEdgeMetadata({ record_key: event.target.value, selector: { ...selectedMemoryEdge.selector, record_key: event.target.value } })}
                     placeholder="world_bible.current / volume.001.plan"
-                    value={String(selectedMemoryEdge.selector.record_key ?? asRecord(selectedMemoryEdge.edge.metadata).record_key ?? "")}
+                    value={String(selectedMemoryEdge.selector.record_key ?? selectedMemoryEdge.resolvedMetadata.record_key ?? "")}
                   />
                 </TaskSystemField>
                 <TaskSystemField label="Record Kind">
                   <input
                     onChange={(event) => patchSelectedMemoryEdgeMetadata({ record_kind: event.target.value, selector: { ...selectedMemoryEdge.selector, record_kind: event.target.value } })}
                     placeholder="world_bible / chapter_outline / chapter_fact"
-                    value={String(selectedMemoryEdge.selector.record_kind ?? asRecord(selectedMemoryEdge.edge.metadata).record_kind ?? "")}
+                    value={String(selectedMemoryEdge.selector.record_kind ?? selectedMemoryEdge.resolvedMetadata.record_kind ?? "")}
                   />
                 </TaskSystemField>
                 <TaskSystemField label="Record Kinds">
@@ -1011,7 +1042,7 @@ export function TaskGraphMemoryArtifactPage({
                     <input
                       onChange={(event) => patchSelectedMemoryEdgeMetadata({ source_output_key: event.target.value })}
                       placeholder="approved_world / chapter_outline / canonical_fact"
-                      value={String(asRecord(selectedMemoryEdge.edge.metadata).source_output_key ?? "")}
+                      value={String(selectedMemoryEdge.resolvedMetadata.source_output_key ?? "")}
                     />
                   </TaskSystemField>
                 ) : null}
@@ -1021,28 +1052,28 @@ export function TaskGraphMemoryArtifactPage({
                       <input
                         onChange={(event) => patchSelectedMemoryEdgeMetadata({ candidate_ref_key: event.target.value })}
                         placeholder="reviewed_candidate_ref / candidate_version_id"
-                        value={String(asRecord(selectedMemoryEdge.edge.metadata).candidate_ref_key ?? "")}
+                        value={String(selectedMemoryEdge.resolvedMetadata.candidate_ref_key ?? "")}
                       />
                     </TaskSystemField>
                     <TaskSystemField label="Verdict Key">
                       <input
                         onChange={(event) => patchSelectedMemoryEdgeMetadata({ verdict_key: event.target.value })}
                         placeholder="verdict / review_result.verdict"
-                        value={String(asRecord(selectedMemoryEdge.edge.metadata).verdict_key ?? "")}
+                        value={String(selectedMemoryEdge.resolvedMetadata.verdict_key ?? "")}
                       />
                     </TaskSystemField>
                     <TaskSystemField label="Required Verdict">
                       <input
                         onChange={(event) => patchSelectedMemoryEdgeMetadata({ required_verdict: event.target.value })}
                         placeholder="pass / approved"
-                        value={String(asRecord(selectedMemoryEdge.edge.metadata).required_verdict ?? "")}
+                        value={String(selectedMemoryEdge.resolvedMetadata.required_verdict ?? "")}
                       />
                     </TaskSystemField>
                   </>
                 ) : null}
                 <TaskSystemSelectField
                   label="版本选择"
-                  onChange={(value) => patchSelectedMemoryEdgeMetadata({ version_selector: { mode: value } })}
+                  onChange={(value) => patchSelectedMemoryEdgeMetadata({ version_selector: value })}
                   options={["latest_committed_before_clock", "latest_committed_before_scope", "pinned_version", "by_commit_acknowledgement", "manual_snapshot"]}
                   value={selectedMemoryEdge.versionSelector}
                 />

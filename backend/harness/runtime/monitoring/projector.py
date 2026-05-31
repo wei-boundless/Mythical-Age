@@ -72,6 +72,8 @@ class RuntimeMonitorProjector:
         summary = public_runtime_progress_summary(
             latest_step.get("public_progress_note")
             or latest_step.get("summary")
+            or latest_step.get("next_action")
+            or latest_step.get("current_judgment")
             or diagnostics.get("public_progress_note")
             or diagnostics.get("latest_public_progress_note")
             or diagnostics.get("latest_step_summary")
@@ -111,7 +113,11 @@ class RuntimeMonitorProjector:
         latest_progress = {
             "tool_status": str(latest_step.get("tool_status") or diagnostics.get("latest_tool_status") or ""),
             "observation": public_runtime_progress_summary(latest_step.get("observation") or diagnostics.get("latest_observation") or ""),
-            "judgment": public_runtime_progress_summary(latest_step.get("judgment") or diagnostics.get("latest_judgment") or ""),
+            "current_judgment": public_runtime_progress_summary(latest_step.get("current_judgment") or diagnostics.get("latest_current_judgment") or ""),
+            "next_action": public_runtime_progress_summary(latest_step.get("next_action") or diagnostics.get("latest_next_action") or ""),
+            "completion_status": public_runtime_progress_summary(latest_step.get("completion_status") or diagnostics.get("latest_completion_status") or ""),
+            "open_risks": list(latest_step.get("open_risks") or dict(diagnostics.get("latest_public_action_state") or {}).get("open_risks") or []),
+            "evidence_refs": list(latest_step.get("evidence_refs") or dict(diagnostics.get("latest_public_action_state") or {}).get("evidence_refs") or []),
             "summary": summary,
             "agent_brief": agent_brief,
         }
@@ -370,6 +376,7 @@ class RuntimeMonitorProjector:
             if str(getattr(event, "event_type", "") or "") != "step_summary_recorded":
                 continue
             payload = dict(getattr(event, "payload", {}) or {})
+            public_action_state = dict(payload.get("public_action_state") or {})
             return {
                 "step": str(payload.get("step") or ""),
                 "status": str(payload.get("status") or ""),
@@ -378,7 +385,19 @@ class RuntimeMonitorProjector:
                 "agent_brief_output": public_runtime_progress_summary(payload.get("agent_brief_output") or ""),
                 "tool_status": public_runtime_progress_summary(payload.get("tool_status") or ""),
                 "observation": public_runtime_progress_summary(payload.get("observation") or ""),
-                "judgment": public_runtime_progress_summary(payload.get("judgment") or ""),
+                "current_judgment": public_runtime_progress_summary(
+                    payload.get("current_judgment")
+                    or public_action_state.get("current_judgment")
+                    or ""
+                ),
+                "next_action": public_runtime_progress_summary(payload.get("next_action") or public_action_state.get("next_action") or ""),
+                "completion_status": public_runtime_progress_summary(
+                    payload.get("completion_status")
+                    or public_action_state.get("completion_status")
+                    or ""
+                ),
+                "open_risks": list(public_action_state.get("open_risks") or []),
+                "evidence_refs": list(public_action_state.get("evidence_refs") or []),
                 "presentation_source": str(payload.get("presentation_source") or ""),
                 "event_id": str(getattr(event, "event_id", "") or ""),
                 "offset": int(getattr(event, "offset", -1) or -1),
@@ -401,7 +420,9 @@ class RuntimeMonitorProjector:
             "agent_brief_output": public_runtime_progress_summary(diagnostics.get("agent_brief_output") or ""),
             "tool_status": public_runtime_progress_summary(diagnostics.get("latest_tool_status") or ""),
             "observation": public_runtime_progress_summary(diagnostics.get("latest_observation") or ""),
-            "judgment": public_runtime_progress_summary(diagnostics.get("latest_judgment") or ""),
+            "current_judgment": public_runtime_progress_summary(diagnostics.get("latest_current_judgment") or ""),
+            "next_action": public_runtime_progress_summary(diagnostics.get("latest_next_action") or ""),
+            "completion_status": public_runtime_progress_summary(diagnostics.get("latest_completion_status") or ""),
             "presentation_source": "diagnostics",
             "event_id": "",
             "offset": -1,

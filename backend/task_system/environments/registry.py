@@ -12,6 +12,7 @@ from .repository import load_configured_task_environments
 class TaskEnvironmentRegistry:
     definitions: dict[str, TaskEnvironmentDefinition]
     groups: dict[str, TaskEnvironmentGroup]
+    definition_sources: dict[str, str]
 
     @classmethod
     def with_defaults(cls) -> "TaskEnvironmentRegistry":
@@ -19,6 +20,7 @@ class TaskEnvironmentRegistry:
         return cls(
             definitions=definitions,
             groups={group.group_id: group for group in default_task_environment_groups()},
+            definition_sources={environment_id: "builtin_default" for environment_id in definitions},
         )
 
     @classmethod
@@ -29,11 +31,13 @@ class TaskEnvironmentRegistry:
         for group in groups:
             merged_groups[group.group_id] = group
         merged_definitions = dict(registry.definitions)
+        merged_sources = dict(registry.definition_sources)
         for definition in definitions:
             if definition.record.group_id not in merged_groups:
                 raise KeyError(f"unknown task environment group: {definition.record.group_id}")
             merged_definitions[definition.record.environment_id] = definition
-        return cls(definitions=merged_definitions, groups=merged_groups)
+            merged_sources[definition.record.environment_id] = "configured"
+        return cls(definitions=merged_definitions, groups=merged_groups, definition_sources=merged_sources)
 
     def get(self, environment_id: str) -> TaskEnvironmentDefinition | None:
         key = str(environment_id or "").strip()
@@ -58,6 +62,10 @@ class TaskEnvironmentRegistry:
 
     def list_groups(self) -> tuple[TaskEnvironmentGroup, ...]:
         return tuple(self.groups[key] for key in sorted(self.groups))
+
+    def definition_source(self, environment_id: str) -> str:
+        key = str(environment_id or "").strip()
+        return self.definition_sources.get(key, "unknown")
 
 
 def default_task_environment_registry() -> TaskEnvironmentRegistry:

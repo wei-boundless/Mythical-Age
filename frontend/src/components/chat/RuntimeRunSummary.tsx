@@ -21,30 +21,18 @@ type RuntimeStepView = {
 
 function cleanText(value: unknown) {
   return String(value ?? "")
-    .replace(/(?:taskrun|taskinst|rtevt|event|runtime|orderrun|order)[:_-][^\s]+/gi, "")
-    .replace(/(?:^|\s)(?:harness|backend|runtime|query|agent_system|capability_system|health_system|task_system)(?:\.[A-Za-z0-9_-]+){2,}(?=\s|$)/gi, " ")
-    .replace(/\bTaskRun\b/gi, "当前工作")
-    .replace(/\bruntime packet\b/gi, "上下文")
-    .replace(/\bruntime\b/gi, "处理流程")
-    .replace(/\bRuntimeInvocationPacket\b/gi, "上下文")
-    .replace(/\bagent\b/gi, "助手")
-    .replace(/当前任务步骤/g, "当前步骤")
-    .replace(/执行器/g, "处理流程")
-    .replace(/正式任务/g, "当前工作")
-    .replace(/任务合同/g, "目标")
-    .replace(/任务生命周期/g, "处理流程")
-    .replace(/任务运行时/g, "上下文")
-    .replace(/任务运行/g, "处理进展")
-    .replace(/会话运行/g, "处理进展")
-    .replace(/运行装配/g, "整理上下文")
-    .replace(/回灌/g, "交回")
-    .replace(/系统已/g, "已")
     .replace(/\s+/g, " ")
     .trim();
 }
 
+function isInternalReference(value: string) {
+  return /^(?:task|taskrun|turn|turnrun|session|taskinst|coordrun|grun)[:_-]/i.test(value)
+    || /^(?:harness|backend|runtime|query|agent_system|capability_system|health_system|task_system)(?:\.[A-Za-z0-9_-]+){2,}$/i.test(value);
+}
+
 function truncate(value: unknown, limit = 132) {
   const normalized = cleanText(value);
+  if (isInternalReference(normalized)) return "";
   return normalized.length > limit ? `${normalized.slice(0, limit - 1)}...` : normalized;
 }
 
@@ -100,7 +88,7 @@ function isWorkEntry(entry: RuntimeProgressEntry) {
 }
 
 function isPlanEntry(entry: RuntimeProgressEntry) {
-  return entry.kind === "task_order" || entry.kind === "task_draft";
+  return entry.kind === "task_draft";
 }
 
 function entryBody(entry: RuntimeProgressEntry | undefined) {
@@ -117,46 +105,20 @@ function entryBody(entry: RuntimeProgressEntry | undefined) {
 
 function runtimePhase(entry: RuntimeProgressEntry | undefined) {
   const kind = String(entry?.kind || "");
-  const text = cleanText(`${entry?.eventType || ""} ${entry?.title || ""} ${entry?.body || ""}`).toLowerCase();
   if (kind === "task_order" || kind === "task_draft") return "确认目标";
-  if (kind === "permission" || text.includes("admission") || text.includes("权限") || text.includes("准入")) return "确认边界";
-  if (text.includes("packet") || text.includes("上下文") || text.includes("运行时") || text.includes("装配")) return "整理上下文";
-  if (kind === "tool" || text.includes("tool") || text.includes("工具")) return "执行操作";
-  if (kind === "verification" || text.includes("repair") || text.includes("验收") || text.includes("修复")) return "补齐证据";
-  if (kind === "artifact" || text.includes("artifact") || text.includes("产物")) return "记录产物";
-  if (kind === "terminal" || text.includes("completed") || text.includes("完成") || text.includes("收尾")) return "结果收口";
-  if (kind === "model" || text.includes("助手") || text.includes("model_action") || text.includes("模型")) return "思考下一步";
+  if (kind === "permission") return "确认边界";
+  if (kind === "tool") return "执行操作";
+  if (kind === "verification") return "补齐证据";
+  if (kind === "artifact") return "记录产物";
+  if (kind === "terminal") return "结果收口";
+  if (kind === "model") return "思考下一步";
+  if (kind === "system") return "系统进展";
   return "推进中";
 }
 
 function stageOutput(entry: RuntimeProgressEntry | undefined) {
-  const toolName = String(entry?.toolName || "").trim();
-  const normalized = entryBody(entry)
-    .replace(/^已为当前步骤装配 上下文，并交给 助手 判断下一步。?$/i, "正在整理上下文，准备继续处理。")
-    .replace(/^当前工作 上下文 已送入模型，正在等待 助手 返回任务动作。?$/i, "正在分析当前目标和已有进展，准备决定下一步。")
-    .replace(/^任务 上下文 已送入模型，正在等待 助手 返回任务动作。?$/i, "正在分析当前目标和已有进展，准备决定下一步。")
-    .replace(/^上下文 已送入模型，正在等待 助手 返回任务动作。?$/i, "正在分析当前目标和已有进展，准备决定下一步。")
-    .replace(/^正在处理这一步。?$/i, "正在分析当前目标和已有进展，准备决定下一步。")
-    .replace(/^系统正在等待 助手返回下一步.*$/i, "正在思考。")
-    .replace(/^仍在处理中，正在等待下一步结果。?$/i, "正在思考。")
-    .replace(/^正在等待模型根据当前上下文返回下一步判断。?$/i, "正在思考。")
-    .replace(/^正在等待模型根据当前任务进展返回下一步判断。?$/i, "正在思考。")
-    .replace(/^正在等待模型返回下一步判断。?$/i, "正在思考。")
-    .replace(/^已执行 助手 请求的任务工具调用。?$/i, toolName ? `${toolName} 调用完成。` : "工具调用完成。")
-    .replace(/^已执行 助手 请求的任务工具调用，并把真实观察交回给 助手。?$/i, toolName ? `${toolName} 调用完成，结果已交回助手。` : "工具结果已交回助手。")
-    .replace(/^助手 已返回任务动作请求：respond。?$/i, "助手已形成回复方向。")
-    .replace(/^助手 已返回任务动作请求：tool_call。?$/i, toolName ? `助手准备调用 ${toolName}。` : "助手准备调用工具。")
-    .replace(/^目标已满足，处理流程已完成收尾.*$/i, "目标已满足，结果已记录。")
-    .replace(/^目标已满足。?$/i, "目标已满足，准备交付结果。")
-    .replace(/^(?:任务)?模型调用仍在进行中，(?:系统)?继续等待(?:待)? 助手 动作返回。等待轮次：\d+。?$/i, "正在根据当前进展形成下一步处理动作。")
-    .replace(/^正在生成下一步动作。?$/i, "正在根据当前进展形成下一步处理动作。")
-    .replace(/^已完成动作准入检查：allow。?$/i, "执行边界已确认。")
-    .replace(/^当前工作处理流程已建立。?$/i, "已确认目标，开始处理。")
-    .trim();
+  const normalized = entryBody(entry).trim();
   if (!normalized && (entry?.kind === "terminal" || statusRunState(entry?.statusText) === "success" || entry?.level === "success")) {
-    return "目标已满足，结果已记录。";
-  }
-  if (["completed", "success", "完成"].includes(normalized.toLowerCase())) {
     return "目标已满足，结果已记录。";
   }
   return truncate(normalized || "等待阶段进展。", 126);
@@ -326,23 +288,22 @@ function entriesFromAttachments(attachments: SessionRuntimeAttachment[]): Runtim
 function conversationalLine(step: RuntimeStepView, runState: RuntimeRunState, isLatest: boolean) {
   const output = step.output || step.phase;
   if (runState === "success" && isLatest) {
-    return output ? `我已经完成这轮处理：${output}` : "我已经完成这轮处理。";
+    return output || "已完成。";
   }
   if (runState === "stopped" && isLatest) {
-    return output ? `这轮生成已停止：${output}` : "这轮生成已停止。";
+    return output ? `已停止：${output}` : "已停止。";
   }
   if (step.level === "error") {
-    return output ? `我遇到了一个需要处理的问题：${output}` : "我遇到了一个需要处理的问题，需要先处理后才能继续。";
+    return output ? `遇到问题：${output}` : "遇到问题，需要处理后继续。";
   }
   if (step.level === "waiting") {
-    return output ? `我需要先等你确认：${output}` : "我需要先等你确认。";
+    return output ? `等待确认：${output}` : "等待确认。";
   }
   if (step.level === "success" || step.status === "已完成" || (!isLatest && runState !== "error")) {
-    return output ? `我已经处理完这一步：${output}` : "我已经处理完这一步。";
+    return output || "已完成。";
   }
   if (/^我/.test(output)) return output;
-  if (/^正在/.test(output)) return `我${output}`;
-  return output ? `我正在处理：${output}` : "我正在同步当前进展。";
+  return output || "正在同步当前进展。";
 }
 
 export function RuntimeRunSummary({ entries, attachments = [] }: { entries: RuntimeProgressEntry[]; attachments?: SessionRuntimeAttachment[] }) {

@@ -41,20 +41,20 @@ describe("RuntimeRunSummary", () => {
             task_run_id: "taskrun:turn:session-e2e:1:abc",
             status: "completed",
             progress_entries: [
-              {
-                id: "tool:1",
-                kind: "tool",
-                level: "running",
-                title: "工具调用完成",
-                body: "系统已执行 agent 请求的任务工具调用。",
-              },
-              {
-                id: "terminal:1",
-                kind: "terminal",
-                level: "success",
-                title: "任务已完成",
-                body: "任务合同已满足。",
-              },
+          {
+            id: "tool:1",
+            kind: "tool",
+            level: "running",
+            title: "工具调用完成",
+            body: "工具调用已完成。",
+          },
+          {
+            id: "terminal:1",
+            kind: "terminal",
+            level: "success",
+            title: "任务已完成",
+            body: "目标已满足。",
+          },
             ],
           },
         ],
@@ -74,7 +74,7 @@ describe("RuntimeRunSummary", () => {
         entries: [
           {
             id: "plan",
-            kind: "task_order",
+            kind: "task_draft",
             level: "running",
             title: "确认目标",
             body: "先检查当前实现，再修复自然交互。",
@@ -107,8 +107,8 @@ describe("RuntimeRunSummary", () => {
             id: "packet",
             kind: "stage",
             level: "running",
-            title: "系统已为当前任务步骤装配 runtime packet，并交给 agent 判断下一步。",
-            body: "系统已为当前任务步骤装配 runtime packet，并交给 agent 判断下一步。",
+            title: "整理上下文",
+            body: "已同步会话上下文。",
             eventType: "runtime_live_monitor",
             statusText: "running",
           },
@@ -116,8 +116,9 @@ describe("RuntimeRunSummary", () => {
             id: "model",
             kind: "model",
             level: "running",
-            title: "agent 正在处理",
-            body: "模型调用仍在进行中，系统继续等待 agent 动作返回。等待轮次：1。",
+            title: "思考下一步",
+            body: "已确认产物存在，下一步做最终验收。",
+            publicNote: "已确认产物存在，下一步做最终验收。",
             eventType: "step_summary_recorded",
             statusText: "running",
           },
@@ -125,8 +126,7 @@ describe("RuntimeRunSummary", () => {
       }),
     );
 
-    expect(html).toContain("我正在根据当前进展形成下一步处理动作");
-    expect(html).toContain("正在根据当前进展形成下一步处理动作");
+    expect(html).toContain("已确认产物存在，下一步做最终验收");
     expect(html).not.toContain("1/2 已完成");
     expect(html).not.toContain("系统已为当前任务步骤装配 runtime packet");
     expect(html).not.toContain("任务模型调用仍在进行中");
@@ -151,16 +151,17 @@ describe("RuntimeRunSummary", () => {
                 id: "step:packet",
                 kind: "stage",
                 level: "running",
-                title: "装配任务运行时",
-                body: "系统已为当前任务步骤装配 runtime packet，并交给 agent 判断下一步。",
+                title: "整理上下文",
+                body: "已同步会话上下文。",
                 statusText: "running",
               },
               {
                 id: "step:model",
                 kind: "model",
                 level: "running",
-                title: "agent 正在处理",
-                body: "模型调用仍在进行中，系统继续等待 agent 动作返回。等待轮次：1。",
+                title: "思考下一步",
+                body: "已确认产物存在，下一步做最终验收。",
+                publicNote: "已确认产物存在，下一步做最终验收。",
                 statusText: "running",
               },
             ],
@@ -170,7 +171,7 @@ describe("RuntimeRunSummary", () => {
     );
 
     expect(html).toContain("runtime-run-summary--work");
-    expect(html).toContain("我正在根据当前进展形成下一步处理动作");
+    expect(html).toContain("已确认产物存在，下一步做最终验收");
     expect(html).not.toContain("1/2 已完成");
     expect(html).not.toContain("runtime-run-summary--task");
   });
@@ -184,7 +185,7 @@ describe("RuntimeRunSummary", () => {
             kind: "tool",
             level: "running",
             title: "工具调用完成",
-            body: "系统已执行 agent 请求的任务工具调用。",
+            body: "工具调用已完成。",
             eventType: "step_summary_recorded",
             statusText: "running",
           },
@@ -193,7 +194,7 @@ describe("RuntimeRunSummary", () => {
             kind: "terminal",
             level: "success",
             title: "任务已完成",
-            body: "任务合同已满足。",
+            body: "目标已满足。",
             eventType: "task_run_lifecycle_finished",
             statusText: "completed",
           },
@@ -203,7 +204,7 @@ describe("RuntimeRunSummary", () => {
 
     expect(html).toContain("目标已满足");
     expect(html).not.toContain(">进行中<");
-    expect(html).toContain("我已经完成这轮处理");
+    expect(html).not.toContain("我已经完成这轮处理");
     expect(html).not.toContain("会话运行");
   });
 

@@ -38,6 +38,179 @@ class RuntimeCompiler:
         self.base_dir = Path(base_dir) if base_dir is not None else Path(__file__).resolve().parents[2]
         self.dynamic_context_manager = DynamicContextManager(base_dir=self.base_dir)
 
+    def compile_plain_conversation_packet(
+        self,
+        *,
+        session_id: str,
+        turn_id: str,
+        agent_invocation_id: str,
+        user_message: str,
+        history: list[dict[str, Any]],
+        agent_profile_ref: str = "main_interactive_agent",
+        model_selection: dict[str, Any] | None = None,
+        runtime_assembly: Any | None = None,
+    ) -> RuntimeCompilationResult:
+        assembly_payload = runtime_assembly.to_dict() if hasattr(runtime_assembly, "to_dict") else dict(runtime_assembly or {})
+        self._bind_assembly_base_dir(assembly_payload)
+        profile_payload = dict(assembly_payload.get("profile") or {})
+        environment_payload = dict(assembly_payload.get("task_environment") or {})
+        control_capabilities = dict(assembly_payload.get("control_capabilities") or {})
+        agent_profile_ref = str(agent_profile_ref or assembly_payload.get("agent_profile_ref") or "main_interactive_agent")
+        task_environment_ref = str(environment_payload.get("environment_id") or "env.general.workspace")
+        prompt_pack_refs = _prompt_pack_refs_for_invocation(profile_payload, invocation_kind="plain_conversation")
+        soul_role_prompt = dict(assembly_payload.get("soul_role_prompt") or {})
+        envelope = RuntimeEnvelope(
+            envelope_id=f"rtenv:{turn_id}:plain_conversation",
+            scope_kind="turn",
+            session_id=session_id,
+            turn_id=turn_id,
+            agent_profile_ref=agent_profile_ref,
+            task_environment_ref=task_environment_ref,
+            sandbox_policy=dict(environment_payload.get("sandbox_policy") or {}),
+            file_policy={
+                "file_management": dict(environment_payload.get("file_management") or {}),
+                "file_access_tables": list(environment_payload.get("file_access_tables") or []),
+            },
+            artifact_policy=dict(environment_payload.get("artifact_policy") or {}),
+            permission_policy=dict(profile_payload.get("permission_policy") or {}),
+            prompt_policy={"invocation_kind": "plain_conversation"},
+            output_policy={"format": "assistant_message"},
+            diagnostics={
+                "agent_invocation_id": agent_invocation_id,
+                "model_selection": dict(model_selection or {}),
+                "runtime_assembly_id": str(assembly_payload.get("assembly_id") or ""),
+                "control_capabilities": dict(control_capabilities),
+            },
+        )
+        prompt_assembly = self._assemble_prompt_pack(
+            invocation_kind="plain_conversation",
+            prompt_pack_refs=prompt_pack_refs,
+            agent_profile_ref=agent_profile_ref,
+            task_environment_ref=task_environment_ref,
+            runtime_mode=str(profile_payload.get("mode") or ""),
+        )
+        agent_prompt_assembly = self._assemble_prompt_refs(
+            invocation_kind="agent_profile",
+            prompt_refs=_string_tuple(assembly_payload.get("agent_prompt_refs")),
+            agent_profile_ref=agent_profile_ref,
+            task_environment_ref=task_environment_ref,
+            runtime_mode=str(profile_payload.get("mode") or ""),
+        )
+        environment_prompt_assembly = self._assemble_prompt_refs(
+            invocation_kind="environment",
+            prompt_refs=_string_tuple(assembly_payload.get("environment_prompt_refs")),
+            agent_profile_ref=agent_profile_ref,
+            task_environment_ref=task_environment_ref,
+            runtime_mode=str(profile_payload.get("mode") or ""),
+        )
+        environment_instruction = _environment_instruction(
+            environment_payload,
+            environment_prompt_assembly=environment_prompt_assembly,
+        )
+        agent_instruction = _agent_prompt_instruction(agent_prompt_assembly)
+        soul_instruction = _soul_instruction(soul_role_prompt)
+        stable_payload = {
+            "control_capabilities": dict(control_capabilities),
+            "task_environment": _environment_model_visible_payload(environment_payload),
+            "output_contract": {
+                "format": "assistant_message",
+                "forbidden": ["json_action_protocol", "tool_call_request", "task_run_request", "runtime_ids"],
+            },
+        }
+        packet_id = f"rtpacket:{turn_id}:plain_conversation:1"
+        history_specs = [
+            _message_spec(
+                role=str(item.get("role") or "user"),
+                content=str(item.get("content") or ""),
+                kind="conversation_history",
+                source_ref="conversation_history",
+                cache_scope="none",
+                cache_role="volatile",
+                compression_role="summarize",
+            )
+            for item in list(history or [])
+            if isinstance(item, dict) and str(item.get("role") or "") in {"user", "assistant", "system"} and str(item.get("content") or "").strip()
+        ]
+        model_messages, segment_plan = _model_messages_and_segment_plan(
+            packet_id=packet_id,
+            invocation_kind="plain_conversation",
+            specs=[
+                _message_spec(
+                    role="system",
+                    content=prompt_assembly.content,
+                    kind="global_static",
+                    source_ref=",".join(prompt_assembly.prompt_pack_refs),
+                    cache_scope="global",
+                    cache_role="cacheable_prefix",
+                    compression_role="preserve",
+                ),
+                _message_spec(
+                    role="system",
+                    content=_packet_payload_content("Plain conversation stable boundary", stable_payload),
+                    kind="conversation_stable",
+                    source_ref="plain_conversation_stable_boundary",
+                    cache_scope="session",
+                    cache_role="session_stable",
+                    compression_role="preserve",
+                ),
+                _message_spec(
+                    role="system",
+                    content=_join_prompt_sections(soul_instruction, agent_instruction, environment_instruction),
+                    kind="conversation_context",
+                    source_ref="plain_conversation_context",
+                    cache_scope="session",
+                    cache_role="session_stable",
+                    compression_role="preserve",
+                ),
+                *history_specs,
+                _message_spec(
+                    role="user",
+                    content=str(user_message or ""),
+                    kind="current_user_message",
+                    source_ref="plain_conversation_current_user_message",
+                    cache_scope="none",
+                    cache_role="volatile",
+                    compression_role="preserve",
+                ),
+            ],
+        )
+        prompt_manifest = build_runtime_prompt_manifest(
+            invocation_kind="plain_conversation",
+            assembly=_merge_prompt_assemblies(
+                prompt_assembly,
+                agent_prompt_assembly,
+                environment_prompt_assembly,
+                invocation_kind="plain_conversation",
+            ),
+            packet_id=packet_id,
+            volatile_state_refs=("history", "user_message"),
+        ).to_dict()
+        prompt_manifest["segment_plan_ref"] = segment_plan.segment_plan_id
+        _attach_model_message_metrics(prompt_manifest, model_messages=model_messages, segment_plan=segment_plan.to_dict())
+        packet = RuntimeInvocationPacket(
+            packet_id=packet_id,
+            envelope_ref=envelope.envelope_id,
+            invocation_kind="plain_conversation",
+            invocation_index=1,
+            session_id=session_id,
+            turn_id=turn_id,
+            model_messages=model_messages,
+            segment_plan=segment_plan.to_dict(),
+            agent_role_prompt="你是当前会话的主 agent，负责自然回应用户。",
+            prompt_pack_refs=prompt_assembly.prompt_pack_refs,
+            available_tools=(),
+            available_modes=("respond", "ask_user"),
+            output_contract={"format": "assistant_message"},
+            hidden_control_refs={"agent_invocation_id": agent_invocation_id, "runtime_assembly_id": str(assembly_payload.get("assembly_id") or "")},
+            diagnostics={
+                "prompt_manifest": prompt_manifest,
+                "segment_plan": segment_plan.to_dict(),
+                "model_input_authority": "runtime_invocation_packet.model_messages",
+                "control_capabilities": dict(control_capabilities),
+            },
+        )
+        return RuntimeCompilationResult(envelope=envelope, packet=packet)
+
     def compile_turn_action_packet(
         self,
         *,
@@ -877,7 +1050,14 @@ def model_action_request_schema(turn_id: str) -> dict[str, Any]:
     return {
         "authority": "harness.loop.model_action_request",
         "action_type": "respond|ask_user|tool_call|request_task_run|request_registered_engagement|block",
-        "public_progress_note": "一句用户可理解的公开进展；概括你刚观察到的事实以及你据此准备采取的下一步；不包含内部编号、系统结构、协议字段或隐藏推理。",
+        "public_progress_note": "一句用户可理解的公开进展；不包含内部编号、系统结构、协议字段或隐藏推理。",
+        "public_action_state": {
+            "evidence_refs": ["可选；你本轮判断引用的 observation/event/artifact ref"],
+            "current_judgment": "可选；你基于当前上下文作出的公开判断，只写结论，不暴露隐藏推理链。",
+            "next_action": "可选；你马上要采取的具体动作；如果收尾，说明准备提交什么结果。",
+            "open_risks": ["可选；仍未解决、会影响完成判断的公开风险"],
+            "completion_status": "可选；working|verifying|ready_to_finish|blocked"
+        },
         "final_answer": "",
         "user_question": "",
         "blocking_reason": "",
@@ -925,7 +1105,14 @@ def task_execution_action_schema() -> dict[str, Any]:
     return {
         "authority": "harness.loop.model_action_request",
         "action_type": "respond|ask_user|tool_call|block",
-        "public_progress_note": "一句用户可理解的公开进展；概括你刚观察到的事实以及你据此准备采取的下一步；不包含内部编号、系统结构、协议字段或隐藏推理。",
+        "public_progress_note": "一句用户可理解的公开进展；必须来自 public_action_state 的公开判断和下一步，不包含内部编号、系统结构、协议字段或隐藏推理。",
+        "public_action_state": {
+            "evidence_refs": ["你本轮判断引用的 observation/event/artifact ref；没有证据时留空"],
+            "current_judgment": "你基于当前上下文作出的公开判断，只写结论，不暴露隐藏推理链。",
+            "next_action": "你马上要采取的具体动作；如果收尾，说明准备提交什么结果。",
+            "open_risks": ["仍未解决、会影响完成判断的公开风险；没有则留空"],
+            "completion_status": "working|verifying|ready_to_finish|blocked"
+        },
         "final_answer": "",
         "user_question": "",
         "blocking_reason": "",
@@ -1318,8 +1505,14 @@ def _runtime_projection_instruction(projection: dict[str, Any]) -> str:
     if action_notes:
         lines.append("- 你可以" + "、".join(action_notes) + "。")
     lines.append(
-        "- 每次输出 JSON 时必须填写 public_progress_note：这是一句用户可理解的进展说明，"
-        "必须概括你刚观察到的事实以及你据此准备采取的下一步；不包含内部编号、系统结构、协议字段或隐藏推理。"
+        "- 你必须先在内部完成任务状态审查、证据核对、风险判断和下一步选择；这些内部推理不得输出。"
+    )
+    lines.append(
+        "- 在任务执行阶段，每次输出 JSON 时必须填写 public_action_state 和 public_progress_note。public_action_state 是公开行动状态，"
+        "必须包含 current_judgment、next_action；open_risks 和 evidence_refs 只引用真实上下文证据，不复制原始思维过程。"
+    )
+    lines.append(
+        "- public_progress_note 必须是 public_action_state 的一句自然语言摘要；不要写“正在思考”“正在分析当前目标”等空泛状态。"
     )
     if projection.get("invocation_kind") == "task_execution":
         lines.append(

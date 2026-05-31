@@ -230,6 +230,53 @@ describe("runtimeVisibilityProjection", () => {
     expect(projection.progressEntry).toBeUndefined();
   });
 
+  it("keeps blocked turn reasons in message progress instead of the global status detail", () => {
+    const reason = "当前环境的写入权限不足，且创建文件的工具不可见，无法在沙盒中创建 HTML 文件。";
+    const projection = projectRuntimeStreamEvent("agent_turn_terminal", {
+      event: {
+        event_id: "rtevt:blocked",
+        task_run_id: "turnrun:session-1:2",
+        event_type: "agent_turn_blocked",
+        created_at: 42,
+        payload: {
+          status: "blocked",
+          terminal_reason: reason,
+          task_run: {
+            task_run_id: "turnrun:session-1:2",
+            status: "blocked",
+          },
+        },
+      },
+    });
+
+    expect(projection).toMatchObject({
+      stageStatus: "处理失败",
+      activityTitle: "处理失败",
+      activityDetail: "详情已写入会话。",
+      level: "error",
+    });
+    expect(projection.progressEntry).toMatchObject({
+      kind: "terminal",
+      statusText: "失败",
+      body: reason,
+    });
+  });
+
+  it("keeps stream error detail in the assistant message progress, not the global status detail", () => {
+    const projection = projectRuntimeStreamEvent("error", {
+      error: "当前环境的写入权限不足。",
+      code: "agent_blocked",
+    });
+
+    expect(projection.activityTitle).toBe("处理失败");
+    expect(projection.activityDetail).toBe("详情已写入会话。");
+    expect(projection.progressEntry).toMatchObject({
+      kind: "terminal",
+      statusText: "失败",
+      body: "当前环境的写入权限不足。",
+    });
+  });
+
   it("does not expose internal answer source names in completion progress", () => {
     const projection = projectRuntimeStreamEvent("done", {
       answer_source: "harness.loop.single_agent.respond",

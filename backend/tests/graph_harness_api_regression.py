@@ -35,6 +35,10 @@ class TaskExecutionModelRuntimeStub:
                     "action_type": "respond",
                     "final_answer": "API 图节点执行完成。",
                     "public_progress_note": "API 图节点已完成当前职责，准备提交给图运行器。",
+                    "public_action_state": {
+                        "current_judgment": "当前节点结果可提交。",
+                        "next_action": "提交结果给图运行器。"
+                    },
                     "diagnostics": {"verification": "api graph work order execution"},
                 },
                 ensure_ascii=False,

@@ -43,6 +43,10 @@ class TaskExecutionModelRuntimeStub:
                     "action_type": "respond",
                     "final_answer": "图节点执行完成，可交给下游节点。",
                     "public_progress_note": "图节点已完成当前职责，准备交给下游节点继续处理。",
+                    "public_action_state": {
+                        "current_judgment": "结果满足当前节点要求。",
+                        "next_action": "提交给下游节点继续处理。"
+                    },
                     "diagnostics": {
                         "verification": "test graph node execution",
                         "world_memory_candidate": {
@@ -85,6 +89,10 @@ class ArtifactTaskExecutionModelRuntimeStub:
                     "action_type": "respond",
                     "final_answer": "已生成图节点产物。",
                     "public_progress_note": "图节点产物已生成，正在提交给图任务运行。",
+                    "public_action_state": {
+                        "current_judgment": "产物可作为节点输出提交。",
+                        "next_action": "提交产物给图任务运行。"
+                    },
                     "diagnostics": {"artifacts": [{"path": self.artifact_path}]},
                 },
                 ensure_ascii=False,

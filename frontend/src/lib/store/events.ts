@@ -180,7 +180,7 @@ function activityDetailForEvent(event: string, data: Record<string, unknown>) {
     return "回答已生成并写回会话";
   }
   if (event === "error") {
-    return String(data.error ?? "请求执行失败");
+    return "详情已写入会话。";
   }
   if (event === "stopped") {
     return "已按你的操作停止本轮生成";
@@ -251,7 +251,7 @@ function userReceiptForEvent(event: string, data: Record<string, unknown>): User
     return {
       level: "error",
       title: "处理失败",
-      body: stringValue(data.error) || "请求执行失败。",
+      body: "详情已写入会话。",
       debug: { event },
     };
   }
@@ -916,12 +916,30 @@ export function reduceStreamEvent(
   }
 
   if (event === "error") {
+    const errorText = String(data.content ?? data.error ?? "请求执行失败").trim() || "请求执行失败";
+    const visibleError = `处理失败\n\n${errorText}`;
     return {
-      state: patchAssistant(stateWithOrchestration, session.assistantId, (message) => ({
-        ...message,
-        content: message.content || `Request failed: ${String(data.error ?? "unknown error")}`,
-        stageStatus: "出错"
-      })),
+      state: patchAssistant(stateWithOrchestration, session.assistantId, (message) => {
+        const current = message.content.trim();
+        if (!current) {
+          return {
+            ...message,
+            content: visibleError,
+            stageStatus: "出错",
+          };
+        }
+        if (current.includes(errorText)) {
+          return {
+            ...message,
+            stageStatus: "出错",
+          };
+        }
+        return {
+          ...message,
+          content: `${current}\n\n${visibleError}`,
+          stageStatus: "出错",
+        };
+      }),
       session
     };
   }

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef } from "react";
-import { X } from "lucide-react";
+import { Play, X } from "lucide-react";
 
 import { ChatInput } from "@/components/chat/ChatInput";
 import { ChatMessage } from "@/components/chat/ChatMessage";
@@ -18,6 +18,8 @@ export function ChatPanel() {
     activeStreamSessionIds,
     sessionActivity,
     currentSessionId,
+    taskGraphLiveMonitor,
+    resumeActiveTaskRun,
     chatTaskEnvironmentBinding,
     clearChatTaskEnvironmentBinding,
     workspaceInitializing,
@@ -35,6 +37,30 @@ export function ChatPanel() {
   } = useAppStore();
   const endRef = useRef<HTMLDivElement | null>(null);
   const currentSessionStreaming = Boolean(currentSessionId && activeStreamSessionIds.includes(currentSessionId));
+  const monitorRecord = taskGraphLiveMonitor as Record<string, unknown> | null;
+  const monitorTaskRun = taskGraphLiveMonitor?.task_run ?? {};
+  const monitorRuntimeControl = taskGraphLiveMonitor?.runtime_control ?? {};
+  const monitorRoute = monitorRecord?.route && typeof monitorRecord.route === "object" && !Array.isArray(monitorRecord.route)
+    ? monitorRecord.route as Record<string, unknown>
+    : {};
+  const monitorRuntimeKind = String(
+    taskGraphLiveMonitor?.execution_runtime_kind
+    ?? monitorTaskRun.execution_runtime_kind
+    ?? "",
+  ).trim();
+  const monitorStatus = String(taskGraphLiveMonitor?.status ?? monitorTaskRun.status ?? "").trim();
+  const monitorControlState = String(taskGraphLiveMonitor?.control_state ?? monitorRuntimeControl.state ?? "").trim();
+  const canResumeSingleAgentTask = Boolean(
+    taskGraphLiveMonitor
+    && monitorRuntimeKind === "single_agent_task"
+    && String(monitorRoute.kind ?? "").trim() !== "task_graph_run"
+    && !currentSessionStreaming
+    && (
+      monitorStatus === "waiting_executor"
+      || monitorControlState === "paused"
+      || monitorControlState === "pause_requested"
+    ),
+  );
   const lastEditableUserMessageId = useMemo(() => {
     for (let index = messages.length - 1; index >= 0; index -= 1) {
       const message = messages[index];
@@ -64,7 +90,6 @@ export function ChatPanel() {
 
           {messages.map((message) => (
             <ChatMessage
-              assistantName="助手"
               canEdit={!currentSessionStreaming && message.id === lastEditableUserMessageId}
               content={message.content}
               image={message.image}
@@ -86,6 +111,18 @@ export function ChatPanel() {
       <div className="chat-panel-footer min-w-0">
         <div className="chat-panel-status-row">
           <SessionActivityBar activity={sessionActivity} active={currentSessionStreaming} />
+          {canResumeSingleAgentTask ? (
+            <button
+              className="chat-runtime-action"
+              onClick={() => {
+                void resumeActiveTaskRun();
+              }}
+              type="button"
+            >
+              <Play size={13} />
+              继续
+            </button>
+          ) : null}
           {chatTaskEnvironmentBinding ? (
             <div className="chat-task-environment-binding" title={chatTaskEnvironmentBinding.task_environment_id}>
               <span>环境</span>

@@ -217,6 +217,11 @@ def _default_agent_turn_action_request(messages: Any) -> dict[str, object]:
         "request_id": "model-action:stub:respond",
         "turn_id": "",
         "action_type": "respond",
+        "public_progress_note": "已理解当前请求，正在整理可交付回答。",
+        "public_action_state": {
+            "current_judgment": "当前请求可直接回答。",
+            "next_action": "整理最终回复并收口。"
+        },
         "final_answer": user_message or "test outcome",
         "task_contract_seed": {},
         "completion_contract": {},

@@ -617,6 +617,7 @@ export type TaskGraphStandardEdgeSpec = {
   payload_contract_id?: string;
   contract_bindings?: Record<string, unknown>;
   handoff?: Record<string, unknown>;
+  semantic?: Record<string, unknown>;
   memory?: Record<string, unknown>;
   artifact_context?: Record<string, unknown>;
   revision?: Record<string, unknown>;
@@ -1147,10 +1148,16 @@ export type TaskSystemOverview = {
         description?: string;
         group_id?: string;
         enabled?: boolean;
+        owner?: string;
         environment_kind?: string;
+        default_visibility?: string;
+        definition_source?: string;
+        management_scope?: string;
         metadata?: Record<string, unknown>;
       };
       spec: Record<string, unknown>;
+      definition_source?: string;
+      management_scope?: string;
       group?: Record<string, unknown>;
       environment_prompts?: Array<Record<string, unknown>>;
       environment_boundary?: Record<string, unknown>;
@@ -1180,7 +1187,11 @@ export type TaskSystemOverview = {
       description?: string;
       group_id?: string;
       enabled?: boolean;
+      owner?: string;
       environment_kind?: string;
+      default_visibility?: string;
+      definition_source?: string;
+      management_scope?: string;
       metadata?: Record<string, unknown>;
     }>;
     summary: Record<string, number>;
@@ -1217,6 +1228,8 @@ export type TaskSystemOverview = {
   contract_management?: {
     authority: string;
     contract_specs: ContractSpec[];
+    contract_families?: Array<Record<string, unknown>>;
+    contract_family_catalog?: Record<string, unknown>;
     contract_kind_options: string[];
     field_type_options: string[];
     source_hint_options: string[];
@@ -1240,6 +1253,8 @@ export type TaskSystemOverview = {
   task_graph_management?: {
     task_graphs: TaskGraphRecord[];
     task_graph_specs?: TaskGraphDraftTopologySpec[];
+    semantic_relation_catalog?: Record<string, unknown>;
+    semantic_relations?: Array<Record<string, unknown>>;
     topology_templates?: TopologyTemplate[];
     communication_protocols?: TaskCommunicationProtocol[];
     a2a?: {
@@ -1974,8 +1989,10 @@ export type GlobalRuntimeMonitorItem = {
   latest_progress?: {
     tool_status?: string;
     observation?: string;
-    judgment?: string;
+    current_judgment?: string;
     summary?: string;
+    next_action?: string;
+    completion_status?: string;
     agent_brief?: string;
   } | Record<string, unknown>;
   latest_step_summary?: string;

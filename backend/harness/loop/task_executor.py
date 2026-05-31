@@ -602,7 +602,7 @@ async def execute_task_run(
         task_run_id=task_run.task_run_id,
         step="task_executor_started",
         status="running",
-        summary="已接上当前工作，正在整理上下文。",
+        summary="已接上当前工作，正在同步最新进展。",
     )
 
     observation_context = _observations_for_packet(
@@ -738,7 +738,7 @@ async def _execute_claimed_task_run(
             task_run_id=current_task.task_run_id,
             step=f"task_execution_packet_compiled:{step_index}",
             status="running",
-            summary="正在整理上下文，准备继续处理。",
+            summary="已同步最新进展。",
             refs={"runtime_invocation_packet_ref": compilation.packet.packet_id},
         )
         append_work_rollout_item(
@@ -747,7 +747,7 @@ async def _execute_claimed_task_run(
             item_type="progress",
             title="整理上下文",
             status="running",
-            summary="正在整理上下文，准备继续处理。",
+            summary="已同步最新进展。",
             event_offset=packet_event.offset,
             refs={"runtime_invocation_packet_ref": compilation.packet.packet_id},
         )
@@ -756,7 +756,7 @@ async def _execute_claimed_task_run(
             task_run_id=current_task.task_run_id,
             step=f"task_model_action_invocation_started:{step_index}",
             status="running",
-            summary="正在分析当前目标、已有进展和最新要求，准备决定下一步。",
+            summary="正在根据最新进展判断下一步。",
             refs={"runtime_invocation_packet_ref": compilation.packet.packet_id},
         )
         try:
@@ -858,6 +858,7 @@ async def _execute_claimed_task_run(
                 "runtime_invocation_packet_ref": compilation.packet.packet_id,
             },
         )
+        public_action_state = _action_public_state(action_request)
         _record_task_step_summary(
             runtime_host,
             task_run_id=current_task.task_run_id,
@@ -866,6 +867,11 @@ async def _execute_claimed_task_run(
             summary=_action_progress_note(action_request),
             public_progress_note=action_request.public_progress_note,
             agent_brief_output=compact_text(action_request.final_answer, limit=300) if action_request.action_type == "respond" else "",
+            current_judgment=public_action_state.get("current_judgment", ""),
+            next_action=public_action_state.get("next_action", ""),
+            completion_status=public_action_state.get("completion_status", ""),
+            open_risks=list(public_action_state.get("open_risks") or []),
+            evidence_refs=list(public_action_state.get("evidence_refs") or []),
             presentation_source="model_action.public_progress_note" if action_request.public_progress_note else "model_action.action_type_fallback",
             refs={"action_request_ref": action_request.request_id},
         )
@@ -896,6 +902,7 @@ async def _execute_claimed_task_run(
             payload={
                 "action_type": action_request.action_type,
                 "public_progress_note": action_request.public_progress_note,
+                "public_action_state": public_action_state,
                 "presentation_source": "model_action.public_progress_note" if action_request.public_progress_note else "model_action.action_type_fallback",
             },
         )
@@ -1199,6 +1206,7 @@ async def _invoke_task_model_action(
         payload,
         turn_id=task_run_id,
         require_public_progress_note=True,
+        require_public_action_state=True,
     )
 
 
@@ -1252,17 +1260,16 @@ async def _await_task_model_action_with_status(
                         task_run_id=task_run_id,
                         step=f"task_model_action_waiting:{step_index}",
                         status="running",
-                        summary="正在思考。",
+                        summary="正在根据最新进展思考下一步处理方式。",
                         refs={"runtime_invocation_packet_ref": packet_ref},
                     )
-                else:
-                    _record_task_model_wait_heartbeat(
-                        runtime_host,
-                        task_run_id=task_run_id,
-                        step=f"task_model_action_waiting:{step_index}",
-                        wait_round=wait_round,
-                        refs={"runtime_invocation_packet_ref": packet_ref},
-                    )
+                _record_task_model_wait_heartbeat(
+                    runtime_host,
+                    task_run_id=task_run_id,
+                    step=f"task_model_action_waiting:{step_index}",
+                    wait_round=wait_round,
+                    refs={"runtime_invocation_packet_ref": packet_ref},
+                )
         signal = peek_executor_signal(runtime_host, task_run_id=task_run_id, executor_epoch=executor_epoch)
         if signal is not None:
             raise TaskRunExecutorInterrupted(signal)
@@ -3598,16 +3605,52 @@ def _record_task_step_summary(
     refs: dict[str, Any] | None = None,
     public_progress_note: str = "",
     agent_brief_output: str = "",
+    current_judgment: str = "",
+    next_action: str = "",
+    completion_status: str = "",
+    open_risks: list[str] | None = None,
+    evidence_refs: list[str] | None = None,
     presentation_source: str = "",
 ) -> dict[str, Any]:
     visible_summary = public_runtime_progress_summary(summary)
     visible_note = public_runtime_progress_summary(public_progress_note)
     visible_brief = public_runtime_progress_summary(agent_brief_output)
+    visible_judgment = public_runtime_progress_summary(current_judgment)
+    visible_next_action = public_runtime_progress_summary(next_action)
+    visible_completion_status = public_runtime_progress_summary(completion_status)
     payload = {"task_run_id": task_run_id, "step": step, "status": status, "summary": visible_summary}
     if visible_note:
         payload["public_progress_note"] = visible_note
     if visible_brief:
         payload["agent_brief_output"] = visible_brief
+    public_action_state: dict[str, Any] = {
+        key: value
+        for key, value in {
+            "current_judgment": visible_judgment,
+            "next_action": visible_next_action,
+            "completion_status": visible_completion_status,
+        }.items()
+        if value
+    }
+    risk_values = [public_runtime_progress_summary(item) for item in list(open_risks or []) if public_runtime_progress_summary(item)]
+    ref_values = [str(item or "").strip() for item in list(evidence_refs or []) if str(item or "").strip()]
+    if risk_values:
+        public_action_state["open_risks"] = risk_values[:6]
+    if ref_values:
+        public_action_state["evidence_refs"] = ref_values[:8]
+    if public_action_state:
+        payload["public_action_state"] = public_action_state
+        payload.update(
+            {
+                key: value
+                for key, value in {
+                    "current_judgment": visible_judgment,
+                    "next_action": visible_next_action,
+                    "completion_status": visible_completion_status,
+                }.items()
+                if value
+            }
+        )
     if presentation_source:
         payload["presentation_source"] = presentation_source
     event = runtime_host.event_log.append(
@@ -3630,6 +3673,10 @@ def _record_task_step_summary(
                     "latest_step_summary": visible_summary,
                     **({"latest_public_progress_note": visible_note or visible_summary} if (visible_note or visible_summary) else {}),
                     **({"agent_brief_output": visible_brief} if visible_brief else {}),
+                    **({"latest_public_action_state": public_action_state} if public_action_state else {}),
+                    **({"latest_current_judgment": visible_judgment} if visible_judgment else {}),
+                    **({"latest_next_action": visible_next_action} if visible_next_action else {}),
+                    **({"latest_completion_status": visible_completion_status} if visible_completion_status else {}),
                 },
             )
         )
@@ -3668,7 +3715,29 @@ def _record_task_model_wait_heartbeat(
 
 
 def _action_progress_note(action_request: ModelActionRequest) -> str:
-    return public_runtime_progress_summary(action_request.public_progress_note) or public_action_progress_summary(action_request.action_type)
+    state = _action_public_state(action_request)
+    return (
+        public_runtime_progress_summary(action_request.public_progress_note)
+        or public_runtime_progress_summary(state.get("next_action") or "")
+        or public_runtime_progress_summary(state.get("current_judgment") or "")
+        or public_action_progress_summary(action_request.action_type)
+    )
+
+
+def _action_public_state(action_request: ModelActionRequest) -> dict[str, Any]:
+    state = dict(action_request.public_action_state or {})
+    result: dict[str, Any] = {}
+    for key in ("current_judgment", "next_action", "completion_status"):
+        value = public_runtime_progress_summary(state.get(key) or "")
+        if value:
+            result[key] = value
+    evidence_refs = [str(item or "").strip() for item in list(state.get("evidence_refs") or []) if str(item or "").strip()]
+    open_risks = [public_runtime_progress_summary(item) for item in list(state.get("open_risks") or []) if public_runtime_progress_summary(item)]
+    if evidence_refs:
+        result["evidence_refs"] = evidence_refs[:8]
+    if open_risks:
+        result["open_risks"] = open_risks[:6]
+    return result
 
 
 def _tool_call_progress_summary(action_request: ModelActionRequest) -> str:

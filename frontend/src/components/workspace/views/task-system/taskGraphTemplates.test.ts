@@ -106,28 +106,47 @@ describe("task graph templates", () => {
 
     const memoryReads = draft.edges.filter((edge) => edge.edge_type === "memory_read");
     expect(memoryReads.map((edge) => edge.target_node_id)).toEqual(expect.arrayContaining(["agent.planner", "agent.executor", "agent.reviewer"]));
+    expect(memoryReads.every((edge) => (edge.metadata as Record<string, unknown>).semantic_relation_id === "memory.read_required")).toBe(true);
 
     const writeCandidateEdges = draft.edges.filter((edge) => edge.edge_type === "memory_write_candidate");
     expect(writeCandidateEdges.length).toBeGreaterThanOrEqual(3);
     for (const edge of writeCandidateEdges) {
       const metadata = edge.metadata as Record<string, unknown>;
-      expect(metadata.source_output_key).toBeTruthy();
-      expect(metadata.record_key).toBeTruthy();
-      expect(metadata.record_kind).toBeTruthy();
+      const semanticParameters = metadata.semantic_parameters as Record<string, unknown>;
+      expect(metadata.semantic_relation_id).toBe("memory.write_candidate");
+      expect(semanticParameters.source_output_key).toBeTruthy();
+      expect(semanticParameters.record_key).toBeTruthy();
+      expect(semanticParameters.record_kind).toBeTruthy();
     }
 
     const commitEdges = draft.edges.filter((edge) => edge.edge_type === "memory_commit");
     expect(commitEdges.length).toBeGreaterThanOrEqual(3);
     for (const edge of commitEdges) {
       const metadata = edge.metadata as Record<string, unknown>;
-      expect(metadata.approval_source_node_id).toBe("agent.reviewer");
-      expect(metadata.commit_visibility_policy).toMatchObject({ visible_after: "next_clock" });
+      const semanticParameters = metadata.semantic_parameters as Record<string, unknown>;
+      expect(metadata.semantic_relation_id).toBe("memory.commit_after_review");
+      expect(semanticParameters.approval_source_node_id).toBe("agent.reviewer");
+      expect(semanticParameters.visible_after).toBe("next_clock");
     }
 
     const reviewer = draft.nodes.find((node) => node.node_id === "agent.reviewer");
     const memorySteward = draft.nodes.find((node) => node.node_id === "agent.memory");
     expect(reviewer?.memory_writeback_policy).toMatchObject({ writable_kinds: ["review_issue_record"] });
     expect(memorySteward?.memory_writeback_policy).toMatchObject({ writable_kinds: ["memory_commit_record"] });
+  });
+
+  it("uses semantic relation presets for review and repair loops", () => {
+    const draft = buildTaskGraphTemplateDraft({
+      template_id: "review_repair_loop",
+      domain_id: "domain.review",
+    });
+
+    const relations = new Map(draft.edges.map((edge) => [edge.edge_id, (edge.metadata as Record<string, unknown>).semantic_relation_id]));
+
+    expect(relations.get("edge.execute.review")).toBe("writing.draft_to_review");
+    expect(relations.get("edge.review.repair")).toBe("writing.review_revise_to_writer");
+    expect(relations.get("edge.repair.review")).toBe("writing.revision_to_review");
+    expect(draft.edges.find((edge) => edge.edge_id === "edge.review.repair")?.edge_type).toBe("review_feedback");
   });
 
   it("preflights generated long project cycles without publish-blocking errors", () => {

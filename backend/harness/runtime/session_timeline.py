@@ -197,25 +197,55 @@ def _progress_entries(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
             summary = public_runtime_progress_summary(payload.get("summary") or "").strip()
             public_note = public_runtime_progress_summary(payload.get("public_progress_note") or summary).strip()
             agent_brief = public_runtime_progress_summary(payload.get("agent_brief_output") or "").strip()
+            public_action_state = dict(payload.get("public_action_state") or {})
+            current_judgment = public_runtime_progress_summary(
+                payload.get("current_judgment") or public_action_state.get("current_judgment") or ""
+            ).strip()
+            next_action = public_runtime_progress_summary(payload.get("next_action") or public_action_state.get("next_action") or "").strip()
+            completion_status = public_runtime_progress_summary(
+                payload.get("completion_status") or public_action_state.get("completion_status") or ""
+            ).strip()
+            action_brief = _public_action_state_brief(
+                current_judgment=current_judgment,
+                next_action=next_action,
+                completion_status=completion_status,
+            )
+            meta = _public_action_state_meta(
+                current_judgment=current_judgment,
+                next_action=next_action,
+                completion_status=completion_status,
+            )
             step = str(payload.get("step") or "").strip()
             status = str(payload.get("status") or "").strip()
-            if public_note or summary or step:
+            if public_note or action_brief or summary or step:
                 entries.append(
                     _entry(
                         event,
                         title=_step_title(step, status),
-                        body=public_note or summary,
+                        body=public_note or next_action or current_judgment or summary,
                         kind=_step_kind(step),
                         level=_level_from_status(status),
                         status=status,
                         public_note=public_note,
-                        agent_brief=agent_brief,
+                        agent_brief=agent_brief or action_brief,
                         evidence_type=_evidence_type(event_type, step),
+                        meta=meta,
                     )
                 )
             continue
         if event_type in {"task_run_lifecycle_started", "task_run_executor_started"}:
-            entries.append(_entry(event, title="处理已开始", body="后续进展会继续汇总。", kind="task_order"))
+            entries.append(
+                _entry(
+                    event,
+                    title="处理已开始",
+                    body="已开始处理。",
+                    kind="stage",
+                    level="running",
+                    status="running",
+                    public_note="已开始处理。",
+                    evidence_type="runtime_step",
+                )
+            )
             continue
         if event_type in {"user_work_instruction_recorded", "active_task_steer_recorded"}:
             steer = dict(payload.get("steer") or {})
@@ -291,6 +321,7 @@ def _entry(
     public_note: str = "",
     agent_brief: str = "",
     evidence_type: str = "",
+    meta: list[dict[str, str]] | None = None,
 ) -> dict[str, Any]:
     item = {
         "id": str(event.get("event_id") or f"{event.get('task_run_id')}:{event.get('offset')}"),
@@ -310,7 +341,39 @@ def _entry(
         item["agentBrief"] = agent_brief
     if evidence_type:
         item["evidenceType"] = evidence_type
+    if meta:
+        item["meta"] = list(meta)
     return item
+
+
+def _public_action_state_brief(
+    *,
+    current_judgment: str = "",
+    next_action: str = "",
+    completion_status: str = "",
+) -> str:
+    parts = []
+    if current_judgment:
+        parts.append(f"判断：{current_judgment}")
+    if next_action:
+        parts.append(f"下一步：{next_action}")
+    if completion_status:
+        parts.append(f"状态：{completion_status}")
+    return public_runtime_progress_summary("；".join(parts))
+
+
+def _public_action_state_meta(
+    *,
+    current_judgment: str = "",
+    next_action: str = "",
+    completion_status: str = "",
+) -> list[dict[str, str]]:
+    labels = (
+        ("判断", current_judgment),
+        ("下一步", next_action),
+        ("状态", completion_status),
+    )
+    return [{"label": label, "value": value} for label, value in labels if value]
 
 
 def _step_title(step: str, status: str) -> str:

@@ -1,5 +1,6 @@
 import type { TaskGraphEdge, TaskGraphNode } from "./taskGraphTypes";
 import { buildTaskGraphNameRegistryPayload } from "./taskGraphNameRegistry";
+import { buildTaskGraphSemanticEdge } from "./taskGraphSemanticRelations";
 
 export type TaskGraphTemplateId =
   | "single_agent"
@@ -271,53 +272,36 @@ function standardMemoryRepositoryNodes(options: { phaseId?: string } = {}): Task
 }
 
 function memoryReadEdge(edgeId: string, repositoryNodeId: string, targetNodeId: string, collection: string): TaskGraphEdge {
-  return {
-    edge_id: edgeId,
-    from: repositoryNodeId,
-    to: targetNodeId,
-    source_node_id: repositoryNodeId,
-    target_node_id: targetNodeId,
-    edge_type: "memory_read",
-    mode: "memory_read",
-    payload_contract_id: "contract.memory.read",
-    ack_required: false,
-    wait_policy: "wait_required_contracts",
-    metadata: {
-      repository: repositoryNodeId,
+  return buildTaskGraphSemanticEdge({
+    edgeId,
+    relationId: "memory.read_required",
+    sourceNodeId: repositoryNodeId,
+    targetNodeId,
+    title: "读取正式记忆",
+    parameters: {
       repository_id: repositoryNodeId,
-      collection,
-      selector: { collection, record_kind: collectionRecordKind(collection), status_filter: ["committed"], limit: 50 },
-      version_selector: "latest_committed_before_stage_start",
-      on_missing: "block",
+      collection_id: collection,
+      record_kind: collectionRecordKind(collection),
       model_visible_label: `${repositoryNodeId}.${collection}`,
-      usage_instruction: "你只能把已提交记忆作为事实来源；缺失信息必须报告，不得自行补写成事实。",
     },
-  };
+  });
 }
 
 function memoryWriteCandidateEdge(edgeId: string, sourceNodeId: string, repositoryNodeId: string, collection: string): TaskGraphEdge {
-  return {
-    edge_id: edgeId,
-    from: sourceNodeId,
-    to: repositoryNodeId,
-    source_node_id: sourceNodeId,
-    target_node_id: repositoryNodeId,
-    edge_type: "memory_write_candidate",
-    mode: "memory_write_candidate",
-    payload_contract_id: "contract.memory.write_candidate",
-    ack_required: true,
-    wait_policy: "wait_required_contracts",
-    metadata: {
-      repository: repositoryNodeId,
+  return buildTaskGraphSemanticEdge({
+    edgeId,
+    relationId: "memory.write_candidate",
+    sourceNodeId,
+    targetNodeId: repositoryNodeId,
+    title: "写入候选记忆",
+    parameters: {
       repository_id: repositoryNodeId,
-      collection,
-      selector: { collection, record_kind: collectionRecordKind(collection) },
-      record_key: `${repositoryNodeId}.${collection}.current`,
+      collection_id: collection,
       record_kind: collectionRecordKind(collection),
+      record_key: `${repositoryNodeId}.${collection}.current`,
       source_output_key: `${collection}_memory_candidate`,
-      usage_instruction: "该边只写入候选记忆；候选必须经过审核或明确提交边后才对后续节点可见。",
     },
-  };
+  });
 }
 
 function memoryCommitEdge(
@@ -327,30 +311,21 @@ function memoryCommitEdge(
   collection: string,
   options: { approvalSourceNodeId?: string } = {},
 ): TaskGraphEdge {
-  return {
-    edge_id: edgeId,
-    from: sourceNodeId,
-    to: repositoryNodeId,
-    source_node_id: sourceNodeId,
-    target_node_id: repositoryNodeId,
-    edge_type: "memory_commit",
-    mode: "memory_commit",
-    payload_contract_id: "contract.memory.commit",
-    ack_required: true,
-    wait_policy: "wait_required_contracts",
-    metadata: {
-      repository: repositoryNodeId,
+  return buildTaskGraphSemanticEdge({
+    edgeId,
+    relationId: "memory.commit_after_review",
+    sourceNodeId,
+    targetNodeId: repositoryNodeId,
+    title: "审核后提交记忆",
+    parameters: {
       repository_id: repositoryNodeId,
-      collection,
-      selector: { collection, record_kind: collectionRecordKind(collection) },
-      record_key: `${repositoryNodeId}.${collection}.current`,
+      collection_id: collection,
       record_kind: collectionRecordKind(collection),
+      record_key: `${repositoryNodeId}.${collection}.current`,
       approval_source_node_id: options.approvalSourceNodeId,
-      approval_policy: options.approvalSourceNodeId ? "approved_upstream_review_gate" : "explicit_commit_stage",
-      commit_visibility_policy: { required_status: "committed", visible_after: "next_clock" },
-      usage_instruction: "只有审核通过或明确允许提交的内容可以写入该记忆库。",
+      visible_after: "next_clock",
     },
-  };
+  });
 }
 
 function applyTemplateOptions(
@@ -674,9 +649,29 @@ export function buildTaskGraphTemplateDraft(input: TaskGraphTemplateBuildInput):
     return finalize({
       nodes,
       edges: [
-        makeEdge("edge.execute.review", "agent.executor", "agent.reviewer", mode, "执行结果进入审核门"),
-        { ...makeEdge("edge.review.repair", "agent.reviewer", "agent.repair", "review_feedback", "审核未通过返修"), failure_propagation_policy: "allow_partial" },
-        makeEdge("edge.repair.review", "agent.repair", "agent.reviewer", mode, "返修结果回到审核门"),
+        buildTaskGraphSemanticEdge({
+          edgeId: "edge.execute.review",
+          relationId: "writing.draft_to_review",
+          sourceNodeId: "agent.executor",
+          targetNodeId: "agent.reviewer",
+          title: "执行结果进入审核门",
+          parameters: { artifact_type: "work_result" },
+        }),
+        buildTaskGraphSemanticEdge({
+          edgeId: "edge.review.repair",
+          relationId: "writing.review_revise_to_writer",
+          sourceNodeId: "agent.reviewer",
+          targetNodeId: "agent.repair",
+          title: "审核未通过返修",
+        }),
+        buildTaskGraphSemanticEdge({
+          edgeId: "edge.repair.review",
+          relationId: "writing.revision_to_review",
+          sourceNodeId: "agent.repair",
+          targetNodeId: "agent.reviewer",
+          title: "返修结果回到审核门",
+          parameters: { artifact_type: "revised_work_result" },
+        }),
       ],
       metadata: {
         ...metadataFor([

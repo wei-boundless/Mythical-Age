@@ -24,6 +24,7 @@ from task_system.contracts.contract_definition_models import (
     HumanGatePolicy,
     RuntimeRequirement,
 )
+from task_system.contracts.writing_contract_families import writing_contract_family_catalog
 
 
 def _storage_root(base_dir: Path) -> Path:
@@ -571,9 +572,12 @@ class TaskContractRegistry:
     def build_catalog(self) -> dict[str, Any]:
         specs = self.list_contract_specs()
         issues = self.validate_all()
+        family_catalog = writing_contract_family_catalog()
         return {
             "authority": "task_system.contract_management",
             "contract_specs": [item.to_dict() for item in specs],
+            "contract_families": family_catalog["families"],
+            "contract_family_catalog": family_catalog,
             "contract_kind_options": list(CONTRACT_KIND_OPTIONS),
             "field_type_options": list(CONTRACT_FIELD_TYPE_OPTIONS),
             "source_hint_options": list(CONTRACT_FIELD_SOURCE_HINT_OPTIONS),
@@ -583,6 +587,8 @@ class TaskContractRegistry:
             "summary": {
                 "contract_spec_count": len(specs),
                 "enabled_contract_spec_count": sum(1 for item in specs if item.enabled),
+                "contract_family_count": int(family_catalog["summary"]["contract_family_count"]),
+                "writing_contract_family_count": int(family_catalog["summary"]["writing_contract_family_count"]),
                 "validation_issue_count": len(issues),
             },
         }

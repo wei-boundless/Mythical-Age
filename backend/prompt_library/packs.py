@@ -17,6 +17,16 @@ RUNTIME_TURN_ACTION_PROMPT = """
 """.strip()
 
 
+RUNTIME_PLAIN_CONVERSATION_PROMPT = """
+你是当前会话的主 agent。系统已经为你装配本轮对话所需的身份、环境边界和上下文。
+你的职责是自然回应用户当前消息，保持角色、人设、上下文和事实一致。
+本轮不是任务执行流程，不要输出 JSON 协议，不要请求工具，不要开启任务，不要暴露内部运行字段。
+如果用户要求执行真实交付物、工具操作、长任务、外部验证或超出当前可见能力的动作，你应自然说明当前对话路径不能直接执行，并给出需要切换到可执行任务环境或授权的明确原因。
+可以询问必要澄清问题；如果可以回答，应直接给出用户可读的完整回复。
+不要暴露隐藏推理、内部编号、runtime packet、task id 或系统协议。
+""".strip()
+
+
 RUNTIME_TASK_EXECUTION_PROMPT = """
 你是持续任务生命周期中的执行 agent。你正在执行一个已建立的任务合同。
 你的职责是按合同真实推进工作：必要时调用工具创建或修改交付物，记录可验证证据，最后只在合同满足时给出完成答复。
@@ -83,6 +93,13 @@ def list_builtin_runtime_prompt_resources() -> tuple[PromptResource, ...]:
             invocation_kind="turn_action",
         ),
         _runtime_resource(
+            prompt_id="runtime.plain_conversation.v1",
+            subtype="plain_conversation",
+            title="Plain conversation protocol",
+            content=RUNTIME_PLAIN_CONVERSATION_PROMPT,
+            invocation_kind="plain_conversation",
+        ),
+        _runtime_resource(
             prompt_id="runtime.task_execution.v1",
             subtype="task_execution",
             title="Task execution protocol",
@@ -116,6 +133,13 @@ def list_builtin_prompt_packs() -> tuple[PromptPack, ...]:
             cache_scope="static",
         ),
         PromptPack(
+            pack_id="runtime.pack.plain_conversation.v1",
+            invocation_kind="plain_conversation",
+            ordered_prompt_refs=("runtime.plain_conversation.v1",),
+            title="Plain conversation runtime pack",
+            cache_scope="static",
+        ),
+        PromptPack(
             pack_id="runtime.pack.task_execution.v1",
             invocation_kind="task_execution",
             ordered_prompt_refs=("runtime.task_execution.v1",),
@@ -141,6 +165,7 @@ def list_builtin_prompt_packs() -> tuple[PromptPack, ...]:
 
 def default_pack_ref_for_invocation(invocation_kind: str) -> str:
     mapping = {
+        "plain_conversation": "runtime.pack.plain_conversation.v1",
         "turn_action": "runtime.pack.turn_action.v1",
         "task_execution": "runtime.pack.task_execution.v1",
         "tool_observation_followup": "runtime.pack.observation_followup.v1",

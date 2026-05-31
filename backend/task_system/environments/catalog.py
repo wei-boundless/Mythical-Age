@@ -13,6 +13,7 @@ class TaskEnvironmentCatalogItem:
     definition: TaskEnvironmentDefinition
     resolved: ResolvedTaskEnvironment
     task_library: dict[str, Any]
+    definition_source: str = "unknown"
     authority: str = "task_system.task_environment_catalog_item"
 
     def runtime_payload(self) -> dict[str, Any]:
@@ -41,8 +42,14 @@ class TaskEnvironmentCatalogItem:
 
     def management_payload(self) -> dict[str, Any]:
         runtime_payload = self.runtime_payload()
+        management_scope = _environment_management_scope(
+            definition=self.definition,
+            definition_source=self.definition_source,
+        )
         return {
             **self.definition.to_dict(),
+            "definition_source": self.definition_source,
+            "management_scope": management_scope,
             "group": runtime_payload["group"],
             "environment_prompts": runtime_payload["environment_prompts"],
             "environment_boundary": runtime_payload["environment_boundary"],
@@ -78,11 +85,17 @@ class TaskEnvironmentCatalog:
 
     def management_payload(self) -> dict[str, Any]:
         environments = [item.management_payload() for item in self.items]
+        records = []
+        for item in environments:
+            record = dict(item["record"])
+            record["definition_source"] = item["definition_source"]
+            record["management_scope"] = item["management_scope"]
+            records.append(record)
         return {
             "authority": self.authority,
             "groups": [dict(item) for item in self.groups],
             "environments": environments,
-            "records": [dict(item["record"]) for item in environments],
+            "records": records,
             "summary": dict(self.summary),
         }
 
@@ -116,12 +129,23 @@ def build_task_environment_catalog(
                     "task_library_root": str(storage_space.get("task_library_root") or ""),
                     "authority": "task_system.environment_task_library",
                 },
+                definition_source=active_registry.definition_source(environment_id),
             )
         )
+    scope_by_environment_id = {
+        item.definition.record.environment_id: _environment_management_scope(
+            definition=item.definition,
+            definition_source=item.definition_source,
+        )
+        for item in items
+    }
     summary = {
         "environment_count": len(items),
         "environment_group_count": len(active_registry.list_groups()),
         "enabled_environment_count": sum(1 for item in items if item.definition.record.enabled is True),
+        "builtin_template_count": sum(1 for item in scope_by_environment_id.values() if item == "builtin_template"),
+        "workspace_environment_count": sum(1 for item in scope_by_environment_id.values() if item == "workspace"),
+        "system_internal_environment_count": sum(1 for item in scope_by_environment_id.values() if item == "system_internal"),
         "task_library_count": sum(int(item.task_library.get("task_count") or 0) for item in items),
     }
     return TaskEnvironmentCatalog(
@@ -137,3 +161,19 @@ def _engagement_plan_environment_id(plan: dict[str, object], *, registry: TaskEn
         return ""
     registry.require(raw)
     return raw
+
+
+def _environment_management_scope(*, definition: TaskEnvironmentDefinition, definition_source: str) -> str:
+    if definition_source == "builtin_default":
+        return "builtin_template"
+    record = definition.record
+    metadata = dict(record.metadata or {})
+    managed_by = str(metadata.get("managed_by") or "").strip()
+    if (
+        record.owner == "system"
+        or record.default_visibility == "system"
+        or managed_by.startswith("codex_system_eval")
+        or record.group_id == "environment_group.system_eval"
+    ):
+        return "system_internal"
+    return "workspace"

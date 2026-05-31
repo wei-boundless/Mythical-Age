@@ -1808,6 +1808,28 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(assistant?.runtimeProgress).toEqual([]);
   });
 
+  it("writes terminal error detail into the assistant message instead of only the status bar", () => {
+    let transition = startStreamingTurn(getDefaultState(), "继续");
+    transition = reduceStreamEvent(transition.state, transition.session, "error", {
+      error: "当前环境的写入权限不足，且创建文件的工具不可见。",
+      code: "agent_blocked",
+    });
+
+    const assistant = transition.state.messages.at(-1);
+    expect(assistant?.content).toBe("处理失败\n\n当前环境的写入权限不足，且创建文件的工具不可见。");
+    expect(assistant?.runtimeProgress?.at(-1)).toMatchObject({
+      title: "处理失败",
+      body: "当前环境的写入权限不足，且创建文件的工具不可见。",
+      kind: "terminal",
+      level: "error",
+    });
+    expect(transition.state.sessionActivity).toMatchObject({
+      level: "error",
+      title: "处理失败",
+      detail: "详情已写入会话。",
+    });
+  });
+
   it("does not expose internal runtime loop bookkeeping as chat progress", () => {
     let transition = startStreamingTurn(getDefaultState(), "你好");
     for (const step of [

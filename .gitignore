@@ -28,6 +28,7 @@ frontend/public/souls/generated/*test*.png
 frontend/public/souls/generated/tile-*.png
 backend/.env
 backend/storage/
+backend/storage/**
 backend/session-memory/
 backend/checkpoints/
 backend/coordination_checkpoints/

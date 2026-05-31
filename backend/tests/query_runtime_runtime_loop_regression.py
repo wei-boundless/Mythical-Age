@@ -60,6 +60,10 @@ def _action_request(
         "turn_id": "",
         "action_type": action_type,
         "public_progress_note": public_progress_note,
+        "public_action_state": {
+            "current_judgment": "测试动作可继续执行。",
+            "next_action": public_progress_note,
+        },
         "final_answer": final_answer,
         "task_contract_seed": dict(task_contract_seed or {}),
         "completion_contract": {},
@@ -68,7 +72,34 @@ def _action_request(
     }
 
 
-def test_direct_agent_response_does_not_start_task_run() -> None:
+def test_conversation_only_capability_uses_plain_conversation_without_turnrun() -> None:
+    runtime = build_query_runtime(
+        model_runtime=SingleMessageModelRuntimeStub(content="自然对话回复。")
+    )
+
+    async def _collect() -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime.astream(
+            QueryRequest(session_id="session-plain", message="和我随便聊两句。", runtime_mode="role")
+        ):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_collect())
+    stream_types = [str(event.get("type") or "") for event in events]
+    route_events = [dict(event.get("turn_route") or {}) for event in events if event.get("type") == "turn_route_decided"]
+
+    assert any(event.get("type") == "done" and event.get("content") == "自然对话回复。" for event in events)
+    assert "runtime_assembly_compiled" in stream_types
+    assert "turn_route_decided" in stream_types
+    assert route_events and route_events[0].get("route_kind") == "plain_conversation"
+    assert "plain_conversation_started" in stream_types
+    assert "harness_run_started" not in stream_types
+    assert "model_action_request" not in stream_types
+    assert runtime.single_agent_runtime_host.list_session_traces("session-plain")["task_run_count"] == 0
+
+
+def test_action_capable_turn_routes_to_agent_action_loop() -> None:
     runtime = build_query_runtime(
         model_runtime=SingleMessageModelRuntimeStub(
             agent_turn_action_request=_action_request(
@@ -88,8 +119,9 @@ def test_direct_agent_response_does_not_start_task_run() -> None:
 
     assert any(event.get("type") == "done" for event in events)
     assert any(event.get("type") == "runtime_assembly_compiled" for event in events)
+    route_events = [dict(event.get("turn_route") or {}) for event in events if event.get("type") == "turn_route_decided"]
+    assert route_events and route_events[0].get("route_kind") == "agent_action"
     assert any(event.get("type") == "harness_run_started" for event in events)
-    assert runtime.single_agent_runtime_host.list_session_traces("session-direct")["task_run_count"] == 1
 
 
 def test_agent_action_request_launches_task_run_and_initializes_todo() -> None:
@@ -140,8 +172,10 @@ def test_agent_action_request_launches_task_run_and_initializes_todo() -> None:
         for item in list(dict(trace or {}).get("events") or [])
     ]
     stream_types = [str(event.get("type") or "") for event in events]
+    route_events = [dict(event.get("turn_route") or {}) for event in events if event.get("type") == "turn_route_decided"]
 
     assert "runtime_assembly_compiled" in stream_types
+    assert route_events and route_events[0].get("route_kind") == "agent_action"
     assert "model_action_request" in stream_types
     assert "task_run_lifecycle_started" in stream_types
     assert "task_run_lifecycle_event" in stream_types
@@ -390,6 +424,8 @@ class _ActiveWorkDecisionModelRuntime:
                 decision.setdefault("relation_to_current_work", "current_work")
                 decision.setdefault("evidence", "测试桩指向当前工作")
             return SimpleNamespace(content=json.dumps(decision, ensure_ascii=False))
+        if "plain_conversation" in content or "Plain conversation" in content:
+            return SimpleNamespace(content="普通回复。")
         return SimpleNamespace(content=json.dumps(_action_request(action_type="respond", final_answer="普通回复。"), ensure_ascii=False))
 
 
@@ -1493,15 +1529,12 @@ def test_task_run_executor_recovers_invalid_model_action_as_observation() -> Non
                     "turn_id": "",
                     "action_type": "",
                 },
-                    {
-                        "authority": "harness.loop.model_action_request",
-                        "request_id": "model-action:test:complete-after-repair",
-                        "turn_id": "",
-                        "action_type": "respond",
-                        "public_progress_note": "已修正上一步输出格式，正在收口结果。",
-                        "final_answer": "已按合同完成。",
-                        "diagnostics": {"artifacts": []},
-                    },
+                    _action_request(
+                        action_type="respond",
+                        public_progress_note="已修正上一步输出格式，正在收口结果。",
+                        final_answer="已按合同完成。",
+                        diagnostics={"artifacts": []},
+                    ),
             ],
             agent_turn_action_request=_action_request(
                 action_type="request_task_run",
@@ -3118,7 +3151,7 @@ def test_scheduler_restarts_after_running_steer_and_next_packet_contains_instruc
     assert "active_task_steer_consumed" in event_types
 
 
-def test_role_mode_allows_soul_prompt_but_blocks_task_lifecycle() -> None:
+def test_role_mode_expands_to_conversation_only_capability_with_soul_prompt() -> None:
     runtime = build_query_runtime(
         model_runtime=SingleMessageModelRuntimeStub(
             agent_turn_action_request=_action_request(
@@ -3148,13 +3181,16 @@ def test_role_mode_allows_soul_prompt_but_blocks_task_lifecycle() -> None:
     events = asyncio.run(_collect())
     assembly = dict(next(event for event in events if event.get("type") == "runtime_assembly_compiled").get("runtime_assembly") or {})
     profile = dict(assembly.get("profile") or {})
-    admission = dict(next(event for event in events if event.get("type") == "model_action_admission").get("event") or {})
-    admission_payload = dict(admission.get("payload") or {}).get("admission") or {}
+    route = dict(next(event for event in events if event.get("type") == "turn_route_decided").get("turn_route") or {})
+    capabilities = dict(assembly.get("control_capabilities") or {})
 
     assert profile["mode"] == "role"
     assert dict(assembly.get("soul_role_prompt") or {}).get("content")
-    assert dict(admission_payload).get("decision") == "deny"
-    assert dict(admission_payload).get("system_reason") == "task_lifecycle_disabled_by_runtime_profile"
+    assert capabilities.get("conversation_only") is True
+    assert capabilities.get("may_request_task_run") is False
+    assert route.get("route_kind") == "plain_conversation"
+    assert not any(event.get("type") == "model_action_admission" for event in events)
+    assert any(event.get("type") == "done" and str(event.get("content") or "") == "单轮收口回答" for event in events)
     assert not any(
         event.get("type") == "task_run_lifecycle_started"
         for event in events
@@ -3578,6 +3614,10 @@ def test_model_action_request_accepts_public_progress_note() -> None:
             "turn_id": "turn:test:1",
             "action_type": "tool_call",
             "public_progress_note": "我先检查现有文件，确认下一步修改范围。",
+            "public_action_state": {
+                "current_judgment": "读取 README 可以降低误改风险。",
+                "next_action": "调用 read_file 读取 README.md。",
+            },
             "tool_call": {"tool_name": "read_file", "args": {"path": "README.md"}},
         },
         turn_id="turn:test:1",
@@ -3586,6 +3626,7 @@ def test_model_action_request_accepts_public_progress_note() -> None:
     assert diagnostics["status"] == "accepted"
     assert action is not None
     assert action.public_progress_note == "我先检查现有文件，确认下一步修改范围。"
+    assert action.public_action_state["next_action"] == "调用 read_file 读取 README.md。"
 
 
 def test_task_model_action_request_requires_public_progress_note() -> None:
@@ -3608,12 +3649,38 @@ def test_task_model_action_request_requires_public_progress_note() -> None:
     assert "public_progress_note_required" in diagnostics["validation_errors"]
 
 
+def test_task_model_action_request_requires_public_action_state_when_enabled() -> None:
+    from harness.loop.model_action_protocol import model_action_request_from_payload
+
+    action, diagnostics = model_action_request_from_payload(
+        {
+            "authority": "harness.loop.model_action_request",
+            "request_id": "model-action:test:missing-report",
+            "turn_id": "taskrun:test:progress-report-required",
+            "action_type": "tool_call",
+            "public_progress_note": "我准备读取文件。",
+            "tool_call": {"tool_name": "read_file", "args": {"path": "README.md"}},
+        },
+        turn_id="taskrun:test:progress-report-required",
+        require_public_progress_note=True,
+        require_public_action_state=True,
+    )
+
+    assert action is None
+    assert diagnostics["status"] == "invalid"
+    assert "public_action_state_required" in diagnostics["validation_errors"]
+
+
 def test_tool_call_status_does_not_replace_agent_public_judgment() -> None:
     action = ModelActionRequest(
         request_id="model-action:test:tool",
         turn_id="taskrun:test",
         action_type="tool_call",
         public_progress_note="我看到缺少入口文件，下一步先读取目录确认项目结构。",
+        public_action_state={
+            "current_judgment": "需要先读文件确认结构。",
+            "next_action": "读取 index.html。",
+        },
         tool_call={"tool_name": "read_file", "args": {"path": "index.html"}},
     )
 
@@ -3627,7 +3694,7 @@ def test_public_runtime_progress_preserves_user_level_task_wording() -> None:
     from harness.runtime.public_progress import public_runtime_progress_summary
 
     assert public_runtime_progress_summary("不需要开启正式任务。") == "不需要开启正式任务。"
-    assert public_runtime_progress_summary("正式任务生命周期已完成。") == "处理流程已完成。"
+    assert public_runtime_progress_summary("正式任务生命周期已完成。") == "正式任务生命周期已完成。"
 
 
 def test_task_sandbox_workspace_root_is_project_root() -> None:

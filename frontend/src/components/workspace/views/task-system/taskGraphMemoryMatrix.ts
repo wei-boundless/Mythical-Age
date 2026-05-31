@@ -1,3 +1,11 @@
+import {
+  buildTaskGraphSemanticEdge,
+  taskGraphSemanticEdgeType,
+  taskGraphSemanticParametersFromEdge,
+  taskGraphSemanticRelationIdFromEdge,
+  type TaskGraphSemanticRelationId,
+} from "./taskGraphSemanticRelations";
+
 export type TaskGraphMemoryOperation = "read" | "write_candidate" | "commit";
 
 export type TaskGraphMemoryCollectionView = {
@@ -44,6 +52,7 @@ export type TaskGraphMemoryEdgeView = {
   usageInstruction: string;
   commitVisibilityPolicy: Record<string, unknown>;
   hasCommitPath: boolean;
+  resolvedMetadata: Record<string, unknown>;
   edge: Record<string, unknown>;
 };
 
@@ -136,6 +145,12 @@ export function taskGraphEdgeTarget(edge: Record<string, unknown>) {
 
 function sanitizeId(value: string) {
   return value.replace(/[^a-zA-Z0-9_.:-]+/g, "_").replace(/^_+|_+$/g, "") || "item";
+}
+
+function semanticRelationForMemoryOperation(operation: TaskGraphMemoryOperation): TaskGraphSemanticRelationId {
+  if (operation === "write_candidate") return "memory.write_candidate";
+  if (operation === "commit") return "memory.commit_after_review";
+  return "memory.read_required";
 }
 
 export function taskGraphMemoryColumnId(repositoryId: string, collectionId: string) {
@@ -246,7 +261,7 @@ function syntheticRepository(repositoryId: string, collectionId = "default"): Ta
 }
 
 function memoryOperation(edge: Record<string, unknown>): TaskGraphMemoryOperation | "" {
-  const edgeType = stringValue(edge.edge_type ?? edge.mode);
+  const edgeType = stringValue(edge.edge_type ?? edge.mode ?? taskGraphSemanticEdgeType(taskGraphSemanticRelationIdFromEdge(edge)));
   if (edgeType === "memory_read") return "read";
   if (edgeType === "memory_write_candidate" || edgeType === "memory_write") return "write_candidate";
   if (edgeType === "memory_commit") return "commit";
@@ -274,11 +289,14 @@ function columnLookup(columns: TaskGraphMemoryCollectionView[]) {
 
 function repositoryIdFromEdge(edge: Record<string, unknown>, operation: TaskGraphMemoryOperation, repositoriesById: Map<string, TaskGraphMemoryRepositoryView>) {
   const metadata = asRecord(edge.metadata);
+  const semanticParameters = taskGraphSemanticParametersFromEdge(edge);
   const source = taskGraphEdgeSource(edge);
   const target = taskGraphEdgeTarget(edge);
   const connectedRepositoryId = operation === "read" ? source : target;
   const connectedRepository = repositoriesById.get(connectedRepositoryId);
-  return connectedRepository?.repositoryId || connectedRepository?.nodeId || stringValue(metadata.repository ?? metadata.repository_id);
+  return connectedRepository?.repositoryId
+    || connectedRepository?.nodeId
+    || stringValue(metadata.repository ?? metadata.repository_id ?? semanticParameters.repository_id ?? semanticParameters.repository);
 }
 
 function firstCollectionForRepository(repository: TaskGraphMemoryRepositoryView | undefined, requestedCollectionId: string) {
@@ -293,6 +311,65 @@ function versionSelectorLabel(value: unknown) {
   if (typeof value === "string") return stringValue(value);
   const record = asRecord(value);
   return stringValue(record.mode ?? record.strategy ?? record.version_id, "latest_committed_before_clock");
+}
+
+function compactRecord(value: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(value).filter(([, item]) => item !== "" && item !== null && item !== undefined && !(Array.isArray(item) && item.length === 0)),
+  );
+}
+
+function resolvedMemoryMetadata(edge: Record<string, unknown>, operation: TaskGraphMemoryOperation) {
+  const rawMetadata = asRecord(edge.metadata);
+  const rawSelector = asRecord(rawMetadata.selector);
+  const semanticParameters = taskGraphSemanticParametersFromEdge(edge);
+  const repositoryId = stringValue(
+    rawMetadata.repository
+    ?? rawMetadata.repository_id
+    ?? semanticParameters.repository_id
+    ?? semanticParameters.repository,
+  );
+  const collectionId = stringValue(
+    rawSelector.collection
+    ?? rawMetadata.collection
+    ?? semanticParameters.collection_id
+    ?? semanticParameters.collection,
+  );
+  const recordKey = stringValue(rawSelector.record_key ?? rawMetadata.record_key ?? semanticParameters.record_key);
+  const recordKind = stringValue(rawSelector.record_kind ?? rawMetadata.record_kind ?? semanticParameters.record_kind);
+  const selector = compactRecord({
+    ...rawSelector,
+    collection: collectionId,
+    record_key: recordKey,
+    record_kind: recordKind,
+    record_keys: rawSelector.record_keys ?? rawMetadata.record_keys ?? semanticParameters.record_keys,
+    record_kinds: rawSelector.record_kinds ?? rawMetadata.record_kinds ?? semanticParameters.record_kinds,
+    limit: rawSelector.limit ?? rawMetadata.limit ?? semanticParameters.limit,
+  });
+  const rawCommitVisibility = asRecord(rawMetadata.commit_visibility_policy ?? rawMetadata.visibility_policy);
+  const commitVisibilityPolicy = operation === "commit"
+    ? compactRecord({ visible_after: semanticParameters.visible_after, ...rawCommitVisibility })
+    : rawCommitVisibility;
+  return compactRecord({
+    ...rawMetadata,
+    repository: repositoryId,
+    repository_id: repositoryId,
+    collection: collectionId,
+    selector,
+    record_key: recordKey,
+    record_kind: recordKind,
+    version_selector: rawMetadata.version_selector ?? semanticParameters.version_selector,
+    on_missing: rawMetadata.on_missing ?? semanticParameters.on_missing,
+    model_visible_label: rawMetadata.model_visible_label ?? semanticParameters.model_visible_label,
+    usage_instruction: rawMetadata.usage_instruction ?? semanticParameters.usage_instruction,
+    source_output_key: rawMetadata.source_output_key ?? semanticParameters.source_output_key,
+    candidate_ref_key: rawMetadata.candidate_ref_key ?? semanticParameters.candidate_ref_key,
+    approval_source_node_id: rawMetadata.approval_source_node_id ?? semanticParameters.approval_source_node_id,
+    verdict_key: rawMetadata.verdict_key ?? semanticParameters.verdict_key,
+    required_verdict: rawMetadata.required_verdict ?? semanticParameters.required_verdict,
+    commit_visibility_policy: commitVisibilityPolicy,
+    materialization_policy: rawMetadata.materialization_policy ?? semanticParameters.materialization_policy,
+  });
 }
 
 function buildReachable(edges: Array<Record<string, unknown>>) {
@@ -330,7 +407,7 @@ function buildMemoryEdge(
   const edgeId = taskGraphEdgeId(edge, index);
   const sourceNodeId = taskGraphEdgeSource(edge);
   const targetNodeId = taskGraphEdgeTarget(edge);
-  const metadata = asRecord(edge.metadata);
+  const metadata = resolvedMemoryMetadata(edge, operation);
   const selector = asRecord(metadata.selector);
   const requestedRepositoryId = repositoryIdFromEdge(edge, operation, repositoriesById);
   const repository = repositoriesById.get(requestedRepositoryId);
@@ -364,6 +441,7 @@ function buildMemoryEdge(
     usageInstruction: stringValue(metadata.usage_instruction ?? metadata.instructions ?? selector.usage_instruction),
     commitVisibilityPolicy: asRecord(metadata.commit_visibility_policy ?? metadata.visibility_policy ?? edge.commit_visibility_policy),
     hasCommitPath: false,
+    resolvedMetadata: metadata,
     edge,
   };
 }
@@ -533,29 +611,31 @@ export function createMemoryEdgeDraft({
   const edgeType = operation === "write_candidate" ? "memory_write_candidate" : operation === "commit" ? "memory_commit" : "memory_read";
   const source = operation === "read" ? repositoryNodeId : taskNodeId;
   const target = operation === "read" ? taskNodeId : repositoryNodeId;
-  return {
-    edge_id: `edge.${edgeType}.${sanitizeId(taskNodeId)}.${sanitizeId(repositoryId)}.${sanitizeId(collectionId)}`,
-    source_node_id: source,
-    target_node_id: target,
-    from: source,
-    to: target,
-    edge_type: edgeType,
-    payload_contract_id: `${edgeType}.payload`,
-    metadata: {
-      repository: repositoryId,
-      collection: collectionId,
-      selector: {
-        collection: collectionId,
-        status_filter: operation === "read" ? ["committed"] : [],
-        limit: operation === "read" ? 50 : 0,
-      },
-      version_selector: operation === "read" ? { mode: "latest_committed_before_clock" } : { mode: "current_clock_acknowledgement" },
-      on_missing: operation === "read" ? "block" : "warn",
-      model_visible_label: operation === "read" ? collectionId : "",
-      usage_instruction: operation === "read" ? "你必须按这个输入包的约束完成当前节点任务，不得把缺失信息自行补写成事实。" : "",
-      commit_visibility_policy: operation === "commit" ? { required_status: "committed", visible_after: "next_clock" } : {},
-    },
+  const parameters: Record<string, unknown> = {
+    repository_id: repositoryId,
+    collection_id: collectionId,
+    record_kind: `${sanitizeId(collectionId)}_record`,
+    record_key: `${repositoryId}.${collectionId}.current`,
+    on_missing: operation === "read" ? "block" : "warn",
   };
+  if (operation === "read") {
+    parameters.model_visible_label = collectionId;
+    parameters.limit = 50;
+  }
+  if (operation === "write_candidate") {
+    parameters.source_output_key = `${sanitizeId(collectionId)}_memory_candidate`;
+  }
+  if (operation === "commit") {
+    parameters.approval_source_node_id = taskNodeId;
+    parameters.visible_after = "next_clock";
+  }
+  return buildTaskGraphSemanticEdge({
+    edgeId: `edge.${edgeType}.${sanitizeId(taskNodeId)}.${sanitizeId(repositoryId)}.${sanitizeId(collectionId)}`,
+    relationId: semanticRelationForMemoryOperation(operation),
+    sourceNodeId: source,
+    targetNodeId: target,
+    parameters,
+  });
 }
 
 export function memoryCellOperationValue(cell: TaskGraphMemoryMatrixCell) {

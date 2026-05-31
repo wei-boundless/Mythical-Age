@@ -46,6 +46,7 @@ class TaskGraphStandardEdgeSpec:
     payload_contract_id: str = ""
     contract_bindings: dict[str, Any] = field(default_factory=dict)
     handoff: dict[str, Any] = field(default_factory=dict)
+    semantic: dict[str, Any] = field(default_factory=dict)
     memory: dict[str, Any] = field(default_factory=dict)
     artifact_context: dict[str, Any] = field(default_factory=dict)
     revision: dict[str, Any] = field(default_factory=dict)
@@ -243,6 +244,11 @@ def build_task_graph_standard_view(
         for item in list(layered.get("memory_edges") or [])
         if isinstance(item, dict)
     }
+    semantic_relations = {
+        str(item.get("edge_id") or ""): dict(item)
+        for item in list(layered.get("semantic_relations") or [])
+        if isinstance(item, dict)
+    }
     artifact_edges = {
         str(item.get("edge_id") or ""): dict(item)
         for item in list(layered.get("artifact_context_edges") or [])
@@ -263,6 +269,7 @@ def build_task_graph_standard_view(
     edges = tuple(
         _edge_spec_from_graph_edge(
             edge,
+            semantic_payload=semantic_relations.get(edge.edge_id, {}),
             memory_payload=memory_edges.get(edge.edge_id, {}),
             artifact_payload=artifact_edges.get(edge.edge_id, {}),
             revision_payload=revision_edges.get(edge.edge_id, {}),
@@ -466,6 +473,7 @@ def _node_spec_from_graph_node(node: Any, *, resource_nodes: list[dict[str, Any]
 def _edge_spec_from_graph_edge(
     edge: Any,
     *,
+    semantic_payload: dict[str, Any],
     memory_payload: dict[str, Any],
     artifact_payload: dict[str, Any],
     revision_payload: dict[str, Any],
@@ -490,6 +498,7 @@ def _edge_spec_from_graph_edge(
             "working_memory_handoff_policy": dict(edge.working_memory_handoff_policy or {}),
             "failure_policy": dict(edge.failure_policy or {}),
         },
+        semantic=semantic_payload,
         memory=memory_payload,
         artifact_context=artifact_payload,
         revision=revision_payload,
@@ -896,7 +905,7 @@ def _graph_node_payload_from_standard_node(payload: dict[str, Any]) -> dict[str,
 def _graph_edge_payload_from_standard_edge(payload: dict[str, Any]) -> dict[str, Any]:
     handoff = dict(payload.get("handoff") or {})
     metadata = dict(payload.get("metadata") or {})
-    for extra in ("memory", "artifact_context", "revision", "temporal"):
+    for extra in ("semantic", "memory", "artifact_context", "revision", "temporal"):
         extra_payload = dict(payload.get(extra) or {})
         if extra_payload:
             metadata.setdefault(f"{extra}_standard_view", extra_payload)

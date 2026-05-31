@@ -1,6 +1,7 @@
 "use client";
 
 import { AlertTriangle, CheckCircle2, Loader2, PauseCircle, Square, Wrench } from "lucide-react";
+import React from "react";
 
 import type { SessionActivityState } from "@/lib/store/types";
 
@@ -34,7 +35,10 @@ export function SessionActivityBar({
   const level = active ? rawLevel : rawLevel === "running" ? "idle" : rawLevel;
   const title = active || rawLevel !== "running" ? receipt?.title ?? activity.title : "";
   const rawDetail = active || rawLevel !== "running" ? receipt?.body ?? activity.detail : "";
-  const detail = isMachineNoise(rawDetail) ? "" : rawDetail;
+  const detailSourceEvent = receipt?.debug?.event ?? activity.event;
+  const detail = detailSourceEvent === "error" && rawLevel === "error" && rawDetail
+    ? "详情已写入会话。"
+    : isMachineNoise(rawDetail) ? "" : rawDetail;
   const artifacts = receipt?.artifacts?.filter((artifact) => artifact.path || artifact.value) ?? [];
 
   if (!title && !detail && !activity.event) {
