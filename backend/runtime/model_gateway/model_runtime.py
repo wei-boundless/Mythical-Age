@@ -784,16 +784,33 @@ class ModelRuntime:
         if isinstance(override, ModelSpec):
             return override
         if isinstance(override, dict):
-            provider = str(override.get("provider") or "").strip()
+            settings = self.settings_service.static
+            system_provider = str(getattr(settings, "llm_provider", "") or "").strip().lower()
+            provider = str(override.get("provider") or system_provider).strip().lower()
+            provider_defaults = dict(LLM_PROVIDER_DEFAULTS.get(provider) or {})
+            system_model = str(getattr(settings, "llm_model", "") or "").strip()
+            system_base_url = str(getattr(settings, "llm_base_url", "") or "").strip()
+            model = str(
+                override.get("model")
+                or (system_model if provider == system_provider else "")
+                or provider_defaults.get("model")
+                or ""
+            ).strip()
+            base_url = str(
+                override.get("base_url")
+                or (system_base_url if provider == system_provider else "")
+                or provider_defaults.get("base_url")
+                or ""
+            ).strip()
             credential_ref = str(override.get("credential_ref") or "").strip()
             api_key = override.get("api_key")
             if not api_key:
                 api_key = self._api_key_from_credential_ref(credential_ref=credential_ref, provider=provider)
             return ModelSpec(
                 provider=provider,
-                model=str(override.get("model") or "").strip(),
+                model=model,
                 api_key=str(api_key).strip() if api_key else None,
-                base_url=str(override.get("base_url") or "").strip(),
+                base_url=base_url,
                 max_output_tokens=_optional_int(override.get("max_output_tokens")),
                 timeout_seconds=_optional_float(override.get("timeout_seconds")),
                 long_output_timeout_seconds=_optional_float(override.get("long_output_timeout_seconds")),

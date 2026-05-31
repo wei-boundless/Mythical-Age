@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from .models import compact_text, dict_tuple, drop_empty
+from .tool_result_projector import model_visible_artifact_refs
 
 
 class WorkHistoryProjector:
@@ -33,7 +34,7 @@ class WorkHistoryProjector:
                 "latest_step_title": compact_text(rollout.get("latest_step_title") or "", limit=160),
                 "active_facts": _active_facts(history),
                 "recent_steps": recent_steps,
-                "active_artifacts": list(dict_tuple(rollout.get("artifact_refs"))),
+                "active_artifacts": model_visible_artifact_refs(rollout.get("artifact_refs")),
                 "checkpoint": dict(rollout.get("breakpoint") or {}),
                 "lineage": dict(rollout.get("lineage") or {}),
                 "omitted_work_history": {

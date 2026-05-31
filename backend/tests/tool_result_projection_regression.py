@@ -32,6 +32,52 @@ def test_tool_result_projector_persists_large_output_and_keeps_artifact_refs(tmp
     assert projection["replacement_ref"] == record["replacement_key"]
 
 
+def test_tool_result_projector_hides_runtime_sandbox_physical_artifact_paths(tmp_path: Path) -> None:
+    projector = ToolResultProjector(root_dir=tmp_path, replacement_store=ReplacementStore(tmp_path))
+
+    projection, _ = projector.project(
+        {
+            "result_envelope": {
+                "envelope_id": "tool-result:sandbox-path",
+                "tool_name": "write_file",
+                "status": "ok",
+                "artifact_refs": [
+                    {
+                        "path": "storage/task_environments/development/sandbox/artifacts/game.html",
+                        "absolute_path": str(
+                            tmp_path
+                            / "storage"
+                            / "runtime_state"
+                            / "sandboxes"
+                            / "taskrun_demo"
+                            / "storage"
+                            / "task_environments"
+                            / "development"
+                            / "sandbox"
+                            / "artifacts"
+                            / "game.html"
+                        ),
+                        "sandbox_path": "storage/task_environments/development/sandbox/artifacts/game.html",
+                        "kind": "file",
+                        "source": "write_file",
+                    }
+                ],
+            }
+        },
+        task_run_id="taskrun:sandbox-path",
+        projection_policy={"tool_result_preview_chars": 300},
+    )
+
+    artifact_ref = projection["artifact_refs"][0]
+    assert artifact_ref == {
+        "path": "storage/task_environments/development/sandbox/artifacts/game.html",
+        "kind": "file",
+        "source": "write_file",
+    }
+    assert "absolute_path" not in artifact_ref
+    assert "sandbox_path" not in artifact_ref
+
+
 def test_tool_result_projector_reuses_projection_bytes_for_same_content(tmp_path: Path) -> None:
     projector = ToolResultProjector(root_dir=tmp_path, replacement_store=ReplacementStore(tmp_path))
     payload = {

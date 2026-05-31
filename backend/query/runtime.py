@@ -653,7 +653,7 @@ class QueryRuntime:
             except Exception as exc:
                 _mark_query_scheduled_task_failed(runtime_host, task_run_id=task_run_id, error=str(exc) or exc.__class__.__name__)
 
-        asyncio.create_task(_runner())
+        runtime_host.spawn_background_task(_runner(), name=f"task-run-executor:{task_run_id}")
         return {"ok": True, "scheduled": True, "task_run_id": task_run_id}
 
     async def generate_title(self, first_user_message: str) -> str:

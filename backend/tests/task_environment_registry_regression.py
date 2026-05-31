@@ -453,7 +453,7 @@ def test_runtime_compiler_stable_payload_keeps_environment_and_operation_project
     ).packet
     stable_message = packet.model_messages[1]["content"]
     stable_payload = json.loads(stable_message.split("\n", 1)[1])
-    dynamic_payload = _payload_after_title(packet.model_messages[-2]["content"], "Task execution dynamic runtime")
+    dynamic_payload = _payload_after_title(packet.model_messages[-2]["content"], "Task execution runtime boundary")
 
     assert "task_environment" in stable_payload
     assert "storage" in stable_payload["task_environment"]

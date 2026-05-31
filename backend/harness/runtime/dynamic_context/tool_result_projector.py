@@ -106,7 +106,7 @@ class ToolResultProjector:
                 "result_ref": result_ref,
                 "structured_error": _structured_error_projection(structured_error),
                 "error": compact_text(error, limit=500),
-                "artifact_refs": list(dict_tuple(normalized.get("artifact_refs"))),
+                "artifact_refs": model_visible_artifact_refs(normalized.get("artifact_refs")),
                 "observed_paths": list(string_tuple(normalized.get("observed_paths"))),
                 "matched_paths": list(string_tuple(normalized.get("matched_paths"))),
                 "command_receipt": dict(normalized.get("command_receipt") or {}),
@@ -194,3 +194,38 @@ def _structured_error_projection(value: dict[str, Any]) -> dict[str, Any]:
             "origin": compact_text(value.get("origin") or "", limit=120),
         }
     )
+
+
+def model_visible_artifact_refs(refs: Any) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for ref in dict_tuple(refs):
+        path = str(ref.get("path") or ref.get("src") or ref.get("artifact_ref") or "").strip()
+        if not path:
+            absolute_path = str(ref.get("absolute_path") or "").strip()
+            if absolute_path and not _is_runtime_sandbox_path(absolute_path):
+                path = absolute_path
+        payload = drop_empty(
+            {
+                "path": path,
+                "artifact_ref": str(ref.get("artifact_ref") or "") if ref.get("artifact_ref") and ref.get("artifact_ref") != path else "",
+                "kind": str(ref.get("kind") or ""),
+                "source": str(ref.get("source") or ""),
+                "summary": compact_text(ref.get("summary") or "", limit=240),
+                "mime_type": str(ref.get("mime_type") or ""),
+                "exists": ref.get("exists") if isinstance(ref.get("exists"), bool) else None,
+                "size_bytes": ref.get("size_bytes") if isinstance(ref.get("size_bytes"), int) else None,
+                "published": ref.get("published") if isinstance(ref.get("published"), bool) else None,
+            }
+        )
+        key = str(payload.get("path") or payload.get("artifact_ref") or "")
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        result.append(payload)
+    return result
+
+
+def _is_runtime_sandbox_path(path: str) -> bool:
+    normalized = str(path or "").replace("\\", "/").lower()
+    return "/storage/runtime_state/sandboxes/" in normalized or normalized.startswith("storage/runtime_state/sandboxes/")

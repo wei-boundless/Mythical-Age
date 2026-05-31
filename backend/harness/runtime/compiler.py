@@ -361,6 +361,8 @@ class RuntimeCompiler:
             agent_profile_ref=agent_profile_ref,
             task_environment_ref=task_environment_ref,
             runtime_mode=str(profile_payload.get("mode") or "professional"),
+        )
+        task_prompt_assembly = self._assemble_prompt_contract(
             task_prompt_contract=task_prompt_contract,
             graph_node_prompt_contract=graph_node_prompt_contract,
         )
@@ -446,6 +448,15 @@ class RuntimeCompiler:
                 ),
                 _message_spec(
                     role="system",
+                    content=_prompt_contract_instruction(task_prompt_assembly),
+                    kind="task_prompt_contract",
+                    source_ref=",".join(task_prompt_assembly.manifest.get("stable_contract_refs") or ()),
+                    cache_scope="task",
+                    cache_role="session_stable",
+                    compression_role="preserve",
+                ),
+                _message_spec(
+                    role="system",
                     content=agent_instruction,
                     kind="agent_stable",
                     source_ref=",".join(_string_tuple(assembly_payload.get("agent_prompt_refs"))),
@@ -475,13 +486,13 @@ class RuntimeCompiler:
                     role="system",
                     content=_join_prompt_sections(
                         runtime_instruction,
-                        _packet_payload_content("Task execution dynamic runtime", dynamic_payload),
+                        _packet_payload_content("Task execution runtime boundary", dynamic_payload),
                     ),
-                    kind="dynamic_projection",
+                    kind="runtime_boundary",
                     source_ref="agent_visible_runtime_projection",
-                    cache_scope="none",
-                    cache_role="volatile",
-                    compression_role="summarize",
+                    cache_scope="task",
+                    cache_role="session_stable",
+                    compression_role="preserve",
                     metadata=_dynamic_context_segment_metadata(dynamic_context, source="runtime_delta"),
                 ),
                 _message_spec(
@@ -501,6 +512,7 @@ class RuntimeCompiler:
             invocation_kind="task_execution",
             assembly=_merge_prompt_assemblies(
                 prompt_assembly,
+                task_prompt_assembly,
                 agent_prompt_assembly,
                 environment_prompt_assembly,
                 invocation_kind="task_execution",
@@ -804,6 +816,26 @@ class RuntimeCompiler:
                 agent_profile_ref=agent_profile_ref,
                 task_environment_ref=task_environment_ref,
                 runtime_mode=runtime_mode,
+                task_prompt_contract=dict(task_prompt_contract or {}),
+                graph_node_prompt_contract=dict(graph_node_prompt_contract or {}),
+            )
+        )
+
+    def _assemble_prompt_contract(
+        self,
+        *,
+        task_prompt_contract: dict[str, Any] | None = None,
+        graph_node_prompt_contract: dict[str, Any] | None = None,
+    ) -> PromptAssemblyResult:
+        if not task_prompt_contract and not graph_node_prompt_contract:
+            return PromptAssemblyResult(
+                assembly_id="promptasm:empty:task_prompt_contract",
+                invocation_kind="task_prompt_contract",
+                sections=(),
+            )
+        return PromptAssemblyService(self.base_dir).assemble(
+            PromptAssemblyRequest(
+                invocation_kind="task_prompt_contract",
                 task_prompt_contract=dict(task_prompt_contract or {}),
                 graph_node_prompt_contract=dict(graph_node_prompt_contract or {}),
             )
@@ -1349,6 +1381,21 @@ def _agent_prompt_instruction(agent_prompt_assembly: PromptAssemblyResult) -> st
     if not content:
         return ""
     return "\n当前主 agent 工作角色：\n" + content + "\n"
+
+
+def _prompt_contract_instruction(prompt_contract_assembly: PromptAssemblyResult) -> str:
+    sections = [section for section in prompt_contract_assembly.sections if str(section.content or "").strip()]
+    if not sections:
+        return ""
+    lines = ["当前任务执行要求："]
+    for section in sections:
+        title = str(section.title or "").strip()
+        content = str(section.content or "").strip()
+        if title:
+            lines.append(f"{title}：\n{content}")
+        else:
+            lines.append(content)
+    return "\n\n".join(lines) + "\n"
 
 
 def _environment_instruction(

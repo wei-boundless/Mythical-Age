@@ -1196,7 +1196,7 @@ def _schedule_task_executor(runtime_host: Any, task_run_id: str) -> None:
                 error=str(exc) or exc.__class__.__name__,
             )
 
-    asyncio.create_task(_runner())
+    _spawn_background_task(runtime_host, _runner(), name=f"task-run-executor:{task_run_id}")
 
 
 def _task_run_handoff_content(*, contract: dict[str, Any], status_text: str, control_text: str) -> str:
@@ -1222,6 +1222,14 @@ def _task_run_handoff_content(*, contract: dict[str, Any], status_text: str, con
     if control_text.strip():
         lines.append(control_text.strip())
     return "\n".join(line for line in lines if line.strip())
+
+
+def _spawn_background_task(runtime_host: Any, coro: Any, *, name: str = "") -> asyncio.Task[Any]:
+    spawner = getattr(runtime_host, "spawn_background_task", None)
+    if callable(spawner):
+        return spawner(coro, name=name)
+    kwargs = {"name": name} if name else {}
+    return asyncio.create_task(coro, **kwargs)
 
 
 def _first_public_text(*values: Any) -> str:

@@ -31,7 +31,13 @@ from harness.agent_control.controller import SUBAGENT_TOOL_NAMES, SubagentContro
 
 from .admission import admit_model_action
 from .executor_sequence import claim_executor_sequence, next_model_action_request_id
-from .model_action_runtime import call_model_invoker, compact_text, model_action_timeout_seconds, parse_json_object
+from .model_action_runtime import (
+    call_model_invoker,
+    compact_text,
+    model_action_timeout_seconds,
+    normalize_model_selection_for_invocation,
+    parse_json_object,
+)
 from .model_action_protocol import ModelActionRequest, model_action_request_from_payload
 from .task_run_execution_control import (
     ExecutorControlSignal,
@@ -1230,21 +1236,31 @@ async def _await_task_model_action_with_status(
                 except asyncio.CancelledError:
                     pass
                 raise TaskRunExecutorInterrupted(signal)
-            done, _pending = await asyncio.wait({task}, timeout=1.0)
+            wait_timeout = max(0.001, min(1.0, _TASK_MODEL_ACTION_WAIT_STATUS_INTERVAL_SECONDS))
+            done, _pending = await asyncio.wait({task}, timeout=wait_timeout)
             if done:
                 break
             now = time.monotonic()
             if now - last_progress_at >= _TASK_MODEL_ACTION_WAIT_STATUS_INTERVAL_SECONDS:
                 wait_round += 1
                 last_progress_at = now
-                _record_task_step_summary(
-                    runtime_host,
-                    task_run_id=task_run_id,
-                    step=f"task_model_action_waiting:{step_index}",
-                    status="running",
-                    summary=f"正在根据当前进展形成下一步处理动作。等待轮次：{wait_round}。",
-                    refs={"runtime_invocation_packet_ref": packet_ref},
-                )
+                if wait_round == 1:
+                    _record_task_step_summary(
+                        runtime_host,
+                        task_run_id=task_run_id,
+                        step=f"task_model_action_waiting:{step_index}",
+                        status="running",
+                        summary="正在根据当前进展形成下一步处理动作。",
+                        refs={"runtime_invocation_packet_ref": packet_ref},
+                    )
+                else:
+                    _record_task_model_wait_heartbeat(
+                        runtime_host,
+                        task_run_id=task_run_id,
+                        step=f"task_model_action_waiting:{step_index}",
+                        wait_round=wait_round,
+                        refs={"runtime_invocation_packet_ref": packet_ref},
+                    )
         signal = peek_executor_signal(runtime_host, task_run_id=task_run_id, executor_epoch=executor_epoch)
         if signal is not None:
             raise TaskRunExecutorInterrupted(signal)
@@ -1495,7 +1511,7 @@ def _task_model_selection(task_run: Any, *, agent_profile: Any | None = None) ->
             "requirement_model_family": str(requirement.get("model_family") or ""),
         },
     }
-    return {key: value for key, value in resolved.items() if value not in ("", None, {}, [])}
+    return normalize_model_selection_for_invocation(resolved)
 
 
 def _origin_kind(task_run: Any) -> str:
@@ -3613,6 +3629,37 @@ def _record_task_step_summary(
                     **({"latest_public_progress_note": visible_note or visible_summary} if (visible_note or visible_summary) else {}),
                     **({"agent_brief_output": visible_brief} if visible_brief else {}),
                 },
+            )
+        )
+    return event.to_dict()
+
+
+def _record_task_model_wait_heartbeat(
+    runtime_host: Any,
+    *,
+    task_run_id: str,
+    step: str,
+    wait_round: int,
+    refs: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    event = runtime_host.event_log.append(
+        task_run_id,
+        "task_model_action_wait_heartbeat",
+        payload={
+            "task_run_id": task_run_id,
+            "step": step,
+            "status": "running",
+            "wait_round": int(wait_round),
+        },
+        refs={"task_run_ref": task_run_id, **dict(refs or {})},
+    )
+    current = runtime_host.state_index.get_task_run(task_run_id)
+    if current is not None:
+        runtime_host.state_index.upsert_task_run(
+            replace(
+                current,
+                updated_at=event.created_at,
+                latest_event_offset=event.offset,
             )
         )
     return event.to_dict()

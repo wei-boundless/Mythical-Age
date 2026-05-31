@@ -148,11 +148,31 @@ async def execute_harness_task_run(
         raise HTTPException(status_code=404, detail="TaskRun not found")
     if str(getattr(task_run, "execution_runtime_kind", "") or "") not in {"single_agent_task", "subagent_task"}:
         raise HTTPException(status_code=409, detail="not_single_agent_task_run")
+    max_steps = payload.max_steps if payload is not None else 12
     if is_task_run_executor_claimed(task_run):
-        raise HTTPException(status_code=409, detail="task_run_executor_already_running")
+        executor_status = str(dict(getattr(task_run, "diagnostics", {}) or {}).get("executor_status") or "")
+        if executor_status != "scheduled":
+            raise HTTPException(status_code=409, detail="task_run_executor_already_running")
+
+        async def _recover_scheduled_executor() -> None:
+            await runtime.query_runtime.execute_task_run(task_run_id, max_steps=max_steps)
+
+        runtime_host.spawn_background_task(
+            _recover_scheduled_executor(),
+            name=f"task-run-executor-recover:{task_run_id}",
+        )
+        return {
+            "ok": True,
+            "accepted": True,
+            "background_started": True,
+            "task_run_id": task_run_id,
+            "status": task_run.status,
+            "monitor_url": f"/api/orchestration/harness/task-runs/{task_run_id}/live-monitor",
+            "trace_url": f"/api/orchestration/harness/task-runs/{task_run_id}",
+            "recovered_from": "scheduled_executor_claim",
+        }
     if not is_task_run_executable(task_run):
         raise HTTPException(status_code=409, detail=f"task_run_not_executable:{task_run.status}")
-    max_steps = payload.max_steps if payload is not None else 12
     schedule_result = runtime.query_runtime.schedule_task_run_executor(
         task_run_id,
         scheduler="task_run_execute_api",

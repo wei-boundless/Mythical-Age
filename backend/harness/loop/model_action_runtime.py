@@ -12,6 +12,7 @@ async def call_model_invoker(
     model_selection: dict[str, Any],
     accounting_context: dict[str, Any] | None = None,
 ) -> Any:
+    model_selection = normalize_model_selection_for_invocation(model_selection)
     if model_selection:
         try:
             return await await_if_needed(
@@ -33,6 +34,41 @@ async def call_model_invoker(
             if "accounting_context" not in str(exc):
                 raise
     return await await_if_needed(invoker(messages))
+
+
+_MODEL_SELECTION_INVOCATION_FIELDS = frozenset(
+    {
+        "provider",
+        "model",
+        "base_url",
+        "credential_ref",
+        "api_key",
+        "max_output_tokens",
+        "timeout_seconds",
+        "request_timeout_seconds",
+        "long_output_timeout_seconds",
+        "max_retries",
+        "temperature",
+        "thinking_mode",
+        "reasoning_effort",
+        "stream_policy",
+        "model_response_timeout_seconds",
+        "model_timeout_seconds",
+    }
+)
+
+
+def normalize_model_selection_for_invocation(model_selection: dict[str, Any] | None) -> dict[str, Any]:
+    if not isinstance(model_selection, dict):
+        return {}
+    payload = {
+        str(key): value
+        for key, value in dict(model_selection).items()
+        if value not in ("", None, {}, [])
+    }
+    if not any(key in payload for key in _MODEL_SELECTION_INVOCATION_FIELDS):
+        return {}
+    return payload
 
 
 async def await_if_needed(value: Any) -> Any:

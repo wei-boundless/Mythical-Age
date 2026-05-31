@@ -50,6 +50,7 @@ import type { CenterWorkspaceTarget, ChatMode, ChatModelSelection, MainAgentAsse
 import { toUiMessages } from "./utils";
 
 type HarnessSessionMonitor = NonNullable<Awaited<ReturnType<typeof getOrchestrationHarnessSessionLiveMonitor>>["monitor"]>;
+type RuntimeMonitorEvent = NonNullable<RuntimeMonitorEventPayload["runtime_event"]>;
 const MAX_LIVE_RUNTIME_PROGRESS_ENTRIES = 24;
 
 export class WorkspaceRuntime {
@@ -2059,6 +2060,139 @@ export class WorkspaceRuntime {
     };
   }
 
+  private runtimeProgressEntryFromRuntimeEvent(runtimeEvent: RuntimeMonitorEvent): RuntimeProgressEntry | null {
+    if (runtimeEvent.event_type !== "step_summary_recorded") {
+      return null;
+    }
+    const payload = runtimeEvent.payload && typeof runtimeEvent.payload === "object" && !Array.isArray(runtimeEvent.payload)
+      ? runtimeEvent.payload
+      : {};
+    const taskRunId = String(runtimeEvent.task_run_id ?? payload.task_run_id ?? "").trim();
+    if (!taskRunId) {
+      return null;
+    }
+    const step = String(payload.step ?? "").trim();
+    const status = String(payload.status ?? "").trim();
+    const summary = String(payload.summary ?? "").trim();
+    const publicNote = String(payload.public_progress_note ?? summary).trim();
+    const agentBrief = String(payload.agent_brief_output ?? "").trim();
+    if (!summary && !publicNote && !step) {
+      return null;
+    }
+    return {
+      id: String(runtimeEvent.event_id ?? "").trim() || `${taskRunId}:event:${runtimeEvent.offset}`,
+      title: publicNote || summary || step || "正在处理",
+      body: publicNote || summary,
+      publicNote,
+      agentBrief,
+      evidenceType: this.runtimeEvidenceTypeFromStep(step),
+      eventType: runtimeEvent.event_type,
+      kind: this.runtimeProgressKindFromStep(step),
+      level: this.runtimeProgressLevelFromStatus(status),
+      statusText: status || "running",
+      taskRunId,
+      createdAt: Number(runtimeEvent.created_at ?? 0) || undefined,
+    };
+  }
+
+  private runtimeEventAnchorTurnId(runtimeEvent: RuntimeMonitorEvent, state: StoreState) {
+    const payload = runtimeEvent.payload && typeof runtimeEvent.payload === "object" && !Array.isArray(runtimeEvent.payload)
+      ? runtimeEvent.payload
+      : {};
+    const refs = runtimeEvent.refs && typeof runtimeEvent.refs === "object" && !Array.isArray(runtimeEvent.refs)
+      ? runtimeEvent.refs
+      : {};
+    const explicit = String(refs.turn_ref ?? payload.turn_id ?? "").trim();
+    if (explicit.startsWith("turn:")) {
+      return explicit;
+    }
+    const taskRunId = String(runtimeEvent.task_run_id ?? "").trim();
+    for (const message of [...state.messages].reverse()) {
+      const attachment = (message.runtimeAttachments ?? []).find((item) => item.task_run_id === taskRunId);
+      const anchor = String(attachment?.anchor_turn_id ?? "").trim();
+      if (anchor.startsWith("turn:")) {
+        return anchor;
+      }
+    }
+    return this.turnIdFromTaskRunId(taskRunId);
+  }
+
+  private patchRuntimeAttachmentFromRuntimeEvent(state: StoreState, runtimeEvent: RuntimeMonitorEvent): StoreState {
+    const latestProgressEntry = this.runtimeProgressEntryFromRuntimeEvent(runtimeEvent);
+    if (!latestProgressEntry) {
+      return state;
+    }
+    const taskRunId = String(runtimeEvent.task_run_id ?? latestProgressEntry.taskRunId ?? "").trim();
+    const anchorTurnId = this.runtimeEventAnchorTurnId(runtimeEvent, state);
+    if (!taskRunId || !anchorTurnId) {
+      return state;
+    }
+    const payload = runtimeEvent.payload && typeof runtimeEvent.payload === "object" && !Array.isArray(runtimeEvent.payload)
+      ? runtimeEvent.payload
+      : {};
+    const explicitAnchor = String(
+      (runtimeEvent.refs && typeof runtimeEvent.refs === "object" && !Array.isArray(runtimeEvent.refs)
+        ? runtimeEvent.refs.turn_ref
+        : "")
+      ?? payload.turn_id
+      ?? "",
+    ).trim();
+    const attachment: SessionRuntimeAttachment = {
+      attachment_id: `runtime-attachment:${taskRunId}`,
+      anchor_turn_id: anchorTurnId,
+      task_run_id: taskRunId,
+      task_id: String(payload.task_id ?? ""),
+      status: String(payload.status ?? "running"),
+      terminal_reason: "",
+      lifecycle: String(payload.status ?? "running"),
+      title: "Agent 运行",
+      summary: String(payload.public_progress_note ?? payload.summary ?? ""),
+      latest_step: {
+        step: String(payload.step ?? ""),
+        status: String(payload.status ?? ""),
+        summary: String(payload.summary ?? ""),
+        public_progress_note: String(payload.public_progress_note ?? payload.summary ?? ""),
+        agent_brief_output: String(payload.agent_brief_output ?? ""),
+        event_id: String(runtimeEvent.event_id ?? ""),
+        offset: Number(runtimeEvent.offset ?? -1),
+        created_at: Number(runtimeEvent.created_at ?? 0),
+      },
+      latest_step_summary: String(payload.summary ?? ""),
+      latest_public_progress_note: String(payload.public_progress_note ?? payload.summary ?? ""),
+      agent_brief_output: String(payload.agent_brief_output ?? ""),
+      latest_event_type: runtimeEvent.event_type,
+      event_count: Number(runtimeEvent.offset ?? -1) + 1,
+      progress_entries: [latestProgressEntry],
+      trace_available: true,
+      updated_at: Number(runtimeEvent.created_at ?? Date.now() / 1000),
+    };
+    const anchorIndex = Number(anchorTurnId.split(":").at(-1));
+    return {
+      ...state,
+      messages: state.messages.map((message) => {
+        if (message.role !== "assistant") {
+          return message;
+        }
+        const existing = message.runtimeAttachments ?? [];
+        const sourceMatches = Number.isFinite(anchorIndex) && message.sourceIndex === anchorIndex;
+        if (explicitAnchor.startsWith("turn:") && !sourceMatches) {
+          const filtered = existing.filter((item) => item.task_run_id !== taskRunId);
+          return filtered.length === existing.length ? message : { ...message, runtimeAttachments: filtered };
+        }
+        const hasAttachment = existing.some((item) => item.task_run_id === taskRunId);
+        if (!hasAttachment && !sourceMatches) {
+          return message;
+        }
+        return {
+          ...message,
+          runtimeAttachments: hasAttachment
+            ? existing.map((item) => item.task_run_id === taskRunId ? this.mergeRuntimeAttachment(item, attachment) : item)
+            : [...existing, attachment],
+        };
+      }),
+    };
+  }
+
   private patchRuntimeAttachmentFromMonitor(state: StoreState, monitor: HarnessSessionMonitor): StoreState {
     const taskRun = this.harnessMonitorTaskRun(monitor);
     const taskRunId = String(taskRun.task_run_id ?? monitor.task_run_id ?? "").trim();
@@ -2123,6 +2257,11 @@ export class WorkspaceRuntime {
     const parts = taskRunId.split(":");
     if (parts.length < 4 || parts[0] !== "taskrun" || parts[1] !== "turn") {
       return "";
+    }
+    for (let index = 2; index < parts.length; index += 1) {
+      if (/^\d+$/.test(parts[index])) {
+        return parts.slice(1, index + 1).join(":");
+      }
     }
     return parts.slice(1, -1).join(":");
   }
@@ -2341,11 +2480,14 @@ export class WorkspaceRuntime {
         detailTaskRunId: payload.runtime_event?.task_run_id,
         lastEvent: payload.runtime_event ?? null,
       });
+      if (payload.runtime_event) {
+        this.store.setState((prev) => this.patchRuntimeAttachmentFromRuntimeEvent(prev, payload.runtime_event as RuntimeMonitorEvent));
+      }
     } else if (payload.runtime_event) {
-      this.store.setState((prev) => ({
+      this.store.setState((prev) => this.patchRuntimeAttachmentFromRuntimeEvent({
         ...prev,
         globalRuntimeMonitorLastEvent: payload.runtime_event ?? null,
-      }));
+      }, payload.runtime_event as RuntimeMonitorEvent));
       this.queueSelectedGlobalRuntimeMonitorDetailRefresh(payload.runtime_event.task_run_id);
     }
   }

@@ -923,6 +923,28 @@ def test_model_runtime_resolves_frontend_model_selection_dict_credential_ref() -
     assert specs[0].reasoning_effort == "max"
 
 
+def test_model_runtime_partial_model_selection_inherits_system_model_config() -> None:
+    runtime = _runtime()
+    runtime.settings_service.static.llm_provider = "deepseek"
+    runtime.settings_service.static.llm_model = "deepseek-v4-pro"
+    runtime.settings_service.static.llm_api_key = "deepseek-key"
+    runtime.settings_service.static.llm_base_url = "https://api.deepseek.com/v1"
+
+    specs = runtime._candidate_specs(
+        model_spec={
+            "timeout_seconds": 12,
+            "diagnostics": {"authority": "test.partial_model_selection"},
+        }
+    )
+
+    assert len(specs) == 1
+    assert specs[0].provider == "deepseek"
+    assert specs[0].model == "deepseek-v4-pro"
+    assert specs[0].api_key == "deepseek-key"
+    assert specs[0].base_url == "https://api.deepseek.com/v1"
+    assert specs[0].timeout_seconds == 12
+
+
 def test_model_runtime_prompt_accounting_records_cache_efficiency_metrics(tmp_path: Path) -> None:
     runtime = _runtime(retries=0)
     ledger = PromptAccountingLedger(tmp_path)

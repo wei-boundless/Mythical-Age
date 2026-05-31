@@ -4,7 +4,7 @@ from typing import Any
 
 from .models import compact_text, dict_tuple, drop_empty
 from .replacement_store import ReplacementStore
-from .tool_result_projector import ToolResultProjector
+from .tool_result_projector import ToolResultProjector, model_visible_artifact_refs
 
 
 PROJECTOR_VERSION = "observation_projector.v1"
@@ -84,10 +84,12 @@ class ObservationProjector:
         structured_error = _structured_error_projection(source.get("structured_error") or observation.get("structured_error") or tool_projection.get("structured_error"))
         error = str(source.get("error") or observation.get("error") or tool_projection.get("error") or "")
         status = str(source.get("status") or source.get("result_status") or tool_projection.get("status") or ("error" if error or structured_error else "ok"))
-        artifact_refs = [
-            *dict_tuple(source.get("artifact_refs")),
-            *dict_tuple(tool_projection.get("artifact_refs")),
-        ]
+        artifact_refs = model_visible_artifact_refs(
+            [
+                *dict_tuple(source.get("artifact_refs")),
+                *dict_tuple(tool_projection.get("artifact_refs")),
+            ]
+        )
         summary_source = (
             source.get("summary")
             or source.get("content")

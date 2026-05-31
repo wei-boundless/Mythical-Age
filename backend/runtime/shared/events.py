@@ -65,6 +65,7 @@ RuntimeEventType = Literal[
     "executor_started",
     "model_stream_recovery",
     "model_item_received",
+    "task_model_action_wait_heartbeat",
     "executor_observation_received",
     "system_retrieval_blocked_by_search_policy",
     "output_boundary_applied",

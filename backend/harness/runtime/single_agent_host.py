@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 import sqlite3
 import time
@@ -48,6 +49,14 @@ class SingleAgentRuntimeHost:
             tuple(tool_definitions or ())
         )
         self.monitor_projector = TaskRunMonitorProjector(self.event_log)
+        self._background_tasks: set[asyncio.Task[Any]] = set()
+
+    def spawn_background_task(self, coro: Any, *, name: str = "") -> asyncio.Task[Any]:
+        kwargs = {"name": name} if name else {}
+        task = asyncio.create_task(coro, **kwargs)
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
+        return task
 
     def _current_permission_mode(self) -> str:
         provider = self.permission_mode_provider

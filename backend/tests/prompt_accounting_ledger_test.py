@@ -225,15 +225,17 @@ def test_task_execution_packet_places_stable_contract_before_volatile_state() ->
 
     messages = result.packet.model_messages
     manifest = result.packet.diagnostics["prompt_manifest"]
-    assert [message["role"] for message in messages] == ["system", "system", "system", "user"]
+    assert [message["role"] for message in messages] == ["system", "system", "system", "system", "user"]
     assert "Task execution stable contract" in messages[1]["content"]
     assert "task_contract" in messages[1]["content"]
     assert "available_tools" in messages[1]["content"]
-    assert "Task execution dynamic runtime" in messages[2]["content"]
-    assert "Task execution current state" in messages[3]["content"]
-    assert "observations" in messages[3]["content"]
+    assert "当前任务执行要求" in messages[2]["content"]
+    assert "审查并修复监控系统" in messages[2]["content"]
+    assert "Task execution runtime boundary" in messages[3]["content"]
+    assert "Task execution current state" in messages[4]["content"]
+    assert "observations" in messages[4]["content"]
     stable_payload = json.loads(messages[1]["content"].split("\n", 1)[1])
-    volatile_payload = json.loads(messages[3]["content"].split("\n", 1)[1])
+    volatile_payload = json.loads(messages[4]["content"].split("\n", 1)[1])
     assert stable_payload["task_run"]["diagnostics"] == {"graph_run_id": "graph:stable"}
     assert stable_payload["tool_catalog_hash"].startswith("sha256:")
     assert "input_schema" not in stable_payload["available_tools"][0]
@@ -266,13 +268,15 @@ def test_task_execution_packet_places_stable_contract_before_volatile_state() ->
     assert [segment.kind for segment in segment_map.segments] == [
         "global_static",
         "task_stable",
-        "dynamic_projection",
+        "task_prompt_contract",
+        "runtime_boundary",
         "volatile_task_state",
     ]
     assert [segment.cache_role for segment in segment_map.segments] == [
         "cacheable_prefix",
         "session_stable",
-        "volatile",
+        "session_stable",
+        "session_stable",
         "volatile",
     ]
     cache_record = PromptCachePlanner().plan(segment_map)
@@ -284,7 +288,7 @@ def test_task_execution_packet_places_stable_contract_before_volatile_state() ->
         segment_plan=result.packet.segment_plan,
     )
     assert model_request.stable_prefix_hash == cache_record.prefix_hash
-    assert cache_record.diagnostics["stable_prefix_segment_count"] == 2
+    assert cache_record.diagnostics["stable_prefix_segment_count"] == 4
     assert manifest["token_estimate"]["assembly_prompt_chars"] == manifest["token_estimate"]["prompt_chars"]
     assert manifest["token_estimate"]["model_visible_chars"] == sum(len(message["content"]) for message in messages)
     assert manifest["token_estimate"]["cacheable_prefix_chars"] > manifest["token_estimate"]["assembly_prompt_chars"]
@@ -331,9 +335,8 @@ def test_task_execution_stable_prefix_is_unchanged_across_runtime_state_updates(
 
     first_messages = first.packet.model_messages
     second_messages = second.packet.model_messages
-    assert first_messages[:2] == second_messages[:2]
-    assert first_messages[2] == second_messages[2]
-    assert first_messages[3] != second_messages[3]
+    assert first_messages[:4] == second_messages[:4]
+    assert first_messages[4] != second_messages[4]
 
     first_request = ModelRequestBuilder().build(
         request_id="modelreq:first-append-only",

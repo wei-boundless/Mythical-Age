@@ -588,6 +588,78 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(api.getGlobalRuntimeMonitor).toHaveBeenCalledTimes(2);
   });
 
+  it("projects background TaskRun step summaries from the monitor event stream into chat", () => {
+    const taskRunId = "taskrun:turn:session:stream:1:abc";
+    const store = createStore<StoreState>({
+      ...getDefaultState(),
+      currentSessionId: "session:stream",
+      messages: [
+        { id: "user:1", role: "user", content: "开始长任务", toolCalls: [], retrievals: [], sourceIndex: 0 },
+        { id: "assistant:1", role: "assistant", content: "任务已接管。", toolCalls: [], retrievals: [], sourceIndex: 1 },
+      ],
+    });
+    const runtime = new WorkspaceRuntime(store) as unknown as {
+      applyGlobalRuntimeMonitorStreamPayload: (payload: Record<string, unknown>) => void;
+    };
+
+    runtime.applyGlobalRuntimeMonitorStreamPayload({
+      source: "runtime_event_log",
+      monitor: monitorForTest([
+        itemForMonitor({
+          task_run_id: taskRunId,
+          session_id: "session:stream",
+          task_id: "task:turn:session:stream:1",
+          latest_event_type: "step_summary_recorded",
+          route: { kind: "chat_turn_runtime", session_id: "session:stream", task_run_id: taskRunId },
+        }),
+      ]),
+      runtime_event: {
+        event_id: "rtevt:step:1",
+        task_run_id: taskRunId,
+        event_type: "step_summary_recorded",
+        offset: 1,
+        created_at: 10,
+        payload: {
+          task_run_id: taskRunId,
+          step: "task_executor_started",
+          status: "running",
+          summary: "已接上当前工作，正在整理上下文。",
+          public_progress_note: "我正在整理任务上下文。",
+        },
+        refs: { task_run_ref: taskRunId },
+        authority: "orchestration.runtime_event",
+      },
+    });
+    runtime.applyGlobalRuntimeMonitorStreamPayload({
+      source: "runtime_event_log",
+      runtime_event: {
+        event_id: "rtevt:step:2",
+        task_run_id: taskRunId,
+        event_type: "step_summary_recorded",
+        offset: 2,
+        created_at: 11,
+        payload: {
+          task_run_id: taskRunId,
+          step: "task_model_action_invocation_started:1",
+          status: "running",
+          summary: "任务 runtime packet 已送入模型，系统正在等待 agent 返回任务动作。",
+          public_progress_note: "我已经把任务上下文交给 agent，正在等待下一步动作。",
+        },
+        refs: { task_run_ref: taskRunId },
+        authority: "orchestration.runtime_event",
+      },
+    });
+
+    const attachment = store.getState().messages[1]?.runtimeAttachments?.[0];
+    expect(attachment?.anchor_turn_id).toBe("turn:session:stream:1");
+    expect(attachment?.progress_entries?.map((item) => item.id)).toEqual(["rtevt:step:1", "rtevt:step:2"]);
+    expect(attachment?.progress_entries?.at(-1)).toMatchObject({
+      body: "我已经把任务上下文交给 agent，正在等待下一步动作。",
+      eventType: "step_summary_recorded",
+      taskRunId,
+    });
+  });
+
   it("slows bound monitor polling while a chat stream is active", async () => {
     api.streamChat.mockImplementation(() => new Promise(() => undefined));
     const store = createStore<StoreState>({

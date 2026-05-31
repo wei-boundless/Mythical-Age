@@ -474,6 +474,10 @@ class SubagentControl:
                     refs={"task_run_ref": child_task_run_id},
                 )
 
+        spawner = getattr(self.runtime_host, "spawn_background_task", None)
+        if callable(spawner):
+            spawner(_runner(), name=f"subagent-executor:{child_task_run_id}")
+            return
         asyncio.create_task(_runner())
 
 

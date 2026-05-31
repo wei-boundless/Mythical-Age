@@ -401,6 +401,17 @@ class _TaskExecutorSequenceModelRuntime:
         return SimpleNamespace(content=json.dumps(self.agent_turn_action_request, ensure_ascii=False))
 
 
+class _SlowTaskExecutorModelRuntime:
+    async def invoke_messages(self, _messages, **_kwargs):
+        await asyncio.sleep(0.1)
+        return SimpleNamespace(
+            content=json.dumps(
+                _action_request(action_type="respond", final_answer="慢任务完成。"),
+                ensure_ascii=False,
+            )
+        )
+
+
 def test_malformed_agent_action_request_fails_closed() -> None:
     runtime = build_query_runtime(model_runtime=_MalformedModelRuntime())
 
@@ -638,6 +649,62 @@ def test_task_executor_commits_final_answer_to_session_history() -> None:
         for item in messages
     )
     assert "task_run_final_message_commit_checked" in event_types
+
+
+def test_task_executor_wait_heartbeat_does_not_repeat_visible_step_summary(monkeypatch) -> None:
+    monkeypatch.setattr("harness.loop.task_executor._TASK_MODEL_ACTION_WAIT_STATUS_INTERVAL_SECONDS", 0.001)
+    runtime = build_query_runtime(model_runtime=_SlowTaskExecutorModelRuntime())
+    host = runtime.single_agent_runtime_host
+    contract = TaskRunContract(
+        contract_id="task-contract:slow-task-wait",
+        contract_source="test",
+        user_visible_goal="验证慢任务等待状态。",
+        task_run_goal="慢模型返回后完成。",
+        completion_criteria=("慢任务完成",),
+    )
+    contract_ref = host.runtime_objects.put_object("task_run_contract", contract.contract_id, contract.to_dict())
+    lifecycle = TaskLifecycleRecord(
+        task_run_id="taskrun:turn:session-slow-task:1:abc",
+        contract_ref=contract_ref,
+        status="waiting_executor",
+        created_at=1.0,
+        updated_at=1.0,
+    )
+    host.runtime_objects.put_object("task_lifecycle", lifecycle.task_run_id, lifecycle.to_dict())
+    host.state_index.upsert_task_run(
+        TaskRun(
+            task_run_id=lifecycle.task_run_id,
+            session_id="session-slow-task",
+            task_id="task:turn:session-slow-task:1",
+            task_contract_ref=contract_ref,
+            agent_profile_id="main_interactive_agent",
+            execution_runtime_kind="single_agent_task",
+            status="waiting_executor",
+            created_at=1.0,
+            updated_at=1.0,
+            diagnostics={"turn_id": "turn:session-slow-task:1", "contract": contract.to_dict()},
+        )
+    )
+
+    result = asyncio.run(runtime.execute_task_run(lifecycle.task_run_id, max_steps=1))
+
+    trace = host.get_trace(lifecycle.task_run_id, include_payloads=True)
+    events = list(dict(trace or {}).get("events") or [])
+    visible_wait_steps = [
+        event
+        for event in events
+        if str(dict(event).get("event_type") or "") == "step_summary_recorded"
+        and str(dict(dict(event).get("payload") or {}).get("step") or "").startswith("task_model_action_waiting:")
+    ]
+    wait_heartbeats = [
+        event
+        for event in events
+        if str(dict(event).get("event_type") or "") == "task_model_action_wait_heartbeat"
+    ]
+
+    assert result["ok"] is True
+    assert len(visible_wait_steps) == 1
+    assert wait_heartbeats
 
 
 def test_session_runtime_timeline_keeps_completed_task_attachment() -> None:
