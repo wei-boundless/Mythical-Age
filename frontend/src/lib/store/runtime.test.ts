@@ -221,15 +221,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     api.getOrchestrationRuntimeOptions.mockReset();
     api.getOrchestrationRuntimeOptions.mockResolvedValue({
       authority: "orchestration.runtime_options",
-      options: {
-        runtime_modes: [
-          { mode: "role", label: "角色模式" },
-          { mode: "standard", label: "标准模式" },
-          { mode: "professional", label: "专家模式" },
-          { mode: "custom", label: "自定义模式" },
-        ],
-        default_runtime_mode: "role",
-      },
+      options: {},
     });
     api.listSessions.mockReset();
     api.listSessions.mockResolvedValue([]);
@@ -1578,7 +1570,6 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
 
     expect(api.streamChat).toHaveBeenCalledTimes(1);
     expect(api.streamChat.mock.calls[0]?.[0]?.task_selection).toBeUndefined();
-    expect(api.streamChat.mock.calls[0]?.[0]?.runtime_mode).toBe("role");
   });
 
   it("sends an explicitly bound task environment to main-chat turns", async () => {

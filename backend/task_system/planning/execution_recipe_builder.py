@@ -77,25 +77,21 @@ def _step(
 def _recipe_profile(execution_shape: ExecutionShape) -> dict[str, Any]:
     recipe_id = str(execution_shape.recipe_id or "").strip()
     if recipe_id in {
-        "runtime.recipe.role_interaction",
-        "runtime.recipe.standard_task",
-        "runtime.recipe.professional_task",
+        "runtime.recipe.single_agent_task",
+        "runtime.recipe.graph_node_task",
     }:
-        mode_policy = dict(execution_shape.diagnostics.get("mode_policy") or {})
+        runtime_policy = dict(execution_shape.diagnostics.get("runtime_policy") or {})
         semantic_contract = dict(execution_shape.diagnostics.get("task_requirement_contract") or {})
-        interaction_mode = str(
-            mode_policy.get("interaction_mode")
-            or execution_shape.diagnostics.get("interaction_mode")
-            or execution_shape.execution_kind
-            or "professional_mode"
-        ).strip()
-        planning_policy = dict(mode_policy.get("planning_policy") or {})
-        task_lifecycle_policy = dict(mode_policy.get("task_lifecycle_policy") or {})
+        planning_policy = dict(runtime_policy.get("planning_policy") or {})
+        task_lifecycle_policy = dict(runtime_policy.get("task_lifecycle_policy") or {})
         execution_obligation = dict(semantic_contract.get("execution_obligation") or execution_shape.diagnostics.get("execution_obligation") or {})
-        professional = interaction_mode == "professional_mode"
-        standard_or_professional = interaction_mode in {"standard_mode", "professional_mode"}
+        real_work = bool(
+            list(execution_obligation.get("required_writes") or [])
+            or list(execution_obligation.get("required_commands") or [])
+            or list(execution_obligation.get("required_verifications") or [])
+        )
         runtime_task_id = _runtime_task_id_from_contract(semantic_contract)
-        if professional:
+        if real_work:
             try:
                 agent_plan_draft = build_agent_plan_draft(
                     task_id=runtime_task_id,
@@ -121,36 +117,35 @@ def _recipe_profile(execution_shape: ExecutionShape) -> dict[str, Any]:
             agent_plan_draft = {}
             plan_coverage_review = {}
         step_blueprints = _main_agent_runtime_steps(
-            mode_policy=mode_policy,
+            runtime_policy=runtime_policy,
             semantic_contract=semantic_contract,
             execution_obligation=execution_obligation,
         )
         optional_operations = _agent_runtime_operations(
-            mode_policy=mode_policy,
+            runtime_policy=runtime_policy,
             semantic_contract=semantic_contract,
             execution_obligation=execution_obligation,
         )
         if _agent_todo_explicitly_available(semantic_contract=semantic_contract):
             optional_operations = (*optional_operations, "op.agent_todo")
         return {
-            "title": _interaction_mode_title(interaction_mode),
-            "description": "Run the main Agent through the unified interaction-mode runtime with semantic contract, evidence, validation, and committed closeout.",
-            "task_mode": interaction_mode,
+            "title": "Main Agent task",
+            "description": "Run the main Agent through the unified task runtime with semantic contract, evidence, validation, and committed closeout.",
+            "task_mode": "single_agent_task",
             "source_kind": execution_shape.source_kind or "runtime_task",
             "output_schema": {
                 "final_answer": {"type": "string", "required": True},
-                "interaction_mode_summary": {"type": "object", "required": False},
+                "runtime_summary": {"type": "object", "required": False},
             },
             "required_operations": ("op.model_response",),
             "optional_operations": tuple(_dedupe(optional_operations)),
             "step_blueprints": step_blueprints,
             "metadata": {
-                "execution_strategy": "interaction_mode_run",
-                "interaction_mode": interaction_mode,
+                "execution_strategy": "single_agent_task_run",
                 "runtime_step_topology": "unified_agent_task_lifecycle",
                 "compiled_step_count": len(step_blueprints),
                 "compiled_step_ids": [step.step_id for step in step_blueprints],
-                "mode_policy": mode_policy,
+                "runtime_policy": runtime_policy,
                 "task_requirement_contract": semantic_contract,
                 "execution_obligation": execution_obligation,
                 "agent_plan_requirement": agent_plan_requirement,
@@ -158,54 +153,53 @@ def _recipe_profile(execution_shape: ExecutionShape) -> dict[str, Any]:
                 "plan_coverage_review": plan_coverage_review,
                 "semantic_task_type": str(semantic_contract.get("task_goal_type") or ""),
                 "professional_profile_id": str(semantic_contract.get("professional_profile_id") or ""),
-                "projection_strength": str(mode_policy.get("projection_strength") or ""),
-                "requires_evidence_packet": professional,
+                "requires_evidence_packet": real_work,
                 "runtime_limits": {
-                    "max_turns": 12 if professional else (4 if standard_or_professional else 2),
-                    "max_model_calls": 32 if professional else (12 if standard_or_professional else 4),
-                    "max_runtime_seconds": 1800 if professional else (600 if standard_or_professional else 120),
-                    "max_events": 480 if professional else (180 if standard_or_professional else 80),
-                    "repair_budget": 3 if professional else (1 if standard_or_professional else 0),
-                    "stall_detector": standard_or_professional,
+                    "max_turns": 12 if real_work else 4,
+                    "max_model_calls": 32 if real_work else 12,
+                    "max_runtime_seconds": 1800 if real_work else 600,
+                    "max_events": 480 if real_work else 180,
+                    "repair_budget": 3 if real_work else 1,
+                    "stall_detector": True,
                 },
                 "checkpoint_policy": {
                     "authority": "harness.runtime.assembly",
                     "terminal": True,
-                    "after_each_tool_action": professional,
-                    "after_delegation": professional,
+                    "after_each_tool_action": real_work,
+                    "after_delegation": real_work,
                 },
                 "delegation_policy": {
                     "authority": "harness.runtime.assembly",
-                    "requested": professional,
+                    "requested": real_work,
                 },
-                "runtime_mode_policy": {
-                    "authority": "task_system.runtime_mode_request",
+                "runtime_policy_projection": {
+                    "authority": "task_system.runtime_policy_request",
                     "planning_policy": planning_policy,
                     "task_lifecycle_policy": task_lifecycle_policy,
                     "tool_permission_authority": "harness.runtime.assembly",
                     "sandbox_authority": "task_environment",
                 },
                 "background_policy": {
-                    "enabled": professional,
+                    "enabled": real_work,
                     "progress_event_interval_seconds": 30,
-                    "notify_on_blocked": professional,
-                    "notify_on_completed": professional,
+                    "notify_on_blocked": real_work,
+                    "notify_on_completed": real_work,
                 },
                 "recovery_policy": {
-                    "allow_resume": professional,
-                    "manual_recovery_on_unknown_side_effect": professional,
+                    "allow_resume": real_work,
+                    "manual_recovery_on_unknown_side_effect": real_work,
                     "reuse_completed_read_results": True,
                 },
                 "verification_policy": {
-                    "required": standard_or_professional,
-                    "strict": professional,
-                    "deliverable_validator": standard_or_professional,
+                    "required": True,
+                    "strict": real_work,
+                    "deliverable_validator": True,
                 },
                 "final_answer_requirements": (
-                    "Answer according to the semantic task contract and the active interaction mode.",
+                    "Answer according to the semantic task contract and the active runtime policy.",
                     "Do not invent evidence, tool execution, file writes, or test results that did not happen.",
                     "Do not output tool calls, DSML, raw parameters, or internal protocol fragments.",
-                    *tuple(_deliverable_requirement_lines(semantic_contract, strict=professional)),
+                    *tuple(_deliverable_requirement_lines(semantic_contract, strict=real_work)),
                 ),
             },
         }
@@ -421,27 +415,19 @@ def _delegate_profile(
     }
 
 
-def _interaction_mode_title(interaction_mode: str) -> str:
-    return {
-        "role_mode": "Main Agent role interaction",
-        "standard_mode": "Main Agent standard task",
-        "professional_mode": "Main Agent professional task",
-    }.get(str(interaction_mode or ""), "Main Agent interaction task")
-
-
 def _main_agent_runtime_steps(
     *,
-    mode_policy: dict[str, Any],
+    runtime_policy: dict[str, Any],
     semantic_contract: dict[str, Any],
     execution_obligation: dict[str, Any],
 ) -> tuple[TaskStepBlueprint, ...]:
     execution_operations = _agent_runtime_operations(
-        mode_policy=mode_policy,
+        runtime_policy=runtime_policy,
         semantic_contract=semantic_contract,
         execution_obligation=execution_obligation,
     )
     verification_operations = _verification_operations(
-        mode_policy=mode_policy,
+        runtime_policy=runtime_policy,
         semantic_contract=semantic_contract,
         execution_obligation=execution_obligation,
     )
@@ -470,11 +456,11 @@ def _main_agent_runtime_steps(
 
 def _agent_runtime_operations(
     *,
-    mode_policy: dict[str, Any],
+    runtime_policy: dict[str, Any],
     semantic_contract: dict[str, Any],
     execution_obligation: dict[str, Any],
 ) -> tuple[str, ...]:
-    _ = mode_policy
+    _ = runtime_policy
     values = [str(item).strip() for item in list(semantic_contract.get("optional_operations") or []) if str(item).strip()]
     actions = {str(item).strip() for item in list(semantic_contract.get("required_actions") or []) if str(item).strip()}
     if list(execution_obligation.get("required_reads") or []) or actions.intersection({"read_material", "inspect_code"}):
@@ -490,13 +476,13 @@ def _agent_runtime_operations(
 
 def _verification_operations(
     *,
-    mode_policy: dict[str, Any],
+    runtime_policy: dict[str, Any],
     semantic_contract: dict[str, Any],
     execution_obligation: dict[str, Any],
 ) -> tuple[str, ...]:
     values = list(
         _agent_runtime_operations(
-            mode_policy=mode_policy,
+            runtime_policy=runtime_policy,
             semantic_contract=semantic_contract,
             execution_obligation=execution_obligation,
         )

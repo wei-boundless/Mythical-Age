@@ -11,20 +11,12 @@ import {
   type OrchestrationOption,
 } from "@/components/workspace/views/orchestration/OrchestrationWorkbenchUi";
 import type { OrchestrationCapabilityItem } from "@/lib/api";
-import {
-  normalizeDefaultRuntimeMode,
-  normalizeRuntimeModes,
-  runtimeModeCatalogFrom,
-  type RuntimeModeConfig,
-} from "@/lib/runtimeModeConfig";
 
 type RuntimeDraftLike = {
   agent_profile_id?: string;
   approval_policy?: string;
   trace_policy?: string;
   lifecycle_policy?: string;
-  enabled_runtime_modes?: string[];
-  default_runtime_mode?: string;
   allowed_operations?: string[];
   blocked_operations?: string[];
   allowed_memory_scopes?: string[];
@@ -52,7 +44,6 @@ type RuntimeDraftLike = {
     capability_tags?: string[];
     metadata?: Record<string, unknown>;
   };
-  runtime_mode_catalog?: Array<Record<string, unknown>>;
   metadata?: Record<string, unknown>;
 };
 
@@ -125,7 +116,7 @@ function numberOrNull(value: string) {
 }
 
 type SearchRuntimeConfig = {
-  runtime_mode: "single_search" | "deepsearch";
+  search_strategy: "single_search" | "deepsearch";
   search_sources: string[];
   web_provider: string;
   allow_fetch_url: boolean;
@@ -144,7 +135,7 @@ type SearchRuntimeConfig = {
 };
 
 const DEFAULT_SEARCH_RUNTIME_CONFIG: SearchRuntimeConfig = {
-  runtime_mode: "deepsearch",
+  search_strategy: "deepsearch",
   search_sources: ["web", "local_files", "rag", "memory"],
   web_provider: "tavily",
   allow_fetch_url: true,
@@ -165,7 +156,7 @@ const DEFAULT_SEARCH_RUNTIME_CONFIG: SearchRuntimeConfig = {
 type GenericRuntimeConfig = {
   template_id: string;
   runtime_kind: string;
-  runtime_mode: string;
+  execution_strategy: string;
   max_iterations: number;
   max_tool_calls: number;
   max_sources: number;
@@ -178,7 +169,7 @@ type GenericRuntimeConfig = {
 const DEFAULT_GENERIC_RUNTIME_CONFIG: GenericRuntimeConfig = {
   template_id: "runtime.template.general_agent",
   runtime_kind: "agent_loop",
-  runtime_mode: "standard",
+  execution_strategy: "agent_loop",
   max_iterations: 4,
   max_tool_calls: 12,
   max_sources: 12,
@@ -190,7 +181,7 @@ const DEEPSEARCH_RUNTIME_TEMPLATE: GenericRuntimeConfig = {
   ...DEFAULT_GENERIC_RUNTIME_CONFIG,
   template_id: "runtime.template.deepsearch",
   runtime_kind: "search_agent",
-  runtime_mode: "deepsearch",
+  execution_strategy: "deepsearch",
   max_iterations: DEFAULT_SEARCH_RUNTIME_CONFIG.max_iterations,
   max_tool_calls: DEFAULT_SEARCH_RUNTIME_CONFIG.max_queries + DEFAULT_SEARCH_RUNTIME_CONFIG.max_fetches,
   max_sources: DEFAULT_SEARCH_RUNTIME_CONFIG.max_sources,
@@ -203,7 +194,7 @@ const CONTEXT_COMPACTOR_RUNTIME_TEMPLATE: GenericRuntimeConfig = {
   ...DEFAULT_GENERIC_RUNTIME_CONFIG,
   template_id: "runtime.template.context_compactor",
   runtime_kind: "context_compactor",
-  runtime_mode: "llm_compaction",
+  execution_strategy: "llm_compaction",
   max_iterations: 1,
   max_tool_calls: 0,
   max_sources: 0,
@@ -227,12 +218,12 @@ const SEARCH_RUNTIME_MEMORY_OPERATIONS = ["op.memory_read"];
 
 function searchRuntimeConfigFrom(value: unknown): SearchRuntimeConfig {
   const raw = asRecord(value);
-  const runtimeMode = String(raw.runtime_mode || DEFAULT_SEARCH_RUNTIME_CONFIG.runtime_mode);
+  const searchStrategy = String(raw.search_strategy || DEFAULT_SEARCH_RUNTIME_CONFIG.search_strategy);
   const searchDepth = String(raw.search_depth || DEFAULT_SEARCH_RUNTIME_CONFIG.search_depth);
   return {
     ...DEFAULT_SEARCH_RUNTIME_CONFIG,
     ...raw,
-    runtime_mode: runtimeMode === "single_search" ? "single_search" : "deepsearch",
+    search_strategy: searchStrategy === "single_search" ? "single_search" : "deepsearch",
     search_sources: dedupe(Array.isArray(raw.search_sources) ? raw.search_sources.map(String) : DEFAULT_SEARCH_RUNTIME_CONFIG.search_sources),
     web_provider: String(raw.web_provider || DEFAULT_SEARCH_RUNTIME_CONFIG.web_provider),
     allow_fetch_url: Boolean(raw.allow_fetch_url ?? DEFAULT_SEARCH_RUNTIME_CONFIG.allow_fetch_url),
@@ -260,7 +251,7 @@ function runtimeConfigFrom(metadata: Record<string, unknown> | undefined): Gener
     ...raw,
     template_id: String(raw.template_id || (nestedSearch ? DEEPSEARCH_RUNTIME_TEMPLATE.template_id : DEFAULT_GENERIC_RUNTIME_CONFIG.template_id)),
     runtime_kind: String(raw.runtime_kind || (nestedSearch ? "search_agent" : DEFAULT_GENERIC_RUNTIME_CONFIG.runtime_kind)),
-    runtime_mode: String(raw.runtime_mode || (nestedSearch ? "deepsearch" : DEFAULT_GENERIC_RUNTIME_CONFIG.runtime_mode)),
+    execution_strategy: String(raw.execution_strategy || (nestedSearch ? "deepsearch" : DEFAULT_GENERIC_RUNTIME_CONFIG.execution_strategy)),
     max_iterations: Math.max(1, Math.min(30, Number(raw.max_iterations ?? nestedSearch?.max_iterations ?? DEFAULT_GENERIC_RUNTIME_CONFIG.max_iterations))),
     max_tool_calls: Math.max(1, Math.min(100, Number(raw.max_tool_calls ?? (derivedToolCallBudget || DEFAULT_GENERIC_RUNTIME_CONFIG.max_tool_calls)))),
     max_sources: Math.max(1, Math.min(100, Number(raw.max_sources ?? nestedSearch?.max_sources ?? DEFAULT_GENERIC_RUNTIME_CONFIG.max_sources))),
@@ -288,21 +279,21 @@ function runtimeTemplateRuntimeKind(templateId: string) {
   return DEFAULT_GENERIC_RUNTIME_CONFIG.runtime_kind;
 }
 
-function runtimeTemplateModes(templateId: string) {
+function runtimeTemplateStrategies(templateId: string) {
   if (templateId === DEEPSEARCH_RUNTIME_TEMPLATE.template_id) return ["deepsearch", "single_search"];
   if (templateId === CONTEXT_COMPACTOR_RUNTIME_TEMPLATE.template_id) return ["llm_compaction", "deterministic_fallback"];
-  return ["standard"];
+  return ["agent_loop"];
 }
 
-function validRuntimeModeForTemplate(templateId: string, runtimeMode: string) {
-  const modes = runtimeTemplateModes(templateId);
-  return modes.includes(runtimeMode) ? runtimeMode : modes[0];
+function validExecutionStrategyForTemplate(templateId: string, executionStrategy: string) {
+  const strategies = runtimeTemplateStrategies(templateId);
+  return strategies.includes(executionStrategy) ? executionStrategy : strategies[0];
 }
 
 function runtimeTemplateIssue(config: GenericRuntimeConfig) {
   const expectedKind = runtimeTemplateRuntimeKind(config.template_id);
   if (config.runtime_kind !== expectedKind) return `模板要求 Runtime Kind 为 ${expectedKind}`;
-  if (!runtimeTemplateModes(config.template_id).includes(config.runtime_mode)) return `模板不支持 Runtime Mode ${config.runtime_mode}`;
+  if (!runtimeTemplateStrategies(config.template_id).includes(config.execution_strategy)) return `模板不支持执行策略 ${config.execution_strategy}`;
   return "";
 }
 
@@ -313,25 +304,6 @@ function nextSearchSources(config: SearchRuntimeConfig) {
     ...(config.search_sources.includes("rag") ? ["rag"] : []),
     ...(config.allow_memory_read ? ["memory"] : []),
   ]);
-}
-
-type PendingRuntimeModeChange = {
-  mode: string;
-  checked: boolean;
-} | null;
-
-function runtimeModeLabel(mode: RuntimeModeConfig) {
-  return mode.label || mode.mode;
-}
-
-function runtimeModeConfigSummary(mode: RuntimeModeConfig) {
-  if (mode.mode === "custom") return "自定义行为配置";
-  return mode.interaction_mode || mode.recipe_id || "-";
-}
-
-function runtimeModeDefaultLabel(mode: RuntimeModeConfig, defaultMode: string) {
-  if (mode.mode === "custom") return "手工";
-  return defaultMode === mode.mode ? "默认" : "设默认";
 }
 
 export function OrchestrationModelRuntimeWorkbench({
@@ -487,7 +459,6 @@ export function OrchestrationRuntimePermissionWorkbench({
   approvalPolicyOptions,
   tracePolicyOptions,
   displayId,
-  runtimeModeSummary,
   capabilityItems,
   operationOptions,
   operationOptionItems,
@@ -503,7 +474,6 @@ export function OrchestrationRuntimePermissionWorkbench({
   approvalPolicyOptions: OrchestrationOption[];
   tracePolicyOptions: OrchestrationOption[];
   displayId: (value: unknown, fallback?: string) => string;
-  runtimeModeSummary: string;
   capabilityItems: OrchestrationCapabilityItem[];
   operationOptions: string[];
   operationOptionItems: OrchestrationOption[];
@@ -512,48 +482,6 @@ export function OrchestrationRuntimePermissionWorkbench({
   allowedOpsCount: number;
   blockedOpsCount: number;
 }) {
-  const runtimeModeCatalog = useMemo(
-    () => runtimeModeCatalogFrom(runtimeDraft.runtime_mode_catalog),
-    [runtimeDraft.runtime_mode_catalog],
-  );
-  const enabledModes = normalizeRuntimeModes(runtimeDraft.enabled_runtime_modes, runtimeModeCatalog);
-  const defaultMode = normalizeDefaultRuntimeMode(runtimeDraft.default_runtime_mode, enabledModes);
-  const enabledModeSet = useMemo(() => new Set(enabledModes), [enabledModes]);
-  const [pendingModeChange, setPendingModeChange] = useState<PendingRuntimeModeChange>(null);
-
-  function applyModes(nextModes: string[], nextDefaultMode = defaultMode) {
-    const normalizedModes = normalizeRuntimeModes(nextModes, runtimeModeCatalog);
-    const normalizedDefault = normalizeDefaultRuntimeMode(nextDefaultMode, normalizedModes);
-    patchRuntimeDraft({
-      enabled_runtime_modes: normalizedModes,
-      default_runtime_mode: normalizedDefault,
-    });
-  }
-
-  function confirmPendingModeChange() {
-    if (!pendingModeChange) return;
-    const { mode, checked } = pendingModeChange;
-    const nextModes = checked
-      ? dedupe([...enabledModes, mode])
-      : enabledModes.filter((item) => item !== mode);
-    const nonEmptyModes = nextModes.length ? nextModes : ["custom"];
-    const nextDefaultMode = checked
-      ? mode === "custom"
-        ? defaultMode
-        : mode
-      : defaultMode === mode
-        ? nonEmptyModes[0] || "custom"
-        : defaultMode;
-    applyModes(nonEmptyModes, nextDefaultMode);
-    setPendingModeChange(null);
-  }
-
-  function setDefaultMode(mode: string) {
-    if (mode === "custom") return;
-    if (!enabledModeSet.has(mode)) return;
-    patchRuntimeDraft({ default_runtime_mode: mode });
-  }
-
   return (
     <section className="boundary-layer-grid boundary-layer-grid--wide">
       <div className="boundary-card">
@@ -583,54 +511,10 @@ export function OrchestrationRuntimePermissionWorkbench({
             <input value={runtimeDraft.lifecycle_policy || ""} onChange={(event) => patchRuntimeDraft({ lifecycle_policy: event.target.value })} />
           </OrchestrationField>
         </div>
-        <div className="orchestration-runtime-mode-panel">
-          <div className="orchestration-runtime-mode-panel__head">
-            <span>运行模式配置</span>
-            <small>{enabledModes.length} 项 / 默认 {runtimeModeCatalog.find((mode) => mode.mode === defaultMode)?.label || defaultMode}</small>
-          </div>
-          <div className="orchestration-runtime-mode-grid">
-            {runtimeModeCatalog.map((mode) => {
-              const active = enabledModeSet.has(mode.mode);
-              return (
-                <div className={active ? "orchestration-runtime-mode-row orchestration-runtime-mode-row--active" : "orchestration-runtime-mode-row"} key={mode.mode}>
-                  <button
-                    aria-pressed={active}
-                    onClick={() => setPendingModeChange({ mode: mode.mode, checked: !active })}
-                    type="button"
-                  >
-                    <span>{runtimeModeLabel(mode)}</span>
-                    <strong>{runtimeModeConfigSummary(mode)}</strong>
-                  </button>
-                  <button
-                    className={defaultMode === mode.mode ? "orchestration-runtime-mode-default orchestration-runtime-mode-default--active" : "orchestration-runtime-mode-default"}
-                    disabled={!active || mode.mode === "custom"}
-                    onClick={() => setDefaultMode(mode.mode)}
-                    type="button"
-                  >
-                    {runtimeModeDefaultLabel(mode, defaultMode)}
-                  </button>
-                </div>
-              );
-            })}
-          </div>
-          {pendingModeChange ? (
-            <div className="orchestration-runtime-mode-confirm">
-              <span>
-                确认{pendingModeChange.checked ? "启用" : "关闭"}
-                {runtimeModeCatalog.find((mode) => mode.mode === pendingModeChange.mode)?.label || pendingModeChange.mode}
-                ？
-              </span>
-              <button onClick={confirmPendingModeChange} type="button">确认</button>
-              <button onClick={() => setPendingModeChange(null)} type="button">取消</button>
-            </div>
-          ) : null}
-        </div>
       </div>
       <aside className="boundary-card">
         <header><strong>运行权限摘要</strong></header>
         <div className="boundary-kv">
-          <p><span>运行模式</span><strong>{displayModeSummary(enabledModes, runtimeModeCatalog)}</strong></p>
-          <p><span>模式摘要</span><strong>{runtimeModeSummary}</strong></p>
           <p><span>允许操作</span><strong>{allowedOpsCount}</strong></p>
           <p><span>阻断操作</span><strong>{blockedOpsCount}</strong></p>
           <p><span>冲突</span><strong>{overlapSummary}</strong></p>
@@ -651,11 +535,6 @@ export function OrchestrationRuntimePermissionWorkbench({
       />
     </section>
   );
-}
-
-function displayModeSummary(enabledModes: string[], catalog: RuntimeModeConfig[]) {
-  const labels = new Map(catalog.map((mode) => [mode.mode, runtimeModeLabel(mode)]));
-  return enabledModes.length ? enabledModes.map((mode) => labels.get(mode) || mode).join(" / ") : "未配置";
 }
 
 export function OrchestrationOperationAuthorizationWorkbench({
@@ -1067,12 +946,12 @@ export function OrchestrationRuntimeConfigWorkbench({
 
   function patchRuntimeConfig(patch: Partial<GenericRuntimeConfig>) {
     const nextTemplateId = String(patch.template_id ?? runtimeConfig.template_id);
-    const nextRuntimeMode = String(patch.runtime_mode ?? runtimeConfig.runtime_mode);
+    const nextExecutionStrategy = String(patch.execution_strategy ?? runtimeConfig.execution_strategy);
     writeRuntimeConfig({
       ...runtimeConfig,
       ...patch,
       runtime_kind: runtimeTemplateRuntimeKind(nextTemplateId),
-      runtime_mode: validRuntimeModeForTemplate(nextTemplateId, nextRuntimeMode),
+      execution_strategy: validExecutionStrategyForTemplate(nextTemplateId, nextExecutionStrategy),
     });
   }
 
@@ -1086,7 +965,7 @@ export function OrchestrationRuntimeConfigWorkbench({
       ...runtimeConfig,
       template_id: runtimeConfig.template_id === DEFAULT_GENERIC_RUNTIME_CONFIG.template_id ? DEEPSEARCH_RUNTIME_TEMPLATE.template_id : runtimeConfig.template_id,
       runtime_kind: "search_agent",
-      runtime_mode: nextConfig.runtime_mode,
+      execution_strategy: nextConfig.search_strategy,
       max_iterations: nextConfig.max_iterations,
       max_tool_calls: nextConfig.max_queries + nextConfig.max_fetches,
       max_sources: nextConfig.max_sources,
@@ -1150,10 +1029,10 @@ export function OrchestrationRuntimeConfigWorkbench({
               <option value={runtimeTemplateRuntimeKind(runtimeConfig.template_id)}>{runtimeTemplateRuntimeKind(runtimeConfig.template_id)}</option>
             </select>
           </OrchestrationField>
-          <OrchestrationField label="Runtime Mode">
-            <select value={validRuntimeModeForTemplate(runtimeConfig.template_id, runtimeConfig.runtime_mode)} onChange={(event) => patchRuntimeConfig({ runtime_mode: event.target.value })}>
-              {runtimeTemplateModes(runtimeConfig.template_id).map((mode) => (
-                <option key={mode} value={mode}>{mode}</option>
+          <OrchestrationField label="执行策略">
+            <select value={validExecutionStrategyForTemplate(runtimeConfig.template_id, runtimeConfig.execution_strategy)} onChange={(event) => patchRuntimeConfig({ execution_strategy: event.target.value })}>
+              {runtimeTemplateStrategies(runtimeConfig.template_id).map((strategy) => (
+                <option key={strategy} value={strategy}>{strategy}</option>
               ))}
             </select>
           </OrchestrationField>
@@ -1181,8 +1060,8 @@ export function OrchestrationRuntimeConfigWorkbench({
           <strong>以下字段是通用 runtime_config.search 的结构化编辑，不是单独的 Search 专用配置页。</strong>
         </div>
         <div className="boundary-form">
-          <OrchestrationField label="运行模式">
-            <select value={config.runtime_mode} onChange={(event) => patchSearchRuntime({ runtime_mode: event.target.value === "single_search" ? "single_search" : "deepsearch" })}>
+          <OrchestrationField label="搜索策略">
+            <select value={config.search_strategy} onChange={(event) => patchSearchRuntime({ search_strategy: event.target.value === "single_search" ? "single_search" : "deepsearch" })}>
               <option value="deepsearch">DeepSearch 多轮研究</option>
               <option value="single_search">单次搜索</option>
             </select>
@@ -1346,7 +1225,7 @@ export function OrchestrationRuntimeConfigWorkbench({
         <div className={missingOps.length || blockedRequiredOps.length || templateIssue ? "boundary-notice boundary-notice--error" : "boundary-notice"}>
           {missingOps.length || blockedRequiredOps.length || templateIssue ? <AlertTriangle size={16} /> : <Info size={16} />}
           {templateIssue
-            ? "当前 runtime_config 与模板约束不一致，请重新选择运行模板或 Runtime Mode。"
+            ? "当前 runtime_config 与模板约束不一致，请重新选择运行模板或执行策略。"
             : missingOps.length || blockedRequiredOps.length
             ? "当前配置可以保存，但权限未齐备。请应用模板权限预设后保存运行档案。"
             : "配置必须点击保存运行档案后才会生效；运行时读取 metadata.runtime_config 装配。"}
@@ -1448,7 +1327,6 @@ export function OrchestrationCollaborationWorkbench({
 export function OrchestrationAssemblyOverviewWorkbench({
   agentDraft,
   runtimeDraft,
-  runtimeSummary,
   operationSummary,
   memorySummary,
   contextSummary,
@@ -1458,7 +1336,6 @@ export function OrchestrationAssemblyOverviewWorkbench({
 }: {
   agentDraft: AgentDraftLike;
   runtimeDraft: RuntimeDraftLike;
-  runtimeSummary: string;
   operationSummary: string;
   memorySummary: string;
   contextSummary: string;
@@ -1468,7 +1345,6 @@ export function OrchestrationAssemblyOverviewWorkbench({
 }) {
   const cards = [
     { label: "Agent 身份", value: agentDraft.agent_name || agentDraft.agent_id || "未配置", ready: Boolean(agentDraft.agent_id && agentDraft.agent_name), layer: "identity" as const },
-    { label: "运行模式", value: runtimeSummary, ready: Boolean((runtimeDraft.enabled_runtime_modes ?? []).length), layer: "runtime_permissions" as const },
     { label: "运行操作", value: operationSummary, ready: Boolean((runtimeDraft.allowed_operations ?? []).length), layer: "runtime_permissions" as const },
     { label: "模型运行", value: modelSummary, ready: true, layer: "model_runtime" as const },
     { label: "记忆边界", value: memorySummary, ready: Boolean((runtimeDraft.allowed_memory_scopes ?? []).length), layer: "context_memory" as const },

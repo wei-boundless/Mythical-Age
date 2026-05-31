@@ -136,7 +136,6 @@ class PromptAssemblyService:
         prompt_refs: tuple[str, ...] | list[str],
         agent_profile_ref: str = "",
         task_environment_ref: str = "",
-        runtime_mode: str = "",
     ) -> PromptAssemblyResult:
         return self.assemble(
             PromptAssemblyRequest(
@@ -145,7 +144,6 @@ class PromptAssemblyService:
                 prompt_refs=tuple(str(item).strip() for item in list(prompt_refs or []) if str(item).strip()),
                 agent_profile_ref=agent_profile_ref,
                 task_environment_ref=task_environment_ref,
-                runtime_mode=runtime_mode,
             )
         )
 
@@ -159,10 +157,6 @@ def _resource_rejection_reason(resource: dict[str, Any], *, request: dict[str, A
     allowed_invocation_kinds = {str(item) for item in list(resource.get("allowed_invocation_kinds") or []) if str(item)}
     if allowed_invocation_kinds and invocation_kind not in allowed_invocation_kinds:
         return "resource_invocation_kind_mismatch"
-    runtime_mode = str(request.get("runtime_mode") or "")
-    allowed_runtime_modes = {str(item) for item in list(resource.get("allowed_runtime_modes") or []) if str(item)}
-    if allowed_runtime_modes and runtime_mode and runtime_mode not in allowed_runtime_modes:
-        return "resource_runtime_mode_mismatch"
     agent_ref = str(request.get("agent_profile_ref") or "")
     allowed_agent_refs = {str(item) for item in list(resource.get("allowed_agent_refs") or []) if str(item)}
     if allowed_agent_refs and agent_ref and agent_ref not in allowed_agent_refs:
@@ -175,10 +169,6 @@ def _resource_rejection_reason(resource: dict[str, Any], *, request: dict[str, A
 
 
 def _pack_rejection_reason(pack: dict[str, Any], *, request: dict[str, Any]) -> str:
-    runtime_mode = str(request.get("runtime_mode") or "")
-    allowed_runtime_modes = {str(item) for item in list(pack.get("allowed_runtime_modes") or []) if str(item)}
-    if allowed_runtime_modes and runtime_mode and runtime_mode not in allowed_runtime_modes:
-        return "pack_runtime_mode_mismatch"
     agent_ref = str(request.get("agent_profile_ref") or "")
     allowed_agent_refs = {str(item) for item in list(pack.get("allowed_agent_refs") or []) if str(item)}
     if allowed_agent_refs and agent_ref and agent_ref not in allowed_agent_refs:

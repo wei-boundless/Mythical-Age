@@ -425,7 +425,7 @@ def _combine_search_payloads(
         "time_range": time_range,
         "results": results,
         "usage": {
-            "runtime_mode": config.runtime_mode,
+            "search_strategy": config.search_strategy,
             "search_sources": list(_configured_sources(config)),
             "queries_executed": len(state.executed_queries),
             "fetches_executed": len(state.fetched_sources),

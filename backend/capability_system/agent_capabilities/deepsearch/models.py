@@ -7,13 +7,13 @@ from typing import Any, Literal
 DEEPSEARCH_TEMPLATE_ID = "runtime.template.deepsearch"
 GENERAL_TEMPLATE_ID = "runtime.template.general_agent"
 
-SearchRuntimeMode = Literal["single_search", "deepsearch"]
+SearchStrategy = Literal["single_search", "deepsearch"]
 SearchDepth = Literal["basic", "advanced"]
 
 
 @dataclass(frozen=True, slots=True)
 class SearchRuntimeConfig:
-    runtime_mode: SearchRuntimeMode = "deepsearch"
+    search_strategy: SearchStrategy = "deepsearch"
     search_sources: tuple[str, ...] = ("web",)
     web_provider: str = "tavily"
     allow_fetch_url: bool = True
@@ -36,7 +36,7 @@ class SearchRuntimeConfig:
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "runtime_mode": self.runtime_mode,
+            "search_strategy": self.search_strategy,
             "search_sources": list(self.search_sources),
             "web_provider": self.web_provider,
             "allow_fetch_url": self.allow_fetch_url,
@@ -63,7 +63,7 @@ class SearchRuntimeConfig:
 class GenericRuntimeConfig:
     template_id: str = GENERAL_TEMPLATE_ID
     runtime_kind: str = "agent_loop"
-    runtime_mode: str = "standard"
+    execution_strategy: str = "agent_loop"
     max_iterations: int = 4
     max_tool_calls: int = 12
     max_sources: int = 12
@@ -76,7 +76,7 @@ class GenericRuntimeConfig:
         payload = {
             "template_id": self.template_id,
             "runtime_kind": self.runtime_kind,
-            "runtime_mode": self.runtime_mode,
+            "execution_strategy": self.execution_strategy,
             "max_iterations": self.max_iterations,
             "max_tool_calls": self.max_tool_calls,
             "max_sources": self.max_sources,
@@ -95,19 +95,19 @@ def normalize_runtime_config(value: Any) -> GenericRuntimeConfig:
     template_id = str(raw.get("template_id") or (DEEPSEARCH_TEMPLATE_ID if search else GENERAL_TEMPLATE_ID)).strip()
     if template_id == DEEPSEARCH_TEMPLATE_ID:
         runtime_kind = "search_agent"
-        default_mode = search.runtime_mode if search else "deepsearch"
+        default_strategy = search.search_strategy if search else "deepsearch"
     else:
         runtime_kind = "agent_loop"
-        default_mode = "standard"
-    runtime_mode = str(raw.get("runtime_mode") or default_mode).strip()
-    if template_id == DEEPSEARCH_TEMPLATE_ID and runtime_mode not in {"deepsearch", "single_search"}:
-        runtime_mode = default_mode
+        default_strategy = "agent_loop"
+    execution_strategy = str(raw.get("execution_strategy") or default_strategy).strip()
+    if template_id == DEEPSEARCH_TEMPLATE_ID and execution_strategy not in {"deepsearch", "single_search"}:
+        execution_strategy = default_strategy
     if template_id != DEEPSEARCH_TEMPLATE_ID:
-        runtime_mode = "standard"
+        execution_strategy = "agent_loop"
     return GenericRuntimeConfig(
         template_id=template_id,
         runtime_kind=runtime_kind,
-        runtime_mode=runtime_mode,
+        execution_strategy=execution_strategy,
         max_iterations=_clamp_int(raw.get("max_iterations"), 1, 30, search.max_iterations if search else 4),
         max_tool_calls=_clamp_int(raw.get("max_tool_calls"), 1, 100, derived_tool_budget),
         max_sources=_clamp_int(raw.get("max_sources"), 1, 100, search.max_sources if search else 12),
@@ -120,10 +120,10 @@ def normalize_runtime_config(value: Any) -> GenericRuntimeConfig:
 
 def normalize_search_runtime_config(value: Any) -> SearchRuntimeConfig:
     raw = _as_record(value)
-    runtime_mode = str(raw.get("runtime_mode") or "deepsearch").strip()
+    search_strategy = str(raw.get("search_strategy") or "deepsearch").strip()
     search_depth = str(raw.get("search_depth") or "advanced").strip()
     return SearchRuntimeConfig(
-        runtime_mode="single_search" if runtime_mode == "single_search" else "deepsearch",
+        search_strategy="single_search" if search_strategy == "single_search" else "deepsearch",
         search_sources=_dedupe([str(item) for item in list(raw.get("search_sources") or ["web"])]),
         web_provider=str(raw.get("web_provider") or "tavily").strip() or "tavily",
         allow_fetch_url=bool(raw.get("allow_fetch_url", True)),

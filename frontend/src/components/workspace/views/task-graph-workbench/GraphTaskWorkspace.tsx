@@ -27,6 +27,7 @@ import {
   sortTaskGraphsForWorkbench,
   taskGraphEnvironmentId,
 } from "@/components/workspace/views/task-system/taskGraphSelection";
+import { normalizeTaskGraphSemanticRelationPresets } from "@/components/workspace/views/task-system/taskGraphSemanticRelations";
 import { buildTaskGraphTemplateDraft, type TaskGraphTemplateId } from "@/components/workspace/views/task-system/taskGraphTemplates";
 import {
   graphEdgeId,
@@ -376,6 +377,10 @@ export function GraphTaskWorkspace({
     () => sortTaskGraphsForWorkbench(consolePayload?.task_graph_management?.task_graphs ?? []),
     [consolePayload],
   );
+  const semanticRelationPresets = useMemo(
+    () => normalizeTaskGraphSemanticRelationPresets(consolePayload?.task_graph_management?.semantic_relations),
+    [consolePayload],
+  );
   const a2aCatalog = useMemo(() => {
     const protocol = consolePayload?.task_graph_management?.a2a;
     if (!protocol) return null;
@@ -486,6 +491,17 @@ export function GraphTaskWorkspace({
     };
   }, [activeTaskGraphId]);
 
+  const activeGraphNodes = taskGraphDraftV2.nodes ?? [];
+  const activeGraphEdges = taskGraphDraftV2.edges ?? [];
+  const taskGraphDraftRevision = taskGraphDraftRevisionKey({
+    graphId: taskGraphDraftV2.graph_id,
+    nodes: activeGraphNodes,
+    edges: activeGraphEdges,
+    metadata: asRecord(taskGraphDraftV2.metadata),
+  });
+  const taskGraphDraftRevisionRef = useRef(taskGraphDraftRevision);
+  taskGraphDraftRevisionRef.current = taskGraphDraftRevision;
+
   const refreshTaskGraphStandardView = useCallback(async () => {
     if (!activeTaskGraphId) {
       setTaskGraphStandardViewState(emptyTaskGraphStandardViewState());
@@ -499,12 +515,7 @@ export function GraphTaskWorkspace({
       setTaskGraphStandardViewState(loadedTaskGraphStandardViewState({
         view: payload,
         graphId: activeTaskGraphId,
-        revisionKey: taskGraphDraftRevisionKey({
-          graphId: taskGraphDraftV2.graph_id,
-          nodes: taskGraphDraftV2.nodes ?? [],
-          edges: taskGraphDraftV2.edges ?? [],
-          metadata: asRecord(taskGraphDraftV2.metadata),
-        }),
+        revisionKey: taskGraphDraftRevisionRef.current,
       }));
     } catch (exc) {
       setTaskGraphStandardViewState(emptyTaskGraphStandardViewState());
@@ -512,7 +523,7 @@ export function GraphTaskWorkspace({
     } finally {
       setTaskGraphStandardViewLoading(false);
     }
-  }, [activeTaskGraphId, taskGraphDraftV2]);
+  }, [activeTaskGraphId]);
 
   useEffect(() => {
     if (!activeTaskGraphId) {
@@ -520,8 +531,9 @@ export function GraphTaskWorkspace({
       setTaskGraphStandardViewError("");
       return;
     }
+    if (taskGraphDraftV2.graph_id !== activeTaskGraphId) return;
     void refreshTaskGraphStandardView();
-  }, [activeTaskGraphId, refreshTaskGraphStandardView]);
+  }, [activeTaskGraphId, refreshTaskGraphStandardView, taskGraphDraftV2.graph_id]);
 
   useEffect(() => {
     if (!editorTaskGraphs.some((item) => item.graph_id === editorTaskGraphId)) {
@@ -1088,14 +1100,6 @@ export function GraphTaskWorkspace({
     }
   }
 
-  const activeGraphNodes = taskGraphDraftV2.nodes ?? [];
-  const activeGraphEdges = taskGraphDraftV2.edges ?? [];
-  const taskGraphDraftRevision = taskGraphDraftRevisionKey({
-    graphId: taskGraphDraftV2.graph_id,
-    nodes: activeGraphNodes,
-    edges: activeGraphEdges,
-    metadata: asRecord(taskGraphDraftV2.metadata),
-  });
   const taskGraphStandardView = taskGraphStandardViewState.view;
   const taskGraphStandardViewStale = taskGraphStandardViewState.stale;
   const selectedGraphNodeId = taskGraphEditorSelection.canonicalNodeId;
@@ -1387,6 +1391,7 @@ export function GraphTaskWorkspace({
         updateTaskGraphPublishState={updateTaskGraphPublishState}
         updateTaskGraphRuntimePolicy={updateTaskGraphRuntimePolicy}
         orchestrationAgentCatalog={orchestrationAgentCatalog}
+        semanticRelationPresets={semanticRelationPresets}
       />
     </section>
   );

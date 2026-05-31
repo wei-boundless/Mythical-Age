@@ -46,7 +46,7 @@ def _profile(**metadata):
                 "runtime_config": {
                     "template_id": CODEBASE_SEARCH_TEMPLATE_ID,
                     "runtime_kind": "codebase_search_agent",
-                    "runtime_mode": "readonly_recon",
+                    "execution_strategy": "readonly_recon",
                     "codebase_search": {
                         "max_queries": 8,
                         "max_text_results": 20,

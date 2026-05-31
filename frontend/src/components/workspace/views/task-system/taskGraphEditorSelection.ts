@@ -167,8 +167,10 @@ export function markTaskGraphStandardViewStale(
   currentRevisionKey: string,
 ): TaskGraphStandardViewState {
   if (!state.view) return state;
+  const stale = state.graphId !== currentGraphId || state.revisionKey !== currentRevisionKey;
+  if (state.stale === stale) return state;
   return {
     ...state,
-    stale: state.graphId !== currentGraphId || state.revisionKey !== currentRevisionKey,
+    stale,
   };
 }

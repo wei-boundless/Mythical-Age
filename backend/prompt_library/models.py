@@ -11,7 +11,6 @@ class PromptResource:
     subtype: str = ""
     owner_layer: str = ""
     allowed_invocation_kinds: tuple[str, ...] = ()
-    allowed_runtime_modes: tuple[str, ...] = ()
     allowed_agent_refs: tuple[str, ...] = ()
     allowed_environment_refs: tuple[str, ...] = ()
     status: str = "active"
@@ -57,7 +56,6 @@ class PromptResource:
         payload = asdict(self)
         for key in (
             "allowed_invocation_kinds",
-            "allowed_runtime_modes",
             "allowed_agent_refs",
             "allowed_environment_refs",
             "tags",
@@ -85,7 +83,6 @@ class PromptPack:
     cache_scope: str = "static"
     status: str = "active"
     title: str = ""
-    allowed_runtime_modes: tuple[str, ...] = ()
     allowed_agent_refs: tuple[str, ...] = ()
     allowed_environment_refs: tuple[str, ...] = ()
     metadata: dict[str, Any] = field(default_factory=dict)
@@ -101,7 +98,6 @@ class PromptPack:
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
         payload["ordered_prompt_refs"] = list(self.ordered_prompt_refs)
-        payload["allowed_runtime_modes"] = list(self.allowed_runtime_modes)
         payload["allowed_agent_refs"] = list(self.allowed_agent_refs)
         payload["allowed_environment_refs"] = list(self.allowed_environment_refs)
         payload["metadata"] = dict(self.metadata)
@@ -139,7 +135,6 @@ class PromptAssemblyRequest:
     soul_prompt_ref: str = ""
     agent_profile_ref: str = ""
     task_environment_ref: str = ""
-    runtime_mode: str = ""
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -153,7 +148,6 @@ class PromptAssemblyRequest:
             "soul_prompt_ref": self.soul_prompt_ref,
             "agent_profile_ref": self.agent_profile_ref,
             "task_environment_ref": self.task_environment_ref,
-            "runtime_mode": self.runtime_mode,
             "metadata": dict(self.metadata),
         }
 
@@ -200,11 +194,6 @@ def prompt_resource_from_dict(payload: dict[str, Any]) -> PromptResource:
         allowed_invocation_kinds=tuple(
             str(item).strip()
             for item in list(payload.get("allowed_invocation_kinds") or [])
-            if str(item).strip()
-        ),
-        allowed_runtime_modes=tuple(
-            str(item).strip()
-            for item in list(payload.get("allowed_runtime_modes") or [])
             if str(item).strip()
         ),
         allowed_agent_refs=tuple(
@@ -254,11 +243,6 @@ def prompt_pack_from_dict(payload: dict[str, Any]) -> PromptPack:
         cache_scope=str(payload.get("cache_scope") or "static"),
         status=str(payload.get("status") or "active"),
         title=str(payload.get("title") or payload.get("pack_id") or ""),
-        allowed_runtime_modes=tuple(
-            str(item).strip()
-            for item in list(payload.get("allowed_runtime_modes") or [])
-            if str(item).strip()
-        ),
         allowed_agent_refs=tuple(
             str(item).strip()
             for item in list(payload.get("allowed_agent_refs") or [])

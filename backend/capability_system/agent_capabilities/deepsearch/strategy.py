@@ -125,7 +125,7 @@ class DefaultDeepSearchStrategy:
             )
         ]
         queries = [*provided_queries, goal]
-        if config.runtime_mode == "deepsearch" and config.prefer_primary_sources:
+        if config.search_strategy == "deepsearch" and config.prefer_primary_sources:
             questions.append(
                 ResearchQuestion(
                     question_id="rq:primary-source",
@@ -136,7 +136,7 @@ class DefaultDeepSearchStrategy:
             )
             queries.append(f"{goal} official source")
             queries.append(f"{goal} official announcement")
-        if config.runtime_mode == "deepsearch" and config.freshness_required_by_default:
+        if config.search_strategy == "deepsearch" and config.freshness_required_by_default:
             questions.append(
                 ResearchQuestion(
                     question_id="rq:freshness",
@@ -178,7 +178,7 @@ class DefaultDeepSearchStrategy:
                 if unknown_queries:
                     gaps.append("distilled_unknown_followup_required")
                     next_queries.extend(unknown_queries)
-        if config.runtime_mode == "single_search":
+        if config.search_strategy == "single_search":
             return EvidenceReviewStep(
                 should_stop=True,
                 stop_reason="single_search_complete",

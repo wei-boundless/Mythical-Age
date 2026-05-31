@@ -1477,10 +1477,8 @@ def _task_selection_from_task_run(task_run: Any) -> dict[str, Any]:
     diagnostics = dict(task_run.diagnostics or {})
     original = dict(diagnostics.get("runtime_task_selection") or diagnostics.get("task_selection") or {})
     runtime_profile = dict(original.get("runtime_profile") or {})
-    runtime_profile.setdefault("mode", "professional")
     return {
         **original,
-        "runtime_mode": str(original.get("runtime_mode") or runtime_profile.get("mode") or "professional"),
         "runtime_profile": runtime_profile,
     }
 
@@ -2877,7 +2875,7 @@ def _current_runtime_fingerprint(runtime_assembly: dict[str, Any], *, runtime_ho
     return {
         "runtime_assembly_id": str(runtime_assembly.get("assembly_id") or ""),
         "agent_profile_id": str(runtime_assembly.get("agent_profile_ref") or ""),
-        "runtime_mode": str(profile.get("mode") or ""),
+        "runtime_profile_ref": str(profile.get("profile_ref") or ""),
         "task_environment_id": str(environment.get("environment_id") or ""),
         "tool_registry_hash": _stable_hash(_runtime_available_tools(runtime_assembly)),
         "tool_config_hash": _stable_hash(_tool_config_fingerprint(config)),

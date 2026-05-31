@@ -89,7 +89,7 @@ def test_task_graph_node_prompt_migration_writes_graph_node_role_resource(tmp_pa
     assert resource.category == "graph_node"
     assert resource.subtype == "role"
     assert resource.resource_type == "graph_node.role"
-    assert resource.allowed_runtime_modes == ("role", "standard", "professional")
+    assert resource.allowed_invocation_kinds == ()
     assert "applies_to_task_goal_types" not in payload
     assert "applies_to_domains" not in payload
     assert "applies_to_modes" not in payload

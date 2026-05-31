@@ -62,8 +62,7 @@ def test_task_model_selection_drops_metadata_only_profile_payload() -> None:
     task_run = SimpleNamespace(
         diagnostics={
             "runtime_task_selection": {
-                "runtime_mode": "professional",
-                "runtime_profile": {"mode": "professional"},
+                "runtime_profile": {},
             }
         }
     )

@@ -80,7 +80,11 @@ def test_conversation_only_capability_uses_plain_conversation_without_turnrun() 
     async def _collect() -> list[dict[str, object]]:
         events: list[dict[str, object]] = []
         async for event in runtime.astream(
-            QueryRequest(session_id="session-plain", message="和我随便聊两句。", runtime_mode="role")
+            QueryRequest(
+                session_id="session-plain",
+                message="和我随便聊两句。",
+                task_selection={"control_capabilities": {"conversation_only": True}},
+            )
         ):
             events.append(event)
         return events
@@ -262,7 +266,6 @@ def test_global_live_monitor_groups_running_completed_and_failed_runs(monkeypatc
         "taskrun:old-waiting-executor",
         "taskrun:waiting-approval",
         "turnrun:old-running",
-        "turnrun:failed",
     }
     buckets = {item["task_run_id"]: item["bucket"] for item in monitor["task_runs"]}
     assert {item["task_run_id"] for item in monitor["buckets"]["running"]} == {
@@ -273,20 +276,19 @@ def test_global_live_monitor_groups_running_completed_and_failed_runs(monkeypatc
         "taskrun:waiting-approval",
         "turnrun:old-running",
     }
-    assert [item["task_run_id"] for item in monitor["buckets"]["failed"]] == ["turnrun:failed"]
+    assert monitor["buckets"]["failed"] == []
     assert buckets["taskrun:fresh-waiting-executor"] == "running"
-    assert buckets["turnrun:failed"] == "failed"
     assert buckets["taskrun:waiting-approval"] == "diagnostics"
     assert buckets["taskrun:old-waiting-executor"] == "diagnostics"
     assert buckets["turnrun:old-running"] == "diagnostics"
-    assert monitor["summary"]["total"] == 5
+    assert monitor["summary"]["total"] == 4
     assert monitor["summary"]["running"] == 1
-    assert monitor["summary"]["failed"] == 1
+    assert monitor["summary"]["failed"] == 0
     assert monitor["summary"]["diagnostics"] == 3
     assert monitor["summary"]["action_required"] == 1
 
 
-def test_global_live_monitor_exposes_step_summary_and_recent_terminal_status(monkeypatch) -> None:
+def test_task_run_detail_monitor_exposes_step_summary_and_recent_terminal_status(monkeypatch) -> None:
     monkeypatch.setattr("harness.runtime.single_agent_host.time.time", lambda: 1000.0)
     runtime = build_query_runtime()
     host = runtime.single_agent_runtime_host
@@ -318,8 +320,9 @@ def test_global_live_monitor_exposes_step_summary_and_recent_terminal_status(mon
         },
     )
 
-    monitor = host.list_global_live_monitor(limit=20)
-    item = monitor["task_runs"][0]
+    global_monitor = host.list_global_live_monitor(limit=20)
+    item = host.get_task_run_live_monitor(task_run.task_run_id)
+    assert item is not None
 
     assert item["task_run_id"] == task_run.task_run_id
     assert item["bucket"] == "completed"
@@ -331,7 +334,8 @@ def test_global_live_monitor_exposes_step_summary_and_recent_terminal_status(mon
     assert item["resource_class"] == "static"
     assert item["ended_at"] == 990.0
     assert item["duration_seconds"] == 390.0
-    assert monitor["summary"]["completed"] == 1
+    assert global_monitor["summary"]["completed"] == 0
+    assert task_run.task_run_id not in {entry["task_run_id"] for entry in global_monitor["task_runs"]}
 
 
 def test_invalid_agent_action_request_reports_error_without_task_run() -> None:
@@ -1194,8 +1198,6 @@ def test_execute_task_run_uses_task_bound_agent_profile_for_runtime_assembly() -
     runtime.agent_runtime_registry.upsert_profile(
         agent_id="agent:3",
         agent_profile_id="custom_single_agent_task_profile",
-        enabled_runtime_modes=("professional",),
-        default_runtime_mode="professional",
         allowed_operations=("op.model_response",),
         metadata={"work_role_prompt": "你是单 agent 专用执行员。"},
     )
@@ -1366,7 +1368,7 @@ def test_task_contract_preserves_runtime_fields_without_goal_aliases() -> None:
                 "task_run_goal": "创建并验证可运行示例",
                 "completion_criteria": ["示例可以被验证"],
                 "task_environment_id": "env.development.sandbox",
-                "runtime_profile": {"mode": "professional"},
+                "runtime_profile": {"runtime_policy": {"planning_policy": {"plan_mode": "available"}}},
                 "source_contract_ref": "contract.demo",
                 "external_plan_ref": "plan.demo",
                 "prompt_contract": {"role_prompt": "你是执行者。"},
@@ -1381,7 +1383,7 @@ def test_task_contract_preserves_runtime_fields_without_goal_aliases() -> None:
     assert contract.user_visible_goal == "交付可运行示例"
     assert contract.task_run_goal == "创建并验证可运行示例"
     assert contract.task_environment_id == "env.creation.writing"
-    assert contract.runtime_profile["mode"] == "professional"
+    assert contract.runtime_profile["runtime_policy"]["planning_policy"]["plan_mode"] == "available"
     assert contract.source_contract_ref == "contract.demo"
     assert contract.external_plan_ref == "plan.demo"
     assert contract.prompt_contract["role_prompt"] == "你是执行者。"
@@ -1409,7 +1411,6 @@ def test_agent_requested_task_run_inherits_selected_runtime_environment() -> Non
             QueryRequest(
                 session_id="session-selected-env-taskrun",
                 message="开发一个可运行页面。",
-                runtime_mode="professional",
                 task_selection={"task_environment_id": "env.development.sandbox"},
             )
         ):
@@ -2042,7 +2043,7 @@ def test_active_work_router_requires_current_work_relation_before_intercepting_t
     assert "active_task_steer_recorded" not in event_types
 
 
-def test_role_mode_bypasses_active_work_router_even_when_session_has_resumable_task() -> None:
+def test_conversation_only_capability_bypasses_active_work_router() -> None:
     model = _ActiveWorkDecisionModelRuntime([
         {
             "authority": "harness.loop.active_work_turn_decision",
@@ -2054,7 +2055,7 @@ def test_role_mode_bypasses_active_work_router_even_when_session_has_resumable_t
         }
     ])
     runtime = build_query_runtime(model_runtime=model)
-    task_run_id = _seed_active_work(runtime, task_run_id="taskrun:role-mode-active-work")
+    task_run_id = _seed_active_work(runtime, task_run_id="taskrun:conversation-only-active-work")
 
     async def _collect() -> list[dict[str, object]]:
         events: list[dict[str, object]] = []
@@ -2062,8 +2063,8 @@ def test_role_mode_bypasses_active_work_router_even_when_session_has_resumable_t
             QueryRequest(
                 session_id="session-active-work",
                 message="修复了吗",
-                runtime_mode="role",
                 soul_id="hebo",
+                task_selection={"control_capabilities": {"conversation_only": True}},
             )
         ):
             events.append(event)
@@ -2101,9 +2102,8 @@ def test_active_work_router_is_gated_by_runtime_assembly_context_policy() -> Non
             QueryRequest(
                 session_id="session-active-work",
                 message="继续当前工作",
-                runtime_mode="standard",
                 task_selection={
-                    "runtime_mode_policy": {
+                    "runtime_policy": {
                         "task_lifecycle_policy": {"request_task_run": True},
                         "context_policy": {"task_context": "available", "active_work_context": "disabled"},
                     },
@@ -3151,14 +3151,14 @@ def test_scheduler_restarts_after_running_steer_and_next_packet_contains_instruc
     assert "active_task_steer_consumed" in event_types
 
 
-def test_role_mode_expands_to_conversation_only_capability_with_soul_prompt() -> None:
+def test_runtime_policy_can_enable_conversation_only_with_soul_prompt() -> None:
     runtime = build_query_runtime(
         model_runtime=SingleMessageModelRuntimeStub(
             agent_turn_action_request=_action_request(
                 action_type="request_task_run",
                 task_contract_seed={
-                    "user_visible_goal": "角色模式不应开启任务。",
-                    "task_run_goal": "角色模式不应开启任务。",
+                    "user_visible_goal": "会话专用 turn 不应开启任务。",
+                    "task_run_goal": "会话专用 turn 不应开启任务。",
                     "completion_criteria": ["不应执行"],
                 },
             )
@@ -3171,8 +3171,11 @@ def test_role_mode_expands_to_conversation_only_capability_with_soul_prompt() ->
             QueryRequest(
                 session_id="session-role",
                 message="保持角色对话。",
-                runtime_mode="role",
                 soul_id="hebo",
+                task_selection={
+                    "control_capabilities": {"conversation_only": True},
+                    "runtime_policy": {"soul_prompt_policy": {"enabled": True}},
+                },
             )
         ):
             events.append(event)
@@ -3184,7 +3187,7 @@ def test_role_mode_expands_to_conversation_only_capability_with_soul_prompt() ->
     route = dict(next(event for event in events if event.get("type") == "turn_route_decided").get("turn_route") or {})
     capabilities = dict(assembly.get("control_capabilities") or {})
 
-    assert profile["mode"] == "role"
+    assert profile["profile_ref"] == "main_interactive_agent"
     assert dict(assembly.get("soul_role_prompt") or {}).get("content")
     assert capabilities.get("conversation_only") is True
     assert capabilities.get("may_request_task_run") is False
@@ -3197,7 +3200,7 @@ def test_role_mode_expands_to_conversation_only_capability_with_soul_prompt() ->
     )
 
 
-def test_standard_mode_rejects_soul_prompt_without_persona_leakage() -> None:
+def test_default_runtime_policy_rejects_soul_prompt_without_persona_leakage() -> None:
     runtime = build_query_runtime()
 
     async def _collect() -> list[dict[str, object]]:
@@ -3206,7 +3209,6 @@ def test_standard_mode_rejects_soul_prompt_without_persona_leakage() -> None:
             QueryRequest(
                 session_id="session-standard-soul",
                 message="普通对话。",
-                runtime_mode="standard",
                 soul_id="hebo",
             )
         ):
@@ -3216,23 +3218,22 @@ def test_standard_mode_rejects_soul_prompt_without_persona_leakage() -> None:
     events = asyncio.run(_collect())
     assembly = dict(next(event for event in events if event.get("type") == "runtime_assembly_compiled").get("runtime_assembly") or {})
 
-    assert dict(assembly.get("profile") or {}).get("mode") == "standard"
+    assert dict(assembly.get("profile") or {}).get("profile_ref") == "main_interactive_agent"
     assert dict(assembly.get("soul_role_prompt") or {}) == {}
-    assert {"capability": "soul_role_prompt", "reason": "soul_prompt_only_allowed_in_role_mode"} in list(
+    assert {"capability": "soul_role_prompt", "reason": "soul_prompt_disabled_by_agent_profile"} in list(
         assembly.get("rejected_capabilities") or []
     )
 
 
-def test_professional_mode_exposes_plan_policy_without_soul_prompt() -> None:
+def test_default_runtime_policy_exposes_plan_policy_without_soul_prompt() -> None:
     runtime = build_query_runtime()
 
     async def _collect() -> list[dict[str, object]]:
         events: list[dict[str, object]] = []
         async for event in runtime.astream(
             QueryRequest(
-                session_id="session-professional",
-                message="专业模式执行。",
-                runtime_mode="professional",
+                session_id="session-default-policy",
+                message="执行需要真实产物的任务。",
                 soul_id="hebo",
             )
         ):
@@ -3243,14 +3244,14 @@ def test_professional_mode_exposes_plan_policy_without_soul_prompt() -> None:
     assembly = dict(next(event for event in events if event.get("type") == "runtime_assembly_compiled").get("runtime_assembly") or {})
     profile = dict(assembly.get("profile") or {})
 
-    assert profile["mode"] == "professional"
+    assert profile["profile_ref"] == "main_interactive_agent"
     assert dict(profile.get("planning_policy") or {}).get("specified_plan_allowed") is True
     assert dict(assembly.get("task_environment") or {}).get("environment_id") == "env.general.workspace"
     assert dict(profile.get("soul_prompt_policy") or {}).get("enabled") is False
     assert dict(assembly.get("soul_role_prompt") or {}) == {}
 
 
-def test_runtime_mode_policy_can_override_builtin_mode_preset() -> None:
+def test_runtime_policy_can_override_default_runtime_assembly() -> None:
     runtime = build_query_runtime()
 
     async def _collect() -> list[dict[str, object]]:
@@ -3259,10 +3260,9 @@ def test_runtime_mode_policy_can_override_builtin_mode_preset() -> None:
             QueryRequest(
                 session_id="session-specific-mode-policy",
                 message="按特定任务配置运行。",
-                runtime_mode="professional",
                 task_selection={
-                    "runtime_mode_policy": {
-                        "default_environment_id": "env.creation.writing",
+                    "task_environment_id": "env.creation.writing",
+                    "runtime_policy": {
                         "planning_policy": {"plan_mode": "disabled", "specified_plan_allowed": False},
                         "task_lifecycle_policy": {"request_task_run": True, "requires_completion_evidence": True},
                         "self_review_policy": {"enabled": True, "checkpoints": ["before_final"]},
@@ -3277,13 +3277,13 @@ def test_runtime_mode_policy_can_override_builtin_mode_preset() -> None:
     assembly = dict(next(event for event in events if event.get("type") == "runtime_assembly_compiled").get("runtime_assembly") or {})
     profile = dict(assembly.get("profile") or {})
 
-    assert profile["mode"] == "professional"
+    assert profile["profile_ref"] == "main_interactive_agent"
     assert dict(profile.get("planning_policy") or {}).get("specified_plan_allowed") is False
     assert dict(profile.get("self_review_policy") or {}).get("checkpoints") == ["before_final"]
     assert dict(assembly.get("task_environment") or {}).get("environment_id") == "env.creation.writing"
 
 
-def test_custom_mode_uses_explicit_runtime_policy_and_environment() -> None:
+def test_runtime_profile_uses_explicit_runtime_policy_and_environment() -> None:
     runtime = build_query_runtime()
 
     async def _collect() -> list[dict[str, object]]:
@@ -3291,12 +3291,11 @@ def test_custom_mode_uses_explicit_runtime_policy_and_environment() -> None:
         async for event in runtime.astream(
             QueryRequest(
                 session_id="session-custom-mode-policy",
-                message="自定义模式运行。",
-                runtime_mode="custom",
+                message="按显式运行策略执行。",
+                task_selection={"task_environment_id": "env.development.readonly"},
                 runtime_profile={
-                    "runtime_mode_policy": {
-                        "interaction_mode": "custom_review_mode",
-                        "default_environment_id": "env.development.readonly",
+                    "runtime_policy": {
+                        "interaction_policy": {"style": "custom_review"},
                         "planning_policy": {"plan_mode": "disabled"},
                         "task_lifecycle_policy": {"request_task_run": False},
                         "tool_exposure_policy": {
@@ -3315,8 +3314,8 @@ def test_custom_mode_uses_explicit_runtime_policy_and_environment() -> None:
     assembly = dict(next(event for event in events if event.get("type") == "runtime_assembly_compiled").get("runtime_assembly") or {})
     profile = dict(assembly.get("profile") or {})
 
-    assert profile["mode"] == "custom"
-    assert profile["interaction_mode"] == "custom_review_mode"
+    assert profile["profile_ref"] == "main_interactive_agent"
+    assert dict(profile.get("interaction_policy") or {}).get("style") == "custom_review"
     assert dict(profile.get("task_lifecycle_policy") or {}).get("request_task_run") is False
     assert dict(profile.get("self_review_policy") or {}).get("before_final") == "strict_review"
     assert dict(assembly.get("task_environment") or {}).get("environment_id") == "env.development.readonly"

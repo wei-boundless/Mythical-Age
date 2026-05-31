@@ -229,7 +229,6 @@ class QueryRuntime:
                 runtime_task_selection = _task_selection_for_runtime(
                     request_task_selection=dict(request.task_selection or {}),
                     turn_id=turn_id,
-                    runtime_mode=request.runtime_mode,
                     soul_id=request.soul_id,
                     runtime_profile=dict(request.runtime_profile or {}),
                 )
@@ -1179,11 +1178,9 @@ def _graph_node_contract_from_work_order(work_order: Any) -> TaskRunContract:
         raise ValueError("GraphNodeWorkOrder graph_slot authority mismatch")
     node_contract = dict(graph_slot.get("node_contract") or {})
     prompt_contract = dict(node_contract.get("prompt_contract") or {})
-    runtime_mode = _graph_node_runtime_mode_from_node_contract(node_contract)
     task_environment_id = _graph_slot_task_environment_id(graph_slot)
     runtime_profile = _graph_node_runtime_profile(
         node_contract=node_contract,
-        runtime_mode=runtime_mode,
         task_environment_id=task_environment_id,
     )
     criteria = [
@@ -1223,21 +1220,13 @@ def _graph_slot_task_environment_id(graph_slot: dict[str, Any]) -> str:
     ).strip()
 
 
-def _graph_node_runtime_mode_from_node_contract(node_contract: dict[str, Any]) -> str:
-    mode = str(node_contract.get("runtime_mode") or "").strip().lower()
-    return mode if mode in {"role", "standard", "professional", "custom"} else "professional"
-
-
 def _graph_node_runtime_profile(
     *,
     node_contract: dict[str, Any],
-    runtime_mode: str,
     task_environment_id: str = "",
 ) -> dict[str, Any]:
     payload: dict[str, Any] = {
-        "mode": runtime_mode,
-        "runtime_mode": runtime_mode,
-        "runtime_mode_policy": {
+        "runtime_policy": {
             "source": "graph_slot.node_contract",
             "context_policy": {"task_run_context": "disabled"},
             "prompt_pack_refs_by_invocation": {"task_execution": ["runtime.pack.graph_node_execution.v1"]},
@@ -1245,7 +1234,7 @@ def _graph_node_runtime_profile(
                 "model_visible": "summary_without_denials",
                 "reason": "图节点只需要知道本轮可用操作；被拒绝操作不参与节点交付判断。",
             },
-            **dict(node_contract.get("runtime_mode_policy") or node_contract.get("mode_policy") or {}),
+            **dict(node_contract.get("runtime_policy") or node_contract.get("execution_policy") or {}),
         },
     }
     if task_environment_id:
@@ -1263,7 +1252,6 @@ def _graph_node_runtime_profile(
 
 
 def _graph_node_task_selection(graph_config: Any, work_order: Any) -> dict[str, Any]:
-    mode = _graph_node_runtime_mode(graph_config, work_order)
     graph_slot = dict(getattr(work_order, "graph_slot", {}) or {})
     node_contract = dict(graph_slot.get("node_contract") or {})
     task_environment_id = str(
@@ -1272,14 +1260,12 @@ def _graph_node_task_selection(graph_config: Any, work_order: Any) -> dict[str, 
         or ""
     )
     runtime_profile = {
-        "mode": mode,
-        "runtime_mode": mode,
         "task_environment_id": task_environment_id,
         "model_requirement": dict(node_contract.get("model_requirement") or {}),
         "reasoning_policy": dict(node_contract.get("reasoning_policy") or {}),
         "tool_policy": dict(getattr(work_order, "tool_scope", {}) or node_contract.get("tool_contract") or getattr(graph_config, "tools", {}) or {}),
         "permission_policy": dict(getattr(work_order, "permission_scope", {}) or node_contract.get("permission_contract") or getattr(graph_config, "permissions", {}) or {}),
-        "runtime_mode_policy": {
+        "runtime_policy": {
             "source": "graph_slot.node_contract",
             "graph_run_id": work_order.graph_run_id,
             "node_id": work_order.node_id,
@@ -1289,13 +1275,12 @@ def _graph_node_task_selection(graph_config: Any, work_order: Any) -> dict[str, 
                 "model_visible": "summary_without_denials",
                 "reason": "图节点只需要知道本轮可用操作；被拒绝操作不参与节点交付判断。",
             },
-            **dict(node_contract.get("runtime_mode_policy") or node_contract.get("mode_policy") or {}),
+            **dict(node_contract.get("runtime_policy") or node_contract.get("execution_policy") or {}),
         },
     }
     return {
         "selected_task_id": work_order.task_ref,
         "task_environment_id": task_environment_id,
-        "runtime_mode": mode,
         "runtime_profile": runtime_profile,
         "prompt_contract": dict(node_contract.get("prompt_contract") or {}),
         "allowed_operations": list(_graph_node_allowed_operations(work_order=work_order, node_contract=node_contract)),
@@ -1317,20 +1302,6 @@ def _graph_node_allowed_operations(*, work_order: Any, node_contract: dict[str, 
     candidates.extend(list(executor_operation_policy.get("allowed_operations") or []))
     normalized = tuple(dict.fromkeys(str(item).strip() for item in candidates if str(item).strip()))
     return normalized or ("op.model_response",)
-
-
-def _graph_node_runtime_mode(graph_config: Any, work_order: Any) -> str:
-    graph_slot = dict(getattr(work_order, "graph_slot", {}) or {})
-    node_contract = dict(graph_slot.get("node_contract") or {})
-    candidates = [
-        node_contract.get("runtime_mode"),
-        dict(getattr(graph_config, "agents", {}) or {}).get("runtime_mode"),
-    ]
-    for value in candidates:
-        mode = str(value or "").strip().lower()
-        if mode in {"role", "standard", "professional", "custom"}:
-            return mode
-    return "professional"
 
 
 def _graph_coordinator_profile_ref(graph_config: Any) -> str:
@@ -1420,7 +1391,6 @@ def _task_selection_for_runtime(
     *,
     request_task_selection: dict[str, Any],
     turn_id: str,
-    runtime_mode: str = "",
     soul_id: str = "",
     runtime_profile: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
@@ -1428,16 +1398,12 @@ def _task_selection_for_runtime(
         **dict(request_task_selection.get("runtime_profile") or {}),
         **dict(runtime_profile or {}),
     }
-    mode = str(runtime_mode or request_task_selection.get("runtime_mode") or request_task_selection.get("mode") or "").strip()
-    if mode:
-        profile_payload["mode"] = mode
     requested_soul_id = str(soul_id or request_task_selection.get("soul_id") or profile_payload.get("soul_id") or "").strip()
     if requested_soul_id:
         profile_payload["soul_id"] = requested_soul_id
     return {
         **dict(request_task_selection or {}),
         "turn_id": turn_id,
-        **({"runtime_mode": mode} if mode else {}),
         **({"soul_id": requested_soul_id} if requested_soul_id else {}),
         **({"runtime_profile": profile_payload} if profile_payload else {}),
     }
@@ -1445,6 +1411,9 @@ def _task_selection_for_runtime(
 
 def _active_work_router_enabled_for_assembly(runtime_assembly: Any) -> bool:
     payload = runtime_assembly.to_dict() if hasattr(runtime_assembly, "to_dict") else dict(runtime_assembly or {})
+    capabilities = dict(payload.get("control_capabilities") or {})
+    if capabilities.get("conversation_only") is True or capabilities.get("may_control_active_work") is False:
+        return False
     profile = dict(payload.get("profile") or {})
     task_lifecycle = dict(profile.get("task_lifecycle_policy") or {})
     context_policy = dict(profile.get("context_policy") or {})

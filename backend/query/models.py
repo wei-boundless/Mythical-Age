@@ -21,7 +21,6 @@ class QueryRequest:
     ephemeral_system_messages: list[str] = field(default_factory=list)
     explicit_subtasks: list[dict[str, Any]] = field(default_factory=list)
     search_policy: list[str] | None = None
-    runtime_mode: str = ""
     soul_id: str = ""
     runtime_profile: dict[str, Any] = field(default_factory=dict)
     task_selection: dict[str, Any] = field(default_factory=dict)

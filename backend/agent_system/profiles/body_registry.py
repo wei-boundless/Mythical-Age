@@ -76,7 +76,7 @@ class BodyProfileRegistry:
             stage_projection_policy="disabled",
             model_visible_rules={
                 "strip_control_plane_sections": True,
-                "allow_role_prompt_in_role_mode": True,
+                "allow_role_prompt_from_agent_profile": True,
                 "output_contract_id": output_contract_id,
             },
             metadata={"agent_id": agent_id},

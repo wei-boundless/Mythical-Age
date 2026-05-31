@@ -12,7 +12,6 @@ import {
   getSoulImageAssetConfig,
   getWorkspaceContext,
   getOrchestrationHarnessSessionLiveMonitor,
-  getOrchestrationRuntimeOptions,
   pauseOrchestrationHarnessTaskRun,
   getRagMode,
   resumeOrchestrationHarnessTaskRun,
@@ -45,9 +44,8 @@ import {
 
 import { createIdleSessionActivity, type Store } from "./core";
 import { reduceStreamEvent, startStreamingTurn, type StreamSession } from "./events";
-import { normalizeDefaultRuntimeMode, runtimeModeCatalogFrom } from "../runtimeModeConfig";
 import { RuntimeMonitorController } from "../runtime-monitor/controller";
-import type { CenterWorkspaceTarget, ChatMode, ChatModelSelection, ChatTaskEnvironmentBinding, MainAgentAssemblyMode, Message, RuntimeProgressEntry, SearchPolicySource, StoreActions, StoreState, TaskGraphMonitorBinding, TaskSelectionState, WorkspaceView } from "./types";
+import type { CenterWorkspaceTarget, ChatMode, ChatModelSelection, ChatTaskEnvironmentBinding, Message, RuntimeProgressEntry, SearchPolicySource, StoreActions, StoreState, TaskGraphMonitorBinding, TaskSelectionState, WorkspaceView } from "./types";
 import { makeId, toUiMessages } from "./utils";
 
 type HarnessSessionMonitor = NonNullable<Awaited<ReturnType<typeof getOrchestrationHarnessSessionLiveMonitor>>["monitor"]>;
@@ -124,9 +122,6 @@ export class WorkspaceRuntime {
       },
       setThinkingEnabled: (enabled) => {
         this.setThinkingEnabled(enabled);
-      },
-      setMainAgentAssemblyMode: (mode) => {
-        this.setMainAgentAssemblyMode(mode);
       },
       switchSoul: async (key) => {
         await this.switchSoul(key);
@@ -281,17 +276,14 @@ export class WorkspaceRuntime {
   }
 
   private async loadWorkspaceMetadata() {
-    const [rag, skills, souls, modelProviderConfig, soulImageAssetConfig, workspaceContext, runtimeOptions] = await Promise.all([
+    const [rag, skills, souls, modelProviderConfig, soulImageAssetConfig, workspaceContext] = await Promise.all([
       getRagMode().catch(() => null),
       listSkills().catch(() => []),
       this.loadSouls().catch(() => ({ options: [], activeSoulKey: null })),
       getModelProviderConfig().catch(() => null),
       getSoulImageAssetConfig().catch(() => null),
       getWorkspaceContext().catch(() => null),
-      getOrchestrationRuntimeOptions().catch(() => null)
     ]);
-    const runtimeModeCatalog = runtimeOptions ? runtimeModeCatalogFrom(runtimeOptions.options?.runtime_modes) : [];
-    const runtimeModeIds = new Set(runtimeModeCatalog.map((mode) => mode.mode));
     this.store.setState((prev) => ({
       ...prev,
       ragMode: Boolean(rag?.enabled),
@@ -307,13 +299,6 @@ export class WorkspaceRuntime {
       activeSoulKey: souls.activeSoulKey,
       selectedChatMode: this.resolveSelectedChatMode(prev.selectedChatModelId, modelProviderConfig),
       thinkingEnabled: String(modelProviderConfig?.thinking_mode || "").trim().toLowerCase() === "enabled",
-      mainAgentRuntimeModes: runtimeModeCatalog.length ? runtimeModeCatalog : prev.mainAgentRuntimeModes,
-      mainAgentDefaultRuntimeMode: runtimeModeCatalog.length
-        ? normalizeDefaultRuntimeMode(runtimeOptions?.options?.default_runtime_mode, runtimeModeCatalog.map((mode) => mode.mode))
-        : prev.mainAgentDefaultRuntimeMode,
-      mainAgentAssemblyMode: runtimeModeCatalog.length && !runtimeModeIds.has(prev.mainAgentAssemblyMode)
-        ? normalizeDefaultRuntimeMode(runtimeOptions?.options?.default_runtime_mode, runtimeModeCatalog.map((mode) => mode.mode))
-        : prev.mainAgentAssemblyMode
     }));
   }
 
@@ -994,7 +979,6 @@ export class WorkspaceRuntime {
           session_id: sessionId,
           ephemeral_system_messages: ephemeralSystemMessages,
           search_policy: searchPolicy,
-          runtime_mode: state.mainAgentAssemblyMode,
           task_selection: this.chatTaskSelectionPayload(state),
           model_selection: this.chatModelSelectionPayload(state),
           image_generation: imageGeneration
@@ -2133,10 +2117,6 @@ export class WorkspaceRuntime {
 
   private clearChatTaskEnvironmentBinding() {
     this.store.setState((prev) => ({ ...prev, chatTaskEnvironmentBinding: null }));
-  }
-
-  private setMainAgentAssemblyMode(mode: MainAgentAssemblyMode) {
-    this.store.setState((prev) => ({ ...prev, mainAgentAssemblyMode: mode }));
   }
 
   private hasActiveChatStream() {

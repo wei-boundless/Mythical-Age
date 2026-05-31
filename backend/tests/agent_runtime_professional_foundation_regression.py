@@ -54,7 +54,7 @@ def test_task_goal_registry_contains_conversation_tool_and_delivery_families() -
 
     assert {
         "light_qa",
-        "role_conversation",
+        "plain_conversation",
         "inspection",
         "bounded_tool_task",
         "test_report_triage",

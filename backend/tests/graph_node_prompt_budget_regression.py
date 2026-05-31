@@ -95,8 +95,8 @@ def test_graph_node_task_packet_does_not_embed_full_graph_policy() -> None:
         runtime_assembly={
             "assembly_id": "rtasm:test",
             "profile": {
-                "mode": "professional",
-                "interaction_mode": "task_execution",
+                "profile_ref": "main_interactive_agent",
+                "interaction_policy": {"style": "task_execution"},
                 "context_policy": {"task_run_context": "disabled"},
                 "prompt_pack_refs_by_invocation": {"task_execution": ["runtime.pack.graph_node_execution.v1"]},
                 "operation_authorization_projection": {"model_visible": "summary_without_denials"},

@@ -108,7 +108,7 @@ def build_task_execution_assembly_bundle(
         current_turn_context=current_turn_payload,
     )
     task_requirement_contract = dict(task_intent_contract.task_requirement_contract or {})
-    mode_policy = dict(task_intent_contract.mode_policy or {})
+    runtime_policy = dict(task_intent_contract.runtime_policy or {})
     execution_shape = resolve_execution_shape(
         task_intent_contract=task_intent_contract,
         query_understanding=query_understanding,
@@ -329,7 +329,7 @@ def build_task_execution_assembly_bundle(
         }
     task_contract_payload["task_intent_ref"] = task_intent_contract.task_intent_id
     task_contract_payload["task_requirement_contract"] = task_requirement_contract
-    task_contract_payload["mode_policy"] = mode_policy
+    task_contract_payload["runtime_policy"] = runtime_policy
     task_contract_payload["selected_recipe_id"] = selected_recipe.recipe_id
     task_contract_payload["bundle_spec_ref"] = bundle_spec.bundle_id if bundle_spec is not None else ""
     task_contract_payload["requested_outputs"] = list(task_spec.requested_outputs)
@@ -371,11 +371,9 @@ def build_task_execution_assembly_bundle(
             "recipe_id": selected_recipe.recipe_id,
             "execution_kind": selected_recipe.execution_kind,
             "source_kind": selected_recipe.source_kind,
-            "interaction_mode": str(mode_policy.get("interaction_mode") or ""),
-            "projection_strength": str(mode_policy.get("projection_strength") or ""),
             "semantic_task_type": str(task_requirement_contract.get("task_goal_type") or ""),
             "professional_profile_id": str(task_requirement_contract.get("professional_profile_id") or ""),
-            "mode_policy": mode_policy,
+            "runtime_policy": runtime_policy,
             "task_requirement_contract": task_requirement_contract,
             "registered_task_id": registered_task_id,
             "binding_task_id": binding_task_id,
@@ -438,7 +436,7 @@ def build_task_execution_assembly_bundle(
 
 def _profile_is_text_artifact_runtime_agent(agent_runtime_profile: AgentRuntimeProfile | None) -> bool:
     metadata = dict(getattr(agent_runtime_profile, "metadata", {}) or {}) if agent_runtime_profile is not None else {}
-    return str(metadata.get("agent_mode") or metadata.get("runtime_mode") or "").strip() in {
+    return str(metadata.get("agent_kind") or "").strip() in {
         "text_artifact_worker",
         "text_artifact_runtime",
     } or bool(metadata.get("text_artifact_runtime") is True)
@@ -488,25 +486,11 @@ def _normalize_current_turn_for_registered_task(
     payload = dict(current_turn_payload or {})
     if not _registered_task_is_task_graph_node_runtime(registered_task):
         return payload
-    task_policy = dict((registered_task or {}).get("task_policy") or {})
-    task_structure = dict(task_policy.get("task_structure") or {})
-    metadata = dict((registered_task or {}).get("metadata") or {})
     task_id = str((registered_task or {}).get("task_id") or "").strip()
-    interaction_mode = str(
-        payload.get("interaction_mode")
-        or payload.get("runtime_interaction_mode")
-        or task_structure.get("runtime_interaction_mode")
-        or metadata.get("runtime_interaction_mode")
-        or metadata.get("interaction_mode")
-        or "role_mode"
-    ).strip()
     if task_id:
         payload["selected_task_id"] = task_id
         payload["task_id"] = task_id
         payload["specific_task_id"] = task_id
-    if interaction_mode:
-        payload["interaction_mode"] = interaction_mode
-        payload["runtime_interaction_mode"] = interaction_mode
     payload["task_graph_node_runtime"] = True
     payload["suppress_bundle_projection"] = True
     payload.setdefault("semantic_task_type", "task_graph_node_execution")

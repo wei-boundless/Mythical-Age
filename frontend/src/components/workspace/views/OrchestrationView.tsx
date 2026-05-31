@@ -49,11 +49,6 @@ import { OrchestrationToolbarButton } from "@/components/workspace/views/orchest
 import { taskSystemDisplayLabel } from "@/components/workspace/views/task-system/TaskSystemWorkbenchUi";
 import { useConfirmDialog } from "@/components/layout/ConfirmDialogProvider";
 import { useAppStore } from "@/lib/store";
-import {
-  normalizeDefaultRuntimeMode,
-  normalizeRuntimeModes,
-  runtimeModeCatalogFrom,
-} from "@/lib/runtimeModeConfig";
 
 type AgentCategory = "main_agent" | "builtin_agent" | "custom_agent";
 type AgentDirectorySection = "main_agent" | "builtin_system_agent" | "builtin_specialist_agent" | "custom_agent";
@@ -119,8 +114,6 @@ const EMPTY_AGENT_DRAFT: AgentDraft = {
 const EMPTY_RUNTIME_DRAFT: RuntimeDraft = {
   agent_profile_id: "",
   agent_id: "",
-  enabled_runtime_modes: ["custom"],
-  default_runtime_mode: "custom",
   allowed_operations: ["op.model_response"],
   blocked_operations: [],
   allowed_memory_scopes: [],
@@ -134,7 +127,6 @@ const EMPTY_RUNTIME_DRAFT: RuntimeDraft = {
   trace_policy: "runtime_event_log",
   lifecycle_policy: "orchestration_managed",
   model_profile: {},
-  runtime_mode_catalog: [],
   metadata: { managed_by: "orchestration_console" },
 };
 
@@ -344,23 +336,13 @@ function agentDraftFrom(agent?: Record<string, unknown> | null): AgentDraft {
 function runtimeDraftFrom(
   agentId: string,
   profile?: Partial<OrchestrationAgentRuntimeProfile>,
-  fallbackRuntimeModeCatalog: Array<Record<string, unknown>> = [],
 ): RuntimeDraft {
   const merged = { ...EMPTY_RUNTIME_DRAFT, ...(profile ?? {}), agent_id: agentId };
   const profileId = String(merged.agent_profile_id || `${agentId.replace(/[:]/g, "_")}_runtime`);
   const allowedOps = uniqueList(merged.allowed_operations).length ? uniqueList(merged.allowed_operations) : ["op.model_response"];
-  const rawModeCatalog = Array.isArray(merged.runtime_mode_catalog) && merged.runtime_mode_catalog.length
-    ? merged.runtime_mode_catalog
-    : fallbackRuntimeModeCatalog;
-  const modeCatalog = runtimeModeCatalogFrom(rawModeCatalog);
-  const enabledModes = normalizeRuntimeModes((merged as Record<string, unknown>).enabled_runtime_modes, modeCatalog, "custom");
-  const defaultMode = normalizeDefaultRuntimeMode((merged as Record<string, unknown>).default_runtime_mode, enabledModes);
   return {
     ...merged,
     agent_profile_id: profileId,
-    enabled_runtime_modes: enabledModes,
-    default_runtime_mode: defaultMode,
-    runtime_mode_catalog: modeCatalog,
     allowed_operations: allowedOps,
     blocked_operations: uniqueList(merged.blocked_operations),
     allowed_memory_scopes: uniqueList(merged.allowed_memory_scopes),
@@ -379,12 +361,8 @@ function runtimeDraftFrom(
 }
 
 function runtimePayloadFromDraft(draft: RuntimeDraft) {
-  const enabledModes = normalizeRuntimeModes((draft as Record<string, unknown>).enabled_runtime_modes, runtimeModeCatalogFrom(draft.runtime_mode_catalog), "custom");
-  const defaultMode = normalizeDefaultRuntimeMode((draft as Record<string, unknown>).default_runtime_mode, enabledModes);
   return {
     agent_profile_id: draft.agent_profile_id,
-    enabled_runtime_modes: enabledModes,
-    default_runtime_mode: defaultMode,
     allowed_operations: Array.from(new Set(["op.model_response", ...uniqueList(draft.allowed_operations)])),
     blocked_operations: uniqueList(draft.blocked_operations),
     allowed_memory_scopes: uniqueList(draft.allowed_memory_scopes),
@@ -590,13 +568,8 @@ export function OrchestrationView() {
   const contextSectionOptionItems = useMemo(() => catalog?.options.context_section_options ?? [], [catalog]);
   const approvalPolicyOptions = useMemo(() => catalog?.options.approval_policy_options ?? [], [catalog]);
   const tracePolicyOptions = useMemo(() => catalog?.options.trace_policy_options ?? [], [catalog]);
-  const runtimeModeLabels = useMemo(
-    () => new Map(runtimeModeCatalogFrom(catalog?.options.runtime_modes).map((mode) => [mode.mode, mode.label || mode.mode])),
-    [catalog],
-  );
   const runtimeOptionLabels = useMemo(
     () => new Map([
-      ...runtimeModeLabels,
       ...optionLabelMap(operationOptionItems),
       ...optionLabelMap(memoryScopeOptionItems),
       ...optionLabelMap(contextSectionOptionItems),
@@ -608,7 +581,6 @@ export function OrchestrationView() {
       contextSectionOptionItems,
       memoryScopeOptionItems,
       operationOptionItems,
-      runtimeModeLabels,
       tracePolicyOptions,
     ],
   );
@@ -653,10 +625,10 @@ export function OrchestrationView() {
   useEffect(() => {
     if (!selectedAgent) return;
     setAgentDraft(agentDraftFrom(selectedAgent));
-    setRuntimeDraft(runtimeDraftFrom(String(selectedAgent.agent_id), selectedProfile, catalog?.options.runtime_modes ?? []));
+    setRuntimeDraft(runtimeDraftFrom(String(selectedAgent.agent_id), selectedProfile));
     setAgentMode("existing");
     setActiveSection(agentDirectorySection(selectedAgent));
-  }, [selectedAgentId, selectedAgent, catalog?.options.runtime_modes]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [selectedAgentId, selectedAgent]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (groupMode === "new") return;
@@ -697,7 +669,7 @@ export function OrchestrationView() {
   const runtimeConfig = (runtimeDraft.metadata?.runtime_config && typeof runtimeDraft.metadata.runtime_config === "object")
     ? runtimeDraft.metadata.runtime_config as Record<string, unknown>
     : {};
-  const runtimeConfigMode = String(runtimeConfig.runtime_mode || runtimeConfig.template_id || "默认");
+  const runtimeConfigMode = String(runtimeConfig.runtime_kind || runtimeConfig.template_id || "默认");
   const modelSummary = modelProfile.provider || modelProfile.model
     ? `${modelProfile.provider || "继承默认"} / ${modelProfile.model || "继承模型"}`
     : "继承系统默认";
@@ -758,7 +730,6 @@ export function OrchestrationView() {
         })),
     [agentDraft.agent_id, agents],
   );
-  const runtimeModeSummary = displayOptionList(uniqueList(runtimeDraft.enabled_runtime_modes), runtimeOptionLabels);
   const memorySummary = displayOptionList(uniqueList(runtimeDraft.allowed_memory_scopes), runtimeOptionLabels);
   const contextSummary = displayOptionList(uniqueList(runtimeDraft.allowed_context_sections), runtimeOptionLabels);
   const operationSummary = `${allowedOps.length} 允许 / ${blockedOps.length} 阻断`;
@@ -860,7 +831,6 @@ export function OrchestrationView() {
       ...EMPTY_RUNTIME_DRAFT,
       agent_id: draftAgentId,
       agent_profile_id: `${draftAgentId.replace(/[:]/g, "_")}_runtime`,
-      runtime_mode_catalog: catalog?.options.runtime_modes ?? [],
       metadata: { ...EMPTY_RUNTIME_DRAFT.metadata },
     });
     setNotice("已进入新子 Agent 草稿。先保存 Agent 名册，再配置运行档案。");
@@ -1156,7 +1126,6 @@ export function OrchestrationView() {
                   displayId={displayId}
                   patchRuntimeDraft={(patch) => setRuntimeDraft((current) => ({ ...current, ...patch }))}
                   runtimeDraft={runtimeDraft}
-                  runtimeModeSummary={runtimeModeSummary}
                   tracePolicyOptions={tracePolicyOptions}
                   tracePolicies={catalog?.options.trace_policies ?? ["runtime_event_log"]}
                   operationOptionItems={operationOptionItems}
@@ -1221,7 +1190,6 @@ export function OrchestrationView() {
                   operationSummary={operationSummary}
                   runtimeDraft={runtimeDraft}
                   modelSummary={modelSummary}
-                  runtimeSummary={runtimeModeSummary}
                 />
               ) : null}
 

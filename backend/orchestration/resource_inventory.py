@@ -50,7 +50,7 @@ def build_runtime_resource_inventory(base_dir: Path | str | None = None) -> Runt
             title="Execution Obligation",
             authority_layer="L1_execution_obligation",
             path="backend/intent/execution_obligation.py",
-            runtime_consumer="semantic_contract.mode_policy.agent_runtime_control",
+            runtime_consumer="semantic_contract.runtime_policy.agent_runtime_control",
             can_authorize_side_effects=True,
             notes="Hard source for required read/write/verify/deliver and forbidden actions.",
         ),

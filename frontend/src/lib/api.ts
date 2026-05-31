@@ -271,8 +271,7 @@ export type EngagementAssignee = {
 };
 
 export type EngagementRuntimeProfile = {
-  runtime_mode: "role" | "standard" | "professional" | "custom" | string;
-  runtime_mode_policy?: Record<string, unknown>;
+  runtime_policy?: Record<string, unknown>;
 };
 
 export type EngagementExecutionStrategy = {
@@ -1279,8 +1278,6 @@ export type CapabilitySystemAgentCatalog = {
 export type OrchestrationAgentRuntimeProfile = {
   agent_profile_id: string;
   agent_id: string;
-  enabled_runtime_modes?: string[];
-  default_runtime_mode?: string;
   allowed_tool_packages?: Array<{
     package_id: string;
     enabled: boolean;
@@ -1303,7 +1300,6 @@ export type OrchestrationAgentRuntimeProfile = {
   lifecycle_policy: string;
   model_profile?: OrchestrationAgentModelProfile;
   metadata?: Record<string, unknown>;
-  runtime_mode_catalog?: Array<Record<string, unknown>>;
 };
 
 export type OrchestrationAgentModelProfile = {
@@ -1377,8 +1373,6 @@ export type OrchestrationAgentRuntimeCatalog = {
   options: {
     operations: OperationDescriptor[];
     task_graphs: string[];
-    runtime_modes?: Array<Record<string, unknown>>;
-    default_runtime_mode?: string;
     memory_scopes: string[];
     context_sections: string[];
     approval_policies: string[];
@@ -4658,7 +4652,6 @@ export async function createChatRun(payload: {
   session_id: string;
   ephemeral_system_messages?: string[];
   search_policy?: string[];
-  runtime_mode?: string;
   task_selection?: Record<string, unknown>;
   model_selection?: Record<string, unknown>;
   image_generation?: Record<string, unknown>;
@@ -4903,7 +4896,6 @@ export async function streamChat(
     session_id: string;
     ephemeral_system_messages?: string[];
     search_policy?: string[];
-    runtime_mode?: string;
     task_selection?: Record<string, unknown>;
     model_selection?: Record<string, unknown>;
     image_generation?: Record<string, unknown>;

@@ -202,11 +202,12 @@ class RuntimeMonitorProjector:
         return item
 
     def build_global_monitor(self, task_runs: list[Any], *, now: float, limit: int) -> dict[str, Any]:
-        items = [
+        projected = [
             self.project_task_run(task_run, now=now, include_runtime_details=False)
             for task_run in sorted(task_runs, key=lambda item: float(getattr(item, "updated_at", 0.0) or 0.0), reverse=True)
             if not self._is_internal_child_run(task_run)
         ]
+        items = [item for item in projected if self._is_global_live_item(item)]
         return build_envelope(scope="global", items=items, now=now, limit=limit)
 
     def build_session_monitor(self, session_id: str, task_runs: list[Any], *, now: float, limit: int = 20) -> dict[str, Any]:
@@ -345,6 +346,12 @@ class RuntimeMonitorProjector:
             or diagnostics.get("graph_node_id")
             or diagnostics.get("graph_work_order_id")
         )
+
+    def _is_global_live_item(self, item: dict[str, Any]) -> bool:
+        bucket = str(item.get("bucket") or "").strip()
+        if bucket in {"running", "diagnostics"}:
+            return True
+        return bool(item.get("action_required") is True or item.get("stale") is True)
 
     def _display_title(self, task_run: Any, diagnostics: dict[str, Any], *, lifecycle: str) -> str:
         for key in ("title", "task_graph_title", "project_title", "goal", "task_goal"):

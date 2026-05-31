@@ -17,7 +17,7 @@ class RuntimeEnvelope:
     step_id: str = ""
     agent_profile_ref: str = ""
     task_environment_ref: str = "single_agent"
-    mode_policy: dict[str, Any] = field(default_factory=dict)
+    runtime_policy: dict[str, Any] = field(default_factory=dict)
     tool_policy: dict[str, Any] = field(default_factory=dict)
     permission_policy: dict[str, Any] = field(default_factory=dict)
     sandbox_policy: dict[str, Any] = field(default_factory=dict)

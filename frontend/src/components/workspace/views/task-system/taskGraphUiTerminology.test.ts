@@ -12,7 +12,7 @@ describe("task graph UI terminology", () => {
     expect(visibleText).not.toContain("Compiled View");
     expect(visibleText).not.toContain("legacy 来源");
     expect(visibleText).not.toContain("编译预览");
-    expect(visibleText).toContain("拓扑编辑");
-    expect(visibleText).toContain("图契约");
+    expect(visibleText).toContain("编辑工作台");
+    expect(visibleText).toContain("检查修复");
   });
 });

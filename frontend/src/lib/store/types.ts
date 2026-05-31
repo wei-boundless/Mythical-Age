@@ -146,19 +146,6 @@ export type ChatModelSelection = {
 
 export type ChatMode = "chat" | "image";
 
-export type MainAgentAssemblyMode = string;
-
-export type MainAgentRuntimeModeOption = {
-  mode: string;
-  label: string;
-  interaction_mode?: string;
-  recipe_id?: string;
-  projection_strength?: string;
-  description?: string;
-  builtin?: boolean;
-  editable?: boolean;
-};
-
 export type MemoryInspectorTarget = {
   source: "manual";
   runId?: string;
@@ -191,11 +178,8 @@ export type TaskSelectionState = {
   mode?: "single_task" | "task_graph";
   agent_id?: string;
   agent_profile_id?: string;
-  runtime_mode?: string;
-  interaction_mode?: string;
-  runtime_interaction_mode?: string;
   runtime_assembly_hint?: Record<string, unknown>;
-  mode_policy?: Record<string, unknown>;
+  runtime_policy?: Record<string, unknown>;
   agent_invocation?: Record<string, unknown>;
   agent_invocation_id?: string;
 };
@@ -250,9 +234,6 @@ export type StoreState = {
   selectedChatModelId: string;
   selectedChatMode: ChatMode;
   thinkingEnabled: boolean;
-  mainAgentAssemblyMode: MainAgentAssemblyMode;
-  mainAgentRuntimeModes: MainAgentRuntimeModeOption[];
-  mainAgentDefaultRuntimeMode: MainAgentAssemblyMode;
   skills: SkillSummary[];
   soulOptions: SoulSummary[];
   activeSoulKey: SoulKey | null;
@@ -307,7 +288,6 @@ export type StoreActions = {
   setSelectedChatModel: (selectionId: string) => void;
   setSelectedChatMode: (mode: ChatMode) => void;
   setThinkingEnabled: (enabled: boolean) => void;
-  setMainAgentAssemblyMode: (mode: MainAgentAssemblyMode) => void;
   switchSoul: (key: SoulKey) => Promise<void>;
   renameCurrentSession: (title: string) => Promise<void>;
   removeSession: (sessionId: string) => Promise<void>;

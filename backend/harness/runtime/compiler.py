@@ -87,21 +87,18 @@ class RuntimeCompiler:
             prompt_pack_refs=prompt_pack_refs,
             agent_profile_ref=agent_profile_ref,
             task_environment_ref=task_environment_ref,
-            runtime_mode=str(profile_payload.get("mode") or ""),
         )
         agent_prompt_assembly = self._assemble_prompt_refs(
             invocation_kind="agent_profile",
             prompt_refs=_string_tuple(assembly_payload.get("agent_prompt_refs")),
             agent_profile_ref=agent_profile_ref,
             task_environment_ref=task_environment_ref,
-            runtime_mode=str(profile_payload.get("mode") or ""),
         )
         environment_prompt_assembly = self._assemble_prompt_refs(
             invocation_kind="environment",
             prompt_refs=_string_tuple(assembly_payload.get("environment_prompt_refs")),
             agent_profile_ref=agent_profile_ref,
             task_environment_ref=task_environment_ref,
-            runtime_mode=str(profile_payload.get("mode") or ""),
         )
         environment_instruction = _environment_instruction(
             environment_payload,
@@ -231,9 +228,7 @@ class RuntimeCompiler:
         environment_payload = dict(assembly_payload.get("task_environment") or {})
         agent_profile_ref = str(agent_profile_ref or assembly_payload.get("agent_profile_ref") or "main_interactive_agent")
         task_environment_ref = str(environment_payload.get("environment_id") or "env.general.workspace")
-        mode_policy = {
-            "mode": str(profile_payload.get("mode") or "standard"),
-            "interaction_mode": str(profile_payload.get("interaction_mode") or "standard_mode"),
+        runtime_policy = {
             "planning_policy": dict(profile_payload.get("planning_policy") or {}),
             "task_lifecycle_policy": dict(profile_payload.get("task_lifecycle_policy") or {}),
             "soul_prompt_policy": dict(profile_payload.get("soul_prompt_policy") or {}),
@@ -258,7 +253,7 @@ class RuntimeCompiler:
             turn_id=turn_id,
             agent_profile_ref=agent_profile_ref,
             task_environment_ref=task_environment_ref,
-            mode_policy=mode_policy,
+            runtime_policy=runtime_policy,
             sandbox_policy=dict(environment_payload.get("sandbox_policy") or {}),
             file_policy={
                 "file_management": dict(environment_payload.get("file_management") or {}),
@@ -280,21 +275,18 @@ class RuntimeCompiler:
             prompt_pack_refs=prompt_pack_refs,
             agent_profile_ref=agent_profile_ref,
             task_environment_ref=task_environment_ref,
-            runtime_mode=str(profile_payload.get("mode") or "standard"),
         )
         agent_prompt_assembly = self._assemble_prompt_refs(
             invocation_kind="agent_profile",
             prompt_refs=_string_tuple(assembly_payload.get("agent_prompt_refs")),
             agent_profile_ref=agent_profile_ref,
             task_environment_ref=task_environment_ref,
-            runtime_mode=str(profile_payload.get("mode") or "standard"),
         )
         environment_prompt_assembly = self._assemble_prompt_refs(
             invocation_kind="environment",
             prompt_refs=_string_tuple(assembly_payload.get("environment_prompt_refs")),
             agent_profile_ref=agent_profile_ref,
             task_environment_ref=task_environment_ref,
-            runtime_mode=str(profile_payload.get("mode") or "standard"),
         )
         runtime_instruction = _runtime_projection_instruction(agent_visible_runtime_projection)
         environment_instruction = _environment_instruction(
@@ -467,9 +459,7 @@ class RuntimeCompiler:
         task_run_id = str(task_run.get("task_run_id") or "")
         task_run_diagnostics = dict(task_run.get("diagnostics") or {})
         executor_epoch = int(task_run_diagnostics.get("executor_epoch") or 0)
-        mode_policy = {
-            "mode": str(profile_payload.get("mode") or "professional"),
-            "interaction_mode": str(profile_payload.get("interaction_mode") or "task_execution"),
+        runtime_policy = {
             "planning_policy": dict(profile_payload.get("planning_policy") or {}),
             "task_lifecycle_policy": dict(profile_payload.get("task_lifecycle_policy") or {}),
             "self_review_policy": dict(profile_payload.get("self_review_policy") or {}),
@@ -497,7 +487,7 @@ class RuntimeCompiler:
             task_run_id=task_run_id,
             agent_profile_ref=agent_profile_ref,
             task_environment_ref=task_environment_ref,
-            mode_policy=mode_policy,
+            runtime_policy=runtime_policy,
             sandbox_policy=dict(environment_payload.get("sandbox_policy") or {}),
             file_policy={
                 "file_management": dict(environment_payload.get("file_management") or {}),
@@ -533,7 +523,6 @@ class RuntimeCompiler:
             prompt_pack_refs=prompt_pack_refs,
             agent_profile_ref=agent_profile_ref,
             task_environment_ref=task_environment_ref,
-            runtime_mode=str(profile_payload.get("mode") or "professional"),
         )
         task_prompt_assembly = self._assemble_prompt_contract(
             task_prompt_contract=task_prompt_contract,
@@ -544,14 +533,12 @@ class RuntimeCompiler:
             prompt_refs=_string_tuple(assembly_payload.get("agent_prompt_refs")),
             agent_profile_ref=agent_profile_ref,
             task_environment_ref=task_environment_ref,
-            runtime_mode=str(profile_payload.get("mode") or "professional"),
         )
         environment_prompt_assembly = self._assemble_prompt_refs(
             invocation_kind="environment",
             prompt_refs=_string_tuple(assembly_payload.get("environment_prompt_refs")),
             agent_profile_ref=agent_profile_ref,
             task_environment_ref=task_environment_ref,
-            runtime_mode=str(profile_payload.get("mode") or "professional"),
         )
         artifact_note = f"当前建议 artifact_root 是 {artifact_root}。" if artifact_root else ""
         runtime_instruction = _join_prompt_sections(
@@ -753,9 +740,7 @@ class RuntimeCompiler:
         environment_payload = dict(assembly_payload.get("task_environment") or {})
         agent_profile_ref = str(agent_profile_ref or assembly_payload.get("agent_profile_ref") or "main_interactive_agent")
         task_environment_ref = str(environment_payload.get("environment_id") or "env.general.workspace")
-        mode_policy = {
-            "mode": str(profile_payload.get("mode") or "standard"),
-            "interaction_mode": str(profile_payload.get("interaction_mode") or "standard_mode"),
+        runtime_policy = {
             "planning_policy": dict(profile_payload.get("planning_policy") or {}),
             "task_lifecycle_policy": dict(profile_payload.get("task_lifecycle_policy") or {}),
             "soul_prompt_policy": dict(profile_payload.get("soul_prompt_policy") or {}),
@@ -780,7 +765,7 @@ class RuntimeCompiler:
             turn_id=turn_id,
             agent_profile_ref=agent_profile_ref,
             task_environment_ref=task_environment_ref,
-            mode_policy=mode_policy,
+            runtime_policy=runtime_policy,
             sandbox_policy=dict(environment_payload.get("sandbox_policy") or {}),
             file_policy={
                 "file_management": dict(environment_payload.get("file_management") or {}),
@@ -802,21 +787,18 @@ class RuntimeCompiler:
             prompt_pack_refs=prompt_pack_refs,
             agent_profile_ref=agent_profile_ref,
             task_environment_ref=task_environment_ref,
-            runtime_mode=str(profile_payload.get("mode") or "standard"),
         )
         agent_prompt_assembly = self._assemble_prompt_refs(
             invocation_kind="agent_profile",
             prompt_refs=_string_tuple(assembly_payload.get("agent_prompt_refs")),
             agent_profile_ref=agent_profile_ref,
             task_environment_ref=task_environment_ref,
-            runtime_mode=str(profile_payload.get("mode") or "standard"),
         )
         environment_prompt_assembly = self._assemble_prompt_refs(
             invocation_kind="environment",
             prompt_refs=_string_tuple(assembly_payload.get("environment_prompt_refs")),
             agent_profile_ref=agent_profile_ref,
             task_environment_ref=task_environment_ref,
-            runtime_mode=str(profile_payload.get("mode") or "standard"),
         )
         runtime_instruction = _runtime_projection_instruction(agent_visible_runtime_projection)
         environment_instruction = _environment_instruction(
@@ -974,7 +956,6 @@ class RuntimeCompiler:
         prompt_pack_refs: tuple[str, ...],
         agent_profile_ref: str,
         task_environment_ref: str,
-        runtime_mode: str,
     ) -> PromptAssemblyResult:
         refs = tuple(prompt_pack_refs or ())
         if not refs:
@@ -986,7 +967,6 @@ class RuntimeCompiler:
                 prompt_pack_refs=refs,
                 agent_profile_ref=agent_profile_ref,
                 task_environment_ref=task_environment_ref,
-                runtime_mode=runtime_mode,
             )
         )
 
@@ -1025,7 +1005,6 @@ class RuntimeCompiler:
         prompt_refs: tuple[str, ...],
         agent_profile_ref: str,
         task_environment_ref: str,
-        runtime_mode: str,
     ) -> PromptAssemblyResult:
         if not prompt_refs:
             return PromptAssemblyResult(
@@ -1040,7 +1019,6 @@ class RuntimeCompiler:
                 prompt_refs=prompt_refs,
                 agent_profile_ref=agent_profile_ref,
                 task_environment_ref=task_environment_ref,
-                runtime_mode=runtime_mode,
             )
         )
 

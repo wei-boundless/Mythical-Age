@@ -32,7 +32,6 @@ class ChatRequest(BaseModel):
     ephemeral_system_messages: list[str] = Field(default_factory=list)
     explicit_subtasks: list[dict[str, Any]] = Field(default_factory=list)
     search_policy: list[str] | None = None
-    runtime_mode: str = ""
     soul_id: str = ""
     runtime_profile: dict[str, Any] = Field(default_factory=dict)
     task_selection: dict[str, Any] = Field(default_factory=dict)
@@ -160,7 +159,6 @@ def _query_request_from_payload(payload: ChatRequest, *, session_id: str) -> Que
         ephemeral_system_messages=list(payload.ephemeral_system_messages or []),
         explicit_subtasks=list(payload.explicit_subtasks or []),
         search_policy=list(payload.search_policy) if payload.search_policy is not None else None,
-        runtime_mode=str(payload.runtime_mode or ""),
         soul_id=str(payload.soul_id or ""),
         runtime_profile=dict(payload.runtime_profile or {}),
         task_selection=dict(payload.task_selection or {}),

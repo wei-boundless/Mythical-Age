@@ -69,4 +69,21 @@ describe("TaskGraph standard view freshness", () => {
     expect(markTaskGraphStandardViewStale(state, "graph.story", nextRevision).stale).toBe(true);
     expect(markTaskGraphStandardViewStale(state, "graph.story", firstRevision).stale).toBe(false);
   });
+
+  it("keeps the same standard view state object when freshness has not changed", () => {
+    const revision = taskGraphDraftRevisionKey({
+      graphId: "graph.story",
+      nodes: [{ node_id: "draft" }],
+      edges: [],
+      metadata: {},
+    });
+    const state = loadedTaskGraphStandardViewState({
+      graphId: "graph.story",
+      revisionKey: revision,
+      loadedAt: "2026-05-27T00:00:00.000Z",
+      view: { graph: { graph_id: "graph.story" }, nodes: [], edges: [], resources: [], units: [], interfaces: [], port_edges: [], graph_module_expansion: [], graph_module_expansions: [], issues: [] } as never,
+    });
+
+    expect(markTaskGraphStandardViewStale(state, "graph.story", revision)).toBe(state);
+  });
 });

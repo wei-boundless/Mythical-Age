@@ -276,6 +276,31 @@ describe("TaskGraph preflight", () => {
     expect(report.issues.some((issue) => issue.scope === "phase" && issue.target_id === "phase.review")).toBe(true);
   });
 
+  it("accepts responsibility prompt components as node prompt semantics", () => {
+    const report = buildTaskGraphPreflightReport({
+      dirty: false,
+      editorIssueCount: 0,
+      editorValid: true,
+      nodes: [
+        {
+          node_id: "draft",
+          display_name_zh: "起草",
+          title: "起草",
+          agent_id: "agent.writer",
+          metadata: {
+            role_identity: "你是一名写作者。",
+            responsibility_scope: "你只负责根据当前目标产出可审核的草稿。",
+            responsibility_exclusions: "你不负责审核自己的输出。",
+            definition_of_done: "你必须交付草稿、依据和遗留问题。",
+          },
+        },
+      ],
+      edges: [],
+    });
+
+    expect(report.issues.some((issue) => issue.source === "frontend.preflight.prompt_semantics")).toBe(false);
+  });
+
   it("warns when legacy node prompt has not been consolidated into role prompt", () => {
     const report = buildTaskGraphPreflightReport({
       dirty: false,

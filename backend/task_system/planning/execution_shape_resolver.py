@@ -41,10 +41,9 @@ def resolve_execution_shape(
     }
     semantic_contract = dict(task_intent_contract.task_requirement_contract or {})
     execution_obligation = dict(task_intent_contract.execution_obligation or semantic_contract.get("execution_obligation") or {})
-    mode_policy = dict(task_intent_contract.mode_policy or {})
+    runtime_policy = dict(task_intent_contract.runtime_policy or {})
     agent_turn_action_request = dict(current_turn.get("agent_turn_action_request") or {})
     task_contract_seed = dict(current_turn.get("task_contract_seed") or {})
-    interaction_mode = str(mode_policy.get("interaction_mode") or current_turn.get("interaction_mode") or "").strip()
     task_goal_type = str(semantic_contract.get("task_goal_type") or "").strip()
     source_kind = _source_kind_from_contract(
         task_contract_seed=task_contract_seed,
@@ -57,6 +56,8 @@ def resolve_execution_shape(
         agent_turn_action_request=agent_turn_action_request,
         task_contract_seed=task_contract_seed,
     )
+    if runtime_policy:
+        diagnostics["runtime_policy"] = runtime_policy
     reasons: list[str] = []
 
     if _explicit_task_runtime(current_turn):
@@ -84,22 +85,6 @@ def resolve_execution_shape(
             resolution_source="agent_turn_action_request",
             resolution_reasons=tuple(reasons),
             diagnostics=diagnostics,
-        )
-
-    if interaction_mode in {"role_mode", "standard_mode", "professional_mode"}:
-        reasons.append(f"interaction_mode:{interaction_mode}")
-        return _agent_mode_shape(
-            mode_policy=mode_policy,
-            semantic_contract=semantic_contract,
-            execution_obligation=execution_obligation,
-            interaction_mode=interaction_mode,
-            source_kind=source_kind or "runtime_task",
-            definition_ids=definition_ids,
-            current_turn=current_turn,
-            task_goal_type=task_goal_type,
-            reasons=reasons,
-            agent_turn_action_request=agent_turn_action_request,
-            task_contract_seed=task_contract_seed,
         )
 
     if task_intent_contract.execution_intent == "bundle_task":
@@ -204,55 +189,6 @@ def _shape_from_source_kind(
         diagnostics=diagnostics,
     )
 
-
-def _agent_mode_shape(
-    *,
-    mode_policy: dict[str, Any],
-    semantic_contract: dict[str, Any],
-    execution_obligation: dict[str, Any],
-    interaction_mode: str,
-    source_kind: str,
-    definition_ids: set[str],
-    current_turn: dict[str, Any],
-    task_goal_type: str,
-    reasons: list[str],
-    agent_turn_action_request: dict[str, Any],
-    task_contract_seed: dict[str, Any],
-) -> ExecutionShape:
-    return ExecutionShape(
-        recipe_id=str(mode_policy.get("recipe_id") or _default_agent_mode_recipe_id(interaction_mode)),
-        execution_kind=interaction_mode,
-        source_kind=source_kind,
-        finalization_policy={
-            "requires_model_finalize": True,
-            "tool_observation_can_finalize": False,
-            "requires_verification_gate": bool(
-                dict(mode_policy.get("verification_policy") or {}).get("required") is not False
-            ),
-        },
-        resolution_source="task_contract_policy",
-        resolution_reasons=tuple(reasons),
-        diagnostics={
-            **_shape_diagnostics(
-                definition_ids,
-                source_kind,
-                current_turn,
-                agent_turn_action_request=agent_turn_action_request,
-                task_contract_seed=task_contract_seed,
-            ),
-            "interaction_mode": interaction_mode,
-            "runtime_mode": interaction_mode,
-            "projection_strength": str(mode_policy.get("projection_strength") or ""),
-            "semantic_task_type": task_goal_type,
-            "professional_profile_id": str(semantic_contract.get("professional_profile_id") or ""),
-            "mode_policy": mode_policy,
-            "task_requirement_contract": semantic_contract,
-            "execution_obligation": execution_obligation,
-            "model_agent_plan_draft": dict(current_turn.get("model_agent_plan_draft") or {}),
-        },
-    )
-
-
 def _shape_from_recipe_id(
     recipe_id: str,
     *,
@@ -273,14 +209,6 @@ def _shape_from_recipe_id(
         resolution_reasons=tuple(reasons),
         diagnostics=diagnostics,
     )
-
-
-def _default_agent_mode_recipe_id(interaction_mode: str) -> str:
-    return {
-        "role_mode": "runtime.recipe.role_interaction",
-        "standard_mode": "runtime.recipe.standard_task",
-        "professional_mode": "runtime.recipe.professional_task",
-    }.get(str(interaction_mode or "").strip(), "runtime.recipe.standard_task")
 
 
 def _shape_diagnostics(

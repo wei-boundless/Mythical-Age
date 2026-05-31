@@ -63,8 +63,7 @@ def _runtime_context_projection(
     payload = {
         "assembly_id": str(assembly_payload.get("assembly_id") or ""),
         "agent_profile_ref": str(assembly_payload.get("agent_profile_ref") or ""),
-        "mode": str(profile.get("mode") or ""),
-        "interaction_mode": str(profile.get("interaction_mode") or ""),
+        "runtime_profile_ref": str(profile.get("profile_ref") or ""),
         "task_environment_id": str(environment.get("environment_id") or ""),
         "storage": drop_empty(
             {
@@ -92,7 +91,6 @@ def _runtime_envelope_projection(envelope: dict[str, Any]) -> dict[str, Any]:
     payload = dict(envelope or {})
     artifact_policy = dict(payload.get("artifact_policy") or {})
     permission_policy = dict(payload.get("permission_policy") or {})
-    mode_policy = dict(payload.get("mode_policy") or {})
     output_policy = dict(payload.get("output_policy") or {})
     return drop_empty(
         {
@@ -103,8 +101,6 @@ def _runtime_envelope_projection(envelope: dict[str, Any]) -> dict[str, Any]:
             "task_run_id": str(payload.get("task_run_id") or ""),
             "agent_profile_ref": str(payload.get("agent_profile_ref") or ""),
             "task_environment_ref": str(payload.get("task_environment_ref") or ""),
-            "mode": str(mode_policy.get("mode") or ""),
-            "interaction_mode": str(mode_policy.get("interaction_mode") or ""),
             "artifact_root": str(artifact_policy.get("artifact_root") or ""),
             "permission_scope": str(permission_policy.get("permission_scope") or permission_policy.get("scope") or ""),
             "output_format": str(output_policy.get("format") or ""),

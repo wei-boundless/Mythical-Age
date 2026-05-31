@@ -605,9 +605,9 @@ def test_child_agent_capability_uses_deepsearch_runtime_config_without_fetch_per
                 "runtime_config": {
                     "template_id": "runtime.template.deepsearch",
                     "runtime_kind": "search_agent",
-                    "runtime_mode": "deepsearch",
+                    "execution_strategy": "deepsearch",
                     "search": {
-                        "runtime_mode": "deepsearch",
+                        "search_strategy": "deepsearch",
                         "allow_fetch_url": False,
                         "max_queries": 2,
                         "max_fetches": 0,
@@ -699,7 +699,7 @@ def test_deepsearch_strategy_adds_next_query_from_evidence_gap() -> None:
                 "runtime_config": {
                     "template_id": "runtime.template.deepsearch",
                     "search": {
-                        "runtime_mode": "deepsearch",
+                        "search_strategy": "deepsearch",
                         "allow_fetch_url": False,
                         "max_queries": 3,
                         "max_fetches": 0,
@@ -753,7 +753,7 @@ def test_deepsearch_fetch_cleans_html_before_evidence_packet() -> None:
                 "runtime_config": {
                     "template_id": "runtime.template.deepsearch",
                     "search": {
-                        "runtime_mode": "deepsearch",
+                        "search_strategy": "deepsearch",
                         "allow_fetch_url": True,
                         "max_queries": 3,
                         "max_fetches": 1,
@@ -810,7 +810,7 @@ def test_deepsearch_persists_large_tool_results_and_keeps_distilled_evidence(tmp
                 "runtime_config": {
                     "template_id": "runtime.template.deepsearch",
                     "search": {
-                        "runtime_mode": "deepsearch",
+                        "search_strategy": "deepsearch",
                         "allow_fetch_url": True,
                         "max_queries": 2,
                         "max_fetches": 1,

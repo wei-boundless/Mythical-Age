@@ -245,7 +245,7 @@ def test_graph_harness_starts_published_config_and_creates_node_work_order() -> 
         observations=[],
         runtime_assembly={
             "assembly_id": "rtasm:test",
-            "profile": {"mode": "professional", "interaction_mode": "task_execution"},
+            "profile": {"profile_ref": "main_interactive_agent", "interaction_policy": {"style": "task_execution"}},
             "task_environment": {"environment_id": "env.test"},
             "operation_authorization": {"allowed_operations": []},
         },
@@ -695,7 +695,7 @@ def test_graph_node_task_contract_keeps_model_visible_artifact_payload(tmp_path:
         observations=[],
         runtime_assembly={
             "assembly_id": "rtasm:test",
-            "profile": {"mode": "professional", "interaction_mode": "task_execution"},
+            "profile": {"profile_ref": "main_interactive_agent", "interaction_policy": {"style": "task_execution"}},
             "task_environment": {"environment_id": "env.test"},
             "operation_authorization": {"allowed_operations": []},
         },
@@ -1510,11 +1510,11 @@ def test_graph_node_task_run_contract_and_origin_are_explicit() -> None:
                 "task_id": "task.test.execute",
                 "agent_id": "agent:0",
                 "metadata": {
-                    "prompt_contract": {
-                        "role_prompt": "你是一名图节点执行员。",
-                        "task_instruction": "只完成当前节点任务。",
-                    },
-                    "runtime_profile": {"mode": "professional"},
+                        "prompt_contract": {
+                            "role_prompt": "你是一名图节点执行员。",
+                            "task_instruction": "只完成当前节点任务。",
+                        },
+                        "runtime_profile": {"runtime_policy": {}},
                 },
             },
         ),
@@ -1535,7 +1535,7 @@ def test_graph_node_task_run_contract_and_origin_are_explicit() -> None:
     assert contract["origin"]["origin_kind"] == "graph_node_assigned"
     assert contract["task_environment_id"] == "env.development.sandbox"
     assert contract["prompt_contract"]["role_prompt"] == "你是一名图节点执行员。"
-    assert contract["runtime_profile"]["mode"] == "professional"
+    assert contract["runtime_profile"]["runtime_policy"]["source"] == "graph_slot.node_contract"
     assert selection["task_environment_id"] == "env.development.sandbox"
     assert selection["prompt_contract"]["task_instruction"] == "只完成当前节点任务。"
     assert selection["runtime_profile"]["tool_policy"] == {}
@@ -1546,8 +1546,6 @@ def test_graph_node_agent_profile_id_does_not_replace_agent_id() -> None:
     runtime.agent_runtime_registry.upsert_profile(
         agent_id="agent:0",
         agent_profile_id="custom_graph_node_profile",
-        enabled_runtime_modes=("professional",),
-        default_runtime_mode="professional",
         allowed_operations=("op.model_response",),
         metadata={"work_role_prompt": "你是图节点专用执行员。"},
     )
@@ -1588,8 +1586,6 @@ def test_graph_node_agent_profile_id_drives_task_executor_runtime_assembly() -> 
     runtime.agent_runtime_registry.upsert_profile(
         agent_id="agent:0",
         agent_profile_id="custom_graph_node_profile",
-        enabled_runtime_modes=("professional",),
-        default_runtime_mode="professional",
         allowed_operations=("op.model_response",),
         metadata={"work_role_prompt": "你是图节点专用执行员。"},
     )
@@ -1794,7 +1790,8 @@ def test_graph_run_runner_executes_linear_graph_to_completion() -> None:
     assert set(state["completed_node_ids"]) == {"plan", "draft", "publish"}
     assert state["active_work_orders"] == {}
     assert result.graph_result["status"] == "completed"
-    assert {item["task_run_id"] for item in monitor["task_runs"]} == {start.task_run.task_run_id}
+    assert start.task_run.task_run_id not in {item["task_run_id"] for item in monitor["task_runs"]}
+    assert runtime.single_agent_runtime_host.get_task_run_live_monitor(start.task_run.task_run_id)["bucket"] == "completed"
 
 
 def test_graph_run_monitor_exposes_node_runtime_views_after_runner() -> None:

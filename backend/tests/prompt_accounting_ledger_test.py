@@ -19,6 +19,15 @@ def _model_input_text(packet) -> str:
     return "\n\n".join(str(message.get("content") or "") for message in packet.model_messages)
 
 
+def _message_content_with_title(packet, title: str) -> str:
+    marker = title + "\n"
+    for message in packet.model_messages:
+        content = str(message.get("content") or "")
+        if marker in content:
+            return content
+    raise AssertionError(f"message title not found: {title}")
+
+
 def test_prompt_accounting_ledger_records_prediction_provider_usage_and_cache(tmp_path) -> None:
     ledger = PromptAccountingLedger(tmp_path)
     messages = [
@@ -218,24 +227,26 @@ def test_task_execution_packet_places_stable_contract_before_volatile_state() ->
             }
         ],
         runtime_assembly={
-            "profile": {"mode": "professional"},
+            "profile": {"profile_ref": "main_interactive_agent"},
             "task_environment": {"environment_id": "env.test"},
         },
     )
 
     messages = result.packet.model_messages
     manifest = result.packet.diagnostics["prompt_manifest"]
-    assert [message["role"] for message in messages] == ["system", "system", "system", "system", "user"]
+    assert [message["role"] for message in messages][0] == "system"
+    assert [message["role"] for message in messages][-1] == "user"
     assert "Task execution stable contract" in messages[1]["content"]
     assert "task_contract" in messages[1]["content"]
     assert "available_tools" in messages[1]["content"]
-    assert "当前任务执行要求" in messages[2]["content"]
-    assert "审查并修复监控系统" in messages[2]["content"]
-    assert "Task execution runtime boundary" in messages[3]["content"]
-    assert "Task execution current state" in messages[4]["content"]
-    assert "observations" in messages[4]["content"]
+    requirement_content = next(str(message.get("content") or "") for message in messages if "当前任务执行要求" in str(message.get("content") or ""))
+    assert "当前任务执行要求" in requirement_content
+    assert "审查并修复监控系统" in requirement_content
+    assert any("本次运行边界" in str(message.get("content") or "") for message in messages)
+    current_state_content = _message_content_with_title(result.packet, "Task execution current state")
+    assert "observations" in current_state_content
     stable_payload = json.loads(messages[1]["content"].split("\n", 1)[1])
-    volatile_payload = json.loads(messages[4]["content"].split("\n", 1)[1])
+    volatile_payload = json.loads(current_state_content.split("\n", 1)[1])
     assert stable_payload["task_run"]["diagnostics"] == {"graph_run_id": "graph:stable"}
     assert stable_payload["tool_catalog_hash"].startswith("sha256:")
     assert "input_schema" not in stable_payload["available_tools"][0]
@@ -269,11 +280,13 @@ def test_task_execution_packet_places_stable_contract_before_volatile_state() ->
         "global_static",
         "task_stable",
         "task_prompt_contract",
+        "environment_stable",
         "runtime_boundary",
         "volatile_task_state",
     ]
     assert [segment.cache_role for segment in segment_map.segments] == [
         "cacheable_prefix",
+        "session_stable",
         "session_stable",
         "session_stable",
         "session_stable",
@@ -288,7 +301,7 @@ def test_task_execution_packet_places_stable_contract_before_volatile_state() ->
         segment_plan=result.packet.segment_plan,
     )
     assert model_request.stable_prefix_hash == cache_record.prefix_hash
-    assert cache_record.diagnostics["stable_prefix_segment_count"] == 4
+    assert cache_record.diagnostics["stable_prefix_segment_count"] == 5
     assert manifest["token_estimate"]["assembly_prompt_chars"] == manifest["token_estimate"]["prompt_chars"]
     assert manifest["token_estimate"]["model_visible_chars"] == sum(len(message["content"]) for message in messages)
     assert manifest["token_estimate"]["cacheable_prefix_chars"] > manifest["token_estimate"]["assembly_prompt_chars"]
@@ -313,7 +326,7 @@ def test_task_execution_stable_prefix_is_unchanged_across_runtime_state_updates(
             "completion_criteria": ["生成可运行游戏", "完成基本验证"],
         },
         "runtime_assembly": {
-            "profile": {"mode": "professional"},
+            "profile": {"profile_ref": "main_interactive_agent"},
             "task_environment": {"environment_id": "env.general.workspace"},
         },
     }
@@ -335,8 +348,8 @@ def test_task_execution_stable_prefix_is_unchanged_across_runtime_state_updates(
 
     first_messages = first.packet.model_messages
     second_messages = second.packet.model_messages
-    assert first_messages[:4] == second_messages[:4]
-    assert first_messages[4] != second_messages[4]
+    assert first_messages[:-1] == second_messages[:-1]
+    assert first_messages[-1] != second_messages[-1]
 
     first_request = ModelRequestBuilder().build(
         request_id="modelreq:first-append-only",
@@ -399,7 +412,7 @@ def test_runtime_prompt_uses_assembly_projection_not_mode_instruction() -> None:
         available_tools=[{"tool_name": "write_file", "description": "写入文件"}],
         runtime_assembly={
             "profile": {
-                "mode": "professional",
+                "profile_ref": "main_interactive_agent",
                 "task_lifecycle_policy": {
                     "request_task_run": True,
                     "requires_completion_evidence": True,
@@ -408,7 +421,7 @@ def test_runtime_prompt_uses_assembly_projection_not_mode_instruction() -> None:
                 "planning_policy": {"todo_required_when_task_run": True},
                 "self_review_policy": {"enabled": True, "checkpoints": ["before_final"]},
                 "step_summary_policy": {"enabled": True, "detail": "stepwise"},
-                "permission_policy": {"permission_scope": "professional_agent_profile_ceiling"},
+                "permission_policy": {"permission_scope": "agent_profile_ceiling"},
             },
             "task_environment": {"environment_id": "env.general.workspace"},
             "operation_authorization": {
@@ -419,7 +432,7 @@ def test_runtime_prompt_uses_assembly_projection_not_mode_instruction() -> None:
 
     model_input = _model_input_text(result.packet)
     stable_payload = json.loads(result.packet.model_messages[1]["content"].split("\n", 1)[1])
-    dynamic_payload = _payload_after_title(result.packet.model_messages[2]["content"], "Turn action dynamic runtime")
+    dynamic_payload = _payload_after_title(_message_content_with_title(result.packet, "Turn action dynamic runtime"), "Turn action dynamic runtime")
     projection = dynamic_payload["runtime_context"]["agent_visible_runtime_projection"]
 
     assert "当前 runtime 是 professional 模式" not in model_input
@@ -434,18 +447,18 @@ def test_runtime_prompt_uses_assembly_projection_not_mode_instruction() -> None:
     assert projection["planning"]["todo_required_when_task_run"] is True
 
 
-def test_role_runtime_projection_blocks_task_run_without_mode_instruction_text() -> None:
+def test_runtime_projection_blocks_task_run_without_mode_instruction_text() -> None:
     result = RuntimeCompiler().compile_turn_action_packet(
-        session_id="session:role-projection",
-        turn_id="turn:role-projection",
-        agent_invocation_id="aginvoke:role-projection",
+        session_id="session:conversation-projection",
+        turn_id="turn:conversation-projection",
+        agent_invocation_id="aginvoke:conversation-projection",
         user_message="陪我聊一下这个角色",
         history=[],
         runtime_assembly={
             "profile": {
-                "mode": "role",
+                "profile_ref": "main_interactive_agent",
                 "task_lifecycle_policy": {"request_task_run": False},
-                "permission_policy": {"permission_scope": "role_conversation_readonly"},
+                "permission_policy": {"permission_scope": "conversation_readonly"},
             },
             "task_environment": {"environment_id": "env.general.workspace"},
             "operation_authorization": {"allowed_operations": ["op.model_response"]},
@@ -454,13 +467,13 @@ def test_role_runtime_projection_blocks_task_run_without_mode_instruction_text()
 
     model_input = _model_input_text(result.packet)
     stable_payload = json.loads(result.packet.model_messages[1]["content"].split("\n", 1)[1])
-    dynamic_payload = _payload_after_title(result.packet.model_messages[2]["content"], "Turn action dynamic runtime")
+    dynamic_payload = _payload_after_title(_message_content_with_title(result.packet, "Turn action dynamic runtime"), "Turn action dynamic runtime")
     projection = dynamic_payload["runtime_context"]["agent_visible_runtime_projection"]
 
     assert "当前 runtime 是 role 模式" not in model_input
     assert "可以请求进入持续处理流程" not in model_input
     assert projection["task_lifecycle"]["request_task_run_allowed"] is False
-    assert projection["permission_boundary"]["permission_scope"] == "role_conversation_readonly"
+    assert projection["permission_boundary"]["permission_scope"] == "conversation_readonly"
 
 
 def _segment_plan(

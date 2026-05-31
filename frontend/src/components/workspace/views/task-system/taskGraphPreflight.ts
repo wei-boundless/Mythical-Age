@@ -54,6 +54,18 @@ function recordValue(value: unknown) {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
 
+function nodePromptSemanticParts(node: Record<string, unknown>, metadata: Record<string, unknown>) {
+  return [
+    node.role_prompt,
+    metadata.role_prompt,
+    node.prompt,
+    metadata.role_identity,
+    metadata.responsibility_scope,
+    metadata.responsibility_exclusions,
+    metadata.definition_of_done,
+  ].map((value) => stringValue(value)).filter(Boolean);
+}
+
 function contractBindingValue(target: Record<string, unknown>, section: string, key: string) {
   return stringValue(recordValue(recordValue(target.contract_bindings)[section])[key]);
 }
@@ -283,8 +295,9 @@ export function buildTaskGraphPreflightReport({
     const legacyFieldNames = Array.isArray(legacyMigration.legacy_field_names)
       ? legacyMigration.legacy_field_names.map((value) => stringValue(value)).filter(Boolean)
       : [];
-    const rolePrompt = stringValue(node.role_prompt ?? metadata.role_prompt ?? node.prompt);
-    if (!rolePrompt && legacyFieldNames.length > 0) {
+    const explicitRolePrompt = stringValue(node.role_prompt ?? metadata.role_prompt ?? node.prompt);
+    const hasPromptSemantics = nodePromptSemanticParts(node, metadata).length > 0;
+    if (!explicitRolePrompt && legacyFieldNames.length > 0) {
       pushIssue(issues, {
         severity: "warning",
         scope: "node",
@@ -294,7 +307,7 @@ export function buildTaskGraphPreflightReport({
         source: "frontend.preflight.prompt_semantics",
       });
     }
-    if (!rolePrompt && legacyFieldNames.length === 0 && agentId) {
+    if (!hasPromptSemantics && legacyFieldNames.length === 0 && agentId) {
       pushIssue(issues, {
         severity: "info",
         scope: "node",

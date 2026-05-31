@@ -297,7 +297,7 @@ def test_unknown_status_enters_diagnostics():
     assert "unknown_task_status" in item["diagnostic_reasons"]
 
 
-def test_global_monitor_filters_internal_child_runs_and_applies_per_bucket_limit():
+def test_global_monitor_filters_internal_static_history_and_child_runs_and_applies_per_bucket_limit():
     projector = RuntimeMonitorProjector(EventLogStub())
     runs = [
         task_run(task_run_id="taskrun:running-1", updated_at=140.0),
@@ -319,8 +319,9 @@ def test_global_monitor_filters_internal_child_runs_and_applies_per_bucket_limit
     monitor = projector.build_global_monitor(runs, now=160.0, limit=1)
 
     assert [item["task_run_id"] for item in monitor["buckets"]["running"]] == ["taskrun:running-1"]
-    assert [item["task_run_id"] for item in monitor["buckets"]["completed"]] == ["taskrun:completed-1"]
+    assert monitor["buckets"]["completed"] == []
     assert "taskrun:child" not in {item["task_run_id"] for item in monitor["task_runs"]}
+    assert "taskrun:completed-1" not in {item["task_run_id"] for item in monitor["task_runs"]}
 
 
 def test_main_chat_taskinst_task_run_remains_monitorable():

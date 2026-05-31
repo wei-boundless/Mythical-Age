@@ -17,7 +17,6 @@ from capability_system.tool_packages import parse_tool_package_selection
 from harness.runtime import assemble_runtime
 from orchestration import ControlKernel, TaskContract, build_base_unit_catalog
 from orchestration.resource_inventory import build_runtime_resource_inventory
-from agent_system.profiles.runtime_mode_config import DEFAULT_RUNTIME_MODE, mode_config_catalog
 from task_system import TaskFlowRegistry
 
 router = APIRouter()
@@ -36,8 +35,6 @@ class OrchestrationModeRequest(BaseModel):
 
 class AgentRuntimeProfileRequest(BaseModel):
     agent_profile_id: str = Field(default="", max_length=160)
-    enabled_runtime_modes: list[str] = Field(default_factory=list)
-    default_runtime_mode: str = Field(default="", max_length=80)
     allowed_tool_packages: list[dict[str, Any]] = Field(default_factory=list)
     extra_allowed_operations: list[str] = Field(default_factory=list)
     allowed_operations: list[str] = Field(default_factory=list)
@@ -387,8 +384,6 @@ def _empty_orchestration_runtime_options() -> dict[str, Any]:
     return {
         "operations": [],
         "task_graphs": [],
-        "runtime_modes": [],
-        "default_runtime_mode": DEFAULT_RUNTIME_MODE,
         "memory_scopes": [],
         "context_sections": [],
         "approval_policies": [],
@@ -429,8 +424,6 @@ async def orchestration_runtime_options() -> dict[str, Any]:
         "options": {
             "operations": [item.to_dict() for item in operations],
             "task_graphs": task_graph_refs,
-            "runtime_modes": mode_config_catalog(),
-            "default_runtime_mode": DEFAULT_RUNTIME_MODE,
             "memory_scopes": memory_scopes,
             "context_sections": context_sections,
             "approval_policies": approval_policies,
@@ -619,8 +612,6 @@ async def upsert_orchestration_agent_runtime_profile(
         AgentRuntimeRegistry(runtime.base_dir).upsert_profile(
             agent_id=agent_id,
             agent_profile_id=payload.agent_profile_id,
-            enabled_runtime_modes=tuple(payload.enabled_runtime_modes),
-            default_runtime_mode=payload.default_runtime_mode,
             allowed_tool_packages=tuple(
                 item
                 for item in (

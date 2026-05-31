@@ -5,7 +5,6 @@ from typing import Any
 
 from ..models.model_profile_models import AgentModelProfile
 from capability_system.tool_packages import ToolPackageSelection
-from .runtime_mode_config import mode_config_catalog
 
 
 @dataclass(frozen=True, slots=True)
@@ -28,8 +27,6 @@ class SubagentPolicy:
 class AgentRuntimeProfile:
     agent_profile_id: str
     agent_id: str
-    enabled_runtime_modes: tuple[str, ...] = ()
-    default_runtime_mode: str = ""
     allowed_tool_packages: tuple[ToolPackageSelection, ...] = ()
     extra_allowed_operations: tuple[str, ...] = ()
     allowed_operations: tuple[str, ...] = ()
@@ -51,7 +48,6 @@ class AgentRuntimeProfile:
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
         for key in (
-            "enabled_runtime_modes",
             "extra_allowed_operations",
             "allowed_operations",
             "blocked_operations",
@@ -64,7 +60,6 @@ class AgentRuntimeProfile:
         payload["final_allowed_operations"] = list(self.allowed_operations)
         payload["model_profile"] = self.model_profile.to_dict()
         payload["runtime_template_id"] = self.runtime_template_id
-        payload["runtime_mode_catalog"] = mode_config_catalog()
         return payload
 
 

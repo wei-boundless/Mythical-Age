@@ -101,6 +101,41 @@ class TaskRun:
 
 
 @dataclass(frozen=True, slots=True)
+class TurnRun:
+    """Durable trace object for one conversational agent turn.
+
+    A TurnRun records model/action-loop traceability for a chat turn. It is not a
+    task lifecycle object and must not be surfaced as an orchestrated TaskRun.
+    """
+
+    turn_run_id: str
+    session_id: str
+    turn_id: str
+    agent_profile_id: str = "main_interactive_agent"
+    execution_runtime_kind: str = "single_agent_turn"
+    status: TaskRunStatus = "running"
+    created_at: float = 0.0
+    updated_at: float = 0.0
+    latest_event_offset: int = -1
+    terminal_reason: RuntimeTerminalReason = ""
+    diagnostics: dict[str, Any] = field(default_factory=dict)
+    authority: str = "orchestration.turn_run"
+
+    def __post_init__(self) -> None:
+        if self.authority != "orchestration.turn_run":
+            raise ValueError("TurnRun authority must be orchestration.turn_run")
+        if not self.turn_run_id:
+            raise ValueError("TurnRun requires turn_run_id")
+        if not self.session_id:
+            raise ValueError("TurnRun requires session_id")
+        if not self.turn_id:
+            raise ValueError("TurnRun requires turn_id")
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True, slots=True)
 class AgentRun:
     """Durable runtime object for a concrete agent execution instance."""
 

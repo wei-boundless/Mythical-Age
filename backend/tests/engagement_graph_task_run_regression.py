@@ -62,7 +62,7 @@ def _plan() -> dict[str, object]:
         "status": "active",
         "task_environment_id": "env.development.sandbox",
         "assignee": {"kind": "agent", "agent_id": "agent:0"},
-        "runtime_profile": {"runtime_mode": "professional", "runtime_mode_policy": {}},
+        "runtime_profile": {"runtime_policy": {}},
         "execution_strategy": {
             "kind": "graph_task_run",
             "startup_policy": {"graph_id": "graph.test.engagement_single_agent"},

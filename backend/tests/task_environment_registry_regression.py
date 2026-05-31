@@ -123,7 +123,6 @@ def test_system_eval_dual_node_uses_main_and_health_agent_profiles() -> None:
         turn_id="turn-system-eval-main",
         agent_invocation_id="agent-invocation-system-eval-main",
         request_task_selection={
-            "runtime_mode": "professional",
             "task_environment_id": "env.system_eval.dual_node",
         },
         model_selection={},
@@ -137,7 +136,6 @@ def test_system_eval_dual_node_uses_main_and_health_agent_profiles() -> None:
         turn_id="turn-system-eval-monitor",
         agent_invocation_id="agent-invocation-system-eval-monitor",
         request_task_selection={
-            "runtime_mode": "professional",
             "task_environment_id": "env.system_eval.dual_node",
         },
         model_selection={},
@@ -189,7 +187,7 @@ def test_legacy_environment_ids_are_not_accepted() -> None:
         raise AssertionError(f"legacy environment id should not resolve: {environment_id}")
 
 
-def test_professional_development_runtime_exposes_shell_and_image_generation_tools() -> None:
+def test_development_environment_exposes_shell_and_image_generation_tools_for_authorized_agent() -> None:
     profile = next(item for item in default_agent_runtime_profiles() if item.agent_profile_id == "main_interactive_agent")
     definitions = get_tool_definitions()
     index = build_tool_authorization_index(definitions)
@@ -199,7 +197,7 @@ def test_professional_development_runtime_exposes_shell_and_image_generation_too
         session_id="session-test",
         turn_id="turn-test",
         agent_invocation_id="agent-invocation-test",
-        request_task_selection={"runtime_mode": "professional", "task_environment_id": "env.development.sandbox"},
+        request_task_selection={"task_environment_id": "env.development.sandbox"},
         model_selection={},
         agent_runtime_profile=profile,
         tool_instances=build_tool_instances(BACKEND_DIR),
@@ -230,7 +228,7 @@ def test_runtime_available_tools_expose_canonical_tool_input_schema() -> None:
         session_id="session-tool-schema",
         turn_id="turn-tool-schema",
         agent_invocation_id="agent-invocation-tool-schema",
-        request_task_selection={"runtime_mode": "professional", "task_environment_id": "env.development.sandbox"},
+        request_task_selection={"task_environment_id": "env.development.sandbox"},
         model_selection={},
         agent_runtime_profile=profile,
         tool_instances=build_tool_instances(BACKEND_DIR),
@@ -260,46 +258,76 @@ def test_runtime_available_tools_expose_canonical_tool_input_schema() -> None:
     assert "todos" not in todo["optional_inputs"]
 
 
-def test_runtime_mode_does_not_bind_task_environment_without_explicit_selection() -> None:
+def test_runtime_profile_does_not_bind_task_environment_without_explicit_selection() -> None:
     profile = next(item for item in default_agent_runtime_profiles() if item.agent_profile_id == "main_interactive_agent")
     definitions = get_tool_definitions()
     index = build_tool_authorization_index(definitions)
 
     assembly = assemble_runtime(
         backend_dir=BACKEND_DIR,
-        session_id="session-mode-env",
-        turn_id="turn-mode-env",
-        agent_invocation_id="agent-invocation-mode-env",
-        request_task_selection={"runtime_mode": "professional"},
+        session_id="session-profile-env",
+        turn_id="turn-profile-env",
+        agent_invocation_id="agent-invocation-profile-env",
+        request_task_selection={},
         model_selection={},
         agent_runtime_profile=profile,
         tool_instances=build_tool_instances(BACKEND_DIR),
         definitions_by_name=index.definitions_by_name,
     ).to_dict()
 
-    assert dict(assembly.get("profile") or {}).get("mode") == "professional"
+    assert dict(assembly.get("profile") or {}).get("profile_ref") == "main_interactive_agent"
     assert dict(assembly.get("task_environment") or {}).get("environment_id") == "env.general.workspace"
     assert dict(dict(assembly.get("diagnostics") or {}).get("task_environment") or {}).get("source") == "fallback_default"
 
 
-def test_explicit_task_environment_selection_is_orthogonal_to_runtime_mode() -> None:
+def test_runtime_policy_default_environment_does_not_select_task_environment() -> None:
     profile = next(item for item in default_agent_runtime_profiles() if item.agent_profile_id == "main_interactive_agent")
     definitions = get_tool_definitions()
     index = build_tool_authorization_index(definitions)
 
     assembly = assemble_runtime(
         backend_dir=BACKEND_DIR,
-        session_id="session-mode-writing",
-        turn_id="turn-mode-writing",
-        agent_invocation_id="agent-invocation-mode-writing",
-        request_task_selection={"runtime_mode": "professional", "task_environment_id": "env.creation.writing"},
+        session_id="session-policy-env",
+        turn_id="turn-policy-env",
+        agent_invocation_id="agent-invocation-policy-env",
+        request_task_selection={
+            "runtime_policy": {
+                "context_policy": {"default_environment_id": "env.development.sandbox"},
+            },
+            "runtime_profile": {
+                "runtime_policy": {
+                    "context_policy": {"default_environment_id": "env.creation.writing"},
+                },
+            },
+        },
         model_selection={},
         agent_runtime_profile=profile,
         tool_instances=build_tool_instances(BACKEND_DIR),
         definitions_by_name=index.definitions_by_name,
     ).to_dict()
 
-    assert dict(assembly.get("profile") or {}).get("mode") == "professional"
+    assert dict(assembly.get("task_environment") or {}).get("environment_id") == "env.general.workspace"
+    assert dict(dict(assembly.get("diagnostics") or {}).get("task_environment") or {}).get("source") == "fallback_default"
+
+
+def test_explicit_task_environment_selection_is_orthogonal_to_agent_runtime_profile() -> None:
+    profile = next(item for item in default_agent_runtime_profiles() if item.agent_profile_id == "main_interactive_agent")
+    definitions = get_tool_definitions()
+    index = build_tool_authorization_index(definitions)
+
+    assembly = assemble_runtime(
+        backend_dir=BACKEND_DIR,
+        session_id="session-profile-writing",
+        turn_id="turn-profile-writing",
+        agent_invocation_id="agent-invocation-profile-writing",
+        request_task_selection={"task_environment_id": "env.creation.writing"},
+        model_selection={},
+        agent_runtime_profile=profile,
+        tool_instances=build_tool_instances(BACKEND_DIR),
+        definitions_by_name=index.definitions_by_name,
+    ).to_dict()
+
+    assert dict(assembly.get("profile") or {}).get("profile_ref") == "main_interactive_agent"
     assert dict(assembly.get("task_environment") or {}).get("environment_id") == "env.creation.writing"
     assert dict(dict(assembly.get("diagnostics") or {}).get("task_environment") or {}).get("source") == "explicit_selection"
 
@@ -313,7 +341,7 @@ def test_development_environment_prompt_is_in_task_execution_packet() -> None:
         session_id="session-env-prompt",
         turn_id="turn-env-prompt",
         agent_invocation_id="agent-invocation-env-prompt",
-        request_task_selection={"runtime_mode": "professional", "task_environment_id": "env.development.sandbox"},
+        request_task_selection={"task_environment_id": "env.development.sandbox"},
         model_selection={},
         agent_runtime_profile=profile,
         tool_instances=build_tool_instances(BACKEND_DIR),
@@ -394,8 +422,6 @@ def test_environment_does_not_filter_agent_allowed_tools() -> None:
     index = build_tool_authorization_index(definitions)
     profile = SimpleNamespace(
         agent_profile_id="env-constraint-agent",
-        enabled_runtime_modes=("professional",),
-        default_runtime_mode="professional",
         allowed_operations=("op.model_response", "op.shell", "op.browser_control", "op.web_search", "op.write_file"),
         blocked_operations=(),
         can_delegate_to_agents=False,
@@ -409,7 +435,7 @@ def test_environment_does_not_filter_agent_allowed_tools() -> None:
         session_id="session-env-constraint",
         turn_id="turn-env-constraint",
         agent_invocation_id="agent-invocation-env-constraint",
-        request_task_selection={"runtime_mode": "professional", "task_environment_id": "env.development.readonly"},
+        request_task_selection={"task_environment_id": "env.development.readonly"},
         model_selection={},
         agent_runtime_profile=profile,
         tool_instances=build_tool_instances(BACKEND_DIR),
@@ -442,7 +468,7 @@ def test_runtime_compiler_stable_payload_keeps_environment_and_operation_project
         session_id="session-skill-packet",
         turn_id="turn-skill-packet",
         agent_invocation_id="agent-invocation-skill-packet",
-        request_task_selection={"runtime_mode": "professional", "task_environment_id": "env.development.sandbox"},
+        request_task_selection={"task_environment_id": "env.development.sandbox"},
         model_selection={},
         agent_runtime_profile=profile,
         tool_instances=build_tool_instances(BACKEND_DIR),
@@ -494,7 +520,6 @@ def test_active_skill_prompt_body_omits_frontmatter_and_internal_runtime_terms()
         turn_id="turn-active-skill-clean",
         agent_invocation_id="agent-invocation-active-skill-clean",
         request_task_selection={
-            "runtime_mode": "professional",
             "task_environment_id": "env.development.sandbox",
             "selected_skill_ids": ["skill.visual-asset-generation"],
         },
@@ -752,8 +777,6 @@ def test_runtime_assembly_can_select_configured_task_environment(tmp_path: Path)
     )
     profile = SimpleNamespace(
         agent_profile_id="custom-env-agent",
-        enabled_runtime_modes=("professional",),
-        default_runtime_mode="professional",
         allowed_operations=("op.model_response",),
         blocked_operations=(),
         can_delegate_to_agents=False,
@@ -769,7 +792,7 @@ def test_runtime_assembly_can_select_configured_task_environment(tmp_path: Path)
         session_id="session-custom-env",
         turn_id="turn-custom-env",
         agent_invocation_id="agent-invocation-custom-env",
-        request_task_selection={"runtime_mode": "professional", "task_environment_id": "env.custom.runtime"},
+        request_task_selection={"task_environment_id": "env.custom.runtime"},
         model_selection={},
         agent_runtime_profile=profile,
         tool_instances=build_tool_instances(BACKEND_DIR),
@@ -822,8 +845,6 @@ def test_runtime_packet_includes_environment_prompt_boundary_from_configured_env
     )
     profile = SimpleNamespace(
         agent_profile_id="custom-prompted-agent",
-        enabled_runtime_modes=("professional",),
-        default_runtime_mode="professional",
         allowed_operations=("op.model_response",),
         blocked_operations=(),
         can_delegate_to_agents=False,
@@ -838,7 +859,7 @@ def test_runtime_packet_includes_environment_prompt_boundary_from_configured_env
         session_id="session-custom-prompted",
         turn_id="turn-custom-prompted",
         agent_invocation_id="agent-invocation-custom-prompted",
-        request_task_selection={"runtime_mode": "professional", "task_environment_id": "env.custom.prompted"},
+        request_task_selection={"task_environment_id": "env.custom.prompted"},
         model_selection={},
         agent_runtime_profile=profile,
         tool_instances=build_tool_instances(BACKEND_DIR),

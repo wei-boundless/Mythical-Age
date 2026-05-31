@@ -13,6 +13,7 @@ import type {
 import type { TaskGraphTemplateBuildInput, TaskGraphTemplateId } from "./taskGraphTemplates";
 import type { TaskGraphDraftV2, TaskGraphPublishStateV2 } from "./taskGraphDraftV2";
 import type { TaskGraphEditorSelection } from "./taskGraphEditorSelection";
+import type { TaskGraphSemanticRelationPreset } from "./taskGraphSemanticRelations";
 
 export type TaskGraphKind = "single_agent" | "multi_agent" | "coordination";
 
@@ -119,4 +120,5 @@ export type TaskGraphWorkbenchProps = {
   a2aCatalog: TaskGraphAgentCardCatalog | null;
   orchestrationAgentCatalog: OrchestrationAgentRuntimeCatalog | null;
   contractSpecs: ContractSpec[];
+  semanticRelationPresets: TaskGraphSemanticRelationPreset[];
 };

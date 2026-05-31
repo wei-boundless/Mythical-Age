@@ -11,7 +11,7 @@ from .models import EngagementRequest
 from .resolver import resolve_engagement_plan
 
 
-FORBIDDEN_START_FIELDS = {"environment_id", "task_environment_id", "execution_strategy_override", "runtime_mode_override", "requires_approval"}
+FORBIDDEN_START_FIELDS = {"environment_id", "task_environment_id", "execution_strategy_override", "runtime_policy_override", "requires_approval"}
 
 
 class EngagementService:

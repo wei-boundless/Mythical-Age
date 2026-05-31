@@ -316,11 +316,7 @@ PROFESSIONAL_GAME_MULTIFILE_DELIVERY_TURNS: tuple[LongScenarioTurn, ...] = (
 
 
 PROFESSIONAL_TASK_SELECTION: dict[str, Any] = {
-    "interaction_mode": "professional_mode",
-    "mode_policy": {
-        "execution_strategy": "interaction_mode_run",
-        "interaction_mode": "professional_mode",
-    },
+    "runtime_policy": {},
 }
 
 
@@ -501,13 +497,7 @@ SANDBOX_FILE_OPS_ACCEPTANCE_TURNS: tuple[LongScenarioTurn, ...] = (
             "response.nonempty",
         ),
         params={
-            "task_selection": {
-                "interaction_mode": "professional_mode",
-                "mode_policy": {
-                    "execution_strategy": "interaction_mode_run",
-                    "interaction_mode": "professional_mode",
-                },
-            }
+            "task_selection": {"runtime_policy": {}}
         },
         force_memory_sync=False,
     ),
@@ -530,13 +520,7 @@ SANDBOX_FILE_OPS_ACCEPTANCE_TURNS: tuple[LongScenarioTurn, ...] = (
             "response.nonempty",
         ),
         params={
-            "task_selection": {
-                "interaction_mode": "professional_mode",
-                "mode_policy": {
-                    "execution_strategy": "interaction_mode_run",
-                    "interaction_mode": "professional_mode",
-                },
-            }
+            "task_selection": {"runtime_policy": {}}
         },
         force_memory_sync=False,
     ),
@@ -559,13 +543,7 @@ SANDBOX_FILE_OPS_ACCEPTANCE_TURNS: tuple[LongScenarioTurn, ...] = (
             "response.nonempty",
         ),
         params={
-            "task_selection": {
-                "interaction_mode": "professional_mode",
-                "mode_policy": {
-                    "execution_strategy": "interaction_mode_run",
-                    "interaction_mode": "professional_mode",
-                },
-            }
+            "task_selection": {"runtime_policy": {}}
         },
         force_memory_sync=False,
     ),

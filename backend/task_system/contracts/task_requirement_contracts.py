@@ -172,7 +172,6 @@ def build_task_requirement_contract(
             "task_goal_profile_binding": goal_profile_binding.to_dict(),
             "material_count": len(materials),
             "material_kinds": sorted({str(item.get("kind") or "") for item in materials if item.get("kind")}),
-            "explicit_mode": str(current_turn.get("interaction_mode") or current_turn.get("runtime_interaction_mode") or ""),
             "execution_obligation_summary": _obligation_summary(obligation),
             "strategy_prototype": prototype.to_dict(),
         },

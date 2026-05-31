@@ -29,10 +29,21 @@ class TurnRoute:
             raise ValueError("TurnRoute authority must be harness.routing.turn_route")
         if not self.route_kind:
             raise ValueError("TurnRoute requires route_kind")
-        forbidden = {"mode", "runtime_mode", "role_mode", "standard_mode", "professional_mode"}
-        leaked = forbidden.intersection(self.control_capabilities) | forbidden.intersection(self.diagnostics)
-        if leaked:
-            raise ValueError(f"TurnRoute must not carry mode control fields: {sorted(leaked)}")
+        allowed_capabilities = {
+            "authority",
+            "conversation_only",
+            "may_emit_assistant_message",
+            "may_call_tools",
+            "may_request_task_run",
+            "may_control_active_work",
+            "may_use_subagents",
+            "requires_json_action_protocol",
+            "has_explicit_contract",
+            "visible_tool_count",
+        }
+        unknown = set(self.control_capabilities).difference(allowed_capabilities)
+        if unknown:
+            raise ValueError(f"TurnRoute received unknown control capability fields: {sorted(unknown)}")
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)

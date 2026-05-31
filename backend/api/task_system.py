@@ -1251,8 +1251,7 @@ async def upsert_task_system_engagement_plan(plan_id: str, payload: EngagementPl
         "participant_agent_ids": list(dict(raw.get("assignee") or {}).get("participant_agent_ids") or []),
     }
     raw["runtime_profile"] = {
-        "runtime_mode": str(dict(raw.get("runtime_profile") or {}).get("runtime_mode") or "professional"),
-        "runtime_mode_policy": dict(dict(raw.get("runtime_profile") or {}).get("runtime_mode_policy") or {}),
+        "runtime_policy": dict(dict(raw.get("runtime_profile") or {}).get("runtime_policy") or {}),
     }
     raw["execution_strategy"] = {
         "kind": str(dict(raw.get("execution_strategy") or {}).get("kind") or "graph_task_run"),
@@ -1282,7 +1281,7 @@ async def delete_task_system_engagement_plan(plan_id: str) -> dict[str, object]:
 async def start_task_system_engagement_plan(plan_id: str, payload: EngagementStartRequest) -> dict[str, object]:
     runtime = require_runtime()
     startup = dict(payload.startup_parameters or {})
-    forbidden = {"environment_id", "task_environment_id", "execution_strategy_override", "runtime_mode_override", "requires_approval"}
+    forbidden = {"environment_id", "task_environment_id", "execution_strategy_override", "runtime_policy_override", "requires_approval"}
     invalid = sorted(key for key in forbidden if key in startup)
     if invalid:
         raise HTTPException(status_code=400, detail={"errors": [f"forbidden_start_field:{key}" for key in invalid]})

@@ -2,15 +2,8 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
-from agent_system.profiles.runtime_mode_config import (
-    CUSTOM_MODE,
-    PROFESSIONAL_MODE,
-    ROLE_MODE,
-    STANDARD_MODE,
-    runtime_mode_catalog,
-)
 from capability_system.skill_registry import SkillRegistry
 from capability_system.tool_authorization import build_authorized_tool_set
 from soul.assembly_service import SoulAssemblyService
@@ -20,8 +13,6 @@ from task_system.environments import build_task_environment_catalog, task_enviro
 from .operation_projection import project_operation_authorization
 
 
-RuntimeMode = Literal["role", "standard", "professional", "custom"]
-
 _SUBAGENT_TOOL_NAMES = {
     "spawn_subagent",
     "send_subagent_message",
@@ -30,11 +21,40 @@ _SUBAGENT_TOOL_NAMES = {
     "close_subagent",
 }
 
+_DEFAULT_RUNTIME_POLICY: dict[str, Any] = {
+    "interaction_policy": {
+        "style": "general_agent",
+        "task_orientation": "agent_decides_next_action",
+        "user_clarification": "allowed",
+    },
+    "planning_policy": {"plan_mode": "available", "specified_plan_allowed": True, "todo_required_when_task_run": True},
+    "task_lifecycle_policy": {"request_task_run": True, "requires_completion_evidence": True, "artifact_evidence_required": True},
+    "tool_exposure_policy": {},
+    "context_policy": {
+        "history_scope": "conversation_task_and_recovery",
+        "task_context": "available",
+        "task_run_context": "enabled",
+        "active_work_context": "available",
+    },
+    "memory_policy": {"read_scope": "agent_profile", "write_scope": "candidate_with_receipt"},
+    "subagent_policy": {"enabled": True},
+    "self_review_policy": {
+        "enabled": True,
+        "checkpoints": ("before_tool", "after_tool", "before_final"),
+        "failure_recovery": "replan_or_report_blocker",
+    },
+    "step_summary_policy": {"enabled": True, "detail": "stepwise"},
+    "approval_policy": {"permission_scope": "agent_profile_ceiling"},
+    "artifact_policy": {},
+    "soul_prompt_policy": {"enabled": False},
+    "prompt_pack_refs_by_invocation": {},
+    "operation_authorization_projection": {},
+}
+
 
 @dataclass(frozen=True, slots=True)
 class RuntimeAssemblyProfile:
-    mode: RuntimeMode
-    interaction_mode: str
+    profile_ref: str
     prompt_pack_refs: tuple[str, ...] = ()
     prompt_pack_refs_by_invocation: dict[str, Any] = field(default_factory=dict)
     operation_authorization_projection: dict[str, Any] = field(default_factory=dict)
@@ -127,9 +147,7 @@ def assemble_runtime(
 ) -> RuntimeAssembly:
     selection = dict(request_task_selection or {})
     engagement_contract = dict(selection.get("engagement_contract") or {})
-    requested_mode = _requested_mode(selection)
     profile = build_runtime_assembly_profile(
-        requested_mode,
         agent_runtime_profile=agent_runtime_profile,
         selection=selection,
         explicit_allowed_operations=_string_tuple(selection.get("allowed_operations")),
@@ -137,7 +155,6 @@ def assemble_runtime(
     task_environment, environment_diagnostics = _resolve_runtime_task_environment(
         backend_dir=backend_dir,
         selection=selection,
-        mode=profile.mode,
     )
     operation_projection = project_operation_authorization(
         agent_allowed_operations=profile.allowed_operations,
@@ -160,7 +177,7 @@ def assemble_runtime(
     )
     soul_role_prompt, rejected = _assemble_soul_role_prompt(
         backend_dir=backend_dir,
-        mode=profile.mode,
+        soul_prompt_policy=profile.soul_prompt_policy,
         selection=selection,
     )
     tool_instances_by_name = {
@@ -210,7 +227,7 @@ def assemble_runtime(
         visible_skill_ids=tuple(str(item.get("skill_id") or "") for item in skill_runtime_views),
     )
     return RuntimeAssembly(
-        assembly_id=f"rtasm:{turn_id}:{profile.mode}",
+        assembly_id=f"rtasm:{turn_id}:{profile.profile_ref or 'agent_profile'}",
         session_id=session_id,
         turn_id=turn_id,
         agent_invocation_id=agent_invocation_id,
@@ -241,8 +258,6 @@ def assemble_runtime(
         soul_role_prompt=soul_role_prompt,
         rejected_capabilities=tuple(rejected),
         diagnostics={
-            "requested_mode": requested_mode,
-            "resolved_mode": profile.mode,
             "agent_profile_ref": str(getattr(agent_runtime_profile, "agent_profile_id", "") or ""),
             "task_environment": environment_diagnostics,
             "engagement_contract_ref": str(engagement_contract.get("contract_id") or selection.get("engagement_contract_ref") or ""),
@@ -261,23 +276,18 @@ def assemble_runtime(
 
 
 def build_runtime_assembly_profile(
-    mode: str,
     *,
     agent_runtime_profile: Any | None = None,
     selection: dict[str, Any] | None = None,
     explicit_allowed_operations: tuple[str, ...] = (),
 ) -> RuntimeAssemblyProfile:
-    normalized = _normalize_mode(mode, agent_runtime_profile=agent_runtime_profile)
-    mode_config = runtime_mode_catalog().get(normalized)
-    mode_policy = _resolved_mode_runtime_policy(
-        normalized,
-        mode_config=mode_config,
+    selection = dict(selection or {})
+    runtime_policy = _resolved_runtime_policy(
         agent_runtime_profile=agent_runtime_profile,
-        selection=dict(selection or {}),
+        selection=selection,
     )
-    interaction_mode = str(mode_policy.get("interaction_mode") or getattr(mode_config, "interaction_mode", "") or f"{normalized}_mode")
     base_operations = _profile_operations(agent_runtime_profile)
-    tool_policy = dict(mode_policy.get("tool_exposure_policy") or {})
+    tool_policy = dict(runtime_policy.get("tool_exposure_policy") or {})
     explicit_tool_policy = _merge_dicts(
         selection.get("tool_exposure_policy"),
         selection.get("tool_policy"),
@@ -295,48 +305,34 @@ def build_runtime_assembly_profile(
     if explicit_allowed_operations:
         base_operations = tuple(item for item in base_operations if item in set(explicit_allowed_operations))
     return RuntimeAssemblyProfile(
-        mode=normalized if normalized in {ROLE_MODE, STANDARD_MODE, PROFESSIONAL_MODE, CUSTOM_MODE} else "custom",
-        interaction_mode=interaction_mode,
-        prompt_pack_refs=_string_tuple(mode_policy.get("prompt_pack_refs")),
-        prompt_pack_refs_by_invocation=dict(mode_policy.get("prompt_pack_refs_by_invocation") or {}),
-        operation_authorization_projection=dict(mode_policy.get("operation_authorization_projection") or {}),
+        profile_ref=str(getattr(agent_runtime_profile, "agent_profile_id", "") or "main_interactive_agent"),
+        prompt_pack_refs=_string_tuple(runtime_policy.get("prompt_pack_refs")),
+        prompt_pack_refs_by_invocation=dict(runtime_policy.get("prompt_pack_refs_by_invocation") or {}),
+        operation_authorization_projection=dict(runtime_policy.get("operation_authorization_projection") or {}),
         allowed_operations=base_operations,
-        interaction_policy=dict(mode_policy.get("interaction_policy") or {}),
+        interaction_policy=dict(runtime_policy.get("interaction_policy") or {}),
         tool_policy=tool_policy,
-        network_policy=dict(mode_policy.get("network_policy") or {}),
+        network_policy=dict(runtime_policy.get("network_policy") or {}),
         subagent_policy=_subagent_policy(
             agent_runtime_profile=agent_runtime_profile,
-            mode_policy=dict(mode_policy.get("subagent_policy") or {}),
-            mode=normalized,
+            policy=dict(runtime_policy.get("subagent_policy") or {}),
         ),
-        planning_policy=dict(mode_policy.get("planning_policy") or {}),
-        task_lifecycle_policy=dict(mode_policy.get("task_lifecycle_policy") or {}),
-        context_policy=dict(mode_policy.get("context_policy") or {}),
-        memory_policy=dict(mode_policy.get("memory_policy") or {}),
-        self_review_policy=dict(mode_policy.get("self_review_policy") or {}),
-        artifact_policy=dict(mode_policy.get("artifact_policy") or {}),
-        permission_policy=dict(mode_policy.get("approval_policy") or mode_policy.get("permission_policy") or {}),
-        soul_prompt_policy=_soul_prompt_policy_for_mode(normalized, mode_policy=dict(mode_policy.get("soul_prompt_policy") or {})),
-        step_summary_policy=dict(mode_policy.get("step_summary_policy") or {}),
+        planning_policy=dict(runtime_policy.get("planning_policy") or {}),
+        task_lifecycle_policy=dict(runtime_policy.get("task_lifecycle_policy") or {}),
+        context_policy=dict(runtime_policy.get("context_policy") or {}),
+        memory_policy=dict(runtime_policy.get("memory_policy") or {}),
+        self_review_policy=dict(runtime_policy.get("self_review_policy") or {}),
+        artifact_policy=dict(runtime_policy.get("artifact_policy") or {}),
+        permission_policy=dict(runtime_policy.get("approval_policy") or runtime_policy.get("permission_policy") or {}),
+        soul_prompt_policy=dict(runtime_policy.get("soul_prompt_policy") or {}),
+        step_summary_policy=dict(runtime_policy.get("step_summary_policy") or {}),
     )
-
-
-def _requested_mode(selection: dict[str, Any]) -> str:
-    runtime_profile = dict(selection.get("runtime_profile") or {})
-    return str(
-        selection.get("runtime_mode")
-        or selection.get("mode")
-        or runtime_profile.get("mode")
-        or runtime_profile.get("runtime_mode")
-        or ""
-    ).strip()
 
 
 def _work_role_prompt(agent_runtime_profile: Any | None) -> str:
     metadata = dict(getattr(agent_runtime_profile, "metadata", {}) or {})
     return str(
         metadata.get("work_role_prompt")
-        or metadata.get("professional_role_prompt")
         or metadata.get("agent_work_role_prompt")
         or ""
     ).strip()
@@ -411,44 +407,23 @@ def _agent_work_role_prompt_id(agent_profile_id: str) -> str:
     return f"agent.{normalized}.work_role.v1"
 
 
-def _resolved_mode_runtime_policy(
-    mode: str,
+def _resolved_runtime_policy(
     *,
-    mode_config: Any | None,
     agent_runtime_profile: Any | None,
     selection: dict[str, Any],
 ) -> dict[str, Any]:
-    preset = mode_config.to_dict() if hasattr(mode_config, "to_dict") else {}
     profile_metadata = dict(getattr(agent_runtime_profile, "metadata", {}) or {})
-    custom_modes = dict(profile_metadata.get("runtime_mode_policies") or profile_metadata.get("custom_runtime_mode_policies") or {})
-    profile_default = dict(custom_modes.get(mode) or {})
     runtime_profile = dict(selection.get("runtime_profile") or {})
     explicit_policy = _merge_dicts(
-        runtime_profile.get("runtime_mode_policy"),
-        runtime_profile.get("mode_policy"),
-        selection.get("runtime_mode_policy"),
-        selection.get("mode_policy"),
+        profile_metadata.get("runtime_policy"),
+        profile_metadata.get("execution_policy"),
+        runtime_profile.get("runtime_policy"),
+        runtime_profile.get("execution_policy"),
+        selection.get("runtime_policy"),
+        selection.get("execution_policy"),
     )
     return _deep_merge_dicts(
-        {
-            "mode": mode,
-            "interaction_mode": preset.get("interaction_mode") or f"{mode}_mode",
-            "interaction_policy": dict(preset.get("interaction_policy") or {}),
-            "planning_policy": dict(preset.get("planning_policy") or {}),
-            "task_lifecycle_policy": dict(preset.get("task_lifecycle_policy") or {}),
-            "tool_exposure_policy": dict(preset.get("tool_exposure_policy") or {}),
-            "context_policy": dict(preset.get("context_policy") or {}),
-            "memory_policy": dict(preset.get("memory_policy") or {}),
-            "subagent_policy": dict(preset.get("subagent_policy") or {}),
-            "self_review_policy": dict(preset.get("self_review_policy") or {}),
-            "step_summary_policy": dict(preset.get("step_summary_policy") or {}),
-            "approval_policy": dict(preset.get("approval_policy") or {}),
-            "artifact_policy": dict(preset.get("artifact_policy") or {}),
-            "soul_prompt_policy": dict(preset.get("soul_prompt_policy") or {}),
-            "prompt_pack_refs_by_invocation": dict(preset.get("prompt_pack_refs_by_invocation") or {}),
-            "operation_authorization_projection": dict(preset.get("operation_authorization_projection") or {}),
-        },
-        profile_default,
+        _DEFAULT_RUNTIME_POLICY,
         explicit_policy,
     )
 
@@ -457,7 +432,6 @@ def _resolve_runtime_task_environment(
     *,
     backend_dir: Path,
     selection: dict[str, Any],
-    mode: str,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     registry = task_environment_registry_from_backend_dir(backend_dir)
     explicit = _first_string(
@@ -469,10 +443,10 @@ def _resolve_runtime_task_environment(
         dict(selection.get("runtime_profile") or {}).get("task_environment_id"),
         dict(selection.get("runtime_profile") or {}).get("environment_id"),
     )
-    environment_id = explicit or _default_environment_id_for_mode(mode, selection=selection)
+    environment_id = explicit or "env.general.workspace"
     registry.require(environment_id)
     environment_payload = build_task_environment_catalog(registry=registry).runtime_environment_payload(environment_id)
-    source = "explicit_selection" if explicit else ("policy_default" if environment_id != "env.general.workspace" else "fallback_default")
+    source = "explicit_selection" if explicit else "fallback_default"
     return (
         {
             **environment_payload,
@@ -485,36 +459,6 @@ def _resolve_runtime_task_environment(
             "source": source,
         },
     )
-
-
-def _default_environment_id_for_mode(mode: str, *, selection: dict[str, Any]) -> str:
-    mode_policy = _merge_dicts(
-        dict(selection.get("runtime_profile") or {}).get("runtime_mode_policy"),
-        dict(selection.get("runtime_profile") or {}).get("mode_policy"),
-        selection.get("runtime_mode_policy"),
-        selection.get("mode_policy"),
-    )
-    explicit_default = str(mode_policy.get("default_environment_id") or "").strip()
-    if explicit_default:
-        return explicit_default
-    return "env.general.workspace"
-
-
-def _normalize_mode(mode: str, *, agent_runtime_profile: Any | None) -> str:
-    raw = str(mode or "").strip().lower()
-    aliases = {
-        "role_mode": ROLE_MODE,
-        "standard_mode": STANDARD_MODE,
-        "professional_mode": PROFESSIONAL_MODE,
-    }
-    raw = aliases.get(raw, raw)
-    enabled = tuple(str(item) for item in tuple(getattr(agent_runtime_profile, "enabled_runtime_modes", ()) or ()))
-    default_mode = str(getattr(agent_runtime_profile, "default_runtime_mode", "") or STANDARD_MODE)
-    if raw in {ROLE_MODE, STANDARD_MODE, PROFESSIONAL_MODE, CUSTOM_MODE} and (not enabled or raw in enabled):
-        return raw
-    if default_mode in {ROLE_MODE, STANDARD_MODE, PROFESSIONAL_MODE, CUSTOM_MODE}:
-        return default_mode
-    return STANDARD_MODE
 
 
 def _profile_operations(agent_runtime_profile: Any | None) -> tuple[str, ...]:
@@ -540,11 +484,9 @@ def _control_capabilities_for_runtime(
         dict(selection.get("runtime_profile") or {}).get("control_capabilities"),
         dict(selection.get("runtime_profile") or {}).get("runtime_control_capabilities"),
     )
-    interaction = dict(profile.interaction_policy or {})
     task_lifecycle = dict(profile.task_lifecycle_policy or {})
     context_policy = dict(profile.context_policy or {})
     subagent = dict(profile.subagent_policy or {})
-    permission = dict(profile.permission_policy or {})
     active_work_context = str(
         context_policy.get("active_work_context")
         or context_policy.get("task_run_context")
@@ -554,23 +496,8 @@ def _control_capabilities_for_runtime(
     active_work_disabled = active_work_context in {"disabled", "none", "off", "false", "0", "readonly"}
     task_run_allowed = task_lifecycle.get("request_task_run") is not False
     subagent_enabled = bool(subagent.get("enabled") is True)
-    style = str(interaction.get("style") or "").strip()
-    permission_scope = str(permission.get("permission_scope") or permission.get("scope") or "").strip()
-    policy_conversation_only = (
-        task_lifecycle.get("request_task_run") is False
-        and active_work_disabled
-        and not subagent_enabled
-        and (
-            style == "role_conversation"
-            or permission_scope == "role_conversation_readonly"
-            or str(interaction.get("task_orientation") or "").strip() == "conversation_first"
-        )
-    )
     explicit_conversation_only = explicit.get("conversation_only")
-    if explicit_conversation_only is None:
-        conversation_only = bool(policy_conversation_only)
-    else:
-        conversation_only = bool(explicit_conversation_only is True)
+    conversation_only = bool(explicit_conversation_only is True)
     may_emit_assistant_message = bool(explicit.get("may_emit_assistant_message", True) is not False)
     may_call_tools = bool(
         explicit.get("may_call_tools")
@@ -612,18 +539,16 @@ def _control_capabilities_for_runtime(
     }
 
 
-def _subagent_policy(*, agent_runtime_profile: Any | None, mode_policy: dict[str, Any], mode: str) -> dict[str, Any]:
+def _subagent_policy(*, agent_runtime_profile: Any | None, policy: dict[str, Any]) -> dict[str, Any]:
     profile_policy = getattr(agent_runtime_profile, "subagent_policy", None)
     profile_payload = profile_policy.to_dict() if hasattr(profile_policy, "to_dict") else dict(profile_policy or {})
     allowed_ids = _string_tuple(profile_payload.get("allowed_subagent_ids"))
-    mode_enabled = mode_policy.get("enabled")
+    policy_enabled = policy.get("enabled")
     profile_enabled = bool(profile_payload.get("enabled") is True)
-    enabled = profile_enabled if mode_enabled is None else bool(mode_enabled is True and profile_enabled)
-    if mode == ROLE_MODE:
-        enabled = False
+    enabled = profile_enabled if policy_enabled is None else bool(policy_enabled is True and profile_enabled)
     return {
         **profile_payload,
-        **dict(mode_policy or {}),
+        **dict(policy or {}),
         "enabled": enabled and bool(allowed_ids),
         "allowed_subagent_ids": list(allowed_ids),
         "max_subagent_runs_per_task": max(0, int(profile_payload.get("max_subagent_runs_per_task") or 0)),
@@ -631,30 +556,13 @@ def _subagent_policy(*, agent_runtime_profile: Any | None, mode_policy: dict[str
         "context_policy": str(profile_payload.get("context_policy") or "summary_and_refs_only"),
         "result_policy": str(profile_payload.get("result_policy") or "observation_refs_only"),
         "allow_nested_subagents": bool(profile_payload.get("allow_nested_subagents") is True),
-        **({"disabled_reason": "role_mode_disallows_subagents"} if mode == ROLE_MODE else {}),
     }
-
-
-def _soul_prompt_policy_for_mode(mode: str, *, mode_policy: dict[str, Any]) -> dict[str, Any]:
-    if mode == ROLE_MODE:
-        return {
-            "enabled": True,
-            "allowed_prompt_kinds": ["role_persona"],
-            "forbidden_effects": [
-                "tool_permission_change",
-                "task_lifecycle_change",
-                "output_contract_change",
-                "system_boundary_override",
-            ],
-            **dict(mode_policy or {}),
-        }
-    return {"enabled": False, **dict(mode_policy or {})}
 
 
 def _assemble_soul_role_prompt(
     *,
     backend_dir: Path,
-    mode: str,
+    soul_prompt_policy: dict[str, Any],
     selection: dict[str, Any],
 ) -> tuple[dict[str, Any], list[dict[str, str]]]:
     soul_id = str(
@@ -664,8 +572,8 @@ def _assemble_soul_role_prompt(
     ).strip().lower()
     if not soul_id:
         return {}, []
-    if mode != ROLE_MODE:
-        return {}, [{"capability": "soul_role_prompt", "reason": "soul_prompt_only_allowed_in_role_mode"}]
+    if not bool(dict(soul_prompt_policy or {}).get("enabled") is True):
+        return {}, [{"capability": "soul_role_prompt", "reason": "soul_prompt_disabled_by_agent_profile"}]
     try:
         return SoulAssemblyService(backend_dir).build_role_prompt(soul_id=soul_id), []
     except KeyError:

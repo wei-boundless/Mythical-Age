@@ -116,7 +116,7 @@ def default_runtime_lane_descriptors() -> tuple[RuntimeLaneDescriptor, ...]:
             default_context_sections=("conversation", "state", "projection", "task", "runtime_contracts"),
             default_approval_policy="read_only_first",
             runtime_template_hints=("builtin.main.default",),
-            metadata={"interaction_mode": "role_mode", "projection_strength": "primary"},
+            metadata={"runtime_style": "conversation", "projection_strength": "primary"},
         ),
         _lane(
             "standard_task",
@@ -139,7 +139,7 @@ def default_runtime_lane_descriptors() -> tuple[RuntimeLaneDescriptor, ...]:
             default_context_sections=("conversation", "task", "projection", "tool", "runtime_contracts", "working_memory"),
             default_approval_policy="task_bounded_write",
             runtime_template_hints=("builtin.main.default",),
-            metadata={"interaction_mode": "standard_mode", "projection_strength": "companion"},
+            metadata={"runtime_style": "bounded_task", "projection_strength": "companion"},
         ),
         _lane(
             "professional_task",
@@ -197,7 +197,7 @@ def default_runtime_lane_descriptors() -> tuple[RuntimeLaneDescriptor, ...]:
             ),
             runtime_template_hints=("builtin.main.default",),
             metadata={
-                "interaction_mode": "professional_mode",
+                "runtime_style": "long_task",
                 "projection_strength": "style_only",
             },
         ),

@@ -375,9 +375,7 @@ class SubagentControl:
     ) -> None:
         task_selection = dict(dict(parent_task_run.diagnostics or {}).get("runtime_task_selection") or dict(parent_task_run.diagnostics or {}).get("task_selection") or {})
         runtime_profile = dict(task_selection.get("runtime_profile") or {})
-        runtime_profile["mode"] = str(task_selection.get("runtime_mode") or runtime_profile.get("mode") or "standard")
         task_selection["runtime_profile"] = runtime_profile
-        task_selection["runtime_mode"] = str(task_selection.get("runtime_mode") or runtime_profile.get("mode") or "standard")
         contract_payload = {
             "contract_id": f"subagent-contract:{child_task_run_id}",
             "contract_source": "subagent_control",

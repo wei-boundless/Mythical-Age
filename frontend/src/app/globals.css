@@ -7502,6 +7502,426 @@ button:hover {
   color: var(--color-text);
 }
 
+.task-graph-layer-nav--workspaces {
+  display: grid;
+  gap: 10px;
+}
+
+.task-graph-layer-nav--workspaces .task-graph-layer-card {
+  min-height: 76px;
+}
+
+.task-graph-topology-page--semantic {
+  grid-template-columns: minmax(210px, 250px) minmax(0, 1fr) minmax(280px, 340px);
+  align-items: stretch;
+}
+
+.task-graph-action-rail,
+.task-graph-smart-inspector,
+.task-graph-canvas-stack {
+  min-width: 0;
+}
+
+.task-graph-action-rail,
+.task-graph-smart-inspector {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  max-height: calc(100vh - 220px);
+  overflow: auto;
+}
+
+.task-graph-action-rail__status,
+.task-graph-action-group,
+.task-graph-smart-inspector .task-graph-composer-inspector-card,
+.task-graph-smart-advanced {
+  border: 1px solid rgba(15, 23, 42, 0.1);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 14px 34px rgba(15, 23, 42, 0.06);
+}
+
+.task-graph-action-rail__status {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+}
+
+.task-graph-action-rail__status span,
+.task-graph-action-group header span,
+.task-graph-domain-task-actions p,
+.task-graph-smart-summary span,
+.task-graph-empty-inspector span,
+.task-graph-validation-head small,
+.task-graph-validation-standard header span,
+.task-graph-validation-empty span,
+.task-graph-validation-group header span,
+.task-graph-validation-issue small,
+.task-graph-validation-issue span {
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.task-graph-action-rail__status strong {
+  color: #0f172a;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.task-graph-action-group {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+}
+
+.task-graph-action-group header {
+  display: grid;
+  gap: 3px;
+}
+
+.task-graph-action-group header strong,
+.task-graph-smart-summary strong,
+.task-graph-validation-head strong,
+.task-graph-validation-group header strong,
+.task-graph-validation-issue strong,
+.task-graph-validation-empty strong {
+  color: #0f172a;
+}
+
+.task-graph-action-list,
+.task-graph-domain-task-actions {
+  display: grid;
+  gap: 7px;
+}
+
+.task-graph-action-list button,
+.task-graph-domain-task-actions button,
+.task-graph-smart-actions button,
+.task-graph-validation-head button,
+.task-graph-validation-issue__actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  border-radius: 7px;
+  background: #ffffff;
+  color: #0f172a;
+  cursor: pointer;
+  font: inherit;
+  transition: border-color 160ms ease, background 160ms ease, box-shadow 160ms ease;
+}
+
+.task-graph-action-list button,
+.task-graph-domain-task-actions button {
+  justify-content: flex-start;
+  min-height: 48px;
+  padding: 8px 9px;
+  text-align: left;
+}
+
+.task-graph-action-list button:hover:not(:disabled),
+.task-graph-domain-task-actions button:hover:not(:disabled),
+.task-graph-smart-actions button:hover:not(:disabled),
+.task-graph-validation-head button:hover:not(:disabled),
+.task-graph-validation-issue__actions button:hover:not(:disabled) {
+  border-color: rgba(3, 105, 161, 0.45);
+  background: #f0f9ff;
+  box-shadow: 0 8px 20px rgba(3, 105, 161, 0.1);
+}
+
+.task-graph-action-list button:disabled,
+.task-graph-domain-task-actions button:disabled,
+.task-graph-smart-actions button:disabled,
+.task-graph-validation-head button:disabled,
+.task-graph-validation-issue__actions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+
+.task-graph-action-list button > span,
+.task-graph-domain-task-actions button > span {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.task-graph-action-list button strong,
+.task-graph-domain-task-actions button strong {
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.task-graph-action-list button small,
+.task-graph-domain-task-actions button small {
+  color: #64748b;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.task-graph-canvas-stack {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 10px;
+  min-height: 620px;
+}
+
+.task-graph-canvas-panel {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid rgba(15, 23, 42, 0.1);
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.task-graph-canvas-panel__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border-bottom: 1px solid rgba(15, 23, 42, 0.08);
+}
+
+.task-graph-canvas-panel__head > div:first-child {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.task-graph-canvas-panel__head span {
+  color: #64748b;
+  font-size: 12px;
+}
+
+.task-graph-canvas-panel__head strong {
+  color: #0f172a;
+  overflow-wrap: anywhere;
+}
+
+.task-graph-linking-hint {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border-bottom: 1px solid rgba(3, 105, 161, 0.16);
+  background: #f0f9ff;
+  color: #075985;
+  font-size: 12px;
+}
+
+.task-graph-smart-summary,
+.task-graph-empty-inspector {
+  display: grid;
+  gap: 5px;
+  padding: 2px 0 10px;
+}
+
+.task-graph-smart-summary strong,
+.task-graph-empty-inspector strong {
+  overflow-wrap: anywhere;
+}
+
+.task-graph-smart-form {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+
+.task-graph-smart-form textarea {
+  min-height: 112px;
+  resize: vertical;
+}
+
+.task-graph-smart-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 10px;
+}
+
+.task-graph-smart-actions button,
+.task-graph-validation-head button,
+.task-graph-validation-issue__actions button {
+  min-height: 34px;
+  padding: 7px 10px;
+}
+
+.task-graph-smart-advanced {
+  padding: 10px;
+}
+
+.task-graph-smart-advanced summary {
+  cursor: pointer;
+  color: #0f172a;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.task-graph-validation-workbench {
+  display: grid;
+  gap: 12px;
+}
+
+.task-graph-validation-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid rgba(15, 23, 42, 0.1);
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 14px;
+}
+
+.task-graph-validation-head > div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.task-graph-validation-head span {
+  color: #0369a1;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.task-graph-validation-metrics {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.task-graph-validation-metrics article {
+  display: grid;
+  gap: 4px;
+  border: 1px solid rgba(15, 23, 42, 0.1);
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 12px;
+}
+
+.task-graph-validation-metrics span {
+  color: #64748b;
+  font-size: 12px;
+}
+
+.task-graph-validation-metrics strong {
+  color: #0f172a;
+  font-size: 18px;
+}
+
+.task-graph-validation-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.task-graph-validation-standard header,
+.task-graph-validation-issues > header,
+.task-graph-validation-group header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.task-graph-validation-error,
+.task-graph-validation-empty {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-radius: 7px;
+  background: #fff7ed;
+  color: #9a3412;
+  padding: 9px 10px;
+}
+
+.task-graph-validation-issues,
+.task-graph-validation-group,
+.task-graph-validation-issue {
+  display: grid;
+  gap: 10px;
+}
+
+.task-graph-validation-issues {
+  border: 1px solid rgba(15, 23, 42, 0.1);
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 12px;
+}
+
+.task-graph-validation-group {
+  border-top: 1px solid rgba(15, 23, 42, 0.08);
+  padding-top: 10px;
+}
+
+.task-graph-validation-issue {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  border: 1px solid rgba(15, 23, 42, 0.1);
+  border-radius: 8px;
+  padding: 10px;
+}
+
+.task-graph-validation-issue--error {
+  border-color: rgba(220, 38, 38, 0.34);
+  background: #fef2f2;
+}
+
+.task-graph-validation-issue--warning {
+  border-color: rgba(217, 119, 6, 0.28);
+  background: #fffbeb;
+}
+
+.task-graph-validation-issue > div:first-child {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.task-graph-validation-issue__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 7px;
+}
+
+@media (max-width: 1180px) {
+  .task-graph-topology-page--semantic {
+    grid-template-columns: 220px minmax(0, 1fr);
+  }
+
+  .task-graph-smart-inspector {
+    grid-column: 1 / -1;
+    max-height: none;
+  }
+
+  .task-graph-validation-metrics,
+  .task-graph-validation-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 760px) {
+  .task-graph-topology-page--semantic,
+  .task-graph-validation-metrics,
+  .task-graph-validation-grid,
+  .task-graph-validation-issue {
+    grid-template-columns: 1fr;
+  }
+
+  .task-graph-action-rail,
+  .task-graph-smart-inspector {
+    max-height: none;
+  }
+
+  .task-graph-canvas-panel__head,
+  .task-graph-validation-head {
+    flex-direction: column;
+  }
+}
+
 .archive-message-shell,
 .archive-message-shell::before,
 .archive-detail-card,

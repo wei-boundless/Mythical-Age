@@ -43,7 +43,7 @@ def test_search_specialists_are_registered_with_separate_authority() -> None:
     profiles = {profile.agent_id: profile for profile in default_agent_runtime_profiles()}
 
     assert {"agent:web_researcher", "agent:codebase_searcher", "agent:knowledge_searcher", "agent:memory_searcher"} <= set(agents)
-    assert profiles["agent:0"].allowed_delegate_agent_ids == (
+    assert profiles["agent:0"].subagent_policy.allowed_subagent_ids == (
         "agent:knowledge_searcher",
         "agent:codebase_searcher",
         "agent:memory_searcher",

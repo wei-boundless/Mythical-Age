@@ -16,15 +16,6 @@ from capability_system.tool_packages import (
     resolve_tool_package_operations,
 )
 from ..models.model_profile_models import contains_raw_secret, parse_agent_model_profile
-from .runtime_mode_config import (
-    DEFAULT_RUNTIME_MODE,
-    CUSTOM_MODE,
-    PROFESSIONAL_MODE,
-    ROLE_MODE,
-    STANDARD_MODE,
-    normalize_default_runtime_mode,
-    normalize_runtime_modes,
-)
 
 
 def _storage_root(base_dir: Path) -> Path:
@@ -69,8 +60,6 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
         AgentRuntimeProfile(
             agent_profile_id="main_interactive_agent",
             agent_id="agent:0",
-            enabled_runtime_modes=(ROLE_MODE, STANDARD_MODE, PROFESSIONAL_MODE, CUSTOM_MODE),
-            default_runtime_mode=STANDARD_MODE,
             allowed_tool_packages=main_packages,
             extra_allowed_operations=("op.shell",),
             allowed_operations=(
@@ -210,7 +199,6 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
                 "runtime_config": {
                     "template_id": "runtime.template.health_diagnostics",
                     "runtime_kind": "health_diagnostics_agent",
-                    "runtime_mode": "readonly_diagnostics",
                     "max_iterations": 2,
                     "max_tool_calls": 8,
                     "max_sources": 16,
@@ -269,7 +257,6 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
                 "runtime_config": {
                     "template_id": "runtime.template.context_compactor",
                     "runtime_kind": "context_compactor",
-                    "runtime_mode": "llm_compaction",
                     "max_iterations": 1,
                     "max_tool_calls": 0,
                     "max_sources": 0,
@@ -376,14 +363,13 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
                 "runtime_config": {
                     "template_id": "runtime.template.deepsearch",
                     "runtime_kind": "search_agent",
-                    "runtime_mode": "deepsearch",
                     "max_iterations": 4,
                     "max_tool_calls": 18,
                     "max_sources": 12,
                     "evidence_packet_required": True,
                     "stop_policy": "enough_evidence_or_budget_exhausted",
                     "search": {
-                        "runtime_mode": "deepsearch",
+                        "search_strategy": "deepsearch",
                         "search_sources": ("web",),
                         "web_provider": "tavily",
                         "allow_fetch_url": True,
@@ -440,7 +426,6 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
                 "runtime_config": {
                     "template_id": "runtime.template.codebase_search",
                     "runtime_kind": "codebase_search_agent",
-                    "runtime_mode": "readonly_recon",
                     "max_iterations": 3,
                     "max_tool_calls": 18,
                     "max_sources": 16,
@@ -485,7 +470,6 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
                 "runtime_config": {
                     "template_id": "runtime.template.memory_search",
                     "runtime_kind": "memory_search_agent",
-                    "runtime_mode": "readonly_memory_recall",
                     "max_iterations": 2,
                     "max_tool_calls": 6,
                     "max_sources": 12,
@@ -526,19 +510,6 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
 def _profile_from_dict(payload: dict[str, Any]) -> AgentRuntimeProfile:
     normalized_agent_id = normalize_agent_id(str(payload.get("agent_id") or ""))
     metadata = dict(payload.get("metadata") or {})
-    raw_enabled_modes = [
-        str(item or "").strip()
-        for item in list(payload.get("enabled_runtime_modes") or metadata.get("enabled_runtime_modes") or [])
-        if str(item or "").strip()
-    ]
-    explicit_modes = normalize_runtime_modes(
-        raw_enabled_modes,
-        fallback=(),
-    )
-    default_runtime_mode = normalize_default_runtime_mode(
-        payload.get("default_runtime_mode") or metadata.get("default_runtime_mode") or DEFAULT_RUNTIME_MODE,
-        explicit_modes,
-    )
     raw_blocked_operations = tuple(str(item) for item in list(payload.get("blocked_operations") or []) if str(item))
     package_selections = tuple(
         item
@@ -560,8 +531,6 @@ def _profile_from_dict(payload: dict[str, Any]) -> AgentRuntimeProfile:
     return AgentRuntimeProfile(
         agent_profile_id=str(payload.get("agent_profile_id") or ""),
         agent_id=normalized_agent_id,
-        enabled_runtime_modes=explicit_modes,
-        default_runtime_mode=default_runtime_mode,
         allowed_tool_packages=package_selections,
         extra_allowed_operations=extra_allowed_operations,
         allowed_operations=allowed_operations,
@@ -675,8 +644,6 @@ class AgentRuntimeRegistry:
         *,
         agent_id: str,
         agent_profile_id: str = "",
-        enabled_runtime_modes: tuple[str, ...] = (),
-        default_runtime_mode: str = "",
         allowed_tool_packages: tuple[ToolPackageSelection, ...] = (),
         extra_allowed_operations: tuple[str, ...] = (),
         allowed_operations: tuple[str, ...] = (),
@@ -700,20 +667,6 @@ class AgentRuntimeRegistry:
             raise ValueError("model_profile must use credential_ref instead of raw secrets")
         current = self.get_profile(target)
         metadata_payload = dict(metadata or {})
-        metadata_payload.pop("custom_runtime_modes", None)
-        requested_runtime_modes = enabled_runtime_modes or metadata_payload.get("enabled_runtime_modes") or (current.enabled_runtime_modes if current else ())
-        normalized_modes = normalize_runtime_modes(
-            requested_runtime_modes,
-            fallback=(),
-        )
-        if requested_runtime_modes and not normalized_modes:
-            raise ValueError("enabled_runtime_modes must include at least one supported runtime mode")
-        normalized_default_mode = normalize_default_runtime_mode(
-            default_runtime_mode or metadata_payload.get("default_runtime_mode") or (current.default_runtime_mode if current else DEFAULT_RUNTIME_MODE),
-            normalized_modes,
-        )
-        metadata_payload.pop("enabled_runtime_modes", None)
-        metadata_payload.pop("default_runtime_mode", None)
         requested_packages = allowed_tool_packages or (current.allowed_tool_packages if current else ())
         requested_extra_operations = extra_allowed_operations or (current.extra_allowed_operations if current else ())
         raw_blocked_operations = tuple(str(item).strip() for item in blocked_operations if str(item).strip())
@@ -726,8 +679,6 @@ class AgentRuntimeRegistry:
         profile = AgentRuntimeProfile(
             agent_profile_id=str(agent_profile_id or (current.agent_profile_id if current else f"{target.removeprefix('agent:').replace(':', '_')}_runtime")).strip(),
             agent_id=target,
-            enabled_runtime_modes=normalized_modes,
-            default_runtime_mode=normalized_default_mode,
             allowed_tool_packages=tuple(requested_packages),
             extra_allowed_operations=tuple(str(item).strip() for item in requested_extra_operations if str(item).strip()),
             allowed_operations=resolved_allowed_operations,
@@ -840,21 +791,6 @@ def _migrate_profile_payload(payload: dict[str, Any]) -> dict[str, Any]:
     metadata = dict(payload.get("metadata") or {})
     metadata.pop("legacy_agent_id", None)
     metadata.pop("allowed_task_modes", None)
-    metadata.pop("custom_runtime_modes", None)
-    raw_enabled_modes = [
-        str(item or "").strip()
-        for item in list(payload.get("enabled_runtime_modes") or metadata.pop("enabled_runtime_modes", None) or [])
-        if str(item or "").strip()
-    ]
-    enabled_runtime_modes = normalize_runtime_modes(
-        raw_enabled_modes,
-        fallback=(),
-    )
-    next_payload["enabled_runtime_modes"] = list(enabled_runtime_modes)
-    next_payload["default_runtime_mode"] = normalize_default_runtime_mode(
-        payload.get("default_runtime_mode") or metadata.pop("default_runtime_mode", None) or DEFAULT_RUNTIME_MODE,
-        enabled_runtime_modes,
-    )
     runtime_template_id = _infer_runtime_template_id(next_payload["agent_id"], {**next_payload, "metadata": metadata})
     if runtime_template_id:
         metadata["runtime_template_id"] = runtime_template_id
@@ -895,7 +831,6 @@ def _enforce_system_builtin_profile_payload(
     enforced.update(payload)
     enforced["agent_id"] = agent_id
     for key in (
-        "enabled_runtime_modes",
         "allowed_operations",
         "blocked_operations",
         "allowed_memory_scopes",

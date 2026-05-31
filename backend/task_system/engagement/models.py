@@ -6,7 +6,6 @@ from typing import Any, Literal
 
 EngagementPlanStatus = Literal["draft", "active", "deprecated", "disabled", "archived"]
 EngagementAssigneeKind = Literal["agent", "workflow", "human", "system"]
-EngagementRuntimeMode = Literal["role", "standard", "professional", "custom"]
 EngagementExecutionKind = Literal[
     "graph_task_run",
 ]
@@ -41,8 +40,7 @@ class EngagementAssignee:
 
 @dataclass(frozen=True, slots=True)
 class EngagementRuntimeProfile:
-    runtime_mode: EngagementRuntimeMode
-    runtime_mode_policy: dict[str, Any] = field(default_factory=dict)
+    runtime_policy: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

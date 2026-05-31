@@ -156,7 +156,7 @@ def test_send_command_uses_selected_session_and_stream_client(tmp_path: Path) ->
     assert stdout.getvalue() == "ok\n"
 
 
-def test_send_command_forwards_runtime_mode_environment_and_soul_id(tmp_path: Path) -> None:
+def test_send_command_forwards_environment_and_soul_id(tmp_path: Path) -> None:
     state_path = tmp_path / "state.json"
     store = CliStateStore(state_path)
     store.update(api_base="http://127.0.0.1:8003/api", selected_session_id="session-cli")
@@ -175,8 +175,6 @@ def test_send_command_forwards_runtime_mode_environment_and_soul_id(tmp_path: Pa
     args = build_parser().parse_args(
         [
             "send",
-            "--runtime-mode",
-            "professional",
             "--task-environment-id",
             "env.development.sandbox",
             "--soul-id",
@@ -195,7 +193,6 @@ def test_send_command_forwards_runtime_mode_environment_and_soul_id(tmp_path: Pa
             "session-cli",
             "hello",
             {
-                "runtime_mode": "professional",
                 "task_selection": {"task_environment_id": "env.development.sandbox"},
                 "soul_id": "hebo",
             },

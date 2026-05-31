@@ -208,7 +208,6 @@ class PromptLibraryRegistry:
             node_id=node_id,
             stage_id=node_id,
             tags=tuple(item for item in ("task_graph", domain_id, graph_id) if item),
-            allowed_runtime_modes=("role", "standard", "professional"),
             cache_scope="static",
             model_visible=True,
             source_ref=f"task_graph:{graph_id}#nodes.{node_id}.metadata.role_prompt",
@@ -245,7 +244,6 @@ def _agent_prompt_resources_from_profiles(profiles: tuple[Any, ...], *, source_p
         metadata = dict(profile.metadata or {})
         content = str(
             metadata.get("work_role_prompt")
-            or metadata.get("professional_role_prompt")
             or metadata.get("agent_work_role_prompt")
             or ""
         ).strip()

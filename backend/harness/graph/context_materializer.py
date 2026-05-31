@@ -376,7 +376,6 @@ def _node_contract_from_input_package(
         },
         "prompt_contract": dict(input_package.get("prompt_contract") or {}),
         "model_requirement": dict(dict(node_contract.get("contract_bindings") or {}).get("runtime") or {}).get("model_requirement", {}),
-        "runtime_mode": str(runtime_profile.get("runtime_mode") or runtime_profile.get("mode") or ""),
         "reasoning_policy": dict(runtime_profile.get("reasoning_policy") or {}),
         "tool_contract": dict(node.get("tools") or graph_config.tools or {}),
         "skill_contract": dict(dict(node_contract.get("contract_bindings") or {}).get("skills") or {}),
@@ -814,21 +813,12 @@ def _node_runtime_profile(*, graph_config: GraphHarnessConfig, node: dict[str, A
     runtime_profile = dict(metadata.get("runtime_profile") or {})
     if not runtime_profile:
         runtime_profile = dict(metadata.get("runtime") or {})
-    mode = str(
-        runtime_profile.get("mode")
-        or runtime_profile.get("runtime_mode")
-        or metadata.get("runtime_mode")
-        or dict(graph_config.agents or {}).get("runtime_mode")
-        or "professional"
-    ).strip() or "professional"
     return {
         **runtime_profile,
-        "mode": mode,
-        "runtime_mode": str(runtime_profile.get("runtime_mode") or mode),
         "task_environment_id": str(graph_config.task_environment_id or ""),
         "tool_policy": dict(node.get("tools") or graph_config.tools or {}),
         "permission_policy": dict(node.get("permissions") or graph_config.permissions or {}),
-        "runtime_mode_policy": {
+        "runtime_policy": {
             "source": "graph_node_config",
             "node_id": str(node.get("node_id") or ""),
             "context_policy": {"task_run_context": "disabled"},
@@ -837,7 +827,7 @@ def _node_runtime_profile(*, graph_config: GraphHarnessConfig, node: dict[str, A
                 "model_visible": "summary_without_denials",
                 "reason": "图节点只需要知道本轮可用操作；被拒绝操作不参与节点交付判断。",
             },
-            **dict(runtime_profile.get("runtime_mode_policy") or runtime_profile.get("mode_policy") or {}),
+            **dict(runtime_profile.get("runtime_policy") or runtime_profile.get("execution_policy") or {}),
         },
     }
 

@@ -57,7 +57,7 @@ def test_main_profile_exposes_subagent_policy_and_tools() -> None:
         session_id="session-1",
         turn_id="turn-1",
         agent_invocation_id="inv-1",
-        request_task_selection={"runtime_mode": "standard", "runtime_profile": {"mode": "standard"}},
+        request_task_selection={},
         model_selection={},
         agent_runtime_profile=profile,
         tool_instances=instances,

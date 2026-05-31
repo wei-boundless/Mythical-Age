@@ -397,15 +397,8 @@ def _runtime_task_selection_from_contract(
     selected_skill_ids: tuple[str, ...] = (),
 ) -> dict[str, Any]:
     runtime_profile = dict(contract.runtime_profile or {})
-    mode = str(runtime_profile.get("runtime_mode") or runtime_profile.get("mode") or "professional")
-    mode_policy = dict(runtime_profile.get("runtime_mode_policy") or runtime_profile.get("mode_policy") or {})
     selection = {
-        "runtime_mode": mode,
-        "runtime_profile": {
-            "mode": mode,
-            "runtime_mode": mode,
-            "runtime_mode_policy": mode_policy,
-        },
+        "runtime_profile": runtime_profile,
     }
     if contract.task_environment_id:
         selection["task_environment_id"] = contract.task_environment_id

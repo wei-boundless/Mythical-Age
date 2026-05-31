@@ -492,11 +492,7 @@ class ModelResponseRuntimeExecutor:
 
 def _model_only_finalization(directive: RuntimeDirective) -> bool:
     diagnostics = dict(getattr(directive, "diagnostics", {}) or {})
-    return (
-        bool(diagnostics.get("model_only") is True)
-        and str(diagnostics.get("interaction_mode") or "").strip()
-        in {"role_mode", "standard_mode", "professional_mode"}
-    )
+    return bool(diagnostics.get("model_only") is True)
 
 
 def _accounting_context_from_directive(

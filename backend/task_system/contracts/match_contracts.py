@@ -19,7 +19,7 @@ class TaskIntentContract:
     capability_requests: tuple[str, ...] = ()
     execution_obligation: dict[str, Any] = field(default_factory=dict)
     task_requirement_contract: dict[str, Any] = field(default_factory=dict)
-    mode_policy: dict[str, Any] = field(default_factory=dict)
+    runtime_policy: dict[str, Any] = field(default_factory=dict)
     diagnostics: dict[str, Any] = field(default_factory=dict)
     authority: str = "task_system.task_intent_contract"
 
@@ -37,7 +37,7 @@ class TaskIntentContract:
         payload["capability_requests"] = list(self.capability_requests)
         payload["execution_obligation"] = dict(self.execution_obligation or {})
         payload["task_requirement_contract"] = dict(self.task_requirement_contract or {})
-        payload["mode_policy"] = dict(self.mode_policy or {})
+        payload["runtime_policy"] = dict(self.runtime_policy or {})
         return payload
 
 

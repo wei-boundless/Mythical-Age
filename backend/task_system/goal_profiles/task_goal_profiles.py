@@ -73,15 +73,15 @@ _PROFILES: dict[str, TaskGoalProfile] = {
         forbidden_actions=(*_COMMON_FORBIDDEN, "pretend_task_completed"),
         validator_profile_id="deliverable.blocked",
     ),
-    "role_conversation": TaskGoalProfile(
+    "plain_conversation": TaskGoalProfile(
         task_domain="conversation",
-        task_goal_type="role_conversation",
-        title="Role Conversation",
+        task_goal_type="plain_conversation",
+        title="Plain Conversation",
         description="Respond conversationally without creating a workspace task contract.",
         default_core_deliverables=("conversational_response",),
         default_reasoning_steps=("understand_conversation_turn", "respond_with_context_boundary"),
         forbidden_actions=(*_COMMON_FORBIDDEN, "perform_unrequested_workspace_action"),
-        validator_profile_id="deliverable.role_conversation",
+        validator_profile_id="deliverable.plain_conversation",
     ),
     "light_qa": TaskGoalProfile(
         task_domain="general",
