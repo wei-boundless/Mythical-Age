@@ -159,7 +159,7 @@ export function focusForPreflightIssue(issue: TaskGraphPreflightIssue): TaskGrap
     };
   }
 
-  if (issue.source.includes("scheduler") || issue.source.includes("graph_contract")) {
+  if (issue.source.includes("scheduler") || issue.source.includes("graph_contract") || issue.source.includes("loop_plan")) {
     return {
       ...base,
       layer: issue.scope === "node" || issue.scope === "edge" ? "timeline" : "publish",

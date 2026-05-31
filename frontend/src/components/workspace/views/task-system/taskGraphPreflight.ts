@@ -35,7 +35,10 @@ export type BuildTaskGraphPreflightReportInput = {
   editorIssueCount: number;
   metadata?: Record<string, unknown>;
   graphContract?: TaskGraphContractPreview | null;
-  standardView?: Pick<TaskGraphStandardView, "issues" | "units" | "interfaces" | "port_edges" | "graph_module_expansion" | "graph_module_expansions" | "memory_protocol"> | null;
+  standardView?: (
+    Pick<TaskGraphStandardView, "issues" | "units" | "interfaces" | "port_edges" | "graph_module_expansion" | "graph_module_expansions" | "memory_protocol">
+    & Partial<Pick<TaskGraphStandardView, "diagnostics">>
+  ) | null;
 };
 
 function stringValue(value: unknown) {
@@ -740,6 +743,48 @@ export function buildTaskGraphPreflightReport({
       source: isSchedulerSupportIssue ? "backend.scheduler_support" : "backend.graph_contract",
     });
   });
+
+  const loopPlan = recordValue(recordValue(standardView?.diagnostics).loop_plan);
+  if (Object.keys(loopPlan).length > 0) {
+    const loopPlanAvailable = loopPlan.available === true;
+    const loopPlanIssues = Array.isArray(loopPlan.issues)
+      ? loopPlan.issues.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object" && !Array.isArray(item))
+      : [];
+    if (!loopPlanAvailable && !loopPlanIssues.length) {
+      pushIssue(issues, {
+        issue_id: "loop_plan:unavailable:graph",
+        severity: "error",
+        scope: "runtime",
+        target_id: "",
+        title: "LoopPlan 不可用",
+        detail: "后端没有返回可执行的拓扑编译计划，请先刷新标准视图并确认 GraphHarnessConfig 能够编译。",
+        source: "backend.loop_plan",
+      });
+    }
+    loopPlanIssues.forEach((issue, index) => {
+      const code = stringValue(issue.code);
+      const edgeId = stringValue(issue.edge_id);
+      const nodeId = stringValue(issue.node_id);
+      const frameId = stringValue(issue.frame_id);
+      const rawSeverity = stringValue(issue.severity);
+      const severity = !loopPlanAvailable
+        ? "error"
+        : rawSeverity === "warning"
+          ? "warning"
+          : rawSeverity === "info"
+            ? "info"
+            : "error";
+      pushIssue(issues, {
+        issue_id: `loop_plan:${code || index}:${edgeId || nodeId || frameId || "graph"}`,
+        severity,
+        scope: edgeId ? "edge" : nodeId ? "node" : "runtime",
+        target_id: edgeId || nodeId || frameId,
+        title: code || (loopPlanAvailable ? "LoopPlan 问题" : "LoopPlan 不可用"),
+        detail: stringValue(issue.message) || (loopPlanAvailable ? "后端 LoopPlan 编译返回了未命名问题。" : "后端无法编译可执行 LoopPlan。"),
+        source: "backend.loop_plan",
+      });
+    });
+  }
 
   const hasGraphModuleExpansionIssues = (standardView?.graph_module_expansions ?? [])
     .some((expansion) => (expansion.issues ?? []).length > 0);

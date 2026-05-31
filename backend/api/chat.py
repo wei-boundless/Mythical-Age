@@ -196,17 +196,29 @@ async def _run_chat_to_event_log(runtime: Any, run: RuntimeRun, request: QueryRe
         async for event in runtime.query_runtime.astream(request):
             event_type = str(event.get("type", "message") or "message")
             data = {key: value for key, value in dict(event).items() if key != "type"}
-            runtime_task_run_id = _runtime_task_run_id_from_event(event)
+            runtime_refs = _runtime_run_refs_from_event(event)
+            runtime_task_run_id = runtime_refs["task_run_id"]
+            runtime_turn_run_id = runtime_refs["turn_run_id"]
             if runtime_task_run_id:
                 data.setdefault("runtime_task_run_id", runtime_task_run_id)
+            if runtime_turn_run_id:
+                data.setdefault("runtime_turn_run_id", runtime_turn_run_id)
             logged = replay.append_public_event(current, public_event_type=event_type, data=data)
             terminal_event = event_type if event_type in TERMINAL_STREAM_EVENTS else terminal_event
+            diagnostics = {
+                key: value
+                for key, value in {
+                    "runtime_task_run_id": runtime_task_run_id,
+                    "runtime_turn_run_id": runtime_turn_run_id,
+                }.items()
+                if value
+            }
             current = registry.mark_event(
                 current,
                 latest_event_offset=logged.offset,
                 status=_status_for_public_event(event_type),
                 terminal_event=event_type if event_type in TERMINAL_STREAM_EVENTS else "",
-                diagnostics={"runtime_task_run_id": runtime_task_run_id} if runtime_task_run_id else None,
+                diagnostics=diagnostics or None,
             )
             if event_type in TERMINAL_STREAM_EVENTS:
                 break
@@ -244,7 +256,7 @@ async def _stream_run_events(runtime: Any, run: RuntimeRun, *, after_offset: int
     host = runtime.query_runtime.single_agent_runtime_host
     registry = host.run_registry
     replay = host.stream_replay
-    subscription = host.event_log.subscribe(task_run_id=run.task_run_id)
+    subscription = host.event_log.subscribe(task_run_id=run.event_log_id)
     latest_offset = int(after_offset)
     try:
         yield "retry: 1500\n\n"
@@ -275,7 +287,7 @@ async def _stream_run_events(runtime: Any, run: RuntimeRun, *, after_offset: int
 async def _wait_for_terminal_public_event(runtime: Any, run: RuntimeRun) -> tuple[str, dict[str, Any]]:
     host = runtime.query_runtime.single_agent_runtime_host
     replay = host.stream_replay
-    subscription = host.event_log.subscribe(task_run_id=run.task_run_id)
+    subscription = host.event_log.subscribe(task_run_id=run.event_log_id)
     latest_offset = -1
     try:
         while True:
@@ -308,7 +320,7 @@ def _resolve_after_offset(run: RuntimeRun, *, after_offset: int | None, last_eve
     cursor = parse_stream_event_id(
         str(last_event_id or ""),
         expected_stream_run_id=run.stream_run_id,
-        expected_task_run_id=run.task_run_id,
+        expected_event_log_id=run.event_log_id,
     )
     if cursor is not None:
         return cursor.last_event_offset
@@ -340,13 +352,29 @@ def _status_for_public_event(event_type: str) -> str:
     return "running"
 
 
-def _runtime_task_run_id_from_event(event: dict[str, Any]) -> str:
+def _runtime_run_refs_from_event(event: dict[str, Any]) -> dict[str, str]:
+    task_run_id = ""
+    turn_run_id = ""
+    runtime_event = dict(event.get("event") or {}) if isinstance(event.get("event"), dict) else {}
+    runtime_payload = dict(runtime_event.get("payload") or {}) if isinstance(runtime_event.get("payload"), dict) else {}
     for value in (
-        event.get("task_run_id"),
         dict(event.get("task_run") or {}).get("task_run_id") if isinstance(event.get("task_run"), dict) else "",
-        dict(event.get("event") or {}).get("task_run_id") if isinstance(event.get("event"), dict) else "",
+        dict(runtime_payload.get("task_run") or {}).get("task_run_id") if isinstance(runtime_payload.get("task_run"), dict) else "",
+        event.get("task_run_id"),
+        runtime_event.get("task_run_id"),
     ):
         normalized = str(value or "").strip()
-        if normalized:
-            return normalized
-    return ""
+        if normalized.startswith("taskrun:"):
+            task_run_id = normalized
+            break
+    for value in (
+        dict(event.get("turn_run") or {}).get("turn_run_id") if isinstance(event.get("turn_run"), dict) else "",
+        dict(runtime_payload.get("turn_run") or {}).get("turn_run_id") if isinstance(runtime_payload.get("turn_run"), dict) else "",
+        event.get("turn_run_id"),
+        runtime_event.get("task_run_id"),
+    ):
+        normalized = str(value or "").strip()
+        if normalized.startswith("turnrun:"):
+            turn_run_id = normalized
+            break
+    return {"task_run_id": task_run_id, "turn_run_id": turn_run_id}

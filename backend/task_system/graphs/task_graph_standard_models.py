@@ -8,6 +8,7 @@ from task_system.graphs.composable_graph_builder import build_composable_graph_v
 from task_system.graphs.composable_graph_models import ComposableUnit, GraphModuleExpansionPlan, UnitInterface, UnitPortEdge
 from task_system.compiler.graph_harness_config_publisher import build_graph_harness_config_from_graph
 from task_system.compiler.layered_graph_normalizer import normalize_task_graph_layers
+from task_system.compiler.loop_plan_preview import build_loop_plan_preview, unavailable_loop_plan_preview
 from task_system.runtime_semantics.length_budget import compiled_length_budget_preview, compile_length_budget
 from task_system.runtime_semantics import compile_runtime_semantics_manifest
 from task_system.graphs.task_graph_models import TaskGraphDefinition, task_graph_from_dict
@@ -222,6 +223,7 @@ def build_task_graph_standard_view(
     graph_config = None
     scheduler_view = None
     graph_config_issues: list[dict[str, Any]] = []
+    loop_plan_preview: dict[str, Any] = {}
     try:
         graph_config = build_graph_harness_config_from_graph(
             graph=graph,
@@ -229,8 +231,10 @@ def build_task_graph_standard_view(
             graph_lookup=graph_lookup,
         )
         scheduler_view = build_scheduler_view(graph_config)
+        loop_plan_preview = build_loop_plan_preview(graph_config=graph_config, layered_graph=layered)
     except ValueError as exc:
         graph_config_issues.append(_graph_harness_config_issue(graph=graph, error=str(exc)))
+        loop_plan_preview = unavailable_loop_plan_preview(graph_id=graph.graph_id, issues=graph_config_issues)
     runtime_semantics = compile_runtime_semantics_manifest(graph).to_dict()
     composable = build_composable_graph_view(graph=graph, layered_graph=layered)
     graph_module_expansions = _graph_module_expansions(
@@ -374,6 +378,7 @@ def build_task_graph_standard_view(
             "composable_graph": composable.to_dict(),
             "graph_harness_config": _graph_harness_config_summary(graph_config.to_dict()) if graph_config is not None else _unavailable_graph_harness_config_summary(graph, graph_config_issues),
             "scheduler_view": _scheduler_view_payload(scheduler_view) if scheduler_view is not None else {},
+            "loop_plan": loop_plan_preview,
             "runtime_semantics": runtime_semantics,
             "graph_module_expansion_count": len(graph_module_expansions),
             "graph_module_expansion_issue_count": sum(len(item.issues) for item in graph_module_expansions),

@@ -50,6 +50,25 @@ async def get_harness_trace(
     return trace
 
 
+@router.get("/orchestration/harness/turn-runs/{turn_run_id}")
+async def get_harness_turn_trace(
+    turn_run_id: str,
+    include_payloads: bool = False,
+    include_model_messages: bool = False,
+    event_limit: int | None = None,
+) -> dict[str, Any]:
+    runtime = require_runtime()
+    trace = runtime.query_runtime.single_agent_runtime_host.get_turn_trace(
+        turn_run_id,
+        include_payloads=include_payloads,
+        include_model_messages=include_model_messages,
+        event_limit=event_limit,
+    )
+    if trace is None:
+        raise HTTPException(status_code=404, detail="TurnRun trace not found")
+    return trace
+
+
 @router.post("/orchestration/harness/task-runs/{task_run_id}/execute")
 async def execute_harness_task_run(
     task_run_id: str,

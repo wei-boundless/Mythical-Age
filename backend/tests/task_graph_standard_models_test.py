@@ -229,6 +229,15 @@ def test_build_task_graph_standard_view_projects_nodes_edges_resources_and_timel
     assert payload["graph_module_expansions"] == []
     assert payload["diagnostics"]["composable_graph"]["diagnostics"]["mode"] == "read_only_shadow_model"
     assert payload["diagnostics"]["graph_module_expansion_count"] == 0
+    loop_plan = payload["diagnostics"]["loop_plan"]
+    assert loop_plan["available"] is True
+    assert loop_plan["authority"] == "task_system.loop_plan_preview"
+    assert loop_plan["start_node_ids"] == ["input"]
+    assert "baseline.memory" not in loop_plan["executable_node_ids"]
+    assert any(item["edge_id"] == "edge.input.draft" for item in loop_plan["dependency_edges"])
+    assert any(item["edge_id"] == "edge.memory.read" for item in loop_plan["context_edges"])
+    assert all(item["edge_id"] != "edge.memory.read" for item in loop_plan["dependency_edges"])
+    assert loop_plan["initial_ready_node_ids"] == ["input"]
 
 
 def test_task_graph_standard_view_surfaces_memory_protocol_preflight_issues(tmp_path: Path) -> None:

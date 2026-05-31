@@ -126,6 +126,20 @@ describe("TaskGraph editor focus", () => {
     });
   });
 
+  it("routes LoopPlan runtime diagnostics to publish runtime", () => {
+    const focus = focusForPreflightIssue(issue({
+      source: "backend.loop_plan",
+      scope: "runtime",
+      target_id: "loop.default",
+      title: "loop_frame_entry_missing",
+    }));
+
+    expect(focus).toMatchObject({
+      layer: "publish",
+      facet: "runtime",
+    });
+  });
+
   it("routes composable port edge diagnostics to the module connection facet", () => {
     const focus = focusForPreflightIssue(issue({
       source: "backend.composable_graph",

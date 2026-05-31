@@ -17,7 +17,7 @@ RuntimeRunStatus = Literal["starting", "running", "waiting", "completed", "faile
 class RuntimeRun:
     stream_run_id: str
     session_id: str
-    task_run_id: str
+    event_log_id: str
     root_request_ref: str
     status: RuntimeRunStatus
     created_at: float
@@ -36,8 +36,8 @@ class RuntimeRun:
             raise ValueError("RuntimeRun requires stream_run_id")
         if not self.session_id:
             raise ValueError("RuntimeRun requires session_id")
-        if not self.task_run_id:
-            raise ValueError("RuntimeRun requires task_run_id")
+        if not self.event_log_id:
+            raise ValueError("RuntimeRun requires event_log_id")
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
@@ -65,7 +65,7 @@ class RuntimeRunRegistry:
         run = RuntimeRun(
             stream_run_id=stream_run_id,
             session_id=str(session_id or "").strip(),
-            task_run_id=f"chatrun:{_safe_id(stream_run_id)}",
+            event_log_id=f"chatrun:{_safe_id(stream_run_id)}",
             root_request_ref=str(root_request_ref or f"chatreq:{uuid.uuid4().hex}"),
             status="starting",
             created_at=now,
@@ -85,6 +85,8 @@ class RuntimeRunRegistry:
             return None
         if not isinstance(payload, dict):
             return None
+        payload["event_log_id"] = str(payload.get("event_log_id") or payload.get("task_run_id") or "").strip()
+        payload.pop("task_run_id", None)
         try:
             return RuntimeRun(**payload)
         except (TypeError, ValueError):
@@ -100,6 +102,8 @@ class RuntimeRunRegistry:
                 continue
             if not isinstance(payload, dict) or str(payload.get("session_id") or "") != normalized:
                 continue
+            payload["event_log_id"] = str(payload.get("event_log_id") or payload.get("task_run_id") or "").strip()
+            payload.pop("task_run_id", None)
             try:
                 runs.append(RuntimeRun(**payload))
             except (TypeError, ValueError):

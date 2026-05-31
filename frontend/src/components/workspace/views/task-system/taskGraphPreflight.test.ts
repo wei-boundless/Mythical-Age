@@ -229,6 +229,53 @@ describe("TaskGraph preflight", () => {
     expect(report.valid).toBe(true);
   });
 
+  it("blocks publishing when backend LoopPlan is unavailable", () => {
+    const report = buildTaskGraphPreflightReport({
+      dirty: false,
+      editorIssueCount: 0,
+      editorValid: true,
+      nodes: [{ node_id: "draft", title: "起草", agent_id: "agent:writer" }],
+      edges: [],
+      standardView: {
+        issues: [],
+        units: [],
+        interfaces: [],
+        port_edges: [],
+        graph_module_expansion: [],
+        graph_module_expansions: [],
+        memory_protocol: { repositories: [], collections: [], read_edges: [], write_edges: [], commit_edges: [], issues: [], summary: {} },
+        diagnostics: {
+          loop_plan: {
+            available: false,
+            authority: "task_system.loop_plan_preview",
+            start_node_ids: [],
+            terminal_node_ids: [],
+            executable_node_ids: [],
+            initial_ready_node_ids: [],
+            dependency_edges: [],
+            context_edges: [],
+            commit_edges: [],
+            revision_edges: [],
+            loop_frames: [],
+            issues: [
+              {
+                code: "graph_harness_config_compile_failed",
+                message: "Graph protocol alignment failed.",
+                severity: "error",
+              },
+            ],
+          },
+        },
+      },
+    });
+
+    const loopIssue = report.issues.find((issue) => issue.source === "backend.loop_plan");
+    expect(report.valid).toBe(false);
+    expect(loopIssue?.title).toBe("graph_harness_config_compile_failed");
+    expect(loopIssue?.scope).toBe("runtime");
+    expect(loopIssue?.detail).toBe("Graph protocol alignment failed.");
+  });
+
   it("warns when an edge memory handoff policy has no carry shape", () => {
     const report = buildTaskGraphPreflightReport({
       dirty: false,

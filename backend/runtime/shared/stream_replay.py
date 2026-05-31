@@ -16,7 +16,7 @@ TERMINAL_PUBLIC_EVENTS = {"done", "error", "stopped"}
 @dataclass(frozen=True, slots=True)
 class RuntimeStreamCursor:
     stream_run_id: str
-    task_run_id: str
+    event_log_id: str
     last_event_offset: int
     last_event_id: str = ""
     authority: str = "runtime.stream_cursor"
@@ -24,7 +24,7 @@ class RuntimeStreamCursor:
     def to_dict(self) -> dict[str, Any]:
         return {
             "stream_run_id": self.stream_run_id,
-            "task_run_id": self.task_run_id,
+            "event_log_id": self.event_log_id,
             "last_event_offset": self.last_event_offset,
             "last_event_id": self.last_event_id,
             "authority": self.authority,
@@ -50,7 +50,7 @@ class RuntimeStreamReplayService:
             "terminal": event_name in TERMINAL_PUBLIC_EVENTS,
         }
         return self.event_log.append(
-            run.task_run_id,
+            run.event_log_id,
             PUBLIC_STREAM_EVENT_TYPE,  # type: ignore[arg-type]
             payload=payload,
             refs={"stream_run_ref": run.stream_run_id, "root_request_ref": run.root_request_ref},
@@ -59,7 +59,7 @@ class RuntimeStreamReplayService:
     def list_public_events_after(self, run: RuntimeRun, *, after_offset: int = -1) -> list[RuntimeEvent]:
         return [
             event
-            for event in self.event_log.list_events(run.task_run_id)
+            for event in self.event_log.list_events(run.event_log_id)
             if event.offset > int(after_offset)
             and str(event.event_type) == PUBLIC_STREAM_EVENT_TYPE
         ]
@@ -71,7 +71,7 @@ class RuntimeStreamReplayService:
         data.update(
             {
                 "stream_run_id": run.stream_run_id,
-                "task_run_id": run.task_run_id,
+                "event_log_id": run.event_log_id,
                 "event_offset": event.offset,
                 "runtime_event_id": event.event_id,
             }
@@ -79,7 +79,7 @@ class RuntimeStreamReplayService:
         return format_sse(
             event_name,
             data,
-            event_id=stream_event_id(run.stream_run_id, run.task_run_id, event.offset),
+            event_id=stream_event_id(run.stream_run_id, run.event_log_id, event.offset),
             retry_ms=retry_ms,
         )
 
@@ -88,21 +88,21 @@ class RuntimeStreamReplayService:
         return bool(payload.get("terminal") is True) or str(payload.get("public_event_type") or "") in TERMINAL_PUBLIC_EVENTS
 
 
-def stream_event_id(stream_run_id: str, task_run_id: str, offset: int) -> str:
-    return f"{stream_run_id}:{task_run_id}:{int(offset)}"
+def stream_event_id(stream_run_id: str, event_log_id: str, offset: int) -> str:
+    return f"{stream_run_id}:{event_log_id}:{int(offset)}"
 
 
-def parse_stream_event_id(value: str, *, expected_stream_run_id: str = "", expected_task_run_id: str = "") -> RuntimeStreamCursor | None:
+def parse_stream_event_id(value: str, *, expected_stream_run_id: str = "", expected_event_log_id: str = "") -> RuntimeStreamCursor | None:
     raw = str(value or "").strip()
     if not raw:
         return None
-    prefix = f"{expected_stream_run_id}:{expected_task_run_id}:" if expected_stream_run_id and expected_task_run_id else ""
+    prefix = f"{expected_stream_run_id}:{expected_event_log_id}:" if expected_stream_run_id and expected_event_log_id else ""
     if prefix and raw.startswith(prefix):
         tail = raw[len(prefix):]
         if tail.isdigit():
             return RuntimeStreamCursor(
                 stream_run_id=expected_stream_run_id,
-                task_run_id=expected_task_run_id,
+                event_log_id=expected_event_log_id,
                 last_event_offset=int(tail),
                 last_event_id=raw,
             )
@@ -111,7 +111,7 @@ def parse_stream_event_id(value: str, *, expected_stream_run_id: str = "", expec
         return None
     return RuntimeStreamCursor(
         stream_run_id=expected_stream_run_id,
-        task_run_id=expected_task_run_id,
+        event_log_id=expected_event_log_id,
         last_event_offset=int(parts[1]),
         last_event_id=raw,
     )

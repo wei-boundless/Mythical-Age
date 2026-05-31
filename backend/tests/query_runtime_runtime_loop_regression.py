@@ -12,6 +12,7 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 from query.models import QueryRequest
+from api.chat import _runtime_run_refs_from_event
 from runtime.shared.models import AgentRunResult, TaskRun
 from harness.loop.model_action_protocol import ModelActionRequest
 from harness.loop.task_executor import _tool_call_progress_summary
@@ -125,7 +126,32 @@ def test_action_capable_turn_routes_to_agent_action_loop() -> None:
     assert any(event.get("type") == "runtime_assembly_compiled" for event in events)
     route_events = [dict(event.get("turn_route") or {}) for event in events if event.get("type") == "turn_route_decided"]
     assert route_events and route_events[0].get("route_kind") == "agent_action"
-    assert any(event.get("type") == "harness_run_started" for event in events)
+    started = [event for event in events if event.get("type") == "harness_run_started"][0]
+    assert dict(started.get("turn_run") or {}).get("turn_run_id", "").startswith("turnrun:")
+    assert "task_run" not in started
+    traces = runtime.single_agent_runtime_host.list_session_traces("session-direct")
+    assert traces["task_run_count"] == 0
+    assert traces["turn_run_count"] == 1
+
+
+def test_chat_stream_runtime_refs_separate_turn_run_from_task_run() -> None:
+    refs = _runtime_run_refs_from_event(
+        {
+            "type": "agent_turn_terminal",
+            "event": {
+                "task_run_id": "turnrun:session-a:1",
+                "payload": {
+                    "turn_run": {"turn_run_id": "turnrun:session-a:1"},
+                    "task_run": {"task_run_id": "taskrun:turn:session-a:1:formal"},
+                },
+            },
+        }
+    )
+
+    assert refs == {
+        "turn_run_id": "turnrun:session-a:1",
+        "task_run_id": "taskrun:turn:session-a:1:formal",
+    }
 
 
 def test_agent_action_request_launches_task_run_and_initializes_todo() -> None:
@@ -510,8 +536,8 @@ def test_turn_stream_cancellation_closes_running_turn(monkeypatch) -> None:
     traces = runtime.single_agent_runtime_host.list_session_traces("session-cancelled-turn")
     turn_runs = [
         item
-        for item in list(traces.get("task_runs") or [])
-        if str(dict(item).get("task_run_id") or "").startswith("turnrun:")
+        for item in list(traces.get("turn_runs") or [])
+        if str(dict(item).get("turn_run_id") or "").startswith("turnrun:")
     ]
     assert turn_runs
     turn_run = dict(turn_runs[-1])
@@ -3420,8 +3446,8 @@ def test_main_session_model_action_writes_prompt_accounting_ledger() -> None:
             pass
 
     asyncio.run(_collect())
-    task_run_id = runtime.single_agent_runtime_host.list_session_traces("session-accounting")["task_runs"][0]["task_run_id"]
-    summary = runtime.single_agent_runtime_host.prompt_accounting_ledger.summarize_task(task_run_id)
+    turn_run_id = runtime.single_agent_runtime_host.list_session_traces("session-accounting")["turn_runs"][0]["turn_run_id"]
+    summary = runtime.single_agent_runtime_host.prompt_accounting_ledger.summarize_task(turn_run_id)
 
     assert summary["exact_total_tokens"] == 15
     assert summary["provider_usage_record_count"] == 1

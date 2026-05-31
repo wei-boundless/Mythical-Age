@@ -15,6 +15,7 @@ from ..shared.models import (
     ProjectRuntimeStatus,
     SupervisionRecord,
     TaskRun,
+    TurnRun,
 )
 from harness.execution.delegation_models import (
     AgentDelegationRequest,
@@ -59,6 +60,19 @@ class RuntimeStateIndex:
             self._upsert_session_live_view(
                 session_id=task_run.session_id,
                 task_run_id=task_run.task_run_id,
+                updated_at=float(payload.get("updated_at") or 0.0),
+            )
+            self._touch_meta()
+
+    def upsert_turn_run(self, turn_run: TurnRun) -> None:
+        with _STATE_INDEX_WRITE_LOCK:
+            payload = turn_run.to_dict()
+            self._write_record("turn_runs", turn_run.turn_run_id, payload)
+            self._append_index_id("session_turn_runs", turn_run.session_id, turn_run.turn_run_id)
+            self._maybe_write_latest_ref(
+                "session_latest_turn_runs",
+                turn_run.session_id,
+                turn_run.turn_run_id,
                 updated_at=float(payload.get("updated_at") or 0.0),
             )
             self._touch_meta()
@@ -135,6 +149,12 @@ class RuntimeStateIndex:
             return None
         return _task_run_from_payload(task_run)
 
+    def get_turn_run(self, turn_run_id: str) -> TurnRun | None:
+        turn_run = self._read_record("turn_runs", turn_run_id)
+        if not turn_run:
+            return None
+        return _turn_run_from_payload(turn_run)
+
     def list_task_runs(self) -> list[TaskRun]:
         task_runs = self._read_record_bucket("task_runs")
         return [_task_run_from_payload(item) for item in task_runs.values() if isinstance(item, dict)]
@@ -143,6 +163,11 @@ class RuntimeStateIndex:
         task_runs = self._read_record_bucket("task_runs")
         ids = self._read_index_ids("sessions", session_id)
         return [_task_run_from_payload(task_runs[item]) for item in ids if item in task_runs]
+
+    def list_session_turn_runs(self, session_id: str) -> list[TurnRun]:
+        turn_runs = self._read_record_bucket("turn_runs")
+        ids = self._read_index_ids("session_turn_runs", session_id)
+        return [_turn_run_from_payload(turn_runs[item]) for item in ids if item in turn_runs]
 
     def list_task_agent_runs(self, task_run_id: str) -> list[AgentRun]:
         agent_runs = self._read_record_bucket("agent_runs")
@@ -558,7 +583,8 @@ class RuntimeStateIndex:
     def _maybe_write_latest_ref(self, bucket: str, index_id: str, record_id: str, *, updated_at: float) -> None:
         current_id = str(self._read_index_value(bucket, index_id) or "")
         if current_id:
-            current_payload = self._read_record("task_runs", current_id) if bucket.startswith("session_") else {}
+            record_bucket = "turn_runs" if bucket == "session_latest_turn_runs" else "task_runs"
+            current_payload = self._read_record(record_bucket, current_id) if bucket.startswith("session_") else {}
             if float(current_payload.get("updated_at") or 0.0) > updated_at:
                 return
         self._write_index_value(bucket, index_id, record_id)
@@ -630,6 +656,7 @@ class RuntimeStateIndex:
     def _record_identity(bucket: str, payload: dict[str, Any], fallback: str) -> str:
         key_field_by_bucket = {
             "task_runs": "task_run_id",
+            "turn_runs": "turn_run_id",
             "agent_runs": "agent_run_id",
             "agent_run_results": "agent_run_result_id",
             "subagent_messages": "message_id",
@@ -648,6 +675,7 @@ class RuntimeStateIndex:
     def _record_buckets() -> tuple[str, ...]:
         return (
             "task_runs",
+            "turn_runs",
             "agent_runs",
             "agent_run_results",
             "subagent_messages",
@@ -664,6 +692,7 @@ class RuntimeStateIndex:
     def _list_index_buckets() -> tuple[str, ...]:
         return (
             "sessions",
+            "session_turn_runs",
             "task_agent_runs",
             "task_agent_run_results",
             "task_subagent_messages",
@@ -681,6 +710,7 @@ class RuntimeStateIndex:
     def _value_index_buckets() -> tuple[str, ...]:
         return (
             "session_latest_task_runs",
+            "session_latest_turn_runs",
             "graph_project_index",
             "session_active_project_status",
             "task_project_status",
@@ -694,7 +724,9 @@ class RuntimeStateIndex:
     def _empty_snapshot() -> dict[str, Any]:
         return {
             "task_runs": {},
+            "turn_runs": {},
             "sessions": {},
+            "session_turn_runs": {},
             "agent_runs": {},
             "task_agent_runs": {},
             "agent_run_results": {},
@@ -716,6 +748,7 @@ class RuntimeStateIndex:
             "session_projects": {},
             "project_supervision_records": {},
             "task_supervision_records": {},
+            "session_latest_turn_runs": {},
             "updated_at": 0.0,
         }
 
@@ -775,6 +808,22 @@ def _task_run_from_payload(payload: dict[str, Any]) -> TaskRun:
         updated_at=float(payload.get("updated_at") or 0.0),
         latest_event_offset=int(payload.get("latest_event_offset", -1)),
         latest_checkpoint_ref=str(payload.get("latest_checkpoint_ref") or ""),
+        terminal_reason=payload.get("terminal_reason", ""),
+        diagnostics=dict(payload.get("diagnostics") or {}),
+    )
+
+
+def _turn_run_from_payload(payload: dict[str, Any]) -> TurnRun:
+    return TurnRun(
+        turn_run_id=str(payload.get("turn_run_id") or ""),
+        session_id=str(payload.get("session_id") or ""),
+        turn_id=str(payload.get("turn_id") or ""),
+        agent_profile_id=str(payload.get("agent_profile_id") or "main_interactive_agent"),
+        execution_runtime_kind=str(payload.get("execution_runtime_kind") or "single_agent_turn"),
+        status=payload.get("status", "running"),
+        created_at=float(payload.get("created_at") or 0.0),
+        updated_at=float(payload.get("updated_at") or 0.0),
+        latest_event_offset=int(payload.get("latest_event_offset", -1)),
         terminal_reason=payload.get("terminal_reason", ""),
         diagnostics=dict(payload.get("diagnostics") or {}),
     )

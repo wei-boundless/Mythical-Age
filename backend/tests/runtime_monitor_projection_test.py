@@ -344,7 +344,7 @@ def test_main_chat_taskinst_task_run_remains_monitorable():
 
     assert [item["task_run_id"] for item in monitor["buckets"]["running"]] == [run.task_run_id]
     item = monitor["buckets"]["running"][0]
-    assert item["route"]["kind"] == "chat_turn_runtime"
+    assert item["route"]["kind"] == "agent_runtime_run"
     assert item["session_id"] == "session-a"
 
 

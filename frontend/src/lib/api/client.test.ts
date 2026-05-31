@@ -76,7 +76,7 @@ describe("streamChat", () => {
     expect(result).toEqual({
       terminalEvent: "done",
       streamRunId: "strun:test",
-      taskRunId: "chatrun:test",
+      eventLogId: "chatrun:test",
       lastEventOffset: 2,
     });
     expect(cancel).toHaveBeenCalledTimes(1);
@@ -167,7 +167,7 @@ describe("streamChat", () => {
           json: async () => ({
             stream_run_id: "strun:test",
             session_id: "session:test",
-            task_run_id: "chatrun:test",
+            event_log_id: "chatrun:test",
             root_request_ref: "chatreq:test",
             status: "running",
             latest_event_offset: -1,
@@ -232,7 +232,7 @@ function mockChatRunFetch(readers: Array<ReturnType<typeof streamReader>>) {
         json: async () => ({
           stream_run_id: "strun:test",
           session_id: "session:test",
-          task_run_id: "chatrun:test",
+          event_log_id: "chatrun:test",
           root_request_ref: "chatreq:test",
           status: "running",
           latest_event_offset: -1,
@@ -264,3 +264,4 @@ function streamReader(chunks: string[], options: { cancel?: () => Promise<void>;
     cancel: options.cancel ?? vi.fn(async () => undefined),
   };
 }
+

@@ -274,10 +274,10 @@ class RuntimeMonitorProjector:
         graph_harness_config_id = str(diagnostics.get("graph_harness_config_id") or "")
         if graph_run_id or graph_harness_config_id:
             kind = "task_graph_run"
-        elif _is_chat_scoped(task_run_id=task_run_id, task_id=task_id):
-            kind = "chat_turn_runtime"
         elif execution_runtime_kind in {"single_agent_task", "subagent_task"}:
             kind = "agent_runtime_run"
+        elif _is_chat_scoped(task_run_id=task_run_id, task_id=task_id):
+            kind = "chat_turn_runtime"
         else:
             kind = "chat_turn_runtime"
         return {
@@ -533,7 +533,7 @@ class RuntimeMonitorProjector:
         return refs
 
 def _is_chat_scoped(*, task_run_id: str, task_id: str) -> bool:
-    return task_run_id.startswith("turnrun:") or task_run_id.startswith("taskrun:turn:") or task_id.startswith("turn:") or task_id.startswith("task:turn:")
+    return task_run_id.startswith("turnrun:") or task_id.startswith("turn:")
 
 
 def _latest_interaction_turn_id(events: list[Any], *, diagnostics: dict[str, Any]) -> str:

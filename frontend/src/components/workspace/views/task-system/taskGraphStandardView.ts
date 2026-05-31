@@ -6,6 +6,7 @@ import type {
   TaskGraphMemoryProtocolEdge,
   TaskGraphMemoryProtocolRepository,
   TaskGraphStandardEdgeSpec,
+  TaskGraphLoopPlanPreview,
   TaskGraphStandardResourceSpec,
   TaskGraphStandardView,
   UnitInterfaceSpec,
@@ -180,6 +181,41 @@ export function buildTaskGraphTimelineStandardModel(standardView: TaskGraphStand
     entryNodeId: standardView.timeline?.entry_node_id ?? "",
     outputNodeId: standardView.timeline?.output_node_id ?? "",
     runtimeSemantics,
+  };
+}
+
+export function buildTaskGraphLoopPlanStandardModel(standardView: TaskGraphStandardView | null) {
+  const loopPlan = standardView?.diagnostics?.loop_plan as TaskGraphLoopPlanPreview | undefined;
+  const summary = asRecord(loopPlan?.summary);
+  const edgePreviewLimit = 6;
+  return {
+    available: loopPlan?.available === true,
+    authority: String(loopPlan?.authority ?? ""),
+    startNodeIds: Array.isArray(loopPlan?.start_node_ids) ? loopPlan.start_node_ids : [],
+    terminalNodeIds: Array.isArray(loopPlan?.terminal_node_ids) ? loopPlan.terminal_node_ids : [],
+    executableNodeIds: Array.isArray(loopPlan?.executable_node_ids) ? loopPlan.executable_node_ids : [],
+    initialReadyNodeIds: Array.isArray(loopPlan?.initial_ready_node_ids) ? loopPlan.initial_ready_node_ids : [],
+    dependencyEdges: Array.isArray(loopPlan?.dependency_edges) ? loopPlan.dependency_edges : [],
+    contextEdges: Array.isArray(loopPlan?.context_edges) ? loopPlan.context_edges : [],
+    commitEdges: Array.isArray(loopPlan?.commit_edges) ? loopPlan.commit_edges : [],
+    revisionEdges: Array.isArray(loopPlan?.revision_edges) ? loopPlan.revision_edges : [],
+    loopFrames: Array.isArray(loopPlan?.loop_frames) ? loopPlan.loop_frames : [],
+    executionLevels: Array.isArray(loopPlan?.execution_levels) ? loopPlan.execution_levels : [],
+    issues: Array.isArray(loopPlan?.issues) ? loopPlan.issues : [],
+    summary: {
+      executableNodeCount: Number(summary.executable_node_count ?? loopPlan?.executable_node_ids?.length ?? 0) || 0,
+      dependencyEdgeCount: Number(summary.dependency_edge_count ?? loopPlan?.dependency_edges?.length ?? 0) || 0,
+      contextEdgeCount: Number(summary.context_edge_count ?? loopPlan?.context_edges?.length ?? 0) || 0,
+      commitEdgeCount: Number(summary.commit_edge_count ?? loopPlan?.commit_edges?.length ?? 0) || 0,
+      revisionEdgeCount: Number(summary.revision_edge_count ?? loopPlan?.revision_edges?.length ?? 0) || 0,
+      loopFrameCount: Number(summary.loop_frame_count ?? loopPlan?.loop_frames?.length ?? 0) || 0,
+      issueCount: Number(summary.issue_count ?? loopPlan?.issues?.length ?? 0) || 0,
+    },
+    previewEdges: [
+      ...(Array.isArray(loopPlan?.dependency_edges) ? loopPlan.dependency_edges : []).slice(0, edgePreviewLimit),
+      ...(Array.isArray(loopPlan?.context_edges) ? loopPlan.context_edges : []).slice(0, edgePreviewLimit),
+      ...(Array.isArray(loopPlan?.revision_edges) ? loopPlan.revision_edges : []).slice(0, edgePreviewLimit),
+    ].slice(0, edgePreviewLimit),
   };
 }
 

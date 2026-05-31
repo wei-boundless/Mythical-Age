@@ -809,6 +809,48 @@ export type TaskGraphStandardIssue = {
   source?: string;
 };
 
+export type TaskGraphLoopPlanEdgePreview = {
+  edge_id: string;
+  source_node_id: string;
+  target_node_id: string;
+  edge_type: string;
+  semantic_role?: string;
+  scheduler_role?: string;
+  runtime_role?: string;
+};
+
+export type TaskGraphLoopPlanFramePreview = {
+  frame_id: string;
+  scope_id?: string;
+  kind?: string;
+  entry_node_id?: string;
+  router_node_id?: string;
+  continue_node_id?: string;
+  exit_node_id?: string;
+  initial_input_keys?: string[];
+  derived_field_count?: number;
+};
+
+export type TaskGraphLoopPlanPreview = {
+  available: boolean;
+  authority: string;
+  graph_id?: string;
+  config_id?: string;
+  config_hash?: string;
+  start_node_ids: string[];
+  terminal_node_ids: string[];
+  executable_node_ids: string[];
+  initial_ready_node_ids: string[];
+  dependency_edges: TaskGraphLoopPlanEdgePreview[];
+  context_edges: TaskGraphLoopPlanEdgePreview[];
+  commit_edges: TaskGraphLoopPlanEdgePreview[];
+  revision_edges: TaskGraphLoopPlanEdgePreview[];
+  loop_frames: TaskGraphLoopPlanFramePreview[];
+  execution_levels?: Array<Record<string, unknown> & { level_index?: number; node_ids?: string[]; status?: string }>;
+  summary?: Record<string, unknown>;
+  issues?: Array<Record<string, unknown> & { code?: string; message?: string; severity?: string }>;
+};
+
 export type TaskGraphStandardView = {
   authority: string;
   graph: Record<string, unknown>;
@@ -824,7 +866,7 @@ export type TaskGraphStandardView = {
   runtime_isolation: TaskGraphRuntimeIsolationSpec;
   memory_matrix: Record<string, unknown>;
   memory_protocol?: TaskGraphMemoryProtocol;
-  diagnostics: Record<string, unknown>;
+  diagnostics: Record<string, unknown> & { loop_plan?: TaskGraphLoopPlanPreview };
   issues: TaskGraphStandardIssue[];
 };
 
@@ -2073,6 +2115,14 @@ export type HarnessTaskRunTrace = {
   events: HarnessTraceEvent[];
 };
 
+export type HarnessTurnRunTrace = {
+  authority: string;
+  turn_run: Record<string, unknown>;
+  event_count: number;
+  events: HarnessTraceEvent[];
+  event_window?: Record<string, unknown>;
+};
+
 export type OrchestrationRuntimeOptionsPayload = {
   authority: string;
   options: OrchestrationAgentRuntimeCatalog["options"];
@@ -3312,14 +3362,14 @@ export type StreamHandlers = {
 export type StreamResult = {
   terminalEvent: "done" | "error" | "stopped";
   streamRunId: string;
-  taskRunId: string;
+  eventLogId: string;
   lastEventOffset: number;
 };
 
 export type ChatRun = {
   stream_run_id: string;
   session_id: string;
-  task_run_id: string;
+  event_log_id: string;
   root_request_ref: string;
   status: string;
   latest_event_offset: number;
@@ -3330,7 +3380,7 @@ export type ChatRun = {
 
 export type ChatStreamCursor = {
   streamRunId: string;
-  taskRunId: string;
+  eventLogId: string;
   lastEventOffset: number;
   lastEventId: string;
 };
@@ -3389,13 +3439,13 @@ export function readChatStreamCursor(sessionId: string): ChatStreamCursor | null
     if (!raw) return null;
     const parsed = JSON.parse(raw) as Partial<ChatStreamCursor>;
     const streamRunId = String(parsed.streamRunId || "").trim();
-    const taskRunId = String(parsed.taskRunId || "").trim();
+    const eventLogId = String(parsed.eventLogId || "").trim();
     const lastEventOffset = Number(parsed.lastEventOffset ?? -1);
     const lastEventId = String(parsed.lastEventId || "").trim();
-    if (!streamRunId || !taskRunId || !Number.isFinite(lastEventOffset)) {
+    if (!streamRunId || !eventLogId || !Number.isFinite(lastEventOffset)) {
       return null;
     }
-    return { streamRunId, taskRunId, lastEventOffset, lastEventId };
+    return { streamRunId, eventLogId, lastEventOffset, lastEventId };
   } catch {
     return null;
   }
@@ -3830,6 +3880,30 @@ export async function getOrchestrationHarnessTrace(
   const suffix = params.toString() ? `?${params.toString()}` : "";
   return request<HarnessTaskRunTrace>(
     `/orchestration/harness/task-runs/${encodeURIComponent(taskRunId)}${suffix}`
+  );
+}
+
+export async function getOrchestrationHarnessTurnTrace(
+  turnRunId: string,
+  options?: {
+    includePayloads?: boolean;
+    includeModelMessages?: boolean;
+    eventLimit?: number;
+  }
+) {
+  const params = new URLSearchParams();
+  if (options?.includePayloads) {
+    params.set("include_payloads", "true");
+  }
+  if (options?.includeModelMessages) {
+    params.set("include_model_messages", "true");
+  }
+  if (options?.eventLimit) {
+    params.set("event_limit", String(options.eventLimit));
+  }
+  const suffix = params.toString() ? `?${params.toString()}` : "";
+  return request<HarnessTurnRunTrace>(
+    `/orchestration/harness/turn-runs/${encodeURIComponent(turnRunId)}${suffix}`
   );
 }
 
@@ -4725,7 +4799,7 @@ async function consumeChatRunStream(
 
   saveChatStreamCursor(sessionId, {
     streamRunId: run.stream_run_id,
-    taskRunId: run.task_run_id,
+    eventLogId: run.event_log_id,
     lastEventOffset,
     lastEventId,
   });
@@ -4741,10 +4815,10 @@ async function consumeChatRunStream(
         return parsed.event;
       }
       lastEventOffset = eventOffset;
-      lastEventId = parsed.id || `${run.stream_run_id}:${run.task_run_id}:${lastEventOffset}`;
+      lastEventId = parsed.id || `${run.stream_run_id}:${run.event_log_id}:${lastEventOffset}`;
       saveChatStreamCursor(sessionId, {
         streamRunId: run.stream_run_id,
-        taskRunId: run.task_run_id,
+        eventLogId: run.event_log_id,
         lastEventOffset,
         lastEventId,
       });
@@ -4752,7 +4826,7 @@ async function consumeChatRunStream(
     if (reconnectAttempt > 0) {
       handlers.onEvent("stream_reconnected", {
         stream_run_id: run.stream_run_id,
-        task_run_id: run.task_run_id,
+        event_log_id: run.event_log_id,
         event_offset: lastEventOffset,
         attempt: reconnectAttempt,
         max_attempts: MAX_CHAT_STREAM_RECONNECT_ATTEMPTS,
@@ -4844,7 +4918,7 @@ async function consumeChatRunStream(
       reconnectAttempt += 1;
       handlers.onEvent("stream_reconnecting", {
         stream_run_id: run.stream_run_id,
-        task_run_id: run.task_run_id,
+        event_log_id: run.event_log_id,
         event_offset: lastEventOffset,
         last_event_id: lastEventId,
         attempt: reconnectAttempt,
@@ -4854,7 +4928,7 @@ async function consumeChatRunStream(
       if (reconnectAttempt >= MAX_CHAT_STREAM_RECONNECT_ATTEMPTS) {
         handlers.onEvent("stream_reconnect_failed", {
           stream_run_id: run.stream_run_id,
-          task_run_id: run.task_run_id,
+          event_log_id: run.event_log_id,
           event_offset: lastEventOffset,
           attempt: reconnectAttempt,
           max_attempts: MAX_CHAT_STREAM_RECONNECT_ATTEMPTS,
@@ -4871,7 +4945,7 @@ async function consumeChatRunStream(
   return {
     terminalEvent,
     streamRunId: run.stream_run_id,
-    taskRunId: run.task_run_id,
+    eventLogId: run.event_log_id,
     lastEventOffset,
   };
 }

@@ -19,7 +19,27 @@ const INTERNAL_RUNTIME_STEPS = new Set([
 
 function isChatTurnRunId(value: unknown) {
   const normalized = text(value).toLowerCase();
-  return normalized.startsWith("turnrun:") || normalized.startsWith("taskrun:turn:");
+  return normalized.startsWith("turnrun:");
+}
+
+function formalTaskRunId(...values: unknown[]) {
+  for (const value of values) {
+    const normalized = text(value);
+    if (normalized.toLowerCase().startsWith("taskrun:")) {
+      return normalized;
+    }
+  }
+  return "";
+}
+
+function formalTurnRunId(...values: unknown[]) {
+  for (const value of values) {
+    const normalized = text(value);
+    if (normalized.toLowerCase().startsWith("turnrun:")) {
+      return normalized;
+    }
+  }
+  return "";
 }
 
 function record(value: unknown): Record<string, unknown> {
@@ -566,12 +586,14 @@ export function projectRuntimeStreamEvent(event: string, data: Record<string, un
   }
   if (event === "harness_run_started") {
     const taskRun = record(data.task_run);
+    const turnRun = record(data.turn_run);
     const runtimeEvent = record(data.event);
     const payload = record(runtimeEvent.payload);
     const contract = record(payload.contract);
     const goal = text(contract.user_visible_goal ?? contract.task_run_goal ?? taskRun.goal ?? taskRun.title);
-    const taskRunId = text(taskRun.task_run_id) || text(runtimeEvent.task_run_id);
-    if (isChatTurnRunId(taskRunId) || text(taskRun.execution_runtime_kind) === "single_agent_turn") {
+    const turnRunId = formalTurnRunId(turnRun.turn_run_id, runtimeEvent.task_run_id);
+    const taskRunId = formalTaskRunId(taskRun.task_run_id, runtimeEvent.task_run_id);
+    if (turnRunId || isChatTurnRunId(taskRunId) || text(turnRun.execution_runtime_kind) === "single_agent_turn" || text(taskRun.execution_runtime_kind) === "single_agent_turn") {
       return {
         stageStatus: "正在整理上下文",
         activityTitle: "正在整理上下文",
@@ -733,7 +755,7 @@ export function projectRuntimeStreamEvent(event: string, data: Record<string, un
         level: waiting ? "waiting" : failed ? "error" : "success",
         kind: "terminal",
         statusText: waiting ? "等待" : failed ? "失败" : "完成",
-        taskRunId: text(taskRun.task_run_id) || text(runtimeEvent.task_run_id),
+        taskRunId: formalTaskRunId(taskRun.task_run_id, runtimeEvent.task_run_id),
         eventId: text(runtimeEvent.event_id),
         createdAt: numberValue(runtimeEvent.created_at) ?? Date.now(),
         completedAt: numberValue(runtimeEvent.created_at) ?? Date.now(),

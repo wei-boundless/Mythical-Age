@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { CheckCircle2, MessageSquareShare, PauseCircle, PlayCircle, RefreshCw, Save, Send, TriangleAlert } from "lucide-react";
+import { CheckCircle2, GitBranch, MessageSquareShare, PauseCircle, PlayCircle, RefreshCw, Save, Send, TriangleAlert } from "lucide-react";
 
 import {
   compileTaskSystemTaskGraphContract,
@@ -20,6 +20,7 @@ import { isTaskGraphPublishedState, taskGraphPublishStateLabel, type TaskGraphPu
 import { focusForPreflightIssue, focusTargetLabel } from "./taskGraphEditorFocus";
 import { buildTaskGraphPreflightReport } from "./taskGraphPreflight";
 import type { TaskGraphPreflightIssue } from "./taskGraphPreflight";
+import { buildTaskGraphLoopPlanStandardModel } from "./taskGraphStandardView";
 import {
   batchLifecycleFromTrace,
   buildTaskGraphBatchLifecycleSummary,
@@ -48,7 +49,7 @@ function preflightIssueGroup(issue: TaskGraphPreflightIssue) {
   if (issue.source.includes("timeline") || issue.source.includes("revision")) return "生命周期诊断";
   if (issue.source.includes("human_gate") || issue.source.includes("manual")) return "人工执行";
   if (issue.source.includes("contract") || issue.source.includes("review_gate")) return "契约与质量门";
-  if (issue.source.includes("runtime") || issue.source.includes("scheduler")) return "运行装配";
+  if (issue.source.includes("runtime") || issue.source.includes("scheduler") || issue.source.includes("loop_plan")) return "运行装配";
   return "图结构";
 }
 
@@ -135,6 +136,7 @@ export function TaskGraphPublishRunPage({
   const schedulerSummary = buildTaskGraphSchedulerSummary(schedulerStateFromTrace(runTrace));
   const batchLifecycleSummary = buildTaskGraphBatchLifecycleSummary(batchLifecycleFromTrace(runTrace));
   const boundBatchLifecycleSummary = buildTaskGraphBatchLifecycleSummary(taskGraphBoundRunMonitor?.graph_loop_state?.batch_lifecycle);
+  const loopPlan = buildTaskGraphLoopPlanStandardModel(standardView ?? null);
   const stopLoading = false;
   const preflightReport = buildTaskGraphPreflightReport({
     dirty,
@@ -363,6 +365,71 @@ export function TaskGraphPublishRunPage({
       </section>
 
       <TaskGraphContractPreviewPanel preview={graphContract} previewError={graphContractError} />
+
+      <section className="boundary-card">
+        <header><strong>拓扑编译计划</strong><span>Topology / LoopPlan</span></header>
+        {loopPlan.available ? (
+          <div className="task-graph-runtime-spec-panel">
+            <div className="task-graph-mini-kv">
+              <p><span>可执行节点</span><strong>{loopPlan.summary.executableNodeCount}</strong></p>
+              <p><span>调度依赖边</span><strong>{loopPlan.summary.dependencyEdgeCount}</strong></p>
+              <p><span>上下文边</span><strong>{loopPlan.summary.contextEdgeCount}</strong></p>
+              <p><span>提交边</span><strong>{loopPlan.summary.commitEdgeCount}</strong></p>
+              <p><span>返修边</span><strong>{loopPlan.summary.revisionEdgeCount}</strong></p>
+              <p><span>循环 Frame</span><strong>{loopPlan.summary.loopFrameCount}</strong></p>
+            </div>
+            <div className="task-graph-note">
+              <strong>Ready 起点：{loopPlan.initialReadyNodeIds.join(" / ") || "-"}</strong>
+              <span>Start {loopPlan.startNodeIds.join(" / ") || "-"} · Terminal {loopPlan.terminalNodeIds.join(" / ") || "-"}</span>
+            </div>
+            {loopPlan.loopFrames.length ? (
+              <div className="task-graph-preflight-list">
+                {loopPlan.loopFrames.slice(0, 4).map((frame) => (
+                  <article className="task-graph-preflight-row" key={frame.frame_id || frame.scope_id || `${frame.entry_node_id}_${frame.exit_node_id}`}>
+                    <span className="task-graph-preflight-row__severity task-graph-preflight-row__severity--info">
+                      loop
+                    </span>
+                    <div>
+                      <strong>{frame.frame_id || frame.scope_id || "loop.frame"}</strong>
+                      <span>{frame.entry_node_id || "-"} {"->"} {frame.router_node_id || "-"} {"->"} {frame.exit_node_id || "-"}</span>
+                    </div>
+                    <em>continue {frame.continue_node_id || "-"}</em>
+                    <small>{frame.kind || "loop_frame"}</small>
+                  </article>
+                ))}
+              </div>
+            ) : (
+              <div className="task-graph-note">
+                <strong>没有显式循环 frame</strong>
+                <span>当前拓扑会按调度依赖推进；返修边只作为条件返修协议，不等同于普通依赖环。</span>
+              </div>
+            )}
+            <div className="task-graph-preflight-list">
+              {loopPlan.previewEdges.map((edge) => (
+                <article className="task-graph-preflight-row" key={`${edge.runtime_role}_${edge.edge_id}`}>
+                  <span className="task-graph-preflight-row__severity task-graph-preflight-row__severity--info">
+                    {edge.runtime_role || edge.scheduler_role || "edge"}
+                  </span>
+                  <div>
+                    <strong>{edge.edge_id}</strong>
+                    <span>{edge.source_node_id} {"->"} {edge.target_node_id}</span>
+                  </div>
+                  <em>{edge.edge_type}</em>
+                  <small>{edge.scheduler_role || edge.semantic_role || "-"}</small>
+                </article>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <div className="task-graph-note task-graph-note--danger">
+            <strong>LoopPlan 暂不可用</strong>
+            <span>{loopPlan.issues[0]?.message ? String(loopPlan.issues[0].message) : "请先保存并刷新标准视图，确认后端 GraphHarnessConfig 能够编译。"}</span>
+          </div>
+        )}
+        <div className="boundary-actions">
+          <span className="boundary-chip"><GitBranch size={14} /> 后端编译预览</span>
+        </div>
+      </section>
 
       <section className="boundary-card">
         <header><strong>运行追踪与续跑</strong><span>Trace / Checkpoint / Resume</span></header>

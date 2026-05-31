@@ -234,12 +234,12 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     api.streamExistingChatRun.mockReset();
     api.streamExistingChatRun.mockImplementation(async (_sessionId, _streamRunId, handlers) => {
       handlers.onEvent("done", { content: "done" });
-      return { terminalEvent: "done", streamRunId: "strun:test", taskRunId: "chatrun:test", lastEventOffset: 1 };
+      return { terminalEvent: "done", streamRunId: "strun:test", eventLogId: "chatrun:test", lastEventOffset: 1 };
     });
     api.streamChat.mockReset();
     api.streamChat.mockImplementation(async (_payload, handlers) => {
       handlers.onEvent("done", { content: "done" });
-      return { terminalEvent: "done", streamRunId: "strun:test", taskRunId: "chatrun:test", lastEventOffset: 1 };
+      return { terminalEvent: "done", streamRunId: "strun:test", eventLogId: "chatrun:test", lastEventOffset: 1 };
     });
     vi.stubGlobal("window", {
       clearTimeout,
@@ -1185,7 +1185,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     vi.useRealTimers();
     const cursor = {
       streamRunId: "strun:resume",
-      taskRunId: "chatrun:resume",
+      eventLogId: "chatrun:resume",
       lastEventOffset: 3,
       lastEventId: "strun:resume:chatrun:resume:3",
     };
@@ -1200,7 +1200,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     api.getChatRun.mockResolvedValue({
       stream_run_id: "strun:resume",
       session_id: "session:existing",
-      task_run_id: "chatrun:resume",
+      event_log_id: "chatrun:resume",
       root_request_ref: "chatreq:resume",
       status: "running",
       latest_event_offset: 3,
@@ -1217,7 +1217,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     api.streamExistingChatRun.mockImplementation(async (_sessionId, _streamRunId, handlers) => {
       handlers.onEvent("content_delta", { content: "续", event_offset: 4 });
       handlers.onEvent("done", { content: "续接完成", event_offset: 5 });
-      return { terminalEvent: "done", streamRunId: "strun:resume", taskRunId: "chatrun:resume", lastEventOffset: 5 };
+      return { terminalEvent: "done", streamRunId: "strun:resume", eventLogId: "chatrun:resume", lastEventOffset: 5 };
     });
     const store = createStore(getDefaultState());
     const runtime = new WorkspaceRuntime(store);
@@ -1973,3 +1973,4 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     });
   });
 });
+

@@ -189,12 +189,15 @@ describe("runtimeVisibilityProjection", () => {
     });
 
     expect(started).toMatchObject({
-      stageStatus: "正在整理上下文",
-      activityTitle: "正在整理上下文",
-      activityDetail: "准备判断下一步",
+      stageStatus: "已确认目标",
+      activityTitle: "已确认目标",
+      activityDetail: "重构主会话监控",
       level: "running",
     });
-    expect(started.progressEntry).toBeUndefined();
+    expect(started.progressEntry).toMatchObject({
+      kind: "task_order",
+      taskRunId: "taskrun:turn:session-1:1:abc",
+    });
     expect(waiting).toMatchObject({
       stageStatus: "继续在后台处理",
       level: "waiting",
@@ -208,8 +211,8 @@ describe("runtimeVisibilityProjection", () => {
 
   it("does not project chat turn runtime start as a formal task", () => {
     const projection = projectRuntimeStreamEvent("harness_run_started", {
-      task_run: {
-        task_run_id: "turnrun:session-1:1",
+      turn_run: {
+        turn_run_id: "turnrun:session-1:1",
         execution_runtime_kind: "single_agent_turn",
         status: "running",
       },

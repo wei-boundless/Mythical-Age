@@ -80,10 +80,17 @@ class SingleAgentRuntimeHost:
             key=lambda item: item.updated_at,
             reverse=True,
         )
+        turn_runs = sorted(
+            self.state_index.list_session_turn_runs(session_id),
+            key=lambda item: item.updated_at,
+            reverse=True,
+        )
         return {
             "session_id": session_id,
             "task_run_count": len(task_runs),
             "task_runs": [self._task_run_summary(item) for item in task_runs],
+            "turn_run_count": len(turn_runs),
+            "turn_runs": [item.to_dict() for item in turn_runs],
             "authority": "single_agent_runtime_host.session_traces",
         }
 
@@ -145,6 +152,68 @@ class SingleAgentRuntimeHost:
                 "include_payloads": include_payloads,
             },
             "authority": "single_agent_runtime_host.task_run_trace",
+        }
+
+    def get_turn_trace(
+        self,
+        turn_run_id: str,
+        *,
+        include_payloads: bool = False,
+        include_model_messages: bool = False,
+        event_limit: int | None = None,
+    ) -> dict[str, Any] | None:
+        turn_run = self.state_index.get_turn_run(turn_run_id)
+        if turn_run is None:
+            return None
+        return self._turn_run_trace(
+            turn_run,
+            include_payloads=include_payloads,
+            include_model_messages=include_model_messages,
+            event_limit=event_limit,
+        )
+
+    def _turn_run_trace(
+        self,
+        turn_run: Any,
+        *,
+        include_payloads: bool = False,
+        include_model_messages: bool = False,
+        event_limit: int | None = None,
+    ) -> dict[str, Any]:
+        turn_run_id = str(getattr(turn_run, "turn_run_id", "") or "")
+        requested_limit = max(1, min(int(event_limit or 240), 1000))
+        if include_payloads:
+            if event_limit is None:
+                events = [item.to_dict() for item in self.event_log.list_events(turn_run_id)]
+            else:
+                events = [
+                    item.to_dict()
+                    for item in self.event_log.list_event_window(
+                        turn_run_id,
+                        limit=requested_limit,
+                        include_payloads=True,
+                    )
+                ]
+        else:
+            events = [item.to_dict() for item in self.event_log.list_recent_events(turn_run_id, limit=requested_limit)]
+            events = [
+                {
+                    **event,
+                    "payload": _redact_payload(dict(event.get("payload") or {}), include_model_messages=include_model_messages),
+                }
+                for event in events
+            ]
+        return {
+            "turn_run": turn_run.to_dict(),
+            "events": events,
+            "event_count": _event_count(self.event_log, turn_run_id, fallback=len(events)),
+            "event_window": {
+                "kind": "full_payload" if include_payloads and event_limit is None else ("bounded_full_payload_tail" if include_payloads else "tail"),
+                "limit": requested_limit,
+                "returned": len(events),
+                "include_payloads": include_payloads,
+            },
+            "authority": "single_agent_runtime_host.turn_run_trace",
         }
 
     def get_task_run_artifacts(self, task_run_id: str) -> dict[str, Any]:

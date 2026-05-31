@@ -4,6 +4,7 @@ import type { TaskGraphStandardView } from "@/lib/api";
 
 import {
   buildTaskGraphComposableStandardModel,
+  buildTaskGraphLoopPlanStandardModel,
   buildTaskGraphResourceStandardModel,
   buildTaskGraphTimelineStandardModel,
   describeTaskGraphStandardEdge,
@@ -242,7 +243,60 @@ const STANDARD_VIEW_FIXTURE: TaskGraphStandardView = {
     runtime_state_stores: [],
   },
   memory_matrix: {},
-  diagnostics: {},
+  diagnostics: {
+    loop_plan: {
+      available: true,
+      authority: "task_system.loop_plan_preview",
+      start_node_ids: ["writer"],
+      terminal_node_ids: ["review"],
+      executable_node_ids: ["writer", "review"],
+      initial_ready_node_ids: ["writer"],
+      dependency_edges: [
+        {
+          edge_id: "edge.temporal.review",
+          source_node_id: "writer",
+          target_node_id: "review",
+          edge_type: "temporal_dependency",
+          semantic_role: "control",
+          scheduler_role: "dependency",
+          runtime_role: "dependency",
+        },
+      ],
+      context_edges: [
+        {
+          edge_id: "edge.memory.read",
+          source_node_id: "memory.world",
+          target_node_id: "writer",
+          edge_type: "memory_read",
+          semantic_role: "memory",
+          scheduler_role: "context",
+          runtime_role: "context",
+        },
+      ],
+      commit_edges: [],
+      revision_edges: [],
+      loop_frames: [
+        {
+          frame_id: "loop.volume",
+          entry_node_id: "writer",
+          router_node_id: "review",
+          continue_node_id: "writer",
+          exit_node_id: "review",
+        },
+      ],
+      execution_levels: [{ level_index: 1, node_ids: ["writer"], status: "schedulable" }],
+      summary: {
+        executable_node_count: 2,
+        dependency_edge_count: 1,
+        context_edge_count: 1,
+        commit_edge_count: 0,
+        revision_edge_count: 0,
+        loop_frame_count: 1,
+        issue_count: 0,
+      },
+      issues: [],
+    },
+  },
   issues: [{ code: "memory.selector.missing", message: "selector missing", severity: "warn" }],
 };
 
@@ -267,6 +321,17 @@ describe("TaskGraph standard view helpers", () => {
     expect(model.phaseNodeCounts["phase.draft"]).toBe(1);
     expect(model.loopFrames).toHaveLength(1);
     expect(model.asyncNodeCount).toBe(1);
+  });
+
+  it("summarizes backend loop plan without frontend scheduler inference", () => {
+    const model = buildTaskGraphLoopPlanStandardModel(STANDARD_VIEW_FIXTURE);
+
+    expect(model.available).toBe(true);
+    expect(model.startNodeIds).toEqual(["writer"]);
+    expect(model.initialReadyNodeIds).toEqual(["writer"]);
+    expect(model.summary.dependencyEdgeCount).toBe(1);
+    expect(model.summary.contextEdgeCount).toBe(1);
+    expect(model.previewEdges.map((edge) => edge.edge_id)).toContain("edge.memory.read");
   });
 
   it("formats standard edge labels for resource inspector usage", () => {
