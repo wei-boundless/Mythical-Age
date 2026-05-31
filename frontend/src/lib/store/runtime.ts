@@ -59,10 +59,6 @@ export class WorkspaceRuntime {
   private createSessionPromise: Promise<string> | null = null;
   private sessionDetailsRequest = 0;
   private orchestrationHydrateRequest = 0;
-  private orchestrationMonitorRequest = 0;
-  private orchestrationMonitorTimer: number | null = null;
-  private orchestrationMonitorSessionId: string | null = null;
-  private orchestrationMonitorInFlight = false;
   private runtimeMonitorController: RuntimeMonitorController;
   private sessionRefreshTimers: number[] = [];
   private sessionListFailureNotifiedAt = 0;
@@ -342,7 +338,6 @@ export class WorkspaceRuntime {
       window.clearTimeout(timer);
     }
     this.sessionRefreshTimers = [];
-    this.stopOrchestrationMonitorPolling();
     this.runtimeMonitorController.stop();
   }
 
@@ -659,7 +654,6 @@ export class WorkspaceRuntime {
   }
 
   private applySelectedSessionShell(sessionId: string) {
-    this.stopOrchestrationMonitorPolling();
     const streamingCache = this.streamingSessionCache.get(sessionId);
     if (this.store.getState().activeStreamSessionIds.includes(sessionId) && streamingCache) {
       this.store.setState((prev) => ({
@@ -773,7 +767,6 @@ export class WorkspaceRuntime {
     });
     this.addActiveStreamSession(sessionId);
     this.deferMonitorPollingForActiveStream();
-    this.startOrchestrationMonitorPolling(sessionId);
     if (this.store.getState().currentSessionId === sessionId) {
       this.applyVisibleStreamState(streamState, activeStreamSessionIds);
     }
@@ -878,11 +871,8 @@ export class WorkspaceRuntime {
           && this.store.getState().currentSessionId === sessionId
         ) {
           await this.refreshSessionDetails(sessionId);
-          const shouldContinueMonitor = await this.hydrateLatestOrchestrationSnapshot(sessionId);
-          if (shouldContinueMonitor) {
-            this.orchestrationMonitorSessionId = sessionId;
-            this.scheduleNextOrchestrationMonitorPoll(sessionId);
-          }
+          await this.hydrateLatestOrchestrationSnapshot(sessionId);
+          await this.refreshGlobalRuntimeMonitor();
         }
         this.refreshSessionsInBackground();
         this.scheduleSessionRefreshes();
@@ -988,13 +978,10 @@ export class WorkspaceRuntime {
     this.addActiveStreamSession(sessionId);
     this.deferMonitorPollingForActiveStream();
     if (isImageGenerationTurn) {
-      this.stopOrchestrationMonitorPolling();
       this.store.setState((prev) => ({
         ...prev,
         taskGraphLiveMonitor: null,
       }));
-    } else {
-      this.startOrchestrationMonitorPolling(sessionId);
     }
     if (this.store.getState().currentSessionId === sessionId) {
       this.applyVisibleStreamState(streamState, this.store.getState().activeStreamSessionIds);
@@ -1133,11 +1120,8 @@ export class WorkspaceRuntime {
         && this.store.getState().currentSessionId === sessionId
       ) {
         await this.refreshSessionDetails(sessionId);
-        const shouldContinueMonitor = await this.hydrateLatestOrchestrationSnapshot(sessionId);
-        if (shouldContinueMonitor) {
-          this.orchestrationMonitorSessionId = sessionId;
-          this.scheduleNextOrchestrationMonitorPoll(sessionId);
-        }
+        await this.hydrateLatestOrchestrationSnapshot(sessionId);
+        await this.refreshGlobalRuntimeMonitor();
       }
       this.refreshSessionsInBackground();
       this.scheduleSessionRefreshes();
@@ -1202,7 +1186,7 @@ export class WorkspaceRuntime {
       return;
     }
     await this.hydrateLatestOrchestrationSnapshot(sessionId);
-    this.startOrchestrationMonitorPolling(sessionId);
+    await this.refreshGlobalRuntimeMonitor();
   }
 
   private isAbortError(error: unknown) {
@@ -1720,72 +1704,6 @@ export class WorkspaceRuntime {
     await this.runtimeMonitorController.continueBoundGraphRun();
   }
 
-  private stopOrchestrationMonitorPolling() {
-    if (typeof window === "undefined") {
-      return;
-    }
-    if (this.orchestrationMonitorTimer !== null) {
-      window.clearTimeout(this.orchestrationMonitorTimer);
-      this.orchestrationMonitorTimer = null;
-    }
-    this.orchestrationMonitorSessionId = null;
-    this.orchestrationMonitorInFlight = false;
-  }
-
-  private startOrchestrationMonitorPolling(sessionId: string) {
-    const targetSessionId = sessionId.trim();
-    if (typeof window === "undefined" || !targetSessionId) {
-      return;
-    }
-    if (this.orchestrationMonitorTimer !== null) {
-      window.clearTimeout(this.orchestrationMonitorTimer);
-      this.orchestrationMonitorTimer = null;
-    }
-    this.orchestrationMonitorSessionId = targetSessionId;
-    void this.pollOrchestrationMonitor(targetSessionId);
-  }
-
-  private scheduleNextOrchestrationMonitorPoll(sessionId: string, delayMs = 1500) {
-    if (typeof window === "undefined") {
-      return;
-    }
-    if (this.orchestrationMonitorTimer !== null) {
-      window.clearTimeout(this.orchestrationMonitorTimer);
-    }
-    this.orchestrationMonitorTimer = window.setTimeout(() => {
-      void this.pollOrchestrationMonitor(sessionId);
-    }, this.monitorPollDelay(delayMs, 5000));
-  }
-
-  private async pollOrchestrationMonitor(sessionId: string) {
-    const targetSessionId = sessionId.trim();
-    if (!targetSessionId || this.orchestrationMonitorSessionId !== targetSessionId) {
-      return;
-    }
-    if (this.orchestrationMonitorInFlight) {
-      this.scheduleNextOrchestrationMonitorPoll(targetSessionId, 3000);
-      return;
-    }
-    this.orchestrationMonitorInFlight = true;
-    let shouldContinue = false;
-    try {
-      shouldContinue = await this.hydrateLatestOrchestrationSnapshot(targetSessionId);
-      if (!shouldContinue && !this.store.getState().activeStreamSessionIds.includes(targetSessionId)) {
-        this.stopOrchestrationMonitorPolling();
-        return;
-      }
-    } finally {
-      this.orchestrationMonitorInFlight = false;
-      if (this.orchestrationMonitorSessionId === targetSessionId) {
-        if (this.store.getState().activeStreamSessionIds.includes(targetSessionId) || shouldContinue) {
-          this.scheduleNextOrchestrationMonitorPoll(targetSessionId);
-        } else {
-          this.stopOrchestrationMonitorPolling();
-        }
-      }
-    }
-  }
-
   private async resumeTaskGraphRun(taskGraphRunId: string, payload?: Record<string, unknown>) {
     const runId = taskGraphRunId.trim();
     if (!runId) {
@@ -1806,7 +1724,7 @@ export class WorkspaceRuntime {
     const sessionId = this.store.getState().currentSessionId;
     if (sessionId) {
       await this.hydrateLatestOrchestrationSnapshot(sessionId);
-      this.startOrchestrationMonitorPolling(sessionId);
+      await this.refreshGlobalRuntimeMonitor();
     }
   }
 
@@ -1834,7 +1752,6 @@ export class WorkspaceRuntime {
       const controlState = this.runtimeControlState(activeMonitor);
       const staleOrDiagnostic = stale || lifecycle === "stale" || bucket === "diagnostics";
       const hasActiveHarnessRun = ["created", "running", "waiting_executor", "waiting_approval", "blocked"].includes(liveStatus) && !staleOrDiagnostic;
-      const hasActiveGraphRun = Boolean(activeMonitor.has_graph_run || activeMonitor.graph_run_id || activeMonitor.graph_harness_config_id) && hasActiveHarnessRun;
       const hasPendingApproval = liveStatus === "waiting_approval" || String((activeMonitor.loop_state as Record<string, unknown> | undefined)?.terminal_reason ?? "") === "waiting_approval";
       const taskRunId = String(activeTaskRun.task_run_id ?? activeMonitor.task_run_id ?? liveMonitor.active_task_run_id ?? "").trim();
       const graphRunId = String(activeMonitor.graph_run_id ?? activeTaskRun.graph_run_id ?? "").trim();
@@ -1845,7 +1762,7 @@ export class WorkspaceRuntime {
           taskGraphLiveMonitor: activeMonitor,
         }));
       }
-      return hasActiveHarnessRun || hasActiveGraphRun || hasPendingApproval;
+      return hasActiveHarnessRun || hasPendingApproval;
     } catch {
       // Keep current snapshot on transient harness query failures.
       return false;
@@ -2224,10 +2141,6 @@ export class WorkspaceRuntime {
 
   private hasActiveChatStream() {
     return this.store.getState().activeStreamSessionIds.length > 0;
-  }
-
-  private monitorPollDelay(baseDelayMs: number, streamingDelayMs: number) {
-    return this.hasActiveChatStream() ? Math.max(baseDelayMs, streamingDelayMs) : baseDelayMs;
   }
 
   private deferMonitorPollingForActiveStream() {

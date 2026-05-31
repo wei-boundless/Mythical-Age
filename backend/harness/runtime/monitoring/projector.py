@@ -28,15 +28,15 @@ class RuntimeMonitorProjector:
         self.freshness_seconds = float(freshness_seconds)
         self.resource_resolver = resource_resolver
 
-    def project_task_run(self, task_run: Any, *, now: float) -> dict[str, Any]:
+    def project_task_run(self, task_run: Any, *, now: float, include_runtime_details: bool = True) -> dict[str, Any]:
         current_time = float(now)
         task_run_id = str(getattr(task_run, "task_run_id", "") or "")
-        events = self._recent_events(task_run_id, limit=240)
-        latest_event = events[-1].to_dict() if events else {}
-        latest_step = self._latest_step_summary(events)
-        latest_interaction_turn_id = _latest_interaction_turn_id(events, diagnostics=dict(getattr(task_run, "diagnostics", {}) or {}))
-        event_count = self._event_count(task_run_id, events=events)
         diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
+        events = self._recent_events(task_run_id, limit=240) if include_runtime_details else []
+        latest_event = events[-1].to_dict() if events else {}
+        latest_step = self._latest_step_summary(events) if include_runtime_details else self._latest_step_from_diagnostics(diagnostics)
+        latest_interaction_turn_id = _latest_interaction_turn_id(events, diagnostics=diagnostics) if include_runtime_details else str(diagnostics.get("latest_interaction_turn_id") or diagnostics.get("turn_id") or "")
+        event_count = self._event_count(task_run_id, events=events) if include_runtime_details else int(diagnostics.get("event_count") or 0)
         created_at = float(getattr(task_run, "created_at", 0.0) or 0.0)
         updated_at = float(getattr(task_run, "updated_at", 0.0) or 0.0)
         latest_event_at = float(latest_event.get("created_at") or updated_at or 0.0)
@@ -90,7 +90,7 @@ class RuntimeMonitorProjector:
         artifact_refs = _dedupe_artifact_refs(
             [
                 *[dict(item) for item in list(diagnostics.get("artifact_refs") or []) if isinstance(item, dict)],
-                *_artifact_refs_from_event_log(self.event_log, task_run_id),
+                *(_artifact_refs_from_event_log(self.event_log, task_run_id) if include_runtime_details else []),
             ]
         )
         graph_id = str(route.get("graph_id") or "")
@@ -105,9 +105,9 @@ class RuntimeMonitorProjector:
             graph_harness_config_id=graph_harness_config_id,
             artifact_refs=artifact_refs,
         )
-        graph_monitor = self._graph_monitor(graph_run_id, graph_harness_config_id) if kind == "task_graph" else None
+        graph_monitor = self._graph_monitor(graph_run_id, graph_harness_config_id) if include_runtime_details and kind == "task_graph" else None
         graph_status = self._graph_status(graph_monitor, graph_id=graph_id, graph_run_id=graph_run_id) if kind == "task_graph" else None
-        child_runtime_refs = self._child_runtime_refs(graph_monitor) if kind == "task_graph" else []
+        child_runtime_refs = self._child_runtime_refs(graph_monitor) if include_runtime_details and kind == "task_graph" else []
         latest_progress = {
             "tool_status": str(latest_step.get("tool_status") or diagnostics.get("latest_tool_status") or ""),
             "observation": public_runtime_progress_summary(latest_step.get("observation") or diagnostics.get("latest_observation") or ""),
@@ -197,7 +197,7 @@ class RuntimeMonitorProjector:
 
     def build_global_monitor(self, task_runs: list[Any], *, now: float, limit: int) -> dict[str, Any]:
         items = [
-            self.project_task_run(task_run, now=now)
+            self.project_task_run(task_run, now=now, include_runtime_details=False)
             for task_run in sorted(task_runs, key=lambda item: float(getattr(item, "updated_at", 0.0) or 0.0), reverse=True)
             if not self._is_internal_child_run(task_run)
         ]
@@ -205,7 +205,7 @@ class RuntimeMonitorProjector:
 
     def build_session_monitor(self, session_id: str, task_runs: list[Any], *, now: float, limit: int = 20) -> dict[str, Any]:
         items = [
-            self.project_task_run(item, now=now)
+            self.project_task_run(item, now=now, include_runtime_details=False)
             for item in sorted(task_runs, key=lambda item: float(getattr(item, "updated_at", 0.0) or 0.0), reverse=True)
             if not self._is_internal_child_run(item)
         ]
@@ -386,6 +386,28 @@ class RuntimeMonitorProjector:
             }
         return {}
 
+    def _latest_step_from_diagnostics(self, diagnostics: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "step": str(diagnostics.get("latest_step") or ""),
+            "status": str(diagnostics.get("latest_step_status") or ""),
+            "summary": public_runtime_progress_summary(diagnostics.get("latest_step_summary") or diagnostics.get("summary") or ""),
+            "public_progress_note": public_runtime_progress_summary(
+                diagnostics.get("latest_public_progress_note")
+                or diagnostics.get("public_progress_note")
+                or diagnostics.get("latest_step_summary")
+                or diagnostics.get("summary")
+                or ""
+            ),
+            "agent_brief_output": public_runtime_progress_summary(diagnostics.get("agent_brief_output") or ""),
+            "tool_status": public_runtime_progress_summary(diagnostics.get("latest_tool_status") or ""),
+            "observation": public_runtime_progress_summary(diagnostics.get("latest_observation") or ""),
+            "judgment": public_runtime_progress_summary(diagnostics.get("latest_judgment") or ""),
+            "presentation_source": "diagnostics",
+            "event_id": "",
+            "offset": -1,
+            "created_at": float(diagnostics.get("latest_step_at") or diagnostics.get("latest_event_at") or 0.0),
+        }
+
     def _diagnostic_summary(
         self,
         *,
@@ -481,10 +503,6 @@ class RuntimeMonitorProjector:
                 }
             )
         return refs
-
-
-TaskRunMonitorProjector = RuntimeMonitorProjector
-
 
 def _is_chat_scoped(*, task_run_id: str, task_id: str) -> bool:
     return task_run_id.startswith("turnrun:") or task_run_id.startswith("taskrun:turn:") or task_id.startswith("turn:") or task_id.startswith("task:turn:")

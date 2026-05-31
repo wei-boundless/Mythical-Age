@@ -4,7 +4,7 @@ import time
 from types import SimpleNamespace
 
 from health_system.governance import HealthGovernanceBuilder
-from harness.runtime.monitor_projection import TaskRunMonitorProjector
+from harness.runtime.monitoring import RuntimeMonitorProjector
 from runtime.prompt_accounting import ModelTokenUsageRecord, PromptAccountingLedger
 from runtime.shared.models import TaskRun
 
@@ -361,7 +361,7 @@ def test_health_governance_reports_rollout_and_checkout_lineage_risks() -> None:
         "taskrun:root:checkout:a": [EventStub("loop_error", {"error": "failed"})],
         "taskrun:root:checkout:b": [EventStub("loop_error", {"error": "failed"})],
     })
-    monitor_projector = TaskRunMonitorProjector(event_log)
+    monitor_projector = RuntimeMonitorProjector(event_log)
     runtime_host = SimpleNamespace(
         state_index=state_index,
         event_log=event_log,

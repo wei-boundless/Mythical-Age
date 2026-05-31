@@ -61,7 +61,9 @@ function canonicalKind(item: RuntimeMonitorItem) {
   if (kind === "task_graph") return "task_graph_run";
   if (kind === "agent_run") return "agent_runtime_run";
   if (kind === "chat_turn") return "chat_turn_runtime";
-  return routeKind(item);
+  const route = routeKind(item);
+  if (route === "task_graph_run" || route === "agent_runtime_run" || route === "chat_turn_runtime") return route;
+  return "chat_turn_runtime";
 }
 
 function taskGraphProjection(item: RuntimeMonitorItem): RuntimeWorkProjection {
@@ -118,9 +120,9 @@ export function runtimeWorkProjectionFromLiveMonitor(monitor: Record<string, unk
     : monitor;
   const taskRunId = text(taskRun.task_run_id || monitor.task_run_id);
   const kind = text(monitor.kind);
-  if (kind === "task_graph" || monitor.has_graph_run || text(monitor.graph_run_id) || text(monitor.graph_harness_config_id)) {
+  if (kind === "task_graph") {
     return {
-      workId: text(monitor.task_instance_id) || text(monitor.graph_run_id) || taskRunId,
+      workId: text(monitor.task_instance_id) || taskRunId,
       workKind: "task_graph_run",
       primaryRunId: taskRunId,
       title: publicText(taskRun.title) || "任务图",

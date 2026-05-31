@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import { useAppStore } from "@/lib/store";
 import { monitorBucketItems, runtimeWorkProjectionFromMonitorItem } from "@/lib/runtimeWorkProjection";
+import { monitorItemInstanceId } from "@/lib/runtime-monitor/resourceRefs";
 import {
   isWaitingStatus,
   formatTime,
@@ -43,7 +44,7 @@ export function TaskMonitorDock({ embedded = false }: { embedded?: boolean }) {
   const allRuns = useMemo(() => [...runningRuns, ...completedRuns, ...failedRuns, ...diagnosticsRuns], [completedRuns, diagnosticsRuns, failedRuns, runningRuns]);
   const summary = globalRuntimeMonitor?.summary;
   const selectedRun = useMemo(
-    () => allRuns.find((item) => item.task_run_id === globalRuntimeMonitorSelectedTaskRunId || item.task_instance_id === globalRuntimeMonitorSelectedTaskRunId) ?? runs[0] ?? null,
+    () => allRuns.find((item) => item.task_run_id === globalRuntimeMonitorSelectedTaskRunId || monitorItemInstanceId(item) === globalRuntimeMonitorSelectedTaskRunId) ?? runs[0] ?? null,
     [allRuns, globalRuntimeMonitorSelectedTaskRunId, runs]
   );
   const hasActiveSignal = runningRuns.some((item) => item.resource_class === "dynamic" || item.action_required);
@@ -162,8 +163,8 @@ export function TaskMonitorDock({ embedded = false }: { embedded?: boolean }) {
 
           <section className="runtime-monitor-list" aria-label="运行任务列表">
             {runs.length ? runs.map((item) => {
-              const itemInstanceId = item.task_instance_id || item.graph_run_id || item.task_run_id;
-              const active = itemInstanceId === (selectedRun?.task_instance_id || selectedRun?.graph_run_id || selectedRun?.task_run_id);
+              const itemInstanceId = monitorItemInstanceId(item);
+              const active = itemInstanceId === (selectedRun ? monitorItemInstanceId(selectedRun) : "");
               const work = runtimeWorkProjectionFromMonitorItem(item);
               return (
                 <button

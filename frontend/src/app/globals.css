@@ -12368,6 +12368,164 @@ html[data-soul="xuannv"] .soul-portrait__label {
   gap: 0.75rem;
 }
 
+.task-environment-control-plane {
+  display: grid;
+  grid-template-columns: minmax(280px, 1.2fr) repeat(2, minmax(220px, 0.9fr));
+  gap: 0.75rem;
+  align-items: stretch;
+}
+
+.task-environment-identity-card__body {
+  display: grid;
+  gap: 0.75rem;
+  min-height: 100%;
+}
+
+.task-environment-identity-card__body strong {
+  display: block;
+  color: var(--color-text);
+  font-size: 1.16rem;
+  line-height: 1.18;
+  overflow-wrap: anywhere;
+}
+
+.task-environment-identity-card__body p {
+  margin: 0.35rem 0 0;
+  color: var(--color-text-soft);
+  font-size: 0.82rem;
+  line-height: 1.55;
+}
+
+.task-environment-pill-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.42rem;
+}
+
+.task-environment-pill-row span,
+.task-environment-policy-strip span,
+.task-environment-path-grid span,
+.task-environment-readiness-card span {
+  color: var(--color-text-soft);
+  font-size: 0.72rem;
+}
+
+.task-environment-pill-row span {
+  border: 1px solid color-mix(in srgb, var(--color-soul) 18%, var(--color-border));
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.026);
+  padding: 0.28rem 0.5rem;
+  overflow-wrap: anywhere;
+}
+
+.task-environment-kv p {
+  grid-template-columns: minmax(86px, 0.36fr) minmax(0, 1fr);
+}
+
+.task-environment-readiness-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.7rem;
+}
+
+.task-environment-readiness-card {
+  align-content: start;
+  gap: 0.3rem;
+}
+
+.task-environment-readiness-card strong {
+  color: var(--color-text);
+  font-size: 1.08rem;
+  line-height: 1.15;
+  overflow-wrap: anywhere;
+}
+
+.task-environment-readiness-card p {
+  margin: 0;
+  color: var(--color-text-soft);
+  font-size: 0.78rem;
+  line-height: 1.48;
+  overflow-wrap: anywhere;
+}
+
+.task-environment-path-grid,
+.task-environment-policy-strip {
+  display: grid;
+  gap: 0.6rem;
+}
+
+.task-environment-path-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.task-environment-policy-strip {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.task-environment-path-grid article,
+.task-environment-policy-strip article {
+  display: grid;
+  gap: 0.22rem;
+  border: 1px solid color-mix(in srgb, var(--color-soul) 13%, var(--color-border));
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.022);
+  padding: 0.68rem;
+}
+
+.task-environment-path-grid strong,
+.task-environment-policy-strip strong {
+  color: var(--color-text);
+  font-size: 0.82rem;
+  line-height: 1.28;
+  overflow-wrap: anywhere;
+}
+
+.task-environment-loadout-form,
+.task-environment-resource-policy-form {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.task-environment-loadout-form textarea {
+  min-height: 96px;
+}
+
+.task-environment-loadout-form__full {
+  grid-column: 1 / -1;
+}
+
+.task-environment-loadout-form__full textarea {
+  min-height: 150px;
+}
+
+.task-management-stage--environments .boundary-form label:not(.boundary-check) {
+  display: grid;
+  gap: 0.32rem;
+  min-width: 0;
+  color: var(--color-text);
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
+.task-management-stage--environments .boundary-form label > span {
+  color: var(--color-text-soft);
+  font-size: 0.72rem;
+  line-height: 1.25;
+}
+
+.task-management-stage--environments .boundary-form input,
+.task-management-stage--environments .boundary-form select,
+.task-management-stage--environments .boundary-form textarea {
+  width: 100%;
+  min-width: 0;
+  padding: 0.58rem 0.62rem;
+}
+
+.boundary-form--json textarea {
+  min-height: 168px;
+  font-family: var(--font-mono, "SFMono-Regular", Consolas, monospace);
+  font-size: 0.76rem;
+}
+
 .task-system-task-layout {
   display: grid;
   grid-template-columns: minmax(320px, 0.32fr) minmax(0, 0.68fr);
@@ -19811,6 +19969,12 @@ html[data-soul="xuannv"] .soul-portrait__label {
 
   .boundary-workbench,
   .orchestration-workbench,
+  .task-environment-control-plane,
+  .task-environment-readiness-grid,
+  .task-environment-path-grid,
+  .task-environment-policy-strip,
+  .task-environment-loadout-form,
+  .task-environment-resource-policy-form,
   .boundary-assembly-layout,
   .task-assembly-preflight__grid,
   .task-assembly-preflight__grid--wide,

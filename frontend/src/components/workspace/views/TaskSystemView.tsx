@@ -38,13 +38,29 @@ type EnvironmentDraft = {
   prompt_id: string;
   prompt_content: string;
   storage_namespace: string;
+  workspace_policy: string;
+  project_file_policy: string;
+  material_mount_policy: string;
+  external_service_policy: string;
+  browser_environment_policy: string;
+  mcp_environment_policy: string;
   file_profile_refs_text: string;
   required_repository_kinds_text: string;
+  environment_memory_refs_text: string;
+  project_knowledge_refs_text: string;
+  shared_context_refs_text: string;
+  retrieval_index_refs_text: string;
+  file_management_text: string;
+  resource_space_text: string;
+  memory_space_text: string;
   sandbox_policy_text: string;
   execution_policy_text: string;
   artifact_policy_text: string;
   risk_policy_text: string;
+  observability_policy_text: string;
+  lifecycle_policy_text: string;
   metadata_text: string;
+  spec_metadata_text: string;
 };
 
 type TaskEnvironmentManagement = NonNullable<TaskSystemOverview["task_environment_management"]>;
@@ -85,6 +101,12 @@ function recordFieldText(record: Record<string, unknown> | null | undefined, key
   return fallback;
 }
 
+function recordFieldString(record: Record<string, unknown> | null | undefined, key: string, fallback = "") {
+  const value = record?.[key];
+  if (value === null || value === undefined || Array.isArray(value) || typeof value === "object") return fallback;
+  return String(value || fallback);
+}
+
 function parseJsonObject(value: string, label: string) {
   const parsed = JSON.parse(value || "{}");
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
@@ -102,10 +124,43 @@ function defaultEnvironmentDraft(): EnvironmentDraft {
     environment_kind: "custom",
     enabled: true,
     prompt_id: "environment.custom.workspace.v1",
-    prompt_content: "你处在自定义任务环境中。这个环境只声明系统资源边界、存储区域、文件访问边界和执行约束。",
+    prompt_content: [
+      "你正在一个自定义任务环境中执行任务。",
+      "你只能使用当前环境装载的文件 Profile、仓库资源、记忆、知识库、检索索引和产物空间。",
+      "当任务需要超出环境边界的资源或权限时，你必须停止并说明缺少的资源或权限。",
+    ].join("\n"),
     storage_namespace: "custom/workspace",
+    workspace_policy: "read_mostly",
+    project_file_policy: "read_only",
+    material_mount_policy: "none",
+    external_service_policy: "none",
+    browser_environment_policy: "none",
+    mcp_environment_policy: "none",
     file_profile_refs_text: "file_profile.general_workspace",
     required_repository_kinds_text: "conversation_artifacts",
+    environment_memory_refs_text: "",
+    project_knowledge_refs_text: "",
+    shared_context_refs_text: "",
+    retrieval_index_refs_text: "",
+    file_management_text: JSON.stringify({
+      canonical_write_policy: "commit_gate_required",
+      artifact_projection_policy: "file_profile_projection",
+      memory_projection_policy: "file_profile_projection",
+      constraints: {},
+    }, null, 2),
+    resource_space_text: JSON.stringify({
+      storage_root_policy: "environment_scoped",
+      runtime_state_root_policy: "environment_scoped_runtime_state",
+      artifact_storage_policy: "environment_scoped_artifacts",
+      cache_storage_policy: "environment_scoped_cache",
+      managed_file_environment_policy: "file_management_required",
+      artifact_root_policy: "file_management_projection",
+    }, null, 2),
+    memory_space_text: JSON.stringify({
+      read_policy: "file_profile_projection",
+      write_policy: "file_profile_projection",
+      projection_policy: "from_file_management",
+    }, null, 2),
     sandbox_policy_text: JSON.stringify({
       enabled: false,
       sandbox_mode: "none",
@@ -132,7 +187,10 @@ function defaultEnvironmentDraft(): EnvironmentDraft {
       approval_required_risk_levels: [],
       auto_denied_risk_levels: ["destructive_unbounded"],
     }, null, 2),
+    observability_policy_text: "{}",
+    lifecycle_policy_text: "{}",
     metadata_text: "{}",
+    spec_metadata_text: "{}",
   };
 }
 
@@ -142,6 +200,7 @@ function environmentDraftFromItem(item: TaskEnvironmentItem | null | undefined):
   const spec = dictOf(item.spec);
   const resourceSpace = dictOf(item.resource_space ?? spec.resource_space);
   const fileManagement = dictOf(item.file_management ?? spec.file_management);
+  const memorySpace = dictOf(item.memory_space ?? spec.memory_space);
   const prompts = Array.isArray(item.environment_prompts) ? item.environment_prompts : [];
   const firstPrompt = dictOf(prompts[0]);
   return {
@@ -154,13 +213,29 @@ function environmentDraftFromItem(item: TaskEnvironmentItem | null | undefined):
     prompt_id: String(firstPrompt.prompt_id || `environment.${String(record.environment_id || "custom").replace(/^env\./, "")}.v1`),
     prompt_content: String(firstPrompt.content || ""),
     storage_namespace: String(resourceSpace.storage_namespace || ""),
+    workspace_policy: recordFieldString(resourceSpace, "workspace_policy"),
+    project_file_policy: recordFieldString(resourceSpace, "project_file_policy"),
+    material_mount_policy: recordFieldString(resourceSpace, "material_mount_policy"),
+    external_service_policy: recordFieldString(resourceSpace, "external_service_policy"),
+    browser_environment_policy: recordFieldString(resourceSpace, "browser_environment_policy"),
+    mcp_environment_policy: recordFieldString(resourceSpace, "mcp_environment_policy"),
     file_profile_refs_text: listText(fileManagement.file_profile_refs),
     required_repository_kinds_text: listText(fileManagement.required_repository_kinds),
+    environment_memory_refs_text: listText(memorySpace.environment_memory_refs),
+    project_knowledge_refs_text: listText(memorySpace.project_knowledge_refs),
+    shared_context_refs_text: listText(memorySpace.shared_context_refs),
+    retrieval_index_refs_text: listText(memorySpace.retrieval_index_refs),
+    file_management_text: JSON.stringify(fileManagement, null, 2),
+    resource_space_text: JSON.stringify(resourceSpace, null, 2),
+    memory_space_text: JSON.stringify(memorySpace, null, 2),
     sandbox_policy_text: JSON.stringify(item.sandbox_policy ?? spec.sandbox_policy ?? {}, null, 2),
     execution_policy_text: JSON.stringify(item.execution_policy ?? spec.execution_policy ?? {}, null, 2),
     artifact_policy_text: JSON.stringify(item.artifact_policy ?? spec.artifact_policy ?? {}, null, 2),
     risk_policy_text: JSON.stringify(item.risk_policy ?? spec.risk_policy ?? {}, null, 2),
+    observability_policy_text: JSON.stringify(item.observability_policy ?? spec.observability_policy ?? {}, null, 2),
+    lifecycle_policy_text: JSON.stringify(item.lifecycle_policy ?? spec.lifecycle_policy ?? {}, null, 2),
     metadata_text: JSON.stringify(record.metadata ?? {}, null, 2),
+    spec_metadata_text: JSON.stringify(spec.metadata ?? {}, null, 2),
   };
 }
 
@@ -168,10 +243,38 @@ function environmentPayloadFromDraft(draft: EnvironmentDraft): TaskEnvironmentUp
   const environmentId = draft.environment_id.trim();
   const storageNamespace = draft.storage_namespace.trim() || environmentId.replace(/^env\./, "").replace(/\./g, "/");
   const metadata = parseJsonObject(draft.metadata_text, "任务环境 metadata");
+  const specMetadata = parseJsonObject(draft.spec_metadata_text, "任务环境 spec metadata");
+  const fileManagementBase = parseJsonObject(draft.file_management_text, "文件资源装载策略");
+  const resourceSpaceBase = parseJsonObject(draft.resource_space_text, "资源空间策略");
+  const memorySpaceBase = parseJsonObject(draft.memory_space_text, "记忆资源装载策略");
   const sandboxPolicy = parseJsonObject(draft.sandbox_policy_text, "沙盒策略");
   const executionPolicy = parseJsonObject(draft.execution_policy_text, "执行策略");
   const artifactPolicy = parseJsonObject(draft.artifact_policy_text, "产物策略");
   const riskPolicy = parseJsonObject(draft.risk_policy_text, "风险策略");
+  const observabilityPolicy = parseJsonObject(draft.observability_policy_text, "观测策略");
+  const lifecyclePolicy = parseJsonObject(draft.lifecycle_policy_text, "生命周期策略");
+  const resourceSpace = {
+    ...resourceSpaceBase,
+    storage_namespace: storageNamespace,
+    ...(draft.workspace_policy.trim() ? { workspace_policy: draft.workspace_policy.trim() } : {}),
+    ...(draft.project_file_policy.trim() ? { project_file_policy: draft.project_file_policy.trim() } : {}),
+    ...(draft.material_mount_policy.trim() ? { material_mount_policy: draft.material_mount_policy.trim() } : {}),
+    ...(draft.external_service_policy.trim() ? { external_service_policy: draft.external_service_policy.trim() } : {}),
+    ...(draft.browser_environment_policy.trim() ? { browser_environment_policy: draft.browser_environment_policy.trim() } : {}),
+    ...(draft.mcp_environment_policy.trim() ? { mcp_environment_policy: draft.mcp_environment_policy.trim() } : {}),
+  };
+  const fileManagement = {
+    ...fileManagementBase,
+    file_profile_refs: splitList(draft.file_profile_refs_text),
+    required_repository_kinds: splitList(draft.required_repository_kinds_text),
+  };
+  const memorySpace = {
+    ...memorySpaceBase,
+    environment_memory_refs: splitList(draft.environment_memory_refs_text),
+    project_knowledge_refs: splitList(draft.project_knowledge_refs_text),
+    shared_context_refs: splitList(draft.shared_context_refs_text),
+    retrieval_index_refs: splitList(draft.retrieval_index_refs_text),
+  };
   return {
     record: {
       environment_id: environmentId,
@@ -184,31 +287,29 @@ function environmentPayloadFromDraft(draft: EnvironmentDraft): TaskEnvironmentUp
       default_visibility: "workspace",
       metadata,
     },
-    resource_space: {
-      storage_namespace: storageNamespace,
-      environment_storage_root: `runtime/task_environments/${storageNamespace}`,
-      task_library_root: `runtime/task_environments/${storageNamespace}/tasks`,
-      runtime_state_root: `runtime/task_environments/${storageNamespace}/state`,
-      artifact_root: `artifacts/${storageNamespace}`,
-      cache_root: `runtime/task_environments/${storageNamespace}/cache`,
+    spec: {
+      spec_id: `envspec.${environmentId}.configured`,
+      environment_id: environmentId,
+      environment_prompts: draft.prompt_content.trim()
+        ? [{
+          prompt_id: draft.prompt_id.trim() || `environment.${environmentId.replace(/^env\./, "")}.v1`,
+          content: draft.prompt_content.trim(),
+          version: "v1",
+          prompt_kind: "environment",
+          cache_scope: "static_environment",
+        }]
+        : [],
+      file_management: fileManagement,
+      resource_space: resourceSpace,
+      memory_space: memorySpace,
+      sandbox_policy: sandboxPolicy,
+      execution_policy: executionPolicy,
+      artifact_policy: artifactPolicy,
+      risk_policy: riskPolicy,
+      observability_policy: observabilityPolicy,
+      lifecycle_policy: lifecyclePolicy,
+      metadata: specMetadata,
     },
-    file_management: {
-      file_profile_refs: splitList(draft.file_profile_refs_text),
-      required_repository_kinds: splitList(draft.required_repository_kinds_text),
-    },
-    environment_prompts: draft.prompt_content.trim()
-      ? [{
-        prompt_id: draft.prompt_id.trim() || `environment.${environmentId.replace(/^env\./, "")}.v1`,
-        title: `${draft.title.trim() || environmentId} 环境说明`,
-        content: draft.prompt_content.trim(),
-        enabled: true,
-        priority: 10,
-      }]
-      : [],
-    sandbox_policy: sandboxPolicy,
-    execution_policy: executionPolicy,
-    artifact_policy: artifactPolicy,
-    risk_policy: riskPolicy,
   };
 }
 
@@ -232,7 +333,6 @@ function TaskEnvironmentLibraryPage({
   onCreate,
   onDelete,
   onSave,
-  onSelectEnvironment,
   onSetDraft,
   saving,
   selectedEnvironmentId,
@@ -246,7 +346,6 @@ function TaskEnvironmentLibraryPage({
   onCreate: () => void;
   onDelete: () => void;
   onSave: () => void;
-  onSelectEnvironment: (environmentId: string) => void;
   onSetDraft: (draft: EnvironmentDraft) => void;
   saving: string;
   selectedEnvironmentId: string;
@@ -254,6 +353,32 @@ function TaskEnvironmentLibraryPage({
   const selectedItem = environmentItems.find((item) => item.record.environment_id === selectedEnvironmentId);
   const selectedBoundary = dictOf(selectedItem?.environment_boundary);
   const boundaryContract = dictOf(selectedBoundary.boundary_contract);
+  const selectedStorageSpace = dictOf(selectedItem?.storage_space);
+  const selectedSandboxPolicy = dictOf(selectedItem?.sandbox_policy);
+  const selectedExecutionPolicy = dictOf(selectedItem?.execution_policy);
+  const selectedRiskPolicy = dictOf(selectedItem?.risk_policy);
+  const selectedArtifactPolicy = dictOf(selectedItem?.artifact_policy);
+  const selectedFileManagement = dictOf(selectedItem?.file_management);
+  const selectedTaskLibrary = dictOf(selectedItem?.task_library);
+  const fileAccessTables = Array.isArray(selectedItem?.file_access_tables) ? selectedItem.file_access_tables : [];
+  const promptCount = Array.isArray(selectedItem?.environment_prompts) ? selectedItem.environment_prompts.length : 0;
+  const storageRoot = recordFieldText(selectedStorageSpace, ["environment_storage_root"], "未声明");
+  const artifactRoot = recordFieldText(selectedStorageSpace, ["artifact_root"], "未声明");
+  const taskCount = Number(selectedTaskLibrary.task_count ?? 0);
+  const fileProfileRefs = Array.isArray(selectedFileManagement.file_profile_refs)
+    ? selectedFileManagement.file_profile_refs.length
+    : splitList(draft.file_profile_refs_text).length;
+  const repositoryKindCount = Array.isArray(selectedFileManagement.required_repository_kinds)
+    ? selectedFileManagement.required_repository_kinds.length
+    : splitList(draft.required_repository_kinds_text).length;
+  const memoryLoadCount = splitList(draft.environment_memory_refs_text).length
+    + splitList(draft.project_knowledge_refs_text).length
+    + splitList(draft.shared_context_refs_text).length
+    + splitList(draft.retrieval_index_refs_text).length;
+  const promptLoadCount = promptCount || (draft.prompt_content.trim() ? 1 : 0);
+  const mainSessionBinding = chatTaskEnvironmentBinding
+    ? chatTaskEnvironmentBinding.environment_label || chatTaskEnvironmentBinding.task_environment_id
+    : "未绑定";
   const selectedEnvironmentLabel = selectedItem?.record.title || draft.title || selectedEnvironmentId;
   const boundToSelected = Boolean(
     selectedEnvironmentId && chatTaskEnvironmentBinding?.task_environment_id === selectedEnvironmentId,
@@ -266,7 +391,7 @@ function TaskEnvironmentLibraryPage({
         <div>
           <span>任务环境配置</span>
           <h3>{draft.title || "任务环境"}</h3>
-          <p>任务环境定义资源边界、文件系统、沙盒、产物区和执行策略。</p>
+          <p>任务环境配置 agent 启动前要装载的 Prompt、文件、记忆、知识、检索索引和运行空间。</p>
         </div>
         <div className="boundary-actions">
           <ToolbarButton onClick={onCreate}><Plus size={15} />新环境</ToolbarButton>
@@ -287,42 +412,96 @@ function TaskEnvironmentLibraryPage({
         </div>
       </header>
 
-      <section className="task-system-task-cover">
-        <article className="boundary-card">
-          <header><strong>环境列表</strong><span>{environmentItems.length} 个</span></header>
-          <div className="boundary-list boundary-list--scroll">
-            {environmentItems.map((item) => {
-              const id = item.record.environment_id;
-              const active = id === selectedEnvironmentId;
-              return (
-                <button
-                  className={active ? "boundary-list-row boundary-list-row--active" : "boundary-list-row"}
-                  key={id}
-                  onClick={() => onSelectEnvironment(id)}
-                  type="button"
-                >
-                  <strong>{item.record.title || id}</strong>
-                  <span>{id}</span>
-                </button>
-              );
-            })}
-            {!environmentItems.length ? <div className="boundary-empty">还没有任务环境配置。</div> : null}
+      <section className="boundary-card task-environment-loadout-editor">
+        <header><strong>Agent 运行装载</strong><span>Prompt / Files / Memory / Runtime Space</span></header>
+        <div className="boundary-form task-environment-loadout-form">
+          <label><span>环境 Prompt ID</span><input value={draft.prompt_id} onChange={(event) => patch({ prompt_id: event.target.value })} /></label>
+          <label><span>存储命名空间</span><input value={draft.storage_namespace} onChange={(event) => patch({ storage_namespace: event.target.value })} /></label>
+          <label className="task-environment-loadout-form__full"><span>环境 Prompt</span><textarea value={draft.prompt_content} onChange={(event) => patch({ prompt_content: event.target.value })} /></label>
+          <label><span>文件 Profile</span><textarea value={draft.file_profile_refs_text} onChange={(event) => patch({ file_profile_refs_text: event.target.value })} /></label>
+          <label><span>仓库类型</span><textarea value={draft.required_repository_kinds_text} onChange={(event) => patch({ required_repository_kinds_text: event.target.value })} /></label>
+          <label><span>环境记忆</span><textarea value={draft.environment_memory_refs_text} onChange={(event) => patch({ environment_memory_refs_text: event.target.value })} /></label>
+          <label><span>项目知识</span><textarea value={draft.project_knowledge_refs_text} onChange={(event) => patch({ project_knowledge_refs_text: event.target.value })} /></label>
+          <label><span>共享上下文</span><textarea value={draft.shared_context_refs_text} onChange={(event) => patch({ shared_context_refs_text: event.target.value })} /></label>
+          <label><span>检索索引</span><textarea value={draft.retrieval_index_refs_text} onChange={(event) => patch({ retrieval_index_refs_text: event.target.value })} /></label>
+        </div>
+        <div className="boundary-form task-environment-resource-policy-form">
+          <label><span>Workspace Policy</span><input value={draft.workspace_policy} onChange={(event) => patch({ workspace_policy: event.target.value })} /></label>
+          <label><span>Project File Policy</span><input value={draft.project_file_policy} onChange={(event) => patch({ project_file_policy: event.target.value })} /></label>
+          <label><span>Material Mount Policy</span><input value={draft.material_mount_policy} onChange={(event) => patch({ material_mount_policy: event.target.value })} /></label>
+          <label><span>External Service Policy</span><input value={draft.external_service_policy} onChange={(event) => patch({ external_service_policy: event.target.value })} /></label>
+          <label><span>Browser Environment</span><input value={draft.browser_environment_policy} onChange={(event) => patch({ browser_environment_policy: event.target.value })} /></label>
+          <label><span>MCP Environment</span><input value={draft.mcp_environment_policy} onChange={(event) => patch({ mcp_environment_policy: event.target.value })} /></label>
+        </div>
+        <div className="task-environment-path-grid">
+          <article><span>环境存储根</span><strong>{storageRoot}</strong></article>
+          <article><span>产物根</span><strong>{artifactRoot}</strong></article>
+          <article><span>缓存根</span><strong>{recordFieldText(selectedStorageSpace, ["cache_root"], "未声明")}</strong></article>
+        </div>
+      </section>
+
+      <section className="task-environment-control-plane">
+        <article className="boundary-card task-environment-identity-card">
+          <header><strong>装载目标</strong><span>{draft.enabled ? "启用" : "停用"}</span></header>
+          <div className="task-environment-identity-card__body">
+            <div>
+              <strong>{selectedEnvironmentLabel || "新任务环境草稿"}</strong>
+              <p>{draft.description || "当前环境会在 agent 调用前装载资源，并把边界写入 runtime pack。"}</p>
+            </div>
+            <div className="task-environment-pill-row">
+              <span>{draft.environment_id || "未命名"}</span>
+              <span>{draft.group_id || "未分组"}</span>
+              <span>{draft.environment_kind || "custom"}</span>
+            </div>
           </div>
         </article>
 
         <article className="boundary-card">
-          <header><strong>运行边界</strong><span>{text(boundaryContract.mode, "未声明")}</span></header>
-          <div className="boundary-kv">
-            <p><span>文件访问</span><strong>{recordFieldText(boundaryContract, ["file_access_mode", "file_policy"], "未声明")}</strong></p>
-            <p><span>沙盒</span><strong>{recordFieldText(boundaryContract, ["sandbox_mode", "sandbox_policy"], "未声明")}</strong></p>
-            <p><span>产物根</span><strong>{recordFieldText(dictOf(environmentItems.find((item) => item.record.environment_id === selectedEnvironmentId)?.storage_space), ["artifact_root"], "未声明")}</strong></p>
-            <p><span>存储根</span><strong>{recordFieldText(dictOf(environmentItems.find((item) => item.record.environment_id === selectedEnvironmentId)?.storage_space), ["environment_storage_root"], "未声明")}</strong></p>
+          <header><strong>资源解析</strong><span>{text(recordFieldText(boundaryContract, ["file_boundary_authority"], "未声明"))}</span></header>
+          <div className="boundary-kv task-environment-kv">
+            <p><span>文件 Profile</span><strong>{fileProfileRefs}</strong></p>
+            <p><span>仓库类型</span><strong>{repositoryKindCount}</strong></p>
+            <p><span>记忆/知识</span><strong>{memoryLoadCount}</strong></p>
+            <p><span>文件访问表</span><strong>{fileAccessTables.length}</strong></p>
+          </div>
+        </article>
+
+        <article className="boundary-card">
+          <header><strong>装载到 Runtime</strong><span>{boundToSelected ? "主会话已绑定" : "未绑定主会话"}</span></header>
+          <div className="boundary-kv task-environment-kv">
+            <p><span>主会话</span><strong>{mainSessionBinding}</strong></p>
+            <p><span>Prompt</span><strong>{promptLoadCount}</strong></p>
+            <p><span>任务库</span><strong>{taskCount} 个任务</strong></p>
+            <p><span>运行空间</span><strong>{recordFieldText(selectedStorageSpace, ["storage_namespace"], draft.storage_namespace || "未声明")}</strong></p>
           </div>
         </article>
       </section>
 
+      <section className="task-environment-readiness-grid">
+        <article className="boundary-card task-environment-readiness-card">
+          <span>文件访问表</span>
+          <strong>{fileAccessTables.length}</strong>
+          <p>{fileAccessTables.length ? "runtime 会按解析后的文件访问表限制读写。" : "当前环境还没有解析出文件访问表。"}</p>
+        </article>
+        <article className="boundary-card task-environment-readiness-card">
+          <span>资源装载项</span>
+          <strong>{fileProfileRefs + repositoryKindCount + memoryLoadCount}</strong>
+          <p>{fileProfileRefs || repositoryKindCount || memoryLoadCount ? "文件、仓库、记忆和检索资源会进入 agent 运行装载。" : "还没有声明 agent 运行资源。"}</p>
+        </article>
+        <article className="boundary-card task-environment-readiness-card">
+          <span>环境 Prompt</span>
+          <strong>{promptLoadCount}</strong>
+          <p>{promptLoadCount ? "调用前会把环境说明加入 runtime pack。" : "没有环境 Prompt，agent 可能无法感知环境变化。"}</p>
+        </article>
+        <article className="boundary-card task-environment-readiness-card">
+          <span>存储命名空间</span>
+          <strong>{recordFieldText(selectedStorageSpace, ["storage_namespace"], draft.storage_namespace || "未声明")}</strong>
+          <p>{storageRoot}</p>
+        </article>
+      </section>
+
       <section className="boundary-card">
-        <header><strong>环境对象</strong><span>{draft.environment_id}</span></header>
+        <header><strong>基本信息</strong><span>{draft.environment_id}</span></header>
         <div className="boundary-form">
           <label><span>环境 ID</span><input value={draft.environment_id} onChange={(event) => patch({ environment_id: event.target.value })} /></label>
           <label><span>显示名称</span><input value={draft.title} onChange={(event) => patch({ title: event.target.value })} /></label>
@@ -341,24 +520,26 @@ function TaskEnvironmentLibraryPage({
       </section>
 
       <section className="boundary-card">
-        <header><strong>资源与文件</strong><span>Storage / Files</span></header>
-        <div className="boundary-form">
-          <label><span>存储命名空间</span><input value={draft.storage_namespace} onChange={(event) => patch({ storage_namespace: event.target.value })} /></label>
-          <label><span>文件 Profile</span><textarea value={draft.file_profile_refs_text} onChange={(event) => patch({ file_profile_refs_text: event.target.value })} /></label>
-          <label><span>仓库类型</span><textarea value={draft.required_repository_kinds_text} onChange={(event) => patch({ required_repository_kinds_text: event.target.value })} /></label>
+        <header><strong>高级装载策略 JSON</strong><span>Resource / Memory / Sandbox / Runtime Policy</span></header>
+        <div className="task-environment-policy-strip">
+          <article><span>Shell</span><strong>{recordFieldText(selectedExecutionPolicy, ["shell_execution_policy"], recordFieldText(selectedSandboxPolicy, ["shell_policy"], "未声明"))}</strong></article>
+          <article><span>Browser</span><strong>{recordFieldText(selectedExecutionPolicy, ["browser_execution_policy"], recordFieldText(selectedSandboxPolicy, ["browser_policy"], "未声明"))}</strong></article>
+          <article><span>Network</span><strong>{recordFieldText(selectedExecutionPolicy, ["network_execution_policy"], recordFieldText(selectedSandboxPolicy, ["network_policy"], "未声明"))}</strong></article>
+          <article><span>Permission</span><strong>{recordFieldText(selectedRiskPolicy, ["default_permission_mode"], "未声明")}</strong></article>
+          <article><span>Artifact</span><strong>{recordFieldText(selectedArtifactPolicy, ["publish_policy"], "未声明")}</strong></article>
         </div>
-      </section>
-
-      <section className="boundary-card">
-        <header><strong>策略 JSON</strong><span>Sandbox / Execution / Artifact / Risk</span></header>
         <div className="boundary-form boundary-form--json">
-          <label><span>环境 Prompt ID</span><input value={draft.prompt_id} onChange={(event) => patch({ prompt_id: event.target.value })} /></label>
-          <label><span>环境 Prompt</span><textarea value={draft.prompt_content} onChange={(event) => patch({ prompt_content: event.target.value })} /></label>
+          <label><span>文件资源装载策略</span><textarea value={draft.file_management_text} onChange={(event) => patch({ file_management_text: event.target.value })} /></label>
+          <label><span>资源空间策略</span><textarea value={draft.resource_space_text} onChange={(event) => patch({ resource_space_text: event.target.value })} /></label>
+          <label><span>记忆资源装载策略</span><textarea value={draft.memory_space_text} onChange={(event) => patch({ memory_space_text: event.target.value })} /></label>
           <label><span>沙盒策略</span><textarea value={draft.sandbox_policy_text} onChange={(event) => patch({ sandbox_policy_text: event.target.value })} /></label>
           <label><span>执行策略</span><textarea value={draft.execution_policy_text} onChange={(event) => patch({ execution_policy_text: event.target.value })} /></label>
           <label><span>产物策略</span><textarea value={draft.artifact_policy_text} onChange={(event) => patch({ artifact_policy_text: event.target.value })} /></label>
           <label><span>风险策略</span><textarea value={draft.risk_policy_text} onChange={(event) => patch({ risk_policy_text: event.target.value })} /></label>
+          <label><span>观测策略</span><textarea value={draft.observability_policy_text} onChange={(event) => patch({ observability_policy_text: event.target.value })} /></label>
+          <label><span>生命周期策略</span><textarea value={draft.lifecycle_policy_text} onChange={(event) => patch({ lifecycle_policy_text: event.target.value })} /></label>
           <label><span>Metadata</span><textarea value={draft.metadata_text} onChange={(event) => patch({ metadata_text: event.target.value })} /></label>
+          <label><span>Spec Metadata</span><textarea value={draft.spec_metadata_text} onChange={(event) => patch({ spec_metadata_text: event.target.value })} /></label>
         </div>
       </section>
     </main>
@@ -590,9 +771,9 @@ export function TaskSystemView() {
   const taskSystemLayerItems: Array<LayerNavItem<TaskSystemLayer>> = [
     {
       value: "environments",
-      label: "环境边界",
+      label: "环境装载",
       meta: selectedEnvironmentItem?.record.title || `${environmentItems.length} 个环境`,
-      detail: "资源、文件、沙盒与执行策略",
+      detail: "Prompt、文件、记忆、检索与运行空间",
     },
     {
       value: "contracts",
@@ -652,7 +833,7 @@ export function TaskSystemView() {
       <section className="task-system-layer-group">
         <header>
           <strong>配置管理</strong>
-          <span>只维护任务环境、契约和节点装配配置</span>
+          <span>只维护运行环境装载、契约和节点装配配置</span>
         </header>
         <div className="task-system-object-table task-system-object-table--home-switch">
           {taskSystemLayerItems.map((item) => {
@@ -727,10 +908,6 @@ export function TaskSystemView() {
             onCreate={createEnvironmentDraft}
             onDelete={() => void removeSelectedEnvironment()}
             onSave={() => void saveEnvironmentDraft()}
-            onSelectEnvironment={(environmentId) => {
-              setSelectedEnvironmentId(environmentId);
-              setEnvironmentDraft(environmentDraftFromItem(taskEnvironmentItem(environmentId, consolePayload)));
-            }}
             onSetDraft={setEnvironmentDraft}
             saving={saving}
             selectedEnvironmentId={selectedEnvironmentItem?.record.environment_id || ""}

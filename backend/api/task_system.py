@@ -255,6 +255,7 @@ class TaskEnvironmentUpsertRequest(BaseModel):
     sandbox_policy: dict[str, object] = Field(default_factory=dict)
     file_management: dict[str, object] = Field(default_factory=dict)
     resource_space: dict[str, object] = Field(default_factory=dict)
+    memory_space: dict[str, object] = Field(default_factory=dict)
     execution_policy: dict[str, object] = Field(default_factory=dict)
     risk_policy: dict[str, object] = Field(default_factory=dict)
     artifact_policy: dict[str, object] = Field(default_factory=dict)
@@ -1187,6 +1188,7 @@ async def upsert_task_system_environment(
                 "sandbox_policy": dict(raw.get("sandbox_policy") or {}),
                 "file_management": dict(raw.get("file_management") or {}),
                 "resource_space": dict(raw.get("resource_space") or {}),
+                "memory_space": dict(raw.get("memory_space") or {}),
                 "execution_policy": dict(raw.get("execution_policy") or {}),
                 "risk_policy": dict(raw.get("risk_policy") or {}),
                 "artifact_policy": dict(raw.get("artifact_policy") or {}),

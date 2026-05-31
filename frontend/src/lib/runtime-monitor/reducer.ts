@@ -131,7 +131,7 @@ export function selectRuntimeMonitorTaskInstance(state: RuntimeMonitorState, tas
 export function applyRuntimeMonitorDetail(state: RuntimeMonitorState, detail: RuntimeMonitorDetail | null) {
   if (!detail) return state;
   const taskRunId = String(detail.task_run_id || detail.task_run?.task_run_id || "").trim();
-  const instanceId = String(detail.task_instance_id || detail.graph_run_id || taskRunId).trim();
+  const instanceId = String(detail.task_instance_id || taskRunId).trim();
   if (!instanceId) return state;
   const nextInstance = {
     ...emptyInstance(instanceId),

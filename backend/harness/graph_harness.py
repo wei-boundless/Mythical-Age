@@ -304,7 +304,7 @@ class GraphHarness:
         project = getattr(projector, "project_task_run", None)
         if callable(project):
             try:
-                return dict(project(task_run, now=time.time()) or {})
+                return dict(project(task_run, now=time.time(), include_runtime_details=False) or {})
             except Exception:
                 return {}
         return {}

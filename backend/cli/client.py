@@ -57,7 +57,7 @@ class AgentCliClient:
     def get_session_monitor(self, session_id: str) -> dict[str, Any]:
         payload = self._json_request(
             "GET",
-            f"/orchestration/harness/sessions/{_quote_path(session_id)}/live-monitor",
+            f"/orchestration/runtime-monitor/sessions/{_quote_path(session_id)}",
         )
         if not isinstance(payload, dict):
             raise AgentCliClientError("Backend returned an invalid monitor payload.")
@@ -66,7 +66,7 @@ class AgentCliClient:
     def get_task_run_monitor(self, task_run_id: str) -> dict[str, Any]:
         payload = self._json_request(
             "GET",
-            f"/orchestration/harness/task-runs/{_quote_path(task_run_id)}/live-monitor",
+            f"/orchestration/runtime-monitor/task-runs/{_quote_path(task_run_id)}",
         )
         if not isinstance(payload, dict):
             raise AgentCliClientError("Backend returned an invalid TaskRun monitor payload.")

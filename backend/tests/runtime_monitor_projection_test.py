@@ -1,19 +1,23 @@
 from types import SimpleNamespace
 
-from harness.runtime.monitor_projection import TaskRunMonitorProjector
+from harness.runtime.monitoring import RuntimeMonitorProjector
 
 
 class EventLogStub:
     def __init__(self, events=None):
         self._events = events or {}
+        self.list_recent_event_calls = []
+        self.event_count_calls = []
 
     def list_events(self, task_run_id):
         return list(self._events.get(task_run_id, []))
 
     def list_recent_events(self, task_run_id, *, limit=240):
+        self.list_recent_event_calls.append((task_run_id, limit))
         return list(self._events.get(task_run_id, []))[-max(1, int(limit or 240)) :]
 
     def event_count(self, task_run_id):
+        self.event_count_calls.append(task_run_id)
         return len(self._events.get(task_run_id, []))
 
 
@@ -52,7 +56,7 @@ def task_run(**patch):
 
 
 def test_running_monitor_items_are_dynamic_and_tick_with_now():
-    projector = TaskRunMonitorProjector(EventLogStub())
+    projector = RuntimeMonitorProjector(EventLogStub())
 
     first = projector.project_task_run(task_run(), now=130.0)
     second = projector.project_task_run(task_run(), now=150.0)
@@ -65,7 +69,7 @@ def test_running_monitor_items_are_dynamic_and_tick_with_now():
 
 
 def test_terminal_monitor_items_are_static_and_duration_is_frozen():
-    projector = TaskRunMonitorProjector(EventLogStub())
+    projector = RuntimeMonitorProjector(EventLogStub())
     run = task_run(status="completed", updated_at=135.0)
 
     first = projector.project_task_run(run, now=150.0)
@@ -79,7 +83,7 @@ def test_terminal_monitor_items_are_static_and_duration_is_frozen():
 
 
 def test_stale_waiting_executor_moves_to_diagnostics_not_running():
-    projector = TaskRunMonitorProjector(EventLogStub(), freshness_seconds=60.0)
+    projector = RuntimeMonitorProjector(EventLogStub(), freshness_seconds=60.0)
     run = task_run(status="waiting_executor", updated_at=120.0)
 
     item = projector.project_task_run(run, now=300.0)
@@ -91,7 +95,7 @@ def test_stale_waiting_executor_moves_to_diagnostics_not_running():
 
 
 def test_user_paused_waiting_executor_is_actionable_not_stale():
-    projector = TaskRunMonitorProjector(EventLogStub(), freshness_seconds=60.0)
+    projector = RuntimeMonitorProjector(EventLogStub(), freshness_seconds=60.0)
     run = task_run(
         status="waiting_executor",
         updated_at=120.0,
@@ -116,7 +120,7 @@ def test_user_paused_waiting_executor_is_actionable_not_stale():
 
 
 def test_waiting_approval_moves_to_diagnostics_and_freezes_duration():
-    projector = TaskRunMonitorProjector(EventLogStub(), freshness_seconds=60.0)
+    projector = RuntimeMonitorProjector(EventLogStub(), freshness_seconds=60.0)
     run = task_run(status="waiting_approval", updated_at=120.0)
 
     first = projector.project_task_run(run, now=300.0)
@@ -131,7 +135,7 @@ def test_waiting_approval_moves_to_diagnostics_and_freezes_duration():
 
 
 def test_blocked_moves_to_diagnostics_and_freezes_duration():
-    projector = TaskRunMonitorProjector(EventLogStub(), freshness_seconds=60.0)
+    projector = RuntimeMonitorProjector(EventLogStub(), freshness_seconds=60.0)
     run = task_run(status="blocked", updated_at=125.0)
 
     first = projector.project_task_run(run, now=300.0)
@@ -146,7 +150,7 @@ def test_blocked_moves_to_diagnostics_and_freezes_duration():
 
 
 def test_internal_titles_are_not_exposed_and_route_is_authoritative():
-    projector = TaskRunMonitorProjector(EventLogStub())
+    projector = RuntimeMonitorProjector(EventLogStub())
     run = task_run(
         task_run_id="taskrun:graph",
         task_id="taskinst:internal",
@@ -175,7 +179,7 @@ def test_latest_step_summary_is_exposed_from_event_log():
         created_at=125.0,
         payload={"step": "tool_result", "status": "completed", "summary": "已读取文件。"},
     )
-    projector = TaskRunMonitorProjector(EventLogStub({"taskrun:turn:session-a:1:abc": [event]}))
+    projector = RuntimeMonitorProjector(EventLogStub({"taskrun:turn:session-a:1:abc": [event]}))
 
     item = projector.project_task_run(task_run(), now=150.0)
 
@@ -189,7 +193,7 @@ def test_stale_model_wait_reports_diagnostic_cause_not_generic_waiting():
         created_at=125.0,
         payload={"step": "model_action_waiting:1", "status": "running", "summary": "正在等待模型根据当前上下文返回下一步判断。"},
     )
-    projector = TaskRunMonitorProjector(EventLogStub({"taskrun:turn:session-a:1:abc": [event]}), freshness_seconds=60.0)
+    projector = RuntimeMonitorProjector(EventLogStub({"taskrun:turn:session-a:1:abc": [event]}), freshness_seconds=60.0)
 
     item = projector.project_task_run(task_run(updated_at=125.0), now=300.0)
 
@@ -201,7 +205,7 @@ def test_stale_model_wait_reports_diagnostic_cause_not_generic_waiting():
 
 
 def test_active_task_steer_and_executor_sequence_diagnostics_are_exposed():
-    projector = TaskRunMonitorProjector(EventLogStub())
+    projector = RuntimeMonitorProjector(EventLogStub())
     run = task_run(
         diagnostics={
             "pending_user_steer_count": 2,
@@ -224,7 +228,7 @@ def test_active_task_steer_and_executor_sequence_diagnostics_are_exposed():
 
 
 def test_missing_time_fields_enter_diagnostics():
-    projector = TaskRunMonitorProjector(EventLogStub())
+    projector = RuntimeMonitorProjector(EventLogStub())
     run = task_run(created_at=0.0, updated_at=0.0)
 
     item = projector.project_task_run(run, now=150.0)
@@ -234,7 +238,7 @@ def test_missing_time_fields_enter_diagnostics():
 
 
 def test_task_graph_route_without_graph_id_enters_diagnostics():
-    projector = TaskRunMonitorProjector(EventLogStub())
+    projector = RuntimeMonitorProjector(EventLogStub())
     run = task_run(
         task_run_id="taskrun:graph",
         diagnostics={"graph_run_id": "grun:graph", "graph_harness_config_id": "ghcfg:graph"},
@@ -247,7 +251,7 @@ def test_task_graph_route_without_graph_id_enters_diagnostics():
 
 
 def test_unknown_status_enters_diagnostics():
-    projector = TaskRunMonitorProjector(EventLogStub())
+    projector = RuntimeMonitorProjector(EventLogStub())
     run = task_run(status="repairing")
 
     item = projector.project_task_run(run, now=150.0)
@@ -257,7 +261,7 @@ def test_unknown_status_enters_diagnostics():
 
 
 def test_global_monitor_filters_internal_child_runs_and_applies_per_bucket_limit():
-    projector = TaskRunMonitorProjector(EventLogStub())
+    projector = RuntimeMonitorProjector(EventLogStub())
     runs = [
         task_run(task_run_id="taskrun:running-1", updated_at=140.0),
         task_run(task_run_id="taskrun:running-2", updated_at=130.0),
@@ -283,7 +287,7 @@ def test_global_monitor_filters_internal_child_runs_and_applies_per_bucket_limit
 
 
 def test_main_chat_taskinst_task_run_remains_monitorable():
-    projector = TaskRunMonitorProjector(EventLogStub())
+    projector = RuntimeMonitorProjector(EventLogStub())
     run = task_run(
         task_run_id="taskrun:turn:session-a:1:formal-task",
         task_id="taskinst:turn:session-a:1:formal-task",
@@ -309,6 +313,7 @@ def test_main_chat_taskinst_task_run_remains_monitorable():
 class ResourceResolverStub:
     def __init__(self, graph_monitor=None):
         self.graph_monitor_payload = graph_monitor
+        self.graph_monitor_calls = []
 
     def task_run_ref(self, task_run_id, *, label="任务运行"):
         return {"ref": f"task_run:{task_run_id}", "kind": "task_run", "id": task_run_id, "label": label, "availability": {"state": "available"}}
@@ -327,7 +332,43 @@ class ResourceResolverStub:
         return []
 
     def graph_monitor(self, graph_run_id, graph_harness_config_id="", *, event_limit=80):
+        self.graph_monitor_calls.append((graph_run_id, graph_harness_config_id, event_limit))
         return self.graph_monitor_payload
+
+
+def test_global_monitor_uses_summary_projection_without_graph_detail_fetch():
+    event_log = EventLogStub({
+        "taskrun:graph-root": [
+            EventStub(
+                event_type="step_summary_recorded",
+                created_at=125.0,
+                payload={"step": "tool_result", "status": "completed", "summary": "事件日志摘要不应被全局列表读取。"},
+            )
+        ]
+    })
+    resolver = ResourceResolverStub({
+        "graph_loop_state": {"status": "running", "ready_node_ids": [], "node_states": {"draft": {"status": "running"}}},
+        "node_runtime_views": [{"node_id": "draft", "node_executor_task_run_id": "gtask:draft"}],
+    })
+    projector = RuntimeMonitorProjector(event_log, resource_resolver=resolver)
+    run = task_run(
+        task_run_id="taskrun:graph-root",
+        diagnostics={
+            "graph_id": "graph:main",
+            "graph_run_id": "grun:main",
+            "graph_harness_config_id": "ghcfg:existing",
+            "latest_step_summary": "静态任务摘要",
+        },
+    )
+
+    monitor = projector.build_global_monitor([run], now=150.0, limit=20)
+    item = monitor["task_runs"][0]
+
+    assert item["latest_step_summary"] == "静态任务摘要"
+    assert item["child_runtime_refs"] == []
+    assert event_log.list_recent_event_calls == []
+    assert event_log.event_count_calls == []
+    assert resolver.graph_monitor_calls == []
 
 
 def test_task_graph_monitor_item_uses_graph_run_as_task_instance_and_navigation_target():
@@ -347,7 +388,7 @@ def test_task_graph_monitor_item_uses_graph_run_as_task_instance_and_navigation_
             }
         ],
     }
-    projector = TaskRunMonitorProjector(EventLogStub(), resource_resolver=ResourceResolverStub(graph_monitor))
+    projector = RuntimeMonitorProjector(EventLogStub(), resource_resolver=ResourceResolverStub(graph_monitor))
     run = task_run(
         task_run_id="taskrun:graph-root",
         diagnostics={
@@ -379,7 +420,7 @@ def test_task_graph_monitor_item_uses_graph_run_as_task_instance_and_navigation_
 
 
 def test_missing_graph_config_is_resource_availability_not_frontend_404_control_flow():
-    projector = TaskRunMonitorProjector(EventLogStub(), resource_resolver=ResourceResolverStub())
+    projector = RuntimeMonitorProjector(EventLogStub(), resource_resolver=ResourceResolverStub())
     run = task_run(
         task_run_id="taskrun:graph-root",
         diagnostics={

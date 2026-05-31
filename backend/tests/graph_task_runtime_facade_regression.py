@@ -42,6 +42,7 @@ class TaskExecutionModelRuntimeStub:
                     "request_id": "model-action:graph-node:complete",
                     "action_type": "respond",
                     "final_answer": "图节点执行完成，可交给下游节点。",
+                    "public_progress_note": "图节点已完成当前职责，准备交给下游节点继续处理。",
                     "diagnostics": {
                         "verification": "test graph node execution",
                         "world_memory_candidate": {
@@ -83,6 +84,7 @@ class ArtifactTaskExecutionModelRuntimeStub:
                     "request_id": "model-action:graph-artifact:complete",
                     "action_type": "respond",
                     "final_answer": "已生成图节点产物。",
+                    "public_progress_note": "图节点产物已生成，正在提交给图任务运行。",
                     "diagnostics": {"artifacts": [{"path": self.artifact_path}]},
                 },
                 ensure_ascii=False,
@@ -255,7 +257,7 @@ def test_graph_harness_starts_published_config_and_creates_node_work_order() -> 
     assert monitor is not None
     assert monitor["graph_run_id"] == start.graph_run.graph_run_id
     assert monitor["graph_loop_state"]["graph_id"] == graph.graph_id
-    assert monitor["task_run_monitor"]["authority"] == "single_agent_runtime_monitor.item"
+    assert monitor["task_run_monitor"]["authority"] == "runtime_monitor.v1.item"
     assert monitor["runtime_monitor"]["task_run_id"] == start.task_run.task_run_id
     assert monitor["active_node_work_order_count"] == 1
     assert monitor["active_node_work_orders"][0]["work_order_id"] == start.node_work_orders[0].work_order_id
@@ -1825,7 +1827,7 @@ def test_graph_run_monitor_exposes_node_runtime_views_after_runner() -> None:
     assert set(views) == {"draft", "review"}
     assert views["draft"]["status"] == "completed"
     assert views["draft"]["node_executor_task_run_id"]
-    assert views["draft"]["node_executor_task_run_monitor"]["authority"] == "single_agent_runtime_monitor.item"
+    assert views["draft"]["node_executor_task_run_monitor"]["authority"] == "runtime_monitor.v1.item"
     assert views["draft"]["result"]["node_executor_task_run_id"] == views["draft"]["node_executor_task_run_id"]
     assert "outputs" not in views["draft"]["result"]
     assert views["draft"]["work_order"] == {}

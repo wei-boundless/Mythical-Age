@@ -9,7 +9,7 @@ import {
   fetchRuntimeMonitorTaskDetail,
   getRuntimeMonitorEventStreamUrl,
 } from "./api";
-import { monitorItemInstanceId, resourceAvailabilityState, resourceRefKey } from "./resourceRefs";
+import { monitorItemInstanceId } from "./resourceRefs";
 import {
   applyRuntimeMonitorSnapshot,
   runtimeMonitorRevision,
@@ -40,12 +40,8 @@ export class RuntimeMonitorController {
   private queuedDetailTaskRunId: string | null = null;
   private queuedDetailRevision = "";
   private detailLoadedAt = new Map<string, number>();
-  private missingResourceRefs = new Set<string>();
   private visibilityListener: (() => void) | null = null;
-  private graphMonitorTimer: number | null = null;
   private graphAutoAdvanceTimer: number | null = null;
-  private graphMonitorGraphRunId: string | null = null;
-  private graphMonitorInFlight = false;
   private graphAutoAdvanceInFlight = false;
 
   constructor(
@@ -71,7 +67,6 @@ export class RuntimeMonitorController {
     this.polling = false;
     this.stopVisibilityBackoff();
     this.stopEventStream();
-    this.stopGraphMonitorPolling();
     this.stopGraphAutoAdvance();
     if (this.timer !== null) {
       window.clearTimeout(this.timer);
@@ -86,12 +81,6 @@ export class RuntimeMonitorController {
 
   deferForActiveStream() {
     if (typeof window === "undefined" || !this.host.hasActiveChatStream()) return;
-    const graphBinding = this.store.getState().taskGraphMonitorBinding;
-    if (this.graphMonitorTimer !== null && this.graphMonitorGraphRunId && graphBinding?.graph_harness_config_id) {
-      window.clearTimeout(this.graphMonitorTimer);
-      this.graphMonitorTimer = null;
-      this.scheduleNextGraphMonitorPoll(this.graphMonitorGraphRunId, graphBinding.graph_harness_config_id, 5000);
-    }
     if (this.timer !== null) {
       window.clearTimeout(this.timer);
       this.timer = null;
@@ -234,9 +223,6 @@ export class RuntimeMonitorController {
       } : prev.centerWorkspaceTarget,
     }));
     this.host.syncWorkspaceViewUrl(openGraphWorkspace ? "chat" : "orchestration");
-    if (taskGraphBinding) {
-      this.startGraphMonitorPolling(taskGraphBinding.graph_run_id, taskGraphBinding.graph_harness_config_id);
-    }
     this.queueDetailRefresh(selected.task_run_id, this.store.getState().globalRuntimeMonitorRevision);
   }
 
@@ -249,11 +235,9 @@ export class RuntimeMonitorController {
       taskGraphMonitorError: "",
       taskGraphRunInteractionOpen: prev.taskGraphRunInteractionOpen,
     }));
-    this.startGraphMonitorPolling(normalized.graph_run_id, normalized.graph_harness_config_id);
   }
 
   clearGraphRun() {
-    this.stopGraphMonitorPolling();
     this.stopGraphAutoAdvance();
     this.store.setState((prev) => ({
       ...prev,
@@ -268,14 +252,6 @@ export class RuntimeMonitorController {
 
   setGraphRunInteractionOpen(open: boolean) {
     this.store.setState((prev) => ({ ...prev, taskGraphRunInteractionOpen: open }));
-    const binding = this.store.getState().taskGraphMonitorBinding;
-    if (open && binding?.graph_run_id && binding.graph_harness_config_id) {
-      this.startGraphMonitorPolling(binding.graph_run_id, binding.graph_harness_config_id);
-      return;
-    }
-    if (!open && !binding?.graph_run_id) {
-      this.stopGraphMonitorPolling();
-    }
   }
 
   setGraphAutoAdvanceEnabled(enabled: boolean) {
@@ -318,6 +294,7 @@ export class RuntimeMonitorController {
     try {
       const monitor = await fetchRuntimeMonitorGraphDetail(graphRunId, graphHarnessConfigId);
       this.store.setState((prev) => ({ ...prev, taskGraphBoundRunMonitor: monitor }));
+      await this.refresh();
     } catch (error) {
       this.store.setState((prev) => ({
         ...prev,
@@ -345,6 +322,7 @@ export class RuntimeMonitorController {
       });
       const monitor = await fetchRuntimeMonitorGraphDetail(graphRunId, graphHarnessConfigId);
       this.store.setState((prev) => ({ ...prev, taskGraphBoundRunMonitor: monitor }));
+      await this.refresh();
     } catch (error) {
       this.store.setState((prev) => ({
         ...prev,
@@ -481,14 +459,6 @@ export class RuntimeMonitorController {
       options,
     );
     const visibleRuns = visibleRuntimeMonitorItemsFromEnvelope(monitor);
-    for (const item of visibleRuns) {
-      for (const ref of Array.isArray(item.resource_refs) ? item.resource_refs : []) {
-        const key = resourceRefKey(ref);
-        if (key && ["missing", "stale", "unsupported", "forbidden"].includes(resourceAvailabilityState(ref))) {
-          this.missingResourceRefs.add(key);
-        }
-      }
-    }
     const detailTaskRunId = visibleRuns.some((item) => item.task_run_id === options.detailTaskRunId)
       ? options.detailTaskRunId
       : monitorState.selectedTaskRunId;
@@ -548,25 +518,13 @@ export class RuntimeMonitorController {
     this.detailInFlightTaskRunId = normalized;
     this.detailInFlightRevision = expectedRevision;
     try {
-      const graphRefKey = selected.graph_run_id && selected.graph_harness_config_id
-        ? `graph_harness_config:${selected.graph_harness_config_id}`
-        : "";
       const liveMonitor = await fetchRuntimeMonitorTaskDetail(normalized).catch(() => null);
-      const graphMonitor = work.workKind === "task_graph_run"
-        && selected.graph_run_id
-        && selected.graph_harness_config_id
-        && !this.missingResourceRefs.has(graphRefKey)
-        ? await fetchRuntimeMonitorGraphDetail(selected.graph_run_id, selected.graph_harness_config_id).catch((error) => {
-            if (this.isMissingGraphMonitor(error) && graphRefKey) this.missingResourceRefs.add(graphRefKey);
-            return null;
-          })
-        : null;
       const stateAfterLoad = this.store.getState();
       if (stateAfterLoad.globalRuntimeMonitorSelectedTaskRunId !== normalized || stateAfterLoad.globalRuntimeMonitorRevision !== expectedRevision) return;
       this.store.setState((prev) => ({
         ...prev,
         globalRuntimeMonitorSelectedLiveMonitor: liveMonitor,
-        globalRuntimeMonitorSelectedGraphMonitor: graphMonitor,
+        globalRuntimeMonitorSelectedGraphMonitor: null,
         runtimeMonitorInstancesById: {
           ...prev.runtimeMonitorInstancesById,
           [monitorItemInstanceId(selected)]: {
@@ -579,7 +537,7 @@ export class RuntimeMonitorController {
             graphId: String(selected.graph_id || ""),
             monitorItem: selected,
             detail: liveMonitor,
-            graphMonitor,
+            graphMonitor: null,
             graphStatus: selected.graph_status ?? null,
             childRuntimeRefs: Array.isArray(selected.child_runtime_refs) ? selected.child_runtime_refs : [],
             artifactRefs: Array.isArray(selected.artifact_refs) ? selected.artifact_refs : [],
@@ -677,91 +635,6 @@ export class RuntimeMonitorController {
     this.graphAutoAdvanceInFlight = false;
   }
 
-  private stopGraphMonitorPolling() {
-    if (typeof window === "undefined") return;
-    if (this.graphMonitorTimer !== null) {
-      window.clearTimeout(this.graphMonitorTimer);
-      this.graphMonitorTimer = null;
-    }
-    this.graphMonitorGraphRunId = null;
-    this.graphMonitorInFlight = false;
-  }
-
-  private startGraphMonitorPolling(graphRunId: string, graphHarnessConfigId: string) {
-    const targetGraphRunId = graphRunId.trim();
-    const targetGraphHarnessConfigId = graphHarnessConfigId.trim();
-    if (typeof window === "undefined" || !targetGraphRunId || !targetGraphHarnessConfigId) return;
-    if (this.graphMonitorTimer !== null) {
-      window.clearTimeout(this.graphMonitorTimer);
-      this.graphMonitorTimer = null;
-    }
-    this.graphMonitorGraphRunId = targetGraphRunId;
-    void this.pollGraphMonitor(targetGraphRunId, targetGraphHarnessConfigId);
-  }
-
-  private scheduleNextGraphMonitorPoll(graphRunId: string, graphHarnessConfigId: string, delayMs = 1000) {
-    if (typeof window === "undefined") return;
-    if (this.graphMonitorTimer !== null) {
-      window.clearTimeout(this.graphMonitorTimer);
-    }
-    this.graphMonitorTimer = window.setTimeout(() => {
-      void this.pollGraphMonitor(graphRunId, graphHarnessConfigId);
-    }, this.monitorPollDelay(delayMs, 5000));
-  }
-
-  private async pollGraphMonitor(graphRunId: string, graphHarnessConfigId: string) {
-    const targetGraphRunId = graphRunId.trim();
-    const targetGraphHarnessConfigId = graphHarnessConfigId.trim();
-    if (!targetGraphRunId || !targetGraphHarnessConfigId || this.graphMonitorGraphRunId !== targetGraphRunId) return;
-    if (this.graphMonitorInFlight) {
-      this.scheduleNextGraphMonitorPoll(targetGraphRunId, targetGraphHarnessConfigId, 3000);
-      return;
-    }
-    this.graphMonitorInFlight = true;
-    let shouldPollAgain = true;
-    try {
-      const refKey = this.graphMonitorRefKey(targetGraphRunId, targetGraphHarnessConfigId);
-      if (this.missingResourceRefs.has(refKey) || this.missingResourceRefs.has(`graph_harness_config:${targetGraphHarnessConfigId}`)) {
-        shouldPollAgain = false;
-        this.graphMonitorGraphRunId = null;
-        return;
-      }
-      const monitor = await fetchRuntimeMonitorGraphDetail(targetGraphRunId, targetGraphHarnessConfigId);
-      if (this.graphMonitorGraphRunId === targetGraphRunId) {
-        this.store.setState((prev) => ({ ...prev, taskGraphBoundRunMonitor: monitor, taskGraphMonitorError: "" }));
-        this.scheduleGraphAutoAdvance(monitor);
-      }
-    } catch (error) {
-      if (this.graphMonitorGraphRunId === targetGraphRunId) {
-        if (this.isMissingGraphMonitor(error)) {
-          shouldPollAgain = false;
-          this.missingResourceRefs.add(this.graphMonitorRefKey(targetGraphRunId, targetGraphHarnessConfigId));
-          this.missingResourceRefs.add(`graph_harness_config:${targetGraphHarnessConfigId}`);
-          this.stopGraphAutoAdvance();
-          this.graphMonitorGraphRunId = null;
-          this.store.setState((prev) => ({
-            ...prev,
-            taskGraphMonitorBinding: prev.taskGraphMonitorBinding?.graph_run_id === targetGraphRunId ? null : prev.taskGraphMonitorBinding,
-            taskGraphBoundRunMonitor: null,
-            taskGraphAutoAdvanceEnabled: false,
-            taskGraphAutoAdvancePending: false,
-            taskGraphMonitorError: "图任务监控不可用：该运行引用的图配置已不存在，已停止继续轮询。",
-          }));
-          return;
-        }
-        this.store.setState((prev) => ({
-          ...prev,
-          taskGraphMonitorError: error instanceof Error ? error.message : "GraphRun 运行监控读取失败",
-        }));
-      }
-    } finally {
-      this.graphMonitorInFlight = false;
-      if (shouldPollAgain && this.graphMonitorGraphRunId === targetGraphRunId) {
-        this.scheduleNextGraphMonitorPoll(targetGraphRunId, targetGraphHarnessConfigId);
-      }
-    }
-  }
-
   private scheduleGraphAutoAdvance(monitor: GraphRunMonitorView) {
     if (typeof window === "undefined") return;
     const state = this.store.getState();
@@ -825,22 +698,9 @@ export class RuntimeMonitorController {
     }
   }
 
-  private graphMonitorRefKey(graphRunId: string, graphHarnessConfigId: string) {
-    return `graph_run_monitor:${graphRunId.trim()}::${graphHarnessConfigId.trim()}`;
-  }
-
-  private monitorPollDelay(baseDelayMs: number, streamingDelayMs: number) {
-    return this.host.hasActiveChatStream() ? Math.max(baseDelayMs, streamingDelayMs) : baseDelayMs;
-  }
-
   private isTransientError(error: unknown) {
     if (isRequestAbortError(error)) return true;
     const message = error instanceof Error ? error.message : String(error ?? "");
     return message.includes("Failed to fetch") || message.includes("NetworkError") || message.includes("Load failed");
-  }
-
-  private isMissingGraphMonitor(error: unknown) {
-    const message = error instanceof Error ? error.message : String(error ?? "");
-    return message.includes("GraphHarnessConfig not found") || message.includes("GraphRun monitor not found");
   }
 }

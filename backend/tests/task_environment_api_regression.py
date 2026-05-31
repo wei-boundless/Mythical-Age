@@ -41,6 +41,11 @@ def test_task_environment_api_upserts_and_deletes_configured_environment(tmp_pat
                     ],
                     file_management={"file_profile_refs": ["file_profile.general_workspace"]},
                     resource_space={"storage_namespace": "custom/api"},
+                    memory_space={
+                        "environment_memory_refs": ["memory.custom.api"],
+                        "project_knowledge_refs": ["knowledge.custom.api"],
+                        "retrieval_index_refs": ["retrieval.custom.api"],
+                    },
                     execution_policy={"shell_execution_policy": "denied"},
                 ),
             )
@@ -53,6 +58,9 @@ def test_task_environment_api_upserts_and_deletes_configured_environment(tmp_pat
         assert environment["environment_prompts"][0]["content"].startswith("你处在 API 配置")
         assert environment["environment_boundary"]["boundary_contract"]["environment_prompts_source"] == "task_environment_config"
         assert environment["storage_space"]["storage_namespace"] == "custom/api"
+        assert environment["memory_space"]["environment_memory_refs"] == ["memory.custom.api"]
+        assert environment["memory_space"]["project_knowledge_refs"] == ["knowledge.custom.api"]
+        assert environment["memory_space"]["retrieval_index_refs"] == ["retrieval.custom.api"]
 
         payload = asyncio.run(tasks_api.delete_task_system_environment("env.custom.api"))
     finally:

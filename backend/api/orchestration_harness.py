@@ -1,12 +1,8 @@
 from __future__ import annotations
 
-import asyncio
-import json
-import time
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import StreamingResponse
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from api.deps import require_runtime
@@ -21,15 +17,6 @@ from harness.loop.task_executor import (
 router = APIRouter()
 
 
-def _sse(event: str, data: dict[str, Any], *, event_id: str = "") -> str:
-    lines = []
-    if event_id:
-        lines.append(f"id: {event_id}")
-    lines.append(f"event: {event}")
-    lines.append(f"data: {json.dumps(data, ensure_ascii=False)}")
-    return "\n".join(lines) + "\n\n"
-
-
 class TaskRunExecuteRequest(BaseModel):
     max_steps: int = Field(default=12, ge=1, le=50)
 
@@ -42,71 +29,6 @@ class TaskRunControlRequest(BaseModel):
 async def list_harness_task_runs(session_id: str) -> dict[str, Any]:
     runtime = require_runtime()
     return runtime.query_runtime.single_agent_runtime_host.list_session_traces(session_id)
-
-
-@router.get("/orchestration/harness/live-monitor")
-async def list_harness_global_live_monitor(limit: int = 20) -> dict[str, Any]:
-    runtime = require_runtime()
-    return runtime.query_runtime.single_agent_runtime_host.runtime_monitor_service.list_global_live_monitor(limit=limit)
-
-
-@router.get("/orchestration/harness/monitor-events")
-async def stream_harness_monitor_events(request: Request, limit: int = 40):
-    runtime = require_runtime()
-    runtime_host = runtime.query_runtime.single_agent_runtime_host
-    monitor_service = runtime_host.runtime_monitor_service
-    subscription = runtime_host.event_log.subscribe()
-    requested_limit = max(1, min(int(limit or 40), 100))
-
-    async def event_generator():
-        try:
-            yield _sse(
-                "runtime_monitor_snapshot",
-                {
-                    "monitor": monitor_service.list_global_live_monitor(limit=requested_limit),
-                    "source": "initial",
-                },
-            )
-            while not await request.is_disconnected():
-                try:
-                    runtime_event = await asyncio.wait_for(subscription.queue.get(), timeout=15.0)
-                except asyncio.TimeoutError:
-                    yield _sse(
-                        "runtime_monitor_heartbeat",
-                        {
-                            "updated_at": time.time(),
-                            "source": "heartbeat",
-                        },
-                    )
-                    continue
-                monitor = monitor_service.list_global_live_monitor(limit=requested_limit)
-                yield _sse(
-                    "runtime_monitor_event",
-                    {
-                        "runtime_event": runtime_event.to_dict(),
-                        "monitor": monitor,
-                        "source": "runtime_event_log",
-                    },
-                    event_id=runtime_event.event_id,
-                )
-        finally:
-            runtime_host.event_log.unsubscribe(subscription)
-
-    return StreamingResponse(
-        event_generator(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",
-        },
-    )
-
-
-@router.get("/orchestration/harness/sessions/{session_id}/live-monitor")
-async def get_harness_session_live_monitor(session_id: str) -> dict[str, Any]:
-    runtime = require_runtime()
-    return runtime.query_runtime.single_agent_runtime_host.runtime_monitor_service.get_session_live_monitor(session_id)
 
 
 @router.get("/orchestration/harness/task-runs/{task_run_id}")
@@ -126,15 +48,6 @@ async def get_harness_trace(
     if trace is None:
         raise HTTPException(status_code=404, detail="TaskRun trace not found")
     return trace
-
-
-@router.get("/orchestration/harness/task-runs/{task_run_id}/live-monitor")
-async def get_harness_task_run_live_monitor(task_run_id: str) -> dict[str, Any]:
-    runtime = require_runtime()
-    monitor = runtime.query_runtime.single_agent_runtime_host.runtime_monitor_service.get_task_run_live_monitor(task_run_id)
-    if monitor is None:
-        raise HTTPException(status_code=404, detail="TaskRun live monitor not found")
-    return monitor
 
 
 @router.post("/orchestration/harness/task-runs/{task_run_id}/execute")
@@ -168,7 +81,7 @@ async def execute_harness_task_run(
             "background_started": True,
             "task_run_id": task_run_id,
             "status": task_run.status,
-            "monitor_url": f"/api/orchestration/harness/task-runs/{task_run_id}/live-monitor",
+            "monitor_url": f"/api/orchestration/runtime-monitor/task-runs/{task_run_id}",
             "trace_url": f"/api/orchestration/harness/task-runs/{task_run_id}",
             "recovered_from": "scheduled_executor_claim",
         }
@@ -188,7 +101,7 @@ async def execute_harness_task_run(
         "background_started": True,
         "task_run_id": task_run_id,
         "status": updated_task_run.status,
-        "monitor_url": f"/api/orchestration/harness/task-runs/{task_run_id}/live-monitor",
+        "monitor_url": f"/api/orchestration/runtime-monitor/task-runs/{task_run_id}",
         "trace_url": f"/api/orchestration/harness/task-runs/{task_run_id}",
     }
 
@@ -245,7 +158,7 @@ async def resume_harness_task_run(
         "background_started": True,
         "task_run_id": task_run_id,
         "status": updated_task_run.status,
-        "monitor_url": f"/api/orchestration/harness/task-runs/{task_run_id}/live-monitor",
+        "monitor_url": f"/api/orchestration/runtime-monitor/task-runs/{task_run_id}",
         "trace_url": f"/api/orchestration/harness/task-runs/{task_run_id}",
     }
 

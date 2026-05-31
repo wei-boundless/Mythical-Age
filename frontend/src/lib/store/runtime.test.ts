@@ -43,7 +43,7 @@ vi.mock("@/lib/api", () => ({
   getChatRun: api.getChatRun,
   getLatestChatRunForSession: api.getLatestChatRunForSession,
   getGlobalRuntimeMonitor: api.getGlobalRuntimeMonitor,
-  getRuntimeMonitorEventStreamUrl: vi.fn(() => "http://127.0.0.1:8003/api/orchestration/harness/monitor-events"),
+  getRuntimeMonitorEventStreamUrl: vi.fn(() => "http://127.0.0.1:8003/api/orchestration/runtime-monitor/events"),
   getModelProviderConfig: api.getModelProviderConfig,
   getSoulImageAssetConfig: api.getSoulImageAssetConfig,
   getWorkspaceContext: api.getWorkspaceContext,
@@ -266,7 +266,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     vi.useRealTimers();
   });
 
-  it("keeps polling a bound TaskGraph run when the interaction dock is closed", async () => {
+  it("binds a TaskGraph run without starting legacy graph detail polling", async () => {
     const store = createStore(getDefaultState());
     const runtime = new WorkspaceRuntime(store);
 
@@ -280,12 +280,13 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     runtime.actions.setTaskGraphRunInteractionOpen(false);
     await vi.advanceTimersByTimeAsync(1200);
 
-    expect(api.getGraphRunMonitor).toHaveBeenCalledTimes(3);
+    expect(api.getGraphRunMonitor).not.toHaveBeenCalled();
     expect(store.getState().taskGraphMonitorBinding?.task_run_id).toBe("taskrun:bound");
-    expect(store.getState().taskGraphBoundRunMonitor?.active_node_work_orders?.[0]?.node_id).toBe("draft");
+    expect(store.getState().taskGraphBoundRunMonitor).toBeNull();
+    expect(store.getState().taskGraphMonitorError).toBe("");
   });
 
-  it("stops polling a bound TaskGraph run when its harness config no longer exists", async () => {
+  it("reads TaskGraph detail only through explicit monitor evaluation", async () => {
     api.getGraphRunMonitor.mockRejectedValue(new Error('{"detail":"GraphHarnessConfig not found"}'));
     const store = createStore(getDefaultState());
     const runtime = new WorkspaceRuntime(store);
@@ -296,14 +297,13 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       graph_harness_config_id: "ghcfg:old-missing",
       graph_id: "graph:old",
     });
-    await Promise.resolve();
-    await Promise.resolve();
+    await runtime.actions.evaluateBoundTaskGraphMonitor();
     await vi.advanceTimersByTimeAsync(6000);
 
     expect(api.getGraphRunMonitor).toHaveBeenCalledTimes(1);
-    expect(store.getState().taskGraphMonitorBinding).toBeNull();
+    expect(store.getState().taskGraphMonitorBinding?.task_run_id).toBe("taskrun:old-graph");
     expect(store.getState().taskGraphBoundRunMonitor).toBeNull();
-    expect(store.getState().taskGraphMonitorError).toContain("已停止继续轮询");
+    expect(store.getState().taskGraphMonitorError).toContain("GraphHarnessConfig not found");
   });
 
   it("keeps the global monitor selection on top-level TaskGraph runs", () => {
@@ -413,7 +413,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     });
   });
 
-  it("does not repeatedly fetch graph monitor details for stale graph config refs", async () => {
+  it("does not fetch graph monitor details from global monitor selection alone", async () => {
     api.getGraphRunMonitor.mockRejectedValue(new Error('{"detail":"GraphHarnessConfig not found"}'));
     const store = createStore(getDefaultState());
     const runtime = new WorkspaceRuntime(store);
@@ -450,9 +450,9 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     await Promise.resolve();
     await vi.advanceTimersByTimeAsync(6000);
 
-    expect(api.getGraphRunMonitor).toHaveBeenCalledTimes(1);
-    expect(store.getState().taskGraphMonitorBinding).toBeNull();
-    expect(store.getState().taskGraphMonitorError).toContain("已停止继续轮询");
+    expect(api.getGraphRunMonitor).not.toHaveBeenCalled();
+    expect(store.getState().taskGraphMonitorBinding?.task_run_id).toBe("taskrun:old-master");
+    expect(store.getState().taskGraphMonitorError).toBe("");
   });
 
   it("opens a global monitor chat-turn run in its conversation page", () => {
@@ -745,7 +745,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     });
   });
 
-  it("slows bound monitor polling while a chat stream is active", async () => {
+  it("does not start TaskGraph detail polling while a chat stream is active", async () => {
     api.streamChat.mockImplementation(() => new Promise(() => undefined));
     const store = createStore<StoreState>({
       ...getDefaultState(),
@@ -767,18 +767,18 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       graph_id: "graph:test",
     });
     await vi.advanceTimersByTimeAsync(0);
-    expect(api.getGraphRunMonitor).toHaveBeenCalledTimes(1);
+    expect(api.getGraphRunMonitor).not.toHaveBeenCalled();
 
     void runtime.actions.sendMessage("你好").catch(() => undefined);
     await vi.advanceTimersByTimeAsync(0);
     await vi.advanceTimersByTimeAsync(4999);
-    expect(api.getGraphRunMonitor).toHaveBeenCalledTimes(1);
+    expect(api.getGraphRunMonitor).not.toHaveBeenCalled();
 
     await vi.advanceTimersByTimeAsync(1);
-    expect(api.getGraphRunMonitor).toHaveBeenCalledTimes(2);
+    expect(api.getGraphRunMonitor).not.toHaveBeenCalled();
   });
 
-  it("continues session task monitor polling after chat stream hands off to a background task", async () => {
+  it("refreshes session task monitor once after chat stream hands off to a background task", async () => {
     api.streamChat.mockImplementation(async (_payload, handlers) => {
       handlers.onEvent("agent_turn_terminal", {
         event: {
@@ -819,9 +819,9 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
 
     await runtime.actions.sendMessage("开始后台任务");
 
-    expect(api.getOrchestrationHarnessSessionLiveMonitor).toHaveBeenCalledTimes(2);
+    expect(api.getOrchestrationHarnessSessionLiveMonitor).toHaveBeenCalledTimes(1);
     await vi.advanceTimersByTimeAsync(1500);
-    expect(api.getOrchestrationHarnessSessionLiveMonitor).toHaveBeenCalledTimes(3);
+    expect(api.getOrchestrationHarnessSessionLiveMonitor).toHaveBeenCalledTimes(1);
     expect(store.getState().sessionActivity.title).toBe("正在处理");
   });
 

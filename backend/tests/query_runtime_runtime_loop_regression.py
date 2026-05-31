@@ -265,7 +265,12 @@ def test_global_live_monitor_exposes_step_summary_and_recent_terminal_status(mon
         updated_at=990.0,
         execution_runtime_kind="single_agent_task",
         terminal_reason="completed",
-        diagnostics={"artifact_refs": [{"path": "storage/task/result.md"}]},
+        diagnostics={
+            "artifact_refs": [{"path": "storage/task/result.md"}],
+            "latest_step": "final_self_review",
+            "latest_step_status": "completed",
+            "latest_step_summary": "agent 已完成最终自检并确认交付物存在。",
+        },
     )
     host.state_index.upsert_task_run(task_run)
     host.event_log.append(
