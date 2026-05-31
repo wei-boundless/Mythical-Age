@@ -793,6 +793,33 @@ class FormalMemoryStore:
         conn.row_factory = sqlite3.Row
         return conn
 
+    def delete_scope(self, *, task_run_ids: set[str] | None = None, scope_ids: set[str] | None = None) -> dict[str, Any]:
+        task_ids = {str(item).strip() for item in set(task_run_ids or set()) if str(item).strip()}
+        scopes = {str(item).strip() for item in set(scope_ids or set()) if str(item).strip()}
+        if not task_ids and not scopes:
+            return {"authority": "formal_memory.store.delete_scope", "deleted_counts": {}}
+        counts: dict[str, int] = {}
+        with self._connect() as conn:
+            for table in (
+                "formal_memory_read_logs",
+                "formal_memory_transactions",
+                "formal_record_versions",
+                "formal_records",
+                "formal_collections",
+                "formal_repositories",
+            ):
+                where, params = _scope_delete_where(task_ids=task_ids, scope_ids=scopes)
+                before = int(conn.execute(f"SELECT COUNT(*) FROM {table} WHERE {where}", tuple(params)).fetchone()[0])
+                conn.execute(f"DELETE FROM {table} WHERE {where}", tuple(params))
+                if before:
+                    counts[table] = before
+        return {
+            "authority": "formal_memory.store.delete_scope",
+            "task_run_ids": sorted(task_ids),
+            "scope_ids": sorted(scopes),
+            "deleted_counts": counts,
+        }
+
     def _ensure_schema(self) -> None:
         with self._connect() as conn:
             conn.executescript(
@@ -948,6 +975,20 @@ class FormalMemoryStore:
                     ON formal_memory_read_logs(task_run_id, logical_repository_id, collection_id);
                 """
             )
+
+
+def _scope_delete_where(*, task_ids: set[str], scope_ids: set[str]) -> tuple[str, list[str]]:
+    clauses: list[str] = []
+    params: list[str] = []
+    if task_ids:
+        placeholders = ",".join("?" for _ in task_ids)
+        clauses.append(f"task_run_id IN ({placeholders})")
+        params.extend(sorted(task_ids))
+    if scope_ids:
+        placeholders = ",".join("?" for _ in scope_ids)
+        clauses.append(f"scope_id IN ({placeholders})")
+        params.extend(sorted(scope_ids))
+    return " OR ".join(clauses), params
 
 
 def _ensure_repository_collection(

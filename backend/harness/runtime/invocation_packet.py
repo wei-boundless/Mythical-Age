@@ -16,7 +16,6 @@ class RuntimeInvocationPacket:
     step_id: str = ""
     model_messages: list[Any] = field(default_factory=list)
     segment_plan: dict[str, Any] = field(default_factory=dict)
-    system_instructions: str = ""
     agent_role_prompt: str = ""
     prompt_pack_refs: tuple[str, ...] = ()
     available_tools: tuple[dict[str, Any], ...] = ()

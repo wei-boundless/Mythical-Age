@@ -71,6 +71,7 @@ class SkillRuntimeContract:
     capability_tags: list[str] = field(default_factory=list)
     preferred_route: str = ""
     forbidden_routes: list[str] = field(default_factory=list)
+    not_for: list[str] = field(default_factory=list)
     routing_hints: list[str] = field(default_factory=list)
     examples: list[str] = field(default_factory=list)
     activation_policy: str = "model_visible"
@@ -95,6 +96,7 @@ class SkillRuntimeContract:
             capability_tags=normalize_string_list(self.capability_tags),
             preferred_route=normalize_string(self.preferred_route),
             forbidden_routes=normalize_string_list(self.forbidden_routes),
+            not_for=normalize_string_list(self.not_for),
             routing_hints=normalize_string_list(self.routing_hints),
             examples=normalize_string_list(self.examples),
             activation_policy=activation_policy,
@@ -181,6 +183,7 @@ class SkillContract:
             capability_tags=normalize_string_list(runtime_payload.get("capability_tags")),
             preferred_route=normalize_string(runtime_payload.get("preferred_route")),
             forbidden_routes=normalize_string_list(runtime_payload.get("forbidden_routes")),
+            not_for=normalize_string_list(runtime_payload.get("not_for") or runtime_payload.get("forbidden_uses")),
             routing_hints=normalize_string_list(runtime_payload.get("routing_hints")),
             examples=normalize_string_list(runtime_payload.get("examples")),
             activation_policy=normalize_string(runtime_payload.get("activation_policy"), "model_visible") or "model_visible",

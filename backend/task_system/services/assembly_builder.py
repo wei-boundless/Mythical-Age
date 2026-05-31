@@ -800,7 +800,6 @@ def _skill_views_for_task_binding(
     return skill_runtime_views_from_registry(
         registry=skill_registry,
         skill_refs=tuple(merged_binding.skill_scope or ()),
-        task_reason="Skill candidate declared by the explicit task contract.",
     )
 
 

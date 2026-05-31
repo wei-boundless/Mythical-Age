@@ -19,6 +19,10 @@ from harness.runtime import assemble_runtime
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 
 
+def _model_input_text(packet) -> str:
+    return "\n\n".join(str(message.get("content") or "") for message in packet.model_messages)
+
+
 def test_runtime_prompt_resources_have_single_clear_function() -> None:
     resources = PromptLibraryRegistry(Path(__file__).resolve().parents[1]).list_active_resources(
         category="runtime",
@@ -238,9 +242,10 @@ def test_runtime_compiler_uses_prompt_manifest_and_runtime_pack_refs() -> None:
     assert manifest["stable_prompt_refs"] == ["runtime.turn_action.v1"]
     assert manifest["dynamic_projection_refs"] == ["agent_visible_runtime_projection", "operation_authorization"]
     assert manifest["volatile_state_refs"] == ["runtime_envelope", "turn_id", "history", "user_message"]
-    assert "你是当前 turn 的主 agent" in result.packet.system_instructions
-    assert "本次运行边界" in result.packet.system_instructions
-    assert "当前 runtime 是 standard 模式" not in result.packet.system_instructions
+    model_input = _model_input_text(result.packet)
+    assert "你是当前 turn 的主 agent" in model_input
+    assert "本次运行边界" in model_input
+    assert "当前 runtime 是 standard 模式" not in model_input
 
 
 def test_runtime_compiler_assembles_agent_and_environment_prompt_refs() -> None:
@@ -276,25 +281,19 @@ def test_runtime_compiler_assembles_agent_and_environment_prompt_refs() -> None:
     assert "strategy.development.execution.v1" in manifest["stable_prompt_refs"]
     assert manifest["cache_boundary"]["static_section_count"] == 4
     assert manifest["cache_boundary"]["cache_scope_counts"]["static_environment"] == 2
-    assert "通用主 agent" in result.packet.system_instructions
-    assert "开发沙盒资源边界" in result.packet.system_instructions
-    assert "开发执行 agent" in result.packet.system_instructions
-    assert "python_symbol_search" in result.packet.system_instructions
-    assert "python_code_outline" in result.packet.system_instructions
-    assert "python_parse_check" in result.packet.system_instructions
-    assert "不要在文件没有变化、假设没有变化时重复调用同一个 outline 或 symbol search" in result.packet.system_instructions
-    assert stable_payload["task_environment"]["environment_prompts"] == [
-        {
-            "prompt_id": "environment.development.sandbox.v1",
-            "content_omitted": True,
-            "content_source": "prompt_library",
-        },
-        {
-            "prompt_id": "strategy.development.execution.v1",
-            "content_omitted": True,
-            "content_source": "prompt_library",
-        }
+    model_input = _model_input_text(result.packet)
+    assert "通用主 agent" in model_input
+    assert "开发沙盒资源边界" in model_input
+    assert "开发执行 agent" in model_input
+    assert "python_symbol_search" in model_input
+    assert "python_code_outline" in model_input
+    assert "python_parse_check" in model_input
+    assert "不要在文件没有变化、假设没有变化时重复调用同一个 outline 或 symbol search" in model_input
+    assert stable_payload["task_environment"]["environment_prompt_refs"] == [
+        "environment.development.sandbox.v1",
+        "strategy.development.execution.v1",
     ]
+    assert "environment_prompts" not in stable_payload["task_environment"]
     assert "开发沙盒资源边界" not in result.packet.model_messages[1]["content"]
 
 
@@ -347,8 +346,9 @@ def test_runtime_compiler_assembles_task_prompt_contract_into_task_execution_pac
 
     manifest = result.packet.diagnostics["prompt_manifest"]
 
-    assert "你是一名合同执行员，只负责真实推进合同目标。" in result.packet.system_instructions
-    assert "按合同完成稳定 prompt 装配验证。" in result.packet.system_instructions
+    model_input = _model_input_text(result.packet)
+    assert "你是一名合同执行员，只负责真实推进合同目标。" in model_input
+    assert "按合同完成稳定 prompt 装配验证。" in model_input
     assert "runtime.task_execution.v1" in manifest["stable_prompt_refs"]
     assert "task_prompt_contract:contract:prompt.role_prompt" in manifest["stable_contract_refs"]
     assert "task_prompt_contract:contract:prompt.definition_of_done" in manifest["stable_contract_refs"]

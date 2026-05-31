@@ -102,6 +102,28 @@ class LangGraphCheckpointStore:
             raise ValueError(f"Graph checkpoint not found: {graph_run_id}")
         self._saver.put_writes(latest.config, list(writes), task_id=task_id, task_path=GRAPH_CHECKPOINT_NAMESPACE)
 
+    def delete_graph_run(self, graph_run_id: str) -> dict[str, Any]:
+        target = str(graph_run_id or "").strip()
+        if not target:
+            return {"authority": self.authority, "deleted_counts": {}}
+        connection = getattr(self._saver, "conn", None) or getattr(self._saver, "connection", None)
+        if connection is None:
+            return {"authority": self.authority, "graph_run_id": target, "deleted_counts": {}, "skipped_reason": "checkpoint_connection_unavailable"}
+        counts: dict[str, int] = {}
+        for table in ("writes", "checkpoints"):
+            try:
+                before = int(connection.execute("SELECT COUNT(*) FROM " + table + " WHERE thread_id = ?", (target,)).fetchone()[0])
+                connection.execute("DELETE FROM " + table + " WHERE thread_id = ?", (target,))
+                if before:
+                    counts[table] = before
+            except Exception:
+                continue
+        try:
+            connection.commit()
+        except Exception:
+            pass
+        return {"authority": self.authority, "graph_run_id": target, "deleted_counts": counts}
+
 
 def _config(graph_run_id: str) -> dict[str, Any]:
     return {

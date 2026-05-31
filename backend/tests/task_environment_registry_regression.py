@@ -25,6 +25,10 @@ from harness.runtime import RuntimeCompiler, assemble_runtime
 from task_system.tasks.definitions import default_task_definitions
 
 
+def _model_input_text(packet) -> str:
+    return "\n\n".join(str(message.get("content") or "") for message in packet.model_messages)
+
+
 def test_default_task_environments_are_grouped_scene_platforms() -> None:
     registry = default_task_environment_registry()
     groups = {item.group_id for item in registry.list_groups()}
@@ -323,10 +327,11 @@ def test_development_environment_prompt_is_in_task_execution_packet() -> None:
         invocation_index=1,
     ).packet
 
-    assert "当前任务环境说明" in packet.system_instructions
-    assert "优先使用 search_text、search_files、glob_paths、read_file、list_dir" in packet.system_instructions
-    assert "old_text not found" in packet.system_instructions
-    assert "sandbox overlay" in packet.system_instructions
+    model_input = _model_input_text(packet)
+    assert "当前任务环境说明" in model_input
+    assert "优先使用 search_text、search_files、glob_paths、read_file、list_dir" in model_input
+    assert "old_text not found" in model_input
+    assert "sandbox overlay" in model_input
 
 
 def test_resolved_environment_exports_storage_and_file_boundaries() -> None:
@@ -791,19 +796,15 @@ def test_runtime_packet_includes_environment_prompt_boundary_from_configured_env
     ).packet
     stable_message = packet.model_messages[1]["content"]
     stable_payload = json.loads(stable_message.split("\n", 1)[1])
-    dynamic_payload = _payload_after_title(packet.model_messages[-2]["content"], "Task execution dynamic runtime")
 
-    assert "你处在自定义提示环境中" in packet.system_instructions
-    assert stable_payload["task_environment"]["environment_boundary"]["prompt_refs"] == ["environment.custom.prompted.v1"]
-    assert stable_payload["task_environment"]["environment_prompts"] == [
-        {
-            "prompt_id": "environment.custom.prompted.v1",
-            "content_omitted": True,
-            "content_source": "prompt_library",
-        }
-    ]
+    assert "你处在自定义提示环境中" in _model_input_text(packet)
+    assert stable_payload["task_environment"]["environment_prompt_refs"] == ["environment.custom.prompted.v1"]
+    assert "environment_prompts" not in stable_payload["task_environment"]
     assert "你处在自定义提示环境中" not in stable_message
-    assert dynamic_payload["runtime_context"]["environment_boundary"]["environment_prompts_source"] == "task_environment_config"
+    assert (
+        stable_payload["task_environment"]["boundary_contract"]["environment_prompts_source"]
+        == "task_environment_config"
+    )
 
 
 def _payload_after_title(content: str, title: str) -> dict[str, object]:

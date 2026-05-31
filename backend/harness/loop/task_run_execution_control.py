@@ -92,6 +92,13 @@ def clear_executor_epoch(runtime_host: Any, *, task_run_id: str, executor_epoch:
         _registry(runtime_host).pop(task_run_id, None)
 
 
+def executor_epoch_is_live(runtime_host: Any, *, task_run_id: str, executor_epoch: int) -> bool:
+    record = _current_record(runtime_host, task_run_id=task_run_id, executor_epoch=executor_epoch)
+    if record is None:
+        return False
+    return record.model_task is None or not record.model_task.done()
+
+
 def _request_signal(
     runtime_host: Any,
     *,

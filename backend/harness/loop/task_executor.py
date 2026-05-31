@@ -38,6 +38,7 @@ from .task_run_execution_control import (
     attach_model_task,
     clear_executor_epoch,
     clear_model_task,
+    executor_epoch_is_live,
     peek_executor_signal,
     register_executor_epoch,
     request_executor_pause,
@@ -525,6 +526,15 @@ async def execute_task_run(
         diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
         executor_status = str(diagnostics.get("executor_status") or "")
         if executor_status == "running":
+            recovered = _recover_stale_graph_node_executor_claim(
+                runtime_host,
+                task_run=task_run,
+                graph_node_authorization=graph_node_authorization,
+            )
+            if recovered is None:
+                return _conflict(task_run_id, "task_run_executor_already_running")
+            task_run = recovered
+        else:
             return _conflict(task_run_id, "task_run_executor_already_running")
     if not is_task_run_executable(task_run) and not is_task_run_executor_claimed(task_run):
         if not _authorized_graph_node_executor_resume(task_run, authorization=graph_node_authorization):
@@ -545,7 +555,7 @@ async def execute_task_run(
     agent_profile = services.agent_runtime_profile
     diagnostics = dict(task_run.diagnostics or {})
     turn_id = str(diagnostics.get("turn_id") or task_run.task_id or task_run.task_run_id)
-    model_selection = _task_model_selection(task_run)
+    model_selection = _task_model_selection(task_run, agent_profile=agent_profile)
     runtime_assembly = assemble_runtime(
         backend_dir=services.backend_dir,
         session_id=task_run.session_id,
@@ -1448,10 +1458,42 @@ def _task_selection_from_task_run(task_run: Any) -> dict[str, Any]:
     }
 
 
-def _task_model_selection(task_run: Any) -> dict[str, Any]:
+def _task_model_selection(task_run: Any, *, agent_profile: Any | None = None) -> dict[str, Any]:
     diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
     selection = diagnostics.get("model_selection")
-    return dict(selection) if isinstance(selection, dict) else {}
+    if isinstance(selection, dict) and selection:
+        return dict(selection)
+    task_selection = dict(diagnostics.get("runtime_task_selection") or diagnostics.get("task_selection") or {})
+    runtime_profile = dict(task_selection.get("runtime_profile") or {})
+    requirement = dict(runtime_profile.get("model_requirement") or {})
+    model_profile = getattr(agent_profile, "model_profile", None)
+    profile_payload = model_profile.to_dict() if hasattr(model_profile, "to_dict") else (dict(model_profile) if isinstance(model_profile, dict) else {})
+    provider = str(profile_payload.get("provider") or requirement.get("provider_family") or "").strip()
+    if provider in {"openai-compatible", "openai_compatible"}:
+        provider = ""
+    model = str(profile_payload.get("model") or requirement.get("model_family") or "").strip()
+    resolved: dict[str, Any] = {
+        "provider": provider,
+        "model": model,
+        "credential_ref": str(profile_payload.get("credential_ref") or "").strip(),
+        "max_output_tokens": profile_payload.get("max_output_tokens"),
+        "timeout_seconds": profile_payload.get("timeout_seconds"),
+        "long_output_timeout_seconds": profile_payload.get("long_output_timeout_seconds"),
+        "max_retries": profile_payload.get("max_retries"),
+        "temperature": profile_payload.get("temperature"),
+        "thinking_mode": str(profile_payload.get("thinking_mode") or requirement.get("thinking_mode") or "").strip(),
+        "reasoning_effort": str(profile_payload.get("reasoning_effort") or "").strip(),
+        "stream_policy": dict(profile_payload.get("stream_policy") or {}),
+        "diagnostics": {
+            "authority": "harness.loop.task_executor.model_selection",
+            "source": "agent_runtime_profile.model_profile+node.model_requirement",
+            "agent_profile_id": str(getattr(agent_profile, "agent_profile_id", "") or ""),
+            "model_profile_id": str(profile_payload.get("profile_id") or ""),
+            "requirement_profile_ref": str(requirement.get("profile_ref") or ""),
+            "requirement_model_family": str(requirement.get("model_family") or ""),
+        },
+    }
+    return {key: value for key, value in resolved.items() if value not in ("", None, {}, [])}
 
 
 def _origin_kind(task_run: Any) -> str:
@@ -1476,6 +1518,60 @@ def _authorized_graph_node_executor_resume(task_run: Any, *, authorization: dict
         and str(diagnostics.get("graph_work_order_id") or "") == str(authorization.get("graph_work_order_id") or "")
         and str(diagnostics.get("graph_node_id") or "") == str(authorization.get("graph_node_id") or "")
     )
+
+
+def _recover_stale_graph_node_executor_claim(
+    runtime_host: Any,
+    *,
+    task_run: Any,
+    graph_node_authorization: dict[str, Any] | None,
+) -> Any | None:
+    if not graph_node_authorization:
+        return None
+    diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
+    if _origin_kind(task_run) != "graph_node_assigned":
+        return None
+    if (
+        str(diagnostics.get("graph_run_id") or "") != str(graph_node_authorization.get("graph_run_id") or "")
+        or str(diagnostics.get("graph_work_order_id") or "") != str(graph_node_authorization.get("graph_work_order_id") or "")
+        or str(diagnostics.get("graph_node_id") or "") != str(graph_node_authorization.get("graph_node_id") or "")
+    ):
+        return None
+    executor_epoch = int(diagnostics.get("executor_epoch") or 0)
+    if executor_epoch_is_live(runtime_host, task_run_id=task_run.task_run_id, executor_epoch=executor_epoch):
+        return None
+    event = runtime_host.event_log.append(
+        task_run.task_run_id,
+        "graph_node_executor_claim_recovered",
+        payload={
+            "task_run_id": task_run.task_run_id,
+            "previous_status": str(getattr(task_run, "status", "") or ""),
+            "previous_executor_status": str(diagnostics.get("executor_status") or ""),
+            "executor_epoch": executor_epoch,
+        },
+        refs={"task_run_ref": task_run.task_run_id},
+    )
+    recovered = replace(
+        task_run,
+        status="waiting_executor",
+        updated_at=event.created_at or time.time(),
+        latest_event_offset=event.offset,
+        terminal_reason="",
+        diagnostics={
+            **_strip_runtime_lease_diagnostics(diagnostics),
+            "executor_status": "waiting_executor",
+            "latest_step": "graph_node_executor_claim_recovered",
+            "latest_step_status": "waiting_executor",
+            "latest_step_summary": "图节点执行器已从中断的运行占用恢复，可以重新接管。",
+            "recoverable_error": {
+                "error_code": "graph_node_executor_claim_lost",
+                "retryable": True,
+            },
+            "recovery_action": "rerun_task_executor",
+        },
+    )
+    runtime_host.state_index.upsert_task_run(recovered)
+    return recovered
 
 
 def _task_sandbox_policy(runtime_assembly: dict[str, Any], *, runtime_host: Any, task_run_id: str) -> dict[str, Any]:

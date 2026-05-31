@@ -430,13 +430,14 @@ def _structured_agent_outputs(task_run_payload: dict[str, Any]) -> dict[str, Any
 def _task_run_summary(task_run: Any | None) -> dict[str, Any]:
     payload = task_run.to_dict() if hasattr(task_run, "to_dict") else (dict(task_run) if isinstance(task_run, dict) else {})
     diagnostics = dict(payload.get("diagnostics") or {})
+    origin = dict(diagnostics.get("origin") or {})
     return {
         "task_run_id": str(payload.get("task_run_id") or ""),
         "session_id": str(payload.get("session_id") or ""),
         "task_id": str(payload.get("task_id") or ""),
         "status": str(payload.get("status") or ""),
         "terminal_reason": str(payload.get("terminal_reason") or ""),
-        "origin_kind": str(diagnostics.get("origin_kind") or ""),
+        "origin_kind": str(origin.get("origin_kind") or diagnostics.get("origin_kind") or ""),
         "graph_run_id": str(diagnostics.get("graph_run_id") or ""),
         "graph_work_order_id": str(diagnostics.get("graph_work_order_id") or ""),
         "graph_node_id": str(diagnostics.get("graph_node_id") or ""),
@@ -1007,7 +1008,9 @@ def _candidates_for_memory_edge(*, edge: dict[str, Any], candidates: list[dict[s
     if source_output_key:
         value = _nested_lookup(_candidate_source_payload(task_run_payload), source_output_key)
         if value is not None:
-            return [_candidate_from_value(value, edge=edge)]
+            return _candidates_from_value(value, edge=edge)
+        if bool(edge.get("require_source_output_key")):
+            return []
     if candidates:
         return [_candidate_for_edge(candidate, edge=edge) for candidate in candidates]
     final_answer = str(dict(task_run_payload.get("diagnostics") or {}).get("final_answer") or "").strip()
@@ -1018,11 +1021,22 @@ def _candidates_for_memory_edge(*, edge: dict[str, Any], candidates: list[dict[s
 
 def _candidate_source_payload(task_run_payload: dict[str, Any]) -> dict[str, Any]:
     diagnostics = dict(task_run_payload.get("diagnostics") or {})
+    final_answer = str(diagnostics.get("final_answer") or "")
     return {
         **diagnostics,
         **dict(diagnostics.get("final_action_diagnostics") or {}),
-        "final_answer": str(diagnostics.get("final_answer") or ""),
+        "final_answer": final_answer,
+        "review_advisories": _review_advisory_candidates(final_answer),
+        "review_blocking_issues": _review_blocking_issue_candidates(final_answer),
     }
+
+
+def _candidates_from_value(value: Any, *, edge: dict[str, Any]) -> list[dict[str, Any]]:
+    if isinstance(value, list):
+        return [_candidate_from_value(item, edge=edge) for item in value if item is not None]
+    if isinstance(value, tuple):
+        return [_candidate_from_value(item, edge=edge) for item in value if item is not None]
+    return [_candidate_from_value(value, edge=edge)]
 
 
 def _candidate_from_value(value: Any, *, edge: dict[str, Any]) -> dict[str, Any]:
@@ -1030,6 +1044,148 @@ def _candidate_from_value(value: Any, *, edge: dict[str, Any]) -> dict[str, Any]
         return _candidate_for_edge(dict(value), edge=edge)
     text = str(value or "").strip()
     return _candidate_for_edge({"canonical_text": text, "summary": text[:240], "payload": {"value": value}}, edge=edge)
+
+
+def _review_advisory_candidates(final_answer: str) -> list[dict[str, Any]]:
+    text = str(final_answer or "").strip()
+    if not text:
+        return []
+    if _review_verdict(text) not in {"通过", "带备注通过"}:
+        return []
+    section = _review_advisory_section(text)
+    if not section:
+        return []
+    items = _numbered_review_items(section)
+    if not items:
+        items = [section] if _looks_like_non_blocking_advisory(section) else []
+    candidates: list[dict[str, Any]] = []
+    for index, item in enumerate(items, start=1):
+        canonical = item.strip()
+        if not canonical or not _looks_like_non_blocking_advisory(canonical):
+            continue
+        key = f"planning_advisory_{index:03d}_{safe_id(canonical[:48])}"
+        candidates.append(
+            {
+                "record_key": key,
+                "record_kind": "planning_advisory",
+                "canonical_text": canonical,
+                "summary": canonical[:240],
+                "payload": {
+                    "advisory_index": index,
+                    "severity": "non_blocking",
+                    "source": "review_report",
+                    "content": canonical,
+                    "authority": "harness.graph.review_advisory_extractor",
+                },
+                "metadata": {
+                    "advisory_kind": "planning_advisory",
+                    "blocking": False,
+                    "authority": "harness.graph.review_advisory_extractor",
+                },
+            }
+        )
+    return candidates
+
+
+def _review_blocking_issue_candidates(final_answer: str) -> list[dict[str, Any]]:
+    text = str(final_answer or "").strip()
+    if not text:
+        return []
+    verdict = _review_verdict(text)
+    if verdict not in {"返修", "拒绝"} and not _contains_blocking_review_marker(text):
+        return []
+    return [
+        {
+            "record_key": "blocking_review_issue",
+            "record_kind": "review_issue",
+            "canonical_text": text,
+            "summary": text[:240],
+            "payload": {
+                "severity": "blocking",
+                "source": "review_report",
+                "content": text,
+                "authority": "harness.graph.review_issue_extractor",
+            },
+            "metadata": {
+                "issue_kind": "review_issue",
+                "blocking": True,
+                "authority": "harness.graph.review_issue_extractor",
+            },
+        }
+    ]
+
+
+def _review_verdict(text: str) -> str:
+    for raw_line in str(text or "").splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        if line.startswith("审核裁决："):
+            return line.split("：", 1)[1].strip()
+        break
+    return ""
+
+
+def _review_advisory_section(text: str) -> str:
+    lines = str(text or "").splitlines()
+    start = -1
+    for index, raw_line in enumerate(lines):
+        line = raw_line.strip().lstrip("#").strip()
+        if any(marker in line for marker in ("潜在风险与建议", "非阻塞性", "审核备注", "可选轻微建议")):
+            start = index + 1
+            break
+    if start < 0:
+        return ""
+    collected: list[str] = []
+    for raw_line in lines[start:]:
+        line = raw_line.strip()
+        heading = line.lstrip("#").strip()
+        if heading.startswith("是否允许进入下一阶段"):
+            break
+        if line.startswith("##") and collected:
+            break
+        collected.append(raw_line)
+    return "\n".join(collected).strip()
+
+
+def _numbered_review_items(section: str) -> list[str]:
+    items: list[str] = []
+    current: list[str] = []
+    for raw_line in str(section or "").splitlines():
+        line = raw_line.strip()
+        if _starts_numbered_item(line) or line.startswith("- "):
+            if current:
+                items.append("\n".join(current).strip())
+            current = [line]
+            continue
+        if current and line:
+            current.append(line)
+    if current:
+        items.append("\n".join(current).strip())
+    return items
+
+
+def _starts_numbered_item(line: str) -> bool:
+    head = line.split(" ", 1)[0].strip()
+    if not head.endswith((".", "、")):
+        return False
+    return head[:-1].isdigit()
+
+
+def _looks_like_non_blocking_advisory(text: str) -> bool:
+    value = str(text or "").strip()
+    if not value:
+        return False
+    blocking_markers = ("阻塞", "必须修改", "返修", "拒绝", "不允许进入下一阶段", "冻结前必须处理")
+    if any(marker in value for marker in blocking_markers):
+        return False
+    advisory_markers = ("建议", "可在", "可进一步", "增加", "明确", "细化", "铺垫", "避免")
+    return any(marker in value for marker in advisory_markers)
+
+
+def _contains_blocking_review_marker(text: str) -> bool:
+    markers = ("必须修改", "不允许进入下一阶段", "冻结前必须处理", "阻塞问题", "硬设定冲突")
+    return any(marker in str(text or "") for marker in markers)
 
 
 def _candidate_for_edge(candidate: dict[str, Any], *, edge: dict[str, Any]) -> dict[str, Any]:

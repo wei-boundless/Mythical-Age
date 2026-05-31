@@ -14,6 +14,18 @@ class FetchURLInput(BaseModel):
     url: str = Field(..., description="HTTP or HTTPS URL to fetch")
 
 
+class FetchURLToolError(RuntimeError):
+    def __init__(self, message: str, *, code: str, retryable: bool, status_code: int | None = None) -> None:
+        super().__init__(message)
+        self.structured_error = {
+            "code": code,
+            "message": message,
+            "retryable": retryable,
+            "origin": "tool_provider",
+            **({"status_code": status_code} if status_code is not None else {}),
+        }
+
+
 class FetchURLTool(BaseTool):
     name: str = "fetch_url"
     description: str = "Fetch a URL. JSON stays JSON; HTML is converted into markdown-like plain text."
@@ -39,8 +51,26 @@ class FetchURLTool(BaseTool):
             with httpx.Client(follow_redirects=True, timeout=15) as client:
                 response = client.get(url)
                 response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            status_code = exc.response.status_code
+            raise FetchURLToolError(
+                f"Fetch failed for {url}: HTTP {status_code}",
+                code="http_status_error",
+                retryable=status_code in {408, 429} or status_code >= 500,
+                status_code=status_code,
+            ) from exc
+        except httpx.RequestError as exc:
+            raise FetchURLToolError(
+                f"Fetch failed for {url}: {exc}",
+                code="network_error",
+                retryable=True,
+            ) from exc
         except Exception as exc:
-            return f"Fetch failed: {exc}"
+            raise FetchURLToolError(
+                f"Fetch failed for {url}: {exc}",
+                code="fetch_url_error",
+                retryable=True,
+            ) from exc
         return self._format_response(response)
 
     async def _arun(
@@ -52,8 +82,26 @@ class FetchURLTool(BaseTool):
             async with httpx.AsyncClient(follow_redirects=True, timeout=15) as client:
                 response = await client.get(url)
                 response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            status_code = exc.response.status_code
+            raise FetchURLToolError(
+                f"Fetch failed for {url}: HTTP {status_code}",
+                code="http_status_error",
+                retryable=status_code in {408, 429} or status_code >= 500,
+                status_code=status_code,
+            ) from exc
+        except httpx.RequestError as exc:
+            raise FetchURLToolError(
+                f"Fetch failed for {url}: {exc}",
+                code="network_error",
+                retryable=True,
+            ) from exc
         except Exception as exc:
-            return f"Fetch failed: {exc}"
+            raise FetchURLToolError(
+                f"Fetch failed for {url}: {exc}",
+                code="fetch_url_error",
+                retryable=True,
+            ) from exc
         return self._format_response(response)
 
 

@@ -59,6 +59,14 @@ def main() -> None:
     assert "knowledge_lookup" in rag.capability_tags
     assert "faq_explanation" in rag.supported_task_kinds
 
+    assert "web-search-briefing" in by_name
+    web_briefing = by_name["web-search-briefing"]
+    assert any("深度研究" in item for item in web_briefing.not_for)
+
+    assert "deep-web-research" in by_name
+    deep_research = by_name["deep-web-research"]
+    assert any("一两条最近新闻" in item for item in deep_research.not_for)
+
     assert "skill-creator" in by_name
     creator = by_name["skill-creator"]
     assert creator.title == "Skill 创建顾问"

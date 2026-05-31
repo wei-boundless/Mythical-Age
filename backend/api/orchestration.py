@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from api.deps import require_runtime
+from harness.graph.lifecycle_manager import GraphTaskLifecycleManager
 from harness.graph.models import GraphNodeWorkOrder, NodeResultEnvelope
 from sessions import InvalidSessionId, validate_session_id
 from task_system import TaskFlowRegistry
@@ -54,6 +55,10 @@ class GraphRunUntilIdleRequest(BaseModel):
     max_dispatches: int = Field(default=64, ge=0, le=512)
     max_runtime_seconds: float = Field(default=0.0, ge=0.0, le=3600.0)
     max_dispatch_requests: int | None = Field(default=None, ge=1, le=32)
+
+
+class GraphRunDeleteRequest(BaseModel):
+    dry_run: bool = False
 
 
 @router.post("/orchestration/harness/task-graphs/{graph_id}/start")
@@ -150,6 +155,22 @@ async def get_graph_run_monitor(graph_run_id: str, graph_harness_config_id: str 
     if monitor is None:
         raise HTTPException(status_code=404, detail="GraphRun monitor not found")
     return monitor
+
+
+@router.delete("/orchestration/harness/graph-runs/{graph_run_id}")
+async def delete_graph_task_run(graph_run_id: str, payload: GraphRunDeleteRequest | None = None) -> dict[str, Any]:
+    runtime = require_runtime()
+    manager = GraphTaskLifecycleManager(
+        base_dir=runtime.base_dir,
+        graph_harness=runtime.query_runtime.graph_harness,
+    )
+    request = payload or GraphRunDeleteRequest()
+    try:
+        if request.dry_run:
+            return manager.preview_delete_graph_run(graph_run_id)
+        return manager.delete_graph_run(graph_run_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.post("/orchestration/harness/graph-runs/{graph_run_id}/resume")

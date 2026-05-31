@@ -66,3 +66,18 @@ def test_skill_contract_requires_explicit_operation_for_known_routes() -> None:
     assert "preferred_route rag requires explicit op.mcp_retrieval in requires_operations" in contract.validation_errors
 
 
+def test_skill_contract_preserves_negative_activation_guidance() -> None:
+    contract = SkillContract.from_payload(
+        {
+            "name": "research-skill",
+            "title": "研究 Skill",
+            "description": "用于验证不适用场景。",
+            "path": "capability_system/units/skills/research-skill/SKILL.md",
+            "not_for": ["只需要一条新闻时不要使用。"],
+        }
+    )
+
+    assert contract.runtime.not_for == ["只需要一条新闻时不要使用。"]
+    assert contract.to_registry_record()["not_for"] == ["只需要一条新闻时不要使用。"]
+
+

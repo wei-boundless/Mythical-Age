@@ -11,11 +11,9 @@ from capability_system.skill_registry import SkillDefinition, SkillRegistry
 class SkillRuntimeView:
     skill_id: str
     title: str
-    task_reason: str
-    method_summary: str
-    input_boundary: str = ""
-    output_boundary: str = ""
-    forbidden_uses: tuple[str, ...] = ()
+    capability: str
+    use_when: str = ""
+    not_for: tuple[str, ...] = ()
     required_operations: tuple[str, ...] = ()
     canonical_path: str = ""
 
@@ -28,8 +26,7 @@ def skill_runtime_views_for_refs(skill_refs: tuple[str, ...]) -> list[SkillRunti
         SkillRuntimeView(
             skill_id=str(skill_ref or "").strip(),
             title=str(skill_ref or "").strip(),
-            task_reason="Selected by task binding.",
-            method_summary="No expanded skill prompt is exposed by this runtime view.",
+            capability="该 skill 由任务合同显式绑定；运行时只展示候选卡片，完整说明在激活后展开。",
         )
         for skill_ref in skill_refs
         if str(skill_ref or "").strip()
@@ -40,7 +37,6 @@ def skill_runtime_views_from_registry(
     *,
     registry: SkillRegistry,
     skill_refs: tuple[str, ...] | list[str],
-    task_reason: str = "Candidate capability available for this task.",
 ) -> list[SkillRuntimeView]:
     views: list[SkillRuntimeView] = []
     seen: set[str] = set()
@@ -56,28 +52,21 @@ def skill_runtime_views_from_registry(
         if skill_id in seen:
             continue
         seen.add(skill_id)
-        views.append(skill_runtime_view_from_skill_definition(skill, task_reason=task_reason))
+        views.append(skill_runtime_view_from_skill_definition(skill))
     return views
 
 
-def skill_runtime_view_from_skill_definition(
-    skill: SkillDefinition,
-    *,
-    task_reason: str = "Candidate capability available for this task.",
-) -> SkillRuntimeView:
+def skill_runtime_view_from_skill_definition(skill: SkillDefinition) -> SkillRuntimeView:
     use_when = str(skill.prompt_view.use_when or "").strip()
     capability = str(skill.prompt_view.capability or skill.description or "").strip()
-    output_rule = str(skill.prompt_view.output_rule or "").strip()
-    method_parts = [part for part in (capability, use_when, output_rule) if part]
     return SkillRuntimeView(
         skill_id=f"skill.{skill.name}",
         title=str(skill.title or skill.name).strip(),
-        task_reason=task_reason,
-        method_summary=" ".join(method_parts) or str(skill.description or skill.name).strip(),
-        output_boundary=output_rule,
-        forbidden_uses=tuple(
+        capability=capability or str(skill.description or skill.name).strip(),
+        use_when=use_when,
+        not_for=tuple(
             str(item).strip()
-            for item in list(skill.forbidden_routes or [])
+            for item in list(getattr(skill, "not_for", ()) or [])
             if str(item).strip()
         ),
         required_operations=tuple(
@@ -100,21 +89,15 @@ def render_skill_candidate_cards(skill_runtime_views: list[dict[str, Any]] | tup
             f"- skill_id: {skill_id}",
             f"  title: {str(data.get('title') or skill_id).strip()}",
         ]
-        capability = str(data.get("method_summary") or "").strip()
+        capability = str(data.get("capability") or "").strip()
         if capability:
             lines.append(f"  capability: {capability}")
-        task_reason = str(data.get("task_reason") or "").strip()
-        if task_reason:
-            lines.append(f"  use_when: {task_reason}")
-        input_boundary = str(data.get("input_boundary") or "").strip()
-        if input_boundary:
-            lines.append(f"  input_boundary: {input_boundary}")
-        output_boundary = str(data.get("output_boundary") or "").strip()
-        if output_boundary:
-            lines.append(f"  output_boundary: {output_boundary}")
+        use_when = str(data.get("use_when") or "").strip()
+        if use_when:
+            lines.append(f"  use_when: {use_when}")
         forbidden = [
             str(value).strip()
-            for value in list(data.get("forbidden_uses") or [])
+            for value in list(data.get("not_for") or [])
             if str(value).strip()
         ]
         if forbidden:

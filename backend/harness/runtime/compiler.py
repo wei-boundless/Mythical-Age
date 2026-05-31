@@ -129,30 +129,24 @@ class RuntimeCompiler:
         agent_instruction = _agent_prompt_instruction(agent_prompt_assembly)
         soul_instruction = _soul_instruction(soul_role_prompt)
         skill_candidate_instruction = _skill_candidate_instruction(assembly_payload)
-        system = _join_prompt_sections(
-            prompt_assembly.content,
-            soul_instruction,
-            agent_instruction,
-            environment_instruction,
-            runtime_instruction,
-            skill_candidate_instruction,
-        )
         stable_payload = {
             "schema": schema,
-            "task_environment": _environment_stable_payload(environment_payload),
+            "task_environment": _environment_model_visible_payload(environment_payload),
             "available_tools": _stable_tool_catalog_payload(tool_payloads),
             "tool_catalog_hash": _stable_json_hash([dict(item) for item in tool_payloads]),
-            "skill_candidates": _skill_candidate_payload(assembly_payload),
         }
         dynamic_payload = {
-            "operation_authorization": dict(assembly_payload.get("operation_authorization") or {}),
+            "operation_authorization": _operation_authorization_model_visible(
+                dict(assembly_payload.get("operation_authorization") or {}),
+                profile_payload=profile_payload,
+            ),
             "runtime_context": _runtime_context_payload(
                 assembly_payload,
                 agent_visible_runtime_projection=agent_visible_runtime_projection,
             ),
         }
         volatile_payload = {
-            "runtime_envelope": envelope.to_dict(),
+            "runtime_envelope": _runtime_envelope_model_visible(envelope.to_dict()),
             "turn_id": turn_id,
             "history": [dict(item) for item in list(history or [])],
             "user_message": str(user_message or ""),
@@ -243,6 +237,7 @@ class RuntimeCompiler:
             volatile_state_refs=("runtime_envelope", "turn_id", "history", "user_message"),
         ).to_dict()
         prompt_manifest["segment_plan_ref"] = segment_plan.segment_plan_id
+        _attach_model_message_metrics(prompt_manifest, model_messages=model_messages, segment_plan=segment_plan.to_dict())
         packet = RuntimeInvocationPacket(
             packet_id=packet_id,
             envelope_ref=envelope.envelope_id,
@@ -252,7 +247,6 @@ class RuntimeCompiler:
             turn_id=turn_id,
             model_messages=model_messages,
             segment_plan=segment_plan.to_dict(),
-            system_instructions=system,
             agent_role_prompt="你是当前 turn 的主 agent，负责决定下一步动作。",
             prompt_pack_refs=prompt_assembly.prompt_pack_refs,
             available_tools=tool_payloads,
@@ -262,6 +256,7 @@ class RuntimeCompiler:
             diagnostics={
                 "prompt_manifest": prompt_manifest,
                 "segment_plan": segment_plan.to_dict(),
+                "model_input_authority": "runtime_invocation_packet.model_messages",
             },
         )
         return RuntimeCompilationResult(envelope=envelope, packet=packet)
@@ -389,21 +384,12 @@ class RuntimeCompiler:
             environment_prompt_assembly=environment_prompt_assembly,
         )
         agent_instruction = _agent_prompt_instruction(agent_prompt_assembly)
-        system = _join_prompt_sections(
-            prompt_assembly.content,
-            agent_instruction,
-            active_skill_instruction,
-            environment_instruction,
-            runtime_instruction,
-        )
         stable_payload = {
             "schema": schema,
             "task_contract": _task_contract_stable_payload(contract),
-            "task_environment": _environment_stable_payload(environment_payload),
+            "task_environment": _environment_model_visible_payload(environment_payload),
             "available_tools": _stable_tool_catalog_payload(tool_payloads),
             "tool_catalog_hash": _stable_json_hash([dict(item) for item in tool_payloads]),
-            "skill_candidates": _skill_candidate_payload(assembly_payload),
-            "active_skills": active_skill_meta,
         }
         if task_run_context_enabled:
             stable_payload["task_run"] = _task_run_stable_payload(task_run, graph_runtime_projection=graph_runtime_projection)
@@ -419,7 +405,7 @@ class RuntimeCompiler:
         }
         volatile_payload = {
             "execution_state": dict(execution_state or {}),
-            "observations": [dict(item) for item in list(observations or [])],
+            "observations": _observations_model_visible_payload(observations),
         }
         if task_run_context_enabled:
             volatile_payload["runtime_envelope"] = _runtime_envelope_model_visible(envelope.to_dict())
@@ -521,6 +507,7 @@ class RuntimeCompiler:
             ),
         ).to_dict()
         prompt_manifest["segment_plan_ref"] = segment_plan.segment_plan_id
+        _attach_model_message_metrics(prompt_manifest, model_messages=model_messages, segment_plan=segment_plan.to_dict())
         packet = RuntimeInvocationPacket(
             packet_id=packet_id,
             envelope_ref=envelope.envelope_id,
@@ -530,7 +517,6 @@ class RuntimeCompiler:
             task_run_id=task_run_id,
             model_messages=model_messages,
             segment_plan=segment_plan.to_dict(),
-            system_instructions=system,
             agent_role_prompt="你是当前工作的执行者，负责基于真实上下文继续推进并交付结果。",
             prompt_pack_refs=prompt_assembly.prompt_pack_refs,
             available_tools=tool_payloads,
@@ -541,6 +527,7 @@ class RuntimeCompiler:
             diagnostics={
                 "prompt_manifest": prompt_manifest,
                 "segment_plan": segment_plan.to_dict(),
+                "model_input_authority": "runtime_invocation_packet.model_messages",
             },
         )
         return RuntimeCompilationResult(envelope=envelope, packet=packet)
@@ -638,34 +625,28 @@ class RuntimeCompiler:
         agent_instruction = _agent_prompt_instruction(agent_prompt_assembly)
         soul_instruction = _soul_instruction(soul_role_prompt)
         skill_candidate_instruction = _skill_candidate_instruction(assembly_payload)
-        system = _join_prompt_sections(
-            prompt_assembly.content,
-            soul_instruction,
-            agent_instruction,
-            environment_instruction,
-            runtime_instruction,
-            skill_candidate_instruction,
-        )
         stable_payload = {
             "schema": schema,
-            "task_environment": _environment_stable_payload(environment_payload),
+            "task_environment": _environment_model_visible_payload(environment_payload),
             "available_tools": _stable_tool_catalog_payload(tool_payloads),
             "tool_catalog_hash": _stable_json_hash([dict(item) for item in tool_payloads]),
-            "skill_candidates": _skill_candidate_payload(assembly_payload),
         }
         dynamic_payload = {
-            "operation_authorization": dict(assembly_payload.get("operation_authorization") or {}),
+            "operation_authorization": _operation_authorization_model_visible(
+                dict(assembly_payload.get("operation_authorization") or {}),
+                profile_payload=profile_payload,
+            ),
             "runtime_context": _runtime_context_payload(
                 assembly_payload,
                 agent_visible_runtime_projection=agent_visible_runtime_projection,
             ),
         }
         volatile_payload = {
-            "runtime_envelope": envelope.to_dict(),
+            "runtime_envelope": _runtime_envelope_model_visible(envelope.to_dict()),
             "turn_id": turn_id,
             "history": [dict(item) for item in list(history or [])],
             "user_message": str(user_message or ""),
-            "observations": [dict(item) for item in list(observations or [])],
+            "observations": _observations_model_visible_payload(observations),
         }
         packet_id = f"rtpacket:{turn_id}:tool_observation_followup:{len(observations) + 1}"
         model_messages, segment_plan = _model_messages_and_segment_plan(
@@ -753,6 +734,7 @@ class RuntimeCompiler:
             volatile_state_refs=("runtime_envelope", "turn_id", "history", "user_message", "observations"),
         ).to_dict()
         prompt_manifest["segment_plan_ref"] = segment_plan.segment_plan_id
+        _attach_model_message_metrics(prompt_manifest, model_messages=model_messages, segment_plan=segment_plan.to_dict())
         packet = RuntimeInvocationPacket(
             packet_id=packet_id,
             envelope_ref=envelope.envelope_id,
@@ -762,7 +744,6 @@ class RuntimeCompiler:
             turn_id=turn_id,
             model_messages=model_messages,
             segment_plan=segment_plan.to_dict(),
-            system_instructions=system,
             agent_role_prompt="你是当前 turn 的主 agent，负责基于观察继续行动。",
             prompt_pack_refs=prompt_assembly.prompt_pack_refs,
             available_tools=tool_payloads,
@@ -773,6 +754,7 @@ class RuntimeCompiler:
             diagnostics={
                 "prompt_manifest": prompt_manifest,
                 "segment_plan": segment_plan.to_dict(),
+                "model_input_authority": "runtime_invocation_packet.model_messages",
             },
         )
         return RuntimeCompilationResult(envelope=envelope, packet=packet)
@@ -841,7 +823,7 @@ def model_action_request_schema(turn_id: str) -> dict[str, Any]:
     return {
         "authority": "harness.loop.model_action_request",
         "action_type": "respond|ask_user|tool_call|request_task_run|request_registered_engagement|block",
-        "public_progress_note": "一句给用户看的当前阶段说明；必须自然、简短、可公开；不要写思维链、内部系统词、runtime、TaskRun、执行器、packet。",
+        "public_progress_note": "一句用户可理解的进展说明；只写正在做什么或刚完成什么；不包含内部编号、系统结构、协议字段或隐藏推理。",
         "final_answer": "",
         "user_question": "",
         "blocking_reason": "",
@@ -889,7 +871,7 @@ def task_execution_action_schema() -> dict[str, Any]:
     return {
         "authority": "harness.loop.model_action_request",
         "action_type": "respond|ask_user|tool_call|block",
-        "public_progress_note": "一句给用户看的当前阶段说明；必须自然、简短、可公开；不要写思维链、内部系统词、runtime、TaskRun、执行器、packet。",
+        "public_progress_note": "一句用户可理解的进展说明；只写正在做什么或刚完成什么；不包含内部编号、系统结构、协议字段或隐藏推理。",
         "final_answer": "",
         "user_question": "",
         "blocking_reason": "",
@@ -972,6 +954,41 @@ def _model_messages_and_segment_plan(
         message_specs=clean_specs,
     )
     return model_messages, segment_plan
+
+
+def _attach_model_message_metrics(
+    prompt_manifest: dict[str, Any],
+    *,
+    model_messages: list[dict[str, Any]],
+    segment_plan: dict[str, Any],
+) -> None:
+    segments = [dict(item) for item in list(segment_plan.get("segments") or []) if isinstance(item, dict)]
+    message_chars = [len(str(dict(item).get("content") or "")) for item in list(model_messages or []) if isinstance(item, dict)]
+    token_estimate = dict(prompt_manifest.get("token_estimate") or {})
+    token_estimate["assembly_prompt_chars"] = int(token_estimate.get("prompt_chars") or 0)
+    token_estimate["model_visible_chars"] = sum(message_chars)
+    token_estimate["model_message_count"] = len(message_chars)
+    token_estimate["cacheable_prefix_chars"] = sum(
+        message_chars[int(segment.get("model_message_index"))]
+        for segment in segments
+        if str(segment.get("cache_role") or "") in {"cacheable_prefix", "session_stable"}
+        and _valid_message_index(segment.get("model_message_index"), message_chars)
+    )
+    token_estimate["volatile_chars"] = sum(
+        message_chars[int(segment.get("model_message_index"))]
+        for segment in segments
+        if str(segment.get("cache_role") or "") == "volatile"
+        and _valid_message_index(segment.get("model_message_index"), message_chars)
+    )
+    prompt_manifest["token_estimate"] = token_estimate
+
+
+def _valid_message_index(index: Any, message_chars: list[int]) -> bool:
+    try:
+        value = int(index)
+    except (TypeError, ValueError):
+        return False
+    return 0 <= value < len(message_chars)
 
 
 def _packet_payload_content(title: str, payload: dict[str, Any]) -> str:
@@ -1214,8 +1231,8 @@ def _runtime_projection_instruction(projection: dict[str, Any]) -> str:
     if action_notes:
         lines.append("- 你可以" + "、".join(action_notes) + "。")
     lines.append(
-        "- 每次输出 JSON 时必须填写 public_progress_note：这是一句给用户看的当前阶段说明，"
-        "用于让用户理解你正在推进什么；不要写思维链、隐藏系统规则、runtime、TaskRun、执行器、packet、内部模块名或协议校验细节。"
+        "- 每次输出 JSON 时必须填写 public_progress_note：这是一句用户可理解的进展说明，"
+        "只写正在做什么或刚完成什么；不包含内部编号、系统结构、协议字段或隐藏推理。"
     )
     if projection.get("invocation_kind") == "task_execution":
         lines.append(
@@ -1268,27 +1285,65 @@ def _operation_authorization_model_visible(
 ) -> dict[str, Any]:
     payload = dict(authorization or {})
     policy = dict(profile_payload.get("operation_authorization_projection") or {})
-    mode = str(policy.get("model_visible") or policy.get("mode") or "full").strip()
-    if mode != "summary_without_denials":
+    mode = str(policy.get("model_visible") or policy.get("mode") or "summary_without_denials").strip()
+    if mode == "full":
         return payload
     allowed_operations = [
         str(item)
         for item in list(payload.get("allowed_operations") or [])
         if str(item)
     ]
+    denied_operations = [
+        str(item)
+        for item in list(payload.get("denied_operations") or [])
+        if str(item)
+    ]
+    denied_groups = _operation_groups(denied_operations)
     return {
         "authority": "harness.runtime.operation_authorization.model_visible_summary",
         "allowed_operations": allowed_operations,
         "allowed_operation_count": len(allowed_operations),
-        "omitted_denials": True,
-        "reason": str(policy.get("reason") or "当前编排配置要求只向模型展示可用操作摘要。"),
+        "denied_operation_count": len(denied_operations),
+        "critical_denied_groups": denied_groups,
+        "omitted_denial_details": True,
+        "summary_policy": "model_visible_minimal",
+        "authorization_hash": _stable_json_hash(payload) if payload else "",
     }
 
 
 def _operation_authorization_projection_ref(profile_payload: dict[str, Any]) -> str:
     policy = dict(profile_payload.get("operation_authorization_projection") or {})
-    mode = str(policy.get("model_visible") or policy.get("mode") or "full").strip()
-    return "operation_authorization.model_visible_summary" if mode == "summary_without_denials" else "operation_authorization"
+    mode = str(policy.get("model_visible") or policy.get("mode") or "summary_without_denials").strip()
+    return "operation_authorization" if mode == "full" else "operation_authorization.model_visible_summary"
+
+
+def _operation_groups(operation_ids: list[str] | tuple[str, ...]) -> list[str]:
+    groups: set[str] = set()
+    for operation_id in operation_ids:
+        item = str(operation_id or "").strip()
+        if not item:
+            continue
+        if item.startswith("op.git_"):
+            groups.add("git")
+        elif item in {"op.shell", "op.python_repl"}:
+            groups.add("command_execution")
+        elif item in {"op.write_file", "op.edit_file"}:
+            groups.add("file_write")
+        elif item in {"op.web_search", "op.fetch_url"}:
+            groups.add("network")
+        elif item in {"op.browser_control"}:
+            groups.add("browser")
+        elif item.startswith("op.subagent_"):
+            groups.add("subagent_lifecycle")
+        elif item in {"op.image_generate"}:
+            groups.add("image_generation")
+        elif item.startswith("op.mcp_"):
+            groups.add("mcp")
+        elif item in {"op.read_file", "op.search_files", "op.search_text", "op.list_dir", "op.glob_paths", "op.stat_path", "op.path_exists"}:
+            groups.add("file_read")
+        else:
+            groups.add("other")
+    return sorted(groups)
 
 
 def _work_rollout_instruction(work_rollout: dict[str, Any] | None) -> str:
@@ -1415,6 +1470,57 @@ def _environment_stable_payload(environment_payload: dict[str, Any]) -> dict[str
     return payload
 
 
+def _environment_model_visible_payload(environment_payload: dict[str, Any]) -> dict[str, Any]:
+    payload = dict(environment_payload or {})
+    group = dict(payload.get("group") or {})
+    storage = dict(payload.get("storage_space") or {})
+    sandbox = dict(payload.get("sandbox_policy") or {})
+    execution = dict(payload.get("execution_policy") or {})
+    file_management = dict(payload.get("file_management") or {})
+    environment_boundary = dict(payload.get("environment_boundary") or {})
+    boundary_contract = dict(environment_boundary.get("boundary_contract") or {})
+    prompt_refs = [
+        str(item.get("prompt_id") or "").strip()
+        for item in list(payload.get("environment_prompts") or [])
+        if isinstance(item, dict) and str(item.get("prompt_id") or "").strip()
+    ]
+    model_payload = {
+        "environment_id": str(payload.get("environment_id") or payload.get("task_environment_id") or ""),
+        "title": str(payload.get("title") or ""),
+        "group_id": str(group.get("group_id") or ""),
+        "environment_kind": str(payload.get("environment_kind") or ""),
+        "storage": _drop_empty_payload(
+            {
+                "environment_storage_root": str(storage.get("environment_storage_root") or ""),
+                "artifact_root": str(storage.get("artifact_root") or ""),
+                "cache_root": str(storage.get("cache_root") or ""),
+                "storage_namespace": str(storage.get("storage_namespace") or ""),
+            }
+        ),
+        "resource_boundary": _drop_empty_payload(
+            {
+                "workspace_access": str(sandbox.get("workspace_access") or execution.get("real_workspace_access") or ""),
+                "write_policy": str(sandbox.get("write_policy") or execution.get("write_scope_policy") or ""),
+                "shell_policy": str(sandbox.get("shell_policy") or execution.get("shell_execution_policy") or ""),
+                "browser_policy": str(sandbox.get("browser_policy") or execution.get("browser_execution_policy") or ""),
+                "network_policy": str(sandbox.get("network_policy") or execution.get("network_execution_policy") or ""),
+                "canonical_write_policy": str(file_management.get("canonical_write_policy") or ""),
+            }
+        ),
+        "environment_prompt_refs": prompt_refs,
+        "boundary_contract": _drop_empty_payload(
+            {
+                "tool_authority": str(boundary_contract.get("tool_authority") or ""),
+                "file_boundary_authority": str(boundary_contract.get("file_boundary_authority") or ""),
+                "environment_prompts_source": str(boundary_contract.get("environment_prompts_source") or ""),
+            }
+        ),
+        "policy_hash": _stable_json_hash(payload) if payload else "",
+        "authority": "task_system.environment.model_visible_projection",
+    }
+    return _drop_empty_payload(model_payload)
+
+
 def _stable_tool_catalog_payload(tool_payloads: tuple[dict[str, Any], ...]) -> list[dict[str, Any]]:
     catalog: list[dict[str, Any]] = []
     for item in tool_payloads:
@@ -1422,47 +1528,24 @@ def _stable_tool_catalog_payload(tool_payloads: tuple[dict[str, Any], ...]) -> l
         name = str(tool.get("tool_name") or tool.get("name") or "").strip()
         if not name:
             continue
+        required_inputs = [str(value) for value in list(tool.get("required_inputs") or []) if str(value)]
         payload: dict[str, Any] = {
             "tool_name": name,
             "operation_id": str(tool.get("operation_id") or ""),
-            "display_name": str(tool.get("display_name") or name),
-            "required_inputs": [str(value) for value in list(tool.get("required_inputs") or []) if str(value)],
-            "optional_inputs": [str(value) for value in list(tool.get("optional_inputs") or []) if str(value)],
-            "owner_scope": str(tool.get("owner_scope") or "none"),
-            "read_only": bool(tool.get("read_only") is True),
         }
-        description = str(tool.get("description") or "").strip()
-        if description:
-            payload["description"] = description
+        if required_inputs:
+            payload["required_inputs"] = required_inputs
+        owner_scope = str(tool.get("owner_scope") or "")
+        if owner_scope and owner_scope != "none":
+            payload["owner_scope"] = owner_scope
+        if bool(tool.get("read_only") is True):
+            payload["read_only"] = True
         input_schema = dict(tool.get("input_schema") or {}) if isinstance(tool.get("input_schema"), dict) else {}
         if input_schema:
             payload["input_schema_summary"] = _input_schema_summary(input_schema)
-            payload["input_schema_hash"] = _stable_json_hash(input_schema)
+            payload["input_schema_ref"] = _short_hash(_stable_json_hash(input_schema))
         catalog.append(payload)
     return catalog
-
-
-def _skill_candidate_payload(assembly_payload: dict[str, Any]) -> list[dict[str, Any]]:
-    candidates: list[dict[str, Any]] = []
-    for item in list(assembly_payload.get("skill_runtime_views") or []):
-        if not isinstance(item, dict):
-            continue
-        candidates.append(
-            _drop_empty_payload(
-                {
-                    "skill_id": str(item.get("skill_id") or ""),
-                    "title": str(item.get("title") or ""),
-                    "capability": str(item.get("method_summary") or ""),
-                    "output_boundary": str(item.get("output_boundary") or ""),
-                    "required_operations": [
-                        str(operation)
-                        for operation in list(item.get("required_operations") or [])
-                        if str(operation)
-                    ],
-                }
-            )
-        )
-    return candidates
 
 
 def _skill_candidate_instruction(assembly_payload: dict[str, Any]) -> str:
@@ -1514,31 +1597,54 @@ def _active_skill_instruction(*, base_dir: Path, assembly_payload: dict[str, Any
 
 def _input_schema_summary(schema: dict[str, Any]) -> dict[str, Any]:
     properties = dict(schema.get("properties") or {})
-    summarized_properties: dict[str, Any] = {}
+    summarized_properties: dict[str, str] = {}
     for name, value in properties.items():
         if not isinstance(value, dict):
             continue
-        field: dict[str, Any] = {}
-        for key in ("type", "format", "enum", "default"):
-            if key in value:
-                field[key] = value.get(key)
+        field_type = str(value.get("type") or "any")
         if isinstance(value.get("items"), dict):
             item_payload = dict(value.get("items") or {})
-            field["items"] = {key: item_payload.get(key) for key in ("type", "format", "enum") if key in item_payload}
-        description = str(value.get("description") or "").strip()
-        if description:
-            field["description"] = description
-        summarized_properties[str(name)] = field
-    return {
-        "type": str(schema.get("type") or "object"),
-        "required": [str(item) for item in list(schema.get("required") or []) if str(item)],
-        "properties": summarized_properties,
-    }
+            item_type = str(item_payload.get("type") or "any")
+            field_type = f"{field_type}<{item_type}>"
+        parts = [field_type]
+        if value.get("format"):
+            parts.append(f"format={value.get('format')}")
+        if "enum" in value:
+            enum_values = [str(item) for item in list(value.get("enum") or [])]
+            if enum_values:
+                parts.append("enum=" + "|".join(enum_values))
+        if "default" in value:
+            parts.append("default=" + json.dumps(value.get("default"), ensure_ascii=False, separators=(",", ":")))
+        summarized_properties[str(name)] = " ".join(parts)
+    summary: dict[str, Any] = {"properties": summarized_properties}
+    schema_type = str(schema.get("type") or "object")
+    if schema_type != "object":
+        summary["type"] = schema_type
+    required = [str(item) for item in list(schema.get("required") or []) if str(item)]
+    if required:
+        summary["required"] = required
+    return summary
+
+
+def _compact_text(value: Any, *, limit: int = 120) -> str:
+    text = " ".join(str(value or "").split())
+    if limit <= 0 or len(text) <= limit:
+        return text
+    return text[: max(0, limit - 3)].rstrip() + "..."
 
 
 def _stable_json_hash(value: Any) -> str:
     payload = json.dumps(_json_stable(value), ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return "sha256:" + hashlib.sha256(payload.encode("utf-8", errors="ignore")).hexdigest()
+
+
+def _short_hash(value: str, *, prefix_chars: int = 10) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    if text.startswith("sha256:"):
+        return "sha256:" + text.removeprefix("sha256:")[:prefix_chars]
+    return text[:prefix_chars]
 
 
 def _json_stable(value: Any) -> Any:
@@ -1934,8 +2040,67 @@ def _graph_task_contract_origin_model_visible(origin: dict[str, Any]) -> dict[st
 
 def _runtime_envelope_model_visible(envelope: dict[str, Any]) -> dict[str, Any]:
     payload = dict(envelope or {})
-    payload.pop("graph_slot", None)
-    return payload
+    artifact_policy = dict(payload.get("artifact_policy") or {})
+    permission_policy = dict(payload.get("permission_policy") or {})
+    mode_policy = dict(payload.get("mode_policy") or {})
+    output_policy = dict(payload.get("output_policy") or {})
+    return _drop_empty_payload(
+        {
+            "envelope_id": str(payload.get("envelope_id") or ""),
+            "scope_kind": str(payload.get("scope_kind") or ""),
+            "session_id": str(payload.get("session_id") or ""),
+            "turn_id": str(payload.get("turn_id") or ""),
+            "task_run_id": str(payload.get("task_run_id") or ""),
+            "agent_profile_ref": str(payload.get("agent_profile_ref") or ""),
+            "task_environment_ref": str(payload.get("task_environment_ref") or ""),
+            "mode": str(mode_policy.get("mode") or ""),
+            "interaction_mode": str(mode_policy.get("interaction_mode") or ""),
+            "artifact_root": str(artifact_policy.get("artifact_root") or ""),
+            "permission_scope": str(permission_policy.get("permission_scope") or permission_policy.get("scope") or ""),
+            "output_format": str(output_policy.get("format") or ""),
+            "authority": "harness.runtime.envelope.model_visible_projection",
+        }
+    )
+
+
+def _observations_model_visible_payload(observations: list[dict[str, Any]] | tuple[dict[str, Any], ...]) -> list[dict[str, Any]]:
+    projected: list[dict[str, Any]] = []
+    for item in list(observations or []):
+        if not isinstance(item, dict):
+            continue
+        observation = dict(item.get("observation") or {})
+        source_payload = observation if observation else item
+        payload = {
+            "observation_id": str(item.get("observation_id") or observation.get("observation_id") or ""),
+            "source": str(source_payload.get("source") or source_payload.get("tool_name") or ""),
+            "summary": _compact_text(
+                source_payload.get("summary")
+                or source_payload.get("content")
+                or source_payload.get("text")
+                or item.get("summary")
+                or item.get("content")
+                or "",
+                limit=600,
+            ),
+            "error": _compact_text(source_payload.get("error") or item.get("error") or "", limit=500),
+            "structured_error": _structured_error_model_visible_payload(
+                source_payload.get("structured_error") or item.get("structured_error")
+            ),
+        }
+        projected.append(_drop_empty_payload(payload))
+    return projected
+
+
+def _structured_error_model_visible_payload(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    payload = {
+        "code": _compact_text(value.get("code") or value.get("error_code") or "", limit=120),
+        "message": _compact_text(value.get("message") or value.get("detail") or "", limit=500),
+        "retryable": value.get("retryable") if isinstance(value.get("retryable"), bool) else None,
+        "origin": _compact_text(value.get("origin") or "", limit=120),
+    }
+    return _drop_empty_payload(payload)
 
 
 def _resource_requirements_stable_payload(resource_requirements: dict[str, Any]) -> dict[str, Any]:
@@ -2104,40 +2269,31 @@ def _runtime_context_payload(
 ) -> dict[str, Any]:
     profile = dict(assembly_payload.get("profile") or {})
     environment = dict(assembly_payload.get("task_environment") or {})
+    storage = dict(environment.get("storage_space") or {})
     payload = {
         "assembly_id": str(assembly_payload.get("assembly_id") or ""),
         "agent_profile_ref": str(assembly_payload.get("agent_profile_ref") or ""),
         "mode": str(profile.get("mode") or ""),
         "interaction_mode": str(profile.get("interaction_mode") or ""),
-        "task_lifecycle_policy": dict(profile.get("task_lifecycle_policy") or {}),
-        "planning_policy": dict(profile.get("planning_policy") or {}),
-        "self_review_policy": dict(profile.get("self_review_policy") or {}),
-        "permission_policy": dict(profile.get("permission_policy") or {}),
         "task_environment_id": str(environment.get("environment_id") or ""),
-        "storage_space": dict(environment.get("storage_space") or {}),
+        "storage": _drop_empty_payload(
+            {
+                "environment_storage_root": str(storage.get("environment_storage_root") or ""),
+                "artifact_root": str(storage.get("artifact_root") or ""),
+            }
+        ),
         "agent_prompt_refs": _string_tuple(assembly_payload.get("agent_prompt_refs")),
         "environment_prompt_refs": _string_tuple(assembly_payload.get("environment_prompt_refs")),
-        "environment_boundary": {
-            "authority": str(dict(environment.get("environment_boundary") or {}).get("authority") or ""),
-            "environment_prompts_source": str(
-                dict(dict(environment.get("environment_boundary") or {}).get("boundary_contract") or {}).get(
-                    "environment_prompts_source"
-                )
-                or ""
-            ),
-            "tool_authority": str(
-                dict(dict(environment.get("environment_boundary") or {}).get("boundary_contract") or {}).get("tool_authority")
-                or ""
-            ),
-            "file_boundary_authority": str(
-                dict(dict(environment.get("environment_boundary") or {}).get("boundary_contract") or {}).get(
-                    "file_boundary_authority"
-                )
-                or ""
-            ),
-        },
         "allowed_operation_count": len(list(dict(assembly_payload.get("operation_authorization") or {}).get("allowed_operations") or [])),
+        "runtime_policy_refs": _drop_empty_payload(
+            {
+                "permission_scope": str(dict(profile.get("permission_policy") or {}).get("permission_scope") or ""),
+                "task_lifecycle_hash": _stable_json_hash(dict(profile.get("task_lifecycle_policy") or {})),
+                "planning_hash": _stable_json_hash(dict(profile.get("planning_policy") or {})),
+                "self_review_hash": _stable_json_hash(dict(profile.get("self_review_policy") or {})),
+            }
+        ),
     }
     if agent_visible_runtime_projection:
         payload["agent_visible_runtime_projection"] = dict(agent_visible_runtime_projection)
-    return payload
+    return _drop_empty_payload(payload)

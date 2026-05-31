@@ -964,17 +964,40 @@ async def _run_bounded_tool_observation(
                 },
             )
         except Exception as exc:
+            structured_error = _structured_error_from_exception(exc)
             observation = build_observation_record(
                 source=f"tool:{tool_name}",
                 packet_ref=packet_ref,
                 action_request_ref=action_request.request_id,
                 execution_context_ref=execution_context.execution_context_id,
                 summary="工具执行失败。",
-                payload={"tool_name": tool_name, "tool_args": tool_args, "execution_context": execution_context.to_dict()},
+                payload={
+                    "tool_name": tool_name,
+                    "tool_args": tool_args,
+                    "execution_context": execution_context.to_dict(),
+                    **({"structured_error": structured_error} if structured_error else {}),
+                },
                 error=str(exc),
             )
     runtime_host.runtime_objects.put_object("observation", observation.observation_id, observation.to_dict())
     return observation.to_dict()
+
+
+def _structured_error_from_exception(exc: Exception) -> dict[str, Any]:
+    payload = getattr(exc, "structured_error", None)
+    if not isinstance(payload, dict):
+        return {}
+    return {
+        key: value
+        for key, value in {
+            "code": str(payload.get("code") or payload.get("error_code") or "tool_error"),
+            "message": str(payload.get("message") or str(exc) or ""),
+            "retryable": payload.get("retryable") if isinstance(payload.get("retryable"), bool) else True,
+            "origin": str(payload.get("origin") or "tool_provider"),
+            "status_code": payload.get("status_code") if isinstance(payload.get("status_code"), int) else None,
+        }.items()
+        if value not in ("", None)
+    }
 
 
 async def _initialize_agent_todo(

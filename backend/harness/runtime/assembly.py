@@ -357,12 +357,7 @@ def _skill_runtime_views_for_profile(
         }
         if required and not required.issubset(allowed):
             continue
-        views.append(
-            skill_runtime_view_from_skill_definition(
-                skill,
-                task_reason="Candidate capability available under the current agent operation boundary.",
-            )
-        )
+        views.append(skill_runtime_view_from_skill_definition(skill))
     return tuple(view.to_dict() for view in views)
 
 

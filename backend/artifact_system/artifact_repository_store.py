@@ -223,6 +223,38 @@ class ArtifactRepositoryStore:
         conn.row_factory = sqlite3.Row
         return conn
 
+    def delete_scope(
+        self,
+        *,
+        task_run_ids: set[str] | None = None,
+        graph_run_ids: set[str] | None = None,
+        scope_ids: set[str] | None = None,
+    ) -> dict[str, Any]:
+        task_ids = {str(item).strip() for item in set(task_run_ids or set()) if str(item).strip()}
+        graph_ids = {str(item).strip() for item in set(graph_run_ids or set()) if str(item).strip()}
+        scopes = {str(item).strip() for item in set(scope_ids or set()) if str(item).strip()}
+        if not task_ids and not graph_ids and not scopes:
+            return {"authority": "artifact_repository.store.delete_scope", "deleted_counts": {}}
+        counts: dict[str, int] = {}
+        with self._connect() as conn:
+            record_where, record_params = _artifact_record_delete_where(task_ids=task_ids, graph_run_ids=graph_ids, scope_ids=scopes)
+            before_records = int(conn.execute(f"SELECT COUNT(*) FROM artifact_records WHERE {record_where}", tuple(record_params)).fetchone()[0])
+            conn.execute(f"DELETE FROM artifact_records WHERE {record_where}", tuple(record_params))
+            if before_records:
+                counts["artifact_records"] = before_records
+            repo_where, repo_params = _artifact_repository_delete_where(task_ids=task_ids, scope_ids=scopes)
+            before_repos = int(conn.execute(f"SELECT COUNT(*) FROM artifact_repositories WHERE {repo_where}", tuple(repo_params)).fetchone()[0])
+            conn.execute(f"DELETE FROM artifact_repositories WHERE {repo_where}", tuple(repo_params))
+            if before_repos:
+                counts["artifact_repositories"] = before_repos
+        return {
+            "authority": "artifact_repository.store.delete_scope",
+            "task_run_ids": sorted(task_ids),
+            "graph_run_ids": sorted(graph_ids),
+            "scope_ids": sorted(scopes),
+            "deleted_counts": counts,
+        }
+
     def _ensure_schema(self) -> None:
         with self._connect() as conn:
             conn.executescript(
@@ -303,6 +335,38 @@ class ArtifactRepositoryStore:
 def build_artifact_id(*parts: str) -> str:
     raw = "|".join(str(part or "").strip() for part in parts)
     return f"artifactrec:{hashlib.sha1(raw.encode('utf-8')).hexdigest()[:20]}"
+
+
+def _artifact_record_delete_where(*, task_ids: set[str], graph_run_ids: set[str], scope_ids: set[str]) -> tuple[str, list[str]]:
+    clauses: list[str] = []
+    params: list[str] = []
+    if task_ids:
+        placeholders = ",".join("?" for _ in task_ids)
+        clauses.append(f"task_run_id IN ({placeholders})")
+        params.extend(sorted(task_ids))
+    if graph_run_ids:
+        placeholders = ",".join("?" for _ in graph_run_ids)
+        clauses.append(f"graph_run_id IN ({placeholders})")
+        params.extend(sorted(graph_run_ids))
+    if scope_ids:
+        placeholders = ",".join("?" for _ in scope_ids)
+        clauses.append(f"scope_id IN ({placeholders})")
+        params.extend(sorted(scope_ids))
+    return " OR ".join(clauses), params
+
+
+def _artifact_repository_delete_where(*, task_ids: set[str], scope_ids: set[str]) -> tuple[str, list[str]]:
+    clauses: list[str] = []
+    params: list[str] = []
+    if task_ids:
+        placeholders = ",".join("?" for _ in task_ids)
+        clauses.append(f"task_run_id IN ({placeholders})")
+        params.extend(sorted(task_ids))
+    if scope_ids:
+        placeholders = ",".join("?" for _ in scope_ids)
+        clauses.append(f"scope_id IN ({placeholders})")
+        params.extend(sorted(scope_ids))
+    return " OR ".join(clauses), params
 
 
 def content_hash(value: str) -> str:

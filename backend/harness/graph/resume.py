@@ -69,6 +69,28 @@ class GraphResumeService:
             state=state,
             active_work_orders=active,
         )
+        if state.status == "failed" and dispatch_ready:
+            recoverable_failed = _recoverable_failed_node_ids(state, services=self._services)
+            if recoverable_failed:
+                replay = self._graph_loop.requeue_recoverable_failed_nodes_and_checkpoint(
+                    state=state,
+                    node_ids=recoverable_failed,
+                )
+                dispatch = self._graph_loop.dispatch_ready_and_checkpoint(
+                    graph_config=graph_config,
+                    graph_run_id=graph_run_id,
+                    max_requests=max_requests,
+                )
+                return GraphResumeResult(
+                    graph_run_id=graph_run_id,
+                    resumed=True,
+                    reason="recoverable_failed_nodes_requeued",
+                    loop_state=dispatch.loop_state,
+                    checkpoint=dict(dispatch.checkpoint),
+                    active_work_orders=_active_work_orders_from_state(dispatch.loop_state),
+                    node_work_orders=dispatch.node_work_orders,
+                    events=tuple([*recovered, *replay.events, *dispatch.events]),
+                )
         if state.status in {"completed", "failed"}:
             return GraphResumeResult(
                 graph_run_id=graph_run_id,
@@ -96,6 +118,26 @@ class GraphResumeService:
                 events=tuple([*recovered, *reset.events]),
             )
         if state.status == "blocked" and dispatch_ready:
+            revision = self._graph_loop.requeue_ready_revision_targets_and_checkpoint(
+                graph_config=graph_config,
+                state=state,
+            )
+            if tuple(revision.loop_state.ready_node_ids if revision.loop_state is not None else ()):
+                dispatch = self._graph_loop.dispatch_ready_and_checkpoint(
+                    graph_config=graph_config,
+                    graph_run_id=graph_run_id,
+                    max_requests=max_requests,
+                )
+                return GraphResumeResult(
+                    graph_run_id=graph_run_id,
+                    resumed=True,
+                    reason="revision_targets_requeued",
+                    loop_state=dispatch.loop_state,
+                    checkpoint=dict(dispatch.checkpoint),
+                    active_work_orders=_active_work_orders_from_state(dispatch.loop_state),
+                    node_work_orders=dispatch.node_work_orders,
+                    events=tuple([*recovered, *revision.events, *dispatch.events]),
+                )
             blocked = _blocked_replay_node_ids(state)
             if blocked:
                 replay = self._graph_loop.requeue_blocked_nodes_and_checkpoint(
@@ -284,3 +326,29 @@ def _blocked_replay_node_ids(state: GraphLoopState) -> tuple[str, ...]:
         for node_id in state.blocked_node_ids
         if str(dict(node_states.get(node_id) or {}).get("status") or "") == "blocked"
     )
+
+
+def _recoverable_failed_node_ids(state: GraphLoopState, *, services: Any | None) -> tuple[str, ...]:
+    if services is None:
+        return ()
+    result_loader = getattr(services, "runtime_objects", None)
+    if result_loader is None:
+        return ()
+    targets: list[str] = []
+    for node_id in tuple(state.failed_node_ids or ()):
+        node_state = dict(dict(state.node_states or {}).get(node_id) or {})
+        if str(node_state.get("status") or "") != "failed":
+            continue
+        result_ref = str(node_state.get("result_ref") or "")
+        if not result_ref:
+            continue
+        payload = result_loader.get_object(result_ref)
+        if not isinstance(payload, dict):
+            continue
+        error = dict(payload.get("error") or {})
+        diagnostics = dict(payload.get("diagnostics") or {})
+        executor_result = dict(diagnostics.get("executor_result") or {})
+        reason = str(error.get("reason") or executor_result.get("error") or "")
+        if reason in {"task_run_executor_already_running", "model_call_recovery_required"}:
+            targets.append(node_id)
+    return tuple(dict.fromkeys(targets))

@@ -38,6 +38,7 @@ class SkillRecord:
     capability_tags: list[str] = field(default_factory=list)
     preferred_route: str = ""
     forbidden_routes: list[str] = field(default_factory=list)
+    not_for: list[str] = field(default_factory=list)
     routing_hints: list[str] = field(default_factory=list)
     examples: list[str] = field(default_factory=list)
     activation_policy: str = "model_visible"
@@ -67,6 +68,7 @@ def _record_from_contract(contract: SkillContract) -> SkillRecord:
         capability_tags=list(runtime.capability_tags),
         preferred_route=runtime.preferred_route,
         forbidden_routes=list(runtime.forbidden_routes),
+        not_for=list(runtime.not_for),
         routing_hints=list(runtime.routing_hints),
         examples=list(runtime.examples),
         activation_policy=runtime.activation_policy,
@@ -97,6 +99,7 @@ def _contract_from_record(record: SkillRecord, *, body: str = "") -> SkillContra
             capability_tags=record.capability_tags,
             preferred_route=record.preferred_route,
             forbidden_routes=record.forbidden_routes,
+            not_for=record.not_for,
             routing_hints=record.routing_hints,
             examples=record.examples,
             activation_policy=record.activation_policy,
@@ -214,6 +217,7 @@ def scan_skills(base_dir: Path) -> list[SkillRecord]:
             capability_tags=_coerce_list(_lookup(meta, "metadata.capability_tags")),
             preferred_route=_coerce_str(_lookup(meta, "metadata.preferred_route")),
             forbidden_routes=_coerce_list(_lookup(meta, "metadata.forbidden_routes")),
+            not_for=_coerce_list(_lookup(meta, "metadata.not_for") or _lookup(meta, "metadata.forbidden_uses")),
             routing_hints=_coerce_list(_lookup(meta, "metadata.routing_hints")),
             examples=_coerce_list(_lookup(meta, "metadata.examples")),
             activation_policy=_coerce_str(_lookup(meta, "metadata.activation_policy"), "model_visible") or "model_visible",

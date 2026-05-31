@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import threading
 import time
 import uuid
@@ -58,6 +59,44 @@ class RuntimeObjectStore:
         body = json.loads(path.read_text(encoding="utf-8"))
         return dict(body.get("payload") or {})
 
+    def delete_ref(self, ref: str) -> bool:
+        clean_kind, clean_id = self._parse_ref(ref)
+        path = self._path(clean_kind, clean_id)
+        if not path.exists():
+            return False
+        path.unlink()
+        return True
+
+    def delete_graph_run_objects(self, *, graph_run_id: str, task_run_ids: set[str] | None = None) -> dict[str, Any]:
+        graph_id = str(graph_run_id or "").strip()
+        task_ids = {str(item).strip() for item in set(task_run_ids or set()) if str(item).strip()}
+        if not graph_id and not task_ids:
+            return {"authority": self.authority, "deleted_counts": {}}
+        counts: dict[str, int] = {}
+        with _OBJECT_STORE_LOCK:
+            for path in self.object_dir.glob("*/*.json"):
+                try:
+                    body = json.loads(path.read_text(encoding="utf-8"))
+                except Exception:
+                    continue
+                payload = dict(body.get("payload") or {}) if isinstance(body, dict) else {}
+                if not _runtime_object_matches(payload, graph_run_id=graph_id, task_run_ids=task_ids):
+                    continue
+                try:
+                    path.unlink()
+                except OSError:
+                    continue
+                counts[str(body.get("kind") or path.parent.name)] = counts.get(str(body.get("kind") or path.parent.name), 0) + 1
+            for kind_dir in self.object_dir.iterdir():
+                if kind_dir.is_dir() and not any(kind_dir.iterdir()):
+                    shutil.rmtree(kind_dir, ignore_errors=True)
+        return {
+            "authority": self.authority,
+            "graph_run_id": graph_id,
+            "task_run_ids": sorted(task_ids),
+            "deleted_counts": counts,
+        }
+
     def _path(self, kind: str, object_id: str) -> Path:
         return self.object_dir / kind / f"{object_id}.json"
 
@@ -99,5 +138,21 @@ class RuntimeObjectStore:
 
 def _safe_segment(value: str) -> str:
     return "".join(ch if ch.isalnum() or ch in {"-", "_"} else "_" for ch in str(value or ""))[:180]
+
+
+def _runtime_object_matches(payload: dict[str, Any], *, graph_run_id: str, task_run_ids: set[str]) -> bool:
+    if graph_run_id and str(payload.get("graph_run_id") or "") == graph_run_id:
+        return True
+    if str(payload.get("task_run_id") or "") in task_run_ids:
+        return True
+    diagnostics = dict(payload.get("diagnostics") or {})
+    if graph_run_id and str(diagnostics.get("graph_run_id") or "") == graph_run_id:
+        return True
+    if str(diagnostics.get("task_run_id") or "") in task_run_ids:
+        return True
+    outputs = dict(payload.get("outputs") or {})
+    if str(outputs.get("node_executor_task_run_id") or "") in task_run_ids:
+        return True
+    return False
 
 

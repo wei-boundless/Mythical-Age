@@ -625,7 +625,6 @@ invocation_id
 parent_scope_ref
 invocation_kind
 model_messages
-system_instructions
 available_tools
 available_modes
 permission_snapshot

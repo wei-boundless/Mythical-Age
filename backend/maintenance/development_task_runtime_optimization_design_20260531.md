@@ -515,7 +515,7 @@ task prompt contract:
 
 ```text
 新增 prompt manifest 断言。
-新增 packet content 断言：开发策略进入 system_instructions，但 stable payload 只保留 prompt ref。
+新增 packet content 断言：开发策略进入 `model_messages`，但 stable payload 只保留 prompt ref。
 ```
 
 ### Phase 3：开发工具选择诊断

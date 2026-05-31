@@ -15,6 +15,10 @@ from harness.runtime.compiler import RuntimeCompiler
 from harness.runtime.prompt_segment_plan import build_prompt_segment_plan
 
 
+def _model_input_text(packet) -> str:
+    return "\n\n".join(str(message.get("content") or "") for message in packet.model_messages)
+
+
 def test_prompt_accounting_ledger_records_prediction_provider_usage_and_cache(tmp_path) -> None:
     ledger = PromptAccountingLedger(tmp_path)
     messages = [
@@ -186,7 +190,18 @@ def test_task_execution_packet_places_stable_contract_before_volatile_state() ->
             },
         },
         contract={"task_run_goal": "审查并修复监控系统", "completion_criteria": ["完成真实验证"]},
-        observations=[{"observation_id": "obs:1", "content": "latest command output"}],
+        observations=[
+            {
+                "observation_id": "obs:1",
+                "content": "latest command output",
+                "structured_error": {
+                    "code": "tool_http_error",
+                    "message": "Fetch failed for https://example.invalid/rss.xml",
+                    "retryable": False,
+                    "origin": "tool_provider",
+                },
+            }
+        ],
         execution_state={"runtime_status": "running"},
         available_tools=[
             {
@@ -209,6 +224,7 @@ def test_task_execution_packet_places_stable_contract_before_volatile_state() ->
     )
 
     messages = result.packet.model_messages
+    manifest = result.packet.diagnostics["prompt_manifest"]
     assert [message["role"] for message in messages] == ["system", "system", "system", "user"]
     assert "Task execution stable contract" in messages[1]["content"]
     assert "task_contract" in messages[1]["content"]
@@ -221,12 +237,19 @@ def test_task_execution_packet_places_stable_contract_before_volatile_state() ->
     assert stable_payload["task_run"]["diagnostics"] == {"graph_run_id": "graph:stable"}
     assert stable_payload["tool_catalog_hash"].startswith("sha256:")
     assert "input_schema" not in stable_payload["available_tools"][0]
-    assert stable_payload["available_tools"][0]["input_schema_hash"].startswith("sha256:")
-    assert stable_payload["available_tools"][0]["input_schema_summary"]["properties"]["path"]["type"] == "string"
+    assert stable_payload["available_tools"][0]["input_schema_ref"].startswith("sha256:")
+    assert stable_payload["available_tools"][0]["input_schema_summary"]["properties"]["path"] == "string"
+    assert stable_payload["available_tools"][0]["input_schema_summary"]["required"] == ["path"]
     assert volatile_payload["task_run_state"]["diagnostics"] == {
         "executor_status": "retrying",
         "recoverable_error": "tool_failed",
         "recovery_action": "retry_with_current_file",
+    }
+    assert volatile_payload["observations"][0]["structured_error"] == {
+        "code": "tool_http_error",
+        "message": "Fetch failed for https://example.invalid/rss.xml",
+        "retryable": False,
+        "origin": "tool_provider",
     }
 
     segment_map = CanonicalPromptSerializer().build_segment_map(
@@ -259,6 +282,9 @@ def test_task_execution_packet_places_stable_contract_before_volatile_state() ->
     )
     assert model_request.stable_prefix_hash == cache_record.prefix_hash
     assert cache_record.diagnostics["stable_prefix_segment_count"] == 2
+    assert manifest["token_estimate"]["assembly_prompt_chars"] == manifest["token_estimate"]["prompt_chars"]
+    assert manifest["token_estimate"]["model_visible_chars"] == sum(len(message["content"]) for message in messages)
+    assert manifest["token_estimate"]["cacheable_prefix_chars"] > manifest["token_estimate"]["assembly_prompt_chars"]
 
 
 def test_task_execution_stable_prefix_is_unchanged_across_runtime_state_updates() -> None:
@@ -385,17 +411,17 @@ def test_runtime_prompt_uses_assembly_projection_not_mode_instruction() -> None:
         },
     )
 
-    system_prompt = result.packet.system_instructions
+    model_input = _model_input_text(result.packet)
     stable_payload = json.loads(result.packet.model_messages[1]["content"].split("\n", 1)[1])
     dynamic_payload = _payload_after_title(result.packet.model_messages[2]["content"], "Turn action dynamic runtime")
     projection = dynamic_payload["runtime_context"]["agent_visible_runtime_projection"]
 
-    assert "当前 runtime 是 professional 模式" not in system_prompt
-    assert "当前 runtime 是 standard 模式" not in system_prompt
-    assert "当前 runtime 是 role 模式" not in system_prompt
-    assert "本次运行边界" in system_prompt
-    assert "可以请求进入持续处理流程" in system_prompt
-    assert "最终完成声明必须基于合同、真实观察、真实产物或验证证据" in system_prompt
+    assert "当前 runtime 是 professional 模式" not in model_input
+    assert "当前 runtime 是 standard 模式" not in model_input
+    assert "当前 runtime 是 role 模式" not in model_input
+    assert "本次运行边界" in model_input
+    assert "可以请求进入持续处理流程" in model_input
+    assert "最终完成声明必须基于合同、真实观察、真实产物或验证证据" in model_input
     assert projection["authority"] == "harness.runtime.agent_visible_runtime_projection"
     assert projection["task_lifecycle"]["request_task_run_allowed"] is True
     assert projection["task_lifecycle"]["artifact_evidence_required"] is True
@@ -420,13 +446,13 @@ def test_role_runtime_projection_blocks_task_run_without_mode_instruction_text()
         },
     )
 
-    system_prompt = result.packet.system_instructions
+    model_input = _model_input_text(result.packet)
     stable_payload = json.loads(result.packet.model_messages[1]["content"].split("\n", 1)[1])
     dynamic_payload = _payload_after_title(result.packet.model_messages[2]["content"], "Turn action dynamic runtime")
     projection = dynamic_payload["runtime_context"]["agent_visible_runtime_projection"]
 
-    assert "当前 runtime 是 role 模式" not in system_prompt
-    assert "可以请求进入持续处理流程" not in system_prompt
+    assert "当前 runtime 是 role 模式" not in model_input
+    assert "可以请求进入持续处理流程" not in model_input
     assert projection["task_lifecycle"]["request_task_run_allowed"] is False
     assert projection["permission_boundary"]["permission_scope"] == "role_conversation_readonly"
 
