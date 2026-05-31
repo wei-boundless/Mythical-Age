@@ -1468,21 +1468,21 @@ def _task_model_selection(task_run: Any, *, agent_profile: Any | None = None) ->
     requirement = dict(runtime_profile.get("model_requirement") or {})
     model_profile = getattr(agent_profile, "model_profile", None)
     profile_payload = model_profile.to_dict() if hasattr(model_profile, "to_dict") else (dict(model_profile) if isinstance(model_profile, dict) else {})
-    provider = str(profile_payload.get("provider") or requirement.get("provider_family") or "").strip()
+    provider = str(requirement.get("provider") or requirement.get("provider_family") or profile_payload.get("provider") or "").strip()
     if provider in {"openai-compatible", "openai_compatible"}:
         provider = ""
-    model = str(profile_payload.get("model") or requirement.get("model_family") or "").strip()
+    model = str(requirement.get("model") or requirement.get("model_family") or profile_payload.get("model") or "").strip()
     resolved: dict[str, Any] = {
         "provider": provider,
         "model": model,
         "credential_ref": str(profile_payload.get("credential_ref") or "").strip(),
-        "max_output_tokens": profile_payload.get("max_output_tokens"),
+        "max_output_tokens": requirement.get("max_output_tokens") or requirement.get("preferred_output_tokens") or profile_payload.get("max_output_tokens"),
         "timeout_seconds": profile_payload.get("timeout_seconds"),
         "long_output_timeout_seconds": profile_payload.get("long_output_timeout_seconds"),
         "max_retries": profile_payload.get("max_retries"),
         "temperature": profile_payload.get("temperature"),
-        "thinking_mode": str(profile_payload.get("thinking_mode") or requirement.get("thinking_mode") or "").strip(),
-        "reasoning_effort": str(profile_payload.get("reasoning_effort") or "").strip(),
+        "thinking_mode": str(requirement.get("thinking_mode") or profile_payload.get("thinking_mode") or "").strip(),
+        "reasoning_effort": str(requirement.get("reasoning_effort") or profile_payload.get("reasoning_effort") or "").strip(),
         "stream_policy": dict(profile_payload.get("stream_policy") or {}),
         "diagnostics": {
             "authority": "harness.loop.task_executor.model_selection",

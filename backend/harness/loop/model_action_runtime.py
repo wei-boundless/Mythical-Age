@@ -46,7 +46,7 @@ def model_action_timeout_seconds(
     *,
     model_selection: dict[str, Any],
 ) -> float:
-    for key in ("model_response_timeout_seconds", "model_timeout_seconds", "request_timeout_seconds", "timeout_seconds"):
+    for key in ("model_response_timeout_seconds", "model_timeout_seconds"):
         if key not in model_selection:
             continue
         try:
@@ -55,6 +55,13 @@ def model_action_timeout_seconds(
             continue
         if value > 0:
             return value
+    timeout_seconds = _positive_float(model_selection.get("timeout_seconds") or model_selection.get("request_timeout_seconds"))
+    long_timeout_seconds = _positive_float(model_selection.get("long_output_timeout_seconds"))
+    max_output_tokens = _positive_int(model_selection.get("max_output_tokens"))
+    if max_output_tokens >= 16384 and long_timeout_seconds > 0:
+        return max(timeout_seconds, long_timeout_seconds)
+    if timeout_seconds > 0:
+        return timeout_seconds
     for attr_name in ("model_call_timeout_seconds", "request_timeout_seconds", "long_output_timeout_seconds"):
         try:
             value = float(getattr(model_runtime, attr_name) or 0)
@@ -63,6 +70,22 @@ def model_action_timeout_seconds(
         if value > 0:
             return value
     return 180.0
+
+
+def _positive_float(value: Any) -> float:
+    try:
+        parsed = float(value or 0)
+    except (TypeError, ValueError):
+        return 0.0
+    return parsed if parsed > 0 else 0.0
+
+
+def _positive_int(value: Any) -> int:
+    try:
+        parsed = int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+    return parsed if parsed > 0 else 0
 
 
 def parse_json_object(content: Any) -> dict[str, Any]:
