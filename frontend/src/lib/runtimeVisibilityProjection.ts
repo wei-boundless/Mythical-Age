@@ -537,6 +537,33 @@ export function projectHarnessLoopEvent(data: Record<string, unknown>): RuntimeV
 }
 
 export function projectRuntimeStreamEvent(event: string, data: Record<string, unknown>): RuntimeVisibilityProjection {
+  if (event === "stream_reconnecting") {
+    const attempt = text(data.attempt);
+    const maxAttempts = text(data.max_attempts);
+    const suffix = attempt && maxAttempts ? ` ${attempt}/${maxAttempts}` : "";
+    return {
+      stageStatus: `重新连接中${suffix}`,
+      activityTitle: `重新连接中${suffix}`,
+      activityDetail: "连接中断，正在续接当前运行。",
+      level: "running",
+    };
+  }
+  if (event === "stream_reconnected") {
+    return {
+      stageStatus: "已重新连接",
+      activityTitle: "已重新连接",
+      activityDetail: "已从上次位置继续接收事件。",
+      level: "running",
+    };
+  }
+  if (event === "stream_reconnect_failed") {
+    return {
+      stageStatus: "重连失败",
+      activityTitle: "重连失败",
+      activityDetail: "自动重连次数已用尽，后台运行可在监控中查看。",
+      level: "error",
+    };
+  }
   if (event === "harness_run_started") {
     const taskRun = record(data.task_run);
     const runtimeEvent = record(data.event);

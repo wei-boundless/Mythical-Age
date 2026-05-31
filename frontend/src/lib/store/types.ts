@@ -13,6 +13,7 @@ import type {
   WorkspaceContext,
   CodeEnvironmentWorkspaceTree
 } from "@/lib/api";
+import type { RuntimeTaskInstanceState } from "@/lib/runtime-monitor/types";
 import type { SoulKey, SoulSummary } from "@/lib/souls";
 
 export type Message = {
@@ -199,6 +200,13 @@ export type TaskSelectionState = {
   agent_invocation_id?: string;
 };
 
+export type ChatTaskEnvironmentBinding = {
+  task_environment_id: string;
+  environment_label: string;
+  source: "task-system" | "task-graph-workbench" | "center-workspace";
+  bound_at: number;
+};
+
 export type TaskGraphMonitorBinding = {
   task_run_id?: string;
   graph_run_id: string;
@@ -215,6 +223,9 @@ export type CenterWorkspaceTarget = {
   mode?: "editor" | "monitor";
   graph_id?: string;
   task_run_id?: string;
+  task_instance_id?: string;
+  graph_run_id?: string;
+  focus_node_id?: string;
   requested_at: number;
 };
 
@@ -256,12 +267,13 @@ export type StoreState = {
   orchestrationSnapshot: OrchestrationSnapshot | null;
   taskGraphMonitorBinding: TaskGraphMonitorBinding | null;
   taskGraphLiveMonitor: HarnessTaskRunLiveMonitor | null;
-  taskGraphRunMonitor: GraphRunMonitorView | null;
   globalRuntimeMonitor: GlobalRuntimeMonitor | null;
   globalRuntimeMonitorRevision: string;
+  globalRuntimeMonitorSelectedTaskInstanceId: string;
   globalRuntimeMonitorSelectedTaskRunId: string;
   globalRuntimeMonitorSelectedLiveMonitor: HarnessTaskRunLiveMonitor | null;
   globalRuntimeMonitorSelectedGraphMonitor: GraphRunMonitorView | null;
+  runtimeMonitorInstancesById: Record<string, RuntimeTaskInstanceState>;
   globalRuntimeMonitorLoading: boolean;
   globalRuntimeMonitorError: string;
   globalRuntimeMonitorStreamStatus: RuntimeMonitorStreamStatus;
@@ -275,6 +287,7 @@ export type StoreState = {
   taskGraphRunInteractionOpen: boolean;
   orchestrationInspectorTarget: OrchestrationInspectorTarget | null;
   taskSelection: TaskSelectionState | null;
+  chatTaskEnvironmentBinding: ChatTaskEnvironmentBinding | null;
   centerWorkspaceTarget: CenterWorkspaceTarget | null;
 };
 
@@ -314,6 +327,10 @@ export type StoreActions = {
   continueBoundTaskGraphRun: () => Promise<void>;
   resumeTaskGraphRun: (taskGraphRunId: string, payload?: Record<string, unknown>) => Promise<void>;
   setTaskSelection: (selection: TaskSelectionState | null) => void;
+  setChatTaskEnvironmentBinding: (
+    binding: Omit<ChatTaskEnvironmentBinding, "bound_at"> & { bound_at?: number }
+  ) => void;
+  clearChatTaskEnvironmentBinding: () => void;
   selectGlobalRuntimeMonitorTaskRun: (taskRunId: string) => void;
   openGlobalRuntimeMonitorTaskRun: (taskRunId: string) => void;
   openTaskGraphWorkspace: (target?: Omit<CenterWorkspaceTarget, "layer" | "requested_at">) => void;

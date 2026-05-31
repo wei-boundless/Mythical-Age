@@ -356,3 +356,20 @@ Implementation order should be:
 4. Tighten execution record recovery and side-effect replay.
 5. Cut over frontend to run-based streaming and remove the old request-bound stream path.
 
+## 9. Implementation Status - 2026-05-31
+
+Implemented:
+
+- Added `RuntimeRunRegistry` and `RuntimeStreamReplayService`.
+- Added run-based chat APIs: `POST /api/chat/runs`, `GET /api/chat/runs/{stream_run_id}`, `GET /api/chat/runs/{stream_run_id}/events`, `POST /api/chat/runs/{stream_run_id}/resume`, and `GET /api/chat/sessions/{session_id}/latest-run`.
+- Changed the legacy `POST /api/chat` stream path into a wrapper over the run-based event stream.
+- Added SSE `id`, `retry`, keepalive, `Last-Event-ID`, and `after_offset` replay support.
+- Added frontend stream cursor persistence, transport reconnect, duplicate-offset suppression, user-visible reconnect events, and page/session initialization attach to an existing run.
+- Added regression coverage for replay by offset, replay by `Last-Event-ID`, latest run lookup, frontend reconnect, and reload attach.
+
+Remaining:
+
+- `POST /api/chat/runs/{stream_run_id}/resume` is attach-only. Actual task continuation must still use the runtime/harness resume path and execution records.
+- Model invocation recovery still needs explicit persisted `model_call_state` beyond the current partial-output safeguards.
+- Side-effect replay hardening still depends on completing the execution-record recovery contract for all write/shell/tool operations.
+- The legacy `/api/chat` wrapper remains as a temporary compatibility boundary until all production callers use run-based streaming directly.

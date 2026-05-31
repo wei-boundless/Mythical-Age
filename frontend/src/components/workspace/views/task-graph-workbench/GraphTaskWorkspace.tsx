@@ -1,6 +1,6 @@
 "use client";
 
-import { Network } from "lucide-react";
+import { Link2, Network, Unlink2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useConfirmDialog } from "@/components/layout/ConfirmDialogProvider";
@@ -56,6 +56,7 @@ import {
   type TaskGraphRecord,
   type TaskSystemOverview,
 } from "@/lib/api";
+import { useAppStore } from "@/lib/store";
 
 type DomainRecord = {
   domain_id: string;
@@ -273,6 +274,11 @@ export function GraphTaskWorkspace({
   onSelectedGraphChange?: (graphId: string) => void;
 }) {
   const confirm = useConfirmDialog();
+  const {
+    chatTaskEnvironmentBinding,
+    clearChatTaskEnvironmentBinding,
+    setChatTaskEnvironmentBinding,
+  } = useAppStore();
   const [consolePayload, setConsolePayload] = useState<TaskSystemOverview | null>(null);
   const [orchestrationAgentCatalog, setOrchestrationAgentCatalog] = useState<OrchestrationAgentRuntimeCatalog | null>(null);
   const [loading, setLoading] = useState(true);
@@ -1226,6 +1232,17 @@ export function GraphTaskWorkspace({
   const editorValid = editorGraphSpec.valid;
   const editorPublished = taskGraphDraftV2.publish_state === "published" || taskGraphDraftV2.publish_state === "run_bound";
   const topologyDirty = false;
+  const activeEditorEnvironmentLabel = environmentRecordTitle(activeEditorEnvironmentId, consolePayload)
+    || taskEnvironmentTitle(activeEditorEnvironmentId);
+  const activeEditorEnvironmentStorage = taskEnvironmentStorageLabel(activeEditorEnvironmentId, consolePayload);
+  const chatEnvironmentBoundToEditor = Boolean(
+    activeEditorEnvironmentId && chatTaskEnvironmentBinding?.task_environment_id === activeEditorEnvironmentId,
+  );
+  const chatBindingStatus = chatEnvironmentBoundToEditor
+    ? "主会话已绑定当前环境"
+    : chatTaskEnvironmentBinding
+      ? "主会话绑定其它环境"
+      : "主会话未绑定";
   const setGraphWorkbenchSelectedGraphId = (graphId: string) => {
     const target = allTaskGraphs.find((graph) => graph.graph_id === graphId);
     setEditorTaskGraphId(graphId);
@@ -1242,8 +1259,8 @@ export function GraphTaskWorkspace({
     <>
       <div className="task-graph-editor-chrome__controls">
         <TaskGraphChromeSelect
-          emptyLabel={editorTaskEnvironmentOptions.length ? "选择任务环境" : "暂无任务环境"}
-          label="任务环境"
+          emptyLabel={editorTaskEnvironmentOptions.length ? "选择环境配置" : "暂无环境配置"}
+          label="环境配置"
           onChange={(environmentId) => {
             setEditorEnvironmentId(environmentId);
             const nextGraphs = allTaskGraphs.filter((graph) => taskGraphEnvironmentId(graph) === environmentId);
@@ -1253,7 +1270,7 @@ export function GraphTaskWorkspace({
             }
           }}
           options={editorTaskEnvironmentOptions}
-          placeholder="选择任务环境"
+          placeholder="选择环境配置"
           value={activeEditorEnvironmentId}
         />
         <TaskGraphChromeSelect
@@ -1268,12 +1285,37 @@ export function GraphTaskWorkspace({
       </div>
       <div className="task-graph-editor-chrome__status task-graph-editor-chrome__status--context">
         <span className={topologyDirty ? "boundary-status boundary-status--warn" : "boundary-status"}>{topologyDirty ? "拓扑未同步" : "编辑态已打开"}</span>
-        <span className="boundary-status">{environmentRecordTitle(activeEditorEnvironmentId, consolePayload) || taskEnvironmentTitle(activeEditorEnvironmentId)}</span>
-        {taskEnvironmentStorageLabel(activeEditorEnvironmentId, consolePayload) ? (
-          <span className="boundary-status">{taskEnvironmentStorageLabel(activeEditorEnvironmentId, consolePayload)}</span>
+        <span className={chatEnvironmentBoundToEditor ? "boundary-status boundary-status--ok" : "boundary-status boundary-status--warn"}>{chatBindingStatus}</span>
+        <span className="boundary-status">{activeEditorEnvironmentLabel}</span>
+        {activeEditorEnvironmentStorage ? (
+          <span className="boundary-status">{activeEditorEnvironmentStorage}</span>
         ) : null}
       </div>
       <div className="task-graph-editor-chrome__actions task-graph-editor-chrome__actions--minimal">
+        <ToolbarButton
+          disabled={!activeEditorEnvironmentId}
+          onClick={() => {
+            setChatTaskEnvironmentBinding({
+              task_environment_id: activeEditorEnvironmentId,
+              environment_label: activeEditorEnvironmentLabel || activeEditorEnvironmentId,
+              source: "task-graph-workbench",
+            });
+            setNotice(`主会话已绑定任务环境：${activeEditorEnvironmentLabel || activeEditorEnvironmentId}`);
+          }}
+          variant={chatEnvironmentBoundToEditor ? "primary" : "ghost"}
+        >
+          <Link2 size={15} />{chatEnvironmentBoundToEditor ? "已绑定主会话" : "绑定主会话"}
+        </ToolbarButton>
+        {chatTaskEnvironmentBinding ? (
+          <ToolbarButton
+            onClick={() => {
+              clearChatTaskEnvironmentBinding();
+              setNotice("主会话任务环境绑定已解除。");
+            }}
+          >
+            <Unlink2 size={15} />解除绑定
+          </ToolbarButton>
+        ) : null}
         <ToolbarButton disabled={saving === "task-graph-create"} onClick={() => void createTaskGraphDraft()}><Network size={15} />新图草稿</ToolbarButton>
       </div>
     </>

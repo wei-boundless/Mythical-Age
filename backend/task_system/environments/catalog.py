@@ -19,6 +19,9 @@ class TaskEnvironmentCatalogItem:
         resolved_payload = self.resolved.to_dict()
         return {
             "environment_id": self.resolved.spec.environment_id,
+            "title": self.definition.record.title,
+            "description": self.definition.record.description,
+            "environment_kind": self.definition.record.environment_kind,
             "group": resolved_payload.get("group") or {},
             "environment_prompts": resolved_payload.get("environment_prompts") or [],
             "environment_boundary": resolved_payload.get("environment_boundary") or {},

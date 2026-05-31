@@ -162,7 +162,7 @@ describe("runtimeWorkProjection", () => {
 
     expect(runtimeWorkProjectionFromMonitorItem(run)).toMatchObject({
       workKind: "agent_runtime_run",
-      displayTypeLabel: "Agent 运行",
+      displayTypeLabel: "持续处理",
       latestStepSummary: "系统已执行工具并把观察回灌给 agent。",
     });
   });

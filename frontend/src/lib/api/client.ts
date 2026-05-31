@@ -16,7 +16,7 @@ export function getApiBase() {
 }
 
 export function getRuntimeMonitorEventStreamUrl(limit = 40) {
-  return `${getApiBase()}/orchestration/harness/monitor-events?limit=${encodeURIComponent(String(limit))}`;
+  return `${getApiBase()}/orchestration/runtime-monitor/events?limit=${encodeURIComponent(String(limit))}`;
 }
 
 function requestTimeoutMs(path: string) {
@@ -28,6 +28,7 @@ function requestTimeoutMs(path: string) {
     || path === "/soul/projections"
     || path === "/orchestration/agents"
     || path.startsWith("/orchestration/harness/")
+    || path.startsWith("/orchestration/runtime-monitor/")
   ) {
     return 30000;
   }

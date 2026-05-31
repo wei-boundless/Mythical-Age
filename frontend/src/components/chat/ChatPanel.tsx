@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef } from "react";
+import { X } from "lucide-react";
 
 import { ChatInput } from "@/components/chat/ChatInput";
 import { ChatMessage } from "@/components/chat/ChatMessage";
@@ -17,6 +18,8 @@ export function ChatPanel() {
     activeStreamSessionIds,
     sessionActivity,
     currentSessionId,
+    chatTaskEnvironmentBinding,
+    clearChatTaskEnvironmentBinding,
     workspaceInitializing,
     modelProviderConfig,
     soulImageAssetConfig,
@@ -83,6 +86,15 @@ export function ChatPanel() {
       <div className="chat-panel-footer min-w-0">
         <div className="chat-panel-status-row">
           <SessionActivityBar activity={sessionActivity} active={currentSessionStreaming} />
+          {chatTaskEnvironmentBinding ? (
+            <div className="chat-task-environment-binding" title={chatTaskEnvironmentBinding.task_environment_id}>
+              <span>环境</span>
+              <strong>{chatTaskEnvironmentBinding.environment_label || chatTaskEnvironmentBinding.task_environment_id}</strong>
+              <button aria-label="解除任务环境绑定" onClick={clearChatTaskEnvironmentBinding} type="button">
+                <X size={13} />
+              </button>
+            </div>
+          ) : null}
           <ChatSearchPolicyControls
             onToggleSearchPolicy={toggleSearchPolicySource}
             searchPolicy={searchPolicy}

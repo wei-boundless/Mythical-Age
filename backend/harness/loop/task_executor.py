@@ -868,7 +868,7 @@ async def _execute_claimed_task_run(
             agent_brief_output=compact_text(action_request.final_answer, limit=300) if action_request.action_type == "respond" else "",
             presentation_source="model_action.public_progress_note" if action_request.public_progress_note else "model_action.action_type_fallback",
             refs={"action_request_ref": action_request.request_id},
-            )
+        )
         consumed_steer_ids = _consumed_steer_ids(action_request, included_steer_ids)
         apply_contract_revision_decisions(
             runtime_host,
@@ -939,8 +939,7 @@ async def _execute_claimed_task_run(
                 step=f"task_tool_call_started:{step_index}",
                 status="running",
                 summary=tool_progress,
-                public_progress_note=action_request.public_progress_note,
-                presentation_source="model_action.public_progress_note",
+                presentation_source="system.tool_call_status",
                 refs={"action_request_ref": action_request.request_id},
             )
             append_work_rollout_item(
@@ -981,6 +980,8 @@ async def _execute_claimed_task_run(
                 step=f"task_tool_observation_recorded:{step_index}",
                 status="running",
                 summary="工具调用已完成，正在根据结果继续。",
+                agent_brief_output=_observation_brief(observation),
+                presentation_source="tool_observation.summary",
                 refs={"observation_ref": observation["observation_id"]},
             )
             append_work_rollout_item(
@@ -1197,6 +1198,7 @@ async def _invoke_task_model_action(
     return model_action_request_from_payload(
         payload,
         turn_id=task_run_id,
+        require_public_progress_note=True,
     )
 
 
@@ -1250,7 +1252,7 @@ async def _await_task_model_action_with_status(
                         task_run_id=task_run_id,
                         step=f"task_model_action_waiting:{step_index}",
                         status="running",
-                        summary="正在根据当前进展形成下一步处理动作。",
+                        summary="正在等待模型根据当前任务进展返回下一步判断。",
                         refs={"runtime_invocation_packet_ref": packet_ref},
                     )
                 else:
@@ -3670,9 +3672,6 @@ def _action_progress_note(action_request: ModelActionRequest) -> str:
 
 
 def _tool_call_progress_summary(action_request: ModelActionRequest) -> str:
-    note = public_runtime_progress_summary(action_request.public_progress_note)
-    if note:
-        return note
     tool_call = dict(action_request.tool_call or {})
     tool_name = str(tool_call.get("tool_name") or tool_call.get("name") or "").strip()
     args = dict(tool_call.get("args") or tool_call.get("tool_args") or {})
@@ -3701,6 +3700,9 @@ def _public_tool_display_name(tool_name: str) -> str:
         "terminal": "命令工具",
         "shell": "命令工具",
     }
+    if lowered in mapping:
+        return mapping[lowered]
+    return normalized.replace("_", " ") or "工具"
 
 
 def _subagent_control_observation(
@@ -3732,9 +3734,6 @@ def _subagent_control_observation(
         "authority": "orchestration.runtime_observation",
         **({"error": str(dict(payload).get("error") or "subagent_control_failed")} if not ok else {}),
     }
-    if lowered in mapping:
-        return mapping[lowered]
-    return normalized.replace("_", " ") or "工具"
 
 
 def _tool_target_preview(args: dict[str, Any]) -> str:

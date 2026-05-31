@@ -13,6 +13,8 @@ if str(BACKEND_DIR) not in sys.path:
 
 from query.models import QueryRequest
 from runtime.shared.models import AgentRunResult, TaskRun
+from harness.loop.model_action_protocol import ModelActionRequest
+from harness.loop.task_executor import _tool_call_progress_summary
 from harness.loop.task_lifecycle import TaskLifecycleRecord, TaskRunContract
 from tests.support.runtime_stubs import (
     PrimarySettingsStub,
@@ -3599,6 +3601,21 @@ def test_task_model_action_request_requires_public_progress_note() -> None:
     assert action is None
     assert diagnostics["status"] == "invalid"
     assert "public_progress_note_required" in diagnostics["validation_errors"]
+
+
+def test_tool_call_status_does_not_replace_agent_public_judgment() -> None:
+    action = ModelActionRequest(
+        request_id="model-action:test:tool",
+        turn_id="taskrun:test",
+        action_type="tool_call",
+        public_progress_note="我看到缺少入口文件，下一步先读取目录确认项目结构。",
+        tool_call={"tool_name": "read_file", "args": {"path": "index.html"}},
+    )
+
+    summary = _tool_call_progress_summary(action)
+
+    assert summary == "正在使用文件读取工具处理 index.html。"
+    assert "我看到缺少入口文件" not in summary
 
 
 def test_public_runtime_progress_preserves_user_level_task_wording() -> None:

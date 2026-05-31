@@ -92,7 +92,7 @@ export function TaskGraphAgentRosterPage({
       <header className="task-graph-studio-page__head">
         <span>任务图工作台</span>
         <strong>节点装配</strong>
-        <small>为当前图模块绑定执行器、Agent 与运行档案；Agent 主数据仍归编排资源库管理。</small>
+        <small>为当前图模块绑定执行者、Agent 与运行档案；执行者主数据由注册表维护，本页只写入节点装配关系。</small>
       </header>
 
       <section className="task-graph-form-grid">

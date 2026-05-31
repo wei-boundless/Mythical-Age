@@ -1859,6 +1859,9 @@ export type GlobalRuntimeMonitorItem = {
   session_id: string;
   task_id: string;
   execution_runtime_kind: string;
+  task_instance_id?: string;
+  root_task_run_id?: string;
+  kind?: "chat_turn" | "agent_run" | "task_graph" | string;
   graph_run_id?: string;
   graph_harness_config_id?: string;
   title: string;
@@ -1885,6 +1888,13 @@ export type GlobalRuntimeMonitorItem = {
   is_live?: boolean;
   summary?: string;
   latest_step?: Record<string, unknown>;
+  latest_progress?: {
+    tool_status?: string;
+    observation?: string;
+    judgment?: string;
+    summary?: string;
+    agent_brief?: string;
+  } | Record<string, unknown>;
   latest_step_summary?: string;
   latest_step_name?: string;
   latest_step_status?: string;
@@ -1892,6 +1902,11 @@ export type GlobalRuntimeMonitorItem = {
   agent_brief_output?: string;
   artifact_count?: number;
   artifact_refs?: Array<Record<string, unknown>>;
+  resource_refs?: Array<Record<string, unknown>>;
+  primary_resource_ref?: Record<string, unknown> | null;
+  graph_status?: Record<string, unknown> | null;
+  child_runtime_refs?: Array<Record<string, unknown>>;
+  navigation_target?: Record<string, unknown> | null;
   latest_event_type: string;
   latest_event_at: number;
   event_count: number;
@@ -1913,10 +1928,11 @@ export type GlobalRuntimeMonitorItem = {
 
 export type GlobalRuntimeMonitor = {
   authority: string;
+  scope?: string;
   summary: {
     total: number;
     running: number;
-    waiting: number;
+    waiting?: number;
     blocked?: number;
     completed: number;
     failed: number;
@@ -1931,6 +1947,9 @@ export type GlobalRuntimeMonitor = {
   };
   bucket_limit?: number;
   revision?: string;
+  items?: GlobalRuntimeMonitorItem[];
+  selected?: GlobalRuntimeMonitorItem | Record<string, unknown> | null;
+  events?: Array<Record<string, unknown>>;
   task_runs: GlobalRuntimeMonitorItem[];
   updated_at: number;
 };
@@ -1967,8 +1986,12 @@ export type OrchestrationRuntimeOptionsPayload = {
 
 export type HarnessTaskRunLiveMonitor = {
   authority: string;
+  scope?: string;
   task_run: Record<string, unknown>;
   task_run_id?: string;
+  task_instance_id?: string;
+  root_task_run_id?: string;
+  kind?: "chat_turn" | "agent_run" | "task_graph" | string;
   session_id?: string;
   task_id?: string;
   execution_runtime_kind?: string;
@@ -1976,6 +1999,7 @@ export type HarnessTaskRunLiveMonitor = {
   event_count?: number;
   latest_event?: Record<string, unknown>;
   latest_step?: Record<string, unknown>;
+  latest_progress?: Record<string, unknown>;
   latest_step_summary?: string;
   latest_step_name?: string;
   latest_step_status?: string;
@@ -1983,6 +2007,11 @@ export type HarnessTaskRunLiveMonitor = {
   agent_brief_output?: string;
   artifact_count?: number;
   artifact_refs?: Array<Record<string, unknown>>;
+  resource_refs?: Array<Record<string, unknown>>;
+  primary_resource_ref?: Record<string, unknown> | null;
+  graph_status?: Record<string, unknown> | null;
+  child_runtime_refs?: Array<Record<string, unknown>>;
+  navigation_target?: Record<string, unknown> | null;
   loop_state: Record<string, unknown>;
   graph_run_id?: string;
   graph_harness_config_id?: string;
@@ -1990,6 +2019,9 @@ export type HarnessTaskRunLiveMonitor = {
   has_graph_run: boolean;
   runtime_control?: Record<string, unknown>;
   control_state?: string;
+  lifecycle?: string;
+  bucket?: string;
+  stale?: boolean;
   status: string;
   terminal_reason: string;
   updated_at: number;
@@ -3185,6 +3217,28 @@ export type StreamHandlers = {
 
 export type StreamResult = {
   terminalEvent: "done" | "error" | "stopped";
+  streamRunId: string;
+  taskRunId: string;
+  lastEventOffset: number;
+};
+
+export type ChatRun = {
+  stream_run_id: string;
+  session_id: string;
+  task_run_id: string;
+  root_request_ref: string;
+  status: string;
+  latest_event_offset: number;
+  is_reconnectable?: boolean;
+  terminal_event?: string;
+  stream_url: string;
+};
+
+export type ChatStreamCursor = {
+  streamRunId: string;
+  taskRunId: string;
+  lastEventOffset: number;
+  lastEventId: string;
 };
 
 export type ToolPackageDefinition = {
@@ -3202,6 +3256,7 @@ export type ToolPackageDefinition = {
 
 const TERMINAL_STREAM_EVENTS = new Set(["done", "error", "stopped"]);
 const MAX_STREAM_BUFFER_CHARS = 1_000_000;
+const MAX_CHAT_STREAM_RECONNECT_ATTEMPTS = 5;
 
 function findSseBoundary(buffer: string): { index: number; length: number } | null {
   const boundaries = [
@@ -3217,6 +3272,77 @@ function findSseBoundary(buffer: string): { index: number; length: number } | nu
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return apiRequest<T>(path, init);
+}
+
+function chatStreamCursorKey(sessionId: string) {
+  return `chat.stream.cursor.${sessionId}`;
+}
+
+function browserStorage() {
+  if (typeof window === "undefined") return null;
+  try {
+    return window.localStorage ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export function readChatStreamCursor(sessionId: string): ChatStreamCursor | null {
+  const storage = browserStorage();
+  if (!storage) return null;
+  try {
+    const raw = storage.getItem(chatStreamCursorKey(sessionId));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<ChatStreamCursor>;
+    const streamRunId = String(parsed.streamRunId || "").trim();
+    const taskRunId = String(parsed.taskRunId || "").trim();
+    const lastEventOffset = Number(parsed.lastEventOffset ?? -1);
+    const lastEventId = String(parsed.lastEventId || "").trim();
+    if (!streamRunId || !taskRunId || !Number.isFinite(lastEventOffset)) {
+      return null;
+    }
+    return { streamRunId, taskRunId, lastEventOffset, lastEventId };
+  } catch {
+    return null;
+  }
+}
+
+export function saveChatStreamCursor(sessionId: string, cursor: ChatStreamCursor) {
+  const storage = browserStorage();
+  if (!storage) return;
+  try {
+    storage.setItem(chatStreamCursorKey(sessionId), JSON.stringify(cursor));
+  } catch {
+    // Storage can be unavailable in private or locked-down browser contexts.
+  }
+}
+
+export function clearChatStreamCursor(sessionId: string) {
+  const storage = browserStorage();
+  if (!storage) return;
+  try {
+    storage.removeItem(chatStreamCursorKey(sessionId));
+  } catch {
+    // Storage cleanup is best-effort; the backend run remains authoritative.
+  }
+}
+
+function delay(ms: number, signal?: AbortSignal) {
+  return new Promise<void>((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new DOMException("Aborted", "AbortError"));
+      return;
+    }
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(new DOMException("Aborted", "AbortError"));
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
 }
 
 export async function listSessions() {
@@ -3575,13 +3701,13 @@ export async function listOrchestrationHarnessTaskRuns(sessionId: string) {
 
 export async function getGlobalRuntimeMonitor(limit = 30) {
   return request<GlobalRuntimeMonitor>(
-    `/orchestration/harness/live-monitor?limit=${encodeURIComponent(String(limit))}`
+    `/orchestration/runtime-monitor/live?limit=${encodeURIComponent(String(limit))}`
   );
 }
 
 export async function getOrchestrationHarnessSessionLiveMonitor(sessionId: string) {
   return request<HarnessSessionLiveMonitor>(
-    `/orchestration/harness/sessions/${encodeURIComponent(sessionId)}/live-monitor`
+    `/orchestration/runtime-monitor/sessions/${encodeURIComponent(sessionId)}`
   );
 }
 
@@ -3615,7 +3741,7 @@ export async function getOrchestrationHarnessTrace(
 
 export async function getOrchestrationHarnessTaskRunLiveMonitor(taskRunId: string) {
   return request<HarnessTaskRunLiveMonitor>(
-    `/orchestration/harness/task-runs/${encodeURIComponent(taskRunId)}/live-monitor`
+    `/orchestration/runtime-monitor/task-runs/${encodeURIComponent(taskRunId)}`
   );
 }
 
@@ -4373,6 +4499,250 @@ export async function uploadSoulPortrait(key: string, file: File) {
   });
 }
 
+export async function createChatRun(payload: {
+  message: string;
+  session_id: string;
+  ephemeral_system_messages?: string[];
+  search_policy?: string[];
+  runtime_mode?: string;
+  task_selection?: Record<string, unknown>;
+  model_selection?: Record<string, unknown>;
+  image_generation?: Record<string, unknown>;
+}) {
+  return request<ChatRun>("/chat/runs", {
+    method: "POST",
+    body: JSON.stringify({
+      ...payload,
+      stream: true,
+    }),
+  });
+}
+
+export async function getChatRun(streamRunId: string) {
+  return request<ChatRun>(`/chat/runs/${encodeURIComponent(streamRunId)}`);
+}
+
+export async function resumeChatRun(streamRunId: string) {
+  return request<ChatRun & { resume_mode: string }>(`/chat/runs/${encodeURIComponent(streamRunId)}/resume`, {
+    method: "POST",
+  });
+}
+
+export async function getLatestChatRunForSession(sessionId: string, activeOnly = true) {
+  const params = new URLSearchParams({ active_only: activeOnly ? "true" : "false" });
+  return request<ChatRun>(`/chat/sessions/${encodeURIComponent(sessionId)}/latest-run?${params.toString()}`);
+}
+
+function parseSseBlock(block: string): { id: string; event: string; data: Record<string, unknown> } | null {
+  const lines = block.split(/\r?\n|\r/);
+  let id = "";
+  let event = "message";
+  const dataLines: string[] = [];
+
+  for (const line of lines) {
+    if (line.startsWith("id:")) {
+      id = line.slice(3).trim();
+    } else if (line.startsWith("event:")) {
+      event = line.slice(6).trim();
+    } else if (line.startsWith("data:")) {
+      dataLines.push(line.slice(5).trim());
+    }
+  }
+
+  if (!dataLines.length) {
+    return null;
+  }
+  return {
+    id,
+    event,
+    data: JSON.parse(dataLines.join("\n")) as Record<string, unknown>,
+  };
+}
+
+async function consumeChatRunStream(
+  run: ChatRun,
+  sessionId: string,
+  handlers: StreamHandlers,
+  options: {
+    signal?: AbortSignal;
+    initialCursor?: ChatStreamCursor | null;
+    replayFromStart?: boolean;
+  } = {}
+): Promise<StreamResult> {
+  let lastEventOffset = options.replayFromStart
+    ? -1
+    : Number(options.initialCursor?.lastEventOffset ?? run.latest_event_offset ?? -1);
+  let lastEventId = options.replayFromStart ? "" : String(options.initialCursor?.lastEventId || "");
+  let terminalEvent: StreamResult["terminalEvent"] | "" = "";
+  let reconnectAttempt = 0;
+
+  saveChatStreamCursor(sessionId, {
+    streamRunId: run.stream_run_id,
+    taskRunId: run.task_run_id,
+    lastEventOffset,
+    lastEventId,
+  });
+
+  const consumeBlock = (block: string) => {
+    const parsed = parseSseBlock(block);
+    if (!parsed) {
+      return "";
+    }
+    const eventOffset = Number(parsed.data.event_offset);
+    if (Number.isFinite(eventOffset)) {
+      if (eventOffset <= lastEventOffset) {
+        return parsed.event;
+      }
+      lastEventOffset = eventOffset;
+      lastEventId = parsed.id || `${run.stream_run_id}:${run.task_run_id}:${lastEventOffset}`;
+      saveChatStreamCursor(sessionId, {
+        streamRunId: run.stream_run_id,
+        taskRunId: run.task_run_id,
+        lastEventOffset,
+        lastEventId,
+      });
+    }
+    if (reconnectAttempt > 0) {
+      handlers.onEvent("stream_reconnected", {
+        stream_run_id: run.stream_run_id,
+        task_run_id: run.task_run_id,
+        event_offset: lastEventOffset,
+        attempt: reconnectAttempt,
+        max_attempts: MAX_CHAT_STREAM_RECONNECT_ATTEMPTS,
+      });
+      reconnectAttempt = 0;
+    }
+    handlers.onEvent(parsed.event, parsed.data);
+    return parsed.event;
+  };
+
+  while (!terminalEvent) {
+    if (options.signal?.aborted) {
+      clearChatStreamCursor(sessionId);
+      throw new DOMException("Aborted", "AbortError");
+    }
+    let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
+    let readerClosed = false;
+    let readerCancelled = false;
+    let reconnectReason = "stream_closed_without_terminal";
+    try {
+      const params = new URLSearchParams({ after_offset: String(lastEventOffset) });
+      const response = await fetch(`${getApiBase()}/chat/runs/${encodeURIComponent(run.stream_run_id)}/events?${params.toString()}`, {
+        method: "GET",
+        headers: lastEventId ? { "Last-Event-ID": lastEventId } : undefined,
+        signal: options.signal,
+      });
+
+      if (!response.ok || !response.body) {
+        throw new Error(`Chat stream request failed: ${response.status}`);
+      }
+
+      reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      while (true) {
+        const { value, done } = await reader.read();
+        buffer += decoder.decode(value ?? new Uint8Array(), { stream: !done });
+        if (buffer.length > MAX_STREAM_BUFFER_CHARS) {
+          throw new Error("Chat stream SSE buffer exceeded 1MB without a complete event boundary.");
+        }
+
+        let boundary = findSseBoundary(buffer);
+        while (boundary) {
+          const event = consumeBlock(buffer.slice(0, boundary.index));
+          buffer = buffer.slice(boundary.index + boundary.length);
+          if (TERMINAL_STREAM_EVENTS.has(event)) {
+            terminalEvent = event as StreamResult["terminalEvent"];
+            break;
+          }
+          boundary = findSseBoundary(buffer);
+        }
+
+        if (terminalEvent) {
+          if (!done) {
+            await reader.cancel().catch(() => undefined);
+            readerCancelled = true;
+          } else {
+            readerClosed = true;
+          }
+          break;
+        }
+
+        if (done) {
+          readerClosed = true;
+          if (buffer.trim()) {
+            const event = consumeBlock(buffer);
+            if (TERMINAL_STREAM_EVENTS.has(event)) {
+              terminalEvent = event as StreamResult["terminalEvent"];
+            }
+          }
+          break;
+        }
+      }
+    } catch (error) {
+      if (options.signal?.aborted) {
+        clearChatStreamCursor(sessionId);
+        throw error;
+      }
+      reconnectReason = error instanceof Error && error.message.trim()
+        ? error.message
+        : "stream_transport_error";
+    } finally {
+      if (reader && !readerClosed && !readerCancelled) {
+        await reader.cancel().catch(() => undefined);
+      }
+    }
+
+    if (!terminalEvent) {
+      reconnectAttempt += 1;
+      handlers.onEvent("stream_reconnecting", {
+        stream_run_id: run.stream_run_id,
+        task_run_id: run.task_run_id,
+        event_offset: lastEventOffset,
+        last_event_id: lastEventId,
+        attempt: reconnectAttempt,
+        max_attempts: MAX_CHAT_STREAM_RECONNECT_ATTEMPTS,
+        reason: reconnectReason,
+      });
+      if (reconnectAttempt >= MAX_CHAT_STREAM_RECONNECT_ATTEMPTS) {
+        handlers.onEvent("stream_reconnect_failed", {
+          stream_run_id: run.stream_run_id,
+          task_run_id: run.task_run_id,
+          event_offset: lastEventOffset,
+          attempt: reconnectAttempt,
+          max_attempts: MAX_CHAT_STREAM_RECONNECT_ATTEMPTS,
+          reason: reconnectReason,
+        });
+        throw new Error(`Chat stream reconnect attempts exhausted after ${reconnectAttempt} attempts.`);
+      }
+      await delay(Math.min(15000, 500 * 2 ** Math.max(0, reconnectAttempt - 1)), options.signal);
+    }
+  }
+
+  clearChatStreamCursor(sessionId);
+
+  return {
+    terminalEvent,
+    streamRunId: run.stream_run_id,
+    taskRunId: run.task_run_id,
+    lastEventOffset,
+  };
+}
+
+export async function streamExistingChatRun(
+  sessionId: string,
+  streamRunId: string,
+  handlers: StreamHandlers,
+  options: {
+    signal?: AbortSignal;
+    initialCursor?: ChatStreamCursor | null;
+    replayFromStart?: boolean;
+  } = {}
+) {
+  const run = await resumeChatRun(streamRunId);
+  return consumeChatRunStream(run, sessionId, handlers, options);
+}
+
 export async function streamChat(
   payload: {
     message: string;
@@ -4389,89 +4759,6 @@ export async function streamChat(
     signal?: AbortSignal;
   } = {}
 ): Promise<StreamResult> {
-  const response = await fetch(`${getApiBase()}/chat`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json"
-    },
-    signal: options.signal,
-    body: JSON.stringify({
-      ...payload,
-      stream: true
-    })
-  });
-
-  if (!response.ok || !response.body) {
-    throw new Error(`Chat request failed: ${response.status}`);
-  }
-
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-  let terminalEvent: StreamResult["terminalEvent"] | "" = "";
-
-  const flushBlock = (block: string) => {
-    const lines = block.split(/\r?\n|\r/);
-    let event = "message";
-    const dataLines: string[] = [];
-
-    for (const line of lines) {
-      if (line.startsWith("event:")) {
-        event = line.slice(6).trim();
-      }
-      if (line.startsWith("data:")) {
-        dataLines.push(line.slice(5).trim());
-      }
-    }
-
-    if (!dataLines.length) {
-      return "";
-    }
-
-    const data = JSON.parse(dataLines.join("\n")) as Record<string, unknown>;
-    handlers.onEvent(event, data);
-    return event;
-  };
-
-  while (true) {
-    const { value, done } = await reader.read();
-    buffer += decoder.decode(value ?? new Uint8Array(), { stream: !done });
-    if (buffer.length > MAX_STREAM_BUFFER_CHARS) {
-      throw new Error("Chat stream SSE buffer exceeded 1MB without a complete event boundary.");
-    }
-
-    let boundary = findSseBoundary(buffer);
-    while (boundary) {
-      const event = flushBlock(buffer.slice(0, boundary.index));
-      buffer = buffer.slice(boundary.index + boundary.length);
-      if (TERMINAL_STREAM_EVENTS.has(event)) {
-        terminalEvent = event as StreamResult["terminalEvent"];
-        break;
-      }
-      boundary = findSseBoundary(buffer);
-    }
-
-    if (terminalEvent) {
-      if (!done) {
-        await reader.cancel().catch(() => undefined);
-      }
-      break;
-    }
-
-    if (done) {
-      if (buffer.trim()) {
-        const event = flushBlock(buffer);
-        if (TERMINAL_STREAM_EVENTS.has(event)) {
-          terminalEvent = event as StreamResult["terminalEvent"];
-        }
-      }
-      break;
-    }
-  }
-
-  if (!terminalEvent) {
-    throw new Error("Chat stream ended without a terminal event.");
-  }
-
-  return { terminalEvent };
+  const run = await createChatRun(payload);
+  return consumeChatRunStream(run, payload.session_id, handlers, options);
 }

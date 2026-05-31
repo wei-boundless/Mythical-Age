@@ -303,6 +303,9 @@ def test_runtime_compiler_assembles_agent_and_environment_prompt_refs() -> None:
     assert manifest["cache_boundary"]["cache_scope_counts"]["static_environment"] == 2
     model_input = _model_input_text(result.packet)
     assert "通用主 agent" in model_input
+    assert "当前任务环境：" in model_input
+    assert "Development Sandbox" in model_input
+    assert "env.development.sandbox" in model_input
     assert "开发沙盒资源边界" in model_input
     assert "开发执行 agent" in model_input
     assert "python_symbol_search" in model_input
@@ -313,6 +316,7 @@ def test_runtime_compiler_assembles_agent_and_environment_prompt_refs() -> None:
         "environment.development.sandbox.v1",
         "strategy.development.execution.v1",
     ]
+    assert stable_payload["task_environment"]["title"] == "Development Sandbox"
     assert "environment_prompts" not in stable_payload["task_environment"]
     assert "开发沙盒资源边界" not in result.packet.model_messages[1]["content"]
 

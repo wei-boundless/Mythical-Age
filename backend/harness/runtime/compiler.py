@@ -877,7 +877,7 @@ def model_action_request_schema(turn_id: str) -> dict[str, Any]:
     return {
         "authority": "harness.loop.model_action_request",
         "action_type": "respond|ask_user|tool_call|request_task_run|request_registered_engagement|block",
-        "public_progress_note": "一句用户可理解的进展说明；只写正在做什么或刚完成什么；不包含内部编号、系统结构、协议字段或隐藏推理。",
+        "public_progress_note": "一句用户可理解的公开进展；概括你刚观察到的事实以及你据此准备采取的下一步；不包含内部编号、系统结构、协议字段或隐藏推理。",
         "final_answer": "",
         "user_question": "",
         "blocking_reason": "",
@@ -925,7 +925,7 @@ def task_execution_action_schema() -> dict[str, Any]:
     return {
         "authority": "harness.loop.model_action_request",
         "action_type": "respond|ask_user|tool_call|block",
-        "public_progress_note": "一句用户可理解的进展说明；只写正在做什么或刚完成什么；不包含内部编号、系统结构、协议字段或隐藏推理。",
+        "public_progress_note": "一句用户可理解的公开进展；概括你刚观察到的事实以及你据此准备采取的下一步；不包含内部编号、系统结构、协议字段或隐藏推理。",
         "final_answer": "",
         "user_question": "",
         "blocking_reason": "",
@@ -1319,7 +1319,7 @@ def _runtime_projection_instruction(projection: dict[str, Any]) -> str:
         lines.append("- 你可以" + "、".join(action_notes) + "。")
     lines.append(
         "- 每次输出 JSON 时必须填写 public_progress_note：这是一句用户可理解的进展说明，"
-        "只写正在做什么或刚完成什么；不包含内部编号、系统结构、协议字段或隐藏推理。"
+        "必须概括你刚观察到的事实以及你据此准备采取的下一步；不包含内部编号、系统结构、协议字段或隐藏推理。"
     )
     if projection.get("invocation_kind") == "task_execution":
         lines.append(
@@ -1400,6 +1400,16 @@ def _environment_instruction(
     environment_prompt_assembly: PromptAssemblyResult,
 ) -> str:
     content = str(environment_prompt_assembly.content or "").strip()
+    environment_id = str(environment_payload.get("environment_id") or environment_payload.get("task_environment_id") or "").strip()
+    title = str(environment_payload.get("title") or environment_id or "未命名任务环境").strip()
+    description = str(environment_payload.get("description") or "").strip()
+    identity_lines = ["当前任务环境："]
+    if environment_id:
+        identity_lines.append(f"- 环境：{title}（{environment_id}）。")
+    else:
+        identity_lines.append(f"- 环境：{title}。")
+    if description:
+        identity_lines.append(f"- 说明：{description}")
     storage = dict(environment_payload.get("storage_space") or {})
     storage_note = ""
     if storage:
@@ -1409,9 +1419,14 @@ def _environment_instruction(
             f"artifact_root={storage.get('artifact_root') or ''}；"
             "你不能自行改变环境存储边界。\n"
         )
-    if not content and not storage_note:
-        return ""
-    return "当前任务环境说明：\n" + (content + "\n" if content else "") + storage_note
+    detail_sections: list[str] = []
+    if content:
+        detail_sections.append(content)
+    if storage_note:
+        detail_sections.append(storage_note.rstrip())
+    if not detail_sections:
+        return "\n".join(identity_lines) + "\n"
+    return "\n".join(identity_lines) + "\n当前任务环境说明：\n" + "\n".join(detail_sections) + "\n"
 
 
 def _environment_stable_payload(environment_payload: dict[str, Any]) -> dict[str, Any]:
@@ -1450,6 +1465,7 @@ def _environment_model_visible_payload(environment_payload: dict[str, Any]) -> d
     model_payload = {
         "environment_id": str(payload.get("environment_id") or payload.get("task_environment_id") or ""),
         "title": str(payload.get("title") or ""),
+        "description": str(payload.get("description") or ""),
         "group_id": str(group.get("group_id") or ""),
         "environment_kind": str(payload.get("environment_kind") or ""),
         "storage": _drop_empty_payload(

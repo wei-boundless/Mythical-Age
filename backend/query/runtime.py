@@ -144,6 +144,7 @@ class QueryRuntime:
             ),
             agent_harness=self.agent_harness,
         )
+        self.single_agent_runtime_host.runtime_monitor_service.attach_graph_harness(self.graph_harness)
         self.task_executor_recovery = recover_interrupted_task_executors(self.single_agent_runtime_host)
         self.runtime_components = {
             "query_runtime": "adapter_only",

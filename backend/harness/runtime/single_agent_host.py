@@ -10,13 +10,15 @@ from capability_system import build_default_operation_registry
 from capability_system.tool_authorization import ToolAuthorizationIndex, build_tool_authorization_index
 from permissions import OperationGate
 from project_layout import ProjectLayout
-from harness.runtime.monitor_projection import TaskRunMonitorProjector
+from harness.runtime.monitoring import RuntimeMonitorService
 from harness.graph.langgraph_checkpoint_store import LangGraphCheckpointStore
 from runtime.memory.state_index import RuntimeStateIndex
 from runtime.prompt_accounting import PromptAccountingLedger
 from runtime.shared.event_log import RuntimeEventLog
 from runtime.shared.execution_record import RuntimeExecutionStore
+from runtime.shared.runtime_run_registry import RuntimeRunRegistry
 from runtime.shared.runtime_object_store import RuntimeObjectStore
+from runtime.shared.stream_replay import RuntimeStreamReplayService
 from langgraph.checkpoint.sqlite import SqliteSaver
 
 class SingleAgentRuntimeHost:
@@ -38,6 +40,8 @@ class SingleAgentRuntimeHost:
         self.root_dir = Path(root_dir)
         self.backend_dir = Path(backend_dir) if backend_dir is not None else ProjectLayout.from_runtime_root(self.root_dir).backend_dir
         self.event_log = RuntimeEventLog(self.root_dir)
+        self.run_registry = RuntimeRunRegistry(self.root_dir)
+        self.stream_replay = RuntimeStreamReplayService(self.event_log)
         self.prompt_accounting_ledger = PromptAccountingLedger(self.root_dir)
         self.execution_store = RuntimeExecutionStore(self.root_dir)
         self.state_index = RuntimeStateIndex(self.root_dir)
@@ -48,7 +52,8 @@ class SingleAgentRuntimeHost:
         self.tool_authorization_index = tool_authorization_index or build_tool_authorization_index(
             tuple(tool_definitions or ())
         )
-        self.monitor_projector = TaskRunMonitorProjector(self.event_log)
+        self.runtime_monitor_service = RuntimeMonitorService(runtime_host=self)
+        self.monitor_projector = self.runtime_monitor_service.projector
         self._background_tasks: set[asyncio.Task[Any]] = set()
 
     def spawn_background_task(self, coro: Any, *, name: str = "") -> asyncio.Task[Any]:
@@ -83,23 +88,13 @@ class SingleAgentRuntimeHost:
         }
 
     def list_global_live_monitor(self, limit: int = 20) -> dict[str, Any]:
-        now = time.time()
-        return self.monitor_projector.build_global_monitor(self.state_index.list_task_runs(), now=now, limit=limit)
+        return self.runtime_monitor_service.list_global_live_monitor(limit=limit)
 
     def get_session_live_monitor(self, session_id: str) -> dict[str, Any]:
-        task_runs = sorted(
-            self.state_index.list_session_task_runs(session_id),
-            key=lambda item: item.updated_at,
-            reverse=True,
-        )
-        now = time.time()
-        return self.monitor_projector.build_session_monitor(session_id, task_runs, now=now)
+        return self.runtime_monitor_service.get_session_live_monitor(session_id)
 
     def get_task_run_live_monitor(self, task_run_id: str) -> dict[str, Any] | None:
-        task_run = self.state_index.get_task_run(task_run_id)
-        if task_run is None:
-            return None
-        return self.monitor_projector.project_task_run(task_run, now=time.time())
+        return self.runtime_monitor_service.get_task_run_live_monitor(task_run_id)
 
     def get_trace(
         self,

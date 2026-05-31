@@ -25,6 +25,7 @@ import {
   riskClass,
   riskLabel,
   riskLabelValue,
+  runtimeEventLabelValue,
   signedTokenLabel,
   statusLabel,
   statusLabelValue,
@@ -627,7 +628,7 @@ function TaskDetail({ task, detail, loading }: { task: HealthTaskRecord | null; 
           <section className="health-semantic-box">
             <span>任务记录</span>
             <p>Agent {task.agent_id || "-"} · 工具 {task.tool_call_count} 次 · 事件 {task.event_count} 条 · 错误 {task.error_count} 个</p>
-            <p>Token 口径：{tokenSourceLabel(task.token_source)} · 最近事件：{task.latest_event_type || "-"} · 更新时间：{timeLabel(task.updated_at)}</p>
+            <p>Token 口径：{tokenSourceLabel(task.token_source)} · 最近进展：{runtimeEventLabelValue(task.latest_event_type)} · 更新时间：{timeLabel(task.updated_at)}</p>
           </section>
           <RiskList title="任务风险" risks={risks} />
           <details className="task-graph-runtime-spec-details">

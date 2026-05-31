@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field, is_dataclass
 from typing import Any
 
 from permissions import OperationGatePipelineContext
@@ -32,7 +32,7 @@ class ToolSupervisionResult:
             "decision": self.decision.to_dict(),
             "receipt": self.receipt.to_dict(),
             "normalized_args": dict(self.normalized_args),
-            "preflight": dict(self.preflight),
+            "preflight": _jsonable_payload(self.preflight),
             "gate": self.gate_result.to_dict() if hasattr(self.gate_result, "to_dict") else None,
             "authority": "runtime.tooling.tool_supervisor",
         }
@@ -210,5 +210,17 @@ def _capability_membership(
     if capability.tool_name != str(tool_name or ""):
         return "tool name does not match ToolCapabilityTable capability"
     return None
+
+
+def _jsonable_payload(value: Any) -> Any:
+    if hasattr(value, "to_dict") and callable(value.to_dict):
+        return _jsonable_payload(value.to_dict())
+    if is_dataclass(value):
+        return _jsonable_payload(asdict(value))
+    if isinstance(value, dict):
+        return {str(key): _jsonable_payload(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_jsonable_payload(item) for item in value]
+    return value
 
 

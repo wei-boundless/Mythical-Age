@@ -84,12 +84,13 @@ export function getDefaultState(): StoreState {
     orchestrationSnapshot: null,
     taskGraphMonitorBinding: null,
     taskGraphLiveMonitor: null,
-    taskGraphRunMonitor: null,
     globalRuntimeMonitor: null,
     globalRuntimeMonitorRevision: "",
+    globalRuntimeMonitorSelectedTaskInstanceId: "",
     globalRuntimeMonitorSelectedTaskRunId: "",
     globalRuntimeMonitorSelectedLiveMonitor: null,
     globalRuntimeMonitorSelectedGraphMonitor: null,
+    runtimeMonitorInstancesById: {},
     globalRuntimeMonitorLoading: false,
     globalRuntimeMonitorError: "",
     globalRuntimeMonitorStreamStatus: "closed",
@@ -103,6 +104,7 @@ export function getDefaultState(): StoreState {
     taskGraphRunInteractionOpen: false,
     orchestrationInspectorTarget: null,
     taskSelection: null,
+    chatTaskEnvironmentBinding: null,
     centerWorkspaceTarget: null
   };
 }

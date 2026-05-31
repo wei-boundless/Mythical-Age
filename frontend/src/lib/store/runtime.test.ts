@@ -8,13 +8,17 @@ import type { StoreState } from "./types";
 const api = vi.hoisted(() => ({
   createSession: vi.fn(),
   getCodeEnvironmentWorkspaceTree: vi.fn(),
+  getChatRun: vi.fn(),
+  getLatestChatRunForSession: vi.fn(),
   getGlobalRuntimeMonitor: vi.fn(),
   getModelProviderConfig: vi.fn(),
   getOrchestrationHarnessTaskRunLiveMonitor: vi.fn(),
   getOrchestrationHarnessSessionLiveMonitor: vi.fn(),
   getOrchestrationRuntimeOptions: vi.fn(),
   pauseOrchestrationHarnessTaskRun: vi.fn(),
+  clearChatStreamCursor: vi.fn(),
   getRagMode: vi.fn(),
+  readChatStreamCursor: vi.fn(),
   resumeOrchestrationHarnessTaskRun: vi.fn(),
   getSessionHistory: vi.fn(),
   getSessionTimeline: vi.fn(),
@@ -26,6 +30,7 @@ const api = vi.hoisted(() => ({
   listSkills: vi.fn(),
   loadFile: vi.fn(),
   stopOrchestrationHarnessTaskRun: vi.fn(),
+  streamExistingChatRun: vi.fn(),
   streamChat: vi.fn(),
 }));
 
@@ -35,6 +40,8 @@ vi.mock("@/lib/api", () => ({
   runGraphRunUntilIdle: vi.fn(),
   evaluateTaskGraphRunMonitor: vi.fn(),
   getCodeEnvironmentWorkspaceTree: api.getCodeEnvironmentWorkspaceTree,
+  getChatRun: api.getChatRun,
+  getLatestChatRunForSession: api.getLatestChatRunForSession,
   getGlobalRuntimeMonitor: api.getGlobalRuntimeMonitor,
   getRuntimeMonitorEventStreamUrl: vi.fn(() => "http://127.0.0.1:8003/api/orchestration/harness/monitor-events"),
   getModelProviderConfig: api.getModelProviderConfig,
@@ -46,7 +53,9 @@ vi.mock("@/lib/api", () => ({
   getOrchestrationHarnessSessionLiveMonitor: api.getOrchestrationHarnessSessionLiveMonitor,
   getOrchestrationRuntimeOptions: api.getOrchestrationRuntimeOptions,
   pauseOrchestrationHarnessTaskRun: api.pauseOrchestrationHarnessTaskRun,
+  clearChatStreamCursor: api.clearChatStreamCursor,
   getRagMode: api.getRagMode,
+  readChatStreamCursor: api.readChatStreamCursor,
   resumeOrchestrationHarnessTaskRun: api.resumeOrchestrationHarnessTaskRun,
   getSessionHistory: api.getSessionHistory,
   getSessionTimeline: api.getSessionTimeline,
@@ -60,6 +69,7 @@ vi.mock("@/lib/api", () => ({
   setRagMode: vi.fn(),
   stopOrchestrationHarnessTaskRun: api.stopOrchestrationHarnessTaskRun,
   stopOrchestrationTaskRun: vi.fn(),
+  streamExistingChatRun: api.streamExistingChatRun,
   streamChat: api.streamChat,
   switchSoulSystemSeed: vi.fn(),
   truncateSessionMessages: vi.fn(),
@@ -161,8 +171,13 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     api.getOrchestrationHarnessSessionLiveMonitor.mockResolvedValue({ monitor: null });
     api.getOrchestrationHarnessTaskRunLiveMonitor.mockReset();
     api.getOrchestrationHarnessTaskRunLiveMonitor.mockResolvedValue({ monitor: null });
+    api.getChatRun.mockReset();
+    api.getChatRun.mockRejectedValue(new Error("no chat run"));
+    api.getLatestChatRunForSession.mockReset();
+    api.getLatestChatRunForSession.mockRejectedValue(new Error("no active chat run"));
     api.pauseOrchestrationHarnessTaskRun.mockReset();
     api.pauseOrchestrationHarnessTaskRun.mockResolvedValue({ ok: true });
+    api.clearChatStreamCursor.mockReset();
     api.resumeOrchestrationHarnessTaskRun.mockReset();
     api.resumeOrchestrationHarnessTaskRun.mockResolvedValue({ ok: true });
     api.stopOrchestrationHarnessTaskRun.mockReset();
@@ -222,10 +237,17 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     api.listSkills.mockResolvedValue([]);
     api.loadFile.mockReset();
     api.loadFile.mockResolvedValue({ path: "durable_memory/index/MEMORY.md", content: "" });
+    api.readChatStreamCursor.mockReset();
+    api.readChatStreamCursor.mockReturnValue(null);
+    api.streamExistingChatRun.mockReset();
+    api.streamExistingChatRun.mockImplementation(async (_sessionId, _streamRunId, handlers) => {
+      handlers.onEvent("done", { content: "done" });
+      return { terminalEvent: "done", streamRunId: "strun:test", taskRunId: "chatrun:test", lastEventOffset: 1 };
+    });
     api.streamChat.mockReset();
     api.streamChat.mockImplementation(async (_payload, handlers) => {
       handlers.onEvent("done", { content: "done" });
-      return { terminalEvent: "done" };
+      return { terminalEvent: "done", streamRunId: "strun:test", taskRunId: "chatrun:test", lastEventOffset: 1 };
     });
     vi.stubGlobal("window", {
       clearTimeout,
@@ -261,6 +283,27 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(api.getGraphRunMonitor).toHaveBeenCalledTimes(3);
     expect(store.getState().taskGraphMonitorBinding?.task_run_id).toBe("taskrun:bound");
     expect(store.getState().taskGraphBoundRunMonitor?.active_node_work_orders?.[0]?.node_id).toBe("draft");
+  });
+
+  it("stops polling a bound TaskGraph run when its harness config no longer exists", async () => {
+    api.getGraphRunMonitor.mockRejectedValue(new Error('{"detail":"GraphHarnessConfig not found"}'));
+    const store = createStore(getDefaultState());
+    const runtime = new WorkspaceRuntime(store);
+
+    runtime.actions.bindTaskGraphMonitorRun({
+      task_run_id: "taskrun:old-graph",
+      graph_run_id: "grun:old-graph",
+      graph_harness_config_id: "ghcfg:old-missing",
+      graph_id: "graph:old",
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(6000);
+
+    expect(api.getGraphRunMonitor).toHaveBeenCalledTimes(1);
+    expect(store.getState().taskGraphMonitorBinding).toBeNull();
+    expect(store.getState().taskGraphBoundRunMonitor).toBeNull();
+    expect(store.getState().taskGraphMonitorError).toContain("已停止继续轮询");
   });
 
   it("keeps the global monitor selection on top-level TaskGraph runs", () => {
@@ -368,6 +411,48 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       mode: "monitor",
       graph_id: "graph.writing.master",
     });
+  });
+
+  it("does not repeatedly fetch graph monitor details for stale graph config refs", async () => {
+    api.getGraphRunMonitor.mockRejectedValue(new Error('{"detail":"GraphHarnessConfig not found"}'));
+    const store = createStore(getDefaultState());
+    const runtime = new WorkspaceRuntime(store);
+    const runtimeHarness = runtime as unknown as {
+      applyGlobalRuntimeMonitorSnapshot: (monitor: {
+        authority: string;
+        summary: {
+          total: number;
+          running: number;
+          waiting: number;
+          completed: number;
+          failed: number;
+        };
+        task_runs: Array<Record<string, unknown>>;
+        updated_at: number;
+      }) => void;
+    };
+
+    runtimeHarness.applyGlobalRuntimeMonitorSnapshot(monitorForTest([
+      itemForMonitor({
+        task_run_id: "taskrun:old-master",
+        session_id: "session",
+        title: "旧图任务",
+        graph_run_id: "grun:old-master",
+        graph_harness_config_id: "ghcfg:old-missing",
+        graph_id: "graph.writing.master",
+        has_graph_run: true,
+        route: { kind: "task_graph_run", session_id: "session", task_run_id: "taskrun:old-master", graph_id: "graph.writing.master", graph_run_id: "grun:old-master", graph_harness_config_id: "ghcfg:old-missing" },
+      }),
+    ]));
+
+    runtime.actions.openGlobalRuntimeMonitorTaskRun("taskrun:old-master");
+    await Promise.resolve();
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(6000);
+
+    expect(api.getGraphRunMonitor).toHaveBeenCalledTimes(1);
+    expect(store.getState().taskGraphMonitorBinding).toBeNull();
+    expect(store.getState().taskGraphMonitorError).toContain("已停止继续轮询");
   });
 
   it("opens a global monitor chat-turn run in its conversation page", () => {
@@ -1104,6 +1189,65 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(store.getState().workspaceInitializing).toBe(false);
   });
 
+  it("reattaches a persisted chat run during initialization without starting a new run", async () => {
+    vi.useRealTimers();
+    const cursor = {
+      streamRunId: "strun:resume",
+      taskRunId: "chatrun:resume",
+      lastEventOffset: 3,
+      lastEventId: "strun:resume:chatrun:resume:3",
+    };
+    api.listSessions.mockResolvedValue([{
+      id: "session:existing",
+      title: "Existing",
+      created_at: 1,
+      updated_at: 1,
+      message_count: 1,
+    }]);
+    api.readChatStreamCursor.mockReturnValue(cursor);
+    api.getChatRun.mockResolvedValue({
+      stream_run_id: "strun:resume",
+      session_id: "session:existing",
+      task_run_id: "chatrun:resume",
+      root_request_ref: "chatreq:resume",
+      status: "running",
+      latest_event_offset: 3,
+      is_reconnectable: true,
+      stream_url: "/api/chat/runs/strun:resume/events",
+    });
+    api.getSessionTimeline.mockResolvedValue({
+      messages: [
+        { role: "user", content: "继续处理" },
+        { role: "assistant", content: "续接完成" },
+      ],
+      runtime_attachments: [],
+    });
+    api.streamExistingChatRun.mockImplementation(async (_sessionId, _streamRunId, handlers) => {
+      handlers.onEvent("content_delta", { content: "续", event_offset: 4 });
+      handlers.onEvent("done", { content: "续接完成", event_offset: 5 });
+      return { terminalEvent: "done", streamRunId: "strun:resume", taskRunId: "chatrun:resume", lastEventOffset: 5 };
+    });
+    const store = createStore(getDefaultState());
+    const runtime = new WorkspaceRuntime(store);
+
+    await runtime.initialize();
+    await Promise.resolve();
+
+    expect(api.streamChat).not.toHaveBeenCalled();
+    expect(api.getLatestChatRunForSession).not.toHaveBeenCalled();
+    expect(api.streamExistingChatRun).toHaveBeenCalledWith(
+      "session:existing",
+      "strun:resume",
+      expect.any(Object),
+      expect.objectContaining({
+        initialCursor: cursor,
+        replayFromStart: true,
+      }),
+    );
+    expect(store.getState().currentSessionId).toBe("session:existing");
+    expect(store.getState().messages.some((message) => message.role === "assistant" && message.content.includes("续"))).toBe(true);
+  });
+
   it("sends to the newly created session when the user submits during creation", async () => {
     vi.useRealTimers();
     let resolveCreate: (value: {
@@ -1343,7 +1487,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       selectedChatModelId: "openai::gpt-image-2",
       selectedChatMode: "image",
       taskGraphLiveMonitor: { status: "running", has_graph_run: true } as never,
-      taskGraphRunMonitor: { runtime: { status: "running" } } as never,
+      taskGraphBoundRunMonitor: { runtime: { status: "running" } } as never,
       soulImageAssetConfig: {
         configured: true,
         base_url: "https://api.openai.com/v1",
@@ -1375,7 +1519,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       expect.stringMatching(/^turn-session:image-\d+$/)
     );
     expect(store.getState().taskGraphLiveMonitor).toBeNull();
-    expect(store.getState().taskGraphRunMonitor).toBeNull();
+    expect(store.getState().taskGraphBoundRunMonitor).not.toBeNull();
     expect(store.getState().messages.at(-1)?.image?.src).toBe("/souls/generated/chat-turn.png");
   });
 
@@ -1435,6 +1579,54 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(api.streamChat).toHaveBeenCalledTimes(1);
     expect(api.streamChat.mock.calls[0]?.[0]?.task_selection).toBeUndefined();
     expect(api.streamChat.mock.calls[0]?.[0]?.runtime_mode).toBe("role");
+  });
+
+  it("sends an explicitly bound task environment to main-chat turns", async () => {
+    vi.useRealTimers();
+    const store = createStore<StoreState>({
+      ...getDefaultState(),
+      currentSessionId: "session:env-bound",
+    });
+    const runtime = new WorkspaceRuntime(store);
+
+    runtime.actions.setChatTaskEnvironmentBinding({
+      task_environment_id: "env.development.sandbox",
+      environment_label: "Development Sandbox",
+      source: "task-system",
+      bound_at: 123,
+    });
+    await runtime.actions.sendMessage("检查当前环境。");
+
+    expect(api.streamChat).toHaveBeenCalledTimes(1);
+    expect(api.streamChat.mock.calls[0]?.[0]?.task_selection).toMatchObject({
+      task_environment_id: "env.development.sandbox",
+      environment_id: "env.development.sandbox",
+      environment_label: "Development Sandbox",
+      binding_kind: "chat_task_environment",
+      binding_source: "task-system",
+      bound_at: 123,
+    });
+  });
+
+  it("removes task environment context after clearing the explicit binding", async () => {
+    vi.useRealTimers();
+    const store = createStore<StoreState>({
+      ...getDefaultState(),
+      currentSessionId: "session:env-clear",
+      chatTaskEnvironmentBinding: {
+        task_environment_id: "env.development.sandbox",
+        environment_label: "Development Sandbox",
+        source: "task-system",
+        bound_at: 123,
+      },
+    });
+    const runtime = new WorkspaceRuntime(store);
+
+    runtime.actions.clearChatTaskEnvironmentBinding();
+    await runtime.actions.sendMessage("普通聊天。");
+
+    expect(api.streamChat).toHaveBeenCalledTimes(1);
+    expect(api.streamChat.mock.calls[0]?.[0]?.task_selection).toBeUndefined();
   });
 
   it("keeps task selection after chat stream start events", async () => {

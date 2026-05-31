@@ -4,6 +4,7 @@ import type { LucideIcon } from "lucide-react";
 import {
   Boxes,
   BrainCircuit,
+  CalendarClock,
   FileCheck2,
   GitBranch,
   Network,
@@ -81,6 +82,15 @@ export const TASK_GRAPH_STUDIO_LAYERS: TaskGraphStudioLayer[] = [
     icon: Route,
   },
   {
+    id: "timeline",
+    title: "阶段与循环",
+    description: "阶段、循环、审核返修、批次推进",
+    category: "validation",
+    metric: "生命周期",
+    state: "draft",
+    icon: CalendarClock,
+  },
+  {
     id: "memory",
     title: "资源流",
     description: "仓库、读写边、Snapshot",
@@ -129,16 +139,6 @@ const LAYER_GROUPS: Array<{
   { id: "validation", title: "验证", description: "编译视图、生命周期、发布" },
 ];
 
-const LAYER_GROUP_LABELS = LAYER_GROUPS.reduce<Record<TaskGraphStudioLayer["category"], string>>((acc, group) => {
-  acc[group.id] = group.title;
-  return acc;
-}, {
-  builder: "主图",
-  execution: "执行",
-  resources: "资源",
-  validation: "验证",
-});
-
 export function TaskGraphLayerNav({
   activeLayer,
   layers = TASK_GRAPH_STUDIO_LAYERS,
@@ -149,22 +149,43 @@ export function TaskGraphLayerNav({
   onChange: (layer: TaskGraphStudioLayerId) => void;
 }) {
   return (
-    <nav className="task-graph-layer-nav task-graph-editor-rail" aria-label="多 Agent 任务图层级">
-      {layers.map((layer) => {
-        const Icon = layer.icon;
+    <nav className="task-graph-layer-nav" aria-label="多 Agent 任务图层级">
+      {LAYER_GROUPS.map((group) => {
+        const groupedLayers = layers.filter((layer) => layer.category === group.id);
+        if (!groupedLayers.length) {
+          return null;
+        }
         return (
-          <button
-            aria-current={activeLayer === layer.id ? "page" : undefined}
-            className={activeLayer === layer.id ? "task-graph-editor-rail__item task-graph-editor-rail__item--active" : "task-graph-editor-rail__item"}
-            key={layer.id}
-            onClick={() => onChange(layer.id)}
-            title={`${layer.title} · ${layer.description}`}
-            type="button"
-          >
-            <Icon aria-hidden="true" size={16} />
-            <strong>{layer.title}</strong>
-            <span>{LAYER_GROUP_LABELS[layer.category]}</span>
-          </button>
+          <section className="task-graph-layer-group" key={group.id}>
+            <header>
+              <strong>{group.title}</strong>
+              <span>{group.description}</span>
+            </header>
+            <div className="task-graph-layer-group__grid">
+              {groupedLayers.map((layer) => {
+                const Icon = layer.icon;
+                return (
+                  <button
+                    aria-current={activeLayer === layer.id ? "page" : undefined}
+                    className={activeLayer === layer.id ? "task-graph-layer-card task-graph-layer-card--active" : "task-graph-layer-card"}
+                    key={layer.id}
+                    onClick={() => onChange(layer.id)}
+                    title={`${layer.title} · ${layer.description}`}
+                    type="button"
+                  >
+                    <Icon aria-hidden="true" size={16} />
+                    <span>
+                      <strong>{layer.title}</strong>
+                      <small>{layer.description}</small>
+                    </span>
+                    <i className={`task-graph-layer-card__state task-graph-layer-card__state--${layer.state}`}>
+                      {layer.metric}
+                    </i>
+                  </button>
+                );
+              })}
+            </div>
+          </section>
         );
       })}
     </nav>

@@ -7,7 +7,6 @@ import { ChatPanel } from "@/components/chat/ChatPanel";
 import { CoordinationTopologyGraph, type CoordinationTopologyEdge, type CoordinationTopologyNode } from "@/components/coordination/CoordinationTopologyGraph";
 import { GraphTaskWorkspace } from "@/components/workspace/views/task-graph-workbench/GraphTaskWorkspace";
 import {
-  getGraphRunMonitor,
   getTaskSystemOverview,
   getTaskSystemTaskGraph,
   startTaskGraphHarnessRun,
@@ -54,7 +53,6 @@ export function CenterWorkspaceView() {
   const [taskMessage, setTaskMessage] = useState("");
   const [starting, setStarting] = useState(false);
   const [startError, setStartError] = useState("");
-  const [runMonitor, setRunMonitor] = useState<GraphRunMonitorView | null>(null);
   const [selectedNodeId, setSelectedNodeId] = useState("");
   const [graphPanelRatio, setGraphPanelRatio] = useState(0.68);
   const graphBodyRef = useRef<HTMLDivElement | null>(null);
@@ -83,24 +81,15 @@ export function CenterWorkspaceView() {
     [selectedTaskEnvironmentId, taskGraphs],
   );
   const boundGraphRunId = String(taskGraphMonitorBinding?.graph_run_id ?? "").trim();
-  const boundGraphHarnessConfigId = String(taskGraphMonitorBinding?.graph_harness_config_id ?? "").trim();
   const activeMonitor = useMemo(() => {
     const boundGraphId = String(taskGraphMonitorBinding?.graph_id ?? "").trim();
     const liveMonitorGraphId = graphIdFromGraphMonitor(taskGraphBoundRunMonitor);
-    const runMonitorGraphId = graphIdFromGraphMonitor(runMonitor);
     const selectedGraphGraphId = String(selectedGraph?.graph_id ?? "").trim();
-    const matchesSelection = !selectedGraphGraphId
-      || runMonitorGraphId === selectedGraphGraphId
-      || liveMonitorGraphId === selectedGraphGraphId
-      || (!selectedGraphGraphId && Boolean(boundGraphId));
-    if (runMonitor && matchesSelection) {
-      return runMonitor;
-    }
     if (taskGraphBoundRunMonitor && (!selectedGraphGraphId || liveMonitorGraphId === selectedGraphGraphId || !boundGraphId || boundGraphId === selectedGraphGraphId)) {
       return taskGraphBoundRunMonitor;
     }
     return null;
-  }, [runMonitor, selectedGraph?.graph_id, taskGraphBoundRunMonitor, taskGraphMonitorBinding?.graph_id]);
+  }, [selectedGraph?.graph_id, taskGraphBoundRunMonitor, taskGraphMonitorBinding?.graph_id]);
   const graphDefinitionNodes = useMemo(() => {
     const graphRecord = selectedGraph as (TaskGraphRecord & { graph_nodes?: unknown[] }) | null;
     if (graphRecord?.nodes?.length) return graphRecord.nodes;
@@ -159,6 +148,9 @@ export function CenterWorkspaceView() {
       setGraphWorkspaceMode(centerWorkspaceTarget.mode ?? "editor");
       if (centerWorkspaceTarget.graph_id) {
         setSelectedGraphId(centerWorkspaceTarget.graph_id);
+      }
+      if (centerWorkspaceTarget.focus_node_id) {
+        setSelectedNodeId(centerWorkspaceTarget.focus_node_id);
       }
     }
     clearCenterWorkspaceTarget();
@@ -254,27 +246,6 @@ export function CenterWorkspaceView() {
     };
   }, [selectedGraphRequestId]);
 
-  useEffect(() => {
-    if (!boundGraphRunId || !boundGraphHarnessConfigId || layer !== "task-graph") {
-      return;
-    }
-    let cancelled = false;
-    async function refreshMonitor() {
-      const monitor = await getGraphRunMonitor(boundGraphRunId, boundGraphHarnessConfigId).catch(() => null);
-      if (!cancelled && monitor) {
-        setRunMonitor(monitor);
-      }
-    }
-    void refreshMonitor();
-    const timer = window.setInterval(() => {
-      void refreshMonitor();
-    }, 1800);
-    return () => {
-      cancelled = true;
-      window.clearInterval(timer);
-    };
-  }, [boundGraphHarnessConfigId, boundGraphRunId, layer]);
-
   async function handleStartGraph(message: string) {
     const graphId = selectedGraph?.graph_id.trim();
     if (!graphId) {
@@ -293,8 +264,6 @@ export function CenterWorkspaceView() {
         dispatch_ready: true,
         run_mode: "auto_run",
       });
-      const monitor = await getGraphRunMonitor(result.graph_run_id, result.graph_harness_config_id).catch(() => null);
-      setRunMonitor(monitor);
       bindTaskGraphMonitorRun({
         task_run_id: result.task_run_id,
         graph_run_id: result.graph_run_id,

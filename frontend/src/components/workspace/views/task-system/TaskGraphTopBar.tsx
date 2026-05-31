@@ -38,23 +38,11 @@ export function TaskGraphTopBar({
         <strong>{title || graphId || "未命名任务图"}</strong>
         <small>{graphId || "graph.draft"} · 协调者 {coordinatorAgentId || "agent:0"}</small>
       </div>
-      <div className="task-graph-studio-topbar__metrics" aria-label="任务图摘要">
-        <article>
-          <span>节点</span>
-          <strong>{nodeCount}</strong>
-        </article>
-        <article>
-          <span>边</span>
-          <strong>{edgeCount}</strong>
-        </article>
-        <article>
-          <span>问题</span>
-          <strong>{issueCount}</strong>
-        </article>
-        <article>
-          <span>状态</span>
-          <strong>{published ? taskGraphPublishStateLabel(publishState) : valid ? "可发布" : taskGraphPublishStateLabel(publishState)}</strong>
-        </article>
+      <div className="task-graph-studio-topbar__facts" aria-label="任务图摘要">
+        <span>{nodeCount} 节点</span>
+        <span>{edgeCount} 边</span>
+        <span className={issueCount ? "task-graph-studio-topbar__fact--warn" : ""}>{issueCount} 问题</span>
+        <strong>{published ? taskGraphPublishStateLabel(publishState) : valid ? "可发布" : taskGraphPublishStateLabel(publishState)}</strong>
       </div>
       <div className="task-graph-studio-topbar__actions">
         <TaskSystemToolbarButton disabled={saving === "task-graph"} onClick={onSave}>

@@ -15224,14 +15224,17 @@ html[data-soul="xuannv"] .soul-portrait__label {
 
 .task-graph-studio-workspace-strip {
   display: grid;
-  grid-template-columns: minmax(420px, 1.4fr) minmax(260px, 0.9fr) auto;
+  grid-template-areas:
+    "controls actions"
+    "status actions";
+  grid-template-columns: minmax(280px, 1fr) auto;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.26rem 0.58rem;
   border: 0;
   border-bottom: 1px solid color-mix(in srgb, var(--color-soul) 16%, var(--color-border));
   border-radius: 0;
   background: color-mix(in srgb, var(--color-panel-strong) 94%, #050b11);
-  padding: 0.28rem 0.42rem;
+  padding: 0.34rem 0.52rem;
   overflow: visible;
   position: relative;
   z-index: 4;
@@ -15305,8 +15308,9 @@ html[data-soul="xuannv"] .soul-portrait__label {
 }
 
 .task-graph-editor-chrome__controls {
+  grid-area: controls;
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.45rem;
   min-width: 0;
 }
@@ -15396,16 +15400,19 @@ html[data-soul="xuannv"] .soul-portrait__label {
 }
 
 .task-graph-editor-chrome__status {
+  grid-area: status;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 0.42rem;
   min-width: 0;
+  overflow: hidden;
   color: var(--color-text-soft);
   font-size: 0.72rem;
 }
 
 .task-graph-editor-chrome__actions {
+  grid-area: actions;
   display: flex;
   flex-wrap: wrap;
   gap: 0.38rem;
@@ -15428,7 +15435,7 @@ html[data-soul="xuannv"] .soul-portrait__label {
 
 .task-graph-studio-topbar {
   display: grid;
-  grid-template-columns: minmax(260px, 0.7fr) minmax(360px, 1fr) auto;
+  grid-template-columns: minmax(260px, 1fr) minmax(220px, auto) auto;
   align-items: center;
   gap: 0.65rem;
   border-bottom: 1px solid color-mix(in srgb, var(--color-soul) 12%, var(--color-border));
@@ -15465,13 +15472,40 @@ html[data-soul="xuannv"] .soul-portrait__label {
   white-space: nowrap;
 }
 
-.task-graph-studio-topbar__metrics {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 0.42rem;
+.task-graph-studio-topbar__facts {
+  display: inline-flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.28rem;
+  min-width: 0;
 }
 
-.task-graph-studio-topbar__metrics article,
+.task-graph-studio-topbar__facts span,
+.task-graph-studio-topbar__facts strong {
+  display: inline-flex;
+  min-height: 1.7rem;
+  align-items: center;
+  border: 1px solid color-mix(in srgb, var(--color-soul) 12%, var(--color-border));
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.024);
+  color: var(--color-text-soft);
+  font-size: 0.66rem;
+  font-weight: 820;
+  line-height: 1;
+  padding: 0.22rem 0.52rem;
+  white-space: nowrap;
+}
+
+.task-graph-studio-topbar__facts strong {
+  border-color: color-mix(in srgb, var(--color-soul) 26%, var(--color-border));
+  color: var(--color-text);
+}
+
+.task-graph-studio-topbar__fact--warn {
+  border-color: color-mix(in srgb, #f59e0b 34%, var(--color-border)) !important;
+  color: #facc15 !important;
+}
+
 .task-graph-studio-placeholder-grid article {
   display: grid;
   gap: 0.08rem;
@@ -15482,14 +15516,12 @@ html[data-soul="xuannv"] .soul-portrait__label {
   padding: 0.42rem 0.5rem;
 }
 
-.task-graph-studio-topbar__metrics span,
 .task-graph-studio-placeholder-grid span {
   color: var(--color-text-soft);
   font-size: 0.62rem;
   font-weight: 820;
 }
 
-.task-graph-studio-topbar__metrics strong,
 .task-graph-studio-placeholder-grid strong {
   color: var(--color-text);
   font-size: 0.82rem;
@@ -15507,7 +15539,7 @@ html[data-soul="xuannv"] .soul-portrait__label {
 
 .task-graph-studio-shell__body {
   display: grid;
-  grid-template-columns: minmax(210px, 0.2fr) minmax(0, 1fr);
+  grid-template-columns: minmax(218px, 230px) minmax(0, 1fr);
   min-height: 0;
   overflow: hidden;
 }
@@ -15515,11 +15547,11 @@ html[data-soul="xuannv"] .soul-portrait__label {
 .task-graph-layer-nav {
   display: grid;
   align-content: start;
-  gap: 0.38rem;
+  gap: 0.42rem;
   min-width: 0;
   min-height: 0;
   border-right: 1px solid color-mix(in srgb, var(--color-soul) 12%, var(--color-border));
-  padding: 0.5rem;
+  padding: 0.48rem;
   overflow: auto;
 }
 
@@ -15557,14 +15589,14 @@ html[data-soul="xuannv"] .soul-portrait__label {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
-  gap: 0.42rem;
-  min-height: 3.4rem;
+  gap: 0.38rem;
+  min-height: 3rem;
   border: 1px solid color-mix(in srgb, var(--color-soul) 12%, var(--color-border));
   border-radius: 7px;
   background: rgba(255, 255, 255, 0.02);
   color: var(--color-text-soft);
   cursor: pointer;
-  padding: 0.48rem 0.5rem;
+  padding: 0.42rem 0.46rem;
   text-align: left;
   transition: background 160ms ease, border-color 160ms ease, color 160ms ease;
 }
@@ -15594,8 +15626,12 @@ html[data-soul="xuannv"] .soul-portrait__label {
 
 .task-graph-layer-card small {
   color: var(--color-text-muted);
+  display: -webkit-box;
   font-size: 0.62rem;
+  -webkit-line-clamp: 2;
   line-height: 1.25;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
 }
 
 .task-graph-layer-card__state {
@@ -15623,64 +15659,6 @@ html[data-soul="xuannv"] .soul-portrait__label {
   min-width: 0;
   min-height: 0;
   overflow: auto;
-}
-
-.task-graph-layer-context {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 0.75rem;
-  border-bottom: 1px solid color-mix(in srgb, var(--color-soul) 12%, var(--color-border));
-  background:
-    linear-gradient(90deg, color-mix(in srgb, var(--color-soul) 8%, transparent), transparent 58%),
-    rgba(255, 255, 255, 0.018);
-  padding: 0.62rem 0.72rem;
-}
-
-.task-graph-layer-context > div {
-  display: grid;
-  gap: 0.12rem;
-  min-width: 0;
-}
-
-.task-graph-layer-context span {
-  color: var(--color-soul);
-  font-size: 0.62rem;
-  font-weight: 900;
-}
-
-.task-graph-layer-context strong {
-  color: var(--color-text);
-  font-size: 0.92rem;
-}
-
-.task-graph-layer-context p {
-  max-width: 760px;
-  margin: 0;
-  color: var(--color-text-soft);
-  font-size: 0.72rem;
-  line-height: 1.55;
-}
-
-.task-graph-layer-context ul {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 0.34rem;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.task-graph-layer-context li {
-  border: 1px solid color-mix(in srgb, var(--color-soul) 16%, var(--color-border));
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.024);
-  color: var(--color-text-soft);
-  font-size: 0.62rem;
-  font-weight: 820;
-  padding: 0.18rem 0.42rem;
-  white-space: nowrap;
 }
 
 .task-graph-layer-strip {
@@ -19785,7 +19763,6 @@ html[data-soul="xuannv"] .soul-portrait__label {
   .task-console-preview-grid,
   .coordination-mechanism-console,
   .task-graph-studio-topbar,
-  .task-graph-studio-topbar__metrics,
   .task-graph-studio-shell__body,
   .task-graph-studio-placeholder-grid,
   .task-graph-form-grid,
@@ -19797,7 +19774,6 @@ html[data-soul="xuannv"] .soul-portrait__label {
   .task-graph-node-policy-row--wide,
   .task-graph-resource-create,
   .task-graph-repository-summary,
-  .task-graph-layer-context,
   .task-graph-layer-strip,
   .task-graph-publish-strip,
   .task-graph-preflight-row,
@@ -19896,6 +19872,17 @@ html[data-soul="xuannv"] .soul-portrait__label {
     justify-content: flex-start;
   }
 
+  .task-graph-studio-workspace-strip {
+    grid-template-areas:
+      "controls"
+      "status"
+      "actions";
+  }
+
+  .task-graph-studio-topbar__facts {
+    justify-content: flex-start;
+  }
+
   .task-graph-studio-topbar__actions {
     justify-content: flex-start;
   }
@@ -19906,7 +19893,6 @@ html[data-soul="xuannv"] .soul-portrait__label {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .task-graph-layer-context ul,
   .task-graph-layer-strip ul {
     justify-content: flex-start;
   }
@@ -24763,14 +24749,13 @@ html[data-soul="xuannv"] .soul-portrait__label {
 .task-graph-standard-status {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  gap: 12px;
+  gap: 8px;
   align-items: center;
-  padding: 12px 14px;
+  min-height: 42px;
+  padding: 7px 10px;
   border: 1px solid rgba(148, 163, 184, 0.14);
-  border-radius: 10px;
-  background:
-    linear-gradient(135deg, rgba(103, 232, 249, 0.07), transparent 42%),
-    rgba(2, 6, 23, 0.34);
+  border-radius: 0;
+  background: rgba(2, 6, 23, 0.22);
 }
 
 .task-graph-standard-status__identity,
@@ -24782,7 +24767,7 @@ html[data-soul="xuannv"] .soul-portrait__label {
 
 .task-graph-standard-status__identity {
   display: grid;
-  gap: 4px;
+  gap: 2px;
 }
 
 .task-graph-standard-status__identity > span {
@@ -24795,13 +24780,16 @@ html[data-soul="xuannv"] .soul-portrait__label {
 
 .task-graph-standard-status__identity strong {
   color: #e2e8f0;
-  font-size: 14px;
+  font-size: 12px;
 }
 
 .task-graph-standard-status__identity small {
   color: #94a3b8;
   font-size: 11px;
-  line-height: 1.5;
+  overflow: hidden;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .task-graph-standard-status__actions {
@@ -24825,8 +24813,8 @@ html[data-soul="xuannv"] .soul-portrait__label {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  min-height: 34px;
-  padding: 0 12px;
+  min-height: 28px;
+  padding: 0 10px;
   border: 1px solid rgba(103, 232, 249, 0.24);
   border-radius: 999px;
   background: rgba(8, 47, 73, 0.32);
@@ -25634,12 +25622,6 @@ html[data-soul="xuannv"] .soul-portrait__label {
 .task-system-object-page--full > .boundary-card,
 .task-system-object-page--full > .task-system-task-cover {
   width: 100%;
-}
-
-.task-domain-quick-jumps {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
 }
 
 .task-graph-composer-page {
@@ -33118,32 +33100,33 @@ html[data-workspace-tone] .agent-workbench {
 }
 
 .system-page-content .task-graph-editor-page .task-graph-studio-workspace-strip {
-  grid-template-columns: minmax(320px, 1.15fr) minmax(170px, 0.42fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   border-color: #d8e0eb;
   background: #f8fafc;
   padding: 0.34rem 0.52rem;
 }
 
 .system-page-content .task-graph-editor-page .task-graph-studio-topbar {
-  grid-template-columns: minmax(260px, 0.7fr) minmax(280px, 0.72fr) auto;
+  grid-template-columns: minmax(260px, 1fr) minmax(220px, auto) auto;
   gap: 0.52rem;
   border-color: #d8e0eb;
   background: #fff;
   padding: 0.42rem 0.58rem;
 }
 
-.system-page-content .task-graph-editor-page .task-graph-studio-topbar__metrics {
+.system-page-content .task-graph-editor-page .task-graph-studio-topbar__facts {
   gap: 0.32rem;
 }
 
-.system-page-content .task-graph-editor-page .task-graph-studio-topbar__metrics article {
+.system-page-content .task-graph-editor-page .task-graph-studio-topbar__facts span,
+.system-page-content .task-graph-editor-page .task-graph-studio-topbar__facts strong {
   border-color: #d8e0eb;
   background: #f8fafc;
   padding: 0.3rem 0.42rem;
 }
 
 .system-page-content .task-graph-editor-page .task-graph-studio-shell__body {
-  grid-template-columns: minmax(250px, 0.18fr) minmax(0, 1fr);
+  grid-template-columns: 230px minmax(0, 1fr);
 }
 
 .system-page-content .task-graph-editor-page .task-graph-studio-shell__page {
@@ -33155,7 +33138,8 @@ html[data-workspace-tone] .agent-workbench {
 .system-page-content .task-graph-editor-page .task-graph-layer-nav {
   border-color: #d8e0eb;
   background: #f8fafc;
-  padding: 0;
+  gap: 0.42rem;
+  padding: 0.45rem;
 }
 
 .system-page-content .task-graph-editor-page .task-graph-layer-strip {
@@ -33205,9 +33189,15 @@ html[data-workspace-tone] .agent-workbench {
   .system-page-content .task-system-object-row,
   .system-page-content .task-graph-editor-page .task-graph-studio-workspace-strip,
   .system-page-content .task-graph-editor-page .task-graph-studio-topbar,
-  .system-page-content .task-graph-editor-page .task-graph-studio-shell__body,
   .system-page-content .task-graph-editor-page .task-graph-topology-page {
     grid-template-columns: 1fr;
+  }
+
+  .system-page-content .task-graph-editor-page .task-graph-studio-workspace-strip {
+    grid-template-areas:
+      "controls"
+      "status"
+      "actions";
   }
 }
 
@@ -33402,7 +33392,7 @@ html[data-workspace-tone] .agent-workbench {
 
 /* Graph editor canvas-first topology layout */
 .system-page-content .task-graph-editor-page .task-graph-studio-shell__body {
-  grid-template-columns: 150px minmax(0, 1fr);
+  grid-template-columns: 220px minmax(0, 1fr);
 }
 
 .system-page-content .task-graph-editor-page .task-graph-topology-page {
@@ -33455,7 +33445,7 @@ html[data-workspace-tone] .agent-workbench {
   overflow: auto;
 }
 
-.system-page-content .task-graph-editor-page .task-graph-studio-topbar__metrics {
+.system-page-content .task-graph-editor-page .task-graph-studio-topbar__facts {
   display: flex;
   gap: 0;
   border: 1px solid #d8e0eb;
@@ -33464,7 +33454,8 @@ html[data-workspace-tone] .agent-workbench {
   overflow: hidden;
 }
 
-.system-page-content .task-graph-editor-page .task-graph-studio-topbar__metrics article {
+.system-page-content .task-graph-editor-page .task-graph-studio-topbar__facts span,
+.system-page-content .task-graph-editor-page .task-graph-studio-topbar__facts strong {
   min-width: 5.4rem;
   border: 0;
   border-right: 1px solid #d8e0eb;
@@ -33472,7 +33463,8 @@ html[data-workspace-tone] .agent-workbench {
   background: transparent;
 }
 
-.system-page-content .task-graph-editor-page .task-graph-studio-topbar__metrics article:last-child {
+.system-page-content .task-graph-editor-page .task-graph-studio-topbar__facts span:last-child,
+.system-page-content .task-graph-editor-page .task-graph-studio-topbar__facts strong:last-child {
   border-right: 0;
 }
 
@@ -33629,10 +33621,23 @@ html[data-workspace-tone] .agent-workbench {
   padding: 0 0 0.58rem;
 }
 
+.system-page-content .task-system-context-stack,
+.system-page-content .task-system-layer-groups,
+.system-page-content .task-system-layer-group {
+  display: grid;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
 .system-page-content .task-system-project-selector {
   display: grid;
   gap: 0.42rem;
   min-width: 0;
+}
+
+.system-page-content .task-system-project-selector--secondary {
+  border-top: 1px solid #d8e0eb;
+  padding-top: 0.5rem;
 }
 
 .system-page-content .task-system-project-selector > div:first-child {
@@ -33696,6 +33701,30 @@ html[data-workspace-tone] .agent-workbench {
   width: min(420px, max(100%, 280px));
 }
 
+.system-page-content .task-system-project-selector > .boundary-button {
+  justify-content: center;
+  min-height: 2rem;
+  width: 100%;
+}
+
+.system-page-content .task-system-layer-group > header {
+  display: grid;
+  gap: 0.06rem;
+  padding: 0 0.12rem;
+}
+
+.system-page-content .task-system-layer-group > header strong {
+  color: #0f172a;
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.system-page-content .task-system-layer-group > header span {
+  color: #64748b;
+  font-size: 0.64rem;
+  line-height: 1.35;
+}
+
 .system-page-content .task-system-object-switcher {
   display: grid;
   min-height: 0;
@@ -33753,7 +33782,7 @@ html[data-workspace-tone] .agent-workbench {
 }
 
 .system-page-content .task-graph-editor-page .task-graph-studio-topbar {
-  grid-template-columns: minmax(280px, 1fr) auto auto;
+  grid-template-columns: minmax(280px, 1fr) minmax(220px, auto) auto;
   min-height: 3rem;
   padding: 0.38rem 0.52rem;
 }
@@ -33767,56 +33796,21 @@ html[data-workspace-tone] .agent-workbench {
 }
 
 .system-page-content .task-graph-editor-page .task-graph-studio-topbar__identity small,
-.system-page-content .task-graph-editor-page .task-graph-studio-topbar__metrics span {
+.system-page-content .task-graph-editor-page .task-graph-studio-topbar__facts span {
   color: #64748b;
 }
 
-.system-page-content .task-graph-editor-page .task-graph-studio-topbar__metrics strong {
+.system-page-content .task-graph-editor-page .task-graph-studio-topbar__facts strong {
   color: #0f172a;
 }
 
 .system-page-content .task-graph-editor-page .task-graph-studio-workspace-strip {
-  grid-template-columns: minmax(360px, 1fr) auto auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   min-height: 2.55rem;
 }
 
 .system-page-content .task-graph-editor-page .task-graph-studio-shell__body {
-  grid-template-columns: 58px minmax(0, 1fr);
-}
-
-.system-page-content .task-graph-editor-page .task-graph-editor-rail {
-  display: grid;
-  align-content: start;
-  gap: 0.18rem;
-  border-right: 1px solid #d8e0eb;
-  background: #f8fafc;
-  padding: 0.32rem;
-}
-
-.system-page-content .task-graph-editor-page .task-graph-editor-rail__item {
-  display: grid;
-  place-items: center;
-  gap: 0.1rem;
-  width: 2.55rem;
-  min-height: 2.5rem;
-  border: 1px solid transparent;
-  border-radius: 7px;
-  background: transparent;
-  color: #64748b;
-  cursor: pointer;
-  padding: 0.24rem;
-}
-
-.system-page-content .task-graph-editor-page .task-graph-editor-rail__item:hover,
-.system-page-content .task-graph-editor-page .task-graph-editor-rail__item--active {
-  border-color: #9db6ea;
-  background: #e8f0ff;
-  color: #1d5fd3;
-}
-
-.system-page-content .task-graph-editor-page .task-graph-editor-rail__item strong,
-.system-page-content .task-graph-editor-page .task-graph-editor-rail__item span {
-  display: none;
+  grid-template-columns: 230px minmax(0, 1fr);
 }
 
 .system-page-content .task-graph-editor-page .task-graph-editor-context {
@@ -33915,18 +33909,6 @@ html[data-workspace-tone] .agent-workbench {
 }
 
 @media (max-width: 1180px) {
-  .system-page-content .task-system-database-layout {
-    grid-template-columns: 1fr;
-  }
-
-  .system-page-content .task-system-database-sidebar {
-    max-height: none;
-  }
-
-  .system-page-content .task-graph-editor-page .task-graph-studio-shell__body {
-    grid-template-columns: 48px minmax(0, 1fr);
-  }
-
   .system-page-content .task-graph-editor-page .task-graph-topology-page {
     grid-template-columns: 1fr;
     grid-template-areas:
@@ -33939,6 +33921,16 @@ html[data-workspace-tone] .agent-workbench {
   .system-page-content .task-graph-editor-page .task-graph-topology-inspector {
     height: auto;
     max-height: 14rem;
+  }
+}
+
+@media (max-width: 900px) {
+  .system-page-content .task-system-database-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .system-page-content .task-system-database-sidebar {
+    max-height: none;
   }
 }
 
@@ -34436,7 +34428,7 @@ html[data-workspace-tone] .agent-workbench {
 .system-page-content .task-system-boundary,
 .system-page-content .task-system-database-sidebar,
 .system-page-content .task-system-database-workspace,
-.system-page-content .task-graph-editor-page .task-graph-editor-rail,
+.system-page-content .task-graph-editor-page .task-graph-layer-nav,
 .system-page-content .task-graph-editor-page .task-graph-topology-rail,
 .system-page-content .task-graph-editor-page .task-graph-topology-inspector {
   background: var(--console-bg-raised);
@@ -34698,7 +34690,7 @@ html[data-workspace-tone] .agent-workbench {
 .system-page-shell:not(.system-page-shell--soul-system) .capability-endpoint-row,
 .system-page-shell:not(.system-page-shell--soul-system) .mcp-server-row,
 .system-page-shell:not(.system-page-shell--soul-system) .task-system-object-row,
-.system-page-shell:not(.system-page-shell--soul-system) .task-graph-editor-rail__item,
+.system-page-shell:not(.system-page-shell--soul-system) .task-graph-layer-card,
 .system-page-shell:not(.system-page-shell--soul-system) .task-graph-topology-actions button,
 .system-page-shell:not(.system-page-shell--soul-system) .task-graph-topology-task-list button,
 .system-page-shell:not(.system-page-shell--soul-system) .task-graph-memory-list-button {
@@ -34730,8 +34722,8 @@ html[data-workspace-tone] .agent-workbench {
 .system-page-shell:not(.system-page-shell--soul-system) .system-config-provider-option--active,
 .system-page-shell:not(.system-page-shell--soul-system) .task-system-object-row:hover,
 .system-page-shell:not(.system-page-shell--soul-system) .task-system-object-row--active,
-.system-page-shell:not(.system-page-shell--soul-system) .task-graph-editor-rail__item:hover,
-.system-page-shell:not(.system-page-shell--soul-system) .task-graph-editor-rail__item--active,
+.system-page-shell:not(.system-page-shell--soul-system) .task-graph-layer-card:hover,
+.system-page-shell:not(.system-page-shell--soul-system) .task-graph-layer-card--active,
 .system-page-shell:not(.system-page-shell--soul-system) .task-graph-memory-list-button--active {
   border-color: #a9bee2;
   background: var(--console-selected);
@@ -34978,7 +34970,7 @@ html[data-workspace-tone] .agent-workbench {
   color: var(--console-text);
 }
 
-.system-page-shell:not(.system-page-shell--soul-system) .task-graph-editor-page .task-graph-editor-rail,
+.system-page-shell:not(.system-page-shell--soul-system) .task-graph-editor-page .task-graph-layer-nav,
 .system-page-shell:not(.system-page-shell--soul-system) .task-graph-editor-page .task-graph-topology-rail,
 .system-page-shell:not(.system-page-shell--soul-system) .task-graph-editor-page .task-graph-topology-inspector {
   background: var(--console-bg-raised);
@@ -35147,7 +35139,6 @@ html[data-workspace-tone] .agent-workbench {
 }
 
 @media (max-width: 1180px) {
-  .system-page-shell:not(.system-page-shell--soul-system) .task-system-database-layout,
   .system-page-shell:not(.system-page-shell--soul-system) .system-config-layout,
   .system-page-shell:not(.system-page-shell--soul-system) .memory-durable-reader__layout,
   .system-page-shell:not(.system-page-shell--soul-system) .capability-system-console .operation-layout,
@@ -35156,7 +35147,7 @@ html[data-workspace-tone] .agent-workbench {
   }
 
   .system-page-shell:not(.system-page-shell--soul-system) .task-system-sidebar-resize-handle {
-    display: none;
+    display: block;
   }
 
   .system-page-shell:not(.system-page-shell--soul-system) .capability-group-grid,
@@ -35325,6 +35316,16 @@ html[data-workspace-tone] .agent-workbench {
   grid-column: 2;
 }
 
+@media (max-width: 900px) {
+  .system-page-shell:not(.system-page-shell--soul-system) .task-system-database-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .system-page-shell:not(.system-page-shell--soul-system) .task-system-sidebar-resize-handle {
+    display: none;
+  }
+}
+
 .agent-workbench .chat-image-message img {
   display: block;
   width: min(100%, 560px);
@@ -35457,12 +35458,63 @@ html[data-workspace-tone] .agent-workbench {
 
 .agent-workbench .chat-panel-status-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   align-items: center;
   gap: 10px;
   width: min(100%, 920px);
   min-height: 28px;
   margin: 0 auto 6px;
+}
+
+.agent-workbench .chat-task-environment-binding {
+  display: inline-flex;
+  min-width: 0;
+  max-width: 260px;
+  min-height: 26px;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid rgba(15, 23, 42, 0.1);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.86);
+  color: #64748b;
+  padding: 2px 3px 2px 8px;
+}
+
+.agent-workbench .chat-task-environment-binding span {
+  flex: 0 0 auto;
+  color: #8a94a6;
+  font-size: 11px;
+  font-weight: 560;
+  line-height: 1;
+}
+
+.agent-workbench .chat-task-environment-binding strong {
+  min-width: 0;
+  overflow: hidden;
+  color: #334155;
+  font-size: 11px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-workbench .chat-task-environment-binding button {
+  display: inline-flex;
+  width: 22px;
+  height: 22px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #94a3b8;
+  cursor: pointer;
+}
+
+.agent-workbench .chat-task-environment-binding button:hover {
+  background: rgba(15, 23, 42, 0.06);
+  color: #475569;
 }
 
 .agent-workbench .session-activity-bar {
@@ -35815,7 +35867,7 @@ html[data-workspace-tone] .agent-workbench {
   padding: 0.38rem 0.5rem;
 }
 
-.center-workspace__graph-layer .task-graph-editor-page .task-graph-studio-topbar__metrics {
+.center-workspace__graph-layer .task-graph-editor-page .task-graph-studio-topbar__facts {
   display: none;
 }
 
@@ -35824,6 +35876,7 @@ html[data-workspace-tone] .agent-workbench {
 }
 
 .center-workspace__graph-layer .task-graph-editor-page .task-graph-studio-workspace-strip {
+  grid-template-areas: "controls";
   grid-template-columns: minmax(0, 1fr);
   gap: 0.34rem;
   min-height: 0;
@@ -35840,40 +35893,34 @@ html[data-workspace-tone] .agent-workbench {
 }
 
 .center-workspace__graph-layer .task-graph-editor-page .task-graph-studio-shell__body {
-  grid-template-columns: 52px minmax(0, 1fr);
+  grid-template-columns: 164px minmax(0, 1fr);
 }
 
-.center-workspace__graph-layer .task-graph-editor-page .task-graph-editor-rail {
+.center-workspace__graph-layer .task-graph-editor-page .task-graph-layer-nav {
   display: grid;
   align-content: start;
-  gap: 0.18rem;
+  gap: 0.32rem;
   border-right: 1px solid var(--console-line);
   background: var(--console-bg-soft);
   padding: 0.32rem;
 }
 
-.center-workspace__graph-layer .task-graph-editor-page .task-graph-editor-rail__item {
-  display: grid;
-  place-items: center;
-  gap: 0.1rem;
-  width: 2.45rem;
-  min-height: 2.38rem;
-  border: 1px solid transparent;
-  border-radius: 7px;
-  background: transparent;
-  color: var(--console-muted);
-  padding: 0.22rem;
+.center-workspace__graph-layer .task-graph-editor-page .task-graph-layer-group {
+  gap: 0.18rem;
 }
 
-.center-workspace__graph-layer .task-graph-editor-page .task-graph-editor-rail__item:hover,
-.center-workspace__graph-layer .task-graph-editor-page .task-graph-editor-rail__item--active {
-  border-color: #9db6ea;
-  background: #e8f0ff;
-  color: #1d5fd3;
+.center-workspace__graph-layer .task-graph-editor-page .task-graph-layer-group > header span,
+.center-workspace__graph-layer .task-graph-editor-page .task-graph-layer-card small,
+.center-workspace__graph-layer .task-graph-editor-page .task-graph-layer-card__state {
+  display: none;
 }
 
-.center-workspace__graph-layer .task-graph-editor-page .task-graph-editor-rail__item strong,
-.center-workspace__graph-layer .task-graph-editor-page .task-graph-editor-rail__item span,
+.center-workspace__graph-layer .task-graph-editor-page .task-graph-layer-card {
+  grid-template-columns: auto minmax(0, 1fr);
+  min-height: 2.2rem;
+  padding: 0.34rem 0.42rem;
+}
+
 .center-workspace__graph-layer .task-graph-editor-page .task-graph-editor-context small {
   display: none;
 }

@@ -8,6 +8,8 @@ import { monitorBucketItems, runtimeWorkProjectionFromMonitorItem } from "@/lib/
 import {
   isWaitingStatus,
   formatTime,
+  monitorEventLabel,
+  monitorProgressLabel,
   monitorStatusLabel,
   monitorTimeLabel,
   taskTitle,
@@ -41,7 +43,7 @@ export function TaskMonitorDock({ embedded = false }: { embedded?: boolean }) {
   const allRuns = useMemo(() => [...runningRuns, ...completedRuns, ...failedRuns, ...diagnosticsRuns], [completedRuns, diagnosticsRuns, failedRuns, runningRuns]);
   const summary = globalRuntimeMonitor?.summary;
   const selectedRun = useMemo(
-    () => allRuns.find((item) => item.task_run_id === globalRuntimeMonitorSelectedTaskRunId) ?? runs[0] ?? null,
+    () => allRuns.find((item) => item.task_run_id === globalRuntimeMonitorSelectedTaskRunId || item.task_instance_id === globalRuntimeMonitorSelectedTaskRunId) ?? runs[0] ?? null,
     [allRuns, globalRuntimeMonitorSelectedTaskRunId, runs]
   );
   const hasActiveSignal = runningRuns.some((item) => item.resource_class === "dynamic" || item.action_required);
@@ -131,12 +133,12 @@ export function TaskMonitorDock({ embedded = false }: { embedded?: boolean }) {
             </div>
             <small>
               {globalRuntimeMonitor?.updated_at
-                ? `${streamLabel} · ${selectedRun?.latest_event_type || `校准 ${formatTime(globalRuntimeMonitor.updated_at)}`}`
-                : "任务订单、专业任务和任务图运行会在这里显示。"}
+                ? `${streamLabel} · ${selectedRun ? monitorProgressLabel(selectedRun, monitorEventLabel(selectedRun.latest_event_type)) : `校准 ${formatTime(globalRuntimeMonitor.updated_at)}`}`
+                : "持续处理和任务图运行会在这里显示。"}
             </small>
           </section>
 
-          <section className="runtime-monitor-metrics" aria-label="任务运行统计">
+          <section className="runtime-monitor-metrics" aria-label="处理统计">
             <button className={activeBucket === "running" ? "is-active" : ""} onClick={() => setActiveBucket("running")} type="button">
               <strong>{runningRuns.length}</strong><span>运行中</span>
             </button>
@@ -160,13 +162,14 @@ export function TaskMonitorDock({ embedded = false }: { embedded?: boolean }) {
 
           <section className="runtime-monitor-list" aria-label="运行任务列表">
             {runs.length ? runs.map((item) => {
-              const active = item.task_run_id === selectedRun?.task_run_id;
+              const itemInstanceId = item.task_instance_id || item.graph_run_id || item.task_run_id;
+              const active = itemInstanceId === (selectedRun?.task_instance_id || selectedRun?.graph_run_id || selectedRun?.task_run_id);
               const work = runtimeWorkProjectionFromMonitorItem(item);
               return (
                 <button
                   className={active ? "runtime-monitor-row runtime-monitor-row--active" : "runtime-monitor-row"}
-                  key={item.task_run_id}
-                  onClick={() => openGlobalRuntimeMonitorTaskRun(item.task_run_id)}
+                  key={itemInstanceId}
+                  onClick={() => openGlobalRuntimeMonitorTaskRun(itemInstanceId)}
                   type="button"
                 >
                   <span className={`runtime-monitor-row__status runtime-monitor-row__status--${item.status}`}>
@@ -174,7 +177,7 @@ export function TaskMonitorDock({ embedded = false }: { embedded?: boolean }) {
                   </span>
                   <span className="runtime-monitor-row__main">
                     <strong>{work.title || taskTitle(item)}</strong>
-                    <small>{work.latestStepSummary || work.latestEventType || work.displayTypeLabel}</small>
+                    <small>{monitorProgressLabel(item, work.displayTypeLabel)}</small>
                   </span>
                   <span className="runtime-monitor-row__meta">
                     <strong>{monitorStatusLabel(item)}</strong>

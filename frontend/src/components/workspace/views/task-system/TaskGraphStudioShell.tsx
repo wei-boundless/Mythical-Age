@@ -129,6 +129,11 @@ export function TaskGraphStudioShell({
               <strong>{layerContext.title}</strong>
               <small>{layerContext.summary}</small>
             </div>
+            <ul aria-label="当前层检查点">
+              {layerContext.checkpoints.map((checkpoint) => (
+                <li key={checkpoint}>{checkpoint}</li>
+              ))}
+            </ul>
           </section>
           {children}
         </main>

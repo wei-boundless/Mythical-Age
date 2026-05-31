@@ -183,6 +183,23 @@ def test_latest_step_summary_is_exposed_from_event_log():
     assert item["latest_step_name"] == "tool_result"
 
 
+def test_stale_model_wait_reports_diagnostic_cause_not_generic_waiting():
+    event = EventStub(
+        event_type="step_summary_recorded",
+        created_at=125.0,
+        payload={"step": "model_action_waiting:1", "status": "running", "summary": "正在等待模型根据当前上下文返回下一步判断。"},
+    )
+    projector = TaskRunMonitorProjector(EventLogStub({"taskrun:turn:session-a:1:abc": [event]}), freshness_seconds=60.0)
+
+    item = projector.project_task_run(task_run(updated_at=125.0), now=300.0)
+
+    assert item["bucket"] == "diagnostics"
+    assert "stale_runtime_activity" in item["diagnostic_reasons"]
+    assert "模型响应已超过" in item["latest_step_summary"]
+    assert "诊断状态" in item["latest_public_progress_note"]
+    assert item["latest_step_summary"] != "仍在处理中，正在等待下一步结果。"
+
+
 def test_active_task_steer_and_executor_sequence_diagnostics_are_exposed():
     projector = TaskRunMonitorProjector(EventLogStub())
     run = task_run(
@@ -287,3 +304,92 @@ def test_main_chat_taskinst_task_run_remains_monitorable():
     item = monitor["buckets"]["running"][0]
     assert item["route"]["kind"] == "chat_turn_runtime"
     assert item["session_id"] == "session-a"
+
+
+class ResourceResolverStub:
+    def __init__(self, graph_monitor=None):
+        self.graph_monitor_payload = graph_monitor
+
+    def task_run_ref(self, task_run_id, *, label="任务运行"):
+        return {"ref": f"task_run:{task_run_id}", "kind": "task_run", "id": task_run_id, "label": label, "availability": {"state": "available"}}
+
+    def session_ref(self, session_id, *, label="会话"):
+        return {"ref": f"session:{session_id}", "kind": "session", "id": session_id, "label": label, "availability": {"state": "available"}}
+
+    def graph_run_ref(self, graph_run_id, *, label="任务图运行"):
+        return {"ref": f"graph_run:{graph_run_id}", "kind": "graph_run", "id": graph_run_id, "label": label, "availability": {"state": "available"}}
+
+    def graph_config_ref(self, graph_harness_config_id, *, label="任务图配置"):
+        state = "available" if graph_harness_config_id == "ghcfg:existing" else "missing"
+        return {"ref": f"graph_harness_config:{graph_harness_config_id}", "kind": "graph_harness_config", "id": graph_harness_config_id, "label": label, "availability": {"state": state}}
+
+    def artifact_refs(self, refs):
+        return []
+
+    def graph_monitor(self, graph_run_id, graph_harness_config_id="", *, event_limit=80):
+        return self.graph_monitor_payload
+
+
+def test_task_graph_monitor_item_uses_graph_run_as_task_instance_and_navigation_target():
+    graph_monitor = {
+        "graph_harness_config": {
+            "graph_id": "graph:main",
+            "graph_title": "主图任务",
+            "nodes": [{"node_id": "draft", "title": "草稿"}],
+        },
+        "graph_loop_state": {"status": "running", "ready_node_ids": [], "node_states": {"draft": {"status": "running"}}},
+        "node_runtime_views": [
+            {
+                "node_id": "draft",
+                "status": "running",
+                "node_executor_task_run_id": "gtask:draft",
+                "node_executor_task_run_monitor": {"lifecycle": "running", "latest_progress": {"summary": "正在写草稿"}},
+            }
+        ],
+    }
+    projector = TaskRunMonitorProjector(EventLogStub(), resource_resolver=ResourceResolverStub(graph_monitor))
+    run = task_run(
+        task_run_id="taskrun:graph-root",
+        diagnostics={
+            "graph_id": "graph:main",
+            "graph_run_id": "grun:main",
+            "graph_harness_config_id": "ghcfg:existing",
+        },
+    )
+
+    item = projector.project_task_run(run, now=150.0)
+
+    assert item["kind"] == "task_graph"
+    assert item["task_instance_id"] == "grun:main"
+    assert item["root_task_run_id"] == "taskrun:graph-root"
+    assert item["navigation_target"]["target_kind"] == "graph_task"
+    assert item["navigation_target"]["task_instance_id"] == "grun:main"
+    assert item["graph_status"]["active_node_id"] == "draft"
+    assert item["child_runtime_refs"] == [
+        {
+            "task_run_id": "gtask:draft",
+            "node_id": "draft",
+            "node_label": "draft",
+            "runtime_kind": "agent_runtime",
+            "lifecycle": "running",
+            "latest_progress": {"summary": "正在写草稿"},
+            "artifact_refs": [],
+        }
+    ]
+
+
+def test_missing_graph_config_is_resource_availability_not_frontend_404_control_flow():
+    projector = TaskRunMonitorProjector(EventLogStub(), resource_resolver=ResourceResolverStub())
+    run = task_run(
+        task_run_id="taskrun:graph-root",
+        diagnostics={
+            "graph_id": "graph:main",
+            "graph_run_id": "grun:main",
+            "graph_harness_config_id": "ghcfg:missing",
+        },
+    )
+
+    item = projector.project_task_run(run, now=150.0)
+
+    graph_config_ref = next(ref for ref in item["resource_refs"] if ref["kind"] == "graph_harness_config")
+    assert graph_config_ref["availability"]["state"] == "missing"

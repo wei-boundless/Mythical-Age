@@ -108,6 +108,7 @@ RuntimeEventType = Literal[
     "task_contract_revision_decided",
     "task_run_executor_claimed",
     "task_run_executor_scheduled",
+    "chat_stream_event",
 ]
 
 

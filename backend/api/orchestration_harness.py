@@ -47,13 +47,14 @@ async def list_harness_task_runs(session_id: str) -> dict[str, Any]:
 @router.get("/orchestration/harness/live-monitor")
 async def list_harness_global_live_monitor(limit: int = 20) -> dict[str, Any]:
     runtime = require_runtime()
-    return runtime.query_runtime.single_agent_runtime_host.list_global_live_monitor(limit=limit)
+    return runtime.query_runtime.single_agent_runtime_host.runtime_monitor_service.list_global_live_monitor(limit=limit)
 
 
 @router.get("/orchestration/harness/monitor-events")
 async def stream_harness_monitor_events(request: Request, limit: int = 40):
     runtime = require_runtime()
     runtime_host = runtime.query_runtime.single_agent_runtime_host
+    monitor_service = runtime_host.runtime_monitor_service
     subscription = runtime_host.event_log.subscribe()
     requested_limit = max(1, min(int(limit or 40), 100))
 
@@ -62,7 +63,7 @@ async def stream_harness_monitor_events(request: Request, limit: int = 40):
             yield _sse(
                 "runtime_monitor_snapshot",
                 {
-                    "monitor": runtime_host.list_global_live_monitor(limit=requested_limit),
+                    "monitor": monitor_service.list_global_live_monitor(limit=requested_limit),
                     "source": "initial",
                 },
             )
@@ -78,7 +79,7 @@ async def stream_harness_monitor_events(request: Request, limit: int = 40):
                         },
                     )
                     continue
-                monitor = runtime_host.list_global_live_monitor(limit=requested_limit)
+                monitor = monitor_service.list_global_live_monitor(limit=requested_limit)
                 yield _sse(
                     "runtime_monitor_event",
                     {
@@ -105,7 +106,7 @@ async def stream_harness_monitor_events(request: Request, limit: int = 40):
 @router.get("/orchestration/harness/sessions/{session_id}/live-monitor")
 async def get_harness_session_live_monitor(session_id: str) -> dict[str, Any]:
     runtime = require_runtime()
-    return runtime.query_runtime.single_agent_runtime_host.get_session_live_monitor(session_id)
+    return runtime.query_runtime.single_agent_runtime_host.runtime_monitor_service.get_session_live_monitor(session_id)
 
 
 @router.get("/orchestration/harness/task-runs/{task_run_id}")
@@ -130,7 +131,7 @@ async def get_harness_trace(
 @router.get("/orchestration/harness/task-runs/{task_run_id}/live-monitor")
 async def get_harness_task_run_live_monitor(task_run_id: str) -> dict[str, Any]:
     runtime = require_runtime()
-    monitor = runtime.query_runtime.single_agent_runtime_host.get_task_run_live_monitor(task_run_id)
+    monitor = runtime.query_runtime.single_agent_runtime_host.runtime_monitor_service.get_task_run_live_monitor(task_run_id)
     if monitor is None:
         raise HTTPException(status_code=404, detail="TaskRun live monitor not found")
     return monitor

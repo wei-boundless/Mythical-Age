@@ -83,6 +83,15 @@ function stageStatusForEvent(event: string, data: Record<string, unknown>) {
   if (event === "debug") {
     return "";
   }
+  if (event === "stream_reconnecting") {
+    return `重新连接中 ${String(data.attempt ?? "")}/${String(data.max_attempts ?? "")}`;
+  }
+  if (event === "stream_reconnected") {
+    return "已重新连接";
+  }
+  if (event === "stream_reconnect_failed") {
+    return "重连失败";
+  }
   if (event === "input_commit_gate") {
     return "接收请求";
   }
@@ -138,6 +147,9 @@ function activityLevelForEvent(event: string, data: Record<string, unknown>) {
   if (event === "stopped") {
     return "stopped" as const;
   }
+  if (event === "stream_reconnect_failed") {
+    return "error" as const;
+  }
   if (event === "operation_gate") {
     const eventType = String(data.event_type ?? ((data.event as Record<string, unknown> | undefined)?.event_type) ?? "");
     if (eventType.includes("approval") || eventType.includes("gate")) {
@@ -151,6 +163,15 @@ function activityDetailForEvent(event: string, data: Record<string, unknown>) {
   if (event === "retrieval") {
     const results = Array.isArray(data.results) ? data.results.length : 0;
     return results ? `已检索到 ${results} 条候选证据` : "正在检索可用证据";
+  }
+  if (event === "stream_reconnecting") {
+    return "连接中断，正在续接当前运行。";
+  }
+  if (event === "stream_reconnected") {
+    return "已从上次位置继续接收事件。";
+  }
+  if (event === "stream_reconnect_failed") {
+    return "自动重连次数已用尽，后台运行可在监控中查看。";
   }
   if (event === "done") {
     if (stringValue(data.completion_state) === "partial_timeout") {
@@ -418,24 +439,21 @@ function resolveSnapshotNodeId(snapshot: OrchestrationSnapshot, event: string) {
 
 function eventSummary(event: string, data: Record<string, unknown>) {
   if (event === "orchestration_plan") {
-    const plan = (data.plan ?? {}) as Record<string, unknown>;
-    const topology = (plan.topology ?? {}) as Record<string, unknown>;
-    return `${String(plan.mode ?? "primary")} plan: ${String(topology.mode ?? "unknown")} / ${String(topology.route ?? "unknown")} / ${String(topology.execution_kind ?? "unknown")}`;
+    return "已形成处理计划。";
   }
   if (event === "orchestration_runtime_control") {
     const warnings = Array.isArray(data.warnings) ? data.warnings.map((item) => String(item)) : [];
     const reason = warnings.map(runtimeControlWarningLabel).filter(Boolean)[0];
     if (reason) {
-      return `运行控制：已 fail-closed，原因是${reason}`;
+      return `处理已停止，原因是${reason}`;
     }
     if (data.primary_active) {
-      return `运行控制：directive 已接管 ${String(data.execution_mode ?? "unknown")}。`;
+      return "处理流程已接管后续执行。";
     }
-    return `运行控制：${String(data.source ?? "orchestration_blocked")} / ${String(data.execution_mode ?? "unknown")}`;
+    return "处理流程已更新。";
   }
   if (event === "orchestration_diff") {
-    const diff = (data.diff ?? {}) as Record<string, unknown>;
-    return `plan diff: ${String(diff.status ?? "unknown")} / ${String(diff.summary ?? "")}`;
+    return "处理计划已更新。";
   }
   if (event === "behavior_trace") {
     const snapshot = (data.snapshot ?? {}) as Record<string, unknown>;
@@ -449,8 +467,7 @@ function eventSummary(event: string, data: Record<string, unknown>) {
     return String(data.error ?? "执行失败");
   }
   if (event === "prompt_manifest") {
-    const manifest = (data.prompt_manifest ?? {}) as Record<string, unknown>;
-    return `${String(manifest.total_sections ?? 0)} sections / ${String(manifest.total_chars ?? 0)} chars`;
+    return "上下文已整理。";
   }
   if (event.startsWith("worker")) {
     return String(data.worker ?? data.task_status ?? "worker");
@@ -464,7 +481,33 @@ function eventSummary(event: string, data: Record<string, unknown>) {
   if (event === "context_management") {
     return "上下文窗口已整理。";
   }
-  return event;
+  return publicStreamEventLabel(event);
+}
+
+function publicStreamEventLabel(event: string) {
+  const map: Record<string, string> = {
+    answer_candidate: "正在整理回答",
+    behavior_trace: "处理路径已检查",
+    content_delta: "正在生成回答",
+    context_management: "上下文已整理",
+    debug: "同步状态",
+    done: "处理完成",
+    error: "处理失败",
+    harness_loop_event: "处理进展更新",
+    memory_context: "已读取相关记忆",
+    orchestration_diff: "处理计划已更新",
+    orchestration_plan: "已形成处理计划",
+    orchestration_runtime_control: "处理流程已更新",
+    output_boundary: "整理输出",
+    prompt_manifest: "上下文已整理",
+    retrieval: "检索证据",
+    token: "正在生成回答",
+    tool_call: "正在调用工具",
+    tool_result: "工具结果已返回",
+    worker_end: "子任务已完成",
+    worker_start: "子任务已开始",
+  };
+  return map[event] || "处理进展更新";
 }
 
 function runtimeControlWarningLabel(warning: string) {
@@ -652,7 +695,7 @@ function updateOrchestrationSnapshot(
       ? "编排完成"
       : event === "error"
         ? `编排失败：${String(data.error ?? "unknown")}`
-        : `最近事件：${event}`,
+        : publicStreamEventLabel(event),
     problem_node_id: event === "error" ? nodeId : snapshot.problem_node_id,
     nodes: nextNodes,
     edges: snapshot.edges?.length ? snapshot.edges : deriveOrchestrationEdges(nextNodes),

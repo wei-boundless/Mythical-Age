@@ -13,6 +13,7 @@ from api.mcp_system import router as mcp_system_router
 from api.orchestration import router as orchestration_router
 from api.orchestration_catalog import router as orchestration_catalog_router
 from api.orchestration_harness import router as orchestration_harness_router
+from api.runtime_monitor import router as runtime_monitor_router
 from api.capability_system import router as capability_system_router
 from api.sessions import router as sessions_router
 from api.souls import router as souls_router
@@ -52,6 +53,7 @@ app.include_router(health_system_router, prefix="/api", tags=["health-system"])
 app.include_router(orchestration_catalog_router, prefix="/api", tags=["orchestration-catalog"])
 app.include_router(orchestration_router, prefix="/api", tags=["orchestration"])
 app.include_router(orchestration_harness_router, prefix="/api", tags=["orchestration-harness"])
+app.include_router(runtime_monitor_router, prefix="/api", tags=["runtime-monitor"])
 app.include_router(capability_system_router, prefix="/api", tags=["capability-system"])
 app.include_router(souls_router, prefix="/api", tags=["souls"])
 app.include_router(code_environment_router, prefix="/api", tags=["code-environment"])

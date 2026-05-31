@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -12,6 +13,7 @@ from capability_system import build_default_operation_registry
 from permissions import OperationGate
 from permissions.context_models import PermissionContext
 from permissions.resource_policy import ResourcePolicy
+from runtime.shared.action_request import build_tool_unavailable_observation
 from runtime.tooling import ToolCapabilityBuildRequest, ToolSupervisor, build_tool_capability_table
 from task_system.environments import resolve_task_environment
 
@@ -146,6 +148,44 @@ def test_tool_supervisor_stops_before_operation_gate_when_preflight_rejects_tool
     assert gate.called is False
 
 
+def test_tool_supervisor_to_dict_serializes_preflight_runtime_observation() -> None:
+    result = ToolSupervisor().supervise(
+        task_run_id="taskrun:preflight-json",
+        agent_run_id="agrun:preflight-json",
+        tool_call_id="call:missing-json",
+        operation_id="op.missing_tool",
+        tool_name="missing_tool",
+        tool_args={},
+        directive=_Directive(),
+        resource_policy=ResourcePolicy(
+            policy_id="respol:preflight-json",
+            task_id="task:preflight-json",
+            allowed_operations=("op.missing_tool",),
+            adopted=True,
+            runtime_executable=True,
+            runtime_view_only=False,
+        ),
+        capability_table=None,
+        permission_context=PermissionContext(
+            context_id="permctx:preflight-json",
+            task_run_id="taskrun:preflight-json",
+            agent_run_id="agrun:preflight-json",
+            environment_id="env.development.sandbox",
+        ),
+        operation_gate=_NeverCalledOperationGate(),
+        tool_runtime_executor=_PreflightRejectingObservationExecutor(),
+        action_request=SimpleNamespace(
+            request_id="rtact:missing-json",
+            payload={"tool_name": "missing_tool", "tool_call": {"id": "call:missing-json", "args": {}}},
+        ),
+    )
+
+    payload = result.to_dict()
+
+    assert payload["preflight"]["observation"]["payload"]["repair_kind"] == "tool_not_available"
+    json.dumps(payload, ensure_ascii=False)
+
+
 class _Directive:
     directive_id = "directive:test"
 
@@ -155,10 +195,27 @@ class _PreflightRejectingExecutor:
         return {"allowed": False, "error": "tool_runtime_unavailable", "observation": {"repair_kind": "tool_unavailable"}}
 
 
+class _PreflightRejectingObservationExecutor:
+    def preflight_validate(self, **_kwargs):
+        return {
+            "allowed": False,
+            "error": "tool_not_available",
+            "observation": build_tool_unavailable_observation(
+                task_run_id="taskrun:preflight-json",
+                request_ref="rtact:missing-json",
+                directive_ref="directive:test",
+                tool_name="missing_tool",
+                error="tool_not_available: missing_tool",
+                tool_call_id="call:missing-json",
+                tool_args={},
+                repair_kind="tool_not_available",
+            ),
+        }
+
+
 class _NeverCalledOperationGate:
     called = False
 
     def check(self, *_args, **_kwargs):
         self.called = True
         raise AssertionError("operation_gate.check should not be called after preflight rejection")
-

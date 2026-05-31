@@ -190,7 +190,7 @@ async def run_agent_invocation_stream(
                     turn_id=turn_id,
                     step=f"model_action_waiting:{action_index}",
                     status="running",
-                summary=f"仍在处理中，正在等待下一步结果。等待轮次：{wait_round}。",
+                    summary="正在等待模型根据当前上下文返回下一步判断。",
                     refs={"runtime_invocation_packet_ref": compilation.packet.packet_id},
                 )
             action_request, diagnostics = await model_action_task
@@ -499,6 +499,16 @@ async def run_agent_invocation_stream(
             return
 
         if action_request.action_type == "tool_call":
+            yield _record_step_summary(
+                runtime_host,
+                task_run_id=turn_task_run.task_run_id,
+                turn_id=turn_id,
+                step="bounded_observation_started",
+                status="running",
+                summary=_turn_tool_call_progress_summary(action_request),
+                presentation_source="system.tool_call_status",
+                refs={"action_request_ref": action_request.request_id},
+            )
             observation = await _run_bounded_tool_observation(
                 runtime_host,
                 request=request,
@@ -526,6 +536,8 @@ async def run_agent_invocation_stream(
                 step="bounded_observation_recorded",
                 status="running",
                 summary="已完成一次必要观察，正在根据结果继续。",
+                agent_brief_output=_turn_observation_brief(observation),
+                presentation_source="tool_observation.summary",
                 refs={
                     "action_request_ref": action_request.request_id,
                     "observation_ref": observation["observation_id"],
@@ -886,7 +898,7 @@ async def _invoke_model_action(
     )
     payload = parse_json_object(getattr(response, "content", response))
     payload.setdefault("request_id", f"model-action:{turn_id}:{invocation_index}")
-    return model_action_request_from_payload(payload, turn_id=turn_id)
+    return model_action_request_from_payload(payload, turn_id=turn_id, require_public_progress_note=True)
 
 
 async def _commit_assistant_message(
@@ -1569,6 +1581,40 @@ def _runtime_allowed_tool_names(available_tools: list[dict[str, Any]]) -> set[st
         for item in available_tools
         if str(item.get("tool_name") or "").strip()
     }
+
+
+def _turn_tool_call_progress_summary(action_request: ModelActionRequest) -> str:
+    tool_call = dict(action_request.tool_call or {})
+    tool_name = str(tool_call.get("tool_name") or tool_call.get("name") or "").strip()
+    args = dict(tool_call.get("args") or tool_call.get("tool_args") or {})
+    target = _turn_tool_target_preview(args)
+    display = tool_name.replace("_", " ") if tool_name else "工具"
+    if target:
+        return f"正在调用{display}处理 {target}。"
+    return f"正在调用{display}处理当前步骤。"
+
+
+def _turn_tool_target_preview(args: dict[str, Any]) -> str:
+    for key in ("path", "file_path", "target_path", "prompt", "query", "command"):
+        value = str(args.get(key) or "").strip()
+        if value:
+            return " ".join(value.split())[:120].rstrip()
+    return ""
+
+
+def _turn_observation_brief(observation: dict[str, Any]) -> str:
+    payload = dict(observation.get("payload") or {})
+    for value in (
+        observation.get("summary"),
+        payload.get("summary"),
+        payload.get("result"),
+        payload.get("error"),
+        observation.get("error"),
+    ):
+        text = compact_text(value, limit=180)
+        if text:
+            return text
+    return ""
 
 
 async def _call_tool(tool: Any, args: dict[str, Any]) -> Any:

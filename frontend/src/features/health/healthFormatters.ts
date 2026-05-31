@@ -92,6 +92,30 @@ export function statusLabelValue(value: unknown) {
   return statusLabel(String(value || ""));
 }
 
+export function runtimeEventLabelValue(value: unknown) {
+  const event = String(value || "").trim().toLowerCase();
+  const map: Record<string, string> = {
+    active_task_steer_recorded: "收到补充要求",
+    agent_runtime_planning_phase_checked: "处理阶段已检查",
+    agent_turn_blocked: "需要处理",
+    bounded_observation_recorded: "观察结果已记录",
+    executor_observation_recorded: "操作结果已记录",
+    graph_run_created: "处理已开始",
+    runtime_live_monitor: "进展同步",
+    runtime_step_summary: "进展已更新",
+    step_summary_recorded: "进展已更新",
+    task_run_executor_scheduled: "等待继续",
+    task_run_executor_started: "处理已开始",
+    task_run_lifecycle_finished: "处理已完成",
+    task_run_lifecycle_started: "处理已开始",
+    task_run_lifecycle_waiting_approval: "等待确认",
+    task_run_lifecycle_waiting_executor: "等待继续",
+    task_run_started: "处理已开始",
+    user_work_instruction_recorded: "收到补充要求",
+  };
+  return event ? map[event] || "进展同步" : "-";
+}
+
 export function riskLabel(level: string) {
   const map: Record<string, string> = {
     normal: "正常",

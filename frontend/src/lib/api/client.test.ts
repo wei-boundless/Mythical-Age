@@ -50,27 +50,22 @@ describe("apiRequest", () => {
 
 describe("streamChat", () => {
   afterEach(() => {
+    vi.useRealTimers();
     vi.unstubAllGlobals();
   });
 
   it("finishes as soon as a terminal SSE event arrives", async () => {
     vi.stubGlobal("window", {});
     const cancel = vi.fn(async () => undefined);
-    const chunks = [
-      new TextEncoder().encode('event: content_delta\ndata: {"content":"你好"}\n\n'),
-      new TextEncoder().encode('event: done\ndata: {"content":"你好"}\n\n'),
-    ];
-    const reader = {
-      read: vi.fn()
-        .mockResolvedValueOnce({ value: chunks[0], done: false })
-        .mockResolvedValueOnce({ value: chunks[1], done: false })
-        .mockImplementation(() => new Promise(() => undefined)),
-      cancel,
-    };
-    vi.stubGlobal("fetch", vi.fn(async () => ({
-      ok: true,
-      body: { getReader: () => reader },
-    })));
+    vi.stubGlobal("fetch", mockChatRunFetch([
+      streamReader(
+        [
+          'id: strun:test:chatrun:test:1\nevent: content_delta\ndata: {"content":"你好","event_offset":1}\n\n',
+          'id: strun:test:chatrun:test:2\nevent: done\ndata: {"content":"你好","event_offset":2}\n\n',
+        ],
+        { cancel, openEnded: true },
+      ),
+    ]));
     const events: Array<{ event: string; data: Record<string, unknown> }> = [];
 
     const result = await streamChat(
@@ -78,26 +73,20 @@ describe("streamChat", () => {
       { onEvent: (event, data) => events.push({ event, data }) },
     );
 
-    expect(result).toEqual({ terminalEvent: "done" });
+    expect(result).toEqual({
+      terminalEvent: "done",
+      streamRunId: "strun:test",
+      taskRunId: "chatrun:test",
+      lastEventOffset: 2,
+    });
     expect(cancel).toHaveBeenCalledTimes(1);
-    expect(reader.read).toHaveBeenCalledTimes(2);
     expect(events.map((item) => item.event)).toEqual(["content_delta", "done"]);
   });
 
   it("parses CRLF-delimited SSE terminal events", async () => {
     vi.stubGlobal("window", {});
-    const reader = {
-      read: vi.fn()
-        .mockResolvedValueOnce({
-          value: new TextEncoder().encode('event: done\r\ndata: {"content":"ok"}\r\n\r\n'),
-          done: true,
-        }),
-      cancel: vi.fn(),
-    };
-    vi.stubGlobal("fetch", vi.fn(async () => ({
-      ok: true,
-      body: { getReader: () => reader },
-    })));
+    const reader = streamReader(['id: strun:test:chatrun:test:1\r\nevent: done\r\ndata: {"content":"ok","event_offset":1}\r\n\r\n']);
+    vi.stubGlobal("fetch", mockChatRunFetch([reader]));
     const events: Array<{ event: string; data: Record<string, unknown> }> = [];
 
     const result = await streamChat(
@@ -105,35 +94,24 @@ describe("streamChat", () => {
       { onEvent: (event, data) => events.push({ event, data }) },
     );
 
-    expect(result).toEqual({ terminalEvent: "done" });
-    expect(reader.cancel).not.toHaveBeenCalled();
-    expect(events).toEqual([{ event: "done", data: { content: "ok" } }]);
+    expect(result.terminalEvent).toBe("done");
+    expect(reader.cancel).toHaveBeenCalledTimes(1);
+    expect(events).toEqual([{ event: "done", data: { content: "ok", event_offset: 1 } }]);
   });
 
   it("keeps reading after output_boundary until the backend sends done", async () => {
     vi.stubGlobal("window", {});
     const cancel = vi.fn(async () => undefined);
-    const chunks = [
-      new TextEncoder().encode(
-        'event: output_boundary\ndata: {"output":{"visible_text":"你好，我是四岳。","selected_channel":"answer_candidate","selected_source":"model_response"}}\n\n'
+    vi.stubGlobal("fetch", mockChatRunFetch([
+      streamReader(
+        [
+          'id: strun:test:chatrun:test:1\nevent: output_boundary\ndata: {"event_offset":1,"output":{"visible_text":"你好，我是四岳。","selected_channel":"answer_candidate","selected_source":"model_response"}}\n\n',
+          'id: strun:test:chatrun:test:2\nevent: harness_loop_event\ndata: {"event_offset":2,"event":{"event_id":"rtevt:1","task_run_id":"taskrun:1","event_type":"agent_runtime_planning_phase_checked","payload":{"plan_coverage_review":{"passed":false}}}}\n\n',
+          'id: strun:test:chatrun:test:3\nevent: done\ndata: {"event_offset":3,"content":"完成"}\n\n',
+        ],
+        { cancel, openEnded: true },
       ),
-      new TextEncoder().encode(
-        'event: harness_loop_event\ndata: {"event":{"event_id":"rtevt:1","task_run_id":"taskrun:1","event_type":"agent_runtime_planning_phase_checked","payload":{"plan_coverage_review":{"passed":false}}}}\n\n'
-      ),
-      new TextEncoder().encode('event: done\ndata: {"content":"完成"}\n\n'),
-    ];
-    const reader = {
-      read: vi.fn()
-        .mockResolvedValueOnce({ value: chunks[0], done: false })
-        .mockResolvedValueOnce({ value: chunks[1], done: false })
-        .mockResolvedValueOnce({ value: chunks[2], done: false })
-        .mockImplementation(() => new Promise(() => undefined)),
-      cancel,
-    };
-    vi.stubGlobal("fetch", vi.fn(async () => ({
-      ok: true,
-      body: { getReader: () => reader },
-    })));
+    ]));
     const events: Array<{ event: string; data: Record<string, unknown> }> = [];
 
     const pending = streamChat(
@@ -142,46 +120,94 @@ describe("streamChat", () => {
     );
 
     const result = await pending;
-    expect(result).toEqual({ terminalEvent: "done" });
+    expect(result.terminalEvent).toBe("done");
     expect(cancel).toHaveBeenCalledTimes(1);
     expect(events.map((item) => item.event)).toEqual(["output_boundary", "harness_loop_event", "done"]);
   });
 
-  it("rejects when the stream closes without a terminal event", async () => {
+  it("reconnects from the last event offset when the stream closes without a terminal event", async () => {
+    vi.useFakeTimers();
     vi.stubGlobal("window", {});
-    const cancel = vi.fn(async () => undefined);
-    const reader = {
-      read: vi.fn()
-        .mockResolvedValueOnce({ value: new TextEncoder().encode('event: content_delta\ndata: {"content":"你好"}\n\n'), done: false })
-        .mockResolvedValueOnce({ value: undefined, done: true }),
-      cancel,
-    };
-    vi.stubGlobal("fetch", vi.fn(async () => ({
-      ok: true,
-      body: { getReader: () => reader },
-    })));
+    const fetch = mockChatRunFetch([
+      streamReader(['id: strun:test:chatrun:test:1\nevent: content_delta\ndata: {"event_offset":1,"content":"你"}\n\n']),
+      streamReader(['id: strun:test:chatrun:test:2\nevent: done\ndata: {"event_offset":2,"content":"你好"}\n\n']),
+    ]);
+    vi.stubGlobal("fetch", fetch);
     const events: Array<{ event: string; data: Record<string, unknown> }> = [];
 
-    await expect(streamChat(
+    const pending = streamChat(
       { message: "你好", session_id: "session:no-visible" },
       { onEvent: (event, data) => events.push({ event, data }) },
-    )).rejects.toThrow("Chat stream ended without a terminal event.");
-    expect(cancel).not.toHaveBeenCalled();
-    expect(events.map((item) => item.event)).toEqual(["content_delta"]);
+    );
+    await vi.advanceTimersByTimeAsync(500);
+
+    const result = await pending;
+    expect(result.terminalEvent).toBe("done");
+    expect(fetch).toHaveBeenCalledTimes(3);
+    expect(String(fetch.mock.calls[2][0])).toContain("after_offset=1");
+    expect(events.map((item) => item.event)).toEqual([
+      "content_delta",
+      "stream_reconnecting",
+      "stream_reconnected",
+      "done",
+    ]);
+    expect(events[1].data).toMatchObject({ attempt: 1, max_attempts: 5, event_offset: 1 });
+  });
+
+  it("reconnects after a transport error without replaying delivered offsets", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("window", {});
+    let getCalls = 0;
+    const doneReader = streamReader(['id: strun:test:chatrun:test:1\nevent: done\ndata: {"event_offset":1,"content":"ok"}\n\n']);
+    const fetch = vi.fn(async (url: string, init?: RequestInit) => {
+      const method = String(init?.method || "GET").toUpperCase();
+      if (method === "POST" && String(url).endsWith("/chat/runs")) {
+        return {
+          ok: true,
+          json: async () => ({
+            stream_run_id: "strun:test",
+            session_id: "session:test",
+            task_run_id: "chatrun:test",
+            root_request_ref: "chatreq:test",
+            status: "running",
+            latest_event_offset: -1,
+            stream_url: "/api/chat/runs/strun:test/events",
+          }),
+        };
+      }
+      getCalls += 1;
+      if (getCalls === 1) {
+        throw new TypeError("network down");
+      }
+      return {
+        ok: true,
+        body: { getReader: () => doneReader },
+      };
+    });
+    vi.stubGlobal("fetch", fetch);
+    const events: Array<{ event: string; data: Record<string, unknown> }> = [];
+
+    const pending = streamChat(
+      { message: "hi", session_id: "session:transport-error" },
+      { onEvent: (event, data) => events.push({ event, data }) },
+    );
+    await vi.advanceTimersByTimeAsync(500);
+
+    const result = await pending;
+    expect(result.terminalEvent).toBe("done");
+    expect(events.map((item) => item.event)).toEqual(["stream_reconnecting", "stream_reconnected", "done"]);
+    expect(String(fetch.mock.calls[2][0])).toContain("after_offset=-1");
   });
 
   it("returns backend terminal events without frontend completion fields", async () => {
     vi.stubGlobal("window", {});
     const cancel = vi.fn(async () => undefined);
-    const reader = {
-      read: vi.fn()
-        .mockResolvedValueOnce({ value: new TextEncoder().encode('event: error\ndata: {"error":"backend failed"}\n\n'), done: false }),
-      cancel,
-    };
-    vi.stubGlobal("fetch", vi.fn(async () => ({
-      ok: true,
-      body: { getReader: () => reader },
-    })));
+    vi.stubGlobal("fetch", mockChatRunFetch([
+      streamReader(
+        ['id: strun:test:chatrun:test:1\nevent: error\ndata: {"event_offset":1,"error":"backend failed"}\n\n'],
+        { cancel, openEnded: true },
+      ),
+    ]));
     const events: Array<{ event: string; data: Record<string, unknown> }> = [];
 
     const pending = streamChat(
@@ -190,8 +216,51 @@ describe("streamChat", () => {
     );
     const result = await pending;
 
-    expect(result).toEqual({ terminalEvent: "error" });
+    expect(result.terminalEvent).toBe("error");
     expect(cancel).toHaveBeenCalledTimes(1);
-    expect(events).toEqual([{ event: "error", data: { error: "backend failed" } }]);
+    expect(events).toEqual([{ event: "error", data: { event_offset: 1, error: "backend failed" } }]);
   });
 });
+
+function mockChatRunFetch(readers: Array<ReturnType<typeof streamReader>>) {
+  let streamIndex = 0;
+  return vi.fn(async (url: string, init?: RequestInit) => {
+    const method = String(init?.method || "GET").toUpperCase();
+    if (method === "POST" && String(url).endsWith("/chat/runs")) {
+      return {
+        ok: true,
+        json: async () => ({
+          stream_run_id: "strun:test",
+          session_id: "session:test",
+          task_run_id: "chatrun:test",
+          root_request_ref: "chatreq:test",
+          status: "running",
+          latest_event_offset: -1,
+          stream_url: "/api/chat/runs/strun:test/events",
+        }),
+      };
+    }
+    const reader = readers[streamIndex++];
+    return {
+      ok: true,
+      body: { getReader: () => reader },
+    };
+  });
+}
+
+function streamReader(chunks: string[], options: { cancel?: () => Promise<void>; openEnded?: boolean } = {}) {
+  const encoded = chunks.map((chunk) => new TextEncoder().encode(chunk));
+  const read = vi.fn();
+  for (const value of encoded) {
+    read.mockResolvedValueOnce({ value, done: false });
+  }
+  if (options.openEnded) {
+    read.mockImplementation(() => new Promise(() => undefined));
+  } else {
+    read.mockResolvedValue({ value: undefined, done: true });
+  }
+  return {
+    read,
+    cancel: options.cancel ?? vi.fn(async () => undefined),
+  };
+}
