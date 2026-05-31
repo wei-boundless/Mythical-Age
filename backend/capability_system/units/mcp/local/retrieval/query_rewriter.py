@@ -3,6 +3,8 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
+from .page_hints import has_page_hint
+
 
 @dataclass(slots=True)
 class QueryRewriteResult:
@@ -287,14 +289,7 @@ class QueryRewriter:
         return "general"
 
     def _looks_like_pdf_page_query(self, query: str) -> bool:
-        lowered = query.lower()
-        if re.search(r"第\s*\d+\s*页", query):
-            return True
-        if re.search(r"第\s*[零一二三四五六七八九十百两]+\s*页", query):
-            return True
-        if re.search(r"page\s*\d+", lowered):
-            return True
-        return False
+        return has_page_hint(query)
 
     def _should_apply_generic_expansion(self, query_type: str, query: str) -> bool:
         if query_type in {"memory", "table", "pdf_page"}:

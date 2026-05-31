@@ -72,7 +72,6 @@ class CandidateGraph:
             for node in self._nodes.values()
             if node.hits
         ]
-        hits.sort(key=lambda item: float(item.score or 0.0), reverse=True)
         return hits[:top_k]
 
 

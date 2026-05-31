@@ -102,10 +102,18 @@ class GraphStateMachine:
         *,
         graph_config: GraphHarnessConfig,
         node_states: dict[str, dict[str, Any]],
+        active_work_orders: dict[str, str] | None = None,
         graph_result_already_terminal: bool = False,
     ) -> GraphStatusSnapshot:
         ready = () if graph_result_already_terminal else self.ready_nodes(graph_config=graph_config, node_states=node_states)
-        running = _nodes_with_status(node_states, "running")
+        running = tuple(
+            dict.fromkeys(
+                [
+                    *_nodes_with_status(node_states, "running"),
+                    *(str(node_id) for node_id in dict(active_work_orders or {}) if str(node_id)),
+                ]
+            )
+        )
         completed = _nodes_with_status(node_states, "completed")
         failed = _nodes_with_status(node_states, "failed")
         waiting_human = _nodes_with_status(node_states, "waiting_human_gate")
@@ -121,15 +129,25 @@ class GraphStateMachine:
         terminal_ids = set(self.terminal_node_ids(graph_config))
         executable_ids = tuple(build_scheduler_view(graph_config).executable_node_ids)
         if waiting_human:
+            if running:
+                return GraphStatusSnapshot("running", f"waiting_human_gate_pending_active:{waiting_human[0]}", (), running, completed, failed, blocked, waiting_human)
             return GraphStatusSnapshot("waiting_human_gate", f"waiting_human_gate:{waiting_human[0]}", ready, running, completed, failed, blocked, waiting_human)
         if _nodes_with_status(node_states, "blocked"):
             first = _nodes_with_status(node_states, "blocked")[0]
+            if running:
+                return GraphStatusSnapshot("running", f"node_blocked_pending_active:{first}", (), running, completed, failed, blocked, waiting_human)
             return GraphStatusSnapshot("blocked", f"node_blocked:{first}", ready, running, completed, failed, blocked, waiting_human)
         if failed:
+            if running:
+                return GraphStatusSnapshot("running", f"node_failed_pending_active:{failed[0]}", (), running, completed, failed, blocked, waiting_human)
             return GraphStatusSnapshot("failed", f"node_failed:{failed[0]}", (), running, completed, failed, blocked, waiting_human, terminal_result_status="failed")
         if terminal_ids and terminal_ids.issubset(set(completed)):
+            if running:
+                return GraphStatusSnapshot("running", "terminal_nodes_completed_pending_active", (), running, completed, failed, blocked, waiting_human)
             return GraphStatusSnapshot("completed", "terminal_nodes_completed", (), running, completed, failed, blocked, waiting_human, terminal_result_status="completed")
         if executable_ids and len(completed) == len(executable_ids):
+            if running:
+                return GraphStatusSnapshot("running", "all_executable_nodes_completed_pending_active", (), running, completed, failed, blocked, waiting_human)
             return GraphStatusSnapshot("completed", "all_executable_nodes_completed", (), running, completed, failed, blocked, waiting_human, terminal_result_status="completed")
         return GraphStatusSnapshot("running", "", ready, running, completed, failed, blocked, waiting_human)
 

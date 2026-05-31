@@ -456,10 +456,10 @@ def test_runtime_compiler_stable_payload_keeps_environment_and_operation_project
     dynamic_payload = _payload_after_title(packet.model_messages[-2]["content"], "Task execution dynamic runtime")
 
     assert "task_environment" in stable_payload
-    assert "storage_space" in stable_payload["task_environment"]
-    assert "environment_boundary" in stable_payload["task_environment"]
+    assert "storage" in stable_payload["task_environment"]
+    assert "resource_boundary" in stable_payload["task_environment"]
     assert "operation_authorization" not in stable_payload
-    assert dynamic_payload["operation_authorization"]["authority"] == "harness.runtime.operation_authorization_projection"
+    assert dynamic_payload["operation_authorization"]["authority"] == "harness.runtime.operation_authorization.model_visible_summary"
     assert dynamic_payload["runtime_context"]["allowed_operation_count"] == len(dynamic_payload["operation_authorization"]["allowed_operations"])
 
 

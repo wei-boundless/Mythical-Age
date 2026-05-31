@@ -1,0 +1,196 @@
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Any
+
+from runtime.context_management.tool_result_storage import DEFAULT_PREVIEW_SIZE_BYTES, ToolResultStore
+
+from .models import compact_text, dict_tuple, drop_empty, stable_json_hash, string_tuple
+from .replacement_store import ReplacementStore
+
+
+PROJECTOR_VERSION = "tool_result_projector.v1"
+
+
+class ToolResultProjector:
+    def __init__(self, *, root_dir: Path, replacement_store: ReplacementStore) -> None:
+        self.root_dir = Path(root_dir)
+        self.replacement_store = replacement_store
+
+    def project_many(
+        self,
+        tool_results: list[dict[str, Any]] | tuple[dict[str, Any], ...],
+        *,
+        task_run_id: str = "",
+        projection_policy: dict[str, Any] | None = None,
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        projected: list[dict[str, Any]] = []
+        records: list[dict[str, Any]] = []
+        for item in list(tool_results or []):
+            projection, record = self.project(item, task_run_id=task_run_id, projection_policy=projection_policy)
+            if projection:
+                projected.append(projection)
+                records.append(record)
+        return projected, records
+
+    def project_from_observation(
+        self,
+        observation: dict[str, Any],
+        *,
+        task_run_id: str = "",
+        projection_policy: dict[str, Any] | None = None,
+    ) -> tuple[dict[str, Any], dict[str, Any] | None]:
+        tool_payload = _tool_payload_from_observation(observation)
+        if not tool_payload:
+            return {}, None
+        return self.project(tool_payload, task_run_id=task_run_id, projection_policy=projection_policy)
+
+    def project(
+        self,
+        tool_result: dict[str, Any],
+        *,
+        task_run_id: str = "",
+        projection_policy: dict[str, Any] | None = None,
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        policy = dict(projection_policy or {})
+        normalized = _normalize_tool_result(tool_result)
+        source_id = (
+            str(normalized.get("tool_result_ref") or "")
+            or str(normalized.get("envelope_id") or "")
+            or "tool_result:" + stable_json_hash(normalized).removeprefix("sha256:")[:16]
+        )
+        projection = self._build_projection(normalized, task_run_id=task_run_id, projection_policy=policy)
+        projection, record = self.replacement_store.get_or_put(
+            source_kind="tool_result",
+            source_id=source_id,
+            content=normalized,
+            projection_policy=policy,
+            projector_version=PROJECTOR_VERSION,
+            projection=projection,
+        )
+        projection = {**projection, "replacement_ref": record.replacement_key}
+        return projection, record.to_dict()
+
+    def _build_projection(
+        self,
+        normalized: dict[str, Any],
+        *,
+        task_run_id: str,
+        projection_policy: dict[str, Any],
+    ) -> dict[str, Any]:
+        text = str(normalized.get("text") or "")
+        preview_limit = int(projection_policy.get("tool_result_preview_chars") or DEFAULT_PREVIEW_SIZE_BYTES)
+        content_replacements: list[dict[str, Any]] = []
+        preview = compact_text(text, limit=preview_limit)
+        result_ref = str(normalized.get("result_ref") or "")
+        if len(text.encode("utf-8", errors="ignore")) > preview_limit:
+            store = ToolResultStore(self.root_dir, run_id=task_run_id or "session", namespace="runtime_context")
+            budgeted, replacements = store.apply_budget(
+                {"text": text},
+                field_limit_bytes=preview_limit,
+                preview_size_bytes=preview_limit,
+                payload_budget_bytes=max(preview_limit * 2, preview_limit + 1000),
+            )
+            preview = str(budgeted.get("text") or preview)
+            content_replacements = [item.to_dict() for item in replacements]
+            if content_replacements and not result_ref:
+                result_ref = str(content_replacements[0].get("path") or content_replacements[0].get("replacement_id") or "")
+        structured_error = dict(normalized.get("structured_error") or {})
+        error = str(normalized.get("error") or structured_error.get("message") or structured_error.get("detail") or "")
+        return drop_empty(
+            {
+                "tool_result_ref": str(normalized.get("tool_result_ref") or normalized.get("envelope_id") or ""),
+                "tool_name": str(normalized.get("tool_name") or ""),
+                "status": str(normalized.get("status") or ("error" if error else "ok")),
+                "preview": preview,
+                "result_ref": result_ref,
+                "structured_error": _structured_error_projection(structured_error),
+                "error": compact_text(error, limit=500),
+                "artifact_refs": list(dict_tuple(normalized.get("artifact_refs"))),
+                "observed_paths": list(string_tuple(normalized.get("observed_paths"))),
+                "matched_paths": list(string_tuple(normalized.get("matched_paths"))),
+                "command_receipt": dict(normalized.get("command_receipt") or {}),
+                "content_replacements": content_replacements,
+                "authority": "harness.runtime.dynamic_context.tool_result_projection",
+            }
+        )
+
+
+def _tool_payload_from_observation(observation: dict[str, Any]) -> dict[str, Any]:
+    item = dict(observation or {})
+    wrapped = dict(item.get("observation") or {})
+    source = wrapped if wrapped else item
+    payload = dict(source.get("payload") or {})
+    envelope = payload.get("result_envelope") or source.get("result_envelope") or item.get("result_envelope")
+    structured_payload = payload.get("structured_payload") or source.get("structured_payload")
+    has_tool_signal = bool(envelope or structured_payload or payload.get("tool_name") or source.get("tool_name"))
+    if not has_tool_signal:
+        return {}
+    result = {
+        "tool_result_ref": str(source.get("observation_id") or item.get("observation_id") or ""),
+        "tool_name": str(payload.get("tool_name") or source.get("tool_name") or source.get("source") or ""),
+        "text": payload.get("result") or source.get("content") or source.get("text") or source.get("summary") or "",
+        "structured_payload": structured_payload or {},
+        "structured_error": source.get("structured_error") or payload.get("structured_error") or {},
+        "error": source.get("error") or payload.get("error") or "",
+    }
+    if isinstance(envelope, dict):
+        result["result_envelope"] = dict(envelope)
+    return result
+
+
+def _normalize_tool_result(tool_result: dict[str, Any]) -> dict[str, Any]:
+    item = dict(tool_result or {})
+    envelope = dict(item.get("result_envelope") or item.get("envelope") or {})
+    structured = dict(item.get("structured_payload") or envelope.get("structured_payload") or {})
+    nested_tool_result = dict(structured.get("tool_result") or {})
+    artifact_refs = (
+        item.get("artifact_refs")
+        or envelope.get("artifact_refs")
+        or structured.get("artifact_refs")
+        or nested_tool_result.get("artifact_refs")
+        or []
+    )
+    text = (
+        envelope.get("text")
+        or item.get("text")
+        or item.get("result")
+        or item.get("content")
+        or item.get("summary")
+        or nested_tool_result.get("data")
+        or ""
+    )
+    status = str(envelope.get("status") or item.get("status") or nested_tool_result.get("status") or "").strip()
+    structured_error = dict(item.get("structured_error") or envelope.get("structured_error") or nested_tool_result.get("structured_error") or {})
+    error = str(envelope.get("error") or item.get("error") or nested_tool_result.get("error") or "")
+    return drop_empty(
+        {
+            "tool_result_ref": str(item.get("tool_result_ref") or item.get("observation_id") or ""),
+            "envelope_id": str(envelope.get("envelope_id") or ""),
+            "tool_name": str(envelope.get("tool_name") or item.get("tool_name") or ""),
+            "tool_args": dict(envelope.get("tool_args") or item.get("tool_args") or {}),
+            "status": status or ("error" if error or structured_error else "ok"),
+            "text": str(text or ""),
+            "structured_payload": structured,
+            "structured_error": structured_error,
+            "observed_paths": list(string_tuple(envelope.get("observed_paths") or structured.get("observed_paths") or item.get("observed_paths"))),
+            "matched_paths": list(string_tuple(envelope.get("matched_paths") or structured.get("matched_paths") or item.get("matched_paths"))),
+            "artifact_refs": list(dict_tuple(artifact_refs)),
+            "command_receipt": dict(envelope.get("command_receipt") or structured.get("command_receipt") or item.get("command_receipt") or {}),
+            "result_ref": str(envelope.get("result_ref") or item.get("result_ref") or ""),
+            "error": error,
+        }
+    )
+
+
+def _structured_error_projection(value: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    return drop_empty(
+        {
+            "code": compact_text(value.get("code") or value.get("error_code") or "", limit=120),
+            "message": compact_text(value.get("message") or value.get("detail") or "", limit=500),
+            "retryable": value.get("retryable") if isinstance(value.get("retryable"), bool) else None,
+            "origin": compact_text(value.get("origin") or "", limit=120),
+        }
+    )

@@ -15,6 +15,7 @@ from prompt_library import (
 )
 from task_system.contracts.runtime_contracts import expand_selected_skill_bodies, render_skill_candidate_cards
 
+from .dynamic_context import DynamicContextInput, DynamicContextManager, DynamicContextProjection
 from .envelope import RuntimeEnvelope
 from .invocation_packet import RuntimeInvocationPacket
 from .prompt_segment_plan import build_prompt_segment_plan
@@ -35,6 +36,7 @@ class RuntimeCompilationResult:
 class RuntimeCompiler:
     def __init__(self, *, base_dir: Path | None = None) -> None:
         self.base_dir = Path(base_dir) if base_dir is not None else Path(__file__).resolve().parents[2]
+        self.dynamic_context_manager = DynamicContextManager(base_dir=self.base_dir)
 
     def compile_turn_action_packet(
         self,
@@ -135,23 +137,24 @@ class RuntimeCompiler:
             "available_tools": _stable_tool_catalog_payload(tool_payloads),
             "tool_catalog_hash": _stable_json_hash([dict(item) for item in tool_payloads]),
         }
-        dynamic_payload = {
-            "operation_authorization": _operation_authorization_model_visible(
-                dict(assembly_payload.get("operation_authorization") or {}),
-                profile_payload=profile_payload,
-            ),
-            "runtime_context": _runtime_context_payload(
-                assembly_payload,
-                agent_visible_runtime_projection=agent_visible_runtime_projection,
-            ),
-        }
-        volatile_payload = {
-            "runtime_envelope": _runtime_envelope_model_visible(envelope.to_dict()),
-            "turn_id": turn_id,
-            "history": [dict(item) for item in list(history or [])],
-            "user_message": str(user_message or ""),
-        }
         packet_id = f"rtpacket:{turn_id}:turn_action:1"
+        dynamic_context = self.dynamic_context_manager.project(
+            DynamicContextInput(
+                invocation_kind="turn_action",
+                session_id=session_id,
+                turn_id=turn_id,
+                history=tuple(dict(item) for item in list(history or []) if isinstance(item, dict)),
+                runtime_assembly=assembly_payload,
+                runtime_envelope=envelope.to_dict(),
+                current_user_message=str(user_message or ""),
+                projection_policy={
+                    "agent_visible_runtime_projection": agent_visible_runtime_projection,
+                    "operation_authorization": dict(assembly_payload.get("operation_authorization") or {}),
+                },
+            )
+        )
+        dynamic_payload = dynamic_context.dynamic_runtime_projection
+        volatile_payload = dynamic_context.volatile_request_projection
         model_messages, segment_plan = _model_messages_and_segment_plan(
             packet_id=packet_id,
             invocation_kind="turn_action",
@@ -212,6 +215,7 @@ class RuntimeCompiler:
                     cache_scope="none",
                     cache_role="volatile",
                     compression_role="summarize",
+                    metadata=_dynamic_context_segment_metadata(dynamic_context, source="runtime_delta"),
                 ),
                 _message_spec(
                     role="user",
@@ -221,8 +225,10 @@ class RuntimeCompiler:
                     cache_scope="none",
                     cache_role="volatile",
                     compression_role="summarize",
+                    metadata=_dynamic_context_segment_metadata(dynamic_context, source="current_request"),
                 ),
             ],
+            enforce_dynamic_context_reports=True,
         )
         prompt_manifest = build_runtime_prompt_manifest(
             invocation_kind="turn_action",
@@ -237,6 +243,7 @@ class RuntimeCompiler:
             volatile_state_refs=("runtime_envelope", "turn_id", "history", "user_message"),
         ).to_dict()
         prompt_manifest["segment_plan_ref"] = segment_plan.segment_plan_id
+        prompt_manifest["dynamic_context_report"] = dynamic_context.to_report_dict()
         _attach_model_message_metrics(prompt_manifest, model_messages=model_messages, segment_plan=segment_plan.to_dict())
         packet = RuntimeInvocationPacket(
             packet_id=packet_id,
@@ -253,6 +260,8 @@ class RuntimeCompiler:
             available_modes=("respond", "ask_user", "tool_call", "request_task_run", "request_registered_engagement", "block"),
             output_contract={"schema": schema, "format": "json_object"},
             hidden_control_refs={"agent_invocation_id": agent_invocation_id, "runtime_assembly_id": str(assembly_payload.get("assembly_id") or "")},
+            context_refs=dynamic_context.context_refs,
+            artifact_refs=dynamic_context.artifact_refs,
             diagnostics={
                 "prompt_manifest": prompt_manifest,
                 "segment_plan": segment_plan.to_dict(),
@@ -373,7 +382,6 @@ class RuntimeCompiler:
         runtime_instruction = _join_prompt_sections(
             artifact_note,
             _runtime_projection_instruction(agent_visible_runtime_projection),
-            _work_rollout_instruction(work_rollout),
         )
         active_skill_instruction, active_skill_meta = _active_skill_instruction(
             base_dir=self.base_dir,
@@ -393,25 +401,27 @@ class RuntimeCompiler:
         }
         if task_run_context_enabled:
             stable_payload["task_run"] = _task_run_stable_payload(task_run, graph_runtime_projection=graph_runtime_projection)
-        dynamic_payload = {
-            "operation_authorization": _operation_authorization_model_visible(
-                operation_authorization,
-                profile_payload=profile_payload,
-            ),
-            "runtime_context": _runtime_context_payload(
-                assembly_payload,
-                agent_visible_runtime_projection=agent_visible_runtime_projection,
-            ),
-        }
-        volatile_payload = {
-            "execution_state": dict(execution_state or {}),
-            "observations": _observations_model_visible_payload(observations),
-        }
-        if task_run_context_enabled:
-            volatile_payload["runtime_envelope"] = _runtime_envelope_model_visible(envelope.to_dict())
-            volatile_payload["task_run_state"] = _task_run_volatile_payload(task_run)
-            volatile_payload["work_history"] = _work_rollout_payload(work_rollout)
         packet_id = f"rtpacket:{task_run_id}:task_execution:{executor_epoch}:{invocation_index}"
+        dynamic_context = self.dynamic_context_manager.project(
+            DynamicContextInput(
+                invocation_kind="task_execution",
+                session_id=session_id,
+                task_run_id=task_run_id,
+                task_run=dict(task_run or {}),
+                observations=tuple(dict(item) for item in list(observations or []) if isinstance(item, dict)),
+                execution_state=dict(execution_state or {}),
+                work_rollout=dict(work_rollout or {}),
+                runtime_assembly=assembly_payload,
+                runtime_envelope=envelope.to_dict(),
+                projection_policy={
+                    "agent_visible_runtime_projection": agent_visible_runtime_projection,
+                    "operation_authorization": operation_authorization,
+                    "include_task_run_context": task_run_context_enabled,
+                },
+            )
+        )
+        dynamic_payload = dynamic_context.dynamic_runtime_projection
+        volatile_payload = dynamic_context.volatile_state_projection
         model_messages, segment_plan = _model_messages_and_segment_plan(
             packet_id=packet_id,
             invocation_kind="task_execution",
@@ -472,6 +482,7 @@ class RuntimeCompiler:
                     cache_scope="none",
                     cache_role="volatile",
                     compression_role="summarize",
+                    metadata=_dynamic_context_segment_metadata(dynamic_context, source="runtime_delta"),
                 ),
                 _message_spec(
                     role="user",
@@ -481,8 +492,10 @@ class RuntimeCompiler:
                     cache_scope="none",
                     cache_role="volatile",
                     compression_role="summarize",
+                    metadata=_dynamic_context_segment_metadata(dynamic_context, source="execution_state"),
                 ),
             ],
+            enforce_dynamic_context_reports=True,
         )
         prompt_manifest = build_runtime_prompt_manifest(
             invocation_kind="task_execution",
@@ -495,7 +508,7 @@ class RuntimeCompiler:
             packet_id=packet_id,
             dynamic_projection_refs=(
                 "agent_visible_runtime_projection",
-                _operation_authorization_projection_ref(profile_payload),
+                "operation_authorization",
             ),
             volatile_state_refs=(
                 "runtime_envelope",
@@ -507,6 +520,7 @@ class RuntimeCompiler:
             ),
         ).to_dict()
         prompt_manifest["segment_plan_ref"] = segment_plan.segment_plan_id
+        prompt_manifest["dynamic_context_report"] = dynamic_context.to_report_dict()
         _attach_model_message_metrics(prompt_manifest, model_messages=model_messages, segment_plan=segment_plan.to_dict())
         packet = RuntimeInvocationPacket(
             packet_id=packet_id,
@@ -521,7 +535,9 @@ class RuntimeCompiler:
             prompt_pack_refs=prompt_assembly.prompt_pack_refs,
             available_tools=tool_payloads,
             available_modes=("respond", "ask_user", "tool_call", "block"),
-            observation_refs=tuple(str(item.get("observation_id") or "") for item in observations if item.get("observation_id")),
+            observation_refs=dynamic_context.observation_refs,
+            artifact_refs=dynamic_context.artifact_refs,
+            context_refs=dynamic_context.context_refs,
             output_contract={"schema": schema, "format": "json_object"},
             hidden_control_refs={"task_run_id": task_run_id, "runtime_assembly_id": str(assembly_payload.get("assembly_id") or "")},
             diagnostics={
@@ -631,24 +647,25 @@ class RuntimeCompiler:
             "available_tools": _stable_tool_catalog_payload(tool_payloads),
             "tool_catalog_hash": _stable_json_hash([dict(item) for item in tool_payloads]),
         }
-        dynamic_payload = {
-            "operation_authorization": _operation_authorization_model_visible(
-                dict(assembly_payload.get("operation_authorization") or {}),
-                profile_payload=profile_payload,
-            ),
-            "runtime_context": _runtime_context_payload(
-                assembly_payload,
-                agent_visible_runtime_projection=agent_visible_runtime_projection,
-            ),
-        }
-        volatile_payload = {
-            "runtime_envelope": _runtime_envelope_model_visible(envelope.to_dict()),
-            "turn_id": turn_id,
-            "history": [dict(item) for item in list(history or [])],
-            "user_message": str(user_message or ""),
-            "observations": _observations_model_visible_payload(observations),
-        }
         packet_id = f"rtpacket:{turn_id}:tool_observation_followup:{len(observations) + 1}"
+        dynamic_context = self.dynamic_context_manager.project(
+            DynamicContextInput(
+                invocation_kind="tool_observation_followup",
+                session_id=session_id,
+                turn_id=turn_id,
+                history=tuple(dict(item) for item in list(history or []) if isinstance(item, dict)),
+                observations=tuple(dict(item) for item in list(observations or []) if isinstance(item, dict)),
+                runtime_assembly=assembly_payload,
+                runtime_envelope=envelope.to_dict(),
+                current_user_message=str(user_message or ""),
+                projection_policy={
+                    "agent_visible_runtime_projection": agent_visible_runtime_projection,
+                    "operation_authorization": dict(assembly_payload.get("operation_authorization") or {}),
+                },
+            )
+        )
+        dynamic_payload = dynamic_context.dynamic_runtime_projection
+        volatile_payload = dynamic_context.volatile_request_projection
         model_messages, segment_plan = _model_messages_and_segment_plan(
             packet_id=packet_id,
             invocation_kind="tool_observation_followup",
@@ -709,6 +726,7 @@ class RuntimeCompiler:
                     cache_scope="none",
                     cache_role="volatile",
                     compression_role="summarize",
+                    metadata=_dynamic_context_segment_metadata(dynamic_context, source="runtime_delta"),
                 ),
                 _message_spec(
                     role="user",
@@ -718,8 +736,10 @@ class RuntimeCompiler:
                     cache_scope="none",
                     cache_role="volatile",
                     compression_role="ref_only",
+                    metadata=_dynamic_context_segment_metadata(dynamic_context, source="current_request"),
                 ),
             ],
+            enforce_dynamic_context_reports=True,
         )
         prompt_manifest = build_runtime_prompt_manifest(
             invocation_kind="tool_observation_followup",
@@ -734,6 +754,7 @@ class RuntimeCompiler:
             volatile_state_refs=("runtime_envelope", "turn_id", "history", "user_message", "observations"),
         ).to_dict()
         prompt_manifest["segment_plan_ref"] = segment_plan.segment_plan_id
+        prompt_manifest["dynamic_context_report"] = dynamic_context.to_report_dict()
         _attach_model_message_metrics(prompt_manifest, model_messages=model_messages, segment_plan=segment_plan.to_dict())
         packet = RuntimeInvocationPacket(
             packet_id=packet_id,
@@ -748,7 +769,9 @@ class RuntimeCompiler:
             prompt_pack_refs=prompt_assembly.prompt_pack_refs,
             available_tools=tool_payloads,
             available_modes=("respond", "ask_user", "tool_call", "request_task_run", "request_registered_engagement", "block"),
-            observation_refs=tuple(str(item.get("observation_id") or "") for item in observations if item.get("observation_id")),
+            observation_refs=dynamic_context.observation_refs,
+            artifact_refs=dynamic_context.artifact_refs,
+            context_refs=dynamic_context.context_refs,
             output_contract={"schema": schema, "format": "json_object"},
             hidden_control_refs={"agent_invocation_id": agent_invocation_id, "runtime_assembly_id": str(assembly_payload.get("assembly_id") or "")},
             diagnostics={
@@ -789,7 +812,10 @@ class RuntimeCompiler:
     def _bind_assembly_base_dir(self, assembly_payload: dict[str, Any]) -> None:
         backend_dir = str(assembly_payload.get("backend_dir") or "").strip()
         if backend_dir:
-            self.base_dir = Path(backend_dir)
+            next_base_dir = Path(backend_dir)
+            if next_base_dir != self.base_dir:
+                self.base_dir = next_base_dir
+                self.dynamic_context_manager = DynamicContextManager(base_dir=self.base_dir)
 
     def _assemble_prompt_refs(
         self,
@@ -931,6 +957,7 @@ def _model_messages_and_segment_plan(
     packet_id: str,
     invocation_kind: str,
     specs: list[dict[str, Any]] | tuple[dict[str, Any], ...],
+    enforce_dynamic_context_reports: bool = False,
 ) -> tuple[list[dict[str, str]], Any]:
     clean_specs = [
         {
@@ -941,6 +968,8 @@ def _model_messages_and_segment_plan(
         for spec in list(specs or [])
         if str(dict(spec).get("content") or "").strip()
     ]
+    if enforce_dynamic_context_reports:
+        _validate_dynamic_context_metadata(clean_specs)
     model_messages = [
         {
             "role": str(spec.get("role") or "user"),
@@ -952,8 +981,38 @@ def _model_messages_and_segment_plan(
         packet_id=packet_id,
         invocation_kind=invocation_kind,
         message_specs=clean_specs,
+        enforce_dynamic_context_reports=enforce_dynamic_context_reports,
     )
     return model_messages, segment_plan
+
+
+def _validate_dynamic_context_metadata(specs: list[dict[str, Any]]) -> None:
+    for spec in specs:
+        cache_role = str(spec.get("cache_role") or "")
+        kind = str(spec.get("kind") or "")
+        if cache_role != "volatile" and not kind.startswith("dynamic"):
+            continue
+        metadata = dict(spec.get("metadata") or {})
+        if metadata.get("dynamic_context_report_ref") or metadata.get("volatility_reason"):
+            continue
+        raise ValueError(f"dynamic/volatile segment requires dynamic context metadata: {kind}")
+
+
+def _dynamic_context_segment_metadata(
+    projection: DynamicContextProjection,
+    *,
+    source: str,
+) -> dict[str, Any]:
+    source_text = str(source or "")
+    for report in projection.section_reports:
+        if str(report.source or "") == source_text:
+            return {
+                "dynamic_context_report_ref": report.section_id,
+                "volatility_reason": report.volatility_reason,
+                "projection_strategy": report.projection_strategy,
+                "cache_impact": report.cache_impact,
+            }
+    raise ValueError(f"dynamic context section report missing for source: {source_text}")
 
 
 def _attach_model_message_metrics(
@@ -1278,145 +1337,6 @@ def _runtime_projection_instruction(projection: dict[str, Any]) -> str:
     return "\n".join(lines) + "\n"
 
 
-def _operation_authorization_model_visible(
-    authorization: dict[str, Any],
-    *,
-    profile_payload: dict[str, Any],
-) -> dict[str, Any]:
-    payload = dict(authorization or {})
-    policy = dict(profile_payload.get("operation_authorization_projection") or {})
-    mode = str(policy.get("model_visible") or policy.get("mode") or "summary_without_denials").strip()
-    if mode == "full":
-        return payload
-    allowed_operations = [
-        str(item)
-        for item in list(payload.get("allowed_operations") or [])
-        if str(item)
-    ]
-    denied_operations = [
-        str(item)
-        for item in list(payload.get("denied_operations") or [])
-        if str(item)
-    ]
-    denied_groups = _operation_groups(denied_operations)
-    return {
-        "authority": "harness.runtime.operation_authorization.model_visible_summary",
-        "allowed_operations": allowed_operations,
-        "allowed_operation_count": len(allowed_operations),
-        "denied_operation_count": len(denied_operations),
-        "critical_denied_groups": denied_groups,
-        "omitted_denial_details": True,
-        "summary_policy": "model_visible_minimal",
-        "authorization_hash": _stable_json_hash(payload) if payload else "",
-    }
-
-
-def _operation_authorization_projection_ref(profile_payload: dict[str, Any]) -> str:
-    policy = dict(profile_payload.get("operation_authorization_projection") or {})
-    mode = str(policy.get("model_visible") or policy.get("mode") or "summary_without_denials").strip()
-    return "operation_authorization" if mode == "full" else "operation_authorization.model_visible_summary"
-
-
-def _operation_groups(operation_ids: list[str] | tuple[str, ...]) -> list[str]:
-    groups: set[str] = set()
-    for operation_id in operation_ids:
-        item = str(operation_id or "").strip()
-        if not item:
-            continue
-        if item.startswith("op.git_"):
-            groups.add("git")
-        elif item in {"op.shell", "op.python_repl"}:
-            groups.add("command_execution")
-        elif item in {"op.write_file", "op.edit_file"}:
-            groups.add("file_write")
-        elif item in {"op.web_search", "op.fetch_url"}:
-            groups.add("network")
-        elif item in {"op.browser_control"}:
-            groups.add("browser")
-        elif item.startswith("op.subagent_"):
-            groups.add("subagent_lifecycle")
-        elif item in {"op.image_generate"}:
-            groups.add("image_generation")
-        elif item.startswith("op.mcp_"):
-            groups.add("mcp")
-        elif item in {"op.read_file", "op.search_files", "op.search_text", "op.list_dir", "op.glob_paths", "op.stat_path", "op.path_exists"}:
-            groups.add("file_read")
-        else:
-            groups.add("other")
-    return sorted(groups)
-
-
-def _work_rollout_instruction(work_rollout: dict[str, Any] | None) -> str:
-    rollout = dict(work_rollout or {})
-    if not rollout:
-        return ""
-    latest_progress = str(rollout.get("latest_progress") or "").strip()
-    latest_step = str(rollout.get("latest_step_title") or "").strip()
-    agent_brief = str(rollout.get("agent_brief_output") or "").strip()
-    breakpoint = dict(rollout.get("breakpoint") or {})
-    history = [dict(item) for item in list(rollout.get("model_visible_history") or []) if isinstance(item, dict)]
-    interrupted = any(str(item.get("type") or "") == "interrupted_boundary" for item in history[-8:])
-    checkout_started = any(str(item.get("type") or "") == "checkout_started" for item in history[-8:])
-    lines = ["当前工作恢复参考："]
-    if latest_step or latest_progress:
-        lines.append(f"- 最近进展：{latest_step or '处理进展'}；{latest_progress or '暂无进一步摘要'}。")
-    if agent_brief:
-        lines.append(f"- 最近一次简要输出：{agent_brief}")
-    if breakpoint:
-        offset = breakpoint.get("event_offset")
-        checkpoint_ref = str(breakpoint.get("checkpoint_ref") or "").strip()
-        parts = []
-        if isinstance(offset, int) and offset >= 0:
-            parts.append(f"事件位置 {offset}")
-        if checkpoint_ref:
-            parts.append(f"检查点 {checkpoint_ref}")
-        if parts:
-            lines.append("- 可参考的恢复断点：" + "；".join(parts) + "。")
-    if interrupted or checkout_started:
-        lines.append(
-            "- 这项工作此前可能在执行中被中断。继续前先检查当前工作区、已有文件、观察结果和验收证据；"
-            "不要假设中断前的最后一步已经完整成功。"
-        )
-    recent_completed = [
-        str(item.get("summary") or item.get("title") or "").strip()
-        for item in history[-6:]
-        if str(item.get("status") or "") in {"completed", "success", "waiting_executor"} and str(item.get("summary") or item.get("title") or "").strip()
-    ]
-    if recent_completed:
-        lines.append("- 已记录的近期进展：" + "；".join(recent_completed[-3:]) + "。")
-    if len(lines) == 1:
-        return ""
-    return "\n".join(lines) + "\n"
-
-
-def _work_rollout_payload(work_rollout: dict[str, Any] | None) -> dict[str, Any]:
-    rollout = dict(work_rollout or {})
-    if not rollout:
-        return {}
-    return {
-        "latest_progress": str(rollout.get("latest_progress") or ""),
-        "latest_step_title": str(rollout.get("latest_step_title") or ""),
-        "agent_brief_output": str(rollout.get("agent_brief_output") or ""),
-        "breakpoint": dict(rollout.get("breakpoint") or {}),
-        "lineage": dict(rollout.get("lineage") or {}),
-        "model_visible_history": [
-            {
-                "type": str(item.get("type") or ""),
-                "title": str(item.get("title") or ""),
-                "status": str(item.get("status") or ""),
-                "summary": str(item.get("summary") or ""),
-                "agent_brief_output": str(item.get("agent_brief_output") or ""),
-                "event_offset": item.get("event_offset"),
-                "refs": dict(item.get("refs") or {}),
-            }
-            for item in list(rollout.get("model_visible_history") or [])[-18:]
-            if isinstance(item, dict)
-        ],
-        "artifact_refs": [dict(item) for item in list(rollout.get("artifact_refs") or []) if isinstance(item, dict)],
-        "authority": "runtime.work_rollout.model_context",
-    }
-
-
 def _soul_instruction(soul_role_prompt: dict[str, Any]) -> str:
     content = str(soul_role_prompt.get("content") or "").strip()
     if not content:
@@ -1670,32 +1590,6 @@ def _task_run_stable_payload(task_run: dict[str, Any], *, graph_runtime_projecti
         "execution_runtime_kind": str(task_run.get("execution_runtime_kind") or ""),
         "diagnostics": _graph_task_run_diagnostics_model_visible(diagnostics) if graph_runtime_projection else _task_run_diagnostics_stable_payload(diagnostics),
         "authority": str(task_run.get("authority") or "orchestration.task_run"),
-    }
-
-
-def _task_run_volatile_payload(task_run: dict[str, Any]) -> dict[str, Any]:
-    diagnostics = dict(task_run.get("diagnostics") or {})
-    return {
-        "task_run_id": str(task_run.get("task_run_id") or ""),
-        "status": str(task_run.get("status") or ""),
-        "terminal_reason": str(task_run.get("terminal_reason") or ""),
-        "started_at": task_run.get("started_at"),
-        "updated_at": task_run.get("updated_at"),
-        "completed_at": task_run.get("completed_at"),
-        "current_step_index": task_run.get("current_step_index"),
-        "diagnostics": {
-            key: diagnostics.get(key)
-            for key in (
-                "executor_status",
-                "recoverable_error",
-                "recovery_action",
-                "last_error",
-                "last_observation_id",
-                "last_model_action",
-            )
-            if key in diagnostics
-        },
-        "authority": "orchestration.task_run.volatile_state",
     }
 
 
@@ -2038,71 +1932,6 @@ def _graph_task_contract_origin_model_visible(origin: dict[str, Any]) -> dict[st
     }
 
 
-def _runtime_envelope_model_visible(envelope: dict[str, Any]) -> dict[str, Any]:
-    payload = dict(envelope or {})
-    artifact_policy = dict(payload.get("artifact_policy") or {})
-    permission_policy = dict(payload.get("permission_policy") or {})
-    mode_policy = dict(payload.get("mode_policy") or {})
-    output_policy = dict(payload.get("output_policy") or {})
-    return _drop_empty_payload(
-        {
-            "envelope_id": str(payload.get("envelope_id") or ""),
-            "scope_kind": str(payload.get("scope_kind") or ""),
-            "session_id": str(payload.get("session_id") or ""),
-            "turn_id": str(payload.get("turn_id") or ""),
-            "task_run_id": str(payload.get("task_run_id") or ""),
-            "agent_profile_ref": str(payload.get("agent_profile_ref") or ""),
-            "task_environment_ref": str(payload.get("task_environment_ref") or ""),
-            "mode": str(mode_policy.get("mode") or ""),
-            "interaction_mode": str(mode_policy.get("interaction_mode") or ""),
-            "artifact_root": str(artifact_policy.get("artifact_root") or ""),
-            "permission_scope": str(permission_policy.get("permission_scope") or permission_policy.get("scope") or ""),
-            "output_format": str(output_policy.get("format") or ""),
-            "authority": "harness.runtime.envelope.model_visible_projection",
-        }
-    )
-
-
-def _observations_model_visible_payload(observations: list[dict[str, Any]] | tuple[dict[str, Any], ...]) -> list[dict[str, Any]]:
-    projected: list[dict[str, Any]] = []
-    for item in list(observations or []):
-        if not isinstance(item, dict):
-            continue
-        observation = dict(item.get("observation") or {})
-        source_payload = observation if observation else item
-        payload = {
-            "observation_id": str(item.get("observation_id") or observation.get("observation_id") or ""),
-            "source": str(source_payload.get("source") or source_payload.get("tool_name") or ""),
-            "summary": _compact_text(
-                source_payload.get("summary")
-                or source_payload.get("content")
-                or source_payload.get("text")
-                or item.get("summary")
-                or item.get("content")
-                or "",
-                limit=600,
-            ),
-            "error": _compact_text(source_payload.get("error") or item.get("error") or "", limit=500),
-            "structured_error": _structured_error_model_visible_payload(
-                source_payload.get("structured_error") or item.get("structured_error")
-            ),
-        }
-        projected.append(_drop_empty_payload(payload))
-    return projected
-
-
-def _structured_error_model_visible_payload(value: Any) -> dict[str, Any]:
-    if not isinstance(value, dict):
-        return {}
-    payload = {
-        "code": _compact_text(value.get("code") or value.get("error_code") or "", limit=120),
-        "message": _compact_text(value.get("message") or value.get("detail") or "", limit=500),
-        "retryable": value.get("retryable") if isinstance(value.get("retryable"), bool) else None,
-        "origin": _compact_text(value.get("origin") or "", limit=120),
-    }
-    return _drop_empty_payload(payload)
-
-
 def _resource_requirements_stable_payload(resource_requirements: dict[str, Any]) -> dict[str, Any]:
     return {
         "graph_state": _graph_state_model_visible_payload(dict(resource_requirements.get("graph_state") or {})),
@@ -2260,40 +2089,3 @@ def _artifact_root(environment_payload: dict[str, Any]) -> str:
         return artifact_root
     artifact_policy = dict(environment_payload.get("artifact_policy") or {})
     return str(artifact_policy.get("artifact_root") or "").strip()
-
-
-def _runtime_context_payload(
-    assembly_payload: dict[str, Any],
-    *,
-    agent_visible_runtime_projection: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    profile = dict(assembly_payload.get("profile") or {})
-    environment = dict(assembly_payload.get("task_environment") or {})
-    storage = dict(environment.get("storage_space") or {})
-    payload = {
-        "assembly_id": str(assembly_payload.get("assembly_id") or ""),
-        "agent_profile_ref": str(assembly_payload.get("agent_profile_ref") or ""),
-        "mode": str(profile.get("mode") or ""),
-        "interaction_mode": str(profile.get("interaction_mode") or ""),
-        "task_environment_id": str(environment.get("environment_id") or ""),
-        "storage": _drop_empty_payload(
-            {
-                "environment_storage_root": str(storage.get("environment_storage_root") or ""),
-                "artifact_root": str(storage.get("artifact_root") or ""),
-            }
-        ),
-        "agent_prompt_refs": _string_tuple(assembly_payload.get("agent_prompt_refs")),
-        "environment_prompt_refs": _string_tuple(assembly_payload.get("environment_prompt_refs")),
-        "allowed_operation_count": len(list(dict(assembly_payload.get("operation_authorization") or {}).get("allowed_operations") or [])),
-        "runtime_policy_refs": _drop_empty_payload(
-            {
-                "permission_scope": str(dict(profile.get("permission_policy") or {}).get("permission_scope") or ""),
-                "task_lifecycle_hash": _stable_json_hash(dict(profile.get("task_lifecycle_policy") or {})),
-                "planning_hash": _stable_json_hash(dict(profile.get("planning_policy") or {})),
-                "self_review_hash": _stable_json_hash(dict(profile.get("self_review_policy") or {})),
-            }
-        ),
-    }
-    if agent_visible_runtime_projection:
-        payload["agent_visible_runtime_projection"] = dict(agent_visible_runtime_projection)
-    return _drop_empty_payload(payload)

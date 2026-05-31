@@ -245,12 +245,15 @@ def test_task_execution_packet_places_stable_contract_before_volatile_state() ->
         "recoverable_error": "tool_failed",
         "recovery_action": "retry_with_current_file",
     }
-    assert volatile_payload["observations"][0]["structured_error"] == {
+    assert volatile_payload["observations"]["latest_observations"][0]["structured_error"] == {
         "code": "tool_http_error",
         "message": "Fetch failed for https://example.invalid/rss.xml",
         "retryable": False,
         "origin": "tool_provider",
     }
+    dynamic_report = manifest["dynamic_context_report"]
+    assert dynamic_report["section_reports"]
+    assert all(item["volatility_reason"] for item in dynamic_report["section_reports"])
 
     segment_map = CanonicalPromptSerializer().build_segment_map(
         request_id="modelreq:task",

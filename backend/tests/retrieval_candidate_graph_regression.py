@@ -69,6 +69,22 @@ def test_candidate_graph_keeps_object_bucket_separate() -> None:
     assert bucket_kinds == {"page", "object"}
 
 
+def test_candidate_graph_preserves_upstream_rank_order_between_buckets() -> None:
+    hits = [
+        _hit("上游第一名", score=0.2, page=1, block_id="b1"),
+        _hit("上游第二名", score=0.9, page=2, block_id="b2"),
+    ]
+
+    merged = coalesce_with_candidate_graph(
+        hits,
+        query_mode="page_grounded_lookup",
+        chain_version="test_chain",
+        top_k=5,
+    )
+
+    assert [item.page for item in merged] == [1, 2]
+
+
 def test_backend_coalesce_uses_candidate_graph_metadata() -> None:
     backend = LlamaIndexRetrievalBackend(__import__("pathlib").Path("backend"))
     request = RetrievalRequest(query="第一页", top_k=5, query_mode="page_grounded_lookup")

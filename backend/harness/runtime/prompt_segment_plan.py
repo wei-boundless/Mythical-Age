@@ -54,6 +54,7 @@ def build_prompt_segment_plan(
     packet_id: str,
     invocation_kind: str,
     message_specs: list[dict[str, Any]] | tuple[dict[str, Any], ...],
+    enforce_dynamic_context_reports: bool = False,
 ) -> PromptSegmentPlan:
     segments: list[PromptSegmentPlanSegment] = []
     stable_hash_parts: list[str] = []
@@ -63,6 +64,10 @@ def build_prompt_segment_plan(
         role = str(spec.get("role") or "user")
         kind = str(spec.get("kind") or "unknown_unplanned").strip() or "unknown_unplanned"
         cache_role = _cache_role(spec.get("cache_role"))
+        if enforce_dynamic_context_reports and _requires_dynamic_context_report(kind=kind, cache_role=cache_role):
+            metadata = dict(spec.get("metadata") or {})
+            if not (metadata.get("dynamic_context_report_ref") or metadata.get("volatility_reason")):
+                raise ValueError(f"dynamic/volatile segment requires dynamic context metadata: {kind}")
         content_hash = stable_text_hash(content)
         model_message_hash = stable_text_hash(_canonical_json({"role": role, "content": content}))
         segment = PromptSegmentPlanSegment(
@@ -149,3 +154,9 @@ def _compression_role(value: Any) -> SegmentCompressionRole:
     if normalized in {"preserve", "summarize", "drop_if_cold", "ref_only"}:
         return normalized  # type: ignore[return-value]
     return "summarize"
+
+
+def _requires_dynamic_context_report(*, kind: str, cache_role: str) -> bool:
+    if str(cache_role or "") == "volatile":
+        return True
+    return str(kind or "").startswith("dynamic")

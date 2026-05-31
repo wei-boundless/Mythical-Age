@@ -14,6 +14,7 @@ from config import get_settings
 from capability_system.units.mcp.local.retrieval.models import RetrievalHit
 from knowledge_system.ingestion.models import IndexableUnit
 from knowledge_system.retrieval.candidate_graph import coalesce_with_candidate_graph
+from knowledge_system.retrieval.hybrid_ranker import HybridRanker
 from knowledge_system.indexing.adapters import to_retrieval_hit
 from knowledge_system.indexing.index_store import RetrievalLayout
 from knowledge_system.indexing.lexical import (
@@ -38,6 +39,7 @@ class LlamaIndexRetrievalBackend:
         self.settings = get_settings()
         self._lexical_cache: dict[str, dict[str, Any]] = {}
         self._units_cache: dict[str, dict[str, dict[str, Any]]] = {}
+        self._hybrid_ranker = HybridRanker()
 
     def ensure_layout(self, *, collections: tuple[str, ...] = ("knowledge", "durable_memory", "session_memory")) -> None:
         self.layout.ensure(collections=collections)
@@ -567,20 +569,20 @@ class LlamaIndexRetrievalBackend:
             "dense_backend": self._dense_backend(),
             "sparse_backend": "none",
             "lexical_backend": "application_bm25",
-            "fusion_backend": "application_rrf_like",
+            "fusion_backend": "hybrid_ranker_v1",
             "coalesce_backend": "application_level",
-            "strategy_name": "baseline_dense_lexical",
+            "strategy_name": "hybrid_dense_lexical",
             "chain_version": self.baseline_chain_version(),
             "primary_chain": [
                 "dense_retrieval",
                 "application_lexical_retrieval",
-                "application_fusion",
+                "hybrid_ranker",
                 "coalesce",
             ],
         }
 
     def baseline_chain_version(self) -> str:
-        return "baseline_dense_lexical__qdrant_dense__app_bm25__app_fusion__coalesce_v1"
+        return "hybrid_dense_lexical__qdrant_dense__app_bm25__hybrid_ranker__coalesce_v2"
 
     def _write_units(self, collection: str, units: list[IndexableUnit]) -> None:
         payload = [
@@ -606,6 +608,7 @@ class LlamaIndexRetrievalBackend:
             json.dumps(payload, ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
+        self._units_cache.pop(collection, None)
 
     def _bm25_available(self) -> bool:
         return True
@@ -923,7 +926,7 @@ class LlamaIndexRetrievalBackend:
         payload["lexical_documents"] = lexical_documents
         if lexical_payload.get("status"):
             payload["lexical_status"] = str(lexical_payload["status"])
-        payload["strategy_name"] = "baseline_dense_lexical"
+        payload["strategy_name"] = "hybrid_dense_lexical"
         payload["chain_version"] = self.baseline_chain_version()
         payload["runtime_descriptor"] = self.runtime_descriptor()
         if build_meta:
@@ -936,74 +939,19 @@ class LlamaIndexRetrievalBackend:
         lexical_hits: list[object],
         request: RetrievalRequest,
     ) -> list[object]:
-        if not dense_hits and not lexical_hits:
-            return []
-        if not dense_hits:
-            return lexical_hits[: request.top_k]
-        if not lexical_hits:
-            return dense_hits[: request.top_k]
-
-        weights = self._fusion_weights(request.query_mode)
-        rank_constant = 60.0
-        merged: dict[tuple[Any, ...], dict[str, Any]] = {}
-        for mode, hits in (("dense", dense_hits), ("lexical", lexical_hits)):
-            for rank, hit in enumerate(hits, start=1):
-                key = self._hit_key(hit)
-                entry = merged.setdefault(
-                    key,
-                    {
-                        "primary": hit,
-                        "modes": [],
-                        "breakdown": {},
-                        "score": 0.0,
-                    },
-                )
-                if mode == "dense":
-                    entry["primary"] = hit
-                contribution = float(weights.get(mode, 1.0)) / (rank_constant + float(rank))
-                entry["score"] += contribution
-                entry["breakdown"][mode] = float(getattr(hit, "score", 0.0) or 0.0)
-                if mode not in entry["modes"]:
-                    entry["modes"].append(mode)
-                if len(entry["modes"]) > 1 and "fusion" not in entry["modes"]:
-                    entry["modes"].append("fusion")
-
-        fused_hits: list[RetrievalHit] = []
-        for entry in merged.values():
-            base = entry["primary"]
-            breakdown = dict(entry["breakdown"])
-            breakdown["fusion"] = float(entry["score"])
-            breakdown["final"] = float(entry["score"])
-            metadata = dict(getattr(base, "metadata", {}) or {})
-            metadata["retrieval_stage"] = "fused"
-            metadata["result_granularity"] = self._result_granularity(
-                object_ref_id=getattr(base, "object_ref_id", None),
-                page=getattr(base, "page", None),
+        return self._hybrid_ranker.rank(
+            {"dense": [self._coerce_retrieval_hit(item) for item in dense_hits], "lexical": [self._coerce_retrieval_hit(item) for item in lexical_hits]},
+            top_k=request.top_k,
+            query_mode=request.query_mode,
+            weights=self._fusion_weights(request.query_mode),
+            key_fn=self._hit_key,
+            result_granularity_fn=lambda hit: self._result_granularity(
+                object_ref_id=hit.object_ref_id,
+                page=hit.page,
                 query_mode=request.query_mode,
-            )
-            metadata["chain_version"] = self.baseline_chain_version()
-            fused_hits.append(
-                RetrievalHit(
-                    text=str(getattr(base, "text", "")),
-                    source=str(getattr(base, "source", "")),
-                    modality=str(getattr(base, "modality", "text")),
-                    score=float(entry["score"]),
-                    page=getattr(base, "page", None),
-                    metadata=metadata,
-                    hit_id=getattr(base, "hit_id", None),
-                    doc_id=getattr(base, "doc_id", None),
-                    block_id=getattr(base, "block_id", None),
-                    object_ref_id=getattr(base, "object_ref_id", None),
-                    block_type=getattr(base, "block_type", None),
-                    section_path=tuple(getattr(base, "section_path", ()) or ()),
-                    score_breakdown=breakdown,
-                    retrieval_modes=tuple(entry["modes"]),
-                    parser_backend=str(getattr(base, "parser_backend", "") or ""),
-                    quality_flags=tuple(getattr(base, "quality_flags", ()) or ()),
-                )
-            )
-        fused_hits.sort(key=lambda item: float(item.score or 0.0), reverse=True)
-        return fused_hits[: request.top_k]
+            ),
+            chain_version=self.baseline_chain_version(),
+        )
 
     def _coalesce_hits(
         self,
@@ -1039,6 +987,28 @@ class LlamaIndexRetrievalBackend:
             str(getattr(hit, "object_ref_id", "") or ""),
             str(getattr(hit, "source", "") or ""),
             int(getattr(hit, "page", 0) or 0),
+        )
+
+    def _coerce_retrieval_hit(self, hit: object) -> RetrievalHit:
+        if isinstance(hit, RetrievalHit):
+            return hit
+        return RetrievalHit(
+            text=str(getattr(hit, "text", "")),
+            source=str(getattr(hit, "source", "")),
+            modality=str(getattr(hit, "modality", "text")),
+            score=float(getattr(hit, "score", 0.0) or 0.0),
+            page=getattr(hit, "page", None),
+            metadata=dict(getattr(hit, "metadata", {}) or {}),
+            hit_id=getattr(hit, "hit_id", None),
+            doc_id=getattr(hit, "doc_id", None),
+            block_id=getattr(hit, "block_id", None),
+            object_ref_id=getattr(hit, "object_ref_id", None),
+            block_type=getattr(hit, "block_type", None),
+            section_path=tuple(getattr(hit, "section_path", ()) or ()),
+            score_breakdown=dict(getattr(hit, "score_breakdown", {}) or {}),
+            retrieval_modes=tuple(getattr(hit, "retrieval_modes", ()) or ()),
+            parser_backend=str(getattr(hit, "parser_backend", "") or ""),
+            quality_flags=tuple(getattr(hit, "quality_flags", ()) or ()),
         )
 
     def _annotate_hit(

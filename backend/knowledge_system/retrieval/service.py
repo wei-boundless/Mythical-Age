@@ -58,6 +58,13 @@ class RetrievalExecutionResult:
         }
 
 
+class RetrievalStageError(RuntimeError):
+    def __init__(self, *, stage: str, cause: Exception) -> None:
+        super().__init__(str(cause))
+        self.stage = str(stage or "execution")
+        self.cause = cause
+
+
 class RetrievalService:
     def __init__(self, base_dir: Path) -> None:
         self.base_dir = base_dir
@@ -66,6 +73,7 @@ class RetrievalService:
         self._bootstrapper: RetrievalBootstrapper | Any | None = None
         self._collection_rebuild_locks: dict[str, threading.Lock] = {}
         self._collection_rebuild_locks_guard = threading.Lock()
+        self._collection_rebuild_pending_guard = threading.Lock()
         self._collection_rebuild_pending: dict[str, bool] = {}
 
     @property
@@ -148,10 +156,7 @@ class RetrievalService:
         return payload
 
     def rebuild_registry_collection(self, name: str) -> None:
-        try:
-            self.router.registry.rebuild(name)
-        except Exception:
-            pass
+        self.rebuild_collection(name)
 
     def rebuild_durable_memory(self) -> None:
         self.rebuild_collection("durable_memory")
@@ -171,16 +176,35 @@ class RetrievalService:
         lock = self._collection_rebuild_lock(name)
         acquired = lock.acquire(blocking=False)
         if not acquired:
-            self._collection_rebuild_pending[name] = True
-            return {"collection": name, "status": "rebuild_already_running"}
+            self._mark_collection_rebuild_pending(name)
+            acquired = lock.acquire(blocking=False)
+            if not acquired:
+                return {"collection": name, "status": "rebuild_already_running_pending"}
+        result: dict[str, Any]
         try:
-            self._collection_rebuild_pending.pop(name, None)
-            return self._rebuild_collection_once(name, config)
+            rebuild_count = 0
+            result = {}
+            while True:
+                self._clear_collection_rebuild_pending(name)
+                result = self._rebuild_collection_once(name, config)
+                rebuild_count += 1
+                if not self._consume_collection_rebuild_pending(name):
+                    break
+            result["rebuild_status"] = "rebuilt_after_pending" if rebuild_count > 1 else "rebuilt"
+            result["coalesced_rebuilds"] = rebuild_count
         except Exception as exc:
             logger.exception("Failed to rebuild retrieval collection %s", name)
-            return {"collection": name, "status": "error", "error": str(exc)}
+            result = {"collection": name, "status": "error", "error": str(exc)}
         finally:
             lock.release()
+        if result.get("status") != "error" and self._consume_collection_rebuild_pending(name):
+            followup = self.rebuild_collection(name)
+            followup_count = int(followup.get("coalesced_rebuilds", 0) or 0)
+            result_count = int(result.get("coalesced_rebuilds", 0) or 0)
+            followup["coalesced_rebuilds"] = result_count + followup_count
+            followup["rebuild_status"] = "rebuilt_after_pending"
+            return followup
+        return result
 
     def _rebuild_collection_once(self, name: str, config) -> dict[str, Any]:
         result = self.bootstrapper.rebuild_collection(config)
@@ -197,13 +221,31 @@ class RetrievalService:
         }
 
     def _collection_rebuild_lock(self, name: str) -> threading.Lock:
-        normalized = str(name or "").strip().lower()
+        normalized = self._normalized_collection_name(name)
         with self._collection_rebuild_locks_guard:
             lock = self._collection_rebuild_locks.get(normalized)
             if lock is None:
                 lock = threading.Lock()
                 self._collection_rebuild_locks[normalized] = lock
             return lock
+
+    def _mark_collection_rebuild_pending(self, name: str) -> None:
+        normalized = self._normalized_collection_name(name)
+        with self._collection_rebuild_pending_guard:
+            self._collection_rebuild_pending[normalized] = True
+
+    def _clear_collection_rebuild_pending(self, name: str) -> None:
+        normalized = self._normalized_collection_name(name)
+        with self._collection_rebuild_pending_guard:
+            self._collection_rebuild_pending.pop(normalized, None)
+
+    def _consume_collection_rebuild_pending(self, name: str) -> bool:
+        normalized = self._normalized_collection_name(name)
+        with self._collection_rebuild_pending_guard:
+            return self._collection_rebuild_pending.pop(normalized, None) is not None
+
+    def _normalized_collection_name(self, name: str) -> str:
+        return str(name or "").strip().lower()
 
     def rebuild_all_collections(self) -> dict[str, dict[str, Any]]:
         payload: dict[str, dict[str, Any]] = {}
@@ -238,15 +280,18 @@ class RetrievalService:
 
         candidate_top_k = self._candidate_top_k(top_k)
         runtime_descriptor = self._runtime_descriptor()
-        hits = self.bootstrapper.backend.retrieve(
-            RetrievalRequest(
-                query=str(plan.rewritten_query or plan.query),
-                top_k=candidate_top_k,
-                query_mode=self._query_mode_from_plan(plan),
-                collections=tuple(plan.selected_collections),
-                filters=self._filters_from_plan(plan),
+        try:
+            hits = self.bootstrapper.backend.retrieve(
+                RetrievalRequest(
+                    query=str(plan.rewritten_query or plan.query),
+                    top_k=candidate_top_k,
+                    query_mode=self._query_mode_from_plan(plan),
+                    collections=tuple(plan.selected_collections),
+                    filters=self._filters_from_plan(plan),
+                )
             )
-        )
+        except Exception as exc:
+            raise RetrievalStageError(stage="backend", cause=exc) from exc
         payload: list[dict[str, Any]] = []
         for candidate_rank, hit in enumerate(hits[:candidate_top_k], start=1):
             score_breakdown = dict(getattr(hit, "score_breakdown", {}) or {})
@@ -320,21 +365,26 @@ class RetrievalService:
             )
         status: RetrievalExecutionStatus = "ok" if results else "empty"
         retrieval_plan_diagnostics = self._retrieval_plan_diagnostics(plan)
+        degraded_reason_typed = self._degraded_reason_from_results(results)
+        diagnostics = {
+            "result_count": len(results),
+            "query_mode": query_mode,
+            "selected_collections": list(selected_collections),
+            "plan_reason": str(getattr(plan, "reason", "") or ""),
+            "retrieval_plan": retrieval_plan_diagnostics,
+            "evidence_pack": self._evidence_pack_diagnostics(
+                query=query,
+                results=results,
+                retrieval_plan=retrieval_plan_diagnostics,
+            ),
+        }
+        if degraded_reason_typed:
+            diagnostics["degraded_reason_typed"] = degraded_reason_typed
         return RetrievalExecutionResult(
             status=status,
             results=tuple(dict(item) for item in results),
-            diagnostics={
-                "result_count": len(results),
-                "query_mode": query_mode,
-                "selected_collections": list(selected_collections),
-                "plan_reason": str(getattr(plan, "reason", "") or ""),
-                "retrieval_plan": retrieval_plan_diagnostics,
-                "evidence_pack": self._evidence_pack_diagnostics(
-                    query=query,
-                    results=results,
-                    retrieval_plan=retrieval_plan_diagnostics,
-                ),
-            },
+            diagnostics=diagnostics,
+            degraded_reason_typed=degraded_reason_typed,
         )
 
     def _retrieval_plan_diagnostics(self, plan: Any) -> dict[str, Any]:
@@ -381,8 +431,27 @@ class RetrievalService:
             ranked = rerank(query=query, results=payload)
         except Exception:
             logger.exception("Failed to rerank retrieval payload")
-            return payload
+            return [self._with_rerank_degraded(item, reason="rerank_execution_failed") for item in payload]
         return [dict(item) for item in ranked]
+
+    def _degraded_reason_from_results(self, results: list[dict[str, Any]]) -> str:
+        for item in results:
+            reason = str(item.get("rerank_degraded_reason_typed") or "").strip()
+            if not reason:
+                reason = str(dict(item.get("metadata") or {}).get("rerank_degraded_reason_typed") or "").strip()
+            if reason:
+                return reason
+        return ""
+
+    def _with_rerank_degraded(self, item: dict[str, Any], *, reason: str) -> dict[str, Any]:
+        updated = dict(item)
+        updated["rerank_backend"] = "unranked_fallback"
+        updated["rerank_fallback"] = True
+        updated["rerank_degraded_reason_typed"] = reason
+        metadata = dict(updated.get("metadata") or {})
+        metadata["rerank_degraded_reason_typed"] = reason
+        updated["metadata"] = metadata
+        return updated
 
     def _candidate_top_k(self, top_k: int) -> int:
         requested = max(int(top_k or 1), 1)
@@ -410,28 +479,6 @@ class RetrievalService:
         collections = list(getattr(plan, "selected_collections", []) or [])
         return collections[0] if collections else "knowledge"
 
-    def _payload_mode_counts(self, payload: list[dict[str, Any]]) -> dict[str, int]:
-        counts = {"dense": 0, "lexical": 0, "fusion": 0}
-        for item in payload:
-            metadata = dict(item.get("metadata", {}) or {})
-            modes = [str(mode) for mode in metadata.get("retrieval_modes", []) or []]
-            if "dense" in modes:
-                counts["dense"] += 1
-            if "lexical" in modes:
-                counts["lexical"] += 1
-            if "fusion" in modes or len(modes) > 1:
-                counts["fusion"] += 1
-        return counts
-
-    def _payload_granularity_counts(self, payload: list[dict[str, Any]]) -> dict[str, int]:
-        counts = {"document": 0, "page": 0, "block": 0, "object": 0}
-        for item in payload:
-            granularity = str(item.get("result_granularity", "") or dict(item.get("metadata", {}) or {}).get("result_granularity", "") or "block")
-            if granularity not in counts:
-                counts[granularity] = 0
-            counts[granularity] += 1
-        return counts
-
     def _runtime_descriptor(self) -> dict[str, Any]:
         descriptor = getattr(self.bootstrapper.backend, "runtime_descriptor", None)
         if callable(descriptor):
@@ -439,11 +486,8 @@ class RetrievalService:
         return {"chain_version": "", "strategy_name": ""}
 
     def _failure_stage_from_exception(self, exc: Exception) -> str:
-        message = str(exc or "").lower()
-        if "rerank" in message:
-            return "rerank"
-        if "retrieve" in message or "index" in message or "faiss" in message:
-            return "backend"
+        if isinstance(exc, RetrievalStageError):
+            return exc.stage
         return "execution"
 
 

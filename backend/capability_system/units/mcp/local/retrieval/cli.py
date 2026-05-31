@@ -8,10 +8,10 @@ from memory_system.layout import durable_memory_layout_from_backend_dir
 from memory_system.storage.consolidation import DurableMemoryConsolidator
 from memory_system.storage.memory_manager import MemoryManager
 from project_layout import ProjectLayout
+from knowledge_system.retrieval.service import RetrievalService
 
 from .parser_adapter import MultimodalParserAdapter
 from .registry import RAGIndexRegistry
-from .router import RAGQueryRouter
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -67,7 +67,7 @@ def main() -> int:
     durable_layout = durable_memory_layout_from_backend_dir(base_dir)
     adapter = MultimodalParserAdapter(repo_root=base_dir.parent, ocr_language=args.ocr_language)
     registry = RAGIndexRegistry(base_dir, ocr_language=args.ocr_language)
-    router = RAGQueryRouter(base_dir, ocr_language=args.ocr_language)
+    retrieval_service = RetrievalService(base_dir)
 
     if args.command == "status":
         print(
@@ -87,9 +87,9 @@ def main() -> int:
 
     if args.command == "rebuild":
         if args.collection.strip():
-            payload = {args.collection: registry.rebuild(args.collection.strip())}
+            payload = {args.collection: retrieval_service.rebuild_collection(args.collection.strip())}
         else:
-            payload = registry.rebuild_all()
+            payload = retrieval_service.rebuild_all_collections()
         print(
             json.dumps(
                 {
@@ -136,7 +136,7 @@ def main() -> int:
         manager = MemoryManager(durable_layout.root_dir)
         governance_payload = manager.govern_note_store()
         index_payload = manager.ensure_index_consistent()
-        rag_payload = registry.rebuild("durable_memory")
+        rag_payload = retrieval_service.rebuild_collection("durable_memory")
         print(
             json.dumps(
                 {
@@ -156,7 +156,7 @@ def main() -> int:
     if args.command == "durable-memory-consolidate":
         consolidator = DurableMemoryConsolidator(durable_layout.root_dir)
         report = consolidator.run()
-        rag_payload = registry.rebuild("durable_memory")
+        rag_payload = retrieval_service.rebuild_collection("durable_memory")
         print(
             json.dumps(
                 {
@@ -173,8 +173,8 @@ def main() -> int:
     if not args.query.strip():
         parser.error("--query is required when command is `query`")
 
-    hits = router.retrieve(args.query, top_k=args.top_k)
-    print(json.dumps(hits, ensure_ascii=False, indent=2))
+    result = retrieval_service.retrieve_execution(args.query, top_k=args.top_k)
+    print(json.dumps(result.to_dict(), ensure_ascii=False, indent=2))
     return 0
 
 

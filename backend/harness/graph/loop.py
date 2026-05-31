@@ -280,7 +280,11 @@ class GraphLoop:
             node_states = {key: dict(value) for key, value in next_state.node_states.items()}
             edge_states = {key: dict(value) for key, value in next_state.edge_states.items()}
             result_index = {key: dict(value) for key, value in next_state.result_index.items()}
-        status_snapshot = self._state_machine.status_snapshot(graph_config=graph_config, node_states=node_states)
+        status_snapshot = self._state_machine.status_snapshot(
+            graph_config=graph_config,
+            node_states=node_states,
+            active_work_orders=active_work_orders,
+        )
         graph_result: GraphResultEnvelope | None = None
         if status_snapshot.terminal_result_status:
             graph_result = _graph_result(

@@ -29,6 +29,17 @@ def test_page_query_builds_page_filter() -> None:
     assert plan.retrieval_plan.policy.parent_child_expansion is True
 
 
+def test_page_query_accepts_chinese_numeral_page_filter() -> None:
+    router = RAGQueryRouter(Path("backend"))
+
+    plan = router.plan("请查 sample.pdf 第三页提到什么")
+
+    assert plan.retrieval_plan is not None
+    assert plan.retrieval_plan.intent.intent_type == "page_grounded_lookup"
+    assert plan.retrieval_plan.filters.page_any == (3,)
+    assert plan.retrieval_plan.intent.page_hints == (3,)
+
+
 def test_document_query_uses_hierarchical_policy() -> None:
     router = RAGQueryRouter(Path("backend"))
 

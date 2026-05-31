@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any
 
 from capability_system.units.mcp.local.retrieval.router import RAGQueryRouter
+from capability_system.units.mcp.local.retrieval.models import RetrievalHit
 from knowledge_system.retrieval.service import RetrievalService
 from knowledge_system.indexing.llamaindex_backend import LlamaIndexRetrievalBackend
 from knowledge_system.indexing.retrievers import RetrievalRequest
@@ -67,5 +68,42 @@ def test_retrieval_service_passes_plan_filters_to_backend() -> None:
     assert capture.request.filters["modality_any"] == ["table"]
     assert "table_row_window" in capture.request.filters["unit_type_any"]
     assert result.diagnostics["retrieval_plan"]["filters"]["modality_any"] == ["table"]
+
+
+class _HitBackend:
+    def retrieve(self, request: RetrievalRequest):
+        del request
+        return [
+            RetrievalHit(
+                text="订单表格证据",
+                source="orders.csv",
+                modality="table",
+                score=0.9,
+                metadata={"collection": "knowledge"},
+                doc_id="doc:orders",
+                block_id="block:orders",
+            )
+        ]
+
+
+class _FailingReranker:
+    def rerank_dict_results(self, **kwargs):
+        del kwargs
+        raise RuntimeError("reranker unavailable")
+
+
+def test_retrieval_service_marks_rerank_failure_as_typed_degradation() -> None:
+    router = RAGQueryRouter(Path("backend"))
+    router._reranker = _FailingReranker()
+    service = RetrievalService(Path("backend"))
+    service.router = router
+    service.bootstrapper = _Bootstrapper(_HitBackend())  # type: ignore[arg-type]
+
+    result = service.retrieve_execution("帮我查订单表格", top_k=1)
+
+    assert result.status == "ok"
+    assert result.degraded_reason_typed == "rerank_execution_failed"
+    assert result.results[0]["rerank_fallback"] is True
+    assert result.results[0]["metadata"]["rerank_degraded_reason_typed"] == "rerank_execution_failed"
 
 

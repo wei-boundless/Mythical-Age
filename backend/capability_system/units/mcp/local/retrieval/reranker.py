@@ -154,6 +154,28 @@ class HeuristicReranker:
         return deduped
 
 
+class DegradedReranker:
+    def __init__(self, *, reason: str, fallback: DictReranker | None = None) -> None:
+        self.reason = str(reason or "rerank_degraded")
+        self.fallback = fallback or HeuristicReranker()
+
+    def rerank_dict_results(
+        self,
+        *,
+        query: str,
+        results: list[dict[str, Any]],
+        text_key: str = "text",
+        metadata_key: str = "metadata",
+    ) -> list[dict[str, Any]]:
+        ranked = self.fallback.rerank_dict_results(
+            query=query,
+            results=results,
+            text_key=text_key,
+            metadata_key=metadata_key,
+        )
+        return [_mark_degraded(item, reason=self.reason) for item in ranked]
+
+
 class CrossEncoderReranker:
     """Standard model reranker backed by a sentence-transformers CrossEncoder."""
 
@@ -304,12 +326,22 @@ class RemoteApiReranker:
         try:
             ranked = self._remote_rerank(query=query, results=head, text_key=text_key)
         except Exception:
-            return self._fallback.rerank_dict_results(
+            logger.exception("Remote rerank failed; using typed heuristic fallback.")
+            fallback_ranked = self._fallback.rerank_dict_results(
                 query=query,
                 results=results,
                 text_key=text_key,
                 metadata_key=metadata_key,
             )
+            return [
+                _mark_degraded(
+                    item,
+                    reason="remote_rerank_failed",
+                    provider=self.provider,
+                    model=self.model_name,
+                )
+                for item in fallback_ranked
+            ]
 
         rescored: list[dict[str, Any]] = []
         seen: set[int] = set()
@@ -430,7 +462,7 @@ def build_reranker(settings: Settings) -> DictReranker:
         model_name = settings.rerank_model
         if not model_name:
             logger.warning("Cross-encoder rerank requested but RERANK_MODEL is empty; falling back to heuristic reranker.")
-            return HeuristicReranker()
+            return DegradedReranker(reason="cross_encoder_model_missing")
         try:
             return CrossEncoderReranker(
                 model_name=model_name,
@@ -444,7 +476,7 @@ def build_reranker(settings: Settings) -> DictReranker:
                 "Failed to initialize cross-encoder reranker model=%s; falling back to heuristic reranker.",
                 model_name,
             )
-            return HeuristicReranker()
+            return DegradedReranker(reason="cross_encoder_initialization_failed")
 
     if provider in {"bailian", "dashscope", "qwen", "remote_api", "remote"}:
         model_name = settings.rerank_model
@@ -454,7 +486,7 @@ def build_reranker(settings: Settings) -> DictReranker:
             logger.warning(
                 "Remote rerank requested but model/api_key/base_url is incomplete; falling back to heuristic reranker."
             )
-            return HeuristicReranker()
+            return DegradedReranker(reason="remote_rerank_configuration_incomplete")
         try:
             return RemoteApiReranker(
                 provider=provider,
@@ -469,9 +501,30 @@ def build_reranker(settings: Settings) -> DictReranker:
                 provider,
                 model_name,
             )
-            return HeuristicReranker()
+            return DegradedReranker(reason="remote_rerank_initialization_failed")
 
     logger.warning("Unknown rerank provider=%s; falling back to heuristic reranker.", provider)
-    return HeuristicReranker()
+    return DegradedReranker(reason="unknown_rerank_provider")
+
+
+def _mark_degraded(
+    item: dict[str, Any],
+    *,
+    reason: str,
+    provider: str = "",
+    model: str = "",
+) -> dict[str, Any]:
+    updated = dict(item)
+    updated["rerank_backend"] = "heuristic_fallback"
+    updated["rerank_fallback"] = True
+    updated["rerank_degraded_reason_typed"] = str(reason or "rerank_degraded")
+    if provider:
+        updated["rerank_failed_provider"] = provider
+    if model:
+        updated["rerank_failed_model"] = model
+    metadata = dict(updated.get("metadata") or {})
+    metadata["rerank_degraded_reason_typed"] = updated["rerank_degraded_reason_typed"]
+    updated["metadata"] = metadata
+    return updated
 
 

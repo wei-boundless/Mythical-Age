@@ -534,6 +534,8 @@ async def execute_task_run(
             if recovered is None:
                 return _conflict(task_run_id, "task_run_executor_already_running")
             task_run = recovered
+        elif executor_status == "scheduled":
+            pass
         else:
             return _conflict(task_run_id, "task_run_executor_already_running")
     if not is_task_run_executable(task_run) and not is_task_run_executor_claimed(task_run):
