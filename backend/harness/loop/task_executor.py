@@ -1252,7 +1252,7 @@ async def _await_task_model_action_with_status(
                         task_run_id=task_run_id,
                         step=f"task_model_action_waiting:{step_index}",
                         status="running",
-                        summary="正在等待模型根据当前任务进展返回下一步判断。",
+                        summary="正在思考。",
                         refs={"runtime_invocation_packet_ref": packet_ref},
                     )
                 else:

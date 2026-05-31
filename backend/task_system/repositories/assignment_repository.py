@@ -116,6 +116,13 @@ class AssignmentRepository:
             task_kind="specific_task",
             flow_id=flow_id,
             domain_id=record.domain_id,
+            task_environment_id=str(
+                record.metadata.get("task_environment_id")
+                or record.metadata.get("environment_id")
+                or task_structure.get("task_environment_id")
+                or task_structure.get("environment_id")
+                or ""
+            ).strip(),
             default_agent_id=default_agent_id,
             participant_agent_ids=(),
             workflow_id=record.default_workflow_id,
@@ -136,6 +143,14 @@ def _assignment_from_dict(payload: dict[str, object]) -> TaskAssignment:
         task_kind=str(payload.get("task_kind") or "specific_task"),
         flow_id=str(payload.get("flow_id") or ""),
         domain_id=str(payload.get("domain_id") or dict(payload.get("metadata") or {}).get("domain_id") or ""),
+        task_environment_id=str(
+            payload.get("task_environment_id")
+            or dict(payload.get("metadata") or {}).get("task_environment_id")
+            or dict(payload.get("metadata") or {}).get("environment_id")
+            or dict(payload.get("task_structure") or {}).get("task_environment_id")
+            or dict(payload.get("task_structure") or {}).get("environment_id")
+            or ""
+        ).strip(),
         default_agent_id=normalize_agent_id(str(payload.get("default_agent_id") or "agent:0")),
         participant_agent_ids=normalize_agent_id_sequence(str(item) for item in list(payload.get("participant_agent_ids") or []) if str(item)),
         workflow_id=str(payload.get("workflow_id") or ""),

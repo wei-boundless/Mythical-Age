@@ -190,7 +190,7 @@ async def run_agent_invocation_stream(
                     turn_id=turn_id,
                     step=f"model_action_waiting:{action_index}",
                     status="running",
-                    summary="正在等待模型根据当前上下文返回下一步判断。",
+                    summary="正在思考。",
                     refs={"runtime_invocation_packet_ref": compilation.packet.packet_id},
                 )
             action_request, diagnostics = await model_action_task

@@ -101,6 +101,8 @@ class TaskGraphNodeDefinition:
     node_id: str
     node_type: str
     title: str
+    node_config_id: str = ""
+    node_config_overrides: dict[str, Any] = field(default_factory=dict)
     task_id: str = ""
     agent_id: str = ""
     agent_selection_policy: str = "explicit_agent"
@@ -277,6 +279,8 @@ def task_graph_node_from_dict(payload: dict[str, Any]) -> TaskGraphNodeDefinitio
         node_id=str(payload.get("node_id") or payload.get("id") or "").strip(),
         node_type=str(payload.get("node_type") or payload.get("type") or "agent").strip(),
         title=str(payload.get("title") or payload.get("label") or payload.get("node_id") or "未命名节点").strip(),
+        node_config_id=str(payload.get("node_config_id") or dict(payload.get("metadata") or {}).get("node_config_id") or "").strip(),
+        node_config_overrides=dict(payload.get("node_config_overrides") or {}),
         task_id=str(payload.get("task_id") or "").strip(),
         agent_id=normalize_agent_id(str(payload.get("agent_id") or "").strip()),
         agent_selection_policy=str(payload.get("agent_selection_policy") or "explicit_agent").strip(),

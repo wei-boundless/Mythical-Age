@@ -187,6 +187,40 @@ describe("TaskGraphDraftV2 mapping", () => {
     });
   });
 
+  it("keeps node configuration references first-class instead of saving metadata fallbacks", () => {
+    const draft = {
+      ...emptyTaskGraphDraftV2(),
+      graph_id: "graph.test.node-config",
+      title: "Node config graph",
+      nodes: [
+        {
+          node_id: "draft",
+          node_type: "agent",
+          title: "Draft",
+          node_config_id: "nodecfg.story.writer",
+          node_config_overrides: { role_prompt_patch: "只写大纲。" },
+          metadata: {
+            node_config_id: "nodecfg.legacy.writer",
+            node_config_overrides: { role_prompt_patch: "legacy" },
+            note: "kept",
+          },
+        },
+      ],
+      edges: [],
+    };
+
+    const payload = buildTaskGraphUpsertPayload({
+      taskGraphDraft: draft,
+      domain_id: "",
+      task_id: "",
+      publish_state: "draft",
+    });
+
+    expect(payload.nodes[0]?.node_config_id).toBe("nodecfg.story.writer");
+    expect(payload.nodes[0]?.node_config_overrides).toEqual({ role_prompt_patch: "只写大纲。" });
+    expect(payload.nodes[0]?.metadata).toEqual({ note: "kept" });
+  });
+
   it("preserves explicit contract_bindings when legacy contract fields differ", () => {
     const draft = {
       ...emptyTaskGraphDraftV2(),

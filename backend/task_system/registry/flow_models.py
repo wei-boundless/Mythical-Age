@@ -44,6 +44,7 @@ class TaskAssignment:
     task_kind: str
     flow_id: str
     domain_id: str = ""
+    task_environment_id: str = ""
     default_agent_id: str = "agent:0"
     participant_agent_ids: tuple[str, ...] = ()
     workflow_id: str = ""

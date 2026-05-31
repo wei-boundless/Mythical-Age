@@ -197,6 +197,14 @@ function normalizeGraphContractBindings(taskGraphDraft: TaskGraphDraftV2): Recor
 function normalizeNodeContractBindings(node: TaskGraphNodeRecord): TaskGraphNodeRecord {
   let bindings = asRecord(node.contract_bindings);
   const currentRuntime = asRecord(bindings.runtime);
+  const legacyMetadata = asRecord(node.metadata);
+  const nodeConfigId = String(node.node_config_id ?? legacyMetadata.node_config_id ?? "").trim();
+  const nodeConfigOverrides = asRecord(node.node_config_overrides);
+  const metadata = compactRecord(
+    Object.fromEntries(
+      Object.entries(legacyMetadata).filter(([key]) => key !== "node_config_id" && key !== "node_config_overrides"),
+    ),
+  );
   bindings = mergeSection(bindings, "schema", {
     input_contract_id: String(node.input_contract_id ?? "").trim() || undefined,
     output_contract_id: String(node.output_contract_id ?? "").trim() || undefined,
@@ -227,7 +235,13 @@ function normalizeNodeContractBindings(node: TaskGraphNodeRecord): TaskGraphNode
     notification_policy: asRecord(node.notification_policy),
     failure_policy: asRecord(node.failure_policy),
   });
-  return { ...node, contract_bindings: bindings };
+  return {
+    ...node,
+    ...(nodeConfigId ? { node_config_id: nodeConfigId } : {}),
+    ...(Object.keys(nodeConfigOverrides).length ? { node_config_overrides: nodeConfigOverrides } : {}),
+    ...(Object.keys(metadata).length ? { metadata } : { metadata: undefined }),
+    contract_bindings: bindings,
+  };
 }
 
 function normalizeEdgeContractBindings(edge: TaskGraphEdgeRecord): TaskGraphEdgeRecord {

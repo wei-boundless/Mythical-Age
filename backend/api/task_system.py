@@ -5,6 +5,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from api.deps import require_runtime
 from agent_system.registry.agent_registry import AgentRegistry
+from agent_system.profiles.runtime_profile_registry import AgentRuntimeRegistry
 from harness.graph.scheduler_view import build_scheduler_view
 from prompt_library import PromptLibraryRegistry
 from task_system import (
@@ -25,6 +26,7 @@ from task_system.environments import (
     build_task_environment_catalog,
     task_environment_registry_from_backend_dir,
 )
+from task_system.environments.kind_templates import TaskEnvironmentKindTemplateRepository
 from task_system.engagement import (
     EngagementPlanConfigError,
     EngagementPlanRepository,
@@ -33,6 +35,11 @@ from task_system.engagement import (
     sync_engagement_run_closeout,
 )
 from task_system.graphs.task_graph_models import validate_task_graph
+from task_system.node_configurations import (
+    TaskNodeConfigurationSpec,
+    TaskNodeConfigurationRepository,
+    build_node_configuration_catalog,
+)
 
 router = APIRouter()
 
@@ -199,6 +206,25 @@ class TaskExecutionPolicyUpsertRequest(BaseModel):
     metadata: dict[str, object] = Field(default_factory=dict)
 
 
+class TaskAssignmentUpsertRequest(BaseModel):
+    task_id: str = Field(..., min_length=3, max_length=160)
+    task_title: str = Field(..., min_length=1, max_length=200)
+    task_kind: str = Field(default="specific_task", max_length=120)
+    flow_id: str = Field(default="", max_length=160)
+    domain_id: str = Field(default="", max_length=160)
+    task_environment_id: str = Field(default="", max_length=200)
+    default_agent_id: str = Field(default="agent:0", max_length=160)
+    participant_agent_ids: list[str] = Field(default_factory=list)
+    workflow_id: str = Field(default="", max_length=160)
+    workflow_file_ref: str = Field(default="", max_length=260)
+    input_contract_id: str = Field(default="", max_length=160)
+    output_contract_id: str = Field(default="", max_length=160)
+    safety_policy: dict[str, object] = Field(default_factory=dict)
+    task_structure: dict[str, object] = Field(default_factory=dict)
+    enabled: bool = True
+    metadata: dict[str, object] = Field(default_factory=dict)
+
+
 class EngagementPlanUpsertRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -240,6 +266,21 @@ class TaskEnvironmentGroupUpsertRequest(BaseModel):
     authority: str = Field(default="task_system.task_environment_group", max_length=160)
 
 
+class TaskEnvironmentKindTemplateUpsertRequest(BaseModel):
+    kind_id: str = Field(..., min_length=1, max_length=120)
+    title: str = Field(..., min_length=1, max_length=160)
+    description: str = Field(default="", max_length=1200)
+    group_id: str = Field(default="", max_length=160)
+    allowed_resource_refs: list[str] = Field(default_factory=list)
+    default_sandbox_policy: dict[str, object] = Field(default_factory=dict)
+    default_execution_policy: dict[str, object] = Field(default_factory=dict)
+    default_risk_policy: dict[str, object] = Field(default_factory=dict)
+    default_prompt_cache_scope: str = Field(default="static_environment", max_length=120)
+    allowed_task_graph_kinds: list[str] = Field(default_factory=list)
+    enabled: bool = True
+    metadata: dict[str, object] = Field(default_factory=dict)
+
+
 class TaskEnvironmentUpsertRequest(BaseModel):
     record: dict[str, object] = Field(default_factory=dict)
     spec: dict[str, object] = Field(default_factory=dict)
@@ -262,6 +303,30 @@ class TaskEnvironmentUpsertRequest(BaseModel):
     observability_policy: dict[str, object] = Field(default_factory=dict)
     lifecycle_policy: dict[str, object] = Field(default_factory=dict)
     metadata: dict[str, object] = Field(default_factory=dict)
+
+
+class TaskNodeConfigurationUpsertRequest(BaseModel):
+    node_config_id: str = Field(..., min_length=3, max_length=180)
+    title: str = Field(..., min_length=1, max_length=200)
+    description: str = Field(default="", max_length=2000)
+    node_kind: str = Field(default="agent", max_length=120)
+    environment_scope: list[str] = Field(default_factory=list)
+    role_prompt: str = Field(default="", max_length=12000)
+    executor_ref: dict[str, object] = Field(default_factory=dict)
+    contract_bindings: dict[str, object] = Field(default_factory=dict)
+    model_requirements: dict[str, object] = Field(default_factory=dict)
+    tool_policy: dict[str, object] = Field(default_factory=dict)
+    memory_policy: dict[str, object] = Field(default_factory=dict)
+    artifact_policy: dict[str, object] = Field(default_factory=dict)
+    failure_policy: dict[str, object] = Field(default_factory=dict)
+    human_gate_policy: dict[str, object] = Field(default_factory=dict)
+    metadata: dict[str, object] = Field(default_factory=dict)
+    enabled: bool = True
+
+
+class TaskNodeRuntimePreviewRequest(BaseModel):
+    environment_id: str = Field(default="", max_length=200)
+    graph_id: str = Field(default="", max_length=200)
 
 
 class TaskWorkflowUpsertRequest(BaseModel):
@@ -402,11 +467,173 @@ def _task_graph_overview_item(graph) -> dict[str, object]:
     }
 
 
+def _environment_kind_management_payload(base_dir) -> dict[str, object]:
+    templates = [item.to_dict() for item in TaskEnvironmentKindTemplateRepository(base_dir).list()]
+    return {
+        "authority": "task_system.environment_kind_management",
+        "kind_templates": templates,
+        "summary": {
+            "kind_template_count": len(templates),
+            "enabled_kind_template_count": sum(1 for item in templates if item.get("enabled") is not False),
+        },
+    }
+
+
+def _environment_task_inventory(task_assignments: list[dict[str, object]]) -> dict[str, object]:
+    rows: list[dict[str, object]] = []
+    for task in task_assignments:
+        metadata = dict(task.get("metadata") or {})
+        task_structure = dict(task.get("task_structure") or {})
+        environment_id = str(
+            task.get("task_environment_id")
+            or metadata.get("task_environment_id")
+            or metadata.get("environment_id")
+            or task_structure.get("task_environment_id")
+            or task_structure.get("environment_id")
+            or ""
+        ).strip()
+        rows.append({
+            "environment_id": environment_id,
+            "task_id": str(task.get("task_id") or ""),
+            "task_title": str(task.get("task_title") or ""),
+            "flow_id": str(task.get("flow_id") or ""),
+            "domain_id": str(task.get("domain_id") or ""),
+            "input_contract_id": str(task.get("input_contract_id") or ""),
+            "output_contract_id": str(task.get("output_contract_id") or ""),
+            "execution_chain_type": str(task.get("execution_chain_type") or ""),
+            "enabled": bool(task.get("enabled", True)),
+            "authority": "task_system.environment_task_inventory_item",
+        })
+    by_environment: dict[str, list[dict[str, object]]] = {}
+    for row in rows:
+        by_environment.setdefault(str(row.get("environment_id") or ""), []).append(row)
+    return {
+        "authority": "task_system.environment_task_inventory",
+        "items": rows,
+        "by_environment": by_environment,
+        "summary": {"task_inventory_count": len(rows)},
+    }
+
+
+def _environment_graph_inventory(task_graphs: list[dict[str, object]]) -> dict[str, object]:
+    rows: list[dict[str, object]] = []
+    for graph in task_graphs:
+        runtime_policy = dict(graph.get("runtime_policy") or {})
+        context_policy = dict(graph.get("context_policy") or {})
+        metadata = dict(graph.get("metadata") or {})
+        environment_id = str(
+            runtime_policy.get("task_environment_id")
+            or runtime_policy.get("environment_id")
+            or context_policy.get("task_environment_id")
+            or context_policy.get("environment_id")
+            or metadata.get("task_environment_id")
+            or metadata.get("environment_id")
+            or ""
+        ).strip()
+        rows.append({
+            "environment_id": environment_id,
+            "graph_id": str(graph.get("graph_id") or ""),
+            "title": str(graph.get("title") or ""),
+            "domain_id": str(graph.get("domain_id") or ""),
+            "graph_kind": str(graph.get("graph_kind") or ""),
+            "entry_node_id": str(graph.get("entry_node_id") or ""),
+            "output_node_id": str(graph.get("output_node_id") or ""),
+            "node_count": len(list(graph.get("nodes") or [])),
+            "edge_count": len(list(graph.get("edges") or [])),
+            "publish_state": str(graph.get("publish_state") or ""),
+            "enabled": bool(graph.get("enabled", True)),
+            "authority": "task_system.environment_graph_inventory_item",
+        })
+    by_environment: dict[str, list[dict[str, object]]] = {}
+    for row in rows:
+        by_environment.setdefault(str(row.get("environment_id") or ""), []).append(row)
+    return {
+        "authority": "task_system.environment_graph_inventory",
+        "items": rows,
+        "by_environment": by_environment,
+        "summary": {"graph_inventory_count": len(rows)},
+    }
+
+
+def _contract_usage_index(
+    *,
+    task_assignments: list[dict[str, object]],
+    task_flows: list[dict[str, object]],
+    task_graphs: list[dict[str, object]],
+) -> dict[str, object]:
+    usages: dict[str, list[dict[str, object]]] = {}
+
+    def add(contract_id: object, *, source_kind: str, source_id: str, field: str, title: str = "") -> None:
+        normalized = str(contract_id or "").strip()
+        if not normalized:
+            return
+        usages.setdefault(normalized, []).append({
+            "contract_id": normalized,
+            "source_kind": source_kind,
+            "source_id": source_id,
+            "field": field,
+            "title": title,
+            "authority": "task_system.contract_usage_item",
+        })
+
+    for task in task_assignments:
+        task_id = str(task.get("task_id") or "")
+        title = str(task.get("task_title") or "")
+        add(task.get("input_contract_id"), source_kind="task_assignment", source_id=task_id, field="input_contract_id", title=title)
+        add(task.get("output_contract_id"), source_kind="task_assignment", source_id=task_id, field="output_contract_id", title=title)
+
+    for flow in task_flows:
+        flow_id = str(flow.get("flow_id") or "")
+        title = str(flow.get("title") or "")
+        add(flow.get("input_contract_id"), source_kind="task_flow", source_id=flow_id, field="input_contract_id", title=title)
+        add(flow.get("output_contract_id"), source_kind="task_flow", source_id=flow_id, field="output_contract_id", title=title)
+
+    for graph in task_graphs:
+        graph_id = str(graph.get("graph_id") or "")
+        title = str(graph.get("title") or "")
+        add(graph.get("graph_contract_id"), source_kind="task_graph", source_id=graph_id, field="graph_contract_id", title=title)
+        _scan_contract_bindings(dict(graph.get("contract_bindings") or {}), add, source_kind="task_graph", source_id=graph_id, title=title)
+        for node in list(graph.get("nodes") or []):
+            if not isinstance(node, dict):
+                continue
+            node_id = str(node.get("node_id") or "")
+            node_title = str(node.get("title") or node_id)
+            add(node.get("input_contract_id"), source_kind="task_graph_node", source_id=f"{graph_id}:{node_id}", field="input_contract_id", title=node_title)
+            add(node.get("output_contract_id"), source_kind="task_graph_node", source_id=f"{graph_id}:{node_id}", field="output_contract_id", title=node_title)
+            add(node.get("node_contract_id") or node.get("contract_id"), source_kind="task_graph_node", source_id=f"{graph_id}:{node_id}", field="node_contract_id", title=node_title)
+            _scan_contract_bindings(dict(node.get("contract_bindings") or {}), add, source_kind="task_graph_node", source_id=f"{graph_id}:{node_id}", title=node_title)
+        for edge in list(graph.get("edges") or []):
+            if not isinstance(edge, dict):
+                continue
+            edge_id = str(edge.get("edge_id") or "")
+            add(edge.get("payload_contract_id") or edge.get("contract_id"), source_kind="task_graph_edge", source_id=f"{graph_id}:{edge_id}", field="payload_contract_id", title=edge_id)
+            _scan_contract_bindings(dict(edge.get("contract_bindings") or {}), add, source_kind="task_graph_edge", source_id=f"{graph_id}:{edge_id}", title=edge_id)
+
+    return {
+        "authority": "task_system.contract_usage_index",
+        "by_contract_id": usages,
+        "summary": {
+            "contract_with_usage_count": len(usages),
+            "usage_count": sum(len(items) for items in usages.values()),
+        },
+    }
+
+
+def _scan_contract_bindings(bindings: dict[str, object], add, *, source_kind: str, source_id: str, title: str) -> None:
+    for section_name, section in bindings.items():
+        if not isinstance(section, dict):
+            continue
+        for key, value in section.items():
+            if str(key).endswith("contract_id") or str(key) == "contract_id":
+                add(value, source_kind=source_kind, source_id=source_id, field=f"contract_bindings.{section_name}.{key}", title=title)
+
+
 def _task_system_payload(base_dir) -> dict[str, object]:
     registry = TaskFlowRegistry(base_dir)
     workflow_registry = TaskWorkflowRegistry(base_dir)
     agent_registry = AgentRegistry(base_dir)
     agents = [item.to_dict() for item in agent_registry.list_agents()]
+    runtime_profiles = [item.to_dict() for item in AgentRuntimeRegistry(base_dir).list_profiles()]
     contract_registry = TaskContractRegistry(base_dir)
     task_flows = [item.to_dict() for item in registry.list_flows()]
     entry_policies = [item.to_dict() for item in registry.list_general_task_profiles()]
@@ -428,7 +655,9 @@ def _task_system_payload(base_dir) -> dict[str, object]:
     )
     task_domains = [item.to_dict() for item in registry.list_task_domains()]
     workflow_resources = [item.to_dict() for item in workflow_registry.list_workflows()]
-    task_graphs = [_task_graph_overview_item(item) for item in registry.list_task_graphs()]
+    task_graph_models = registry.list_task_graphs()
+    full_task_graphs = [item.to_dict() for item in task_graph_models]
+    task_graphs = [_task_graph_overview_item(item) for item in task_graph_models]
     topology_templates = [item.to_dict() for item in registry.list_topology_templates()]
     communication_protocols = [item.to_dict() for item in registry.list_task_communication_protocols()]
     task_environment_management = build_task_environment_catalog(
@@ -441,6 +670,22 @@ def _task_system_payload(base_dir) -> dict[str, object]:
     }
     contract_catalog = [item.to_dict() for item in registry.list_contract_descriptors()]
     contract_management = contract_registry.build_catalog()
+    contract_ids = {str(item.get("contract_id") or "") for item in contract_management.get("contract_specs", [])}
+    environment_kind_management = _environment_kind_management_payload(base_dir)
+    environment_task_inventory = _environment_task_inventory(task_assignments)
+    environment_graph_inventory = _environment_graph_inventory(full_task_graphs)
+    contract_usage_index = _contract_usage_index(
+        task_assignments=task_assignments,
+        task_flows=task_flows,
+        task_graphs=full_task_graphs,
+    )
+    node_configuration_management = build_node_configuration_catalog(
+        base_dir,
+        task_graphs=full_task_graphs,
+        agents=agents,
+        profiles=runtime_profiles,
+        contract_ids=contract_ids,
+    )
     runtime_recipe_validation_matrix = {
         "authority": "task_system.runtime_recipe_validation",
         "status": "removed",
@@ -493,7 +738,12 @@ def _task_system_payload(base_dir) -> dict[str, object]:
             "workflow_resources": workflow_resources,
         },
         "task_environment_management": task_environment_management,
+        "environment_kind_management": environment_kind_management,
+        "environment_task_inventory": environment_task_inventory,
+        "environment_graph_inventory": environment_graph_inventory,
         "contract_management": contract_management,
+        "contract_usage_index": contract_usage_index,
+        "node_configuration_management": node_configuration_management,
         "task_graph_management": {
             "task_graphs": task_graphs,
             "task_graph_specs": [],
@@ -532,6 +782,19 @@ def _task_system_payload(base_dir) -> dict[str, object]:
             "overview_mode": "lightweight",
         },
     }
+
+
+def _task_node_configuration_for_preview(base_dir, node_config_id: str) -> TaskNodeConfigurationSpec | None:
+    spec = TaskNodeConfigurationRepository(base_dir).get(node_config_id)
+    if spec is not None:
+        return spec
+
+    task_graphs = [item.to_dict() for item in TaskFlowRegistry(base_dir).list_task_graphs()]
+    catalog = build_node_configuration_catalog(base_dir, task_graphs=task_graphs)
+    for item in list(catalog.get("node_configurations") or []):
+        if str(item.get("node_config_id") or "") == node_config_id:
+            return TaskNodeConfigurationSpec.from_dict(dict(item))
+    return None
 
 
 @router.get("/tasks/overview")
@@ -1140,6 +1403,45 @@ async def upsert_task_system_execution_policy(
     return _task_system_payload(runtime.base_dir)
 
 
+@router.put("/tasks/task-assignments/{task_id}")
+async def upsert_task_system_task_assignment(
+    task_id: str,
+    payload: TaskAssignmentUpsertRequest,
+) -> dict[str, object]:
+    runtime = require_runtime()
+    if payload.task_id != task_id:
+        payload = payload.model_copy(update={"task_id": task_id})
+    try:
+        TaskFlowRegistry(runtime.base_dir).upsert_task_assignment(
+            task_id=payload.task_id,
+            task_title=payload.task_title,
+            task_kind=payload.task_kind,
+            flow_id=payload.flow_id or f"flow.{task_id.removeprefix('task.')}",
+            domain_id=payload.domain_id,
+            task_environment_id=payload.task_environment_id,
+            default_agent_id=payload.default_agent_id,
+            participant_agent_ids=tuple(payload.participant_agent_ids),
+            workflow_id=payload.workflow_id,
+            workflow_file_ref=payload.workflow_file_ref,
+            input_contract_id=payload.input_contract_id,
+            output_contract_id=payload.output_contract_id,
+            safety_policy=payload.safety_policy,
+            task_structure=payload.task_structure,
+            enabled=payload.enabled,
+            metadata=payload.metadata,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return _task_system_payload(runtime.base_dir)
+
+
+@router.delete("/tasks/task-assignments/{task_id}")
+async def delete_task_system_task_assignment(task_id: str) -> dict[str, object]:
+    runtime = require_runtime()
+    TaskFlowRegistry(runtime.base_dir).assignment_repository.delete_for_task_ids({task_id})
+    return _task_system_payload(runtime.base_dir)
+
+
 @router.put("/tasks/environment-groups/{group_id}")
 async def upsert_task_system_environment_group(
     group_id: str,
@@ -1152,6 +1454,42 @@ async def upsert_task_system_environment_group(
         TaskEnvironmentRepository(runtime.base_dir).upsert_group(payload.model_dump())
     except TaskEnvironmentConfigError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return _task_system_payload(runtime.base_dir)
+
+
+@router.get("/tasks/environment-kind-templates")
+async def list_task_system_environment_kind_templates() -> dict[str, object]:
+    runtime = require_runtime()
+    templates = [item.to_dict() for item in TaskEnvironmentKindTemplateRepository(runtime.base_dir).list()]
+    return {
+        "authority": "task_system.environment_kind_template_api",
+        "kind_templates": templates,
+        "summary": {"kind_template_count": len(templates)},
+    }
+
+
+@router.put("/tasks/environment-kind-templates/{kind_id}")
+async def upsert_task_system_environment_kind_template(
+    kind_id: str,
+    payload: TaskEnvironmentKindTemplateUpsertRequest,
+) -> dict[str, object]:
+    runtime = require_runtime()
+    raw = payload.model_dump()
+    raw["kind_id"] = kind_id
+    try:
+        TaskEnvironmentKindTemplateRepository(runtime.base_dir).upsert(raw)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return _task_system_payload(runtime.base_dir)
+
+
+@router.delete("/tasks/environment-kind-templates/{kind_id}")
+async def delete_task_system_environment_kind_template(kind_id: str) -> dict[str, object]:
+    runtime = require_runtime()
+    try:
+        TaskEnvironmentKindTemplateRepository(runtime.base_dir).delete(kind_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     return _task_system_payload(runtime.base_dir)
 
 
@@ -1214,6 +1552,90 @@ async def delete_task_system_environment(environment_id: str) -> dict[str, objec
     except TaskEnvironmentConfigError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return _task_system_payload(runtime.base_dir)
+
+
+@router.get("/tasks/node-configurations")
+async def list_task_system_node_configurations() -> dict[str, object]:
+    runtime = require_runtime()
+    payload = _task_system_payload(runtime.base_dir)
+    return dict(payload.get("node_configuration_management") or {})
+
+
+@router.put("/tasks/node-configurations/{node_config_id}")
+async def upsert_task_system_node_configuration(
+    node_config_id: str,
+    payload: TaskNodeConfigurationUpsertRequest,
+) -> dict[str, object]:
+    runtime = require_runtime()
+    raw = payload.model_dump()
+    raw["node_config_id"] = node_config_id
+    try:
+        TaskNodeConfigurationRepository(runtime.base_dir).upsert(raw)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return _task_system_payload(runtime.base_dir)
+
+
+@router.delete("/tasks/node-configurations/{node_config_id}")
+async def delete_task_system_node_configuration(node_config_id: str) -> dict[str, object]:
+    runtime = require_runtime()
+    try:
+        TaskNodeConfigurationRepository(runtime.base_dir).delete(node_config_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return _task_system_payload(runtime.base_dir)
+
+
+@router.post("/tasks/node-configurations/{node_config_id}/runtime-preview")
+async def preview_task_system_node_configuration_runtime(
+    node_config_id: str,
+    payload: TaskNodeRuntimePreviewRequest,
+) -> dict[str, object]:
+    runtime = require_runtime()
+    spec = _task_node_configuration_for_preview(runtime.base_dir, node_config_id)
+    if spec is None:
+        raise HTTPException(status_code=404, detail="node configuration not found")
+    environment_id = payload.environment_id or (spec.environment_scope[0] if spec.environment_scope else "")
+    environment_payload: dict[str, object] = {}
+    if environment_id:
+        try:
+            environment_payload = build_task_environment_catalog(
+                registry=task_environment_registry_from_backend_dir(runtime.base_dir),
+                engagement_plans=[],
+            ).runtime_environment_payload(environment_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+    profile_id = str(spec.executor_ref.get("agent_profile_id") or "")
+    agent_id = str(spec.executor_ref.get("agent_id") or "")
+    runtime_profile = {}
+    if profile_id or agent_id:
+        registry = AgentRuntimeRegistry(runtime.base_dir)
+        profile = registry.get_profile_by_profile_id(profile_id) if profile_id else None
+        if profile is None and agent_id:
+            profile = registry.get_profile(agent_id)
+        runtime_profile = profile.to_dict() if profile is not None else {}
+    return {
+        "authority": "task_system.node_configuration_runtime_preview",
+        "node_configuration": spec.to_dict(),
+        "task_environment": environment_payload,
+        "runtime_profile": runtime_profile,
+        "runtime_start_packet_preview": {
+            "environment_id": environment_id,
+            "environment_prompt_refs": [
+                str(item.get("prompt_id") or "")
+                for item in list(environment_payload.get("environment_prompts") or [])
+                if isinstance(item, dict)
+            ],
+            "resource_space": dict(environment_payload.get("resource_space") or {}),
+            "memory_space": dict(environment_payload.get("memory_space") or {}),
+            "executor_ref": dict(spec.executor_ref),
+            "contract_bindings": dict(spec.contract_bindings),
+            "role_prompt": spec.role_prompt,
+            "tool_policy": dict(spec.tool_policy),
+            "failure_policy": dict(spec.failure_policy),
+            "human_gate_policy": dict(spec.human_gate_policy),
+        },
+    }
 
 
 @router.put("/tasks/task-graphs/{graph_id}")

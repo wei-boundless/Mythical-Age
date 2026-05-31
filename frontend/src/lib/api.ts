@@ -832,6 +832,8 @@ export type TaskGraphNodeRecord = {
   node_id: string;
   node_type: string;
   title: string;
+  node_config_id?: string;
+  node_config_overrides?: Record<string, unknown>;
   task_id?: string;
   agent_id?: string;
   agent_selection_policy?: string;
@@ -1028,6 +1030,21 @@ export type TaskEnvironmentGroupUpsertPayload = {
   description?: string;
   enabled?: boolean;
 };
+export type TaskEnvironmentKindTemplate = {
+  kind_id: string;
+  title: string;
+  description?: string;
+  group_id?: string;
+  allowed_resource_refs?: string[];
+  default_sandbox_policy?: Record<string, unknown>;
+  default_execution_policy?: Record<string, unknown>;
+  default_risk_policy?: Record<string, unknown>;
+  default_prompt_cache_scope?: string;
+  allowed_task_graph_kinds?: string[];
+  enabled?: boolean;
+  metadata?: Record<string, unknown>;
+};
+export type TaskEnvironmentKindTemplateUpsertPayload = TaskEnvironmentKindTemplate;
 export type TaskEnvironmentUpsertPayload = {
   record?: Record<string, unknown>;
   spec?: Record<string, unknown>;
@@ -1051,6 +1068,43 @@ export type TaskEnvironmentUpsertPayload = {
   lifecycle_policy?: Record<string, unknown>;
   metadata?: Record<string, unknown>;
 };
+export type TaskAssignmentUpsertPayload = {
+  task_id: string;
+  task_title: string;
+  task_kind?: string;
+  flow_id?: string;
+  domain_id?: string;
+  task_environment_id?: string;
+  default_agent_id?: string;
+  participant_agent_ids?: string[];
+  workflow_id?: string;
+  workflow_file_ref?: string;
+  input_contract_id?: string;
+  output_contract_id?: string;
+  safety_policy?: Record<string, unknown>;
+  task_structure?: Record<string, unknown>;
+  enabled?: boolean;
+  metadata?: Record<string, unknown>;
+};
+export type TaskNodeConfigurationSpec = {
+  node_config_id: string;
+  title: string;
+  description?: string;
+  node_kind?: string;
+  environment_scope?: string[];
+  role_prompt?: string;
+  executor_ref?: Record<string, unknown>;
+  contract_bindings?: Record<string, unknown>;
+  model_requirements?: Record<string, unknown>;
+  tool_policy?: Record<string, unknown>;
+  memory_policy?: Record<string, unknown>;
+  artifact_policy?: Record<string, unknown>;
+  failure_policy?: Record<string, unknown>;
+  human_gate_policy?: Record<string, unknown>;
+  metadata?: Record<string, unknown>;
+  enabled?: boolean;
+};
+export type TaskNodeConfigurationUpsertPayload = TaskNodeConfigurationSpec;
 
 export type TaskGraphUpsertPayload = TaskGraphRecord;
 export type TaskGraphStandardViewUpsertPayload = {
@@ -1143,6 +1197,23 @@ export type TaskSystemOverview = {
     contract_catalog?: TaskContractDescriptor[];
     task_assignments?: Array<Record<string, unknown>>;
   };
+  environment_kind_management?: {
+    authority: string;
+    kind_templates: TaskEnvironmentKindTemplate[];
+    summary: Record<string, number>;
+  };
+  environment_task_inventory?: {
+    authority: string;
+    items: Array<Record<string, unknown>>;
+    by_environment?: Record<string, Array<Record<string, unknown>>>;
+    summary: Record<string, number>;
+  };
+  environment_graph_inventory?: {
+    authority: string;
+    items: Array<Record<string, unknown>>;
+    by_environment?: Record<string, Array<Record<string, unknown>>>;
+    summary: Record<string, number>;
+  };
   contract_management?: {
     authority: string;
     contract_specs: ContractSpec[];
@@ -1152,6 +1223,18 @@ export type TaskSystemOverview = {
     visibility_options: string[];
     acceptance_rule_type_options: string[];
     validation_issues: ContractValidationIssue[];
+    summary: Record<string, number>;
+  };
+  contract_usage_index?: {
+    authority: string;
+    by_contract_id: Record<string, Array<Record<string, unknown>>>;
+    summary: Record<string, number>;
+  };
+  node_configuration_management?: {
+    authority: string;
+    node_configurations: TaskNodeConfigurationSpec[];
+    usage_index?: Record<string, Array<Record<string, unknown>>>;
+    issues?: Array<Record<string, unknown>>;
     summary: Record<string, number>;
   };
   task_graph_management?: {
@@ -4301,10 +4384,40 @@ export async function upsertTaskSystemExecutionPolicy(taskId: string, payload: T
   });
 }
 
+export async function upsertTaskSystemTaskAssignment(taskId: string, payload: TaskAssignmentUpsertPayload) {
+  return request<TaskSystemOverview>(`/tasks/task-assignments/${encodeURIComponent(taskId)}`, {
+    method: "PUT",
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function deleteTaskSystemTaskAssignment(taskId: string) {
+  return request<TaskSystemOverview>(`/tasks/task-assignments/${encodeURIComponent(taskId)}`, {
+    method: "DELETE"
+  });
+}
+
 export async function upsertTaskSystemEnvironmentGroup(groupId: string, payload: TaskEnvironmentGroupUpsertPayload) {
   return request<TaskSystemOverview>(`/tasks/environment-groups/${encodeURIComponent(groupId)}`, {
     method: "PUT",
     body: JSON.stringify(payload)
+  });
+}
+
+export async function getTaskSystemEnvironmentKindTemplates() {
+  return request<{ authority: string; kind_templates: TaskEnvironmentKindTemplate[]; summary: Record<string, number> }>("/tasks/environment-kind-templates");
+}
+
+export async function upsertTaskSystemEnvironmentKindTemplate(kindId: string, payload: TaskEnvironmentKindTemplateUpsertPayload) {
+  return request<TaskSystemOverview>(`/tasks/environment-kind-templates/${encodeURIComponent(kindId)}`, {
+    method: "PUT",
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function deleteTaskSystemEnvironmentKindTemplate(kindId: string) {
+  return request<TaskSystemOverview>(`/tasks/environment-kind-templates/${encodeURIComponent(kindId)}`, {
+    method: "DELETE"
   });
 }
 
@@ -4318,6 +4431,30 @@ export async function upsertTaskSystemEnvironment(environmentId: string, payload
 export async function deleteTaskSystemEnvironment(environmentId: string) {
   return request<TaskSystemOverview>(`/tasks/environments/${encodeURIComponent(environmentId)}`, {
     method: "DELETE"
+  });
+}
+
+export async function getTaskSystemNodeConfigurations() {
+  return request<NonNullable<TaskSystemOverview["node_configuration_management"]>>("/tasks/node-configurations");
+}
+
+export async function upsertTaskSystemNodeConfiguration(nodeConfigId: string, payload: TaskNodeConfigurationUpsertPayload) {
+  return request<TaskSystemOverview>(`/tasks/node-configurations/${encodeURIComponent(nodeConfigId)}`, {
+    method: "PUT",
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function deleteTaskSystemNodeConfiguration(nodeConfigId: string) {
+  return request<TaskSystemOverview>(`/tasks/node-configurations/${encodeURIComponent(nodeConfigId)}`, {
+    method: "DELETE"
+  });
+}
+
+export async function previewTaskSystemNodeConfigurationRuntime(nodeConfigId: string, payload: { environment_id?: string; graph_id?: string } = {}) {
+  return request<Record<string, unknown>>(`/tasks/node-configurations/${encodeURIComponent(nodeConfigId)}/runtime-preview`, {
+    method: "POST",
+    body: JSON.stringify(payload)
   });
 }
 

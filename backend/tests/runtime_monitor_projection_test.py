@@ -191,7 +191,7 @@ def test_stale_model_wait_reports_diagnostic_cause_not_generic_waiting():
     event = EventStub(
         event_type="step_summary_recorded",
         created_at=125.0,
-        payload={"step": "model_action_waiting:1", "status": "running", "summary": "正在等待模型根据当前上下文返回下一步判断。"},
+        payload={"step": "model_action_waiting:1", "status": "running", "summary": "正在思考。"},
     )
     projector = RuntimeMonitorProjector(EventLogStub({"taskrun:turn:session-a:1:abc": [event]}), freshness_seconds=60.0)
 

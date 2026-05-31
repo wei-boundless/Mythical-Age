@@ -549,6 +549,7 @@ class TaskFlowRegistry:
         task_kind: str,
         flow_id: str,
         domain_id: str = "",
+        task_environment_id: str = "",
         default_agent_id: str,
         participant_agent_ids: tuple[str, ...] = (),
         workflow_id: str = "",
@@ -568,6 +569,14 @@ class TaskFlowRegistry:
             raise ValueError("flow_id must start with flow.")
         normalized_metadata = dict(metadata or {})
         normalized_task_structure = dict(task_structure or {})
+        normalized_task_environment_id = str(
+            task_environment_id
+            or normalized_metadata.get("task_environment_id")
+            or normalized_metadata.get("environment_id")
+            or normalized_task_structure.get("task_environment_id")
+            or normalized_task_structure.get("environment_id")
+            or ""
+        ).strip()
         record = self.upsert_specific_task_record(
             task_id=target,
             task_title=task_title,
@@ -606,6 +615,7 @@ class TaskFlowRegistry:
             task_kind=str(task_kind or "specific_task").strip(),
             flow_id=normalized_flow_id,
             domain_id=record.domain_id,
+            task_environment_id=normalized_task_environment_id,
             default_agent_id=normalize_agent_id(str(default_agent_id or "agent:0").strip() or "agent:0"),
             participant_agent_ids=normalize_agent_id_sequence(str(item).strip() for item in participant_agent_ids if str(item).strip()),
             workflow_id=record.default_workflow_id,
