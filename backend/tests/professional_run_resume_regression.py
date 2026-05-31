@@ -59,6 +59,26 @@ def test_runtime_resume_reuses_completed_checkpoint_without_repeating_side_effec
     assert decision.checkpoint_summary["event_offset"] == 12
 
 
+def test_runtime_resume_continues_completed_checkpoint_when_current_obligation_requires_side_effects() -> None:
+    checkpoint = SimpleNamespace(
+        checkpoint_id="rtchk:taskrun:done:13",
+        event_offset=13,
+        loop_state=SimpleNamespace(status="completed", terminal_reason="completed"),
+    )
+
+    decision = decide_runtime_resume(
+        task_run_id="taskrun:done",
+        checkpoint=checkpoint,
+        current_obligation={"required_writes": [{"path": "report.md"}]},
+        user_goal="把结果写入 report.md",
+    )
+
+    assert decision.decision == "continue"
+    assert decision.reason == "current_obligation_requires_unsatisfied_side_effects"
+    assert decision.resume_from_checkpoint_ref == "rtchk:taskrun:done:13"
+    assert decision.current_obligation["required_writes"][0]["path"] == "report.md"
+
+
 def test_runtime_resume_waits_for_human_gate_before_continuing() -> None:
     checkpoint = SimpleNamespace(
         checkpoint_id="rtchk:taskrun:gate:4",

@@ -6,9 +6,7 @@ from typing import Any
 from capability_system.skill_routes import SKILL_ROUTE_OPERATION_MAP
 
 
-DEFAULT_SKILL_OUTPUT_RULE = (
-    "Directly answer the user-facing task. Do not describe internal tool calls, routing policy, or protocol."
-)
+DEFAULT_SKILL_OUTPUT_RULE = "直接完成用户可见任务；不要描述内部工具调用、路由策略或协议。"
 
 VALID_ACTIVATION_POLICIES = {"model_visible", "manual", "disabled"}
 VALID_CONTEXT_MODES = {"inline", "isolated", "summary_only"}
@@ -43,16 +41,16 @@ class SkillPromptContract:
 
     def render_block(self) -> str:
         lines = [
-            f"Skill: {self.title or self.name}",
-            f"Capability: {self.capability}",
+            f"技能：{self.title or self.name}",
+            f"能力：{self.capability}",
         ]
         if self.use_when:
-            lines.append(f"Use When: {self.use_when}")
+            lines.append(f"使用场景：{self.use_when}")
         if self.delegation_protocol:
-            lines.append(f"Delegation Protocol: {self.delegation_protocol}")
+            lines.append(f"委派协议：{self.delegation_protocol}")
         if self.return_protocol:
-            lines.append(f"Return Protocol: {self.return_protocol}")
-        lines.append(f"Output Rule: {self.output_rule}")
+            lines.append(f"返回协议：{self.return_protocol}")
+        lines.append(f"输出规则：{self.output_rule}")
         return "\n".join(lines)
 
     def to_dict(self) -> dict[str, Any]:

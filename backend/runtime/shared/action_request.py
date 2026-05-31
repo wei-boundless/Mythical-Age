@@ -219,6 +219,57 @@ def build_tool_execution_error_observation(
     )
 
 
+def build_tool_unavailable_observation(
+    *,
+    task_run_id: str,
+    request_ref: str,
+    directive_ref: str,
+    tool_name: str,
+    error: str,
+    tool_args: dict[str, Any] | None = None,
+    tool_call_id: str = "",
+    execution_receipt: dict[str, Any] | None = None,
+    repair_kind: str = "tool_unavailable",
+) -> RuntimeObservation:
+    message = str(error or "").strip() or "tool_unavailable"
+    repair_lines = [
+        f"Tool call cannot run because `{tool_name}` is not available in the current runtime.",
+        message,
+        "Do not request approval for this tool. Select an available tool from the current capability table or ask for runtime repair.",
+    ]
+    receipt = dict(execution_receipt or {})
+    return RuntimeObservation(
+        observation_id=f"rtobs:{task_run_id}:{uuid.uuid4().hex[:8]}",
+        task_run_id=task_run_id,
+        observation_type="tool_result",
+        source=f"tool:{tool_name}:unavailable_repair",
+        request_ref=request_ref,
+        directive_ref=directive_ref,
+        content_chars=len("\n".join(repair_lines)),
+        payload={
+            "tool_name": str(tool_name or ""),
+            "tool_call_id": str(tool_call_id or ""),
+            "tool_args": dict(tool_args or {}),
+            "result": "\n".join(repair_lines),
+            "result_chars": len("\n".join(repair_lines)),
+            "truncated": False,
+            "execution_receipt": receipt,
+            "execution_id": str(receipt.get("execution_id") or ""),
+            "recoverable": True,
+            "repair_kind": str(repair_kind or "tool_unavailable"),
+            "error": message,
+            "structured_payload": {
+                "type": "tool_unavailable",
+                "tool_name": str(tool_name or ""),
+                "reason": message,
+                "tool_executed": False,
+            },
+        },
+        needs_model_followup=True,
+        created_at=time.time(),
+    )
+
+
 def build_recoverable_tool_invocation_observation(
     *,
     task_run_id: str,

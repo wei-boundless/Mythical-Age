@@ -94,8 +94,8 @@ def main() -> None:
         return_protocol="return summary and evidence refs.",
     )
     rendered = prompt.render_block()
-    assert "Delegation Protocol:" in rendered
-    assert "Return Protocol:" in rendered
+    assert "委派协议：" in rendered
+    assert "返回协议：" in rendered
 
     skill_registry = SkillRegistry(ROOT)
     assert skill_registry.get_by_name("skill-creator") is not None

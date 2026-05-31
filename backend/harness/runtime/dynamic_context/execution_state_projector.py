@@ -14,6 +14,12 @@ class ExecutionStateProjector:
         projected = {
             "runtime_status": _first_value(system_projection, state, diagnostics, keys=("runtime_status", "status", "executor_status")),
             "current_step": _current_step(system_projection, state, task_payload),
+            "current_facts": _bounded_dicts(system_projection.get("current_facts"), limit=12),
+            "artifact_evidence": _bounded_dicts(system_projection.get("artifact_evidence"), limit=20),
+            "active_failures": _bounded_dicts(system_projection.get("active_failures"), limit=8),
+            "historical_failures": _bounded_dicts(system_projection.get("historical_failures"), limit=8),
+            "repair_focus": _bounded_dicts(system_projection.get("repair_focus"), limit=8),
+            "last_action_receipts": _bounded_dicts(system_projection.get("last_action_receipts"), limit=12),
             "pending_user_steers": _bounded_dicts(system_projection.get("pending_user_steers"), limit=8),
             "active_contract_revisions": _bounded_dicts(system_projection.get("active_contract_revisions"), limit=8),
             "recoverable_error": _recoverable_error(system_projection, state, diagnostics),

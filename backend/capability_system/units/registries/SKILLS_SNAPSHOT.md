@@ -158,7 +158,7 @@
   </skill>
   <skill name="视觉资产生成">
     <description>在任务合同或用户请求需要真实图片交付物时，指导 agent 调用 image_generate 生成可验收的视觉资产，并把工具返回的真实路径作为交付证据。</description>
-    <output_rule>Directly answer the user-facing task. Do not describe internal tool calls, routing policy, or protocol.</output_rule>
+    <output_rule>直接完成用户可见任务；不要描述内部工具调用、路由策略或协议。</output_rule>
   </skill>
   <skill name="快速网络简报">
     <description>用于快速搜索当前网络信息并给出简短、有来源链接的简报，适合新闻、官网状态、当前事实和轻量资料确认。</description>

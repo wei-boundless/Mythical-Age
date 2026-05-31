@@ -38,6 +38,7 @@ Authority ownership:
 Files:
 
 - `backend/runtime/shared/approval_fingerprint.py`
+- `backend/permissions/operation_gate.py`
 - `backend/tests/capability_system_preview_regression.py` or a new focused approval fingerprint regression test
 
 Change:
@@ -49,11 +50,14 @@ Change:
 - Keep length fields only as diagnostics if useful, not as the authority-bearing identity.
 - Add tests proving same path + same length + different content produces different fingerprints.
 - Add tests proving `edit_file` old/new text differences also change the fingerprint.
+- Tighten approval token matching so approval-required operations do not treat an empty required risk fingerprint as a wildcard. A granted token may match only when the current operation has a non-empty risk fingerprint and the token fingerprint equals it.
+- Add a regression test proving a granted approval token does not authorize an approval-required operation when `approval_risk_fingerprint` is missing.
 
 Deletion/cleanup:
 
 - Do not keep a compatibility branch that accepts old length-only fingerprints for new approvals.
 - Existing stored approval tokens with old fingerprints may no longer match. This is acceptable because approvals are for side effects and should fail closed when the risk identity format changes.
+- Do not preserve the current empty-required-fingerprint wildcard for approval-required operations. If a call site has no current risk fingerprint, it should ask/deny instead of accepting a token.
 
 ### 2. Make Resume Decisions Honor New Side-Effect Obligations
 
@@ -99,6 +103,7 @@ Files:
 
 - `backend/runtime/tool_runtime/tool_executor.py`
 - `backend/runtime/tooling/supervisor.py` if the current repair path needs clearer diagnostics
+- `backend/runtime/shared/action_request.py` if a dedicated model-visible unavailable-tool observation builder is needed
 - `backend/tests/sandbox_tool_runtime_regression.py`
 - `backend/tests/tool_supervisor_regression.py`
 
@@ -111,8 +116,10 @@ Change:
   - `tool_not_available`
   - `tool_runtime_unavailable`
   - the requested `tool_name`
+- Do not reuse a generic executor-error observation for preflight failures if it hides the repair path from the model. Prefer a dedicated recoverable observation or extend the existing recoverable invocation observation with `repair_kind=tool_unavailable`.
 - `ToolSupervisor` should keep treating `allowed=False` preflight as a repair decision before OperationGate.
-- Add tests proving authorization is not requested for unknown or unavailable tools.
+- Add tests proving authorization is not requested for unknown or unavailable tools. The supervisor test should use a spy OperationGate and assert it was not called after a preflight failure.
+- Add direct executor preflight tests for both missing definition and missing adapter/native instance.
 
 Deletion/cleanup:
 
@@ -136,13 +143,15 @@ python -m pytest backend/tests/agent_runtime_professional_foundation_regression.
 Static checks:
 
 ```powershell
-rg -n "content_chars|old_text_chars|new_text_chars|return \\{\"allowed\": True\\}" backend/runtime backend/permissions backend/tests
+rg -n "content_chars|old_text_chars|new_text_chars" backend/runtime/shared/approval_fingerprint.py
+rg -n "return \\{\"allowed\": True\\}" backend/runtime/tool_runtime/tool_executor.py
 git diff --check
 ```
 
 Expected outcomes:
 
 - Write/edit approval fingerprints differ when content differs.
+- Approval-required operations do not accept approval tokens when the current risk fingerprint is missing.
 - Completed checkpoints are reused only when the current turn has no new side-effect obligation.
 - Stream-enabled non-stream runtimes still produce a normal model response.
 - Unknown/unavailable tools are blocked before OperationGate approval.
@@ -153,4 +162,3 @@ Expected outcomes:
 - Existing approval tokens created before the fingerprint change should fail to match. This is safer than accepting stale approvals for side effects.
 - Moving obligation precedence can cause more completed tasks to continue execution when the current turn explicitly requires writes or commands. That is intended; empty-obligation status checks still reuse completed checkpoints.
 - Tool preflight fail-closed may expose previously hidden assembly bugs. These should be fixed at assembly/capability-table level rather than masked in the executor.
-

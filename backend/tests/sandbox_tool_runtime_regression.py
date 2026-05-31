@@ -8,6 +8,7 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
+from capability_system.tool_definitions import get_tool_definition_map
 from capability_system.tool_runtime import ToolRuntime
 from orchestration.runtime_directive import RuntimeDirective
 from runtime.shared.action_request import RuntimeActionRequest
@@ -293,6 +294,58 @@ def test_tool_runtime_preflight_rejects_missing_input_before_execution_record(tm
     assert observation.payload["required_inputs"] == ["path", "content"]
 
 
+def test_tool_runtime_preflight_rejects_missing_tool_definition(tmp_path: Path) -> None:
+    workspace = tmp_path / "project"
+    workspace.mkdir(parents=True)
+    executor = ToolRuntimeExecutor(tool_runtime=_MissingDefinitionRuntime(workspace))
+    action_request, directive = _tool_request_and_directive(
+        task_run_id="taskrun-missing-definition",
+        tool_name="missing_tool",
+        tool_args={},
+        operation_id="op.missing_tool",
+    )
+
+    preflight = executor.preflight_validate(
+        task_run_id="taskrun-missing-definition",
+        action_request=action_request,
+        directive=directive,
+    )
+
+    assert preflight["allowed"] is False
+    assert preflight["error"].startswith("tool_not_available")
+    observation = preflight["observation"]
+    assert observation.observation_type == "tool_result"
+    assert observation.needs_model_followup is True
+    assert observation.payload["repair_kind"] == "tool_not_available"
+    assert observation.payload["structured_payload"]["tool_executed"] is False
+
+
+def test_tool_runtime_preflight_rejects_unavailable_runtime_tool_instance(tmp_path: Path) -> None:
+    workspace = tmp_path / "project"
+    workspace.mkdir(parents=True)
+    executor = ToolRuntimeExecutor(tool_runtime=_MissingInstanceRuntime(workspace))
+    action_request, directive = _tool_request_and_directive(
+        task_run_id="taskrun-missing-instance",
+        tool_name="agent_todo",
+        tool_args={"operation": "list"},
+        operation_id="op.agent_todo",
+    )
+
+    preflight = executor.preflight_validate(
+        task_run_id="taskrun-missing-instance",
+        action_request=action_request,
+        directive=directive,
+        sandbox_policy={"enabled": False},
+    )
+
+    assert preflight["allowed"] is False
+    assert preflight["error"] == "tool_runtime_unavailable: agent_todo"
+    observation = preflight["observation"]
+    assert observation.observation_type == "tool_result"
+    assert observation.payload["repair_kind"] == "tool_runtime_unavailable"
+    assert "agent_todo" in observation.payload["result"]
+
+
 def test_native_write_file_permission_rejection_is_model_visible_tool_result(tmp_path: Path) -> None:
     workspace = tmp_path / "project"
     sandbox_root = tmp_path / "sandbox" / "workspace"
@@ -453,3 +506,21 @@ def _tool_request_and_directive(
     return action_request, directive
 
 
+class _MissingDefinitionRuntime:
+    def __init__(self, base_dir: Path) -> None:
+        self.base_dir = base_dir
+
+    def get_definition(self, _name):
+        return None
+
+
+class _MissingInstanceRuntime:
+    def __init__(self, base_dir: Path) -> None:
+        self.base_dir = base_dir
+        self.definition = get_tool_definition_map()["agent_todo"]
+
+    def get_definition(self, name):
+        return self.definition if str(name or "").strip() == "agent_todo" else None
+
+    def get_instance(self, _name):
+        return None

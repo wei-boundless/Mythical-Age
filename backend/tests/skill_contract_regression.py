@@ -20,7 +20,7 @@ def test_skill_contract_normalizes_and_validates_runtime_fields() -> None:
     assert contract.runtime.context_mode == "inline"
     assert contract.runtime.route_authority == "candidate_only"
     assert contract.validation_errors == []
-    assert "Skill: 演示 Skill" in contract.prompt.render_block()
+    assert "技能：演示 Skill" in contract.prompt.render_block()
 
 
 def test_skill_contract_accepts_historical_registry_payload() -> None:

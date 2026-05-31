@@ -16,6 +16,7 @@ from runtime.shared.action_request import (
     RuntimeActionRequest,
     build_recoverable_tool_invocation_observation,
     build_tool_result_observation,
+    build_tool_unavailable_observation,
 )
 from runtime.shared.action_request import build_tool_execution_error_observation
 from runtime.shared.execution_record import (
@@ -48,19 +49,53 @@ class ToolRuntimeExecutor:
         tool_call_id = str(tool_call.get("id") or action_request.request_id)
         definition = self.tool_runtime.get_definition(tool_name)
         if definition is None:
-            return {"allowed": True}
+            error = f"tool_not_available: {tool_name}"
+            return {
+                "allowed": False,
+                "observation": build_tool_unavailable_observation(
+                    task_run_id=task_run_id,
+                    request_ref=action_request.request_id,
+                    directive_ref=directive.directive_id,
+                    tool_name=tool_name,
+                    tool_call_id=tool_call_id,
+                    tool_args=tool_args,
+                    error=error,
+                    repair_kind="tool_not_available",
+                ),
+                "error": error,
+            }
         runtime_tool = build_native_runtime_tool(capability_definition=definition)
         if runtime_tool is None:
             sandbox_context = self.sandbox_backend.context_for_tool(tool_name=tool_name, sandbox_policy=sandbox_policy)
-            tool = _capability_tool_instance(
-                tool_runtime=self.tool_runtime,
-                sandbox_backend=self.sandbox_backend,
-                definition=definition,
-                tool_name=tool_name,
-                sandbox_context=sandbox_context,
-            )
+            try:
+                tool = _capability_tool_instance(
+                    tool_runtime=self.tool_runtime,
+                    sandbox_backend=self.sandbox_backend,
+                    definition=definition,
+                    tool_name=tool_name,
+                    sandbox_context=sandbox_context,
+                )
+            except Exception as exc:
+                tool = None
+                tool_error = str(exc) or exc.__class__.__name__
+            else:
+                tool_error = ""
             if tool is None:
-                return {"allowed": True}
+                error = f"tool_runtime_unavailable: {tool_name}"
+                return {
+                    "allowed": False,
+                    "observation": build_tool_unavailable_observation(
+                        task_run_id=task_run_id,
+                        request_ref=action_request.request_id,
+                        directive_ref=directive.directive_id,
+                        tool_name=tool_name,
+                        tool_call_id=tool_call_id,
+                        tool_args=tool_args,
+                        error=f"{error}{': ' + tool_error if tool_error else ''}",
+                        repair_kind="tool_runtime_unavailable",
+                    ),
+                    "error": error,
+                }
             runtime_tool = RuntimeToolAdapter.from_capability_definition(
                 capability_definition=definition,
                 tool_instance=tool,

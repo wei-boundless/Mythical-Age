@@ -139,6 +139,15 @@ class _BlockingForcedToolRuntime:
         return SimpleNamespace(content="late blocking content")
 
 
+class _NonStreamingRuntime:
+    def __init__(self) -> None:
+        self.invoke_count = 0
+
+    async def invoke_messages(self, _messages):
+        self.invoke_count += 1
+        return SimpleNamespace(content="non-stream fallback content")
+
+
 def test_stream_retryable_error_with_partial_output_suppresses_non_stream_fallback() -> None:
     runtime = _RecoveringRuntime()
     executor = ModelResponseRuntimeExecutor(model_runtime=runtime)
@@ -450,6 +459,29 @@ def test_forced_tool_model_timeout_survives_blocking_async_invoker() -> None:
     assert elapsed < 1.0
     assert events[-1]["type"] == "error"
     assert events[-1]["error"] == "model_response_timeout"
+
+
+def test_stream_enabled_runtime_without_stream_method_uses_non_stream_invoke() -> None:
+    runtime = _NonStreamingRuntime()
+    executor = ModelResponseRuntimeExecutor(model_runtime=runtime)
+
+    async def _collect():
+        events = []
+        async for event in executor.stream(
+            user_message="run",
+            model_messages=[{"role": "user", "content": "run"}],
+            directive=_directive(),
+            model_stream_policy={"enabled": True},
+        ):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_collect())
+
+    assert runtime.invoke_count == 1
+    assert events[-1]["type"] == "done"
+    assert events[-1]["content"] == "non-stream fallback content"
+    assert not any(event.get("type") == "stream_recovery" for event in events)
 
 
 def test_task_stream_policy_preserves_recovery_timeout_fields() -> None:

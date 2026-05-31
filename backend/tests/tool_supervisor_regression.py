@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
@@ -105,7 +106,59 @@ def test_tool_supervisor_returns_ask_from_operation_gate_with_parameter_fingerpr
     assert result.normalized_args["command"].startswith("pytest")
 
 
+def test_tool_supervisor_stops_before_operation_gate_when_preflight_rejects_tool() -> None:
+    gate = _NeverCalledOperationGate()
+
+    result = ToolSupervisor().supervise(
+        task_run_id="taskrun:preflight",
+        agent_run_id="agrun:preflight",
+        tool_call_id="call:missing",
+        operation_id="op.missing_tool",
+        tool_name="missing_tool",
+        tool_args={},
+        directive=_Directive(),
+        resource_policy=ResourcePolicy(
+            policy_id="respol:preflight",
+            task_id="task:preflight",
+            allowed_operations=("op.missing_tool",),
+            adopted=True,
+            runtime_executable=True,
+            runtime_view_only=False,
+        ),
+        capability_table=None,
+        permission_context=PermissionContext(
+            context_id="permctx:preflight",
+            task_run_id="taskrun:preflight",
+            agent_run_id="agrun:preflight",
+            environment_id="env.development.sandbox",
+        ),
+        operation_gate=gate,
+        tool_runtime_executor=_PreflightRejectingExecutor(),
+        action_request=SimpleNamespace(
+            request_id="rtact:missing",
+            payload={"tool_name": "missing_tool", "tool_call": {"id": "call:missing", "args": {}}},
+        ),
+    )
+
+    assert result.decision.behavior == "repair"
+    assert result.decision.reason == "tool_runtime_unavailable"
+    assert result.preflight["allowed"] is False
+    assert gate.called is False
+
+
 class _Directive:
     directive_id = "directive:test"
 
+
+class _PreflightRejectingExecutor:
+    def preflight_validate(self, **_kwargs):
+        return {"allowed": False, "error": "tool_runtime_unavailable", "observation": {"repair_kind": "tool_unavailable"}}
+
+
+class _NeverCalledOperationGate:
+    called = False
+
+    def check(self, *_args, **_kwargs):
+        self.called = True
+        raise AssertionError("operation_gate.check should not be called after preflight rejection")
 

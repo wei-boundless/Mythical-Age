@@ -802,8 +802,6 @@ class RuntimeCompiler:
         agent_profile_ref: str,
         task_environment_ref: str,
         runtime_mode: str,
-        task_prompt_contract: dict[str, Any] | None = None,
-        graph_node_prompt_contract: dict[str, Any] | None = None,
     ) -> PromptAssemblyResult:
         refs = tuple(prompt_pack_refs or ())
         if not refs:
@@ -816,8 +814,6 @@ class RuntimeCompiler:
                 agent_profile_ref=agent_profile_ref,
                 task_environment_ref=task_environment_ref,
                 runtime_mode=runtime_mode,
-                task_prompt_contract=dict(task_prompt_contract or {}),
-                graph_node_prompt_contract=dict(graph_node_prompt_contract or {}),
             )
         )
 
@@ -888,7 +884,7 @@ def model_action_request_schema(turn_id: str) -> dict[str, Any]:
         "tool_call": {"tool_name": "", "args": {}},
         "selected_skill_ids": ["可选；从候选 Skills 中选择需要激活的 skill_id，例如 skill.deep-web-research"],
         "task_contract_seed": {
-            "user_visible_goal": "面向用户的正式任务目标，必填",
+            "user_visible_goal": "用户可理解的任务目标，必填",
             "task_run_goal": "给执行生命周期使用的任务目标，必填",
             "completion_criteria": [
                 "可验收的完成标准；至少一条，除非 required_artifacts 或 required_verifications 已提供"
@@ -1279,7 +1275,7 @@ def _agent_visible_runtime_projection(
             "visible_tool_count": len(tool_names),
             "visible_tool_names": tool_names,
             "allowed_operation_count": len(allowed_operations),
-            "tools_are_limited_to_runtime_packet": True,
+            "tools_are_limited_to_visible_context": True,
             "subagent_lifecycle_enabled": bool(subagent.get("enabled") is True),
             "allowed_subagent_ids": [str(item) for item in list(subagent.get("allowed_subagent_ids") or []) if str(item)],
         },

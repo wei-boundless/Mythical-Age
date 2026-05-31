@@ -70,12 +70,12 @@ def decide_runtime_resume(
     elif gate_status in {"approved", "cleared", "resolved"}:
         decision = "continue"
         reason = "human_gate_cleared"
-    elif terminal_reason == "completed" or status == "completed":
-        decision = "reuse_completed"
-        reason = "checkpoint_completed"
     elif _obligation_requires_new_side_effect(obligation):
         decision = "continue"
         reason = "current_obligation_requires_unsatisfied_side_effects"
+    elif terminal_reason == "completed" or status == "completed":
+        decision = "reuse_completed"
+        reason = "checkpoint_completed"
     elif status in {"blocked", "waiting_approval"}:
         decision = "wait_for_human"
         reason = "checkpoint_waiting_for_human"

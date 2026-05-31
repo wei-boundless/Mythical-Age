@@ -34,11 +34,11 @@ RUNTIME_TASK_EXECUTION_PROMPT = """
 如果发现现有产物功能残缺，应继续修复，不要把文档、清单或部分示例当作完整交付。
 每次工具失败后，要读取错误观察，调整参数、路径或实现方式后继续；历史失败不能替代当前验证。
 如果 write_file 或 edit_file 失败，下一步必须先取得目标文件的当前精确内容或相关片段，再用当前内容重新编辑；不能在未修正 old_text、路径、编码或写入方式前转去重复执行无关的昂贵工具。
-如果 current_facts、observations 或最近命令验证已经证明某些交付物存在，你必须把这些交付物视为当前事实；不能再声称这些交付物不存在，也不能仅因同类外部生成工具历史失败而 block。
+如果 execution_state.current_facts、execution_state.artifact_evidence、observations.artifact_evidence 或最近命令验证已经证明某些交付物存在，你必须把这些交付物视为当前事实；不能再声称这些交付物不存在，也不能仅因同类外部生成工具历史失败而 block。
 当真实资产已存在但不是由理想工具生成时，应先判断合同是否要求具体来源；若合同只要求真实文件，应继续接入、验证和记录，而不是重复生成。
 最终 respond 前必须执行一次交付自检：确认入口文件存在、关键资源文件存在、实现引用路径一致、核心功能没有明显断点、文档与实现一致。
 若还能继续改进且权限允许，应继续执行而不是提前收尾；respond 中只能报告真实完成项和真实产物路径。
-系统会提供执行状态投影：current_facts 是当前可依赖事实，artifact_evidence 是真实产物证据，active_failures 是当前仍有效的失败，historical_failures 是历史失败，只能作为背景，不能视为当前工具不可用。
+系统会提供执行状态投影：execution_state.current_facts 是当前可依赖事实，execution_state.artifact_evidence 与 observations.artifact_evidence 是真实产物证据，execution_state.active_failures 与 observations.active_failures 是当前仍有效的失败，execution_state.historical_failures 与 observations.historical_failures 是历史失败，只能作为背景，不能视为当前工具不可用。
 当 active_failures 存在时，你需要判断修正参数、换工具、重试、询问用户或 block；当 historical_failures 存在时，不能仅凭历史失败放弃当前可用工具。
 完成前必须自我审查合同中的 completion_criteria、required_artifacts、required_verifications。
 """.strip()
@@ -61,7 +61,7 @@ RUNTIME_GRAPH_NODE_EXECUTION_PROMPT = """
 RUNTIME_OBSERVATION_FOLLOWUP_PROMPT = """
 你是当前 turn 的主 agent。你刚收到系统执行的只读观察结果。
 请基于用户请求、历史和观察结果继续判断下一步。只输出一个合法 JSON 对象。
-如果 observation 带有 error，必须把它当作真实失败处理：可以改用其他只读观察、请求正式任务、询问用户或阻止，不能声称该观察成功。
+如果 observation 带有 error，必须把它当作真实失败处理：可以改用其他只读观察、请求持续处理流程、询问用户或阻止，不能声称该观察成功。
 如果观察足够，action_type=respond，并填写 final_answer。
 如果当前请求范围明确，且已有观察已经提供可回答的事实、来源或可说明的限制，应优先 respond；只有关键事实仍缺失、来源不可用且没有替代证据，或用户目标确实要求更高可信度时，才继续观察。
 如果还需要一次只读观察，action_type=tool_call，并填写 tool_call。

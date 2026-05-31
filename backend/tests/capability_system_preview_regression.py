@@ -15,6 +15,7 @@ from orchestration import (
     build_resource_runtime_views,
 )
 from capability_system.validators import validate_filesystem_path, validate_shell_read_only
+from runtime.shared.approval_fingerprint import build_approval_risk_fingerprint
 
 
 def test_operation_requirement_keeps_task_scope_required_and_skill_capabilities_optional() -> None:
@@ -301,12 +302,14 @@ def test_operation_gate_headless_approval_requires_matching_token() -> None:
         context=OperationGatePipelineContext(
             permission_mode="headless",
             headless_mode=True,
+            approval_risk_fingerprint="risk:directive-edit",
             approval_token=ApprovalToken(
                 token_id="approval-1",
                 operation_id="op.edit_file",
                 directive_ref="directive-edit",
                 granted=True,
                 source="test",
+                risk_fingerprint="risk:directive-edit",
             ),
             validators={
                 "filesystem_path": lambda _operation_input: True,
@@ -337,6 +340,7 @@ def test_operation_gate_approval_state_can_satisfy_headless_approval() -> None:
         context=OperationGatePipelineContext(
             permission_mode="headless",
             headless_mode=True,
+            approval_risk_fingerprint="risk:directive-edit-state",
             approval_state=ApprovalState(
                 tokens=(
                     ApprovalToken(
@@ -345,6 +349,7 @@ def test_operation_gate_approval_state_can_satisfy_headless_approval() -> None:
                         directive_ref="directive-edit-state",
                         granted=True,
                         source="checkpoint",
+                        risk_fingerprint="risk:directive-edit-state",
                     ),
                 )
             ),
@@ -411,6 +416,73 @@ def test_operation_gate_approval_token_is_bound_to_risk_fingerprint() -> None:
     assert denied.pipeline_stage == "approval_token"
     assert denied.diagnostics["approval_token_risk_fingerprint"] == "risk:path-a"
     assert denied.diagnostics["required_risk_fingerprint"] == "risk:path-b"
+
+
+def test_approval_risk_fingerprint_binds_write_content_hash() -> None:
+    first = build_approval_risk_fingerprint(
+        operation_id="op.write_file",
+        tool_name="write_file",
+        tool_args={"path": "docs/note.md", "content": "alpha"},
+    )
+    second = build_approval_risk_fingerprint(
+        operation_id="op.write_file",
+        tool_name="write_file",
+        tool_args={"path": "docs/note.md", "content": "bravo"},
+    )
+
+    assert len("alpha") == len("bravo")
+    assert first != second
+
+
+def test_approval_risk_fingerprint_binds_edit_text_hashes() -> None:
+    first = build_approval_risk_fingerprint(
+        operation_id="op.edit_file",
+        tool_name="edit_file",
+        tool_args={"path": "docs/note.md", "old_text": "alpha", "new_text": "delta"},
+    )
+    second = build_approval_risk_fingerprint(
+        operation_id="op.edit_file",
+        tool_name="edit_file",
+        tool_args={"path": "docs/note.md", "old_text": "bravo", "new_text": "gamma"},
+    )
+
+    assert len("alpha") == len("bravo")
+    assert len("delta") == len("gamma")
+    assert first != second
+
+
+def test_operation_gate_approval_token_requires_current_risk_fingerprint() -> None:
+    registry = build_default_operation_registry()
+    policy = _runtime_policy(
+        requires_approval=("op.edit_file",),
+        task_id="task-approval-missing-risk-fingerprint",
+    )
+    gate = OperationGate(registry)
+
+    result = gate.check(
+        "op.edit_file",
+        resource_policy=policy,
+        directive_ref="directive-edit-risk-missing",
+        context=OperationGatePipelineContext(
+            permission_mode="headless",
+            headless_mode=True,
+            approval_risk_fingerprint="",
+            approval_token=ApprovalToken(
+                token_id="approval-risk-missing",
+                operation_id="op.edit_file",
+                directive_ref="directive-edit-risk-missing",
+                granted=True,
+                source="test",
+                risk_fingerprint="risk:path-a",
+            ),
+            validators={"filesystem_path": lambda _operation_input: True},
+        ),
+    )
+
+    assert result.allowed is False
+    assert result.pipeline_stage == "approval_token"
+    assert result.diagnostics["approval_token_risk_fingerprint"] == "risk:path-a"
+    assert result.diagnostics["required_risk_fingerprint"] == ""
 
 
 def test_operation_gate_fails_closed_when_declared_safety_validator_is_missing() -> None:

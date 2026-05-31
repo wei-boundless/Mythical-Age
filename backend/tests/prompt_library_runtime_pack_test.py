@@ -128,7 +128,7 @@ def test_prompt_pack_assembly_enforces_pack_boundaries(tmp_path: Path) -> None:
 def test_prompt_assembly_accepts_explicit_task_and_graph_contracts(tmp_path: Path) -> None:
     result = PromptAssemblyService(tmp_path).assemble(
         PromptAssemblyRequest(
-            invocation_kind="task_execution",
+            invocation_kind="task_prompt_contract",
             prompt_pack_refs=(),
             prompt_refs=(),
             task_prompt_contract={
@@ -154,6 +154,26 @@ def test_prompt_assembly_accepts_explicit_task_and_graph_contracts(tmp_path: Pat
     assert sections[("graph_node", "role")].content == "你是一名审核员，只负责裁决是否通过。"
     assert sections[("graph_node", "definition_of_done")].source_ref == "graph_node_prompt_contract:node.review.test.definition_of_done"
     assert result.manifest["contract_section_count"] == 7
+
+
+def test_prompt_assembly_keeps_contracts_out_of_runtime_pack(tmp_path: Path) -> None:
+    result = PromptAssemblyService(tmp_path).assemble(
+        PromptAssemblyRequest(
+            invocation_kind="task_execution",
+            prompt_pack_refs=(),
+            prompt_refs=(),
+            task_prompt_contract={"task_instruction": "不应混入 runtime pack。"},
+        )
+    )
+
+    assert [item.prompt_ref for item in result.sections] == ["runtime.task_execution.v1"]
+    assert "不应混入 runtime pack" not in result.content
+    assert result.rejected_refs == (
+        {
+            "ref": "task_prompt_contract",
+            "reason": "contract_sections_require_task_prompt_contract_invocation",
+        },
+    )
 
 
 def test_prompt_assembly_adds_skill_and_soul_refs_only_when_explicit(tmp_path: Path) -> None:

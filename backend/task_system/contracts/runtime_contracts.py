@@ -150,8 +150,11 @@ def expand_selected_skill_bodies(
             if not skill_path.is_file():
                 rejected.append(skill_id)
                 continue
-            body = skill_path.read_text(encoding="utf-8").strip()
+            body = _model_visible_skill_body(skill_path.read_text(encoding="utf-8"))
         except Exception:
+            rejected.append(skill_id)
+            continue
+        if not body:
             rejected.append(skill_id)
             continue
         accepted.append(skill_id)
@@ -196,5 +199,16 @@ def _dedupe_skill_ids(values: list[str] | tuple[str, ...]) -> list[str]:
         seen.add(normalized)
         result.append(normalized)
     return result
+
+
+def _model_visible_skill_body(text: str) -> str:
+    content = str(text or "").strip()
+    if not content.startswith("---"):
+        return content
+    lines = content.splitlines()
+    for index, line in enumerate(lines[1:], start=1):
+        if line.strip() == "---":
+            return "\n".join(lines[index + 1 :]).strip()
+    return content
 
 

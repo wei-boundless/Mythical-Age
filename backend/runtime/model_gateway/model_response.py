@@ -62,6 +62,7 @@ class ModelResponseRuntimeExecutor:
         tools = list(tool_instances or [])
         tool_invoker = getattr(self.model_runtime, "invoke_messages_with_tools", None)
         tool_streamer = getattr(self.model_runtime, "astream_messages_with_tools", None)
+        plain_streamer = getattr(self.model_runtime, "astream_messages", None)
         stream_policy = dict(model_stream_policy or {})
         stream_enabled = bool(stream_policy.get("enabled") is True)
         emit_content_delta = bool(stream_policy.get("emit_content_delta") is not False)
@@ -111,10 +112,10 @@ class ModelResponseRuntimeExecutor:
                             "stream_ref": directive.directive_id,
                         }
                 response = aggregated_chunk if aggregated_chunk is not None else raw_content
-            elif stream_enabled:
+            elif stream_enabled and callable(plain_streamer):
                 async for chunk in _iterate_stream_with_hard_timeout(
                     _call_streamer_with_optional_model_spec(
-                        self.model_runtime.astream_messages,
+                        plain_streamer,
                         model_messages,
                         model_spec=effective_model_spec,
                         accounting_context=accounting_context,

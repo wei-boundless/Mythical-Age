@@ -31,12 +31,16 @@ def _risk_relevant_tool_args(tool_args: dict[str, Any]) -> dict[str, Any]:
         if key in args:
             relevant[key] = args.get(key)
     if "content" in args:
-        relevant["content_chars"] = len(str(args.get("content") or ""))
+        relevant["content_sha256"] = _text_sha256(args.get("content"))
     if "old_text" in args:
-        relevant["old_text_chars"] = len(str(args.get("old_text") or ""))
+        relevant["old_text_sha256"] = _text_sha256(args.get("old_text"))
     if "new_text" in args:
-        relevant["new_text_chars"] = len(str(args.get("new_text") or ""))
+        relevant["new_text_sha256"] = _text_sha256(args.get("new_text"))
     return relevant
+
+
+def _text_sha256(value: Any) -> str:
+    return hashlib.sha256(str(value or "").encode("utf-8")).hexdigest()
 
 
 def _risk_relevant_sandbox(sandbox_policy: dict[str, Any]) -> dict[str, Any]:

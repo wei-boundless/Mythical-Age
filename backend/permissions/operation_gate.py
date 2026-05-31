@@ -378,7 +378,7 @@ class OperationGate:
 def _approval_fingerprint_matches(token_fingerprint: str, required_fingerprint: str) -> bool:
     required = str(required_fingerprint or "").strip()
     if not required:
-        return True
+        return False
     return str(token_fingerprint or "").strip() == required
 
 

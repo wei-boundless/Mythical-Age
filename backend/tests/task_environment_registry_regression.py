@@ -52,6 +52,7 @@ def test_default_task_environments_are_grouped_scene_platforms() -> None:
     assert "优先使用 search_text、search_files、glob_paths、read_file、list_dir" in development_prompt
     assert "sandbox overlay" in development_prompt
     assert "old_text not found" in development_prompt
+    assert "runtime packet" not in development_prompt
 
     assert "file_profile.writing_manuscript" in writing.file_management.file_profile_refs
     assert writing.resource_space.storage_namespace == "creation/writing"
@@ -461,6 +462,58 @@ def test_runtime_compiler_stable_payload_keeps_environment_and_operation_project
     assert "operation_authorization" not in stable_payload
     assert dynamic_payload["operation_authorization"]["authority"] == "harness.runtime.operation_authorization.model_visible_summary"
     assert dynamic_payload["runtime_context"]["allowed_operation_count"] == len(dynamic_payload["operation_authorization"]["allowed_operations"])
+    allowed_operations = set(dynamic_payload["operation_authorization"]["allowed_operations"])
+    denied_groups = set(dynamic_payload["operation_authorization"].get("critical_denied_groups") or [])
+    if "op.shell" in allowed_operations:
+        assert "command_execution" not in denied_groups
+    if any(item.startswith("op.git_") for item in allowed_operations):
+        assert "git" not in denied_groups
+
+
+def test_active_skill_prompt_body_omits_frontmatter_and_internal_runtime_terms() -> None:
+    profile = next(item for item in default_agent_runtime_profiles() if item.agent_profile_id == "main_interactive_agent")
+    definitions = get_tool_definitions()
+    index = build_tool_authorization_index(definitions)
+    assembly = assemble_runtime(
+        backend_dir=BACKEND_DIR,
+        session_id="session-active-skill-clean",
+        turn_id="turn-active-skill-clean",
+        agent_invocation_id="agent-invocation-active-skill-clean",
+        request_task_selection={
+            "runtime_mode": "professional",
+            "task_environment_id": "env.development.sandbox",
+            "selected_skill_ids": ["skill.visual-asset-generation"],
+        },
+        model_selection={},
+        agent_runtime_profile=profile,
+        tool_instances=build_tool_instances(BACKEND_DIR),
+        definitions_by_name=index.definitions_by_name,
+    )
+
+    packet = RuntimeCompiler().compile_task_execution_packet(
+        session_id="session-active-skill-clean",
+        task_run={
+            "task_run_id": "taskrun:active-skill-clean",
+            "session_id": "session-active-skill-clean",
+            "task_id": "task:active-skill-clean",
+            "agent_profile_id": "main_interactive_agent",
+        },
+        contract={"user_visible_goal": "生成视觉资产", "completion_criteria": ["真实图片路径已记录"]},
+        observations=[],
+        execution_state={},
+        agent_profile_ref="main_interactive_agent",
+        available_tools=assembly.available_tools,
+        runtime_assembly=assembly,
+        invocation_index=1,
+    ).packet
+    model_input = _model_input_text(packet)
+
+    assert "已激活 Skills（第二阶段）" in model_input
+    assert "# 视觉资产生成" in model_input
+    assert "activation_policy:" not in model_input
+    assert "route_authority:" not in model_input
+    assert "runtime packet" not in model_input
+    assert "runtime_packet" not in model_input
 
 
 def test_resolved_writing_environment_builds_file_access_table() -> None:

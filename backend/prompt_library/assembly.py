@@ -75,23 +75,31 @@ class PromptAssemblyService:
                 )
             )
         contract_order = len(sections) + 1
-        sections.extend(
-            _contract_sections(
-                contract=dict(request.task_prompt_contract or {}),
-                category="task",
-                source_ref="task_prompt_contract",
-                start_order=contract_order,
+        if request.invocation_kind == "task_prompt_contract":
+            sections.extend(
+                _contract_sections(
+                    contract=dict(request.task_prompt_contract or {}),
+                    category="task",
+                    source_ref="task_prompt_contract",
+                    start_order=contract_order,
+                )
             )
-        )
-        contract_order = len(sections) + 1
-        sections.extend(
-            _contract_sections(
-                contract=dict(request.graph_node_prompt_contract or {}),
-                category="graph_node",
-                source_ref="graph_node_prompt_contract",
-                start_order=contract_order,
+            contract_order = len(sections) + 1
+            sections.extend(
+                _contract_sections(
+                    contract=dict(request.graph_node_prompt_contract or {}),
+                    category="graph_node",
+                    source_ref="graph_node_prompt_contract",
+                    start_order=contract_order,
+                )
             )
-        )
+        elif request.task_prompt_contract or request.graph_node_prompt_contract:
+            rejected.append(
+                {
+                    "ref": "task_prompt_contract",
+                    "reason": "contract_sections_require_task_prompt_contract_invocation",
+                }
+            )
         assembly_seed = {
             "invocation_kind": request.invocation_kind,
             "pack_refs": list(pack_refs),

@@ -1074,7 +1074,7 @@
         "use_when": "",
         "delegation_protocol": "",
         "return_protocol": "",
-        "output_rule": "Directly answer the user-facing task. Do not describe internal tool calls, routing policy, or protocol."
+        "output_rule": "直接完成用户可见任务；不要描述内部工具调用、路由策略或协议。"
       },
       "validation_errors": []
     },

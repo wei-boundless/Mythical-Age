@@ -38,6 +38,8 @@ def test_runtime_compiler_emits_dynamic_context_report_and_projected_task_state(
         execution_state={
             "system_projection": {
                 "runtime_status": "running",
+                "current_facts": [{"tool_name": "write_file", "summary": "已创建入口文件"}],
+                "artifact_evidence": [{"path": "artifacts/file.txt", "kind": "file"}],
                 "pending_user_steers": [{"steer_id": "steer:1", "summary": "改成五层"}],
             },
             "large_internal_blob": "x" * 5000,
@@ -60,6 +62,8 @@ def test_runtime_compiler_emits_dynamic_context_report_and_projected_task_state(
 
     assert "dynamic_context_report" in manifest
     assert all(item["volatility_reason"] for item in manifest["dynamic_context_report"]["section_reports"])
+    assert volatile_payload["execution_state"]["current_facts"][0]["summary"] == "已创建入口文件"
+    assert volatile_payload["execution_state"]["artifact_evidence"][0]["path"] == "artifacts/file.txt"
     assert volatile_payload["execution_state"]["pending_user_steers"][0]["steer_id"] == "steer:1"
     assert "large_internal_blob" not in json.dumps(volatile_payload, ensure_ascii=False)
     assert volatile_payload["observations"]["latest_observations"][0]["tool_result"]["tool_name"] == "read_file"

@@ -121,12 +121,14 @@ def _operation_authorization_model_visible(authorization: dict[str, Any], *, pro
         return payload
     allowed_operations = [str(item) for item in list(payload.get("allowed_operations") or []) if str(item)]
     denied_operations = [str(item) for item in list(payload.get("denied_operations") or []) if str(item)]
+    allowed_groups = set(_operation_groups(allowed_operations))
+    denied_groups = set(_operation_groups(denied_operations))
     return {
         "authority": "harness.runtime.operation_authorization.model_visible_summary",
         "allowed_operations": allowed_operations,
         "allowed_operation_count": len(allowed_operations),
         "denied_operation_count": len(denied_operations),
-        "critical_denied_groups": _operation_groups(denied_operations),
+        "critical_denied_groups": sorted(denied_groups - allowed_groups),
         "omitted_denial_details": True,
         "summary_policy": "model_visible_minimal",
         "authorization_hash": stable_json_hash(payload) if payload else "",
