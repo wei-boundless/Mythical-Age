@@ -609,6 +609,31 @@ def test_task_execution_public_action_state_authority_lives_in_action_schema() -
     assert "public_progress_note 必须是 public_action_state" not in runtime_boundary_content
 
 
+def test_task_execution_prompt_directs_long_artifacts_into_tool_actions() -> None:
+    result = RuntimeCompiler().compile_task_execution_packet(
+        session_id="session:task-long-output",
+        task_run={"task_run_id": "taskrun:task-long-output", "diagnostics": {"executor_status": "running"}},
+        contract={
+            "task_run_goal": "创建一个较长的单文件 HTML 产物",
+            "completion_criteria": ["必须真实写入文件"],
+            "required_artifacts": [{"path": "artifacts/game/index.html", "kind": "html_document"}],
+        },
+        observations=[],
+        runtime_assembly={
+            "profile": {"profile_ref": "main_interactive_agent"},
+            "task_environment": {"environment_id": "env.general.workspace"},
+            "operation_authorization": {"allowed_operations": ["op.model_response", "op.write_file", "op.shell"]},
+        },
+    )
+
+    model_input = _model_input_text(result.packet)
+
+    assert "每一轮只能提交一个 action JSON" in model_input
+    assert "不要在 JSON 外继续输出正文、代码块、解释或产物内容" in model_input
+    assert "优先调用 write_file 或 terminal" in model_input
+    assert "先写入一个完整可运行的紧凑版本" in model_input
+
+
 def _segment_plan(
     packet_id: str,
     invocation_kind: str,

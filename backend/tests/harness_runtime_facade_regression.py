@@ -977,6 +977,42 @@ class _TaskExecutorSequenceModelRuntime:
         return SimpleNamespace(content=json.dumps(self.agent_turn_action_request, ensure_ascii=False))
 
 
+class _ProtocolRepairPromptProbeModelRuntime:
+    def __init__(self) -> None:
+        self.task_invocation_count = 0
+        self.task_inputs: list[str] = []
+
+    async def invoke_messages(self, messages, **_kwargs):
+        model_input = "\n\n".join(str(dict(message).get("content") or "") for message in list(messages or []) if isinstance(message, dict))
+        if "持续任务生命周期" not in model_input:
+            return SimpleNamespace(
+                content=json.dumps(
+                    _action_request(
+                        action_type="request_task_run",
+                        task_contract_seed={"user_visible_goal": "协议恢复。", "task_run_goal": "协议恢复。", "completion_criteria": ["完成"]},
+                    ),
+                    ensure_ascii=False,
+                )
+            )
+        self.task_invocation_count += 1
+        self.task_inputs.append(model_input)
+        if self.task_invocation_count == 1:
+            return SimpleNamespace(
+                content='{"action_type":"tool_call","tool_call":{"tool_name":"write_file","args":{"path":"artifacts/large.html","content":"<html>',
+                response_metadata={"finish_reason": "length"},
+                usage_metadata={"output_tokens": 2048},
+            )
+        assert "上一轮输出疑似达到模型输出上限并被截断" in model_input
+        assert "系统没有执行上一轮动作" in model_input
+        assert "改用 tool_call 调用 write_file 或 terminal" in model_input
+        return SimpleNamespace(
+            content=json.dumps(
+                _action_request(action_type="respond", final_answer="已按恢复协议收口。"),
+                ensure_ascii=False,
+            )
+        )
+
+
 def _tool_action_request(
     *,
     tool_name: str,
@@ -1490,64 +1526,31 @@ def test_session_runtime_timeline_derives_turn_anchor_from_structural_task_run_i
     assert attachment["anchor_turn_id"] == "turn:session-anchor:3"
 
 
-def test_session_runtime_timeline_anchors_checkout_to_latest_user_control_turn() -> None:
-    from harness.loop.task_checkout import checkout_task_run_for_resume
-    from harness.loop.task_executor import append_user_work_instruction
+def test_session_runtime_timeline_ignores_legacy_checkout_event_as_control_anchor() -> None:
     from harness.runtime.session_timeline import build_session_runtime_timeline
 
     runtime = build_harness_runtime()
     host = runtime.single_agent_runtime_host
-    contract = TaskRunContract(
-        contract_id="task-contract:timeline-checkout-anchor",
-        contract_source="test",
-        user_visible_goal="验证续跑进展显示在最新继续消息。",
-        task_run_goal="断点续跑后 timeline 必须锚到用户最新控制 turn。",
-        completion_criteria=("timeline anchor uses latest control turn",),
-    )
-    contract_ref = host.runtime_objects.put_object("task_run_contract", contract.contract_id, contract.to_dict())
-    source_task_run_id = "taskrun:turn:session-checkout-anchor:8:abc"
-    host.runtime_objects.put_object(
-        "task_lifecycle",
-        source_task_run_id,
-        TaskLifecycleRecord(
-            task_run_id=source_task_run_id,
-            contract_ref=contract_ref,
-            status="aborted",
-            created_at=1.0,
-            updated_at=2.0,
-        ).to_dict(),
-    )
+    task_run_id = "taskrun:turn:session-checkout-anchor:8:abc"
     host.state_index.upsert_task_run(
         TaskRun(
-            task_run_id=source_task_run_id,
+            task_run_id=task_run_id,
             session_id="session-checkout-anchor",
             task_id="task:turn:session-checkout-anchor:8",
-            task_contract_ref=contract_ref,
             agent_profile_id="main_interactive_agent",
             execution_runtime_kind="single_agent_task",
             status="aborted",
             terminal_reason="user_aborted",
             created_at=1.0,
             updated_at=2.0,
-            diagnostics={"turn_id": "turn:session-checkout-anchor:8", "contract": contract.to_dict()},
+            diagnostics={"turn_id": "turn:session-checkout-anchor:8"},
         )
     )
-
-    checkout = checkout_task_run_for_resume(
-        host,
-        source_task_run_id,
-        user_instruction="继续旧任务。",
-        turn_id="turn:session-checkout-anchor:16",
-    )
-    child = dict(checkout.get("task_run") or {})
-    child_task_run_id = str(child.get("task_run_id") or "")
-    assert child_task_run_id
-    append_user_work_instruction(
-        host,
-        child_task_run_id,
-        content="预算已经调大，请继续完成。",
-        turn_id="turn:session-checkout-anchor:18",
-        intent="conversation_instruction",
+    host.event_log.append(
+        task_run_id,
+        "task_run_checkout_created",
+        payload={"lineage": {"turn_id": "turn:session-checkout-anchor:16"}},
+        refs={"turn_ref": "turn:session-checkout-anchor:16"},
     )
 
     timeline = build_session_runtime_timeline(
@@ -1565,16 +1568,13 @@ def test_session_runtime_timeline_anchors_checkout_to_latest_user_control_turn()
         runtime_host=host,
     )
 
-    checkout_attachment = next(
+    attachment = next(
         item for item in timeline["runtime_attachments"]
-        if item["task_run_id"] == child_task_run_id
+        if item["task_run_id"] == task_run_id
     )
-    assert checkout_attachment["run_id"] == child_task_run_id
-    assert checkout_attachment["anchor_turn_id"] == "turn:session-checkout-anchor:18"
-    assert any(
-        item.get("eventType") == "active_task_steer_recorded"
-        for item in checkout_attachment["progress_entries"]
-    )
+    assert attachment["run_id"] == task_run_id
+    assert attachment["anchor_turn_id"] == "turn:session-checkout-anchor:8"
+    assert not any(item.get("eventType") == "task_run_checkout_created" for item in attachment["progress_entries"])
 
 
 def test_running_task_run_is_not_externally_executable_unless_executor_claimed() -> None:
@@ -1607,15 +1607,14 @@ def test_running_task_run_is_not_externally_executable_unless_executor_claimed()
 
 
 def test_waiting_executor_with_stale_running_diagnostics_is_resumable_not_running() -> None:
-    from harness.loop.active_work import build_active_work_context
-    from harness.loop.resume_policy import build_resume_plan
     from harness.loop.task_executor import is_task_run_executable, is_task_run_executor_claimed
 
     runtime = build_harness_runtime()
+    session_id = "session-stale-running-waiting"
     task_run_id = _seed_active_work(
         runtime,
         task_run_id="taskrun:stale-running-waiting",
-        session_id="session-stale-running-waiting",
+        session_id=session_id,
     )
     host = runtime.single_agent_runtime_host
     task_run = host.state_index.get_task_run(task_run_id)
@@ -1633,16 +1632,78 @@ def test_waiting_executor_with_stale_running_diagnostics_is_resumable_not_runnin
         )
     )
 
-    context = build_active_work_context(host, session_id="session-stale-running-waiting")
+    host.active_turn_registry.start(session_id=session_id, turn_id="turn:session-stale-running-waiting:1")
+    host.active_turn_registry.bind_task_run(
+        session_id=session_id,
+        turn_id="turn:session-stale-running-waiting:1",
+        task_run_id=task_run_id,
+        state="waiting_executor",
+    )
+    context = runtime._active_work_context_from_active_turn(session_id)
     task_run = host.state_index.get_task_run(task_run_id)
 
     assert task_run is not None
     assert context is not None
     assert context.running is False
     assert context.resumable is True
+    assert context.same_run_allowed is True
     assert is_task_run_executor_claimed(task_run) is False
     assert is_task_run_executable(task_run) is True
-    assert build_resume_plan(host, context=context, user_message="继续").decision == "same_run_resume"
+
+
+def test_terminal_bound_active_turn_is_cleared_and_continue_starts_new_task_run() -> None:
+    session_id = "session-terminal-bound-active-turn"
+    old_task_run_id = "taskrun:terminal-bound-active-turn:old"
+    model = NativeToolCallModelRuntimeStub(
+        agent_turn_action_request=_action_request(
+            action_type="request_task_run",
+            task_contract_seed={
+                "user_visible_goal": "继续完成新的交付任务。",
+                "task_run_goal": "基于当前用户请求建立新的 TaskRun。",
+                "completion_criteria": ["新任务必须独立于 terminal 旧任务"],
+            },
+        )
+    )
+    runtime = build_harness_runtime(model_runtime=model)
+    host = runtime.single_agent_runtime_host
+    _seed_active_work(runtime, task_run_id=old_task_run_id, session_id=session_id, status="aborted")
+    old_task = host.state_index.get_task_run(old_task_run_id)
+    assert old_task is not None
+    host.state_index.upsert_task_run(replace(old_task, terminal_reason="user_aborted"))
+    host.active_turn_registry.start(session_id=session_id, turn_id="turn:terminal-bound-active-turn:old")
+    host.active_turn_registry.bind_task_run(
+        session_id=session_id,
+        turn_id="turn:terminal-bound-active-turn:old",
+        task_run_id=old_task_run_id,
+        state="waiting_executor",
+    )
+
+    async def _collect() -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime.astream(HarnessRuntimeRequest(session_id=session_id, message="继续")):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_collect())
+    stream_types = [str(event.get("type") or "") for event in events]
+    admissions = _admission_payloads(events)
+    session_task_runs = host.state_index.list_session_task_runs(session_id)
+    new_task_runs = [task for task in session_task_runs if task.task_run_id != old_task_run_id]
+    old_trace = host.get_trace(old_task_run_id, include_payloads=True)
+    old_event_types = [str(dict(item).get("event_type") or "") for item in list(dict(old_trace or {}).get("events") or [])]
+
+    assert "active_task_steer_accepted" not in stream_types
+    assert "task_run_lifecycle_started" in stream_types
+    assert admissions
+    assert dict(admissions[0].get("model_action_request") or {}).get("action_type") == "request_task_run"
+    assert len(new_task_runs) == 1
+    new_task = new_task_runs[0]
+    diagnostics = dict(new_task.diagnostics or {})
+    assert diagnostics.get("origin_kind") != "checkout_resume"
+    assert diagnostics.get("parent_task_run_id") in {None, ""}
+    assert "lineage" not in diagnostics
+    assert "task_run_checkout_created" not in old_event_types
+    assert "task_run_resume_requested" not in old_event_types
 
 
 def test_execute_task_run_rejects_duplicate_running_claim() -> None:
@@ -2504,8 +2565,7 @@ def test_task_run_stop_before_executor_marks_user_aborted() -> None:
     assert task_run_control_state(stopped_task) == "stopped"
 
 
-def test_user_aborted_work_rollout_records_single_breakpoint_and_checkout_inherits_it() -> None:
-    from harness.loop.task_checkout import checkout_task_run_for_resume
+def test_user_aborted_work_rollout_records_breakpoint_but_not_active_work_context() -> None:
     from harness.loop.task_executor import stop_task_run
     from harness.loop.work_rollout import work_rollout_summary
 
@@ -2515,8 +2575,8 @@ def test_user_aborted_work_rollout_records_single_breakpoint_and_checkout_inheri
         contract_id="task-contract:rollout-breakpoint",
         contract_source="test",
         user_visible_goal="验证 rollout 断点。",
-        task_run_goal="停止后 checkout 必须继承 rollout 断点。",
-        completion_criteria=("断点可被恢复",),
+        task_run_goal="停止后只保留审计断点，不形成当前工作。",
+        completion_criteria=("断点只作为历史事实",),
     )
     contract_ref = host.runtime_objects.put_object("task_run_contract", contract.contract_id, contract.to_dict())
     host.runtime_objects.put_object(
@@ -2558,24 +2618,26 @@ def test_user_aborted_work_rollout_records_single_breakpoint_and_checkout_inheri
     assert int(source_summary["breakpoint"]["event_offset"]) >= 0
     assert source_summary["breakpoint"]["checkpoint_ref"] == "rtchk:source:7"
 
-    checkout_result = checkout_task_run_for_resume(
-        host,
-        "taskrun:rollout-breakpoint",
-        user_instruction="继续刚才的工作",
+    host.active_turn_registry.start(session_id="session-rollout-breakpoint", turn_id="turn:rollout-breakpoint:2")
+    host.active_turn_registry.bind_task_run(
+        session_id="session-rollout-breakpoint",
         turn_id="turn:rollout-breakpoint:2",
+        task_run_id="taskrun:rollout-breakpoint",
+        state="waiting_executor",
     )
-    child_task = dict(checkout_result.get("task_run") or {})
-    child_summary = work_rollout_summary(host, str(child_task.get("task_run_id") or ""))
-    lineage = dict(child_summary.get("lineage") or {})
 
-    assert checkout_result["ok"] is True
-    assert lineage["parent_task_run_id"] == "taskrun:rollout-breakpoint"
-    assert lineage["forked_from_event_offset"] == source_summary["breakpoint"]["event_offset"]
-    assert lineage["forked_from_checkpoint_ref"] == "rtchk:source:7"
-    assert child_summary["breakpoint"]["event_offset"] == source_summary["breakpoint"]["event_offset"]
+    assert host.active_turn_registry.resolve_current("session-rollout-breakpoint") is None
+    assert runtime._active_work_context_from_active_turn("session-rollout-breakpoint") is None
 
 
-def _seed_active_work(runtime, *, task_run_id: str = "taskrun:active-work", session_id: str = "session-active-work", status: str = "waiting_executor") -> str:
+def _seed_active_work(
+    runtime,
+    *,
+    task_run_id: str = "taskrun:active-work",
+    session_id: str = "session-active-work",
+    status: str = "waiting_executor",
+    runtime_profile: dict[str, object] | None = None,
+) -> str:
     host = runtime.single_agent_runtime_host
     contract = TaskRunContract(
         contract_id=f"task-contract:{task_run_id.replace(':', '-')}",
@@ -2583,6 +2645,7 @@ def _seed_active_work(runtime, *, task_run_id: str = "taskrun:active-work", sess
         user_visible_goal="继续优化会话体验。",
         task_run_goal="继续优化会话体验。",
         completion_criteria=("同一个当前工作可以被自然语言控制",),
+        runtime_profile=dict(runtime_profile or {}),
     )
     contract_ref = host.runtime_objects.put_object("task_run_contract", contract.contract_id, contract.to_dict())
     lifecycle = TaskLifecycleRecord(
@@ -2605,7 +2668,11 @@ def _seed_active_work(runtime, *, task_run_id: str = "taskrun:active-work", sess
             terminal_reason="waiting_executor" if status == "waiting_executor" else "",
             created_at=1.0,
             updated_at=1.0,
-            diagnostics={"contract": contract.to_dict(), "latest_step_summary": "正在整理上下文，准备继续处理。"},
+            diagnostics={
+                "contract": contract.to_dict(),
+                "latest_step_summary": "正在整理上下文，准备继续处理。",
+                "runtime_task_selection": {"runtime_profile": dict(runtime_profile or {})},
+            },
         )
     )
     return task_run_id

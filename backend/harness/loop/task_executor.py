@@ -32,9 +32,10 @@ from .model_action_runtime import (
     compact_text,
     model_action_timeout_seconds,
     normalize_model_selection_for_invocation,
-    parse_json_object,
+    parse_json_object_with_diagnostics,
 )
 from .model_action_protocol import AnyModelActionRequest, task_execution_action_request_from_payload
+from .specialist_runtime_router import SpecialistRuntimeExecution, SpecialistRuntimeRouter
 from .task_run_execution_control import (
     ExecutorControlSignal,
     attach_model_task,
@@ -574,6 +575,23 @@ async def execute_task_run(
     agent_run = _ensure_executor_agent_run(runtime_host, task_run=current_task)
 
     try:
+        specialist_execution = await SpecialistRuntimeRouter(
+            services.backend_dir,
+            model_runtime=services.model_runtime,
+        ).try_run(
+            task_run=current_task,
+            agent_run=agent_run,
+            profile=agent_profile,
+            contract=contract,
+        )
+        if specialist_execution.handled:
+            return _finish_specialist_runtime_execution(
+                services,
+                runtime_host,
+                task_run=current_task,
+                agent_run=agent_run,
+                execution=specialist_execution,
+            )
         return await _execute_claimed_task_run(
             services,
             runtime_host=runtime_host,
@@ -1160,7 +1178,7 @@ async def _invoke_task_model_action(
         ),
         timeout=timeout_seconds,
     )
-    payload = parse_json_object(getattr(response, "content", response))
+    payload, parse_diagnostics = parse_json_object_with_diagnostics(getattr(response, "content", response))
     payload.setdefault(
         "request_id",
         next_model_action_request_id(
@@ -1170,13 +1188,23 @@ async def _invoke_task_model_action(
             suffix=uuid.uuid4().hex[:8],
         ),
     )
-    return task_execution_action_request_from_payload(
+    action_request, protocol = task_execution_action_request_from_payload(
         payload,
         turn_id=task_run_id,
         require_public_progress_note=True,
         require_public_action_state=True,
         allowed_action_types=tuple(getattr(packet, "allowed_action_types", ()) or ()),
     )
+    if action_request is None:
+        protocol = {
+            **dict(protocol or {}),
+            "parse_diagnostics": parse_diagnostics,
+            "response_diagnostics": _model_action_response_diagnostics(
+                response,
+                model_selection=model_selection,
+            ),
+        }
+    return action_request, protocol
 
 
 async def _await_task_model_action_with_status(
@@ -3202,6 +3230,13 @@ def _model_protocol_repair_observation(
     message = "model action request failed protocol validation"
     if errors:
         message = f"{message}: {', '.join(errors)}"
+    parse_diagnostics = _model_protocol_parse_diagnostics(diagnostics)
+    response_diagnostics = _model_protocol_response_diagnostics(diagnostics)
+    repair_instruction = _model_protocol_repair_instruction(
+        validation_errors=errors,
+        parse_diagnostics=parse_diagnostics,
+        response_diagnostics=response_diagnostics,
+    )
     return {
         "observation_id": f"rtobs:{task_run_id}:{uuid.uuid4().hex[:8]}",
         "task_run_id": task_run_id,
@@ -3209,18 +3244,26 @@ def _model_protocol_repair_observation(
         "source": "system:model_action_protocol",
         "request_ref": f"model-action-protocol:{task_run_id}:invocation:{step_index}:{uuid.uuid4().hex[:8]}",
         "directive_ref": packet_ref,
-        "content_chars": len(message),
+        "content_chars": len(repair_instruction),
+        "summary": repair_instruction,
         "payload": {
             "tool_name": "model_action_protocol",
             "tool_args": {},
             "error": message,
             "error_code": "model_action_invalid",
             "validation_errors": errors,
+            "repair_instruction": repair_instruction,
+            "parse_diagnostics": parse_diagnostics,
+            "response_diagnostics": response_diagnostics,
             "structured_error": {
                 "code": "model_action_invalid",
                 "message": message,
                 "retryable": True,
                 "origin": "model_protocol",
+                "repair_instruction": repair_instruction,
+                "validation_errors": errors,
+                "parse_diagnostics": parse_diagnostics,
+                "response_diagnostics": response_diagnostics,
             },
             "runtime_fingerprint": dict(runtime_fingerprint or {}),
         },
@@ -3594,6 +3637,98 @@ def _record_task_step_summary(
             )
         )
     return event.to_dict()
+
+
+def _model_action_response_diagnostics(response: Any, *, model_selection: dict[str, Any]) -> dict[str, Any]:
+    metadata = _safe_dict(getattr(response, "response_metadata", None))
+    usage = _safe_dict(getattr(response, "usage_metadata", None))
+    output_tokens = _first_int(
+        usage.get("output_tokens"),
+        usage.get("completion_tokens"),
+        _safe_dict(metadata.get("token_usage")).get("completion_tokens"),
+        _safe_dict(metadata.get("token_usage")).get("output_tokens"),
+    )
+    max_output_tokens = _first_int(dict(model_selection or {}).get("max_output_tokens"))
+    return _drop_empty(
+        {
+            "finish_reason": str(metadata.get("finish_reason") or metadata.get("stop_reason") or ""),
+            "output_tokens": output_tokens,
+            "max_output_tokens": max_output_tokens,
+            "output_limit_hit_suspected": bool(output_tokens and max_output_tokens and output_tokens >= max_output_tokens),
+        }
+    )
+
+
+def _model_protocol_parse_diagnostics(diagnostics: dict[str, Any]) -> dict[str, Any]:
+    raw = _safe_dict(dict(diagnostics or {}).get("parse_diagnostics"))
+    return _drop_empty(
+        {
+            "parse_error": str(raw.get("parse_error") or ""),
+            "parsed_type": str(raw.get("parsed_type") or ""),
+            "content_chars": _first_int(raw.get("content_chars")),
+            "raw_content_preview": compact_text(str(raw.get("raw_content_preview") or ""), limit=300),
+            "starts_with": str(raw.get("starts_with") or ""),
+            "ends_with": str(raw.get("ends_with") or ""),
+        }
+    )
+
+
+def _model_protocol_response_diagnostics(diagnostics: dict[str, Any]) -> dict[str, Any]:
+    raw = _safe_dict(dict(diagnostics or {}).get("response_diagnostics"))
+    return _drop_empty(
+        {
+            "finish_reason": str(raw.get("finish_reason") or ""),
+            "output_tokens": _first_int(raw.get("output_tokens")),
+            "max_output_tokens": _first_int(raw.get("max_output_tokens")),
+            "output_limit_hit_suspected": bool(raw.get("output_limit_hit_suspected") is True),
+        }
+    )
+
+
+def _model_protocol_repair_instruction(
+    *,
+    validation_errors: list[str],
+    parse_diagnostics: dict[str, Any],
+    response_diagnostics: dict[str, Any],
+) -> str:
+    error_text = ", ".join(validation_errors) if validation_errors else "输出不是合法 action JSON"
+    limit_hit = bool(response_diagnostics.get("output_limit_hit_suspected") is True)
+    parse_error = str(parse_diagnostics.get("parse_error") or "")
+    reason = "上一轮输出没有通过 action JSON 校验"
+    if limit_hit:
+        reason = "上一轮输出疑似达到模型输出上限并被截断"
+    elif parse_error:
+        reason = "上一轮输出不是可解析的 JSON 对象"
+    return (
+        f"{reason}；系统没有执行上一轮动作。错误：{error_text}。"
+        "本轮必须只输出一个合法 JSON 对象，必须填写 action_type、public_action_state 和 public_progress_note。"
+        "不要在 JSON 外继续输出正文、代码块或解释。"
+        "如果上一轮是在生成文件、网页、脚本或长内容时失败，改用 tool_call 调用 write_file 或 terminal；"
+        "把交付物内容放入 tool_call.args，或先写入完整可运行的紧凑版本再用后续工具增量完善。"
+    )
+
+
+def _safe_dict(value: Any) -> dict[str, Any]:
+    return dict(value) if isinstance(value, dict) else {}
+
+
+def _first_int(*values: Any) -> int:
+    for value in values:
+        try:
+            parsed = int(value or 0)
+        except (TypeError, ValueError):
+            continue
+        if parsed > 0:
+            return parsed
+    return 0
+
+
+def _drop_empty(payload: dict[str, Any]) -> dict[str, Any]:
+    return {
+        key: value
+        for key, value in dict(payload or {}).items()
+        if value not in ("", None, [], {})
+    }
 
 
 def _record_task_model_wait_heartbeat(

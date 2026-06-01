@@ -27,7 +27,6 @@ class TaskRunRecoveryState:
     paused: bool
     stopped: bool
     graph_controlled: bool
-    checkoutable_terminal: bool
     completed_iteration: bool
     reason: str
     authority: str = "harness.loop.task_run_recovery_state"
@@ -46,11 +45,6 @@ def recovery_state_for_task_run(task_run: Any) -> TaskRunRecoveryState:
     paused = control_state in PAUSE_CONTROL_STATES
     completed_iteration = status in TERMINAL_COMPLETED_STATUSES
     running_claimed = status == "running" and executor_status in {"scheduled", "running"}
-    checkoutable_terminal = (
-        stopped
-        or (status in TERMINAL_FAILED_STATUSES and recoverable)
-        or terminal_reason in {"stream_cancelled", "task_executor_interrupted_by_runtime_restart", "executor_interrupted", "model_call_recovery_required"}
-    )
 
     same_run_resumable = False
     reason = "not_resumable"
@@ -83,7 +77,6 @@ def recovery_state_for_task_run(task_run: Any) -> TaskRunRecoveryState:
         paused=paused,
         stopped=stopped,
         graph_controlled=graph_controlled,
-        checkoutable_terminal=checkoutable_terminal,
         completed_iteration=completed_iteration,
         reason=reason,
     )

@@ -537,7 +537,6 @@ def _latest_interaction_turn_id(events: list[Any], *, diagnostics: dict[str, Any
             "task_run_resume_requested",
             "task_run_executor_scheduled",
             "step_summary_recorded",
-            "task_run_checkout_created",
         }:
             steer = dict(payload.get("steer") or {})
             submission = dict(payload.get("submission") or {})

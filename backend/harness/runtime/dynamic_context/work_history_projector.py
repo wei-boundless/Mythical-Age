@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .models import compact_text, dict_tuple, drop_empty
+from .models import compact_text, drop_empty
 from .tool_result_projector import model_visible_artifact_refs
 
 
@@ -24,21 +24,27 @@ class WorkHistoryProjector:
                     "status": str(item.get("status") or ""),
                     "summary": compact_text(item.get("summary") or "", limit=max(200, summary_limit)),
                     "agent_brief_output": compact_text(item.get("agent_brief_output") or "", limit=300),
-                    "event_offset": item.get("event_offset"),
-                    "refs": dict(item.get("refs") or {}),
                 }
             )
             for item in history[-limit:]
         ]
+        artifacts = model_visible_artifact_refs(rollout.get("artifact_refs"))
+        latest_progress = compact_text(rollout.get("latest_progress") or "", limit=max(200, progress_limit))
         return drop_empty(
             {
-                "latest_progress": compact_text(rollout.get("latest_progress") or "", limit=max(200, progress_limit)),
+                "latest_progress": latest_progress,
                 "latest_step_title": compact_text(rollout.get("latest_step_title") or "", limit=160),
                 "active_facts": _active_facts(history),
                 "recent_steps": recent_steps,
-                "active_artifacts": model_visible_artifact_refs(rollout.get("artifact_refs")),
-                "checkpoint": dict(rollout.get("breakpoint") or {}),
-                "lineage": dict(rollout.get("lineage") or {}),
+                "active_artifacts": artifacts,
+                "historical_work_summary": drop_empty(
+                    {
+                        "status": _summary_status(history),
+                        "public_result_summary": latest_progress,
+                        "usable_artifact_refs": _summary_artifact_refs(artifacts),
+                        "non_control_context": True,
+                    }
+                ),
                 "omitted_work_history": {
                     "count": max(0, len(history) - len(recent_steps)),
                     "reason": "recent_work_step_limit",
@@ -60,3 +66,28 @@ def _active_facts(history: list[dict[str, Any]]) -> list[str]:
         if text and text not in facts:
             facts.append(text)
     return facts[-6:]
+
+
+def _summary_status(history: list[dict[str, Any]]) -> str:
+    for item in reversed(history):
+        status = str(item.get("status") or "").strip()
+        if status:
+            return status
+    return ""
+
+
+def _summary_artifact_refs(artifacts: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [
+        drop_empty(
+            {
+                "path": str(item.get("path") or ""),
+                "kind": str(item.get("kind") or ""),
+                "summary": compact_text(item.get("summary") or "", limit=180),
+                "mime_type": str(item.get("mime_type") or ""),
+                "exists": item.get("exists") if isinstance(item.get("exists"), bool) else None,
+                "published": item.get("published") if isinstance(item.get("published"), bool) else None,
+            }
+        )
+        for item in artifacts
+        if str(item.get("path") or "")
+    ]

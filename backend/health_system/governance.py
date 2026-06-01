@@ -12,15 +12,6 @@ from .store import HealthStore
 from .task_record_maintenance import HealthTaskRecordMaintenanceService
 
 
-CHECKOUTABLE_TERMINAL_REASONS = {
-    "user_aborted",
-    "stream_cancelled",
-    "task_executor_interrupted_by_runtime_restart",
-    "executor_interrupted",
-    "model_call_recovery_required",
-}
-
-
 class HealthGovernanceBuilder:
     def __init__(self, runtime: Any) -> None:
         self.runtime = runtime
@@ -348,9 +339,8 @@ class HealthGovernanceBuilder:
 
     def _risk_events(self, *, tasks: list[dict[str, Any]], monitor: dict[str, Any]) -> list[dict[str, Any]]:
         risks: list[dict[str, Any]] = []
-        lineage = self._task_lineage_index()
         for task in tasks:
-            risks.extend(self._task_risks(task, monitor={}, graph_monitor={}, lineage=lineage))
+            risks.extend(self._task_risks(task, monitor={}, graph_monitor={}))
         risks.extend(self._system_risks(monitor=monitor))
         severity_order = {"critical": 0, "high": 1, "warning": 2, "info": 3}
         return sorted(
@@ -364,15 +354,12 @@ class HealthGovernanceBuilder:
         *,
         monitor: dict[str, Any],
         graph_monitor: dict[str, Any],
-        lineage: dict[str, Any] | None = None,
     ) -> list[dict[str, Any]]:
         risks: list[dict[str, Any]] = []
         task_run_id = str(task.get("task_run_id") or "")
         status = str(task.get("status") or "")
-        terminal_reason = str(task.get("terminal_reason") or "")
         duration = float(task.get("duration_seconds") or 0.0)
         error_count = int(task.get("error_count") or 0)
-        lineage = dict(lineage or self._task_lineage_index())
         if self._task_bucket(task) == "failed":
             risks.append(self._risk("task", "critical", task_run_id, "任务运行失败", task.get("terminal_reason") or "任务已进入失败或中止状态。"))
         if self._task_action_required(task):
@@ -386,12 +373,8 @@ class HealthGovernanceBuilder:
             risks.append(self._risk("task", "warning", task_run_id, "任务事件包含错误", f"最近事件中发现 {error_count} 个错误信号。"))
         if int(task.get("token_total") or 0) > 120000:
             risks.append(self._risk("token", "warning", task_run_id, "会话 token 压力偏高", "该任务所在会话 token 使用较高，可能需要摘要或上下文裁剪。"))
-        if self._is_interrupted_terminal(status=status, terminal_reason=terminal_reason) and not self._lineage_children(task_run_id, lineage):
-            risks.append(self._risk("task", "high", task_run_id, "中断任务尚未建立继续尝试", "任务以可恢复中断结束，但尚未看到后续 checkout attempt。", risk_code="interrupted_without_checkout"))
         if self._is_resumable_record(task) and not self._has_work_rollout(task_run_id):
             risks.append(self._risk("task", "warning", task_run_id, "缺少可恢复历史", "该任务具备恢复语义，但没有对应 WorkRollout 记录，继续时上下文可能不完整。", risk_code="missing_rollout_for_resumable_task"))
-        if self._is_repeated_checkout_failure(task_run_id, lineage):
-            risks.append(self._risk("task", "high", task_run_id, "连续恢复尝试失败", "同一工作已经出现多个 checkout attempt 失败，需要检查中断点、工具副作用和恢复策略。", risk_code="repeated_checkout_failure"))
         graph_task_monitor = dict(graph_monitor.get("task_run_monitor") or graph_monitor.get("runtime_monitor") or {})
         if str(graph_task_monitor.get("bucket") or "") == "failed":
             risks.append(self._risk("task", "critical", task_run_id, "任务图运行失败", "任务图监控显示运行失败。"))
@@ -399,42 +382,9 @@ class HealthGovernanceBuilder:
             risks.append(self._risk("task", "high", task_run_id, "监控显示任务等待处理", "实时监控显示任务需要处理。"))
         return risks
 
-    def _task_lineage_index(self) -> dict[str, Any]:
-        children_by_parent: dict[str, list[str]] = {}
-        failed_checkout_by_root: dict[str, list[str]] = {}
-        tasks_by_id: dict[str, Any] = {}
-        for task_run in self.state_index.list_task_runs():
-            task_run_id = str(getattr(task_run, "task_run_id", "") or "")
-            if not task_run_id:
-                continue
-            tasks_by_id[task_run_id] = task_run
-            diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
-            lineage = dict(diagnostics.get("lineage") or {})
-            parent_id = str(diagnostics.get("parent_task_run_id") or lineage.get("parent_task_run_id") or "")
-            root_id = str(diagnostics.get("root_task_run_id") or lineage.get("root_task_run_id") or parent_id or task_run_id)
-            if parent_id:
-                children_by_parent.setdefault(parent_id, []).append(task_run_id)
-            if str(diagnostics.get("origin_kind") or dict(diagnostics.get("origin") or {}).get("origin_kind") or "") == "checkout_resume":
-                if str(getattr(task_run, "status", "") or "") in {"failed", "aborted", "cancelled", "error"}:
-                    failed_checkout_by_root.setdefault(root_id, []).append(task_run_id)
-        return {
-            "children_by_parent": children_by_parent,
-            "failed_checkout_by_root": failed_checkout_by_root,
-            "tasks_by_id": tasks_by_id,
-        }
-
-    @staticmethod
-    def _lineage_children(task_run_id: str, lineage: dict[str, Any]) -> list[str]:
-        return [str(item) for item in list(dict(lineage.get("children_by_parent") or {}).get(task_run_id) or []) if str(item)]
-
-    @staticmethod
-    def _is_interrupted_terminal(*, status: str, terminal_reason: str) -> bool:
-        return status in {"failed", "aborted", "cancelled", "error"} and terminal_reason in CHECKOUTABLE_TERMINAL_REASONS
-
     def _is_resumable_record(self, task: dict[str, Any]) -> bool:
         status = str(task.get("status") or "")
-        terminal_reason = str(task.get("terminal_reason") or "")
-        return status in {"waiting_executor", "paused"} or self._is_interrupted_terminal(status=status, terminal_reason=terminal_reason)
+        return status in {"waiting_executor", "paused"}
 
     def _has_work_rollout(self, task_run_id: str) -> bool:
         runtime_objects = getattr(self.runtime_host, "runtime_objects", None)
@@ -445,16 +395,6 @@ class HealthGovernanceBuilder:
             return bool(getter(work_rollout_ref(task_run_id)))
         except Exception:
             return False
-
-    @staticmethod
-    def _is_repeated_checkout_failure(task_run_id: str, lineage: dict[str, Any]) -> bool:
-        failed_by_root = dict(lineage.get("failed_checkout_by_root") or {})
-        tasks_by_id = dict(lineage.get("tasks_by_id") or {})
-        task = tasks_by_id.get(task_run_id)
-        diagnostics = dict(getattr(task, "diagnostics", {}) or {}) if task is not None else {}
-        task_lineage = dict(diagnostics.get("lineage") or {})
-        root_id = str(diagnostics.get("root_task_run_id") or task_lineage.get("root_task_run_id") or task_run_id)
-        return len(list(failed_by_root.get(root_id) or [])) >= 2
 
     def _system_risks(self, *, monitor: dict[str, Any]) -> list[dict[str, Any]]:
         risks: list[dict[str, Any]] = []

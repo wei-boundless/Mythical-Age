@@ -1187,8 +1187,8 @@ def _active_work_model_visible_payload(active_work_context: dict[str, Any] | Non
                 "answer_then_continue_active_work",
             ],
             "decision_boundary": (
-                "This is context for the agent's own decision. The system does not ask the user to confirm by default; "
-                "if the user message clearly refers to this work, choose the appropriate active_work_control action."
+                "active_work_context only represents the current non-terminal active turn. "
+                "Historical work summaries, old artifacts, and terminal task records are not controllable current work."
             ),
         }
     )
@@ -1649,6 +1649,11 @@ def _runtime_projection_instruction(projection: dict[str, Any]) -> str:
         )
         lines.append(
             "- 当用户明确指向当前工作时，直接调用 active_work_control；不要把明确控制请求变成二次确认问题。"
+        )
+    elif projection.get("invocation_kind") == "single_agent_turn":
+        lines.append(
+            "- 本轮没有 active_work_context；系统当前没有可控制的进行中工作。"
+            "不要把历史摘要、旧任务记录或旧产物目录当作当前工作；需要持续推进时请求进入持续处理流程。"
         )
     if bool(planning.get("todo_required_when_task_run") is True):
         lines.append("- 进入持续处理流程后，需要维护步骤状态；步骤状态不能替代真实交付物或验收证据。")

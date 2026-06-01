@@ -1,13 +1,11 @@
 from __future__ import annotations
 
-import asyncio
-import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
 from capability_system.tools.tool_units.file_system_tools import GlobPathsTool
+from capability_system.tools.tool_units.git_tools import GitLogTool
 from capability_system.tools.tool_units.search_files_tool import SearchFilesTool, SearchTextTool
-from runtime_encoding import utf8_subprocess_text_kwargs
 
 
 @dataclass(frozen=True, slots=True)
@@ -25,6 +23,7 @@ class CodebaseSearchProviders:
         self.search_files_tool = SearchFilesTool(root_dir)
         self.search_text_tool = SearchTextTool(root_dir)
         self.glob_paths_tool = GlobPathsTool(root_dir)
+        self.git_log_tool = GitLogTool(root_dir)
 
     async def search_paths(self, *, queries: tuple[str, ...], roots: tuple[str, ...], max_results: int) -> list[str]:
         found: list[str] = []
@@ -50,7 +49,8 @@ class CodebaseSearchProviders:
         return _dedupe(found)[:max_results]
 
     async def git_log(self, *, queries: tuple[str, ...], max_results: int = 8) -> list[dict[str, str]]:
-        return await asyncio.to_thread(_git_log_sync, self.root_dir, queries, max_results)
+        raw = await self.git_log_tool._arun(max_count=max(1, min(max_results * 4, 50)))
+        return _parse_git_log(raw, queries=queries, max_results=max_results)
 
 
 def _parse_path_results(raw: str) -> list[str]:
@@ -84,45 +84,40 @@ def _parse_text_hits(raw: str, *, query: str) -> list[TextHit]:
     return hits
 
 
-def _git_log_sync(root_dir: Path, queries: tuple[str, ...], max_results: int) -> list[dict[str, str]]:
-    cwd = _project_root(root_dir)
-    if not (cwd / ".git").exists():
+def _parse_git_log(raw: str, *, queries: tuple[str, ...], max_results: int) -> list[dict[str, str]]:
+    if str(raw or "").startswith("Git failed"):
         return []
+    query_terms = [str(item or "").strip().lower() for item in queries if str(item or "").strip()]
     results: list[dict[str, str]] = []
-    for query in queries:
-        command = ["git", "log", "--all", "--max-count", str(max(1, min(max_results, 20))), "--pretty=format:%h%x09%s", "--", "."]
-        try:
-            completed = subprocess.run(
-                command,
-                cwd=str(cwd),
-                capture_output=True,
-                timeout=8,
-                check=False,
-                **utf8_subprocess_text_kwargs(),
-            )
-        except (FileNotFoundError, subprocess.TimeoutExpired, PermissionError):
+    for line in str(raw or "").splitlines():
+        item = line.strip()
+        if not item or item == "(empty)":
+            continue
+        commit, subject = _split_git_log_line(item)
+        if not commit or not subject:
+            continue
+        matched_query = _matching_query(subject, query_terms)
+        if query_terms and not matched_query:
+            continue
+        results.append({"commit": commit, "subject": subject, "query": matched_query})
+        if len(results) >= max_results:
             return results
-        lowered = query.lower()
-        for line in (completed.stdout or "").splitlines():
-            if lowered and lowered not in line.lower():
-                continue
-            if "\t" in line:
-                commit, subject = line.split("\t", 1)
-            else:
-                commit, subject = line[:12], line
-            results.append({"commit": commit.strip(), "subject": subject.strip(), "query": query})
-            if len(results) >= max_results:
-                return results
     return results
 
 
-def _project_root(root_dir: Path) -> Path:
-    current = Path(root_dir).resolve()
-    if current.name == "backend":
-        return current.parent
-    if (current / "backend").exists() or (current / ".git").exists():
-        return current
-    return current.parent
+def _split_git_log_line(line: str) -> tuple[str, str]:
+    parts = line.split(maxsplit=1)
+    if len(parts) != 2:
+        return "", ""
+    return parts[0].strip(), parts[1].strip()
+
+
+def _matching_query(subject: str, query_terms: list[str]) -> str:
+    lowered = subject.lower()
+    for query in query_terms:
+        if query in lowered:
+            return query
+    return ""
 
 
 def _dedupe(values: list[str]) -> list[str]:

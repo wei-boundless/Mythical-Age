@@ -310,9 +310,8 @@ class HealthTaskRecordMaintenanceService:
         origin = dict(diagnostics.get("origin") or {})
         parent_id = str(diagnostics.get("parent_task_run_id") or lineage.get("parent_task_run_id") or origin.get("parent_task_run_id") or "")
         root_id = str(diagnostics.get("root_task_run_id") or lineage.get("root_task_run_id") or "")
-        origin_kind = str(diagnostics.get("origin_kind") or origin.get("origin_kind") or "")
         task_run_id = str(getattr(task_run, "task_run_id", "") or "")
-        return bool(parent_id or (root_id and root_id != task_run_id) or origin_kind == "checkout_resume")
+        return bool(parent_id or (root_id and root_id != task_run_id))
 
     def _lineage_index(self) -> dict[str, Any]:
         parent_task_run_ids: set[str] = set()

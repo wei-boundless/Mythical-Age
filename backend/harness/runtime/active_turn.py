@@ -8,6 +8,9 @@ from typing import Any, Literal
 from harness.loop.task_steering import create_active_task_steer
 
 
+_TERMINAL_TASK_RUN_STATUSES = {"completed", "success", "failed", "aborted", "cancelled", "error"}
+
+
 ActiveTurnState = Literal[
     "starting",
     "model_turn",
@@ -97,6 +100,27 @@ class ActiveTurnRegistry:
             return None
         return record
 
+    def resolve_current(self, session_id: str) -> ActiveTurnRecord | None:
+        record = self.resolve_current(session_id)
+        if record is None or not record.bound_task_run_id:
+            return record
+        task_run = getattr(getattr(self.runtime_host, "state_index", None), "get_task_run", lambda _task_run_id: None)(
+            record.bound_task_run_id
+        )
+        if task_run is None:
+            self._update(record, state="terminal", steerable=False, terminal_reason="bound_task_run_missing")
+            return None
+        status = str(getattr(task_run, "status", "") or "").strip()
+        if status in _TERMINAL_TASK_RUN_STATUSES:
+            self._update(
+                record,
+                state="terminal",
+                steerable=False,
+                terminal_reason=f"bound_task_run_terminal:{status}",
+            )
+            return None
+        return record
+
     def start(
         self,
         *,
@@ -107,7 +131,7 @@ class ActiveTurnRegistry:
         state: ActiveTurnState = "starting",
         steerable: bool = True,
     ) -> ActiveTurnRecord:
-        current = self.snapshot(session_id)
+        current = self.resolve_current(session_id)
         if current is not None and current.turn_id != turn_id:
             raise ActiveTurnConflict(current)
         now = time.time()
@@ -128,13 +152,13 @@ class ActiveTurnRegistry:
         return record
 
     def bind_turn_run(self, *, session_id: str, turn_id: str, turn_run_id: str) -> ActiveTurnRecord | None:
-        record = self.snapshot(session_id)
+        record = self.resolve_current(session_id)
         if record is None or record.turn_id != turn_id:
             return record
         return self._update(record, turn_run_id=str(turn_run_id or "").strip(), state="model_turn")
 
     def bind_stream_run(self, *, session_id: str, turn_id: str, stream_run_id: str) -> ActiveTurnRecord | None:
-        record = self.snapshot(session_id)
+        record = self.resolve_current(session_id)
         if record is None or record.turn_id != turn_id:
             return record
         return self._update(record, stream_run_id=str(stream_run_id or "").strip())
@@ -147,13 +171,13 @@ class ActiveTurnRegistry:
         task_run_id: str,
         state: ActiveTurnState = "waiting_executor",
     ) -> ActiveTurnRecord | None:
-        record = self.snapshot(session_id)
+        record = self.resolve_current(session_id)
         if record is None or record.turn_id != turn_id:
             return record
         return self._update(record, bound_task_run_id=str(task_run_id or "").strip(), state=state)
 
     def complete(self, *, session_id: str, expected_turn_id: str, terminal_reason: str) -> ActiveTurnRecord | None:
-        record = self.snapshot(session_id)
+        record = self.resolve_current(session_id)
         if record is None:
             return None
         if expected_turn_id and record.turn_id != expected_turn_id:

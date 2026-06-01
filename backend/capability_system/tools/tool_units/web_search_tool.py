@@ -1,10 +1,8 @@
 from __future__ import annotations
 
 import asyncio
-import json
+import os
 import re
-import subprocess
-import sys
 from pathlib import Path
 from typing import Any, Type
 from urllib.parse import urlparse
@@ -13,7 +11,7 @@ from langchain_core.callbacks.manager import AsyncCallbackManagerForToolRun, Cal
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 
-from runtime_encoding import utf8_subprocess_text_kwargs
+from capability_system.tools.tool_units.tavily_search import API_URL, build_headers, load_backend_env, shape_response
 
 
 class WebSearchInput(BaseModel):
@@ -206,46 +204,42 @@ class WebSearchTool(BaseTool):
         max_results: int = 5,
         run_manager: CallbackManagerForToolRun | None = None,
     ) -> str:
-        script_path = self._root_dir / "capability_system" / "units" / "tools" / "tavily_search.py"
-        if not script_path.exists():
-            return "联网搜索失败：未找到 Tavily 搜索脚本。"
-
         resolved_topic = _infer_topic(query, topic)
         resolved_time_range = _infer_time_range(query, resolved_topic, time_range)
-
-        command = [
-            sys.executable,
-            str(script_path),
-            "--query",
-            query,
-            "--topic",
-            resolved_topic,
-            "--max-results",
-            str(max(1, min(int(max_results), 10))),
-        ]
+        payload = {
+            "query": query,
+            "topic": resolved_topic,
+            "max_results": max(1, min(int(max_results), 10)),
+        }
         if resolved_time_range:
-            command.extend(["--time-range", resolved_time_range])
-
+            payload["time_range"] = resolved_time_range
+        load_backend_env()
+        api_key = os.getenv("TAVILY_API_KEY", "").strip()
+        if not api_key:
+            return "联网搜索失败：TAVILY_API_KEY 未配置。"
         try:
-            completed = subprocess.run(
-                command,
-                cwd=self._root_dir,
-                capture_output=True,
-                timeout=25,
-                check=False,
-                **utf8_subprocess_text_kwargs(),
+            response = httpx.post(
+                API_URL,
+                headers=build_headers(api_key, os.getenv("TAVILY_PROJECT")),
+                json=payload,
+                timeout=20,
             )
-        except subprocess.TimeoutExpired:
+            response.raise_for_status()
+        except httpx.TimeoutException:
             return "联网搜索失败：Tavily 查询超时。"
-
-        raw = (completed.stdout or completed.stderr or "").strip()
-        if not raw:
-            return "联网搜索失败：未返回任何结果。"
+        except httpx.HTTPStatusError as exc:
+            details = _truncate(exc.response.text, 240)
+            return f"联网搜索失败：Tavily 返回 HTTP {exc.response.status_code}。{(' 详情：' + details) if details else ''}"
+        except httpx.HTTPError as exc:
+            return f"联网搜索失败：HTTP 请求失败。详情：{_truncate(str(exc), 240)}"
 
         try:
-            payload = json.loads(raw)
-        except json.JSONDecodeError:
-            return f"联网搜索失败：无法解析 Tavily 返回内容。\n原始输出：{raw[:1500]}"
+            data = response.json()
+        except ValueError:
+            return "联网搜索失败：无法解析 Tavily 返回内容。"
+        if not isinstance(data, dict):
+            return "联网搜索失败：Tavily 返回内容格式不正确。"
+        payload = shape_response(data)
 
         payload = _sanitize_search_payload(payload, query)
         if not bool(payload.get("ok", True)):

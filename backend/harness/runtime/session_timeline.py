@@ -148,27 +148,6 @@ def _latest_interaction_turn_id(events: list[dict[str, Any]]) -> str:
                 turn_id = _valid_turn_ref(candidate)
                 if turn_id:
                     return turn_id
-        if event_type == "task_run_checkout_created":
-            lineage = dict(payload.get("lineage") or {})
-            task_run = dict(payload.get("task_run") or {})
-            task_diagnostics = dict(task_run.get("diagnostics") or {})
-            for candidate in (
-                refs.get("turn_ref"),
-                lineage.get("turn_id"),
-                _lineage_turn_id(task_diagnostics),
-            ):
-                turn_id = _valid_turn_ref(candidate)
-                if turn_id:
-                    return turn_id
-    return ""
-
-
-def _lineage_turn_id(diagnostics: dict[str, Any]) -> str:
-    lineage = diagnostics.get("lineage")
-    if isinstance(lineage, dict):
-        turn_id = _valid_turn_ref(lineage.get("turn_id"))
-        if turn_id:
-            return turn_id
     return ""
 
 

@@ -96,7 +96,7 @@ def test_codebase_search_permissions_do_not_accept_web_or_memory_substitute() ->
     assert payload["diagnostics"]["capability_id"] == "capability.codebase_search"
 
 
-def test_query_planner_splits_symbols_roots_and_noise_terms() -> None:
+def test_query_planner_splits_symbols_roots_and_history_terms() -> None:
     plan = build_codebase_search_plan(
         "检查 backend/harness 的 AgentHarness loop control",
         max_queries=10,
@@ -104,9 +104,12 @@ def test_query_planner_splits_symbols_roots_and_noise_terms() -> None:
     )
 
     assert "backend" in plan.preferred_roots
+    assert "backend/harness" in plan.path_queries
     assert "AgentHarness" in plan.symbol_queries
     assert {"loop", "control"} <= set(plan.text_queries)
+    assert "AgentHarness" in plan.git_history_queries
     assert plan.git_history_queries
+    assert not {"fallback", "legacy", "compat", "intent", "classifier"} & set(plan.text_queries)
 
 
 def test_file_slicer_reads_bounded_context() -> None:

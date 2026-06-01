@@ -6,19 +6,24 @@ from typing import Iterable
 from .models import CodebaseSearchPlan
 
 
-NOISE_TERMS = {
-    "fallback",
-    "legacy",
-    "compat",
-    "compatibility",
-    "recover",
-    "recovery",
-    "intent",
-    "classifier",
-    "runtime",
-    "executor",
-    "policy",
-    "registry",
+STOP_TERMS = {
+    "the",
+    "and",
+    "for",
+    "with",
+    "from",
+    "this",
+    "that",
+    "please",
+    "check",
+    "find",
+    "search",
+    "query",
+    "帮我",
+    "查找",
+    "搜索",
+    "检查",
+    "一下",
 }
 
 
@@ -28,12 +33,12 @@ def build_codebase_search_plan(query: str, *, max_queries: int = 12, include_tes
     symbols = _symbols(normalized, tokens)
     roots = _preferred_roots(normalized, include_tests=include_tests)
     path_queries = _dedupe([item for item in tokens if "/" in item or "\\" in item or "." in item])
-    text_queries = _dedupe([normalized, *symbols, *[item for item in tokens if item.lower() in NOISE_TERMS or len(item) >= 4]])
+    text_queries = _dedupe([normalized, *symbols, *[item for item in tokens if _is_search_term(item)]])
     if not text_queries and normalized:
         text_queries = (normalized,)
     text_queries = text_queries[:max_queries]
     symbol_queries = _dedupe(symbols)[:max_queries]
-    git_history_queries = tuple(item for item in text_queries if item.lower() in NOISE_TERMS or item in symbol_queries)[: max(1, max_queries // 2)]
+    git_history_queries = _dedupe([*symbol_queries, *path_queries, *[item for item in text_queries if _is_history_query(item)]])[: max(1, max_queries // 2)]
     file_globs = _file_globs(normalized, include_tests=include_tests)
     return CodebaseSearchPlan(
         path_queries=tuple(path_queries[:max_queries]),
@@ -57,13 +62,40 @@ def _symbols(value: str, tokens: Iterable[str]) -> list[str]:
             continue
         if re.match(r"^[A-Z][A-Za-z0-9]+(?:[A-Z][A-Za-z0-9]+)*$", item):
             symbols.append(item)
-        elif re.match(r"^[a-zA-Z_][a-zA-Z0-9_]{2,}$", item) and ("_" in item or item.lower() in NOISE_TERMS):
+        elif re.match(r"^[a-zA-Z_][a-zA-Z0-9_]{2,}$", item) and _looks_like_identifier(item):
             symbols.append(item)
         elif re.match(r"^[a-z0-9]+(?:-[a-z0-9]+)+$", item):
             symbols.append(item)
     dotted = re.findall(r"\b[a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)+\b", value)
     symbols.extend(dotted)
     return symbols
+
+
+def _looks_like_identifier(value: str) -> bool:
+    return "_" in value or "." in value or bool(re.search(r"[A-Z]", value[1:])) or value.isupper()
+
+
+def _is_search_term(value: str) -> bool:
+    item = str(value or "").strip()
+    if not item:
+        return False
+    lowered = item.lower()
+    if lowered in STOP_TERMS:
+        return False
+    if "/" in item or "\\" in item:
+        return True
+    if re.match(r"^[\u4e00-\u9fff]{2,}$", item):
+        return True
+    return len(item) >= 4
+
+
+def _is_history_query(value: str) -> bool:
+    item = str(value or "").strip()
+    if not item or len(item) > 80:
+        return False
+    if "/" in item or "\\" in item:
+        return True
+    return _looks_like_identifier(item) or len(item) >= 6
 
 
 def _preferred_roots(value: str, *, include_tests: bool) -> list[str]:

@@ -127,16 +127,40 @@ def _positive_int(value: Any) -> int:
 
 
 def parse_json_object(content: Any) -> dict[str, Any]:
+    payload, _diagnostics = parse_json_object_with_diagnostics(content)
+    return payload
+
+
+def parse_json_object_with_diagnostics(content: Any) -> tuple[dict[str, Any], dict[str, Any]]:
     text = str(content or "").strip()
+    original_text = text
+    unwrapped_markdown = False
     if text.startswith("```"):
         text = text.strip("`").strip()
         if text.lower().startswith("json"):
             text = text[4:].strip()
+        unwrapped_markdown = True
+    diagnostics: dict[str, Any] = {
+        "content_chars": len(original_text),
+        "unwrapped_markdown_fence": unwrapped_markdown,
+        "raw_content_preview": compact_text(original_text, limit=600),
+    }
+    if not text:
+        diagnostics["parse_error"] = "empty_content"
+        return {}, diagnostics
     try:
         parsed = json.loads(text)
-    except Exception:
-        return {}
-    return dict(parsed) if isinstance(parsed, dict) else {}
+    except Exception as exc:
+        diagnostics["parse_error"] = exc.__class__.__name__
+        diagnostics["starts_with"] = text[:24]
+        diagnostics["ends_with"] = text[-24:] if text else ""
+        return {}, diagnostics
+    if not isinstance(parsed, dict):
+        diagnostics["parsed_type"] = type(parsed).__name__
+        diagnostics["parse_error"] = "json_root_not_object"
+        return {}, diagnostics
+    diagnostics["parsed_type"] = "object"
+    return dict(parsed), diagnostics
 
 
 def compact_text(value: Any, *, limit: int = 1200) -> str:

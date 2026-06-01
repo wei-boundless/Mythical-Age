@@ -150,7 +150,7 @@ def _work_progress_projection(work_history_projection: dict[str, Any]) -> dict[s
             "latest_progress": compact_text(work_history_projection.get("latest_progress") or "", limit=300),
             "latest_step_title": compact_text(work_history_projection.get("latest_step_title") or "", limit=120),
             "active_facts": [compact_text(item, limit=180) for item in list(work_history_projection.get("active_facts") or []) if str(item)],
-            "checkpoint": dict(work_history_projection.get("checkpoint") or {}),
+            "historical_work_summary": dict(work_history_projection.get("historical_work_summary") or {}),
             "recent_steps": [
                 drop_empty(
                     {
@@ -158,7 +158,6 @@ def _work_progress_projection(work_history_projection: dict[str, Any]) -> dict[s
                         "title": compact_text(item.get("title") or "", limit=120),
                         "status": str(item.get("status") or ""),
                         "summary": compact_text(item.get("summary") or "", limit=240),
-                        "refs": dict(item.get("refs") or {}),
                     }
                 )
                 for item in dict_tuple(work_history_projection.get("recent_steps"))[-4:]

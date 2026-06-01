@@ -100,20 +100,20 @@ class SearchEvidenceDistiller:
 
 
 class ModelBackedSearchEvidenceDistiller(SearchEvidenceDistiller):
-    def __init__(self, model_runtime: Any, *, fallback: SearchEvidenceDistiller | None = None, max_sources: int = 8) -> None:
+    def __init__(self, model_runtime: Any, *, deterministic_distiller: SearchEvidenceDistiller | None = None, max_sources: int = 8) -> None:
         self.model_runtime = model_runtime
-        self.fallback = fallback or SearchEvidenceDistiller()
+        self.deterministic_distiller = deterministic_distiller or SearchEvidenceDistiller()
         self.max_sources = max(1, int(max_sources or 8))
 
     async def adistill(self, *, query: str, sources: list[dict[str, Any]]) -> DistillationResult:
-        fallback_result = self.fallback.distill(query=query, sources=sources)
+        deterministic_result = self.deterministic_distiller.distill(query=query, sources=sources)
         invoker = getattr(self.model_runtime, "invoke_messages", None)
         if not callable(invoker):
             return DistillationResult(
-                claims=fallback_result.claims,
-                unknowns=(*fallback_result.unknowns, "model_distiller_unavailable"),
-                conflicts=fallback_result.conflicts,
-                method="deterministic_distiller_fallback",
+                claims=deterministic_result.claims,
+                unknowns=(*deterministic_result.unknowns, "model_distiller_unavailable"),
+                conflicts=deterministic_result.conflicts,
+                method="deterministic_distiller_recovery",
             )
         messages = [
             {"role": "system", "content": EVIDENCE_DISTILLER_PROMPT},
@@ -123,23 +123,23 @@ class ModelBackedSearchEvidenceDistiller(SearchEvidenceDistiller):
             response = await invoker(messages)
         except Exception as exc:
             return DistillationResult(
-                claims=fallback_result.claims,
-                unknowns=(*fallback_result.unknowns, f"model_distiller_failed:{exc.__class__.__name__}"),
-                conflicts=fallback_result.conflicts,
-                method="deterministic_distiller_fallback",
+                claims=deterministic_result.claims,
+                unknowns=(*deterministic_result.unknowns, f"model_distiller_failed:{exc.__class__.__name__}"),
+                conflicts=deterministic_result.conflicts,
+                method="deterministic_distiller_recovery",
             )
         parsed = _parse_model_distillation(_stringify_content(getattr(response, "content", response)), sources=sources)
         if not parsed.claims:
             return DistillationResult(
-                claims=fallback_result.claims,
-                unknowns=(*fallback_result.unknowns, "model_distiller_returned_no_claims"),
-                conflicts=fallback_result.conflicts,
-                method="deterministic_distiller_fallback",
+                claims=deterministic_result.claims,
+                unknowns=(*deterministic_result.unknowns, "model_distiller_returned_no_claims"),
+                conflicts=deterministic_result.conflicts,
+                method="deterministic_distiller_recovery",
             )
         return parsed
 
     def distill(self, *, query: str, sources: list[dict[str, Any]]) -> DistillationResult:
-        return self.fallback.distill(query=query, sources=sources)
+        return self.deterministic_distiller.distill(query=query, sources=sources)
 
 
 def _extract_claim(*, title: str, excerpt: str) -> str:

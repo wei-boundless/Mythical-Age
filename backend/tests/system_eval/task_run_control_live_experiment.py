@@ -16,7 +16,6 @@ PROJECT_ROOT = BACKEND_DIR.parent
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-from harness.loop.task_checkout import checkout_task_run_for_resume
 from harness.loop.task_executor import (
     request_task_run_pause,
     resume_paused_task_run,
@@ -24,7 +23,6 @@ from harness.loop.task_executor import (
     task_run_control_state,
 )
 from harness.loop.task_lifecycle import TaskLifecycleRecord, TaskRunContract
-from harness.loop.work_rollout import work_rollout_summary
 from runtime.shared.models import TaskRun
 from tests.support.runtime_stubs import build_harness_runtime
 
@@ -83,7 +81,7 @@ def _seed_task(runtime: Any, *, task_run_id: str, session_id: str) -> str:
         contract_id=f"task-contract:{task_run_id.replace(':', '-')}",
         contract_source="task_run_control_system_eval",
         user_visible_goal="验证 TaskRun 控制面。",
-        task_run_goal="验证 TaskRun 可以在安全边界暂停、继续、停止和 checkout 恢复。",
+        task_run_goal="验证 TaskRun 可以在安全边界暂停、继续和停止；停止后的 terminal 任务不能创建新的子任务恢复。",
         completion_criteria=("控制动作必须保持 TaskRun 状态一致且可观测",),
     )
     contract_ref = host.runtime_objects.put_object("task_run_contract", contract.contract_id, contract.to_dict())
@@ -225,26 +223,24 @@ async def _case_pause_resume_same_task_run() -> dict[str, Any]:
     }
 
 
-async def _case_stop_checkout_resume() -> dict[str, Any]:
+async def _case_stop_terminal_does_not_create_child_task_run() -> dict[str, Any]:
     model = GateControlledTaskModelRuntime(
         [
             _action_request(action_type="respond", final_answer="这次调用会被 stop 边界拦截。"),
-            _action_request(action_type="respond", final_answer="checkout child 完成。"),
         ]
     )
     runtime = build_harness_runtime(model_runtime=model)
     host = runtime.single_agent_runtime_host
-    source_task_run_id = _seed_task(runtime, task_run_id=f"taskrun:control-stop-checkout-{uuid.uuid4().hex[:6]}", session_id="session-control-stop-checkout")
+    source_task_run_id = _seed_task(runtime, task_run_id=f"taskrun:control-stop-terminal-{uuid.uuid4().hex[:6]}", session_id="session-control-stop-terminal")
 
     source_executor = asyncio.create_task(runtime.execute_task_run(source_task_run_id, max_steps=3))
     await asyncio.wait_for(model.started_event(1).wait(), timeout=10)
-    stop_result = stop_task_run(host, source_task_run_id, reason="系统实验：停止并 checkout")
+    stop_result = stop_task_run(host, source_task_run_id, reason="系统实验：停止并保持 terminal")
     stop_requested_task = host.state_index.get_task_run(source_task_run_id)
     model.release_event(1).set()
     stopped_result = await asyncio.wait_for(source_executor, timeout=20)
     source_task = host.state_index.get_task_run(source_task_run_id)
     source_monitor = host.get_task_run_live_monitor(source_task_run_id)
-    source_rollout = work_rollout_summary(host, source_task_run_id)
 
     if stop_result.get("ok") is not True:
         raise AssertionError(f"stop request rejected: {stop_result}")
@@ -256,64 +252,30 @@ async def _case_stop_checkout_resume() -> dict[str, Any]:
         raise AssertionError("source task did not end as user_aborted")
     if dict(source_monitor or {}).get("status") != "aborted":
         raise AssertionError(f"source monitor did not expose aborted state: {source_monitor}")
-
-    checkout_result = checkout_task_run_for_resume(
-        host,
-        source_task_run_id,
-        user_instruction="从停止处恢复前先检查现有结果。",
-        turn_id="turn:control-checkout",
-    )
-    child_task = dict(checkout_result.get("task_run") or {})
-    child_task_run_id = str(child_task.get("task_run_id") or "")
-    if checkout_result.get("ok") is not True or not child_task_run_id:
-        raise AssertionError(f"checkout resume failed: {checkout_result}")
-    if not child_task_run_id.startswith(f"{source_task_run_id}:checkout:"):
-        raise AssertionError(f"checkout child id does not preserve source lineage: {child_task_run_id}")
-
-    child_executor = asyncio.create_task(runtime.execute_task_run(child_task_run_id, max_steps=3))
-    await asyncio.wait_for(model.started_event(2).wait(), timeout=10)
-    model.release_event(2).set()
-    child_completed_result = await asyncio.wait_for(child_executor, timeout=20)
-    child_after = host.state_index.get_task_run(child_task_run_id)
-    child_monitor = host.get_task_run_live_monitor(child_task_run_id)
-    child_rollout = work_rollout_summary(host, child_task_run_id)
     source_trace = _trace(host, source_task_run_id)
-    child_trace = _trace(host, child_task_run_id)
-    aggregate_packet_ids = [*_packet_ids(source_trace), *_packet_ids(child_trace)]
-    aggregate_action_ids = [*_action_request_ids(source_trace), *_action_request_ids(child_trace)]
-    _assert_unique(aggregate_packet_ids, "stop/checkout packet_id")
-    _assert_unique(aggregate_action_ids, "stop/checkout action_request_id")
-
-    if child_completed_result.get("ok") is not True:
-        raise AssertionError(f"checkout child did not complete: {child_completed_result}")
-    if child_after is None or child_after.status != "completed":
-        raise AssertionError("checkout child did not reach completed")
-    lineage = dict(child_task.get("diagnostics") or {}).get("lineage") or {}
-    if dict(lineage).get("parent_task_run_id") != source_task_run_id:
-        raise AssertionError(f"checkout lineage missing parent: {lineage}")
-    if dict(child_rollout.get("lineage") or {}).get("parent_task_run_id") != source_task_run_id:
-        raise AssertionError("checkout rollout did not preserve parent lineage")
-    if int(dict(child_rollout.get("lineage") or {}).get("forked_from_event_offset") or -1) < 0:
-        raise AssertionError("checkout rollout did not preserve a fork event offset")
+    event_types = _event_types(source_trace)
+    packet_ids = _packet_ids(source_trace)
+    action_ids = _action_request_ids(source_trace)
+    _assert_unique(packet_ids, "stop terminal packet_id")
+    _assert_unique(action_ids, "stop terminal action_request_id")
+    created_children = [
+        task_run
+        for task_run in host.state_index.list_task_runs()
+        if str(dict(getattr(task_run, "diagnostics", {}) or {}).get("parent_task_run_id") or "") == source_task_run_id
+    ]
+    if created_children:
+        raise AssertionError("terminal stopped task created an unexpected child task")
     return {
-        "case": "stop_checkout_resume",
+        "case": "stop_terminal_does_not_create_child_task_run",
         "passed": True,
         "source_task_run_id": source_task_run_id,
-        "child_task_run_id": child_task_run_id,
         "stop_result": stop_result,
         "stopped_result": stopped_result,
-        "checkout_result": checkout_result,
-        "child_completed_result": child_completed_result,
         "source_monitor": source_monitor,
-        "child_monitor": child_monitor,
-        "source_rollout": source_rollout,
-        "child_rollout": child_rollout,
-        "source_event_types": _event_types(source_trace),
-        "child_event_types": _event_types(child_trace),
-        "packet_ids": aggregate_packet_ids,
-        "action_request_ids": aggregate_action_ids,
+        "source_event_types": event_types,
+        "packet_ids": packet_ids,
+        "action_request_ids": action_ids,
         "source_trace": source_trace,
-        "child_trace": child_trace,
     }
 
 
@@ -323,7 +285,7 @@ async def _run_experiment(output_root: Path) -> dict[str, Any]:
     output_dir.mkdir(parents=True, exist_ok=True)
     cases = [
         await _case_pause_resume_same_task_run(),
-        await _case_stop_checkout_resume(),
+        await _case_stop_terminal_does_not_create_child_task_run(),
     ]
     aggregate_packet_ids = [packet_id for case in cases for packet_id in list(case.get("packet_ids") or [])]
     aggregate_action_ids = [action_id for case in cases for action_id in list(case.get("action_request_ids") or [])]
@@ -340,8 +302,7 @@ async def _run_experiment(output_root: Path) -> dict[str, Any]:
             "resume_continues_same_task_run": True,
             "duplicate_resume_executor_rejected": True,
             "running_stop_reaches_user_aborted_boundary": True,
-            "checkout_resume_preserves_lineage": True,
-            "checkout_child_can_complete": True,
+            "terminal_stop_does_not_create_child_task_run": True,
             "packet_and_action_ids_unique": True,
         },
         "summary": {

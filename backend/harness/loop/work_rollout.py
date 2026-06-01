@@ -13,7 +13,6 @@ WorkRolloutItemType = Literal[
     "user_instruction",
     "pause_boundary",
     "interrupted_boundary",
-    "checkout_started",
     "final_response",
 ]
 
@@ -231,76 +230,6 @@ def work_rollout_summary(runtime_host: Any, task_run: Any | str) -> dict[str, An
         "artifact_refs": [dict(item) for item in record.artifact_refs],
         "authority": "runtime.work_rollout_summary",
     }
-
-
-def clone_work_rollout_for_checkout(
-    runtime_host: Any,
-    *,
-    source_task_run: Any,
-    child_task_run: Any,
-    fork_reason: str,
-    user_instruction: str = "",
-    turn_id: str = "",
-) -> WorkRolloutRecord:
-    source = ensure_work_rollout(runtime_host, source_task_run, status=str(getattr(source_task_run, "status", "") or "aborted"))
-    now = time.time()
-    forked_from_event_offset = source.latest_event_offset
-    if forked_from_event_offset < 0:
-        forked_from_event_offset = _int_value(getattr(source_task_run, "latest_event_offset", -1), -1)
-    forked_from_checkpoint_ref = source.latest_checkpoint_ref or str(getattr(source_task_run, "latest_checkpoint_ref", "") or "")
-    lineage = {
-        **dict(source.lineage or {}),
-        "parent_task_run_id": str(getattr(source_task_run, "task_run_id", "") or ""),
-        "root_task_run_id": source.root_task_run_id or str(getattr(source_task_run, "task_run_id", "") or ""),
-        "fork_reason": fork_reason,
-        "forked_from_event_offset": forked_from_event_offset,
-        "forked_from_checkpoint_ref": forked_from_checkpoint_ref,
-        "source_rollout_ref": work_rollout_ref(str(getattr(source_task_run, "task_run_id", "") or "")),
-        "turn_id": str(turn_id or ""),
-        "authority": "runtime.work_checkout_lineage",
-    }
-    child = WorkRolloutRecord(
-        rollout_id=f"workrollout:{getattr(child_task_run, 'task_run_id', '')}",
-        session_id=str(getattr(child_task_run, "session_id", "") or ""),
-        logical_work_id=source.logical_work_id,
-        root_task_run_id=source.root_task_run_id or str(getattr(source_task_run, "task_run_id", "") or ""),
-        current_task_run_id=str(getattr(child_task_run, "task_run_id", "") or ""),
-        status=str(getattr(child_task_run, "status", "") or "waiting_executor"),
-        lineage=lineage,
-        model_visible_history=source.model_visible_history,
-        progress_timeline=source.progress_timeline,
-        latest_progress=source.latest_progress,
-        latest_step_title=source.latest_step_title,
-        agent_brief_output=source.agent_brief_output,
-        latest_event_offset=forked_from_event_offset,
-        latest_checkpoint_ref=forked_from_checkpoint_ref,
-        artifact_refs=source.artifact_refs,
-        runtime_fingerprint=dict(source.runtime_fingerprint or {}),
-        created_at=now,
-        updated_at=now,
-    )
-    _put_work_rollout(runtime_host, child)
-    append_work_rollout_item(
-        runtime_host,
-        task_run=child_task_run,
-        item_type="checkout_started",
-        title="恢复处理",
-        status="waiting_executor",
-        summary="已根据上次中断位置建立新的继续处理尝试。",
-        agent_brief_output=user_instruction,
-        refs={
-            "parent_task_run_ref": str(getattr(source_task_run, "task_run_id", "") or ""),
-            "source_rollout_ref": work_rollout_ref(str(getattr(source_task_run, "task_run_id", "") or "")),
-            "turn_ref": str(turn_id or ""),
-        },
-        payload={
-            "fork_reason": fork_reason,
-            "user_instruction": user_instruction,
-            "forked_from_event_offset": forked_from_event_offset,
-            "forked_from_checkpoint_ref": forked_from_checkpoint_ref,
-        },
-    )
-    return load_work_rollout(runtime_host, str(getattr(child_task_run, "task_run_id", "") or "")) or child
 
 
 def _put_work_rollout(runtime_host: Any, record: WorkRolloutRecord) -> str:

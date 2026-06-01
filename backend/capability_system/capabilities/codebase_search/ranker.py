@@ -56,11 +56,6 @@ def _score(path: str, evidence_kind: str, line: str, snippet: str) -> tuple[floa
         "doc": 0.35,
     }.get(evidence_kind, 0.5)
     lowered_path = path.lower()
-    lowered_text = f"{line}\n{snippet}".lower()
-    if any(part in lowered_path for part in ("runtime", "executor", "assembly", "registry", "policy")):
-        score += 0.12
-    if any(term in lowered_text for term in ("fallback", "legacy", "compat", "intent", "classifier", "recover")):
-        score += 0.08
     if any(part in lowered_path for part in ("node_modules", ".next", "dist/", "build/", "cache/")):
         score -= 0.5
     if lowered_path.startswith("storage/") and lowered_path.endswith(".json"):

@@ -52,6 +52,17 @@ class StateIndexStub:
     def list_task_runs(self):
         return list(self.task_runs)
 
+    def list_recent_task_runs(self, limit: int = 240):
+        return sorted(
+            list(self.task_runs),
+            key=lambda item: float(item.updated_at or item.created_at or 0.0),
+            reverse=True,
+        )[:limit]
+
+    def get_task_run(self, task_run_id: str):
+        task_run_id = str(task_run_id or "")
+        return next((item for item in self.task_runs if item.task_run_id == task_run_id), None)
+
     def list_task_agent_runs(self, _task_run_id: str):
         return []
 
@@ -300,12 +311,12 @@ def test_health_task_record_maintenance_protects_failed_without_report_and_delet
     assert event_log.deleted_task_run_ids == ["taskrun:old-completed"]
 
 
-def test_health_governance_reports_rollout_and_checkout_lineage_risks() -> None:
+def test_health_governance_reports_resumable_rollout_risks_without_terminal_recovery_branch_risks() -> None:
     now = time.time()
-    interrupted_without_checkout = TaskRun(
-        task_run_id="taskrun:interrupted",
+    stopped_terminal = TaskRun(
+        task_run_id="taskrun:stopped-terminal",
         session_id="session:health-rollout",
-        task_id="task.interrupted",
+        task_id="task.stopped-terminal",
         execution_runtime_kind="single_agent_task",
         status="aborted",
         terminal_reason="user_aborted",
@@ -322,54 +333,32 @@ def test_health_governance_reports_rollout_and_checkout_lineage_risks() -> None:
         created_at=now - 2000,
         updated_at=now - 1900,
     )
-    failed_checkout_a = TaskRun(
-        task_run_id="taskrun:root:checkout:a",
+    failed_terminal = TaskRun(
+        task_run_id="taskrun:failed-terminal",
         session_id="session:health-rollout",
-        task_id="task.root.checkout.a",
-        execution_runtime_kind="single_agent_task",
-        status="failed",
-        terminal_reason="model_call_recovery_required",
-        created_at=now - 2000,
-        updated_at=now - 1800,
-        diagnostics={
-            "origin_kind": "checkout_resume",
-            "root_task_run_id": "taskrun:root",
-            "parent_task_run_id": "taskrun:root",
-            "lineage": {"root_task_run_id": "taskrun:root", "parent_task_run_id": "taskrun:root"},
-        },
-    )
-    failed_checkout_b = TaskRun(
-        task_run_id="taskrun:root:checkout:b",
-        session_id="session:health-rollout",
-        task_id="task.root.checkout.b",
+        task_id="task.failed-terminal",
         execution_runtime_kind="single_agent_task",
         status="failed",
         terminal_reason="model_call_recovery_required",
         created_at=now - 1700,
         updated_at=now - 1600,
         diagnostics={
-            "origin_kind": "checkout_resume",
-            "root_task_run_id": "taskrun:root",
-            "parent_task_run_id": "taskrun:root",
-            "lineage": {"root_task_run_id": "taskrun:root", "parent_task_run_id": "taskrun:root"},
+            "recoverable_error": {"retryable": True},
+            "recovery_action": "rerun_task_executor",
         },
     )
-    state_index = StateIndexStub([interrupted_without_checkout, missing_rollout, failed_checkout_a, failed_checkout_b])
+    state_index = StateIndexStub([stopped_terminal, missing_rollout, failed_terminal])
     event_log = EventLogStub({
-        "taskrun:interrupted": [EventStub("task_run_finished", {"terminal_reason": "user_aborted"})],
+        "taskrun:stopped-terminal": [EventStub("task_run_finished", {"terminal_reason": "user_aborted"})],
         "taskrun:missing-rollout": [EventStub("step_summary_recorded", {"summary": "waiting"})],
-        "taskrun:root:checkout:a": [EventStub("loop_error", {"error": "failed"})],
-        "taskrun:root:checkout:b": [EventStub("loop_error", {"error": "failed"})],
+        "taskrun:failed-terminal": [EventStub("loop_error", {"error": "failed"})],
     })
     monitor_projector = RuntimeMonitorProjector(event_log)
     runtime_host = SimpleNamespace(
         state_index=state_index,
         event_log=event_log,
         monitor_projector=monitor_projector,
-        runtime_objects=RuntimeObjectsStub({
-            "rtobj:work_rollout:taskrun_root_checkout_a": {"rollout_id": "workrollout:a"},
-            "rtobj:work_rollout:taskrun_root_checkout_b": {"rollout_id": "workrollout:b"},
-        }),
+        runtime_objects=RuntimeObjectsStub(),
         prompt_accounting_ledger=None,
         list_global_live_monitor=lambda limit: monitor_projector.build_global_monitor(state_index.list_task_runs(), now=now, limit=limit),
     )
@@ -378,13 +367,13 @@ def test_health_governance_reports_rollout_and_checkout_lineage_risks() -> None:
     risks = HealthGovernanceBuilder(runtime).build_risks(limit=10)["risks"]
     risk_codes = {str(item.get("risk_code") or "") for item in risks}
 
-    assert "interrupted_without_checkout" in risk_codes
     assert "missing_rollout_for_resumable_task" in risk_codes
     assert "stale_waiting_executor" in risk_codes
-    assert "repeated_checkout_failure" in risk_codes
+    assert "interrupted_without_recovery_branch" not in risk_codes
+    assert "repeated_terminal_recovery_branch_failure" not in risk_codes
 
 
-def test_health_task_record_maintenance_protects_checkout_lineage_records() -> None:
+def test_health_task_record_maintenance_protects_explicit_parent_lineage_records() -> None:
     now = time.time()
     source = TaskRun(
         task_run_id="taskrun:lineage-source",
@@ -395,14 +384,13 @@ def test_health_task_record_maintenance_protects_checkout_lineage_records() -> N
         updated_at=now - 190000,
     )
     child = TaskRun(
-        task_run_id="taskrun:lineage-source:checkout:a",
+        task_run_id="taskrun:lineage-child",
         session_id="session:maintenance-lineage",
         task_id="task.lineage.child",
         status="completed",
         created_at=now - 200000,
         updated_at=now - 190000,
         diagnostics={
-            "origin_kind": "checkout_resume",
             "root_task_run_id": "taskrun:lineage-source",
             "parent_task_run_id": "taskrun:lineage-source",
             "lineage": {
@@ -414,7 +402,7 @@ def test_health_task_record_maintenance_protects_checkout_lineage_records() -> N
     state_index = StateIndexStub([source, child])
     event_log = EventLogStub({
         "taskrun:lineage-source": [EventStub("step_summary_recorded", {"summary": "done"})],
-        "taskrun:lineage-source:checkout:a": [EventStub("step_summary_recorded", {"summary": "done"})],
+        "taskrun:lineage-child": [EventStub("step_summary_recorded", {"summary": "done"})],
     })
     runtime_host = SimpleNamespace(
         state_index=state_index,
@@ -431,7 +419,7 @@ def test_health_task_record_maintenance_protects_checkout_lineage_records() -> N
                     "resource_class": "static",
                 },
                 {
-                    "task_run_id": "taskrun:lineage-source:checkout:a",
+                    "task_run_id": "taskrun:lineage-child",
                     "status": "completed",
                     "bucket": "completed",
                     "resource_class": "static",
@@ -442,13 +430,13 @@ def test_health_task_record_maintenance_protects_checkout_lineage_records() -> N
     runtime = SimpleNamespace(harness_runtime=SimpleNamespace(single_agent_runtime_host=runtime_host))
 
     result = HealthGovernanceBuilder(runtime).prune_task_records(
-        task_run_ids=["taskrun:lineage-source", "taskrun:lineage-source:checkout:a"],
+        task_run_ids=["taskrun:lineage-source", "taskrun:lineage-child"],
         dry_run=True,
         min_age_seconds=0,
     )
     skipped = {item["task_run_id"]: item["protection_reasons"] for item in result["skipped"]}
 
     assert result["eligible_task_run_ids"] == []
-    assert set(result["protected_task_run_ids"]) == {"taskrun:lineage-source", "taskrun:lineage-source:checkout:a"}
+    assert set(result["protected_task_run_ids"]) == {"taskrun:lineage-source", "taskrun:lineage-child"}
     assert "task_lineage_parent" in skipped["taskrun:lineage-source"]
-    assert "task_lineage_record" in skipped["taskrun:lineage-source:checkout:a"]
+    assert "task_lineage_record" in skipped["taskrun:lineage-child"]

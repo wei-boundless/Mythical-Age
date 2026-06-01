@@ -31,7 +31,7 @@ def main() -> int:
     parser.add_argument("--model", default="deepseek-v4-pro")
     parser.add_argument("--thinking-mode", default="disabled", choices=("disabled", "enabled"))
     parser.add_argument("--reasoning-effort", default="high", choices=("high", "max"))
-    parser.add_argument("--max-output-tokens", type=int, default=1024)
+    parser.add_argument("--max-output-tokens", type=int, default=16384)
     parser.add_argument("--min-provider-calls", type=int, default=4)
     parser.add_argument("--stop-after-provider-calls", type=int, default=0)
     parser.add_argument("--timeout-seconds", type=float, default=300.0)
@@ -84,7 +84,7 @@ async def _run(args: argparse.Namespace) -> dict[str, Any]:
         "provider": str(args.provider or "deepseek"),
         "model": str(args.model or "deepseek-v4-pro"),
         "credential_ref": f"provider:{str(args.provider or 'deepseek')}:primary",
-        "max_output_tokens": max(1, int(args.max_output_tokens or 1024)),
+        "max_output_tokens": max(1, int(args.max_output_tokens or 16384)),
         "timeout_seconds": float(getattr(settings, "llm_timeout_seconds", 45.0) or 45.0),
         "long_output_timeout_seconds": float(getattr(settings, "llm_long_output_timeout_seconds", 180.0) or 180.0),
         "max_retries": 0,
