@@ -8,6 +8,7 @@ from harness.loop.active_work import build_active_work_turn_context, decide_acti
 
 TurnRouteKind = Literal[
     "plain_conversation",
+    "agent_native_turn",
     "agent_action",
     "active_work_control",
     "explicit_contract_task",
@@ -100,6 +101,16 @@ def build_turn_route(
             diagnostics={"explicit_contract_present": False},
         )
     if not bool(capabilities.get("requires_json_action_protocol") is True):
+        if bool(capabilities.get("may_request_task_run") is True) and not bool(capabilities.get("may_use_subagents") is True):
+            return TurnRoute(
+                route_kind="agent_native_turn",
+                invocation_kind="agent_native_turn",
+                dispatch_target="query_runtime.agent_native_turn",
+                reason="assistant_message_first_with_task_run_action",
+                control_capabilities=capabilities,
+                monitor_policy={"record_task_monitor": False, "record_turn_monitor": False},
+                diagnostics={"explicit_contract_present": False},
+            )
         return TurnRoute(
             route_kind="plain_conversation",
             invocation_kind="plain_conversation",

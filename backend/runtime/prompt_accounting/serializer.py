@@ -48,7 +48,6 @@ class CanonicalPromptSerializer:
         request_payload = {
             "messages": normalized_messages,
             "tools": normalized_tools,
-            "metadata": dict(metadata or {}),
         }
         canonical = canonical_json(request_payload)
         bindings = _model_request_bindings(model_request)

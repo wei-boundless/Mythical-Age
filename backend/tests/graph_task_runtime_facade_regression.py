@@ -1275,6 +1275,114 @@ def test_graph_resume_requeues_blocked_agent_node_after_recoverable_model_failur
     assert "draft" not in completed_state["active_work_orders"]
 
 
+def test_graph_node_result_refs_remain_unique_for_long_retry_ids() -> None:
+    model_runtime = TimeoutThenTaskExecutionModelRuntimeStub()
+    runtime = QueryRuntime(
+        base_dir=isolated_backend_root("graph-task-long-result-ref-"),
+        settings_service=PrimarySettingsStub(),
+        session_manager=InMemorySessionManagerStub(),
+        memory_facade=QueryRuntimeMemoryFacadeStub(),
+        retrieval_service=SimpleNamespace(),
+        tool_runtime=EmptyToolRuntimeStub(),
+        skill_registry=EmptySkillRegistryStub(),
+        permission_service=DefaultPermissionStub(),
+        model_runtime=model_runtime,
+    )
+    registry = TaskFlowRegistry(runtime.base_dir)
+    long_node_id = "graph_module.design_init::memory_commit_world_with_extra_long_identifier_for_retry_collision_check"
+    graph = registry.upsert_task_graph(
+        graph_id="graph.test.long_result_ref_retry_collision",
+        title="Long Result Ref Retry Collision",
+        graph_kind="multi_agent",
+        entry_node_id=long_node_id,
+        output_node_id=long_node_id,
+        nodes=(
+            {"node_id": long_node_id, "node_type": "agent", "title": "长节点", "task_id": "task.test.long.retry", "agent_id": "agent:0"},
+        ),
+        runtime_policy={"coordinator_agent_id": "agent:0"},
+        publish_state="published",
+        enabled=True,
+    )
+    graph_config = publish_graph_harness_config_for_graph(base_dir=runtime.base_dir, graph_id=graph.graph_id)
+    start = runtime.graph_harness.start_run(session_id="session:test", task_id="", graph_config=graph_config)
+
+    first = asyncio.run(
+        runtime.graph_harness.run_until_idle(
+            graph_config=graph_config,
+            graph_run_id=start.graph_run.graph_run_id,
+            max_node_executions=1,
+            max_node_steps=1,
+        )
+    )
+    first_state = runtime.graph_harness.get_checkpoint_state(start.graph_run.graph_run_id)
+    first_ref = first_state["result_index"][long_node_id]["result_ref"]
+    runtime.graph_harness.resume_run(graph_config=graph_config, graph_run_id=start.graph_run.graph_run_id)
+    second = asyncio.run(
+        runtime.graph_harness.run_until_idle(
+            graph_config=graph_config,
+            graph_run_id=start.graph_run.graph_run_id,
+            max_node_executions=1,
+            max_node_steps=1,
+        )
+    )
+    second_state = runtime.graph_harness.get_checkpoint_state(start.graph_run.graph_run_id)
+    second_ref = second_state["result_index"][long_node_id]["result_ref"]
+
+    assert first.status == "blocked"
+    assert second.executed_work_order_count == 1
+    assert first_ref != second_ref
+    assert _runtime_object_payload(runtime, first_ref)["status"] == "blocked"
+    assert _runtime_object_payload(runtime, second_ref)["status"] == "completed"
+
+
+def test_graph_resume_does_not_requeue_nonrecoverable_blocked_node() -> None:
+    runtime = _task_execution_runtime("graph-task-nonrecoverable-blocked-")
+    registry = TaskFlowRegistry(runtime.base_dir)
+    graph = registry.upsert_task_graph(
+        graph_id="graph.test.nonrecoverable_blocked",
+        title="Nonrecoverable Blocked",
+        graph_kind="multi_agent",
+        entry_node_id="draft",
+        output_node_id="draft",
+        nodes=(
+            {"node_id": "draft", "node_type": "agent", "title": "起草", "task_id": "task.test.draft", "agent_id": "agent:0"},
+        ),
+        runtime_policy={"coordinator_agent_id": "agent:0"},
+        publish_state="published",
+        enabled=True,
+    )
+    graph_config = publish_graph_harness_config_for_graph(base_dir=runtime.base_dir, graph_id=graph.graph_id)
+    start = runtime.graph_harness.start_run(session_id="session:test", task_id="", graph_config=graph_config)
+    order = start.node_work_orders[0]
+    blocked_result = NodeResultEnvelope(
+        result_id=f"nresult:test:{order.work_order_id}:nonrecoverable",
+        graph_run_id=order.graph_run_id,
+        task_run_id=order.task_run_id,
+        node_id=order.node_id,
+        work_order_id=order.work_order_id,
+        executor_type=order.executor_type,
+        status="blocked",
+        outputs={},
+        error={"reason": "loop_continue_node_missing"},
+    )
+
+    runtime.graph_harness.accept_node_result(
+        graph_config=graph_config,
+        graph_run_id=start.graph_run.graph_run_id,
+        result=blocked_result,
+    )
+    resumed = runtime.graph_harness.resume_run(
+        graph_config=graph_config,
+        graph_run_id=start.graph_run.graph_run_id,
+    )
+
+    assert resumed.reason == "blocked_not_recoverable"
+    assert resumed.node_work_orders == ()
+    assert resumed.loop_state is not None
+    assert resumed.loop_state.status == "blocked"
+    assert resumed.loop_state.node_states["draft"]["status"] == "blocked"
+
+
 def test_graph_harness_executes_agent_work_order_and_advances_loop() -> None:
     runtime = QueryRuntime(
         base_dir=isolated_backend_root("graph-task-runtime-execute-work-order-"),

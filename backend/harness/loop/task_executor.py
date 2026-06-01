@@ -1188,6 +1188,7 @@ async def _invoke_task_model_action(
                 "invocation_index": invocation_index,
                 "source": "harness.loop.task_executor.model_action",
                 "segment_plan": dict(getattr(packet, "segment_plan", {}) or {}),
+                "prompt_manifest": dict(dict(getattr(packet, "diagnostics", {}) or {}).get("prompt_manifest") or {}),
             },
         ),
         timeout=timeout_seconds,

@@ -901,6 +901,7 @@ async def _invoke_model_action(
                 "invocation_index": invocation_index,
                 "source": "harness.loop.agent_turn.model_action",
                 "segment_plan": dict(getattr(packet, "segment_plan", {}) or {}),
+                "prompt_manifest": dict(dict(getattr(packet, "diagnostics", {}) or {}).get("prompt_manifest") or {}),
             },
         ),
         timeout=timeout_seconds,

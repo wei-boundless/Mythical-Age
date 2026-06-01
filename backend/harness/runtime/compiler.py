@@ -185,6 +185,10 @@ class RuntimeCompiler:
             volatile_state_refs=("history", "user_message"),
         ).to_dict()
         prompt_manifest["segment_plan_ref"] = segment_plan.segment_plan_id
+        prompt_manifest["context_window"] = _context_window_report(
+            session_context=session_context,
+            history=history,
+        )
         _attach_model_message_metrics(prompt_manifest, model_messages=model_messages, segment_plan=segment_plan.to_dict())
         packet = RuntimeInvocationPacket(
             packet_id=packet_id,
@@ -412,6 +416,11 @@ class RuntimeCompiler:
         ).to_dict()
         prompt_manifest["segment_plan_ref"] = segment_plan.segment_plan_id
         prompt_manifest["dynamic_context_report"] = dynamic_context.to_report_dict()
+        prompt_manifest["context_window"] = _context_window_report(
+            session_context=session_context,
+            history=history,
+            dynamic_context=dynamic_context,
+        )
         _attach_model_message_metrics(prompt_manifest, model_messages=model_messages, segment_plan=segment_plan.to_dict())
         packet = RuntimeInvocationPacket(
             packet_id=packet_id,
@@ -695,6 +704,11 @@ class RuntimeCompiler:
         ).to_dict()
         prompt_manifest["segment_plan_ref"] = segment_plan.segment_plan_id
         prompt_manifest["dynamic_context_report"] = dynamic_context.to_report_dict()
+        prompt_manifest["context_window"] = _context_window_report(
+            session_context={},
+            history=[],
+            dynamic_context=dynamic_context,
+        )
         _attach_model_message_metrics(prompt_manifest, model_messages=model_messages, segment_plan=segment_plan.to_dict())
         packet = RuntimeInvocationPacket(
             packet_id=packet_id,
@@ -925,6 +939,11 @@ class RuntimeCompiler:
         ).to_dict()
         prompt_manifest["segment_plan_ref"] = segment_plan.segment_plan_id
         prompt_manifest["dynamic_context_report"] = dynamic_context.to_report_dict()
+        prompt_manifest["context_window"] = _context_window_report(
+            session_context=session_context,
+            history=history,
+            dynamic_context=dynamic_context,
+        )
         _attach_model_message_metrics(prompt_manifest, model_messages=model_messages, segment_plan=segment_plan.to_dict())
         packet = RuntimeInvocationPacket(
             packet_id=packet_id,
@@ -1235,6 +1254,41 @@ def _attach_model_message_metrics(
         and _valid_message_index(segment.get("model_message_index"), message_chars)
     )
     prompt_manifest["token_estimate"] = token_estimate
+
+
+def _context_window_report(
+    *,
+    session_context: dict[str, Any] | None,
+    history: list[dict[str, Any]] | tuple[dict[str, Any], ...],
+    dynamic_context: DynamicContextProjection | None = None,
+) -> dict[str, Any]:
+    session_payload = dict(session_context or {})
+    compressed = str(session_payload.get("compressed_context") or session_payload.get("compressed_summary") or "").strip()
+    dynamic_report = dynamic_context.to_report_dict() if dynamic_context is not None else {}
+    volatile_request = dict(getattr(dynamic_context, "volatile_request_projection", {}) or {}) if dynamic_context is not None else {}
+    history_projection = dict(volatile_request.get("history") or {})
+    omitted_history = dict(history_projection.get("omitted_history") or {})
+    replacement_refs = [
+        str(item or "")
+        for item in list(dynamic_report.get("context_refs") or [])
+        if str(item or "").startswith("replacement-history:")
+    ]
+    raw_history = [dict(item) for item in list(history or []) if isinstance(item, dict)]
+    recent_turns = [dict(item) for item in list(history_projection.get("recent_turns") or []) if isinstance(item, dict)]
+    return _drop_empty_payload(
+        {
+            "compressed_summary_hash": _stable_json_hash(compressed) if compressed else "",
+            "compressed_summary_present": bool(compressed),
+            "replacement_history_ref": replacement_refs[0] if replacement_refs else "",
+            "replacement_history_present": bool(replacement_refs),
+            "raw_history_message_count": len(raw_history),
+            "recent_history_message_count": len(recent_turns),
+            "omitted_history_message_count": _safe_int(omitted_history.get("turn_count")),
+            "budget_report": dict(dynamic_report.get("budget_report") or {}),
+            "dynamic_context_diagnostics": dict(dynamic_report.get("diagnostics") or {}),
+            "authority": "harness.runtime.compiler.context_window_report",
+        }
+    )
 
 
 def _valid_message_index(index: Any, message_chars: list[int]) -> bool:
@@ -2328,6 +2382,13 @@ def _drop_empty_payload(payload: dict[str, Any]) -> dict[str, Any]:
         for key, value in payload.items()
         if value not in ("", None, [], {})
     }
+
+
+def _safe_int(value: Any) -> int:
+    try:
+        return max(0, int(value or 0))
+    except (TypeError, ValueError):
+        return 0
 
 
 def _artifact_root(environment_payload: dict[str, Any]) -> str:

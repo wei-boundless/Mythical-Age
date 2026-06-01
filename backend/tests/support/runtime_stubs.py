@@ -117,6 +117,17 @@ class SingleMessageModelRuntimeStub:
         return SimpleNamespace(content=self.content)
 
 
+class NativeToolCallModelRuntimeStub(SingleMessageModelRuntimeStub):
+    def __init__(self, *, content: str = "", tool_calls: list[dict[str, object]] | None = None) -> None:
+        super().__init__(content=content)
+        self.tool_calls = list(tool_calls or [])
+        self.seen_tools: list[object] = []
+
+    async def invoke_messages_with_tools(self, messages, tools, **_kwargs):
+        self.seen_tools.append(list(tools or []))
+        return SimpleNamespace(content=self.content, tool_calls=list(self.tool_calls))
+
+
 class StreamingMessageModelRuntimeStub(SingleMessageModelRuntimeStub):
     def __init__(self, *, chunks: list[str], content: str | None = None) -> None:
         super().__init__(content=content or "".join(chunks))

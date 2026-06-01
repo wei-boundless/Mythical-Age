@@ -18,6 +18,7 @@ from harness.loop.model_action_protocol import ModelActionRequest
 from harness.loop.task_executor import _tool_call_progress_summary
 from harness.loop.task_lifecycle import TaskLifecycleRecord, TaskRunContract
 from tests.support.runtime_stubs import (
+    NativeToolCallModelRuntimeStub,
     PrimarySettingsStub,
     SingleMessageModelRuntimeStub,
     build_query_runtime,
@@ -105,6 +106,37 @@ def test_conversation_only_capability_uses_plain_conversation_without_turnrun() 
     assert "model_action_request" not in stream_types
     assert not any("compilation" in event or "model_messages" in event for event in events)
     assert runtime.single_agent_runtime_host.list_session_traces("session-plain")["task_run_count"] == 0
+
+
+def test_plain_conversation_receives_compressed_context_from_session_record() -> None:
+    class RecordingModelRuntime(SingleMessageModelRuntimeStub):
+        def __init__(self) -> None:
+            super().__init__(content="自然对话回复。")
+            self.last_messages: list[dict[str, object]] = []
+
+        async def invoke_messages(self, messages, **kwargs):
+            self.last_messages = [dict(item) for item in list(messages or []) if isinstance(item, dict)]
+            return await super().invoke_messages(messages, **kwargs)
+
+    model = RecordingModelRuntime()
+    runtime = build_query_runtime(model_runtime=model)
+    runtime.session_manager.compressed_context = "此前已经确认项目采用 DeepSeek。"
+
+    async def _collect() -> None:
+        async for _event in runtime.astream(
+            QueryRequest(
+                session_id="session-plain-compressed",
+                message="继续。",
+                task_selection={"control_capabilities": {"conversation_only": True}},
+            )
+        ):
+            pass
+
+    asyncio.run(_collect())
+    payload = "\n".join(str(message.get("content") or "") for message in model.last_messages)
+
+    assert "此前已经确认项目采用 DeepSeek。" in payload
+    assert "[Compressed session context]" not in payload
 
 
 def test_action_capable_turn_routes_to_agent_action_loop() -> None:
@@ -3400,6 +3432,90 @@ def test_runtime_policy_can_enable_conversation_only_with_soul_prompt() -> None:
         event.get("type") == "task_run_lifecycle_started"
         for event in events
     )
+
+
+def test_task_run_permission_without_tools_uses_native_turn_for_direct_answer() -> None:
+    runtime = build_query_runtime(model_runtime=SingleMessageModelRuntimeStub(content="可以直接回答。"))
+
+    async def _collect() -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime.astream(
+            QueryRequest(
+                session_id="session-native-direct",
+                message="这个问题可以直接回答。",
+                task_selection={
+                    "allowed_operations": ["op.model_response"],
+                    "control_capabilities": {"may_request_task_run": True, "may_use_subagents": False},
+                },
+            )
+        ):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_collect())
+    stream_types = [str(event.get("type") or "") for event in events]
+    route = dict(next(event for event in events if event.get("type") == "turn_route_decided").get("turn_route") or {})
+
+    assert route.get("route_kind") == "agent_native_turn"
+    assert "agent_native_turn_started" in stream_types
+    assert "runtime_invocation_packet" not in stream_types
+    assert "model_action_request" not in stream_types
+    assert "task_run_lifecycle_started" not in stream_types
+    assert any(event.get("type") == "done" and str(event.get("content") or "") == "可以直接回答。" for event in events)
+
+
+def test_native_turn_request_task_run_tool_starts_real_task_lifecycle() -> None:
+    model = NativeToolCallModelRuntimeStub(
+        tool_calls=[
+            {
+                "id": "call-request-task-run",
+                "name": "request_task_run",
+                "args": {
+                    "user_visible_goal": "交付一个真实页面。",
+                    "task_run_goal": "创建并验证一个真实 HTML 页面。",
+                    "required_artifacts": [{"artifact_kind": "html_app", "user_visible_name": "页面"}],
+                    "required_verifications": [{"verification_kind": "file_exists"}],
+                    "completion_criteria": ["页面文件真实存在"],
+                },
+            }
+        ]
+    )
+    runtime = build_query_runtime(model_runtime=model)
+
+    async def _collect() -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime.astream(
+            QueryRequest(
+                session_id="session-native-taskrun",
+                message="帮我做一个页面。",
+                task_selection={
+                    "allowed_operations": ["op.model_response"],
+                    "control_capabilities": {"may_request_task_run": True, "may_use_subagents": False},
+                },
+            )
+        ):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_collect())
+    stream_types = [str(event.get("type") or "") for event in events]
+    route = dict(next(event for event in events if event.get("type") == "turn_route_decided").get("turn_route") or {})
+    lifecycle = [event for event in events if event.get("type") == "task_run_lifecycle_started"][0]
+    task_run_event = dict(lifecycle.get("event") or {})
+    payload = dict(task_run_event.get("payload") or {})
+    task_run = dict(payload.get("task_run") or {})
+    task_run_id = str(task_run.get("task_run_id") or "")
+    stored_task = runtime.single_agent_runtime_host.state_index.get_task_run(task_run_id)
+
+    assert route.get("route_kind") == "agent_native_turn"
+    assert model.seen_tools and any(dict(tool).get("name") == "request_task_run" for tool in list(model.seen_tools[0] or []))
+    assert "runtime_invocation_packet" not in stream_types
+    assert "model_action_request" not in stream_types
+    assert "task_run_lifecycle_started" in stream_types
+    assert task_run_id.startswith("taskrun:")
+    assert stored_task is not None
+    assert dict(getattr(stored_task, "diagnostics", {}) or {}).get("origin_kind") == "agent_native_tool_call"
+    assert any(event.get("type") == "done" and "交付一个真实页面" in str(event.get("content") or "") for event in events)
 
 
 def test_default_runtime_policy_rejects_soul_prompt_without_persona_leakage() -> None:

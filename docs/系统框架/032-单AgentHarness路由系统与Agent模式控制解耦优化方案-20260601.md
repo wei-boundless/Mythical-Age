@@ -760,3 +760,160 @@ QueryRuntime 只提供 request/runtime facts。active work candidate、relation 
 - 内部 trace 仍可审计 runtime assembly 和 invocation packet。
 - 显式 contract 不经过模型 action 协议也能启动真实任务生命周期。
 - 普通对话和真实任务在 stream、monitor、trace 三层边界清晰。
+
+## 15. Phase 4 落地记录：非任务 turn trace 与公开任务流分离
+
+落地日期：2026-06-01
+
+本轮处理的是 `13.4` 中的短期目标：保留 action-capable turn 的内部 `TurnRun` trace，但禁止它污染公开任务状态。
+
+### 15.1 决策边界
+
+`TurnRun` 仍是内部执行 trace，用于记录 action loop、模型动作协议、观察回灌、terminal reason 和 prompt accounting。它不是 `TaskRun`，不能作为公开任务生命周期的开始信号。
+
+`TaskRun` 仍由任务生命周期独立开启。只有真实 task lifecycle 产生的 `harness_run_started` 才能进入公开 chat replay 和前端任务进度。
+
+因此本阶段不删除 `agent_loop._start_turn_runtime()`，但将其公开呈现边界收紧：
+
+1. `agent_action` route 的 `monitor_policy.record_task_monitor` 改为 `False`。
+2. `backend/api/chat.py` 对 turn trace-only `harness_run_started` 直接过滤。
+3. 公开 chat event 不再携带 `runtime_turn_run_id`；该值只保留在 run registry diagnostics 中，供内部追踪。
+4. 前端 `runtimeVisibilityProjection` 对缺少真实 `task_run_id` 的 `harness_run_started` 返回空投影，不再显示“正在整理上下文”。
+5. 公开 `turn_route` 只保留 `route_kind` 和 `reason`，不公开 `dispatch_target`、`monitor_policy`、`authority` 等控制实现字段。
+
+### 15.2 验收结果
+
+已通过：
+
+```text
+python -m py_compile backend/query/runtime.py backend/harness/routing/turn_router.py backend/harness/loop/agent_loop.py backend/harness/loop/task_lifecycle.py backend/api/chat.py
+python -m pytest backend/tests/query_runtime_runtime_loop_regression.py -q
+npm test -- --run src/lib/runtimeVisibilityProjection.test.ts src/lib/store/runtime.test.ts
+```
+
+后端回归结果：
+
+```text
+96 passed, 1 warning
+```
+
+前端投影和 store 回归结果：
+
+```text
+53 passed
+```
+
+公开 chat replay 实测结果：
+
+```text
+status = completed
+public_types = [
+  chat_run_started,
+  input_commit_gate,
+  turn_route_decided,
+  runtime_step_summary,
+  runtime_step_summary,
+  runtime_step_summary,
+  model_action_request,
+  runtime_step_summary,
+  model_action_admission,
+  runtime_step_summary,
+  agent_turn_terminal,
+  done
+]
+route_payloads = [{"route_kind": "agent_action", "reason": "action_capable_runtime"}]
+has_public_turnrun_harness_start = False
+has_public_runtime_turn_run_id = False
+```
+
+结论：
+
+普通 action-capable 回复仍有内部 trace，但不会再被公开会话层解释为任务启动。真实任务启动仍通过 `TaskRun` 生命周期进入公开监控。
+
+## 16. 下一阶段设计：assistant-message-first 与任务启动动作分离
+
+审查日期：2026-06-01
+
+### 16.1 当前结构性问题
+
+`backend/harness/runtime/assembly.py` 中 `requires_json_action_protocol` 的默认计算目前把 `may_request_task_run` 纳入触发条件：
+
+```text
+not conversation_only and (may_call_tools or may_request_task_run or may_use_subagents or has_explicit_contract)
+```
+
+这会导致一个不合理结果：只要主 agent 具备“可以请求任务生命周期”的能力，普通 turn 就必须进入 JSON action 协议。任务启动能力变成了普通对话的协议污染源。
+
+成熟 agent 的控制方式不是这样。成熟 loop 应允许模型先自然产生 assistant message；当模型需要工具或系统动作时，通过工具调用/结构化动作通道进入执行。也就是说：
+
+```text
+assistant message 是一等 turn 结果
+request_task_run 是一个可调用系统动作
+task run 生命周期只由系统动作或显式 contract 开启
+```
+
+### 16.2 目标切分
+
+本阶段新增 `agent_native_turn`，用于承接“能自然回答，也能结构化请求任务启动”的普通主 agent turn。
+
+边界：
+
+1. `agent_native_turn` 不使用旧 JSON action prompt。
+2. 模型可以直接返回 assistant message，系统提交为普通会话答复。
+3. 模型可以通过原生工具调用 `request_task_run` 请求持续任务生命周期。
+4. 系统将 `request_task_run` 工具调用转换为 `ModelActionRequest`，复用现有 admission、contract 和 task lifecycle。
+5. 本阶段暂不把所有真实工具调用迁入 native loop；普通工具、子 agent 和多步观察仍保留在旧 `agent_action` route，后续再迁移。
+6. 因此 `agent_native_turn` 只覆盖“没有可见直接工具、没有可用子 agent、但允许发起 task run”的 turn。
+7. 不允许用关键词识别用户意图决定是否任务启动。
+
+### 16.3 路由规则
+
+`requires_json_action_protocol` 不应再因为 `may_request_task_run=True` 自动开启。
+
+新路由规则：
+
+```text
+explicit_contract -> explicit_contract_task
+conversation_only -> plain_conversation
+may_call_tools 或 may_use_subagents -> agent_action
+may_request_task_run 且没有工具/子 agent -> agent_native_turn
+否则 -> plain_conversation
+```
+
+解释：
+
+- `may_request_task_run` 是可用系统动作，不是强制 action 协议。
+- 有真实工具或子 agent 时，当前系统尚未完成 native tool loop，因此继续走旧 `agent_action`。
+- 没有工具/子 agent，仅有任务启动能力时，native turn 已足够表达：直接回答或调用 `request_task_run`。
+
+### 16.4 交互细节
+
+native turn 的模型输入：
+
+1. 使用 `plain_conversation` 的稳定 prompt、agent prompt、environment prompt 和历史上下文。
+2. 额外绑定一个系统工具：`request_task_run`。
+3. 工具描述必须写给 agent，而不是写代码说明：
+
+```text
+当用户目标需要持续执行、真实产物、文件写入、命令验证、浏览器验证、失败恢复或多步骤交付时，调用 request_task_run。
+参数必须包含用户可理解目标、执行目标、交付物、验收标准和验证要求。
+如果当前请求可直接回答，不要调用工具，直接回复用户。
+```
+
+native turn 的系统处理：
+
+1. 若响应没有 tool call：提交 assistant message，结束 turn。
+2. 若响应包含 `request_task_run`：转换为 `ModelActionRequest(action_type=request_task_run)`。
+3. 进入 admission。
+4. admission allow 后调用 `start_task_lifecycle()`。
+5. 初始化 todo。
+6. 根据监督策略等待用户确认或调度 executor。
+7. 会话中返回 task handoff，不暴露 task id。
+
+### 16.5 验收标准
+
+1. 仅有 `may_request_task_run=True` 时，普通回复不产生 `runtime_invocation_packet` 的 JSON action 协议，不产生 `model_action_request`。
+2. 仅有 `may_request_task_run=True` 时，模型原生调用 `request_task_run` 能创建真实 `task_run_lifecycle_started`。
+3. 有真实工具或子 agent 能力时，仍走旧 `agent_action`，避免未完成 native tool loop 造成工具能力回退。
+4. 公开 chat replay 不显示 turnrun-only `harness_run_started`。
+5. 不出现用户消息关键词表或任务类型猜测层。

@@ -27,6 +27,7 @@ from runtime.prompt_accounting import (
     PromptAccountingLedger,
     PromptCacheBreakDetector,
     PromptCachePlanner,
+    PromptStabilityReporter,
     extract_provider_usage,
 )
 from runtime.tool_runtime.tool_call_policy import ToolCallBindingOptions
@@ -169,6 +170,7 @@ class ModelRuntime:
         self._prompt_serializer = CanonicalPromptSerializer()
         self._prompt_cache_planner = PromptCachePlanner()
         self._prompt_cache_break_detector = PromptCacheBreakDetector()
+        self._prompt_stability_reporter = PromptStabilityReporter()
         self._model_request_builder = ModelRequestBuilder()
 
     @property
@@ -308,10 +310,17 @@ class ModelRuntime:
                     accounting_context=accounting_context,
                     attempt=attempt,
                     call_kind="invoke_messages_with_tools",
+                    tool_call_options=tool_call_options,
                 )
                 try:
                     bound_model = (
-                        _bind_tools_with_options(model, tools, tool_call_options=tool_call_options, spec=spec)
+                        _bind_tools_with_options(
+                            model,
+                            tools,
+                            tool_call_options=tool_call_options,
+                            spec=spec,
+                            thinking_mode=self._thinking_mode_for_spec(spec),
+                        )
                         if tools
                         else model
                     )
@@ -438,11 +447,18 @@ class ModelRuntime:
                     accounting_context=accounting_context,
                     attempt=attempt,
                     call_kind="astream_messages_with_tools",
+                    tool_call_options=tool_call_options,
                 )
                 aggregated_chunk = None
                 try:
                     bound_model = (
-                        _bind_tools_with_options(model, tools, tool_call_options=tool_call_options, spec=spec)
+                        _bind_tools_with_options(
+                            model,
+                            tools,
+                            tool_call_options=tool_call_options,
+                            spec=spec,
+                            thinking_mode=self._thinking_mode_for_spec(spec),
+                        )
                         if tools
                         else model
                     )
@@ -670,7 +686,6 @@ class ModelRuntime:
                 "model": spec.model,
                 "api_key": spec.api_key,
                 "base_url": spec.base_url,
-                "temperature": temperature,
                 "timeout": timeout_seconds,
                 "max_retries": 0,
                 "max_tokens": max_output_tokens,
@@ -678,6 +693,8 @@ class ModelRuntime:
             }
             if thinking_enabled:
                 model_kwargs["reasoning_effort"] = self._reasoning_effort_for_spec(spec)
+            else:
+                model_kwargs["temperature"] = temperature
             return _DeepSeekReasoningCompatChatModel(**model_kwargs)
 
         if not spec.api_key:
@@ -879,6 +896,7 @@ class ModelRuntime:
         accounting_context: dict[str, Any] | None,
         attempt: int,
         call_kind: str,
+        tool_call_options: ToolCallBindingOptions | dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         ledger = self.prompt_accounting_ledger
         if ledger is None:
@@ -901,6 +919,13 @@ class ModelRuntime:
             "packet_ref": str(context.get("packet_ref") or ""),
             "turn_id": str(context.get("turn_id") or ""),
             "invocation_index": context.get("invocation_index"),
+            "prompt_manifest": dict(context.get("prompt_manifest") or {}),
+            "cache_relevant_params": self._cache_relevant_params_for_spec(
+                spec,
+                call_kind=call_kind,
+                tool_count=len(list(tools or [])),
+                tool_call_options=tool_call_options,
+            ),
         }
         segment_plan = dict(context.get("segment_plan") or {})
         try:
@@ -995,6 +1020,27 @@ class ModelRuntime:
                     diagnostics=cache_record_diagnostics,
                 )
             ledger.record_prompt_cache(cache_record)
+            previous_stability_reports = ledger.list_prompt_stability(
+                **_previous_stability_report_filter(
+                    run_id=run_id,
+                    task_run_id=task_run_id,
+                    session_id=session_id,
+                )
+            )
+            previous_stability_report = _previous_stability_report(
+                previous_stability_reports,
+                invocation_kind=str(metadata.get("source") or metadata.get("call_kind") or ""),
+                provider=spec.provider,
+                model=spec.model,
+            )
+            stability_report = self._prompt_stability_reporter.build(
+                segment_map=segment_map,
+                previous_report=previous_stability_report,
+                model_request=model_request,
+                cache_record=cache_record,
+                created_at=created_at,
+            )
+            ledger.record_prompt_stability(stability_report)
             return {
                 "request_id": request_id,
                 "run_id": run_id,
@@ -1005,6 +1051,7 @@ class ModelRuntime:
                 "cache_record": cache_record,
                 "model_request": model_request,
                 "segment_map": segment_map,
+                "stability_report": stability_report,
                 "started_at": created_at,
             }
         except Exception:
@@ -1082,6 +1129,13 @@ class ModelRuntime:
                 )
                 if break_record is not None:
                     ledger.record_prompt_cache_break(break_record)
+            stability_report = accounting.get("stability_report")
+            if stability_report is not None:
+                updated_stability_report = self._prompt_stability_reporter.with_provider_usage(
+                    stability_report,
+                    provider_usage,
+                )
+                ledger.record_prompt_stability(updated_stability_report)
         except Exception:
             logger.debug("Failed to record provider token usage", exc_info=True)
 
@@ -1134,6 +1188,37 @@ class ModelRuntime:
         if not _supports_chat_openai_reasoning_effort(spec):
             return None
         return _normalize_chat_openai_reasoning_effort(self._reasoning_effort_for_spec(spec))
+
+    def _cache_relevant_params_for_spec(
+        self,
+        spec: ModelSpec,
+        *,
+        call_kind: str,
+        tool_count: int,
+        tool_call_options: ToolCallBindingOptions | dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        return {
+            "provider": str(spec.provider or ""),
+            "model": str(spec.model or ""),
+            "base_url": _cache_relevant_base_url(spec.base_url),
+            "call_kind": str(call_kind or ""),
+            "tool_count": max(0, int(tool_count or 0)),
+            "tool_call_options": _cache_relevant_tool_call_options(
+                tool_call_options,
+                spec=spec,
+                thinking_mode=self._thinking_mode_for_spec(spec),
+            ),
+            "max_output_tokens": self._max_output_tokens_for_spec(spec),
+            **(
+                {}
+                if _is_deepseek_thinking_spec(spec, thinking_mode=self._thinking_mode_for_spec(spec))
+                else {"temperature": self._temperature_for_spec(spec)}
+            ),
+            "thinking_mode": self._thinking_mode_for_spec(spec),
+            "reasoning_effort": self._reasoning_effort_for_spec(spec),
+            "chat_openai_reasoning_effort": self._chat_openai_reasoning_effort_for_spec(spec) or "",
+            "stream_policy": dict(spec.stream_policy or {}),
+        }
 
     def _map_error(self, exc: Exception, spec: ModelSpec) -> ModelRuntimeError:
         if isinstance(exc, ModelRuntimeError):
@@ -1231,20 +1316,19 @@ def _bind_tools_with_options(
     *,
     tool_call_options: ToolCallBindingOptions | dict[str, Any] | None,
     spec: ModelSpec | None = None,
+    thinking_mode: str = "",
 ) -> Any:
     options = _normalize_tool_call_options(tool_call_options)
     kwargs = options.bind_kwargs() if options is not None else {}
-    if _deepseek_thinking_disallows_tool_choice(spec):
-        kwargs.pop("tool_choice", None)
     return model.bind_tools(tools, **kwargs)
 
 
-def _deepseek_thinking_disallows_tool_choice(spec: ModelSpec | None) -> bool:
+def _is_deepseek_thinking_spec(spec: ModelSpec | None, *, thinking_mode: str = "") -> bool:
     if spec is None:
         return False
     provider = str(spec.provider or "").strip().lower()
-    thinking_mode = str(spec.thinking_mode or "disabled").strip().lower()
-    return provider == "deepseek" and thinking_mode == "enabled"
+    effective_thinking_mode = str(thinking_mode or spec.thinking_mode or "disabled").strip().lower()
+    return provider == "deepseek" and effective_thinking_mode == "enabled"
 
 
 def _supports_chat_openai_reasoning_effort(spec: ModelSpec) -> bool:
@@ -1302,6 +1386,62 @@ def _optional_int(value: Any) -> int | None:
 def _formal_task_run_id(value: Any) -> str:
     normalized = str(value or "").strip()
     return normalized if normalized.startswith("taskrun:") else ""
+
+
+def _cache_relevant_base_url(value: Any) -> str:
+    text = str(value or "").strip().lower()
+    if not text:
+        return ""
+    if "api.deepseek.com" in text:
+        return "https://api.deepseek.com"
+    if "api.openai.com" in text:
+        return "https://api.openai.com"
+    if "api.openai.azure.com" in text:
+        return "https://api.openai.azure.com"
+    return text
+
+
+def _cache_relevant_tool_call_options(
+    tool_call_options: ToolCallBindingOptions | dict[str, Any] | None,
+    *,
+    spec: ModelSpec | None,
+    thinking_mode: str = "",
+) -> dict[str, Any]:
+    options = _normalize_tool_call_options(tool_call_options)
+    if options is None:
+        return {}
+    return options.bind_kwargs()
+
+
+def _previous_stability_report_filter(*, run_id: str, task_run_id: str, session_id: str) -> dict[str, str]:
+    if session_id:
+        return {"session_id": session_id}
+    if task_run_id:
+        return {"task_run_id": task_run_id}
+    if run_id:
+        return {"run_id": run_id}
+    return {}
+
+
+def _previous_stability_report(
+    reports: list[Any],
+    *,
+    invocation_kind: str,
+    provider: str,
+    model: str,
+) -> Any | None:
+    target_invocation = str(invocation_kind or "").strip()
+    target_provider = str(provider or "").strip()
+    target_model = str(model or "").strip()
+    for report in reversed(list(reports or [])):
+        if target_invocation and str(getattr(report, "invocation_kind", "") or "") != target_invocation:
+            continue
+        if target_provider and str(getattr(report, "provider", "") or "") != target_provider:
+            continue
+        if target_model and str(getattr(report, "model", "") or "") != target_model:
+            continue
+        return report
+    return None
 
 
 def _optional_float(value: Any) -> float | None:

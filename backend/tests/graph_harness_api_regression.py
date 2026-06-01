@@ -610,6 +610,8 @@ def test_task_graph_start_api_can_auto_run_graph(tmp_path: Path) -> None:
     assert payload["task_run"]["status"] == "completed"
     assert payload["graph_run"]["status"] == "completed"
     assert payload["node_work_orders"] == []
+    assert payload["graph_harness_config"]["authority"] == "harness.graph_harness_config.summary"
+    assert "nodes" not in payload["graph_harness_config"]
 
 
 def test_graph_run_monitor_returns_recoverable_active_work_orders(tmp_path: Path) -> None:
@@ -655,6 +657,91 @@ def test_graph_run_monitor_returns_recoverable_active_work_orders(tmp_path: Path
     assert monitor["active_node_work_orders"][0]["work_order_id"] == started["node_work_orders"][0]["work_order_id"]
     assert monitor["active_node_work_orders"][0]["node_id"] == "produce"
     assert "input_package" not in monitor["active_node_work_orders"][0]
+    assert monitor["graph_harness_config"]["authority"] == "harness.graph_harness_config.summary"
+    assert "nodes" not in monitor["graph_harness_config"]
+
+
+def test_graph_run_until_idle_result_includes_active_work_orders_when_budget_stops(tmp_path: Path) -> None:
+    backend_dir = tmp_path / "backend"
+    graph = TaskGraphDefinition(
+        graph_id="graph.test.runner_active_orders",
+        title="Runner Active Orders",
+        graph_kind="multi_agent",
+        publish_state="published",
+        enabled=True,
+        entry_node_id="first",
+        output_node_id="second",
+        runtime_policy={"coordinator_agent_id": "agent:0"},
+        nodes=(
+            TaskGraphNodeDefinition(
+                node_id="first",
+                node_type="agent",
+                title="第一节点",
+                task_id="task.test.first",
+                agent_id="agent:0",
+            ),
+            TaskGraphNodeDefinition(
+                node_id="second",
+                node_type="agent",
+                title="第二节点",
+                task_id="task.test.second",
+                agent_id="agent:0",
+            ),
+        ),
+        edges=(
+            {
+                "edge_id": "edge.first.second",
+                "source_node_id": "first",
+                "target_node_id": "second",
+                "edge_type": "handoff",
+            },
+        ),
+    )
+    registry = TaskFlowRegistry(backend_dir)
+    registry.upsert_task_graph(
+        graph_id=graph.graph_id,
+        title=graph.title,
+        graph_kind=graph.graph_kind,
+        entry_node_id=graph.entry_node_id,
+        output_node_id=graph.output_node_id,
+        nodes=tuple(node.to_dict() for node in graph.nodes),
+        edges=tuple(dict(edge) for edge in graph.edges),
+        runtime_policy=graph.runtime_policy,
+        publish_state="published",
+        enabled=True,
+    )
+    graph_config = publish_graph_harness_config_for_graph(base_dir=backend_dir, graph_id=graph.graph_id)
+    runtime = _query_runtime_with_graph_executor(base_dir=backend_dir)
+
+    original = orchestration_api.require_runtime
+    orchestration_api.require_runtime = lambda: runtime  # type: ignore[assignment]
+    try:
+        started = asyncio.run(
+            orchestration_api.start_task_graph_harness_run(
+                graph.graph_id,
+                orchestration_api.TaskGraphRunStartRequest(
+                    session_id="session-test",
+                    dispatch_ready=True,
+                ),
+            )
+        )
+        runner = asyncio.run(
+            orchestration_api.run_graph_run_until_idle(
+                str(started["graph_run_id"]),
+                orchestration_api.GraphRunUntilIdleRequest(
+                    graph_harness_config_id=graph_config.config_id,
+                    max_node_executions=1,
+                    max_node_steps=1,
+                ),
+            )
+        )
+    finally:
+        orchestration_api.require_runtime = original  # type: ignore[assignment]
+
+    assert runner["status"] == "budget_exhausted"
+    assert runner["active_node_work_order_count"] == 1
+    assert runner["active_node_work_orders"][0]["node_id"] == "second"
+    assert runner["graph_loop_state"]["running_node_ids"] == ["second"]
 
 
 def test_graph_runtime_generates_managed_project_scope_for_project_scoped_memory(tmp_path: Path) -> None:
@@ -884,6 +971,16 @@ def test_graph_loop_contract_drives_generic_repeated_node_progression(tmp_path: 
             },
         )
         state = advance.loop_state
+        route_history = list(dict(state.loop_state or {}).get("route_history") or [])
+        last_route_action = str(dict(route_history[-1] if route_history else {}).get("action") or "")
+        if expected_node == "router" and last_route_action == "continue":
+            assert advance.node_work_orders
+            dispatched = advance.node_work_orders[0]
+            assert dispatched.node_id == "produce"
+            assert state.active_work_orders == {"produce": dispatched.work_order_id}
+            assert state.running_node_ids == ("produce",)
+            assert state.ready_node_ids == ()
+            assert "router" not in state.active_work_orders
         if advance.node_work_orders:
             order = advance.node_work_orders[0]
 

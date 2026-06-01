@@ -8,6 +8,7 @@ from typing import Any
 
 from .cache_break_detector import PromptCacheBreakRecord
 from .models import ModelTokenUsageRecord, PromptCacheRecord, PromptSegment, PromptSegmentMap
+from .stability_models import PromptStabilityReport
 
 
 class PromptAccountingLedger:
@@ -35,6 +36,9 @@ class PromptAccountingLedger:
 
     def record_prompt_cache_break(self, record: PromptCacheBreakRecord) -> None:
         self._append_jsonl("prompt_cache_breaks.jsonl", record.to_dict())
+
+    def record_prompt_stability(self, report: PromptStabilityReport) -> None:
+        self._append_jsonl("prompt_stability.jsonl", report.to_dict())
 
     def list_segments(self, *, run_id: str = "", task_run_id: str = "", session_id: str = "") -> list[PromptSegment]:
         rows = self._read_jsonl("segments.jsonl")
@@ -110,6 +114,22 @@ class PromptAccountingLedger:
                 records[key] = record
         return sorted(records.values(), key=lambda item: item.created_at)
 
+    def list_prompt_stability(self, *, run_id: str = "", task_run_id: str = "", session_id: str = "") -> list[PromptStabilityReport]:
+        records: dict[str, PromptStabilityReport] = {}
+        for row in self._read_jsonl("prompt_stability.jsonl"):
+            if run_id and str(row.get("run_id") or row.get("task_run_id") or "") != run_id:
+                continue
+            if task_run_id and str(row.get("task_run_id") or "") != task_run_id:
+                continue
+            if session_id and str(row.get("session_id") or "") != session_id:
+                continue
+            report = PromptStabilityReport.from_dict(row)
+            key = report.report_id or f"{report.request_id}:{report.created_at}"
+            previous = records.get(key)
+            if previous is None or report.created_at >= previous.created_at:
+                records[key] = report
+        return sorted(records.values(), key=lambda item: item.created_at)
+
     def summarize_task(self, task_run_id: str) -> dict[str, Any]:
         return summarize_usage_records(
             self.list_token_usage(task_run_id=task_run_id),
@@ -148,6 +168,7 @@ class PromptAccountingLedger:
             "token_usage": self._rewrite_without_tasks("token_usage.jsonl", targets),
             "prompt_cache": self._rewrite_without_tasks("prompt_cache.jsonl", targets),
             "prompt_cache_breaks": self._rewrite_without_tasks("prompt_cache_breaks.jsonl", targets),
+            "prompt_stability": self._rewrite_without_tasks("prompt_stability.jsonl", targets),
         }
         return {
             "authority": "runtime.prompt_accounting.ledger.prune_task_runs",

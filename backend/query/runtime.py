@@ -37,6 +37,7 @@ from harness.loop.active_work import (
 )
 from harness.loop.model_action_protocol import ModelActionRequest
 from harness.loop.model_action_runtime import call_model_invoker
+from harness.loop.native_turn import run_agent_native_turn
 from harness.loop.presentation import error_event, final_answer_event
 from harness.loop.resume_policy import build_resume_plan
 from harness.loop.resume_policy import ResumePlan
@@ -55,9 +56,10 @@ from harness.loop.task_run_recovery_state import should_auto_continue_task_run
 from harness.loop.task_lifecycle import (
     TaskLifecycleRecord,
     TaskRunContract,
-    start_task_lifecycle,
-    task_launch_supervision_policy,
-    wait_task_launch_supervision,
+)
+from harness.loop.task_lifecycle_bridge import (
+    start_task_lifecycle_from_action_request,
+    start_task_lifecycle_from_contract,
 )
 from harness.graph.models import safe_id, stable_hash
 from runtime.shared.models import AgentRun, TaskRun
@@ -300,6 +302,19 @@ class QueryRuntime:
                     ):
                         yield event
                     return
+                if turn_route.route_kind == "agent_native_turn":
+                    async for event in self._run_agent_native_turn(
+                        request=request,
+                        turn_id=turn_id,
+                        history=history,
+                        session_context=session_context,
+                        agent_invocation_id=agent_invocation_id,
+                        agent_runtime_profile=agent_runtime_profile,
+                        runtime_assembly=runtime_assembly,
+                        turn_route=turn_route,
+                    ):
+                        yield event
+                    return
                 if turn_route.route_kind == "explicit_contract_task":
                     async for event in self._run_explicit_contract_task_turn(
                         request=request,
@@ -386,6 +401,7 @@ class QueryRuntime:
             agent_invocation_id=agent_invocation_id,
             user_message=request.message,
             history=history,
+            session_context=session_context,
             agent_profile_ref=str(getattr(agent_runtime_profile, "agent_profile_id", "") or "main_interactive_agent"),
             model_selection=dict(request.model_selection or {}),
             runtime_assembly=runtime_assembly,
@@ -416,6 +432,7 @@ class QueryRuntime:
                     "packet_ref": compilation.packet.packet_id,
                     "source": "harness.route.plain_conversation",
                     "segment_plan": dict(compilation.packet.segment_plan or {}),
+                    "prompt_manifest": dict(compilation.packet.diagnostics.get("prompt_manifest") or {}),
                 },
             )
         except Exception as exc:
@@ -460,6 +477,55 @@ class QueryRuntime:
             extra={"turn_route": turn_route.to_dict()},
         )
 
+    async def _run_agent_native_turn(
+        self,
+        *,
+        request: QueryRequest,
+        turn_id: str,
+        history: list[dict[str, Any]],
+        session_context: dict[str, Any],
+        agent_invocation_id: str,
+        agent_runtime_profile: Any,
+        runtime_assembly: Any,
+        turn_route: TurnRoute,
+    ):
+        async def start_task(action_request: ModelActionRequest):
+            async for event in start_task_lifecycle_from_action_request(
+                runtime_host=self.single_agent_runtime_host,
+                session_id=request.session_id,
+                turn_id=turn_id,
+                task_selection=dict(request.task_selection or {}),
+                model_selection=dict(request.model_selection or {}),
+                action_request=action_request,
+                agent_runtime_profile=agent_runtime_profile,
+                runtime_assembly=runtime_assembly,
+                turn_route=turn_route,
+                answer_source="harness.routing.agent_native_turn.request_task_run",
+                scheduler="agent_native_turn",
+                max_steps=_CONVERSATION_TASK_EXECUTION_STEPS,
+                commit_assistant_message=self._apply_assistant_message_commit_async,
+                initialize_task_todo=self._initialize_task_todo_for_contract,
+                schedule_task_run_executor=self.schedule_task_run_executor,
+            ):
+                yield event
+
+        async for event in run_agent_native_turn(
+            session_id=request.session_id,
+            turn_id=turn_id,
+            user_message=request.message,
+            history=history,
+            session_context=session_context,
+            agent_invocation_id=agent_invocation_id,
+            agent_runtime_profile=agent_runtime_profile,
+            model_selection=dict(request.model_selection or {}),
+            runtime_assembly=runtime_assembly,
+            turn_route=turn_route,
+            model_runtime=getattr(self.model_response_executor, "model_runtime", None),
+            commit_assistant_message=self._apply_assistant_message_commit_async,
+            start_task_from_action_request=start_task,
+        ):
+            yield event
+
     async def _run_explicit_contract_task_turn(
         self,
         *,
@@ -501,96 +567,27 @@ class QueryRuntime:
                 reason=";".join(contract_errors) or "explicit_contract_invalid",
             )
             return
-        agent_profile_ref = str(getattr(agent_runtime_profile, "agent_profile_id", "") or "main_interactive_agent")
-        task_run, _agent_run, lifecycle, lifecycle_events = start_task_lifecycle(
-            self.single_agent_runtime_host,
+        async for event in start_task_lifecycle_from_contract(
+            runtime_host=self.single_agent_runtime_host,
             session_id=request.session_id,
             turn_id=turn_id,
-            task_id=str(contract.source_contract_ref or contract.contract_id or f"task:{turn_id}"),
+            model_selection=dict(request.model_selection or {}),
             action_request=action_request,
             contract=contract,
-            agent_profile_ref=agent_profile_ref,
-            model_selection=dict(request.model_selection or {}),
-        )
-        for event in lifecycle_events:
-            yield event
-        todo_event = self._initialize_task_todo_for_contract(
-            session_id=request.session_id,
-            task_run_id=task_run.task_run_id,
-            contract=contract.to_dict(),
-        )
-        if todo_event is not None:
-            yield {"type": "task_run_lifecycle_event", "event": todo_event}
-        launch_gate_policy = task_launch_supervision_policy(runtime_assembly)
-        if launch_gate_policy.get("enabled"):
-            gated_task, _gated_lifecycle, gate_event = wait_task_launch_supervision(
-                self.single_agent_runtime_host,
-                task_run=task_run,
-                lifecycle=lifecycle,
-                gate_policy=launch_gate_policy,
-            )
-            yield {"type": "task_run_lifecycle_event", "event": gate_event}
-            content = _task_run_handoff_content(
-                contract=contract.to_dict(),
-                status_text=str(launch_gate_policy.get("user_prompt") or "任务合同已就绪，正在等待确认后继续。"),
-                control_text="确认前，我会先停在这里。",
-            )
-            await self._apply_assistant_message_commit_async(
-                request.session_id,
-                {
-                    "role": "assistant",
-                    "content": content,
-                    "turn_id": turn_id,
-                    "answer_channel": "task_control",
-                    "answer_source": "harness.routing.explicit_contract_task.supervision",
-                    "answer_canonical_state": "final",
-                    "answer_persist_policy": "persist_canonical",
-                    "answer_finalization_policy": "assistant_final",
-                },
-            )
-            yield final_answer_event(
-                content=content,
-                answer_source="harness.routing.explicit_contract_task.supervision",
-                terminal_reason="task_launch_supervision",
-                extra={
-                    "turn_route": turn_route.to_dict(),
-                    "task_run": {"task_run_id": gated_task.task_run_id, "status": gated_task.status},
-                },
-            )
-            return
-        self.schedule_task_run_executor(
-            task_run.task_run_id,
-            scheduler="explicit_contract_task",
-            turn_id=turn_id,
-            max_steps=_CONVERSATION_TASK_EXECUTION_STEPS,
-        )
-        content = _task_run_handoff_content(
-            contract=contract.to_dict(),
-            status_text="我会按这个合同继续推进。",
-            control_text="后续进展会汇总在当前会话里。",
-        )
-        await self._apply_assistant_message_commit_async(
-            request.session_id,
-            {
-                "role": "assistant",
-                "content": content,
-                "turn_id": turn_id,
-                "answer_channel": "task_control",
-                "answer_source": "harness.routing.explicit_contract_task",
-                "answer_canonical_state": "final",
-                "answer_persist_policy": "persist_canonical",
-                "answer_finalization_policy": "assistant_final",
-            },
-        )
-        yield final_answer_event(
-            content=content,
+            agent_runtime_profile=agent_runtime_profile,
+            runtime_assembly=runtime_assembly,
+            turn_route=turn_route,
             answer_source="harness.routing.explicit_contract_task",
-            terminal_reason="task_executor_scheduled",
-            extra={
-                "turn_route": turn_route.to_dict(),
-                "task_run": {"task_run_id": task_run.task_run_id, "status": "running"},
-            },
-        )
+            scheduler="explicit_contract_task",
+            task_id=str(contract.source_contract_ref or contract.contract_id or f"task:{turn_id}"),
+            scheduled_status_text="我会按这个合同继续推进。",
+            scheduled_control_text="后续进展会汇总在当前会话里。",
+            max_steps=_CONVERSATION_TASK_EXECUTION_STEPS,
+            commit_assistant_message=self._apply_assistant_message_commit_async,
+            initialize_task_todo=self._initialize_task_todo_for_contract,
+            schedule_task_run_executor=self.schedule_task_run_executor,
+        ):
+            yield event
 
     def _initialize_task_todo_for_contract(
         self,
@@ -1783,39 +1780,6 @@ def _first_contract_text(*values: Any) -> str:
         if text:
             return text
     return ""
-
-
-def _task_run_handoff_content(*, contract: dict[str, Any], status_text: str, control_text: str) -> str:
-    goal = _first_contract_text(
-        contract.get("user_visible_goal"),
-        contract.get("task_run_goal"),
-        "我会把这件事继续推进。",
-    )
-    criteria = list(_contract_string_tuple(contract.get("completion_criteria")))[:2]
-    artifacts = [
-        str(item.get("user_visible_name") or item.get("artifact_kind") or item).strip()
-        for item in list(contract.get("required_artifacts") or [])[:2]
-        if isinstance(item, dict)
-    ]
-    verifications = [
-        str(item.get("user_visible_name") or item.get("verification_kind") or item).strip()
-        for item in list(contract.get("required_verifications") or [])[:2]
-        if isinstance(item, dict)
-    ]
-    lines = [f"我会按这个目标推进：{goal}"]
-    scope_parts: list[str] = []
-    if criteria:
-        scope_parts.append("完成标准：" + "；".join(criteria))
-    if artifacts:
-        scope_parts.append("产物：" + "、".join(item for item in artifacts if item))
-    if verifications:
-        scope_parts.append("验证：" + "、".join(item for item in verifications if item))
-    if scope_parts:
-        lines.append("；".join(scope_parts) + "。")
-    lines.append(status_text.strip())
-    if control_text.strip():
-        lines.append(control_text.strip())
-    return "\n".join(line for line in lines if line.strip())
 
 
 

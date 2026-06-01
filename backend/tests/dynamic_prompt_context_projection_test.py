@@ -185,6 +185,9 @@ def test_plain_conversation_projects_compressed_context_as_session_context() -> 
     assert stable_payload["session_context"]["compressed_summary"] == "此前已经完成项目结构审查。"
     assert "[Compressed session context]" not in "\n".join(message_texts)
     assert message_texts[-3:] == ["上一轮用户消息", "上一轮助手回复", "继续。"]
+    context_window = result.packet.diagnostics["prompt_manifest"]["context_window"]
+    assert context_window["compressed_summary_present"] is True
+    assert str(context_window["compressed_summary_hash"]).startswith("sha256:")
 
 
 def test_dynamic_context_manager_rebinds_to_runtime_assembly_backend_dir(tmp_path: Path) -> None:

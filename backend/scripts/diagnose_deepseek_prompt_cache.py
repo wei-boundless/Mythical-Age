@@ -20,6 +20,7 @@ class Diagnosis:
     unstable_stable_segments: tuple[dict[str, Any], ...] = ()
     volatile_stable_segments: tuple[dict[str, Any], ...] = ()
     recent_requests: tuple[dict[str, Any], ...] = ()
+    stability_reports: tuple[dict[str, Any], ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -29,6 +30,7 @@ class Diagnosis:
             "unstable_stable_segments": list(self.unstable_stable_segments),
             "volatile_stable_segments": list(self.volatile_stable_segments),
             "recent_requests": list(self.recent_requests),
+            "stability_reports": list(self.stability_reports),
         }
 
 
@@ -96,6 +98,13 @@ def diagnose(
         task_run_id=task_run_id,
         provider=provider,
     )
+    stability_records = _filter_rows(
+        _dedupe_latest(_read_jsonl(ledger_dir / "prompt_stability.jsonl"), key_fields=("report_id",)),
+        session_id=session_id,
+        run_id=run_id,
+        task_run_id=task_run_id,
+        provider=provider,
+    )
 
     provider_usage = [row for row in token_usage if str(row.get("source") or "") == "provider_usage"]
     local_predictions = [row for row in token_usage if str(row.get("source") or "") == "local_prediction"]
@@ -117,12 +126,15 @@ def diagnose(
     )
     volatile_stable_segments = _find_volatile_stable_segments(segment_maps, limit=limit)
     unstable_stable_segments = _find_unstable_stable_segments(segment_maps, limit=limit)
+    stability_by_request = {str(row.get("request_id") or ""): row for row in stability_records}
     recent_requests = _recent_requests(
         cache_records=cache_records,
         usage_by_request=usage_by_request,
         local_predictions=local_predictions,
+        stability_by_request=stability_by_request,
         limit=limit,
     )
+    stability_reports = _recent_stability_reports(stability_records, limit=limit)
     issues = _build_issues(
         provider_usage=provider_usage,
         cache_records=cache_records,
@@ -144,6 +156,7 @@ def diagnose(
         "local_prediction_records": len(local_predictions),
         "cache_records": len(cache_records),
         "segment_maps": len(segment_maps),
+        "stability_reports": len(stability_records),
         "prompt_tokens": prompt_tokens,
         "cached_tokens": cached_tokens,
         "cache_miss_tokens": cache_miss_tokens,
@@ -158,6 +171,7 @@ def diagnose(
         unstable_stable_segments=tuple(unstable_stable_segments),
         volatile_stable_segments=tuple(volatile_stable_segments),
         recent_requests=tuple(recent_requests),
+        stability_reports=tuple(stability_reports),
     )
 
 
@@ -360,6 +374,7 @@ def _recent_requests(
     cache_records: list[dict[str, Any]],
     usage_by_request: dict[str, dict[str, Any]],
     local_predictions: list[dict[str, Any]],
+    stability_by_request: dict[str, dict[str, Any]],
     limit: int,
 ) -> list[dict[str, Any]]:
     local_by_request = {str(row.get("request_id") or ""): row for row in local_predictions}
@@ -369,8 +384,10 @@ def _recent_requests(
         request_id = str(row.get("request_id") or "")
         usage = usage_by_request.get(request_id)
         local = local_by_request.get(request_id)
+        stability = stability_by_request.get(request_id) or {}
         cached_tokens = max(_int((usage or {}).get("cached_tokens")), _int((usage or {}).get("cache_read_tokens")))
         prompt_tokens = _int((usage or local or {}).get("prompt_tokens"))
+        first_changed = dict(stability.get("first_changed_section") or {})
         result.append(
             {
                 "request_id": request_id,
@@ -383,6 +400,40 @@ def _recent_requests(
                 "stable_prefix_segments": _int(dict(row.get("diagnostics") or {}).get("stable_prefix_segment_count")),
                 "prefix_hash": str(row.get("prefix_hash") or ""),
                 "packet_ref": str(dict((usage or local or {}).get("diagnostics") or {}).get("packet_ref") or ""),
+                "first_changed_section": _changed_section_label(first_changed),
+                "likely_break_reason": str(dict(stability.get("diagnostics") or {}).get("likely_break_reason") or ""),
+                "dynamic_param_hash": str(stability.get("dynamic_param_hash") or "")[:19],
+                "dynamic_param_diff": _dynamic_param_diff_label(dict(dict(stability.get("diagnostics") or {}).get("dynamic_param_diff") or {})),
+            }
+        )
+    return result
+
+
+def _recent_stability_reports(records: list[dict[str, Any]], *, limit: int) -> list[dict[str, Any]]:
+    rows = sorted(records, key=lambda item: _float(item.get("created_at")), reverse=True)[:limit]
+    result: list[dict[str, Any]] = []
+    for row in rows:
+        provider_usage = dict(row.get("provider_usage") or {})
+        first_changed = dict(row.get("first_changed_section") or {})
+        context_window = dict(dict(row.get("diagnostics") or {}).get("context_window") or {})
+        result.append(
+            {
+                "request_id": str(row.get("request_id") or ""),
+                "session_cache_key": str(row.get("session_cache_key") or ""),
+                "context_window_generation": _int(row.get("context_window_generation")),
+                "compaction_generation": _int(row.get("compaction_generation")),
+                "stable_prefix_tokens": _int(row.get("stable_prefix_tokens")),
+                "stable_section_count": _int(row.get("stable_section_count")),
+                "volatile_token_count": _int(row.get("volatile_token_count")),
+                "stable_prefix_hash": str(row.get("stable_prefix_hash") or "")[:19],
+                "dynamic_param_hash": str(row.get("dynamic_param_hash") or "")[:19],
+                "compressed_summary": "yes" if context_window.get("compressed_summary_present") else "",
+                "replacement_history": str(context_window.get("replacement_history_ref") or "")[:32],
+                "first_changed_section": _changed_section_label(first_changed),
+                "likely_break_reason": str(dict(row.get("diagnostics") or {}).get("likely_break_reason") or ""),
+                "dynamic_param_diff": _dynamic_param_diff_label(dict(dict(row.get("diagnostics") or {}).get("dynamic_param_diff") or {})),
+                "cached_tokens": _int(provider_usage.get("cached_tokens")),
+                "hit_rate": _float(provider_usage.get("cache_hit_rate")),
             }
         )
     return result
@@ -498,7 +549,8 @@ def _print_report(diagnosis: Diagnosis, *, ledger_dir: Path) -> None:
         f"provider_usage={summary['provider_usage_records']} "
         f"local_prediction={summary['local_prediction_records']} "
         f"cache={summary['cache_records']} "
-        f"segment_maps={summary['segment_maps']}"
+        f"segment_maps={summary['segment_maps']} "
+        f"stability={summary['stability_reports']}"
     )
     print(
         "tokens: "
@@ -529,7 +581,12 @@ def _print_report(diagnosis: Diagnosis, *, ledger_dir: Path) -> None:
     _print_section(
         "recent_requests",
         payload["recent_requests"],
-        fields=("status", "provider_usage", "prompt_tokens", "cached_tokens", "hit_rate", "stable_prefix_tokens", "packet_ref"),
+        fields=("status", "provider_usage", "prompt_tokens", "cached_tokens", "hit_rate", "stable_prefix_tokens", "first_changed_section", "dynamic_param_diff", "likely_break_reason", "packet_ref"),
+    )
+    _print_section(
+        "prompt_stability_reports",
+        payload["stability_reports"],
+        fields=("request_id", "stable_section_count", "stable_prefix_tokens", "volatile_token_count", "hit_rate", "context_window_generation", "compaction_generation", "compressed_summary", "replacement_history", "first_changed_section", "dynamic_param_diff", "likely_break_reason"),
     )
 
 
@@ -556,6 +613,23 @@ def _float(value: Any) -> float:
         return float(value or 0.0)
     except (TypeError, ValueError):
         return 0.0
+
+
+def _changed_section_label(value: dict[str, Any]) -> str:
+    if not value:
+        return ""
+    ordinal = str(value.get("ordinal") or "")
+    kind = str(value.get("current_kind") or value.get("previous_kind") or "")
+    change_type = str(value.get("change_type") or "")
+    if ordinal or kind:
+        return f"{ordinal}:{kind}:{change_type}"
+    return change_type
+
+
+def _dynamic_param_diff_label(value: dict[str, Any]) -> str:
+    if not value:
+        return ""
+    return ",".join(sorted(str(key) for key in value)[:8])
 
 
 if __name__ == "__main__":

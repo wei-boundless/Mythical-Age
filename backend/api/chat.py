@@ -43,6 +43,7 @@ PUBLIC_EVENT_DATA_ALLOWLIST = {
     "input_commit_gate": {"status", "message_ref"},
     "turn_route_decided": {"turn_route"},
     "plain_conversation_started": {"turn_route"},
+    "agent_native_turn_started": {"turn_route"},
     "assistant_message_committed": {
         "answer_channel",
         "answer_source",
@@ -437,7 +438,7 @@ def _project_public_stream_event(event_type: str, event: dict[str, Any]) -> tupl
     if normalized == "turn_route_decided":
         route = dict(data.get("turn_route") or {})
         data["turn_route"] = _public_turn_route(route)
-    elif normalized == "plain_conversation_started":
+    elif normalized in {"plain_conversation_started", "agent_native_turn_started"}:
         route = dict(data.get("turn_route") or {})
         data = {"turn_route": _public_turn_route(route)}
     return normalized, data

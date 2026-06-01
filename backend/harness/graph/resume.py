@@ -159,6 +159,15 @@ class GraphResumeService:
                     node_work_orders=dispatch.node_work_orders,
                     events=tuple([*replay.events, *dispatch.events]),
                 )
+            return GraphResumeResult(
+                graph_run_id=graph_run_id,
+                resumed=True,
+                reason="blocked_not_recoverable",
+                loop_state=state,
+                checkpoint=checkpoint.to_dict(),
+                active_work_orders=active,
+                events=tuple(recovered),
+            )
         if not dispatch_ready:
             return GraphResumeResult(
                 graph_run_id=graph_run_id,
@@ -324,8 +333,30 @@ def _blocked_replay_node_ids(state: GraphLoopState) -> tuple[str, ...]:
     return tuple(
         node_id
         for node_id in state.blocked_node_ids
-        if str(dict(node_states.get(node_id) or {}).get("status") or "") == "blocked"
+        if _blocked_node_is_recoverable(dict(node_states.get(node_id) or {}), state=state)
     )
+
+
+def _blocked_node_is_recoverable(node_state: dict[str, Any], *, state: GraphLoopState) -> bool:
+    if str(node_state.get("status") or "") != "blocked":
+        return False
+    result_ref = str(node_state.get("result_ref") or "").strip()
+    result = dict(dict(state.result_index or {}).get(str(node_state.get("node_id") or "")) or {})
+    error = dict(result.get("error") or {})
+    recoverable_error = dict(error.get("recoverable_error") or {})
+    reason = str(error.get("reason") or node_state.get("blocked_reason") or state.terminal_reason or "").strip()
+    if recoverable_error:
+        return bool(recoverable_error.get("retryable", True))
+    if reason in {
+        "model_call_recovery_required",
+        "task_execution_step_budget_exhausted",
+        "task_execution_step_budget_exceeded",
+        "waiting_executor",
+        "task_run_executor_already_running",
+        "task_executor_interrupted_by_runtime_restart",
+    }:
+        return True
+    return False
 
 
 def _recoverable_failed_node_ids(state: GraphLoopState, *, services: Any | None) -> tuple[str, ...]:

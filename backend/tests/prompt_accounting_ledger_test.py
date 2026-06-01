@@ -408,6 +408,45 @@ def test_model_request_reports_segment_plan_binding_mismatch() -> None:
     assert model_request.segment_bindings[1].planned_model_message_hash != model_request.segment_bindings[1].request_content_hash
 
 
+def test_model_request_and_segment_map_canonical_hash_ignore_diagnostic_metadata() -> None:
+    messages = [
+        {"role": "system", "content": "stable runtime"},
+        {"role": "user", "content": "current request"},
+    ]
+    first_request = ModelRequestBuilder().build(
+        request_id="modelreq:canonical:1",
+        messages=messages,
+        provider="deepseek",
+        model="deepseek-chat",
+        metadata={"prompt_manifest": {"context_window": {"compressed_summary_hash": "sha256:a"}}},
+    )
+    second_request = ModelRequestBuilder().build(
+        request_id="modelreq:canonical:2",
+        messages=messages,
+        provider="deepseek",
+        model="deepseek-chat",
+        metadata={"prompt_manifest": {"context_window": {"compressed_summary_hash": "sha256:b"}}},
+    )
+    serializer = CanonicalPromptSerializer()
+    first_map = serializer.build_segment_map(
+        request_id="modelreq:canonical:1",
+        messages=messages,
+        provider="deepseek",
+        model="deepseek-chat",
+        metadata={"prompt_manifest": {"context_window": {"compressed_summary_hash": "sha256:a"}}},
+    )
+    second_map = serializer.build_segment_map(
+        request_id="modelreq:canonical:2",
+        messages=messages,
+        provider="deepseek",
+        model="deepseek-chat",
+        metadata={"prompt_manifest": {"context_window": {"compressed_summary_hash": "sha256:b"}}},
+    )
+
+    assert first_request.canonical_hash == second_request.canonical_hash
+    assert first_map.canonical_hash == second_map.canonical_hash
+
+
 def test_runtime_prompt_uses_assembly_projection_not_mode_instruction() -> None:
     result = RuntimeCompiler().compile_turn_action_packet(
         session_id="session:projection",

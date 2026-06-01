@@ -10,6 +10,8 @@ from .models import (
 )
 from .provider_usage import extract_provider_usage
 from .serializer import CanonicalPromptSerializer
+from .stability_models import PromptStabilityReport, PromptStabilitySection
+from .stability_report import PromptStabilityReporter
 from .token_counter import TokenCounterRegistry
 
 __all__ = [
@@ -23,6 +25,9 @@ __all__ = [
     "PromptCacheRecord",
     "PromptSegment",
     "PromptSegmentMap",
+    "PromptStabilityReport",
+    "PromptStabilityReporter",
+    "PromptStabilitySection",
     "TokenCounterRegistry",
     "extract_provider_usage",
     "prompt_cache_key",

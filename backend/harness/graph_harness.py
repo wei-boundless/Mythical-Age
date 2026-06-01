@@ -226,12 +226,19 @@ class GraphHarness:
     def get_task_run(self, task_run_id: str) -> Any | None:
         return self.state_index.get_task_run(task_run_id)
 
-    def get_graph_run_monitor(self, graph_run_id: str, *, graph_config: GraphHarnessConfig | None = None, event_limit: int = 80) -> dict[str, Any] | None:
+    def get_graph_run_monitor(
+        self,
+        graph_run_id: str,
+        *,
+        graph_config: GraphHarnessConfig | None = None,
+        event_limit: int = 80,
+        include_config: bool = False,
+    ) -> dict[str, Any] | None:
         state = self._loop.get_state(graph_run_id)
         graph_run = self.get_graph_run(graph_run_id)
         if state is None and graph_run is None:
             return None
-        config_payload = graph_config.to_dict() if graph_config is not None else {}
+        config_payload = _graph_config_monitor_view(graph_config, include_config=include_config)
         task_run_id = state.task_run_id if state is not None else str(dict(graph_run or {}).get("task_run_id") or "")
         event_limit = max(1, min(int(event_limit or 80), 240))
         events = self._recent_events(task_run_id, limit=event_limit) if task_run_id else []
@@ -312,6 +319,29 @@ class GraphHarness:
 
 def _safe_ref_id(value: str) -> str:
     return "".join(ch if ch.isalnum() or ch in {"-", "_"} else "_" for ch in str(value or ""))[:180]
+
+
+def _graph_config_monitor_view(graph_config: GraphHarnessConfig | None, *, include_config: bool = False) -> dict[str, Any]:
+    if graph_config is None:
+        return {}
+    if include_config:
+        return graph_config.to_dict()
+    return {
+        "authority": "harness.graph_harness_config.summary",
+        "config_id": graph_config.config_id,
+        "graph_id": graph_config.graph_id,
+        "graph_title": graph_config.graph_title,
+        "publish_version": graph_config.publish_version,
+        "status": graph_config.status,
+        "content_hash": graph_config.content_hash,
+        "published_at": graph_config.published_at,
+        "task_environment_id": graph_config.task_environment_id,
+        "root_task_ref": graph_config.root_task_ref,
+        "node_count": len(graph_config.nodes),
+        "edge_count": len(graph_config.edges),
+        "loop_frame_count": len(graph_config.loop_frames),
+        "composition_source_count": len(graph_config.composition_sources),
+    }
 
 
 def _task_run_from_payload(payload: Any, *, fallback: TaskRun) -> TaskRun:

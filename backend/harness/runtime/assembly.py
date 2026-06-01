@@ -523,7 +523,7 @@ def _control_capabilities_for_runtime(
     requires_json_action_protocol = bool(
         explicit.get("requires_json_action_protocol")
         if "requires_json_action_protocol" in explicit
-        else (not conversation_only and (may_call_tools or may_request_task_run or may_use_subagents or has_explicit_contract))
+        else (not conversation_only and (may_call_tools or may_use_subagents or has_explicit_contract))
     )
     return {
         "authority": "harness.runtime.control_capabilities",

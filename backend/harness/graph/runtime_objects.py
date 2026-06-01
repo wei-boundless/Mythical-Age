@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from .flow_packet import FlowPacket
-from .models import GraphNodeWorkOrder, NodeResultEnvelope, safe_id
+from .models import GraphNodeWorkOrder, NodeResultEnvelope, stable_safe_id
 
 
 WORK_ORDER_KIND = "graph_node_work_order"
@@ -15,21 +15,21 @@ def store_work_order(services: Any, order: GraphNodeWorkOrder) -> str:
     store = _runtime_object_store(services)
     if store is None:
         raise RuntimeError("GraphLoop requires runtime_objects to persist GraphNodeWorkOrder payloads")
-    return str(store.put_object(WORK_ORDER_KIND, safe_id(order.work_order_id), order.to_dict()))
+    return str(store.put_object(WORK_ORDER_KIND, stable_safe_id(order.work_order_id), order.to_dict()))
 
 
 def store_node_result(services: Any, result: NodeResultEnvelope) -> str:
     store = _runtime_object_store(services)
     if store is None:
         raise RuntimeError("GraphLoop requires runtime_objects to persist NodeResultEnvelope payloads")
-    return str(store.put_object(NODE_RESULT_KIND, safe_id(result.result_id), result.to_dict()))
+    return str(store.put_object(NODE_RESULT_KIND, stable_safe_id(result.result_id), result.to_dict()))
 
 
 def store_flow_packet(services: Any, packet: FlowPacket) -> str:
     store = _runtime_object_store(services)
     if store is None:
         raise RuntimeError("GraphLoop requires runtime_objects to persist FlowPacket payloads")
-    return str(store.put_object(FLOW_PACKET_KIND, safe_id(packet.packet_id), packet.to_dict()))
+    return str(store.put_object(FLOW_PACKET_KIND, stable_safe_id(packet.packet_id), packet.to_dict()))
 
 
 def load_work_order(services: Any, entry: dict[str, Any]) -> GraphNodeWorkOrder | None:

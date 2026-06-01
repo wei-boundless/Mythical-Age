@@ -553,6 +553,16 @@ def safe_id(value: str, *, limit: int = 120) -> str:
     return (safe or "graph")[:limit]
 
 
+def stable_safe_id(value: str, *, limit: int = 180, hash_chars: int = 16) -> str:
+    safe = safe_id(value, limit=max(1, limit))
+    raw = str(value or "")
+    if len(safe) < limit and safe == safe_id(raw, limit=len(raw) + 1):
+        return safe
+    digest = stable_hash(raw)[: max(8, min(64, int(hash_chars or 16)))]
+    prefix_limit = max(1, int(limit) - len(digest) - 1)
+    return f"{safe[:prefix_limit].strip('_') or 'graph'}_{digest}"
+
+
 def _int_or_default(value: Any, default: int) -> int:
     if value is None or value == "":
         return default

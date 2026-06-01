@@ -23,6 +23,7 @@ class GraphRunRunnerResult:
     budget_exhausted: bool = False
     loop_state: dict[str, Any] = field(default_factory=dict)
     graph_result: dict[str, Any] = field(default_factory=dict)
+    active_node_work_orders: tuple[dict[str, Any], ...] = ()
     events: tuple[dict[str, Any], ...] = ()
     authority: str = "harness.graph_run_runner"
 
@@ -39,6 +40,8 @@ class GraphRunRunnerResult:
             "budget_exhausted": self.budget_exhausted,
             "graph_loop_state": dict(self.loop_state),
             "graph_result": dict(self.graph_result),
+            "active_node_work_orders": [dict(item) for item in self.active_node_work_orders],
+            "active_node_work_order_count": len(self.active_node_work_orders),
             "events": [dict(item) for item in self.events],
         }
 
@@ -387,6 +390,7 @@ class GraphRunRunner:
             budget_exhausted=budget_exhausted,
             loop_state=_loop_state_public_view(state),
             graph_result=dict(graph_result or {}),
+            active_node_work_orders=_active_work_order_summaries_from_state(state),
             events=tuple(events),
         )
 
@@ -406,6 +410,24 @@ def _active_work_orders_from_state(state: GraphLoopState, *, services: Any) -> t
             raise ValueError("GraphNodeWorkOrder node_id does not match active_work_orders")
         orders.append(order)
     return tuple(orders)
+
+
+def _active_work_order_summaries_from_state(state: GraphLoopState) -> tuple[dict[str, Any], ...]:
+    active = dict(state.active_work_orders or {})
+    index = dict(state.work_order_index or {})
+    summaries: list[dict[str, Any]] = []
+    for node_id, work_order_id in active.items():
+        payload = dict(index.get(str(work_order_id)) or {})
+        if not payload:
+            payload = {"node_id": str(node_id), "work_order_id": str(work_order_id)}
+        summaries.append(
+            {
+                **payload,
+                "node_id": str(payload.get("node_id") or node_id),
+                "work_order_id": str(payload.get("work_order_id") or work_order_id),
+            }
+        )
+    return tuple(summaries)
 
 
 def _validate_graph_config_identity(graph_config: GraphHarnessConfig) -> None:

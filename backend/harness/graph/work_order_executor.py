@@ -10,7 +10,7 @@ from task_system.runtime_semantics.chapter_progress import (
     normalize_chapter_progress_receipt,
 )
 
-from .models import GraphHarnessConfig, GraphNodeWorkOrder, NodeResultEnvelope, safe_id
+from .models import GraphHarnessConfig, GraphNodeWorkOrder, NodeResultEnvelope, safe_id, stable_safe_id
 from .output_policy import resolve_output_policy
 from .runtime_objects import node_result_summary, work_order_summary
 
@@ -166,7 +166,7 @@ class GraphNodeWorkOrderExecutor:
         postprocess_errors = [*contract_artifact_errors, *artifact_errors, *memory_errors, *progress_errors]
         result_status = "completed" if ok and not postprocess_errors else "failed"
         return NodeResultEnvelope(
-            result_id=f"nresult:{safe_id(work_order.graph_run_id)}:{safe_id(work_order.node_id)}:{safe_id(work_order.work_order_id)}",
+            result_id=f"nresult:{stable_safe_id(work_order.graph_run_id)}:{stable_safe_id(work_order.node_id)}:{stable_safe_id(work_order.work_order_id)}",
             graph_run_id=work_order.graph_run_id,
             task_run_id=work_order.task_run_id,
             node_id=work_order.node_id,
@@ -213,7 +213,7 @@ class GraphNodeWorkOrderExecutor:
         diagnostics: dict[str, Any] | None = None,
     ) -> GraphWorkOrderExecution:
         result = NodeResultEnvelope(
-            result_id=f"nresult:{safe_id(work_order.graph_run_id)}:{safe_id(work_order.node_id)}:{safe_id(work_order.work_order_id)}:unsupported",
+            result_id=f"nresult:{stable_safe_id(work_order.graph_run_id)}:{stable_safe_id(work_order.node_id)}:{stable_safe_id(work_order.work_order_id)}:unsupported",
             graph_run_id=work_order.graph_run_id,
             task_run_id=work_order.task_run_id,
             node_id=work_order.node_id,
@@ -253,7 +253,7 @@ def _agent_execution_not_ok_result(
         or ("node_executor_blocked" if status == "blocked" else "node_executor_failed")
     )
     return NodeResultEnvelope(
-        result_id=f"nresult:{safe_id(work_order.graph_run_id)}:{safe_id(work_order.node_id)}:{safe_id(work_order.work_order_id)}",
+        result_id=f"nresult:{stable_safe_id(work_order.graph_run_id)}:{stable_safe_id(work_order.node_id)}:{stable_safe_id(work_order.work_order_id)}",
         graph_run_id=work_order.graph_run_id,
         task_run_id=work_order.task_run_id,
         node_id=work_order.node_id,

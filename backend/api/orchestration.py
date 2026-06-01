@@ -19,6 +19,7 @@ class TaskGraphRunStartRequest(BaseModel):
     task_id: str = Field(default="", max_length=180)
     initial_inputs: dict[str, Any] = Field(default_factory=dict)
     include_trace: bool = True
+    include_graph_harness_config: bool = False
     dispatch_ready: bool = True
     run_mode: str = Field(default="dispatch_only", max_length=32)
     runner_budget: dict[str, Any] = Field(default_factory=dict)
@@ -131,7 +132,7 @@ async def start_task_graph_harness_run(
         "graph_run": response_graph_run,
         "checkpoint": response_checkpoint,
         "graph_loop_state": response_loop_state,
-        "graph_harness_config": graph_config.to_dict(),
+        "graph_harness_config": _graph_config_api_view(graph_config, include_config=payload.include_graph_harness_config),
         "node_work_orders": node_work_orders,
         "runner_result": runner_result.to_dict() if runner_result is not None else None,
         "trace": trace,
@@ -140,7 +141,12 @@ async def start_task_graph_harness_run(
 
 
 @router.get("/orchestration/harness/graph-runs/{graph_run_id}/monitor")
-async def get_graph_run_monitor(graph_run_id: str, graph_harness_config_id: str = "", event_limit: int = 80) -> dict[str, Any]:
+async def get_graph_run_monitor(
+    graph_run_id: str,
+    graph_harness_config_id: str = "",
+    event_limit: int = 80,
+    include_config: bool = False,
+) -> dict[str, Any]:
     runtime = require_runtime()
     graph_config = None
     if graph_harness_config_id:
@@ -151,6 +157,7 @@ async def get_graph_run_monitor(graph_run_id: str, graph_harness_config_id: str 
         graph_run_id,
         graph_config=graph_config,
         event_limit=max(1, min(int(event_limit or 80), 240)),
+        include_config=include_config,
     )
     if monitor is None:
         raise HTTPException(status_code=404, detail="GraphRun monitor not found")
@@ -323,6 +330,27 @@ def _validated_graph_start_run_mode(value: str) -> str:
     if mode not in {"dispatch_only", "auto_run"}:
         raise HTTPException(status_code=400, detail="run_mode must be dispatch_only or auto_run")
     return mode
+
+
+def _graph_config_api_view(graph_config: Any, *, include_config: bool = False) -> dict[str, Any]:
+    if include_config:
+        return graph_config.to_dict()
+    return {
+        "authority": "harness.graph_harness_config.summary",
+        "config_id": graph_config.config_id,
+        "graph_id": graph_config.graph_id,
+        "graph_title": graph_config.graph_title,
+        "publish_version": graph_config.publish_version,
+        "status": graph_config.status,
+        "content_hash": graph_config.content_hash,
+        "published_at": graph_config.published_at,
+        "task_environment_id": graph_config.task_environment_id,
+        "root_task_ref": graph_config.root_task_ref,
+        "node_count": len(graph_config.nodes),
+        "edge_count": len(graph_config.edges),
+        "loop_frame_count": len(graph_config.loop_frames),
+        "composition_source_count": len(graph_config.composition_sources),
+    }
 
 
 def _runner_budget_kwargs(payload: dict[str, Any]) -> dict[str, Any]:

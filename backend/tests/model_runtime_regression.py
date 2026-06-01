@@ -453,7 +453,7 @@ def test_model_runtime_passes_native_tool_choice_options(monkeypatch: pytest.Mon
     }
 
 
-def test_deepseek_thinking_filters_unsupported_tool_choice(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_deepseek_thinking_keeps_tool_choice(monkeypatch: pytest.MonkeyPatch) -> None:
     runtime = _runtime(retries=0, thinking_mode="enabled")
     captured: dict[str, object] = {}
 
@@ -488,7 +488,46 @@ def test_deepseek_thinking_filters_unsupported_tool_choice(monkeypatch: pytest.M
     assert response.content == "ok"
     assert captured["tools"] == [SimpleNamespace(name="read_file")]
     assert captured["kwargs"] == {
+        "tool_choice": {"type": "function", "function": {"name": "read_file"}},
         "strict": False,
+        "parallel_tool_calls": False,
+    }
+
+
+def test_deepseek_global_thinking_keeps_tool_choice(monkeypatch: pytest.MonkeyPatch) -> None:
+    runtime = _runtime(retries=0, thinking_mode="enabled")
+    captured: dict[str, object] = {}
+
+    class _BindableFakeModel(_FakeModel):
+        def bind_tools(self, tools, **kwargs):
+            captured["tools"] = tools
+            captured["kwargs"] = kwargs
+            return self
+
+    monkeypatch.setattr(runtime, "_build_chat_model_for_spec", lambda _spec: _BindableFakeModel(SimpleNamespace(content="ok")))
+
+    options = ToolCallBindingOptions(
+        tool_choice={"type": "function", "function": {"name": "read_file"}},
+        parallel_tool_calls=False,
+    )
+    response = asyncio.run(
+        runtime.invoke_messages_with_tools(
+            [HumanMessage(content="read")],
+            [SimpleNamespace(name="read_file")],
+            model_spec=ModelSpec(
+                provider="deepseek",
+                model="deepseek-v4-pro",
+                api_key="deepseek-key",
+                base_url="https://api.deepseek.com/v1",
+            ),
+            tool_call_options=options,
+        )
+    )
+
+    assert response.content == "ok"
+    assert captured["tools"] == [SimpleNamespace(name="read_file")]
+    assert captured["kwargs"] == {
+        "tool_choice": {"type": "function", "function": {"name": "read_file"}},
         "parallel_tool_calls": False,
     }
 
@@ -746,7 +785,84 @@ def test_deepseek_model_runtime_only_sends_reasoning_effort_when_thinking_enable
     )
 
     assert model.reasoning_effort == "max"
+    assert model.temperature is None
     assert model.extra_body == {"thinking": {"type": "enabled"}}
+
+
+def test_deepseek_thinking_omits_temperature_from_cache_relevant_params(tmp_path: Path) -> None:
+    runtime = _runtime(retries=0, thinking_mode="enabled")
+    ledger = PromptAccountingLedger(tmp_path)
+    runtime.attach_prompt_accounting_ledger(ledger)
+    messages = [
+        {"role": "system", "content": "stable runtime"},
+        {"role": "user", "content": "current request"},
+    ]
+    segment_plan = build_prompt_segment_plan(
+        packet_id="packet:deepseek-thinking-temperature",
+        invocation_kind="turn_action",
+        message_specs=[
+            {
+                "role": "system",
+                "content": "stable runtime",
+                "kind": "global_static",
+                "source_ref": "runtime.test",
+                "cache_role": "cacheable_prefix",
+                "compression_role": "preserve",
+            },
+            {
+                "role": "user",
+                "content": "current request",
+                "kind": "volatile_user",
+                "source_ref": "turn.test",
+                "cache_role": "volatile",
+                "compression_role": "summarize",
+            },
+        ],
+    ).to_dict()
+
+    runtime._begin_prompt_accounting(
+        messages,
+        tools=None,
+        spec=ModelSpec(
+            provider="deepseek",
+            model="deepseek-v4-pro",
+            api_key="key",
+            base_url="https://api.deepseek.com/v1",
+            temperature=0.0,
+        ),
+        accounting_context={
+            "request_id": "modelreq:deepseek-thinking-temperature:1",
+            "session_id": "session:deepseek-thinking-temperature",
+            "source": "turn_action",
+            "segment_plan": segment_plan,
+        },
+        attempt=1,
+        call_kind="turn_action",
+    )
+    runtime._begin_prompt_accounting(
+        messages,
+        tools=None,
+        spec=ModelSpec(
+            provider="deepseek",
+            model="deepseek-v4-pro",
+            api_key="key",
+            base_url="https://api.deepseek.com/v1",
+            temperature=0.7,
+        ),
+        accounting_context={
+            "request_id": "modelreq:deepseek-thinking-temperature:2",
+            "session_id": "session:deepseek-thinking-temperature",
+            "source": "turn_action",
+            "segment_plan": segment_plan,
+        },
+        attempt=1,
+        call_kind="turn_action",
+    )
+
+    latest = ledger.list_prompt_stability(session_id="session:deepseek-thinking-temperature")[-1]
+
+    assert latest.diagnostics["dynamic_params_changed"] is False
+    assert "temperature" not in latest.dynamic_param_summary["request_params"]
 
 
 def test_openai_compatible_runtime_passes_max_completion_tokens() -> None:
@@ -1025,6 +1141,617 @@ def test_model_runtime_prompt_accounting_records_cache_efficiency_metrics(tmp_pa
     assert cache_record.diagnostics["cache_efficiency"] > 0
     assert cache_record.diagnostics["duration_seconds"] >= 0
     assert provider_usage.diagnostics["duration_seconds"] >= 0
+
+
+def test_model_runtime_records_prompt_stability_report_and_provider_usage(tmp_path: Path) -> None:
+    runtime = _runtime(retries=0)
+    ledger = PromptAccountingLedger(tmp_path)
+    runtime.attach_prompt_accounting_ledger(ledger)
+    spec = ModelSpec(provider="deepseek", model="deepseek-chat", api_key="key", base_url="https://api.deepseek.com/v1")
+    first_messages = [
+        {"role": "system", "content": "stable runtime"},
+        {"role": "system", "content": "stable contract A"},
+        {"role": "user", "content": "current request"},
+    ]
+    first_plan = build_prompt_segment_plan(
+        packet_id="packet:stability:1",
+        invocation_kind="turn_action",
+        message_specs=[
+            {
+                "role": "system",
+                "content": "stable runtime",
+                "kind": "global_static",
+                "source_ref": "runtime.test",
+                "cache_role": "cacheable_prefix",
+                "compression_role": "preserve",
+            },
+            {
+                "role": "system",
+                "content": "stable contract A",
+                "kind": "task_stable",
+                "source_ref": "contract.test",
+                "cache_role": "session_stable",
+                "compression_role": "preserve",
+            },
+            {
+                "role": "user",
+                "content": "current request",
+                "kind": "volatile_user",
+                "source_ref": "turn.test",
+                "cache_role": "volatile",
+                "compression_role": "summarize",
+            },
+        ],
+    ).to_dict()
+    first = runtime._begin_prompt_accounting(
+        first_messages,
+        tools=None,
+        spec=spec,
+        accounting_context={
+            "request_id": "modelreq:stability:1",
+            "session_id": "session:stability",
+            "source": "turn_action",
+            "segment_plan": first_plan,
+        },
+        attempt=1,
+        call_kind="turn_action",
+    )
+    runtime._finish_prompt_accounting(
+        first,
+        response=SimpleNamespace(
+            content="ok",
+            usage_metadata={
+                "prompt_cache_hit_tokens": 0,
+                "prompt_cache_miss_tokens": 100,
+                "completion_tokens": 3,
+            },
+        ),
+    )
+
+    second_messages = [
+        {"role": "system", "content": "stable runtime"},
+        {"role": "system", "content": "stable contract B"},
+        {"role": "user", "content": "current request"},
+    ]
+    second_plan = build_prompt_segment_plan(
+        packet_id="packet:stability:2",
+        invocation_kind="turn_action",
+        message_specs=[
+            {
+                "role": "system",
+                "content": "stable runtime",
+                "kind": "global_static",
+                "source_ref": "runtime.test",
+                "cache_role": "cacheable_prefix",
+                "compression_role": "preserve",
+            },
+            {
+                "role": "system",
+                "content": "stable contract B",
+                "kind": "task_stable",
+                "source_ref": "contract.test",
+                "cache_role": "session_stable",
+                "compression_role": "preserve",
+            },
+            {
+                "role": "user",
+                "content": "current request",
+                "kind": "volatile_user",
+                "source_ref": "turn.test",
+                "cache_role": "volatile",
+                "compression_role": "summarize",
+            },
+        ],
+    ).to_dict()
+    second = runtime._begin_prompt_accounting(
+        second_messages,
+        tools=None,
+        spec=spec,
+        accounting_context={
+            "request_id": "modelreq:stability:2",
+            "session_id": "session:stability",
+            "source": "turn_action",
+            "segment_plan": second_plan,
+        },
+        attempt=1,
+        call_kind="turn_action",
+    )
+    runtime._finish_prompt_accounting(
+        second,
+        response=SimpleNamespace(
+            content="ok",
+            usage_metadata={
+                "prompt_cache_hit_tokens": 64,
+                "prompt_cache_miss_tokens": 36,
+                "completion_tokens": 3,
+            },
+        ),
+    )
+
+    reports = ledger.list_prompt_stability(session_id="session:stability")
+
+    assert len(reports) == 2
+    assert reports[-1].previous_report_ref == "pstability:modelreq:stability:1"
+    assert reports[-1].first_changed_section["ordinal"] == 2
+    assert reports[-1].diagnostics["likely_break_reason"] == "provider_cache_hit"
+    assert reports[-1].provider_usage["cached_tokens"] == 64
+    assert reports[-1].provider_usage["cache_hit_rate"] == 0.64
+
+
+def test_model_runtime_prompt_stability_detects_dynamic_param_change(tmp_path: Path) -> None:
+    runtime = _runtime(retries=0)
+    ledger = PromptAccountingLedger(tmp_path)
+    runtime.attach_prompt_accounting_ledger(ledger)
+    messages = [
+        {"role": "system", "content": "stable runtime"},
+        {"role": "user", "content": "current request"},
+    ]
+    segment_plan = build_prompt_segment_plan(
+        packet_id="packet:param-stability",
+        invocation_kind="turn_action",
+        message_specs=[
+            {
+                "role": "system",
+                "content": "stable runtime",
+                "kind": "global_static",
+                "source_ref": "runtime.test",
+                "cache_role": "cacheable_prefix",
+                "compression_role": "preserve",
+            },
+            {
+                "role": "user",
+                "content": "current request",
+                "kind": "volatile_user",
+                "source_ref": "turn.test",
+                "cache_role": "volatile",
+                "compression_role": "summarize",
+            },
+        ],
+    ).to_dict()
+
+    runtime._begin_prompt_accounting(
+        messages,
+        tools=None,
+        spec=ModelSpec(
+            provider="deepseek",
+            model="deepseek-chat",
+            api_key="key",
+            base_url="https://api.deepseek.com/v1",
+            temperature=0.0,
+        ),
+        accounting_context={
+            "request_id": "modelreq:param-stability:1",
+            "session_id": "session:param-stability",
+            "source": "turn_action",
+            "segment_plan": segment_plan,
+        },
+        attempt=1,
+        call_kind="turn_action",
+    )
+    runtime._begin_prompt_accounting(
+        messages,
+        tools=None,
+        spec=ModelSpec(
+            provider="deepseek",
+            model="deepseek-chat",
+            api_key="key",
+            base_url="https://api.deepseek.com/v1",
+            temperature=0.7,
+        ),
+        accounting_context={
+            "request_id": "modelreq:param-stability:2",
+            "session_id": "session:param-stability",
+            "source": "turn_action",
+            "segment_plan": segment_plan,
+        },
+        attempt=1,
+        call_kind="turn_action",
+    )
+
+    reports = ledger.list_prompt_stability(session_id="session:param-stability")
+    latest = reports[-1]
+    diff = latest.diagnostics["dynamic_param_diff"]
+
+    assert latest.first_changed_section == {}
+    assert latest.diagnostics["likely_break_reason"] == "dynamic_request_params_changed"
+    assert latest.diagnostics["dynamic_params_changed"] is True
+    assert diff["request_params"]["previous"]["temperature"] == 0.0
+    assert diff["request_params"]["current"]["temperature"] == 0.7
+
+
+def test_model_runtime_prompt_stability_ignores_client_only_timeout_changes(tmp_path: Path) -> None:
+    runtime = _runtime(retries=0)
+    ledger = PromptAccountingLedger(tmp_path)
+    runtime.attach_prompt_accounting_ledger(ledger)
+    messages = [
+        {"role": "system", "content": "stable runtime"},
+        {"role": "user", "content": "current request"},
+    ]
+    segment_plan = build_prompt_segment_plan(
+        packet_id="packet:timeout-stability",
+        invocation_kind="turn_action",
+        message_specs=[
+            {
+                "role": "system",
+                "content": "stable runtime",
+                "kind": "global_static",
+                "source_ref": "runtime.test",
+                "cache_role": "cacheable_prefix",
+                "compression_role": "preserve",
+            },
+            {
+                "role": "user",
+                "content": "current request",
+                "kind": "volatile_user",
+                "source_ref": "turn.test",
+                "cache_role": "volatile",
+                "compression_role": "summarize",
+            },
+        ],
+    ).to_dict()
+
+    runtime._begin_prompt_accounting(
+        messages,
+        tools=None,
+        spec=ModelSpec(
+            provider="deepseek",
+            model="deepseek-chat",
+            api_key="key",
+            base_url="https://api.deepseek.com/v1",
+            timeout_seconds=10,
+            max_retries=0,
+        ),
+        accounting_context={
+            "request_id": "modelreq:timeout-stability:1",
+            "session_id": "session:timeout-stability",
+            "source": "turn_action",
+            "segment_plan": segment_plan,
+        },
+        attempt=1,
+        call_kind="turn_action",
+    )
+    runtime._begin_prompt_accounting(
+        messages,
+        tools=None,
+        spec=ModelSpec(
+            provider="deepseek",
+            model="deepseek-chat",
+            api_key="key",
+            base_url="https://api.deepseek.com/v1",
+            timeout_seconds=30,
+            max_retries=2,
+        ),
+        accounting_context={
+            "request_id": "modelreq:timeout-stability:2",
+            "session_id": "session:timeout-stability",
+            "source": "turn_action",
+            "segment_plan": segment_plan,
+        },
+        attempt=1,
+        call_kind="turn_action",
+    )
+
+    latest = ledger.list_prompt_stability(session_id="session:timeout-stability")[-1]
+
+    assert latest.diagnostics["dynamic_params_changed"] is False
+    assert "timeout_seconds" not in latest.dynamic_param_summary["request_params"]
+    assert "max_retries" not in latest.dynamic_param_summary["request_params"]
+
+
+def test_model_runtime_prompt_stability_records_tool_call_options(tmp_path: Path) -> None:
+    runtime = _runtime(retries=0)
+    ledger = PromptAccountingLedger(tmp_path)
+    runtime.attach_prompt_accounting_ledger(ledger)
+    messages = [
+        {"role": "system", "content": "stable runtime"},
+        {"role": "user", "content": "current request"},
+    ]
+    tool = {
+        "type": "function",
+        "function": {
+            "name": "write_file",
+            "description": "Write a file",
+            "parameters": {"type": "object", "properties": {}},
+        },
+    }
+    segment_plan = build_prompt_segment_plan(
+        packet_id="packet:tool-option-stability",
+        invocation_kind="turn_action",
+        message_specs=[
+            {
+                "role": "system",
+                "content": "stable runtime",
+                "kind": "global_static",
+                "source_ref": "runtime.test",
+                "cache_role": "cacheable_prefix",
+                "compression_role": "preserve",
+            },
+            {
+                "role": "user",
+                "content": "current request",
+                "kind": "volatile_user",
+                "source_ref": "turn.test",
+                "cache_role": "volatile",
+                "compression_role": "summarize",
+            },
+        ],
+    ).to_dict()
+    spec = ModelSpec(provider="deepseek", model="deepseek-chat", api_key="key", base_url="https://api.deepseek.com/v1")
+
+    runtime._begin_prompt_accounting(
+        messages,
+        tools=[tool],
+        spec=spec,
+        accounting_context={
+            "request_id": "modelreq:tool-option-stability:1",
+            "session_id": "session:tool-option-stability",
+            "source": "turn_action",
+            "segment_plan": segment_plan,
+        },
+        attempt=1,
+        call_kind="invoke_messages_with_tools",
+        tool_call_options=ToolCallBindingOptions(parallel_tool_calls=False),
+    )
+    runtime._begin_prompt_accounting(
+        messages,
+        tools=[tool],
+        spec=spec,
+        accounting_context={
+            "request_id": "modelreq:tool-option-stability:2",
+            "session_id": "session:tool-option-stability",
+            "source": "turn_action",
+            "segment_plan": segment_plan,
+        },
+        attempt=1,
+        call_kind="invoke_messages_with_tools",
+        tool_call_options=ToolCallBindingOptions(
+            tool_choice={"type": "function", "function": {"name": "write_file"}},
+            parallel_tool_calls=False,
+        ),
+    )
+
+    reports = ledger.list_prompt_stability(session_id="session:tool-option-stability")
+    latest = reports[-1]
+    current_options = latest.dynamic_param_summary["request_params"]["tool_call_options"]
+
+    assert current_options["tool_choice"] == {"type": "function", "function": {"name": "write_file"}}
+    assert current_options["parallel_tool_calls"] is False
+    assert latest.diagnostics["likely_break_reason"] == "dynamic_request_params_changed"
+    assert latest.diagnostics["dynamic_param_diff"]["request_params"]["previous"]["tool_call_options"] == {
+        "parallel_tool_calls": False
+    }
+
+
+def test_model_runtime_prompt_stability_compares_same_session_across_runs(tmp_path: Path) -> None:
+    runtime = _runtime(retries=0)
+    ledger = PromptAccountingLedger(tmp_path)
+    runtime.attach_prompt_accounting_ledger(ledger)
+    messages = [
+        {"role": "system", "content": "stable runtime"},
+        {"role": "user", "content": "current request"},
+    ]
+    segment_plan = build_prompt_segment_plan(
+        packet_id="packet:session-cross-run-stability",
+        invocation_kind="turn_action",
+        message_specs=[
+            {
+                "role": "system",
+                "content": "stable runtime",
+                "kind": "global_static",
+                "source_ref": "runtime.test",
+                "cache_role": "cacheable_prefix",
+                "compression_role": "preserve",
+            },
+            {
+                "role": "user",
+                "content": "current request",
+                "kind": "volatile_user",
+                "source_ref": "turn.test",
+                "cache_role": "volatile",
+                "compression_role": "summarize",
+            },
+        ],
+    ).to_dict()
+    spec = ModelSpec(provider="deepseek", model="deepseek-chat", api_key="key", base_url="https://api.deepseek.com/v1")
+
+    runtime._begin_prompt_accounting(
+        messages,
+        tools=None,
+        spec=spec,
+        accounting_context={
+            "request_id": "modelreq:session-cross-run-stability:1",
+            "run_id": "run:first",
+            "session_id": "session:cross-run-stability",
+            "source": "turn_action",
+            "segment_plan": segment_plan,
+        },
+        attempt=1,
+        call_kind="turn_action",
+    )
+    runtime._begin_prompt_accounting(
+        messages,
+        tools=None,
+        spec=spec,
+        accounting_context={
+            "request_id": "modelreq:session-cross-run-stability:2",
+            "run_id": "run:second",
+            "session_id": "session:cross-run-stability",
+            "source": "turn_action",
+            "segment_plan": segment_plan,
+        },
+        attempt=1,
+        call_kind="turn_action",
+    )
+
+    reports = ledger.list_prompt_stability(session_id="session:cross-run-stability")
+
+    assert reports[-1].previous_report_ref == "pstability:modelreq:session-cross-run-stability:1"
+    assert reports[-1].diagnostics["has_previous_report"] is True
+
+
+def test_model_runtime_prompt_stability_records_context_window_facts(tmp_path: Path) -> None:
+    runtime = _runtime(retries=0)
+    ledger = PromptAccountingLedger(tmp_path)
+    runtime.attach_prompt_accounting_ledger(ledger)
+    messages = [
+        {"role": "system", "content": "stable runtime"},
+        {"role": "user", "content": "current request"},
+    ]
+    segment_plan = build_prompt_segment_plan(
+        packet_id="packet:context-window-stability",
+        invocation_kind="turn_action",
+        message_specs=[
+            {
+                "role": "system",
+                "content": "stable runtime",
+                "kind": "global_static",
+                "source_ref": "runtime.test",
+                "cache_role": "cacheable_prefix",
+                "compression_role": "preserve",
+            },
+            {
+                "role": "user",
+                "content": "current request",
+                "kind": "volatile_user",
+                "source_ref": "turn.test",
+                "cache_role": "volatile",
+                "compression_role": "summarize",
+            },
+        ],
+    ).to_dict()
+
+    runtime._begin_prompt_accounting(
+        messages,
+        tools=None,
+        spec=ModelSpec(provider="deepseek", model="deepseek-chat", api_key="key", base_url="https://api.deepseek.com/v1"),
+        accounting_context={
+            "request_id": "modelreq:context-window-stability:1",
+            "session_id": "session:context-window-stability",
+            "source": "turn_action",
+            "segment_plan": segment_plan,
+            "prompt_manifest": {
+                "context_window": {
+                    "compressed_summary_hash": "sha256:compressed",
+                    "compressed_summary_present": True,
+                    "replacement_history_ref": "replacement-history:abcdef",
+                    "replacement_history_present": True,
+                    "raw_history_message_count": 12,
+                    "recent_history_message_count": 6,
+                    "omitted_history_message_count": 6,
+                }
+            },
+        },
+        attempt=1,
+        call_kind="turn_action",
+    )
+
+    report = ledger.list_prompt_stability(session_id="session:context-window-stability")[0]
+    context_window = report.diagnostics["context_window"]
+
+    assert report.compaction_generation == 1
+    assert report.context_window_generation == 1
+    assert context_window["compressed_summary_hash"] == "sha256:compressed"
+    assert context_window["replacement_history_ref"] == "replacement-history:abcdef"
+    assert context_window["raw_history_message_count"] == 12
+    assert context_window["recent_history_message_count"] == 6
+    assert context_window["omitted_history_message_count"] == 6
+
+
+def test_model_runtime_prompt_stability_keeps_deepseek_thinking_tool_choice(tmp_path: Path) -> None:
+    runtime = _runtime(retries=0)
+    ledger = PromptAccountingLedger(tmp_path)
+    runtime.attach_prompt_accounting_ledger(ledger)
+    messages = [
+        {"role": "system", "content": "stable runtime"},
+        {"role": "user", "content": "current request"},
+    ]
+    tool = {
+        "type": "function",
+        "function": {
+            "name": "read_file",
+            "description": "Read a file",
+            "parameters": {"type": "object", "properties": {}},
+        },
+    }
+    spec = ModelSpec(
+        provider="deepseek",
+        model="deepseek-chat",
+        api_key="key",
+        base_url="https://api.deepseek.com/v1",
+        thinking_mode="enabled",
+    )
+
+    runtime._begin_prompt_accounting(
+        messages,
+        tools=[tool],
+        spec=spec,
+        accounting_context={
+            "request_id": "modelreq:thinking-tool-option-stability:1",
+            "session_id": "session:thinking-tool-option-stability",
+            "source": "turn_action",
+        },
+        attempt=1,
+        call_kind="invoke_messages_with_tools",
+        tool_call_options=ToolCallBindingOptions(
+            tool_choice={"type": "function", "function": {"name": "read_file"}},
+            parallel_tool_calls=False,
+        ),
+    )
+
+    report = ledger.list_prompt_stability(session_id="session:thinking-tool-option-stability")[0]
+    options = report.dynamic_param_summary["request_params"]["tool_call_options"]
+
+    assert options == {
+        "tool_choice": {"type": "function", "function": {"name": "read_file"}},
+        "parallel_tool_calls": False,
+    }
+
+
+def test_model_runtime_prompt_stability_keeps_global_deepseek_thinking_tool_choice(tmp_path: Path) -> None:
+    runtime = _runtime(retries=0, thinking_mode="enabled")
+    ledger = PromptAccountingLedger(tmp_path)
+    runtime.attach_prompt_accounting_ledger(ledger)
+    messages = [
+        {"role": "system", "content": "stable runtime"},
+        {"role": "user", "content": "current request"},
+    ]
+    tool = {
+        "type": "function",
+        "function": {
+            "name": "read_file",
+            "description": "Read a file",
+            "parameters": {"type": "object", "properties": {}},
+        },
+    }
+    runtime._begin_prompt_accounting(
+        messages,
+        tools=[tool],
+        spec=ModelSpec(
+            provider="deepseek",
+            model="deepseek-chat",
+            api_key="key",
+            base_url="https://api.deepseek.com/v1",
+        ),
+        accounting_context={
+            "request_id": "modelreq:global-thinking-tool-option-stability:1",
+            "session_id": "session:global-thinking-tool-option-stability",
+            "source": "turn_action",
+        },
+        attempt=1,
+        call_kind="invoke_messages_with_tools",
+        tool_call_options=ToolCallBindingOptions(
+            tool_choice={"type": "function", "function": {"name": "read_file"}},
+            parallel_tool_calls=False,
+        ),
+    )
+
+    report = ledger.list_prompt_stability(session_id="session:global-thinking-tool-option-stability")[0]
+    options = report.dynamic_param_summary["request_params"]["tool_call_options"]
+
+    assert options == {
+        "tool_choice": {"type": "function", "function": {"name": "read_file"}},
+        "parallel_tool_calls": False,
+    }
 
 
 def test_provider_cache_policy_disables_undeclared_openai_compatible_endpoint() -> None:

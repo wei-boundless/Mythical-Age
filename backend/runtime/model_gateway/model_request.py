@@ -85,7 +85,6 @@ class ModelRequestBuilder:
             {
                 "messages": list(normalized_messages),
                 "tools": list(normalized_tools),
-                "metadata": dict(metadata or {}),
             }
         )
         cache_policy = self.cache_policy_resolver.resolve(provider=provider, model=model, base_url=base_url)

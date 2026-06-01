@@ -793,13 +793,6 @@ def _model_spec_for_stream_policy(
     if forced_tool_timeout_applied:
         updates["max_retries"] = 0
     forced_tool_name = _forced_tool_choice_name(tool_call_options)
-    provider = str(getattr(model_spec, "provider", "") or "").strip().lower()
-    if (
-        forced_tool_name
-        and provider == "deepseek"
-        and forced_tool_timeout_applied
-    ):
-        updates["thinking_mode"] = "disabled"
     diagnostics = getattr(model_spec, "diagnostics", None)
     if isinstance(diagnostics, dict):
         updates["diagnostics"] = {
@@ -810,11 +803,8 @@ def _model_spec_for_stream_policy(
                 {
                     "forced_tool_choice_name": forced_tool_name,
                     "forced_tool_choice_requires_tool_compatible_model": True,
-                    "deepseek_thinking_disabled_for_forced_tool_choice": True,
                 }
-                if forced_tool_name
-                and provider == "deepseek"
-                and forced_tool_timeout_applied
+                if forced_tool_name and forced_tool_timeout_applied
                 else {}
             ),
             **(

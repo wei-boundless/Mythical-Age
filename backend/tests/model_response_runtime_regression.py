@@ -386,7 +386,7 @@ def test_model_response_policy_caps_underlying_model_spec_timeout() -> None:
     assert runtime.seen_model_spec.diagnostics["runtime_policy_timeout_applied"] is True
 
 
-def test_forced_tool_choice_disables_deepseek_thinking_for_forced_tool_round() -> None:
+def test_forced_tool_choice_keeps_deepseek_thinking_for_forced_tool_round() -> None:
     runtime = _CapturingSpecRuntime()
     executor = ModelResponseRuntimeExecutor(model_runtime=runtime)
     original_spec = SimpleNamespace(
@@ -430,10 +430,10 @@ def test_forced_tool_choice_disables_deepseek_thinking_for_forced_tool_round() -
 
     assert events[-1]["type"] == "done"
     assert original_spec.thinking_mode == "enabled"
-    assert runtime.seen_model_spec.thinking_mode == "disabled"
+    assert runtime.seen_model_spec.thinking_mode == "enabled"
     assert runtime.seen_model_spec.max_retries == 0
     assert runtime.seen_model_spec.diagnostics["forced_tool_choice_name"] == "write_file"
-    assert runtime.seen_model_spec.diagnostics["deepseek_thinking_disabled_for_forced_tool_choice"] is True
+    assert "deepseek_thinking_disabled_for_forced_tool_choice" not in runtime.seen_model_spec.diagnostics
 
 
 def test_forced_tool_model_timeout_survives_blocking_async_invoker() -> None:
