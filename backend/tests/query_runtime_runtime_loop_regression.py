@@ -139,7 +139,7 @@ def test_chat_stream_runtime_refs_separate_turn_run_from_task_run() -> None:
         {
             "type": "agent_turn_terminal",
             "event": {
-                "task_run_id": "turnrun:session-a:1",
+                "run_id": "turnrun:session-a:1",
                 "payload": {
                     "turn_run": {"turn_run_id": "turnrun:session-a:1"},
                     "task_run": {"task_run_id": "taskrun:turn:session-a:1:formal"},
@@ -236,22 +236,22 @@ def test_global_live_monitor_groups_running_completed_and_failed_runs(monkeypatc
     runtime = build_query_runtime()
     host = runtime.single_agent_runtime_host
     host.state_index.upsert_task_run(TaskRun(
-        task_run_id="turnrun:old-running",
+        task_run_id="taskrun:old-running",
         session_id="session-monitor",
-        task_id="turn:old",
+        task_id="task:old",
         status="running",
         created_at=100.0,
         updated_at=200.0,
-        execution_runtime_kind="single_agent_turn",
+        execution_runtime_kind="single_agent_task",
     ))
     host.state_index.upsert_task_run(TaskRun(
-        task_run_id="turnrun:failed",
+        task_run_id="taskrun:failed-stale",
         session_id="session-monitor",
-        task_id="turn:failed",
+        task_id="task:failed",
         status="failed",
         created_at=800.0,
         updated_at=900.0,
-        execution_runtime_kind="single_agent_turn",
+        execution_runtime_kind="single_agent_task",
         terminal_reason="internal_error",
     ))
     host.state_index.upsert_task_run(TaskRun(
@@ -291,7 +291,7 @@ def test_global_live_monitor_groups_running_completed_and_failed_runs(monkeypatc
         "taskrun:fresh-waiting-executor",
         "taskrun:old-waiting-executor",
         "taskrun:waiting-approval",
-        "turnrun:old-running",
+        "taskrun:old-running",
     }
     buckets = {item["task_run_id"]: item["bucket"] for item in monitor["task_runs"]}
     assert {item["task_run_id"] for item in monitor["buckets"]["running"]} == {
@@ -300,13 +300,13 @@ def test_global_live_monitor_groups_running_completed_and_failed_runs(monkeypatc
     assert {item["task_run_id"] for item in monitor["buckets"]["diagnostics"]} == {
         "taskrun:old-waiting-executor",
         "taskrun:waiting-approval",
-        "turnrun:old-running",
+        "taskrun:old-running",
     }
     assert monitor["buckets"]["failed"] == []
     assert buckets["taskrun:fresh-waiting-executor"] == "running"
     assert buckets["taskrun:waiting-approval"] == "diagnostics"
     assert buckets["taskrun:old-waiting-executor"] == "diagnostics"
-    assert buckets["turnrun:old-running"] == "diagnostics"
+    assert buckets["taskrun:old-running"] == "diagnostics"
     assert monitor["summary"]["total"] == 4
     assert monitor["summary"]["running"] == 1
     assert monitor["summary"]["failed"] == 0
@@ -836,6 +836,7 @@ def test_session_runtime_timeline_keeps_completed_task_attachment() -> None:
 
     attachment = timeline["runtime_attachments"][0]
     assert result["ok"] is True
+    assert attachment["run_id"] == lifecycle.task_run_id
     assert attachment["task_run_id"] == lifecycle.task_run_id
     assert attachment["anchor_turn_id"] == "turn:session-timeline:1"
     assert attachment["status"] == "completed"
@@ -890,6 +891,7 @@ def test_session_runtime_timeline_derives_turn_anchor_from_structural_task_run_i
     )
 
     attachment = timeline["runtime_attachments"][0]
+    assert attachment["run_id"] == "taskrun:turn:session-anchor:3:abc"
     assert attachment["anchor_turn_id"] == "turn:session-anchor:3"
 
 
@@ -972,6 +974,7 @@ def test_session_runtime_timeline_anchors_checkout_to_latest_user_control_turn()
         item for item in timeline["runtime_attachments"]
         if item["task_run_id"] == child_task_run_id
     )
+    assert checkout_attachment["run_id"] == child_task_run_id
     assert checkout_attachment["anchor_turn_id"] == "turn:session-checkout-anchor:18"
     assert any(
         item.get("eventType") == "active_task_steer_recorded"
@@ -3397,10 +3400,13 @@ def test_main_session_model_action_writes_prompt_accounting_ledger() -> None:
             context = dict(kwargs.get("accounting_context") or {})
             if self.ledger is not None and context:
                 request_id = str(context.get("request_id") or "modelreq:test")
+                run_id = str(context.get("run_id") or context.get("task_run_id") or "")
+                task_run_id = str(context.get("task_run_id") or "")
                 segment_map = self.serializer.build_segment_map(
                     request_id=request_id,
                     messages=list(messages),
-                    task_run_id=str(context.get("task_run_id") or ""),
+                    run_id=run_id,
+                    task_run_id=task_run_id,
                     session_id=str(context.get("session_id") or ""),
                     provider="stub",
                     model="stub-model",
@@ -3410,7 +3416,8 @@ def test_main_session_model_action_writes_prompt_accounting_ledger() -> None:
                     ModelTokenUsageRecord(
                         usage_id=f"tokuse:{request_id}:local_prediction",
                         request_id=request_id,
-                        task_run_id=str(context.get("task_run_id") or ""),
+                        run_id=run_id,
+                        task_run_id=task_run_id,
                         session_id=str(context.get("session_id") or ""),
                         provider="stub",
                         model="stub-model",
@@ -3427,7 +3434,8 @@ def test_main_session_model_action_writes_prompt_accounting_ledger() -> None:
                 provider_usage = extract_provider_usage(
                     provider_response,
                     request_id=request_id,
-                    task_run_id=str(context.get("task_run_id") or ""),
+                    run_id=run_id,
+                    task_run_id=task_run_id,
                     session_id=str(context.get("session_id") or ""),
                     provider="stub",
                     model="stub-model",
@@ -3447,7 +3455,7 @@ def test_main_session_model_action_writes_prompt_accounting_ledger() -> None:
 
     asyncio.run(_collect())
     turn_run_id = runtime.single_agent_runtime_host.list_session_traces("session-accounting")["turn_runs"][0]["turn_run_id"]
-    summary = runtime.single_agent_runtime_host.prompt_accounting_ledger.summarize_task(turn_run_id)
+    summary = runtime.single_agent_runtime_host.prompt_accounting_ledger.summarize_run(turn_run_id)
 
     assert summary["exact_total_tokens"] == 15
     assert summary["provider_usage_record_count"] == 1

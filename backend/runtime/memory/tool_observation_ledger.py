@@ -64,7 +64,7 @@ class ToolObservationLedger:
             "read_count": sum(1 for record in self.records if record.side_effect_kind == "read"),
             "write_count": sum(1 for record in self.records if record.side_effect_kind == "write"),
             "verification_count": sum(1 for record in self.records if record.side_effect_kind == "verification"),
-            "delegation_count": sum(1 for record in self.records if record.side_effect_kind == "delegation"),
+            "subagent_lifecycle_count": sum(1 for record in self.records if record.side_effect_kind == "subagent_lifecycle"),
             "observed_paths": self.observed_paths(),
             "matched_paths": self.matched_paths(),
             "artifact_refs": self.artifact_refs(),

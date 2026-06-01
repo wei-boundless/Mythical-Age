@@ -60,7 +60,7 @@ class SystemRetrievalStage:
     ) -> bool:
         operation_requirement = dict(task_operation.get("operation_requirement") or {})
         resolution = dict(dict(operation_requirement.get("metadata") or {}).get("runtime_operation_resolution") or {})
-        if str(resolution.get("execution_mode") or "").strip() == "delegate":
+        if str(resolution.get("execution_mode") or "").strip() == "subagent":
             return False
         if evidence_phase_required:
             return False

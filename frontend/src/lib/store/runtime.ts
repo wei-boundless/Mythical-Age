@@ -1821,6 +1821,7 @@ export class WorkspaceRuntime {
       kind: this.runtimeProgressKindFromStep(stepName),
       level: this.runtimeProgressLevelFromStatus(String(latestStep.status ?? monitor.latest_step_status ?? monitor.status ?? "")),
       statusText: String(latestStep.status ?? monitor.latest_step_status ?? monitor.status ?? ""),
+      runId: taskRunId,
       taskRunId,
       createdAt: Number(latestStep.created_at ?? 0) || undefined,
     };
@@ -1886,6 +1887,10 @@ export class WorkspaceRuntime {
     };
   }
 
+  private runtimeAttachmentRunId(attachment: SessionRuntimeAttachment | undefined) {
+    return String(attachment?.run_id ?? attachment?.task_run_id ?? "").trim();
+  }
+
   private runtimeProgressEntryFromRuntimeEvent(runtimeEvent: RuntimeMonitorEvent): RuntimeProgressEntry | null {
     if (runtimeEvent.event_type !== "step_summary_recorded") {
       return null;
@@ -1893,8 +1898,14 @@ export class WorkspaceRuntime {
     const payload = runtimeEvent.payload && typeof runtimeEvent.payload === "object" && !Array.isArray(runtimeEvent.payload)
       ? runtimeEvent.payload
       : {};
-    const taskRunId = String(runtimeEvent.task_run_id ?? payload.task_run_id ?? "").trim();
-    if (!taskRunId) {
+    const runId = String(runtimeEvent.run_id ?? runtimeEvent.task_run_id ?? payload.task_run_id ?? "").trim();
+    const payloadTaskRunId = String(payload.task_run_id ?? "").trim();
+    const taskRunId = payloadTaskRunId.startsWith("taskrun:")
+      ? payloadTaskRunId
+      : runId.startsWith("taskrun:")
+        ? runId
+        : "";
+    if (!runId) {
       return null;
     }
     const step = String(payload.step ?? "").trim();
@@ -1906,7 +1917,7 @@ export class WorkspaceRuntime {
       return null;
     }
     return {
-      id: String(runtimeEvent.event_id ?? "").trim() || `${taskRunId}:event:${runtimeEvent.offset}`,
+      id: String(runtimeEvent.event_id ?? "").trim() || `${runId}:event:${runtimeEvent.offset}`,
       title: publicNote || summary || step || "正在处理",
       body: publicNote || summary,
       publicNote,
@@ -1916,7 +1927,8 @@ export class WorkspaceRuntime {
       kind: this.runtimeProgressKindFromStep(step),
       level: this.runtimeProgressLevelFromStatus(status),
       statusText: status || "running",
-      taskRunId,
+      runId,
+      taskRunId: taskRunId || undefined,
       createdAt: Number(runtimeEvent.created_at ?? 0) || undefined,
     };
   }
@@ -1932,15 +1944,15 @@ export class WorkspaceRuntime {
     if (explicit.startsWith("turn:")) {
       return explicit;
     }
-    const taskRunId = String(runtimeEvent.task_run_id ?? "").trim();
+    const runId = String(runtimeEvent.run_id ?? runtimeEvent.task_run_id ?? "").trim();
     for (const message of [...state.messages].reverse()) {
-      const attachment = (message.runtimeAttachments ?? []).find((item) => item.task_run_id === taskRunId);
+      const attachment = (message.runtimeAttachments ?? []).find((item) => this.runtimeAttachmentRunId(item) === runId);
       const anchor = String(attachment?.anchor_turn_id ?? "").trim();
       if (anchor.startsWith("turn:")) {
         return anchor;
       }
     }
-    return this.turnIdFromTaskRunId(taskRunId);
+    return this.turnIdFromRunId(runId);
   }
 
   private patchRuntimeAttachmentFromRuntimeEvent(state: StoreState, runtimeEvent: RuntimeMonitorEvent): StoreState {
@@ -1948,9 +1960,15 @@ export class WorkspaceRuntime {
     if (!latestProgressEntry) {
       return state;
     }
-    const taskRunId = String(runtimeEvent.task_run_id ?? latestProgressEntry.taskRunId ?? "").trim();
+    const runId = String(latestProgressEntry.runId ?? runtimeEvent.run_id ?? runtimeEvent.task_run_id ?? "").trim();
+    const latestTaskRunId = String(latestProgressEntry.taskRunId ?? "").trim();
+    const taskRunId = latestTaskRunId.startsWith("taskrun:")
+      ? latestTaskRunId
+      : runId.startsWith("taskrun:")
+        ? runId
+        : "";
     const anchorTurnId = this.runtimeEventAnchorTurnId(runtimeEvent, state);
-    if (!taskRunId || !anchorTurnId) {
+    if (!runId || !anchorTurnId) {
       return state;
     }
     const payload = runtimeEvent.payload && typeof runtimeEvent.payload === "object" && !Array.isArray(runtimeEvent.payload)
@@ -1964,9 +1982,10 @@ export class WorkspaceRuntime {
       ?? "",
     ).trim();
     const attachment: SessionRuntimeAttachment = {
-      attachment_id: `runtime-attachment:${taskRunId}`,
+      attachment_id: `runtime-attachment:${runId}`,
+      run_id: runId,
       anchor_turn_id: anchorTurnId,
-      task_run_id: taskRunId,
+      task_run_id: taskRunId || undefined,
       task_id: String(payload.task_id ?? ""),
       status: String(payload.status ?? "running"),
       terminal_reason: "",
@@ -2002,17 +2021,17 @@ export class WorkspaceRuntime {
         const existing = message.runtimeAttachments ?? [];
         const sourceMatches = Number.isFinite(anchorIndex) && message.sourceIndex === anchorIndex;
         if (explicitAnchor.startsWith("turn:") && !sourceMatches) {
-          const filtered = existing.filter((item) => item.task_run_id !== taskRunId);
+          const filtered = existing.filter((item) => this.runtimeAttachmentRunId(item) !== runId);
           return filtered.length === existing.length ? message : { ...message, runtimeAttachments: filtered };
         }
-        const hasAttachment = existing.some((item) => item.task_run_id === taskRunId);
+        const hasAttachment = existing.some((item) => this.runtimeAttachmentRunId(item) === runId);
         if (!hasAttachment && !sourceMatches) {
           return message;
         }
         return {
           ...message,
           runtimeAttachments: hasAttachment
-            ? existing.map((item) => item.task_run_id === taskRunId ? this.mergeRuntimeAttachment(item, attachment) : item)
+            ? existing.map((item) => this.runtimeAttachmentRunId(item) === runId ? this.mergeRuntimeAttachment(item, attachment) : item)
             : [...existing, attachment],
         };
       }),
@@ -2040,6 +2059,7 @@ export class WorkspaceRuntime {
     const latestProgressEntry = this.runtimeProgressEntryFromMonitor(monitor, taskRunId);
     const attachment: SessionRuntimeAttachment = {
       attachment_id: `runtime-attachment:${taskRunId}`,
+      run_id: taskRunId,
       anchor_turn_id: anchorTurnId,
       task_run_id: taskRunId,
       task_id: String(taskRun.task_id ?? monitor.task_id ?? ""),
@@ -2064,7 +2084,7 @@ export class WorkspaceRuntime {
           return message;
         }
         const existing = message.runtimeAttachments ?? [];
-        const hasAttachment = existing.some((item) => item.task_run_id === taskRunId);
+        const hasAttachment = existing.some((item) => this.runtimeAttachmentRunId(item) === taskRunId);
         const sourceMatches = attachment.anchor_turn_id && message.sourceIndex === Number(attachment.anchor_turn_id.split(":").at(-1));
         if (!hasAttachment && !sourceMatches) {
           return message;
@@ -2072,11 +2092,19 @@ export class WorkspaceRuntime {
         return {
           ...message,
           runtimeAttachments: hasAttachment
-            ? existing.map((item) => item.task_run_id === taskRunId ? this.mergeRuntimeAttachment(item, attachment) : item)
+            ? existing.map((item) => this.runtimeAttachmentRunId(item) === taskRunId ? this.mergeRuntimeAttachment(item, attachment) : item)
             : [...existing, attachment],
         };
       }),
     };
+  }
+
+  private turnIdFromRunId(runId: string) {
+    const normalized = String(runId || "").trim();
+    if (normalized.startsWith("turnrun:turn:")) {
+      return normalized.slice("turnrun:".length);
+    }
+    return this.turnIdFromTaskRunId(normalized);
   }
 
   private turnIdFromTaskRunId(taskRunId: string) {

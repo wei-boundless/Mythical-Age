@@ -40,6 +40,7 @@ def test_runtime_event_log_uses_cursor_after_initial_index_build(tmp_path, monke
     event = log.append("taskrun:test", "step_summary_recorded", payload={"summary": "step 3"})
 
     assert event.offset == 3
+    assert event.run_id == "taskrun:test"
     assert log.next_offset("taskrun:test") == 4
 
 
@@ -107,11 +108,16 @@ def test_runtime_event_log_externalizes_large_payloads_and_hydrates_full_reads(t
 
     raw_line = log._event_path("taskrun:test").read_text(encoding="utf-8").strip()
     stored_row = json.loads(raw_line)
+    assert stored_row["run_id"] == "taskrun:test"
+    assert "task_run_id" not in stored_row
     assert stored_row["payload"]["payload_externalized"] is True
     assert stored_row["payload"]["summary"] == "读取了长输出。"
     assert large_text not in raw_line
     assert stored_row["refs"]["payload_ref"].startswith("rtpayload:")
     assert (tmp_path / stored_row["refs"]["payload_path"]).exists()
+    envelope = json.loads((tmp_path / stored_row["refs"]["payload_path"]).read_text(encoding="utf-8"))
+    assert envelope["run_id"] == "taskrun:test"
+    assert "safe_task_run_id" not in envelope
 
     recent = log.list_recent_events("taskrun:test", limit=1)[0]
     assert recent.payload["payload_externalized"] is True

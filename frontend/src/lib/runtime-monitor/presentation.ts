@@ -43,7 +43,11 @@ export function publicMonitorText(value: unknown) {
   const candidate = String(value ?? "")
     .replace(/\s+/g, " ")
     .trim();
-  return looksInternalIdentifier(candidate) ? "" : candidate;
+  if (looksInternalIdentifier(candidate)) return "";
+  if (looksRuntimeAssemblyText(candidate)) {
+    return "正在整理上下文，准备继续处理。";
+  }
+  return candidate;
 }
 
 export function monitorEventLabel(eventType: unknown) {
@@ -124,10 +128,14 @@ function looksInternalIdentifier(value: string) {
   return INTERNAL_ID_PREFIXES.some((prefix) => lowered.startsWith(prefix));
 }
 
+function looksRuntimeAssemblyText(value: string) {
+  return /\bruntime packet\b|\bruntime assembly\b|\bRuntimeInvocationPacket\b|\bagent\b|运行装配|装配 runtime|系统已为当前任务步骤装配/i.test(value);
+}
+
 function fallbackTitle(item: RuntimeMonitorItem) {
-  if (item.lifecycle === "completed" || item.bucket === "completed") return "会话运行已完成";
-  if (item.lifecycle === "failed" || item.bucket === "failed") return "会话运行失败";
+  if (item.lifecycle === "completed" || item.bucket === "completed") return "处理已完成";
+  if (item.lifecycle === "failed" || item.bucket === "failed") return "处理失败";
   if (item.bucket === "diagnostics" || item.lifecycle === "stale" || item.stale) return "运行状态需诊断";
-  if (item.lifecycle === "waiting" || item.lifecycle === "action_required") return "会话运行等待处理";
-  return "会话运行中";
+  if (item.lifecycle === "waiting" || item.lifecycle === "action_required") return "等待处理";
+  return "处理中";
 }

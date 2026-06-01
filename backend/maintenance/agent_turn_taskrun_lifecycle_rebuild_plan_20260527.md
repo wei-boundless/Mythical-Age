@@ -492,10 +492,9 @@ turn_id
 task_run_id
 step_id
 model_messages
-agent_role_prompt
 prompt_pack_refs
 available_tools
-available_modes
+allowed_action_types
 permission_snapshot
 context_refs
 observation_refs

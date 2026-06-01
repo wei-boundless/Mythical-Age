@@ -27,18 +27,22 @@ _PROTOCOL_MARKERS = (
     "name=\"write_file\"",
     "name=\"edit_file\"",
     "name=\"terminal\"",
-    "name=\"delegate_to_agent\"",
+    "name=\"spawn_subagent\"",
+    "name=\"send_subagent_message\"",
+    "name=\"wait_subagent\"",
+    "name=\"list_subagents\"",
+    "name=\"close_subagent\"",
     "｜｜parameter",
     "｜｜invoke",
 )
 
 _TAG_RE = re.compile(
     r"<\s*(?:tool_call|invoke|read_file|read_structured_file|search_text|search_files|glob_paths|"
-    r"write_file|edit_file|terminal|delegate_to_agent|｜｜DSML)"
+    r"write_file|edit_file|terminal|spawn_subagent|send_subagent_message|wait_subagent|list_subagents|close_subagent|｜｜DSML)"
     r"|</\s*(?:tool_call|invoke|read_file|read_structured_file|search_text|search_files|glob_paths|"
-    r"write_file|edit_file|terminal|delegate_to_agent)\s*>"
+    r"write_file|edit_file|terminal|spawn_subagent|send_subagent_message|wait_subagent|list_subagents|close_subagent)\s*>"
     r"|name=\"(?:query|path|command|old_text|new_text|content|read_file|read_structured_file|search_text|search_files|glob_paths|"
-    r"write_file|edit_file|terminal|delegate_to_agent)\"",
+    r"write_file|edit_file|terminal|spawn_subagent|send_subagent_message|wait_subagent|list_subagents|close_subagent)\"",
     flags=re.IGNORECASE,
 )
 

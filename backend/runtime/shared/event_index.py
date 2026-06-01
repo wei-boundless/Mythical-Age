@@ -18,7 +18,7 @@ DEFAULT_TAIL_LIMIT = 240
 
 @dataclass(slots=True)
 class RuntimeEventCursor:
-    task_run_id: str
+    run_id: str
     next_offset: int = 0
     physical_line_count: int = 0
     file_size_bytes: int = 0
@@ -28,7 +28,7 @@ class RuntimeEventCursor:
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "task_run_id": self.task_run_id,
+            "run_id": self.run_id,
             "next_offset": self.next_offset,
             "physical_line_count": self.physical_line_count,
             "file_size_bytes": self.file_size_bytes,
@@ -38,9 +38,9 @@ class RuntimeEventCursor:
         }
 
     @classmethod
-    def from_dict(cls, payload: dict[str, Any], *, task_run_id: str) -> "RuntimeEventCursor":
+    def from_dict(cls, payload: dict[str, Any], *, run_id: str) -> "RuntimeEventCursor":
         return cls(
-            task_run_id=str(payload.get("task_run_id") or task_run_id),
+            run_id=str(payload.get("run_id") or payload.get("task_run_id") or run_id),
             next_offset=max(0, int(payload.get("next_offset") or 0)),
             physical_line_count=max(0, int(payload.get("physical_line_count") or 0)),
             file_size_bytes=max(0, int(payload.get("file_size_bytes") or 0)),
@@ -64,35 +64,35 @@ class RuntimeEventIndex:
         self.tail_limit = max(1, int(tail_limit or DEFAULT_TAIL_LIMIT))
         self._lock = threading.RLock()
 
-    def next_offset(self, *, task_run_id: str, event_path: Path) -> int:
+    def next_offset(self, *, run_id: str, event_path: Path) -> int:
         with self._lock:
-            cursor = self._load_cursor(task_run_id)
+            cursor = self._load_cursor(run_id)
             stat = _safe_stat(event_path)
             if stat is None:
-                cursor = RuntimeEventCursor(task_run_id=task_run_id)
+                cursor = RuntimeEventCursor(run_id=run_id)
                 self._write_cursor(cursor)
-                self._write_tail(task_run_id, [])
+                self._write_tail(run_id, [])
                 return 0
             if self._cursor_matches(cursor, stat):
                 return cursor.next_offset
             rebuilt_cursor, tail = rebuild_event_index(
-                task_run_id=task_run_id,
+                run_id=run_id,
                 event_path=event_path,
                 tail_limit=self.tail_limit,
             )
             self._write_cursor(rebuilt_cursor)
-            self._write_tail(task_run_id, [compact_event_for_tail(item) for item in tail])
+            self._write_tail(run_id, [compact_event_for_tail(item) for item in tail])
             return rebuilt_cursor.next_offset
 
     def record_append(self, event: RuntimeEvent, *, event_path: Path) -> None:
         with self._lock:
             stat = _safe_stat(event_path)
-            cursor = self._load_cursor(event.task_run_id)
+            cursor = self._load_cursor(event.run_id)
             next_offset = max(cursor.next_offset, int(event.offset) + 1)
             physical_line_count = max(cursor.physical_line_count + 1, next_offset)
             if stat is not None:
                 cursor = RuntimeEventCursor(
-                    task_run_id=event.task_run_id,
+                    run_id=event.run_id,
                     next_offset=next_offset,
                     physical_line_count=physical_line_count,
                     file_size_bytes=int(stat.st_size),
@@ -100,34 +100,34 @@ class RuntimeEventIndex:
                 )
             else:
                 cursor = RuntimeEventCursor(
-                    task_run_id=event.task_run_id,
+                    run_id=event.run_id,
                     next_offset=next_offset,
                     physical_line_count=physical_line_count,
                 )
             self._write_cursor(cursor)
-            tail = self._load_tail(event.task_run_id)
+            tail = self._load_tail(event.run_id)
             tail.append(compact_event_for_tail(event.to_dict()))
-            self._write_tail(event.task_run_id, tail[-self.tail_limit :])
+            self._write_tail(event.run_id, tail[-self.tail_limit :])
 
-    def list_recent_events(self, task_run_id: str, *, limit: int = 160, event_path: Path | None = None) -> list[RuntimeEvent]:
+    def list_recent_events(self, run_id: str, *, limit: int = 160, event_path: Path | None = None) -> list[RuntimeEvent]:
         requested = max(1, int(limit or 160))
-        rows = self._load_tail(task_run_id)[-requested:]
+        rows = self._load_tail(run_id)[-requested:]
         if not rows and event_path is not None:
             rows = read_event_tail(event_path, tail_limit=requested)
-        return [_event_from_payload(compact_event_for_tail(item), task_run_id=task_run_id) for item in rows]
+        return [_event_from_payload(compact_event_for_tail(item), run_id=run_id) for item in rows]
 
-    def event_count(self, task_run_id: str, *, event_path: Path) -> int:
-        cursor = self._load_cursor(task_run_id)
+    def event_count(self, run_id: str, *, event_path: Path) -> int:
+        cursor = self._load_cursor(run_id)
         stat = _safe_stat(event_path)
         if stat is not None and self._cursor_matches(cursor, stat):
             return max(cursor.physical_line_count, cursor.next_offset)
-        return self.next_offset(task_run_id=task_run_id, event_path=event_path)
+        return self.next_offset(run_id=run_id, event_path=event_path)
 
-    def estimated_event_count(self, task_run_id: str, *, event_path: Path) -> int:
-        cursor = self._load_cursor(task_run_id)
+    def estimated_event_count(self, run_id: str, *, event_path: Path) -> int:
+        cursor = self._load_cursor(run_id)
         if max(cursor.physical_line_count, cursor.next_offset) > 0:
             return max(cursor.physical_line_count, cursor.next_offset)
-        rows = self._load_tail(task_run_id)
+        rows = self._load_tail(run_id)
         if not rows:
             rows = read_event_tail(event_path, tail_limit=1)
         if not rows:
@@ -137,9 +137,9 @@ class RuntimeEventIndex:
         except (TypeError, ValueError):
             return len(rows)
 
-    def delete_index(self, task_run_id: str) -> None:
-        self._cursor_path(task_run_id).unlink(missing_ok=True)
-        self._tail_path(task_run_id).unlink(missing_ok=True)
+    def delete_index(self, run_id: str) -> None:
+        self._cursor_path(run_id).unlink(missing_ok=True)
+        self._tail_path(run_id).unlink(missing_ok=True)
 
     def _cursor_matches(self, cursor: RuntimeEventCursor, stat: os.stat_result) -> bool:
         return (
@@ -147,21 +147,21 @@ class RuntimeEventIndex:
             and abs(float(cursor.mtime) - float(stat.st_mtime)) < 0.000001
         )
 
-    def _load_cursor(self, task_run_id: str) -> RuntimeEventCursor:
-        path = self._cursor_path(task_run_id)
+    def _load_cursor(self, run_id: str) -> RuntimeEventCursor:
+        path = self._cursor_path(run_id)
         if not path.exists():
-            return RuntimeEventCursor(task_run_id=task_run_id)
+            return RuntimeEventCursor(run_id=run_id)
         try:
             payload = json.loads(path.read_text(encoding="utf-8"))
         except Exception:
-            return RuntimeEventCursor(task_run_id=task_run_id)
-        return RuntimeEventCursor.from_dict(payload if isinstance(payload, dict) else {}, task_run_id=task_run_id)
+            return RuntimeEventCursor(run_id=run_id)
+        return RuntimeEventCursor.from_dict(payload if isinstance(payload, dict) else {}, run_id=run_id)
 
     def _write_cursor(self, cursor: RuntimeEventCursor) -> None:
-        _atomic_write_json(self._cursor_path(cursor.task_run_id), cursor.to_dict())
+        _atomic_write_json(self._cursor_path(cursor.run_id), cursor.to_dict())
 
-    def _load_tail(self, task_run_id: str) -> list[dict[str, Any]]:
-        path = self._tail_path(task_run_id)
+    def _load_tail(self, run_id: str) -> list[dict[str, Any]]:
+        path = self._tail_path(run_id)
         if not path.exists():
             return []
         try:
@@ -171,11 +171,11 @@ class RuntimeEventIndex:
         rows = payload.get("events") if isinstance(payload, dict) else payload
         return [dict(item) for item in list(rows or []) if isinstance(item, dict)]
 
-    def _write_tail(self, task_run_id: str, events: list[dict[str, Any]]) -> None:
+    def _write_tail(self, run_id: str, events: list[dict[str, Any]]) -> None:
         _atomic_write_json(
-            self._tail_path(task_run_id),
+            self._tail_path(run_id),
             {
-                "task_run_id": task_run_id,
+                "run_id": run_id,
                 "tail_limit": self.tail_limit,
                 "event_count": len(events),
                 "events": list(events[-self.tail_limit :]),
@@ -184,14 +184,14 @@ class RuntimeEventIndex:
             },
         )
 
-    def _cursor_path(self, task_run_id: str) -> Path:
-        return self.cursor_dir / f"{_safe_id(task_run_id)}.json"
+    def _cursor_path(self, run_id: str) -> Path:
+        return self.cursor_dir / f"{_safe_id(run_id)}.json"
 
-    def _tail_path(self, task_run_id: str) -> Path:
-        return self.tail_dir / f"{_safe_id(task_run_id)}.json"
+    def _tail_path(self, run_id: str) -> Path:
+        return self.tail_dir / f"{_safe_id(run_id)}.json"
 
 
-def rebuild_event_index(*, task_run_id: str, event_path: Path, tail_limit: int = DEFAULT_TAIL_LIMIT) -> tuple[RuntimeEventCursor, list[dict[str, Any]]]:
+def rebuild_event_index(*, run_id: str, event_path: Path, tail_limit: int = DEFAULT_TAIL_LIMIT) -> tuple[RuntimeEventCursor, list[dict[str, Any]]]:
     physical_line_count = 0
     max_seen_offset = -1
     tail: list[dict[str, Any]] = []
@@ -218,7 +218,7 @@ def rebuild_event_index(*, task_run_id: str, event_path: Path, tail_limit: int =
                     continue
     stat = _safe_stat(event_path)
     cursor = RuntimeEventCursor(
-        task_run_id=task_run_id,
+        run_id=run_id,
         next_offset=max(physical_line_count, max_seen_offset + 1),
         physical_line_count=physical_line_count,
         file_size_bytes=int(stat.st_size) if stat is not None else 0,
@@ -261,10 +261,10 @@ def read_event_tail_raw(event_path: Path, *, tail_limit: int = DEFAULT_TAIL_LIMI
     return rows[-requested:]
 
 
-def _event_from_payload(payload: dict[str, Any], *, task_run_id: str) -> RuntimeEvent:
+def _event_from_payload(payload: dict[str, Any], *, run_id: str) -> RuntimeEvent:
     return RuntimeEvent(
         event_id=str(payload.get("event_id") or ""),
-        task_run_id=str(payload.get("task_run_id") or task_run_id),
+        run_id=str(payload.get("run_id") or payload.get("task_run_id") or run_id),
         event_type=payload.get("event_type", "loop_error"),
         offset=int(payload.get("offset") or 0),
         created_at=float(payload.get("created_at") or 0.0),
@@ -302,7 +302,7 @@ def compact_event_for_tail(event: dict[str, Any]) -> dict[str, Any]:
         }
     return {
         "event_id": str(event.get("event_id") or ""),
-        "task_run_id": str(event.get("task_run_id") or ""),
+        "run_id": str(event.get("run_id") or event.get("task_run_id") or ""),
         "event_type": str(event.get("event_type") or "loop_error"),
         "offset": int(event.get("offset") or 0),
         "created_at": float(event.get("created_at") or 0.0),

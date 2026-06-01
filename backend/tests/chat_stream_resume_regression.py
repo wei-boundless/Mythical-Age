@@ -36,7 +36,7 @@ def test_chat_run_event_stream_replays_after_offset_with_sse_ids() -> None:
             assert run_response.status_code == 200
             run = run_response.json()
             assert run["stream_run_id"].startswith("strun:")
-            assert run["task_run_id"].startswith("chatrun:")
+            assert run["event_log_id"].startswith("chatrun:")
 
             first_stream = client.get(run["stream_url"])
             assert first_stream.status_code == 200
@@ -80,7 +80,7 @@ def test_chat_run_event_stream_resumes_from_last_event_id_header() -> None:
 
             first_stream = client.get(run["stream_url"])
             assert first_stream.status_code == 200
-            last_event_id = f"{run['stream_run_id']}:{run['task_run_id']}:1"
+            last_event_id = f"{run['stream_run_id']}:{run['event_log_id']}:1"
 
             replay = client.get(run["stream_url"], headers={"Last-Event-ID": last_event_id})
             assert replay.status_code == 200

@@ -21,7 +21,7 @@ class RuntimeEventSubscription:
     subscription_id: str
     queue: asyncio.Queue[RuntimeEvent]
     loop: asyncio.AbstractEventLoop | None = None
-    task_run_id: str = ""
+    run_id: str = ""
 
 
 class RuntimeEventLog:
@@ -39,18 +39,18 @@ class RuntimeEventLog:
 
     def append(
         self,
-        task_run_id: str,
+        run_id: str,
         event_type: RuntimeEventType,
         *,
         payload: dict[str, Any] | None = None,
         refs: dict[str, Any] | None = None,
     ) -> RuntimeEvent:
         with self._write_lock:
-            path = self._event_path(task_run_id)
-            offset = self.index.next_offset(task_run_id=task_run_id, event_path=path)
+            path = self._event_path(run_id)
+            offset = self.index.next_offset(run_id=run_id, event_path=path)
             event = RuntimeEvent(
-                event_id=f"rtevt:{task_run_id}:{offset}:{uuid.uuid4().hex[:8]}",
-                task_run_id=task_run_id,
+                event_id=f"rtevt:{run_id}:{offset}:{uuid.uuid4().hex[:8]}",
+                run_id=run_id,
                 event_type=event_type,
                 offset=offset,
                 created_at=time.time(),
@@ -58,7 +58,7 @@ class RuntimeEventLog:
                 refs={},
             )
             compact_payload, compact_refs = self.payload_store.externalize_if_needed(
-                task_run_id=task_run_id,
+                run_id=run_id,
                 event_id=event.event_id,
                 offset=offset,
                 event_type=str(event_type),
@@ -67,7 +67,7 @@ class RuntimeEventLog:
             )
             event = RuntimeEvent(
                 event_id=event.event_id,
-                task_run_id=event.task_run_id,
+                run_id=event.run_id,
                 event_type=event.event_type,
                 offset=event.offset,
                 created_at=event.created_at,
@@ -80,7 +80,7 @@ class RuntimeEventLog:
         self._publish(event)
         return event
 
-    def subscribe(self, *, task_run_id: str = "", max_queue_size: int = 500) -> RuntimeEventSubscription:
+    def subscribe(self, *, run_id: str = "", max_queue_size: int = 500) -> RuntimeEventSubscription:
         try:
             loop = asyncio.get_running_loop()
         except RuntimeError:
@@ -89,7 +89,7 @@ class RuntimeEventLog:
             subscription_id=f"rtesub:{uuid.uuid4().hex}",
             queue=asyncio.Queue(maxsize=max(1, int(max_queue_size or 500))),
             loop=loop,
-            task_run_id=task_run_id.strip(),
+            run_id=run_id.strip(),
         )
         with self._subscription_lock:
             self._subscriptions.append(subscription)
@@ -101,8 +101,8 @@ class RuntimeEventLog:
                 item for item in self._subscriptions if item.subscription_id != subscription.subscription_id
             ]
 
-    def list_events(self, task_run_id: str) -> list[RuntimeEvent]:
-        path = self._event_path(task_run_id)
+    def list_events(self, run_id: str) -> list[RuntimeEvent]:
+        path = self._event_path(run_id)
         if not path.exists():
             return []
         events: list[RuntimeEvent] = []
@@ -117,49 +117,49 @@ class RuntimeEventLog:
             events.append(
                 self._event_from_payload(
                     self.payload_store.hydrate_event_payload(payload if isinstance(payload, dict) else {}),
-                    task_run_id=task_run_id,
+                    run_id=run_id,
                 )
             )
         return events
 
-    def list_event_window(self, task_run_id: str, *, limit: int = 240, include_payloads: bool = False) -> list[RuntimeEvent]:
+    def list_event_window(self, run_id: str, *, limit: int = 240, include_payloads: bool = False) -> list[RuntimeEvent]:
         if include_payloads:
             return [
-                self._event_from_payload(self.payload_store.hydrate_event_payload(item), task_run_id=task_run_id)
-                for item in read_event_tail_raw(self._event_path(task_run_id), tail_limit=max(1, int(limit or 240)))
+                self._event_from_payload(self.payload_store.hydrate_event_payload(item), run_id=run_id)
+                for item in read_event_tail_raw(self._event_path(run_id), tail_limit=max(1, int(limit or 240)))
             ]
-        return self.list_recent_events(task_run_id, limit=limit)
+        return self.list_recent_events(run_id, limit=limit)
 
-    def list_recent_events(self, task_run_id: str, *, limit: int = 160) -> list[RuntimeEvent]:
+    def list_recent_events(self, run_id: str, *, limit: int = 160) -> list[RuntimeEvent]:
         if max(1, int(limit or 160)) <= 0:
             return []
-        path = self._event_path(task_run_id)
+        path = self._event_path(run_id)
         if not path.exists():
             return []
-        events = self.index.list_recent_events(task_run_id, limit=max(1, int(limit or 160)), event_path=path)
+        events = self.index.list_recent_events(run_id, limit=max(1, int(limit or 160)), event_path=path)
         if events:
             return events
-        self.index.next_offset(task_run_id=task_run_id, event_path=path)
-        return self.index.list_recent_events(task_run_id, limit=max(1, int(limit or 160)), event_path=path)
+        self.index.next_offset(run_id=run_id, event_path=path)
+        return self.index.list_recent_events(run_id, limit=max(1, int(limit or 160)), event_path=path)
 
-    def event_count(self, task_run_id: str) -> int:
-        return self.index.event_count(task_run_id, event_path=self._event_path(task_run_id))
+    def event_count(self, run_id: str) -> int:
+        return self.index.event_count(run_id, event_path=self._event_path(run_id))
 
-    def estimated_event_count(self, task_run_id: str) -> int:
-        return self.index.estimated_event_count(task_run_id, event_path=self._event_path(task_run_id))
+    def estimated_event_count(self, run_id: str) -> int:
+        return self.index.estimated_event_count(run_id, event_path=self._event_path(run_id))
 
-    def delete_events(self, task_run_id: str) -> bool:
-        path = self._event_path(task_run_id)
+    def delete_events(self, run_id: str) -> bool:
+        path = self._event_path(run_id)
         if not path.exists():
             return False
         with self._write_lock:
             path.unlink(missing_ok=True)
-            self.index.delete_index(task_run_id)
-            self.payload_store.delete_payloads_for_task(task_run_id)
+            self.index.delete_index(run_id)
+            self.payload_store.delete_payloads_for_run(run_id)
         return True
 
-    def next_offset(self, task_run_id: str) -> int:
-        return self.index.next_offset(task_run_id=task_run_id, event_path=self._event_path(task_run_id))
+    def next_offset(self, run_id: str) -> int:
+        return self.index.next_offset(run_id=run_id, event_path=self._event_path(run_id))
 
     def _publish(self, event: RuntimeEvent) -> None:
         with self._subscription_lock:
@@ -167,20 +167,20 @@ class RuntimeEventLog:
         if not subscriptions:
             return
         for subscription in subscriptions:
-            if subscription.task_run_id and subscription.task_run_id != event.task_run_id:
+            if subscription.run_id and subscription.run_id != event.run_id:
                 continue
             if subscription.loop is not None and subscription.loop.is_running():
                 subscription.loop.call_soon_threadsafe(_put_event_drop_oldest, subscription.queue, event)
                 continue
             _put_event_drop_oldest(subscription.queue, event)
 
-    def _event_path(self, task_run_id: str) -> Path:
-        return self.event_dir / f"{_safe_id(task_run_id)}.jsonl"
+    def _event_path(self, run_id: str) -> Path:
+        return self.event_dir / f"{_safe_id(run_id)}.jsonl"
 
-    def _event_from_payload(self, payload: dict[str, Any], *, task_run_id: str) -> RuntimeEvent:
+    def _event_from_payload(self, payload: dict[str, Any], *, run_id: str) -> RuntimeEvent:
         return RuntimeEvent(
             event_id=str(payload.get("event_id") or ""),
-            task_run_id=str(payload.get("task_run_id") or task_run_id),
+            run_id=str(payload.get("run_id") or payload.get("task_run_id") or run_id),
             event_type=payload.get("event_type", "loop_error"),
             offset=int(payload.get("offset") or 0),
             created_at=float(payload.get("created_at") or 0.0),

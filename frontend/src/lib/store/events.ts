@@ -533,7 +533,6 @@ function runtimeEventToUiEvent(eventType: string) {
   if (eventType === "context_snapshot_built" || eventType === "context_invariant_checked") return "context_management";
   if (eventType === "memory_runtime_view_built") return "memory_context";
   if (eventType === "stage_projection_built") return "prompt_manifest";
-  if (eventType.startsWith("agent_delegation_") || eventType.startsWith("child_agent_")) return "worker_start";
   if (eventType === "tool_call_requested") return "harness_loop_event";
   if (eventType === "executor_observation_received" || eventType === "executor_started") return "token";
   if (eventType.startsWith("coordination_")) return "harness_loop_event";

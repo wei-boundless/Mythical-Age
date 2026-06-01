@@ -2,11 +2,10 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
+from types import SimpleNamespace
 
 from agent_system.profiles.runtime_profile_registry import default_agent_runtime_profiles
 from agent_system.registry.agent_registry import default_agent_descriptors
-from harness.execution.child_agent_capability_executor import ChildAgentCapabilityExecutor
-from harness.execution.delegation_models import AgentDelegationRequest
 from capability_system.agent_capabilities.deepsearch import DeepSearchCapability, normalize_runtime_config, required_operations_for_search_config
 
 
@@ -88,56 +87,6 @@ def test_web_search_config_requires_only_web_operations() -> None:
     }
 
 
-def test_web_research_agent_runs_web_search_specialist() -> None:
-    async def _fake_web_search(*, query: str, topic: str, time_range: str, max_results: int) -> dict:
-        return {
-            "ok": True,
-            "query": query,
-            "topic": topic,
-            "time_range": time_range,
-            "usage": {"search_sources": ["web"], "max_results": max_results},
-            "results": [
-                {
-                    "title": "official evidence",
-                    "url": "https://example.test/release",
-                    "source": "example.test",
-                    "content": "official release notes evidence",
-                }
-            ],
-        }
-
-    executor = ChildAgentCapabilityExecutor(Path("."))
-    executor._run_web_search = _fake_web_search  # type: ignore[method-assign]
-    request = AgentDelegationRequest(
-        request_id="delegation:req:web-only",
-        task_run_id="taskrun:test",
-        session_id="session:test",
-        parent_agent_run_ref="agrun:main",
-        source_agent_id="agent:0",
-        target_agent_id="agent:web_researcher",
-        delegation_kind="web_research",
-        instruction="Find official web evidence.",
-        input_payload={"query": "official release notes"},
-    )
-    agent = type("Agent", (), {"agent_id": "agent:web_researcher"})()
-    profile = type(
-        "Profile",
-        (),
-        {
-            "allowed_operations": ("op.model_response", "op.web_search", "op.fetch_url"),
-            "blocked_operations": (),
-            "metadata": {},
-        },
-    )()
-
-    payload = asyncio.run(executor.run(request=request, agent=agent, profile=profile))
-
-    assert payload["status"] == "completed"
-    assert payload["diagnostics"]["child_execution_mode"] == "profile_authorized_specialist"
-    assert payload["diagnostics"]["operation_id"] == "op.web_search"
-    assert payload["diagnostics"]["web_payload"]["usage"]["search_sources"] == ["web"]
-
-
 def test_deepsearch_capability_runs_web_only_sources() -> None:
     web_provider = _StaticProvider("web")
     local_provider = _StaticProvider("local_files")
@@ -151,14 +100,14 @@ def test_deepsearch_capability_runs_web_only_sources() -> None:
         rag_provider=rag_provider,
         memory_provider=memory_provider,
     )
-    request = AgentDelegationRequest(
-        request_id="delegation:req:web-only",
+    request = SimpleNamespace(
+        request_id="subagent:req:web-only",
         task_run_id="taskrun:test",
         session_id="session:test",
         parent_agent_run_ref="agrun:main",
         source_agent_id="agent:0",
         target_agent_id="agent:web_researcher",
-        delegation_kind="web_research",
+        subagent_task_kind="web_research",
         instruction="Find official web evidence.",
         input_payload={"query": "official release notes"},
     )
@@ -213,14 +162,14 @@ def test_web_research_agent_blocks_non_web_source_by_permission() -> None:
             },
         }
     ).search
-    request = AgentDelegationRequest(
-        request_id="delegation:req:web-local-denied",
+    request = SimpleNamespace(
+        request_id="subagent:req:web-local-denied",
         task_run_id="taskrun:test",
         session_id="session:test",
         parent_agent_run_ref="agrun:main",
         source_agent_id="agent:0",
         target_agent_id="agent:web_researcher",
-        delegation_kind="web_research",
+        subagent_task_kind="web_research",
         instruction="Wrongly search local files.",
         input_payload={"query": "runtime"},
     )

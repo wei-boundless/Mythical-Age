@@ -171,7 +171,7 @@ export class RuntimeMonitorController {
       : {};
     const work = runtimeWorkProjectionFromMonitorItem(selected);
     const taskInstanceIdForState = monitorItemInstanceId(selected);
-    if (navigation.target_kind === "session" || work.workKind === "chat_turn_runtime") {
+    if (navigation.target_kind === "session") {
       const sessionId = String(navigation.session_id || selected.session_id || "").trim();
       if (sessionId) {
         this.host.applySelectedSessionShell(sessionId);
@@ -419,9 +419,10 @@ export class RuntimeMonitorController {
 
   applyStreamPayload(payload: RuntimeMonitorEventPayload | null) {
     if (!payload) return;
+    const eventTaskRunId = formalTaskRunIdFromRuntimeEvent(payload.runtime_event);
     if (payload.monitor) {
       this.applySnapshot(payload.monitor, {
-        detailTaskRunId: payload.runtime_event?.task_run_id,
+        detailTaskRunId: eventTaskRunId,
         lastEvent: payload.runtime_event ?? null,
       });
       if (payload.runtime_event) {
@@ -432,7 +433,9 @@ export class RuntimeMonitorController {
         ...prev,
         globalRuntimeMonitorLastEvent: payload.runtime_event ?? null,
       }, payload.runtime_event as NonNullable<RuntimeMonitorEventPayload["runtime_event"]>));
-      this.queueDetailRefresh(payload.runtime_event.task_run_id);
+      if (eventTaskRunId) {
+        this.queueDetailRefresh(eventTaskRunId);
+      }
     }
   }
 
@@ -703,4 +706,21 @@ export class RuntimeMonitorController {
     const message = error instanceof Error ? error.message : String(error ?? "");
     return message.includes("Failed to fetch") || message.includes("NetworkError") || message.includes("Load failed");
   }
+}
+
+function formalTaskRunIdFromRuntimeEvent(event: RuntimeMonitorEventPayload["runtime_event"] | null | undefined) {
+  if (!event) return "";
+  const payload = event.payload && typeof event.payload === "object" && !Array.isArray(event.payload)
+    ? event.payload
+    : {};
+  const taskRun = payload.task_run && typeof payload.task_run === "object" && !Array.isArray(payload.task_run)
+    ? payload.task_run as Record<string, unknown>
+    : {};
+  for (const value of [taskRun.task_run_id, payload.task_run_id, event.run_id, event.task_run_id]) {
+    const normalized = String(value ?? "").trim();
+    if (normalized.startsWith("taskrun:")) {
+      return normalized;
+    }
+  }
+  return "";
 }

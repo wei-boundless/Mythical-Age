@@ -18,7 +18,7 @@
         "system_key": "task_system",
         "slot_index": 0,
         "agent_template_id": "builtin.main.primary",
-        "delegation_enabled": false,
+        "subagent_enabled": false,
         "group_eligible": false,
         "definition_source": "system_builtin",
         "lifecycle_policy": "system_builtin"
@@ -43,7 +43,7 @@
       "disable_allowed": true,
       "builtin_kind": "primary",
       "agent_template_id": "builtin.main.primary",
-      "delegation_enabled": false,
+      "subagent_enabled": false,
       "group_eligible": false
     },
     {
@@ -64,7 +64,7 @@
         "system_key": "memory_system",
         "slot_index": 1,
         "agent_template_id": "builtin.system.memory_manager",
-        "delegation_enabled": false,
+        "subagent_enabled": false,
         "group_eligible": false,
         "definition_source": "system_builtin",
         "lifecycle_policy": "system_builtin"
@@ -89,7 +89,7 @@
       "disable_allowed": true,
       "builtin_kind": "system_manager",
       "agent_template_id": "builtin.system.memory_manager",
-      "delegation_enabled": false,
+      "subagent_enabled": false,
       "group_eligible": false
     },
     {
@@ -110,7 +110,7 @@
         "system_key": "config_system",
         "slot_index": 2,
         "agent_template_id": "builtin.system.config_manager",
-        "delegation_enabled": false,
+        "subagent_enabled": false,
         "group_eligible": false,
         "definition_source": "system_builtin",
         "lifecycle_policy": "system_builtin"
@@ -135,7 +135,7 @@
       "disable_allowed": true,
       "builtin_kind": "system_manager",
       "agent_template_id": "builtin.system.config_manager",
-      "delegation_enabled": false,
+      "subagent_enabled": false,
       "group_eligible": false
     },
     {
@@ -156,7 +156,7 @@
         "system_key": "health_system",
         "slot_index": 3,
         "agent_template_id": "builtin.system.health_manager",
-        "delegation_enabled": false,
+        "subagent_enabled": false,
         "group_eligible": false,
         "definition_source": "system_builtin",
         "lifecycle_policy": "system_builtin"
@@ -181,7 +181,7 @@
       "disable_allowed": true,
       "builtin_kind": "system_manager",
       "agent_template_id": "builtin.system.health_manager",
-      "delegation_enabled": false,
+      "subagent_enabled": false,
       "group_eligible": false
     },
     {
@@ -202,7 +202,7 @@
         "system_key": "task_management_system",
         "slot_index": 4,
         "agent_template_id": "builtin.system.task_manager",
-        "delegation_enabled": false,
+        "subagent_enabled": false,
         "group_eligible": false,
         "definition_source": "system_builtin",
         "lifecycle_policy": "system_builtin"
@@ -227,7 +227,7 @@
       "disable_allowed": true,
       "builtin_kind": "system_manager",
       "agent_template_id": "builtin.system.task_manager",
-      "delegation_enabled": false,
+      "subagent_enabled": false,
       "group_eligible": false
     },
     {
@@ -248,7 +248,7 @@
         "system_key": "capability_system",
         "slot_index": 5,
         "agent_template_id": "builtin.system.capability_manager",
-        "delegation_enabled": false,
+        "subagent_enabled": false,
         "group_eligible": false,
         "definition_source": "system_builtin",
         "lifecycle_policy": "system_builtin"
@@ -273,7 +273,7 @@
       "disable_allowed": true,
       "builtin_kind": "system_manager",
       "agent_template_id": "builtin.system.capability_manager",
-      "delegation_enabled": false,
+      "subagent_enabled": false,
       "group_eligible": false
     },
     {
@@ -295,7 +295,7 @@
         "slot_index": 6,
         "system_key": "builtin_specialist_pool",
         "agent_template_id": "builtin.specialist.knowledge_searcher",
-        "delegation_enabled": true,
+        "subagent_enabled": true,
         "group_eligible": false,
         "definition_source": "system_builtin",
         "lifecycle_policy": "system_builtin"
@@ -320,7 +320,7 @@
       "disable_allowed": true,
       "builtin_kind": "specialist",
       "agent_template_id": "builtin.specialist.knowledge_searcher",
-      "delegation_enabled": true,
+      "subagent_enabled": true,
       "group_eligible": false
     },
     {
@@ -342,7 +342,7 @@
         "slot_index": 7,
         "system_key": "builtin_specialist_pool",
         "agent_template_id": "builtin.specialist.pdf_reader",
-        "delegation_enabled": true,
+        "subagent_enabled": true,
         "group_eligible": false,
         "definition_source": "system_builtin",
         "lifecycle_policy": "system_builtin"
@@ -367,7 +367,7 @@
       "disable_allowed": true,
       "builtin_kind": "specialist",
       "agent_template_id": "builtin.specialist.pdf_reader",
-      "delegation_enabled": true,
+      "subagent_enabled": true,
       "group_eligible": false
     },
     {
@@ -389,7 +389,7 @@
         "slot_index": 8,
         "system_key": "builtin_specialist_pool",
         "agent_template_id": "builtin.specialist.table_analyst",
-        "delegation_enabled": true,
+        "subagent_enabled": true,
         "group_eligible": false,
         "definition_source": "system_builtin",
         "lifecycle_policy": "system_builtin"
@@ -414,7 +414,7 @@
       "disable_allowed": true,
       "builtin_kind": "specialist",
       "agent_template_id": "builtin.specialist.table_analyst",
-      "delegation_enabled": true,
+      "subagent_enabled": true,
       "group_eligible": false
     },
     {
@@ -436,7 +436,7 @@
         "slot_index": 9,
         "system_key": "builtin_specialist_pool",
         "agent_template_id": "builtin.specialist.web_researcher",
-        "delegation_enabled": true,
+        "subagent_enabled": true,
         "group_eligible": false,
         "definition_source": "system_builtin",
         "lifecycle_policy": "system_builtin"
@@ -461,7 +461,7 @@
       "disable_allowed": true,
       "builtin_kind": "specialist",
       "agent_template_id": "builtin.specialist.web_researcher",
-      "delegation_enabled": true,
+      "subagent_enabled": true,
       "group_eligible": false
     },
     {
@@ -483,7 +483,7 @@
         "slot_index": 10,
         "system_key": "builtin_specialist_pool",
         "agent_template_id": "builtin.specialist.codebase_searcher",
-        "delegation_enabled": true,
+        "subagent_enabled": true,
         "group_eligible": false,
         "definition_source": "system_builtin",
         "lifecycle_policy": "system_builtin"
@@ -508,7 +508,7 @@
       "disable_allowed": true,
       "builtin_kind": "specialist",
       "agent_template_id": "builtin.specialist.codebase_searcher",
-      "delegation_enabled": true,
+      "subagent_enabled": true,
       "group_eligible": false
     },
     {
@@ -530,7 +530,7 @@
         "slot_index": 11,
         "system_key": "builtin_specialist_pool",
         "agent_template_id": "builtin.specialist.memory_searcher",
-        "delegation_enabled": true,
+        "subagent_enabled": true,
         "group_eligible": false,
         "definition_source": "system_builtin",
         "lifecycle_policy": "system_builtin"
@@ -555,7 +555,7 @@
       "disable_allowed": true,
       "builtin_kind": "specialist",
       "agent_template_id": "builtin.specialist.memory_searcher",
-      "delegation_enabled": true,
+      "subagent_enabled": true,
       "group_eligible": false
     },
     {
@@ -577,7 +577,7 @@
         "slot_index": 12,
         "system_key": "builtin_specialist_pool",
         "agent_template_id": "builtin.specialist.verifier",
-        "delegation_enabled": true,
+        "subagent_enabled": true,
         "group_eligible": false,
         "definition_source": "system_builtin",
         "lifecycle_policy": "system_builtin"
@@ -602,7 +602,7 @@
       "disable_allowed": true,
       "builtin_kind": "specialist",
       "agent_template_id": "builtin.specialist.verifier",
-      "delegation_enabled": true,
+      "subagent_enabled": true,
       "group_eligible": false
     },
     {
@@ -623,7 +623,7 @@
         "system_key": "context_management",
         "slot_index": 13,
         "agent_template_id": "builtin.system.context_compactor",
-        "delegation_enabled": false,
+        "subagent_enabled": false,
         "group_eligible": false,
         "definition_source": "system_builtin",
         "lifecycle_policy": "system_builtin"
@@ -648,7 +648,7 @@
       "disable_allowed": true,
       "builtin_kind": "system_manager",
       "agent_template_id": "builtin.system.context_compactor",
-      "delegation_enabled": false,
+      "subagent_enabled": false,
       "group_eligible": false
     }
   ]

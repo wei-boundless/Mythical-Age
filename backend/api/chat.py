@@ -256,7 +256,7 @@ async def _stream_run_events(runtime: Any, run: RuntimeRun, *, after_offset: int
     host = runtime.query_runtime.single_agent_runtime_host
     registry = host.run_registry
     replay = host.stream_replay
-    subscription = host.event_log.subscribe(task_run_id=run.event_log_id)
+    subscription = host.event_log.subscribe(run_id=run.event_log_id)
     latest_offset = int(after_offset)
     try:
         yield "retry: 1500\n\n"
@@ -287,7 +287,7 @@ async def _stream_run_events(runtime: Any, run: RuntimeRun, *, after_offset: int
 async def _wait_for_terminal_public_event(runtime: Any, run: RuntimeRun) -> tuple[str, dict[str, Any]]:
     host = runtime.query_runtime.single_agent_runtime_host
     replay = host.stream_replay
-    subscription = host.event_log.subscribe(task_run_id=run.event_log_id)
+    subscription = host.event_log.subscribe(run_id=run.event_log_id)
     latest_offset = -1
     try:
         while True:
@@ -361,6 +361,7 @@ def _runtime_run_refs_from_event(event: dict[str, Any]) -> dict[str, str]:
         dict(event.get("task_run") or {}).get("task_run_id") if isinstance(event.get("task_run"), dict) else "",
         dict(runtime_payload.get("task_run") or {}).get("task_run_id") if isinstance(runtime_payload.get("task_run"), dict) else "",
         event.get("task_run_id"),
+        runtime_event.get("run_id"),
         runtime_event.get("task_run_id"),
     ):
         normalized = str(value or "").strip()
@@ -371,6 +372,7 @@ def _runtime_run_refs_from_event(event: dict[str, Any]) -> dict[str, str]:
         dict(event.get("turn_run") or {}).get("turn_run_id") if isinstance(event.get("turn_run"), dict) else "",
         dict(runtime_payload.get("turn_run") or {}).get("turn_run_id") if isinstance(runtime_payload.get("turn_run"), dict) else "",
         event.get("turn_run_id"),
+        runtime_event.get("run_id"),
         runtime_event.get("task_run_id"),
     ):
         normalized = str(value or "").strip()

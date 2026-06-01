@@ -12,6 +12,7 @@ def extract_provider_usage(
     request_id: str,
     provider: str = "",
     model: str = "",
+    run_id: str = "",
     task_run_id: str = "",
     session_id: str = "",
     created_at: float | None = None,
@@ -75,6 +76,7 @@ def extract_provider_usage(
     return ModelTokenUsageRecord(
         usage_id=f"tokuse:{request_id}:provider_usage",
         request_id=request_id,
+        run_id=str(run_id or task_run_id or ""),
         task_run_id=str(task_run_id or ""),
         session_id=str(session_id or ""),
         provider=str(provider or _response_provider(response) or ""),

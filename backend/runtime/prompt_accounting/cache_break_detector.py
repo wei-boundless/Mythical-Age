@@ -13,6 +13,7 @@ class PromptCacheBreakRecord:
     request_id: str
     provider: str = ""
     model: str = ""
+    run_id: str = ""
     task_run_id: str = ""
     session_id: str = ""
     cache_key: str = ""
@@ -34,6 +35,7 @@ class PromptCacheBreakRecord:
             request_id=str(payload.get("request_id") or ""),
             provider=str(payload.get("provider") or ""),
             model=str(payload.get("model") or ""),
+            run_id=str(payload.get("run_id") or payload.get("task_run_id") or ""),
             task_run_id=str(payload.get("task_run_id") or ""),
             session_id=str(payload.get("session_id") or ""),
             cache_key=str(payload.get("cache_key") or ""),
@@ -76,6 +78,7 @@ class PromptCacheBreakDetector:
             request_id=cache_record.request_id,
             provider=cache_record.provider,
             model=cache_record.model,
+            run_id=cache_record.run_id,
             task_run_id=cache_record.task_run_id,
             session_id=cache_record.session_id,
             cache_key=cache_record.cache_key,

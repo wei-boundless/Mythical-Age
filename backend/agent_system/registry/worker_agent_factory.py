@@ -193,7 +193,7 @@ class WorkerAgentFactory:
             metadata={
                 **dict(blueprint.metadata),
                 "agent_template_id": str(blueprint.blueprint_id or "").strip(),
-                "delegation_enabled": True,
+                "subagent_enabled": True,
                 "group_eligible": True,
                 "spawn_request_id": request.spawn_request_id,
                 "provisioned_by": "runtime_loop",

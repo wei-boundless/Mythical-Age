@@ -5,6 +5,10 @@ from dataclasses import dataclass
 from typing import Any
 
 from runtime.shared.models import TaskRun
+from task_system.runtime_semantics.chapter_progress import (
+    ChapterProgressReceiptError,
+    first_chapter_progress_receipt,
+)
 from task_system.runtime_semantics.review_gate_verdict import (
     extract_review_verdict,
     review_verdict_is_rejected,
@@ -274,7 +278,7 @@ class GraphLoop:
             result_history=result_history,
             active_work_orders=active_work_orders,
         )
-        route_decision = _evaluate_loop_route(graph_config=graph_config, state=next_state, result=envelope)
+        route_decision = _evaluate_loop_route(graph_config=graph_config, state=next_state, result=envelope, services=self._services)
         if route_decision:
             next_state = _state_after_loop_route(graph_config=graph_config, state=next_state, decision=route_decision)
             node_states = {key: dict(value) for key, value in next_state.node_states.items()}
@@ -870,6 +874,7 @@ def _evaluate_loop_route(
     graph_config: GraphHarnessConfig,
     state: GraphLoopState,
     result: NodeResultEnvelope,
+    services: Any | None = None,
 ) -> dict[str, Any]:
     if result.status != "completed":
         return {}
@@ -879,6 +884,16 @@ def _evaluate_loop_route(
     if not route_policy:
         return {}
     mode = str(route_policy.get("mode") or "metric_target").strip() or "metric_target"
+    if mode == "progress_receipt":
+        return _evaluate_progress_receipt_route(
+            graph_config=graph_config,
+            state=state,
+            result=result,
+            node=node,
+            node_loop=node_loop,
+            route_policy=route_policy,
+            services=services,
+        )
     if mode != "metric_target":
         raise ValueError(f"unsupported graph loop route mode: {mode}")
     scope_id = str(route_policy.get("scope_id") or node_loop.get("scope_id") or "").strip()
@@ -929,6 +944,102 @@ def _evaluate_loop_route(
         "current_value": current_value,
         "target_key": target_key,
         "target_value": target_value,
+        "initial_inputs_patch": patched_inputs,
+        "scope_node_ids": list(_loop_scope_node_ids(graph_config=graph_config, frame=frame)),
+    }
+
+
+def _evaluate_progress_receipt_route(
+    *,
+    graph_config: GraphHarnessConfig,
+    state: GraphLoopState,
+    result: NodeResultEnvelope,
+    node: dict[str, Any],
+    node_loop: dict[str, Any],
+    route_policy: dict[str, Any],
+    services: Any | None,
+) -> dict[str, Any]:
+    scope_id = str(route_policy.get("scope_id") or node_loop.get("scope_id") or "").strip()
+    frame = _loop_frame_for_route(graph_config=graph_config, scope_id=scope_id, node_id=result.node_id, route_policy=route_policy)
+    receipt_key = str(route_policy.get("progress_receipt_key") or "chapter_progress_receipt").strip()
+    try:
+        receipt = first_chapter_progress_receipt(
+            _progress_receipt_sources(
+                graph_config=graph_config,
+                state=state,
+                result=result,
+                route_policy=route_policy,
+                services=services,
+            ),
+            key=receipt_key,
+            initial_inputs=dict(state.initial_inputs or {}),
+        )
+    except ChapterProgressReceiptError as exc:
+        return {
+            "authority": "harness.graph.loop_route_decision",
+            "action": "blocked",
+            "reason": "loop_route_progress_receipt_missing",
+            "detail": str(exc),
+            "node_id": result.node_id,
+            "scope_id": scope_id,
+            "route_policy": route_policy,
+        }
+
+    patched_inputs = dict(state.initial_inputs or {})
+    committed_words = _numeric_value(receipt.get("committed_words"), 0)
+    current_key = str(route_policy.get("current_key") or "group_current_measure").strip()
+    if current_key:
+        patched_inputs[current_key] = _numeric_value(patched_inputs.get(current_key), 0) + committed_words
+    last_metric_key = str(route_policy.get("last_metric_key") or "last_batch_words").strip()
+    if last_metric_key:
+        patched_inputs[last_metric_key] = committed_words
+    for counter in list(route_policy.get("secondary_counters") or []):
+        if not isinstance(counter, dict):
+            continue
+        secondary_key = str(counter.get("current_key") or "").strip()
+        if secondary_key:
+            patched_inputs[secondary_key] = _numeric_value(patched_inputs.get(secondary_key), 0) + committed_words
+
+    next_chapter_index = int(_numeric_value(receipt.get("next_chapter_index"), _numeric_value(patched_inputs.get("chapter_index"), 1)))
+    batch_complete = bool(receipt.get("batch_complete"))
+    patched_inputs["chapter_index"] = next_chapter_index
+    patched_inputs["active_chapter_start_index"] = next_chapter_index
+    patched_inputs["active_chapter_end_index"] = int(_numeric_value(receipt.get("batch_end_index"), _numeric_value(patched_inputs.get("batch_end_index"), next_chapter_index)))
+    if batch_complete:
+        patched_inputs["batch_start_index"] = next_chapter_index
+        patched_inputs["batch_end_index"] = next_chapter_index + max(1, int(_numeric_value(patched_inputs.get("units_per_batch"), 1))) - 1
+        patched_inputs["active_chapter_end_index"] = patched_inputs["batch_end_index"]
+    else:
+        patched_inputs["batch_start_index"] = int(_numeric_value(receipt.get("batch_start_index"), _numeric_value(patched_inputs.get("batch_start_index"), next_chapter_index)))
+        patched_inputs["batch_end_index"] = int(_numeric_value(receipt.get("batch_end_index"), _numeric_value(patched_inputs.get("batch_end_index"), patched_inputs["active_chapter_end_index"])))
+    patched_inputs["active_chapter_range"] = f"{int(patched_inputs['active_chapter_start_index']):03d}-{int(patched_inputs['active_chapter_end_index']):03d}"
+    patched_inputs = _apply_patch_rules(patched_inputs, list(route_policy.get("patch_rules") or []))
+    patched_inputs = _apply_derived_fields(patched_inputs, list(route_policy.get("derived_fields") or []))
+    patched_inputs.setdefault("active_chapter_range", f"{int(_numeric_value(patched_inputs.get('active_chapter_start_index'), next_chapter_index)):03d}-{int(_numeric_value(patched_inputs.get('active_chapter_end_index'), next_chapter_index)):03d}")
+
+    target_key = str(route_policy.get("target_key") or "group_target_measure").strip()
+    current_value = _numeric_value(patched_inputs.get(current_key), 0) if current_key else 0
+    target_value = _numeric_value(patched_inputs.get(target_key), 0) if target_key else 0
+    receipt_complete = bool(receipt.get("volume_complete"))
+    action = "exit" if receipt_complete or (target_key and current_value >= target_value) else "continue"
+    continue_node_id = str(route_policy.get("continue_node_id") or frame.get("continue_node_id") or frame.get("entry_node_id") or "").strip()
+    exit_node_id = str(route_policy.get("exit_node_id") or frame.get("exit_node_id") or "").strip()
+    return {
+        "authority": "harness.graph.loop_route_decision",
+        "action": action,
+        "reason": "volume_complete" if receipt_complete else ("target_reached" if action == "exit" else "target_not_reached"),
+        "node_id": result.node_id,
+        "result_id": result.result_id,
+        "scope_id": scope_id,
+        "frame_id": str(frame.get("frame_id") or scope_id),
+        "continue_node_id": continue_node_id,
+        "exit_node_id": exit_node_id,
+        "metric": committed_words,
+        "current_key": current_key,
+        "current_value": current_value,
+        "target_key": target_key,
+        "target_value": target_value,
+        "progress_receipt": receipt,
         "initial_inputs_patch": patched_inputs,
         "scope_node_ids": list(_loop_scope_node_ids(graph_config=graph_config, frame=frame)),
     }
@@ -1128,6 +1239,45 @@ def _route_metric_sources(result: NodeResultEnvelope) -> list[dict[str, Any]]:
             if isinstance(item, dict):
                 sources.append(dict(item))
     return sources
+
+
+def _progress_receipt_sources(
+    *,
+    graph_config: GraphHarnessConfig,
+    state: GraphLoopState,
+    result: NodeResultEnvelope,
+    route_policy: dict[str, Any],
+    services: Any | None,
+) -> list[dict[str, Any]]:
+    sources = _route_metric_sources(result)
+    source_node_ids = [
+        str(item).strip()
+        for item in list(route_policy.get("receipt_source_node_ids") or route_policy.get("progress_receipt_source_node_ids") or [])
+        if str(item).strip()
+    ]
+    if not source_node_ids:
+        source_node_ids = [
+            str(edge.get("source_node_id") or "")
+            for edge in graph_config.edges
+            if str(edge.get("target_node_id") or "") == result.node_id
+            and str(edge.get("source_node_id") or "")
+        ]
+    for node_id in source_node_ids:
+        summary = dict(dict(state.result_index or {}).get(node_id) or {})
+        loaded = _load_result_from_summary(summary, services=services)
+        if loaded:
+            sources.extend(_route_metric_sources(loaded))
+    return sources
+
+
+def _load_result_from_summary(summary: dict[str, Any], *, services: Any | None) -> NodeResultEnvelope | None:
+    if services is None:
+        return None
+    try:
+        payload = load_node_result(services, summary)
+    except Exception:
+        return None
+    return payload
 
 
 def _apply_patch_rules(inputs: dict[str, Any], rules: list[Any]) -> dict[str, Any]:

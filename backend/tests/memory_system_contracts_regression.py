@@ -507,7 +507,7 @@ _Stable instructions or constraints from the user within this session._
 
 # Errors and Corrections
 _Failures, corrections, and approaches to avoid repeating._
-- 本轮委派被限流，下一轮继续
+- 本轮子 Agent 启动被限流，下一轮继续
 
 # Key Results
 _Current-turn outputs, conclusions, or artifacts that remain active._
@@ -529,7 +529,7 @@ _Current-turn outputs, conclusions, or artifacts that remain active._
     assert {candidate.memory_layer for candidate in requested_view.context_candidates} == {"conversation"}
     rendered = "\n".join(candidate.rendered_preview for candidate in requested_view.context_candidates)
     assert "已完成会话连续性检查" in rendered
-    assert "本轮委派被限流" not in rendered
+    assert "本轮子 Agent 启动被限流" not in rendered
 
 
 def test_memory_maintenance_without_agent_does_not_use_heuristic_fallback(tmp_path) -> None:

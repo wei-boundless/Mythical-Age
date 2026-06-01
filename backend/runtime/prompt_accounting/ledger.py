@@ -36,10 +36,12 @@ class PromptAccountingLedger:
     def record_prompt_cache_break(self, record: PromptCacheBreakRecord) -> None:
         self._append_jsonl("prompt_cache_breaks.jsonl", record.to_dict())
 
-    def list_segments(self, *, task_run_id: str = "", session_id: str = "") -> list[PromptSegment]:
+    def list_segments(self, *, run_id: str = "", task_run_id: str = "", session_id: str = "") -> list[PromptSegment]:
         rows = self._read_jsonl("segments.jsonl")
         result: list[PromptSegment] = []
         for row in rows:
+            if run_id and str(row.get("run_id") or row.get("task_run_id") or "") != run_id:
+                continue
             if task_run_id and str(row.get("task_run_id") or "") != task_run_id:
                 continue
             if session_id and str(row.get("session_id") or "") != session_id:
@@ -47,10 +49,12 @@ class PromptAccountingLedger:
             result.append(_segment_from_dict(row))
         return result
 
-    def list_segment_maps(self, *, task_run_id: str = "", session_id: str = "") -> list[dict[str, Any]]:
+    def list_segment_maps(self, *, run_id: str = "", task_run_id: str = "", session_id: str = "") -> list[dict[str, Any]]:
         rows = self._read_jsonl("segment_maps.jsonl")
         result: list[dict[str, Any]] = []
         for row in rows:
+            if run_id and str(row.get("run_id") or row.get("task_run_id") or "") != run_id:
+                continue
             if task_run_id and str(row.get("task_run_id") or "") != task_run_id:
                 continue
             if session_id and str(row.get("session_id") or "") != session_id:
@@ -58,9 +62,11 @@ class PromptAccountingLedger:
             result.append(row)
         return sorted(result, key=lambda item: float(item.get("created_at") or 0.0))
 
-    def list_token_usage(self, *, task_run_id: str = "", session_id: str = "") -> list[ModelTokenUsageRecord]:
+    def list_token_usage(self, *, run_id: str = "", task_run_id: str = "", session_id: str = "") -> list[ModelTokenUsageRecord]:
         records: dict[str, ModelTokenUsageRecord] = {}
         for row in self._read_jsonl("token_usage.jsonl"):
+            if run_id and str(row.get("run_id") or row.get("task_run_id") or "") != run_id:
+                continue
             if task_run_id and str(row.get("task_run_id") or "") != task_run_id:
                 continue
             if session_id and str(row.get("session_id") or "") != session_id:
@@ -72,9 +78,11 @@ class PromptAccountingLedger:
                 records[key] = record
         return sorted(records.values(), key=lambda item: item.created_at)
 
-    def list_prompt_cache(self, *, task_run_id: str = "", session_id: str = "") -> list[PromptCacheRecord]:
+    def list_prompt_cache(self, *, run_id: str = "", task_run_id: str = "", session_id: str = "") -> list[PromptCacheRecord]:
         records: dict[str, PromptCacheRecord] = {}
         for row in self._read_jsonl("prompt_cache.jsonl"):
+            if run_id and str(row.get("run_id") or row.get("task_run_id") or "") != run_id:
+                continue
             if task_run_id and str(row.get("task_run_id") or "") != task_run_id:
                 continue
             if session_id and str(row.get("session_id") or "") != session_id:
@@ -86,9 +94,11 @@ class PromptAccountingLedger:
                 records[key] = record
         return sorted(records.values(), key=lambda item: item.created_at)
 
-    def list_prompt_cache_breaks(self, *, task_run_id: str = "", session_id: str = "") -> list[PromptCacheBreakRecord]:
+    def list_prompt_cache_breaks(self, *, run_id: str = "", task_run_id: str = "", session_id: str = "") -> list[PromptCacheBreakRecord]:
         records: dict[str, PromptCacheBreakRecord] = {}
         for row in self._read_jsonl("prompt_cache_breaks.jsonl"):
+            if run_id and str(row.get("run_id") or row.get("task_run_id") or "") != run_id:
+                continue
             if task_run_id and str(row.get("task_run_id") or "") != task_run_id:
                 continue
             if session_id and str(row.get("session_id") or "") != session_id:
@@ -104,6 +114,12 @@ class PromptAccountingLedger:
         return summarize_usage_records(
             self.list_token_usage(task_run_id=task_run_id),
             cache_records=self.list_prompt_cache(task_run_id=task_run_id),
+        )
+
+    def summarize_run(self, run_id: str) -> dict[str, Any]:
+        return summarize_usage_records(
+            self.list_token_usage(run_id=run_id),
+            cache_records=self.list_prompt_cache(run_id=run_id),
         )
 
     def summarize_session(self, session_id: str) -> dict[str, Any]:
@@ -172,7 +188,7 @@ class PromptAccountingLedger:
         kept: list[dict[str, Any]] = []
         deleted = 0
         for row in rows:
-            if str(row.get("task_run_id") or "") in task_run_ids:
+            if str(row.get("task_run_id") or "") in task_run_ids or str(row.get("run_id") or "") in task_run_ids:
                 deleted += 1
                 continue
             kept.append(row)
@@ -244,6 +260,7 @@ def _segment_from_dict(payload: dict[str, Any]) -> PromptSegment:
     return PromptSegment(
         segment_id=str(payload.get("segment_id") or ""),
         request_id=str(payload.get("request_id") or ""),
+        run_id=str(payload.get("run_id") or payload.get("task_run_id") or ""),
         task_run_id=str(payload.get("task_run_id") or ""),
         session_id=str(payload.get("session_id") or ""),
         kind=str(payload.get("kind") or "unknown_unplanned"),

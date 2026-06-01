@@ -48,7 +48,7 @@ class SkillRecord:
     requires_operations: list[str] = field(default_factory=list)
     requires_capabilities: list[str] = field(default_factory=list)
     prompt_use_when: str = ""
-    prompt_delegation_protocol: str = ""
+    prompt_subagent_handoff_protocol: str = ""
     prompt_return_protocol: str = ""
     prompt_output_rule: str = ""
     schema_version: int = 3
@@ -78,7 +78,7 @@ def _record_from_contract(contract: SkillContract) -> SkillRecord:
         requires_operations=list(runtime.requires_operations),
         requires_capabilities=list(runtime.requires_capabilities),
         prompt_use_when=contract.prompt.use_when,
-        prompt_delegation_protocol=contract.prompt.delegation_protocol,
+        prompt_subagent_handoff_protocol=contract.prompt.subagent_handoff_protocol,
         prompt_return_protocol=contract.prompt.return_protocol,
         prompt_output_rule=contract.prompt.output_rule,
         validation_errors=list(contract.validation_errors),
@@ -111,7 +111,7 @@ def _contract_from_record(record: SkillRecord, *, body: str = "") -> SkillContra
         ),
         body=body,
         use_when=prompt.get("use_when", ""),
-        delegation_protocol=prompt.get("delegation_protocol", ""),
+        subagent_handoff_protocol=prompt.get("subagent_handoff_protocol", ""),
         return_protocol=prompt.get("return_protocol", ""),
         output_rule=prompt.get("output_rule", ""),
     )
@@ -227,7 +227,7 @@ def scan_skills(base_dir: Path) -> list[SkillRecord]:
             requires_operations=_coerce_list(_lookup(meta, "metadata.requires_operations")),
             requires_capabilities=_coerce_list(_lookup(meta, "metadata.requires_capabilities")),
             prompt_use_when=_coerce_str(prompt_meta.get("use_when")),
-            prompt_delegation_protocol=_coerce_str(prompt_meta.get("delegation_protocol")),
+            prompt_subagent_handoff_protocol=_coerce_str(prompt_meta.get("subagent_handoff_protocol")),
             prompt_return_protocol=_coerce_str(prompt_meta.get("return_protocol")),
             prompt_output_rule=_coerce_str(prompt_meta.get("output_rule")),
         )
@@ -250,8 +250,8 @@ def build_snapshot(skills: list[SkillRecord]) -> str:
         )
         if view.use_when:
             lines.append(f"    <use_when>{view.use_when}</use_when>")
-        if view.delegation_protocol:
-            lines.append(f"    <delegation_protocol>{view.delegation_protocol}</delegation_protocol>")
+        if view.subagent_handoff_protocol:
+            lines.append(f"    <subagent_handoff_protocol>{view.subagent_handoff_protocol}</subagent_handoff_protocol>")
         if view.return_protocol:
             lines.append(f"    <return_protocol>{view.return_protocol}</return_protocol>")
         lines.append(f"    <output_rule>{view.output_rule}</output_rule>")
@@ -267,7 +267,7 @@ def _build_prompt_view(skill: SkillRecord) -> SkillPromptContract:
         title=skill.title,
         capability=skill.description,
         use_when=prompt.get("use_when", ""),
-        delegation_protocol=prompt.get("delegation_protocol", ""),
+        subagent_handoff_protocol=prompt.get("subagent_handoff_protocol", ""),
         return_protocol=prompt.get("return_protocol", ""),
         output_rule=prompt.get("output_rule", "") or DEFAULT_SKILL_OUTPUT_RULE,
     )
@@ -284,7 +284,7 @@ def _prompt_payload_from_record(record: SkillRecord, body: str) -> dict[str, str
             ("适合被唤起的情况", "典型请求包括"),
             ("不适合被唤起的情况", "## ", "### ", "执行目标", "工作原则"),
         ),
-        "delegation_protocol": record.prompt_delegation_protocol or _first_section_text(sections, ("委派协议", "delegation protocol")),
+        "subagent_handoff_protocol": record.prompt_subagent_handoff_protocol or _first_section_text(sections, ("子 Agent 交接协议", "subagent handoff protocol")),
         "return_protocol": record.prompt_return_protocol or _first_section_text(sections, ("回传协议", "return protocol", "输出结构", "输出要求")),
         "output_rule": record.prompt_output_rule or _first_section_text(sections, ("回答要求", "输出要求", "output rule")),
     }

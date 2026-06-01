@@ -3,8 +3,6 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from harness.execution.delegation_models import AgentDelegationRequest
-
 from .file_slicer import FileSlicer
 from .models import CodebaseSearchConfig, required_operations_for_codebase_search
 from .providers import CodebaseSearchProviders, TextHit
@@ -24,7 +22,7 @@ class CodebaseSearchCapability:
     async def run(
         self,
         *,
-        request: AgentDelegationRequest,
+        request: Any,
         agent: Any,
         profile: Any,
         config: CodebaseSearchConfig,

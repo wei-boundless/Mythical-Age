@@ -219,17 +219,23 @@ function toolActivityText(toolName: string, preview?: string) {
 function runtimeEvent(data: Record<string, unknown>) {
   const event = record(data.event);
   if (Object.keys(event).length) {
+    const payload = record(event.payload);
+    const taskRun = record(payload.task_run);
+    const runId = text(event.run_id) || text(event.task_run_id);
     return {
       eventId: text(event.event_id),
-      taskRunId: text(event.task_run_id),
+      runId,
+      taskRunId: formalTaskRunId(taskRun.task_run_id, data.task_run_id, event.task_run_id, runId),
       eventType: text(event.event_type),
       createdAt: numberValue(event.created_at),
-      payload: record(event.payload),
+      payload,
     };
   }
+  const runId = text(data.run_id) || text(data.task_run_id);
   return {
     eventId: text(data.event_id),
-    taskRunId: text(data.task_run_id),
+    runId,
+    taskRunId: formalTaskRunId(data.task_run_id, runId),
     eventType: text(data.event_type),
     createdAt: numberValue(data.created_at),
     payload: record(data.payload),
@@ -249,6 +255,7 @@ function entry(
     statusText?: string;
     meta?: RuntimeProgressEntry["meta"];
     toolName?: string;
+    runId?: string;
     taskRunId?: string;
     eventId?: string;
     createdAt?: number;
@@ -258,7 +265,7 @@ function entry(
   } = {},
 ): RuntimeProgressEntry {
   return {
-    id: options.eventId || `${eventType}:${options.taskRunId || ""}:${options.createdAt || Date.now()}:${title}`,
+    id: options.eventId || `${eventType}:${options.taskRunId || options.runId || ""}:${options.createdAt || Date.now()}:${title}`,
     level: options.level || "running",
     title,
     body: options.body ? short(options.body) : undefined,
@@ -270,6 +277,7 @@ function entry(
     statusText: options.statusText,
     meta: options.meta?.slice(0, 6),
     toolName: options.toolName,
+    runId: options.runId,
     taskRunId: options.taskRunId,
     createdAt: options.createdAt,
     startedAt: options.startedAt,
@@ -299,6 +307,7 @@ function planningPhaseProjection(eventType: string, payload: Record<string, unkn
       level: passed ? "success" : "warning",
       kind: "stage",
       statusText: passed ? "通过" : "需补充",
+      runId: meta.runId,
       taskRunId: meta.taskRunId,
       eventId: meta.eventId,
       createdAt: meta.createdAt,
@@ -331,6 +340,7 @@ function verificationProjection(eventType: string, payload: Record<string, unkno
       level: passed ? "success" : "warning",
       kind: "verification",
       statusText: passed ? "通过" : "有缺口",
+      runId: meta.runId,
       taskRunId: meta.taskRunId,
       eventId: meta.eventId,
       createdAt: meta.createdAt,
@@ -396,6 +406,7 @@ function toolRequestProjection(eventType: string, payload: Record<string, unknow
       kind: "tool",
       statusText: activity.statusRunning,
       toolName,
+      runId: eventMeta.runId,
       taskRunId: eventMeta.taskRunId,
       eventId: eventMeta.eventId,
       createdAt: eventMeta.createdAt,
@@ -435,6 +446,7 @@ function toolResultProjection(eventType: string, payload: Record<string, unknown
       level: failed ? "error" : "running",
       statusText: failed ? activity.statusFailed : truncated ? "已截断" : activity.statusDone,
       toolName,
+      runId: eventMeta.runId,
       taskRunId: eventMeta.taskRunId,
       eventId: eventMeta.eventId,
       createdAt: eventMeta.createdAt,
@@ -467,7 +479,8 @@ function operationGateProjection(eventType: string, payload: Record<string, unkn
           level,
           kind: "stage",
           statusText: "等待",
-          taskRunId: eventMeta.taskRunId,
+          runId: eventMeta.runId,
+      taskRunId: eventMeta.taskRunId,
           eventId: eventMeta.eventId,
           createdAt: eventMeta.createdAt,
         })
@@ -489,6 +502,7 @@ function loopTerminalProjection(eventType: string, payload: Record<string, unkno
       level: status === "completed" ? "success" : "warning",
       kind: "terminal",
       statusText: status,
+      runId: eventMeta.runId,
       taskRunId: eventMeta.taskRunId,
       eventId: eventMeta.eventId,
       createdAt: eventMeta.createdAt,
@@ -547,7 +561,8 @@ export function projectHarnessLoopEvent(data: Record<string, unknown>): RuntimeV
           level: projected.level || "running",
           kind: projected.kind || (eventType.startsWith("agent_runtime_") ? "stage" : "system"),
           statusText: projected.statusText || (projected.level === "success" ? "完成" : projected.level === "waiting" ? "等待" : "进行中"),
-          taskRunId: meta.taskRunId,
+          runId: meta.runId,
+      taskRunId: meta.taskRunId,
           eventId: meta.eventId,
           createdAt: meta.createdAt,
           completedAt: (projected.level === "success" || projected.level === "error") ? meta.createdAt : undefined,
@@ -591,8 +606,9 @@ export function projectRuntimeStreamEvent(event: string, data: Record<string, un
     const payload = record(runtimeEvent.payload);
     const contract = record(payload.contract);
     const goal = text(contract.user_visible_goal ?? contract.task_run_goal ?? taskRun.goal ?? taskRun.title);
-    const turnRunId = formalTurnRunId(turnRun.turn_run_id, runtimeEvent.task_run_id);
-    const taskRunId = formalTaskRunId(taskRun.task_run_id, runtimeEvent.task_run_id);
+    const runtimeRunId = text(runtimeEvent.run_id) || text(runtimeEvent.task_run_id);
+    const turnRunId = formalTurnRunId(turnRun.turn_run_id, runtimeRunId);
+    const taskRunId = formalTaskRunId(taskRun.task_run_id, runtimeRunId);
     if (turnRunId || isChatTurnRunId(taskRunId) || text(turnRun.execution_runtime_kind) === "single_agent_turn" || text(taskRun.execution_runtime_kind) === "single_agent_turn") {
       return {
         stageStatus: "正在整理上下文",
@@ -646,6 +662,8 @@ export function projectRuntimeStreamEvent(event: string, data: Record<string, un
       ?? eventPayload.agent_brief_output
       ?? "",
     );
+    const runtimeEvent = record(data.event);
+    const runId = text(runtimeEvent.run_id) || text(runtimeEvent.task_run_id);
     const level: SessionActivityLevel = status === "completed" ? "success" : status === "failed" ? "error" : status === "waiting" ? "waiting" : "running";
     return {
       stageStatus: publicNote || summary || step || "运行步骤",
@@ -659,6 +677,8 @@ export function projectRuntimeStreamEvent(event: string, data: Record<string, un
         level,
         kind: "stage",
         statusText: status || "进行中",
+        runId,
+        taskRunId: formalTaskRunId(runId),
         eventId: text(record(data.event).event_id),
         createdAt: numberValue(record(data.event).created_at) ?? Date.now(),
       }),
@@ -680,6 +700,7 @@ export function projectRuntimeStreamEvent(event: string, data: Record<string, un
         level: "running",
         kind: "task_order",
         statusText: "进行中",
+        runId: text(runtimeEvent.run_id) || text(runtimeEvent.task_run_id),
         taskRunId: text(taskRun.task_run_id),
         eventId: text(runtimeEvent.event_id),
         createdAt: numberValue(runtimeEvent.created_at) ?? Date.now(),
@@ -714,7 +735,8 @@ export function projectRuntimeStreamEvent(event: string, data: Record<string, un
         level: waiting ? "waiting" : "running",
         kind: eventType === "agent_todo_initialized" ? "stage" : "terminal",
         statusText: waiting ? "等待" : status || "进行中",
-        taskRunId: text(taskRun.task_run_id) || text(runtimeEvent.task_run_id),
+        runId: text(runtimeEvent.run_id) || text(runtimeEvent.task_run_id),
+        taskRunId: text(taskRun.task_run_id) || formalTaskRunId(runtimeEvent.run_id, runtimeEvent.task_run_id),
         eventId: text(runtimeEvent.event_id),
         createdAt: numberValue(runtimeEvent.created_at) ?? Date.now(),
         meta: compactMeta([
@@ -755,7 +777,8 @@ export function projectRuntimeStreamEvent(event: string, data: Record<string, un
         level: waiting ? "waiting" : failed ? "error" : "success",
         kind: "terminal",
         statusText: waiting ? "等待" : failed ? "失败" : "完成",
-        taskRunId: formalTaskRunId(taskRun.task_run_id, runtimeEvent.task_run_id),
+        runId: text(runtimeEvent.run_id) || text(runtimeEvent.task_run_id),
+        taskRunId: formalTaskRunId(taskRun.task_run_id, runtimeEvent.run_id, runtimeEvent.task_run_id),
         eventId: text(runtimeEvent.event_id),
         createdAt: numberValue(runtimeEvent.created_at) ?? Date.now(),
         completedAt: numberValue(runtimeEvent.created_at) ?? Date.now(),
@@ -851,3 +874,4 @@ export function projectRuntimeStreamEvent(event: string, data: Record<string, un
   }
   return {};
 }
+

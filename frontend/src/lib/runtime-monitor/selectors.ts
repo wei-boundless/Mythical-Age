@@ -2,7 +2,7 @@ import type { RuntimeMonitorEnvelope, RuntimeMonitorItem } from "./types";
 import { monitorItemInstanceId } from "./resourceRefs";
 import { visibleRuntimeMonitorItemsFromEnvelope } from "./reducer";
 
-export type RuntimeWorkKind = "task_graph_run" | "agent_runtime_run" | "chat_turn_runtime";
+export type RuntimeWorkKind = "task_graph_run" | "agent_runtime_run";
 
 export type RuntimeWorkProjection = {
   workId: string;
@@ -60,10 +60,9 @@ function canonicalKind(item: RuntimeMonitorItem) {
   const kind = text(item.kind);
   if (kind === "task_graph") return "task_graph_run";
   if (kind === "agent_run") return "agent_runtime_run";
-  if (kind === "chat_turn") return "chat_turn_runtime";
   const route = routeKind(item);
-  if (route === "task_graph_run" || route === "agent_runtime_run" || route === "chat_turn_runtime") return route;
-  return "chat_turn_runtime";
+  if (route === "task_graph_run" || route === "agent_runtime_run") return route;
+  return "agent_runtime_run";
 }
 
 function taskGraphProjection(item: RuntimeMonitorItem): RuntimeWorkProjection {
@@ -93,24 +92,10 @@ function agentRuntimeProjection(item: RuntimeMonitorItem): RuntimeWorkProjection
   };
 }
 
-function chatTurnRuntimeProjection(item: RuntimeMonitorItem): RuntimeWorkProjection {
-  return {
-    workId: monitorItemInstanceId(item) || text(item.task_run_id),
-    workKind: "chat_turn_runtime",
-    primaryRunId: text(item.task_run_id),
-    title: publicText(item.title) || "处理进展",
-    status: statusFromMonitor(item),
-    displayTypeLabel: "处理进展",
-    latestStepSummary: text(item.latest_step_summary),
-    isLive: bool(item.is_live) || item.resource_class === "dynamic",
-  };
-}
-
 export function runtimeWorkProjectionFromMonitorItem(item: RuntimeMonitorItem): RuntimeWorkProjection {
   const kind = canonicalKind(item);
   if (kind === "task_graph_run") return taskGraphProjection(item);
-  if (kind === "agent_runtime_run") return agentRuntimeProjection(item);
-  return chatTurnRuntimeProjection(item);
+  return agentRuntimeProjection(item);
 }
 
 export function runtimeWorkProjectionFromLiveMonitor(monitor: Record<string, unknown> | null | undefined): RuntimeWorkProjection | null {
@@ -143,11 +128,11 @@ export function runtimeWorkProjectionFromLiveMonitor(monitor: Record<string, unk
   if (!taskRunId) return null;
   return {
     workId: text(monitor.task_instance_id) || taskRunId,
-    workKind: "chat_turn_runtime",
+    workKind: "agent_runtime_run",
     primaryRunId: taskRunId,
-    title: publicText(taskRun.title) || "处理进展",
+    title: publicText(taskRun.title) || "持续处理",
     status: text(monitor.status) || "unknown",
-    displayTypeLabel: "处理进展",
+    displayTypeLabel: "持续处理",
   };
 }
 

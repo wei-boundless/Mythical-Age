@@ -156,25 +156,6 @@ class QueryRuntime:
             "task_executor_recovery": self.task_executor_recovery,
         }
 
-    def build_system_prompt_for_session(
-        self,
-        session_id: str | None = None,
-        history: list[dict[str, Any]] | None = None,
-        pending_user_message: str | None = None,
-        memory_intent: Any | None = None,
-        relevant_memory_notes: list[Any] | None = None,
-        retrieval_results: list[dict[str, Any]] | None = None,
-    ) -> str:
-        _ = (session_id, history, pending_user_message, memory_intent, relevant_memory_notes, retrieval_results)
-        return self.build_static_system_prompt_for_session()
-
-    async def abuild_system_prompt_for_session(self, *args, **kwargs) -> str:
-        return self.build_system_prompt_for_session(*args, **kwargs)
-
-    def build_static_system_prompt_for_session(self, *args, **kwargs) -> str:
-        _ = (args, kwargs)
-        return "当前单 agent harness prompt 由每次 RuntimeInvocationPacket 装配；请查看 latest_prompt_manifest_summary。"
-
     async def astream(self, request: QueryRequest):
         history_record = self.session_manager.load_session_record(request.session_id)
         raw_history = request.history or self.session_manager.load_session_for_agent(

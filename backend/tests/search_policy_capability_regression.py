@@ -59,7 +59,6 @@ def test_harness_service_host_filters_main_runtime_tools_by_search_policy(tmp_pa
         for item in plan.filtered_tools
     }
 
-    assert "delegate_to_agent" not in names
     assert "web_search" not in names
     assert "fetch_url" not in names
     assert "read_file" not in names

@@ -576,7 +576,7 @@ class MemoryCommitter:
 
 
 class MemoryMaintenanceCoordinator:
-    """Coordinates agent:1 maintenance and delegates all writes to MemoryCommitter."""
+    """Coordinates agent:1 maintenance and sends all writes through MemoryCommitter."""
 
     def __init__(
         self,

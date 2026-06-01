@@ -5,6 +5,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from task_system.runtime_semantics.chapter_progress import (
+    ChapterProgressReceiptError,
+    normalize_chapter_progress_receipt,
+)
+
 from .models import GraphHarnessConfig, GraphNodeWorkOrder, NodeResultEnvelope, safe_id
 from .output_policy import resolve_output_policy
 from .runtime_objects import node_result_summary, work_order_summary
@@ -152,9 +157,14 @@ class GraphNodeWorkOrderExecutor:
             task_run_payload=task_run_payload,
             artifact_refs=artifact_refs,
         )
-        postprocess_errors = [*contract_artifact_errors, *artifact_errors, *memory_errors]
-        result_status = "completed" if ok and not postprocess_errors else "failed"
         structured_outputs = _structured_agent_outputs(task_run_payload)
+        progress_receipts, progress_errors = _progress_receipts_from_structured_outputs(
+            structured_outputs,
+            graph_config=graph_config,
+            work_order=work_order,
+        )
+        postprocess_errors = [*contract_artifact_errors, *artifact_errors, *memory_errors, *progress_errors]
+        result_status = "completed" if ok and not postprocess_errors else "failed"
         return NodeResultEnvelope(
             result_id=f"nresult:{safe_id(work_order.graph_run_id)}:{safe_id(work_order.node_id)}:{safe_id(work_order.work_order_id)}",
             graph_run_id=work_order.graph_run_id,
@@ -171,6 +181,7 @@ class GraphNodeWorkOrderExecutor:
             },
             artifact_refs=tuple(str(item.get("path") or item.get("src") or item.get("absolute_path") or "") for item in artifact_refs if isinstance(item, dict)),
             memory_candidates=tuple(memory_candidates),
+            progress_receipts=tuple(progress_receipts),
             artifact_materialization_receipts=tuple(artifact_receipts),
             memory_commit_receipts=tuple(memory_receipts),
             handoff_summary=final_answer[:1200],
@@ -425,6 +436,67 @@ def _structured_agent_outputs(task_run_payload: dict[str, Any]) -> dict[str, Any
             if value is not None:
                 outputs[key] = value
     return outputs
+
+
+def _progress_receipts_from_structured_outputs(
+    structured_outputs: dict[str, Any],
+    *,
+    graph_config: GraphHarnessConfig,
+    work_order: GraphNodeWorkOrder,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    policy = _progress_receipt_policy(graph_config=graph_config, work_order=work_order)
+    if not policy:
+        return [], []
+    key = str(policy.get("progress_receipt_key") or "chapter_progress_receipt").strip()
+    source = _structured_output_source(structured_outputs)
+    candidate = source.get(key)
+    if not isinstance(candidate, dict):
+        return [], [
+            {
+                "reason": "chapter_progress_receipt_missing",
+                "node_id": work_order.node_id,
+                "progress_receipt_key": key,
+                "authority": "harness.graph.progress_receipt_postprocess",
+            }
+        ]
+    try:
+        receipt = normalize_chapter_progress_receipt(
+            candidate,
+            initial_inputs=dict(dict(work_order.input_package or {}).get("initial_inputs") or work_order.explicit_inputs or {}),
+        )
+    except ChapterProgressReceiptError as exc:
+        return [], [
+            {
+                "reason": "chapter_progress_receipt_invalid",
+                "detail": str(exc),
+                "node_id": work_order.node_id,
+                "progress_receipt_key": key,
+                "authority": "harness.graph.progress_receipt_postprocess",
+            }
+        ]
+    return [receipt], []
+
+
+def _structured_output_source(structured_outputs: dict[str, Any]) -> dict[str, Any]:
+    payload = dict(structured_outputs or {})
+    for key in ("structured_output", "node_output"):
+        nested = payload.get(key)
+        if isinstance(nested, dict):
+            return {**payload, **dict(nested)}
+    return payload
+
+
+def _progress_receipt_policy(*, graph_config: GraphHarnessConfig, work_order: GraphNodeWorkOrder) -> dict[str, Any]:
+    node = next((dict(item) for item in graph_config.nodes if str(item.get("node_id") or "") == work_order.node_id), {})
+    metadata = dict(node.get("metadata") or {})
+    policy = dict(node.get("progress_receipt_policy") or metadata.get("progress_receipt_policy") or {})
+    if policy:
+        return policy
+    bindings = dict(dict(node.get("contracts") or {}).get("contract_bindings") or {})
+    progress = dict(bindings.get("progress") or {})
+    if progress:
+        return progress
+    return {}
 
 
 def _task_run_summary(task_run: Any | None) -> dict[str, Any]:

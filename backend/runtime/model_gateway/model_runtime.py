@@ -889,7 +889,9 @@ class ModelRuntime:
             request_id = f"modelreq:{uuid.uuid4().hex}"
         if attempt > 1:
             request_id = f"{request_id}:attempt:{attempt}"
-        task_run_id = str(context.get("task_run_id") or "")
+        raw_run_id = str(context.get("run_id") or context.get("task_run_id") or "").strip()
+        task_run_id = _formal_task_run_id(context.get("task_run_id") or raw_run_id)
+        run_id = raw_run_id or task_run_id
         session_id = str(context.get("session_id") or "")
         created_at = time.time()
         metadata = {
@@ -919,6 +921,7 @@ class ModelRuntime:
                 tools=list(tools or []),
                 provider=spec.provider,
                 model=spec.model,
+                run_id=run_id,
                 task_run_id=task_run_id,
                 session_id=session_id,
                 created_at=created_at,
@@ -935,6 +938,7 @@ class ModelRuntime:
             prediction = ModelTokenUsageRecord(
                 usage_id=f"tokuse:{request_id}:local_prediction",
                 request_id=request_id,
+                run_id=run_id,
                 task_run_id=task_run_id,
                 session_id=session_id,
                 provider=spec.provider,
@@ -993,6 +997,7 @@ class ModelRuntime:
             ledger.record_prompt_cache(cache_record)
             return {
                 "request_id": request_id,
+                "run_id": run_id,
                 "task_run_id": task_run_id,
                 "session_id": session_id,
                 "provider": spec.provider,
@@ -1017,6 +1022,7 @@ class ModelRuntime:
                 request_id=request_id,
                 provider=str(accounting.get("provider") or ""),
                 model=str(accounting.get("model") or ""),
+                run_id=str(accounting.get("run_id") or accounting.get("task_run_id") or ""),
                 task_run_id=str(accounting.get("task_run_id") or ""),
                 session_id=str(accounting.get("session_id") or ""),
             )
@@ -1027,6 +1033,7 @@ class ModelRuntime:
             started_at = float(accounting.get("started_at") or finished_at)
             duration_seconds = max(0.0, finished_at - started_at)
             previous_cache_records = ledger.list_prompt_cache(
+                run_id=str(accounting.get("run_id") or accounting.get("task_run_id") or ""),
                 task_run_id=str(accounting.get("task_run_id") or ""),
                 session_id=str(accounting.get("session_id") or ""),
             )
@@ -1290,6 +1297,11 @@ def _optional_int(value: Any) -> int | None:
         return int(value)
     except (TypeError, ValueError):
         return None
+
+
+def _formal_task_run_id(value: Any) -> str:
+    normalized = str(value or "").strip()
+    return normalized if normalized.startswith("taskrun:") else ""
 
 
 def _optional_float(value: Any) -> float | None:

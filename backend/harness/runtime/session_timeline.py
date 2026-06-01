@@ -46,6 +46,7 @@ def _runtime_attachment(runtime_host: Any, task_run: Any, *, max_progress_entrie
     progress_entries = _progress_entries(events)[-max(1, int(max_progress_entries or 24)) :]
     return {
         "attachment_id": f"runtime-attachment:{task_run_id}",
+        "run_id": task_run_id,
         "anchor_turn_id": _anchor_turn_id(task_run_id=task_run_id, diagnostics=diagnostics, events=events),
         "task_run_id": task_run_id,
         "task_id": str(getattr(task_run, "task_id", "") or ""),
@@ -324,9 +325,10 @@ def _entry(
     meta: list[dict[str, str]] | None = None,
 ) -> dict[str, Any]:
     item = {
-        "id": str(event.get("event_id") or f"{event.get('task_run_id')}:{event.get('offset')}"),
+        "id": str(event.get("event_id") or f"{event.get('run_id') or event.get('task_run_id')}:{event.get('offset')}"),
         "eventType": str(event.get("event_type") or ""),
-        "taskRunId": str(event.get("task_run_id") or ""),
+        "runId": str(event.get("run_id") or event.get("task_run_id") or ""),
+        "taskRunId": _formal_task_run_id(event.get("run_id") or event.get("task_run_id")),
         "title": title,
         "body": body,
         "kind": kind,
@@ -344,6 +346,11 @@ def _entry(
     if meta:
         item["meta"] = list(meta)
     return item
+
+
+def _formal_task_run_id(value: Any) -> str:
+    candidate = str(value or "").strip()
+    return candidate if candidate.startswith("taskrun:") else ""
 
 
 def _public_action_state_brief(

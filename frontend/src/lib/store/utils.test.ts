@@ -7,6 +7,7 @@ describe("toUiMessages runtime attachments", () => {
   it("attaches a runtime timeline to the next assistant message after the anchor turn", () => {
     const attachment: SessionRuntimeAttachment = {
       attachment_id: "runtime-attachment:taskrun:turn:session-a:3:abc",
+      run_id: "taskrun:turn:session-a:8:root:checkout:abc",
       anchor_turn_id: "turn:session-a:3",
       task_run_id: "taskrun:turn:session-a:8:root:checkout:abc",
       status: "completed",
@@ -37,6 +38,7 @@ describe("toUiMessages runtime attachments", () => {
 
     expect(messages.find((message) => message.content === "任务已接管")?.runtimeAttachments ?? []).toEqual([]);
     expect(messages.find((message) => message.content === "收到，继续执行。")?.runtimeAttachments?.[0]).toMatchObject({
+      run_id: "taskrun:turn:session-a:8:root:checkout:abc",
       task_run_id: "taskrun:turn:session-a:8:root:checkout:abc",
       anchor_turn_id: "turn:session-a:3",
       status: "completed",

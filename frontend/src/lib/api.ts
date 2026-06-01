@@ -42,8 +42,9 @@ export type SessionHistory = {
 
 export type SessionRuntimeAttachment = {
   attachment_id: string;
+  run_id: string;
   anchor_turn_id: string;
-  task_run_id: string;
+  task_run_id?: string;
   task_id?: string;
   status: string;
   terminal_reason?: string;
@@ -1333,10 +1334,7 @@ export type OrchestrationAgentRuntimeProfile = {
   allowed_memory_scopes: string[];
   allowed_context_sections: string[];
   use_shared_contract: boolean;
-  can_delegate_to_agents: boolean;
-  allowed_delegate_agent_ids: string[];
-  max_delegate_calls_per_turn: number;
-  delegate_context_policy: string;
+  subagent_policy: OrchestrationSubagentPolicy;
   approval_policy: string;
   trace_policy: string;
   lifecycle_policy: string;
@@ -1958,7 +1956,8 @@ export type OrchestrationSnapshot = {
 
 export type HarnessTraceEvent = {
   event_id: string;
-  task_run_id: string;
+  run_id: string;
+  task_run_id?: string;
   event_type: string;
   offset: number;
   created_at: number;
@@ -1995,7 +1994,7 @@ export type GlobalRuntimeMonitorItem = {
   execution_runtime_kind: string;
   task_instance_id?: string;
   root_task_run_id?: string;
-  kind?: "chat_turn" | "agent_run" | "task_graph" | string;
+  kind?: "agent_run" | "task_graph" | string;
   graph_run_id?: string;
   graph_harness_config_id?: string;
   title: string;
@@ -2053,7 +2052,7 @@ export type GlobalRuntimeMonitorItem = {
   project_runtime_status: Record<string, unknown> | null;
   has_graph_run: boolean;
   route: {
-    kind?: "chat_turn_runtime" | "agent_runtime_run" | "task_graph_run" | string;
+    kind?: "agent_runtime_run" | "task_graph_run" | string;
     session_id?: string;
     task_run_id?: string;
     graph_id?: string;
@@ -2095,7 +2094,8 @@ export type RuntimeMonitorEventPayload = {
   monitor?: GlobalRuntimeMonitor;
   runtime_event?: {
     event_id: string;
-    task_run_id: string;
+    run_id: string;
+    task_run_id?: string;
     event_type: string;
     offset: number;
     created_at: number;
@@ -2135,7 +2135,7 @@ export type HarnessTaskRunLiveMonitor = {
   task_run_id?: string;
   task_instance_id?: string;
   root_task_run_id?: string;
-  kind?: "chat_turn" | "agent_run" | "task_graph" | string;
+  kind?: "agent_run" | "task_graph" | string;
   session_id?: string;
   task_id?: string;
   execution_runtime_kind?: string;
@@ -3396,6 +3396,16 @@ export type ToolPackageDefinition = {
   default_enabled: boolean;
   tags: string[];
   metadata?: Record<string, unknown>;
+};
+
+export type OrchestrationSubagentPolicy = {
+  enabled: boolean;
+  allowed_subagent_ids: string[];
+  max_subagent_runs_per_task: number;
+  max_active_subagents: number;
+  context_policy: string;
+  result_policy: string;
+  allow_nested_subagents: boolean;
 };
 
 const TERMINAL_STREAM_EVENTS = new Set(["done", "error", "stopped"]);

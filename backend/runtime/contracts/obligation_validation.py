@@ -59,8 +59,8 @@ def validate_obligations(
     tool_execution_enabled: bool = False,
     tool_call_count: int = 0,
     tool_observation_count: int = 0,
-    delegation_enabled: bool = False,
-    delegation_observation_count: int = 0,
+    subagent_lifecycle_enabled: bool = False,
+    subagent_lifecycle_observation_count: int = 0,
     write_budget_reserved: bool = False,
     tool_budget_exhausted: bool = False,
     contract_gate_blocked: bool = False,
@@ -104,7 +104,7 @@ def validate_obligations(
         or list(obligation.get("required_verifications") or [])
         or getattr(goal, "requires_verification_command", False)
     )
-    requires_delegate = bool(getattr(goal, "requires_delegation", False))
+    requires_subagent_lifecycle = bool(getattr(goal, "requires_subagent_lifecycle", False))
 
     missing_actions: list[str] = []
     missing_material_paths = [
@@ -166,18 +166,18 @@ def validate_obligations(
     if requires_verify and not verify_satisfied:
         missing_actions.append("verify_command")
 
-    delegate_satisfied = not requires_delegate or delegation_observation_count > 0
+    subagent_lifecycle_satisfied = not requires_subagent_lifecycle or subagent_lifecycle_observation_count > 0
     satisfactions.append(
         ObligationSatisfaction(
-            "delegate_review",
-            requires_delegate,
-            delegate_satisfied,
-            evidence_refs=_refs_for(tool_observation_ledger, "delegate_review"),
-            missing_reason="missing_delegation_observation" if requires_delegate and not delegate_satisfied else "",
+            "subagent_lifecycle",
+            requires_subagent_lifecycle,
+            subagent_lifecycle_satisfied,
+            evidence_refs=_refs_for(tool_observation_ledger, "subagent_lifecycle"),
+            missing_reason="missing_subagent_lifecycle_observation" if requires_subagent_lifecycle and not subagent_lifecycle_satisfied else "",
         )
     )
-    if requires_delegate and not delegate_satisfied:
-        missing_actions.append("delegate_review")
+    if requires_subagent_lifecycle and not subagent_lifecycle_satisfied:
+        missing_actions.append("subagent_lifecycle")
 
     response_terms = [
         str(item).strip()
@@ -244,8 +244,8 @@ def validate_obligations(
             "tool_execution_enabled": tool_execution_enabled,
             "tool_call_count": tool_call_count,
             "tool_observation_count": tool_observation_count,
-            "delegation_enabled": delegation_enabled,
-            "delegation_observation_count": delegation_observation_count,
+            "subagent_lifecycle_enabled": subagent_lifecycle_enabled,
+            "subagent_lifecycle_observation_count": subagent_lifecycle_observation_count,
             "write_output_required": requires_write,
             "write_observation_count": len(_refs_for(tool_observation_ledger, "write_output")),
             "required_output_paths": required_output_paths,

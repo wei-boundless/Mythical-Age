@@ -267,7 +267,7 @@ class TaskRegistryOverviewBuilder:
                 "builtin_agent_count": agent_catalog["summary"]["builtin_agent_count"],
                 "custom_agent_count": agent_catalog["summary"]["custom_agent_count"],
                 "system_manager_agent_count": agent_catalog["summary"]["system_manager_agent_count"],
-                "delegation_enabled_agent_count": agent_catalog["summary"].get("delegation_enabled_agent_count", 0),
+                "subagent_enabled_agent_count": agent_catalog["summary"].get("subagent_enabled_agent_count", 0),
                 "general_task_count": len(general_profiles),
                 "specific_task_count": len(task_assignments),
                 "task_flow_count": len(flows),

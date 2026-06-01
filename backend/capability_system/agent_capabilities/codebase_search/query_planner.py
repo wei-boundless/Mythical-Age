@@ -15,7 +15,6 @@ NOISE_TERMS = {
     "recovery",
     "intent",
     "classifier",
-    "delegate",
     "runtime",
     "executor",
     "policy",

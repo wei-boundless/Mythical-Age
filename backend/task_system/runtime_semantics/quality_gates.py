@@ -360,10 +360,23 @@ def _combine_length_and_section_quality(
             *[str(item) for item in list(section_quality.get("issues") or []) if str(item)],
         ]
     )
+    length_accepted = bool(length_quality.get("accepted"))
+    if bool(section_quality.get("partial_accepted")) and not bool(section_quality.get("batch_complete")):
+        length_issue_prefixes = ("below_target:", "insufficient_metric:")
+        section_min_total = safe_int(section_quality.get("min_required_metric_total"))
+        content_total = safe_int(section_quality.get("content_metric_total"))
+        if section_min_total <= 0 or content_total >= section_min_total:
+            issues = [
+                issue
+                for issue in issues
+                if not any(issue.startswith(prefix) for prefix in length_issue_prefixes)
+            ]
+            length_accepted = True
+    section_accepted = bool(section_quality.get("accepted") or section_quality.get("partial_accepted"))
     combined = {
         **length_quality,
         **section_quality,
-        "accepted": bool(length_quality.get("accepted")) and bool(section_quality.get("accepted")),
+        "accepted": length_accepted and section_accepted,
         "issues": issues,
         "length_budget_quality": dict(length_quality),
         "sectioned_text_batch_quality": dict(section_quality),
@@ -383,6 +396,16 @@ def _dedupe_strings(items: list[str]) -> list[str]:
         seen.add(text)
         result.append(text)
     return result
+
+
+def _contiguous_prefix(expected: list[int], found: list[int]) -> list[int]:
+    found_set = set(found)
+    prefix: list[int] = []
+    for index in expected:
+        if index not in found_set:
+            break
+        prefix.append(index)
+    return prefix
 
 
 def _quality_issue_summary(quality: dict[str, Any]) -> str:
@@ -496,7 +519,19 @@ def sectioned_text_batch_quality_gate(
     )
     min_ratio = float(policy.get("minimum_metric_ratio") or 0.0)
     min_per_unit = safe_int(policy.get("minimum_metric_per_unit"))
-    min_metric_total = max(min_per_unit * units_per_batch, int(target_metric_total * min_ratio))
+    allow_partial_contiguous_prefix = bool(policy.get("allow_partial_contiguous_prefix"))
+    found_expected_indexes = [index for index in expected_indexes if index in found_indexes]
+    partial_prefix_indexes = _contiguous_prefix(expected_indexes, found_expected_indexes)
+    partial_prefix_valid = bool(
+        allow_partial_contiguous_prefix
+        and partial_prefix_indexes
+        and partial_prefix_indexes == found_expected_indexes
+    )
+    batch_complete = bool(expected_indexes and found_expected_indexes == expected_indexes and not missing_indexes)
+    metric_unit_count = len(found_expected_indexes) if partial_prefix_valid and not batch_complete else units_per_batch
+    min_metric_total = max(min_per_unit * metric_unit_count, int((safe_int(explicit_inputs.get(unit_target_metric_key)) or 0) * metric_unit_count * min_ratio))
+    if target_metric_total > 0 and not (partial_prefix_valid and not batch_complete):
+        min_metric_total = max(min_metric_total, int(target_metric_total * min_ratio))
     unit_metric_counts = {
         str(index): count_text_units_for_quality_gate(metric_text[start:end])
         for index, (start, end) in sorted(
@@ -550,16 +585,31 @@ def sectioned_text_batch_quality_gate(
             "unexpected_unit_range:"
             f"{item['start_index']}-{item['end_index']}!=expected:{start_index}-{end_index}"
         )
-    if missing_indexes:
+    if missing_indexes and not partial_prefix_valid:
         issues.append("missing_required_sections:" + ",".join(str(index) for index in missing_indexes))
+    if allow_partial_contiguous_prefix and found_expected_indexes and not partial_prefix_valid:
+        issues.append("non_contiguous_partial_sections:" + ",".join(str(index) for index in found_expected_indexes))
+    partial_blocking_issues = [
+        issue
+        for issue in issues
+        if not issue.startswith("missing_required_sections:")
+    ]
+    partial_accepted = bool(partial_prefix_valid and not batch_complete and not partial_blocking_issues)
+    accepted = bool(not issues and batch_complete)
+    next_unit_index = (partial_prefix_indexes[-1] + 1) if partial_prefix_indexes and not batch_complete else (end_index + 1 if batch_complete else start_index)
     return {
-        "accepted": not issues,
+        "accepted": accepted,
+        "partial_accepted": partial_accepted,
+        "batch_complete": batch_complete,
         "content_metric_total": content_metric_total,
         "raw_content_metric_total": raw_content_metric_total,
         "min_required_metric_total": min_metric_total,
         **metric_text_diagnostics,
         "expected_unit_indexes": expected_indexes,
         "found_unit_indexes": sorted(found_indexes),
+        "found_expected_unit_indexes": found_expected_indexes,
+        "partial_prefix_unit_indexes": partial_prefix_indexes,
+        "next_unit_index": next_unit_index,
         "missing_unit_indexes": missing_indexes,
         "unexpected_unit_indexes": unexpected_indexes,
         "unexpected_unit_ranges": unexpected_ranges,

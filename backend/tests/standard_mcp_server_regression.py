@@ -201,7 +201,7 @@ def test_mcp_tool_pool_merges_builtin_and_mcp_tools_stably() -> None:
     assert pool["dedupe_key"] == "entry_id"
     pdf_entry = next(entry for entry in entries if entry["name"] == "mcp__langchain_agent__pdf")
     assert pdf_entry["entry_kind"] == "local_mcp"
-    assert pdf_entry["model_visibility"] == "runtime_delegate_only"
-    assert pdf_entry["runtime_exposure"] == "local_mcp_delegate"
+    assert pdf_entry["model_visibility"] == "runtime_bound_only"
+    assert pdf_entry["runtime_exposure"] == "local_mcp_runtime"
 
 

@@ -565,21 +565,21 @@ def _resolve_runtime_recipe_operations(
 ) -> dict[str, Any]:
     metadata = dict(getattr(selected_recipe, "metadata", {}) or {})
     strategy = str(metadata.get("execution_strategy") or "").strip()
-    if strategy != "delegate_preferred":
+    if strategy != "specialist_capability_preferred":
         return {
             "strategy": "direct",
             "required_operations": tuple(getattr(selected_recipe, "required_operations", ()) or ()),
             "optional_operations": tuple(getattr(selected_recipe, "optional_operations", ()) or ()),
         }
     fallback_operation = str(metadata.get("fallback_operation") or "").strip()
-    target_agent_id = str(metadata.get("delegate_target_agent_id") or "").strip()
+    target_agent_id = str(metadata.get("subagent_target_agent_id") or "").strip()
     return {
-        "strategy": "delegate_preferred",
+        "strategy": "specialist_capability_preferred",
         "execution_mode": "direct_fallback",
         "required_operations": tuple(_dedupe(["op.model_response", fallback_operation])),
         "optional_operations": tuple(getattr(selected_recipe, "optional_operations", ()) or ()),
-        "delegate_target_agent_id": target_agent_id,
-        "delegation_kind": str(metadata.get("delegation_kind") or "").strip(),
+        "subagent_target_agent_id": target_agent_id,
+        "subagent_task_kind": str(metadata.get("subagent_task_kind") or "").strip(),
         "fallback_operation": fallback_operation,
     }
 

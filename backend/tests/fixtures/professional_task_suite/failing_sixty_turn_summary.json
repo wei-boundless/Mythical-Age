@@ -21,7 +21,7 @@
     {
       "turn": 31,
       "check": "main.active_dataset.nonempty",
-      "symptom": "delegated table result did not write active_dataset",
+      "symptom": "subagent table result did not write active_dataset",
       "evidence": ["context_writeback_hints.source_kind=dataset", "final_outputs.main_context={}"]
     },
     {

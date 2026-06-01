@@ -83,8 +83,13 @@ function isVisibleEntry(entry: RuntimeProgressEntry) {
 }
 
 function isWorkEntry(entry: RuntimeProgressEntry) {
+  const runId = String(entry.runId ?? "").trim().toLowerCase();
   const taskRunId = String(entry.taskRunId ?? "").trim().toLowerCase();
-  return taskRunId.startsWith("taskrun:turn:") || entry.kind === "task_order" || entry.kind === "task_draft";
+  return runId.startsWith("taskrun:turn:")
+    || runId.startsWith("turnrun:turn:")
+    || taskRunId.startsWith("taskrun:turn:")
+    || entry.kind === "task_order"
+    || entry.kind === "task_draft";
 }
 
 function isPlanEntry(entry: RuntimeProgressEntry) {
@@ -238,9 +243,10 @@ function stepIcon(level: SessionActivityLevel) {
 
 function entriesFromAttachments(attachments: SessionRuntimeAttachment[]): RuntimeProgressEntry[] {
   return attachments.flatMap((attachment) => {
+    const runId = attachmentRunId(attachment);
     const progress = Array.isArray(attachment.progress_entries)
       ? attachment.progress_entries.map((item) => ({
-          id: String(item.id ?? `${attachment.task_run_id}:${item.eventType ?? item.event_type ?? ""}`),
+          id: String(item.id ?? `${runId}:${item.eventType ?? item.event_type ?? ""}`),
           level: String(item.level ?? "running") as SessionActivityLevel,
           title: String(item.title ?? attachment.title ?? "处理进展"),
           body: String(item.body ?? item.summary ?? attachment.latest_step_summary ?? ""),
@@ -251,7 +257,8 @@ function entriesFromAttachments(attachments: SessionRuntimeAttachment[]): Runtim
           kind: String(item.kind ?? "stage") as RuntimeProgressEntry["kind"],
           statusText: String(item.statusText ?? item.status ?? attachment.status ?? ""),
           toolName: String(item.toolName ?? ""),
-          taskRunId: attachment.task_run_id,
+          runId: String(item.runId ?? item.run_id ?? runId),
+          taskRunId: String(item.taskRunId ?? item.task_run_id ?? attachment.task_run_id ?? ""),
           createdAt: Number(item.createdAt ?? item.created_at ?? 0) || undefined,
           meta: Array.isArray(item.meta) ? item.meta as RuntimeProgressEntry["meta"] : undefined,
         }))
@@ -275,7 +282,8 @@ function entriesFromAttachments(attachments: SessionRuntimeAttachment[]): Runtim
       eventType: attachment.latest_event_type || "runtime_attachment",
       kind: attachmentState === "success" || attachmentState === "error" ? "terminal" : "stage",
       statusText: attachment.status,
-      taskRunId: attachment.task_run_id,
+      runId,
+      taskRunId: attachment.task_run_id || "",
       artifacts: artifactRefs
         .map((item) => ({ label: "产物", path: String(item.path ?? item.absolute_path ?? "") }))
         .filter((item) => item.path)
@@ -283,6 +291,10 @@ function entriesFromAttachments(attachments: SessionRuntimeAttachment[]): Runtim
     };
     return shouldAddStatusEntry ? [...progress, terminalEntry] : progress;
   });
+}
+
+function attachmentRunId(attachment: SessionRuntimeAttachment) {
+  return String(attachment.run_id || attachment.task_run_id || attachment.attachment_id || "").trim();
 }
 
 function conversationalLine(step: RuntimeStepView, runState: RuntimeRunState, isLatest: boolean) {

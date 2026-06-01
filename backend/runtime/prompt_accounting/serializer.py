@@ -33,6 +33,7 @@ class CanonicalPromptSerializer:
         tools: list[Any] | None = None,
         provider: str = "",
         model: str = "",
+        run_id: str = "",
         task_run_id: str = "",
         session_id: str = "",
         created_at: float | None = None,
@@ -41,6 +42,7 @@ class CanonicalPromptSerializer:
         model_request: Any | None = None,
     ) -> PromptSegmentMap:
         timestamp = time.time() if created_at is None else float(created_at or 0.0)
+        canonical_run_id = str(run_id or task_run_id or "")
         normalized_messages = _model_request_messages(model_request) or normalize_messages(messages)
         normalized_tools = _model_request_tools(model_request) or normalize_tools(list(tools or []))
         request_payload = {
@@ -66,6 +68,7 @@ class CanonicalPromptSerializer:
                 PromptSegment(
                     segment_id=_segment_id(request_id, ordinal, kind, segment_payload),
                     request_id=request_id,
+                    run_id=canonical_run_id,
                     task_run_id=str(task_run_id or ""),
                     session_id=str(session_id or ""),
                     kind=kind,
@@ -92,6 +95,7 @@ class CanonicalPromptSerializer:
                 PromptSegment(
                     segment_id=_segment_id(request_id, ordinal, "tool_schema", segment_payload),
                     request_id=request_id,
+                    run_id=canonical_run_id,
                     task_run_id=str(task_run_id or ""),
                     session_id=str(session_id or ""),
                     kind="tool_schema",
@@ -113,6 +117,7 @@ class CanonicalPromptSerializer:
             )
         return PromptSegmentMap(
             request_id=request_id,
+            run_id=canonical_run_id,
             task_run_id=str(task_run_id or ""),
             session_id=str(session_id or ""),
             provider=str(provider or ""),

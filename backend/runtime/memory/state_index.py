@@ -17,18 +17,14 @@ from ..shared.models import (
     TaskRun,
     TurnRun,
 )
-from harness.execution.delegation_models import (
-    AgentDelegationRequest,
-    AgentDelegationResult,
-    delegation_request_from_dict,
-    delegation_result_from_dict,
-)
 from agent_system.registry.worker_agent_blueprints import WorkerAgentSpawnRequest, WorkerAgentSpawnResult
 from harness.agent_control.models import SubagentMessage, subagent_message_from_dict
 from ..shared.runtime_object_store import RuntimeObjectStore
 
 
 _STATE_INDEX_WRITE_LOCK = threading.RLock()
+GLOBAL_RECENT_TASK_RUN_INDEX_ID = "default"
+GLOBAL_RECENT_TASK_RUN_LIMIT = 240
 
 
 class RuntimeStateIndex:
@@ -51,6 +47,10 @@ class RuntimeStateIndex:
             payload = self._compact_task_run_payload(task_run.to_dict())
             self._write_record("task_runs", task_run.task_run_id, payload)
             self._append_index_id("sessions", task_run.session_id, task_run.task_run_id)
+            self._upsert_global_recent_task_run(
+                task_run.task_run_id,
+                updated_at=float(payload.get("updated_at") or payload.get("created_at") or 0.0),
+            )
             self._maybe_write_latest_ref(
                 "session_latest_task_runs",
                 task_run.session_id,
@@ -108,18 +108,6 @@ class RuntimeStateIndex:
             self._append_index_id("task_worker_spawn_results", result.task_run_id, result.spawn_result_id)
             self._touch_meta()
 
-    def upsert_agent_delegation_request(self, request: AgentDelegationRequest) -> None:
-        with _STATE_INDEX_WRITE_LOCK:
-            self._write_record("agent_delegation_requests", request.request_id, request.to_dict())
-            self._append_index_id("task_agent_delegation_requests", request.task_run_id, request.request_id)
-            self._touch_meta()
-
-    def upsert_agent_delegation_result(self, result: AgentDelegationResult) -> None:
-        with _STATE_INDEX_WRITE_LOCK:
-            self._write_record("agent_delegation_results", result.result_id, result.to_dict())
-            self._append_index_id("task_agent_delegation_results", result.task_run_id, result.result_id)
-            self._touch_meta()
-
     def upsert_project_progress_ledger(self, ledger: ProjectProgressLedger) -> None:
         with _STATE_INDEX_WRITE_LOCK:
             self._write_record("project_progress_ledgers", ledger.project_id, ledger.to_dict())
@@ -158,6 +146,23 @@ class RuntimeStateIndex:
     def list_task_runs(self) -> list[TaskRun]:
         task_runs = self._read_record_bucket("task_runs")
         return [_task_run_from_payload(item) for item in task_runs.values() if isinstance(item, dict)]
+
+    def list_recent_task_runs(self, *, limit: int = 80) -> list[TaskRun]:
+        requested = max(1, min(int(limit or 80), GLOBAL_RECENT_TASK_RUN_LIMIT))
+        ids = self._read_index_ids("global_recent_task_runs", GLOBAL_RECENT_TASK_RUN_INDEX_ID)
+        if not ids:
+            ids = self._rebuild_global_recent_task_run_index(limit=max(requested, GLOBAL_RECENT_TASK_RUN_LIMIT))
+        payloads: list[dict[str, Any]] = []
+        stale = False
+        for task_run_id in ids[:requested]:
+            payload = self._read_record("task_runs", task_run_id)
+            if payload:
+                payloads.append(payload)
+            else:
+                stale = True
+        if stale:
+            self._write_global_recent_task_run_ids([str(item.get("task_run_id") or "") for item in payloads])
+        return [_task_run_from_payload(item) for item in payloads if isinstance(item, dict)]
 
     def list_session_task_runs(self, session_id: str) -> list[TaskRun]:
         task_runs = self._read_record_bucket("task_runs")
@@ -236,16 +241,6 @@ class RuntimeStateIndex:
         results = self._read_record_bucket("worker_spawn_results")
         ids = self._read_index_ids("task_worker_spawn_results", task_run_id)
         return [_worker_spawn_result_from_payload(results[item]) for item in ids if item in results]
-
-    def list_task_agent_delegation_requests(self, task_run_id: str) -> list[AgentDelegationRequest]:
-        requests = self._read_record_bucket("agent_delegation_requests")
-        ids = self._read_index_ids("task_agent_delegation_requests", task_run_id)
-        return [delegation_request_from_dict(requests[item]) for item in ids if item in requests]
-
-    def list_task_agent_delegation_results(self, task_run_id: str) -> list[AgentDelegationResult]:
-        results = self._read_record_bucket("agent_delegation_results")
-        ids = self._read_index_ids("task_agent_delegation_results", task_run_id)
-        return [delegation_result_from_dict(results[item]) for item in ids if item in results]
 
     def read_snapshot(self) -> dict[str, Any]:
         """Return one consistent read snapshot for live-monitor style queries."""
@@ -353,8 +348,6 @@ class RuntimeStateIndex:
             "subagent_messages",
             "worker_spawn_requests",
             "worker_spawn_results",
-            "agent_delegation_requests",
-            "agent_delegation_results",
             "supervision_records",
         }
         for bucket in self._record_buckets():
@@ -402,12 +395,6 @@ class RuntimeStateIndex:
         for result in dict(snapshot.get("worker_spawn_results") or {}).values():
             if isinstance(result, dict):
                 self._snapshot_append_index(snapshot, "task_worker_spawn_results", str(result.get("task_run_id") or ""), str(result.get("spawn_result_id") or ""))
-        for request in dict(snapshot.get("agent_delegation_requests") or {}).values():
-            if isinstance(request, dict):
-                self._snapshot_append_index(snapshot, "task_agent_delegation_requests", str(request.get("task_run_id") or ""), str(request.get("request_id") or ""))
-        for result in dict(snapshot.get("agent_delegation_results") or {}).values():
-            if isinstance(result, dict):
-                self._snapshot_append_index(snapshot, "task_agent_delegation_results", str(result.get("task_run_id") or ""), str(result.get("result_id") or ""))
         for ledger in dict(snapshot.get("project_progress_ledgers") or {}).values():
             if isinstance(ledger, dict):
                 self._snapshot_append_index(snapshot, "session_projects", str(ledger.get("session_id") or ""), str(ledger.get("project_id") or ""))
@@ -580,6 +567,52 @@ class RuntimeStateIndex:
             items.append(value)
         self._write_index_value(bucket, index_id, items)
 
+    def _upsert_global_recent_task_run(self, task_run_id: str, *, updated_at: float) -> None:
+        normalized = str(task_run_id or "").strip()
+        if not normalized:
+            return
+        existing_ids = [item for item in self._read_index_ids("global_recent_task_runs", GLOBAL_RECENT_TASK_RUN_INDEX_ID) if item != normalized]
+        candidates = [normalized, *existing_ids[: GLOBAL_RECENT_TASK_RUN_LIMIT - 1]]
+        scored: list[tuple[float, str]] = []
+        for candidate in candidates:
+            if candidate == normalized:
+                scored.append((float(updated_at or time.time()), candidate))
+                continue
+            payload = self._read_record("task_runs", candidate)
+            if not payload:
+                continue
+            scored.append((float(payload.get("updated_at") or payload.get("created_at") or 0.0), candidate))
+        scored.sort(key=lambda item: item[0], reverse=True)
+        self._write_global_recent_task_run_ids([item[1] for item in scored[:GLOBAL_RECENT_TASK_RUN_LIMIT]])
+
+    def _rebuild_global_recent_task_run_index(self, *, limit: int = GLOBAL_RECENT_TASK_RUN_LIMIT) -> list[str]:
+        requested = max(1, min(int(limit or GLOBAL_RECENT_TASK_RUN_LIMIT), GLOBAL_RECENT_TASK_RUN_LIMIT))
+        base = self.index_dir / "task_runs"
+        if not base.exists():
+            self._write_global_recent_task_run_ids([])
+            return []
+        candidates: list[tuple[float, Path]] = []
+        for path in base.glob("*.json"):
+            if path.name == "meta.json":
+                continue
+            try:
+                candidates.append((float(path.stat().st_mtime), path))
+            except OSError:
+                continue
+        candidates.sort(key=lambda item: item[0], reverse=True)
+        ids: list[str] = []
+        for _mtime, path in candidates[:requested]:
+            payload = self._read_json(path, {})
+            task_run_id = str(payload.get("task_run_id") or "")
+            if task_run_id:
+                ids.append(task_run_id)
+        self._write_global_recent_task_run_ids(ids)
+        return ids
+
+    def _write_global_recent_task_run_ids(self, task_run_ids: list[str]) -> None:
+        deduped = [item for item in dict.fromkeys(str(value).strip() for value in task_run_ids) if item]
+        self._write_index_value("global_recent_task_runs", GLOBAL_RECENT_TASK_RUN_INDEX_ID, deduped[:GLOBAL_RECENT_TASK_RUN_LIMIT])
+
     def _maybe_write_latest_ref(self, bucket: str, index_id: str, record_id: str, *, updated_at: float) -> None:
         current_id = str(self._read_index_value(bucket, index_id) or "")
         if current_id:
@@ -662,8 +695,6 @@ class RuntimeStateIndex:
             "subagent_messages": "message_id",
             "worker_spawn_requests": "spawn_request_id",
             "worker_spawn_results": "spawn_result_id",
-            "agent_delegation_requests": "request_id",
-            "agent_delegation_results": "result_id",
             "project_progress_ledgers": "project_id",
             "supervision_records": "supervision_record_id",
             "project_runtime_statuses": "project_id",
@@ -681,8 +712,6 @@ class RuntimeStateIndex:
             "subagent_messages",
             "worker_spawn_requests",
             "worker_spawn_results",
-            "agent_delegation_requests",
-            "agent_delegation_results",
             "project_progress_ledgers",
             "supervision_records",
             "project_runtime_statuses",
@@ -699,9 +728,8 @@ class RuntimeStateIndex:
             "subagent_run_messages",
             "task_worker_spawn_requests",
             "task_worker_spawn_results",
-            "task_agent_delegation_requests",
-            "task_agent_delegation_results",
             "session_projects",
+            "global_recent_task_runs",
             "project_supervision_records",
             "task_supervision_records",
         )
@@ -738,17 +766,18 @@ class RuntimeStateIndex:
             "task_worker_spawn_requests": {},
             "worker_spawn_results": {},
             "task_worker_spawn_results": {},
-            "agent_delegation_requests": {},
-            "task_agent_delegation_requests": {},
-            "agent_delegation_results": {},
-            "task_agent_delegation_results": {},
             "project_progress_ledgers": {},
             "supervision_records": {},
             "project_runtime_statuses": {},
             "session_projects": {},
+            "global_recent_task_runs": {},
             "project_supervision_records": {},
             "task_supervision_records": {},
+            "session_latest_task_runs": {},
             "session_latest_turn_runs": {},
+            "graph_project_index": {},
+            "session_active_project_status": {},
+            "task_project_status": {},
             "updated_at": 0.0,
         }
 

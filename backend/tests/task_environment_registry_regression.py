@@ -424,9 +424,6 @@ def test_environment_does_not_filter_agent_allowed_tools() -> None:
         agent_profile_id="env-constraint-agent",
         allowed_operations=("op.model_response", "op.shell", "op.browser_control", "op.web_search", "op.write_file"),
         blocked_operations=(),
-        can_delegate_to_agents=False,
-        max_delegate_calls_per_turn=0,
-        allowed_delegate_agent_ids=(),
         metadata={},
     )
 
@@ -779,9 +776,6 @@ def test_runtime_assembly_can_select_configured_task_environment(tmp_path: Path)
         agent_profile_id="custom-env-agent",
         allowed_operations=("op.model_response",),
         blocked_operations=(),
-        can_delegate_to_agents=False,
-        max_delegate_calls_per_turn=0,
-        allowed_delegate_agent_ids=(),
         metadata={},
     )
     definitions = get_tool_definitions()
@@ -847,9 +841,6 @@ def test_runtime_packet_includes_environment_prompt_boundary_from_configured_env
         agent_profile_id="custom-prompted-agent",
         allowed_operations=("op.model_response",),
         blocked_operations=(),
-        can_delegate_to_agents=False,
-        max_delegate_calls_per_turn=0,
-        allowed_delegate_agent_ids=(),
         metadata={},
     )
     definitions = get_tool_definitions()

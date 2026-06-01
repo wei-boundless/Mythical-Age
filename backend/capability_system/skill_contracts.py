@@ -35,7 +35,7 @@ class SkillPromptContract:
     title: str
     capability: str
     use_when: str = ""
-    delegation_protocol: str = ""
+    subagent_handoff_protocol: str = ""
     return_protocol: str = ""
     output_rule: str = DEFAULT_SKILL_OUTPUT_RULE
 
@@ -46,8 +46,8 @@ class SkillPromptContract:
         ]
         if self.use_when:
             lines.append(f"使用场景：{self.use_when}")
-        if self.delegation_protocol:
-            lines.append(f"委派协议：{self.delegation_protocol}")
+        if self.subagent_handoff_protocol:
+            lines.append(f"子 Agent 交接协议：{self.subagent_handoff_protocol}")
         if self.return_protocol:
             lines.append(f"返回协议：{self.return_protocol}")
         lines.append(f"输出规则：{self.output_rule}")
@@ -145,7 +145,7 @@ class SkillContract:
         *,
         body: str = "",
         use_when: str = "",
-        delegation_protocol: str = "",
+        subagent_handoff_protocol: str = "",
         return_protocol: str = "",
         output_rule: str = "",
     ) -> "SkillContract":
@@ -155,7 +155,7 @@ class SkillContract:
             title=normalized.title,
             capability=normalized.description,
             use_when=use_when,
-            delegation_protocol=delegation_protocol,
+            subagent_handoff_protocol=subagent_handoff_protocol,
             return_protocol=return_protocol,
             output_rule=normalize_string(output_rule, DEFAULT_SKILL_OUTPUT_RULE) or DEFAULT_SKILL_OUTPUT_RULE,
         )
@@ -200,7 +200,7 @@ class SkillContract:
                     runtime.description,
                 ) or runtime.description,
                 use_when=normalize_string(prompt_payload.get("use_when")),
-                delegation_protocol=normalize_string(prompt_payload.get("delegation_protocol")),
+                subagent_handoff_protocol=normalize_string(prompt_payload.get("subagent_handoff_protocol")),
                 return_protocol=normalize_string(prompt_payload.get("return_protocol")),
                 output_rule=normalize_string(prompt_payload.get("output_rule"), DEFAULT_SKILL_OUTPUT_RULE) or DEFAULT_SKILL_OUTPUT_RULE,
             )

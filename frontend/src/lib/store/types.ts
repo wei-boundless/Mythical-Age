@@ -76,6 +76,7 @@ export type RuntimeProgressEntry = {
   statusText?: string;
   meta?: Array<{ label: string; value: string }>;
   toolName?: string;
+  runId?: string;
   taskRunId?: string;
   createdAt?: number;
   startedAt?: number;

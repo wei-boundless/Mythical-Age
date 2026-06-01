@@ -24,7 +24,7 @@ class RuntimeLaneDescriptor:
     default_memory_scopes: tuple[str, ...] = ()
     default_context_sections: tuple[str, ...] = ()
     default_approval_policy: str = "default"
-    delegation_kinds: tuple[str, ...] = ()
+    subagent_task_kinds: tuple[str, ...] = ()
     runtime_template_hints: tuple[str, ...] = ()
     deprecated: bool = False
     replacement_lane_id: str = ""
@@ -45,7 +45,7 @@ class RuntimeLaneDescriptor:
             "default_operations",
             "default_memory_scopes",
             "default_context_sections",
-            "delegation_kinds",
+            "subagent_task_kinds",
             "runtime_template_hints",
         ):
             payload[key] = list(payload[key])
@@ -78,7 +78,7 @@ def _lane(
     default_memory_scopes: tuple[str, ...] = (),
     default_context_sections: tuple[str, ...] = ("task", "runtime_contracts"),
     default_approval_policy: str = "default",
-    delegation_kinds: tuple[str, ...] = (),
+    subagent_task_kinds: tuple[str, ...] = (),
     runtime_template_hints: tuple[str, ...] = (),
     deprecated: bool = False,
     replacement_lane_id: str = "",
@@ -95,7 +95,7 @@ def _lane(
         default_memory_scopes=default_memory_scopes,
         default_context_sections=default_context_sections,
         default_approval_policy=default_approval_policy,
-        delegation_kinds=delegation_kinds,
+        subagent_task_kinds=subagent_task_kinds,
         runtime_template_hints=runtime_template_hints,
         deprecated=deprecated,
         replacement_lane_id=replacement_lane_id,
@@ -182,7 +182,7 @@ def default_runtime_lane_descriptors() -> tuple[RuntimeLaneDescriptor, ...]:
                 "artifact_refs",
             ),
             default_approval_policy="task_bounded_write",
-            delegation_kinds=(
+            subagent_task_kinds=(
                 "rag",
                 "pdf_reading",
                 "table_analysis",
@@ -212,60 +212,60 @@ def default_runtime_lane_descriptors() -> tuple[RuntimeLaneDescriptor, ...]:
             runtime_template_hints=("builtin.main.default",),
         ),
         _lane(
-            "retrieval_delegate",
-            "检索分析委派",
+            "retrieval_subagent",
+            "检索分析子 Agent",
             "内置专业 Agent",
             "RAG 专业 Agent 处理知识库检索、证据查找和结果摘要的场景。",
             default_operations=("op.model_response", "op.mcp_retrieval", "op.memory_read"),
             default_memory_scopes=("conversation_readonly", "state_readonly"),
             default_context_sections=("task", "projection", "tool", "runtime_contracts", "artifact_refs", "memory_runtime_view"),
             default_approval_policy="read_only_first",
-            delegation_kinds=("evidence_lookup", "retrieval", "rag"),
+            subagent_task_kinds=("evidence_lookup", "retrieval", "rag"),
             runtime_template_hints=("builtin.specialist.rag_analyst",),
         ),
         _lane(
-            "pdf_delegate",
-            "PDF 阅读委派",
+            "pdf_subagent",
+            "PDF 阅读子 Agent",
             "内置专业 Agent",
             "PDF 专业 Agent 解析、阅读和归纳 PDF 文档的场景。",
             default_operations=("op.model_response", "op.mcp_pdf", "op.read_file"),
             default_context_sections=("task", "projection", "tool", "runtime_contracts", "artifact_refs"),
             default_approval_policy="read_only_first",
-            delegation_kinds=("pdf_reading", "document_analysis"),
+            subagent_task_kinds=("pdf_reading", "document_analysis"),
             runtime_template_hints=("builtin.specialist.pdf_reader",),
         ),
         _lane(
-            "structured_data_delegate",
-            "结构化数据分析委派",
+            "structured_data_subagent",
+            "结构化数据分析子 Agent",
             "内置专业 Agent",
             "表格或结构化文件专业 Agent 执行数据读取、查询和分析的场景。",
             default_operations=("op.model_response", "op.mcp_structured_data", "op.read_structured_file", "op.read_file"),
             default_context_sections=("task", "projection", "tool", "runtime_contracts", "artifact_refs"),
             default_approval_policy="read_only_first",
-            delegation_kinds=("table_analysis", "structured_data"),
+            subagent_task_kinds=("table_analysis", "structured_data"),
             runtime_template_hints=("builtin.specialist.table_analyst",),
         ),
         _lane(
-            "web_research_delegate",
-            "网页研究委派",
+            "web_research_subagent",
+            "网页研究子 Agent",
             "内置专业 Agent",
             "网页研究专业 Agent 搜索、打开网页并归纳当前信息的场景。",
             default_operations=("op.model_response", "op.web_search", "op.fetch_url"),
             default_context_sections=("task", "projection", "tool", "runtime_contracts", "artifact_refs"),
             default_approval_policy="read_only_first",
-            delegation_kinds=("web_research", "external_web_lookup", "current_information_lookup", "official_source_lookup"),
+            subagent_task_kinds=("web_research", "external_web_lookup", "current_information_lookup", "official_source_lookup"),
             runtime_template_hints=("builtin.specialist.web_researcher",),
         ),
         _lane(
-            "verification_delegate",
-            "交付复核委派",
+            "verification_subagent",
+            "交付复核子 Agent",
             "内置专业 Agent",
             "交付复核 Agent 只读检查主 Agent 的候选回答、产物、证据和用户目标是否一致，并返回裁决和返工建议。",
             default_operations=("op.model_response", "op.read_file", "op.search_text", "op.search_files", "op.git_diff", "op.git_status"),
             default_memory_scopes=("conversation_readonly", "state_readonly"),
             default_context_sections=("task", "projection", "runtime_trace", "assertions", "runtime_contracts", "artifact_refs"),
             default_approval_policy="read_only_first",
-            delegation_kinds=(
+            subagent_task_kinds=(
                 "completion_verification",
                 "semantic_verification",
                 "deliverable_review",

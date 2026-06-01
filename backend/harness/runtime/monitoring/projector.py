@@ -267,19 +267,13 @@ class RuntimeMonitorProjector:
     def _route(self, task_run: Any, diagnostics: dict[str, Any]) -> dict[str, str]:
         task_run_id = str(getattr(task_run, "task_run_id", "") or "")
         session_id = str(getattr(task_run, "session_id", "") or "")
-        task_id = str(getattr(task_run, "task_id", "") or "")
-        execution_runtime_kind = str(getattr(task_run, "execution_runtime_kind", "") or "")
         graph_id = str(diagnostics.get("graph_id") or diagnostics.get("task_graph_id") or "")
         graph_run_id = str(diagnostics.get("graph_run_id") or "")
         graph_harness_config_id = str(diagnostics.get("graph_harness_config_id") or "")
         if graph_run_id or graph_harness_config_id:
             kind = "task_graph_run"
-        elif execution_runtime_kind in {"single_agent_task", "subagent_task"}:
-            kind = "agent_runtime_run"
-        elif _is_chat_scoped(task_run_id=task_run_id, task_id=task_id):
-            kind = "chat_turn_runtime"
         else:
-            kind = "chat_turn_runtime"
+            kind = "agent_runtime_run"
         return {
             "kind": kind,
             "session_id": session_id,
@@ -293,9 +287,7 @@ class RuntimeMonitorProjector:
         route_kind = str(route.get("kind") or "")
         if route_kind == "task_graph_run":
             return "task_graph"
-        if route_kind == "agent_runtime_run":
-            return "agent_run"
-        return "chat_turn"
+        return "agent_run"
 
     def _diagnostic_reasons(
         self,
@@ -320,7 +312,7 @@ class RuntimeMonitorProjector:
         kind = str(route.get("kind") or "")
         if not route.get("task_run_id"):
             reasons.append("missing_route_task_run_id")
-        if kind in {"chat_turn_runtime", "agent_runtime_run"} and not route.get("session_id"):
+        if kind == "agent_runtime_run" and not route.get("session_id"):
             reasons.append("missing_route_session_id")
         if kind == "task_graph_run" and not route.get("graph_id"):
             reasons.append("missing_route_graph_id")
@@ -531,10 +523,6 @@ class RuntimeMonitorProjector:
                 }
             )
         return refs
-
-def _is_chat_scoped(*, task_run_id: str, task_id: str) -> bool:
-    return task_run_id.startswith("turnrun:") or task_id.startswith("turn:")
-
 
 def _latest_interaction_turn_id(events: list[Any], *, diagnostics: dict[str, Any]) -> str:
     for event in reversed(events):

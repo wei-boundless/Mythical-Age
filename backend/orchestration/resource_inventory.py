@@ -77,7 +77,7 @@ def build_runtime_resource_inventory(base_dir: Path | str | None = None) -> Runt
             title="Orchestration Agents",
             authority_layer="L5_orchestration_resource",
             path=str(layout.orchestration_dir / "agents.json"),
-            runtime_consumer="delegation_and_runtime_assembly",
+            runtime_consumer="subagent_lifecycle_and_runtime_assembly",
             can_authorize_side_effects=False,
             notes="Agent resources provide execution roles, not current-turn permission.",
         ),

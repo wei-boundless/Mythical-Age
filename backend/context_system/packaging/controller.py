@@ -21,7 +21,7 @@ _HOT_TRUTH_FENCED_JSON_RE = re.compile(r"```json\s*.*?```", re.IGNORECASE | re.D
 
 
 class ContextController:
-    """Builds a context package and delegates compaction execution through a stable interface."""
+    """Builds a context package and routes compaction execution through a stable interface."""
 
     def __init__(
         self,

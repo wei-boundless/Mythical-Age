@@ -9,6 +9,15 @@ from .evidence_scorer import score_negative_observation, score_runtime_event
 from .maintenance.experiments.artifacts import read_json_file
 
 
+_SUBAGENT_LIFECYCLE_TOOLS = {
+    "spawn_subagent",
+    "send_subagent_message",
+    "wait_subagent",
+    "list_subagents",
+    "close_subagent",
+}
+
+
 def build_runtime_trace_evidence_packet(
     trace: dict[str, Any] | None,
     *,
@@ -146,7 +155,6 @@ def _collect_event_candidates(events: list[dict[str, Any]], *, task_run_id: str)
     candidates: list[EvidenceCandidate] = []
     total_events = len(events)
     seen_tool_calls: set[str] = set()
-    seen_delegations: set[str] = set()
     for index, event in enumerate(events, start=1):
         event_type = str(event.get("event_type") or "")
         payload = dict(event.get("payload") or {})
@@ -158,15 +166,6 @@ def _collect_event_candidates(events: list[dict[str, Any]], *, task_run_id: str)
         metadata: dict[str, Any] = {"offset": int(event.get("offset") or index)}
         if tool_name:
             metadata["tool_name"] = tool_name
-        if event_type == "agent_delegation_requested":
-            request = dict(payload.get("agent_delegation_request") or {})
-            request_payload = dict(request.get("payload") or {})
-            if request.get("target_agent_id"):
-                metadata["target_agent_id"] = str(request.get("target_agent_id") or "")
-            if request.get("delegation_kind"):
-                metadata["delegation_kind"] = str(request.get("delegation_kind") or "")
-            if request_payload.get("source_kind"):
-                metadata["source_kind"] = str(request_payload.get("source_kind") or "")
         candidate = EvidenceCandidate(
             candidate_id=f"evcand:{event_id}",
             source_kind="runtime_event",
@@ -185,29 +184,26 @@ def _collect_event_candidates(events: list[dict[str, Any]], *, task_run_id: str)
                 continue
             if tool_name:
                 seen_tool_calls.add(tool_name)
-        if event_type == "agent_delegation_requested":
-            target_agent_id = str(dict(payload.get("agent_delegation_request") or {}).get("target_agent_id") or "")
-            if target_agent_id and target_agent_id in seen_delegations:
-                continue
-            if target_agent_id:
-                seen_delegations.add(target_agent_id)
         candidates.append(candidate)
 
-    delegated = any(item.event_type == "agent_delegation_requested" for item in candidates)
-    tool_delegate = any(item.event_type == "tool_call_requested" and _tool_name_from_candidate(item) == "delegate_to_agent" for item in candidates)
-    if not delegated and not tool_delegate and events:
+    subagent_lifecycle_observed = any(
+        item.event_type == "tool_call_requested"
+        and _tool_name_from_candidate(item) in _SUBAGENT_LIFECYCLE_TOOLS
+        for item in candidates
+    )
+    if not subagent_lifecycle_observed and events:
         candidates.append(
             EvidenceCandidate(
-                candidate_id=f"evcand:{task_run_id}:negative:delegation",
+                candidate_id=f"evcand:{task_run_id}:negative:subagent_lifecycle",
                 source_kind="negative_observation",
                 source_ref=task_run_id,
                 subject_type="task_run",
                 subject_id=task_run_id,
-                event_type="absent:agent_delegation_requested",
+                event_type="absent:subagent_lifecycle_tool",
                 time_index=total_events + 1,
-                summary="未观察到 agent_delegation_requested，说明本轮并未发生子 Agent 委派。",
-                raw_ref="negative:agent_delegation_requested",
-                metadata={"absence_of": "agent_delegation_requested"},
+                summary="未观察到子 Agent lifecycle 工具调用，说明本轮没有启动子 Agent 协作。",
+                raw_ref="negative:subagent_lifecycle_tool",
+                metadata={"absence_of": "subagent_lifecycle_tool"},
                 score=score_negative_observation(weight=1.0),
             )
         )
@@ -511,12 +507,6 @@ def _event_summary(event_type: str, payload: dict[str, Any]) -> str:
     if event_type == "tool_result_received":
         observation = dict(payload.get("observation") or {})
         return f"tool_result={observation.get('observation_type') or 'tool_result'}; chars={payload.get('content_chars') or 0}"
-    if event_type == "agent_delegation_requested":
-        request = dict(payload.get("agent_delegation_request") or {})
-        return f"delegate={request.get('target_agent_id') or ''}; kind={request.get('delegation_kind') or ''}"
-    if event_type == "agent_delegation_result_created":
-        result = dict(payload.get("agent_delegation_result") or {})
-        return f"delegation_result={result.get('status') or ''}; target={result.get('target_agent_id') or ''}"
     if event_type == "checkpoint_written":
         return f"checkpoint={payload.get('checkpoint_id') or ''}; offset={payload.get('event_offset') or 0}"
     if event_type == "loop_error":

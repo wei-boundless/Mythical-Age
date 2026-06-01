@@ -25,7 +25,7 @@ class ContinuationDomainProfile:
     subset_markers: tuple[str, ...] = ()
     conflict_markers: tuple[str, ...] = ()
     handle_prefixes: tuple[str, ...] = ()
-    delegation_kind: str = ""
+    subagent_task_kind: str = ""
     target_agent_id: str = ""
     return_contract: dict[str, Any] | None = None
     metadata: dict[str, Any] | None = None
@@ -46,7 +46,7 @@ class ContinuationDomainProfile:
             "subset_markers": list(self.subset_markers),
             "conflict_markers": list(self.conflict_markers),
             "handle_prefixes": list(self.handle_prefixes),
-            "delegation_kind": self.delegation_kind,
+            "subagent_task_kind": self.subagent_task_kind,
             "target_agent_id": self.target_agent_id,
             "return_contract": dict(self.return_contract or {}),
             "metadata": dict(self.metadata or {}),
@@ -109,7 +109,7 @@ def _profile_from_payload(payload: dict[str, Any]) -> ContinuationDomainProfile 
         subset_markers=_string_tuple(payload.get("subset_markers")),
         conflict_markers=_string_tuple(payload.get("conflict_markers")),
         handle_prefixes=_string_tuple(payload.get("handle_prefixes")),
-        delegation_kind=str(payload.get("delegation_kind") or "").strip(),
+        subagent_task_kind=str(payload.get("subagent_task_kind") or "").strip(),
         target_agent_id=str(payload.get("target_agent_id") or "").strip(),
         return_contract=dict(payload.get("return_contract") or {}),
         metadata=dict(payload.get("metadata") or {}),
@@ -159,7 +159,7 @@ def _builtin_profiles() -> tuple[ContinuationDomainProfile, ...]:
             subset_markers=("只基于", "刚才这", "这前五", "这些人", "这些员工", "不要扩展", "不要回到全表", "不要全表", "不要重算"),
             conflict_markers=("pdf", "报告", "第几页", "第三页", "第四页", "这一页", "第二部分"),
             handle_prefixes=("result:structured", "subset:selection", "subset:structured"),
-            delegation_kind="table_analysis",
+            subagent_task_kind="table_analysis",
             target_agent_id="agent:table_analyst",
             return_contract={
                 "required": ["summary", "answer_candidate"],
@@ -180,7 +180,7 @@ def _builtin_profiles() -> tuple[ContinuationDomainProfile, ...]:
             subset_markers=("这一页", "那一页", "这几页", "第三页", "第四页"),
             conflict_markers=("全表", "员工", "这些人", "这些员工", "按部门", "仓库", "缺货", "薪资", "xlsx", "csv"),
             handle_prefixes=("result:pdf", "subset:pdf"),
-            delegation_kind="pdf_reading",
+            subagent_task_kind="pdf_reading",
             target_agent_id="agent:pdf_reader",
             return_contract={
                 "required": ["summary", "answer_candidate"],
@@ -197,7 +197,7 @@ def _builtin_profiles() -> tuple[ContinuationDomainProfile, ...]:
             compatible_markers=("子任务", "第一个", "第二个", "第三个", "只展开", "压成一句话"),
             subset_markers=("只展开", "只要", "不要再提"),
             handle_prefixes=("bundle:", "result:bundle"),
-            delegation_kind="bounded_analysis",
+            subagent_task_kind="bounded_analysis",
         ),
         ContinuationDomainProfile(
             domain_id="workflow_graph",

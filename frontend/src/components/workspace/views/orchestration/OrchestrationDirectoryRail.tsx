@@ -86,7 +86,7 @@ export function OrchestrationDirectoryRail({
     main_agent: "主会话入口与最终整合输出",
     builtin_system_agent: "系统管理与平台治理 Agent",
     builtin_specialist_agent: "知识、PDF、表格、网页等专业 Agent",
-    custom_agent: "可分组、可委派的任务执行 Agent",
+    custom_agent: "可分组、可作为子 Agent 的任务执行 Agent",
   };
   function AgentRow({
     agent,

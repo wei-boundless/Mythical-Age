@@ -36,7 +36,7 @@ class GraphResumeResult:
 class GraphResumeService:
     """Resume graph runs from checkpointed GraphLoopState.
 
-    Resume verifies the immutable GraphHarnessConfig identity and delegates state
+    Resume verifies the immutable GraphHarnessConfig identity and hands state
     progression back to GraphLoop. It does not compile graphs or inspect editor
     drafts.
     """

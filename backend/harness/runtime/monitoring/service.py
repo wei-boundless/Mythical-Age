@@ -25,10 +25,12 @@ class RuntimeMonitorService:
         self.resource_resolver.graph_harness = graph_harness
 
     def list_global_live_monitor(self, limit: int = 20) -> dict[str, Any]:
+        requested_limit = max(1, min(int(limit or 20), 100))
+        task_runs = self.runtime_host.state_index.list_recent_task_runs(limit=max(requested_limit * 4, 80))
         return self.projector.build_global_monitor(
-            self.runtime_host.state_index.list_task_runs(),
+            task_runs,
             now=time.time(),
-            limit=limit,
+            limit=requested_limit,
         )
 
     def get_session_live_monitor(self, session_id: str, *, limit: int = 20) -> dict[str, Any]:

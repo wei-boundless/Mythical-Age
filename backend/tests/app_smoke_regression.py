@@ -160,9 +160,7 @@ def test_api_smoke_flow() -> None:
         runtime = app_runtime.require_ready()
 
         original_astream = runtime.query_runtime.astream
-        original_prompt = runtime.query_runtime.build_system_prompt_for_session
         runtime.query_runtime.astream = _fake_astream  # type: ignore[method-assign]
-        runtime.query_runtime.build_system_prompt_for_session = lambda *_args, **_kwargs: "system prompt"  # type: ignore[method-assign]
         try:
             health = client.get("/health")
             assert health.status_code == 200
@@ -189,7 +187,6 @@ def test_api_smoke_flow() -> None:
             assert "event: done" in response.text
         finally:
             runtime.query_runtime.astream = original_astream  # type: ignore[method-assign]
-            runtime.query_runtime.build_system_prompt_for_session = original_prompt  # type: ignore[method-assign]
 
 
 def test_non_stream_chat_returns_error_status() -> None:

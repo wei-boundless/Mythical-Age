@@ -32,7 +32,7 @@ class RuntimeEventPayloadStore:
     def externalize_if_needed(
         self,
         *,
-        task_run_id: str,
+        run_id: str,
         event_id: str,
         offset: int,
         event_type: str,
@@ -46,7 +46,7 @@ class RuntimeEventPayloadStore:
             return payload_dict, refs_dict
 
         payload_ref, relative_path = self._write_payload(
-            task_run_id=task_run_id,
+            run_id=run_id,
             event_id=event_id,
             offset=offset,
             event_type=event_type,
@@ -99,17 +99,19 @@ class RuntimeEventPayloadStore:
         payload = envelope.get("payload") if isinstance(envelope, dict) else None
         return dict(payload) if isinstance(payload, dict) else None
 
-    def delete_payloads_for_task(self, task_run_id: str) -> int:
-        safe_task_id = _safe_id(task_run_id)
+    def delete_payloads_for_run(self, run_id: str) -> int:
+        safe_run_id = _safe_id(run_id)
         deleted = 0
         for path in self.payload_dir.glob("*/*.json"):
             try:
                 payload = json.loads(path.read_text(encoding="utf-8"))
             except Exception:
                 continue
-            if not isinstance(payload, dict) or str(payload.get("task_run_id") or "") != task_run_id:
+            if not isinstance(payload, dict):
                 continue
-            if str(payload.get("safe_task_run_id") or "") != safe_task_id:
+            stored_run_id = str(payload.get("run_id") or payload.get("task_run_id") or "")
+            stored_safe_id = str(payload.get("safe_run_id") or payload.get("safe_task_run_id") or "")
+            if stored_run_id != run_id or stored_safe_id != safe_run_id:
                 continue
             try:
                 path.unlink()
@@ -121,7 +123,7 @@ class RuntimeEventPayloadStore:
     def _write_payload(
         self,
         *,
-        task_run_id: str,
+        run_id: str,
         event_id: str,
         offset: int,
         event_type: str,
@@ -130,7 +132,7 @@ class RuntimeEventPayloadStore:
     ) -> tuple[str, str]:
         digest_source = json.dumps(
             {
-                "task_run_id": task_run_id,
+                "run_id": run_id,
                 "event_id": event_id,
                 "offset": offset,
                 "event_type": event_type,
@@ -145,8 +147,8 @@ class RuntimeEventPayloadStore:
         envelope = {
             "authority": self.authority,
             "payload_ref": f"rtpayload:{digest}",
-            "task_run_id": task_run_id,
-            "safe_task_run_id": _safe_id(task_run_id),
+            "run_id": run_id,
+            "safe_run_id": _safe_id(run_id),
             "event_id": event_id,
             "offset": int(offset),
             "event_type": str(event_type or ""),
@@ -169,6 +171,7 @@ def _compact_payload_preview(payload: dict[str, Any]) -> dict[str, Any]:
         "terminal_reason",
         "error",
         "reason",
+        "run_id",
         "task_run_id",
         "invocation_index",
     ):

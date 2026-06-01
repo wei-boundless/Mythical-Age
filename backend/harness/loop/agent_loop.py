@@ -74,7 +74,7 @@ async def run_agent_invocation_stream(
     }
     yield _record_step_summary(
         runtime_host,
-        task_run_id=turn_run.turn_run_id,
+        run_id=turn_run.turn_run_id,
         turn_id=turn_id,
         step="turn_started",
         status="running",
@@ -144,7 +144,7 @@ async def run_agent_invocation_stream(
         }
         yield _record_step_summary(
             runtime_host,
-            task_run_id=turn_run.turn_run_id,
+            run_id=turn_run.turn_run_id,
             turn_id=turn_id,
             step="runtime_packet_compiled",
             status="running",
@@ -154,7 +154,7 @@ async def run_agent_invocation_stream(
 
         yield _record_step_summary(
             runtime_host,
-            task_run_id=turn_run.turn_run_id,
+            run_id=turn_run.turn_run_id,
             turn_id=turn_id,
             step=f"model_action_invocation_started:{action_index}",
             status="running",
@@ -168,7 +168,7 @@ async def run_agent_invocation_stream(
                     model_response_executor=request.model_response_executor,
                     packet=compilation.packet,
                     session_id=request.session_id,
-                    task_run_id=turn_run.turn_run_id,
+                    run_id=turn_run.turn_run_id,
                     turn_id=turn_id,
                     invocation_index=action_index,
                     model_selection=dict(request.model_selection or {}),
@@ -198,7 +198,7 @@ async def run_agent_invocation_stream(
                 if wait_round == 1:
                     yield _record_step_summary(
                         runtime_host,
-                        task_run_id=turn_run.turn_run_id,
+                        run_id=turn_run.turn_run_id,
                         turn_id=turn_id,
                         step=f"model_action_waiting:{action_index}",
                         status="running",
@@ -211,7 +211,7 @@ async def run_agent_invocation_stream(
                 model_action_task.cancel()
             _record_step_summary(
                 runtime_host,
-                task_run_id=turn_run.turn_run_id,
+                run_id=turn_run.turn_run_id,
                 turn_id=turn_id,
                 step=f"model_action_invocation_cancelled:{action_index}",
                 status="aborted",
@@ -274,7 +274,7 @@ async def run_agent_invocation_stream(
             yield {"type": "bounded_observation", "event": observation_event.to_dict()}
             yield _record_step_summary(
                 runtime_host,
-                task_run_id=turn_run.turn_run_id,
+                run_id=turn_run.turn_run_id,
                 turn_id=turn_id,
                 step=f"model_action_protocol_repair_required:{action_index}",
                 status="running",
@@ -360,7 +360,7 @@ async def run_agent_invocation_stream(
         public_action_state = _action_public_state(action_request)
         yield _record_step_summary(
             runtime_host,
-            task_run_id=turn_run.turn_run_id,
+            run_id=turn_run.turn_run_id,
             turn_id=turn_id,
             step="model_action_received",
             status="running",
@@ -397,7 +397,7 @@ async def run_agent_invocation_stream(
         yield {"type": "model_action_admission", "event": admission_event.to_dict()}
         yield _record_step_summary(
             runtime_host,
-            task_run_id=turn_run.turn_run_id,
+            run_id=turn_run.turn_run_id,
             turn_id=turn_id,
             step="action_admission_checked",
             status="running",
@@ -509,7 +509,7 @@ async def run_agent_invocation_stream(
         if action_request.action_type == "tool_call":
             yield _record_step_summary(
                 runtime_host,
-                task_run_id=turn_run.turn_run_id,
+                run_id=turn_run.turn_run_id,
                 turn_id=turn_id,
                 step="bounded_observation_started",
                 status="running",
@@ -539,7 +539,7 @@ async def run_agent_invocation_stream(
             yield {"type": "bounded_observation", "event": observation_event.to_dict()}
             yield _record_step_summary(
                 runtime_host,
-                task_run_id=turn_run.turn_run_id,
+                run_id=turn_run.turn_run_id,
                 turn_id=turn_id,
                 step="bounded_observation_recorded",
                 status="running",
@@ -591,7 +591,7 @@ async def run_agent_invocation_stream(
                 task_run = dict(result.get("task_run") or {})
                 yield _record_step_summary(
                     runtime_host,
-                    task_run_id=turn_run.turn_run_id,
+                    run_id=turn_run.turn_run_id,
                     turn_id=turn_id,
                     step="registered_engagement_started",
                     status="completed",
@@ -679,7 +679,7 @@ async def run_agent_invocation_stream(
                 yield {"type": "bounded_observation", "event": observation_event.to_dict()}
                 yield _record_step_summary(
                     runtime_host,
-                    task_run_id=turn_run.turn_run_id,
+                    run_id=turn_run.turn_run_id,
                     turn_id=turn_id,
                     step="task_contract_repair_required",
                     status="running",
@@ -716,7 +716,7 @@ async def run_agent_invocation_stream(
                 yield event
             yield _record_step_summary(
                 runtime_host,
-                task_run_id=turn_run.turn_run_id,
+                run_id=turn_run.turn_run_id,
                 turn_id=turn_id,
                 step="task_lifecycle_started",
                 status="running",
@@ -752,7 +752,7 @@ async def run_agent_invocation_stream(
                 yield {"type": "task_run_lifecycle_event", "event": gate_event}
                 yield _record_step_summary(
                     runtime_host,
-                    task_run_id=turn_run.turn_run_id,
+                    run_id=turn_run.turn_run_id,
                     turn_id=turn_id,
                     step="task_launch_supervision_waiting",
                     status="completed",
@@ -798,7 +798,7 @@ async def run_agent_invocation_stream(
             _schedule_task_executor(runtime_host, task_run.task_run_id)
             yield _record_step_summary(
                 runtime_host,
-                task_run_id=turn_run.turn_run_id,
+                run_id=turn_run.turn_run_id,
                 turn_id=turn_id,
                 step="task_executor_scheduled",
                 status="completed",
@@ -869,7 +869,7 @@ async def _invoke_model_action(
     model_response_executor: Any,
     packet: Any,
     session_id: str,
-    task_run_id: str,
+    run_id: str,
     turn_id: str,
     invocation_index: int,
     model_selection: dict[str, Any],
@@ -890,7 +890,8 @@ async def _invoke_model_action(
             accounting_context={
                 "request_id": f"modelreq:{packet.packet_id}:{invocation_index}",
                 "session_id": session_id,
-                "task_run_id": task_run_id,
+                "run_id": run_id,
+                "task_run_id": run_id if run_id.startswith("taskrun:") else "",
                 "turn_id": turn_id,
                 "packet_ref": str(packet.packet_id or ""),
                 "invocation_index": invocation_index,
@@ -906,6 +907,7 @@ async def _invoke_model_action(
         payload,
         turn_id=turn_id,
         require_public_progress_note=True,
+        require_public_action_state=True,
     )
 
 
@@ -1185,7 +1187,7 @@ def _schedule_task_executor(runtime_host: Any, task_run_id: str) -> None:
                 )
                 _record_step_summary(
                     runtime_host,
-                    task_run_id=task_run_id,
+                    run_id=task_run_id,
                     turn_id=task_run_id,
                     step="task_executor_auto_continue_scheduled",
                     status="running",
@@ -1371,7 +1373,7 @@ def _start_turn_runtime(
 def _record_step_summary(
     runtime_host: Any,
     *,
-    task_run_id: str,
+    run_id: str,
     turn_id: str,
     step: str,
     status: str,
@@ -1415,12 +1417,12 @@ def _record_step_summary(
     if presentation_source:
         payload["presentation_source"] = presentation_source
     event = runtime_host.event_log.append(
-        task_run_id,
+        run_id,
         "step_summary_recorded",
         payload=payload,
         refs={"turn_ref": turn_id, **dict(refs or {})},
     )
-    current_task_run = runtime_host.state_index.get_task_run(task_run_id)
+    current_task_run = runtime_host.state_index.get_task_run(run_id)
     if current_task_run is not None:
         runtime_host.state_index.upsert_task_run(
             replace(
@@ -1441,7 +1443,7 @@ def _record_step_summary(
             )
         )
     else:
-        current_turn_run = runtime_host.state_index.get_turn_run(task_run_id)
+        current_turn_run = runtime_host.state_index.get_turn_run(run_id)
         if current_turn_run is not None:
             runtime_host.state_index.upsert_turn_run(
                 replace(
@@ -1676,4 +1678,5 @@ async def _call_tool(tool: Any, args: dict[str, Any]) -> Any:
             return await result
         return result
     raise RuntimeError(f"Tool is not callable: {getattr(tool, 'name', type(tool).__name__)}")
+
 

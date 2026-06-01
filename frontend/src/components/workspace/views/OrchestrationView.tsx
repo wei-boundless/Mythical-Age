@@ -95,7 +95,7 @@ const DIRECTORY_SECTION_DESCRIPTIONS: Record<AgentDirectorySection, string> = {
   main_agent: "主会话入口与最终整合输出",
   builtin_system_agent: "系统管理与平台治理 Agent",
   builtin_specialist_agent: "知识、PDF、表格、网页等专业 Agent",
-  custom_agent: "可分组、可委派的任务执行 Agent",
+  custom_agent: "可分组、可作为子 Agent 的任务执行 Agent",
 };
 
 const EMPTY_AGENT_DRAFT: AgentDraft = {
@@ -119,10 +119,15 @@ const EMPTY_RUNTIME_DRAFT: RuntimeDraft = {
   allowed_memory_scopes: [],
   allowed_context_sections: [],
   use_shared_contract: true,
-  can_delegate_to_agents: false,
-  allowed_delegate_agent_ids: [],
-  max_delegate_calls_per_turn: 1,
-  delegate_context_policy: "summary_and_refs_only",
+  subagent_policy: {
+    enabled: false,
+    allowed_subagent_ids: [],
+    max_subagent_runs_per_task: 1,
+    max_active_subagents: 1,
+    context_policy: "summary_and_refs_only",
+    result_policy: "observation_refs_only",
+    allow_nested_subagents: false,
+  },
   approval_policy: "default",
   trace_policy: "runtime_event_log",
   lifecycle_policy: "orchestration_managed",
@@ -250,6 +255,20 @@ function agentCategory(agent: Record<string, unknown> | null | undefined): Agent
   return CATEGORY_ORDER.includes(value as AgentCategory) ? (value as AgentCategory) : "custom_agent";
 }
 
+function normalizeSubagentPolicy(policy?: Partial<OrchestrationAgentRuntimeProfile["subagent_policy"]>) {
+  const raw = policy ?? {};
+  const allowedIds = uniqueList(raw.allowed_subagent_ids);
+  return {
+    enabled: Boolean(raw.enabled) && Boolean(allowedIds.length),
+    allowed_subagent_ids: allowedIds,
+    max_subagent_runs_per_task: Math.max(0, Number(raw.max_subagent_runs_per_task ?? 1)),
+    max_active_subagents: Math.max(0, Number(raw.max_active_subagents ?? 1)),
+    context_policy: String(raw.context_policy || "summary_and_refs_only"),
+    result_policy: String(raw.result_policy || "observation_refs_only"),
+    allow_nested_subagents: Boolean(raw.allow_nested_subagents),
+  };
+}
+
 function recordOf(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
@@ -348,10 +367,7 @@ function runtimeDraftFrom(
     allowed_memory_scopes: uniqueList(merged.allowed_memory_scopes),
     allowed_context_sections: uniqueList(merged.allowed_context_sections),
     use_shared_contract: Boolean(merged.use_shared_contract ?? true),
-    can_delegate_to_agents: Boolean(merged.can_delegate_to_agents ?? false),
-    allowed_delegate_agent_ids: uniqueList(merged.allowed_delegate_agent_ids),
-    max_delegate_calls_per_turn: Number(merged.max_delegate_calls_per_turn ?? 1),
-    delegate_context_policy: String(merged.delegate_context_policy || "summary_and_refs_only"),
+    subagent_policy: normalizeSubagentPolicy(merged.subagent_policy),
     approval_policy: String(merged.approval_policy || "default"),
     trace_policy: String(merged.trace_policy || "runtime_event_log"),
     lifecycle_policy: String(merged.lifecycle_policy || "orchestration_managed"),
@@ -368,10 +384,7 @@ function runtimePayloadFromDraft(draft: RuntimeDraft) {
     allowed_memory_scopes: uniqueList(draft.allowed_memory_scopes),
     allowed_context_sections: uniqueList(draft.allowed_context_sections),
     use_shared_contract: Boolean(draft.use_shared_contract),
-    can_delegate_to_agents: Boolean(draft.can_delegate_to_agents),
-    allowed_delegate_agent_ids: uniqueList(draft.allowed_delegate_agent_ids),
-    max_delegate_calls_per_turn: Math.max(0, Number(draft.max_delegate_calls_per_turn ?? 1)),
-    delegate_context_policy: draft.delegate_context_policy || "summary_and_refs_only",
+    subagent_policy: normalizeSubagentPolicy(draft.subagent_policy),
     approval_policy: draft.approval_policy,
     trace_policy: draft.trace_policy,
     lifecycle_policy: draft.lifecycle_policy,
@@ -689,7 +702,7 @@ export function OrchestrationView() {
     ["runtime_config", "运行配置", runtimeConfigMode],
     ["model_runtime", "模型", modelProfile.provider || modelProfile.model ? "覆盖" : "继承"],
     ["context_memory", "上下文", `${uniqueList(runtimeDraft.allowed_context_sections).length + uniqueList(runtimeDraft.allowed_memory_scopes).length}`],
-    ["collaboration", "协作", runtimeDraft.can_delegate_to_agents ? "开放" : "关闭"],
+    ["collaboration", "协作", runtimeDraft.subagent_policy.enabled ? "开放" : "关闭"],
     ["overview", "总览", "摘要"],
     ["diagnostics", "诊断", overlapOps.length ? "冲突" : "正常"],
   ];
@@ -717,7 +730,7 @@ export function OrchestrationView() {
     const memberIds = new Set((selectedGroup.member_agent_ids ?? []).map((item) => String(item)));
     return visibleCustomAgents.filter((agent) => memberIds.has(String(agent.agent_id)));
   }, [selectedGroup, visibleCustomAgents]);
-  const delegateAgentOptions = useMemo(
+  const subagentOptions = useMemo(
     () =>
       agents
         .filter((agent) => String(agent.agent_id || "") !== String(agentDraft.agent_id || ""))
@@ -733,9 +746,9 @@ export function OrchestrationView() {
   const memorySummary = displayOptionList(uniqueList(runtimeDraft.allowed_memory_scopes), runtimeOptionLabels);
   const contextSummary = displayOptionList(uniqueList(runtimeDraft.allowed_context_sections), runtimeOptionLabels);
   const operationSummary = `${allowedOps.length} 允许 / ${blockedOps.length} 阻断`;
-  const collaborationSummary = runtimeDraft.can_delegate_to_agents
-    ? `${uniqueList(runtimeDraft.allowed_delegate_agent_ids).length || "不限"} 个目标`
-    : "未开放委派";
+  const collaborationSummary = runtimeDraft.subagent_policy.enabled
+    ? `${uniqueList(runtimeDraft.subagent_policy.allowed_subagent_ids).length || "不限"} 个目标`
+    : "未开放子 Agent";
   const selectedGroupCoordinator = selectedGroup
     ? agents.find((agent) => String(agent.agent_id ?? "") === selectedGroup.coordinator_agent_id)
     : null;
@@ -1173,7 +1186,7 @@ export function OrchestrationView() {
               {activeLayer === "collaboration" ? (
                 <OrchestrationCollaborationWorkbench
                   agentDraft={agentDraft}
-                  delegateAgentOptions={delegateAgentOptions}
+                  subagentOptions={subagentOptions}
                   displayId={displayId}
                   patchRuntimeDraft={(patch) => setRuntimeDraft((current) => ({ ...current, ...patch }))}
                   runtimeDraft={runtimeDraft}

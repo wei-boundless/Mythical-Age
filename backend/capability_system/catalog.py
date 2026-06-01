@@ -91,7 +91,7 @@ CAPABILITY_RISK_TAG_LABELS = {
     "document_analysis": "分析文档内容",
     "structured_data": "分析结构化数据",
     "agent_execution": "调用子 Agent",
-    "delegation": "发起任务委派",
+    "subagent_lifecycle": "启动子 Agent",
     "session_write_candidate": "提交会话消息候选",
     "artifact_write_candidate": "提交产物候选",
 }

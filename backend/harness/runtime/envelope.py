@@ -4,7 +4,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any, Literal
 
 
-RuntimeEnvelopeScope = Literal["turn", "task_run", "step", "delegate", "recovery"]
+RuntimeEnvelopeScope = Literal["turn", "task_run", "step", "subagent", "recovery"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -38,7 +38,7 @@ class RuntimeEnvelope:
             raise ValueError("RuntimeEnvelope authority must be harness.runtime.envelope")
         if not self.envelope_id:
             raise ValueError("RuntimeEnvelope requires envelope_id")
-        if self.scope_kind not in {"turn", "task_run", "step", "delegate", "recovery"}:
+        if self.scope_kind not in {"turn", "task_run", "step", "subagent", "recovery"}:
             raise ValueError(f"Unsupported RuntimeEnvelope scope_kind: {self.scope_kind}")
         if not self.session_id:
             raise ValueError("RuntimeEnvelope requires session_id")

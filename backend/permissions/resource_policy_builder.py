@@ -184,7 +184,7 @@ def _decide_operation(
         return ResourceDecision(
             operation_id=descriptor.operation_id,
             decision="allow",
-            reason="delegate operation is exposed as a bounded model-visible tool",
+            reason="subagent operation is exposed as a bounded model-visible tool",
             risk_tags=descriptor.risk_tags,
         )
     if descriptor.operation_type in NOT_EXECUTABLE_TYPES:

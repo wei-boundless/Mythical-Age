@@ -992,6 +992,7 @@ def _node_config(node: dict[str, Any], *, graph_id: str) -> dict[str, Any]:
         },
         "artifacts": dict(node.get("artifact_policy") or {}),
         "stream": dict(node.get("stream_policy") or {}),
+        "progress_receipt_policy": dict(node.get("progress_receipt_policy") or raw_metadata.get("progress_receipt_policy") or {}),
         "gates": {
             "review_gate_policy": dict(node.get("review_gate_policy") or {}),
             "human_gate_policy": dict(node.get("human_gate_policy") or metadata.get("human_gate_policy") or {}),
@@ -1036,6 +1037,10 @@ def _normalize_route_policy(value: Any) -> dict[str, Any]:
         "continue_node_id": continue_node_id,
         "exit_node_id": exit_node_id,
         "mode": str(payload.get("mode") or "metric_target").strip() or "metric_target",
+        "progress_receipt_key": str(payload.get("progress_receipt_key") or "").strip(),
+        "current_metric_key": str(payload.get("current_metric_key") or "").strip(),
+        "next_unit_index_key": str(payload.get("next_unit_index_key") or "").strip(),
+        "complete_key": str(payload.get("complete_key") or "").strip(),
         "metric_key": str(payload.get("metric_key") or "").strip(),
         "diagnostic_metric_key": str(payload.get("diagnostic_metric_key") or "").strip(),
         "fallback_increment_key": str(payload.get("fallback_increment_key") or "").strip(),

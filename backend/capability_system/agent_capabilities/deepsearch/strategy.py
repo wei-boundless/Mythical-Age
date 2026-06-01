@@ -121,7 +121,7 @@ class DefaultDeepSearchStrategy:
                 question_id="rq:core",
                 question=goal,
                 priority="high",
-                reason="Verify the delegated research goal.",
+                reason="Verify the subagent research goal.",
             )
         ]
         queries = [*provided_queries, goal]
@@ -150,7 +150,7 @@ class DefaultDeepSearchStrategy:
         return SearchPlanningStep(
             research_questions=tuple(questions),
             initial_queries=_dedupe(queries)[: config.max_queries],
-            rationale="Initial plan derived from delegated query, runtime budget, source quality policy, and freshness policy.",
+            rationale="Initial plan derived from subagent query, runtime budget, source quality policy, and freshness policy.",
         )
 
     def review(self, *, state: ResearchState, config: SearchRuntimeConfig, phase: str = "search") -> EvidenceReviewStep:

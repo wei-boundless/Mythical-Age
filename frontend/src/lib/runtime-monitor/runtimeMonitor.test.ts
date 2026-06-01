@@ -7,11 +7,11 @@ function item(patch: Record<string, unknown>) {
     task_run_id: "taskrun:test",
     task_instance_id: "taskrun:test",
     root_task_run_id: "taskrun:test",
-    kind: "chat_turn",
+    kind: "agent_run",
     session_id: "session:test",
     task_id: "task:turn:session:test:1",
     execution_runtime_kind: "single_agent_task",
-    title: "处理进展",
+    title: "持续处理",
     status: "running",
     terminal_reason: "",
     lifecycle: "running",
@@ -29,7 +29,7 @@ function item(patch: Record<string, unknown>) {
     project_title: "",
     project_runtime_status: null,
     has_graph_run: false,
-    route: { kind: "chat_turn_runtime" },
+    route: { kind: "agent_runtime_run" },
     ...patch,
   };
 }

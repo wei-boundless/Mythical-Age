@@ -90,11 +90,11 @@ def main() -> None:
         title="知识库问答",
         capability="面向本地知识库",
         use_when="Use for local knowledge-base lookup.",
-        delegation_protocol="delegate evidence_lookup with scope.",
+        subagent_handoff_protocol="handoff evidence_lookup with scope.",
         return_protocol="return summary and evidence refs.",
     )
     rendered = prompt.render_block()
-    assert "委派协议：" in rendered
+    assert "子 Agent 交接协议：" in rendered
     assert "返回协议：" in rendered
 
     skill_registry = SkillRegistry(ROOT)
@@ -103,11 +103,10 @@ def main() -> None:
     snapshot_text = capability_paths.skills_snapshot_path.read_text(encoding="utf-8")
     assert "Skill registry snapshot for admin display" in snapshot_text
     assert "Available local capabilities" not in snapshot_text
-    assert "When the main agent delegates" not in snapshot_text
-    assert "When the main agent delegates, ask for evidence_lookup" not in snapshot_text
-    assert "delegation_kind=evidence_lookup" in snapshot_text
+    assert "subagent_task_kind=evidence_lookup" in snapshot_text
     assert "<use_when>" in snapshot_text
-    assert "<delegation_protocol>" in snapshot_text
+    assert "<subagent_handoff_protocol>" in snapshot_text
+    assert "<subagent_handoff_protocol>" in snapshot_text
     assert "<return_protocol>" in snapshot_text
     assert "<output_rule>" in snapshot_text
     assert "<allowed_tools>" not in snapshot_text

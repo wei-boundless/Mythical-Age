@@ -119,6 +119,65 @@ def test_chapter_draft_quality_gate_accepts_complete_bounded_batch() -> None:
     assert result["insufficient_unit_metrics"] == []
 
 
+def test_chapter_draft_quality_gate_accepts_partial_contiguous_prefix() -> None:
+    text = "\n\n".join(
+        [
+            "## 第1章「起」\n" + ("泽" * 1300),
+            "## 第2章「承」\n" + ("黎" * 1300),
+            "## 第3章「转」\n" + ("漪" * 1300),
+        ]
+    )
+
+    result = sectioned_text_batch_quality_gate(
+        text,
+        explicit_inputs={
+            "batch_start_index": 1,
+            "batch_end_index": 10,
+            "chapters_per_round": 10,
+            "chapter_target_words": 2000,
+            "batch_target_words": 20000,
+        },
+        policy={
+            **_chapter_quality_policy(allow_partial_contiguous_prefix=True),
+        },
+    )
+
+    assert result["accepted"] is False
+    assert result["partial_accepted"] is True
+    assert result["batch_complete"] is False
+    assert result["found_expected_unit_indexes"] == [1, 2, 3]
+    assert result["missing_unit_indexes"] == [4, 5, 6, 7, 8, 9, 10]
+    assert result["next_unit_index"] == 4
+    assert not any(issue.startswith("missing_required_sections:") for issue in result["issues"])
+
+
+def test_chapter_draft_quality_gate_rejects_non_contiguous_partial_prefix() -> None:
+    text = "\n\n".join(
+        [
+            "## 第1章「起」\n" + ("泽" * 1300),
+            "## 第3章「跳号」\n" + ("漪" * 1300),
+        ]
+    )
+
+    result = sectioned_text_batch_quality_gate(
+        text,
+        explicit_inputs={
+            "batch_start_index": 1,
+            "batch_end_index": 10,
+            "chapters_per_round": 10,
+            "chapter_target_words": 2000,
+            "batch_target_words": 20000,
+        },
+        policy={
+            **_chapter_quality_policy(allow_partial_contiguous_prefix=True),
+        },
+    )
+
+    assert result["accepted"] is False
+    assert result["partial_accepted"] is False
+    assert "non_contiguous_partial_sections:1,3" in result["issues"]
+
+
 def test_batch_quality_gate_rejects_unexpected_chapter_headings() -> None:
     text = "\n\n".join(
         [

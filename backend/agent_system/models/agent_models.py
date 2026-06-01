@@ -60,8 +60,8 @@ class AgentDescriptor:
         return str(self.metadata.get("agent_template_id") or "").strip()
 
     @property
-    def delegation_enabled(self) -> bool:
-        explicit = self.metadata.get("delegation_enabled")
+    def subagent_enabled(self) -> bool:
+        explicit = self.metadata.get("subagent_enabled")
         if isinstance(explicit, bool):
             return explicit
         if self.agent_category == "main_agent":
@@ -132,7 +132,7 @@ class AgentDescriptor:
         payload["disable_allowed"] = self.disable_allowed
         payload["builtin_kind"] = self.builtin_kind
         payload["agent_template_id"] = self.agent_template_id
-        payload["delegation_enabled"] = self.delegation_enabled
+        payload["subagent_enabled"] = self.subagent_enabled
         payload["group_eligible"] = self.group_eligible
         return payload
 

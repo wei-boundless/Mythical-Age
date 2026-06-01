@@ -59,14 +59,14 @@ def test_system_retrieval_request_derives_path_from_context_recall_candidate() -
     assert constraints == {"path": "Data/employees.xlsx"}
 
 
-def test_model_executor_does_not_fabricate_delegate_tool_call_when_model_answers() -> None:
+def test_model_executor_does_not_fabricate_subagent_tool_call_when_model_answers() -> None:
     class _Runtime:
         async def invoke_messages(self, _messages):
             return SimpleNamespace(content="第二部分的约束是旧摘要里的两句话。")
 
     directive = RuntimeDirective(
         directive_id="runtime-directive:test:model",
-        task_id="task:auto-delegate",
+        task_id="task:auto-subagent",
         plan_ref="plan:test",
         stage_ref="stage:test",
         executor_type="model",
@@ -94,7 +94,7 @@ def test_model_executor_does_not_fabricate_delegate_tool_call_when_model_answers
 
 
 
-def test_model_executor_does_not_auto_delegate_for_direct_web_search_lane() -> None:
+def test_model_executor_does_not_auto_subagent_for_direct_web_search_lane() -> None:
     class _Runtime:
         async def invoke_messages(self, _messages):
             return SimpleNamespace(content="需要联网查询后回答。")

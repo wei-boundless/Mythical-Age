@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
+from types import SimpleNamespace
 
 from capability_system.agent_capabilities.codebase_search import (
     CODEBASE_SEARCH_TEMPLATE_ID,
@@ -12,20 +13,18 @@ from capability_system.agent_capabilities.codebase_search import (
 from capability_system.agent_capabilities.codebase_search.file_slicer import FileSlicer
 from capability_system.agent_capabilities.codebase_search.query_planner import build_codebase_search_plan
 from capability_system.agent_capabilities.codebase_search.ranker import rank_codebase_evidence
-from harness.execution.child_agent_capability_executor import ChildAgentCapabilityExecutor
-from harness.execution.delegation_models import AgentDelegationRequest
 from capability_system.agent_capabilities.codebase_search.providers import TextHit
 
 
-def _request(query: str = "CodebaseSearchCapability") -> AgentDelegationRequest:
-    return AgentDelegationRequest(
-        request_id="delegation:req:codebase-search",
+def _request(query: str = "CodebaseSearchCapability") -> SimpleNamespace:
+    return SimpleNamespace(
+        request_id="subagent:req:codebase-search",
         task_run_id="taskrun:test",
         session_id="session:test",
         parent_agent_run_ref="agrun:main",
         source_agent_id="agent:0",
         target_agent_id="agent:codebase_searcher",
-        delegation_kind="codebase_search",
+        subagent_task_kind="codebase_search",
         instruction=query,
         input_payload={"query": query},
     )
@@ -60,10 +59,15 @@ def _profile(**metadata):
     )()
 
 
-def test_codebase_search_delegation_routes_to_local_capability() -> None:
-    executor = ChildAgentCapabilityExecutor(Path("."))
-
-    payload = asyncio.run(executor.run(request=_request("CodebaseSearchCapability"), agent=_agent(), profile=_profile()))
+def test_codebase_search_capability_runs_local_readonly_search() -> None:
+    payload = asyncio.run(
+        CodebaseSearchCapability(Path(".")).run(
+            request=_request("CodebaseSearchCapability"),
+            agent=_agent(),
+            profile=_profile(),
+            config=normalize_codebase_search_config({}),
+        )
+    )
 
     assert payload["status"] == "completed"
     assert payload["diagnostics"]["child_execution_mode"] == "profile_authorized_codebase_search_capability"

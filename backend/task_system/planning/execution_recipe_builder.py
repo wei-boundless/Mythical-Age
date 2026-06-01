@@ -166,9 +166,9 @@ def _recipe_profile(execution_shape: ExecutionShape) -> dict[str, Any]:
                     "authority": "harness.runtime.assembly",
                     "terminal": True,
                     "after_each_tool_action": real_work,
-                    "after_delegation": real_work,
+                    "after_subagent_lifecycle": real_work,
                 },
-                "delegation_policy": {
+                "subagent_lifecycle_policy": {
                     "authority": "harness.runtime.assembly",
                     "requested": real_work,
                 },
@@ -230,13 +230,13 @@ def _recipe_profile(execution_shape: ExecutionShape) -> dict[str, Any]:
             },
         }
     if recipe_id == "runtime.recipe.knowledge_retrieval":
-        return _delegate_profile(
+        return _specialist_profile(
             title="Knowledge retrieval answer",
             description="Retrieve knowledge-base evidence and answer from grounded context.",
             task_mode="knowledge_retrieval",
             source_kind="knowledge",
-            delegate_target_agent_id="agent:knowledge_searcher",
-            delegation_kind="evidence_lookup",
+            subagent_target_agent_id="agent:knowledge_searcher",
+            subagent_task_kind="evidence_lookup",
             fallback_operation="op.mcp_retrieval",
             steps=(
                 _step("retrieve_evidence", "Retrieve evidence", "execute"),
@@ -244,13 +244,13 @@ def _recipe_profile(execution_shape: ExecutionShape) -> dict[str, Any]:
             ),
         )
     if recipe_id == "runtime.recipe.pdf_analysis":
-        return _delegate_profile(
+        return _specialist_profile(
             title="PDF document analysis",
             description="Read PDF evidence and answer the current question.",
             task_mode="capability_execution",
             source_kind="pdf",
-            delegate_target_agent_id="agent:pdf_reader",
-            delegation_kind="pdf_reading",
+            subagent_target_agent_id="agent:pdf_reader",
+            subagent_task_kind="pdf_reading",
             fallback_operation="op.mcp_pdf",
             steps=(
                 _step("analyze_pdf", "Analyze PDF", "analyze"),
@@ -259,13 +259,13 @@ def _recipe_profile(execution_shape: ExecutionShape) -> dict[str, Any]:
             output_schema={"final_answer": {"type": "string", "required": True}, "task_summary_refs": {"type": "array", "required": False}},
         )
     if recipe_id == "runtime.recipe.structured_data_analysis":
-        return _delegate_profile(
+        return _specialist_profile(
             title="Structured data analysis",
             description="Analyze table or dataset evidence and answer the current question.",
             task_mode="capability_execution",
             source_kind="dataset",
-            delegate_target_agent_id="agent:table_analyst",
-            delegation_kind="table_analysis",
+            subagent_target_agent_id="agent:table_analyst",
+            subagent_task_kind="table_analysis",
             fallback_operation="op.mcp_structured_data",
             steps=(
                 _step("analyze_dataset", "Analyze dataset", "analyze"),
@@ -386,14 +386,14 @@ def _recipe_profile(execution_shape: ExecutionShape) -> dict[str, Any]:
     }
 
 
-def _delegate_profile(
+def _specialist_profile(
     *,
     title: str,
     description: str,
     task_mode: str,
     source_kind: str,
-    delegate_target_agent_id: str,
-    delegation_kind: str,
+    subagent_target_agent_id: str,
+    subagent_task_kind: str,
     fallback_operation: str,
     steps: tuple[TaskStepBlueprint, ...],
     output_schema: dict[str, Any] | None = None,
@@ -407,9 +407,9 @@ def _delegate_profile(
         "required_operations": ("op.model_response",),
         "step_blueprints": steps,
         "metadata": {
-            "execution_strategy": "delegate_preferred",
-            "delegate_target_agent_id": delegate_target_agent_id,
-            "delegation_kind": delegation_kind,
+            "execution_strategy": "specialist_capability_preferred",
+            "subagent_target_agent_id": subagent_target_agent_id,
+            "subagent_task_kind": subagent_task_kind,
             "fallback_operation": fallback_operation,
         },
     }

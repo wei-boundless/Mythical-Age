@@ -27,7 +27,7 @@ function item(patch: Partial<GlobalRuntimeMonitorItem>): GlobalRuntimeMonitorIte
     project_title: "",
     project_runtime_status: null,
     has_graph_run: false,
-    route: { kind: "chat_turn_runtime", session_id: "session-a", task_run_id: "taskrun:turn:session-a:1:abc" },
+    route: { kind: "agent_runtime_run", session_id: "session-a", task_run_id: "taskrun:turn:session-a:1:abc" },
     ...patch,
   };
 }

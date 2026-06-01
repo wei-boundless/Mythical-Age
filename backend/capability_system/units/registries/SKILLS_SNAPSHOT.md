@@ -11,7 +11,7 @@
   <skill name="深度网络研究">
     <description>用于跨来源深度网络研究，要求建立研究合同、分面搜索、阅读关键原文、交叉验证证据，并输出可信度、限制和可追溯来源。</description>
     <use_when>用户需要系统调研、技术路线比较、GitHub/论文/官方资料综合、竞品分析、证据交叉验证或高可信结论；问题不能只靠一次搜索摘要可靠回答。</use_when>
-    <delegation_protocol>先建立研究合同和搜索面；用 web_search 扩展候选来源，用 fetch_url 阅读关键原文；范围较大且允许子 agent 时，可按论文、GitHub、官方资料、新闻公告分派子任务并等待结构化结果。</delegation_protocol>
+    <subagent_handoff_protocol>先建立研究合同和搜索面；用 web_search 扩展候选来源，用 fetch_url 阅读关键原文；范围较大且允许子 agent 时，可按论文、GitHub、官方资料、新闻公告拆分子任务并等待结构化结果。</subagent_handoff_protocol>
     <return_protocol>返回研究结论、证据表、来源质量判断、冲突点、可信度、限制和建议下一步；关键结论必须能追溯到来源。</return_protocol>
     <output_rule>先给结论和判断，再列证据；不要暴露内部工具名、路由名、skill_id 或未整理的搜索日志。</output_rule>
   </skill>
@@ -27,9 +27,9 @@
     <use_when>- 用户点名某个 PDF、报告、白皮书、手册、论文。
 - 用户问“第几页讲了什么”“第二部分强调了什么”“这份文档核心观点是什么”。
 - 会话里已经有激活的 PDF 绑定，用户继续追问“这一页”“这一部分”“这份 PDF”。</use_when>
-    <delegation_protocol>当主 Agent 委派给你时，应明确说明：
+    <subagent_handoff_protocol>当主 Agent 启动你作为子 Agent 时，应明确说明：
 
-- `delegation_kind=pdf_reading`
+- `subagent_task_kind=pdf_reading`
 - 目标文件路径或文件句柄
 - 页码、章节、全文、摘要中的哪一种阅读粒度
 - 用户真正想要的产出形式
@@ -48,7 +48,7 @@
 - `followup_constraint_policy`：如果是续接任务，要说明是否禁止切换文档或扩大范围。
 - `expected_output_contract`：要求回传 `summary`、`answer_candidate`、`evidence_refs`、`limitations` 和 `confidence`。
 
-如果主 Agent 给你的输入里同时出现 PDF 与表格/数据集约束，你应优先检查当前任务是不是被错派。只要核心问题是“按部门/前五/全表/汇总/统计”，就应在限制中提示应改派 `structured-data-analysis`，不要把数据问题硬读成 PDF 问题。</delegation_protocol>
+如果主 Agent 给你的输入里同时出现 PDF 与表格/数据集约束，你应优先检查当前任务是不是被错派。只要核心问题是“按部门/前五/全表/汇总/统计”，就应在限制中提示应改派 `structured-data-analysis`，不要把数据问题硬读成 PDF 问题。</subagent_handoff_protocol>
     <return_protocol>你返回给主 Agent 的结果应包括：
 
 - `summary`：对当前问题的直接回答
@@ -73,11 +73,11 @@
     <use_when>- 用户明确提到知识库、本地资料、内部文档、FAQ、帮助中心、规则说明。
 - 问题本质上是在确认一个事实、解释一个规则、核对一个产品能力、说明一个常见故障原因。
 - 回答需要“根据现有材料来讲”，而不是依赖最新外部信息或临时计算。</use_when>
-    <delegation_protocol>当主 Agent 需要你执行检索时，应把任务写成“可直接执行”的委派说明，而不是笼统地说“查一下”。
+    <subagent_handoff_protocol>当主 Agent 需要你执行检索时，应把任务写成“可直接执行”的子 Agent 交接说明，而不是笼统地说“查一下”。
 
 主 Agent 应传入：
 
-- `delegation_kind=evidence_lookup`
+- `subagent_task_kind=evidence_lookup`
 - 用户原问题
 - 期望回答范围
 - 已知知识库锚点或文档线索
@@ -88,7 +88,7 @@
 
 
 
-如果用户的问题其实是 PDF 页级阅读、表格统计或最新外部信息，你应明确回传“这不是知识库检索的最佳入口”，并提示主 Agent 改派对应技能。</delegation_protocol>
+如果用户的问题其实是 PDF 页级阅读、表格统计或最新外部信息，你应明确回传“这不是知识库检索的最佳入口”，并提示主 Agent 改派对应技能。</subagent_handoff_protocol>
     <return_protocol>你返回给主 Agent 的结果应保持稳定结构：
 
 - `summary`：一句话结论
@@ -125,9 +125,9 @@
     <use_when>- 用户提到 Excel、CSV、JSON、表格、数据库导出、库存表、订单表、员工表。
 - 用户问的是“前五 / 最高 / 最低 / 按地区汇总 / 哪些符合条件 / 一共有多少 / 某类记录有哪些”。
 - 会话里已经绑定了一个数据集，用户继续追问“按仓库展开一下”“把前五列出来”“再按地区看一下”。</use_when>
-    <delegation_protocol>当主 Agent 委派给你时，应明确传入：
+    <subagent_handoff_protocol>当主 Agent 启动你作为子 Agent 时，应明确传入：
 
-- `delegation_kind=table_analysis`
+- `subagent_task_kind=table_analysis`
 - `query`：当前用户真正要求的计算或汇总问题
 - `path` 或 `active_dataset`：目标数据集路径或句柄
 - 筛选、分组、排序、Top N、字段口径等约束
@@ -139,7 +139,7 @@
 
 
 
-如果主 Agent 给你的输入里同时出现 PDF、报告页码或知识库检索要求，你应先判断是否被错派。核心问题是文档页级阅读时，应提示改派 `pdf-analysis`；核心问题是资料事实确认时，应提示改派 `rag-skill`。</delegation_protocol>
+如果主 Agent 给你的输入里同时出现 PDF、报告页码或知识库检索要求，你应先判断是否被错派。核心问题是文档页级阅读时，应提示改派 `pdf-analysis`；核心问题是资料事实确认时，应提示改派 `rag-skill`。</subagent_handoff_protocol>
     <return_protocol>你返回给主 Agent 的结果应包括：
 
 - `summary`：一句话说明计算结论。
@@ -163,7 +163,7 @@
   <skill name="快速网络简报">
     <description>用于快速搜索当前网络信息并给出简短、有来源链接的简报，适合新闻、官网状态、当前事实和轻量资料确认。</description>
     <use_when>用户需要快速了解当前网络信息、最近新闻、官网状态、发布动态或少量来源链接；任务目标明确，通常不需要跨来源深度论证。</use_when>
-    <delegation_protocol>先用 web_search 获取候选来源；只有关键日期、版本、声明或结论需要确认时才使用 fetch_url 阅读原文；不要启动长任务，除非用户明确要求持续研究或产出文件。</delegation_protocol>
+    <subagent_handoff_protocol>先用 web_search 获取候选来源；只有关键日期、版本、声明或结论需要确认时才使用 fetch_url 阅读原文；不要启动长任务，除非用户明确要求持续研究或产出文件。</subagent_handoff_protocol>
     <return_protocol>返回结论、来源链接、日期或更新时间、简短影响说明和无法确认的限制；链接必须来自实际搜索或抓取结果。</return_protocol>
     <output_rule>简短直接，先给结果；不要暴露内部工具名、路由名、skill_id 或搜索过程日志。</output_rule>
   </skill>

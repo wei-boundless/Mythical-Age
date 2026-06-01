@@ -61,7 +61,7 @@ def test_tool_observation_ledger_classifies_core_tool_side_effects() -> None:
         ("obs:read", "read_file", {"path": "backend/app.py"}, {"result_envelope": read_envelope.to_dict()}),
         ("obs:write", "edit_file", {"path": "backend/app.py"}, {"result_envelope": write_envelope.to_dict()}),
         ("obs:verify", "terminal", {"command": "pytest -q"}, {"result_envelope": terminal_envelope.to_dict()}),
-        ("obs:delegate", "delegate_to_agent", {"agent_id": "agent:reviewer"}, "looks ok"),
+        ("obs:subagent", "spawn_subagent", {"target_agent_id": "agent:reviewer", "goal": "review"}, "subagent scheduled"),
     ):
         ledger = ledger.append(
             build_tool_observation_record(
@@ -78,10 +78,10 @@ def test_tool_observation_ledger_classifies_core_tool_side_effects() -> None:
     assert summary["read_count"] == 1
     assert summary["write_count"] == 1
     assert summary["verification_count"] == 1
-    assert summary["delegation_count"] == 1
+    assert summary["subagent_lifecycle_count"] == 1
     assert summary["satisfied_obligations"] == [
-        "delegate_review",
         "read_material",
+        "subagent_lifecycle",
         "verify_command",
         "write_output",
     ]

@@ -5,6 +5,15 @@ from typing import Any
 from .evidence_models import EvidenceScore
 
 
+_SUBAGENT_LIFECYCLE_TOOLS = {
+    "spawn_subagent",
+    "send_subagent_message",
+    "wait_subagent",
+    "list_subagents",
+    "close_subagent",
+}
+
+
 def score_runtime_event(event: dict[str, Any], *, total_events: int = 0, index: int = 0) -> EvidenceScore:
     event_type = str(event.get("event_type") or "")
     payload = dict(event.get("payload") or {})
@@ -62,28 +71,18 @@ def score_runtime_event(event: dict[str, Any], *, total_events: int = 0, index: 
             semantic_score=0.4,
             novelty_score=0.3,
         )
-    if event_type == "agent_delegation_requested":
-        return EvidenceScore(
-            causal_score=0.8,
-            temporal_score=base,
-            decision_score=1.1,
-            recovery_score=0.6,
-            reproduction_score=0.7,
-            semantic_score=0.5,
-            novelty_score=0.2,
-        )
-    if event_type == "agent_delegation_result_created":
-        return EvidenceScore(
-            causal_score=0.9,
-            temporal_score=base,
-            decision_score=0.7,
-            recovery_score=0.6,
-            reproduction_score=0.4,
-            semantic_score=0.5,
-            novelty_score=0.2,
-        )
     if event_type == "tool_call_requested":
         tool_name = _tool_name(event)
+        if tool_name in _SUBAGENT_LIFECYCLE_TOOLS:
+            return EvidenceScore(
+                causal_score=0.8,
+                temporal_score=base,
+                decision_score=1.1,
+                recovery_score=0.6,
+                reproduction_score=0.8,
+                semantic_score=0.5,
+                novelty_score=0.2,
+            )
         return EvidenceScore(
             causal_score=0.6,
             temporal_score=base,
@@ -92,7 +91,6 @@ def score_runtime_event(event: dict[str, Any], *, total_events: int = 0, index: 
             reproduction_score=0.8,
             semantic_score=0.4,
             novelty_score=0.1,
-            negative_score=0.5 if tool_name == "delegate_to_agent" else 0.0,
         )
     if event_type == "tool_result_received":
         return EvidenceScore(

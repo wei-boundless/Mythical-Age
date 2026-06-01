@@ -91,9 +91,6 @@ RuntimeEventType = Literal[
     "recovery_replay_decided",
     "tool_call_blocked_by_search_policy",
     "runtime_state_index_degraded",
-    "child_agent_delegation_started",
-    "agent_delegation_quality_checked",
-    "agent_delegation_parent_observation_created",
     "runtime_sandbox_prepared",
     "runtime_file_management_prepared",
     "agent_runtime_planning_phase_checked",
@@ -117,7 +114,7 @@ class RuntimeEvent:
     """Append-only event emitted by Harness loops."""
 
     event_id: str
-    task_run_id: str
+    run_id: str
     event_type: RuntimeEventType
     offset: int
     created_at: float
@@ -130,8 +127,8 @@ class RuntimeEvent:
             raise ValueError("RuntimeEvent authority must be orchestration.runtime_event")
         if not self.event_id:
             raise ValueError("RuntimeEvent requires event_id")
-        if not self.task_run_id:
-            raise ValueError("RuntimeEvent requires task_run_id")
+        if not self.run_id:
+            raise ValueError("RuntimeEvent requires run_id")
         if self.offset < 0:
             raise ValueError("RuntimeEvent offset must be non-negative")
 

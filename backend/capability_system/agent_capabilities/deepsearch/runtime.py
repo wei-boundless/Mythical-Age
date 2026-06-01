@@ -4,7 +4,6 @@ from pathlib import Path
 from typing import Any
 
 from capability_system.search_policy import normalize_search_policy, operation_allowed_by_search_policy
-from harness.execution.delegation_models import AgentDelegationRequest
 
 from .distiller import ModelBackedSearchEvidenceDistiller, SearchEvidenceDistiller
 from .evidence_builder import build_deepsearch_evidence_packet
@@ -47,7 +46,7 @@ class DeepSearchCapability:
     async def run(
         self,
         *,
-        request: AgentDelegationRequest,
+        request: Any,
         agent: Any,
         profile: Any,
         config: SearchRuntimeConfig,
@@ -207,7 +206,7 @@ class DeepSearchCapability:
             },
         }
 
-    def _result_store(self, *, request: AgentDelegationRequest) -> SearchToolResultStore:
+    def _result_store(self, *, request: Any) -> SearchToolResultStore:
         if self.result_store_factory is not None:
             return self.result_store_factory(self.root_dir, request)
         run_id = request.request_id or request.task_run_id or "deepsearch"
@@ -320,15 +319,15 @@ def _available_operations(profile: Any) -> set[str]:
     return allowed - blocked
 
 
-def _allowed_search_sources_from_request(request: AgentDelegationRequest) -> set[str]:
-    diagnostics = dict(request.diagnostics or {})
+def _allowed_search_sources_from_request(request: Any) -> set[str]:
+    diagnostics = dict(getattr(request, "diagnostics", None) or {})
     if "allowed_search_sources" not in diagnostics and "search_policy" not in diagnostics:
         return normalize_search_policy(None)
     raw = diagnostics.get("allowed_search_sources", diagnostics.get("search_policy"))
     return normalize_search_policy(list(raw or []))
 
 
-def _operations_blocked_by_search_policy(*, request: AgentDelegationRequest, required_ops: set[str]) -> list[str]:
+def _operations_blocked_by_search_policy(*, request: Any, required_ops: set[str]) -> list[str]:
     allowed_sources = _allowed_search_sources_from_request(request)
     return sorted(
         operation

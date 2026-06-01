@@ -37,6 +37,7 @@ describe("RuntimeRunSummary", () => {
         attachments: [
           {
             attachment_id: "runtime-attachment:taskrun:turn:session-e2e:1:abc",
+            run_id: "taskrun:turn:session-e2e:1:abc",
             anchor_turn_id: "turn:session-e2e:1",
             task_run_id: "taskrun:turn:session-e2e:1:abc",
             status: "completed",
@@ -142,9 +143,9 @@ describe("RuntimeRunSummary", () => {
         entries: [],
         attachments: [
           {
-            attachment_id: "runtime-attachment:taskrun:turn:session-live:1:abc",
+            attachment_id: "runtime-attachment:turnrun:turn:session-live:1",
+            run_id: "turnrun:turn:session-live:1",
             anchor_turn_id: "turn:session-live:1",
-            task_run_id: "taskrun:turn:session-live:1:abc",
             status: "running",
             progress_entries: [
               {

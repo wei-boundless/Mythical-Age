@@ -22,10 +22,15 @@ type RuntimeDraftLike = {
   allowed_memory_scopes?: string[];
   allowed_context_sections?: string[];
   use_shared_contract?: boolean;
-  can_delegate_to_agents?: boolean;
-  allowed_delegate_agent_ids?: string[];
-  max_delegate_calls_per_turn?: number;
-  delegate_context_policy?: string;
+  subagent_policy?: {
+    enabled: boolean;
+    allowed_subagent_ids: string[];
+    max_subagent_runs_per_task: number;
+    max_active_subagents: number;
+    context_policy: string;
+    result_policy: string;
+    allow_nested_subagents: boolean;
+  };
   model_profile?: {
     profile_id?: string;
     display_name?: string;
@@ -1143,7 +1148,7 @@ export function OrchestrationRuntimeConfigWorkbench({
           <>
             <div className="orchestration-identity-note">
               <span>模板参数：Context Compactor</span>
-              <strong>压缩 Agent 只能调用模型生成恢复点；不能搜索、读写文件或发起委派。</strong>
+              <strong>压缩 Agent 只能调用模型生成恢复点；不能搜索、读写文件或启动子 Agent。</strong>
             </div>
             <div className="boundary-form">
               <OrchestrationField label="输出契约">
@@ -1245,79 +1250,99 @@ export function OrchestrationCollaborationWorkbench({
   agentDraft,
   runtimeDraft,
   patchRuntimeDraft,
-  delegateAgentOptions,
+  subagentOptions,
   displayId,
 }: {
   agentDraft: AgentDraftLike;
   runtimeDraft: RuntimeDraftLike;
   patchRuntimeDraft: (patch: Partial<RuntimeDraftLike>) => void;
-  delegateAgentOptions: OrchestrationOption[];
+  subagentOptions: OrchestrationOption[];
   displayId: (value: unknown, fallback?: string) => string;
 }) {
-  const allowedDelegateIds = dedupe(runtimeDraft.allowed_delegate_agent_ids ?? []);
-  const canDelegate = Boolean(runtimeDraft.can_delegate_to_agents);
+  const rawSubagentPolicy = runtimeDraft.subagent_policy;
+  const subagentPolicy = {
+    enabled: Boolean(rawSubagentPolicy?.enabled),
+    allowed_subagent_ids: dedupe(rawSubagentPolicy?.allowed_subagent_ids ?? []),
+    max_subagent_runs_per_task: Number(rawSubagentPolicy?.max_subagent_runs_per_task ?? 1),
+    max_active_subagents: Number(rawSubagentPolicy?.max_active_subagents ?? 1),
+    context_policy: String(rawSubagentPolicy?.context_policy || "summary_and_refs_only"),
+    result_policy: String(rawSubagentPolicy?.result_policy || "observation_refs_only"),
+    allow_nested_subagents: Boolean(rawSubagentPolicy?.allow_nested_subagents),
+  };
+  const allowedSubagentIds = dedupe(subagentPolicy.allowed_subagent_ids ?? []);
+  const subagentLifecycleEnabled = Boolean(subagentPolicy.enabled) && Boolean(allowedSubagentIds.length);
   const category = String(agentDraft.agent_category || "");
-  const canBeDelegatedByDefault = category === "custom_agent" || category === "builtin_agent";
+  const canBeSubagentByDefault = category === "custom_agent" || category === "builtin_agent";
+  const patchSubagentPolicy = (patch: Partial<NonNullable<RuntimeDraftLike["subagent_policy"]>>) =>
+    patchRuntimeDraft({ subagent_policy: { ...subagentPolicy, ...patch } });
 
   return (
     <section className="boundary-layer-grid boundary-layer-grid--wide">
       <div className="boundary-card">
         <header>
           <strong>协作资格</strong>
-          <OrchestrationBadge tone={canDelegate ? "neutral" : "neutral"}>
-            {canDelegate ? "等待新调度能力" : "未开放协作"}
+          <OrchestrationBadge tone={subagentLifecycleEnabled ? "neutral" : "neutral"}>
+            {subagentLifecycleEnabled ? "生命周期工具可用" : "未开放协作"}
           </OrchestrationBadge>
         </header>
         <div className="orchestration-identity-note">
-          <span>当前没有接入子 Agent 执行入口。</span>
-          <strong>子 Agent 协作将由新的 agent control 生命周期接入；这里暂只保留目标白名单和协作意图配置。</strong>
+          <span>子 Agent 协作由 agent control 生命周期工具接入。</span>
+          <strong>这里配置本 Agent 是否可启动子 Agent，以及本次运行允许触达的子 Agent 白名单。</strong>
         </div>
         <div className="boundary-form">
           <label className="boundary-check">
             <input
-              checked={canDelegate}
-              onChange={(event) => patchRuntimeDraft({ can_delegate_to_agents: event.target.checked })}
+              checked={Boolean(subagentPolicy.enabled)}
+              onChange={(event) => patchSubagentPolicy({ enabled: event.target.checked })}
               type="checkbox"
             />
-            允许这个 Agent 发起委派
+            允许这个 Agent 启动子 Agent
           </label>
-          <OrchestrationField label="单轮最大调用次数">
+          <OrchestrationField label="每个任务最大子 Agent 数">
             <input
               min={0}
               type="number"
-              value={runtimeDraft.max_delegate_calls_per_turn ?? 1}
-              onChange={(event) => patchRuntimeDraft({ max_delegate_calls_per_turn: Number(event.target.value || 0) })}
+              value={subagentPolicy.max_subagent_runs_per_task ?? 1}
+              onChange={(event) => patchSubagentPolicy({ max_subagent_runs_per_task: Number(event.target.value || 0) })}
+            />
+          </OrchestrationField>
+          <OrchestrationField label="最大并行子 Agent">
+            <input
+              min={0}
+              type="number"
+              value={subagentPolicy.max_active_subagents ?? 1}
+              onChange={(event) => patchSubagentPolicy({ max_active_subagents: Number(event.target.value || 0) })}
             />
           </OrchestrationField>
           <OrchestrationField label="上下文交接策略">
             <input
-              value={runtimeDraft.delegate_context_policy || "summary_and_refs_only"}
-              onChange={(event) => patchRuntimeDraft({ delegate_context_policy: event.target.value })}
+              value={subagentPolicy.context_policy || "summary_and_refs_only"}
+              onChange={(event) => patchSubagentPolicy({ context_policy: event.target.value })}
             />
           </OrchestrationField>
         </div>
         <OrchestrationOptionSelection
           displayId={displayId}
-          fallbackOptions={delegateAgentOptions.map((item) => item.value)}
-          label="允许委派目标"
-          onChange={(values) => patchRuntimeDraft({ allowed_delegate_agent_ids: dedupe(values) })}
-          options={delegateAgentOptions}
-          selectedValues={allowedDelegateIds}
-          emptyText="未设置白名单时由委派目录和目标 Agent 暴露策略决定"
+          fallbackOptions={subagentOptions.map((item) => item.value)}
+          label="允许子 Agent"
+          onChange={(values) => patchSubagentPolicy({ allowed_subagent_ids: dedupe(values) })}
+          options={subagentOptions}
+          selectedValues={allowedSubagentIds}
+          emptyText="需要至少选择一个子 Agent，runtime 才会装配生命周期工具"
         />
       </div>
       <aside className="boundary-card">
         <header><strong>协作诊断</strong></header>
         <div className="boundary-readiness-list boundary-readiness-list--grid">
-          <OrchestrationReadinessCard label="可被委派" ready={canBeDelegatedByDefault} value={canBeDelegatedByDefault ? "默认可配置" : "默认不暴露"} />
-          <OrchestrationReadinessCard label="协作配置" ready={canDelegate} value={canDelegate ? "已开启" : "未开启"} />
-          <OrchestrationReadinessCard label="执行入口" ready={false} value="等待 agent control" />
-          <OrchestrationReadinessCard label="目标白名单" ready={Boolean(allowedDelegateIds.length)} value={allowedDelegateIds.length ? `${allowedDelegateIds.length} 个` : "未限制"} />
+          <OrchestrationReadinessCard label="可作为子 Agent" ready={canBeSubagentByDefault} value={canBeSubagentByDefault ? "可配置" : "不暴露"} />
+          <OrchestrationReadinessCard label="协作配置" ready={subagentLifecycleEnabled} value={subagentLifecycleEnabled ? "已开启" : "未开启"} />
+          <OrchestrationReadinessCard label="执行入口" ready={subagentLifecycleEnabled} value={subagentLifecycleEnabled ? "agent control" : "未装配"} />
+          <OrchestrationReadinessCard label="目标白名单" ready={Boolean(allowedSubagentIds.length)} value={allowedSubagentIds.length ? `${allowedSubagentIds.length} 个` : "未配置"} />
         </div>
         <div className="boundary-kv">
           <p><span>Agent</span><strong>{agentDraft.agent_name || agentDraft.agent_id || "未选择"}</strong></p>
           <p><span>分类</span><strong>{valueLabel(category, displayId)}</strong></p>
-          <p><span>交接策略</span><strong>{runtimeDraft.delegate_context_policy || "summary_and_refs_only"}</strong></p>
+          <p><span>交接策略</span><strong>{subagentPolicy.context_policy || "summary_and_refs_only"}</strong></p>
         </div>
       </aside>
     </section>

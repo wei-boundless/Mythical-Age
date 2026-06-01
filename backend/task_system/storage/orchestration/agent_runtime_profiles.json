@@ -47,18 +47,6 @@
         "runtime_contracts"
       ],
       "use_shared_contract": true,
-      "can_delegate_to_agents": true,
-      "allowed_delegate_agent_ids": [
-        "agent:knowledge_searcher",
-        "agent:codebase_searcher",
-        "agent:memory_searcher",
-        "agent:pdf_reader",
-        "agent:table_analyst",
-        "agent:web_researcher",
-        "agent:verifier"
-      ],
-      "max_delegate_calls_per_turn": 4,
-      "delegate_context_policy": "summary_and_refs_only",
       "approval_policy": "default",
       "trace_policy": "runtime_event_log",
       "lifecycle_policy": "system_builtin",
@@ -83,7 +71,24 @@
       "metadata": {
         "runtime_template_id": "builtin.main.default"
       },
-      "runtime_template_id": "builtin.main.default"
+      "runtime_template_id": "builtin.main.default",
+      "subagent_policy": {
+        "allowed_subagent_ids": [
+          "agent:knowledge_searcher",
+          "agent:codebase_searcher",
+          "agent:memory_searcher",
+          "agent:pdf_reader",
+          "agent:table_analyst",
+          "agent:web_researcher",
+          "agent:verifier"
+        ],
+        "enabled": true,
+        "max_subagent_runs_per_task": 4,
+        "max_active_subagents": 2,
+        "context_policy": "summary_and_refs_only",
+        "result_policy": "observation_refs_only",
+        "allow_nested_subagents": false
+      }
     },
     {
       "agent_profile_id": "memory_system_agent",
@@ -116,10 +121,6 @@
         "runtime_contracts"
       ],
       "use_shared_contract": true,
-      "can_delegate_to_agents": false,
-      "allowed_delegate_agent_ids": [],
-      "max_delegate_calls_per_turn": 1,
-      "delegate_context_policy": "summary_and_refs_only",
       "approval_policy": "read_only_first",
       "trace_policy": "runtime_event_log",
       "lifecycle_policy": "system_builtin",
@@ -146,7 +147,15 @@
         "manager_kind": "memory",
         "runtime_template_id": "builtin.system.memory_manager"
       },
-      "runtime_template_id": "builtin.system.memory_manager"
+      "runtime_template_id": "builtin.system.memory_manager",
+      "subagent_policy": {
+        "enabled": false,
+        "max_subagent_runs_per_task": 1,
+        "max_active_subagents": 1,
+        "context_policy": "summary_and_refs_only",
+        "result_policy": "observation_refs_only",
+        "allow_nested_subagents": false
+      }
     },
     {
       "agent_profile_id": "config_system_agent",
@@ -173,10 +182,6 @@
         "runtime_contracts"
       ],
       "use_shared_contract": true,
-      "can_delegate_to_agents": false,
-      "allowed_delegate_agent_ids": [],
-      "max_delegate_calls_per_turn": 1,
-      "delegate_context_policy": "summary_and_refs_only",
       "approval_policy": "read_only_first",
       "trace_policy": "runtime_event_log",
       "lifecycle_policy": "system_builtin",
@@ -203,7 +208,15 @@
         "manager_kind": "config",
         "runtime_template_id": "builtin.system.config_manager"
       },
-      "runtime_template_id": "builtin.system.config_manager"
+      "runtime_template_id": "builtin.system.config_manager",
+      "subagent_policy": {
+        "enabled": false,
+        "max_subagent_runs_per_task": 1,
+        "max_active_subagents": 1,
+        "context_policy": "summary_and_refs_only",
+        "result_policy": "observation_refs_only",
+        "allow_nested_subagents": false
+      }
     },
     {
       "agent_profile_id": "task_management_agent",
@@ -230,10 +243,6 @@
         "runtime_contracts"
       ],
       "use_shared_contract": true,
-      "can_delegate_to_agents": false,
-      "allowed_delegate_agent_ids": [],
-      "max_delegate_calls_per_turn": 1,
-      "delegate_context_policy": "summary_and_refs_only",
       "approval_policy": "read_only_first",
       "trace_policy": "runtime_event_log",
       "lifecycle_policy": "system_builtin",
@@ -260,7 +269,15 @@
         "manager_kind": "task",
         "runtime_template_id": "builtin.system.task_manager"
       },
-      "runtime_template_id": "builtin.system.task_manager"
+      "runtime_template_id": "builtin.system.task_manager",
+      "subagent_policy": {
+        "enabled": false,
+        "max_subagent_runs_per_task": 1,
+        "max_active_subagents": 1,
+        "context_policy": "summary_and_refs_only",
+        "result_policy": "observation_refs_only",
+        "allow_nested_subagents": false
+      }
     },
     {
       "agent_profile_id": "capability_system_agent",
@@ -287,10 +304,6 @@
         "runtime_contracts"
       ],
       "use_shared_contract": true,
-      "can_delegate_to_agents": false,
-      "allowed_delegate_agent_ids": [],
-      "max_delegate_calls_per_turn": 1,
-      "delegate_context_policy": "summary_and_refs_only",
       "approval_policy": "read_only_first",
       "trace_policy": "runtime_event_log",
       "lifecycle_policy": "system_builtin",
@@ -317,7 +330,15 @@
         "manager_kind": "capability",
         "runtime_template_id": "builtin.system.capability_manager"
       },
-      "runtime_template_id": "builtin.system.capability_manager"
+      "runtime_template_id": "builtin.system.capability_manager",
+      "subagent_policy": {
+        "enabled": false,
+        "max_subagent_runs_per_task": 1,
+        "max_active_subagents": 1,
+        "context_policy": "summary_and_refs_only",
+        "result_policy": "observation_refs_only",
+        "allow_nested_subagents": false
+      }
     },
     {
       "agent_profile_id": "context_compactor_agent",
@@ -348,10 +369,6 @@
         "artifact_refs"
       ],
       "use_shared_contract": true,
-      "can_delegate_to_agents": false,
-      "allowed_delegate_agent_ids": [],
-      "max_delegate_calls_per_turn": 1,
-      "delegate_context_policy": "summary_and_refs_only",
       "approval_policy": "read_only_first",
       "trace_policy": "runtime_event_log",
       "lifecycle_policy": "system_builtin",
@@ -399,7 +416,15 @@
           "execution_strategy": "llm_compaction"
         }
       },
-      "runtime_template_id": "builtin.system.context_compactor"
+      "runtime_template_id": "builtin.system.context_compactor",
+      "subagent_policy": {
+        "enabled": false,
+        "max_subagent_runs_per_task": 1,
+        "max_active_subagents": 1,
+        "context_policy": "summary_and_refs_only",
+        "result_policy": "observation_refs_only",
+        "allow_nested_subagents": false
+      }
     },
     {
       "agent_profile_id": "knowledge_search_agent",
@@ -430,10 +455,6 @@
         "artifact_refs"
       ],
       "use_shared_contract": true,
-      "can_delegate_to_agents": false,
-      "allowed_delegate_agent_ids": [],
-      "max_delegate_calls_per_turn": 1,
-      "delegate_context_policy": "summary_and_refs_only",
       "approval_policy": "read_only_first",
       "trace_policy": "runtime_event_log",
       "lifecycle_policy": "system_builtin",
@@ -457,8 +478,8 @@
       },
       "metadata": {
         "worker_kind": "knowledge_search",
-        "delegation_kind": "knowledge_search",
-        "delegation_kinds": [
+        "subagent_task_kind": "knowledge_search",
+        "subagent_task_kinds": [
           "knowledge_search",
           "knowledge_retrieval",
           "evidence_lookup",
@@ -466,7 +487,15 @@
         ],
         "runtime_template_id": "runtime.template.knowledge_search"
       },
-      "runtime_template_id": "runtime.template.knowledge_search"
+      "runtime_template_id": "runtime.template.knowledge_search",
+      "subagent_policy": {
+        "enabled": false,
+        "max_subagent_runs_per_task": 1,
+        "max_active_subagents": 1,
+        "context_policy": "summary_and_refs_only",
+        "result_policy": "observation_refs_only",
+        "allow_nested_subagents": false
+      }
     },
     {
       "agent_profile_id": "pdf_analysis_agent",
@@ -495,10 +524,6 @@
         "artifact_refs"
       ],
       "use_shared_contract": true,
-      "can_delegate_to_agents": false,
-      "allowed_delegate_agent_ids": [],
-      "max_delegate_calls_per_turn": 1,
-      "delegate_context_policy": "summary_and_refs_only",
       "approval_policy": "read_only_first",
       "trace_policy": "runtime_event_log",
       "lifecycle_policy": "system_builtin",
@@ -522,10 +547,18 @@
       },
       "metadata": {
         "worker_kind": "pdf_analysis",
-        "delegation_kind": "pdf_reading",
+        "subagent_task_kind": "pdf_reading",
         "runtime_template_id": "builtin.specialist.pdf_reader"
       },
-      "runtime_template_id": "builtin.specialist.pdf_reader"
+      "runtime_template_id": "builtin.specialist.pdf_reader",
+      "subagent_policy": {
+        "enabled": false,
+        "max_subagent_runs_per_task": 1,
+        "max_active_subagents": 1,
+        "context_policy": "summary_and_refs_only",
+        "result_policy": "observation_refs_only",
+        "allow_nested_subagents": false
+      }
     },
     {
       "agent_profile_id": "structured_data_analysis_agent",
@@ -555,10 +588,6 @@
         "artifact_refs"
       ],
       "use_shared_contract": true,
-      "can_delegate_to_agents": false,
-      "allowed_delegate_agent_ids": [],
-      "max_delegate_calls_per_turn": 1,
-      "delegate_context_policy": "summary_and_refs_only",
       "approval_policy": "read_only_first",
       "trace_policy": "runtime_event_log",
       "lifecycle_policy": "system_builtin",
@@ -582,10 +611,18 @@
       },
       "metadata": {
         "worker_kind": "structured_data_analysis",
-        "delegation_kind": "table_analysis",
+        "subagent_task_kind": "table_analysis",
         "runtime_template_id": "builtin.specialist.table_analyst"
       },
-      "runtime_template_id": "builtin.specialist.table_analyst"
+      "runtime_template_id": "builtin.specialist.table_analyst",
+      "subagent_policy": {
+        "enabled": false,
+        "max_subagent_runs_per_task": 1,
+        "max_active_subagents": 1,
+        "context_policy": "summary_and_refs_only",
+        "result_policy": "observation_refs_only",
+        "allow_nested_subagents": false
+      }
     },
     {
       "agent_profile_id": "web_research_agent",
@@ -617,10 +654,6 @@
         "artifact_refs"
       ],
       "use_shared_contract": true,
-      "can_delegate_to_agents": false,
-      "allowed_delegate_agent_ids": [],
-      "max_delegate_calls_per_turn": 1,
-      "delegate_context_policy": "summary_and_refs_only",
       "approval_policy": "read_only_first",
       "trace_policy": "runtime_event_log",
       "lifecycle_policy": "system_builtin",
@@ -644,8 +677,8 @@
       },
       "metadata": {
         "worker_kind": "web_research",
-        "delegation_kind": "web_research",
-        "delegation_kinds": [
+        "subagent_task_kind": "web_research",
+        "subagent_task_kinds": [
           "web_research",
           "external_web_lookup",
           "current_information_lookup",
@@ -683,7 +716,15 @@
           "execution_strategy": "deepsearch"
         }
       },
-      "runtime_template_id": "builtin.specialist.web_researcher"
+      "runtime_template_id": "builtin.specialist.web_researcher",
+      "subagent_policy": {
+        "enabled": false,
+        "max_subagent_runs_per_task": 1,
+        "max_active_subagents": 1,
+        "context_policy": "summary_and_refs_only",
+        "result_policy": "observation_refs_only",
+        "allow_nested_subagents": false
+      }
     },
     {
       "agent_profile_id": "codebase_search_agent",
@@ -719,10 +760,6 @@
         "artifact_refs"
       ],
       "use_shared_contract": true,
-      "can_delegate_to_agents": false,
-      "allowed_delegate_agent_ids": [],
-      "max_delegate_calls_per_turn": 1,
-      "delegate_context_policy": "summary_and_refs_only",
       "approval_policy": "read_only_first",
       "trace_policy": "runtime_event_log",
       "lifecycle_policy": "system_builtin",
@@ -746,8 +783,8 @@
       },
       "metadata": {
         "worker_kind": "codebase_search",
-        "delegation_kind": "codebase_search",
-        "delegation_kinds": [
+        "subagent_task_kind": "codebase_search",
+        "subagent_task_kinds": [
           "codebase_search",
           "local_search",
           "workspace_search",
@@ -772,7 +809,15 @@
           "execution_strategy": "readonly_recon"
         }
       },
-      "runtime_template_id": "runtime.template.codebase_search"
+      "runtime_template_id": "runtime.template.codebase_search",
+      "subagent_policy": {
+        "enabled": false,
+        "max_subagent_runs_per_task": 1,
+        "max_active_subagents": 1,
+        "context_policy": "summary_and_refs_only",
+        "result_policy": "observation_refs_only",
+        "allow_nested_subagents": false
+      }
     },
     {
       "agent_profile_id": "memory_search_agent",
@@ -807,10 +852,6 @@
         "memory_runtime_view"
       ],
       "use_shared_contract": true,
-      "can_delegate_to_agents": false,
-      "allowed_delegate_agent_ids": [],
-      "max_delegate_calls_per_turn": 1,
-      "delegate_context_policy": "summary_and_refs_only",
       "approval_policy": "read_only_first",
       "trace_policy": "runtime_event_log",
       "lifecycle_policy": "system_builtin",
@@ -834,8 +875,8 @@
       },
       "metadata": {
         "worker_kind": "memory_search",
-        "delegation_kind": "memory_search",
-        "delegation_kinds": [
+        "subagent_task_kind": "memory_search",
+        "subagent_task_kinds": [
           "memory_search",
           "memory_lookup",
           "memory_recall"
@@ -852,7 +893,15 @@
           "execution_strategy": "readonly_memory_recall"
         }
       },
-      "runtime_template_id": "runtime.template.memory_search"
+      "runtime_template_id": "runtime.template.memory_search",
+      "subagent_policy": {
+        "enabled": false,
+        "max_subagent_runs_per_task": 1,
+        "max_active_subagents": 1,
+        "context_policy": "summary_and_refs_only",
+        "result_policy": "observation_refs_only",
+        "allow_nested_subagents": false
+      }
     },
     {
       "agent_profile_id": "completion_verifier_agent",
@@ -885,10 +934,6 @@
         "artifact_refs"
       ],
       "use_shared_contract": true,
-      "can_delegate_to_agents": false,
-      "allowed_delegate_agent_ids": [],
-      "max_delegate_calls_per_turn": 1,
-      "delegate_context_policy": "summary_and_refs_only",
       "approval_policy": "read_only_first",
       "trace_policy": "runtime_event_log",
       "lifecycle_policy": "system_builtin",
@@ -912,8 +957,8 @@
       },
       "metadata": {
         "worker_kind": "completion_verification",
-        "delegation_kind": "completion_verification",
-        "delegation_kinds": [
+        "subagent_task_kind": "completion_verification",
+        "subagent_task_kinds": [
           "completion_verification",
           "semantic_verification",
           "deliverable_review",
@@ -925,7 +970,15 @@
         "runtime_template_id": "builtin.specialist.verifier",
         "child_execution_mode": "model_only_review"
       },
-      "runtime_template_id": "builtin.specialist.verifier"
+      "runtime_template_id": "builtin.specialist.verifier",
+      "subagent_policy": {
+        "enabled": false,
+        "max_subagent_runs_per_task": 1,
+        "max_active_subagents": 1,
+        "context_policy": "summary_and_refs_only",
+        "result_policy": "observation_refs_only",
+        "allow_nested_subagents": false
+      }
     }
   ]
 }

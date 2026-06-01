@@ -297,7 +297,7 @@ def _decide_runtime_operation(
         return ResourceDecision(
             operation_id=descriptor.operation_id,
             decision="allow",
-            reason="delegate operation is exposed as a bounded model-visible tool",
+            reason="subagent operation is exposed as a bounded model-visible tool",
             risk_tags=descriptor.risk_tags,
         )
     if is_model_visible_state_operation(descriptor.operation_id):

@@ -194,7 +194,7 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
                 "manager_kind": "health",
                 "runtime_template_id": "builtin.system.health_manager",
                 "worker_kind": "health_diagnostics",
-                "delegation_kind": "health_diagnostics",
+                "subagent_task_kind": "health_diagnostics",
                 "when_to_use": "用于读取运行 trace、prompt manifest、断言证据和监控状态，并按健康/诊断标准给出 fail-closed 判定。",
                 "runtime_config": {
                     "template_id": "runtime.template.health_diagnostics",
@@ -296,8 +296,8 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
             lifecycle_policy="system_builtin",
             metadata={
                 "worker_kind": "knowledge_search",
-                "delegation_kind": "knowledge_search",
-                "delegation_kinds": ("knowledge_search", "knowledge_retrieval", "evidence_lookup", "retrieval"),
+                "subagent_task_kind": "knowledge_search",
+                "subagent_task_kinds": ("knowledge_search", "knowledge_retrieval", "evidence_lookup", "retrieval"),
                 "runtime_template_id": "runtime.template.knowledge_search",
             },
         ),
@@ -311,7 +311,7 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
             use_shared_contract=True,
             approval_policy="read_only_first",
             lifecycle_policy="system_builtin",
-            metadata={"worker_kind": "pdf_analysis", "delegation_kind": "pdf_reading", "runtime_template_id": "builtin.specialist.pdf_reader"},
+            metadata={"worker_kind": "pdf_analysis", "subagent_task_kind": "pdf_reading", "runtime_template_id": "builtin.specialist.pdf_reader"},
         ),
         AgentRuntimeProfile(
             agent_profile_id="structured_data_analysis_agent",
@@ -323,7 +323,7 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
             use_shared_contract=True,
             approval_policy="read_only_first",
             lifecycle_policy="system_builtin",
-            metadata={"worker_kind": "structured_data_analysis", "delegation_kind": "table_analysis", "runtime_template_id": "builtin.specialist.table_analyst"},
+            metadata={"worker_kind": "structured_data_analysis", "subagent_task_kind": "table_analysis", "runtime_template_id": "builtin.specialist.table_analyst"},
         ),
         AgentRuntimeProfile(
             agent_profile_id="web_research_agent",
@@ -352,8 +352,8 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
             lifecycle_policy="system_builtin",
             metadata={
                 "worker_kind": "web_research",
-                "delegation_kind": "web_research",
-                "delegation_kinds": (
+                "subagent_task_kind": "web_research",
+                "subagent_task_kinds": (
                     "web_research",
                     "external_web_lookup",
                     "current_information_lookup",
@@ -420,8 +420,8 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
             lifecycle_policy="system_builtin",
             metadata={
                 "worker_kind": "codebase_search",
-                "delegation_kind": "codebase_search",
-                "delegation_kinds": ("codebase_search", "local_search", "workspace_search", "file_search"),
+                "subagent_task_kind": "codebase_search",
+                "subagent_task_kinds": ("codebase_search", "local_search", "workspace_search", "file_search"),
                 "runtime_template_id": "runtime.template.codebase_search",
                 "runtime_config": {
                     "template_id": "runtime.template.codebase_search",
@@ -464,8 +464,8 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
             lifecycle_policy="system_builtin",
             metadata={
                 "worker_kind": "memory_search",
-                "delegation_kind": "memory_search",
-                "delegation_kinds": ("memory_search", "memory_lookup", "memory_recall"),
+                "subagent_task_kind": "memory_search",
+                "subagent_task_kinds": ("memory_search", "memory_lookup", "memory_recall"),
                 "runtime_template_id": "runtime.template.memory_search",
                 "runtime_config": {
                     "template_id": "runtime.template.memory_search",
@@ -491,8 +491,8 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
             lifecycle_policy="system_builtin",
             metadata={
                 "worker_kind": "completion_verification",
-                "delegation_kind": "completion_verification",
-                "delegation_kinds": (
+                "subagent_task_kind": "completion_verification",
+                "subagent_task_kinds": (
                     "completion_verification",
                     "semantic_verification",
                     "deliverable_review",
@@ -549,21 +549,18 @@ def _profile_from_dict(payload: dict[str, Any]) -> AgentRuntimeProfile:
 
 def _subagent_policy_from_payload(payload: dict[str, Any]) -> SubagentPolicy:
     raw = dict(payload.get("subagent_policy") or {})
-    legacy_allowed = normalize_agent_id_sequence(
-        str(item) for item in list(payload.get("allowed_delegate_agent_ids") or []) if str(item)
-    )
     allowed_ids = normalize_agent_id_sequence(
-        str(item) for item in list(raw.get("allowed_subagent_ids") or legacy_allowed) if str(item)
+        str(item) for item in list(raw.get("allowed_subagent_ids") or []) if str(item)
     )
-    enabled = bool(raw.get("enabled", payload.get("can_delegate_to_agents", False)))
-    max_runs = int(raw.get("max_subagent_runs_per_task", payload.get("max_delegate_calls_per_turn", 0)) or 0)
+    enabled = bool(raw.get("enabled", False))
+    max_runs = int(raw.get("max_subagent_runs_per_task", 0) or 0)
     max_active = int(raw.get("max_active_subagents", min(max_runs, 2) if max_runs else 0) or 0)
     return SubagentPolicy(
         enabled=enabled and bool(allowed_ids),
         allowed_subagent_ids=allowed_ids,
         max_subagent_runs_per_task=max(0, max_runs),
         max_active_subagents=max(0, max_active),
-        context_policy=str(raw.get("context_policy") or payload.get("delegate_context_policy") or "summary_and_refs_only"),
+        context_policy=str(raw.get("context_policy") or "summary_and_refs_only"),
         result_policy=str(raw.get("result_policy") or "observation_refs_only"),
         allow_nested_subagents=bool(raw.get("allow_nested_subagents", False)),
     )
@@ -756,7 +753,7 @@ class AgentRuntimeRegistry:
                 "builtin_agent_count": sum(1 for item in agents if item.profile_type == "builtin_agent"),
                 "custom_agent_count": sum(1 for item in agents if item.profile_type == "custom_agent"),
                 "system_manager_agent_count": sum(1 for item in agents if item.builtin_kind == "system_manager"),
-                "delegation_enabled_agent_count": sum(1 for item in agents if item.delegation_enabled),
+                "subagent_enabled_agent_count": sum(1 for item in agents if item.subagent_enabled),
                 "runtime_template_count": len(runtime_templates),
             },
         }
@@ -798,12 +795,6 @@ def _migrate_profile_payload(payload: dict[str, Any]) -> dict[str, Any]:
     next_payload["model_profile"] = parse_agent_model_profile(
         payload.get("model_profile") or metadata.pop("model_profile", {})
     ).to_dict()
-    next_payload.pop("allowed_task_modes", None)
-    next_payload.pop("allowed_delegate_agent_categories", None)
-    next_payload.pop("can_delegate_to_agents", None)
-    next_payload.pop("allowed_delegate_agent_ids", None)
-    next_payload.pop("max_delegate_calls_per_turn", None)
-    next_payload.pop("delegate_context_policy", None)
     next_payload.pop("output_contracts", None)
     return next_payload
 

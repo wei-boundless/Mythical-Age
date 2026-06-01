@@ -8,7 +8,7 @@ function item(patch: Partial<GlobalRuntimeMonitorItem>): GlobalRuntimeMonitorIte
     task_run_id: "taskrun:1",
     session_id: "session:1",
     task_id: "task:general",
-    execution_runtime_kind: "single_agent_turn",
+    execution_runtime_kind: "single_agent_task",
     title: "General run",
     status: "running",
     terminal_reason: "",
@@ -32,7 +32,7 @@ function item(patch: Partial<GlobalRuntimeMonitorItem>): GlobalRuntimeMonitorIte
     project_title: "",
     project_runtime_status: null,
     has_graph_run: false,
-    route: { kind: "chat_turn_runtime", session_id: "session:1", task_run_id: "taskrun:1" },
+    route: { kind: "agent_runtime_run", session_id: "session:1", task_run_id: "taskrun:1" },
     ...patch,
   };
 }
@@ -124,8 +124,8 @@ describe("runtimeWorkProjection", () => {
   });
 
   it("keeps bucketed blocked, completed, and failed task runs visible by monitor page order", () => {
-    const blockedTurn = item({
-      task_run_id: "turnrun:blocked",
+    const blockedRun = item({
+      task_run_id: "taskrun:blocked",
       status: "blocked",
       latest_event_type: "agent_turn_blocked",
       is_live: false,
@@ -143,13 +143,13 @@ describe("runtimeWorkProjection", () => {
         running: [],
         completed: [completedRun],
         failed: [failedRun],
-        diagnostics: [blockedTurn],
+        diagnostics: [blockedRun],
       },
-      task_runs: [blockedTurn, failedRun, completedRun],
+      task_runs: [blockedRun, failedRun, completedRun],
       updated_at: 1,
     });
 
-    expect(visible.map((entry) => entry.task_run_id)).toEqual(["taskrun:completed", "taskrun:failed", "turnrun:blocked"]);
+    expect(visible.map((entry) => entry.task_run_id)).toEqual(["taskrun:completed", "taskrun:failed", "taskrun:blocked"]);
   });
 
   it("projects single agent task runs as long tasks with latest step summary", () => {
@@ -167,7 +167,7 @@ describe("runtimeWorkProjection", () => {
     });
   });
 
-  it("keeps chat-scoped task runs attached to their conversation even when they use task runtime mode", () => {
+  it("projects legacy turn-shaped task ids as formal task monitor work", () => {
     const run = item({
       task_run_id: "taskrun:turn:session-a:1:abc",
       session_id: "session-a",
@@ -175,14 +175,14 @@ describe("runtimeWorkProjection", () => {
       title: "task:turn:session-a:1",
       execution_runtime_kind: "single_agent_task",
       latest_event_type: "task_run_lifecycle_waiting_executor",
-      route: { kind: "chat_turn_runtime", session_id: "session-a", task_run_id: "taskrun:turn:session-a:1:abc" },
+      route: { kind: "agent_runtime_run", session_id: "session-a", task_run_id: "taskrun:turn:session-a:1:abc" },
     });
 
     expect(runtimeWorkProjectionFromMonitorItem(run)).toMatchObject({
-      workKind: "chat_turn_runtime",
-      displayTypeLabel: "处理进展",
+      workKind: "agent_runtime_run",
+      displayTypeLabel: "持续处理",
       primaryRunId: "taskrun:turn:session-a:1:abc",
-      title: "处理进展",
+      title: "持续处理",
     });
   });
 

@@ -69,7 +69,7 @@ def classify_tool_source(tool: Any) -> SearchSourceClass:
     name = str(_field_value(tool, "name") or "").lower()
     if name in {"terminal", "python_repl"} or "shell" in tags:
         return "system_execution"
-    if tags & {"delegation", "agent", "orchestration"}:
+    if tags & {"subagent_lifecycle", "agent", "orchestration"}:
         return "general"
     if tags & {"web", "network", "realtime", "finance", "weather"}:
         return "web"

@@ -109,7 +109,7 @@ function itemForMonitor(patch: Record<string, unknown>) {
     project_runtime_status: null,
     has_graph_run: false,
     is_live: true,
-    route: { kind: "chat_turn_runtime", session_id: "session:test", task_run_id: "taskrun:test" },
+    route: { kind: "agent_runtime_run", session_id: "session:test", task_run_id: "taskrun:test" },
     ...patch,
   };
 }
@@ -447,7 +447,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(store.getState().taskGraphMonitorError).toBe("");
   });
 
-  it("opens a global monitor chat-turn run in its conversation page", () => {
+  it("opens a global monitor agent runtime run in the orchestration page", () => {
     const store = createStore(getDefaultState());
     const runtime = new WorkspaceRuntime(store);
     const runtimeHarness = runtime as unknown as {
@@ -479,14 +479,13 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
         terminal_reason: "waiting_executor",
         lifecycle: "waiting",
         latest_event_type: "task_run_lifecycle_waiting_executor",
-        route: { kind: "chat_turn_runtime", session_id: "session-a", task_run_id: "taskrun:turn:session-a:1:abc" },
+        route: { kind: "agent_runtime_run", session_id: "session-a", task_run_id: "taskrun:turn:session-a:1:abc" },
       }),
     ]));
 
     runtime.actions.openGlobalRuntimeMonitorTaskRun("taskrun:turn:session-a:1:abc");
 
-    expect(store.getState().activeWorkspaceView).toBe("chat");
-    expect(store.getState().currentSessionId).toBe("session-a");
+    expect(store.getState().activeWorkspaceView).toBe("orchestration");
     expect(store.getState().globalRuntimeMonitorSelectedTaskRunId).toBe("taskrun:turn:session-a:1:abc");
     expect(store.getState().centerWorkspaceTarget).toBeNull();
   });
@@ -687,12 +686,12 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
           session_id: "session:stream",
           task_id: "task:turn:session:stream:1",
           latest_event_type: "step_summary_recorded",
-          route: { kind: "chat_turn_runtime", session_id: "session:stream", task_run_id: taskRunId },
+          route: { kind: "agent_runtime_run", session_id: "session:stream", task_run_id: taskRunId },
         }),
       ]),
       runtime_event: {
         event_id: "rtevt:step:1",
-        task_run_id: taskRunId,
+        run_id: taskRunId,
         event_type: "step_summary_recorded",
         offset: 1,
         created_at: 10,
@@ -711,7 +710,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       source: "runtime_event_log",
       runtime_event: {
         event_id: "rtevt:step:2",
-        task_run_id: taskRunId,
+        run_id: taskRunId,
         event_type: "step_summary_recorded",
         offset: 2,
         created_at: 11,
@@ -728,6 +727,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     });
 
     const attachment = store.getState().messages[1]?.runtimeAttachments?.[0];
+    expect(attachment?.run_id).toBe(taskRunId);
     expect(attachment?.anchor_turn_id).toBe("turn:session:stream:1");
     expect(attachment?.progress_entries?.map((item) => item.id)).toEqual(["rtevt:step:1", "rtevt:step:2"]);
     expect(attachment?.progress_entries?.at(-1)).toMatchObject({
@@ -775,7 +775,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       handlers.onEvent("agent_turn_terminal", {
         event: {
           event_id: "rtevt:handoff",
-          task_run_id: "turnrun:test",
+          run_id: "turnrun:test",
           created_at: 2,
           payload: {
             status: "task_executor_scheduled",
@@ -1624,8 +1624,8 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     vi.useRealTimers();
     api.streamChat.mockImplementation(async (_payload, handlers) => {
       handlers.onEvent("harness_run_started", {
-        task_run: {
-          task_run_id: "turnrun:abc",
+        turn_run: {
+          turn_run_id: "turnrun:abc",
           execution_runtime_kind: "single_agent_turn",
           status: "running",
         },
@@ -1669,7 +1669,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       },
       event: {
         event_id: "rtevt:start",
-        task_run_id: "taskrun:abc",
+        run_id: "taskrun:abc",
         created_at: 1,
         payload: {
           contract: {
@@ -1681,7 +1681,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     transition = reduceStreamEvent(transition.state, transition.session, "task_run_lifecycle_event", {
       event: {
         event_id: "rtevt:todo",
-        task_run_id: "taskrun:abc",
+        run_id: "taskrun:abc",
         event_type: "agent_todo_initialized",
         created_at: 2,
         payload: {
@@ -1699,7 +1699,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     transition = reduceStreamEvent(transition.state, transition.session, "agent_turn_terminal", {
       event: {
         event_id: "rtevt:terminal",
-        task_run_id: "turnrun:abc",
+        run_id: "turnrun:abc",
         created_at: 3,
         payload: {
           status: "task_executor_scheduled",
@@ -1731,7 +1731,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     transition = reduceStreamEvent(transition.state, transition.session, "harness_loop_event", {
       event: {
         event_id: "rtevt:tool-request",
-        task_run_id: "taskrun:abc",
+        run_id: "taskrun:abc",
         event_type: "tool_call_requested",
         created_at: 2,
         payload: {
@@ -1749,7 +1749,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     transition = reduceStreamEvent(transition.state, transition.session, "harness_loop_event", {
       event: {
         event_id: "rtevt:tool-result",
-        task_run_id: "taskrun:abc",
+        run_id: "taskrun:abc",
         event_type: "tool_result_received",
         created_at: 3,
         payload: {
@@ -1780,7 +1780,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     transition = reduceStreamEvent(transition.state, transition.session, "harness_loop_event", {
       event: {
         event_id: "rtevt:gate",
-        task_run_id: "taskrun:abc",
+        run_id: "taskrun:abc",
         event_type: "operation_gate_checked",
         created_at: 2,
         payload: {
@@ -1852,6 +1852,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       ],
       runtime_attachments: [{
         attachment_id: "runtime-attachment:taskrun:turn:session:timeline:1:abc",
+        run_id: "taskrun:turn:session:timeline:1:abc",
         anchor_turn_id: "turn:session:timeline:1",
         task_run_id: "taskrun:turn:session:timeline:1:abc",
         status: "completed",
@@ -1886,6 +1887,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
 
     const assistant = store.getState().messages.find((message) => message.role === "assistant" && message.content === "任务已接管");
     expect(assistant?.runtimeAttachments?.[0]).toMatchObject({
+      run_id: "taskrun:turn:session:timeline:1:abc",
       task_run_id: "taskrun:turn:session:timeline:1:abc",
       status: "completed",
     });
@@ -1907,7 +1909,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
         summary: "内部摘要",
         event: {
           event_id: "rtevt:public-progress",
-          task_run_id: "turnrun:turn:session:progress:1",
+          run_id: "turnrun:turn:session:progress:1",
           created_at: 10,
           payload: {
             public_progress_note: "我正在直接回复这条消息。",
@@ -1973,4 +1975,5 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     });
   });
 });
+
 

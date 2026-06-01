@@ -37,7 +37,7 @@ class GraphHarness:
     """Production facade for graph task control.
 
     It owns GraphRuntime and GraphLoop composition. Agent node execution remains
-    delegated to AgentHarness outside the graph loop.
+    handed to AgentHarness outside the graph loop.
     """
 
     def __init__(self, *, services: Any, agent_harness: Any | None = None) -> None:

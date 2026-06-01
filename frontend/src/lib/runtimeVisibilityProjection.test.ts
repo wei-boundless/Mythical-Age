@@ -26,7 +26,7 @@ describe("runtimeVisibilityProjection", () => {
       summary: "旧的内部摘要",
       event: {
         event_id: "rtevt:progress",
-        task_run_id: "turnrun:session-1:1",
+        run_id: "turnrun:session-1:1",
         created_at: 40,
         payload: {
           public_progress_note: "我先核对当前文件状态，确认可以从断点继续。",
@@ -48,7 +48,7 @@ describe("runtimeVisibilityProjection", () => {
     const projection = projectRuntimeStreamEvent("harness_loop_event", {
       event: {
         event_id: "rtevt:gate",
-        task_run_id: "taskrun:1",
+        run_id: "taskrun:1",
         event_type: "operation_gate_checked",
         created_at: 19,
         payload: {
@@ -70,7 +70,7 @@ describe("runtimeVisibilityProjection", () => {
     const requested = projectRuntimeStreamEvent("harness_loop_event", {
       event: {
         event_id: "rtevt:tool-request",
-        task_run_id: "taskrun:1",
+        run_id: "taskrun:1",
         event_type: "tool_call_requested",
         created_at: 20,
         payload: {
@@ -88,7 +88,7 @@ describe("runtimeVisibilityProjection", () => {
     const returned = projectRuntimeStreamEvent("harness_loop_event", {
       event: {
         event_id: "rtevt:tool-result",
-        task_run_id: "taskrun:1",
+        run_id: "taskrun:1",
         event_type: "tool_result_received",
         created_at: 21,
         payload: {
@@ -125,7 +125,7 @@ describe("runtimeVisibilityProjection", () => {
     const projection = projectRuntimeStreamEvent("harness_loop_event", {
       event: {
         event_id: "rtevt:terminal",
-        task_run_id: "taskrun:1",
+        run_id: "taskrun:1",
         event_type: "tool_call_requested",
         created_at: 20,
         payload: {
@@ -163,7 +163,7 @@ describe("runtimeVisibilityProjection", () => {
       },
       event: {
         event_id: "rtevt:start",
-        task_run_id: "taskrun:turn:session-1:1:abc",
+        run_id: "taskrun:turn:session-1:1:abc",
         created_at: 30,
         payload: {
           contract: {
@@ -175,7 +175,7 @@ describe("runtimeVisibilityProjection", () => {
     const waiting = projectRuntimeStreamEvent("agent_turn_terminal", {
       event: {
         event_id: "rtevt:terminal",
-        task_run_id: "turnrun:session-1:1",
+        run_id: "turnrun:session-1:1",
         created_at: 31,
         payload: {
           status: "task_executor_scheduled",
@@ -218,7 +218,7 @@ describe("runtimeVisibilityProjection", () => {
       },
       event: {
         event_id: "rtevt:turn-start",
-        task_run_id: "turnrun:session-1:1",
+        run_id: "turnrun:session-1:1",
         created_at: 30,
         payload: {},
       },
@@ -238,14 +238,14 @@ describe("runtimeVisibilityProjection", () => {
     const projection = projectRuntimeStreamEvent("agent_turn_terminal", {
       event: {
         event_id: "rtevt:blocked",
-        task_run_id: "turnrun:session-1:2",
+        run_id: "turnrun:session-1:2",
         event_type: "agent_turn_blocked",
         created_at: 42,
         payload: {
           status: "blocked",
           terminal_reason: reason,
-          task_run: {
-            task_run_id: "turnrun:session-1:2",
+          turn_run: {
+            turn_run_id: "turnrun:session-1:2",
             status: "blocked",
           },
         },
