@@ -44,12 +44,15 @@ class AssignmentRepository:
             "task_assignments.json",
             {"assignments": default_assignments},
         )
+        deleted_task_ids = self._deleted_specific_task_ids()
         merged_payload = merge_items_by_key(
-            default_assignments,
+            [item for item in default_assignments if str(item.get("task_id") or "").strip() not in deleted_task_ids],
             [
                 item
                 for item in list(payload.get("assignments") or [])
-                if isinstance(item, dict) and not self.removed_config_predicate(item)
+                if isinstance(item, dict)
+                and str(item.get("task_id") or "").strip() not in deleted_task_ids
+                and not self.removed_config_predicate(item)
             ],
             key="task_id",
         )
@@ -82,6 +85,14 @@ class AssignmentRepository:
         assignments = [item for item in self.list() if item.task_id not in targets]
         self.storage.write_object("task_assignments.json", {"assignments": [item.to_dict() for item in assignments]})
         return targets
+
+    def _deleted_specific_task_ids(self) -> set[str]:
+        payload = self.storage.read_object("specific_task_records.json", {"deleted_task_ids": []})
+        return {
+            str(item).strip()
+            for item in list(payload.get("deleted_task_ids") or [])
+            if str(item).strip()
+        }
 
     def assignment_from_specific_task_record(
         self,

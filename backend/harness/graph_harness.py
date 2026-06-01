@@ -36,13 +36,11 @@ class GraphHarnessStart:
 class GraphHarness:
     """Production facade for graph task control.
 
-    It owns GraphRuntime and GraphLoop composition. Agent node execution remains
-    handed to AgentHarness outside the graph loop.
+    It owns GraphRuntime, GraphLoop, and graph node work-order execution.
     """
 
-    def __init__(self, *, services: Any, agent_harness: Any | None = None) -> None:
+    def __init__(self, *, services: Any) -> None:
         self._services = services
-        self._agent_harness = agent_harness
         self._runtime = GraphRuntime(services=services)
         self._loop = GraphLoop(services=services)
         self._resume = GraphResumeService(graph_loop=self._loop, services=services)

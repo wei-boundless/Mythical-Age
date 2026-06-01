@@ -12,7 +12,7 @@ def test_prompt_library_lists_only_runtime_agent_and_environment_resources_by_de
     resources = registry.list_resources()
     resource_by_id = {item.resource_id: item for item in resources}
 
-    assert resource_by_id["runtime.turn_action.v1"].category == "runtime"
+    assert resource_by_id["runtime.single_agent_turn.v1"].category == "runtime"
     assert resource_by_id["runtime.task_execution.v1"].category == "runtime"
     assert resource_by_id["agent.main_interactive_agent.work_role.v1"].category == "agent"
     assert resource_by_id["environment.general.workspace.v1"].category == "environment"
@@ -38,33 +38,33 @@ def test_prompt_library_upsert_does_not_persist_all_default_resources(tmp_path: 
     stored_ids = {str(item.get("resource_id") or "") for item in list(payload.get("resources") or [])}
 
     assert "prompt.user.custom.output" in stored_ids
-    assert "runtime.turn_action.v1" not in stored_ids
+    assert "runtime.single_agent_turn.v1" not in stored_ids
     assert len(stored_ids) == 1
-    assert registry.get_resource("runtime.turn_action.v1") is not None
+    assert registry.get_resource("runtime.single_agent_turn.v1") is not None
 
 
 def test_prompt_library_stored_resource_overrides_default_resource(tmp_path: Path) -> None:
     registry = PromptLibraryRegistry(tmp_path)
     registry.upsert_resource(
         PromptResource(
-            prompt_id="runtime.turn_action.v1",
-            resource_id="runtime.turn_action.v1",
+            prompt_id="runtime.single_agent_turn.v1",
+            resource_id="runtime.single_agent_turn.v1",
             category="runtime",
-            subtype="turn_action",
-            resource_type="runtime.turn_action",
-            title="覆盖后的 turn action",
-            content="这是用户覆盖后的 turn action prompt。",
-            allowed_invocation_kinds=("turn_action",),
+            subtype="single_agent_turn",
+            resource_type="runtime.single_agent_turn",
+            title="覆盖后的 single agent turn",
+            content="这是用户覆盖后的 single agent turn prompt。",
+            allowed_invocation_kinds=("single_agent_turn",),
             source_ref="test.override",
             priority=1,
         )
     )
 
-    resource = registry.get_resource("runtime.turn_action.v1")
+    resource = registry.get_resource("runtime.single_agent_turn.v1")
 
     assert resource is not None
-    assert resource.title == "覆盖后的 turn action"
-    assert resource.content == "这是用户覆盖后的 turn action prompt。"
+    assert resource.title == "覆盖后的 single agent turn"
+    assert resource.content == "这是用户覆盖后的 single agent turn prompt。"
     assert resource.source_ref == "test.override"
 
 

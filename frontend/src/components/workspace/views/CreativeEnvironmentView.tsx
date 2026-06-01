@@ -17,14 +17,20 @@ import { CenterWorkspaceView } from "@/components/workspace/views/center/CenterW
 import {
   getTaskSystemEnvironmentProjects,
   getTaskSystemProject,
+  getTaskSystemProjectLifecycleActions,
   getTaskSystemProjectRepositories,
   getTaskSystemProjectRepositoryFile,
   getTaskSystemProjectRepositoryTree,
+  previewTaskSystemProjectLifecycle,
+  startTaskSystemProjectLifecycleRun,
   type ProjectFilePayload,
   type ProjectFileTreePayload,
   type ProjectInstance,
+  type ProjectLifecycleActionSpec,
+  type ProjectLifecycleActionsPayload,
   type ProjectLibraryPayload,
   type ProjectLibraryRepository,
+  type ProjectLifecyclePreviewPayload,
   type ProjectRepositoriesPayload,
   type ProjectTreeNode,
 } from "@/lib/api";
@@ -161,10 +167,14 @@ function CreativeRightPanel({
   trees,
   selectedFile,
   file,
+  lifecycleActions,
+  cleanupPreview,
   loading,
   error,
   onRefresh,
   onSelectFile,
+  onPreviewCleanup,
+  onExecuteCleanup,
 }: {
   selectedProject: ProjectInstance | null;
   project: ProjectLibraryPayload | null;
@@ -172,11 +182,21 @@ function CreativeRightPanel({
   trees: Record<string, ProjectFileTreePayload>;
   selectedFile: SelectedFile | null;
   file: ProjectFilePayload | null;
+  lifecycleActions: ProjectLifecycleActionsPayload | null;
+  cleanupPreview: ProjectLifecyclePreviewPayload | null;
   loading: boolean;
   error: string;
   onRefresh: () => void;
   onSelectFile: (file: SelectedFile) => void;
+  onPreviewCleanup: () => void;
+  onExecuteCleanup: (actionId: string) => void;
 }) {
+  const cleanupAction = useMemo(
+    () => (lifecycleActions?.actions ?? []).find((item: ProjectLifecycleActionSpec) => item.operation === "delete_task_records_by_selector") ?? null,
+    [lifecycleActions]
+  );
+  const cleanupActionId = cleanupAction?.action_id ?? "";
+
   return (
     <aside className="workbench-right-panel creative-workspace-right" aria-label="项目库">
       <header className="workbench-panel-head workbench-panel-head--right">
@@ -243,6 +263,36 @@ function CreativeRightPanel({
             <div className="creative-empty">从项目库中选择一个文件。</div>
           )}
         </section>
+
+        <section className="creative-detail-card">
+          <header>
+            <RefreshCw size={15} />
+            <strong>项目维护</strong>
+            <em>{cleanupPreview ? `${cleanupPreview.preview.counts?.task_count ?? 0} 项` : "待预览"}</em>
+          </header>
+          <div className="creative-tree-summary creative-tree-summary--stack">
+            <button className="creative-file-chip" disabled={loading || !selectedProject} onClick={onPreviewCleanup} type="button">
+              <RefreshCw size={13} />
+              <span>{cleanupAction?.title || "预览维护动作"}</span>
+            </button>
+            <button
+              className="creative-file-chip"
+              disabled={loading || !selectedProject || !cleanupActionId || !cleanupPreview || Number(cleanupPreview.preview.counts?.task_count ?? 0) <= 0}
+              onClick={() => onExecuteCleanup(cleanupActionId)}
+              type="button"
+            >
+              <FileText size={13} />
+              <span>执行清理</span>
+            </button>
+            {cleanupPreview ? (
+              <div className="creative-empty">
+                将清理 {cleanupPreview.preview.counts?.task_count ?? 0} 个旧节点任务；图定义和产物保留。
+              </div>
+            ) : cleanupAction ? (
+              <div className="creative-empty">{cleanupAction.description || "先预览影响范围，再执行项目维护动作。"}</div>
+            ) : null}
+          </div>
+        </section>
       </div>
     </aside>
   );
@@ -256,6 +306,8 @@ export function CreativeEnvironmentView() {
   const [trees, setTrees] = useState<Record<string, ProjectFileTreePayload>>({});
   const [selectedFile, setSelectedFile] = useState<SelectedFile | null>(null);
   const [file, setFile] = useState<ProjectFilePayload | null>(null);
+  const [lifecycleActions, setLifecycleActions] = useState<ProjectLifecycleActionsPayload | null>(null);
+  const [cleanupPreview, setCleanupPreview] = useState<ProjectLifecyclePreviewPayload | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -287,11 +339,13 @@ export function CreativeEnvironmentView() {
     setError("");
     setSelectedFile(null);
     setFile(null);
+    setCleanupPreview(null);
     try {
       const nextProject = await getTaskSystemProject(projectId);
       setProject(nextProject);
       const nextRepositories = await getTaskSystemProjectRepositories(projectId);
       setRepositories(nextRepositories);
+      setLifecycleActions(await getTaskSystemProjectLifecycleActions(projectId));
       const treeEntries = await Promise.all(
         nextRepositories.repositories
           .filter((repository) => repository.readable !== false)
@@ -308,6 +362,7 @@ export function CreativeEnvironmentView() {
       setError(caught instanceof Error ? caught.message : "无法打开项目库。");
       setProject(null);
       setRepositories(null);
+      setLifecycleActions(null);
       setTrees({});
     } finally {
       setLoading(false);
@@ -323,6 +378,38 @@ export function CreativeEnvironmentView() {
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "无法打开文件。");
       setFile(null);
+    }
+  }
+
+  async function previewCleanup() {
+    if (!selectedProject) return;
+    const actionId = (lifecycleActions?.actions ?? []).find((item) => item.operation === "delete_task_records_by_selector")?.action_id ?? "";
+    if (!actionId) return;
+    setLoading(true);
+    setError("");
+    try {
+      setCleanupPreview(await previewTaskSystemProjectLifecycle(selectedProject.project_id, actionId));
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "无法生成维护预览。");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function executeCleanup(actionId: string) {
+    if (!selectedProject) return;
+    setLoading(true);
+    setError("");
+    try {
+      await startTaskSystemProjectLifecycleRun(selectedProject.project_id, {
+        action: actionId,
+        execute: true,
+      });
+      setCleanupPreview(await previewTaskSystemProjectLifecycle(selectedProject.project_id, actionId));
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "无法执行维护动作。");
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -377,9 +464,13 @@ export function CreativeEnvironmentView() {
         <CreativeRightPanel
           error={error}
           file={file}
+          lifecycleActions={lifecycleActions}
+          cleanupPreview={cleanupPreview}
           loading={loading}
           onRefresh={() => selectedProject && void loadProject(selectedProject.project_id)}
           onSelectFile={(item) => void openFile(item)}
+          onPreviewCleanup={() => void previewCleanup()}
+          onExecuteCleanup={(actionId) => void executeCleanup(actionId)}
           project={project}
           repositories={repositories}
           selectedFile={selectedFile}

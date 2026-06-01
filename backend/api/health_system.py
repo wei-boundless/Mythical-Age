@@ -52,12 +52,6 @@ class HealthRuntimeQueryAdapter:
                 return int(counter(task_run_id))
         return 0
 
-    async def run_stream(self, _request: Any):
-        if False:
-            yield {}
-        raise RuntimeError("health_agent_run_execution_not_migrated_to_single_agent_turn_lifecycle")
-
-
 def _health_runtime_adapter(runtime: Any) -> HealthRuntimeQueryAdapter:
     return HealthRuntimeQueryAdapter(runtime.query_runtime)
 

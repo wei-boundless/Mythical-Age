@@ -256,15 +256,22 @@ def _build_prefix_groups(
             grouped[key].append(row)
 
     result: list[dict[str, Any]] = []
-    for cache_key, records in grouped.items():
+    for cache_key, unsorted_records in grouped.items():
+        records = sorted(unsorted_records, key=lambda item: _float(item.get("created_at")))
         if len(records) < min_repeats:
             continue
         provider_hits = 0
         provider_misses = 0
         provider_missing = 0
+        warmup_provider_misses = 0
+        post_warm_provider_hits = 0
+        post_warm_provider_misses = 0
         cached_tokens = 0
         prompt_tokens = 0
+        post_warm_cached_tokens = 0
+        post_warm_prompt_tokens = 0
         statuses = Counter(str(row.get("status") or "unknown") for row in records)
+        observed_provider_index = 0
         for row in records:
             usage = usage_by_request.get(str(row.get("request_id") or ""))
             if usage is None:
@@ -272,12 +279,23 @@ def _build_prefix_groups(
                 continue
             current_cached = max(_int(usage.get("cached_tokens")), _int(usage.get("cache_read_tokens")))
             current_prompt = _int(usage.get("prompt_tokens"))
+            is_warmup_observation = observed_provider_index == 0
+            observed_provider_index += 1
             cached_tokens += current_cached
             prompt_tokens += current_prompt
             if current_cached > 0:
                 provider_hits += 1
+                if not is_warmup_observation:
+                    post_warm_provider_hits += 1
+                    post_warm_cached_tokens += current_cached
+                    post_warm_prompt_tokens += current_prompt
             else:
                 provider_misses += 1
+                if is_warmup_observation:
+                    warmup_provider_misses += 1
+                else:
+                    post_warm_provider_misses += 1
+                    post_warm_prompt_tokens += current_prompt
         result.append(
             {
                 "cache_key": cache_key,
@@ -286,9 +304,17 @@ def _build_prefix_groups(
                 "provider_hits": provider_hits,
                 "provider_misses": provider_misses,
                 "provider_usage_missing": provider_missing,
+                "warmup_provider_misses": warmup_provider_misses,
+                "post_warm_provider_hits": post_warm_provider_hits,
+                "post_warm_provider_misses": post_warm_provider_misses,
                 "cached_tokens": cached_tokens,
                 "prompt_tokens": prompt_tokens,
                 "hit_rate": round(cached_tokens / prompt_tokens, 4) if prompt_tokens > 0 else 0.0,
+                "post_warm_cached_tokens": post_warm_cached_tokens,
+                "post_warm_prompt_tokens": post_warm_prompt_tokens,
+                "post_warm_hit_rate": round(post_warm_cached_tokens / post_warm_prompt_tokens, 4)
+                if post_warm_prompt_tokens > 0
+                else 0.0,
                 "statuses": dict(sorted(statuses.items())),
                 "request_ids": [str(row.get("request_id") or "") for row in records[-5:]],
                 "latest_created_at": _float(records[-1].get("created_at")),
@@ -296,7 +322,12 @@ def _build_prefix_groups(
         )
     return sorted(
         result,
-        key=lambda item: (int(item["provider_misses"]), int(item["count"]), _float(item["latest_created_at"])),
+        key=lambda item: (
+            int(item["post_warm_provider_misses"]),
+            int(item["provider_misses"]),
+            int(item["count"]),
+            _float(item["latest_created_at"]),
+        ),
         reverse=True,
     )[:limit]
 
@@ -486,14 +517,16 @@ def _build_issues(
             }
         )
     repeated_miss_groups = [
-        group for group in prefix_groups if int(group.get("provider_misses") or 0) > 0 and int(group.get("count") or 0) > 1
+        group
+        for group in prefix_groups
+        if int(group.get("post_warm_provider_misses") or 0) > 0 and int(group.get("count") or 0) > 1
     ]
     if repeated_miss_groups:
         issues.append(
             {
                 "severity": "high",
                 "code": "repeated_prefix_provider_miss",
-                "message": "存在重复 stable prefix 但 DeepSeek 仍报告未命中的请求。优先检查请求间隔、重试路径、真实 base_url、以及 provider usage 是否缺失。",
+                "message": "重复 stable prefix 在首个冷启动请求之后仍有 DeepSeek 未命中。优先检查请求间隔、重试路径、真实 base_url、以及 provider usage 是否缺失。",
                 "groups": len(repeated_miss_groups),
             }
         )

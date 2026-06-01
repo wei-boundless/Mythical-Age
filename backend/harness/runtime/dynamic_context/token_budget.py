@@ -15,7 +15,7 @@ class DynamicTokenBudget:
 
 
 DEFAULT_VOLATILE_BUDGETS = {
-    "turn_action": 4000,
+    "single_agent_turn": 6000,
     "tool_observation_followup": 4000,
     "task_execution": 8000,
 }

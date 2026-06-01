@@ -681,6 +681,7 @@ class TaskFlowRegistry:
             flow_ids=flow_ids,
         )
         self.specific_task_repository.delete_many({target})
+        self._invalidate_cache()
         self.assignment_repository.delete_for_task_ids({target})
         self.flow_repository.delete_many(flow_ids)
         self.assembly_config_repository.delete_for_task_ids({target})

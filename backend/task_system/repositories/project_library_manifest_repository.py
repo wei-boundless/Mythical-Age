@@ -5,6 +5,7 @@ from pathlib import Path
 from file_management import default_file_environment_registry
 from task_system.environments import task_environment_registry_from_backend_dir
 from task_system.projects.project_library_manifest import (
+    ProjectLifecycleActionSpec,
     ProjectLibraryManifest,
     ProjectRepositoryBinding,
     project_library_manifest_from_dict,
@@ -23,7 +24,7 @@ class ProjectLibraryManifestRepository:
         defaults = [item.to_dict() for item in self._default_manifests()]
         payload = self.storage.read_object("project_library_manifests.json", {"manifests": defaults})
         manifests = [
-            project_library_manifest_from_dict(item)
+            self._migrate_manifest(project_library_manifest_from_dict(item))
             for item in list(payload.get("manifests") or [])
             if isinstance(item, dict)
         ]
@@ -67,6 +68,45 @@ class ProjectLibraryManifestRepository:
         missing = sorted({item.repository_id for item in manifest.repositories} - allowed_repository_ids)
         if missing:
             raise ValueError(f"project library manifest repository not in file profile: {', '.join(missing)}")
+        allowed_operations = {"delete_task_records_by_selector"}
+        invalid_operations = sorted(
+            {item.operation for item in manifest.lifecycle_actions if item.operation not in allowed_operations}
+        )
+        if invalid_operations:
+            raise ValueError(f"project lifecycle action operation is not supported: {', '.join(invalid_operations)}")
+
+    def _migrate_manifest(self, manifest: ProjectLibraryManifest) -> ProjectLibraryManifest:
+        default = next((item for item in self._default_manifests() if item.project_id == manifest.project_id), None)
+        if default is None:
+            return manifest
+        repositories = tuple(_migrate_repository_binding(item, default) for item in manifest.repositories)
+        if manifest.lifecycle_actions:
+            lifecycle_actions = manifest.lifecycle_actions
+        else:
+            lifecycle_actions = default.lifecycle_actions
+        migration_log = tuple(dict(item) for item in manifest.migration_log)
+        if repositories != manifest.repositories or lifecycle_actions != manifest.lifecycle_actions:
+            migration_log = (
+                *migration_log,
+                {
+                    "migration_id": "project_library_manifest.v1.lifecycle_actions_and_roots",
+                    "description": "Aligned project library roots and lifecycle actions with authoritative defaults.",
+                },
+            )
+        return ProjectLibraryManifest(
+            library_id=manifest.library_id,
+            project_id=manifest.project_id,
+            environment_id=manifest.environment_id,
+            file_profile_id=manifest.file_profile_id,
+            schema_version=manifest.schema_version,
+            template_id=manifest.template_id,
+            repositories=repositories,
+            lifecycle_actions=lifecycle_actions,
+            indexes=dict(manifest.indexes),
+            migration_log=migration_log,
+            metadata=dict(manifest.metadata),
+            authority=manifest.authority,
+        )
 
     def _default_manifests(self) -> tuple[ProjectLibraryManifest, ...]:
         return (
@@ -81,9 +121,28 @@ class ProjectLibraryManifestRepository:
                     ProjectRepositoryBinding("repo.writing.official_work", "official_work", "project://official_work", "canonical", readable=True, writable=False, commit_gate="review_required"),
                     ProjectRepositoryBinding("repo.writing.draft_workspace", "draft_workspace", "project://drafts", "working", readable=True, writable=True),
                     ProjectRepositoryBinding("repo.writing.review_workspace", "review_workspace", "project://reviews", "review", readable=True, writable=True),
-                    ProjectRepositoryBinding("repo.writing.artifact_repository", "artifact_repository", "project://artifacts", "run_output", readable=True, writable=True),
+                    ProjectRepositoryBinding("repo.writing.artifact_repository", "artifact_repository", "environment://artifacts", "run_output", readable=True, writable=True),
                     ProjectRepositoryBinding("repo.writing.memory_repository", "project_memory", "project://memory/project", "committed_memory", readable=True, writable=True, commit_gate="review_required"),
                     ProjectRepositoryBinding("repo.writing.assets", "asset_repository", "project://assets", "asset", readable=True, writable=True),
+                ),
+                lifecycle_actions=(
+                    ProjectLifecycleActionSpec(
+                        action_id="cleanup_legacy_writing_tasks",
+                        title="清理旧节点任务",
+                        operation="delete_task_records_by_selector",
+                        description="清理从旧节点任务模型迁移后残留的任务记录；图定义、运行产物和项目库保留。",
+                        selectors={
+                            "task_environment_id": "env.creation.writing",
+                            "task_id_contains": "writing.modular_novel.node.",
+                            "include_assignments": True,
+                            "include_specific_task_records": True,
+                        },
+                        safeguards={
+                            "preserve_task_graphs": True,
+                            "preserve_artifacts": True,
+                            "preserve_project_instances": True,
+                        },
+                    ),
                 ),
                 indexes={"file_index": "pending", "artifact_index": "pending", "memory_index": "pending"},
                 metadata={"default_manifest": True},
@@ -106,3 +165,26 @@ class ProjectLibraryManifestRepository:
                 metadata={"default_manifest": True},
             ),
         )
+
+
+def _migrate_repository_binding(binding: ProjectRepositoryBinding, default: ProjectLibraryManifest) -> ProjectRepositoryBinding:
+    default_binding = default.repository(binding.repository_id)
+    if default_binding is None:
+        return binding
+    obsolete_root_refs = {
+        ("repo.writing.artifact_repository", "project://artifacts"): "environment://artifacts",
+    }
+    migrated_root_ref = obsolete_root_refs.get((binding.repository_id, binding.root_ref))
+    if migrated_root_ref is None or migrated_root_ref != default_binding.root_ref:
+        return binding
+    return ProjectRepositoryBinding(
+        repository_id=binding.repository_id,
+        role=binding.role,
+        root_ref=migrated_root_ref,
+        lifecycle=binding.lifecycle,
+        readable=binding.readable,
+        writable=binding.writable,
+        searchable=binding.searchable,
+        commit_gate=binding.commit_gate,
+        metadata={**dict(binding.metadata), "migrated_root_ref_from": binding.root_ref},
+    )

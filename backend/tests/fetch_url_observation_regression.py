@@ -1,8 +1,7 @@
 from __future__ import annotations
 
 from capability_system.units.tools.fetch_url_tool import FetchURLToolError
-from harness.loop.agent_loop import _structured_error_from_exception
-from harness.loop.observations import build_observation_record
+from harness.loop.observations import build_observation_record, structured_error_from_exception
 from harness.loop.task_executor import _structured_error_from_observation
 
 
@@ -13,7 +12,7 @@ def test_fetch_url_structured_error_survives_observation_pipeline() -> None:
         retryable=False,
         status_code=404,
     )
-    structured_error = _structured_error_from_exception(exc)
+    structured_error = structured_error_from_exception(exc)
     observation = build_observation_record(
         source="tool:fetch_url",
         packet_ref="packet:test",

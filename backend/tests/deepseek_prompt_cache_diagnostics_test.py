@@ -31,6 +31,34 @@ def test_deepseek_cache_diagnosis_flags_repeated_prefix_miss(tmp_path: Path) -> 
     assert any(issue["code"] == "repeated_prefix_provider_miss" for issue in result.issues)
 
 
+def test_deepseek_cache_diagnosis_does_not_flag_first_cold_miss(tmp_path: Path) -> None:
+    ledger_dir = tmp_path / "prompt_accounting"
+    ledger_dir.mkdir()
+    _write_jsonl(
+        ledger_dir / "prompt_cache.jsonl",
+        [
+            {**_cache_record("req:1", "key:a", "miss"), "created_at": 1},
+            {**_cache_record("req:2", "key:a", "hit"), "created_at": 2},
+            {**_cache_record("req:3", "key:a", "hit"), "created_at": 3},
+        ],
+    )
+    _write_jsonl(
+        ledger_dir / "token_usage.jsonl",
+        [
+            {**_provider_usage("req:1", prompt_tokens=1200, cached_tokens=0), "created_at": 1},
+            {**_provider_usage("req:2", prompt_tokens=1200, cached_tokens=1100), "created_at": 2},
+            {**_provider_usage("req:3", prompt_tokens=1200, cached_tokens=1100), "created_at": 3},
+        ],
+    )
+
+    result = diagnose(ledger_dir=ledger_dir)
+
+    assert result.prefix_groups[0]["warmup_provider_misses"] == 1
+    assert result.prefix_groups[0]["post_warm_provider_misses"] == 0
+    assert result.prefix_groups[0]["post_warm_hit_rate"] == 0.9167
+    assert not any(issue["code"] == "repeated_prefix_provider_miss" for issue in result.issues)
+
+
 def test_deepseek_cache_diagnosis_flags_volatile_stable_segment(tmp_path: Path) -> None:
     ledger_dir = tmp_path / "prompt_accounting"
     ledger_dir.mkdir()

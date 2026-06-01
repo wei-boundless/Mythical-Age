@@ -41,7 +41,7 @@ from task_system.node_configurations import (
     TaskNodeConfigurationRepository,
     build_node_configuration_catalog,
 )
-from task_system.projects import ProjectFileService
+from task_system.projects import ProjectFileService, ProjectLifecycleService
 
 router = APIRouter()
 
@@ -258,6 +258,12 @@ class EngagementStartRequest(BaseModel):
 
     session_id: str = Field(default="", max_length=200)
     startup_parameters: dict[str, object] = Field(default_factory=dict)
+
+
+class ProjectLifecycleRunStartRequest(BaseModel):
+    action: str = Field(..., min_length=3, max_length=160)
+    execute: bool = False
+    metadata: dict[str, object] = Field(default_factory=dict)
 
 
 class TaskEnvironmentGroupUpsertRequest(BaseModel):
@@ -1529,6 +1535,17 @@ async def list_task_system_project_repositories(project_id: str) -> dict[str, ob
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+@router.get("/tasks/projects/{project_id}/lifecycle-actions")
+async def list_task_system_project_lifecycle_actions(project_id: str) -> dict[str, object]:
+    runtime = require_runtime()
+    try:
+        return ProjectLifecycleService(runtime.base_dir).list_actions(project_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @router.get("/tasks/projects/{project_id}/repositories/{repository_id}/tree")
 async def get_task_system_project_repository_tree(
     project_id: str,
@@ -1569,6 +1586,44 @@ async def get_task_system_project_repository_file(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/tasks/projects/{project_id}/lifecycle-preview/{action}")
+async def preview_task_system_project_lifecycle(project_id: str, action: str) -> dict[str, object]:
+    runtime = require_runtime()
+    try:
+        return ProjectLifecycleService(runtime.base_dir).preview(project_id=project_id, action=action)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/tasks/projects/{project_id}/lifecycle-runs")
+async def list_task_system_project_lifecycle_runs(project_id: str) -> dict[str, object]:
+    runtime = require_runtime()
+    try:
+        return ProjectLifecycleService(runtime.base_dir).list_runs(project_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/tasks/projects/{project_id}/lifecycle-runs")
+async def start_task_system_project_lifecycle_run(
+    project_id: str,
+    payload: ProjectLifecycleRunStartRequest,
+) -> dict[str, object]:
+    runtime = require_runtime()
+    try:
+        return ProjectLifecycleService(runtime.base_dir).start(
+            project_id=project_id,
+            action=payload.action,
+            execute=payload.execute,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.put("/tasks/environment-groups/{group_id}")

@@ -102,12 +102,12 @@ def test_task_work_rollout_only_enters_model_through_dynamic_context_projection(
     assert volatile_payload["work_history"]["recent_steps"][0]["summary"] == "已创建基础文件"
 
 
-def test_turn_action_keeps_compressed_context_outside_recent_history_window() -> None:
+def test_single_agent_turn_keeps_compressed_context_outside_recent_history_window() -> None:
     history = [
         {"role": "assistant", "content": "[Compressed session context]\n此前已经确认项目采用 DeepSeek。"},
         *({"role": "user", "content": f"user-{index}"} for index in range(8)),
     ]
-    result = RuntimeCompiler().compile_turn_action_packet(
+    result = RuntimeCompiler().compile_single_agent_turn_packet(
         session_id="session:compressed-context",
         turn_id="turn:compressed-context",
         agent_invocation_id="aginvoke:compressed-context",
@@ -121,7 +121,7 @@ def test_turn_action_keeps_compressed_context_outside_recent_history_window() ->
         },
     )
 
-    volatile_payload = _payload_after_title(result.packet.model_messages[-1]["content"], "Turn action current request")
+    volatile_payload = _payload_after_title(result.packet.model_messages[-1]["content"], "Single agent turn current request")
     history_payload = volatile_payload["history"]
 
     assert history_payload["session_context"]["compressed_summary"] == "此前已经确认项目采用 DeepSeek。"

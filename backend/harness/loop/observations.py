@@ -55,3 +55,20 @@ def build_observation_record(
         error=str(error or ""),
         created_at=time.time(),
     )
+
+
+def structured_error_from_exception(exc: Exception) -> dict[str, Any]:
+    payload = getattr(exc, "structured_error", None)
+    if not isinstance(payload, dict):
+        return {}
+    return {
+        key: value
+        for key, value in {
+            "code": str(payload.get("code") or payload.get("error_code") or "tool_error"),
+            "message": str(payload.get("message") or str(exc) or ""),
+            "retryable": payload.get("retryable") if isinstance(payload.get("retryable"), bool) else True,
+            "origin": str(payload.get("origin") or "tool_provider"),
+            "status_code": payload.get("status_code") if isinstance(payload.get("status_code"), int) else None,
+        }.items()
+        if value not in ("", None)
+    }

@@ -27,6 +27,29 @@ class ProjectRepositoryBinding:
 
 
 @dataclass(frozen=True, slots=True)
+class ProjectLifecycleActionSpec:
+    action_id: str
+    title: str
+    operation: str
+    description: str = ""
+    enabled: bool = True
+    requires_confirmation: bool = True
+    selectors: dict[str, Any] = field(default_factory=dict)
+    safeguards: dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
+    authority: str = "task_system.project_lifecycle_action_spec"
+
+    def __post_init__(self) -> None:
+        if not self.action_id:
+            raise ValueError("ProjectLifecycleActionSpec requires action_id")
+        if not self.operation:
+            raise ValueError("ProjectLifecycleActionSpec requires operation")
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True, slots=True)
 class ProjectLibraryManifest:
     library_id: str
     project_id: str
@@ -35,6 +58,7 @@ class ProjectLibraryManifest:
     schema_version: str
     template_id: str = ""
     repositories: tuple[ProjectRepositoryBinding, ...] = ()
+    lifecycle_actions: tuple[ProjectLifecycleActionSpec, ...] = ()
     indexes: dict[str, str] = field(default_factory=dict)
     migration_log: tuple[dict[str, Any], ...] = ()
     metadata: dict[str, Any] = field(default_factory=dict)
@@ -52,14 +76,22 @@ class ProjectLibraryManifest:
         repository_ids = [item.repository_id for item in self.repositories]
         if len(repository_ids) != len(set(repository_ids)):
             raise ValueError("ProjectLibraryManifest has duplicate repository_id")
+        action_ids = [item.action_id for item in self.lifecycle_actions]
+        if len(action_ids) != len(set(action_ids)):
+            raise ValueError("ProjectLibraryManifest has duplicate lifecycle action_id")
 
     def repository(self, repository_id: str) -> ProjectRepositoryBinding | None:
         target = str(repository_id or "").strip()
         return next((item for item in self.repositories if item.repository_id == target), None)
 
+    def lifecycle_action(self, action_id: str) -> ProjectLifecycleActionSpec | None:
+        target = str(action_id or "").strip()
+        return next((item for item in self.lifecycle_actions if item.action_id == target), None)
+
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
         payload["repositories"] = [item.to_dict() for item in self.repositories]
+        payload["lifecycle_actions"] = [item.to_dict() for item in self.lifecycle_actions]
         payload["migration_log"] = [dict(item) for item in self.migration_log]
         return payload
 
@@ -78,6 +110,21 @@ def project_repository_binding_from_dict(payload: dict[str, Any]) -> ProjectRepo
     )
 
 
+def project_lifecycle_action_spec_from_dict(payload: dict[str, Any]) -> ProjectLifecycleActionSpec:
+    return ProjectLifecycleActionSpec(
+        action_id=str(payload.get("action_id") or payload.get("action") or "").strip(),
+        title=str(payload.get("title") or payload.get("action_id") or payload.get("action") or "").strip(),
+        operation=str(payload.get("operation") or "").strip(),
+        description=str(payload.get("description") or "").strip(),
+        enabled=bool(payload.get("enabled", True)),
+        requires_confirmation=bool(payload.get("requires_confirmation", True)),
+        selectors=dict(payload.get("selectors") or {}),
+        safeguards=dict(payload.get("safeguards") or {}),
+        metadata=dict(payload.get("metadata") or {}),
+        authority=str(payload.get("authority") or "task_system.project_lifecycle_action_spec"),
+    )
+
+
 def project_library_manifest_from_dict(payload: dict[str, Any]) -> ProjectLibraryManifest:
     return ProjectLibraryManifest(
         library_id=str(payload.get("library_id") or "").strip(),
@@ -89,6 +136,11 @@ def project_library_manifest_from_dict(payload: dict[str, Any]) -> ProjectLibrar
         repositories=tuple(
             project_repository_binding_from_dict(item)
             for item in list(payload.get("repositories") or [])
+            if isinstance(item, dict)
+        ),
+        lifecycle_actions=tuple(
+            project_lifecycle_action_spec_from_dict(item)
+            for item in list(payload.get("lifecycle_actions") or [])
             if isinstance(item, dict)
         ),
         indexes=dict(payload.get("indexes") or {}),

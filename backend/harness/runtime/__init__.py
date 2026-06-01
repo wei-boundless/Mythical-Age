@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from .agent_request import AgentRunRequest
 from .assembly import RuntimeAssembly, RuntimeAssemblyProfile, assemble_runtime, build_runtime_assembly_profile
 from .compiler import RuntimeCompilationResult, RuntimeCompiler
 from .envelope import RuntimeEnvelope
@@ -11,7 +10,6 @@ from .services import AgentRuntimeServices, TaskExecutorServices
 from .single_agent_host import SingleAgentRuntimeHost
 
 __all__ = [
-    "AgentRunRequest",
     "AgentRuntimeServices",
     "TaskExecutorServices",
     "SingleAgentRuntimeHost",

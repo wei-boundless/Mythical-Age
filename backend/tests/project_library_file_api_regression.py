@@ -6,7 +6,7 @@ from task_system.projects.project_file_service import ProjectFileService
 
 
 def test_project_file_service_reads_project_artifact_repository(tmp_path: Path) -> None:
-    artifact = tmp_path / "storage" / "task_projects" / "project.creation.writing.honghuang" / "artifacts" / "honghuang-era-restart" / "project_brief.md"
+    artifact = tmp_path / "storage" / "task_environments" / "creation" / "writing" / "artifacts" / "honghuang-era-restart" / "project_brief.md"
     artifact.parent.mkdir(parents=True)
     artifact.write_text("Honghuang project brief", encoding="utf-8")
 
@@ -17,7 +17,7 @@ def test_project_file_service_reads_project_artifact_repository(tmp_path: Path) 
     assert tree["project_id"] == "project.creation.writing.honghuang"
     assert tree["library_id"] == "library.project.creation.writing.honghuang"
     assert file_payload["content"] == "Honghuang project brief"
-    assert file_payload["metadata"]["project_root_ref"] == "project://artifacts"
+    assert file_payload["metadata"]["project_root_ref"] == "environment://artifacts"
 
 
 def test_project_file_service_rejects_traversal_and_project_external_repository(tmp_path: Path) -> None:

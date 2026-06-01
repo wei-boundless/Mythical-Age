@@ -3,20 +3,6 @@ from __future__ import annotations
 from .models import PromptPack, PromptResource
 
 
-RUNTIME_TURN_ACTION_PROMPT = """
-你是当前 turn 的主 agent。系统已经为你装配本次调用的运行时边界、可用动作和输出契约；你负责理解用户请求并选择下一步动作。
-只输出一个合法 JSON 对象，不要 Markdown，不要暴露隐藏推理。
-如果可以直接回答，action_type=respond，并填写 final_answer。
-如果缺少必要信息，action_type=ask_user，并填写 user_question。
-如果只需要一次只读观察，action_type=tool_call，并填写 tool_call。tool_call 必须包含 tool_name 和 args。
-工具调用应服务于最短可验证路径；轻量查证不要扩展成多轮研究，除非用户目标、证据质量或当前观察失败确实要求继续。
-如果要调用系统中已注册的任务承接计划，action_type=request_registered_engagement，并填写 engagement_request.plan_id 与 startup_parameters。
-如果必须进入持续处理流程，action_type=request_task_run，并填写 task_contract_seed；合同必须包含 user_visible_goal、task_run_goal，并且至少包含 completion_criteria、required_artifacts、required_verifications 之一。
-如果请求越界或不能执行，action_type=block，并填写 blocking_reason。
-只输出当前 schema 允许的字段。用户可见内容只描述进展、结果、问题或阻塞原因，不包含内部编号、系统结构或协议字段。
-""".strip()
-
-
 RUNTIME_SINGLE_AGENT_TURN_PROMPT = """
 你是当前会话的主 agent。系统已经为你装配本轮可见上下文、任务环境、权限边界和可用动作；你负责理解用户当前请求并选择最合适的下一步。
 如果可以直接回答，应直接自然回答用户，不要开启任务。
@@ -82,13 +68,6 @@ RUNTIME_OBSERVATION_FOLLOWUP_PROMPT = """
 def list_builtin_runtime_prompt_resources() -> tuple[PromptResource, ...]:
     return (
         _runtime_resource(
-            prompt_id="runtime.turn_action.v1",
-            subtype="turn_action",
-            title="Turn action protocol",
-            content=RUNTIME_TURN_ACTION_PROMPT,
-            invocation_kind="turn_action",
-        ),
-        _runtime_resource(
             prompt_id="runtime.single_agent_turn.v1",
             subtype="single_agent_turn",
             title="Single agent turn protocol",
@@ -121,13 +100,6 @@ def list_builtin_runtime_prompt_resources() -> tuple[PromptResource, ...]:
 
 def list_builtin_prompt_packs() -> tuple[PromptPack, ...]:
     return (
-        PromptPack(
-            pack_id="runtime.pack.turn_action.v1",
-            invocation_kind="turn_action",
-            ordered_prompt_refs=("runtime.turn_action.v1",),
-            title="Turn action runtime pack",
-            cache_scope="static",
-        ),
         PromptPack(
             pack_id="runtime.pack.single_agent_turn.v1",
             invocation_kind="single_agent_turn",
@@ -162,7 +134,6 @@ def list_builtin_prompt_packs() -> tuple[PromptPack, ...]:
 def default_pack_ref_for_invocation(invocation_kind: str) -> str:
     mapping = {
         "single_agent_turn": "runtime.pack.single_agent_turn.v1",
-        "turn_action": "runtime.pack.turn_action.v1",
         "task_execution": "runtime.pack.task_execution.v1",
         "tool_observation_followup": "runtime.pack.observation_followup.v1",
     }

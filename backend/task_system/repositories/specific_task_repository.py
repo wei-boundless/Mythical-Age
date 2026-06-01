@@ -41,7 +41,9 @@ class SpecificTaskRepository:
             [
                 item
                 for item in list(payload.get("specific_task_records") or [])
-                if isinstance(item, dict) and not self.removed_config_predicate(item)
+                if isinstance(item, dict)
+                and str(item.get("task_id") or "").strip() not in deleted_task_ids
+                and not self.removed_config_predicate(item)
             ],
             key="task_id",
         )

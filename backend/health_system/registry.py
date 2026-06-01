@@ -5,7 +5,6 @@ from pathlib import Path
 from typing import Any
 
 from project_layout import ProjectLayout
-from harness.runtime import AgentRunRequest
 
 from .command_builder import HealthCommandBuilder
 from .command_service import HealthCommandService
@@ -326,148 +325,17 @@ class HealthRegistry:
                 "reason": preview.get("reason") or "health agent run preview is not ready",
                 "preview": preview,
             }
-
-        issue = self.get_issue(issue_id)
-        if issue is None:
-            raise KeyError(issue_id)
-        flow = dict(preview.get("flow") or {})
-        binding = dict(preview.get("binding") or {})
-        task_selection = _build_health_runtime_task_selection(
-            issue=issue.to_dict(),
-            health_action=health_action,
-            user_message=user_message,
-            source=source,
-        )
-        task_id = f"task.health.{health_action}:{issue_id}:{int(time.time() * 1000)}"
-        task_request = HealthTaskRequest(
-            request_id=f"health-task-request:{health_action}:{issue_id}:{int(time.time() * 1000)}",
-            issue_id=issue_id,
-            task_kind=health_action,
-            task_id=task_id,
-            flow_id=str(flow.get("flow_id") or ""),
-            required_evidence_refs=tuple(
-                item
-                for item in (
-                    issue.conversation_ref,
-                    *issue.runtime_trace_refs,
-                    *issue.prompt_manifest_refs,
-                    *issue.memory_refs,
-                    *issue.assertion_refs,
-                )
-                if str(item or "").strip()
-            ),
-            requested_by=source,
-            created_at=time.time(),
-            metadata={
-                "session_id": session_id or HEALTH_SESSION_ID,
-                "selected_task_id": task_selection["selected_task_id"],
-                "execution_owner": "AgentRuntime.run_stream",
-            },
-        )
-        self.store.upsert_task_request(task_request)
-
-        final_event: dict[str, Any] = {}
-        runtime_events: list[dict[str, Any]] = []
-        started_task_run: dict[str, Any] = {}
-        async for event in agent_runtime.run_stream(
-            AgentRunRequest(
-                session_id=session_id or HEALTH_SESSION_ID,
-                turn_id=f"turn:{session_id or HEALTH_SESSION_ID}:health:{int(time.time() * 1000)}",
-                task_id=task_id,
-                user_message=_build_health_runtime_user_message(
-                    issue=issue.to_dict(),
-                    health_action=health_action,
-                    user_message=user_message,
-                ),
-                history=[],
-                source=source,
-                model_response_executor=model_response_executor,
-                task_selection=task_selection,
-                tool_runtime_executor=tool_runtime_executor,
-                tool_instances=list(tool_instances or []),
-            )
-        ):
-            item = dict(event or {})
-            if item.get("type") in {"harness_run_started", "task_run_lifecycle_started"}:
-                started_task_run = dict(item.get("task_run") or {})
-            if item.get("type") in {"runtime_loop_event", "task_run_lifecycle_event"}:
-                runtime_events.append(dict(item.get("event") or {}))
-            if item.get("type") in {"done", "error"}:
-                final_event = item
-
-        task_run_id = str(started_task_run.get("task_run_id") or "")
-        if not task_run_id:
-            raise RuntimeError("Health agent runtime did not emit harness_run_started")
-        finished_task_run = agent_runtime.get_task_run(task_run_id)
-        if finished_task_run is None:
-            raise RuntimeError(f"TaskRun missing from RuntimeStateIndex: {task_run_id}")
-
-        final_content = str(final_event.get("content") or final_event.get("error") or "").strip()
-        status = str(finished_task_run.status or ("failed" if final_event.get("type") == "error" else "completed"))
-        terminal_reason = str(finished_task_run.terminal_reason or final_event.get("terminal_reason") or "")
-        result_ref = f"health-result:{task_run_id}"
-        task_result = dict(final_event.get("task_result") or {})
-        result_payload = {
-            "result_ref": result_ref,
-            "issue_id": issue_id,
-            "task_run_id": task_run_id,
-            "health_action": health_action,
-            "output_contract_id": str(flow.get("output_contract_id") or ""),
-            "content": final_content,
-            "task_result": task_result,
-            "created_at": time.time(),
-            "authority": "health_system.agent_result",
-        }
-        self._append_agent_result(result_payload)
-        trace = agent_runtime.get_trace(task_run_id, include_payloads=True, include_model_messages=False)
-        checkpoint_ref = str(finished_task_run.latest_checkpoint_ref or "")
-        health_run = HealthAgentRun(
-            run_id=f"health-run:{task_run_id}",
-            request_id=task_request.request_id,
-            issue_id=issue_id,
-            task_run_id=task_run_id,
-            agent_id=str(finished_task_run.agent_id or ""),
-            agent_profile_id=str(finished_task_run.agent_profile_id or ""),
-            runtime_lane=str(finished_task_run.runtime_lane or ""),
-            health_action=health_action,
-            workflow_id=str(binding.get("workflow_id") or ""),
-            admission_status="accepted",
-            projection_id=str(dict(finished_task_run.diagnostics or {}).get("projection_ref") or ""),
-            prompt_manifest_id=str(dict(finished_task_run.diagnostics or {}).get("prompt_manifest_ref") or ""),
-            status=status,
-            terminal_reason=terminal_reason,
-            blocked_reasons=((terminal_reason,) if status == "blocked" and terminal_reason else ()),
-            report_refs=(),
-            trace_refs=(task_run_id,),
-            artifact_refs=tuple(item for item in (result_ref, checkpoint_ref) if item),
-            result_ref=result_ref,
-            created_at=float(finished_task_run.created_at or time.time()),
-            metadata={
-                "source": source,
-                "flow_id": str(flow.get("flow_id") or ""),
-                "selected_task_id": task_selection["selected_task_id"],
-                "task_agent_binding_ref": str(binding.get("binding_id") or ""),
-                "runtime_execution_owner": "AgentRuntime.run_stream",
-                "configuration_source": "task_system_orchestration_config",
-                "checkpoint_ref": checkpoint_ref,
-                "latest_event_offset": finished_task_run.latest_event_offset,
-                "event_count": agent_runtime.event_count(task_run_id),
-                "final_content_chars": len(final_content),
-            },
-        )
-        self._upsert_agent_run(health_run)
         return {
             "authority": "health_system.agent_run_projection",
-            "status": status,
-            "health_agent_run": health_run.to_dict(),
-            "task_request": task_request.to_dict(),
-            "task_run": finished_task_run.to_dict(),
-            "events": runtime_events,
-            "trace": trace,
-            "issue": issue.to_dict(),
-            "flow": flow,
-            "binding": binding,
-            "result": result_payload,
+            "status": "blocked",
+            "reason": "health_agent_execution_not_migrated_to_single_agent_task_lifecycle",
+            "blocked_reasons": ("health_agent_execution_not_migrated_to_single_agent_task_lifecycle",),
+            "health_agent_run": {},
+            "result": {
+                "content": "健康 agent 执行入口尚未迁移到当前单 agent 任务生命周期，系统已按 fail-closed 停止执行。",
+                "authority": "health_system.agent_result",
+            },
+            "preview": preview,
         }
 
     def _complete_command(

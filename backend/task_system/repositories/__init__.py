@@ -9,11 +9,13 @@ from .assignment_repository import AssignmentRepository
 from .assembly_config_repository import TaskAssemblyConfigRepository
 from .project_instance_repository import ProjectInstanceRepository
 from .project_library_manifest_repository import ProjectLibraryManifestRepository
+from .project_lifecycle_run_repository import ProjectLifecycleRunRepository
 
 __all__ = [
     "AssignmentRepository",
     "ProjectInstanceRepository",
     "ProjectLibraryManifestRepository",
+    "ProjectLifecycleRunRepository",
     "TaskAssemblyConfigRepository",
     "FlowRepository",
     "GraphHarnessConfigRepository",

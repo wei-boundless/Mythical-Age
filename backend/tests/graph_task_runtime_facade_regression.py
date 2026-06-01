@@ -10,7 +10,7 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-from harness import AgentHarness, GraphHarness
+from harness import GraphHarness
 from harness.graph.models import NodeResultEnvelope, stable_safe_id
 from harness.loop.task_executor import recover_interrupted_task_executors
 from runtime.shared.models import TaskRun
@@ -137,9 +137,7 @@ def _runtime_object_payload(runtime: QueryRuntime, ref: str) -> dict:
 def test_query_runtime_exposes_graph_harness_facade() -> None:
     runtime = _runtime()
 
-    assert isinstance(runtime.agent_harness, AgentHarness)
     assert isinstance(runtime.graph_harness, GraphHarness)
-    assert runtime.runtime_components["agent_harness"] == "active"
     assert runtime.runtime_components["graph_harness"] == "active"
     assert not hasattr(runtime.graph_harness.graph_loop, "_engine")
     assert hasattr(runtime.graph_harness, "get_graph_run_monitor")

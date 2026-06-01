@@ -34,7 +34,7 @@ def test_prompt_accounting_ledger_records_prediction_provider_usage_and_cache(tm
         {"role": "system", "content": "你是一名可靠的执行代理。"},
         {"role": "user", "content": "hello"},
     ]
-    segment_plan = _segment_plan("packet:test", "turn_action", messages, ("cacheable_prefix", "volatile"))
+    segment_plan = _segment_plan("packet:test", "single_agent_turn", messages, ("cacheable_prefix", "volatile"))
     segment_map = CanonicalPromptSerializer().build_segment_map(
         request_id="modelreq:test",
         session_id="session:test",
@@ -247,7 +247,11 @@ def test_task_execution_packet_places_stable_contract_before_volatile_state() ->
     assert "observations" in current_state_content
     stable_payload = json.loads(messages[1]["content"].split("\n", 1)[1])
     volatile_payload = json.loads(current_state_content.split("\n", 1)[1])
-    assert stable_payload["task_run"] == {"authority": "orchestration.task_run"}
+    runtime_boundary_content = _message_content_with_title(result.packet, "Task execution runtime boundary")
+    assert "Task run stable context" in runtime_boundary_content
+    runtime_task_context = json.loads(runtime_boundary_content.split("Task run stable context\n", 1)[1].split("\n\nTask execution runtime boundary", 1)[0])
+    assert runtime_task_context == {"authority": "orchestration.task_run"}
+    assert "task_run" not in stable_payload
     assert "graph_run_id" not in messages[1]["content"]
     assert "task_run_id" not in messages[1]["content"]
     assert stable_payload["tool_catalog_hash"].startswith("sha256:")
@@ -454,13 +458,12 @@ def test_model_request_and_segment_map_canonical_hash_ignore_diagnostic_metadata
 
 
 def test_runtime_prompt_uses_assembly_projection_not_mode_instruction() -> None:
-    result = RuntimeCompiler().compile_turn_action_packet(
+    result = RuntimeCompiler().compile_single_agent_turn_packet(
         session_id="session:projection",
         turn_id="turn:projection",
         agent_invocation_id="aginvoke:projection",
         user_message="请帮我做一个需要交付物的小工具",
         history=[],
-        available_tools=[{"tool_name": "write_file", "description": "写入文件"}],
         runtime_assembly={
             "profile": {
                 "profile_ref": "main_interactive_agent",
@@ -478,12 +481,16 @@ def test_runtime_prompt_uses_assembly_projection_not_mode_instruction() -> None:
             "operation_authorization": {
                 "allowed_operations": ["op.model_response", "op.write_file"],
             },
+            "control_capabilities": {
+                "may_request_task_run": True,
+                "may_control_active_work": False,
+            },
         },
     )
 
     model_input = _model_input_text(result.packet)
     stable_payload = json.loads(result.packet.model_messages[1]["content"].split("\n", 1)[1])
-    dynamic_payload = _payload_after_title(_message_content_with_title(result.packet, "Turn action dynamic runtime"), "Turn action dynamic runtime")
+    dynamic_payload = _payload_after_title(_message_content_with_title(result.packet, "Single agent turn dynamic runtime"), "Single agent turn dynamic runtime")
     projection = dynamic_payload["runtime_context"]["agent_visible_runtime_projection"]
 
     assert "当前 runtime 是 professional 模式" not in model_input
@@ -500,7 +507,7 @@ def test_runtime_prompt_uses_assembly_projection_not_mode_instruction() -> None:
 
 
 def test_runtime_projection_blocks_task_run_without_mode_instruction_text() -> None:
-    result = RuntimeCompiler().compile_turn_action_packet(
+    result = RuntimeCompiler().compile_single_agent_turn_packet(
         session_id="session:conversation-projection",
         turn_id="turn:conversation-projection",
         agent_invocation_id="aginvoke:conversation-projection",
@@ -514,12 +521,16 @@ def test_runtime_projection_blocks_task_run_without_mode_instruction_text() -> N
             },
             "task_environment": {"environment_id": "env.general.workspace"},
             "operation_authorization": {"allowed_operations": ["op.model_response"]},
+            "control_capabilities": {
+                "may_request_task_run": False,
+                "may_control_active_work": False,
+            },
         },
     )
 
     model_input = _model_input_text(result.packet)
     stable_payload = json.loads(result.packet.model_messages[1]["content"].split("\n", 1)[1])
-    dynamic_payload = _payload_after_title(_message_content_with_title(result.packet, "Turn action dynamic runtime"), "Turn action dynamic runtime")
+    dynamic_payload = _payload_after_title(_message_content_with_title(result.packet, "Single agent turn dynamic runtime"), "Single agent turn dynamic runtime")
     projection = dynamic_payload["runtime_context"]["agent_visible_runtime_projection"]
 
     assert "当前 runtime 是 role 模式" not in model_input

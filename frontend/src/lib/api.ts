@@ -1157,6 +1157,19 @@ export type ProjectRepositoryBinding = {
   metadata?: Record<string, unknown>;
 };
 
+export type ProjectLifecycleActionSpec = {
+  action_id: string;
+  title: string;
+  operation: string;
+  description?: string;
+  enabled: boolean;
+  requires_confirmation: boolean;
+  selectors?: Record<string, unknown>;
+  safeguards?: Record<string, unknown>;
+  metadata?: Record<string, unknown>;
+  authority?: string;
+};
+
 export type ProjectLibraryManifest = {
   library_id: string;
   project_id: string;
@@ -1165,6 +1178,7 @@ export type ProjectLibraryManifest = {
   schema_version: string;
   template_id?: string;
   repositories: ProjectRepositoryBinding[];
+  lifecycle_actions?: ProjectLifecycleActionSpec[];
   indexes: Record<string, string>;
   migration_log: Array<Record<string, unknown>>;
   metadata?: Record<string, unknown>;
@@ -1227,6 +1241,42 @@ export type ProjectFilePayload = {
   path: string;
   content: string;
   metadata?: Record<string, unknown>;
+};
+
+export type ProjectLifecycleActionsPayload = {
+  authority: string;
+  project_id: string;
+  actions: ProjectLifecycleActionSpec[];
+  summary: Record<string, number>;
+};
+
+export type ProjectLifecyclePreviewPayload = {
+  authority: string;
+  project_id: string;
+  action: string;
+  action_spec?: ProjectLifecycleActionSpec;
+  preview: {
+    task_ids?: string[];
+    flow_ids?: string[];
+    counts?: Record<string, number>;
+    preserved?: Record<string, boolean>;
+    [key: string]: unknown;
+  };
+};
+
+export type ProjectLifecycleRunPayload = {
+  authority: string;
+  run: {
+    run_id: string;
+    project_id: string;
+    action: string;
+    status: string;
+    preview: Record<string, unknown>;
+    result: Record<string, unknown>;
+    created_at?: string;
+    updated_at?: string;
+    metadata?: Record<string, unknown>;
+  };
 };
 
 export type TaskEnvironmentTasksPayload = {
@@ -4625,6 +4675,10 @@ export async function getTaskSystemProjectRepositories(projectId: string) {
   return request<ProjectRepositoriesPayload>(`/tasks/projects/${encodeURIComponent(projectId)}/repositories`);
 }
 
+export async function getTaskSystemProjectLifecycleActions(projectId: string) {
+  return request<ProjectLifecycleActionsPayload>(`/tasks/projects/${encodeURIComponent(projectId)}/lifecycle-actions`);
+}
+
 export async function getTaskSystemProjectRepositoryTree(
   projectId: string,
   repositoryId: string,
@@ -4645,6 +4699,19 @@ export async function getTaskSystemProjectRepositoryFile(projectId: string, repo
   return request<ProjectFilePayload>(
     `/tasks/projects/${encodeURIComponent(projectId)}/repositories/${encodeURIComponent(repositoryId)}/files?${params.toString()}`
   );
+}
+
+export async function previewTaskSystemProjectLifecycle(projectId: string, action: string) {
+  return request<ProjectLifecyclePreviewPayload>(
+    `/tasks/projects/${encodeURIComponent(projectId)}/lifecycle-preview/${encodeURIComponent(action)}`
+  );
+}
+
+export async function startTaskSystemProjectLifecycleRun(projectId: string, payload: { action: string; execute?: boolean; metadata?: Record<string, unknown> }) {
+  return request<ProjectLifecycleRunPayload>(`/tasks/projects/${encodeURIComponent(projectId)}/lifecycle-runs`, {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
 }
 
 export async function upsertTaskSystemEnvironmentGroup(groupId: string, payload: TaskEnvironmentGroupUpsertPayload) {

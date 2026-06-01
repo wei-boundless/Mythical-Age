@@ -6,6 +6,7 @@ __all__ = [
     "ProjectInstance",
     "ProjectFileService",
     "ProjectLibraryManifest",
+    "ProjectLifecycleService",
 ]
 
 
@@ -22,4 +23,8 @@ def __getattr__(name: str) -> Any:
         from .project_file_service import ProjectFileService
 
         return ProjectFileService
+    if name == "ProjectLifecycleService":
+        from .project_lifecycle_service import ProjectLifecycleService
+
+        return ProjectLifecycleService
     raise AttributeError(name)

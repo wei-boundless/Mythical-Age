@@ -55,12 +55,15 @@ class TaskAssemblyConfigRepository:
             *[self.default_flow_contract_binding_from_specific_record(item).to_dict() for item in self.list_specific_task_records()],
         ]
         payload = self.storage.read_object("task_flow_contract_bindings.json", {"flow_contract_bindings": default_bindings})
+        deleted_task_ids = self._deleted_specific_task_ids()
         merged_payload = merge_items_by_key(
-            default_bindings,
+            [item for item in default_bindings if str(item.get("task_id") or "").strip() not in deleted_task_ids],
             [
                 item
                 for item in list(payload.get("flow_contract_bindings") or [])
-                if isinstance(item, dict) and not self.removed_config_predicate(item)
+                if isinstance(item, dict)
+                and str(item.get("task_id") or "").strip() not in deleted_task_ids
+                and not self.removed_config_predicate(item)
             ],
             key="binding_id",
         )
@@ -114,12 +117,15 @@ class TaskAssemblyConfigRepository:
         ]
         default_plans = [self.default_execution_policy(item).to_dict() for item in default_tasks]
         payload = self.storage.read_object("task_execution_policies.json", {"execution_policies": default_plans})
+        deleted_task_ids = self._deleted_specific_task_ids()
         merged_payload = merge_default_overlay_by_key(
-            default_plans,
+            [item for item in default_plans if str(item.get("task_id") or "").strip() not in deleted_task_ids],
             [
                 item
                 for item in list(payload.get("execution_policies") or [])
-                if isinstance(item, dict) and not self.removed_config_predicate(item)
+                if isinstance(item, dict)
+                and str(item.get("task_id") or "").strip() not in deleted_task_ids
+                and not self.removed_config_predicate(item)
             ],
             key="policy_id",
         )
@@ -179,12 +185,15 @@ class TaskAssemblyConfigRepository:
             *[self.default_memory_request_profile_from_specific_record(item).to_dict() for item in self.list_specific_task_records()],
         ]
         payload = self.storage.read_object("task_memory_request_profiles.json", {"memory_request_profiles": default_profiles})
+        deleted_task_ids = self._deleted_specific_task_ids()
         merged_payload = merge_items_by_key(
-            default_profiles,
+            [item for item in default_profiles if str(item.get("task_id") or "").strip() not in deleted_task_ids],
             [
                 item
                 for item in list(payload.get("memory_request_profiles") or [])
-                if isinstance(item, dict) and not self.removed_config_predicate(item)
+                if isinstance(item, dict)
+                and str(item.get("task_id") or "").strip() not in deleted_task_ids
+                and not self.removed_config_predicate(item)
             ],
             key="profile_id",
         )
@@ -251,6 +260,14 @@ class TaskAssemblyConfigRepository:
             "task_memory_request_profiles.json",
             {"memory_request_profiles": [item.to_dict() for item in self.list_memory_request_profiles() if item.task_id not in targets]},
         )
+
+    def _deleted_specific_task_ids(self) -> set[str]:
+        payload = self.storage.read_object("specific_task_records.json", {"deleted_task_ids": []})
+        return {
+            str(item).strip()
+            for item in list(payload.get("deleted_task_ids") or [])
+            if str(item).strip()
+        }
 
 
 def _flow_contract_binding_from_dict(item: dict[str, object]) -> TaskFlowContractBinding:

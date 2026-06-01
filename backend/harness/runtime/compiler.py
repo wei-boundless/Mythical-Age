@@ -65,9 +65,13 @@ class RuntimeCompiler:
             control_capabilities=control_capabilities,
             active_work_context=active_work_context,
         )
+        effective_control_capabilities = _single_agent_turn_effective_control_capabilities(
+            control_capabilities=control_capabilities,
+            allowed_actions=allowed_actions,
+        )
         output_contract = _single_agent_turn_output_contract(
             allowed_actions=allowed_actions,
-            control_capabilities=control_capabilities,
+            control_capabilities=effective_control_capabilities,
         )
         agent_visible_runtime_projection = _agent_visible_runtime_projection(
             invocation_kind="single_agent_turn",
@@ -103,7 +107,7 @@ class RuntimeCompiler:
                 "agent_invocation_id": agent_invocation_id,
                 "model_selection": dict(model_selection or {}),
                 "runtime_assembly_id": str(assembly_payload.get("assembly_id") or ""),
-                "control_capabilities": dict(control_capabilities),
+                "control_capabilities": dict(effective_control_capabilities),
             },
         )
         prompt_assembly = self._assemble_prompt_pack(
@@ -133,7 +137,7 @@ class RuntimeCompiler:
         soul_instruction = _soul_instruction(soul_role_prompt)
         skill_candidate_instruction = _skill_candidate_instruction(assembly_payload)
         stable_payload = {
-            "control_capabilities": dict(control_capabilities),
+            "control_capabilities": dict(effective_control_capabilities),
             "task_environment": _environment_model_visible_payload(environment_payload),
             "output_contract": output_contract,
         }
@@ -261,241 +265,8 @@ class RuntimeCompiler:
                 "prompt_manifest": prompt_manifest,
                 "segment_plan": segment_plan.to_dict(),
                 "model_input_authority": "runtime_invocation_packet.model_messages",
-                "control_capabilities": dict(control_capabilities),
+                "control_capabilities": dict(effective_control_capabilities),
                 "active_work_context_present": bool(active_work_context),
-            },
-        )
-        return RuntimeCompilationResult(envelope=envelope, packet=packet)
-
-    def compile_turn_action_packet(
-        self,
-        *,
-        session_id: str,
-        turn_id: str,
-        agent_invocation_id: str,
-        user_message: str,
-        history: list[dict[str, Any]],
-        session_context: dict[str, Any] | None = None,
-        task_selection: dict[str, Any] | None = None,
-        agent_profile_ref: str = "main_interactive_agent",
-        model_selection: dict[str, Any] | None = None,
-        available_tools: list[dict[str, Any]] | tuple[dict[str, Any], ...] | None = None,
-        runtime_assembly: Any | None = None,
-    ) -> RuntimeCompilationResult:
-        assembly_payload = runtime_assembly.to_dict() if hasattr(runtime_assembly, "to_dict") else dict(runtime_assembly or {})
-        self._bind_assembly_base_dir(assembly_payload)
-        profile_payload = dict(assembly_payload.get("profile") or {})
-        environment_payload = dict(assembly_payload.get("task_environment") or {})
-        agent_profile_ref = str(agent_profile_ref or assembly_payload.get("agent_profile_ref") or "main_interactive_agent")
-        task_environment_ref = str(environment_payload.get("environment_id") or "env.general.workspace")
-        runtime_policy = {
-            "planning_policy": dict(profile_payload.get("planning_policy") or {}),
-            "task_lifecycle_policy": dict(profile_payload.get("task_lifecycle_policy") or {}),
-            "soul_prompt_policy": dict(profile_payload.get("soul_prompt_policy") or {}),
-        }
-        permission_policy = dict(profile_payload.get("permission_policy") or {"permission_scope": "action_request_only"})
-        permission_policy.setdefault("permission_scope", str(permission_policy.get("scope") or "action_request_only"))
-        prompt_pack_refs = _prompt_pack_refs_for_invocation(profile_payload, invocation_kind="turn_action")
-        soul_role_prompt = dict(assembly_payload.get("soul_role_prompt") or {})
-        tool_payloads = tuple(dict(item) for item in list(available_tools or []) if isinstance(item, dict))
-        agent_visible_runtime_projection = _agent_visible_runtime_projection(
-            invocation_kind="turn_action",
-            allowed_action_types=("respond", "ask_user", "tool_call", "request_task_run", "request_registered_engagement", "block"),
-            profile_payload=profile_payload,
-            environment_payload=environment_payload,
-            operation_authorization=dict(assembly_payload.get("operation_authorization") or {}),
-            available_tools=tool_payloads,
-        )
-        envelope = RuntimeEnvelope(
-            envelope_id=f"rtenv:{turn_id}:turn",
-            scope_kind="turn",
-            session_id=session_id,
-            turn_id=turn_id,
-            agent_profile_ref=agent_profile_ref,
-            task_environment_ref=task_environment_ref,
-            runtime_policy=runtime_policy,
-            sandbox_policy=dict(environment_payload.get("sandbox_policy") or {}),
-            file_policy={
-                "file_management": dict(environment_payload.get("file_management") or {}),
-                "file_access_tables": list(environment_payload.get("file_access_tables") or []),
-            },
-            artifact_policy=dict(environment_payload.get("artifact_policy") or {}),
-            permission_policy=permission_policy,
-            prompt_policy={"invocation_kind": "turn_action"},
-            output_policy={"format": "model_action_request_json"},
-            diagnostics={
-                "agent_invocation_id": agent_invocation_id,
-                "model_selection": dict(model_selection or {}),
-                "runtime_assembly_id": str(assembly_payload.get("assembly_id") or ""),
-            },
-        )
-        schema = model_action_request_schema(turn_id)
-        prompt_assembly = self._assemble_prompt_pack(
-            invocation_kind="turn_action",
-            prompt_pack_refs=prompt_pack_refs,
-            agent_profile_ref=agent_profile_ref,
-            task_environment_ref=task_environment_ref,
-        )
-        agent_prompt_assembly = self._assemble_prompt_refs(
-            invocation_kind="agent_profile",
-            prompt_refs=_string_tuple(assembly_payload.get("agent_prompt_refs")),
-            agent_profile_ref=agent_profile_ref,
-            task_environment_ref=task_environment_ref,
-        )
-        environment_prompt_assembly = self._assemble_prompt_refs(
-            invocation_kind="environment",
-            prompt_refs=_string_tuple(assembly_payload.get("environment_prompt_refs")),
-            agent_profile_ref=agent_profile_ref,
-            task_environment_ref=task_environment_ref,
-        )
-        runtime_instruction = _runtime_projection_instruction(agent_visible_runtime_projection)
-        environment_instruction = _environment_instruction(
-            environment_payload,
-            environment_prompt_assembly=environment_prompt_assembly,
-        )
-        agent_instruction = _agent_prompt_instruction(agent_prompt_assembly)
-        soul_instruction = _soul_instruction(soul_role_prompt)
-        skill_candidate_instruction = _skill_candidate_instruction(assembly_payload)
-        stable_payload = {
-            "schema": schema,
-            "task_environment": _environment_model_visible_payload(environment_payload),
-            "available_tools": _stable_tool_catalog_payload(tool_payloads),
-            "tool_catalog_hash": _stable_json_hash([dict(item) for item in tool_payloads]),
-        }
-        packet_id = f"rtpacket:{turn_id}:turn_action:1"
-        dynamic_context = self.dynamic_context_manager.project(
-            DynamicContextInput(
-                invocation_kind="turn_action",
-                session_id=session_id,
-                turn_id=turn_id,
-                history=tuple(dict(item) for item in list(history or []) if isinstance(item, dict)),
-                session_context=dict(session_context or {}),
-                runtime_assembly=assembly_payload,
-                runtime_envelope=envelope.to_dict(),
-                current_user_message=str(user_message or ""),
-                projection_policy={
-                    "agent_visible_runtime_projection": agent_visible_runtime_projection,
-                    "operation_authorization": dict(assembly_payload.get("operation_authorization") or {}),
-                },
-            )
-        )
-        dynamic_payload = dynamic_context.dynamic_runtime_projection
-        volatile_payload = dynamic_context.volatile_request_projection
-        model_messages, segment_plan = _model_messages_and_segment_plan(
-            packet_id=packet_id,
-            invocation_kind="turn_action",
-            specs=[
-                _message_spec(
-                    role="system",
-                    content=prompt_assembly.content,
-                    kind="global_static",
-                    source_ref=",".join(prompt_assembly.prompt_pack_refs),
-                    cache_scope="global",
-                    cache_role="cacheable_prefix",
-                    compression_role="preserve",
-                ),
-                _message_spec(
-                    role="system",
-                    content=_packet_payload_content("Turn action stable contract", stable_payload),
-                    kind="task_stable",
-                    source_ref="turn_action_stable_contract",
-                    cache_scope="session",
-                    cache_role="session_stable",
-                    compression_role="preserve",
-                ),
-                _message_spec(
-                    role="system",
-                    content=skill_candidate_instruction,
-                    kind="skill_candidates",
-                    source_ref="runtime_skill_candidates",
-                    cache_scope="session",
-                    cache_role="session_stable",
-                    compression_role="preserve",
-                ),
-                _message_spec(
-                    role="system",
-                    content=_join_prompt_sections(soul_instruction, agent_instruction),
-                    kind="agent_stable",
-                    source_ref=",".join(_string_tuple(assembly_payload.get("agent_prompt_refs"))),
-                    cache_scope="session",
-                    cache_role="session_stable",
-                    compression_role="preserve",
-                ),
-                _message_spec(
-                    role="system",
-                    content=environment_instruction,
-                    kind="environment_stable",
-                    source_ref=",".join(_string_tuple(assembly_payload.get("environment_prompt_refs"))),
-                    cache_scope="session",
-                    cache_role="session_stable",
-                    compression_role="preserve",
-                ),
-                _message_spec(
-                    role="system",
-                    content=_join_prompt_sections(
-                        runtime_instruction,
-                        _packet_payload_content("Turn action dynamic runtime", dynamic_payload),
-                    ),
-                    kind="dynamic_projection",
-                    source_ref="agent_visible_runtime_projection",
-                    cache_scope="none",
-                    cache_role="volatile",
-                    compression_role="summarize",
-                    metadata=_dynamic_context_segment_metadata(dynamic_context, source="runtime_delta"),
-                ),
-                _message_spec(
-                    role="user",
-                    content=_packet_payload_content("Turn action current request", volatile_payload),
-                    kind="volatile_user",
-                    source_ref="turn_action_current_request",
-                    cache_scope="none",
-                    cache_role="volatile",
-                    compression_role="summarize",
-                    metadata=_dynamic_context_segment_metadata(dynamic_context, source="current_request"),
-                ),
-            ],
-            enforce_dynamic_context_reports=True,
-        )
-        prompt_manifest = build_runtime_prompt_manifest(
-            invocation_kind="turn_action",
-            assembly=_merge_prompt_assemblies(
-                prompt_assembly,
-                agent_prompt_assembly,
-                environment_prompt_assembly,
-                invocation_kind="turn_action",
-            ),
-            packet_id=packet_id,
-            dynamic_projection_refs=("agent_visible_runtime_projection", "operation_authorization"),
-            volatile_state_refs=("runtime_envelope", "turn_id", "history", "user_message"),
-        ).to_dict()
-        prompt_manifest["segment_plan_ref"] = segment_plan.segment_plan_id
-        prompt_manifest["dynamic_context_report"] = dynamic_context.to_report_dict()
-        prompt_manifest["context_window"] = _context_window_report(
-            session_context=session_context,
-            history=history,
-            dynamic_context=dynamic_context,
-        )
-        _attach_model_message_metrics(prompt_manifest, model_messages=model_messages, segment_plan=segment_plan.to_dict())
-        packet = RuntimeInvocationPacket(
-            packet_id=packet_id,
-            envelope_ref=envelope.envelope_id,
-            invocation_kind="turn_action",
-            invocation_index=1,
-            session_id=session_id,
-            turn_id=turn_id,
-            model_messages=model_messages,
-            segment_plan=segment_plan.to_dict(),
-            prompt_pack_refs=prompt_assembly.prompt_pack_refs,
-            available_tools=tool_payloads,
-            allowed_action_types=("respond", "ask_user", "tool_call", "request_task_run", "request_registered_engagement", "block"),
-            output_contract={"schema": schema, "format": "json_object"},
-            hidden_control_refs={"agent_invocation_id": agent_invocation_id, "runtime_assembly_id": str(assembly_payload.get("assembly_id") or "")},
-            context_refs=dynamic_context.context_refs,
-            artifact_refs=dynamic_context.artifact_refs,
-            diagnostics={
-                "prompt_manifest": prompt_manifest,
-                "segment_plan": segment_plan.to_dict(),
-                "model_input_authority": "runtime_invocation_packet.model_messages",
             },
         )
         return RuntimeCompilationResult(envelope=envelope, packet=packet)
@@ -626,8 +397,7 @@ class RuntimeCompiler:
             "available_tools": _stable_tool_catalog_payload(tool_payloads),
             "tool_catalog_hash": _stable_json_hash([dict(item) for item in tool_payloads]),
         }
-        if task_run_context_enabled:
-            stable_payload["task_run"] = _task_run_stable_payload(task_run, graph_runtime_projection=graph_runtime_projection)
+        task_run_stable_context = _task_run_stable_payload(task_run, graph_runtime_projection=graph_runtime_projection) if task_run_context_enabled else {}
         packet_id = f"rtpacket:{task_run_id}:task_execution:{executor_epoch}:{invocation_index}"
         dynamic_context = self.dynamic_context_manager.project(
             DynamicContextInput(
@@ -711,6 +481,7 @@ class RuntimeCompiler:
                     role="system",
                     content=_join_prompt_sections(
                         runtime_instruction,
+                        _packet_payload_content("Task run stable context", task_run_stable_context),
                         _packet_payload_content("Task execution runtime boundary", dynamic_payload),
                     ),
                     kind="dynamic_projection",
@@ -1210,6 +981,24 @@ def _single_agent_turn_allowed_actions(
     return tuple(dict.fromkeys(actions))
 
 
+def _single_agent_turn_effective_control_capabilities(
+    *,
+    control_capabilities: dict[str, Any],
+    allowed_actions: tuple[str, ...],
+) -> dict[str, Any]:
+    effective = dict(control_capabilities or {})
+    allowed = {str(item) for item in allowed_actions if str(item)}
+    effective["authority"] = "harness.runtime.single_agent_turn_control_capabilities"
+    effective["may_call_tools"] = False
+    effective["may_use_subagents"] = False
+    effective["requires_json_action_protocol"] = False
+    effective["visible_tool_count"] = 0
+    effective["may_request_task_run"] = "request_task_run" in allowed
+    effective["may_control_active_work"] = "active_work_control" in allowed
+    effective.setdefault("may_emit_assistant_message", True)
+    return effective
+
+
 def _single_agent_turn_output_contract(
     *,
     allowed_actions: tuple[str, ...],
@@ -1598,6 +1387,18 @@ def _agent_visible_runtime_projection(
         for item in available_tools
         if str(item.get("tool_name") or item.get("name") or "")
     ]
+    visible_tool_name_set = {name for name in tool_names if name}
+    subagent_lifecycle_enabled = bool(subagent.get("enabled") is True) and bool(
+        visible_tool_name_set.intersection(
+            {
+                "spawn_subagent",
+                "send_subagent_message",
+                "wait_subagent",
+                "list_subagents",
+                "close_subagent",
+            }
+        )
+    )
     task_run_allowed = "request_task_run" in allowed_action_types and task_lifecycle.get("request_task_run") is not False
     return {
         "authority": "harness.runtime.agent_visible_runtime_projection",
@@ -1627,7 +1428,7 @@ def _agent_visible_runtime_projection(
             "visible_tool_names": tool_names,
             "allowed_operation_count": len(allowed_operations),
             "tools_are_limited_to_visible_context": True,
-            "subagent_lifecycle_enabled": bool(subagent.get("enabled") is True),
+            "subagent_lifecycle_enabled": subagent_lifecycle_enabled,
             "allowed_subagent_ids": [str(item) for item in list(subagent.get("allowed_subagent_ids") or []) if str(item)],
         },
         "permission_boundary": {

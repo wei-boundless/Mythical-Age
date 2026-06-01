@@ -325,9 +325,9 @@ class QueryRuntime:
                     "turn_response_policy": str(control_payload.get("turn_response_policy") or ""),
                     "user_turn_kind": str(control_payload.get("user_turn_kind") or ""),
                     "answer_obligation": str(control_payload.get("answer_obligation") or ""),
-                    "confidence": control_payload.get("confidence") or 1.0,
-                    "relation_to_current_work": str(control_payload.get("relation_to_current_work") or "current_work"),
-                    "evidence": str(control_payload.get("evidence") or "single agent native active work control"),
+                    "confidence": control_payload.get("confidence") or 0.0,
+                    "relation_to_current_work": str(control_payload.get("relation_to_current_work") or ""),
+                    "evidence": str(control_payload.get("evidence") or ""),
                 },
                 user_message=request.message,
             )
@@ -614,11 +614,13 @@ class QueryRuntime:
                 turn_id=turn_id,
             )
             if result.get("ok"):
-                self._schedule_active_task_run_executor(
+                schedule_result = self._schedule_active_task_run_executor(
                     context.task_run_id,
                     scheduler="conversation_continue",
                     turn_id=turn_id,
                 )
+                if not schedule_result.get("ok"):
+                    return _active_work_schedule_failure_reply(schedule_result)
                 return default_response or "好，我接着处理。"
             return active_work_status_reply(build_active_work_context(host, session_id=context.session_id) or context)
         if strategy == "checkout_fork":
@@ -678,7 +680,9 @@ class QueryRuntime:
                 turn_id=turn_id,
             )
             if resume_result.get("ok"):
-                self._schedule_active_task_run_executor(context.task_run_id, scheduler=reason, turn_id=turn_id)
+                schedule_result = self._schedule_active_task_run_executor(context.task_run_id, scheduler=reason, turn_id=turn_id)
+                if not schedule_result.get("ok"):
+                    return _active_work_schedule_failure_reply(schedule_result)
                 return default_response
             return active_work_status_reply(build_active_work_context(host, session_id=context.session_id) or context)
         checkout_result = checkout_task_run_for_resume(
@@ -693,7 +697,9 @@ class QueryRuntime:
         child = dict(checkout_result.get("task_run") or {})
         child_task_run_id = str(child.get("task_run_id") or "")
         if child_task_run_id:
-            self._schedule_active_task_run_executor(child_task_run_id, scheduler=reason, turn_id=turn_id)
+            schedule_result = self._schedule_active_task_run_executor(child_task_run_id, scheduler=reason, turn_id=turn_id)
+            if not schedule_result.get("ok"):
+                return _active_work_schedule_failure_reply(schedule_result)
         return default_response or "好，我会先检查上次中断处的现状，再接着处理。"
 
     def _schedule_active_task_run_executor(
@@ -1158,6 +1164,13 @@ def _mark_query_scheduled_task_failed(runtime_host: Any, *, task_run_id: str, er
             },
         )
     )
+
+
+def _active_work_schedule_failure_reply(result: dict[str, Any]) -> str:
+    reason = str(result.get("reason") or result.get("error") or "unknown").strip()
+    if not reason:
+        reason = "unknown"
+    return f"我已重新判断当前工作，但恢复调度没有成功：{reason}。我会保留当前断点，下一步需要先修复这个运行问题再继续。"
 
 
 def _permission_mode_provider(*, permission_service: Any | None, settings_service: Any | None):

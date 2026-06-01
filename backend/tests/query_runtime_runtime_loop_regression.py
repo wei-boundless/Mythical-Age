@@ -17,6 +17,7 @@ from runtime.shared.models import AgentRunResult, TaskRun
 from harness.loop.model_action_protocol import ModelActionRequest
 from harness.loop.task_executor import _tool_call_progress_summary
 from harness.loop.task_lifecycle import TaskLifecycleRecord, TaskRunContract
+from capability_system.tool_definitions import build_tool_instances, get_tool_definitions
 from tests.support.runtime_stubs import (
     NativeToolCallModelRuntimeStub,
     PrimarySettingsStub,
@@ -46,6 +47,12 @@ _VISIBLE_RUNTIME_INTERNAL_MARKERS = (
 def _assert_no_visible_runtime_internals(text: str) -> None:
     leaked = [marker for marker in _VISIBLE_RUNTIME_INTERNAL_MARKERS if marker in text]
     assert leaked == []
+
+
+def _packet_payload_after_title(content: str, title: str) -> dict[str, object]:
+    marker = title + "\n"
+    assert content.startswith(marker)
+    return json.loads(content[len(marker):])
 
 
 def _action_request(
@@ -175,6 +182,59 @@ def test_default_turn_routes_to_single_agent_turn_without_task_run() -> None:
     assert "single_agent_turn_started" in [str(event.get("type") or "") for event in events]
     traces = runtime.single_agent_runtime_host.list_session_traces("session-direct")
     assert traces["task_run_count"] == 0
+
+
+def test_single_agent_turn_projection_only_exposes_executable_native_actions() -> None:
+    class RecordingNativeTurnModelRuntime(NativeToolCallModelRuntimeStub):
+        def __init__(self) -> None:
+            super().__init__(content="直接回答。")
+            self.last_messages: list[dict[str, object]] = []
+
+        async def invoke_messages_with_tools(self, messages, tools, **kwargs):
+            self.last_messages = [dict(item) for item in list(messages or []) if isinstance(item, dict)]
+            return await super().invoke_messages_with_tools(messages, tools, **kwargs)
+
+    model = RecordingNativeTurnModelRuntime()
+    base_dir = Path(__file__).resolve().parents[1]
+    tool_instances = [tool for tool in build_tool_instances(base_dir) if getattr(tool, "name", "") == "read_file"]
+    definitions = [definition for definition in get_tool_definitions() if definition.name == "read_file"]
+    runtime = build_query_runtime(
+        base_dir=base_dir,
+        model_runtime=model,
+        tool_runtime=SimpleNamespace(
+            definitions=definitions,
+            instances=tool_instances,
+            get_definition=lambda name: next((definition for definition in definitions if definition.name == name), None),
+            get_instance=lambda name: next((tool for tool in tool_instances if getattr(tool, "name", "") == name), None),
+        ),
+    )
+
+    async def _collect() -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime.astream(QueryRequest(session_id="session-native-boundary", message="介绍一下项目。")):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_collect())
+    assembly = dict(next(event for event in events if event.get("type") == "runtime_assembly_compiled").get("runtime_assembly") or {})
+    start = dict(next(event for event in events if event.get("type") == "single_agent_turn_started"))
+    packet_tools = [str(dict(tool).get("name") or "") for tool in list(model.seen_tools[0] or [])]
+    stable_payload = _packet_payload_after_title(
+        str(model.last_messages[1].get("content") or ""),
+        "Single agent turn stable boundary",
+    )
+    effective_capabilities = dict(stable_payload.get("control_capabilities") or {})
+    model_input = "\n".join(str(message.get("content") or "") for message in model.last_messages)
+
+    assert dict(assembly.get("control_capabilities") or {}).get("may_call_tools") is True
+    assert packet_tools == ["request_task_run", "ask_user", "block"]
+    assert start.get("allowed_action_types") == ["respond", "ask_user", "block", "request_task_run"]
+    assert effective_capabilities.get("may_call_tools") is False
+    assert effective_capabilities.get("may_use_subagents") is False
+    assert effective_capabilities.get("requires_json_action_protocol") is False
+    assert "调用本次可见工具" not in model_input
+    assert "子 agent 协作" not in model_input
+    assert any(event.get("type") == "done" and str(event.get("content") or "") == "直接回答。" for event in events)
 
 
 def test_explicit_contract_task_starts_lifecycle_without_model_action_loop() -> None:
@@ -796,32 +856,24 @@ def test_legacy_json_action_text_is_treated_as_assistant_message() -> None:
 
 
 def test_task_executor_schedule_missing_callback_blocks_task_run() -> None:
-    from harness.loop.agent_loop import _schedule_task_executor
+    runtime = build_query_runtime()
+    task_run_id = _seed_active_work(runtime, task_run_id="taskrun:missing-scheduler")
 
-    runtime = build_query_runtime(
-        model_runtime=NativeToolCallModelRuntimeStub(
-            content="",
-            agent_turn_action_request=_action_request(
-                action_type="request_task_run",
-                task_contract_seed={"user_visible_goal": "需要调度。", "task_run_goal": "需要调度。", "completion_criteria": ["调度必须可观测"]},
-            )
-        )
-    )
+    async def _missing_executor(*_args, **_kwargs):
+        raise RuntimeError("task_executor_callback_unavailable")
 
-    async def _create_task() -> str:
-        task_run_id = ""
-        async for event in runtime.astream(QueryRequest(session_id="session-missing-scheduler", message="做一个任务。")):
-            if event.get("type") == "harness_run_started":
-                candidate = str(dict(event.get("task_run") or {}).get("task_run_id") or "")
-                if candidate.startswith("taskrun:"):
-                    task_run_id = candidate
-        return task_run_id
+    runtime.execute_task_run = _missing_executor  # type: ignore[method-assign]
 
-    task_run_id = asyncio.run(_create_task())
-    services = runtime.agent_runtime_services
-    object.__setattr__(services, "execute_task_run_callback", None)
+    async def _run_scheduler() -> None:
+        runtime.schedule_task_run_executor(task_run_id, scheduler="test_missing_callback")
+        for _ in range(50):
+            task_run = runtime.single_agent_runtime_host.state_index.get_task_run(task_run_id)
+            if task_run is not None and task_run.status == "blocked":
+                return
+            await asyncio.sleep(0.01)
+        raise AssertionError("scheduler failure was not recorded")
 
-    _schedule_task_executor(services, task_run_id)
+    asyncio.run(_run_scheduler())
 
     task_run = runtime.single_agent_runtime_host.state_index.get_task_run(task_run_id)
     assert task_run is not None
@@ -831,36 +883,11 @@ def test_task_executor_schedule_missing_callback_blocks_task_run() -> None:
 
 
 def test_task_executor_scheduler_auto_continues_waiting_executor() -> None:
-    from harness.loop.agent_loop import _schedule_task_executor
-
-    runtime = build_query_runtime(
-        model_runtime=NativeToolCallModelRuntimeStub(
-            content="",
-            agent_turn_action_request=_action_request(
-                action_type="request_task_run",
-                task_contract_seed={"user_visible_goal": "需要自动续跑。", "task_run_goal": "需要自动续跑。", "completion_criteria": ["最终完成"]},
-            )
-        )
-    )
-
-    async def _create_task() -> str:
-        task_run_id = ""
-        async for event in runtime.astream(QueryRequest(session_id="session-auto-continue", message="做一个任务。")):
-            if event.get("type") == "harness_run_started":
-                candidate = str(dict(event.get("task_run") or {}).get("task_run_id") or "")
-                if candidate.startswith("taskrun:"):
-                    task_run_id = candidate
-        return task_run_id
-
-    task_run_id = asyncio.run(_create_task())
+    runtime = build_query_runtime()
+    task_run_id = _seed_active_work(runtime, task_run_id="taskrun:auto-continue")
     calls = {"count": 0}
-    task_run = runtime.single_agent_runtime_host.state_index.get_task_run(task_run_id)
-    assert task_run is not None
-    runtime.single_agent_runtime_host.state_index.upsert_task_run(
-        replace(task_run, status="waiting_executor", terminal_reason="waiting_executor", diagnostics={})
-    )
 
-    async def _executor(task_run_id_arg: str):
+    async def _executor(task_run_id_arg: str, **_kwargs):
         calls["count"] += 1
         task_run = runtime.single_agent_runtime_host.state_index.get_task_run(task_run_id_arg)
         assert task_run is not None
@@ -874,11 +901,10 @@ def test_task_executor_scheduler_auto_continues_waiting_executor() -> None:
         )
         return {"ok": True}
 
-    services = runtime.agent_runtime_services
-    object.__setattr__(services, "execute_task_run_callback", _executor)
+    runtime.execute_task_run = _executor  # type: ignore[method-assign]
 
     async def _run_scheduler() -> None:
-        _schedule_task_executor(services, task_run_id)
+        runtime.schedule_task_run_executor(task_run_id, scheduler="test_auto_continue")
         for _ in range(20):
             if calls["count"] >= 2:
                 return
@@ -2591,7 +2617,7 @@ def test_active_work_continue_emits_user_feedback_and_schedules_executor() -> No
     assert any("持续汇报" in str(item.get("summary") or "") for item in step_events)
 
 
-def test_active_work_continue_reuses_current_task_run_without_new_task() -> None:
+def test_active_work_control_without_current_work_evidence_does_not_resume_task() -> None:
     model = _ActiveWorkDecisionModelRuntime([
         {
             "authority": "harness.loop.active_work_turn_decision",
@@ -2619,13 +2645,13 @@ def test_active_work_continue_reuses_current_task_run_without_new_task() -> None
     ]
 
     assert model.active_work_decision_count == 1
-    assert any(event.get("type") == "done" and "接着处理" in str(event.get("content") or "") for event in events)
+    assert any(event.get("type") == "done" and str(event.get("content") or "") == "普通回复。" for event in events)
     assert any(event.get("type") == "harness_run_started" for event in events)
     assert task_runs == 1
     assert task_run is not None
-    assert task_run.status == "running"
-    assert "task_run_resume_requested" in event_types
-    assert "task_run_executor_scheduled" in event_types
+    assert task_run.status == "waiting_executor"
+    assert "task_run_resume_requested" not in event_types
+    assert "task_run_executor_scheduled" not in event_types
 
 
 def test_active_work_continue_user_aborted_creates_checkout_without_reviving_source() -> None:

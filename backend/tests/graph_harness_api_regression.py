@@ -5,7 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from api import orchestration as orchestration_api
-from harness import AgentHarness, AgentRuntimeServices, GraphHarness
+from harness import AgentRuntimeServices, GraphHarness
 from harness.runtime import SingleAgentRuntimeHost
 from project_layout import ProjectLayout
 from task_system import TaskFlowRegistry
@@ -82,12 +82,10 @@ def _runtime_with_graph_harness(*, base_dir: Path, runtime_root: Path) -> Simple
         backend_dir=base_dir,
     )
     services = AgentRuntimeServices.from_runtime_host(host)
-    agent_harness = AgentHarness(services=services)
-    graph_harness = GraphHarness(services=services, agent_harness=agent_harness)
+    graph_harness = GraphHarness(services=services)
     return SimpleNamespace(
         base_dir=base_dir,
         query_runtime=SimpleNamespace(
-            agent_harness=agent_harness,
             graph_harness=graph_harness,
         ),
     )

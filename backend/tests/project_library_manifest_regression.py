@@ -14,7 +14,7 @@ def test_default_project_library_manifest_declares_project_repositories(tmp_path
     assert manifest.library_id == "library.project.creation.writing.honghuang"
     assert manifest.file_profile_id == "file_profile.writing_manuscript"
     assert manifest.repository("repo.writing.artifact_repository") is not None
-    assert manifest.repository("repo.writing.artifact_repository").root_ref == "project://artifacts"  # type: ignore[union-attr]
+    assert manifest.repository("repo.writing.artifact_repository").root_ref == "environment://artifacts"  # type: ignore[union-attr]
 
 
 def test_project_library_manifest_rejects_repository_outside_file_profile(tmp_path: Path) -> None:
