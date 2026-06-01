@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .models import CapabilityValidationIssue
+from .catalog_models import CapabilityValidationIssue
 
 
 def validate_capability_catalog(

@@ -58,6 +58,12 @@ def _runtime_context_projection(
     *,
     agent_visible_runtime_projection: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    projection = dict(agent_visible_runtime_projection or {})
+    if str(projection.get("invocation_kind") or "") == "task_execution":
+        return _task_execution_runtime_context_projection(
+            assembly_payload,
+            agent_visible_runtime_projection=projection,
+        )
     profile = dict(assembly_payload.get("profile") or {})
     environment = dict(assembly_payload.get("task_environment") or {})
     storage = dict(environment.get("storage_space") or {})
@@ -84,9 +90,52 @@ def _runtime_context_projection(
                 "self_review_hash": stable_json_hash(dict(profile.get("self_review_policy") or {})),
             }
         ),
-        "agent_visible_runtime_projection": dict(agent_visible_runtime_projection or {}),
+        "agent_visible_runtime_projection": projection,
     }
     return drop_empty(payload)
+
+
+def _task_execution_runtime_context_projection(
+    assembly_payload: dict[str, Any],
+    *,
+    agent_visible_runtime_projection: dict[str, Any],
+) -> dict[str, Any]:
+    profile = dict(assembly_payload.get("profile") or {})
+    environment = dict(assembly_payload.get("task_environment") or {})
+    storage = dict(environment.get("storage_space") or {})
+    operation_authorization = dict(assembly_payload.get("operation_authorization") or {})
+    tool_boundary = dict(agent_visible_runtime_projection.get("tool_boundary") or {})
+    permission_boundary = dict(agent_visible_runtime_projection.get("permission_boundary") or {})
+    return drop_empty(
+        {
+            "invocation_kind": "task_execution",
+            "agent_profile_ref": str(assembly_payload.get("agent_profile_ref") or ""),
+            "runtime_profile_ref": str(profile.get("profile_ref") or ""),
+            "task_environment_id": str(environment.get("environment_id") or ""),
+            "permission_scope": str(permission_boundary.get("permission_scope") or ""),
+            "artifact_scope": drop_empty(
+                {
+                    "artifact_root_hash": stable_json_hash(str(storage.get("artifact_root") or "")),
+                    "environment_storage_hash": stable_json_hash(str(storage.get("environment_storage_root") or "")),
+                }
+            ),
+            "tool_boundary": drop_empty(
+                {
+                    "visible_tool_count": int(tool_boundary.get("visible_tool_count") or 0),
+                    "allowed_operation_count": int(tool_boundary.get("allowed_operation_count") or 0),
+                    "subagent_lifecycle_enabled": bool(tool_boundary.get("subagent_lifecycle_enabled") is True),
+                }
+            ),
+            "operation_authorization_hash": stable_json_hash(operation_authorization) if operation_authorization else "",
+            "runtime_policy_refs": drop_empty(
+                {
+                    "task_lifecycle_hash": stable_json_hash(dict(profile.get("task_lifecycle_policy") or {})),
+                    "planning_hash": stable_json_hash(dict(profile.get("planning_policy") or {})),
+                    "self_review_hash": stable_json_hash(dict(profile.get("self_review_policy") or {})),
+                }
+            ),
+        }
+    )
 
 
 def _prompt_refs_by_invocation(value: Any) -> dict[str, tuple[str, ...]]:
@@ -131,7 +180,6 @@ def _operation_authorization_model_visible(authorization: dict[str, Any], *, pro
     denied_groups = set(_operation_groups(denied_operations))
     return {
         "authority": "harness.runtime.operation_authorization.model_visible_summary",
-        "allowed_operations": allowed_operations,
         "allowed_operation_count": len(allowed_operations),
         "denied_operation_count": len(denied_operations),
         "critical_denied_groups": sorted(denied_groups - allowed_groups),

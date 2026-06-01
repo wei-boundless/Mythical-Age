@@ -7,10 +7,10 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-from capability_system.units.tools.read_file_tool import ReadFileTool
-from capability_system.units.tools.file_system_tools import GlobPathsTool
-from capability_system.units.tools.search_files_tool import SearchFilesTool
-from capability_system.units.tools.write_file_tool import EditFileTool, WriteFileTool
+from capability_system.tools.tool_units.read_file_tool import ReadFileTool
+from capability_system.tools.tool_units.file_system_tools import GlobPathsTool
+from capability_system.tools.tool_units.search_files_tool import SearchFilesTool
+from capability_system.tools.tool_units.write_file_tool import EditFileTool, WriteFileTool
 
 
 def test_workspace_file_tools_use_external_knowledge_root_when_initialized_from_backend(tmp_path: Path, monkeypatch) -> None:

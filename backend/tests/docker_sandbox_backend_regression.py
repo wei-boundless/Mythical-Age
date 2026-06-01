@@ -8,7 +8,7 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-from capability_system.tool_definitions import get_tool_definition_map
+from capability_system.tools.native_tool_catalog import get_tool_definition_map
 from runtime.tool_runtime.docker_sandbox_backend import (
     DockerSandboxBackend,
     DockerSandboxConfig,

@@ -8,7 +8,8 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from capability_system.validation import validate_capability_catalog
-from capability_system import build_default_operation_registry, build_mcp_catalog
+from permissions.operations import build_default_operation_registry
+from capability_system.mcp.registry import build_mcp_catalog
 
 
 def test_mcps_are_registered_as_local_capability_endpoints() -> None:

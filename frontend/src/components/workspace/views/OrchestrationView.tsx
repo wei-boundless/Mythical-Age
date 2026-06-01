@@ -14,8 +14,6 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   deleteOrchestrationAgentGroup,
   deleteOrchestrationAgent,
-  getSoulSystemCatalog,
-  getSoulProjectionCards,
   getOrchestrationAgents,
   getOrchestrationCapabilityItems,
   getOrchestrationRuntimeOptions,
@@ -29,9 +27,6 @@ import {
   type OrchestrationAgentRuntimeProfile,
   type OrchestrationAgentUpsertPayload,
   type OrchestrationCapabilityItem,
-  type SoulProjectionCard,
-  type SoulProjectionCatalog,
-  type SoulSystemCatalog,
 } from "@/lib/api";
 import { OrchestrationDirectoryRail } from "@/components/workspace/views/orchestration/OrchestrationDirectoryRail";
 import {
@@ -73,11 +68,6 @@ const DIRECTORY_SECTION_ORDER: AgentDirectorySection[] = [
 ];
 const DEFAULT_SUB_AGENT_GROUP_ID = "__default_sub_agent_group__";
 
-const EMPTY_PROJECTION_CATALOG: SoulProjectionCatalog = {
-  selected_projection_id: "",
-  cards: [],
-};
-
 const CATEGORY_LABELS: Record<AgentCategory, string> = {
   main_agent: "主 Agent",
   builtin_agent: "内置 Agent",
@@ -106,7 +96,6 @@ const EMPTY_AGENT_DRAFT: AgentDraft = {
   description: "",
   enabled: true,
   editable: true,
-  default_soul_id: "",
   default_projection_id: "",
   metadata: { managed_by: "orchestration_console" },
 };
@@ -326,15 +315,6 @@ function mergeOrchestrationOptions(
   };
 }
 
-function projectionLabel(value: string, cards: SoulProjectionCard[] = []) {
-  const raw = String(value || "").trim();
-  if (!raw) return "不使用投影";
-  const card = cards.find((item) => item.projection_id === raw);
-  if (!card) return raw;
-  const owner = card.soul_name || card.soul_id || "灵魂系统";
-  return `${card.title || card.projection_id} · ${owner}`;
-}
-
 function agentDraftFrom(agent?: Record<string, unknown> | null): AgentDraft {
   if (!agent) return { ...EMPTY_AGENT_DRAFT, metadata: { ...EMPTY_AGENT_DRAFT.metadata } };
   const metadata = { ...((agent.metadata as Record<string, unknown> | undefined) ?? {}) };
@@ -346,7 +326,6 @@ function agentDraftFrom(agent?: Record<string, unknown> | null): AgentDraft {
     description: String(agent.description || ""),
     enabled: Boolean(agent.enabled ?? true),
     editable: Boolean(agent.editable ?? true),
-    default_soul_id: String(agent.default_soul_id || ""),
     default_projection_id: String(agent.default_projection_id || ""),
     metadata: { ...metadata, managed_by: "orchestration_console" },
   };
@@ -439,8 +418,6 @@ export function OrchestrationView() {
   const [capabilityItems, setCapabilityItems] = useState<OrchestrationCapabilityItem[]>([]);
   const [capabilityItemsLoading, setCapabilityItemsLoading] = useState(false);
   const [capabilityItemsError, setCapabilityItemsError] = useState("");
-  const [projectionCatalog, setProjectionCatalog] = useState<SoulProjectionCatalog | null>(null);
-  const [soulCatalog, setSoulCatalog] = useState<SoulSystemCatalog | null>(null);
   const [selectedAgentId, setSelectedAgentId] = useState("");
   const [selectedGroupId, setSelectedGroupId] = useState("");
   const [activeSection, setActiveSection] = useState<AgentDirectorySection>("custom_agent");
@@ -460,16 +437,12 @@ export function OrchestrationView() {
     setLoading(true);
     setError("");
     try {
-      const [payload, runtimeOptions, projections, souls] = await Promise.all([
+      const [payload, runtimeOptions] = await Promise.all([
         getOrchestrationAgents(),
         getOrchestrationRuntimeOptions(),
-        getSoulProjectionCards().catch(() => EMPTY_PROJECTION_CATALOG),
-        getSoulSystemCatalog(),
       ]);
       const mergedPayload = mergeOrchestrationOptions(payload, runtimeOptions.options);
       setCatalog(mergedPayload);
-      setProjectionCatalog(projections);
-      setSoulCatalog(souls);
       const firstGroupId = String(mergedPayload.agent_groups?.[0]?.group_id || "");
       setSelectedGroupId((current) => current || firstGroupId);
       setSelectedAgentId((current) => {
@@ -518,8 +491,6 @@ export function OrchestrationView() {
 
   const agents = useMemo(() => catalog?.agents ?? [], [catalog]);
   const agentGroups = useMemo(() => catalog?.agent_groups ?? [], [catalog]);
-  const projectionCards = useMemo(() => projectionCatalog?.cards ?? [], [projectionCatalog]);
-  const soulSeeds = useMemo(() => soulCatalog?.seeds ?? [], [soulCatalog]);
 
   useEffect(() => {
     if (!orchestrationInspectorTarget) return;
@@ -1114,8 +1085,6 @@ export function OrchestrationView() {
                   overlapOps={overlapOps}
                   patchAgentDraft={(patch) => setAgentDraft((current) => ({ ...current, ...patch }))}
                   profileMissing={profileMissing}
-                  projectionCards={projectionCards}
-                  soulSeeds={soulSeeds}
                   removeAgent={removeAgent}
                   runtimeDraft={runtimeDraft}
                   runtimeSaveBlocked={runtimeSaveBlocked}

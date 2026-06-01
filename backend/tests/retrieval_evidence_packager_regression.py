@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from capability_system.units.mcp.local.retrieval.router import RAGQueryRouter
-from knowledge_system.retrieval.evidence_packager import build_evidence_pack
-from knowledge_system.retrieval.service import RetrievalService
+from capability_system.capabilities.retrieval.router import RAGQueryRouter
+from capability_system.capabilities.retrieval.evidence_packager import build_evidence_pack
+from capability_system.capabilities.retrieval.service import RetrievalService
 from knowledge_system.indexing.retrievers import RetrievalRequest
 
 
@@ -37,7 +37,7 @@ def test_evidence_pack_uses_agent_facing_contract() -> None:
 
 class _StaticBackend:
     def retrieve(self, request: RetrievalRequest):
-        from capability_system.units.mcp.local.retrieval.models import RetrievalHit
+        from capability_system.capabilities.retrieval.models import RetrievalHit
 
         return [
             RetrievalHit(

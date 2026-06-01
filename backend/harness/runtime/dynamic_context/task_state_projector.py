@@ -16,14 +16,17 @@ class TaskStateProjector:
         envelope_projection: dict[str, Any],
         include_task_run_context: bool = True,
     ) -> dict[str, Any]:
+        current_facts = _dedupe_by_semantic(dict_tuple(execution_projection.get("current_facts")))
+        current_fact_keys = {_semantic_projection_key(item) for item in current_facts if _semantic_projection_key(item)}
         latest_results = _latest_results(
             execution_projection=execution_projection,
             observation_projection=observation_projection,
+            current_fact_keys=current_fact_keys,
         )
         payload = {
             "runtime_status": str(execution_projection.get("runtime_status") or task_run_state.get("status") or ""),
             "current_step": dict(execution_projection.get("current_step") or {}),
-            "current_facts": _dedupe_by_ref(dict_tuple(execution_projection.get("current_facts"))),
+            "current_facts": current_facts,
             "latest_tool_results": latest_results[-8:],
             "active_failures": _dedupe_failures(
                 [
@@ -58,7 +61,12 @@ class TaskStateProjector:
         return drop_empty(payload)
 
 
-def _latest_results(*, execution_projection: dict[str, Any], observation_projection: dict[str, Any]) -> list[dict[str, Any]]:
+def _latest_results(
+    *,
+    execution_projection: dict[str, Any],
+    observation_projection: dict[str, Any],
+    current_fact_keys: set[str],
+) -> list[dict[str, Any]]:
     results: list[dict[str, Any]] = []
     for item in dict_tuple(execution_projection.get("last_action_receipts")):
         results.append(
@@ -67,6 +75,7 @@ def _latest_results(*, execution_projection: dict[str, Any], observation_project
                     "observation_ref": str(item.get("observation_ref") or ""),
                     "tool_name": str(item.get("tool_name") or ""),
                     "status": str(item.get("status") or ""),
+                    "path": _projection_path(item),
                     "visibility": str(item.get("visibility") or ""),
                     "summary": compact_text(item.get("summary") or "", limit=300),
                 }
@@ -74,17 +83,23 @@ def _latest_results(*, execution_projection: dict[str, Any], observation_project
         )
     for item in dict_tuple(observation_projection.get("latest_observations")):
         results.append(_observation_result_projection(item))
-    return _dedupe_by_ref(results)
+    deduped = _dedupe_by_semantic([item for item in results if item])
+    return [
+        item
+        for item in deduped
+        if _semantic_projection_key(item) not in current_fact_keys
+    ]
 
 
 def _observation_result_projection(item: dict[str, Any]) -> dict[str, Any]:
     tool_result = dict(item.get("tool_result") or {})
     structured_error = dict(item.get("structured_error") or tool_result.get("structured_error") or {})
-    return drop_empty(
+    projected = drop_empty(
         {
             "observation_ref": str(item.get("observation_id") or item.get("observation_ref") or ""),
             "tool_name": _tool_name(str(item.get("source") or tool_result.get("tool_name") or "")),
             "status": str(item.get("status") or tool_result.get("status") or ""),
+            "path": _projection_path(item) or _projection_path(tool_result),
             "visibility": str(item.get("visibility") or ""),
             "summary": compact_text(item.get("summary") or tool_result.get("preview") or "", limit=300),
             "structured_error": structured_error,
@@ -92,6 +107,9 @@ def _observation_result_projection(item: dict[str, Any]) -> dict[str, Any]:
             "replacement_ref": str(tool_result.get("replacement_ref") or ""),
         }
     )
+    if set(projected).issubset({"observation_ref", "replacement_ref"}):
+        return {}
+    return projected
 
 
 def _dedupe_failures(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -103,7 +121,7 @@ def _dedupe_failures(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
         projected = _failure_projection(item)
         if projected:
             failures.append(projected)
-    return _dedupe_by_ref(failures)
+    return _dedupe_by_semantic(failures)
 
 
 def _failure_projection(item: dict[str, Any]) -> dict[str, Any]:
@@ -190,6 +208,69 @@ def _dedupe_by_ref(items: list[dict[str, Any]] | tuple[dict[str, Any], ...], *, 
         index_by_key[key] = len(result)
         result.append(dict(item))
     return result
+
+
+def _dedupe_by_semantic(items: list[dict[str, Any]] | tuple[dict[str, Any], ...]) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    index_by_key: dict[str, int] = {}
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        projected = drop_empty(dict(item))
+        if not projected:
+            continue
+        key = _semantic_projection_key(projected)
+        if not key:
+            key = _ref_projection_key(projected)
+        if key in index_by_key:
+            index = index_by_key[key]
+            result[index] = _merge_projection(result[index], projected)
+            continue
+        index_by_key[key] = len(result)
+        result.append(projected)
+    return result
+
+
+def _semantic_projection_key(item: dict[str, Any]) -> str:
+    tool_name = _tool_name(str(item.get("tool_name") or item.get("source") or ""))
+    status = str(item.get("status") or item.get("result") or "").strip().lower()
+    path = _projection_path(item)
+    error = dict(item.get("structured_error") or item.get("error") or {})
+    error_code = str(error.get("code") or item.get("reason") or "").strip()
+    if tool_name and path:
+        return f"tool-path:{tool_name}:{path}:{status or error_code}"
+    if tool_name and error_code:
+        return f"tool-error:{tool_name}:{error_code}"
+    summary = compact_text(item.get("summary") or "", limit=160)
+    if tool_name and summary:
+        return f"tool-summary:{tool_name}:{status}:{summary}"
+    return ""
+
+
+def _projection_path(item: dict[str, Any]) -> str:
+    for key in ("path", "target_path", "artifact_path", "output_path"):
+        value = str(item.get(key) or "").replace("\\", "/").strip().strip("/")
+        if value:
+            return value
+    args = dict(item.get("args") or item.get("tool_args") or {})
+    for key in ("path", "target_path", "artifact_path", "output_path"):
+        value = str(args.get(key) or "").replace("\\", "/").strip().strip("/")
+        if value:
+            return value
+    artifact_refs = [dict(ref) for ref in list(item.get("artifact_refs") or []) if isinstance(ref, dict)]
+    for ref in artifact_refs:
+        value = str(ref.get("path") or ref.get("src") or ref.get("artifact_ref") or "").replace("\\", "/").strip().strip("/")
+        if value:
+            return value
+    return ""
+
+
+def _ref_projection_key(item: dict[str, Any]) -> str:
+    for key in ("observation_ref", "observation_id"):
+        value = str(item.get(key) or "").strip()
+        if value:
+            return f"ref:{value}"
+    return repr(sorted((str(k), repr(v)) for k, v in item.items()))
 
 
 def _merge_projection(first: dict[str, Any], second: dict[str, Any]) -> dict[str, Any]:

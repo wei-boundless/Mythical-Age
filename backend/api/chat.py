@@ -105,7 +105,6 @@ class ChatRequest(BaseModel):
     stream: bool = True
     explicit_subtasks: list[dict[str, Any]] = Field(default_factory=list)
     search_policy: list[str] | None = None
-    soul_id: str = ""
     runtime_profile: dict[str, Any] = Field(default_factory=dict)
     task_selection: dict[str, Any] = Field(default_factory=dict)
     model_selection: dict[str, Any] = Field(default_factory=dict)
@@ -236,7 +235,6 @@ def _query_request_from_payload(payload: ChatRequest, *, session_id: str) -> Har
         message=payload.message,
         explicit_subtasks=list(payload.explicit_subtasks or []),
         search_policy=list(payload.search_policy) if payload.search_policy is not None else None,
-        soul_id=str(payload.soul_id or ""),
         runtime_profile=dict(payload.runtime_profile or {}),
         task_selection=dict(payload.task_selection or {}),
         model_selection=dict(payload.model_selection or {}),
@@ -553,3 +551,4 @@ def _runtime_run_refs_from_event(event: dict[str, Any]) -> dict[str, str]:
     if active_turn_id:
         refs["active_turn_id"] = active_turn_id
     return refs
+

@@ -7,6 +7,7 @@ import pytest
 
 from harness.runtime.compiler import RuntimeCompiler, _dynamic_context_segment_metadata
 from harness.runtime.context_budget_policy import build_model_aware_context_budget_policy
+from harness.runtime.artifact_scope import canonicalize_task_contract_artifacts
 from harness.runtime.dynamic_context import DynamicContextProjection, VolatileSectionReport
 from harness.runtime.prompt_segment_plan import build_prompt_segment_plan
 
@@ -70,6 +71,70 @@ def test_runtime_compiler_emits_dynamic_context_report_and_projected_task_state(
     assert "large_internal_blob" not in json.dumps(volatile_payload, ensure_ascii=False)
     assert task_state["latest_tool_results"][0]["tool_name"] == "read_file"
     assert packet.artifact_refs == ("artifacts/file.txt",)
+
+
+def test_task_execution_prompt_uses_canonical_artifact_scope_only() -> None:
+    artifact_root = "storage/task_environments/development/sandbox/artifacts"
+    requested_path = "artifacts/prompt_cache_live_e2e/run/index.html"
+    canonical_path = f"{artifact_root}/prompt_cache_live_e2e/run/index.html"
+    result = RuntimeCompiler().compile_task_execution_packet(
+        session_id="session:canonical-artifact",
+        task_run={"task_run_id": "taskrun:canonical-artifact", "diagnostics": {"executor_status": "running"}},
+        contract={
+            "contract_id": "contract:canonical-artifact",
+            "task_run_goal": "生成可打开的 HTML 页面",
+            "completion_criteria": ["页面存在"],
+            "required_artifacts": [
+                {"artifact_kind": "html_document", "path": requested_path, "user_visible_name": "index.html"}
+            ],
+        },
+        observations=[],
+        runtime_assembly={
+            "profile": {"mode": "professional"},
+            "task_environment": {
+                "environment_id": "env.development.sandbox",
+                "storage_space": {"artifact_root": artifact_root},
+                "artifact_policy": {"artifact_root": "runtime_output"},
+                "sandbox_policy": {},
+            },
+            "operation_authorization": {"allowed_operations": ["op.write_file"]},
+        },
+    )
+
+    model_input = "\n".join(str(message["content"]) for message in result.packet.model_messages)
+    diagnostics = result.packet.diagnostics["artifact_scope"]
+    volatile_payload = _payload_after_title(result.packet.model_messages[-1]["content"], "Task execution current state")
+
+    assert result.envelope.artifact_policy["artifact_root"] == artifact_root
+    assert canonical_path in model_input
+    assert f'"path":"{requested_path}"' not in model_input
+    assert "runtime_output" not in model_input
+    assert volatile_payload["task_state"]["runtime_boundary"]["artifact_root"] == artifact_root
+    assert diagnostics["normalizations"][0]["requested_path"] == requested_path
+    assert diagnostics["normalizations"][0]["path"] == canonical_path
+
+
+def test_artifact_contract_normalization_replaces_path_aliases_with_canonical_path() -> None:
+    artifact_root = "storage/task_environments/development/sandbox/artifacts"
+    normalized = canonicalize_task_contract_artifacts(
+        {
+            "required_artifacts": [
+                {"artifact_kind": "html_document", "artifact_path": "artifacts/demo/index.html"}
+            ],
+            "required_verifications": [
+                {"verification_kind": "readback", "target_path": "artifacts/demo/index.html"}
+            ],
+        },
+        artifact_root=artifact_root,
+    )
+
+    expected = f"{artifact_root}/demo/index.html"
+    assert normalized.contract["required_artifacts"][0] == {"artifact_kind": "html_document", "path": expected}
+    assert normalized.contract["required_verifications"][0] == {"verification_kind": "readback", "path": expected}
+    assert [item["requested_path"] for item in normalized.normalizations] == [
+        "artifacts/demo/index.html",
+        "artifacts/demo/index.html",
+    ]
 
 
 def test_task_work_rollout_only_enters_model_through_dynamic_context_projection() -> None:
@@ -185,6 +250,42 @@ def test_task_execution_state_deduplicates_observation_failures_and_preserves_re
     assert error["provider_retryable"] is True
     assert error["agent_retry_policy"] == "do_not_auto_retry"
     assert error["attempts"][0]["http_status"] == 504
+
+
+def test_task_execution_state_semantically_deduplicates_repeated_tool_facts() -> None:
+    result = RuntimeCompiler().compile_task_execution_packet(
+        session_id="session:semantic-dedupe",
+        task_run={
+            "task_run_id": "taskrun:semantic-dedupe",
+            "status": "running",
+            "diagnostics": {"executor_status": "running"},
+        },
+        contract={"task_run_goal": "检查目录并继续", "completion_criteria": ["目录检查只保留一条事实"]},
+        observations=[],
+        execution_state={
+            "system_projection": {
+                "runtime_status": "running",
+                "current_facts": [
+                    {"observation_ref": "obs:path:1", "tool_name": "path_exists", "path": "artifacts/demo", "status": "ok", "summary": "路径不存在"},
+                    {"observation_ref": "obs:path:2", "tool_name": "path_exists", "path": "artifacts/demo", "status": "ok", "summary": "路径不存在"},
+                ],
+                "last_action_receipts": [
+                    {"observation_ref": "obs:path:2", "tool_name": "path_exists", "path": "artifacts/demo", "status": "ok", "summary": "路径不存在"},
+                ],
+            }
+        },
+        runtime_assembly={
+            "profile": {"mode": "professional"},
+            "task_environment": {"environment_id": "env.general.workspace"},
+            "operation_authorization": {"allowed_operations": ["op.path_exists"]},
+        },
+    )
+
+    volatile_payload = _payload_after_title(result.packet.model_messages[-1]["content"], "Task execution current state")
+    task_state = volatile_payload["task_state"]
+    assert [item["observation_ref"] for item in task_state["current_facts"]] == ["obs:path:1"]
+    assert "latest_tool_results" not in task_state
+    assert "task_run_id" not in json.dumps(volatile_payload, ensure_ascii=False)
 
 
 def test_task_execution_uses_invocation_scoped_agent_prompt_refs() -> None:

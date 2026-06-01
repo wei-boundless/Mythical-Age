@@ -4,7 +4,7 @@ from typing import Any
 
 from evidence.adapter import build_evidence_envelope_from_retrieval
 from evidence.models import BindingCandidate, EvidenceEnvelope
-from knowledge_system.retrieval.service import RetrievalExecutionResult
+from capability_system.capabilities.retrieval.service import RetrievalExecutionResult
 from .mcp_models import MCPRequest, MCPResult
 
 

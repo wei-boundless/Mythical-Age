@@ -3,20 +3,20 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from .operation_registry import build_default_operation_registry
-from .skill_registry import SkillRegistry
-from .skill_routes import skill_operation_ids_from_skill
-from .tool_registry import ToolRegistry
-from .tool_packages import default_tool_packages
-from .mcp_registry import build_mcp_catalog
-from .catalog import MAIN_AGENT_ID, build_capability_catalog
-from .models import (
+from capability_system.skills.operation_requirements import skill_operation_ids_from_skill
+from capability_system.skills.registry import SkillRegistry
+from capability_system.catalog_models import (
     CapabilitySupplyMCPRef,
     CapabilitySupplyPackage,
     CapabilitySupplySkillRef,
     CapabilitySupplyToolRef,
 )
-from .endpoints import build_capability_endpoints
+from capability_system.catalog_projection import MAIN_AGENT_ID, build_capability_catalog
+from capability_system.endpoint_projection import build_capability_endpoints
+from permissions.operation_packages import default_tool_packages
+from permissions.operations import build_default_operation_registry
+from capability_system.mcp.registry import build_mcp_catalog
+from capability_system.tools.registry import ToolRegistry
 
 
 def build_capability_supply_package(

@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 from agent_system.profiles.runtime_profile_registry import default_agent_runtime_profiles
 from agent_system.registry.agent_registry import default_agent_descriptors
-from capability_system.agent_capabilities.deepsearch import DeepSearchCapability, normalize_runtime_config, required_operations_for_search_config
+from capability_system.capabilities.deepsearch import DeepSearchCapability, normalize_runtime_config, required_operations_for_search_config
 
 
 class _StaticProvider:

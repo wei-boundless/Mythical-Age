@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from capability_system.units.tools.git_tools import (
+from capability_system.tools.tool_units.git_tools import (
     GitBranchCreateTool,
     GitBranchListTool,
     GitCommitTool,

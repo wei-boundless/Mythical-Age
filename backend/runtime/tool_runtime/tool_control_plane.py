@@ -7,7 +7,7 @@ from pathlib import Path
 from dataclasses import dataclass
 from typing import Any
 
-from capability_system import build_default_operation_registry
+from permissions.operations import build_default_operation_registry
 from harness.agent_control.controller import SubagentControl
 from orchestration.runtime_directive import RuntimeDirective
 from permissions import PermissionContext, ResourcePolicy

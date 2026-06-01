@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from capability_system.units.mcp.local.pdf.analysis.parser import PdfSegment, PdfTextParser
+from capability_system.capabilities.document_processing.pdf.analysis.parser import PdfSegment, PdfTextParser
 
 
 class _FailingMinerUClient:

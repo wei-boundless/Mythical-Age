@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, type ReactNode } from "react";
-import { Database, HeartPulse, LayoutGrid, MessageSquare, Network, Settings, Sparkles, Workflow } from "lucide-react";
+import { Database, HeartPulse, LayoutGrid, MessageSquare, Network, Settings, Workflow } from "lucide-react";
 
 import { AppProvider, useAppStore } from "@/lib/store";
 import { lazy, Suspense } from "react";
@@ -15,8 +15,6 @@ const CapabilitySystemView = lazy(() => import("@/components/workspace/views/Cap
 const HealthSystemView = lazy(() => import("@/components/workspace/views/HealthSystemView").then((module) => ({ default: module.HealthSystemView })));
 const MemoryView = lazy(() => import("@/components/workspace/views/MemoryView").then((module) => ({ default: module.MemoryView })));
 const OrchestrationView = lazy(() => import("@/components/workspace/views/OrchestrationView").then((module) => ({ default: module.OrchestrationView })));
-const PlaygroundView = lazy(() => import("@/components/workspace/views/PlaygroundView").then((module) => ({ default: module.PlaygroundView })));
-const SoulSystemView = lazy(() => import("@/components/workspace/views/PlaygroundView").then((module) => ({ default: module.PlaygroundView })));
 const SystemConfigView = lazy(() => import("@/components/workspace/views/SystemConfigView").then((module) => ({ default: module.SystemConfigView })));
 const TaskSystemView = lazy(() => import("@/components/workspace/views/TaskSystemView").then((module) => ({ default: module.TaskSystemView })));
 const CodeEnvironmentView = lazy(() => import("@/components/workspace/views/CodeEnvironmentView").then((module) => ({ default: module.CodeEnvironmentView })));
@@ -35,12 +33,10 @@ const WORKSPACE_QUERY_VIEWS = new Set<WorkspaceView>([
   "creative",
   "memory",
   "health-system",
-  "playground",
   "task-system",
   "orchestration",
   "code-environment",
   "capability-system",
-  "soul-system",
   "system-config",
 ]);
 
@@ -54,7 +50,6 @@ const SYSTEM_NAV_ITEMS: Array<{ view: WorkspaceView; label: string; icon: typeof
   { view: "orchestration", label: "编排", icon: Network },
   { view: "capability-system", label: "能力", icon: LayoutGrid },
   { view: "health-system", label: "健康", icon: HeartPulse },
-  { view: "soul-system", label: "灵魂", icon: Sparkles },
   { view: "system-config", label: "配置", icon: Settings },
 ];
 
@@ -116,12 +111,9 @@ function Workspace() {
     taskGraphMonitorLoading,
     taskGraphRunInteractionOpen,
   } = useAppStore();
-  const [forcedPlayground, setForcedPlayground] = useState(false);
   const [locationSearch, setLocationSearch] = useState("");
 
   useEffect(() => {
-    window.localStorage.removeItem("chatVisualMode");
-    delete document.documentElement.dataset.soul;
     const storedTone = window.localStorage.getItem("workspaceTone");
     if (storedTone && WORKSPACE_TONES.has(storedTone)) {
       document.documentElement.dataset.workspaceTone = storedTone;
@@ -150,7 +142,6 @@ function Workspace() {
     const view = new URLSearchParams(currentSearch).get("view");
     if (view && WORKSPACE_QUERY_VIEWS.has(view as WorkspaceView) && activeWorkspaceView !== view) {
       setWorkspaceView(view as WorkspaceView);
-      setForcedPlayground(view === "playground");
     }
   }, [activeWorkspaceView, locationSearch, setWorkspaceView]);
 
@@ -159,11 +150,9 @@ function Workspace() {
       activeWorkspaceView !== "chat"
       && activeWorkspaceView !== "memory"
       && activeWorkspaceView !== "creative"
-      && activeWorkspaceView !== "playground"
       && activeWorkspaceView !== "task-system"
       && activeWorkspaceView !== "health-system"
       && activeWorkspaceView !== "capability-system"
-      && activeWorkspaceView !== "soul-system"
       && activeWorkspaceView !== "orchestration"
       && activeWorkspaceView !== "code-environment"
       && activeWorkspaceView !== "system-config"
@@ -171,11 +160,6 @@ function Workspace() {
       setWorkspaceView("chat");
     }
   }, [activeWorkspaceView, setWorkspaceView]);
-
-  function returnToWorkspace() {
-    setForcedPlayground(false);
-    setWorkspaceView("chat");
-  }
 
   const taskGraphRunInteractionDock = (
     <TaskGraphRunInteractionDock
@@ -199,8 +183,7 @@ function Workspace() {
     || activeWorkspaceView === "task-system"
     || activeWorkspaceView === "health-system"
     || activeWorkspaceView === "code-environment"
-    || activeWorkspaceView === "capability-system"
-    || activeWorkspaceView === "soul-system";
+    || activeWorkspaceView === "capability-system";
 
   let content: ReactNode;
 
@@ -246,20 +229,12 @@ function Workspace() {
         <LazyView><CapabilitySystemView /></LazyView>
       </SystemPageShell>
     );
-  } else if (activeWorkspaceView === "soul-system") {
-    content = (
-      <SystemPageShell label="灵魂系统" view="soul-system">
-        <LazyView><SoulSystemView embedded onReturnToWorkspace={returnToWorkspace} /></LazyView>
-      </SystemPageShell>
-    );
   } else if (activeWorkspaceView === "system-config") {
     content = (
       <SystemPageShell label="配置" view="system-config">
         <LazyView><SystemConfigView /></LazyView>
       </SystemPageShell>
     );
-  } else if (forcedPlayground || activeWorkspaceView === "playground") {
-    content = <LazyView><PlaygroundView onReturnToWorkspace={returnToWorkspace} /></LazyView>;
   } else {
     content = (
       <SystemPageShell label="主会话" view="chat">

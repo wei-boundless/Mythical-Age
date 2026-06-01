@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from capability_system.units.mcp.local.pdf.agent.models import PDFReadRequest
-from capability_system.units.mcp.local.pdf.agent.runtime import PDFReadAgentRuntime
-from capability_system.units.mcp.local.pdf.analysis.parser import PdfPageSnapshot, PdfSegment
+from capability_system.capabilities.document_processing.pdf.agent.models import PDFReadRequest
+from capability_system.capabilities.document_processing.pdf.agent.runtime import PDFReadAgentRuntime
+from capability_system.capabilities.document_processing.pdf.analysis.parser import PdfPageSnapshot, PdfSegment
 from evidence.pdf_worker import _degraded_pdf_answer
 
 

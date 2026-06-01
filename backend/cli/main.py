@@ -52,7 +52,6 @@ def build_parser() -> argparse.ArgumentParser:
     send_parser.add_argument("message", nargs="+")
     send_parser.add_argument("--session", default="")
     send_parser.add_argument("--task-environment-id", default="")
-    send_parser.add_argument("--soul-id", default="")
 
     monitor_parser = subparsers.add_parser("monitor", help="Show session live monitor")
     monitor_parser.add_argument("--session", default="")
@@ -286,7 +285,6 @@ def _run_send(
     message = " ".join(args.message).strip()
     extra_payload = _runtime_extra_payload(
         task_environment_id=str(getattr(args, "task_environment_id", "") or ""),
-        soul_id=str(getattr(args, "soul_id", "") or ""),
     )
     _send_message_text(
         message,
@@ -503,14 +501,11 @@ def _path_or_none(value: str):
     return Path(value)
 
 
-def _runtime_extra_payload(*, task_environment_id: str = "", soul_id: str) -> dict[str, Any]:
+def _runtime_extra_payload(*, task_environment_id: str = "") -> dict[str, Any]:
     payload: dict[str, Any] = {}
     environment_id = str(task_environment_id or "").strip()
-    requested_soul = str(soul_id or "").strip()
     if environment_id:
         payload["task_selection"] = {"task_environment_id": environment_id}
-    if requested_soul:
-        payload["soul_id"] = requested_soul
     return payload
 
 

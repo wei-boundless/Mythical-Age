@@ -8,9 +8,14 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-from capability_system.search_policy import normalize_search_policy, operation_allowed_by_search_policy
-from capability_system.tool_authorization import build_tool_authorization_index
-from capability_system.tool_definitions import build_tool_instances, get_tool_definitions
+from capability_system.capabilities.search_policy import (
+    normalize_search_policy,
+    operation_allowed_by_search_policy,
+    operation_source_class,
+    source_allowed_by_search_policy,
+)
+from capability_system.tools.authorization import build_tool_authorization_index
+from capability_system.tools.native_tool_catalog import build_tool_instances, get_tool_definitions
 from harness.runtime import (
     build_runtime_tool_plan,
     tool_instances_for_runtime_tool_plan,
@@ -25,6 +30,13 @@ def test_normalized_empty_search_policy_blocks_source_bound_operations() -> None
     assert not operation_allowed_by_search_policy("op.mcp_retrieval", allowed)
     assert not operation_allowed_by_search_policy("op.mcp_pdf", allowed)
     assert operation_allowed_by_search_policy("op.model_response", allowed)
+    assert not operation_allowed_by_search_policy("op.unknown_search_source", allowed)
+    assert operation_source_class("op.mcp_pdf") == "document"
+    assert operation_source_class("op.mcp_structured_data") == "data"
+    assert operation_source_class("op.read_structured_file") == "data"
+    assert operation_source_class("op.codebase_search") == "local_files"
+    assert operation_source_class("op.search_agent") == "web"
+    assert not source_allowed_by_search_policy("unknown_source", allowed)
 
 
 def test_harness_service_host_filters_main_runtime_tools_by_search_policy(tmp_path) -> None:

@@ -2,11 +2,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from capability_system.skill_registry import SkillRegistry
-from capability_system.skill_scanner import refresh_snapshot
-from capability_system.tool_registry import refresh_tool_registry
-from capability_system.tool_runtime import ToolRuntime
-from capability_system.paths import CapabilitySystemPaths
+from capability_system.skills.paths import AgentSkillPaths
+from capability_system.skills.registry import SkillRegistry
+from capability_system.skills.scanner import refresh_snapshot
+from capability_system.tools.registry import refresh_tool_registry
+from capability_system.tools.native_tool_runtime import ToolRuntime
+from capability_system.mcp.paths import RuntimeMCPPaths
+from capability_system.tools.paths import ToolRuntimePaths
 from memory_system import MemoryFacade
 from permissions import PermissionService
 from harness.entrypoint import HarnessRuntimeFacade
@@ -33,7 +35,9 @@ class AppRuntime:
 
     def initialize(self, base_dir: Path) -> None:
         self.base_dir = base_dir
-        CapabilitySystemPaths.from_base_dir(base_dir).ensure()
+        AgentSkillPaths.from_base_dir(base_dir).ensure()
+        ToolRuntimePaths.from_base_dir(base_dir).ensure()
+        RuntimeMCPPaths.from_base_dir(base_dir).ensure()
         self.settings = AppSettingsService(base_dir)
         refresh_snapshot(base_dir)
         refresh_tool_registry(base_dir)
@@ -98,7 +102,7 @@ class AppRuntime:
     def refresh_indexes_for_path(self, relative_path: str) -> None:
         runtime = self.require_ready()
         normalized = relative_path.replace("\\", "/")
-        if normalized.startswith("capability_system/units/"):
+        if normalized.startswith("agent_system/skills/") or normalized.startswith("runtime/tool_runtime/registries/"):
             self.refresh_catalogs()
             return
         if normalized.startswith("durable_memory/"):

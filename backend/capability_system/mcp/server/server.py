@@ -10,8 +10,8 @@ from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
 from pydantic import BaseModel, ConfigDict, Field
 
-from capability_system.local_mcp_registry import default_local_mcp_units
-from capability_system.skill_registry import SkillRegistry
+from capability_system.mcp.local_registry import default_local_mcp_units
+from capability_system.skills.registry import SkillRegistry
 from .local_capability_server import LocalCapabilityMCPExecutor, LocalMCPToolRequest
 from .tool_pool import build_mcp_tool_pool
 

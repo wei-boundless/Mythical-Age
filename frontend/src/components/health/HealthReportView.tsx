@@ -38,7 +38,6 @@ function systemLabel(system?: string) {
     task_system: "任务系统",
     capability_system: "能力系统",
     memory_system: "记忆系统",
-    soul_system: "灵魂系统",
     skill_system: "技能系统",
     orchestration_system: "编排系统",
     runtime_loop: "运行链路"

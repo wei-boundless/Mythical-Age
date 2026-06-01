@@ -9,7 +9,7 @@ from runtime.tool_runtime.tool_result_envelope import ToolResultEnvelope, build_
 from runtime.tool_runtime.tool_use_context import ToolUseContext
 
 if TYPE_CHECKING:
-    from capability_system.tool_definitions import ToolDefinition as CapabilityToolDefinition
+    from capability_system.tools.native_tool_catalog import ToolDefinition as CapabilityToolDefinition
 
 
 @dataclass(slots=True)

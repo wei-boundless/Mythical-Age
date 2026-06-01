@@ -7,7 +7,7 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-from capability_system.units.tools.web_search_tool import _format_search_summary
+from capability_system.tools.tool_units.web_search_tool import _format_search_summary
 
 
 def test_format_search_summary_for_gold_query_is_human_readable() -> None:

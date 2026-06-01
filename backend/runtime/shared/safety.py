@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from capability_system.workspace_file_service import WorkspaceFileService
+from capability_system.tools.workspace_file_service import WorkspaceFileService
 from permissions.operation_gate import OperationGateResult
 
 
@@ -108,7 +108,7 @@ def _shell_validator(*, sandbox_policy: dict[str, Any]):
         if sandbox_enabled:
             return True
         try:
-            from capability_system.validators import validate_shell_read_only
+            from capability_system.tools.validators import validate_shell_read_only
         except Exception:
             return False, "shell safety validator unavailable"
         return validate_shell_read_only(operation_input)

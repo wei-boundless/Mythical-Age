@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from capability_system import OperationDescriptor
+from permissions.operations import OperationDescriptor
 from permissions.resource_policy import ResourceDecision, ResourcePolicy
 
 from orchestration.runtime_directive import RuntimeDirective

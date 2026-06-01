@@ -3,8 +3,8 @@ from __future__ import annotations
 from dataclasses import replace
 from pathlib import Path
 
-from capability_system.units.mcp.local.pdf.analysis.parser import PdfPageSnapshot, PdfSegment
-from capability_system.units.mcp.local.retrieval.parser_adapter import MultimodalParserAdapter
+from capability_system.capabilities.document_processing.pdf.analysis.parser import PdfPageSnapshot, PdfSegment
+from capability_system.capabilities.retrieval.parser_adapter import MultimodalParserAdapter
 from knowledge_system.conversion.docling_converter import DoclingConverter
 from knowledge_system.conversion.models import ConversionBlock, ConversionResult, SourceFileRecord
 from knowledge_system.ingestion import NormalizedDocumentBuilder, build_indexable_units

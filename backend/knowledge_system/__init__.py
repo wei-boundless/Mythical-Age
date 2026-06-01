@@ -25,7 +25,7 @@ from knowledge_system.ingestion import (
     build_indexable_units,
     clean_block,
 )
-from knowledge_system.retrieval import (
+from capability_system.capabilities.retrieval import (
     CandidateGraph,
     CandidateNode,
     EvidenceItem,

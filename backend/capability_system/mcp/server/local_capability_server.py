@@ -5,10 +5,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from capability_system.local_mcp_registry import get_local_mcp_unit
-from capability_system.operation_registry import build_default_operation_registry
-from capability_system.tool_runtime import ToolRuntime
-from capability_system.validators import validate_filesystem_path
+from capability_system.mcp.local_registry import get_local_mcp_unit
+from permissions.operations import build_default_operation_registry
+from capability_system.tools.native_tool_runtime import ToolRuntime
+from capability_system.tools.validators import validate_filesystem_path
 from evidence import MCPExecutionPlan, MCPRequest
 from evidence.orchestrator import EvidenceOrchestrator
 from evidence.output_policy import RAGEvidenceOutputPolicy
@@ -17,7 +17,7 @@ from evidence.retrieval_worker import RetrievalWorker
 from evidence.structured_data_worker import StructuredDataWorker
 from runtime.model_gateway.model_runtime import ModelRuntime
 from permissions import OperationGate, OperationGatePipelineContext, ResourcePolicy
-from knowledge_system.retrieval import RetrievalService
+from capability_system.capabilities.retrieval import RetrievalService
 
 
 @dataclass(slots=True)

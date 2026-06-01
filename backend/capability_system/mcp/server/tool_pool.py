@@ -4,9 +4,9 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
-from capability_system import build_default_operation_registry
-from capability_system.local_mcp_registry import default_local_mcp_units
-from capability_system.tool_runtime import ToolRuntime
+from permissions.operations import build_default_operation_registry
+from capability_system.mcp.local_registry import default_local_mcp_units
+from capability_system.tools.native_tool_runtime import ToolRuntime
 from permissions import PermissionService
 from capability_system.mcp.client import ExternalMCPManager
 

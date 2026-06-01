@@ -25,7 +25,7 @@ export function ChatPanel() {
     clearChatTaskEnvironmentBinding,
     workspaceInitializing,
     modelProviderConfig,
-    soulImageAssetConfig,
+    imageAssetConfig,
     chatThinkingMode,
     setChatThinkingMode,
     selectedChatModelId,
@@ -166,7 +166,7 @@ export function ChatPanel() {
           onSend={sendMessage}
           onStop={stopCurrentStream}
           modelProviderConfig={modelProviderConfig}
-          soulImageAssetConfig={soulImageAssetConfig}
+          imageAssetConfig={imageAssetConfig}
           onSelectChatModel={setSelectedChatModel}
           selectedChatModelId={selectedChatModelId}
           chatThinkingMode={chatThinkingMode}
@@ -176,3 +176,4 @@ export function ChatPanel() {
     </section>
   );
 }
+

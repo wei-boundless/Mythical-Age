@@ -28,7 +28,7 @@ class MemoryMessageAdapter:
         "任务契约",
         "资源边界",
         "护栏",
-        "共同契约",
+        "AGENTS 规则",
         "身份锚点",
     )
     CONTROL_PLANE_INLINE_MARKERS = (
@@ -81,7 +81,7 @@ class MemoryMessageAdapter:
         marker_hits = sum(1 for marker in self.CONTROL_PLANE_MARKERS if marker.lower() in lowered)
         if marker_hits >= 2:
             return True
-        if "# 当前风格" in normalized and "# 共同契约" in normalized:
+        if "# 当前风格" in normalized and "# AGENTS 规则" in normalized:
             return True
         if "## Runtime Stage Projection" in normalized or "## Runtime Context Package" in normalized:
             return True

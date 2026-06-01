@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 
-from capability_system.local_mcp_registry import default_local_mcp_units
-from capability_system.operation_registry import OperationRegistry
+from capability_system.mcp.local_registry import default_local_mcp_units
+from permissions.operations import OperationRegistry
 
 
 _BUILTIN_OPERATION_TO_TOOL = {

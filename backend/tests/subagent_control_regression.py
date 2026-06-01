@@ -12,8 +12,8 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 from agent_system.profiles.runtime_profile_registry import AgentRuntimeRegistry
-from capability_system.tool_authorization import build_tool_authorization_index
-from capability_system.tool_definitions import build_tool_instances, get_tool_definition_map
+from capability_system.tools.authorization import build_tool_authorization_index
+from capability_system.tools.native_tool_catalog import build_tool_instances, get_tool_definition_map
 from harness.agent_control.controller import SubagentControl
 from harness.runtime.assembly import assemble_runtime
 from runtime.memory.state_index import RuntimeStateIndex

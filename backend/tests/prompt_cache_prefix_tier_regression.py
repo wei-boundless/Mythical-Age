@@ -103,14 +103,14 @@ def test_task_execution_runtime_instance_context_stays_out_of_stable_prefix() ->
         },
     ).packet
 
-    task_stable_indices = [
+    stable_indices = [
         int(segment["model_message_index"])
         for segment in packet.segment_plan["segments"]
-        if segment.get("kind") == "task_stable"
+        if segment.get("cache_role") in {"cacheable_prefix", "session_stable"}
     ]
-    assert task_stable_indices
-    task_stable_text = "\n".join(packet.model_messages[index]["content"] for index in task_stable_indices)
-    assert "taskrun:runtime-instance" not in task_stable_text
+    assert stable_indices
+    stable_text = "\n".join(packet.model_messages[index]["content"] for index in stable_indices)
+    assert "taskrun:runtime-instance" not in stable_text
 
 
 def test_prompt_cache_planner_uses_longest_stable_prefix_key_for_automatic_cache() -> None:

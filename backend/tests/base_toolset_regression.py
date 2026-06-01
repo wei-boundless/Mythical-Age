@@ -8,7 +8,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from capability_system.tool_runtime import ToolRuntime
+from capability_system.tools.native_tool_runtime import ToolRuntime
 
 
 def main() -> None:

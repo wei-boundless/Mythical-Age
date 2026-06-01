@@ -12,13 +12,13 @@ from api.capability_system import ResourcePolicyCandidateRequest, resource_polic
 from capability_system import (
     agent_tool_bindings,
     build_capability_catalog,
-    build_capability_supply_package_from_catalog,
     default_tool_type,
     operation_tool_metadata,
-    set_skill_prompt_view,
 )
 from capability_system.validation import validate_capability_catalog
-from capability_system import build_default_operation_registry
+from capability_system.skills.authoring import set_skill_prompt_view
+from capability_system.supply import build_capability_supply_package_from_catalog
+from permissions.operations import build_default_operation_registry
 
 
 def test_capability_system_default_tool_types_are_user_readable() -> None:
@@ -239,7 +239,7 @@ def test_capability_validation_checks_capability_units() -> None:
 
 
 def test_capability_unit_projection_uses_skill_declared_operation_dependencies() -> None:
-    from capability_system.capability_units import build_capability_units
+    from capability_system.unit_projection import build_capability_units
 
     units = build_capability_units(
         {
@@ -249,7 +249,7 @@ def test_capability_unit_projection_uses_skill_declared_operation_dependencies()
                         "name": "skill-creator",
                         "title": "Skill 创建顾问",
                         "description": "Skill authoring workflow.",
-                        "path": "capability_system/units/skills/skill-creator/SKILL.md",
+                        "path": "agent_system/skills/builtin/skill-creator/SKILL.md",
                         "preferred_route": "capability_authoring",
                         "activation_policy": "model_visible",
                         "context_mode": "inline",

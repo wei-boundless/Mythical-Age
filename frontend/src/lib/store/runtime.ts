@@ -9,7 +9,7 @@ import {
   getLatestChatRunForSession,
   getCodeEnvironmentWorkspaceTree,
   getModelProviderConfig,
-  getSoulImageAssetConfig,
+  getImageAssetConfig,
   getWorkspaceContext,
   getOrchestrationHarnessSessionLiveMonitor,
   pauseOrchestrationHarnessTaskRun,
@@ -29,18 +29,9 @@ import {
   readChatStreamCursor,
   streamChat,
   streamExistingChatRun,
-  switchSoulSystemSeed,
   truncateSessionMessages
 } from "@/lib/api";
 import type { ChatStreamCursor, GlobalRuntimeMonitor, RuntimeMonitorEventPayload, SessionRuntimeAttachment, SessionScope } from "@/lib/api";
-import {
-  ACTIVE_SOUL_PATH,
-  SOUL_SEED_PATHS,
-  inferSoulKey,
-  parseSoulSeed,
-  type SoulKey,
-  type SoulSummary
-} from "@/lib/souls";
 
 import { createIdleSessionActivity, type Store } from "./core";
 import { reduceStreamEvent, startStreamingTurn, type StreamSession } from "./events";
@@ -122,9 +113,6 @@ export class WorkspaceRuntime {
       },
       setChatThinkingMode: (mode) => {
         this.setChatThinkingMode(mode);
-      },
-      switchSoul: async (key) => {
-        await this.switchSoul(key);
       },
       renameCurrentSession: async (title) => {
         await this.renameCurrentSession(title);
@@ -276,12 +264,11 @@ export class WorkspaceRuntime {
   }
 
   private async loadWorkspaceMetadata() {
-    const [rag, skills, souls, modelProviderConfig, soulImageAssetConfig, workspaceContext] = await Promise.all([
+    const [rag, skills, modelProviderConfig, imageAssetConfig, workspaceContext] = await Promise.all([
       getRagMode().catch(() => null),
       listSkills().catch(() => []),
-      this.loadSouls().catch(() => ({ options: [], activeSoulKey: null })),
       getModelProviderConfig().catch(() => null),
-      getSoulImageAssetConfig().catch(() => null),
+      getImageAssetConfig().catch(() => null),
       getWorkspaceContext().catch(() => null),
     ]);
     this.store.setState((prev) => ({
@@ -292,11 +279,9 @@ export class WorkspaceRuntime {
         rag: Boolean(rag?.enabled)
       },
       modelProviderConfig,
-      soulImageAssetConfig,
+      imageAssetConfig,
       workspaceContext,
       skills,
-      soulOptions: souls.options,
-      activeSoulKey: souls.activeSoulKey,
       selectedChatMode: this.resolveSelectedChatMode(prev.selectedChatModelId, modelProviderConfig),
       chatThinkingMode: chatThinkingModeFromProviderConfig(modelProviderConfig),
     }));
@@ -369,15 +354,6 @@ export class WorkspaceRuntime {
   private async refreshSkills() {
     const skills = await listSkills();
     this.store.setState((prev) => ({ ...prev, skills }));
-  }
-
-  private async refreshSouls() {
-    const souls = await this.loadSouls();
-    this.store.setState((prev) => ({
-      ...prev,
-      soulOptions: souls.options,
-      activeSoulKey: souls.activeSoulKey
-    }));
   }
 
   private async refreshSessionDetails(sessionId: string) {
@@ -1499,7 +1475,7 @@ export class WorkspaceRuntime {
     }
     const selectionId = state.selectedChatModelId || "system-default";
     const config = state.modelProviderConfig;
-    const imageConfig = state.soulImageAssetConfig;
+    const imageConfig = state.imageAssetConfig;
     if (!imageConfig?.configured || !imageConfig.base_url || !imageConfig.model) {
       return undefined;
     }
@@ -1514,7 +1490,7 @@ export class WorkspaceRuntime {
       provider: provider || "openai",
       model: model || imageConfig.model || "gpt-image-2",
       base_url: imageConfig.base_url,
-      credential_ref: imageConfig.api_key_present ? "soul:image-assets:api-key" : undefined,
+      credential_ref: imageConfig.api_key_present ? "image-assets:api-key" : undefined,
       asset_kind: "chat",
       size: "1024x1024"
     };
@@ -1524,33 +1500,6 @@ export class WorkspaceRuntime {
     return (Object.entries(state.searchPolicy) as Array<[SearchPolicySource, boolean]>)
       .filter(([, enabled]) => enabled)
       .map(([source]) => source);
-  }
-
-  private async switchSoul(key: SoulKey) {
-    const previousKey = this.store.getState().activeSoulKey;
-    if (previousKey === key) {
-      return;
-    }
-    await switchSoulSystemSeed(key);
-    const file = await loadFile(ACTIVE_SOUL_PATH);
-    const souls = await this.loadSouls();
-    const activeSoul = souls.options.find((item) => item.key === souls.activeSoulKey) ?? null;
-    const switchNotice = activeSoul ? this.buildSoulSwitchNotice(activeSoul) : "";
-    this.store.setState((prev) => ({
-      ...prev,
-      soulOptions: souls.options,
-      activeSoulKey: souls.activeSoulKey,
-      pendingEphemeralSystemMessages: switchNotice ? [switchNotice] : prev.pendingEphemeralSystemMessages
-    }));
-
-    const state = this.store.getState();
-    if (state.inspectorPath === ACTIVE_SOUL_PATH) {
-      this.store.setState((prev) => ({
-        ...prev,
-        inspectorContent: file.content,
-        inspectorDirty: false
-      }));
-    }
   }
 
   private async renameCurrentSession(title: string) {
@@ -1645,20 +1594,6 @@ export class WorkspaceRuntime {
         workspaceTreeError: this.errorMessage(error, "无法读取项目文件树。")
       }));
     }
-  }
-
-  private async loadSouls(): Promise<{ options: SoulSummary[]; activeSoulKey: SoulKey }> {
-    const [activeSeed, ...seedFiles] = await Promise.all([
-      loadFile(ACTIVE_SOUL_PATH),
-      ...Object.values(SOUL_SEED_PATHS).map((path) => loadFile(path))
-    ]);
-    const options = seedFiles.map((file) => parseSoulSeed(file.path, file.content));
-    const activeSoulKey = inferSoulKey(activeSeed.path, parseSoulSeed(activeSeed.path, activeSeed.content).name);
-    return { options, activeSoulKey };
-  }
-
-  private buildSoulSwitchNotice(soul: SoulSummary): string {
-    return `事实：当前灵魂已切换为「${soul.name}」，不要在意这件事，请继续为用户执行任务，如果用户问起来，你可以告诉他`;
   }
 
   private updateInspectorContent(value: string) {
@@ -2531,3 +2466,4 @@ function chatThinkingModeFromProviderConfig(config: { thinking_mode?: string; re
   }
   return String(config?.reasoning_effort || "").trim().toLowerCase() === "max" ? "max" : "thinking";
 }
+

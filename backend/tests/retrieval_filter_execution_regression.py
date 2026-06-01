@@ -3,9 +3,9 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from capability_system.units.mcp.local.retrieval.router import RAGQueryRouter
-from capability_system.units.mcp.local.retrieval.models import RetrievalHit
-from knowledge_system.retrieval.service import RetrievalService
+from capability_system.capabilities.retrieval.router import RAGQueryRouter
+from capability_system.capabilities.retrieval.models import RetrievalHit
+from capability_system.capabilities.retrieval.service import RetrievalService
 from knowledge_system.indexing.llamaindex_backend import LlamaIndexRetrievalBackend
 from knowledge_system.indexing.retrievers import RetrievalRequest
 

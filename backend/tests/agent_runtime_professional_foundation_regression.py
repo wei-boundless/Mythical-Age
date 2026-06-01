@@ -22,7 +22,7 @@ def test_resource_inventory_keeps_domain_and_projection_non_authoritative() -> N
 
     assert items["resource.execution_obligation"]["can_authorize_side_effects"] is True
     assert items["resource.task_domains"]["can_authorize_side_effects"] is False
-    assert items["resource.soul_projection"]["authority_layer"] == "L6_projection_style"
+    assert all(item["authority_layer"] != "L6_projection_style" for item in items.values())
 
 
 def test_resource_inventory_api_exposes_authority_layers(tmp_path: Path) -> None:

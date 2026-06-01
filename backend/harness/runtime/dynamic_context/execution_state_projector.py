@@ -41,7 +41,6 @@ class ExecutionStateProjector:
         diagnostics = dict(payload.get("diagnostics") or {})
         return drop_empty(
             {
-                "task_run_id": str(payload.get("task_run_id") or ""),
                 "status": str(payload.get("status") or ""),
                 "terminal_reason": str(payload.get("terminal_reason") or ""),
                 "started_at": payload.get("started_at"),

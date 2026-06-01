@@ -22,7 +22,7 @@ export function RetrievalCard({ results }: { results: RetrievalResult[] }) {
 
   return (
     <details className="archive-detail-card archive-detail-card--retrieval mb-4 rounded-[26px] p-4">
-      <summary className="archive-detail-card__summary flex cursor-pointer list-none items-center gap-2 text-sm font-medium text-[var(--color-soul)]">
+      <summary className="archive-detail-card__summary flex cursor-pointer list-none items-center gap-2 text-sm font-medium text-[var(--color-accent-primary)]">
         <Database size={16} />
         {summaryLabel}
       </summary>

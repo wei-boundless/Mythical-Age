@@ -3,10 +3,10 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from capability_system.local_mcp_registry import default_local_mcp_units, get_local_mcp_unit
+from capability_system.mcp.local_registry import default_local_mcp_units, get_local_mcp_unit
 from capability_system.mcp.providers import MCPProviderServer, MCPProviderTool
 from capability_system.mcp.server.local_capability_server import LocalCapabilityMCPExecutor, LocalMCPToolRequest
-from capability_system.operation_registry import build_default_operation_registry
+from permissions.operations import build_default_operation_registry
 from permissions import OperationGate, OperationGatePipelineContext, ResourcePolicy
 
 

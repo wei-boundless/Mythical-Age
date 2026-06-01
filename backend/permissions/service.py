@@ -6,8 +6,8 @@ from permissions.decision_pipeline import decide_tool_permission, list_allowed_t
 from permissions.models import PermissionDecision
 from permissions.policy import PERMISSION_MODES, normalize_permission_mode
 from bootstrap.settings import AppSettingsService
-from capability_system.tool_contracts import ToolScope
-from capability_system.tool_runtime import ToolRuntime
+from permissions.tool_scope import ToolScope
+from capability_system.tools.native_tool_runtime import ToolRuntime
 
 
 class PermissionService:

@@ -25,7 +25,6 @@ function requestTimeoutMs(path: string) {
   }
   if (
     path === "/tasks/overview"
-    || path === "/soul/projections"
     || path === "/orchestration/agents"
     || path.startsWith("/orchestration/harness/")
     || path.startsWith("/orchestration/runtime-monitor/")

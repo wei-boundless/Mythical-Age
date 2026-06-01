@@ -7,21 +7,20 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from api.deps import require_runtime
-from capability_system.paths import CapabilitySystemPaths
-from capability_system.skill_scanner import scan_skills
+from capability_system.skills.paths import AgentSkillPaths
+from capability_system.skills.scanner import scan_skills
 from project_layout import ProjectLayout
 
 router = APIRouter()
 
 READABLE_PREFIXES = (
-    "soul/",
     "durable_memory/",
     "session-memory/",
     "sessions/",
     "knowledge/",
-    "capability_system/units/skills/",
-    "capability_system/units/mcp/",
-    "capability_system/units/registries/",
+    "agent_system/skills/builtin/",
+    "agent_system/skills/registries/",
+    "runtime/tool_runtime/registries/",
     "backend/",
     "frontend/",
     "docs/",
@@ -29,13 +28,11 @@ READABLE_PREFIXES = (
 )
 
 EDITABLE_PREFIXES = (
-    "soul/",
     "durable_memory/",
     "session-memory/",
     "sessions/",
     "knowledge/",
-    "capability_system/units/skills/",
-    "capability_system/units/mcp/",
+    "agent_system/skills/builtin/",
 )
 
 READABLE_PROJECT_FILES = frozenset(
@@ -94,7 +91,7 @@ def _read_text_with_fallback(file_path: Path) -> str:
 def _resolve_path(relative_path: str, *, for_write: bool = False) -> Path:
     runtime = require_runtime()
     layout = ProjectLayout.from_backend_dir(runtime.base_dir)
-    capability_paths = CapabilitySystemPaths.from_base_dir(runtime.base_dir)
+    skill_paths = AgentSkillPaths.from_base_dir(runtime.base_dir)
 
     normalized = relative_path.replace("\\", "/").strip("/")
     if not _is_allowed_workspace_path(normalized, for_write=for_write):
@@ -113,9 +110,12 @@ def _resolve_path(relative_path: str, *, for_write: bool = False) -> Path:
     elif normalized.startswith("knowledge/"):
         candidate = (layout.knowledge_storage_dir / normalized.removeprefix("knowledge/")).resolve()
         allowed_root = layout.knowledge_storage_dir.resolve()
-    elif normalized.startswith("capability_system/units/"):
+    elif normalized.startswith("agent_system/skills/"):
         candidate = (runtime.base_dir / normalized).resolve()
-        allowed_root = capability_paths.units_dir.resolve()
+        allowed_root = skill_paths.code_dir.resolve()
+    elif normalized.startswith("runtime/tool_runtime/registries/"):
+        candidate = (runtime.base_dir / normalized).resolve()
+        allowed_root = (runtime.base_dir / "runtime" / "tool_runtime" / "registries").resolve()
     elif not for_write and (
         normalized in READABLE_PROJECT_FILES
         or normalized.startswith(PROJECT_READABLE_PREFIXES)

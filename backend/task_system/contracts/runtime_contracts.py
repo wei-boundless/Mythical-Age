@@ -4,7 +4,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
-from capability_system.skill_registry import SkillDefinition, SkillRegistry
+from capability_system.skills.registry import SkillDefinition, SkillRegistry
 
 
 @dataclass(frozen=True, slots=True)

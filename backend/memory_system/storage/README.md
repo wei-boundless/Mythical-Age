@@ -54,13 +54,9 @@ messages -> session summary -> compact older history -> build runtime prompt
 
 ```text
 your-agent/
-  soul/
-    agent_core/
-      CORE.md
-      ACTIVE_SEED.md
-      seeds/
-        *.md
-    agent.md
+  agent_context/
+    AGENTS.md
+  AGENTS.md
   durable_memory/
     notes/
       *.md

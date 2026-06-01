@@ -721,7 +721,7 @@ export function CapabilitySystemWorkbench() {
       if (!payload.server_id.trim()) throw new Error("服务器 ID 不能为空");
       const nextMcpCatalog = await upsertMCPManagementExternalServer(payload.server_id, payload);
       const nextCatalog = await refreshCapabilitySystemCatalog();
-      setCatalog({ ...nextCatalog, mcp_management: nextMcpCatalog as unknown as Record<string, unknown> });
+      setCatalog({ ...nextCatalog, mcp_management: nextMcpCatalog });
       setSelectedServerKey(`external:${payload.server_id}`);
       setNotice("MCP 配置已保存。");
     } catch (exc) {
@@ -737,7 +737,7 @@ export function CapabilitySystemWorkbench() {
     try {
       const nextMcpCatalog = await deleteMCPManagementExternalServer(serverId);
       const nextCatalog = await refreshCapabilitySystemCatalog();
-      setCatalog({ ...nextCatalog, mcp_management: nextMcpCatalog as unknown as Record<string, unknown> });
+      setCatalog({ ...nextCatalog, mcp_management: nextMcpCatalog });
       setSelectedServerKey(nextMcpCatalog.servers[0] ? mcpServerKey(nextMcpCatalog.servers[0]) : "");
       setNotice("MCP 配置已删除。");
     } catch (exc) {

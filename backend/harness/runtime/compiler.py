@@ -16,6 +16,7 @@ from prompt_library import (
 from task_system.contracts.runtime_contracts import expand_selected_skill_bodies, render_skill_candidate_cards
 
 from .context_budget_policy import build_model_aware_context_budget_policy
+from .artifact_scope import canonicalize_task_contract_artifacts, runtime_artifact_scope_from_environment
 from .dynamic_context import DynamicContextInput, DynamicContextManager, DynamicContextProjection
 from .envelope import RuntimeEnvelope
 from .invocation_packet import RuntimeInvocationPacket
@@ -61,7 +62,6 @@ class RuntimeCompiler:
         agent_profile_ref = str(assembly_payload.get("agent_profile_ref") or agent_profile_ref or "main_interactive_agent")
         task_environment_ref = str(environment_payload.get("environment_id") or "env.general.workspace")
         prompt_pack_refs = _prompt_pack_refs_for_invocation(profile_payload, invocation_kind="single_agent_turn")
-        soul_role_prompt = dict(assembly_payload.get("soul_role_prompt") or {})
         allowed_actions = _single_agent_turn_allowed_actions(
             control_capabilities=control_capabilities,
             active_work_context=active_work_context,
@@ -100,7 +100,6 @@ class RuntimeCompiler:
                 "planning_policy": dict(profile_payload.get("planning_policy") or {}),
                 "task_lifecycle_policy": dict(profile_payload.get("task_lifecycle_policy") or {}),
                 "self_review_policy": dict(profile_payload.get("self_review_policy") or {}),
-                "soul_prompt_policy": dict(profile_payload.get("soul_prompt_policy") or {}),
             },
             sandbox_policy=dict(environment_payload.get("sandbox_policy") or {}),
             file_policy={
@@ -142,7 +141,6 @@ class RuntimeCompiler:
             environment_prompt_assembly=environment_prompt_assembly,
         )
         agent_instruction = _agent_prompt_instruction(agent_prompt_assembly, invocation_kind="single_agent_turn")
-        soul_instruction = _soul_instruction(soul_role_prompt)
         skill_candidate_instruction = _skill_candidate_instruction(assembly_payload)
         stable_payload = {
             "control_capabilities": dict(effective_control_capabilities),
@@ -202,7 +200,6 @@ class RuntimeCompiler:
                 _message_spec(
                     role="system",
                     content=_join_prompt_sections(
-                        soul_instruction,
                         agent_instruction,
                         environment_instruction,
                         skill_candidate_instruction,
@@ -304,6 +301,13 @@ class RuntimeCompiler:
         self._bind_assembly_base_dir(assembly_payload)
         profile_payload = dict(assembly_payload.get("profile") or {})
         environment_payload = dict(assembly_payload.get("task_environment") or {})
+        artifact_scope = runtime_artifact_scope_from_environment(environment_payload)
+        canonical_artifact_contract = canonicalize_task_contract_artifacts(
+            contract,
+            environment_payload=environment_payload,
+            artifact_root=artifact_scope.artifact_root,
+        )
+        contract = canonical_artifact_contract.contract
         agent_profile_ref = str(assembly_payload.get("agent_profile_ref") or agent_profile_ref or "main_interactive_agent")
         task_environment_ref = str(environment_payload.get("environment_id") or "env.general.workspace")
         task_run_id = str(task_run.get("task_run_id") or "")
@@ -318,7 +322,6 @@ class RuntimeCompiler:
         permission_policy.setdefault("permission_scope", str(permission_policy.get("scope") or "task_run_execution"))
         tool_payloads = tuple(dict(item) for item in list(available_tools or []) if isinstance(item, dict))
         graph_slot = _graph_slot_from_contract(contract)
-        graph_runtime_projection = bool(graph_slot)
         task_run_context_enabled = _task_run_context_enabled(profile_payload)
         prompt_pack_refs = _prompt_pack_refs_for_invocation(profile_payload, invocation_kind="task_execution")
         operation_authorization = dict(assembly_payload.get("operation_authorization") or {})
@@ -343,7 +346,7 @@ class RuntimeCompiler:
                 "file_management": dict(environment_payload.get("file_management") or {}),
                 "file_access_tables": list(environment_payload.get("file_access_tables") or []),
             },
-            artifact_policy=dict(environment_payload.get("artifact_policy") or {}),
+            artifact_policy=artifact_scope.to_artifact_policy(dict(environment_payload.get("artifact_policy") or {})),
             permission_policy=permission_policy,
             prompt_policy={"invocation_kind": "task_execution"},
             output_policy={"format": "model_action_request_json"},
@@ -355,7 +358,6 @@ class RuntimeCompiler:
             },
         )
         schema = task_execution_action_schema()
-        artifact_root = _artifact_root(environment_payload)
         task_prompt_contract = _task_prompt_contract_from_runtime(
             task_run=task_run,
             contract=contract,
@@ -390,11 +392,7 @@ class RuntimeCompiler:
             agent_profile_ref=agent_profile_ref,
             task_environment_ref=task_environment_ref,
         )
-        artifact_note = f"当前建议 artifact_root 是 {artifact_root}。" if artifact_root else ""
-        runtime_instruction = _join_prompt_sections(
-            artifact_note,
-            _runtime_projection_instruction(agent_visible_runtime_projection),
-        )
+        runtime_instruction = _runtime_projection_instruction(agent_visible_runtime_projection)
         active_skill_instruction, active_skill_meta = _active_skill_instruction(
             base_dir=self.base_dir,
             assembly_payload=assembly_payload,
@@ -402,12 +400,13 @@ class RuntimeCompiler:
         environment_instruction = _environment_instruction(
             environment_payload,
             environment_prompt_assembly=environment_prompt_assembly,
+            include_storage_note=False,
         )
         agent_instruction = _agent_prompt_instruction(agent_prompt_assembly, invocation_kind="task_execution")
-        stable_payload = {
-            "schema": schema,
-            "task_contract": _task_contract_stable_payload(contract),
-            "task_environment": _environment_model_visible_payload(environment_payload),
+        action_schema_payload = {"schema": schema}
+        task_contract_payload = {"task_contract": _task_contract_stable_payload(contract)}
+        environment_stable_payload = {"task_environment": _environment_model_visible_payload(environment_payload)}
+        tool_index_payload = {
             "available_tools": _stable_tool_catalog_payload(tool_payloads),
             "tool_catalog_hash": _stable_json_hash([dict(item) for item in tool_payloads]),
         }
@@ -452,9 +451,39 @@ class RuntimeCompiler:
                 ),
                 _message_spec(
                     role="system",
-                    content=_packet_payload_content("Task execution stable contract", stable_payload),
-                    kind="task_stable",
-                    source_ref=str(contract.get("contract_id") or task_run.get("task_run_id") or "task_execution_stable_contract"),
+                    content=_packet_payload_content("Task execution action schema", action_schema_payload),
+                    kind="action_schema_static",
+                    source_ref="task_execution_action_schema",
+                    cache_scope="session",
+                    cache_role="session_stable",
+                    compression_role="preserve",
+                ),
+                _message_spec(
+                    role="system",
+                    content=agent_instruction,
+                    kind="agent_stable",
+                    source_ref=",".join(agent_prompt_assembly.manifest.get("stable_prompt_refs") or ()),
+                    cache_scope="session",
+                    cache_role="session_stable",
+                    compression_role="preserve",
+                ),
+                _message_spec(
+                    role="system",
+                    content=_join_prompt_sections(
+                        environment_instruction,
+                        _packet_payload_content("Task execution environment boundary", environment_stable_payload),
+                    ),
+                    kind="environment_stable",
+                    source_ref=",".join(_string_tuple(assembly_payload.get("environment_prompt_refs"))),
+                    cache_scope="session",
+                    cache_role="session_stable",
+                    compression_role="preserve",
+                ),
+                _message_spec(
+                    role="system",
+                    content=_packet_payload_content("Task execution task contract", task_contract_payload),
+                    kind="task_contract_stable",
+                    source_ref=str(contract.get("contract_id") or "task_execution_contract"),
                     cache_scope="task",
                     cache_role="session_stable",
                     compression_role="preserve",
@@ -470,15 +499,6 @@ class RuntimeCompiler:
                 ),
                 _message_spec(
                     role="system",
-                    content=agent_instruction,
-                    kind="agent_stable",
-                    source_ref=",".join(agent_prompt_assembly.manifest.get("stable_prompt_refs") or ()),
-                    cache_scope="session",
-                    cache_role="session_stable",
-                    compression_role="preserve",
-                ),
-                _message_spec(
-                    role="system",
                     content=active_skill_instruction,
                     kind="active_skills",
                     source_ref=",".join(active_skill_meta.get("source_refs") or ()),
@@ -488,10 +508,10 @@ class RuntimeCompiler:
                 ),
                 _message_spec(
                     role="system",
-                    content=environment_instruction,
-                    kind="environment_stable",
-                    source_ref=",".join(_string_tuple(assembly_payload.get("environment_prompt_refs"))),
-                    cache_scope="session",
+                    content=_packet_payload_content("Task execution tool index", tool_index_payload),
+                    kind="tool_index_stable",
+                    source_ref=_short_hash(_stable_json_hash([dict(item) for item in tool_payloads])),
+                    cache_scope="task",
                     cache_role="session_stable",
                     compression_role="preserve",
                 ),
@@ -499,10 +519,6 @@ class RuntimeCompiler:
                     role="system",
                     content=_join_prompt_sections(
                         runtime_instruction,
-                        _packet_payload_content(
-                            "Task run model-visible context",
-                            _task_run_stable_payload(task_run, graph_runtime_projection=graph_runtime_projection) if task_run_context_enabled else {},
-                        ),
                         _packet_payload_content("Task execution runtime boundary", dynamic_payload),
                     ),
                     kind="dynamic_projection",
@@ -513,7 +529,7 @@ class RuntimeCompiler:
                     metadata=_dynamic_context_segment_metadata(dynamic_context, source="runtime_delta"),
                 ),
                 _message_spec(
-                    role="user",
+                    role="system",
                     content=_packet_payload_content("Task execution current state", volatile_payload),
                     kind="volatile_task_state",
                     source_ref="task_execution_current_state",
@@ -575,6 +591,11 @@ class RuntimeCompiler:
                 "prompt_manifest": prompt_manifest,
                 "segment_plan": segment_plan.to_dict(),
                 "model_input_authority": "runtime_invocation_packet.model_messages",
+                "artifact_scope": {
+                    "artifact_root": artifact_scope.artifact_root,
+                    "normalizations": [dict(item) for item in canonical_artifact_contract.normalizations],
+                    "authority": artifact_scope.authority,
+                },
             },
         )
         return RuntimeCompilationResult(envelope=envelope, packet=packet)
@@ -603,12 +624,10 @@ class RuntimeCompiler:
         runtime_policy = {
             "planning_policy": dict(profile_payload.get("planning_policy") or {}),
             "task_lifecycle_policy": dict(profile_payload.get("task_lifecycle_policy") or {}),
-            "soul_prompt_policy": dict(profile_payload.get("soul_prompt_policy") or {}),
         }
         permission_policy = dict(profile_payload.get("permission_policy") or {"permission_scope": "bounded_read_observation"})
         permission_policy.setdefault("permission_scope", str(permission_policy.get("scope") or "bounded_read_observation"))
         prompt_pack_refs = _prompt_pack_refs_for_invocation(profile_payload, invocation_kind="tool_observation_followup")
-        soul_role_prompt = dict(assembly_payload.get("soul_role_prompt") or {})
         tool_payloads = tuple(dict(item) for item in list(available_tools or []) if isinstance(item, dict))
         agent_visible_runtime_projection = _agent_visible_runtime_projection(
             invocation_kind="tool_observation_followup",
@@ -666,7 +685,6 @@ class RuntimeCompiler:
             environment_prompt_assembly=environment_prompt_assembly,
         )
         agent_instruction = _agent_prompt_instruction(agent_prompt_assembly, invocation_kind="tool_observation_followup")
-        soul_instruction = _soul_instruction(soul_role_prompt)
         skill_candidate_instruction = _skill_candidate_instruction(assembly_payload)
         stable_payload = {
             "schema": schema,
@@ -732,7 +750,7 @@ class RuntimeCompiler:
                 ),
                 _message_spec(
                     role="system",
-                    content=_join_prompt_sections(soul_instruction, agent_instruction),
+                    content=agent_instruction,
                     kind="agent_stable",
                     source_ref=",".join(agent_prompt_assembly.manifest.get("stable_prompt_refs") or ()),
                     cache_scope="session",
@@ -1025,10 +1043,6 @@ def task_execution_action_schema() -> dict[str, Any]:
         "user_question": "",
         "blocking_reason": "",
         "tool_call": {"tool_name": "", "args": {}},
-        "selected_skill_ids": ["可选；当前任务执行中需要继续激活的 skill_id"],
-        "task_contract_seed": {},
-        "completion_contract": {},
-        "permission_request": {},
         "diagnostics": {
             "artifacts": [
                 {"path": "真实交付物路径", "kind": "artifact kind", "summary": "产物说明"}
@@ -1425,11 +1439,12 @@ def _task_prompt_contract_from_runtime(
     contract: dict[str, Any],
     assembly_payload: dict[str, Any],
 ) -> dict[str, Any]:
-    graph_prompt_contract = _graph_slot_node_prompt_contract(contract)
-    payload = dict(graph_prompt_contract or contract.get("prompt_contract") or {})
+    payload = dict(contract.get("prompt_contract") or {})
     engagement_contract = dict(assembly_payload.get("engagement_contract") or {})
     if not payload:
         payload = dict(engagement_contract.get("prompt_contract") or {})
+    if not payload:
+        return {}
     result = _normalize_prompt_contract(
         payload,
         contract_id=str(
@@ -1440,14 +1455,6 @@ def _task_prompt_contract_from_runtime(
             or "task_prompt_contract"
         ),
     )
-    if not result.get("task_instruction"):
-        result["task_instruction"] = _first_runtime_text(
-            contract.get("task_run_goal"),
-            contract.get("user_visible_goal"),
-            task_run.get("title"),
-        )
-    if not result.get("definition_of_done"):
-        result["definition_of_done"] = _string_list(contract.get("completion_criteria"))
     return result
 
 
@@ -1613,22 +1620,6 @@ def _runtime_projection_instruction(projection: dict[str, Any]) -> str:
         action_notes.append("在越界、缺少授权或无法继续时阻止")
     if action_notes:
         lines.append("- 你可以" + "、".join(action_notes) + "。")
-    lines.append(
-        "- 你必须先在内部完成任务状态审查、证据核对、风险判断和下一步选择；这些内部推理不得输出。"
-    )
-    if projection.get("invocation_kind") == "task_execution":
-        lines.append(
-            "- 每次输出 JSON 时必须填写 public_action_state 和 public_progress_note。public_action_state 是公开行动状态，"
-            "必须包含 current_judgment、next_action；open_risks 和 evidence_refs 只引用真实上下文证据，不复制原始思维过程。"
-        )
-        lines.append(
-            "- public_progress_note 必须是 public_action_state 的一句自然语言摘要；不要写“正在思考”“正在分析当前目标”等空泛状态。"
-            "如果你要调用工具，公开状态应说明“准备请求/下一步将请求”这个动作；真实的“正在读取/写入/运行”和工具结果由系统工具事件展示。"
-        )
-    else:
-        lines.append(
-            "- 如果本轮输出包含 public_action_state 或 public_progress_note，它们只能描述公开判断和下一步动作，不能暴露隐藏推理。"
-        )
     if projection.get("invocation_kind") == "task_execution":
         lines.append(
             "- 如果当前执行状态里有 pending_user_steers，你必须先判断并处理这些用户补充要求；"
@@ -1681,13 +1672,6 @@ def _runtime_projection_instruction(projection: dict[str, Any]) -> str:
     return "\n".join(lines) + "\n"
 
 
-def _soul_instruction(soul_role_prompt: dict[str, Any]) -> str:
-    content = str(soul_role_prompt.get("content") or "").strip()
-    if not content:
-        return ""
-    return "以下是本次角色表达锚点；它不改变工具、任务或系统边界：\n" + content + "\n"
-
-
 def _agent_prompt_instruction(agent_prompt_assembly: PromptAssemblyResult, *, invocation_kind: str = "") -> str:
     del invocation_kind
     content = str(agent_prompt_assembly.content or "").strip()
@@ -1715,6 +1699,7 @@ def _environment_instruction(
     environment_payload: dict[str, Any],
     *,
     environment_prompt_assembly: PromptAssemblyResult,
+    include_storage_note: bool = True,
 ) -> str:
     content = str(environment_prompt_assembly.content or "").strip()
     environment_id = str(environment_payload.get("environment_id") or environment_payload.get("task_environment_id") or "").strip()
@@ -1729,7 +1714,7 @@ def _environment_instruction(
         identity_lines.append(f"- 说明：{description}")
     storage = dict(environment_payload.get("storage_space") or {})
     storage_note = ""
-    if storage:
+    if include_storage_note and storage:
         storage_note = (
             "当前环境的存储空间由系统配置："
             f"environment_storage_root={storage.get('environment_storage_root') or ''}；"
@@ -1962,54 +1947,6 @@ def _json_stable(value: Any) -> Any:
     if isinstance(value, (str, int, float, bool)) or value is None:
         return value
     return repr(value)
-
-
-def _task_run_stable_payload(task_run: dict[str, Any], *, graph_runtime_projection: bool = False) -> dict[str, Any]:
-    diagnostics = dict(task_run.get("diagnostics") or {})
-    return _drop_empty_payload({
-        "task_id": str(task_run.get("task_id") or ""),
-        "task_contract_ref": str(task_run.get("task_contract_ref") or ""),
-        "owner_agent_seat_id": str(task_run.get("owner_agent_seat_id") or ""),
-        "agent_id": str(task_run.get("agent_id") or ""),
-        "agent_profile_id": str(task_run.get("agent_profile_id") or ""),
-        "execution_runtime_kind": str(task_run.get("execution_runtime_kind") or ""),
-        "diagnostics": _graph_task_run_diagnostics_model_visible(diagnostics) if graph_runtime_projection else _task_run_diagnostics_stable_payload(diagnostics),
-        "authority": str(task_run.get("authority") or "orchestration.task_run"),
-    })
-
-
-def _task_run_diagnostics_stable_payload(diagnostics: dict[str, Any]) -> dict[str, Any]:
-    return {
-        key: diagnostics.get(key)
-        for key in (
-            "source",
-            "origin",
-            "origin_kind",
-            "origin_authority",
-            "origin_ref",
-            "parent_run_ref",
-            "graph_harness_config_id",
-            "node_id",
-            "project_id",
-            "runtime_scope",
-        )
-        if key in diagnostics
-    }
-
-
-def _graph_task_run_diagnostics_model_visible(diagnostics: dict[str, Any]) -> dict[str, Any]:
-    return {
-        key: diagnostics.get(key)
-        for key in (
-            "source",
-            "origin_kind",
-            "origin_authority",
-            "node_id",
-            "project_id",
-            "runtime_scope",
-        )
-        if key in diagnostics
-    }
 
 
 def _graph_slot_from_contract(contract: dict[str, Any]) -> dict[str, Any]:
@@ -2302,6 +2239,8 @@ def _task_contract_stable_payload(contract: dict[str, Any]) -> dict[str, Any]:
     resource_requirements = dict(payload.get("resource_requirements") or {})
     if resource_requirements:
         payload["resource_requirements"] = _resource_requirements_stable_payload(resource_requirements)
+    payload.pop("prompt_contract", None)
+    payload.pop("graph_node_prompt_contract", None)
     return payload
 
 

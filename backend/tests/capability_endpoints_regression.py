@@ -7,8 +7,9 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from capability_system.endpoints import build_capability_endpoints
-from capability_system import build_default_operation_registry, build_mcp_catalog
+from capability_system.endpoint_projection import build_capability_endpoints
+from permissions.operations import build_default_operation_registry
+from capability_system.mcp.registry import build_mcp_catalog
 
 
 def test_capability_endpoints_only_include_mcp_endpoints() -> None:

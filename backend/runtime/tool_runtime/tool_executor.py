@@ -5,7 +5,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
-from capability_system.tool_contracts import ToolInvocationValidationDecision, ToolInvocationValidator
+from capability_system.tools.contracts import ToolInvocationValidationDecision, ToolInvocationValidator
 from runtime.environment import RuntimeEnvironment
 from runtime.tool_runtime.tool_result_envelope import build_tool_result_envelope
 from runtime.tool_runtime.sandbox_backend import DEFAULT_SIDE_EFFECT_TOOL_NAMES, LocalOverlaySandboxBackend

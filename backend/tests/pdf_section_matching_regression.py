@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from capability_system.units.mcp.local.pdf.agent.models import PDFPreparedDocument, PDFPreparedPage
-from capability_system.units.mcp.local.pdf.agent.runtime import PDFReadAgentRuntime
+from capability_system.capabilities.document_processing.pdf.agent.models import PDFPreparedDocument, PDFPreparedPage
+from capability_system.capabilities.document_processing.pdf.agent.runtime import PDFReadAgentRuntime
 
 
 def _page(page_number: int, text: str) -> PDFPreparedPage:

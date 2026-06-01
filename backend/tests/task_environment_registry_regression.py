@@ -19,8 +19,8 @@ from task_system.environments import (
 )
 from agent_system.profiles.runtime_profile_registry import AgentRuntimeRegistry
 from agent_system.profiles.runtime_profile_registry import default_agent_runtime_profiles
-from capability_system.tool_authorization import build_tool_authorization_index
-from capability_system.tool_definitions import build_tool_instances, get_tool_definitions
+from capability_system.tools.authorization import build_tool_authorization_index
+from capability_system.tools.native_tool_catalog import build_tool_instances, get_tool_definitions
 from harness.runtime import RuntimeCompiler, assemble_runtime
 from task_system.tasks.definitions import default_task_definitions
 
@@ -368,7 +368,8 @@ def test_development_environment_prompt_is_in_task_execution_packet() -> None:
     ).packet
 
     model_input = _model_input_text(packet)
-    stable_payload = json.loads(packet.model_messages[1]["content"].split("\n", 1)[1])
+    stable_message = _message_content_with_title(packet, "Task execution environment boundary")
+    stable_payload = _payload_after_title(stable_message, "Task execution environment boundary")
     assert "当前任务环境说明" in model_input
     assert stable_payload["task_environment"]["environment_prompt_refs"] == ["environment.development.sandbox.v1"]
     assert "处理 Python 开发任务" in model_input
@@ -493,22 +494,21 @@ def test_runtime_compiler_stable_payload_keeps_environment_and_operation_project
         runtime_assembly=assembly,
         invocation_index=1,
     ).packet
-    stable_message = packet.model_messages[1]["content"]
-    stable_payload = json.loads(stable_message.split("\n", 1)[1])
+    stable_message = _message_content_with_title(packet, "Task execution environment boundary")
+    stable_payload = _payload_after_title(stable_message, "Task execution environment boundary")
     dynamic_payload = _payload_after_title(packet.model_messages[-2]["content"], "Task execution runtime boundary")
 
     assert "task_environment" in stable_payload
     assert "storage" in stable_payload["task_environment"]
     assert "resource_boundary" in stable_payload["task_environment"]
     assert "operation_authorization" not in stable_payload
-    assert dynamic_payload["operation_authorization"]["authority"] == "harness.runtime.operation_authorization.model_visible_summary"
-    assert dynamic_payload["runtime_context"]["allowed_operation_count"] == len(dynamic_payload["operation_authorization"]["allowed_operations"])
-    allowed_operations = set(dynamic_payload["operation_authorization"]["allowed_operations"])
-    denied_groups = set(dynamic_payload["operation_authorization"].get("critical_denied_groups") or [])
-    if "op.shell" in allowed_operations:
-        assert "command_execution" not in denied_groups
-    if any(item.startswith("op.git_") for item in allowed_operations):
-        assert "git" not in denied_groups
+    operation_summary = dynamic_payload["operation_authorization"]
+    runtime_context = dynamic_payload["runtime_context"]
+    assert operation_summary["authority"] == "harness.runtime.operation_authorization.model_visible_summary"
+    assert operation_summary["allowed_operation_count"] == runtime_context["tool_boundary"]["allowed_operation_count"]
+    assert "allowed_operations" not in operation_summary
+    assert "denied_operations" not in operation_summary
+    assert operation_summary["omitted_denial_details"] is True
 
 
 def test_active_skill_prompt_body_omits_frontmatter_and_internal_runtime_terms() -> None:
@@ -877,13 +877,13 @@ def test_runtime_packet_includes_environment_prompt_boundary_from_configured_env
         runtime_assembly=assembly,
         invocation_index=1,
     ).packet
-    stable_message = packet.model_messages[1]["content"]
-    stable_payload = json.loads(stable_message.split("\n", 1)[1])
+    stable_message = _message_content_with_title(packet, "Task execution environment boundary")
+    stable_payload = _payload_after_title(stable_message, "Task execution environment boundary")
 
     assert "你处在自定义提示环境中" in _model_input_text(packet)
     assert stable_payload["task_environment"]["environment_prompt_refs"] == ["environment.custom.prompted.v1"]
     assert "environment_prompts" not in stable_payload["task_environment"]
-    assert "你处在自定义提示环境中" not in stable_message
+    assert "你处在自定义提示环境中" not in json.dumps(stable_payload, ensure_ascii=False)
     assert (
         stable_payload["task_environment"]["boundary_contract"]["environment_prompts_source"]
         == "task_environment_config"
@@ -894,3 +894,16 @@ def _payload_after_title(content: str, title: str) -> dict[str, object]:
     marker = title + "\n"
     assert marker in content
     return json.loads(content.split(marker, 1)[1])
+
+
+def _message_content_with_title(packet, title: str) -> str:
+    marker = title + "\n"
+    for message in packet.model_messages:
+        content = str(message.get("content") or "")
+        if marker in content:
+            return content
+    raise AssertionError(f"packet message title not found: {title}")
+
+
+def _payload_from_packet_message(packet, title: str) -> dict[str, object]:
+    return _payload_after_title(_message_content_with_title(packet, title), title)

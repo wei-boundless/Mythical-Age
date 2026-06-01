@@ -9,12 +9,12 @@ from orchestration import (
     ResourceDecision,
     ResourcePolicy,
     RuntimeApprovalContext,
-    build_default_operation_registry,
     build_operation_requirement,
     build_resource_policy_candidate,
     build_resource_runtime_views,
 )
-from capability_system.validators import validate_filesystem_path, validate_shell_read_only
+from permissions.operations import build_default_operation_registry
+from capability_system.tools.validators import validate_filesystem_path, validate_shell_read_only
 from runtime.shared.approval_fingerprint import build_approval_risk_fingerprint
 
 

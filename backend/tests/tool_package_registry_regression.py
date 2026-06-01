@@ -8,12 +8,12 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from capability_system.tool_packages import (
+from permissions.operation_packages import (
     ToolPackageSelection,
     default_tool_packages,
     resolve_tool_package_operations,
 )
-from capability_system.operation_registry import default_operation_descriptors
+from permissions.operations import default_operation_descriptors
 
 
 def main() -> None:

@@ -22,8 +22,14 @@ def test_runtime_resource_inventory_marks_only_current_turn_and_obligation_as_si
     assert items["resource.task_domains"].authority_layer == "L4_directory_resource"
     assert items["resource.task_domains"].runtime_consumer == "admin_and_resource_filtering"
     assert items["resource.execution_obligation"].path == "backend/task_system/contracts/execution_obligation.py"
-    assert items["resource.soul_projection"].authority_layer == "L6_projection_style"
-    assert "cannot override obligations" in items["resource.soul_projection"].notes
+    assert set(items) == {
+        "resource.user_current_turn",
+        "resource.execution_obligation",
+        "resource.task_domains",
+        "resource.task_graphs",
+        "resource.orchestration_agents",
+        "resource.runtime_checkpoint",
+    }
     assert items["resource.runtime_checkpoint"].authority_layer == "L7_persistent_state"
     assert "current turn is re-evaluated" in items["resource.runtime_checkpoint"].notes
 

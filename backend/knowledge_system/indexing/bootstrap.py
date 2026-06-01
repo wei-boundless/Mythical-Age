@@ -10,7 +10,7 @@ from knowledge_system.conversion import DocumentCacheLayout, DoclingConverter, d
 from knowledge_system.conversion.models import STRUCTURE_CONTRACT_VERSION, build_conversion_doc_id
 from config import get_settings
 from knowledge_system.ingestion import ChunkingPolicy, NormalizedDocumentBuilder, build_cleaning_manifest, build_indexable_units
-from capability_system.units.mcp.local.retrieval.collections import CollectionConfig
+from capability_system.capabilities.retrieval.collections import CollectionConfig
 from knowledge_system.indexing.llamaindex_backend import LlamaIndexRetrievalBackend
 
 

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from capability_system.units.mcp.local.retrieval.models import RetrievalHit
-from knowledge_system.retrieval.hybrid_ranker import HybridRanker
+from capability_system.capabilities.retrieval.models import RetrievalHit
+from capability_system.capabilities.retrieval.hybrid_ranker import HybridRanker
 
 
 def _hit(

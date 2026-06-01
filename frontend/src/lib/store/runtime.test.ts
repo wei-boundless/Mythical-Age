@@ -23,7 +23,7 @@ const api = vi.hoisted(() => ({
   getSessionHistory: vi.fn(),
   getSessionTimeline: vi.fn(),
   getSessionTokens: vi.fn(),
-  getSoulImageAssetConfig: vi.fn(),
+  getImageAssetConfig: vi.fn(),
   getGraphRunMonitor: vi.fn(),
   getWorkspaceContext: vi.fn(),
   listSessions: vi.fn(),
@@ -45,7 +45,7 @@ vi.mock("@/lib/api", () => ({
   getGlobalRuntimeMonitor: api.getGlobalRuntimeMonitor,
   getRuntimeMonitorEventStreamUrl: vi.fn(() => "http://127.0.0.1:8003/api/orchestration/runtime-monitor/events"),
   getModelProviderConfig: api.getModelProviderConfig,
-  getSoulImageAssetConfig: api.getSoulImageAssetConfig,
+  getImageAssetConfig: api.getImageAssetConfig,
   getWorkspaceContext: api.getWorkspaceContext,
   isRequestAbortError: (error: unknown) => error instanceof DOMException && error.name === "AbortError",
   getGraphRunMonitor: api.getGraphRunMonitor,
@@ -71,15 +71,7 @@ vi.mock("@/lib/api", () => ({
   stopOrchestrationTaskRun: vi.fn(),
   streamExistingChatRun: api.streamExistingChatRun,
   streamChat: api.streamChat,
-  switchSoulSystemSeed: vi.fn(),
   truncateSessionMessages: vi.fn(),
-}));
-
-vi.mock("@/lib/souls", () => ({
-  ACTIVE_SOUL_PATH: "soul/active.json",
-  SOUL_SEED_PATHS: {},
-  inferSoulKey: vi.fn(() => "default"),
-  parseSoulSeed: vi.fn(() => ({ key: "default", label: "Default" })),
 }));
 
 function itemForMonitor(patch: Record<string, unknown>) {
@@ -214,8 +206,8 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     api.getRagMode.mockResolvedValue({ enabled: false });
     api.getModelProviderConfig.mockReset();
     api.getModelProviderConfig.mockResolvedValue(null);
-    api.getSoulImageAssetConfig.mockReset();
-    api.getSoulImageAssetConfig.mockResolvedValue(null);
+    api.getImageAssetConfig.mockReset();
+    api.getImageAssetConfig.mockResolvedValue(null);
     api.getWorkspaceContext.mockReset();
     api.getWorkspaceContext.mockResolvedValue(null);
     api.getOrchestrationRuntimeOptions.mockReset();
@@ -1877,7 +1869,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       handlers.onEvent("done", {
         content: "已生成图像。",
         image: {
-          src: "/souls/generated/chat-turn.png",
+          src: "/generated/images/chat-turn.png",
           alt: "睡着的小猫",
           caption: "revised prompt",
         },
@@ -1891,12 +1883,12 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       selectedChatMode: "image",
       taskGraphLiveMonitor: { status: "running", has_graph_run: true } as never,
       taskGraphBoundRunMonitor: { runtime: { status: "running" } } as never,
-      soulImageAssetConfig: {
+      imageAssetConfig: {
         configured: true,
         base_url: "https://api.openai.com/v1",
         model: "gpt-image-2",
         api_key_present: true,
-        public_dir: "D:/AI应用/langchain-agent/frontend/public/souls/generated",
+        public_dir: "D:/AI应用/langchain-agent/frontend/public/generated/images",
       },
     });
     const runtime = new WorkspaceRuntime(store);
@@ -1923,7 +1915,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     );
     expect(store.getState().taskGraphLiveMonitor).toBeNull();
     expect(store.getState().taskGraphBoundRunMonitor).not.toBeNull();
-    expect(store.getState().messages.at(-1)?.image?.src).toBe("/souls/generated/chat-turn.png");
+    expect(store.getState().messages.at(-1)?.image?.src).toBe("/generated/images/chat-turn.png");
   });
 
   it("keeps image turn errors visible instead of replacing them with refreshed empty history", async () => {
@@ -1944,12 +1936,12 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       currentSessionId: "session:image-error",
       selectedChatModelId: "openai::gpt-image-2",
       selectedChatMode: "image",
-      soulImageAssetConfig: {
+      imageAssetConfig: {
         configured: true,
         base_url: "https://api.openai.com/v1",
         model: "gpt-image-2",
         api_key_present: true,
-        public_dir: "D:/AI应用/langchain-agent/frontend/public/souls/generated",
+        public_dir: "D:/AI应用/langchain-agent/frontend/public/generated/images",
       },
     });
     const runtime = new WorkspaceRuntime(store);
@@ -2386,5 +2378,6 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     });
   });
 });
+
 
 

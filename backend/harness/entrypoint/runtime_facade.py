@@ -9,7 +9,7 @@ from typing import Any
 from evidence import EvidenceOrchestrator, PDFWorker, RetrievalWorker, StructuredDataWorker
 from evidence.output_policy import RAGEvidenceOutputPolicy
 from observability import build_debug_trace_event, start_turn_trace
-from capability_system.tool_authorization import build_tool_authorization_index
+from capability_system.tools.authorization import build_tool_authorization_index
 from harness import GraphHarness
 from harness.runtime import AgentRuntimeServices, SingleAgentRuntimeHost, TaskExecutorServices, assemble_runtime
 from runtime import ModelResponseRuntimeExecutor, ModelRuntimeError, ToolRuntimeExecutor
@@ -250,7 +250,6 @@ class HarnessRuntimeFacade:
                 runtime_task_selection = _task_selection_for_runtime(
                     request_task_selection=dict(request.task_selection or {}),
                     turn_id=turn_id,
-                    soul_id=request.soul_id,
                     runtime_profile=dict(request.runtime_profile or {}),
                 )
                 agent_invocation_id = f"aginvoke:{turn_id}:main"
@@ -528,7 +527,7 @@ class HarnessRuntimeFacade:
         contract: dict[str, Any],
     ) -> dict[str, Any] | None:
         try:
-            from capability_system.units.tools.agent_todo_tool import AgentTodoTool
+            from capability_system.tools.tool_units.agent_todo_tool import AgentTodoTool
 
             tool = AgentTodoTool(Path(self.single_agent_runtime_host.root_dir))
             result = tool._run(
@@ -1433,20 +1432,15 @@ def _task_selection_for_runtime(
     *,
     request_task_selection: dict[str, Any],
     turn_id: str,
-    soul_id: str = "",
     runtime_profile: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     profile_payload = {
         **dict(request_task_selection.get("runtime_profile") or {}),
         **dict(runtime_profile or {}),
     }
-    requested_soul_id = str(soul_id or request_task_selection.get("soul_id") or profile_payload.get("soul_id") or "").strip()
-    if requested_soul_id:
-        profile_payload["soul_id"] = requested_soul_id
     return {
         **dict(request_task_selection or {}),
         "turn_id": turn_id,
-        **({"soul_id": requested_soul_id} if requested_soul_id else {}),
         **({"runtime_profile": profile_payload} if profile_payload else {}),
     }
 

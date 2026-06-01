@@ -6,7 +6,7 @@ import sys
 import time
 from pathlib import Path
 
-from capability_system.tool_runtime import ToolRuntime
+from capability_system.tools.native_tool_runtime import ToolRuntime
 from memory_system.formal_memory_service import FormalMemoryService
 from orchestration.runtime_directive import RuntimeDirective
 from runtime.shared.action_request import RuntimeActionRequest

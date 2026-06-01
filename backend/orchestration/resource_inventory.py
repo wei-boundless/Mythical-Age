@@ -82,15 +82,6 @@ def build_runtime_resource_inventory(base_dir: Path | str | None = None) -> Runt
             notes="Agent resources provide execution roles, not current-turn permission.",
         ),
         RuntimeResourceInventoryItem(
-            resource_id="resource.soul_projection",
-            title="Soul Projection",
-            authority_layer="L6_projection_style",
-            path="backend/soul/projections/catalog.json",
-            runtime_consumer="prompt_manifest_and_projection_view",
-            can_authorize_side_effects=False,
-            notes="Projection affects expression and posture only; it cannot override obligations.",
-        ),
-        RuntimeResourceInventoryItem(
             resource_id="resource.runtime_checkpoint",
             title="Runtime Checkpoint",
             authority_layer="L7_persistent_state",

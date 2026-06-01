@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from capability_system.operation_registry import OperationDescriptor, OperationRegistry
+from permissions.operations import OperationDescriptor, OperationRegistry
 from agent_system.profiles.runtime_profile_models import AgentRuntimeProfile
 from permissions.model_visible_operations import (
     is_model_visible_agent_operation,

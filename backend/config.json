@@ -30,7 +30,7 @@
       "component_char_limit": 20000
     }
   },
-  "soul_image_assets": {
+  "image_assets": {
     "base_url": "https://www.aimapi.cloud/v1",
     "model": "gpt-image-2",
     "request_timeout_seconds": 150,

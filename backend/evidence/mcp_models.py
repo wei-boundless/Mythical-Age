@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Any, Literal
 
-from capability_system.local_mcp_registry import build_local_mcp_unit_map
+from capability_system.mcp.local_registry import build_local_mcp_unit_map
 from evidence.models import BindingCandidate, EvidenceArtifact, EvidenceEnvelope
 
 

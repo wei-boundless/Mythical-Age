@@ -3,8 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from capability_system.tool_definitions import get_tool_definition_map
-from capability_system.units.tools.memory_search_tool import MemorySearchTool
+from capability_system.tools.native_tool_catalog import get_tool_definition_map
+from capability_system.tools.tool_units.memory_search_tool import MemorySearchTool
 from memory_system.formal_memory_models import FormalMemoryCollection, FormalMemoryRepository
 from memory_system.runtime_services import MemoryRuntimeServices
 from runtime.memory.state_index import RuntimeStateIndex

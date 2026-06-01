@@ -9,7 +9,7 @@ from project_layout import ProjectLayout
 from ..registry.agent_registry import AgentRegistry
 from ..identity import agent_id_aliases, normalize_agent_id, normalize_agent_id_sequence
 from .runtime_profile_models import AgentRuntimeProfile, SubagentPolicy
-from capability_system.tool_packages import (
+from permissions.operation_packages import (
     ToolPackageSelection,
     default_enabled_package_selections,
     parse_tool_package_selection,

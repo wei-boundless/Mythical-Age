@@ -9,7 +9,7 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-from capability_system import build_default_operation_registry
+from permissions.operations import build_default_operation_registry
 from permissions import OperationGate
 from permissions.context_models import PermissionContext
 from permissions.resource_policy import ResourcePolicy

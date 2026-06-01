@@ -8,9 +8,9 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from capability_system.tool_definitions import get_tool_definitions
-from capability_system.units.tools.agent_todo_tool import AgentTodoTool
-from capability_system.units.tools.agent_todo_tool import _build_plan, _update_plan
+from capability_system.tools.native_tool_catalog import get_tool_definitions
+from capability_system.tools.tool_units.agent_todo_tool import AgentTodoTool
+from capability_system.tools.tool_units.agent_todo_tool import _build_plan, _update_plan
 
 
 def test_agent_todo_plan_allows_one_active_item_and_completion_ready() -> None:

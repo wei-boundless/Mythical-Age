@@ -237,7 +237,6 @@ export type TaskSystemAgentUpsertPayload = {
   description?: string;
   enabled?: boolean;
   editable?: boolean;
-  default_soul_id?: string;
   default_projection_id?: string;
   metadata?: Record<string, unknown>;
 };
@@ -1660,12 +1659,6 @@ export type TaskWorkflowRecord = {
 
 export type TaskWorkflowUpsertPayload = TaskWorkflowRecord;
 
-export type ProjectionTemplateCatalog = {
-  authority: string;
-  templates: Array<Record<string, unknown>>;
-  summary: Record<string, number>;
-};
-
 export type TaskGraphTemplateCatalog = {
   authority: string;
   templates: Array<Record<string, unknown>>;
@@ -1876,7 +1869,7 @@ export type ModelProviderConfig = {
   authority: string;
 };
 
-export type SoulImageAssetConfig = {
+export type ImageAssetConfig = {
   configured: boolean;
   base_url: string;
   model: string;
@@ -2779,6 +2772,83 @@ export type CapabilityUnit = {
   diagnostics: Record<string, unknown>;
 };
 
+export type ExternalMCPServerConfig = {
+  server_id: string;
+  title: string;
+  description: string;
+  transport: string;
+  enabled: boolean;
+  command?: string;
+  args: string[];
+  env: Record<string, string>;
+  cwd?: string;
+  url?: string;
+  scope?: string;
+  tags: string[];
+  allowed_operations: string[];
+  requires_approval_operations: string[];
+  denied_operations: string[];
+  metadata: Record<string, unknown>;
+};
+
+export type MCPManagementTool = {
+  provider_id: string;
+  provider_kind: string;
+  server_id: string;
+  tool_name: string;
+  title: string;
+  description: string;
+  operation_id: string;
+  model_visibility: string;
+  status: string;
+  transport: string;
+  tags: string[];
+  input_schema?: Record<string, unknown>;
+  output_schema?: Record<string, unknown>;
+  annotations?: Record<string, unknown>;
+  diagnostics?: Record<string, unknown>;
+};
+
+export type MCPManagementServer = {
+  provider_id: string;
+  provider_kind: string;
+  server_id: string;
+  title: string;
+  description: string;
+  transport: string;
+  enabled: boolean;
+  status: string;
+  status_reason: string;
+  operation_ids: string[];
+  tools: MCPManagementTool[];
+  tags?: string[];
+  diagnostics: {
+    external_config?: Record<string, unknown>;
+    [key: string]: unknown;
+  };
+};
+
+export type MCPManagementCatalog = {
+  authority: string;
+  providers?: Array<Record<string, unknown>>;
+  servers: MCPManagementServer[];
+  tools: MCPManagementTool[];
+  summary: {
+    provider_count?: number;
+    server_count: number;
+    tool_count: number;
+    external_server_count?: number;
+    active_server_count?: number;
+    [key: string]: unknown;
+  };
+  validation_issues?: Array<{
+    severity: string;
+    code: string;
+    message: string;
+    subject?: string;
+  }>;
+};
+
 export type OperationBindingGraph = {
   agent_nodes: Array<{
     agent_id: string;
@@ -2827,7 +2897,7 @@ export type CapabilitySystemCatalog = {
   }>;
   mcps?: OperationMCP[];
   local_mcp_units?: Array<Record<string, unknown>>;
-  mcp_management?: Record<string, unknown>;
+  mcp_management?: MCPManagementCatalog;
   capability_units?: CapabilityUnit[];
   workers?: OperationWorker[];
   capability_endpoints?: CapabilityEndpoint[];
@@ -2893,324 +2963,6 @@ export type CapabilitySystemCatalog = {
     message: string;
     subject: string;
   }>;
-};
-
-export type SoulSystemFile = {
-  path: string;
-  label: string;
-  role: string;
-  model_visible: boolean;
-  injection_order: number | null;
-  content: string;
-  chars: number;
-  updated_at: number | null;
-};
-
-export type SoulSystemSeed = SoulSystemFile & {
-  key: string;
-  soul_id?: string;
-  name: string;
-  source?: "builtin" | "user" | string;
-  enabled?: boolean;
-  active: boolean;
-  portrait_path: string;
-  portrait_updated_at: number | null;
-  profile?: SoulProfile;
-};
-
-export type SoulProfile = {
-  soul_id: string;
-  name: string;
-  display_name: string;
-  source: "builtin" | "user" | string;
-  version: string;
-  enabled: boolean;
-  seed_path: string;
-  description: string;
-  background: string;
-  personality_traits: string[];
-  expression_style: string[];
-  preferred_role_types: string[];
-  preferred_task_modes: string[];
-  collaboration_tendencies: string[];
-  memory_preferences: string[];
-  risk_biases: string[];
-  guardrails: string[];
-  portrait: string | null;
-  validation_errors: string[];
-  metadata: Record<string, unknown>;
-};
-
-export type SoulProjectionCard = {
-  projection_id: string;
-  title: string;
-  soul_id: string;
-  soul_name: string;
-  projection_kind?: string;
-  owner_system?: string;
-  source_task_graph_refs?: string[];
-  projection_nodes?: Array<Record<string, unknown>>;
-  identity_anchor?: string;
-  role_type: string;
-  task_mode: string;
-  agent_profile_id: string;
-  posture_tags?: string[];
-  expression_density?: string;
-  attention_focus?: string[];
-  risk_notes?: string[];
-  projection_prompt?: string;
-  usage_summary: string;
-  skill_views: Array<Record<string, unknown>>;
-  tool_views: Array<Record<string, unknown>>;
-  memory_policy_summary: string;
-  output_contract_summary: string;
-  runtime_preview?: Record<string, unknown>;
-  runtime_only_payload?: boolean;
-  static_projection_card?: boolean;
-  created_at: number;
-  updated_at: number;
-  is_primary?: boolean;
-  is_system_default?: boolean;
-};
-
-export type SoulProjectionCatalog = {
-  selected_projection_id: string;
-  cards: SoulProjectionCard[];
-};
-
-export type SoulProjectionCardCreatePayload = {
-  projection_id?: string;
-  soul_id: string;
-  projection_kind?: string;
-  owner_system?: string;
-  source_task_graph_refs?: string[];
-  projection_nodes?: Array<Record<string, unknown>>;
-  identity_anchor?: string;
-  role_type?: string;
-  task_mode?: string;
-  agent_profile_id?: string;
-  projection_name?: string;
-  posture_tags?: string[];
-  expression_density?: string;
-  attention_focus?: string[];
-  risk_notes?: string[];
-  projection_prompt?: string;
-  skill_views?: Array<{
-    skill_id: string;
-    title: string;
-    capability_summary: string;
-    use_when?: string;
-    input_boundary?: string;
-    output_boundary?: string;
-    forbidden_uses?: string;
-    current_task_reason?: string;
-  }>;
-  tool_views?: Array<{
-    tool_id: string;
-    title: string;
-    capability_summary: string;
-    input_schema_summary?: string;
-    output_schema_summary?: string;
-    risk_summary?: string;
-    authorized?: boolean;
-    authorization_owner?: string;
-  }>;
-  usage_summary?: string;
-  memory_policy_summary?: string;
-  output_contract_summary?: string;
-  select_after_create?: boolean;
-};
-
-export type SoulResourceWorld = {
-  world_id: string;
-  title: string;
-  summary: string;
-  content: string;
-  source_ref: string;
-  version?: string;
-  metadata?: Record<string, unknown>;
-  chars?: number;
-};
-
-export type SoulResourceStory = {
-  story_id: string;
-  soul_id: string;
-  title: string;
-  summary: string;
-  content: string;
-  world_id: string;
-  source_ref: string;
-  version?: string;
-  metadata?: Record<string, unknown>;
-  chars?: number;
-};
-
-export type SoulResourceCard = {
-  soul_id: string;
-  name: string;
-  display_name: string;
-  story_id: string;
-  world_id: string;
-  manifestation_id: string;
-  default_projection_id: string;
-  default_work_prompt_id: string;
-  description: string;
-  source: "builtin" | "user" | string;
-  enabled: boolean;
-  tags: string[];
-  metadata?: Record<string, unknown>;
-};
-
-export type SoulResourceManifestation = {
-  manifestation_id: string;
-  soul_id: string;
-  display_name: string;
-  avatar_ref: string;
-  portrait_ref: string;
-  model_ref: string;
-  state: string;
-  metadata?: Record<string, unknown>;
-};
-
-export type SoulResourceCatalog = {
-  active_soul_id: string;
-  worlds: SoulResourceWorld[];
-  stories: SoulResourceStory[];
-  cards: SoulResourceCard[];
-  work_prompts: Array<Record<string, unknown>>;
-  system_contracts?: Array<Record<string, unknown>>;
-  common_contracts: Array<Record<string, unknown>>;
-  manifestations: SoulResourceManifestation[];
-  modes: Array<Record<string, unknown>>;
-  authority: string;
-};
-
-export type SoulWorkLogEvent = {
-  event_id: string;
-  soul_id: string;
-  task_run_id: string;
-  session_id: string;
-  task_id: string;
-  projection_id: string;
-  work_prompt_id: string;
-  agent_id: string;
-  agent_run_id: string;
-  status: string;
-  title: string;
-  summary: string;
-  artifact_count: number;
-  artifact_refs: string[];
-  source_refs: string[];
-  last_activity_at: number;
-};
-
-export type SoulWorkLogView = {
-  soul_id: string;
-  limit: number;
-  events: SoulWorkLogEvent[];
-  authority?: string;
-};
-
-export type SoulSystemCatalog = {
-  active_soul_key: string;
-  active_soul_id?: string;
-  active_soul_name: string;
-  injection_chain: Array<{
-    order: number;
-    label: string;
-    path: string;
-  }>;
-  static_files: SoulSystemFile[];
-  seeds: SoulSystemSeed[];
-  soul_profiles?: SoulProfile[];
-  resource_catalog?: SoulResourceCatalog;
-  management?: {
-    planes: string[];
-    authorization_owner: string;
-    prompt_manifest_enabled: boolean;
-    custom_soul_dir: string;
-  };
-};
-
-export type ExternalMCPServerConfig = {
-  server_id: string;
-  title: string;
-  description: string;
-  transport: "stdio" | "streamable_http" | string;
-  enabled: boolean;
-  command: string;
-  args: string[];
-  env: Record<string, string>;
-  cwd: string;
-  url: string;
-  scope: string;
-  tags: string[];
-  allowed_operations: string[];
-  requires_approval_operations: string[];
-  denied_operations: string[];
-  metadata: Record<string, unknown>;
-};
-
-export type MCPManagementTool = {
-  provider_id: string;
-  provider_kind: "local" | "external" | string;
-  server_id: string;
-  tool_name: string;
-  title: string;
-  description: string;
-  operation_id: string;
-  model_visibility: string;
-  input_schema: Record<string, unknown>;
-  output_schema: Record<string, unknown>;
-  annotations: Record<string, unknown>;
-  tags: string[];
-  diagnostics: Record<string, unknown>;
-  transport?: string;
-  status?: string;
-};
-
-export type MCPManagementServer = {
-  provider_id: string;
-  server_id: string;
-  title: string;
-  description: string;
-  provider_kind: "local" | "external" | string;
-  transport: string;
-  enabled: boolean;
-  status: string;
-  status_reason: string;
-  operation_ids: string[];
-  tools: MCPManagementTool[];
-  diagnostics: Record<string, unknown>;
-};
-
-export type MCPManagementCatalog = {
-  authority: string;
-  providers: Array<{
-    provider_id: string;
-    provider_kind: string;
-  }>;
-  servers: MCPManagementServer[];
-  tools: MCPManagementTool[];
-  summary: {
-    provider_count: number;
-    server_count: number;
-    local_server_count: number;
-    external_server_count: number;
-    tool_count: number;
-    unsupported_count: number;
-    failed_count: number;
-  };
-};
-
-export type CustomSoulPayload = {
-  soul_id: string;
-  name: string;
-  description?: string;
-  soul_markdown?: string;
-  preferred_role_types?: string[];
-  preferred_task_modes?: string[];
-  enabled?: boolean;
 };
 
 export type PromptManifestSection = {
@@ -3828,8 +3580,8 @@ export async function getModelProviderConfig() {
   return request<ModelProviderConfig>("/config/model-provider");
 }
 
-export async function getSoulImageAssetConfig() {
-  return request<SoulImageAssetConfig>("/soul/image-assets/config");
+export async function getImageAssetConfig() {
+  return request<ImageAssetConfig>("/image-assets/config");
 }
 
 export async function setModelProviderConfig(payload: {
@@ -4423,77 +4175,6 @@ export async function callMCPManagementTool(
   );
 }
 
-export async function getSoulSystemCatalog() {
-  return request<SoulSystemCatalog>("/soul/catalog");
-}
-
-export async function switchSoulSystemSeed(key: string) {
-  return request<SoulSystemCatalog>("/soul/switch", {
-    method: "POST",
-    body: JSON.stringify({ key, source: "frontend" })
-  });
-}
-
-export async function saveSoulSystemFile(path: string, content: string, reason = "前端编辑") {
-  return request<SoulSystemCatalog>("/soul/files", {
-    method: "PUT",
-    body: JSON.stringify({ path, content, reason })
-  });
-}
-
-export async function saveSoulCommonContract(promptId: string, payload: { title: string; content: string; version?: string; cache_scope?: string }) {
-  return request<SoulSystemCatalog>(`/soul/common-contracts/${encodeURIComponent(promptId)}`, {
-    method: "PUT",
-    body: JSON.stringify({
-      prompt_id: promptId,
-      title: payload.title,
-      content: payload.content,
-      version: payload.version ?? "v1",
-      cache_scope: payload.cache_scope ?? "static"
-    })
-  });
-}
-
-export async function createCustomSoul(payload: CustomSoulPayload) {
-  return request<SoulSystemCatalog>("/soul/custom", {
-    method: "POST",
-    body: JSON.stringify(payload)
-  });
-}
-
-export async function updateCustomSoul(soulId: string, payload: CustomSoulPayload) {
-  return request<SoulSystemCatalog>(`/soul/custom/${encodeURIComponent(soulId)}`, {
-    method: "PUT",
-    body: JSON.stringify(payload)
-  });
-}
-
-export async function enableCustomSoul(soulId: string) {
-  return request<SoulSystemCatalog>(`/soul/custom/${encodeURIComponent(soulId)}/enable`, {
-    method: "POST"
-  });
-}
-
-export async function disableCustomSoul(soulId: string) {
-  return request<SoulSystemCatalog>(`/soul/custom/${encodeURIComponent(soulId)}/disable`, {
-    method: "POST"
-  });
-}
-
-export async function deleteCustomSoul(soulId: string) {
-  return request<SoulSystemCatalog>(`/soul/custom/${encodeURIComponent(soulId)}`, {
-    method: "DELETE"
-  });
-}
-
-export async function getSoulProjectionCards() {
-  return request<SoulProjectionCatalog>("/soul/projections");
-}
-
-export async function getSoulWorkLog(soulId: string, limit = 6) {
-  return request<SoulWorkLogView>(`/soul/${encodeURIComponent(soulId)}/activity?limit=${limit}`);
-}
-
 export async function getCodeEnvironment(host?: {
   mode?: "web" | "desktop";
   localRuntimeAvailable?: boolean;
@@ -4539,29 +4220,6 @@ export async function runPiSidecarReadOnlyCommand(command: "get_state" | "get_av
     method: "POST",
     body: JSON.stringify({ command }),
   });
-}
-
-export async function createSoulProjectionCard(payload: SoulProjectionCardCreatePayload) {
-  return request<SoulProjectionCatalog>("/soul/projections", {
-    method: "POST",
-    body: JSON.stringify(payload)
-  });
-}
-
-export async function selectSoulProjectionCard(projectionId: string) {
-  return request<SoulProjectionCatalog>(`/soul/projections/${encodeURIComponent(projectionId)}/select`, {
-    method: "POST"
-  });
-}
-
-export async function deleteSoulProjectionCard(projectionId: string) {
-  return request<SoulProjectionCatalog>(`/soul/projections/${encodeURIComponent(projectionId)}`, {
-    method: "DELETE"
-  });
-}
-
-export async function getProjectionTemplates() {
-  return request<ProjectionTemplateCatalog>("/soul/projection-templates");
 }
 
 export async function getCapabilitySystemAgents() {
@@ -5030,16 +4688,7 @@ export async function previewHealthAgentRun(issueId: string, healthAction = "iss
   );
 }
 
-export async function uploadSoulPortrait(key: string, file: File) {
-  const formData = new FormData();
-  formData.append("file", file);
-  return request<SoulSystemCatalog>(`/soul/portraits/${encodeURIComponent(key)}`, {
-    method: "POST",
-    body: formData
-  });
-}
-
-export async function createChatRun(payload: {
+export type ChatRunCreatePayload = {
   message: string;
   session_id: string;
   session_scope?: Partial<SessionScope>;
@@ -5050,7 +4699,9 @@ export async function createChatRun(payload: {
   image_generation?: Record<string, unknown>;
   expected_active_turn_id?: string;
   active_turn_input_policy?: string;
-}) {
+};
+
+export async function createChatRun(payload: ChatRunCreatePayload) {
   return request<ChatRun>("/chat/runs", {
     method: "POST",
     body: JSON.stringify({
@@ -5287,16 +4938,7 @@ export async function streamExistingChatRun(
 }
 
 export async function streamChat(
-  payload: {
-    message: string;
-    session_id: string;
-    session_scope?: Partial<SessionScope>;
-    ephemeral_system_messages?: string[];
-    search_policy?: string[];
-    task_selection?: Record<string, unknown>;
-    model_selection?: Record<string, unknown>;
-    image_generation?: Record<string, unknown>;
-  },
+  payload: ChatRunCreatePayload,
   handlers: StreamHandlers,
   options: {
     signal?: AbortSignal;
@@ -5305,3 +4947,5 @@ export async function streamChat(
   const run = await createChatRun(payload);
   return consumeChatRunStream(run, payload.session_id, handlers, options);
 }
+
+

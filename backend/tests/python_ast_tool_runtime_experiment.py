@@ -10,11 +10,11 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from agent_system.profiles.runtime_profile_models import AgentRuntimeProfile  # noqa: E402
-from capability_system import build_default_operation_registry  # noqa: E402
-from capability_system.tool_authorization import build_tool_authorization_index  # noqa: E402
-from capability_system.tool_definitions import build_tool_instances, get_tool_definitions  # noqa: E402
+from permissions.operations import build_default_operation_registry  # noqa: E402
+from capability_system.tools.authorization import build_tool_authorization_index  # noqa: E402
+from capability_system.tools.native_tool_catalog import build_tool_instances, get_tool_definitions  # noqa: E402
 from permissions import OperationGate, OperationGatePipelineContext, build_model_response_runtime_admission  # noqa: E402
-from capability_system.validators import validate_filesystem_path  # noqa: E402
+from capability_system.tools.validators import validate_filesystem_path  # noqa: E402
 from harness.runtime import build_runtime_tool_plan, tool_instances_for_runtime_tool_plan  # noqa: E402
 
 

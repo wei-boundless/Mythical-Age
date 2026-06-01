@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 from knowledge_system.indexing.llamaindex_backend import LlamaIndexRetrievalBackend
 from knowledge_system.ingestion.models import IndexableUnit
-from knowledge_system.retrieval.service import RetrievalService
+from capability_system.capabilities.retrieval.service import RetrievalService
 
 
 def _unit(unit_id: str, text: str) -> IndexableUnit:
@@ -31,7 +31,7 @@ def test_units_cache_invalidates_after_write(tmp_path) -> None:
 
 
 def test_rebuild_collection_consumes_pending_rebuild(monkeypatch, tmp_path) -> None:
-    from capability_system.units.mcp.local.retrieval import collections
+    from capability_system.capabilities.retrieval import collections
 
     service = RetrievalService(tmp_path)
     config = SimpleNamespace(name="knowledge")

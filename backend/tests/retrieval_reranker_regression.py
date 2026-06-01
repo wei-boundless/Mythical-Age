@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from capability_system.units.mcp.local.retrieval.reranker import RemoteApiReranker
+from capability_system.capabilities.retrieval.reranker import RemoteApiReranker
 
 
 def test_remote_reranker_failure_returns_typed_degraded_results(monkeypatch) -> None:

@@ -3,8 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from capability_system.operation_registry import OperationRegistry, build_default_operation_registry
-from capability_system.tool_definitions import ToolDefinition, get_tool_definitions
+from permissions.operations import OperationRegistry, build_default_operation_registry
+from capability_system.tools.native_tool_catalog import ToolDefinition, get_tool_definitions
 from file_management import FileAccessTable
 from task_system.environments import TaskEnvironmentSpec
 from task_system.tasks import SpecificTaskAssemblyPolicy

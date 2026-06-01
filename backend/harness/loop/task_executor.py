@@ -17,6 +17,12 @@ from runtime.tool_runtime import ToolInvocationRequest, build_tool_invocation_id
 from orchestration.commit_gate import build_assistant_session_message_commit_decision
 from project_layout import ProjectLayout
 from harness.runtime import RuntimeCompiler, TaskExecutorServices, assemble_runtime, build_runtime_tool_plan
+from harness.runtime.artifact_scope import (
+    canonicalize_task_contract_artifacts,
+    contract_artifact_paths,
+    normalize_logical_path,
+    runtime_artifact_scope_from_environment,
+)
 from harness.runtime.public_progress import public_action_progress_summary, public_runtime_progress_summary
 
 from .admission import admit_model_action
@@ -1169,6 +1175,7 @@ async def _invoke_task_model_action(
         turn_id=task_run_id,
         require_public_progress_note=True,
         require_public_action_state=True,
+        allowed_action_types=tuple(getattr(packet, "allowed_action_types", ()) or ()),
     )
 
 
@@ -1491,13 +1498,18 @@ def _task_sandbox_policy(runtime_assembly: dict[str, Any], *, runtime_host: Any,
     environment = dict(runtime_assembly.get("task_environment") or {})
     storage = dict(environment.get("storage_space") or {})
     sandbox = dict(environment.get("sandbox_policy") or {})
-    contract = _load_contract_for_policy(runtime_host, task_run_id)
+    artifact_scope = runtime_artifact_scope_from_environment(environment)
+    contract = canonicalize_task_contract_artifacts(
+        _load_contract_for_policy(runtime_host, task_run_id),
+        environment_payload=environment,
+        artifact_root=artifact_scope.artifact_root,
+    ).contract
     project_root = ProjectLayout.from_backend_dir(runtime_host.backend_dir).project_root.resolve()
     sandbox_root = str(sandbox.get("sandbox_root") or "").strip()
     if not sandbox_root:
         namespace = task_run_id.replace(":", "_")
         sandbox_root = str((Path(runtime_host.root_dir) / "sandboxes" / namespace).resolve())
-    artifact_root = str(storage.get("artifact_root") or "").strip()
+    artifact_root = artifact_scope.artifact_root
     publish_scopes = _dedupe_strings([artifact_root] if artifact_root else [])
     scratch_scopes = _task_scratch_write_scopes(storage)
     write_scopes = _dedupe_strings([*publish_scopes, *scratch_scopes])
@@ -1538,10 +1550,11 @@ def _task_runtime_scope_policy(task_run: Any) -> dict[str, Any]:
 def _task_file_policy(runtime_assembly: dict[str, Any], *, sandbox_policy: dict[str, Any]) -> dict[str, Any]:
     environment = dict(runtime_assembly.get("task_environment") or {})
     storage = dict(environment.get("storage_space") or {})
+    artifact_scope = runtime_artifact_scope_from_environment(environment)
     return {
         "file_management": dict(environment.get("file_management") or {}),
         "storage_space": storage,
-        "artifact_root": str(storage.get("artifact_root") or sandbox_policy.get("artifact_root") or ""),
+        "artifact_root": str(artifact_scope.artifact_root or sandbox_policy.get("artifact_root") or ""),
     }
 
 
@@ -1592,34 +1605,11 @@ def _explicit_contract_materialized_roots(contract: dict[str, Any]) -> list[str]
 
 
 def _explicit_contract_paths(contract: dict[str, Any]) -> list[str]:
-    paths: list[str] = []
-    for item in list(contract.get("required_artifacts") or []):
-        if not isinstance(item, dict):
-            continue
-        for key in ("path", "output_path", "artifact_path", "target_path"):
-            value = str(item.get(key) or "").strip()
-            if value:
-                paths.append(value)
-    for item in list(contract.get("required_verifications") or []):
-        if not isinstance(item, dict):
-            continue
-        for key in ("path", "output_path", "artifact_path", "target_path", "verification_path"):
-            value = str(item.get(key) or "").strip()
-            if value:
-                paths.append(value)
-    return _dedupe_strings(paths)
+    return contract_artifact_paths(contract)
 
 
 def _normalize_contract_path(path: str) -> str:
-    normalized = str(path or "").replace("\\", "/").strip().strip("'\"`")
-    while "//" in normalized:
-        normalized = normalized.replace("//", "/")
-    normalized = normalized.strip("/")
-    if not normalized or normalized.startswith("../") or "/../" in f"/{normalized}/":
-        return ""
-    if "://" in normalized or normalized.startswith(("/", "\\")):
-        return ""
-    return normalized
+    return normalize_logical_path(path)
 
 
 def _dedupe_strings(values: list[str] | tuple[str, ...]) -> list[str]:
@@ -1642,6 +1632,13 @@ def _verify_completion(
     contract: dict[str, Any],
     artifact_refs: list[dict[str, Any]],
 ) -> dict[str, Any]:
+    environment = dict(runtime_assembly.get("task_environment") or {})
+    artifact_scope = runtime_artifact_scope_from_environment(environment)
+    contract = canonicalize_task_contract_artifacts(
+        contract,
+        environment_payload=environment,
+        artifact_root=artifact_scope.artifact_root,
+    ).contract
     required_artifacts = [dict(item) for item in list(contract.get("required_artifacts") or []) if isinstance(item, dict)]
     artifact_refs = _dedupe_artifacts(
         [
@@ -3046,7 +3043,7 @@ def _stable_hash(value: Any) -> str:
 
 def _safe_backend_config(backend_config: dict[str, Any]) -> dict[str, Any]:
     config = dict(backend_config or {})
-    image = dict(config.get("image_generation") or config.get("images") or config.get("soul_image_assets") or {})
+    image = dict(config.get("image_generation") or config.get("images") or config.get("image_assets") or {})
     return {
         "image_generation": {
             "base_url": str(image.get("base_url") or image.get("api_base") or ""),
@@ -3057,7 +3054,7 @@ def _safe_backend_config(backend_config: dict[str, Any]) -> dict[str, Any]:
 
 
 def _tool_config_fingerprint(config: dict[str, Any]) -> dict[str, Any]:
-    return dict(config.get("image_generation") or config.get("images") or config.get("soul_image_assets") or {})
+    return dict(config.get("image_generation") or config.get("images") or config.get("image_assets") or {})
 
 
 def _strip_terminal_diagnostics(diagnostics: dict[str, Any]) -> dict[str, Any]:
@@ -3704,3 +3701,4 @@ def _not_found(task_run_id: str) -> dict[str, Any]:
 
 def _conflict(task_run_id: str, error: str) -> dict[str, Any]:
     return {"ok": False, "task_run_id": task_run_id, "error": error}
+

@@ -4,7 +4,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any
 
 from ..models.model_profile_models import AgentModelProfile
-from capability_system.tool_packages import ToolPackageSelection
+from permissions.operation_packages import ToolPackageSelection
 
 
 @dataclass(frozen=True, slots=True)

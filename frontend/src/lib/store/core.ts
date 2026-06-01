@@ -64,13 +64,11 @@ export function getDefaultState(): StoreState {
       web: false
     },
     modelProviderConfig: null,
-    soulImageAssetConfig: null,
+    imageAssetConfig: null,
     selectedChatModelId: "system-default",
     selectedChatMode: "chat",
     chatThinkingMode: "normal",
     skills: [],
-    soulOptions: [],
-    activeSoulKey: null,
     pendingEphemeralSystemMessages: [],
     inspectorPath: "durable_memory/index/MEMORY.md",
     inspectorContent: "",
@@ -107,3 +105,4 @@ export function getDefaultState(): StoreState {
     centerWorkspaceTarget: null
   };
 }
+

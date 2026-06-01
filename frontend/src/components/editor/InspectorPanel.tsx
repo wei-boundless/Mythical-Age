@@ -42,7 +42,7 @@ export function InspectorPanel() {
           <button
             className={`rounded-full border px-3 py-2 text-xs transition ${
               path === inspectorPath
-                ? "border-[var(--color-soul)] bg-[var(--color-soul-soft)] text-[var(--color-text)]"
+                ? "border-[var(--color-accent-primary)] bg-[var(--color-accent-primary-soft)] text-[var(--color-text)]"
                 : "border-[var(--color-border)] bg-[var(--color-panel-soft)] text-[var(--color-text-soft)]"
             }`}
             key={path}

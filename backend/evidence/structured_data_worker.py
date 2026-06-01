@@ -7,13 +7,13 @@ from typing import Any
 
 from evidence.models import EvidenceArtifact, EvidenceEnvelope, EvidenceItem, SourceObjectRef
 from .mcp_models import CanonicalResult, MCPRequest, MCPResult
-from capability_system.units.mcp.local.structured_data import (
+from capability_system.capabilities.structured_data import (
     StructuredDataArtifactBuilder,
     StructuredDataCatalog,
     StructuredDataEngine,
     StructuredDataPlanner,
 )
-from capability_system.units.mcp.local.structured_data.subset_selection import extract_structured_subset_selection
+from capability_system.capabilities.structured_data.subset_selection import extract_structured_subset_selection
 
 
 class StructuredDataWorker:

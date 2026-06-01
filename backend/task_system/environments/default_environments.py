@@ -64,12 +64,11 @@ def development_sandbox_environment() -> TaskEnvironmentDefinition:
                 content=(
                     "你处在开发沙盒资源边界中。这个环境把真实项目工作区作为主要读取来源，"
                     "把任务写入、命令验证、浏览器验证和交付物发布约束在 sandbox overlay 与任务授权范围内。"
-                    "你只能使用本轮上下文中实际可见的工具；环境本身不授予工具，只声明资源边界和运行约束。"
-                    "所有写入、命令和浏览器动作都必须服务于当前任务目标，失败结果必须作为真实观察处理，不能伪报成功。"
+                    "你只能使用本轮上下文中实际可见且被授权的工具；环境本身不授予工具，只声明资源边界和运行约束。"
                     "\n当前环境使用 sandbox overlay：你看到和修改的是任务沙盒工作副本；真实项目通常作为只读来源被材料化进沙盒。"
                     "不要因为沙盒中某个目录暂时不可见就断定真实项目缺失；应使用搜索/读取工具或检查已材料化的合同目录确认。"
                     "写入默认进入沙盒或环境 artifact/storage 范围；真实工作区写入只有在任务合同或权限上下文明确授权时才允许。"
-                    "最终交付必须引用真实可验证的 artifact 路径，并通过读取、搜索、测试、浏览器或自审完成验证。"
+                    "是否需要最终交付以及如何验收，由任务合同和 runtime 协议决定，而不是由环境提示直接裁决。"
                 ),
             ),
         ),
@@ -102,7 +101,7 @@ def development_sandbox_environment() -> TaskEnvironmentDefinition:
             project_file_policy="file_profile.vibe_coding_project",
             managed_file_environment_policy="file_profile.vibe_coding_project",
             browser_environment_policy="local_browser",
-            artifact_root_policy="runtime_output",
+            artifact_root_policy="environment_scoped_artifacts",
         ),
         memory_space=MemorySpace(
             environment_memory_refs=("project_architecture_notes", "prior_runtime_findings"),
@@ -125,7 +124,7 @@ def development_sandbox_environment() -> TaskEnvironmentDefinition:
             auto_denied_risk_levels=("destructive_unbounded",),
         ),
         artifact_policy=ArtifactPolicy(
-            artifact_root="runtime_output",
+            artifact_root="environment_scoped_artifacts",
             publish_policy="verification_required",
         ),
     )

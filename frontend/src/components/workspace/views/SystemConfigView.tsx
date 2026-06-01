@@ -34,7 +34,7 @@ import {
   type RuntimeConfigGroup
 } from "@/lib/api";
 
-type SystemConfigGroupId = "model" | "embedding" | "retrieval" | "document" | "runtime" | "soul_image_assets" | "context" | "capabilities";
+type SystemConfigGroupId = "model" | "embedding" | "retrieval" | "document" | "runtime" | "image_assets" | "context" | "capabilities";
 
 const CONFIG_SECTIONS: Array<{
   id: SystemConfigGroupId;
@@ -46,7 +46,7 @@ const CONFIG_SECTIONS: Array<{
   { id: "retrieval", icon: Database, accent: "RAG" },
   { id: "document", icon: FileCog, accent: "解析" },
   { id: "runtime", icon: Gauge, accent: "边界" },
-  { id: "soul_image_assets", icon: ImageIcon, accent: "生图" },
+  { id: "image_assets", icon: ImageIcon, accent: "生图" },
   { id: "context", icon: Settings2, accent: "上下文" },
   { id: "capabilities", icon: ShieldCheck, accent: "能力治理" }
 ];
@@ -606,3 +606,4 @@ export function SystemConfigView() {
     </div>
   );
 }
+

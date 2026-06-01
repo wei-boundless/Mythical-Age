@@ -58,7 +58,6 @@ type AgentDraftLike = {
   agent_category?: string;
   enabled?: boolean;
   default_projection_id?: string;
-  default_soul_id?: string;
 };
 
 function dedupe(values: string[]) {

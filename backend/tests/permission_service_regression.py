@@ -9,7 +9,7 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 from permissions import PermissionService
-from capability_system.tool_runtime import ToolRuntime
+from capability_system.tools.native_tool_runtime import ToolRuntime
 
 
 class _SettingsStub:

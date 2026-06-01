@@ -8,8 +8,8 @@ import time
 import uuid
 from typing import Any, Callable
 
-from capability_system import build_default_operation_registry
-from capability_system.tool_authorization import ToolAuthorizationIndex, build_tool_authorization_index
+from permissions.operations import build_default_operation_registry
+from capability_system.tools.authorization import ToolAuthorizationIndex, build_tool_authorization_index
 from permissions import OperationGate
 from project_layout import ProjectLayout
 from harness.runtime.monitoring import RuntimeMonitorService

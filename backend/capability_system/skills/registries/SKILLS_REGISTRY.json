@@ -1,0 +1,1221 @@
+{
+  "version": 3,
+  "skill_count": 9,
+  "skills": [
+    {
+      "schema_version": 3,
+      "name": "browser-operation",
+      "title": "网页操作",
+      "description": "让主 Agent 使用受控浏览器打开网页、观察页面、点击、输入、等待、截图和抽取内容。",
+      "path": "agent_system/skills/builtin/browser-operation/SKILL.md",
+      "supported_modalities": [
+        "web",
+        "browser",
+        "visual",
+        "text"
+      ],
+      "supported_task_kinds": [
+        "web_navigation",
+        "web_search",
+        "form_fill",
+        "page_inspection",
+        "browser_testing"
+      ],
+      "supported_source_kinds": [
+        "website",
+        "url"
+      ],
+      "capability_tags": [
+        "browser",
+        "web_automation",
+        "page_interaction",
+        "screenshot",
+        "extraction"
+      ],
+      "preferred_route": "tool",
+      "forbidden_routes": [],
+      "not_for": [],
+      "routing_hints": [
+        "打开网页",
+        "操作网页",
+        "搜索网页",
+        "点击",
+        "填表",
+        "登录",
+        "截图",
+        "检查页面",
+        "网页测试"
+      ],
+      "examples": [
+        "打开这个网站搜索问题",
+        "帮我在网页上查一下这个报错",
+        "打开本地前端并测试生图按钮"
+      ],
+      "activation_policy": "model_visible",
+      "context_mode": "inline",
+      "route_authority": "candidate_only",
+      "reference_paths": [],
+      "requires_operations": [
+        "op.browser_control"
+      ],
+      "requires_capabilities": [
+        "browser_control"
+      ],
+      "runtime": {
+        "name": "browser-operation",
+        "title": "网页操作",
+        "description": "让主 Agent 使用受控浏览器打开网页、观察页面、点击、输入、等待、截图和抽取内容。",
+        "path": "agent_system/skills/builtin/browser-operation/SKILL.md",
+        "supported_modalities": [
+          "web",
+          "browser",
+          "visual",
+          "text"
+        ],
+        "supported_task_kinds": [
+          "web_navigation",
+          "web_search",
+          "form_fill",
+          "page_inspection",
+          "browser_testing"
+        ],
+        "supported_source_kinds": [
+          "website",
+          "url"
+        ],
+        "capability_tags": [
+          "browser",
+          "web_automation",
+          "page_interaction",
+          "screenshot",
+          "extraction"
+        ],
+        "preferred_route": "tool",
+        "forbidden_routes": [],
+        "not_for": [],
+        "routing_hints": [
+          "打开网页",
+          "操作网页",
+          "搜索网页",
+          "点击",
+          "填表",
+          "登录",
+          "截图",
+          "检查页面",
+          "网页测试"
+        ],
+        "examples": [
+          "打开这个网站搜索问题",
+          "帮我在网页上查一下这个报错",
+          "打开本地前端并测试生图按钮"
+        ],
+        "activation_policy": "model_visible",
+        "context_mode": "inline",
+        "route_authority": "candidate_only",
+        "reference_paths": [],
+        "requires_operations": [
+          "op.browser_control"
+        ],
+        "requires_capabilities": [
+          "browser_control"
+        ]
+      },
+      "prompt": {
+        "name": "browser-operation",
+        "title": "网页操作",
+        "capability": "让主 Agent 使用受控浏览器打开网页、观察页面、点击、输入、等待、截图和抽取内容。",
+        "use_when": "用户要求打开网页、搜索问题、点击页面、填写表单、检查前端页面、截图验证、从网页抽取内容时使用。\n\n不适合用于纯 HTTP 抓取；如果只需要读取一个静态 URL，优先使用 `fetch_url`。",
+        "subagent_handoff_protocol": "",
+        "return_protocol": "向用户汇报时只说已完成什么、看到什么、下一步需要什么。不要暴露内部 selector 细节，除非用户在调试页面。",
+        "output_rule": "向用户汇报时只说已完成什么、看到什么、下一步需要什么。不要暴露内部 selector 细节，除非用户在调试页面。"
+      },
+      "validation_errors": []
+    },
+    {
+      "schema_version": 3,
+      "name": "deep-web-research",
+      "title": "深度网络研究",
+      "description": "用于跨来源深度网络研究，要求建立研究合同、分面搜索、阅读关键原文、交叉验证证据，并输出可信度、限制和可追溯来源。",
+      "path": "agent_system/skills/builtin/deep-web-research/SKILL.md",
+      "supported_modalities": [
+        "web",
+        "text",
+        "code",
+        "research"
+      ],
+      "supported_task_kinds": [
+        "deep_web_research",
+        "technical_landscape_research",
+        "competitor_research",
+        "github_project_research",
+        "evidence_triangulation",
+        "source_quality_review"
+      ],
+      "supported_source_kinds": [
+        "website",
+        "official_page",
+        "paper",
+        "github",
+        "documentation",
+        "news",
+        "benchmark"
+      ],
+      "capability_tags": [
+        "deep_search",
+        "web_research",
+        "evidence_triage",
+        "source_verification",
+        "github_research",
+        "citation-aware"
+      ],
+      "preferred_route": "op.web_search",
+      "forbidden_routes": [],
+      "not_for": [
+        "用户只需要一两条最近新闻、一个当前状态或少量来源链接。",
+        "用户已经给出单个网页，只要求提取页面内容。",
+        "用户要求本地文件、PDF 或表格分析，应交给对应本地能力。"
+      ],
+      "routing_hints": [
+        "深度搜索",
+        "深入调研",
+        "技术调研",
+        "竞品分析",
+        "GitHub",
+        "论文",
+        "方案比较",
+        "证据",
+        "来源可靠性",
+        "尽调"
+      ],
+      "examples": [
+        "深度调研情感识别相关模型和 GitHub 项目",
+        "比较几个 AI 编码 Agent 的架构设计",
+        "找出这个技术方向的主流方案、代表项目和风险"
+      ],
+      "activation_policy": "model_visible",
+      "context_mode": "inline",
+      "route_authority": "candidate_only",
+      "reference_paths": [],
+      "requires_operations": [
+        "op.web_search",
+        "op.fetch_url"
+      ],
+      "requires_capabilities": [
+        "tool:web_search",
+        "tool:fetch_url"
+      ],
+      "runtime": {
+        "name": "deep-web-research",
+        "title": "深度网络研究",
+        "description": "用于跨来源深度网络研究，要求建立研究合同、分面搜索、阅读关键原文、交叉验证证据，并输出可信度、限制和可追溯来源。",
+        "path": "agent_system/skills/builtin/deep-web-research/SKILL.md",
+        "supported_modalities": [
+          "web",
+          "text",
+          "code",
+          "research"
+        ],
+        "supported_task_kinds": [
+          "deep_web_research",
+          "technical_landscape_research",
+          "competitor_research",
+          "github_project_research",
+          "evidence_triangulation",
+          "source_quality_review"
+        ],
+        "supported_source_kinds": [
+          "website",
+          "official_page",
+          "paper",
+          "github",
+          "documentation",
+          "news",
+          "benchmark"
+        ],
+        "capability_tags": [
+          "deep_search",
+          "web_research",
+          "evidence_triage",
+          "source_verification",
+          "github_research",
+          "citation-aware"
+        ],
+        "preferred_route": "op.web_search",
+        "forbidden_routes": [],
+        "not_for": [
+          "用户只需要一两条最近新闻、一个当前状态或少量来源链接。",
+          "用户已经给出单个网页，只要求提取页面内容。",
+          "用户要求本地文件、PDF 或表格分析，应交给对应本地能力。"
+        ],
+        "routing_hints": [
+          "深度搜索",
+          "深入调研",
+          "技术调研",
+          "竞品分析",
+          "GitHub",
+          "论文",
+          "方案比较",
+          "证据",
+          "来源可靠性",
+          "尽调"
+        ],
+        "examples": [
+          "深度调研情感识别相关模型和 GitHub 项目",
+          "比较几个 AI 编码 Agent 的架构设计",
+          "找出这个技术方向的主流方案、代表项目和风险"
+        ],
+        "activation_policy": "model_visible",
+        "context_mode": "inline",
+        "route_authority": "candidate_only",
+        "reference_paths": [],
+        "requires_operations": [
+          "op.web_search",
+          "op.fetch_url"
+        ],
+        "requires_capabilities": [
+          "tool:web_search",
+          "tool:fetch_url"
+        ]
+      },
+      "prompt": {
+        "name": "deep-web-research",
+        "title": "深度网络研究",
+        "capability": "用于跨来源深度网络研究，要求建立研究合同、分面搜索、阅读关键原文、交叉验证证据，并输出可信度、限制和可追溯来源。",
+        "use_when": "用户需要系统调研、技术路线比较、GitHub/论文/官方资料综合、竞品分析、证据交叉验证或高可信结论；问题不能只靠一次搜索摘要可靠回答。",
+        "subagent_handoff_protocol": "先建立研究合同和搜索面；用 web_search 扩展候选来源，用 fetch_url 阅读关键原文；范围较大且允许子 agent 时，可按论文、GitHub、官方资料、新闻公告拆分子任务并等待结构化结果。",
+        "return_protocol": "返回研究结论、证据表、来源质量判断、冲突点、可信度、限制和建议下一步；关键结论必须能追溯到来源。",
+        "output_rule": "先给结论和判断，再列证据；不要暴露内部工具名、路由名、skill_id 或未整理的搜索日志。"
+      },
+      "validation_errors": []
+    },
+    {
+      "schema_version": 3,
+      "name": "image-prompt-design",
+      "title": "生图提示词设计",
+      "description": "用于角色立绘、场景图、封面图和视觉参考图生成。主 Agent 应在用户明确要求出图时，用它把意图整理成可执行的高质量提示词，并调用生图工具产出真实图片。",
+      "path": "agent_system/skills/builtin/image-prompt-design/SKILL.md",
+      "supported_modalities": [
+        "image",
+        "visual",
+        "text"
+      ],
+      "supported_task_kinds": [
+        "image_generation",
+        "visual_prompt",
+        "character_design",
+        "scene_design"
+      ],
+      "supported_source_kinds": [
+        "user_prompt"
+      ],
+      "capability_tags": [
+        "image_generation",
+        "visual_prompt",
+        "aesthetics",
+        "composition",
+        "style_direction"
+      ],
+      "preferred_route": "tool",
+      "forbidden_routes": [],
+      "not_for": [],
+      "routing_hints": [
+        "生图",
+        "生成图片",
+        "画一张",
+        "角色图",
+        "场景图",
+        "立绘",
+        "海报",
+        "视觉风格"
+      ],
+      "examples": [
+        "为玄女生成一张角色立绘",
+        "画一张东荒青木神域的概念图",
+        "生成一张小说封面风格图"
+      ],
+      "activation_policy": "model_visible",
+      "context_mode": "inline",
+      "route_authority": "candidate_only",
+      "reference_paths": [],
+      "requires_operations": [
+        "op.image_generate"
+      ],
+      "requires_capabilities": [
+        "image_generate"
+      ],
+      "runtime": {
+        "name": "image-prompt-design",
+        "title": "生图提示词设计",
+        "description": "用于角色立绘、场景图、封面图和视觉参考图生成。主 Agent 应在用户明确要求出图时，用它把意图整理成可执行的高质量提示词，并调用生图工具产出真实图片。",
+        "path": "agent_system/skills/builtin/image-prompt-design/SKILL.md",
+        "supported_modalities": [
+          "image",
+          "visual",
+          "text"
+        ],
+        "supported_task_kinds": [
+          "image_generation",
+          "visual_prompt",
+          "character_design",
+          "scene_design"
+        ],
+        "supported_source_kinds": [
+          "user_prompt"
+        ],
+        "capability_tags": [
+          "image_generation",
+          "visual_prompt",
+          "aesthetics",
+          "composition",
+          "style_direction"
+        ],
+        "preferred_route": "tool",
+        "forbidden_routes": [],
+        "not_for": [],
+        "routing_hints": [
+          "生图",
+          "生成图片",
+          "画一张",
+          "角色图",
+          "场景图",
+          "立绘",
+          "海报",
+          "视觉风格"
+        ],
+        "examples": [
+          "为玄女生成一张角色立绘",
+          "画一张东荒青木神域的概念图",
+          "生成一张小说封面风格图"
+        ],
+        "activation_policy": "model_visible",
+        "context_mode": "inline",
+        "route_authority": "candidate_only",
+        "reference_paths": [],
+        "requires_operations": [
+          "op.image_generate"
+        ],
+        "requires_capabilities": [
+          "image_generate"
+        ]
+      },
+      "prompt": {
+        "name": "image-prompt-design",
+        "title": "生图提示词设计",
+        "capability": "用于角色立绘、场景图、封面图和视觉参考图生成。主 Agent 应在用户明确要求出图时，用它把意图整理成可执行的高质量提示词，并调用生图工具产出真实图片。",
+        "use_when": "",
+        "subagent_handoff_protocol": "",
+        "return_protocol": "- 调用成功后，返回真实图片结果，不要只返回 prompt。\n- 调用失败时，说明失败原因，并保留用户原需求与整理后的 prompt，方便重试。",
+        "output_rule": "- 调用成功后，返回真实图片结果，不要只返回 prompt。\n- 调用失败时，说明失败原因，并保留用户原需求与整理后的 prompt，方便重试。"
+      },
+      "validation_errors": []
+    },
+    {
+      "schema_version": 3,
+      "name": "pdf-analysis",
+      "title": "PDF 阅读分析",
+      "description": "用于本地 PDF 的整篇阅读、章节定位和页级问答，适合回答“这份文档讲什么”“这一部分讲什么”“第几页写了什么”等深读问题。",
+      "path": "agent_system/skills/builtin/pdf-analysis/SKILL.md",
+      "supported_modalities": [
+        "pdf",
+        "document"
+      ],
+      "supported_task_kinds": [
+        "document_read",
+        "document_section",
+        "document_page"
+      ],
+      "supported_source_kinds": [
+        "document"
+      ],
+      "capability_tags": [
+        "document_analysis",
+        "pdf",
+        "document",
+        "section",
+        "page",
+        "longform-reading",
+        "page-grounded"
+      ],
+      "preferred_route": "pdf",
+      "forbidden_routes": [
+        "rag"
+      ],
+      "not_for": [],
+      "routing_hints": [
+        "白皮书",
+        "报告",
+        "PDF",
+        "手册",
+        "论文",
+        "第几页",
+        "章节",
+        "这一页",
+        "这一部分",
+        "核心结论"
+      ],
+      "examples": [
+        "这份白皮书主要讲什么",
+        "第五页讲得什么",
+        "第二部分强调了什么",
+        "把这份 PDF 的核心结论压成三条行动建议"
+      ],
+      "activation_policy": "model_visible",
+      "context_mode": "isolated",
+      "route_authority": "candidate_only",
+      "reference_paths": [
+        "agent_system/skills/builtin/pdf-analysis/references/pdf_reading.md"
+      ],
+      "requires_operations": [
+        "op.mcp_pdf"
+      ],
+      "requires_capabilities": [
+        "mcp:local:pdf"
+      ],
+      "runtime": {
+        "name": "pdf-analysis",
+        "title": "PDF 阅读分析",
+        "description": "用于本地 PDF 的整篇阅读、章节定位和页级问答，适合回答“这份文档讲什么”“这一部分讲什么”“第几页写了什么”等深读问题。",
+        "path": "agent_system/skills/builtin/pdf-analysis/SKILL.md",
+        "supported_modalities": [
+          "pdf",
+          "document"
+        ],
+        "supported_task_kinds": [
+          "document_read",
+          "document_section",
+          "document_page"
+        ],
+        "supported_source_kinds": [
+          "document"
+        ],
+        "capability_tags": [
+          "document_analysis",
+          "pdf",
+          "document",
+          "section",
+          "page",
+          "longform-reading",
+          "page-grounded"
+        ],
+        "preferred_route": "pdf",
+        "forbidden_routes": [
+          "rag"
+        ],
+        "not_for": [],
+        "routing_hints": [
+          "白皮书",
+          "报告",
+          "PDF",
+          "手册",
+          "论文",
+          "第几页",
+          "章节",
+          "这一页",
+          "这一部分",
+          "核心结论"
+        ],
+        "examples": [
+          "这份白皮书主要讲什么",
+          "第五页讲得什么",
+          "第二部分强调了什么",
+          "把这份 PDF 的核心结论压成三条行动建议"
+        ],
+        "activation_policy": "model_visible",
+        "context_mode": "isolated",
+        "route_authority": "candidate_only",
+        "reference_paths": [
+          "agent_system/skills/builtin/pdf-analysis/references/pdf_reading.md"
+        ],
+        "requires_operations": [
+          "op.mcp_pdf"
+        ],
+        "requires_capabilities": [
+          "mcp:local:pdf"
+        ]
+      },
+      "prompt": {
+        "name": "pdf-analysis",
+        "title": "PDF 阅读分析",
+        "capability": "用于本地 PDF 的整篇阅读、章节定位和页级问答，适合回答“这份文档讲什么”“这一部分讲什么”“第几页写了什么”等深读问题。",
+        "use_when": "- 用户点名某个 PDF、报告、白皮书、手册、论文。\n- 用户问“第几页讲了什么”“第二部分强调了什么”“这份文档核心观点是什么”。\n- 会话里已经有激活的 PDF 绑定，用户继续追问“这一页”“这一部分”“这份 PDF”。",
+        "subagent_handoff_protocol": "当主 Agent 启动你作为子 Agent 时，应明确说明：\n\n- `subagent_task_kind=pdf_reading`\n- 目标文件路径或文件句柄\n- 页码、章节、全文、摘要中的哪一种阅读粒度\n- 用户真正想要的产出形式\n- 是否允许跨页归纳，还是只允许局部阅读\n\n主 Agent 应尽量把问题写成“请阅读什么、关注什么、输出什么”，例如：\n\n\n\n主 Agent 传入的 `input_payload` 应尽量包含：\n\n- `query`：当前用户真正问的问题，不要只写“继续看”。\n- `path` 或 `active_pdf`：目标 PDF 路径或句柄。\n- `mode`：`page`、`section` 或 `document`。\n- `page` / `pages` / `section`：如果用户限定了页码或章节，要显式传入。\n- `followup_constraint_policy`：如果是续接任务，要说明是否禁止切换文档或扩大范围。\n- `expected_output_contract`：要求回传 `summary`、`answer_candidate`、`evidence_refs`、`limitations` 和 `confidence`。\n\n如果主 Agent 给你的输入里同时出现 PDF 与表格/数据集约束，你应优先检查当前任务是不是被错派。只要核心问题是“按部门/前五/全表/汇总/统计”，就应在限制中提示应改派 `structured-data-analysis`，不要把数据问题硬读成 PDF 问题。",
+        "return_protocol": "你返回给主 Agent 的结果应包括：\n\n- `summary`：对当前问题的直接回答\n- `evidence_refs`：页码、章节或文档锚点\n- `artifact_refs`：如有 OCR 产物或分析产物，提供引用\n- `limitations`：抽取噪声、页码缺失、图表难读等限制\n- `followup_questions`：只有在必须补读时才提出\n- `consumed_handles`：你实际阅读的 PDF、页码、章节或结果句柄\n- `produced_handles`：可复用的阅读结果或摘读产物句柄\n\n你应始终把页码、章节或文档锚点写清楚，让主 Agent 能直接收口。",
+        "output_rule": "- 页级问题优先保留定位感，说明是基于哪一页或哪一部分。\n- 总览问题优先给摘要，再给重要章节或结论。\n- 有明显 OCR 噪声或抽取不完整时，要提示不确定性。\n- 遇到图表、附录、脚注等边缘内容，不要把局部细节误讲成全文中心。\n- 组织结果时优先用“结论 / 页码或章节 / 关键内容 / 限制”四段式。\n- 如果用户要行动建议，要把建议和文档原意分开写，避免把建议伪装成原文结论。\n- 如果是一页只够支撑局部判断，就明确说这是局部判断，不要冒充全文结论。"
+      },
+      "validation_errors": []
+    },
+    {
+      "schema_version": 3,
+      "name": "rag-skill",
+      "title": "知识库问答",
+      "description": "面向本地知识库、FAQ 和内部资料的检索问答工作流，适合做基于现有材料的事实确认、规则解释和可追溯回答。",
+      "path": "agent_system/skills/builtin/rag-skill/SKILL.md",
+      "supported_modalities": [
+        "text",
+        "document",
+        "knowledge"
+      ],
+      "supported_task_kinds": [
+        "knowledge_lookup",
+        "faq_explanation"
+      ],
+      "supported_source_kinds": [
+        "knowledge_base"
+      ],
+      "capability_tags": [
+        "knowledge_lookup",
+        "retrieval",
+        "local-knowledge",
+        "faq",
+        "grounded-answer",
+        "citation-aware"
+      ],
+      "preferred_route": "rag",
+      "forbidden_routes": [
+        "tool"
+      ],
+      "not_for": [],
+      "routing_hints": [
+        "知识库",
+        "本地资料",
+        "本地文档",
+        "内部资料",
+        "查资料",
+        "查一下",
+        "根据资料",
+        "FAQ",
+        "为什么",
+        "解释一下",
+        "说明一下"
+      ],
+      "examples": [
+        "从本地知识库里查一下三一重工前三大股东",
+        "根据内部资料解释一下这个产品的退款规则",
+        "为什么我在我的帐户中找不到我的订单",
+        "帮我从知识库里确认这个功能是否支持批量导出"
+      ],
+      "activation_policy": "model_visible",
+      "context_mode": "inline",
+      "route_authority": "candidate_only",
+      "reference_paths": [],
+      "requires_operations": [
+        "op.mcp_retrieval"
+      ],
+      "requires_capabilities": [
+        "mcp:local:retrieval"
+      ],
+      "runtime": {
+        "name": "rag-skill",
+        "title": "知识库问答",
+        "description": "面向本地知识库、FAQ 和内部资料的检索问答工作流，适合做基于现有材料的事实确认、规则解释和可追溯回答。",
+        "path": "agent_system/skills/builtin/rag-skill/SKILL.md",
+        "supported_modalities": [
+          "text",
+          "document",
+          "knowledge"
+        ],
+        "supported_task_kinds": [
+          "knowledge_lookup",
+          "faq_explanation"
+        ],
+        "supported_source_kinds": [
+          "knowledge_base"
+        ],
+        "capability_tags": [
+          "knowledge_lookup",
+          "retrieval",
+          "local-knowledge",
+          "faq",
+          "grounded-answer",
+          "citation-aware"
+        ],
+        "preferred_route": "rag",
+        "forbidden_routes": [
+          "tool"
+        ],
+        "not_for": [],
+        "routing_hints": [
+          "知识库",
+          "本地资料",
+          "本地文档",
+          "内部资料",
+          "查资料",
+          "查一下",
+          "根据资料",
+          "FAQ",
+          "为什么",
+          "解释一下",
+          "说明一下"
+        ],
+        "examples": [
+          "从本地知识库里查一下三一重工前三大股东",
+          "根据内部资料解释一下这个产品的退款规则",
+          "为什么我在我的帐户中找不到我的订单",
+          "帮我从知识库里确认这个功能是否支持批量导出"
+        ],
+        "activation_policy": "model_visible",
+        "context_mode": "inline",
+        "route_authority": "candidate_only",
+        "reference_paths": [],
+        "requires_operations": [
+          "op.mcp_retrieval"
+        ],
+        "requires_capabilities": [
+          "mcp:local:retrieval"
+        ]
+      },
+      "prompt": {
+        "name": "rag-skill",
+        "title": "知识库问答",
+        "capability": "面向本地知识库、FAQ 和内部资料的检索问答工作流，适合做基于现有材料的事实确认、规则解释和可追溯回答。",
+        "use_when": "- 用户明确提到知识库、本地资料、内部文档、FAQ、帮助中心、规则说明。\n- 问题本质上是在确认一个事实、解释一个规则、核对一个产品能力、说明一个常见故障原因。\n- 回答需要“根据现有材料来讲”，而不是依赖最新外部信息或临时计算。",
+        "subagent_handoff_protocol": "当主 Agent 需要你执行检索时，应把任务写成“可直接执行”的子 Agent 交接说明，而不是笼统地说“查一下”。\n\n主 Agent 应传入：\n\n- `subagent_task_kind=evidence_lookup`\n- 用户原问题\n- 期望回答范围\n- 已知知识库锚点或文档线索\n- 若有，当前绑定的资料名、主题词、路径线索或 follow-up 约束\n- `expected_output_contract`：要求回传 `summary`、`answer_candidate`、`evidence_refs`、`limitations` 和 `confidence`\n\n适合的主 Agent 指令风格：\n\n\n\n如果用户的问题其实是 PDF 页级阅读、表格统计或最新外部信息，你应明确回传“这不是知识库检索的最佳入口”，并提示主 Agent 改派对应技能。",
+        "return_protocol": "你返回给主 Agent 的结果应保持稳定结构：\n\n- `summary`：一句话结论\n- `evidence_refs`：可引用的证据线索\n- `artifact_refs`：如有，可回传产物引用\n- `limitations`：证据不足、覆盖范围有限、索引不全等限制\n- `followup_questions`：只有在必须补充上下文时才提出\n- `consumed_handles`：你实际使用的知识库、文档或检索锚点\n- `produced_handles`：如生成了可复用结果，回传结果句柄\n\n回传内容应满足：\n\n- 先结论，后证据\n- 证据不足就直接说不足，不要编造补全\n- 不暴露内部工具名、路由名、协议名\n- 如果只能给出近似判断，要明确标注不确定性\n- 如果判断出任务不属于知识库检索，应在 `limitations` 中写明推荐的能力域，例如 `requires_pdf_reading` 或 `requires_structured_data_analysis`",
+        "output_rule": "- 结论优先，不要先铺陈检索过程。\n- 尽量保留来源感，比如“根据知识库说明”或“从现有资料看”。\n- 有冲突证据时，不要强行合并，要说明冲突点。\n- 没有足够依据时，不要补齐想象内容。\n- 组织结果时优先用“结论 / 依据 / 限制 / 下一步”四段式。\n- 如果能给业务语言翻译，就把术语翻译成业务能懂的话，但不要丢掉证据锚点。\n- 如果证据分散，先合并成一个清楚判断，再列出最关键的两三条证据，不要堆片段。"
+      },
+      "validation_errors": []
+    },
+    {
+      "schema_version": 3,
+      "name": "skill-creator",
+      "title": "Skill 创建顾问",
+      "description": "用于创建、改写和审查能力系统 Skill，帮助把用户意图整理成清晰的能力边界、触发条件、执行准则和模型可见提示。",
+      "path": "agent_system/skills/builtin/skill-creator/SKILL.md",
+      "supported_modalities": [
+        "text",
+        "markdown",
+        "workflow"
+      ],
+      "supported_task_kinds": [
+        "skill_create",
+        "skill_update",
+        "capability_authoring",
+        "prompt_contract_design"
+      ],
+      "supported_source_kinds": [
+        "capability_system",
+        "workspace"
+      ],
+      "capability_tags": [
+        "skill-authoring",
+        "capability-design",
+        "prompt-contract",
+        "workflow-instructions",
+        "validation"
+      ],
+      "preferred_route": "capability_authoring",
+      "forbidden_routes": [],
+      "not_for": [],
+      "routing_hints": [
+        "创建 skill",
+        "新建 skill",
+        "更新 skill",
+        "设计能力",
+        "能力注册",
+        "SKILL.md",
+        "prompt view",
+        "工具说明"
+      ],
+      "examples": [
+        "帮我创建一个用于写小说章节审核的 skill",
+        "把这个技能的使用条件写清楚",
+        "检查这个 SKILL.md 是否适合给 agent 使用",
+        "为能力系统新增一个文档审核 skill"
+      ],
+      "activation_policy": "model_visible",
+      "context_mode": "inline",
+      "route_authority": "candidate_only",
+      "reference_paths": [],
+      "requires_operations": [
+        "op.read_file",
+        "op.write_file",
+        "op.edit_file"
+      ],
+      "requires_capabilities": [
+        "tool:read_file",
+        "tool:write_file",
+        "tool:edit_file"
+      ],
+      "runtime": {
+        "name": "skill-creator",
+        "title": "Skill 创建顾问",
+        "description": "用于创建、改写和审查能力系统 Skill，帮助把用户意图整理成清晰的能力边界、触发条件、执行准则和模型可见提示。",
+        "path": "agent_system/skills/builtin/skill-creator/SKILL.md",
+        "supported_modalities": [
+          "text",
+          "markdown",
+          "workflow"
+        ],
+        "supported_task_kinds": [
+          "skill_create",
+          "skill_update",
+          "capability_authoring",
+          "prompt_contract_design"
+        ],
+        "supported_source_kinds": [
+          "capability_system",
+          "workspace"
+        ],
+        "capability_tags": [
+          "skill-authoring",
+          "capability-design",
+          "prompt-contract",
+          "workflow-instructions",
+          "validation"
+        ],
+        "preferred_route": "capability_authoring",
+        "forbidden_routes": [],
+        "not_for": [],
+        "routing_hints": [
+          "创建 skill",
+          "新建 skill",
+          "更新 skill",
+          "设计能力",
+          "能力注册",
+          "SKILL.md",
+          "prompt view",
+          "工具说明"
+        ],
+        "examples": [
+          "帮我创建一个用于写小说章节审核的 skill",
+          "把这个技能的使用条件写清楚",
+          "检查这个 SKILL.md 是否适合给 agent 使用",
+          "为能力系统新增一个文档审核 skill"
+        ],
+        "activation_policy": "model_visible",
+        "context_mode": "inline",
+        "route_authority": "candidate_only",
+        "reference_paths": [],
+        "requires_operations": [
+          "op.read_file",
+          "op.write_file",
+          "op.edit_file"
+        ],
+        "requires_capabilities": [
+          "tool:read_file",
+          "tool:write_file",
+          "tool:edit_file"
+        ]
+      },
+      "prompt": {
+        "name": "skill-creator",
+        "title": "Skill 创建顾问",
+        "capability": "用于创建、改写和审查能力系统 Skill，帮助把用户意图整理成清晰的能力边界、触发条件、执行准则和模型可见提示。",
+        "use_when": "当用户要新增、改写、审查或拆分 Skill 时使用；重点处理能力边界、触发条件、依赖 operation、正文是否面向 Agent 执行、以及输出协议是否稳定。",
+        "subagent_handoff_protocol": "",
+        "return_protocol": "返回 Skill 草案或审查意见时，分清 metadata、prompt/body、requires_operations、requires_capabilities、适用场景、不适用场景、验证缺口；如果能力过宽，直接给出拆分建议。",
+        "output_rule": "先给可执行结论，再给需要修改的具体字段和正文片段；不要把 Skill 写成开发说明，不要编造不存在的工具或权限。"
+      },
+      "validation_errors": []
+    },
+    {
+      "schema_version": 3,
+      "name": "structured-data-analysis",
+      "title": "结构化数据分析",
+      "description": "用于本地 Excel、CSV、JSON 等结构化数据的可计算分析，适合筛选、排序、分组汇总、Top N、极值记录和结构检查。",
+      "path": "agent_system/skills/builtin/structured-data-analysis/SKILL.md",
+      "supported_modalities": [
+        "table",
+        "spreadsheet",
+        "csv",
+        "json"
+      ],
+      "supported_task_kinds": [
+        "dataset_schema_inspect",
+        "dataset_row_count",
+        "dataset_filter",
+        "dataset_summary",
+        "dataset_top_n",
+        "dataset_extreme_record",
+        "dataset_group_summary",
+        "dataset_inspect"
+      ],
+      "supported_source_kinds": [
+        "dataset"
+      ],
+      "capability_tags": [
+        "dataset_analysis",
+        "analytics",
+        "top-n",
+        "group-by",
+        "schema",
+        "aggregation",
+        "record-lookup"
+      ],
+      "preferred_route": "structured_data",
+      "forbidden_routes": [
+        "rag"
+      ],
+      "not_for": [],
+      "routing_hints": [
+        "表格",
+        "Excel",
+        "CSV",
+        "JSON",
+        "前五",
+        "排名",
+        "汇总",
+        "缺货",
+        "库存",
+        "按地区",
+        "按仓库",
+        "最高",
+        "最低"
+      ],
+      "examples": [
+        "销售前五的有哪些",
+        "薪水最高的员工是谁",
+        "按地区汇总订单总额",
+        "从我的数据库中查询哪些商品库存不足",
+        "按仓库汇总前五"
+      ],
+      "activation_policy": "model_visible",
+      "context_mode": "isolated",
+      "route_authority": "candidate_only",
+      "reference_paths": [
+        "agent_system/skills/builtin/structured-data-analysis/references/excel_analysis.md",
+        "agent_system/skills/builtin/structured-data-analysis/references/excel_reading.md"
+      ],
+      "requires_operations": [
+        "op.mcp_structured_data"
+      ],
+      "requires_capabilities": [
+        "mcp:local:structured_data"
+      ],
+      "runtime": {
+        "name": "structured-data-analysis",
+        "title": "结构化数据分析",
+        "description": "用于本地 Excel、CSV、JSON 等结构化数据的可计算分析，适合筛选、排序、分组汇总、Top N、极值记录和结构检查。",
+        "path": "agent_system/skills/builtin/structured-data-analysis/SKILL.md",
+        "supported_modalities": [
+          "table",
+          "spreadsheet",
+          "csv",
+          "json"
+        ],
+        "supported_task_kinds": [
+          "dataset_schema_inspect",
+          "dataset_row_count",
+          "dataset_filter",
+          "dataset_summary",
+          "dataset_top_n",
+          "dataset_extreme_record",
+          "dataset_group_summary",
+          "dataset_inspect"
+        ],
+        "supported_source_kinds": [
+          "dataset"
+        ],
+        "capability_tags": [
+          "dataset_analysis",
+          "analytics",
+          "top-n",
+          "group-by",
+          "schema",
+          "aggregation",
+          "record-lookup"
+        ],
+        "preferred_route": "structured_data",
+        "forbidden_routes": [
+          "rag"
+        ],
+        "not_for": [],
+        "routing_hints": [
+          "表格",
+          "Excel",
+          "CSV",
+          "JSON",
+          "前五",
+          "排名",
+          "汇总",
+          "缺货",
+          "库存",
+          "按地区",
+          "按仓库",
+          "最高",
+          "最低"
+        ],
+        "examples": [
+          "销售前五的有哪些",
+          "薪水最高的员工是谁",
+          "按地区汇总订单总额",
+          "从我的数据库中查询哪些商品库存不足",
+          "按仓库汇总前五"
+        ],
+        "activation_policy": "model_visible",
+        "context_mode": "isolated",
+        "route_authority": "candidate_only",
+        "reference_paths": [
+          "agent_system/skills/builtin/structured-data-analysis/references/excel_analysis.md",
+          "agent_system/skills/builtin/structured-data-analysis/references/excel_reading.md"
+        ],
+        "requires_operations": [
+          "op.mcp_structured_data"
+        ],
+        "requires_capabilities": [
+          "mcp:local:structured_data"
+        ]
+      },
+      "prompt": {
+        "name": "structured-data-analysis",
+        "title": "结构化数据分析",
+        "capability": "用于本地 Excel、CSV、JSON 等结构化数据的可计算分析，适合筛选、排序、分组汇总、Top N、极值记录和结构检查。",
+        "use_when": "- 用户提到 Excel、CSV、JSON、表格、数据库导出、库存表、订单表、员工表。\n- 用户问的是“前五 / 最高 / 最低 / 按地区汇总 / 哪些符合条件 / 一共有多少 / 某类记录有哪些”。\n- 会话里已经绑定了一个数据集，用户继续追问“按仓库展开一下”“把前五列出来”“再按地区看一下”。",
+        "subagent_handoff_protocol": "当主 Agent 启动你作为子 Agent 时，应明确传入：\n\n- `subagent_task_kind=table_analysis`\n- `query`：当前用户真正要求的计算或汇总问题\n- `path` 或 `active_dataset`：目标数据集路径或句柄\n- 筛选、分组、排序、Top N、字段口径等约束\n- 如果是 follow-up，传入 `active_result_handle_id`、`active_subset_handle_id`、`followup_target_refs`\n- 如果用户说“这些人 / 这前五名 / 不要扩展回全表”，必须传入 `followup_constraint_policy=result_subset_only_do_not_expand_to_full_object`\n- `expected_output_contract`：要求回传 `summary`、`answer_candidate`、`evidence_refs`、`limitations`、`confidence`\n\n适合的主 Agent 指令风格：\n\n\n\n如果主 Agent 给你的输入里同时出现 PDF、报告页码或知识库检索要求，你应先判断是否被错派。核心问题是文档页级阅读时，应提示改派 `pdf-analysis`；核心问题是资料事实确认时，应提示改派 `rag-skill`。",
+        "return_protocol": "你返回给主 Agent 的结果应包括：\n\n- `summary`：一句话说明计算结论。\n- `answer_candidate`：可直接收口的中文答案草稿。\n- `evidence_refs`：相关行、聚合结果、字段或结果句柄。\n- `limitations`：字段缺失、口径不明、数据不完整、只能基于子集等限制。\n- `consumed_handles`：实际使用的数据集、结果子集或结果句柄。\n- `produced_handles`：新生成的分析结果、聚合表或摘要句柄。",
+        "output_rule": "- 先给结果，再补充筛选条件、分组逻辑或关键数字。\n- 如果问题有歧义，要指出歧义点，例如时间范围、字段口径、排序依据。\n- 对 Top N、极值、汇总类问题，尽量让结果可比、可核对。\n- 如果数据不完整、字段不明确或绑定数据集不对，要明确说明。\n- 组织结果时优先用“结论 / 口径 / 结果表 / 注意事项”四段式。\n- 如果字段名不直观，要把计算口径翻译成业务语言再给出。\n- 如果用户只要一个答案，就别把完整表格铺满；保留最相关的几项和可核对的口径即可。"
+      },
+      "validation_errors": []
+    },
+    {
+      "schema_version": 3,
+      "name": "visual-asset-generation",
+      "title": "视觉资产生成",
+      "description": "在任务合同或用户请求需要真实图片交付物时，指导 agent 调用 image_generate 生成可验收的视觉资产，并把工具返回的真实路径作为交付证据。",
+      "path": "agent_system/skills/builtin/visual-asset-generation/SKILL.md",
+      "supported_modalities": [
+        "image",
+        "visual",
+        "text"
+      ],
+      "supported_task_kinds": [
+        "image_generation",
+        "visual_asset",
+        "concept_art",
+        "character_asset",
+        "scene_asset"
+      ],
+      "supported_source_kinds": [
+        "user_prompt",
+        "task_contract"
+      ],
+      "capability_tags": [
+        "image_generation",
+        "artifact_delivery",
+        "visual_asset",
+        "creative_production"
+      ],
+      "preferred_route": "tool",
+      "forbidden_routes": [],
+      "not_for": [],
+      "routing_hints": [
+        "生成美术资源",
+        "生成视觉资产",
+        "概念图",
+        "场景图",
+        "角色立绘",
+        "封面图"
+      ],
+      "examples": [],
+      "activation_policy": "model_visible",
+      "context_mode": "inline",
+      "route_authority": "candidate_only",
+      "reference_paths": [],
+      "requires_operations": [
+        "op.image_generate"
+      ],
+      "requires_capabilities": [
+        "image_generate"
+      ],
+      "runtime": {
+        "name": "visual-asset-generation",
+        "title": "视觉资产生成",
+        "description": "在任务合同或用户请求需要真实图片交付物时，指导 agent 调用 image_generate 生成可验收的视觉资产，并把工具返回的真实路径作为交付证据。",
+        "path": "agent_system/skills/builtin/visual-asset-generation/SKILL.md",
+        "supported_modalities": [
+          "image",
+          "visual",
+          "text"
+        ],
+        "supported_task_kinds": [
+          "image_generation",
+          "visual_asset",
+          "concept_art",
+          "character_asset",
+          "scene_asset"
+        ],
+        "supported_source_kinds": [
+          "user_prompt",
+          "task_contract"
+        ],
+        "capability_tags": [
+          "image_generation",
+          "artifact_delivery",
+          "visual_asset",
+          "creative_production"
+        ],
+        "preferred_route": "tool",
+        "forbidden_routes": [],
+        "not_for": [],
+        "routing_hints": [
+          "生成美术资源",
+          "生成视觉资产",
+          "概念图",
+          "场景图",
+          "角色立绘",
+          "封面图"
+        ],
+        "examples": [],
+        "activation_policy": "model_visible",
+        "context_mode": "inline",
+        "route_authority": "candidate_only",
+        "reference_paths": [],
+        "requires_operations": [
+          "op.image_generate"
+        ],
+        "requires_capabilities": [
+          "image_generate"
+        ]
+      },
+      "prompt": {
+        "name": "visual-asset-generation",
+        "title": "视觉资产生成",
+        "capability": "在任务合同或用户请求需要真实图片交付物时，指导 agent 调用 image_generate 生成可验收的视觉资产，并把工具返回的真实路径作为交付证据。",
+        "use_when": "",
+        "subagent_handoff_protocol": "",
+        "return_protocol": "",
+        "output_rule": "直接完成用户可见任务；不要描述内部工具调用、路由策略或协议。"
+      },
+      "validation_errors": []
+    },
+    {
+      "schema_version": 3,
+      "name": "web-search-briefing",
+      "title": "快速网络简报",
+      "description": "用于快速搜索当前网络信息并给出简短、有来源链接的简报，适合新闻、官网状态、当前事实和轻量资料确认。",
+      "path": "agent_system/skills/builtin/web-search-briefing/SKILL.md",
+      "supported_modalities": [
+        "web",
+        "text"
+      ],
+      "supported_task_kinds": [
+        "recent_news_briefing",
+        "quick_web_lookup",
+        "source_link_summary",
+        "current_status_check"
+      ],
+      "supported_source_kinds": [
+        "website",
+        "search_result",
+        "news",
+        "official_page"
+      ],
+      "capability_tags": [
+        "web_search",
+        "current_information",
+        "news_briefing",
+        "fast_evidence",
+        "citation-aware"
+      ],
+      "preferred_route": "op.web_search",
+      "forbidden_routes": [],
+      "not_for": [
+        "需要跨论文、GitHub、官方文档和媒体报道做系统论证的深度研究。",
+        "严肃技术选型、竞品分析、尽调或需要证据交叉验证的任务。",
+        "需要保存研究产物、持续追踪或多人分工的任务。"
+      ],
+      "routing_hints": [
+        "最近",
+        "最新",
+        "新闻",
+        "资讯",
+        "查一下",
+        "官网",
+        "当前",
+        "今天",
+        "这周"
+      ],
+      "examples": [
+        "整理最近一周 AI 资讯",
+        "查一下这个产品现在是否发布",
+        "帮我找几个官方来源链接"
+      ],
+      "activation_policy": "model_visible",
+      "context_mode": "inline",
+      "route_authority": "candidate_only",
+      "reference_paths": [],
+      "requires_operations": [
+        "op.web_search",
+        "op.fetch_url"
+      ],
+      "requires_capabilities": [
+        "tool:web_search",
+        "tool:fetch_url"
+      ],
+      "runtime": {
+        "name": "web-search-briefing",
+        "title": "快速网络简报",
+        "description": "用于快速搜索当前网络信息并给出简短、有来源链接的简报，适合新闻、官网状态、当前事实和轻量资料确认。",
+        "path": "agent_system/skills/builtin/web-search-briefing/SKILL.md",
+        "supported_modalities": [
+          "web",
+          "text"
+        ],
+        "supported_task_kinds": [
+          "recent_news_briefing",
+          "quick_web_lookup",
+          "source_link_summary",
+          "current_status_check"
+        ],
+        "supported_source_kinds": [
+          "website",
+          "search_result",
+          "news",
+          "official_page"
+        ],
+        "capability_tags": [
+          "web_search",
+          "current_information",
+          "news_briefing",
+          "fast_evidence",
+          "citation-aware"
+        ],
+        "preferred_route": "op.web_search",
+        "forbidden_routes": [],
+        "not_for": [
+          "需要跨论文、GitHub、官方文档和媒体报道做系统论证的深度研究。",
+          "严肃技术选型、竞品分析、尽调或需要证据交叉验证的任务。",
+          "需要保存研究产物、持续追踪或多人分工的任务。"
+        ],
+        "routing_hints": [
+          "最近",
+          "最新",
+          "新闻",
+          "资讯",
+          "查一下",
+          "官网",
+          "当前",
+          "今天",
+          "这周"
+        ],
+        "examples": [
+          "整理最近一周 AI 资讯",
+          "查一下这个产品现在是否发布",
+          "帮我找几个官方来源链接"
+        ],
+        "activation_policy": "model_visible",
+        "context_mode": "inline",
+        "route_authority": "candidate_only",
+        "reference_paths": [],
+        "requires_operations": [
+          "op.web_search",
+          "op.fetch_url"
+        ],
+        "requires_capabilities": [
+          "tool:web_search",
+          "tool:fetch_url"
+        ]
+      },
+      "prompt": {
+        "name": "web-search-briefing",
+        "title": "快速网络简报",
+        "capability": "用于快速搜索当前网络信息并给出简短、有来源链接的简报，适合新闻、官网状态、当前事实和轻量资料确认。",
+        "use_when": "用户需要快速了解当前网络信息、最近新闻、官网状态、发布动态或少量来源链接；任务目标明确，通常不需要跨来源深度论证。",
+        "subagent_handoff_protocol": "先用 web_search 获取候选来源；只有关键日期、版本、声明或结论需要确认时才使用 fetch_url 阅读原文；不要启动长任务，除非用户明确要求持续研究或产出文件。",
+        "return_protocol": "返回结论、来源链接、日期或更新时间、简短影响说明和无法确认的限制；链接必须来自实际搜索或抓取结果。",
+        "output_rule": "简短直接，先给结果；不要暴露内部工具名、路由名、skill_id 或搜索过程日志。"
+      },
+      "validation_errors": []
+    }
+  ]
+}

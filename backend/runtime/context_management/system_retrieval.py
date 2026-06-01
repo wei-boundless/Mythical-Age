@@ -4,8 +4,8 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
-from capability_system.local_mcp_registry import get_local_mcp_unit, get_local_mcp_unit_for_source_kind
-from capability_system.search_policy import operation_allowed_by_search_policy
+from capability_system.mcp.local_registry import get_local_mcp_unit, get_local_mcp_unit_for_source_kind
+from capability_system.capabilities.search_policy import operation_allowed_by_search_policy
 from evidence import MCPExecutionPlan, MCPRequest
 from request_intent.frame_access import explicit_paths, turn_signals
 from task_system.tasks.run_models import (

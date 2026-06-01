@@ -108,15 +108,15 @@ def default_runtime_lane_descriptors() -> tuple[RuntimeLaneDescriptor, ...]:
     return (
         _lane(
             "role_interaction",
-            "角色模式交互",
+            "会话模式交互",
             "主 Agent 模式",
-            "灵魂系统主场，用于角色对话、记忆延续、轻问答和只读检索。",
+            "主会话轻任务入口，用于对话延续、轻问答、只读检索和记忆读取。",
             default_operations=("op.model_response", "op.mcp_retrieval", "op.web_search", "op.fetch_url", "op.memory_read"),
             default_memory_scopes=("conversation_readonly", "state_readonly", "long_term_candidate"),
             default_context_sections=("conversation", "state", "projection", "task", "runtime_contracts"),
             default_approval_policy="read_only_first",
             runtime_template_hints=("builtin.main.default",),
-            metadata={"runtime_style": "conversation", "projection_strength": "primary"},
+            metadata={"runtime_style": "conversation"},
         ),
         _lane(
             "standard_task",

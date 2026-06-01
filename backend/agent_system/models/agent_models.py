@@ -21,7 +21,6 @@ class AgentDescriptor:
     enabled: bool = True
     builtin: bool = False
     editable: bool = True
-    default_soul_id: str = ""
     default_projection_id: str = ""
     created_at: float = 0.0
     updated_at: float = 0.0
@@ -101,7 +100,6 @@ class AgentDescriptor:
             "description",
             "enabled",
             "editable",
-            "default_soul_id",
             "default_projection_id",
             "metadata",
         )
@@ -150,5 +148,6 @@ class AgentLifecycleRecord:
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
+
 
 

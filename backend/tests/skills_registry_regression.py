@@ -6,13 +6,13 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-SCANNER_PATH = ROOT / "capability_system" / "skill_scanner.py"
+SCANNER_PATH = ROOT / "agent_system" / "skills" / "scanner.py"
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from capability_system.paths import CapabilitySystemPaths
-from capability_system.skill_contracts import SkillPromptContract
-from capability_system.skill_registry import SkillRegistry
+from capability_system.skills.paths import AgentSkillPaths
+from capability_system.skills.contracts import SkillPromptContract
+from capability_system.skills.registry import SkillRegistry
 
 
 def load_scanner_module():
@@ -26,7 +26,7 @@ def load_scanner_module():
 
 
 def main() -> None:
-    capability_paths = CapabilitySystemPaths.from_base_dir(ROOT)
+    skill_paths = AgentSkillPaths.from_base_dir(ROOT)
     scanner = load_scanner_module()
     scanner.refresh_snapshot(ROOT)
 
@@ -78,7 +78,7 @@ def main() -> None:
     assert "skill_update" in creator.supported_task_kinds
     assert "capability_system" in creator.supported_source_kinds
 
-    registry = json.loads(capability_paths.skills_registry_path.read_text(encoding="utf-8"))
+    registry = json.loads(skill_paths.skills_registry_path.read_text(encoding="utf-8"))
     assert registry["version"] == 3
     assert registry["skill_count"] == len(skills)
     assert all(item["schema_version"] == 3 for item in registry["skills"])
@@ -100,7 +100,7 @@ def main() -> None:
     skill_registry = SkillRegistry(ROOT)
     assert skill_registry.get_by_name("skill-creator") is not None
 
-    snapshot_text = capability_paths.skills_snapshot_path.read_text(encoding="utf-8")
+    snapshot_text = skill_paths.skills_snapshot_path.read_text(encoding="utf-8")
     assert "Skill registry snapshot for admin display" in snapshot_text
     assert "Available local capabilities" not in snapshot_text
     assert "subagent_task_kind=evidence_lookup" in snapshot_text

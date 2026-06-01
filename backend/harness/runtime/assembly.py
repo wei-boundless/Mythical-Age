@@ -4,9 +4,8 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
-from capability_system.skill_registry import SkillRegistry
-from capability_system.tool_authorization import build_authorized_tool_set
-from soul.assembly_service import SoulAssemblyService
+from capability_system.skills.registry import SkillRegistry
+from capability_system.tools.authorization import build_authorized_tool_set
 from task_system.contracts.runtime_contracts import SkillRuntimeView, skill_runtime_view_from_skill_definition
 from task_system.environments import build_task_environment_catalog, task_environment_registry_from_backend_dir
 
@@ -46,7 +45,6 @@ _DEFAULT_RUNTIME_POLICY: dict[str, Any] = {
     "step_summary_policy": {"enabled": True, "detail": "stepwise"},
     "approval_policy": {"permission_scope": "agent_profile_ceiling"},
     "artifact_policy": {},
-    "soul_prompt_policy": {"enabled": False},
     "prompt_pack_refs_by_invocation": {},
     "operation_authorization_projection": {},
 }
@@ -70,7 +68,6 @@ class RuntimeAssemblyProfile:
     self_review_policy: dict[str, Any] = field(default_factory=dict)
     artifact_policy: dict[str, Any] = field(default_factory=dict)
     permission_policy: dict[str, Any] = field(default_factory=dict)
-    soul_prompt_policy: dict[str, Any] = field(default_factory=dict)
     step_summary_policy: dict[str, Any] = field(default_factory=dict)
     authority: str = "harness.runtime.assembly_profile"
 
@@ -111,7 +108,6 @@ class RuntimeAssembly:
     filtered_tools: tuple[dict[str, str], ...] = ()
     control_capabilities: dict[str, Any] = field(default_factory=dict)
     operation_authorization: dict[str, Any] = field(default_factory=dict)
-    soul_role_prompt: dict[str, Any] = field(default_factory=dict)
     rejected_capabilities: tuple[dict[str, str], ...] = ()
     diagnostics: dict[str, Any] = field(default_factory=dict)
     authority: str = "harness.runtime.assembly"
@@ -180,11 +176,6 @@ def assemble_runtime(
         tool_names=tuple(tool_set.tool_names),
         definitions_by_name=definitions_by_name,
     )
-    soul_role_prompt, rejected = _assemble_soul_role_prompt(
-        backend_dir=backend_dir,
-        soul_prompt_policy=profile.soul_prompt_policy,
-        selection=selection,
-    )
     tool_instances_by_name = {
         str(getattr(tool, "name", "") or ""): tool
         for tool in list(tool_instances or [])
@@ -243,8 +234,7 @@ def assemble_runtime(
         ),
         control_capabilities=control_capabilities,
         operation_authorization=operation_projection.to_dict(),
-        soul_role_prompt=soul_role_prompt,
-        rejected_capabilities=tuple(rejected),
+        rejected_capabilities=(),
         diagnostics={
             "agent_profile_ref": str(getattr(agent_runtime_profile, "agent_profile_id", "") or ""),
             "task_environment": environment_diagnostics,
@@ -312,7 +302,6 @@ def build_runtime_assembly_profile(
         self_review_policy=dict(runtime_policy.get("self_review_policy") or {}),
         artifact_policy=dict(runtime_policy.get("artifact_policy") or {}),
         permission_policy=dict(runtime_policy.get("approval_policy") or runtime_policy.get("permission_policy") or {}),
-        soul_prompt_policy=dict(runtime_policy.get("soul_prompt_policy") or {}),
         step_summary_policy=dict(runtime_policy.get("step_summary_policy") or {}),
     )
 
@@ -590,27 +579,6 @@ def _subagent_policy(*, agent_runtime_profile: Any | None, policy: dict[str, Any
         "result_policy": str(profile_payload.get("result_policy") or "observation_refs_only"),
         "allow_nested_subagents": bool(profile_payload.get("allow_nested_subagents") is True),
     }
-
-
-def _assemble_soul_role_prompt(
-    *,
-    backend_dir: Path,
-    soul_prompt_policy: dict[str, Any],
-    selection: dict[str, Any],
-) -> tuple[dict[str, Any], list[dict[str, str]]]:
-    soul_id = str(
-        selection.get("soul_id")
-        or dict(selection.get("runtime_profile") or {}).get("soul_id")
-        or ""
-    ).strip().lower()
-    if not soul_id:
-        return {}, []
-    if not bool(dict(soul_prompt_policy or {}).get("enabled") is True):
-        return {}, [{"capability": "soul_role_prompt", "reason": "soul_prompt_disabled_by_agent_profile"}]
-    try:
-        return SoulAssemblyService(backend_dir).build_role_prompt(soul_id=soul_id), []
-    except KeyError:
-        return {}, [{"capability": "soul_role_prompt", "reason": "soul_not_found"}]
 
 
 def _tool_view(*, tool_name: str, definition: Any, tool_instance: Any | None = None) -> dict[str, Any]:

@@ -8,7 +8,7 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-from capability_system.tool_runtime import ToolRuntime
+from capability_system.tools.native_tool_runtime import ToolRuntime
 from orchestration.runtime_directive import RuntimeDirective
 from runtime.shared.action_request import RuntimeActionRequest
 from runtime.shared.execution_record import RuntimeExecutionStore, build_idempotency_token, build_request_fingerprint

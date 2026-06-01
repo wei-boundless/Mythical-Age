@@ -3,14 +3,14 @@
 import { ArrowUp, BrainCircuit, Lightbulb, Square } from "lucide-react";
 import { useMemo, useState } from "react";
 
-import type { ModelProviderConfig, SoulImageAssetConfig } from "@/lib/api";
+import type { ModelProviderConfig, ImageAssetConfig } from "@/lib/api";
 import type { ChatThinkingMode } from "@/lib/store/types";
 
 export function ChatInput({
   disabled,
   streaming,
   modelProviderConfig,
-  soulImageAssetConfig,
+  imageAssetConfig,
   onSend,
   onStop,
   onSelectChatModel,
@@ -21,7 +21,7 @@ export function ChatInput({
   disabled: boolean;
   streaming: boolean;
   modelProviderConfig: ModelProviderConfig | null;
-  soulImageAssetConfig: SoulImageAssetConfig | null;
+  imageAssetConfig: ImageAssetConfig | null;
   onSend: (value: string) => Promise<void>;
   onStop: () => void;
   onSelectChatModel: (selectionId: string) => void;
@@ -31,7 +31,7 @@ export function ChatInput({
 }) {
   const [value, setValue] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  const modelOptions = useMemo(() => buildChatModelOptions(modelProviderConfig, soulImageAssetConfig), [modelProviderConfig, soulImageAssetConfig]);
+  const modelOptions = useMemo(() => buildChatModelOptions(modelProviderConfig, imageAssetConfig), [modelProviderConfig, imageAssetConfig]);
   const inputDisabled = disabled || submitting;
   const activeModelId = modelOptions.some((option) => option.id === selectedChatModelId)
     ? selectedChatModelId
@@ -140,7 +140,7 @@ export function ChatInput({
   );
 }
 
-function buildChatModelOptions(config: ModelProviderConfig | null, imageConfig: SoulImageAssetConfig | null) {
+function buildChatModelOptions(config: ModelProviderConfig | null, imageConfig: ImageAssetConfig | null) {
   const systemLabel = config?.provider && config?.model
     ? config.model
     : "系统默认模型";
@@ -257,3 +257,4 @@ function isOpenAIReasoningModel(model: string) {
     || normalized.startsWith("o3")
     || normalized.startsWith("o4");
 }
+

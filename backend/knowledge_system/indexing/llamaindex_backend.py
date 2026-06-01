@@ -11,10 +11,10 @@ from typing import Any
 import portalocker
 
 from config import get_settings
-from capability_system.units.mcp.local.retrieval.models import RetrievalHit
+from capability_system.capabilities.retrieval.models import RetrievalHit
 from knowledge_system.ingestion.models import IndexableUnit
-from knowledge_system.retrieval.candidate_graph import coalesce_with_candidate_graph
-from knowledge_system.retrieval.hybrid_ranker import HybridRanker
+from capability_system.capabilities.retrieval.candidate_graph import coalesce_with_candidate_graph
+from capability_system.capabilities.retrieval.hybrid_ranker import HybridRanker
 from knowledge_system.indexing.adapters import to_retrieval_hit
 from knowledge_system.indexing.index_store import RetrievalLayout
 from knowledge_system.indexing.lexical import (

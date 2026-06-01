@@ -8,8 +8,9 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-from capability_system.tool_contracts import SkillToolScope, ToolInvocationValidator
-from capability_system.tool_runtime import ToolRuntime
+from permissions.tool_scope import SkillToolScope
+from capability_system.tools.contracts import ToolInvocationValidator
+from capability_system.tools.native_tool_runtime import ToolRuntime
 
 
 def test_read_file_invocation_validation_default_mode_blocks_missing_owner() -> None:

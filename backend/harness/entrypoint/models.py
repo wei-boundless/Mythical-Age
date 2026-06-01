@@ -20,7 +20,6 @@ class HarnessRuntimeRequest:
     history: list[dict[str, Any]] | None = None
     explicit_subtasks: list[dict[str, Any]] = field(default_factory=list)
     search_policy: list[str] | None = None
-    soul_id: str = ""
     runtime_profile: dict[str, Any] = field(default_factory=dict)
     task_selection: dict[str, Any] = field(default_factory=dict)
     model_selection: dict[str, Any] = field(default_factory=dict)
@@ -33,5 +32,6 @@ class HarnessRuntimeRequest:
 class HarnessRuntimeResult:
     content: str
     segments: list[dict[str, Any]] = field(default_factory=list)
+
 
 

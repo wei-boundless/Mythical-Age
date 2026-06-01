@@ -17,7 +17,7 @@ from runtime.shared.models import AgentRunResult, TaskRun
 from harness.loop.model_action_protocol import ModelActionRequest
 from harness.loop.task_executor import _tool_call_progress_summary
 from harness.loop.task_lifecycle import TaskLifecycleRecord, TaskRunContract
-from capability_system.tool_definitions import build_tool_instances, get_tool_definitions
+from capability_system.tools.native_tool_catalog import build_tool_instances, get_tool_definitions
 from tests.support.runtime_stubs import (
     NativeToolCallSequenceModelRuntimeStub,
     NativeToolCallModelRuntimeStub,
@@ -1942,7 +1942,7 @@ def test_task_executor_services_include_backend_config_for_runtime_fingerprint()
     class _SettingsWithBackendConfig(PrimarySettingsStub):
         def task_executor_backend_config(self) -> dict[str, object]:
             return {
-                "soul_image_assets": {
+                "image_assets": {
                     "base_url": "https://image.example.test/v1",
                     "model": "image-test-model",
                     "api_key_present": True,
@@ -2687,7 +2687,6 @@ def test_capability_boundary_bypasses_active_work_control() -> None:
             HarnessRuntimeRequest(
                 session_id="session-active-work",
                 message="修复了吗",
-                soul_id="hebo",
                 task_selection={
                     "control_capabilities": {
                         "may_call_tools": False,
@@ -3187,7 +3186,7 @@ def test_scheduler_restarts_after_running_steer_and_next_packet_contains_instruc
     assert "active_task_steer_consumed" in event_types
 
 
-def test_explicit_capability_boundary_can_use_soul_prompt() -> None:
+def test_explicit_capability_boundary_uses_single_agent_turn() -> None:
     runtime = build_harness_runtime(
         model_runtime=SingleMessageModelRuntimeStub(content="单轮收口回答")
     )
@@ -3198,7 +3197,6 @@ def test_explicit_capability_boundary_can_use_soul_prompt() -> None:
             HarnessRuntimeRequest(
                 session_id="session-role",
                 message="保持角色对话。",
-                soul_id="hebo",
                 task_selection={
                     "control_capabilities": {
                         "may_call_tools": False,
@@ -3206,7 +3204,6 @@ def test_explicit_capability_boundary_can_use_soul_prompt() -> None:
                         "may_control_active_work": False,
                         "may_use_subagents": False,
                     },
-                    "runtime_policy": {"soul_prompt_policy": {"enabled": True}},
                 },
             )
         ):
@@ -3220,7 +3217,6 @@ def test_explicit_capability_boundary_can_use_soul_prompt() -> None:
     capabilities = dict(assembly.get("control_capabilities") or {})
 
     assert profile["profile_ref"] == "main_interactive_agent"
-    assert dict(assembly.get("soul_role_prompt") or {}).get("content")
     assert "conversation_only" not in capabilities
     assert capabilities.get("may_call_tools") is False
     assert capabilities.get("may_request_task_run") is False
@@ -3376,16 +3372,15 @@ def test_single_agent_turn_block_tool_goes_through_admission() -> None:
     assert any(event.get("type") == "done" and "当前环境缺少必要授权" in str(event.get("content") or "") for event in events)
 
 
-def test_default_runtime_policy_rejects_soul_prompt_without_persona_leakage() -> None:
+def test_default_runtime_policy_uses_main_profile_for_standard_chat() -> None:
     runtime = build_harness_runtime()
 
     async def _collect() -> list[dict[str, object]]:
         events: list[dict[str, object]] = []
         async for event in runtime.astream(
             HarnessRuntimeRequest(
-                session_id="session-standard-soul",
+                session_id="session-standard-chat",
                 message="普通对话。",
-                soul_id="hebo",
             )
         ):
             events.append(event)
@@ -3395,13 +3390,9 @@ def test_default_runtime_policy_rejects_soul_prompt_without_persona_leakage() ->
     assembly = dict(next(event for event in events if event.get("type") == "runtime_assembly_compiled").get("runtime_assembly") or {})
 
     assert dict(assembly.get("profile") or {}).get("profile_ref") == "main_interactive_agent"
-    assert dict(assembly.get("soul_role_prompt") or {}) == {}
-    assert {"capability": "soul_role_prompt", "reason": "soul_prompt_disabled_by_agent_profile"} in list(
-        assembly.get("rejected_capabilities") or []
-    )
 
 
-def test_default_runtime_policy_exposes_plan_policy_without_soul_prompt() -> None:
+def test_default_runtime_policy_exposes_plan_policy() -> None:
     runtime = build_harness_runtime()
 
     async def _collect() -> list[dict[str, object]]:
@@ -3410,7 +3401,6 @@ def test_default_runtime_policy_exposes_plan_policy_without_soul_prompt() -> Non
             HarnessRuntimeRequest(
                 session_id="session-default-policy",
                 message="执行需要真实产物的任务。",
-                soul_id="hebo",
             )
         ):
             events.append(event)
@@ -3423,8 +3413,6 @@ def test_default_runtime_policy_exposes_plan_policy_without_soul_prompt() -> Non
     assert profile["profile_ref"] == "main_interactive_agent"
     assert dict(profile.get("planning_policy") or {}).get("specified_plan_allowed") is True
     assert dict(assembly.get("task_environment") or {}).get("environment_id") == "env.general.workspace"
-    assert dict(profile.get("soul_prompt_policy") or {}).get("enabled") is False
-    assert dict(assembly.get("soul_role_prompt") or {}) == {}
 
 
 def test_runtime_policy_can_override_default_runtime_assembly() -> None:
@@ -3849,6 +3837,33 @@ def test_task_model_action_request_requires_public_action_state_when_enabled() -
     assert action is None
     assert diagnostics["status"] == "invalid"
     assert "public_action_state_required" in diagnostics["validation_errors"]
+
+
+def test_task_model_action_request_rejects_action_outside_packet_contract() -> None:
+    from harness.loop.model_action_protocol import model_action_request_from_payload
+
+    action, diagnostics = model_action_request_from_payload(
+        {
+            "authority": "harness.loop.model_action_request",
+            "request_id": "model-action:test:not-allowed",
+            "turn_id": "taskrun:test:not-allowed",
+            "action_type": "request_task_run",
+            "public_progress_note": "准备重新开任务。",
+            "public_action_state": {
+                "current_judgment": "当前任务需要重新建任务。",
+                "next_action": "请求新的任务运行。",
+            },
+            "task_contract_seed": {"user_visible_goal": "不应被允许。"},
+        },
+        turn_id="taskrun:test:not-allowed",
+        require_public_progress_note=True,
+        require_public_action_state=True,
+        allowed_action_types=("respond", "ask_user", "tool_call", "block"),
+    )
+
+    assert action is None
+    assert diagnostics["status"] == "invalid"
+    assert "action_type_not_allowed_for_context:request_task_run" in diagnostics["validation_errors"]
 
 
 def test_tool_call_status_does_not_replace_agent_public_judgment() -> None:
@@ -4292,9 +4307,9 @@ def test_task_observation_projection_keeps_success_artifact_evidence() -> None:
                         "tool_args": {"prompt": "hero"},
                         "status": "ok",
                         "text": "generated",
-                        "artifact_refs": [{"path": "frontend/public/souls/generated/hero.png", "kind": "image"}],
+                        "artifact_refs": [{"path": "frontend/public/generated/images/hero.png", "kind": "image"}],
                         "structured_payload": {
-                            "artifact_refs": [{"path": "frontend/public/souls/generated/hero.png", "kind": "image"}]
+                            "artifact_refs": [{"path": "frontend/public/generated/images/hero.png", "kind": "image"}]
                         },
                     },
                 },
@@ -4306,7 +4321,7 @@ def test_task_observation_projection_keeps_success_artifact_evidence() -> None:
     projection = context["execution_state"]["system_projection"]
 
     assert projection["current_facts"][0]["tool_name"] == "image_generate"
-    assert projection["artifact_evidence"][0]["path"] == "frontend/public/souls/generated/hero.png"
+    assert projection["artifact_evidence"][0]["path"] == "frontend/public/generated/images/hero.png"
     assert context["artifact_refs"][0]["kind"] == "image"
 
 
@@ -4332,3 +4347,4 @@ def test_task_observation_projection_ignores_already_projected_records() -> None
 
     assert context["raw_observations"] == []
     assert context["packet_observations"] == []
+

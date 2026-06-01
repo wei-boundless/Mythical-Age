@@ -45,7 +45,6 @@ def default_agent_descriptors(now: float | None = None) -> tuple[AgentDescriptor
             enabled=True,
             builtin=True,
             editable=True,
-            default_soul_id="",
             created_at=timestamp,
             updated_at=timestamp,
             metadata={"role": "main_conversation_entry", "builtin_kind": "primary", "system_key": "task_system", "slot_index": 0, "agent_template_id": "builtin.main.primary", "subagent_enabled": False, "group_eligible": False},
@@ -59,7 +58,6 @@ def default_agent_descriptors(now: float | None = None) -> tuple[AgentDescriptor
             enabled=True,
             builtin=True,
             editable=True,
-            default_soul_id="",
             created_at=timestamp,
             updated_at=timestamp,
             metadata={"role": "system_manager", "builtin_kind": "system_manager", "system_key": "memory_system", "slot_index": 1, "agent_template_id": "builtin.system.memory_manager", "subagent_enabled": False, "group_eligible": False},
@@ -73,7 +71,6 @@ def default_agent_descriptors(now: float | None = None) -> tuple[AgentDescriptor
             enabled=True,
             builtin=True,
             editable=True,
-            default_soul_id="",
             created_at=timestamp,
             updated_at=timestamp,
             metadata={"role": "system_manager", "builtin_kind": "system_manager", "system_key": "config_system", "slot_index": 2, "agent_template_id": "builtin.system.config_manager", "subagent_enabled": False, "group_eligible": False},
@@ -87,7 +84,6 @@ def default_agent_descriptors(now: float | None = None) -> tuple[AgentDescriptor
             enabled=True,
             builtin=True,
             editable=True,
-            default_soul_id="xuannv",
             created_at=timestamp,
             updated_at=timestamp,
             metadata={"role": "system_manager", "builtin_kind": "system_manager", "system_key": "health_system", "slot_index": 3, "agent_template_id": "builtin.system.health_manager", "subagent_enabled": False, "group_eligible": False},
@@ -101,7 +97,6 @@ def default_agent_descriptors(now: float | None = None) -> tuple[AgentDescriptor
             enabled=True,
             builtin=True,
             editable=True,
-            default_soul_id="",
             created_at=timestamp,
             updated_at=timestamp,
             metadata={"role": "system_manager", "builtin_kind": "system_manager", "system_key": "task_management_system", "slot_index": 4, "agent_template_id": "builtin.system.task_manager", "subagent_enabled": False, "group_eligible": False},
@@ -115,7 +110,6 @@ def default_agent_descriptors(now: float | None = None) -> tuple[AgentDescriptor
             enabled=True,
             builtin=True,
             editable=True,
-            default_soul_id="",
             created_at=timestamp,
             updated_at=timestamp,
             metadata={"role": "system_manager", "builtin_kind": "system_manager", "system_key": "capability_system", "slot_index": 5, "agent_template_id": "builtin.system.capability_manager", "subagent_enabled": False, "group_eligible": False},
@@ -129,7 +123,6 @@ def default_agent_descriptors(now: float | None = None) -> tuple[AgentDescriptor
             enabled=True,
             builtin=True,
             editable=True,
-            default_soul_id="hebo",
             created_at=timestamp,
             updated_at=timestamp,
             metadata={"role": "worker_specialist", "builtin_kind": "specialist", "worker_kind": "knowledge_search", "slot_index": 6, "system_key": "builtin_specialist_pool", "agent_template_id": "builtin.specialist.knowledge_searcher", "subagent_enabled": True, "group_eligible": False},
@@ -143,7 +136,6 @@ def default_agent_descriptors(now: float | None = None) -> tuple[AgentDescriptor
             enabled=True,
             builtin=True,
             editable=True,
-            default_soul_id="hebo",
             created_at=timestamp,
             updated_at=timestamp,
             metadata={"role": "worker_specialist", "builtin_kind": "specialist", "worker_kind": "pdf_analysis", "slot_index": 7, "system_key": "builtin_specialist_pool", "agent_template_id": "builtin.specialist.pdf_reader", "subagent_enabled": True, "group_eligible": False},
@@ -157,7 +149,6 @@ def default_agent_descriptors(now: float | None = None) -> tuple[AgentDescriptor
             enabled=True,
             builtin=True,
             editable=True,
-            default_soul_id="hebo",
             created_at=timestamp,
             updated_at=timestamp,
             metadata={"role": "worker_specialist", "builtin_kind": "specialist", "worker_kind": "structured_data_analysis", "slot_index": 8, "system_key": "builtin_specialist_pool", "agent_template_id": "builtin.specialist.table_analyst", "subagent_enabled": True, "group_eligible": False},
@@ -171,7 +162,6 @@ def default_agent_descriptors(now: float | None = None) -> tuple[AgentDescriptor
             enabled=True,
             builtin=True,
             editable=True,
-            default_soul_id="hebo",
             created_at=timestamp,
             updated_at=timestamp,
             metadata={"role": "worker_specialist", "builtin_kind": "specialist", "worker_kind": "web_research", "slot_index": 9, "system_key": "builtin_specialist_pool", "agent_template_id": "builtin.specialist.web_researcher", "subagent_enabled": True, "group_eligible": False},
@@ -185,7 +175,6 @@ def default_agent_descriptors(now: float | None = None) -> tuple[AgentDescriptor
             enabled=True,
             builtin=True,
             editable=True,
-            default_soul_id="hebo",
             created_at=timestamp,
             updated_at=timestamp,
             metadata={"role": "worker_specialist", "builtin_kind": "specialist", "worker_kind": "codebase_search", "slot_index": 10, "system_key": "builtin_specialist_pool", "agent_template_id": "builtin.specialist.codebase_searcher", "subagent_enabled": True, "group_eligible": False},
@@ -199,7 +188,6 @@ def default_agent_descriptors(now: float | None = None) -> tuple[AgentDescriptor
             enabled=True,
             builtin=True,
             editable=True,
-            default_soul_id="hebo",
             created_at=timestamp,
             updated_at=timestamp,
             metadata={"role": "worker_specialist", "builtin_kind": "specialist", "worker_kind": "memory_search", "slot_index": 11, "system_key": "builtin_specialist_pool", "agent_template_id": "builtin.specialist.memory_searcher", "subagent_enabled": True, "group_eligible": False},
@@ -213,7 +201,6 @@ def default_agent_descriptors(now: float | None = None) -> tuple[AgentDescriptor
             enabled=True,
             builtin=True,
             editable=True,
-            default_soul_id="xuannv",
             created_at=timestamp,
             updated_at=timestamp,
             metadata={"role": "worker_specialist", "builtin_kind": "specialist", "worker_kind": "completion_verification", "slot_index": 12, "system_key": "builtin_specialist_pool", "agent_template_id": "builtin.specialist.verifier", "subagent_enabled": True, "group_eligible": False},
@@ -227,7 +214,6 @@ def default_agent_descriptors(now: float | None = None) -> tuple[AgentDescriptor
             enabled=True,
             builtin=True,
             editable=True,
-            default_soul_id="hebo",
             created_at=timestamp,
             updated_at=timestamp,
             metadata={"role": "system_manager", "builtin_kind": "system_manager", "system_key": "context_management", "slot_index": 13, "agent_template_id": "builtin.system.context_compactor", "subagent_enabled": False, "group_eligible": False},
@@ -259,7 +245,6 @@ class AgentRegistry:
             _enforce_system_builtin_payload(item, default_by_id=default_by_id)
             for item in raw_agents
         ]
-        migrated = [self._hydrate_main_agent_defaults(item) for item in migrated]
         if payload.get("agents") != migrated:
             _write_json(self.agents_path, {"agents": migrated})
         return [_agent_from_dict(item) for item in migrated]
@@ -298,7 +283,6 @@ class AgentRegistry:
         enabled: bool | None = None,
         lifecycle_state: str | None = None,
         editable: bool | None = None,
-        default_soul_id: str = "",
         default_projection_id: str = "",
         metadata: dict[str, Any] | None = None,
         owner_system: str | None = None,
@@ -314,7 +298,6 @@ class AgentRegistry:
             raise ValueError("unsupported agent_category")
         current = self.get_agent(target)
         timestamp = time.time()
-        current_soul_id = current.default_soul_id if current is not None else ""
         current_projection_id = current.default_projection_id if current is not None else ""
         current_description = current.description if current is not None else ""
         current_editable = current.editable if current is not None else True
@@ -322,9 +305,6 @@ class AgentRegistry:
         if current is not None and current.builtin:
             normalized_category = current.agent_category
         normalized_enabled = bool(enabled if enabled is not None else lifecycle_state != "disabled")
-        normalized_soul_id = str(default_soul_id or current_soul_id).strip()
-        if normalized_category == "main_agent":
-            normalized_soul_id = self._resolve_main_agent_runtime_defaults(soul_id=normalized_soul_id)
         updated = AgentDescriptor(
             agent_id=target,
             agent_name=str(agent_name or display_name or target).strip() or target,
@@ -334,7 +314,6 @@ class AgentRegistry:
             enabled=normalized_enabled,
             builtin=current.builtin if current is not None else False,
             editable=bool(editable if editable is not None else current_editable),
-            default_soul_id=normalized_soul_id,
             default_projection_id=str(default_projection_id or current_projection_id).strip(),
             created_at=current.created_at if current is not None else timestamp,
             updated_at=timestamp,
@@ -345,26 +324,6 @@ class AgentRegistry:
         agents.sort(key=lambda item: _agent_sort_key(item.agent_id))
         _write_json(self.agents_path, {"agents": [item.to_dict() for item in agents]})
         return updated
-
-    def _resolve_main_agent_runtime_defaults(self, *, soul_id: str) -> str:
-        normalized_soul_id = str(soul_id or "").strip().lower()
-        if not normalized_soul_id:
-            from soul import SoulFacade
-
-            normalized_soul_id = SoulFacade(self.base_dir).registry_service.active_soul_id()
-        return normalized_soul_id
-
-    def _hydrate_main_agent_defaults(self, payload: dict[str, Any]) -> dict[str, Any]:
-        if str(payload.get("agent_category") or "") != "main_agent":
-            return payload
-        soul_id = self._resolve_main_agent_runtime_defaults(
-            soul_id=str(payload.get("default_soul_id") or ""),
-        )
-        if soul_id == str(payload.get("default_soul_id") or "").strip().lower():
-            return payload
-        next_payload = dict(payload)
-        next_payload["default_soul_id"] = soul_id
-        return next_payload
 
     def delete_agent(self, agent_id: str) -> None:
         current = self.get_agent(agent_id)
@@ -449,7 +408,6 @@ def _migrate_agent_payload(payload: dict[str, Any]) -> dict[str, Any]:
         agent_category = "builtin_agent"
     else:
         agent_category = "custom_agent"
-    normalized_soul_id = str(payload.get("default_soul_id") or "").strip()
     metadata = dict(payload.get("metadata") or {})
     metadata.pop("legacy_agent_id", None)
     if "subagent_enabled" not in metadata:
@@ -473,7 +431,6 @@ def _migrate_agent_payload(payload: dict[str, Any]) -> dict[str, Any]:
         "enabled": bool(payload.get("enabled", str(payload.get("lifecycle_state") or "enabled") != "disabled")),
         "builtin": bool(payload.get("builtin", str(payload.get("lifecycle_state") or "") == "system_builtin")),
         "editable": bool(payload.get("editable", True)),
-        "default_soul_id": normalized_soul_id,
         "default_projection_id": str(payload.get("default_projection_id") or "").strip(),
         "created_at": float(payload.get("created_at") or 0.0),
         "updated_at": float(payload.get("updated_at") or 0.0),
@@ -508,7 +465,6 @@ def _agent_from_dict(payload: dict[str, Any]) -> AgentDescriptor:
         enabled=bool(payload.get("enabled", True)),
         builtin=bool(payload.get("builtin", False)),
         editable=bool(payload.get("editable", True)),
-        default_soul_id=str(payload.get("default_soul_id") or ""),
         default_projection_id=str(payload.get("default_projection_id") or ""),
         created_at=float(payload.get("created_at") or 0.0),
         updated_at=float(payload.get("updated_at") or 0.0),
@@ -548,5 +504,6 @@ def _enforce_system_builtin_payload(
         ),
     }
     return enforced
+
 
 

@@ -9,7 +9,6 @@
       "enabled": true,
       "builtin": true,
       "editable": true,
-      "default_soul_id": "goumang",
       "created_at": 1779711382.2773557,
       "updated_at": 1779711382.2773557,
       "metadata": {
@@ -35,7 +34,6 @@
         "description",
         "enabled",
         "editable",
-        "default_soul_id",
         "metadata"
       ],
       "governance_status": "system_builtin",
@@ -55,7 +53,6 @@
       "enabled": true,
       "builtin": true,
       "editable": true,
-      "default_soul_id": "",
       "created_at": 1779711382.2773557,
       "updated_at": 1779711382.2773557,
       "metadata": {
@@ -81,7 +78,6 @@
         "description",
         "enabled",
         "editable",
-        "default_soul_id",
         "metadata"
       ],
       "governance_status": "system_builtin",
@@ -101,7 +97,6 @@
       "enabled": true,
       "builtin": true,
       "editable": true,
-      "default_soul_id": "",
       "created_at": 1779711382.2773557,
       "updated_at": 1779711382.2773557,
       "metadata": {
@@ -127,7 +122,6 @@
         "description",
         "enabled",
         "editable",
-        "default_soul_id",
         "metadata"
       ],
       "governance_status": "system_builtin",
@@ -147,7 +141,6 @@
       "enabled": true,
       "builtin": true,
       "editable": true,
-      "default_soul_id": "xuannv",
       "created_at": 1779711382.2773557,
       "updated_at": 1779711382.2773557,
       "metadata": {
@@ -173,7 +166,6 @@
         "description",
         "enabled",
         "editable",
-        "default_soul_id",
         "metadata"
       ],
       "governance_status": "system_builtin",
@@ -193,7 +185,6 @@
       "enabled": true,
       "builtin": true,
       "editable": true,
-      "default_soul_id": "",
       "created_at": 1779711382.2773557,
       "updated_at": 1779711382.2773557,
       "metadata": {
@@ -219,7 +210,6 @@
         "description",
         "enabled",
         "editable",
-        "default_soul_id",
         "metadata"
       ],
       "governance_status": "system_builtin",
@@ -239,7 +229,6 @@
       "enabled": true,
       "builtin": true,
       "editable": true,
-      "default_soul_id": "",
       "created_at": 1779711382.2773557,
       "updated_at": 1779711382.2773557,
       "metadata": {
@@ -265,7 +254,6 @@
         "description",
         "enabled",
         "editable",
-        "default_soul_id",
         "metadata"
       ],
       "governance_status": "system_builtin",
@@ -285,7 +273,6 @@
       "enabled": true,
       "builtin": true,
       "editable": true,
-      "default_soul_id": "hebo",
       "created_at": 1779711382.2773557,
       "updated_at": 1779711382.2773557,
       "metadata": {
@@ -312,7 +299,6 @@
         "description",
         "enabled",
         "editable",
-        "default_soul_id",
         "metadata"
       ],
       "governance_status": "system_builtin",
@@ -332,7 +318,6 @@
       "enabled": true,
       "builtin": true,
       "editable": true,
-      "default_soul_id": "hebo",
       "created_at": 1779711382.2773557,
       "updated_at": 1779711382.2773557,
       "metadata": {
@@ -359,7 +344,6 @@
         "description",
         "enabled",
         "editable",
-        "default_soul_id",
         "metadata"
       ],
       "governance_status": "system_builtin",
@@ -379,7 +363,6 @@
       "enabled": true,
       "builtin": true,
       "editable": true,
-      "default_soul_id": "hebo",
       "created_at": 1779711382.2773557,
       "updated_at": 1779711382.2773557,
       "metadata": {
@@ -406,7 +389,6 @@
         "description",
         "enabled",
         "editable",
-        "default_soul_id",
         "metadata"
       ],
       "governance_status": "system_builtin",
@@ -426,7 +408,6 @@
       "enabled": true,
       "builtin": true,
       "editable": true,
-      "default_soul_id": "hebo",
       "created_at": 1779711382.2773557,
       "updated_at": 1779711382.2773557,
       "metadata": {
@@ -453,7 +434,6 @@
         "description",
         "enabled",
         "editable",
-        "default_soul_id",
         "metadata"
       ],
       "governance_status": "system_builtin",
@@ -473,7 +453,6 @@
       "enabled": true,
       "builtin": true,
       "editable": true,
-      "default_soul_id": "hebo",
       "created_at": 1779711382.2773557,
       "updated_at": 1779711382.2773557,
       "metadata": {
@@ -500,7 +479,6 @@
         "description",
         "enabled",
         "editable",
-        "default_soul_id",
         "metadata"
       ],
       "governance_status": "system_builtin",
@@ -520,7 +498,6 @@
       "enabled": true,
       "builtin": true,
       "editable": true,
-      "default_soul_id": "hebo",
       "created_at": 1779711382.2773557,
       "updated_at": 1779711382.2773557,
       "metadata": {
@@ -547,7 +524,6 @@
         "description",
         "enabled",
         "editable",
-        "default_soul_id",
         "metadata"
       ],
       "governance_status": "system_builtin",
@@ -567,7 +543,6 @@
       "enabled": true,
       "builtin": true,
       "editable": true,
-      "default_soul_id": "xuannv",
       "created_at": 1779711382.2773557,
       "updated_at": 1779711382.2773557,
       "metadata": {
@@ -594,7 +569,6 @@
         "description",
         "enabled",
         "editable",
-        "default_soul_id",
         "metadata"
       ],
       "governance_status": "system_builtin",
@@ -614,7 +588,6 @@
       "enabled": true,
       "builtin": true,
       "editable": true,
-      "default_soul_id": "hebo",
       "created_at": 1779711382.2773557,
       "updated_at": 1779711382.2773557,
       "metadata": {
@@ -640,7 +613,6 @@
         "description",
         "enabled",
         "editable",
-        "default_soul_id",
         "metadata"
       ],
       "governance_status": "system_builtin",

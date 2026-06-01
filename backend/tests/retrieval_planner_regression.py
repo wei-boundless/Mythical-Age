@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from capability_system.units.mcp.local.retrieval.router import RAGQueryRouter
+from capability_system.capabilities.retrieval.router import RAGQueryRouter
 
 
 def test_table_query_builds_table_filter() -> None:

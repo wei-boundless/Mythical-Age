@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from capability_system.operation_registry import OperationDescriptor, OperationRegistry
+from permissions.operations import OperationDescriptor, OperationRegistry
 from task_system.contracts.capability_requirements import OperationRequirement
 
 from permissions.resource_policy import ResourceDecision, ResourcePolicy

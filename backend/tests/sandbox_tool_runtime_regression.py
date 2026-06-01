@@ -9,8 +9,8 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-from capability_system.tool_definitions import get_tool_definition_map
-from capability_system.tool_runtime import ToolRuntime
+from capability_system.tools.native_tool_catalog import get_tool_definition_map
+from capability_system.tools.native_tool_runtime import ToolRuntime
 from orchestration.runtime_directive import RuntimeDirective
 from runtime.shared.action_request import RuntimeActionRequest
 from runtime.shared.execution_record import RuntimeExecutionStore, build_idempotency_token, build_request_fingerprint
@@ -104,10 +104,10 @@ def test_sandbox_keeps_image_generate_bound_to_backend_config_root(tmp_path: Pat
     sandbox_root = tmp_path / "sandbox" / "workspace"
     workspace.mkdir(parents=True)
     sandbox_root.mkdir(parents=True)
-    (workspace / ".env").write_text("SOUL_IMAGE_API_KEY=workspace-key\n", encoding="utf-8")
-    (sandbox_root / ".env").write_text("SOUL_IMAGE_API_KEY=sandbox-key\n", encoding="utf-8")
+    (workspace / ".env").write_text("IMAGE_API_KEY=workspace-key\n", encoding="utf-8")
+    (sandbox_root / ".env").write_text("IMAGE_API_KEY=sandbox-key\n", encoding="utf-8")
 
-    from capability_system.units.tools.image_generation_tool import ImageGenerationTool
+    from capability_system.tools.tool_units.image_generation_tool import ImageGenerationTool
 
     observed_roots: list[Path] = []
 
@@ -137,7 +137,7 @@ def test_image_generate_tool_task_is_cancelled_by_runtime_stop(tmp_path: Path, m
     task_run_id = "taskrun-image-control"
     executor_epoch = 7
 
-    from capability_system.units.tools.image_generation_tool import ImageGenerationTool
+    from capability_system.tools.tool_units.image_generation_tool import ImageGenerationTool
     from harness.loop.task_run_execution_control import register_executor_epoch, request_executor_stop
 
     started = asyncio.Event()
@@ -212,18 +212,18 @@ def test_image_generate_tool_task_is_cancelled_by_runtime_stop(tmp_path: Path, m
 
 
 def test_image_generate_tool_disables_agent_auto_retry_on_provider_failure(tmp_path: Path, monkeypatch) -> None:
-    from capability_system.units.tools.image_generation_tool import ImageGenerationTool
-    from soul.image_asset_service import SoulImageAssetError, SoulImageAssetService
+    from capability_system.tools.tool_units.image_generation_tool import ImageGenerationTool
+    from capability_system.capabilities.image_generation.image_asset_service import ImageAssetError, ImageAssetService
 
     async def _fail_generate(self, **kwargs):
-        raise SoulImageAssetError(
+        raise ImageAssetError(
             "provider timed out",
             code="timeout",
             retryable=True,
             attempts=[{"code": "timeout", "retryable": True}],
         )
 
-    monkeypatch.setattr(SoulImageAssetService, "generate", _fail_generate)
+    monkeypatch.setattr(ImageAssetService, "generate", _fail_generate)
 
     result = asyncio.run(ImageGenerationTool(tmp_path)._arun(prompt="large image"))
     payload = json.loads(result)
@@ -236,7 +236,7 @@ def test_image_generate_tool_disables_agent_auto_retry_on_provider_failure(tmp_p
 
 
 def test_image_generate_executor_injects_stable_target_and_does_not_overwrite_by_default(tmp_path: Path, monkeypatch) -> None:
-    from soul.image_asset_service import SoulImageAssetService
+    from capability_system.capabilities.image_generation.image_asset_service import ImageAssetService
 
     workspace = tmp_path / "project"
     sandbox_root = tmp_path / "sandbox" / "workspace"
@@ -246,7 +246,7 @@ def test_image_generate_executor_injects_stable_target_and_does_not_overwrite_by
     async def _fake_generate(self, **kwargs):
         calls.append(dict(kwargs))
         return {
-            "asset_path": f"/souls/generated/chat-{kwargs['target_id']}.png",
+            "asset_path": f"/generated/images/chat-{kwargs['target_id']}.png",
             "file_path": str(tmp_path / f"chat-{kwargs['target_id']}.png"),
             "bytes": 10,
             "provider_size": "1024x1024",
@@ -255,7 +255,7 @@ def test_image_generate_executor_injects_stable_target_and_does_not_overwrite_by
             "model": "gpt-image-2",
         }
 
-    monkeypatch.setattr(SoulImageAssetService, "generate", _fake_generate)
+    monkeypatch.setattr(ImageAssetService, "generate", _fake_generate)
 
     result = _run_tool(
         workspace=workspace,
@@ -685,3 +685,4 @@ class _MissingInstanceRuntime:
 
 class _ControlRuntimeHost:
     pass
+

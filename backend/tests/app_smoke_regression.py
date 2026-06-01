@@ -40,7 +40,7 @@ async def _fake_image_generate(self, **kwargs):
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_bytes(base64.b64decode(_ONE_PIXEL_PNG_BASE64))
     return {
-        "asset_path": f"/souls/generated/{filename}",
+        "asset_path": f"/generated/images/{filename}",
         "file_path": str(output_path),
         "reused": False,
         "bytes": output_path.stat().st_size,
@@ -97,10 +97,10 @@ def test_chat_accepts_per_turn_model_selection() -> None:
 def test_chat_routes_gpt_image_2_to_image_generation() -> None:
     with TestClient(app) as client:
         original_generate = None
-        from soul.image_asset_service import SoulImageAssetService
+        from capability_system.capabilities.image_generation.image_asset_service import ImageAssetService
 
-        original_generate = SoulImageAssetService.generate
-        SoulImageAssetService.generate = _fake_image_generate  # type: ignore[method-assign]
+        original_generate = ImageAssetService.generate
+        ImageAssetService.generate = _fake_image_generate  # type: ignore[method-assign]
         session_id = ""
         generated_path: Path | None = None
         try:
@@ -132,7 +132,7 @@ def test_chat_routes_gpt_image_2_to_image_generation() -> None:
             assert response.json()["content"] == "已生成图像。"
             image = response.json()["image"]
             generated_path = BACKEND_DIR.parent / "frontend" / "public" / Path(*image["src"].strip("/").split("/"))
-            assert image["src"].startswith(f"/souls/generated/chat-turn-{session_id}-")
+            assert image["src"].startswith(f"/generated/images/chat-turn-{session_id}-")
             assert image["src"].endswith(".png")
             assert generated_path.exists()
             assert response.json()["image"] == {
@@ -148,7 +148,7 @@ def test_chat_routes_gpt_image_2_to_image_generation() -> None:
                 "caption": "revised prompt",
             }
         finally:
-            SoulImageAssetService.generate = original_generate  # type: ignore[method-assign]
+            ImageAssetService.generate = original_generate  # type: ignore[method-assign]
             if generated_path is not None and generated_path.exists():
                 generated_path.unlink()
             if session_id:
@@ -276,5 +276,6 @@ def test_removed_agent_control_plane_routes_stay_absent() -> None:
     with TestClient(app) as client:
         response = client.get("/api/agents/catalog")
         assert response.status_code == 404
+
 
 

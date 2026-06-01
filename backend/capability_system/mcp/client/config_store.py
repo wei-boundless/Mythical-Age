@@ -6,6 +6,8 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+from capability_system.mcp.paths import RuntimeMCPPaths
+
 from .models import ExternalMCPServerConfig
 
 
@@ -15,7 +17,7 @@ SERVER_ID_PATTERN = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_-]{1,63}$")
 class ExternalMCPConfigStore:
     def __init__(self, backend_dir: Path) -> None:
         self.backend_dir = Path(backend_dir).resolve()
-        self.path = self.backend_dir / "mcp_external_servers.json"
+        self.path = RuntimeMCPPaths.from_base_dir(self.backend_dir).external_servers_path
 
     def list_servers(self) -> list[ExternalMCPServerConfig]:
         payload = self._load_payload()

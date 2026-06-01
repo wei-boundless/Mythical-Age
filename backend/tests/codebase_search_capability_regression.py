@@ -4,16 +4,16 @@ import asyncio
 from pathlib import Path
 from types import SimpleNamespace
 
-from capability_system.agent_capabilities.codebase_search import (
+from capability_system.capabilities.codebase_search import (
     CODEBASE_SEARCH_TEMPLATE_ID,
     CodebaseSearchCapability,
     normalize_codebase_search_config,
     required_operations_for_codebase_search,
 )
-from capability_system.agent_capabilities.codebase_search.file_slicer import FileSlicer
-from capability_system.agent_capabilities.codebase_search.query_planner import build_codebase_search_plan
-from capability_system.agent_capabilities.codebase_search.ranker import rank_codebase_evidence
-from capability_system.agent_capabilities.codebase_search.providers import TextHit
+from capability_system.capabilities.codebase_search.file_slicer import FileSlicer
+from capability_system.capabilities.codebase_search.query_planner import build_codebase_search_plan
+from capability_system.capabilities.codebase_search.ranker import rank_codebase_evidence
+from capability_system.capabilities.codebase_search.providers import TextHit
 
 
 def _request(query: str = "CodebaseSearchCapability") -> SimpleNamespace:
@@ -113,13 +113,13 @@ def test_file_slicer_reads_bounded_context() -> None:
     slicer = FileSlicer(Path("."))
 
     result = slicer.slice_file(
-        "backend/capability_system/agent_capabilities/codebase_search/runtime.py",
+        "backend/knowledge_system/codebase_search/runtime.py",
         matched_line=15,
         max_slice_lines=30,
     )
 
     assert result is not None
-    assert result.file == "backend/capability_system/agent_capabilities/codebase_search/runtime.py"
+    assert result.file == "backend/knowledge_system/codebase_search/runtime.py"
     assert result.end_line - result.start_line + 1 <= 30
     assert "CodebaseSearchCapability" in result.snippet
 

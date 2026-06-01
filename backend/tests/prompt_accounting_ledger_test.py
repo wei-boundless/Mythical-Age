@@ -235,16 +235,12 @@ def test_task_execution_packet_places_stable_contract_before_volatile_state() ->
     messages = result.packet.model_messages
     manifest = result.packet.diagnostics["prompt_manifest"]
     assert [message["role"] for message in messages][0] == "system"
-    assert [message["role"] for message in messages][-1] == "user"
-    assert "Task execution stable contract" in messages[1]["content"]
-    assert "task_contract" in messages[1]["content"]
-    assert "available_tools" in messages[1]["content"]
-    requirement_content = next(str(message.get("content") or "") for message in messages if "当前任务执行要求" in str(message.get("content") or ""))
-    assert "当前任务执行要求" in requirement_content
-    assert "审查并修复监控系统" in requirement_content
+    assert [message["role"] for message in messages][-1] == "system"
+    assert "Task execution action schema" in messages[1]["content"]
+    model_input = _model_input_text(result.packet)
+    assert "当前任务执行要求" not in model_input
     assert any("本次运行边界" in str(message.get("content") or "") for message in messages)
     current_state_content = _message_content_with_title(result.packet, "Task execution current state")
-    stable_payload = json.loads(messages[1]["content"].split("\n", 1)[1])
     volatile_payload = json.loads(current_state_content.split("\n", 1)[1])
     assert "task_state" in volatile_payload
     assert "observations" not in volatile_payload
@@ -252,17 +248,25 @@ def test_task_execution_packet_places_stable_contract_before_volatile_state() ->
     assert "work_history" not in volatile_payload
     assert "task_run_state" not in volatile_payload
     runtime_boundary_content = _message_content_with_title(result.packet, "Task execution runtime boundary")
-    assert "Task run model-visible context" in runtime_boundary_content
-    runtime_task_context = json.loads(runtime_boundary_content.split("Task run model-visible context\n", 1)[1].split("\nTask execution runtime boundary", 1)[0])
-    assert runtime_task_context == {"authority": "orchestration.task_run"}
-    assert "task_run" not in stable_payload
-    assert "graph_run_id" not in messages[1]["content"]
-    assert "task_run_id" not in messages[1]["content"]
-    assert stable_payload["tool_catalog_hash"].startswith("sha256:")
-    assert "input_schema" not in stable_payload["available_tools"][0]
-    assert stable_payload["available_tools"][0]["input_schema_ref"].startswith("sha256:")
-    assert stable_payload["available_tools"][0]["input_schema_summary"]["properties"]["path"] == "string"
-    assert stable_payload["available_tools"][0]["input_schema_summary"]["required"] == ["path"]
+    assert "Task run model-visible context" not in runtime_boundary_content
+    action_schema_payload = json.loads(messages[1]["content"].split("\n", 1)[1])
+    task_contract_payload = json.loads(_message_content_with_title(result.packet, "Task execution task contract").split("\n", 1)[1])
+    tool_index_payload = json.loads(_message_content_with_title(result.packet, "Task execution tool index").split("\n", 1)[1])
+    assert "task_run" not in task_contract_payload
+    assert "graph_run_id" not in _message_content_with_title(result.packet, "Task execution task contract")
+    assert "task_run_id" not in _message_content_with_title(result.packet, "Task execution task contract")
+    assert action_schema_payload["schema"]["action_type"] == "respond|ask_user|tool_call|block"
+    assert "public_action_state" in action_schema_payload["schema"]
+    assert "task_contract_seed" not in action_schema_payload["schema"]
+    assert "completion_contract" not in action_schema_payload["schema"]
+    assert "permission_request" not in action_schema_payload["schema"]
+    assert task_contract_payload["task_contract"]["task_run_goal"] == "审查并修复监控系统"
+    assert task_contract_payload["task_contract"]["completion_criteria"] == ["完成真实验证"]
+    assert tool_index_payload["tool_catalog_hash"].startswith("sha256:")
+    assert "input_schema" not in tool_index_payload["available_tools"][0]
+    assert tool_index_payload["available_tools"][0]["input_schema_ref"].startswith("sha256:")
+    assert tool_index_payload["available_tools"][0]["input_schema_summary"]["properties"]["path"] == "string"
+    assert tool_index_payload["available_tools"][0]["input_schema_summary"]["required"] == ["path"]
     assert volatile_payload["task_state"]["task_run_state"]["diagnostics"] == {
         "executor_status": "retrying",
         "recoverable_error": "tool_failed",
@@ -288,14 +292,16 @@ def test_task_execution_packet_places_stable_contract_before_volatile_state() ->
 
     assert [segment.kind for segment in segment_map.segments] == [
         "global_static",
-        "task_stable",
-        "task_prompt_contract",
+        "action_schema_static",
         "environment_stable",
+        "task_contract_stable",
+        "tool_index_stable",
         "dynamic_projection",
         "volatile_task_state",
     ]
     assert [segment.cache_role for segment in segment_map.segments] == [
         "cacheable_prefix",
+        "session_stable",
         "session_stable",
         "session_stable",
         "session_stable",
@@ -318,12 +324,45 @@ def test_task_execution_packet_places_stable_contract_before_volatile_state() ->
     assert model_request.task_prefix_hash == cache_record.prefix_hash
     assert cache_record.diagnostics["prefix_key_tier"] == "task"
     assert model_request.provider_global_prefix_hash != cache_record.prefix_hash
-    assert cache_record.diagnostics["stable_prefix_segment_count"] == 4
+    assert cache_record.diagnostics["stable_prefix_segment_count"] == 5
     assert cache_record.diagnostics["provider_global_prefix_segment_count"] == 1
-    assert cache_record.diagnostics["task_prefix_segment_count"] == 4
+    assert cache_record.diagnostics["task_prefix_segment_count"] == 5
     assert manifest["token_estimate"]["assembly_prompt_chars"] == manifest["token_estimate"]["prompt_chars"]
     assert manifest["token_estimate"]["model_visible_chars"] == sum(len(message["content"]) for message in messages)
     assert manifest["token_estimate"]["cacheable_prefix_chars"] > manifest["token_estimate"]["assembly_prompt_chars"]
+
+
+def test_task_prompt_contract_requires_explicit_prompt_contract() -> None:
+    result = RuntimeCompiler().compile_task_execution_packet(
+        session_id="session:explicit-prompt-contract",
+        task_run={"task_run_id": "taskrun:explicit-prompt-contract", "title": "普通标题"},
+        contract={
+            "contract_id": "contract:explicit-prompt-contract",
+            "task_run_goal": "普通合同目标只属于结构化合同。",
+            "completion_criteria": ["普通验收只属于结构化合同"],
+            "prompt_contract": {
+                "role_prompt": "你是一名运行时提示审查员。",
+                "task_instruction": "只审查 prompt contract 显式给出的职责。",
+                "definition_of_done": ["输出审查结论"],
+            },
+        },
+        observations=[],
+        runtime_assembly={
+            "profile": {"profile_ref": "main_interactive_agent"},
+            "task_environment": {"environment_id": "env.general.workspace"},
+        },
+    )
+
+    model_input = _model_input_text(result.packet)
+    requirement_content = next(str(message.get("content") or "") for message in result.packet.model_messages if "当前任务执行要求" in str(message.get("content") or ""))
+    task_contract_content = _message_content_with_title(result.packet, "Task execution task contract")
+
+    assert "你是一名运行时提示审查员" in requirement_content
+    assert "只审查 prompt contract 显式给出的职责" in requirement_content
+    assert "普通合同目标只属于结构化合同" not in requirement_content
+    assert "普通验收只属于结构化合同" not in requirement_content
+    assert "普通合同目标只属于结构化合同" in task_contract_content
+    assert model_input.count("你是一名运行时提示审查员") == 1
 
 
 def test_task_execution_stable_prefix_is_unchanged_across_runtime_state_updates() -> None:
@@ -543,7 +582,7 @@ def test_runtime_projection_blocks_task_run_without_mode_instruction_text() -> N
     assert projection["permission_boundary"]["permission_scope"] == "conversation_readonly"
 
 
-def test_task_execution_runtime_projection_requires_public_action_state() -> None:
+def test_task_execution_public_action_state_authority_lives_in_action_schema() -> None:
     result = RuntimeCompiler().compile_task_execution_packet(
         session_id="session:task-public-state",
         task_run={"task_run_id": "taskrun:task-public-state", "diagnostics": {"executor_status": "running"}},
@@ -556,8 +595,13 @@ def test_task_execution_runtime_projection_requires_public_action_state() -> Non
     )
 
     model_input = _model_input_text(result.packet)
+    action_schema_payload = json.loads(_message_content_with_title(result.packet, "Task execution action schema").split("\n", 1)[1])
+    runtime_boundary_content = _message_content_with_title(result.packet, "Task execution runtime boundary")
 
-    assert "每次输出 JSON 时必须填写 public_action_state" in model_input
+    assert "public_action_state" in action_schema_payload["schema"]
+    assert "public_progress_note" in action_schema_payload["schema"]
+    assert "每次输出 JSON 时必须填写 public_action_state" not in model_input
+    assert "public_progress_note 必须是 public_action_state" not in runtime_boundary_content
 
 
 def _segment_plan(

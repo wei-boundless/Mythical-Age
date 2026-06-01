@@ -13,8 +13,8 @@ from typing import TYPE_CHECKING, Any
 
 import yaml
 
-from capability_system.units.tools.sandbox_command_guard import validate_sandbox_command_text
-from capability_system.workspace_file_service import (
+from capability_system.tools.tool_units.sandbox_command_guard import validate_sandbox_command_text
+from capability_system.tools.workspace_file_service import (
     DEFAULT_EXCLUDED_DIRS,
     DEFAULT_SEARCH_EXCLUDED_PATHS,
     WorkspaceFileService,
@@ -35,7 +35,7 @@ from runtime.tool_runtime.tool_result_envelope import ToolResultEnvelope
 from runtime.tool_runtime.tool_use_context import ToolUseContext
 
 if TYPE_CHECKING:
-    from capability_system.tool_definitions import ToolDefinition as CapabilityToolDefinition
+    from capability_system.tools.native_tool_catalog import ToolDefinition as CapabilityToolDefinition
 
 
 NATIVE_RUNTIME_TOOL_NAMES = {

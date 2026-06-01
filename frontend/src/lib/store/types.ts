@@ -5,7 +5,7 @@ import type {
   ModelProviderConfig,
   RetrievalResult,
   RuntimeMonitorEventPayload,
-  SoulImageAssetConfig,
+  ImageAssetConfig,
   HarnessTaskRunLiveMonitor,
   SessionRuntimeAttachment,
   SessionScope,
@@ -15,7 +15,6 @@ import type {
   CodeEnvironmentWorkspaceTree
 } from "@/lib/api";
 import type { RuntimeTaskInstanceState } from "@/lib/runtime-monitor/types";
-import type { SoulKey, SoulSummary } from "@/lib/souls";
 
 export type Message = {
   id: string;
@@ -126,11 +125,9 @@ export type WorkspaceView =
   | "memory"
   | "health-system"
   | "capability-system"
-  | "soul-system"
   | "task-system"
   | "orchestration"
   | "code-environment"
-  | "playground"
   | "system-config";
 
 export type SearchPolicySource = "rag" | "local_files" | "web";
@@ -244,13 +241,11 @@ export type StoreState = {
   ragMode: boolean;
   searchPolicy: SearchPolicyState;
   modelProviderConfig: ModelProviderConfig | null;
-  soulImageAssetConfig: SoulImageAssetConfig | null;
+  imageAssetConfig: ImageAssetConfig | null;
   selectedChatModelId: string;
   selectedChatMode: ChatMode;
   chatThinkingMode: ChatThinkingMode;
   skills: SkillSummary[];
-  soulOptions: SoulSummary[];
-  activeSoulKey: SoulKey | null;
   pendingEphemeralSystemMessages: string[];
   inspectorPath: string;
   inspectorContent: string;
@@ -303,7 +298,6 @@ export type StoreActions = {
   setSelectedChatModel: (selectionId: string) => void;
   setSelectedChatMode: (mode: ChatMode) => void;
   setChatThinkingMode: (mode: ChatThinkingMode) => void;
-  switchSoul: (key: SoulKey) => Promise<void>;
   renameCurrentSession: (title: string) => Promise<void>;
   removeSession: (sessionId: string) => Promise<void>;
   loadInspectorFile: (path: string) => Promise<void>;
@@ -337,4 +331,5 @@ export type AppStore = StoreState &
   StoreActions & {
     editableFiles: string[];
   };
+
 

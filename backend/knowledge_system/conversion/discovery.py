@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from knowledge_system.conversion.models import SourceFileRecord
-from capability_system.units.mcp.local.retrieval.collections import CollectionConfig
+from capability_system.capabilities.retrieval.collections import CollectionConfig
 
 
 def discover_source_files(

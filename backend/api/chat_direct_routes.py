@@ -27,7 +27,7 @@ async def run_direct_system_route(
     if not is_direct_image_generation_request(image_generation):
         return None
 
-    from soul.image_asset_service import SoulImageAssetError, SoulImageAssetService
+    from capability_system.capabilities.image_generation.image_asset_service import ImageAssetError, ImageAssetService
 
     asset_kind = str(image_generation.get("asset_kind") or "chat").strip() or "chat"
     model = str(image_generation.get("model") or "").strip()
@@ -36,7 +36,7 @@ async def run_direct_system_route(
     request_timeout_seconds = image_generation.get("request_timeout_seconds")
     target_id = str(image_generation.get("target_id") or turn_id).strip() or turn_id
     try:
-        generated = await SoulImageAssetService(base_dir).generate(
+        generated = await ImageAssetService(base_dir).generate(
             prompt=request.message,
             target_id=target_id,
             asset_kind=asset_kind,
@@ -46,7 +46,7 @@ async def run_direct_system_route(
             request_timeout_seconds=float(request_timeout_seconds) if request_timeout_seconds is not None else None,
             overwrite=bool(image_generation.get("overwrite") or False),
         )
-    except SoulImageAssetError as exc:
+    except ImageAssetError as exc:
         return {"type": "error", "error": str(exc), "code": "provider_unavailable"}
 
     asset_path = str(generated.get("asset_path") or "").strip()
@@ -68,7 +68,7 @@ async def run_direct_system_route(
             "image": image,
             "turn_id": turn_id,
             "answer_channel": "image",
-            "answer_source": "soul_image_asset_service",
+            "answer_source": "image_asset_service",
             "answer_canonical_state": "complete",
             "answer_persist_policy": "store",
             "answer_finalization_policy": "final",
@@ -79,5 +79,6 @@ async def run_direct_system_route(
         "content": content,
         "image": image,
     }
+
 
 

@@ -12,8 +12,9 @@ from agent_system.profiles.runtime_profile_registry import AgentRuntimeRegistry
 from agent_system.registry.agent_registry import AgentRegistry
 from agent_system.registry.worker_agent_factory import default_worker_agent_blueprints
 from api.deps import require_runtime
-from capability_system import build_capability_catalog, build_default_operation_registry, build_orchestration_capability_items
-from capability_system.tool_packages import parse_tool_package_selection
+from capability_system import build_capability_catalog, build_orchestration_capability_items
+from permissions.operation_packages import parse_tool_package_selection
+from permissions.operations import build_default_operation_registry
 from harness.runtime import assemble_runtime
 from orchestration import ControlKernel, TaskContract, build_base_unit_catalog
 from orchestration.resource_inventory import build_runtime_resource_inventory
@@ -57,7 +58,6 @@ class OrchestrationAgentUpsertRequest(BaseModel):
     description: str = Field(default="", max_length=1000)
     enabled: bool = True
     editable: bool = True
-    default_soul_id: str = Field(default="", max_length=160)
     default_projection_id: str = Field(default="", max_length=160)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
@@ -481,7 +481,6 @@ async def upsert_orchestration_agent(
             description=payload.description,
             enabled=payload.enabled,
             editable=payload.editable,
-            default_soul_id=payload.default_soul_id,
             default_projection_id=payload.default_projection_id,
             metadata={**payload.metadata, "managed_by": "orchestration_console"},
         )
@@ -653,5 +652,6 @@ async def set_orchestration_plan_mode(payload: OrchestrationModeRequest) -> dict
         "mode": str(config.get("orchestration_plan_mode", "primary") or "primary"),
         "supported_modes": ["primary"],
     }
+
 
 

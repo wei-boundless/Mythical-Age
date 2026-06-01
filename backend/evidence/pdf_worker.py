@@ -6,8 +6,8 @@ import re
 from pathlib import Path
 from typing import Any
 
-from capability_system.units.mcp.local.pdf.agent import PDFCanonicalResult, PDFReadAgentRuntime, PDFReadRequest
-from capability_system.units.mcp.local.pdf.analysis import PdfAnalysisCatalog
+from capability_system.capabilities.document_processing.pdf.agent import PDFCanonicalResult, PDFReadAgentRuntime, PDFReadRequest
+from capability_system.capabilities.document_processing.pdf.analysis import PdfAnalysisCatalog
 from project_layout import ProjectLayout
 from evidence.models import (
     DocumentCandidate,

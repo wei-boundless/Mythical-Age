@@ -59,6 +59,7 @@ def model_action_request_from_payload(
     turn_id: str,
     require_public_progress_note: bool = False,
     require_public_action_state: bool = False,
+    allowed_action_types: tuple[str, ...] | set[str] | None = None,
 ) -> tuple[ModelActionRequest | None, dict[str, Any]]:
     raw = dict(payload or {})
     errors: list[str] = []
@@ -68,6 +69,9 @@ def model_action_request_from_payload(
     action_type = str(raw.get("action_type") or "").strip()
     if action_type not in {"respond", "ask_user", "tool_call", "request_task_run", "request_registered_engagement", "active_work_control", "block"}:
         errors.append(f"action_type_unsupported:{action_type}")
+    allowed = {str(item) for item in list(allowed_action_types or ()) if str(item)}
+    if allowed and action_type and action_type not in allowed:
+        errors.append(f"action_type_not_allowed_for_context:{action_type}")
     raw_turn_id = str(raw.get("turn_id") or turn_id).strip()
     if raw_turn_id != str(turn_id or "").strip():
         errors.append("turn_id_mismatch")

@@ -9,7 +9,7 @@ from context_system.budget.presets import (
     get_context_budget_preset,
     list_context_budget_presets,
 )
-from soul.image_asset_service import SoulImageAssetService
+from capability_system.capabilities.image_generation.image_asset_service import ImageAssetService
 
 
 def _provider_hint_from_model_base_url(model: str | None, base_url: str | None) -> str:
@@ -169,9 +169,9 @@ class AppSettingsService:
         }
 
     def task_executor_backend_config(self) -> dict[str, Any]:
-        image_payload = SoulImageAssetService(self.base_dir).config_summary()
+        image_payload = ImageAssetService(self.base_dir).config_summary()
         return {
-            "soul_image_assets": {
+            "image_assets": {
                 "base_url": str(image_payload.get("base_url") or ""),
                 "model": str(image_payload.get("model") or ""),
                 "api_key_present": bool(image_payload.get("api_key_present")),
@@ -308,9 +308,9 @@ class AppSettingsService:
         model_payload = self.model_provider_payload()
         budget_payload = self.context_budget_payload()
         model_overrides = dict(runtime_config.load().get("model_provider") or {})
-        image_service = SoulImageAssetService(self.base_dir)
+        image_service = ImageAssetService(self.base_dir)
         image_payload = image_service.config_summary()
-        image_overrides = dict(runtime_config.load().get("soul_image_assets") or {})
+        image_overrides = dict(runtime_config.load().get("image_assets") or {})
 
         model_group = {
             "group_id": "model",
@@ -410,7 +410,7 @@ class AppSettingsService:
             "metadata": budget_payload,
         }
         image_group = {
-            "group_id": "soul_image_assets",
+            "group_id": "image_assets",
             "title": "生图模型",
             "description": "控制写作图、角色图和世界观图使用的 OpenAI-compatible 生图服务。",
             "status": "已配置" if image_payload["configured"] else "配置不完整",
@@ -565,8 +565,8 @@ class AppSettingsService:
                 fallback_api_key=str(values.get("fallback_api_key") or "").strip() or None,
             )
             return self.runtime_config_console_payload()
-        if group_id == "soul_image_assets":
-            SoulImageAssetService(self.base_dir).set_config(
+        if group_id == "image_assets":
+            ImageAssetService(self.base_dir).set_config(
                 base_url=str(values.get("base_url") or ""),
                 model=str(values.get("model") or "gpt-image-2"),
                 api_key=str(values.get("api_key") or "").strip() or None,
@@ -649,5 +649,6 @@ class AppSettingsService:
         for alias in ("rerank_mode", "rerank_local_model", "rerank_api_provider", "rerank_api_model", "rerank_api_base_url"):
             normalized.pop(alias, None)
         return normalized
+
 
 

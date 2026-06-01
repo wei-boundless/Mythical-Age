@@ -8,12 +8,12 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-REGISTRY_PATH = ROOT / "capability_system" / "tool_registry.py"
+REGISTRY_PATH = ROOT / "runtime" / "tool_runtime" / "registry.py"
 
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from capability_system.paths import CapabilitySystemPaths
+from capability_system.tools.paths import ToolRuntimePaths
 
 
 def load_registry_module():
@@ -27,11 +27,11 @@ def load_registry_module():
 
 
 def main() -> None:
-    capability_paths = CapabilitySystemPaths.from_base_dir(ROOT)
+    tool_paths = ToolRuntimePaths.from_base_dir(ROOT)
     registry_module = load_registry_module()
     registry_module.refresh_tool_registry(ROOT)
 
-    payload = json.loads(capability_paths.tools_registry_path.read_text(encoding="utf-8"))
+    payload = json.loads(tool_paths.tools_registry_path.read_text(encoding="utf-8"))
     assert payload["version"] == 2
     assert payload["tool_count"] >= 23
     assert payload["tool_packages"]

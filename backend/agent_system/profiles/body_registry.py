@@ -41,7 +41,6 @@ class BodyProfileRegistry:
             metadata={
                 "agent_name": str(getattr(descriptor, "agent_name", "") or ""),
                 "agent_category": str(getattr(descriptor, "agent_category", "") or ""),
-                "default_soul_id": str(getattr(descriptor, "default_soul_id", "") or ""),
                 "runtime_profile_id": str(getattr(runtime_profile, "agent_profile_id", "") or ""),
             },
         )
@@ -58,7 +57,7 @@ class BodyProfileRegistry:
             section_order=(
                 "identity_view",
                 "protected_system_rules",
-                "shared_common_contract",
+                "project_agents_rules",
                 "dynamic_task_contract",
                 "role_view",
                 "task_section",

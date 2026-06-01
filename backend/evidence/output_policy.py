@@ -20,7 +20,7 @@ class RAGAnswerFinalizationResult:
 
 
 class RAGEvidenceOutputPolicy:
-    """Model-backed answer finalization for evidence-first knowledge_system.retrieval."""
+    """Model-backed answer finalization for evidence-first capability_system.capabilities.retrieval."""
 
     def __init__(self, *, model_runtime) -> None:
         self.model_runtime = model_runtime

@@ -7,12 +7,12 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-from capability_system.units.mcp.local.pdf.analysis.catalog import PdfAnalysisCatalog
-from capability_system.units.mcp.local.retrieval.collections import build_default_collections
-from capability_system.units.mcp.local.structured_data.catalog import StructuredDataCatalog
-from capability_system.units.tools.read_file_tool import ReadFileTool
-from capability_system.units.tools.search_files_tool import SearchFilesTool
-from capability_system.units.tools.write_file_tool import WriteFileTool
+from capability_system.capabilities.document_processing.pdf.analysis.catalog import PdfAnalysisCatalog
+from capability_system.capabilities.retrieval.collections import build_default_collections
+from capability_system.capabilities.structured_data.catalog import StructuredDataCatalog
+from capability_system.tools.tool_units.read_file_tool import ReadFileTool
+from capability_system.tools.tool_units.search_files_tool import SearchFilesTool
+from capability_system.tools.tool_units.write_file_tool import WriteFileTool
 from project_layout import ProjectLayout
 
 

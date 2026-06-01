@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from capability_system.units.tools.fetch_url_tool import FetchURLToolError
+from capability_system.tools.tool_units.fetch_url_tool import FetchURLToolError
 from harness.loop.observations import build_observation_record, structured_error_from_exception
 from harness.loop.task_executor import _structured_error_from_observation
 

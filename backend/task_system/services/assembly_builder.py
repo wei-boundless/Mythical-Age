@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Any
 
 from agent_system.profiles.runtime_profile_models import AgentRuntimeProfile
-from capability_system.skill_registry import SkillRegistry
+from capability_system.skills.registry import SkillRegistry
 from permissions.resource_policy_builder import RuntimeApprovalContext
 from request_intent.frame_access import capability_needs
 from task_system.contracts.capability_requirements import build_operation_requirement
