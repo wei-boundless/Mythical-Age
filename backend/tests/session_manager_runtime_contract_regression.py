@@ -55,7 +55,7 @@ def test_session_manager_agent_history_filters_to_model_messages(tmp_path: Path)
     ]
 
 
-def test_session_manager_agent_history_can_include_compressed_context(tmp_path: Path) -> None:
+def test_session_manager_agent_history_never_injects_compressed_context_as_message(tmp_path: Path) -> None:
     backend_dir = tmp_path / "backend"
     backend_dir.mkdir()
     manager = SessionManager(backend_dir)
@@ -65,10 +65,9 @@ def test_session_manager_agent_history_can_include_compressed_context(tmp_path: 
     manager._write_payload(session_id, payload)
     manager.append_messages(session_id, [{"role": "user", "content": "继续"}])
 
-    history = manager.load_session_for_agent(session_id, include_compressed_context=True)
+    history = manager.load_session_for_agent(session_id)
 
     assert history == [
-        {"role": "assistant", "content": "[Compressed session context]\n此前摘要"},
         {"role": "user", "content": "继续"},
     ]
 

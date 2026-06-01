@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Any, Literal
 
+from harness.loop.active_work import build_active_work_turn_context, decide_active_work_turn
+
 
 TurnRouteKind = Literal[
     "plain_conversation",
@@ -80,11 +82,11 @@ def build_turn_route(
     if _has_explicit_contract(assembly_payload):
         return TurnRoute(
             route_kind="explicit_contract_task",
-            invocation_kind="turn_action",
-            dispatch_target="agent_harness.agent_action",
+            invocation_kind="task_execution_start",
+            dispatch_target="query_runtime.explicit_contract_task",
             reason="explicit_contract_present",
             control_capabilities=capabilities,
-            monitor_policy={"record_task_monitor": True, "record_turn_monitor": True},
+            monitor_policy={"record_task_monitor": True, "record_turn_monitor": False},
             diagnostics={"explicit_contract_present": True},
         )
     if bool(capabilities.get("conversation_only") is True):
@@ -113,9 +115,68 @@ def build_turn_route(
         dispatch_target="agent_harness.agent_action",
         reason="action_capable_runtime",
         control_capabilities=capabilities,
-        monitor_policy={"record_task_monitor": True, "record_turn_monitor": True},
+        monitor_policy={"record_task_monitor": False, "record_turn_monitor": True},
         diagnostics={"explicit_contract_present": False},
     )
+
+
+async def decide_turn_route(
+    *,
+    runtime_host: Any,
+    runtime_assembly: Any,
+    session_id: str,
+    user_message: str,
+    model_runtime: Any,
+    model_selection: dict[str, Any] | None = None,
+) -> tuple[TurnRoute, Any | None, Any | None]:
+    context = None
+    decision = None
+    if active_work_router_enabled_for_assembly(runtime_assembly):
+        context = build_active_work_turn_context(
+            runtime_host,
+            session_id=session_id,
+        )
+        if context is not None:
+            decision = await decide_active_work_turn(
+                model_runtime=model_runtime,
+                user_message=user_message,
+                active_work_context=context,
+                model_selection=dict(model_selection or {}),
+            )
+    return (
+        build_turn_route(
+            runtime_assembly=runtime_assembly,
+            active_work_decision=decision,
+            active_work_context=context,
+        ),
+        context,
+        decision,
+    )
+
+
+def active_work_router_enabled_for_assembly(runtime_assembly: Any) -> bool:
+    payload = runtime_assembly.to_dict() if hasattr(runtime_assembly, "to_dict") else dict(runtime_assembly or {})
+    capabilities = dict(payload.get("control_capabilities") or {})
+    if capabilities.get("conversation_only") is True or capabilities.get("may_control_active_work") is False:
+        return False
+    profile = dict(payload.get("profile") or {})
+    task_lifecycle = dict(profile.get("task_lifecycle_policy") or {})
+    context_policy = dict(profile.get("context_policy") or {})
+    interaction_policy = dict(profile.get("interaction_policy") or {})
+    if task_lifecycle.get("active_work_router") is False:
+        return False
+    if context_policy.get("active_work_context") is False or interaction_policy.get("active_work_router") is False:
+        return False
+    if task_lifecycle.get("request_task_run") is not True:
+        return False
+    active_work_context = str(
+        context_policy.get("active_work_context")
+        or context_policy.get("task_context")
+        or ""
+    ).strip().lower()
+    if active_work_context in {"disabled", "none", "off", "false", "readonly"}:
+        return False
+    return True
 
 
 def _has_explicit_contract(assembly_payload: dict[str, Any]) -> bool:

@@ -11,7 +11,7 @@ from prompting.builder import SYSTEM_PROMPT_ASSEMBLY_ORDER
 from prompting.long_term_context import LongTermContextBundle
 
 
-def test_static_prompt_cache_reuses_byte_stable_prefix(tmp_path: Path) -> None:
+def test_static_prompt_diagnostic_preserves_byte_stable_prefix_without_local_reuse(tmp_path: Path) -> None:
     reset_prompt_caches()
     bundle = LongTermContextBundle(
         static_sections=[("稳定原则", "你是一名可靠的执行代理。")],
@@ -30,13 +30,16 @@ def test_static_prompt_cache_reuses_byte_stable_prefix(tmp_path: Path) -> None:
     )
 
     assert first_prompt == second_prompt
-    assert first_cache.status == "miss"
-    assert second_cache.status == "hit"
+    assert first_cache.status == "bypassed"
+    assert second_cache.status == "bypassed"
+    assert first_cache.reason == "provider_context_cache_is_authoritative"
+    assert second_cache.reason == "provider_context_cache_is_authoritative"
     assert second_cache.key == first_cache.key
+    assert second_cache.content_hash == first_cache.content_hash
     assert "动态记忆不应进入静态前缀缓存" not in second_prompt
 
 
-def test_static_prompt_cache_invalidates_when_rag_mode_changes(tmp_path: Path) -> None:
+def test_static_prompt_diagnostic_key_changes_when_rag_mode_changes(tmp_path: Path) -> None:
     reset_prompt_caches()
     bundle = LongTermContextBundle(
         static_sections=[("稳定原则", "你会优先使用可靠证据。")],
@@ -54,13 +57,13 @@ def test_static_prompt_cache_invalidates_when_rag_mode_changes(tmp_path: Path) -
         long_term_context_bundle=bundle,
     )
 
-    assert first_cache.status == "miss"
-    assert rag_cache.status == "miss"
+    assert first_cache.status == "bypassed"
+    assert rag_cache.status == "bypassed"
     assert rag_cache.key != first_cache.key
     assert "当检索证据可用时" in rag_prompt
 
 
-def test_static_prompt_cache_invalidates_when_static_source_changes(tmp_path: Path) -> None:
+def test_static_prompt_diagnostic_key_changes_when_static_source_changes(tmp_path: Path) -> None:
     reset_prompt_caches()
     first_bundle = LongTermContextBundle(
         static_sections=[("稳定原则", "版本 A。")],
@@ -83,9 +86,10 @@ def test_static_prompt_cache_invalidates_when_static_source_changes(tmp_path: Pa
     )
 
     assert first_prompt != second_prompt
-    assert first_cache.status == "miss"
-    assert second_cache.status == "miss"
+    assert first_cache.status == "bypassed"
+    assert second_cache.status == "bypassed"
     assert second_cache.key != first_cache.key
+    assert second_cache.content_hash != first_cache.content_hash
     assert "版本 B" in second_prompt
 
 
@@ -113,7 +117,8 @@ def test_system_prompt_keeps_static_prefix_first_and_marks_dynamic_sections_unca
 
     sections = {section["id"]: section for section in payload["sections"]}
     assert sections["static_context_1"]["cache"]["scope"] == "static_prompt"
-    assert sections["static_context_1"]["cache"]["status"] == "miss"
+    assert sections["static_context_1"]["cache"]["status"] == "bypassed"
+    assert sections["static_context_1"]["cache"]["reason"] == "provider_context_cache_is_authoritative"
     assert sections["session_context"]["cache"]["status"] == "bypassed"
     assert sections["turn_relevant_memory"]["cache"]["status"] == "bypassed"
 

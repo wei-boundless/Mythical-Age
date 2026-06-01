@@ -1038,6 +1038,8 @@ def _normalize_route_policy(value: Any) -> dict[str, Any]:
         "exit_node_id": exit_node_id,
         "mode": str(payload.get("mode") or "metric_target").strip() or "metric_target",
         "progress_receipt_key": str(payload.get("progress_receipt_key") or "").strip(),
+        "receipt_source_node_ids": _string_list(payload.get("receipt_source_node_ids")),
+        "progress_receipt_source_node_ids": _string_list(payload.get("progress_receipt_source_node_ids")),
         "current_metric_key": str(payload.get("current_metric_key") or "").strip(),
         "next_unit_index_key": str(payload.get("next_unit_index_key") or "").strip(),
         "complete_key": str(payload.get("complete_key") or "").strip(),
@@ -1235,6 +1237,14 @@ def _scope_node_loop_contract(loop: dict[str, Any], *, scope_prefix: str, node_i
         for key in ("entry_node_id", "router_node_id", "continue_node_id", "exit_node_id"):
             if str(route.get(key) or ""):
                 route[key] = _scope_graph_node_ref(str(route.get(key) or ""), scope_prefix=scope_prefix, node_ids=node_ids)
+        for key in ("receipt_source_node_ids", "progress_receipt_source_node_ids"):
+            values = route.get(key)
+            if isinstance(values, list):
+                route[key] = [
+                    _scope_graph_node_ref(str(item), scope_prefix=scope_prefix, node_ids=node_ids)
+                    for item in values
+                    if str(item).strip()
+                ]
         scoped["route_policy"] = route
     return scoped
 

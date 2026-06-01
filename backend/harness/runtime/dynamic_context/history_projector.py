@@ -5,21 +5,31 @@ from typing import Any
 from .models import compact_text, drop_empty
 
 
+COMPRESSED_CONTEXT_PREFIX = "[Compressed session context]"
+
+
 class HistoryProjector:
     def project(
         self,
         history: list[dict[str, Any]] | tuple[dict[str, Any], ...],
         *,
         current_user_message: str = "",
+        session_context: dict[str, Any] | None = None,
         projection_policy: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         policy = dict(projection_policy or {})
         recent_limit = int(policy.get("recent_history_message_limit") or 6)
-        normalized = [_normalize_message(item) for item in list(history or []) if isinstance(item, dict)]
+        session_payload = _session_context_projection(session_context)
+        normalized = [
+            _normalize_message(item)
+            for item in list(history or [])
+            if isinstance(item, dict) and not _is_compressed_context_message(item)
+        ]
         normalized = [item for item in normalized if item]
         recent = normalized[-recent_limit:]
         older_count = max(0, len(normalized) - len(recent))
         payload = {
+            "session_context": session_payload,
             "context_summary": _context_summary(older_count),
             "pinned_facts": [],
             "recent_turns": recent,
@@ -48,6 +58,22 @@ def _normalize_message(item: dict[str, Any]) -> dict[str, Any]:
     if item.get("tool_calls"):
         payload["tool_calls"] = item.get("tool_calls")
     return drop_empty(payload)
+
+
+def _session_context_projection(session_context: dict[str, Any] | None) -> dict[str, Any]:
+    payload = dict(session_context or {})
+    compressed = compact_text(payload.get("compressed_context") or payload.get("compressed_summary") or "", limit=4000)
+    return drop_empty(
+        {
+            "compressed_summary": compressed,
+            "authority": "harness.runtime.dynamic_context.session_context_projection" if compressed else "",
+        }
+    )
+
+
+def _is_compressed_context_message(item: dict[str, Any]) -> bool:
+    content = str(item.get("content") or item.get("text") or "")
+    return content.startswith(COMPRESSED_CONTEXT_PREFIX)
 
 
 def _context_summary(older_count: int) -> str:

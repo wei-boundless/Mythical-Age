@@ -18,6 +18,7 @@ class DynamicContextInput:
     tool_results: tuple[dict[str, Any], ...] = ()
     execution_state: dict[str, Any] = field(default_factory=dict)
     work_rollout: dict[str, Any] = field(default_factory=dict)
+    session_context: dict[str, Any] = field(default_factory=dict)
     runtime_assembly: dict[str, Any] = field(default_factory=dict)
     runtime_envelope: dict[str, Any] = field(default_factory=dict)
     current_user_message: str = ""

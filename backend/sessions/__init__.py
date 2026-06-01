@@ -59,29 +59,14 @@ class SessionManager:
     def load_session_record(self, session_id: str) -> dict[str, Any]:
         return self.get_history(session_id)
 
-    def load_session_for_agent(
-        self,
-        session_id: str,
-        *,
-        include_compressed_context: bool = False,
-    ) -> list[dict[str, Any]]:
+    def load_session_for_agent(self, session_id: str) -> list[dict[str, Any]]:
         payload = self.get_history(session_id)
         messages = [
             _agent_message(item)
             for item in list(payload.get("messages") or [])
             if isinstance(item, dict)
         ]
-        filtered = [item for item in messages if item is not None]
-        compressed_context = str(payload.get("compressed_context") or "").strip()
-        if include_compressed_context and compressed_context:
-            return [
-                {
-                    "role": "assistant",
-                    "content": f"[Compressed session context]\n{compressed_context}",
-                },
-                *filtered,
-            ]
-        return filtered
+        return [item for item in messages if item is not None]
 
     def get_history(self, session_id: str) -> dict[str, Any]:
         payload = self._read_payload(session_id)

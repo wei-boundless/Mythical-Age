@@ -607,15 +607,9 @@ export function projectRuntimeStreamEvent(event: string, data: Record<string, un
     const contract = record(payload.contract);
     const goal = text(contract.user_visible_goal ?? contract.task_run_goal ?? taskRun.goal ?? taskRun.title);
     const runtimeRunId = text(runtimeEvent.run_id) || text(runtimeEvent.task_run_id);
-    const turnRunId = formalTurnRunId(turnRun.turn_run_id, runtimeRunId);
     const taskRunId = formalTaskRunId(taskRun.task_run_id, runtimeRunId);
-    if (turnRunId || isChatTurnRunId(taskRunId) || text(turnRun.execution_runtime_kind) === "single_agent_turn" || text(taskRun.execution_runtime_kind) === "single_agent_turn") {
-      return {
-        stageStatus: "正在整理上下文",
-        activityTitle: "正在整理上下文",
-        activityDetail: "准备判断下一步",
-        level: "running",
-      };
+    if (!taskRunId || isChatTurnRunId(taskRunId) || text(turnRun.execution_runtime_kind) === "single_agent_turn" || text(taskRun.execution_runtime_kind) === "single_agent_turn") {
+      return {};
     }
     return {
       stageStatus: "已确认目标",

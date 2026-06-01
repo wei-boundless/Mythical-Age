@@ -11,11 +11,13 @@ DEFAULT_RECENT_MESSAGE_LIMIT = 12
 @dataclass(frozen=True, slots=True)
 class HistoryAssemblyResult:
     model_history: tuple[dict[str, str], ...]
+    compressed_context: str = ""
     diagnostics: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "model_history": [dict(item) for item in self.model_history],
+            "compressed_context": self.compressed_context,
             "diagnostics": dict(self.diagnostics),
         }
 
@@ -31,16 +33,10 @@ def assemble_runtime_history(
     limit = max(0, int(recent_message_limit or 0))
     recent = normalized[-limit:] if limit else []
     assembled: list[dict[str, str]] = []
-    if compressed:
-        assembled.append(
-            {
-                "role": "assistant",
-                "content": f"{COMPRESSED_CONTEXT_PREFIX}\n{compressed}",
-            }
-        )
     assembled.extend(recent)
     return HistoryAssemblyResult(
         model_history=tuple(assembled),
+        compressed_context=compressed,
         diagnostics={
             "raw_history_message_count": len(normalized),
             "assembled_history_message_count": len(assembled),

@@ -12,7 +12,7 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 from query.models import QueryRequest
-from api.chat import _runtime_run_refs_from_event
+from api.chat import _project_public_stream_event, _runtime_run_refs_from_event
 from runtime.shared.models import AgentRunResult, TaskRun
 from harness.loop.model_action_protocol import ModelActionRequest
 from harness.loop.task_executor import _tool_call_progress_summary
@@ -99,8 +99,11 @@ def test_conversation_only_capability_uses_plain_conversation_without_turnrun() 
     assert "turn_route_decided" in stream_types
     assert route_events and route_events[0].get("route_kind") == "plain_conversation"
     assert "plain_conversation_started" in stream_types
+    assert "assistant_message_committed" in stream_types
+    assert "runtime_invocation_packet" not in stream_types
     assert "harness_run_started" not in stream_types
     assert "model_action_request" not in stream_types
+    assert not any("compilation" in event or "model_messages" in event for event in events)
     assert runtime.single_agent_runtime_host.list_session_traces("session-plain")["task_run_count"] == 0
 
 
@@ -126,12 +129,147 @@ def test_action_capable_turn_routes_to_agent_action_loop() -> None:
     assert any(event.get("type") == "runtime_assembly_compiled" for event in events)
     route_events = [dict(event.get("turn_route") or {}) for event in events if event.get("type") == "turn_route_decided"]
     assert route_events and route_events[0].get("route_kind") == "agent_action"
+    assert dict(route_events[0].get("monitor_policy") or {}).get("record_task_monitor") is False
+    assert dict(route_events[0].get("monitor_policy") or {}).get("record_turn_monitor") is True
     started = [event for event in events if event.get("type") == "harness_run_started"][0]
     assert dict(started.get("turn_run") or {}).get("turn_run_id", "").startswith("turnrun:")
     assert "task_run" not in started
     traces = runtime.single_agent_runtime_host.list_session_traces("session-direct")
     assert traces["task_run_count"] == 0
     assert traces["turn_run_count"] == 1
+
+
+def test_explicit_contract_task_starts_lifecycle_without_model_action_loop() -> None:
+    runtime = build_query_runtime(
+        model_runtime=SingleMessageModelRuntimeStub(
+            agent_turn_action_request=_action_request(
+                action_type="respond",
+                final_answer="不应调用模型动作协议。",
+            )
+        )
+    )
+
+    async def _collect() -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime.astream(
+            QueryRequest(
+                session_id="session-explicit-contract",
+                message="按合同启动任务。",
+                task_selection={
+                    "task_environment_id": "env.development.sandbox",
+                    "task_contract": {
+                        "contract_id": "contract:explicit:test",
+                        "user_visible_goal": "交付显式合同任务。",
+                        "task_run_goal": "根据显式合同创建并执行任务。",
+                        "required_artifacts": [{"artifact_kind": "html_app", "user_visible_name": "可运行页面"}],
+                        "completion_criteria": ["任务生命周期必须由系统直接启动"],
+                    },
+                },
+            )
+        ):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_collect())
+    stream_types = [str(event.get("type") or "") for event in events]
+    route = dict(next(event for event in events if event.get("type") == "turn_route_decided").get("turn_route") or {})
+    lifecycle = [
+        event
+        for event in events
+        if event.get("type") == "task_run_lifecycle_started"
+    ][0]
+    task_run_event = dict(lifecycle.get("event") or {})
+    payload = dict(task_run_event.get("payload") or {})
+    task_run = dict(payload.get("task_run") or {})
+    task_run_id = str(task_run.get("task_run_id") or "")
+    stored_task = runtime.single_agent_runtime_host.state_index.get_task_run(task_run_id)
+    contract = dict(runtime.single_agent_runtime_host.runtime_objects.get_object(str(getattr(stored_task, "task_contract_ref", "") or "")) or {})
+
+    assert route.get("route_kind") == "explicit_contract_task"
+    assert route.get("invocation_kind") == "task_execution_start"
+    assert "runtime_invocation_packet" not in stream_types
+    assert "model_action_request" not in stream_types
+    assert "model_action_admission" not in stream_types
+    assert "harness_run_started" in stream_types
+    assert task_run_id.startswith("taskrun:")
+    assert stored_task is not None
+    assert contract["contract_source"] == "explicit_contract"
+    assert contract["source_contract_ref"] == "contract:explicit:test"
+    assert contract["task_environment_id"] == "env.development.sandbox"
+    assert dict(getattr(stored_task, "diagnostics", {}) or {}).get("origin_kind") == "explicit_contract"
+    assert dict(getattr(stored_task, "diagnostics", {}) or {}).get("origin_authority") == "harness.routing.explicit_contract_task"
+
+
+def test_chat_public_projection_filters_internal_runtime_payloads() -> None:
+    assert _project_public_stream_event(
+        "runtime_assembly_compiled",
+        {"type": "runtime_assembly_compiled", "runtime_assembly": {"backend_dir": "D:/secret"}},
+    ) is None
+    assert _project_public_stream_event(
+        "runtime_invocation_packet",
+        {
+            "type": "runtime_invocation_packet",
+            "packet_ref": "rtpacket:test",
+            "compilation": {"packet": {"model_messages": [{"role": "system", "content": "hidden"}]}},
+        },
+    ) is None
+
+    projected = _project_public_stream_event(
+        "turn_route_decided",
+        {
+            "type": "turn_route_decided",
+            "turn_route": {
+                "route_kind": "plain_conversation",
+                "invocation_kind": "plain_conversation",
+                "dispatch_target": "query_runtime.plain_conversation",
+                "reason": "conversation_only_capability",
+                "control_capabilities": {"may_call_tools": False},
+                "diagnostics": {"backend_dir": "D:/secret"},
+            },
+            "runtime_assembly": {"backend_dir": "D:/secret"},
+            "model_messages": [{"role": "system", "content": "hidden"}],
+        },
+    )
+
+    assert projected is not None
+    public_event_type, data = projected
+    assert public_event_type == "turn_route_decided"
+    assert "runtime_assembly" not in data
+    assert "model_messages" not in data
+    route = dict(data.get("turn_route") or {})
+    assert route == {
+        "route_kind": "plain_conversation",
+        "reason": "conversation_only_capability",
+    }
+
+
+def test_chat_public_projection_redacts_internal_packet_fields_from_allowed_events() -> None:
+    projected = _project_public_stream_event(
+        "agent_turn_terminal",
+        {
+            "type": "agent_turn_terminal",
+            "event": {
+                "event_type": "agent_turn_completed",
+                "payload": {
+                    "status": "completed",
+                    "runtime_assembly": {"backend_dir": "D:/secret"},
+                    "action_request": {
+                        "final_answer": "ok",
+                        "model_messages": [{"role": "system", "content": "hidden"}],
+                    },
+                },
+            },
+            "compilation": {"packet": {"model_messages": [{"role": "system", "content": "hidden"}]}},
+        },
+    )
+
+    assert projected is not None
+    _event_type, data = projected
+    serialized = json.dumps(data, ensure_ascii=False)
+    assert "model_messages" not in serialized
+    assert "runtime_assembly" not in serialized
+    assert "compilation" not in serialized
+    assert "D:/secret" not in serialized
 
 
 def test_chat_stream_runtime_refs_separate_turn_run_from_task_run() -> None:
@@ -152,6 +290,41 @@ def test_chat_stream_runtime_refs_separate_turn_run_from_task_run() -> None:
         "turn_run_id": "turnrun:session-a:1",
         "task_run_id": "taskrun:turn:session-a:1:formal",
     }
+
+
+def test_chat_public_projection_hides_turn_trace_only_harness_start() -> None:
+    assert _project_public_stream_event(
+        "harness_run_started",
+        {
+            "type": "harness_run_started",
+            "turn_run": {
+                "turn_run_id": "turnrun:session-a:1",
+                "execution_runtime_kind": "single_agent_turn",
+            },
+            "event": {
+                "run_id": "turnrun:session-a:1",
+                "payload": {
+                    "turn_run": {"turn_run_id": "turnrun:session-a:1"},
+                },
+            },
+        },
+    ) is None
+
+    projected = _project_public_stream_event(
+        "harness_run_started",
+        {
+            "type": "harness_run_started",
+            "task_run": {"task_run_id": "taskrun:session-a:1", "status": "running"},
+            "event": {
+                "run_id": "taskrun:session-a:1",
+                "payload": {"task_run": {"task_run_id": "taskrun:session-a:1"}},
+            },
+        },
+    )
+    assert projected is not None
+    public_event_type, data = projected
+    assert public_event_type == "harness_run_started"
+    assert dict(data.get("task_run") or {}).get("task_run_id") == "taskrun:session-a:1"
 
 
 def test_agent_action_request_launches_task_run_and_initializes_todo() -> None:

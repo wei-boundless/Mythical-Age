@@ -627,3 +627,136 @@ loop 负责执行
 monitor 负责呈现
 task run 只属于真实任务生命周期
 ```
+
+## 13. 代码审查补充：当前实现缺口
+
+审查日期：2026-06-01
+
+审查范围：
+
+- `backend/harness/routing/turn_router.py`
+- `backend/query/runtime.py`
+- `backend/harness/runtime/assembly.py`
+- `backend/harness/runtime/compiler.py`
+- `backend/harness/loop/agent_loop.py`
+- `backend/api/chat.py`
+- `backend/runtime/shared/stream_replay.py`
+- `frontend/src/lib/store/events.ts`
+
+### 13.1 已落地部分
+
+当前实现已经具备独立 `TurnRoute` 结构，且 `TurnRoute` 不携带 `mode`、`runtime_mode`、`role_mode`、`standard_mode` 或 `professional_mode`。
+
+当前 `QueryRuntime` 已在 runtime assembly 后调用 turn router，并能把 `plain_conversation` 分发到普通对话 runner。
+
+当前 `conversation_only` capability 下不会进入 `AgentHarness.run_stream()`，不会产生 `harness_run_started`，也不会创建 `taskrun` 或 `turnrun`。
+
+### 13.2 P1：公共 stream/replay 仍保存内部 runtime payload
+
+问题：
+
+`QueryRuntime.astream()` 仍会产出 `runtime_assembly_compiled`，其中包含完整 `runtime_assembly.to_dict()`。`backend/api/chat.py` 对 `astream()` 的所有事件直接 `append_public_event()`，导致内部 assembly、runtime packet、prompt refs、工具表、权限投影、路径和 diagnostics 被作为 public replay 保存。前端隐藏这些事件不能解决后端已经公开持久化的问题。
+
+目标：
+
+公共 chat stream 只能保存用户可见事件和经过投影的运行状态。内部 runtime assembly、runtime invocation packet、model messages、compilation payload、prompt manifest、operation authorization 等只能进入内部 trace/debug，不允许进入 public replay。
+
+修复要求：
+
+1. 在 `backend/api/chat.py` 增加 public stream 投影边界。
+2. 对 `runtime_assembly_compiled`、`runtime_assembly_bound`、`runtime_invocation_packet` 这类内部事件直接过滤。
+3. 对允许公开的事件做字段级投影，不允许透传 `compilation`、`model_messages`、`runtime_assembly`、`operation_authorization`、`prompt_manifest` 等内部对象。
+4. 更新测试，反向断言 public replay 不包含内部事件和敏感字段。
+
+### 13.3 P1：`explicit_contract_task` 仍是假独立 route
+
+问题：
+
+当前 router 能识别 explicit contract，但返回：
+
+```text
+route_kind = explicit_contract_task
+invocation_kind = turn_action
+dispatch_target = agent_harness.agent_action
+```
+
+`QueryRuntime` 没有单独处理 `explicit_contract_task`，因此它最终落回 generic action loop。这样显式 contract 并没有真正由系统任务生命周期承接，而是重新交给模型 action 协议判断。
+
+目标：
+
+显式 contract 是系统已经收到的成型契约，不应再经过普通语义判断。它应直接进入任务生命周期启动判断，生成真实 `TaskRunContract` 和 `task_run`，并根据监督策略等待确认或调度 executor。
+
+修复要求：
+
+1. 增加 explicit contract runner。
+2. explicit contract runner 只做 contract 标准化、权限/监督检查、task lifecycle start 和 executor scheduling，不做用户意图识别。
+3. router 对 explicit contract 输出 `invocation_kind=task_execution_start` 或等价系统任务启动语义，不能继续伪装为 `turn_action`。
+4. 测试必须断言 explicit contract 不产生 `runtime_invocation_packet` 或 `model_action_request`，但会产生真实 `task_run_lifecycle_started`。
+
+### 13.4 P2：action-capable 普通 turn 仍进入 heavy action loop
+
+问题：
+
+当前 `requires_json_action_protocol=True` 时默认进入 `agent_action`。这已经不再由 mode 名称控制，但普通闲聊或轻问答仍会被 action loop 包裹，并创建 synthetic `turnrun`。
+
+目标：
+
+Phase 4 需要把 `respond` 从 synthetic turnrun/task monitor 中剥离。action route 可以保留为模型动作选择层，但直接回答不应该污染任务监控。
+
+修复要求：
+
+1. 短期保留 action route，但 public monitor 不展示 synthetic turnrun。
+2. 中期拆分 non-task turn trace 与 task run。
+3. direct respond 只形成会话结果和内部 turn trace，不进入 task monitor。
+
+### 13.5 P2：active work 判断权威还没有完全收敛到 router
+
+问题：
+
+当前 `QueryRuntime._decide_turn_route()` 先调用 `_active_work_router_enabled_for_assembly()` 和 `decide_active_work_turn()`，再把 decision 传给 router。router 不是完整的 route authority。
+
+目标：
+
+QueryRuntime 只提供 request/runtime facts。active work candidate、relation decision 和最终 route 都应属于 router service。
+
+修复要求：
+
+1. 增加 router service 或 route context builder。
+2. 把 `_active_work_router_enabled_for_assembly()` 从 QueryRuntime 移入 routing 层。
+3. `QueryRuntime` 只调用一个 route decision 入口。
+
+### 13.6 P2：测试仍保护内部事件公开
+
+问题：
+
+当前测试仍断言 `runtime_assembly_compiled` 存在于 stream。这保护了错误公共边界。
+
+目标：
+
+测试分为两类：
+
+- 内部 runtime 测试可以检查 `QueryRuntime.astream()` raw events。
+- public chat API 测试必须检查 replay/SSE 不含内部 payload。
+
+修复要求：
+
+1. 保留 raw event 测试只验证内部链路。
+2. 新增 public replay 测试，断言内部事件被过滤。
+3. 禁止用前端隐藏作为安全边界。
+
+## 14. 修复顺序补充
+
+本轮优先顺序：
+
+1. 修复 public stream/replay 投影边界。
+2. 更新 public replay 回归测试。
+3. 实现 explicit contract task 独立 runner。
+4. 将 active work route decision 完整迁入 routing 层。
+5. Phase 4 再拆 action loop 中的 non-task turn trace 与 synthetic turnrun。
+
+验收原则：
+
+- 用户会话流看不到内部 runtime payload。
+- 内部 trace 仍可审计 runtime assembly 和 invocation packet。
+- 显式 contract 不经过模型 action 协议也能启动真实任务生命周期。
+- 普通对话和真实任务在 stream、monitor、trace 三层边界清晰。

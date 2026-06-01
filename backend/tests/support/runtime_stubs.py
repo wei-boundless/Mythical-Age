@@ -77,7 +77,7 @@ class InMemorySessionManagerStub:
     def load_session_record(self, _session_id):
         return {"messages": list(self.messages), "compressed_context": self.compressed_context}
 
-    def load_session_for_agent(self, _session_id, *, include_compressed_context: bool = False):
+    def load_session_for_agent(self, _session_id):
         return list(self.messages)
 
     def load_session(self, _session_id):

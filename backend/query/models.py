@@ -18,7 +18,6 @@ class QueryRequest:
     session_id: str
     message: str
     history: list[dict[str, Any]] | None = None
-    ephemeral_system_messages: list[str] = field(default_factory=list)
     explicit_subtasks: list[dict[str, Any]] = field(default_factory=list)
     search_policy: list[str] | None = None
     soul_id: str = ""

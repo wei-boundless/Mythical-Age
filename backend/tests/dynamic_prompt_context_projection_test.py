@@ -102,6 +102,91 @@ def test_task_work_rollout_only_enters_model_through_dynamic_context_projection(
     assert volatile_payload["work_history"]["recent_steps"][0]["summary"] == "已创建基础文件"
 
 
+def test_turn_action_keeps_compressed_context_outside_recent_history_window() -> None:
+    history = [
+        {"role": "assistant", "content": "[Compressed session context]\n此前已经确认项目采用 DeepSeek。"},
+        *({"role": "user", "content": f"user-{index}"} for index in range(8)),
+    ]
+    result = RuntimeCompiler().compile_turn_action_packet(
+        session_id="session:compressed-context",
+        turn_id="turn:compressed-context",
+        agent_invocation_id="aginvoke:compressed-context",
+        user_message="继续检查 prompt 装载。",
+        history=history,
+        session_context={"compressed_context": "此前已经确认项目采用 DeepSeek。"},
+        runtime_assembly={
+            "profile": {"mode": "professional"},
+            "task_environment": {"environment_id": "env.general.workspace"},
+            "operation_authorization": {"allowed_operations": ["op.model_response"]},
+        },
+    )
+
+    volatile_payload = _payload_after_title(result.packet.model_messages[-1]["content"], "Turn action current request")
+    history_payload = volatile_payload["history"]
+
+    assert history_payload["session_context"]["compressed_summary"] == "此前已经确认项目采用 DeepSeek。"
+    assert [item["content"] for item in history_payload["recent_turns"]] == [
+        "user-2",
+        "user-3",
+        "user-4",
+        "user-5",
+        "user-6",
+        "user-7",
+    ]
+    assert all("[Compressed session context]" not in item["content"] for item in history_payload["recent_turns"])
+
+
+def test_observation_followup_projects_session_context_with_observations() -> None:
+    result = RuntimeCompiler().compile_observation_followup_packet(
+        session_id="session:followup-context",
+        turn_id="turn:followup-context",
+        agent_invocation_id="aginvoke:followup-context",
+        user_message="根据工具结果继续。",
+        history=[{"role": "user", "content": "先读文件。"}],
+        session_context={"compressed_context": "此前决定优先修结构问题。"},
+        observations=[{"observation_id": "obs:1", "content": "read_file ok"}],
+        runtime_assembly={
+            "profile": {"mode": "professional"},
+            "task_environment": {"environment_id": "env.general.workspace"},
+            "operation_authorization": {"allowed_operations": ["op.read_file"]},
+        },
+    )
+
+    volatile_payload = _payload_after_title(result.packet.model_messages[-1]["content"], "Observation followup current request")
+
+    assert volatile_payload["history"]["session_context"]["compressed_summary"] == "此前决定优先修结构问题。"
+    assert volatile_payload["history"]["recent_turns"][0]["content"] == "先读文件。"
+    assert volatile_payload["observations"]["latest_observations"][0]["summary"] == "read_file ok"
+
+
+def test_plain_conversation_projects_compressed_context_as_session_context() -> None:
+    result = RuntimeCompiler().compile_plain_conversation_packet(
+        session_id="session:plain-context",
+        turn_id="turn:plain-context",
+        agent_invocation_id="aginvoke:plain-context",
+        user_message="继续。",
+        history=[
+            {"role": "user", "content": "上一轮用户消息"},
+            {"role": "assistant", "content": "上一轮助手回复"},
+        ],
+        session_context={"compressed_context": "此前已经完成项目结构审查。"},
+        runtime_assembly={
+            "profile": {"mode": "conversation"},
+            "task_environment": {"environment_id": "env.general.workspace"},
+        },
+    )
+
+    stable_payload = _payload_after_title(
+        result.packet.model_messages[1]["content"],
+        "Plain conversation stable boundary",
+    )
+    message_texts = [str(message["content"]) for message in result.packet.model_messages]
+
+    assert stable_payload["session_context"]["compressed_summary"] == "此前已经完成项目结构审查。"
+    assert "[Compressed session context]" not in "\n".join(message_texts)
+    assert message_texts[-3:] == ["上一轮用户消息", "上一轮助手回复", "继续。"]
+
+
 def test_dynamic_context_manager_rebinds_to_runtime_assembly_backend_dir(tmp_path: Path) -> None:
     old_backend = tmp_path / "old_backend"
     new_backend = tmp_path / "new_backend"

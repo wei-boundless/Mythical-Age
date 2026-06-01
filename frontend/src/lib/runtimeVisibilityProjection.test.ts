@@ -209,7 +209,7 @@ describe("runtimeVisibilityProjection", () => {
     });
   });
 
-  it("does not project chat turn runtime start as a formal task", () => {
+  it("ignores chat turn runtime start because it is an internal trace", () => {
     const projection = projectRuntimeStreamEvent("harness_run_started", {
       turn_run: {
         turn_run_id: "turnrun:session-1:1",
@@ -224,12 +224,7 @@ describe("runtimeVisibilityProjection", () => {
       },
     });
 
-    expect(projection).toMatchObject({
-      stageStatus: "正在整理上下文",
-      activityTitle: "正在整理上下文",
-      activityDetail: "准备判断下一步",
-      level: "running",
-    });
+    expect(projection).toEqual({});
     expect(projection.progressEntry).toBeUndefined();
   });
 

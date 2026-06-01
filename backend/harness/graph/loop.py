@@ -1255,13 +1255,24 @@ def _progress_receipt_sources(
         for item in list(route_policy.get("receipt_source_node_ids") or route_policy.get("progress_receipt_source_node_ids") or [])
         if str(item).strip()
     ]
-    if not source_node_ids:
-        source_node_ids = [
-            str(edge.get("source_node_id") or "")
-            for edge in graph_config.edges
-            if str(edge.get("target_node_id") or "") == result.node_id
-            and str(edge.get("source_node_id") or "")
-        ]
+    if source_node_ids:
+        sources: list[dict[str, Any]] = []
+        for node_id in source_node_ids:
+            if node_id == result.node_id:
+                sources.extend(_route_metric_sources(result))
+                continue
+            summary = dict(dict(state.result_index or {}).get(node_id) or {})
+            loaded = _load_result_from_summary(summary, services=services)
+            if loaded:
+                sources.extend(_route_metric_sources(loaded))
+        return sources
+    sources = _route_metric_sources(result)
+    source_node_ids = [
+        str(edge.get("source_node_id") or "")
+        for edge in graph_config.edges
+        if str(edge.get("target_node_id") or "") == result.node_id
+        and str(edge.get("source_node_id") or "")
+    ]
     for node_id in source_node_ids:
         summary = dict(dict(state.result_index or {}).get(node_id) or {})
         loaded = _load_result_from_summary(summary, services=services)
@@ -1346,6 +1357,10 @@ def _apply_derived_fields(inputs: dict[str, Any], fields: list[Any]) -> dict[str
                 start = int(_numeric_value(patched.get(str(field.get("start_key") or "")), 0))
                 end = int(_numeric_value(patched.get(str(field.get("end_key") or "")), start))
                 patched[key] = list(range(start, end + 1))
+            elif op == "range_count":
+                start = int(_numeric_value(patched.get(str(field.get("start_key") or "")), 0))
+                end = int(_numeric_value(patched.get(str(field.get("end_key") or "")), start))
+                patched[key] = max(0, end - start + 1)
             elif op == "join":
                 values = list(patched.get(str(field.get("from_key") or "")) or [])
                 prefix = str(field.get("prefix") or "")

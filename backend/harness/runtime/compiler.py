@@ -46,6 +46,7 @@ class RuntimeCompiler:
         agent_invocation_id: str,
         user_message: str,
         history: list[dict[str, Any]],
+        session_context: dict[str, Any] | None = None,
         agent_profile_ref: str = "main_interactive_agent",
         model_selection: dict[str, Any] | None = None,
         runtime_assembly: Any | None = None,
@@ -108,6 +109,7 @@ class RuntimeCompiler:
         soul_instruction = _soul_instruction(soul_role_prompt)
         stable_payload = {
             "control_capabilities": dict(control_capabilities),
+            "session_context": _session_context_model_visible_payload(session_context),
             "task_environment": _environment_model_visible_payload(environment_payload),
             "output_contract": {
                 "format": "assistant_message",
@@ -215,6 +217,7 @@ class RuntimeCompiler:
         agent_invocation_id: str,
         user_message: str,
         history: list[dict[str, Any]],
+        session_context: dict[str, Any] | None = None,
         task_selection: dict[str, Any] | None = None,
         agent_profile_ref: str = "main_interactive_agent",
         model_selection: dict[str, Any] | None = None,
@@ -308,6 +311,7 @@ class RuntimeCompiler:
                 session_id=session_id,
                 turn_id=turn_id,
                 history=tuple(dict(item) for item in list(history or []) if isinstance(item, dict)),
+                session_context=dict(session_context or {}),
                 runtime_assembly=assembly_payload,
                 runtime_envelope=envelope.to_dict(),
                 current_user_message=str(user_message or ""),
@@ -646,11 +650,11 @@ class RuntimeCompiler:
                         runtime_instruction,
                         _packet_payload_content("Task execution runtime boundary", dynamic_payload),
                     ),
-                    kind="runtime_boundary",
+                    kind="dynamic_projection",
                     source_ref="agent_visible_runtime_projection",
-                    cache_scope="task",
-                    cache_role="session_stable",
-                    compression_role="preserve",
+                    cache_scope="none",
+                    cache_role="volatile",
+                    compression_role="summarize",
                     metadata=_dynamic_context_segment_metadata(dynamic_context, source="runtime_delta"),
                 ),
                 _message_spec(
@@ -725,6 +729,7 @@ class RuntimeCompiler:
         agent_invocation_id: str,
         user_message: str,
         history: list[dict[str, Any]],
+        session_context: dict[str, Any] | None = None,
         observations: list[dict[str, Any]],
         agent_profile_ref: str = "main_interactive_agent",
         model_selection: dict[str, Any] | None = None,
@@ -818,6 +823,7 @@ class RuntimeCompiler:
                 session_id=session_id,
                 turn_id=turn_id,
                 history=tuple(dict(item) for item in list(history or []) if isinstance(item, dict)),
+                session_context=dict(session_context or {}),
                 observations=tuple(dict(item) for item in list(observations or []) if isinstance(item, dict)),
                 runtime_assembly=assembly_payload,
                 runtime_envelope=envelope.to_dict(),
@@ -1481,13 +1487,18 @@ def _runtime_projection_instruction(projection: dict[str, Any]) -> str:
     lines.append(
         "- 你必须先在内部完成任务状态审查、证据核对、风险判断和下一步选择；这些内部推理不得输出。"
     )
-    lines.append(
-        "- 在任务执行阶段，每次输出 JSON 时必须填写 public_action_state 和 public_progress_note。public_action_state 是公开行动状态，"
-        "必须包含 current_judgment、next_action；open_risks 和 evidence_refs 只引用真实上下文证据，不复制原始思维过程。"
-    )
-    lines.append(
-        "- public_progress_note 必须是 public_action_state 的一句自然语言摘要；不要写“正在思考”“正在分析当前目标”等空泛状态。"
-    )
+    if projection.get("invocation_kind") == "task_execution":
+        lines.append(
+            "- 每次输出 JSON 时必须填写 public_action_state 和 public_progress_note。public_action_state 是公开行动状态，"
+            "必须包含 current_judgment、next_action；open_risks 和 evidence_refs 只引用真实上下文证据，不复制原始思维过程。"
+        )
+        lines.append(
+            "- public_progress_note 必须是 public_action_state 的一句自然语言摘要；不要写“正在思考”“正在分析当前目标”等空泛状态。"
+        )
+    else:
+        lines.append(
+            "- 如果本轮输出包含 public_action_state 或 public_progress_note，它们只能描述公开判断和下一步动作，不能暴露隐藏推理。"
+        )
     if projection.get("invocation_kind") == "task_execution":
         lines.append(
             "- 如果当前执行状态里有 pending_user_steers，你必须先判断并处理这些用户补充要求；"
@@ -1665,6 +1676,17 @@ def _environment_model_visible_payload(environment_payload: dict[str, Any]) -> d
         "authority": "task_system.environment.model_visible_projection",
     }
     return _drop_empty_payload(model_payload)
+
+
+def _session_context_model_visible_payload(session_context: dict[str, Any] | None) -> dict[str, Any]:
+    payload = dict(session_context or {})
+    compressed = str(payload.get("compressed_context") or payload.get("compressed_summary") or "").strip()
+    if not compressed:
+        return {}
+    return {
+        "compressed_summary": compressed,
+        "authority": "runtime.session_context.compressed_summary",
+    }
 
 
 def _stable_tool_catalog_payload(tool_payloads: tuple[dict[str, Any], ...]) -> list[dict[str, Any]]:

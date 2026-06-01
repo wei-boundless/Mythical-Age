@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+import uuid
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
@@ -13,7 +14,7 @@ from observability import build_debug_trace_event, start_turn_trace
 from capability_system.tool_authorization import build_tool_authorization_index
 from harness import AgentHarness, GraphHarness
 from harness.runtime import AgentRuntimeServices, RuntimeCompiler, SingleAgentRuntimeHost, TaskExecutorServices, assemble_runtime
-from harness.routing import TurnRoute, build_turn_route
+from harness.routing import TurnRoute, decide_turn_route
 from runtime import ModelResponseRuntimeExecutor, ModelRuntimeError, ToolRuntimeExecutor
 from runtime.shared.history_assembler import assemble_runtime_history
 from agent_system.profiles.runtime_profile_registry import AgentRuntimeRegistry
@@ -30,12 +31,11 @@ from harness.loop.active_work import (
     ActiveWorkContext,
     ActiveWorkTurnDecision,
     active_work_status_reply,
-    build_active_work_turn_context,
     build_active_work_context,
-    decide_active_work_turn,
     default_reply_for_action,
     public_active_work_text,
 )
+from harness.loop.model_action_protocol import ModelActionRequest
 from harness.loop.model_action_runtime import call_model_invoker
 from harness.loop.presentation import error_event, final_answer_event
 from harness.loop.resume_policy import build_resume_plan
@@ -52,7 +52,13 @@ from harness.loop.task_executor import (
     stop_task_run,
 )
 from harness.loop.task_run_recovery_state import should_auto_continue_task_run
-from harness.loop.task_lifecycle import TaskLifecycleRecord, TaskRunContract
+from harness.loop.task_lifecycle import (
+    TaskLifecycleRecord,
+    TaskRunContract,
+    start_task_lifecycle,
+    task_launch_supervision_policy,
+    wait_task_launch_supervision,
+)
 from harness.graph.models import safe_id, stable_hash
 from runtime.shared.models import AgentRun, TaskRun
 
@@ -158,15 +164,15 @@ class QueryRuntime:
 
     async def astream(self, request: QueryRequest):
         history_record = self.session_manager.load_session_record(request.session_id)
-        raw_history = request.history or self.session_manager.load_session_for_agent(
-            request.session_id,
-            include_compressed_context=False,
-        )
+        raw_history = request.history or self.session_manager.load_session_for_agent(request.session_id)
         history_assembly = assemble_runtime_history(
             history=raw_history,
             compressed_context=str(history_record.get("compressed_context") or ""),
         )
         history = [dict(item) for item in history_assembly.model_history]
+        session_context = {
+            "compressed_context": history_assembly.compressed_context,
+        }
         turn_index = len(history_record.get("messages", [])) + 1
         turn_id = f"turn:{request.session_id}:{turn_index}"
         try:
@@ -286,7 +292,18 @@ class QueryRuntime:
                         request=request,
                         turn_id=turn_id,
                         history=history,
+                        session_context=session_context,
                         agent_invocation_id=agent_invocation_id,
+                        agent_runtime_profile=agent_runtime_profile,
+                        runtime_assembly=runtime_assembly,
+                        turn_route=turn_route,
+                    ):
+                        yield event
+                    return
+                if turn_route.route_kind == "explicit_contract_task":
+                    async for event in self._run_explicit_contract_task_turn(
+                        request=request,
+                        turn_id=turn_id,
                         agent_runtime_profile=agent_runtime_profile,
                         runtime_assembly=runtime_assembly,
                         turn_route=turn_route,
@@ -300,6 +317,7 @@ class QueryRuntime:
                         turn_id=turn_id,
                         user_message=request.message,
                         history=history,
+                        session_context=session_context,
                         source="query_runtime.adapter",
                         model_response_executor=self.model_response_executor,
                         task_selection=runtime_task_selection,
@@ -339,29 +357,15 @@ class QueryRuntime:
         request: QueryRequest,
         runtime_assembly: Any,
     ) -> tuple[TurnRoute, ActiveWorkContext | None, ActiveWorkTurnDecision | None]:
-        context: ActiveWorkContext | None = None
-        decision: ActiveWorkTurnDecision | None = None
-        if _active_work_router_enabled_for_assembly(runtime_assembly):
-            context = build_active_work_turn_context(
-                self.single_agent_runtime_host,
-                session_id=request.session_id,
-            )
-            if context is not None:
-                decision = await decide_active_work_turn(
-                    model_runtime=self.model_runtime,
-                    user_message=request.message,
-                    active_work_context=context,
-                    model_selection=dict(request.model_selection or {}),
-                )
-        return (
-            build_turn_route(
-                runtime_assembly=runtime_assembly,
-                active_work_decision=decision,
-                active_work_context=context,
-            ),
-            context,
-            decision,
+        route, context, decision = await decide_turn_route(
+            runtime_host=self.single_agent_runtime_host,
+            runtime_assembly=runtime_assembly,
+            session_id=request.session_id,
+            user_message=request.message,
+            model_runtime=self.model_runtime,
+            model_selection=dict(request.model_selection or {}),
         )
+        return route, context, decision
 
     async def _run_plain_conversation_turn(
         self,
@@ -369,6 +373,7 @@ class QueryRuntime:
         request: QueryRequest,
         turn_id: str,
         history: list[dict[str, Any]],
+        session_context: dict[str, Any],
         agent_invocation_id: str,
         agent_runtime_profile: Any,
         runtime_assembly: Any,
@@ -389,11 +394,6 @@ class QueryRuntime:
             "type": "plain_conversation_started",
             "turn_route": turn_route.to_dict(),
             "packet_ref": compilation.packet.packet_id,
-        }
-        yield {
-            "type": "runtime_invocation_packet",
-            "packet_ref": compilation.packet.packet_id,
-            "compilation": compilation.to_dict(),
         }
         model_runtime = getattr(self.model_response_executor, "model_runtime", None)
         invoker = getattr(model_runtime, "invoke_messages", None)
@@ -447,12 +447,210 @@ class QueryRuntime:
                 "answer_finalization_policy": "assistant_final",
             },
         )
+        yield {
+            "type": "assistant_message_committed",
+            "answer_channel": "conversation",
+            "answer_source": "harness.route.plain_conversation",
+            "answer_canonical_state": "final",
+        }
         yield final_answer_event(
             content=content,
             answer_source="harness.route.plain_conversation",
             terminal_reason="plain_conversation_completed",
             extra={"turn_route": turn_route.to_dict()},
         )
+
+    async def _run_explicit_contract_task_turn(
+        self,
+        *,
+        request: QueryRequest,
+        turn_id: str,
+        agent_runtime_profile: Any,
+        runtime_assembly: Any,
+        turn_route: TurnRoute,
+    ):
+        action_request = _explicit_contract_action_request(
+            request=request,
+            turn_id=turn_id,
+            runtime_assembly=runtime_assembly,
+        )
+        contract, contract_errors = _task_run_contract_from_explicit_contract(
+            request=request,
+            turn_id=turn_id,
+            runtime_assembly=runtime_assembly,
+            action_request=action_request,
+        )
+        if contract is None:
+            content = "显式任务合同缺少必要目标或验收边界，系统已停止启动任务。"
+            await self._apply_assistant_message_commit_async(
+                request.session_id,
+                {
+                    "role": "assistant",
+                    "content": content,
+                    "turn_id": turn_id,
+                    "answer_channel": "task_control",
+                    "answer_source": "harness.routing.explicit_contract_task.invalid_contract",
+                    "answer_canonical_state": "final",
+                    "answer_persist_policy": "persist_canonical",
+                    "answer_finalization_policy": "assistant_final",
+                },
+            )
+            yield error_event(
+                content=content,
+                code="explicit_contract_invalid",
+                reason=";".join(contract_errors) or "explicit_contract_invalid",
+            )
+            return
+        agent_profile_ref = str(getattr(agent_runtime_profile, "agent_profile_id", "") or "main_interactive_agent")
+        task_run, _agent_run, lifecycle, lifecycle_events = start_task_lifecycle(
+            self.single_agent_runtime_host,
+            session_id=request.session_id,
+            turn_id=turn_id,
+            task_id=str(contract.source_contract_ref or contract.contract_id or f"task:{turn_id}"),
+            action_request=action_request,
+            contract=contract,
+            agent_profile_ref=agent_profile_ref,
+            model_selection=dict(request.model_selection or {}),
+        )
+        for event in lifecycle_events:
+            yield event
+        todo_event = self._initialize_task_todo_for_contract(
+            session_id=request.session_id,
+            task_run_id=task_run.task_run_id,
+            contract=contract.to_dict(),
+        )
+        if todo_event is not None:
+            yield {"type": "task_run_lifecycle_event", "event": todo_event}
+        launch_gate_policy = task_launch_supervision_policy(runtime_assembly)
+        if launch_gate_policy.get("enabled"):
+            gated_task, _gated_lifecycle, gate_event = wait_task_launch_supervision(
+                self.single_agent_runtime_host,
+                task_run=task_run,
+                lifecycle=lifecycle,
+                gate_policy=launch_gate_policy,
+            )
+            yield {"type": "task_run_lifecycle_event", "event": gate_event}
+            content = _task_run_handoff_content(
+                contract=contract.to_dict(),
+                status_text=str(launch_gate_policy.get("user_prompt") or "任务合同已就绪，正在等待确认后继续。"),
+                control_text="确认前，我会先停在这里。",
+            )
+            await self._apply_assistant_message_commit_async(
+                request.session_id,
+                {
+                    "role": "assistant",
+                    "content": content,
+                    "turn_id": turn_id,
+                    "answer_channel": "task_control",
+                    "answer_source": "harness.routing.explicit_contract_task.supervision",
+                    "answer_canonical_state": "final",
+                    "answer_persist_policy": "persist_canonical",
+                    "answer_finalization_policy": "assistant_final",
+                },
+            )
+            yield final_answer_event(
+                content=content,
+                answer_source="harness.routing.explicit_contract_task.supervision",
+                terminal_reason="task_launch_supervision",
+                extra={
+                    "turn_route": turn_route.to_dict(),
+                    "task_run": {"task_run_id": gated_task.task_run_id, "status": gated_task.status},
+                },
+            )
+            return
+        self.schedule_task_run_executor(
+            task_run.task_run_id,
+            scheduler="explicit_contract_task",
+            turn_id=turn_id,
+            max_steps=_CONVERSATION_TASK_EXECUTION_STEPS,
+        )
+        content = _task_run_handoff_content(
+            contract=contract.to_dict(),
+            status_text="我会按这个合同继续推进。",
+            control_text="后续进展会汇总在当前会话里。",
+        )
+        await self._apply_assistant_message_commit_async(
+            request.session_id,
+            {
+                "role": "assistant",
+                "content": content,
+                "turn_id": turn_id,
+                "answer_channel": "task_control",
+                "answer_source": "harness.routing.explicit_contract_task",
+                "answer_canonical_state": "final",
+                "answer_persist_policy": "persist_canonical",
+                "answer_finalization_policy": "assistant_final",
+            },
+        )
+        yield final_answer_event(
+            content=content,
+            answer_source="harness.routing.explicit_contract_task",
+            terminal_reason="task_executor_scheduled",
+            extra={
+                "turn_route": turn_route.to_dict(),
+                "task_run": {"task_run_id": task_run.task_run_id, "status": "running"},
+            },
+        )
+
+    def _initialize_task_todo_for_contract(
+        self,
+        *,
+        session_id: str,
+        task_run_id: str,
+        contract: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        try:
+            from capability_system.units.tools.agent_todo_tool import AgentTodoTool
+
+            tool = AgentTodoTool(Path(self.single_agent_runtime_host.root_dir))
+            result = tool._run(
+                operation="replace",
+                session_id=session_id,
+                task_id=task_run_id,
+                items=[
+                    {
+                        "content": str(contract.get("user_visible_goal") or contract.get("task_run_goal") or "继续处理当前工作"),
+                        "status": "in_progress",
+                        "evidence_expectations": [
+                            *[str(item) for item in list(contract.get("completion_criteria") or [])],
+                            *[
+                                str(item.get("user_visible_name") or item.get("artifact_kind") or item)
+                                for item in list(contract.get("required_artifacts") or [])
+                                if isinstance(item, dict)
+                            ],
+                        ],
+                        "contract_refs": [str(contract.get("contract_id") or "")],
+                    }
+                ],
+            )
+            event = self.single_agent_runtime_host.event_log.append(
+                task_run_id,
+                "agent_todo_initialized",
+                payload={
+                    "observation": {
+                        "source": "system:agent_todo",
+                        "summary": str(result or "")[:300],
+                        "payload": {"result": str(result or "")},
+                    },
+                },
+                refs={"task_run_ref": task_run_id},
+            )
+            return event.to_dict()
+        except Exception as exc:
+            event = self.single_agent_runtime_host.event_log.append(
+                task_run_id,
+                "agent_todo_initialization_failed",
+                payload={
+                    "observation": {
+                        "source": "system:agent_todo",
+                        "summary": "任务待办初始化失败。",
+                        "payload": {"error": str(exc)},
+                        "error": str(exc),
+                    },
+                },
+                refs={"task_run_ref": task_run_id},
+            )
+            return event.to_dict()
 
     def _apply_append_instruction_to_active_work(
         self,
@@ -1390,31 +1588,6 @@ def _task_selection_for_runtime(
     }
 
 
-def _active_work_router_enabled_for_assembly(runtime_assembly: Any) -> bool:
-    payload = runtime_assembly.to_dict() if hasattr(runtime_assembly, "to_dict") else dict(runtime_assembly or {})
-    capabilities = dict(payload.get("control_capabilities") or {})
-    if capabilities.get("conversation_only") is True or capabilities.get("may_control_active_work") is False:
-        return False
-    profile = dict(payload.get("profile") or {})
-    task_lifecycle = dict(profile.get("task_lifecycle_policy") or {})
-    context_policy = dict(profile.get("context_policy") or {})
-    interaction_policy = dict(profile.get("interaction_policy") or {})
-    if task_lifecycle.get("active_work_router") is False:
-        return False
-    if context_policy.get("active_work_context") is False or interaction_policy.get("active_work_router") is False:
-        return False
-    if task_lifecycle.get("request_task_run") is not True:
-        return False
-    active_work_context = str(
-        context_policy.get("active_work_context")
-        or context_policy.get("task_context")
-        or ""
-    ).strip().lower()
-    if active_work_context in {"disabled", "none", "off", "false", "readonly"}:
-        return False
-    return True
-
-
 def _continuation_strategy_for_execution(*, decision_strategy: str, context: ActiveWorkContext) -> str:
     strategy = str(decision_strategy or "").strip()
     if strategy in {"same_run_resume", "checkout_fork", "already_running", "defer", "none"}:
@@ -1426,6 +1599,223 @@ def _continuation_strategy_for_execution(*, decision_strategy: str, context: Act
     if context.same_run_allowed or context.resumable:
         return "same_run_resume"
     return "defer"
+
+
+def _explicit_contract_action_request(
+    *,
+    request: QueryRequest,
+    turn_id: str,
+    runtime_assembly: Any,
+) -> ModelActionRequest:
+    assembly_payload = runtime_assembly.to_dict() if hasattr(runtime_assembly, "to_dict") else dict(runtime_assembly or {})
+    source = _explicit_contract_source_payload(assembly_payload)
+    return ModelActionRequest(
+        request_id=f"system-explicit-contract:{turn_id}:{uuid.uuid4().hex[:8]}",
+        turn_id=turn_id,
+        action_type="request_task_run",
+        public_progress_note="已接收明确任务合同，正在启动任务。",
+        public_action_state={
+            "current_judgment": "系统已收到成型任务合同。",
+            "next_action": "直接建立任务生命周期。",
+            "completion_status": "working",
+        },
+        task_contract_seed={
+            "user_visible_goal": _first_contract_text(
+                source.get("user_visible_goal"),
+                source.get("user_goal"),
+                source.get("objective"),
+                source.get("title"),
+                request.message,
+            ),
+            "task_run_goal": _first_contract_text(
+                source.get("task_run_goal"),
+                source.get("objective"),
+                source.get("user_visible_goal"),
+                source.get("user_goal"),
+                request.message,
+            ),
+            "completion_criteria": _contract_string_tuple(
+                source.get("completion_criteria")
+                or dict(source.get("output_contract") or {}).get("completion_criteria")
+                or dict(source.get("acceptance_policy") or {}).get("completion_criteria")
+            ),
+        },
+        diagnostics={
+            "origin_kind": "explicit_contract",
+            "origin_authority": "harness.routing.explicit_contract_task",
+            "source_contract_ref": str(source.get("contract_id") or source.get("source_ref") or ""),
+        },
+    )
+
+
+def _task_run_contract_from_explicit_contract(
+    *,
+    request: QueryRequest,
+    turn_id: str,
+    runtime_assembly: Any,
+    action_request: ModelActionRequest,
+) -> tuple[TaskRunContract | None, list[str]]:
+    assembly_payload = runtime_assembly.to_dict() if hasattr(runtime_assembly, "to_dict") else dict(runtime_assembly or {})
+    source = _explicit_contract_source_payload(assembly_payload)
+    errors: list[str] = []
+    user_visible_goal = _first_contract_text(
+        source.get("user_visible_goal"),
+        source.get("user_goal"),
+        source.get("objective"),
+        source.get("title"),
+        request.message,
+    )
+    task_run_goal = _first_contract_text(
+        source.get("task_run_goal"),
+        source.get("objective"),
+        source.get("user_visible_goal"),
+        source.get("user_goal"),
+        request.message,
+    )
+    if not user_visible_goal:
+        errors.append("task_goal_required")
+    if not task_run_goal:
+        errors.append("task_run_goal_required")
+    output_contract = dict(source.get("output_contract") or {})
+    acceptance_policy = dict(source.get("acceptance_policy") or {})
+    required_artifacts = _contract_dict_tuple(
+        source.get("required_artifacts")
+        or output_contract.get("required_artifacts")
+        or output_contract.get("artifact_requirements")
+        or acceptance_policy.get("required_artifacts")
+    )
+    required_verifications = _contract_dict_tuple(
+        source.get("required_verifications")
+        or output_contract.get("required_verifications")
+        or output_contract.get("verification_requirements")
+        or acceptance_policy.get("required_verifications")
+    )
+    completion_criteria = _contract_string_tuple(
+        source.get("completion_criteria")
+        or output_contract.get("completion_criteria")
+        or acceptance_policy.get("completion_criteria")
+    )
+    if not completion_criteria and not required_artifacts and not required_verifications:
+        errors.append("completion_evidence_required")
+    if errors:
+        return None, errors
+    selection = dict(assembly_payload.get("task_selection") or {})
+    environment = dict(assembly_payload.get("task_environment") or {})
+    task_environment_id = str(
+        selection.get("task_environment_id")
+        or source.get("task_environment_id")
+        or source.get("environment_id")
+        or environment.get("environment_id")
+        or ""
+    ).strip()
+    runtime_profile = dict(source.get("runtime_profile") or {})
+    if not runtime_profile:
+        runtime_profile = dict(dict(source.get("runtime_assembly_plan") or {}).get("runtime_profile") or {})
+    contract = TaskRunContract(
+        contract_id=f"task-contract:{uuid.uuid4().hex[:12]}",
+        contract_source="explicit_contract",
+        user_visible_goal=user_visible_goal,
+        task_run_goal=task_run_goal,
+        required_artifacts=required_artifacts,
+        required_verifications=required_verifications,
+        completion_criteria=completion_criteria,
+        resource_requirements=dict(
+            source.get("resource_requirements")
+            or source.get("runtime_requirements")
+            or source.get("resource_scope")
+            or {}
+        ),
+        permission_requirements=dict(source.get("permission_requirements") or source.get("tool_scope") or {}),
+        acceptance_policy=acceptance_policy,
+        recovery_policy=dict(source.get("recovery_policy") or {}),
+        created_from_packet_ref=action_request.request_id,
+        source_contract_ref=str(source.get("contract_id") or source.get("source_ref") or "").strip(),
+        external_plan_ref=str(source.get("plan_id") or source.get("external_plan_ref") or "").strip(),
+        task_environment_id=task_environment_id,
+        runtime_profile=runtime_profile,
+        prompt_contract=dict(source.get("prompt_contract") or {}),
+        graph_slot=dict(source.get("graph_slot") or source.get("graph_contract") or {}),
+        origin={
+            "origin_kind": "explicit_contract",
+            "origin_authority": "harness.routing.explicit_contract_task",
+            "turn_id": turn_id,
+        },
+    )
+    return contract, []
+
+
+def _explicit_contract_source_payload(assembly_payload: dict[str, Any]) -> dict[str, Any]:
+    task_selection = dict(assembly_payload.get("task_selection") or {})
+    for key in ("task_contract", "task_contract_seed", "engagement_contract"):
+        value = task_selection.get(key)
+        if isinstance(value, dict) and value:
+            return dict(value)
+    engagement_contract = dict(assembly_payload.get("engagement_contract") or {})
+    if engagement_contract:
+        return engagement_contract
+    return {}
+
+
+def _contract_string_tuple(value: Any) -> tuple[str, ...]:
+    if isinstance(value, str):
+        return (value.strip(),) if value.strip() else ()
+    if not isinstance(value, (list, tuple, set)):
+        return ()
+    result: list[str] = []
+    for item in value:
+        text = str(item or "").strip()
+        if text:
+            result.append(text)
+    return tuple(result)
+
+
+def _contract_dict_tuple(value: Any) -> tuple[dict[str, Any], ...]:
+    if isinstance(value, dict):
+        return (dict(value),) if value else ()
+    if not isinstance(value, (list, tuple)):
+        return ()
+    return tuple(dict(item) for item in value if isinstance(item, dict) and item)
+
+
+def _first_contract_text(*values: Any) -> str:
+    for value in values:
+        text = str(value or "").strip()
+        if text:
+            return text
+    return ""
+
+
+def _task_run_handoff_content(*, contract: dict[str, Any], status_text: str, control_text: str) -> str:
+    goal = _first_contract_text(
+        contract.get("user_visible_goal"),
+        contract.get("task_run_goal"),
+        "我会把这件事继续推进。",
+    )
+    criteria = list(_contract_string_tuple(contract.get("completion_criteria")))[:2]
+    artifacts = [
+        str(item.get("user_visible_name") or item.get("artifact_kind") or item).strip()
+        for item in list(contract.get("required_artifacts") or [])[:2]
+        if isinstance(item, dict)
+    ]
+    verifications = [
+        str(item.get("user_visible_name") or item.get("verification_kind") or item).strip()
+        for item in list(contract.get("required_verifications") or [])[:2]
+        if isinstance(item, dict)
+    ]
+    lines = [f"我会按这个目标推进：{goal}"]
+    scope_parts: list[str] = []
+    if criteria:
+        scope_parts.append("完成标准：" + "；".join(criteria))
+    if artifacts:
+        scope_parts.append("产物：" + "、".join(item for item in artifacts if item))
+    if verifications:
+        scope_parts.append("验证：" + "、".join(item for item in verifications if item))
+    if scope_parts:
+        lines.append("；".join(scope_parts) + "。")
+    lines.append(status_text.strip())
+    if control_text.strip():
+        lines.append(control_text.strip())
+    return "\n".join(line for line in lines if line.strip())
 
 
 

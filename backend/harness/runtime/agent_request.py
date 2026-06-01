@@ -10,6 +10,7 @@ class AgentRunRequest:
     user_message: str
     history: list[dict[str, Any]]
     source: str
+    session_context: dict[str, Any] | None = None
     turn_id: str = ""
     task_id: str = ""
     model_response_executor: Any | None = None

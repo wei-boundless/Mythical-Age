@@ -85,6 +85,7 @@ def _chapter_loop_config():
                         "continue_node_id": "chapter_outline",
                         "exit_node_id": "volume_review",
                         "progress_receipt_key": "chapter_progress_receipt",
+                        "receipt_source_node_ids": ["memory_commit_chapter"],
                         "current_key": "group_current_measure",
                         "target_key": "group_target_measure",
                         "last_metric_key": "last_batch_words",
@@ -172,10 +173,23 @@ def test_chapter_progress_receipt_partial_commit_continues_from_next_missing_cha
     assert state.initial_inputs["batch_chapter_range"] == "001-010"
     assert state.initial_inputs["active_chapter_start_index"] == 4
     assert state.initial_inputs["active_chapter_end_index"] == 10
+    assert state.initial_inputs["active_chapter_count"] == 7
     assert state.initial_inputs["active_chapter_range"] == "004-010"
     assert state.initial_inputs["group_current_measure"] == 6600
     assert state.initial_inputs["total_current_measure"] == 6600
     assert advance.node_work_orders[0].node_id == "chapter_outline"
+
+
+def test_progress_receipt_route_policy_preserves_explicit_receipt_source() -> None:
+    graph_config = _chapter_loop_config()
+    router = next(item for item in graph_config.nodes if item["node_id"] == "chapter_progress_router")
+    route_policy = router["loop"]["route_policy"]
+
+    assert route_policy["mode"] == "progress_receipt"
+    assert route_policy["progress_receipt_key"] == "chapter_progress_receipt"
+    assert route_policy["receipt_source_node_ids"] == ["memory_commit_chapter"]
+    assert "fallback_increment_key" not in route_policy
+    assert "default_increment" not in route_policy
 
 
 def test_chapter_progress_receipt_route_blocks_when_receipt_missing(tmp_path: Path) -> None:
@@ -204,6 +218,79 @@ def test_chapter_progress_receipt_route_blocks_when_receipt_missing(tmp_path: Pa
     assert advance.loop_state.node_states["chapter_progress_router"]["blocked_reason"] == "loop_route_progress_receipt_missing"
     assert advance.loop_state.initial_inputs["chapter_index"] == 1
     assert advance.node_work_orders == ()
+
+
+def test_progress_receipt_route_uses_explicit_source_over_router_output(tmp_path: Path) -> None:
+    runtime = _runtime_with_graph_harness(base_dir=tmp_path / "backend", runtime_root=tmp_path / "runtime_state")
+    graph_config = _chapter_loop_config()
+    loop = runtime.query_runtime.graph_harness.graph_loop
+    started = runtime.query_runtime.graph_harness.start_run(
+        session_id="session",
+        task_id="task.test",
+        graph_config=graph_config,
+        initial_inputs={},
+        dispatch_ready=True,
+    )
+    state = started.loop_state
+    order = started.node_work_orders[0]
+    advance = _accept(loop, graph_config, state, order, {"ok": True})
+    state = advance.loop_state
+    order = advance.node_work_orders[0]
+    advance = _accept(
+        loop,
+        graph_config,
+        state,
+        order,
+        {
+            "chapter_progress_receipt": {
+                "authority": "harness.writing.chapter_progress_receipt",
+                "volume_index": 1,
+                "batch_start_index": 1,
+                "batch_end_index": 10,
+                "expected_chapter_indexes": list(range(1, 11)),
+                "committed_chapter_indexes": [1, 2, 3],
+                "missing_chapter_indexes": [4, 5, 6, 7, 8, 9, 10],
+                "unexpected_chapter_indexes": [],
+                "committed_words": 6600,
+                "next_chapter_index": 4,
+                "batch_complete": False,
+                "volume_complete": False,
+                "commit_allowed": True,
+            }
+        },
+    )
+    state = advance.loop_state
+    order = advance.node_work_orders[0]
+
+    advance = _accept(
+        loop,
+        graph_config,
+        state,
+        order,
+        {
+            "chapter_progress_receipt": {
+                "authority": "harness.writing.chapter_progress_receipt",
+                "volume_index": 1,
+                "batch_start_index": 1,
+                "batch_end_index": 10,
+                "expected_chapter_indexes": list(range(1, 11)),
+                "committed_chapter_indexes": list(range(1, 11)),
+                "missing_chapter_indexes": [],
+                "unexpected_chapter_indexes": [],
+                "committed_words": 22000,
+                "next_chapter_index": 11,
+                "batch_complete": True,
+                "volume_complete": False,
+                "commit_allowed": True,
+            }
+        },
+    )
+
+    assert advance.loop_state.initial_inputs["chapter_index"] == 4
+    assert advance.loop_state.initial_inputs["active_chapter_start_index"] == 4
+    assert advance.loop_state.initial_inputs["active_chapter_end_index"] == 10
+    assert advance.loop_state.initial_inputs["active_chapter_count"] == 7
+    assert advance.loop_state.initial_inputs["active_chapter_range"] == "004-010"
 
 
 def test_memory_commit_node_requires_structured_chapter_progress_receipt(tmp_path: Path) -> None:
@@ -266,5 +353,6 @@ def _chapter_derived_fields() -> list[dict]:
         {"key": "batch_start_index_padded", "op": "format", "template": "{batch_start_index:03d}"},
         {"key": "batch_end_index_padded", "op": "format", "template": "{batch_end_index:03d}"},
         {"key": "batch_chapter_range", "op": "format", "template": "{batch_start_index:03d}-{batch_end_index:03d}"},
+        {"key": "active_chapter_count", "op": "range_count", "start_key": "active_chapter_start_index", "end_key": "active_chapter_end_index"},
         {"key": "active_chapter_range", "op": "format", "template": "{active_chapter_start_index:03d}-{active_chapter_end_index:03d}"},
     ]

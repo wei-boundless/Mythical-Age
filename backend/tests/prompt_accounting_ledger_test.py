@@ -281,7 +281,7 @@ def test_task_execution_packet_places_stable_contract_before_volatile_state() ->
         "task_stable",
         "task_prompt_contract",
         "environment_stable",
-        "runtime_boundary",
+        "dynamic_projection",
         "volatile_task_state",
     ]
     assert [segment.cache_role for segment in segment_map.segments] == [
@@ -289,9 +289,14 @@ def test_task_execution_packet_places_stable_contract_before_volatile_state() ->
         "session_stable",
         "session_stable",
         "session_stable",
-        "session_stable",
+        "volatile",
         "volatile",
     ]
+    assert not any(
+        segment.cache_role in {"cacheable_prefix", "session_stable"}
+        and dict(segment.metadata or {}).get("cache_impact") == "volatile"
+        for segment in segment_map.segments
+    )
     cache_record = PromptCachePlanner().plan(segment_map)
     model_request = ModelRequestBuilder().build(
         request_id="modelreq:task",
@@ -301,7 +306,7 @@ def test_task_execution_packet_places_stable_contract_before_volatile_state() ->
         segment_plan=result.packet.segment_plan,
     )
     assert model_request.stable_prefix_hash == cache_record.prefix_hash
-    assert cache_record.diagnostics["stable_prefix_segment_count"] == 5
+    assert cache_record.diagnostics["stable_prefix_segment_count"] == 4
     assert manifest["token_estimate"]["assembly_prompt_chars"] == manifest["token_estimate"]["prompt_chars"]
     assert manifest["token_estimate"]["model_visible_chars"] == sum(len(message["content"]) for message in messages)
     assert manifest["token_estimate"]["cacheable_prefix_chars"] > manifest["token_estimate"]["assembly_prompt_chars"]
@@ -348,7 +353,8 @@ def test_task_execution_stable_prefix_is_unchanged_across_runtime_state_updates(
 
     first_messages = first.packet.model_messages
     second_messages = second.packet.model_messages
-    assert first_messages[:-1] == second_messages[:-1]
+    assert first_messages[:-2] == second_messages[:-2]
+    assert first_messages[-2] == second_messages[-2]
     assert first_messages[-1] != second_messages[-1]
 
     first_request = ModelRequestBuilder().build(
@@ -440,6 +446,7 @@ def test_runtime_prompt_uses_assembly_projection_not_mode_instruction() -> None:
     assert "当前 runtime 是 role 模式" not in model_input
     assert "本次运行边界" in model_input
     assert "可以请求进入持续处理流程" in model_input
+    assert "每次输出 JSON 时必须填写 public_action_state" not in model_input
     assert "最终完成声明必须基于合同、真实观察、真实产物或验证证据" in model_input
     assert projection["authority"] == "harness.runtime.agent_visible_runtime_projection"
     assert projection["task_lifecycle"]["request_task_run_allowed"] is True
@@ -474,6 +481,23 @@ def test_runtime_projection_blocks_task_run_without_mode_instruction_text() -> N
     assert "可以请求进入持续处理流程" not in model_input
     assert projection["task_lifecycle"]["request_task_run_allowed"] is False
     assert projection["permission_boundary"]["permission_scope"] == "conversation_readonly"
+
+
+def test_task_execution_runtime_projection_requires_public_action_state() -> None:
+    result = RuntimeCompiler().compile_task_execution_packet(
+        session_id="session:task-public-state",
+        task_run={"task_run_id": "taskrun:task-public-state", "diagnostics": {"executor_status": "running"}},
+        contract={"task_run_goal": "验证公开行动状态要求", "completion_criteria": ["完成验证"]},
+        observations=[],
+        runtime_assembly={
+            "profile": {"profile_ref": "main_interactive_agent"},
+            "task_environment": {"environment_id": "env.general.workspace"},
+        },
+    )
+
+    model_input = _model_input_text(result.packet)
+
+    assert "每次输出 JSON 时必须填写 public_action_state" in model_input
 
 
 def _segment_plan(

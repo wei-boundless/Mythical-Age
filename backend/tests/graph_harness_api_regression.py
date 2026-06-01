@@ -946,3 +946,135 @@ def test_graph_harness_config_publication_preserves_formal_node_loop_contract() 
     assert set(loop_contract["route_policy"]).issubset(
         {"scope_id", "continue_node_id", "exit_node_id", "mode", "current_key", "target_key", "patch_rules", "authority"}
     )
+
+
+def test_graph_harness_config_publication_preserves_progress_receipt_route_source() -> None:
+    graph = TaskGraphDefinition(
+        graph_id="graph.test.progress_receipt_route_publication",
+        title="Progress Receipt Route Publication",
+        graph_kind="coordination",
+        publish_state="published",
+        enabled=True,
+        entry_node_id="commit",
+        output_node_id="router",
+        nodes=(
+            TaskGraphNodeDefinition(
+                node_id="commit",
+                node_type="agent",
+                title="Commit",
+                task_id="task.test.commit",
+            ),
+            TaskGraphNodeDefinition(
+                node_id="router",
+                node_type="agent",
+                title="Router",
+                task_id="task.test.router",
+                loop={
+                    "scope_id": "loop.units",
+                    "route_policy": {
+                        "mode": "progress_receipt",
+                        "scope_id": "loop.units",
+                        "continue_node_id": "commit",
+                        "exit_node_id": "done",
+                        "progress_receipt_key": "chapter_progress_receipt",
+                        "receipt_source_node_ids": ["commit"],
+                        "current_key": "done_units",
+                        "target_key": "target_units",
+                    },
+                },
+            ),
+            TaskGraphNodeDefinition(
+                node_id="done",
+                node_type="agent",
+                title="Done",
+                task_id="task.test.done",
+            ),
+        ),
+        edges=(
+            TaskGraphEdgeDefinition(edge_id="edge.commit.router", source_node_id="commit", target_node_id="router"),
+            TaskGraphEdgeDefinition(edge_id="edge.router.done", source_node_id="router", target_node_id="done"),
+        ),
+    )
+
+    config = build_graph_harness_config_from_graph(graph=graph)
+    router = next(item for item in config.nodes if item["node_id"] == "router")
+    route_policy = router["loop"]["route_policy"]
+
+    assert route_policy["mode"] == "progress_receipt"
+    assert route_policy["progress_receipt_key"] == "chapter_progress_receipt"
+    assert route_policy["receipt_source_node_ids"] == ["commit"]
+    assert "fallback_increment_key" not in route_policy
+    assert "default_increment" not in route_policy
+
+
+def test_graph_module_expansion_scopes_progress_receipt_route_source() -> None:
+    child = TaskGraphDefinition(
+        graph_id="graph.test.progress_receipt_child",
+        title="Progress Receipt Child",
+        graph_kind="coordination",
+        publish_state="published",
+        enabled=True,
+        entry_node_id="commit",
+        output_node_id="router",
+        nodes=(
+            TaskGraphNodeDefinition(node_id="commit", node_type="agent", title="Commit", task_id="task.test.commit"),
+            TaskGraphNodeDefinition(
+                node_id="router",
+                node_type="agent",
+                title="Router",
+                task_id="task.test.router",
+                loop={
+                    "scope_id": "loop.units",
+                    "route_policy": {
+                        "mode": "progress_receipt",
+                        "scope_id": "loop.units",
+                        "continue_node_id": "commit",
+                        "exit_node_id": "done",
+                        "progress_receipt_key": "chapter_progress_receipt",
+                        "receipt_source_node_ids": ["commit"],
+                    },
+                },
+            ),
+            TaskGraphNodeDefinition(node_id="done", node_type="agent", title="Done", task_id="task.test.done"),
+        ),
+        edges=(
+            TaskGraphEdgeDefinition(edge_id="edge.commit.router", source_node_id="commit", target_node_id="router"),
+            TaskGraphEdgeDefinition(edge_id="edge.router.done", source_node_id="router", target_node_id="done"),
+        ),
+    )
+    parent = TaskGraphDefinition(
+        graph_id="graph.test.progress_receipt_parent",
+        title="Progress Receipt Parent",
+        graph_kind="coordination",
+        publish_state="published",
+        enabled=True,
+        entry_node_id="module.child",
+        output_node_id="module.child",
+        nodes=(
+            TaskGraphNodeDefinition(
+                node_id="module.child",
+                node_type="graph_module",
+                title="Child",
+                executor_policy={
+                    "default_executor": "graph_module",
+                    "linked_graph_id": child.graph_id,
+                },
+                metadata={
+                    "graph_module": True,
+                    "linked_graph_id": child.graph_id,
+                    "composition_scope_prefix": "module.child::",
+                },
+            ),
+        ),
+    )
+
+    config = build_graph_harness_config_from_graph(
+        graph=parent,
+        graph_lookup={child.graph_id: child},
+    )
+    router = next(item for item in config.nodes if item["node_id"] == "module.child::router")
+    route_policy = router["loop"]["route_policy"]
+
+    assert route_policy["continue_node_id"] == "module.child::commit"
+    assert route_policy["exit_node_id"] == "module.child::done"
+    assert route_policy["receipt_source_node_ids"] == ["module.child::commit"]

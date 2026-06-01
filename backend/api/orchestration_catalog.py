@@ -25,7 +25,6 @@ router = APIRouter()
 class BehaviorDryRunRequest(BaseModel):
     session_id: str
     message: str = Field(..., min_length=1)
-    ephemeral_system_messages: list[str] = Field(default_factory=list)
     explicit_subtasks: list[dict[str, Any]] = Field(default_factory=list)
 
 
@@ -320,7 +319,6 @@ async def orchestration_dry_run(payload: BehaviorDryRunRequest) -> dict[str, Any
             session_id=payload.session_id,
             user_goal=payload.message,
             inputs={
-                "ephemeral_system_message_count": len(payload.ephemeral_system_messages),
                 "explicit_subtask_count": len(payload.explicit_subtasks),
             },
         )

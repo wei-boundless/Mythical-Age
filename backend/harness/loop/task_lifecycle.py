@@ -430,9 +430,10 @@ def _runtime_task_selection_from_contract(
 
 
 def _task_lifecycle_origin(*, action_request: ModelActionRequest, turn_id: str) -> dict[str, str]:
+    diagnostics = dict(action_request.diagnostics or {})
     return {
-        "origin_kind": "agent_requested",
-        "origin_authority": "harness.agent_loop",
+        "origin_kind": str(diagnostics.get("origin_kind") or "agent_requested"),
+        "origin_authority": str(diagnostics.get("origin_authority") or "harness.agent_loop"),
         "origin_ref": str(action_request.request_id or ""),
         "parent_run_ref": str(turn_id or ""),
     }

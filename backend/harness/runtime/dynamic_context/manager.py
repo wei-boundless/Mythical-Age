@@ -54,6 +54,7 @@ class DynamicContextManager:
         history_projection = self.history_projector.project(
             request.history,
             current_user_message=request.current_user_message,
+            session_context=request.session_context,
             projection_policy=request.projection_policy,
         )
         work_history_projection = self.work_history_projector.project(

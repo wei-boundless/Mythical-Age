@@ -23,13 +23,78 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 TERMINAL_STREAM_EVENTS = {"done", "error", "stopped"}
 TERMINAL_RUN_STATUSES = {"completed", "failed", "stopped", "orphaned"}
+INTERNAL_STREAM_EVENTS = {
+    "debug",
+    "runtime_assembly_compiled",
+    "runtime_assembly_bound",
+    "runtime_invocation_packet",
+}
+INTERNAL_PUBLIC_DATA_KEYS = {
+    "runtime_assembly",
+    "compilation",
+    "model_messages",
+    "messages",
+    "prompt_manifest",
+    "segment_plan",
+    "operation_authorization",
+}
+PUBLIC_EVENT_DATA_ALLOWLIST = {
+    "chat_run_started": {"status"},
+    "input_commit_gate": {"status", "message_ref"},
+    "turn_route_decided": {"turn_route"},
+    "plain_conversation_started": {"turn_route"},
+    "assistant_message_committed": {
+        "answer_channel",
+        "answer_source",
+        "answer_canonical_state",
+    },
+    "harness_run_started": {"task_run", "turn_run", "event"},
+    "runtime_step_summary": {
+        "step",
+        "status",
+        "summary",
+        "public_progress_note",
+        "agent_brief_output",
+        "current_judgment",
+        "next_action",
+        "completion_status",
+        "presentation_source",
+        "event",
+    },
+    "model_action_request": {"event"},
+    "model_action_admission": {"event"},
+    "bounded_observation": {"event"},
+    "registered_engagement": {"event"},
+    "task_run_lifecycle_started": {"event"},
+    "task_run_lifecycle_event": {"event"},
+    "agent_turn_terminal": {"event"},
+    "retrieval": {"results"},
+    "output_boundary": {"boundary", "summary", "artifacts"},
+    "answer_candidate": {"content"},
+    "token": {"content"},
+    "content_delta": {"content"},
+    "done": {
+        "content",
+        "image",
+        "artifacts",
+        "files",
+        "paths",
+        "completion_state",
+        "receipt_summary",
+        "summary",
+        "message",
+        "answer_source",
+        "terminal_reason",
+    },
+    "error": {"content", "error", "code", "reason"},
+    "stopped": {"reason", "content"},
+}
 
 
 class ChatRequest(BaseModel):
     message: str = Field(..., min_length=1)
     session_id: str
     stream: bool = True
-    ephemeral_system_messages: list[str] = Field(default_factory=list)
     explicit_subtasks: list[dict[str, Any]] = Field(default_factory=list)
     search_policy: list[str] | None = None
     soul_id: str = ""
@@ -156,7 +221,6 @@ def _query_request_from_payload(payload: ChatRequest, *, session_id: str) -> Que
     return QueryRequest(
         session_id=session_id,
         message=payload.message,
-        ephemeral_system_messages=list(payload.ephemeral_system_messages or []),
         explicit_subtasks=list(payload.explicit_subtasks or []),
         search_policy=list(payload.search_policy) if payload.search_policy is not None else None,
         soul_id=str(payload.soul_id or ""),
@@ -195,16 +259,17 @@ async def _run_chat_to_event_log(runtime: Any, run: RuntimeRun, request: QueryRe
         current = registry.mark_event(current, latest_event_offset=start_event.offset, status="running")
         async for event in runtime.query_runtime.astream(request):
             event_type = str(event.get("type", "message") or "message")
-            data = {key: value for key, value in dict(event).items() if key != "type"}
             runtime_refs = _runtime_run_refs_from_event(event)
             runtime_task_run_id = runtime_refs["task_run_id"]
             runtime_turn_run_id = runtime_refs["turn_run_id"]
+            projection = _project_public_stream_event(event_type, event)
+            if projection is None:
+                continue
+            public_event_type, data = projection
             if runtime_task_run_id:
                 data.setdefault("runtime_task_run_id", runtime_task_run_id)
-            if runtime_turn_run_id:
-                data.setdefault("runtime_turn_run_id", runtime_turn_run_id)
-            logged = replay.append_public_event(current, public_event_type=event_type, data=data)
-            terminal_event = event_type if event_type in TERMINAL_STREAM_EVENTS else terminal_event
+            logged = replay.append_public_event(current, public_event_type=public_event_type, data=data)
+            terminal_event = public_event_type if public_event_type in TERMINAL_STREAM_EVENTS else terminal_event
             diagnostics = {
                 key: value
                 for key, value in {
@@ -216,11 +281,11 @@ async def _run_chat_to_event_log(runtime: Any, run: RuntimeRun, request: QueryRe
             current = registry.mark_event(
                 current,
                 latest_event_offset=logged.offset,
-                status=_status_for_public_event(event_type),
-                terminal_event=event_type if event_type in TERMINAL_STREAM_EVENTS else "",
+                status=_status_for_public_event(public_event_type),
+                terminal_event=public_event_type if public_event_type in TERMINAL_STREAM_EVENTS else "",
                 diagnostics=diagnostics or None,
             )
-            if event_type in TERMINAL_STREAM_EVENTS:
+            if public_event_type in TERMINAL_STREAM_EVENTS:
                 break
     except asyncio.CancelledError:
         logger.info("Chat run background task was cancelled.", extra={"stream_run_id": run.stream_run_id})
@@ -350,6 +415,58 @@ def _status_for_public_event(event_type: str) -> str:
     if event_type == "stopped":
         return "stopped"
     return "running"
+
+
+def _project_public_stream_event(event_type: str, event: dict[str, Any]) -> tuple[str, dict[str, Any]] | None:
+    normalized = str(event_type or "message").strip() or "message"
+    if normalized in INTERNAL_STREAM_EVENTS:
+        return None
+    if normalized == "harness_run_started" and _is_turn_trace_only_harness_start(event):
+        return None
+    raw_data = {key: value for key, value in dict(event).items() if key != "type"}
+    allowed = PUBLIC_EVENT_DATA_ALLOWLIST.get(normalized)
+    if allowed is None:
+        data = {
+            key: value
+            for key, value in raw_data.items()
+            if key not in INTERNAL_PUBLIC_DATA_KEYS
+        }
+    else:
+        data = {key: raw_data[key] for key in allowed if key in raw_data}
+    data = _redact_public_stream_data(data)
+    if normalized == "turn_route_decided":
+        route = dict(data.get("turn_route") or {})
+        data["turn_route"] = _public_turn_route(route)
+    elif normalized == "plain_conversation_started":
+        route = dict(data.get("turn_route") or {})
+        data = {"turn_route": _public_turn_route(route)}
+    return normalized, data
+
+
+def _is_turn_trace_only_harness_start(event: dict[str, Any]) -> bool:
+    refs = _runtime_run_refs_from_event(event)
+    return bool(refs["turn_run_id"]) and not bool(refs["task_run_id"])
+
+
+def _public_turn_route(route: dict[str, Any]) -> dict[str, Any]:
+    return {
+        key: route.get(key)
+        for key in ("route_kind", "reason")
+        if key in route
+    }
+
+
+def _redact_public_stream_data(value: Any) -> Any:
+    if isinstance(value, dict):
+        redacted: dict[str, Any] = {}
+        for key, item in value.items():
+            if str(key) in INTERNAL_PUBLIC_DATA_KEYS:
+                continue
+            redacted[str(key)] = _redact_public_stream_data(item)
+        return redacted
+    if isinstance(value, list):
+        return [_redact_public_stream_data(item) for item in value]
+    return value
 
 
 def _runtime_run_refs_from_event(event: dict[str, Any]) -> dict[str, str]:

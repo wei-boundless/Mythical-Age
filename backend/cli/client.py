@@ -132,7 +132,6 @@ class AgentCliClient:
             "session_id": session_id,
             "message": message,
             "stream": True,
-            "ephemeral_system_messages": [],
             "task_selection": {},
             "model_selection": {},
             "image_generation": {},
