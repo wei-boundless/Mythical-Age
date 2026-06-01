@@ -4,6 +4,7 @@ import { ArrowUp, BrainCircuit, Lightbulb, Square } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import type { ModelProviderConfig, SoulImageAssetConfig } from "@/lib/api";
+import type { ChatThinkingMode } from "@/lib/store/types";
 
 export function ChatInput({
   disabled,
@@ -13,8 +14,8 @@ export function ChatInput({
   onSend,
   onStop,
   onSelectChatModel,
-  onToggleThinking,
-  thinkingEnabled,
+  onSelectThinkingMode,
+  chatThinkingMode,
   selectedChatModelId,
 }: {
   disabled: boolean;
@@ -24,8 +25,8 @@ export function ChatInput({
   onSend: (value: string) => Promise<void>;
   onStop: () => void;
   onSelectChatModel: (selectionId: string) => void;
-  onToggleThinking: (enabled: boolean) => void;
-  thinkingEnabled: boolean;
+  onSelectThinkingMode: (mode: ChatThinkingMode) => void;
+  chatThinkingMode: ChatThinkingMode;
   selectedChatModelId: string;
 }) {
   const [value, setValue] = useState("");
@@ -94,17 +95,22 @@ export function ChatInput({
               </select>
             </label>
             {showThinkingToggle ? (
-              <button
-                aria-label="隐藏推理模式"
-                aria-pressed={thinkingEnabled}
-                className={thinkingEnabled ? "chat-thinking-toggle chat-thinking-toggle--active" : "chat-thinking-toggle"}
-                disabled={inputDisabled}
-                onClick={() => onToggleThinking(!thinkingEnabled)}
-                title="隐藏推理模式"
-                type="button"
-              >
-                <Lightbulb size={15} />
-              </button>
+              <div aria-label="推理模式" className="chat-thinking-segment" role="group">
+                {THINKING_MODE_OPTIONS.map((option) => (
+                  <button
+                    aria-pressed={chatThinkingMode === option.value}
+                    className={chatThinkingMode === option.value ? "chat-thinking-segment__item chat-thinking-segment__item--active" : "chat-thinking-segment__item"}
+                    disabled={inputDisabled}
+                    key={option.value}
+                    onClick={() => onSelectThinkingMode(option.value)}
+                    title={option.title}
+                    type="button"
+                  >
+                    {option.value === "normal" ? null : <Lightbulb size={13} />}
+                    <span>{option.label}</span>
+                  </button>
+                ))}
+              </div>
             ) : null}
           </div>
         </div>
@@ -183,6 +189,12 @@ function resolveActiveChatModel(selectionId: string, config: ModelProviderConfig
   const model = modelParts.join("::").trim();
   return normalizedProvider && model ? { provider: normalizedProvider, model } : null;
 }
+
+const THINKING_MODE_OPTIONS: Array<{ value: ChatThinkingMode; label: string; title: string }> = [
+  { value: "normal", label: "普通", title: "关闭 Thinking" },
+  { value: "thinking", label: "Thinking", title: "开启 Thinking，reasoning_effort=high" },
+  { value: "max", label: "Max", title: "开启 Thinking，reasoning_effort=max" },
+];
 
 function supportsHiddenReasoning(provider: string, model: string, config: ModelProviderConfig | null) {
   const normalizedProvider = provider.trim().toLowerCase();

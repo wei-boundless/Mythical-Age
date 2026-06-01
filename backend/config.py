@@ -18,7 +18,7 @@ LLM_PROVIDER_DEFAULTS: dict[str, dict[str, Any]] = {
         "base_url": "https://api.deepseek.com/v1",
         "adapter": "deepseek_langchain",
         "credential_envs": ("DEEPSEEK_API_KEY", "LLM_API_KEY"),
-        "model_presets": ("deepseek-v4-pro", "deepseek-v4-flash", "deepseek-chat"),
+        "model_presets": ("deepseek-v4-pro", "deepseek-v4-flash"),
         "capability_tags": ("long_output", "reasoning", "openai_compatible", "tool_calling"),
         "recommended": True,
     },

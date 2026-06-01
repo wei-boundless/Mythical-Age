@@ -146,6 +146,7 @@ export type ChatModelSelection = {
 };
 
 export type ChatMode = "chat" | "image";
+export type ChatThinkingMode = "normal" | "thinking" | "max";
 
 export type MemoryInspectorTarget = {
   source: "manual";
@@ -234,7 +235,7 @@ export type StoreState = {
   soulImageAssetConfig: SoulImageAssetConfig | null;
   selectedChatModelId: string;
   selectedChatMode: ChatMode;
-  thinkingEnabled: boolean;
+  chatThinkingMode: ChatThinkingMode;
   skills: SkillSummary[];
   soulOptions: SoulSummary[];
   activeSoulKey: SoulKey | null;
@@ -288,7 +289,7 @@ export type StoreActions = {
   toggleSearchPolicySource: (source: SearchPolicySource) => void;
   setSelectedChatModel: (selectionId: string) => void;
   setSelectedChatMode: (mode: ChatMode) => void;
-  setThinkingEnabled: (enabled: boolean) => void;
+  setChatThinkingMode: (mode: ChatThinkingMode) => void;
   switchSoul: (key: SoulKey) => Promise<void>;
   renameCurrentSession: (title: string) => Promise<void>;
   removeSession: (sessionId: string) => Promise<void>;

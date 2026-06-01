@@ -7427,6 +7427,51 @@ button:hover {
   opacity: 0.58;
 }
 
+.chat-thinking-segment {
+  display: inline-grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(3.2rem, auto);
+  align-items: center;
+  border: 1px solid var(--color-border);
+  border-radius: 7px;
+  background: #fff;
+  padding: 0.16rem;
+}
+
+.chat-thinking-segment__item {
+  display: inline-flex;
+  min-width: 0;
+  height: 1.72rem;
+  align-items: center;
+  justify-content: center;
+  gap: 0.24rem;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--color-text-soft);
+  cursor: pointer;
+  font-size: 0.68rem;
+  font-weight: 750;
+  transition: background 160ms ease, color 160ms ease, box-shadow 160ms ease;
+}
+
+.chat-thinking-segment__item:hover:not(:disabled),
+.chat-thinking-segment__item:focus-visible {
+  color: var(--color-text);
+  outline: none;
+}
+
+.chat-thinking-segment__item--active {
+  background: color-mix(in srgb, var(--workspace-tone-ink) 10%, #fff);
+  color: var(--workspace-tone-ink);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--workspace-tone-ink) 16%, transparent);
+}
+
+.chat-thinking-segment__item:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
 .chat-input-panel__actions {
   display: inline-flex;
   flex-wrap: wrap;
@@ -34390,7 +34435,8 @@ html[data-workspace-tone] .agent-workbench {
 .agent-workbench .chat-model-select,
 .agent-workbench .chat-mode-select,
 .agent-workbench .chat-search-policy__item,
-.agent-workbench .chat-thinking-toggle {
+.agent-workbench .chat-thinking-toggle,
+.agent-workbench .chat-thinking-segment {
   min-height: 30px;
   border-color: rgba(15, 23, 42, 0.12);
   border-radius: 7px;
@@ -34480,7 +34526,10 @@ html[data-workspace-tone] .agent-workbench {
 .agent-workbench .chat-search-policy__item--active,
 .agent-workbench .chat-thinking-toggle:hover:not(:disabled),
 .agent-workbench .chat-thinking-toggle:focus-visible,
-.agent-workbench .chat-thinking-toggle--active {
+.agent-workbench .chat-thinking-toggle--active,
+.agent-workbench .chat-thinking-segment__item:hover:not(:disabled),
+.agent-workbench .chat-thinking-segment__item:focus-visible,
+.agent-workbench .chat-thinking-segment__item--active {
   border-color: #b8c7e4;
   background: #eef4ff;
   color: #2559c7;

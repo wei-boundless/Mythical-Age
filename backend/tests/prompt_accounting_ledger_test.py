@@ -417,14 +417,14 @@ def test_model_request_and_segment_map_canonical_hash_ignore_diagnostic_metadata
         request_id="modelreq:canonical:1",
         messages=messages,
         provider="deepseek",
-        model="deepseek-chat",
+        model="deepseek-v4-pro",
         metadata={"prompt_manifest": {"context_window": {"compressed_summary_hash": "sha256:a"}}},
     )
     second_request = ModelRequestBuilder().build(
         request_id="modelreq:canonical:2",
         messages=messages,
         provider="deepseek",
-        model="deepseek-chat",
+        model="deepseek-v4-pro",
         metadata={"prompt_manifest": {"context_window": {"compressed_summary_hash": "sha256:b"}}},
     )
     serializer = CanonicalPromptSerializer()
@@ -432,14 +432,14 @@ def test_model_request_and_segment_map_canonical_hash_ignore_diagnostic_metadata
         request_id="modelreq:canonical:1",
         messages=messages,
         provider="deepseek",
-        model="deepseek-chat",
+        model="deepseek-v4-pro",
         metadata={"prompt_manifest": {"context_window": {"compressed_summary_hash": "sha256:a"}}},
     )
     second_map = serializer.build_segment_map(
         request_id="modelreq:canonical:2",
         messages=messages,
         provider="deepseek",
-        model="deepseek-chat",
+        model="deepseek-v4-pro",
         metadata={"prompt_manifest": {"context_window": {"compressed_summary_hash": "sha256:b"}}},
     )
 

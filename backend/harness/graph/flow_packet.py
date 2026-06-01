@@ -5,7 +5,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
-from .models import GraphHarnessConfig, GraphLoopState, NodeResultEnvelope, safe_id
+from .models import GraphHarnessConfig, GraphLoopState, NodeResultEnvelope, safe_id, stable_safe_id
 
 
 FLOW_PACKET_AUTHORITY = "harness.graph_flow_packet"
@@ -163,7 +163,7 @@ def build_flow_packet(
     metadata = dict(edge.get("metadata") or {})
     delivery_policy = _delivery_policy(edge)
     return FlowPacket(
-        packet_id=f"flowpkt:{safe_id(state.graph_run_id)}:{safe_id(edge_id)}:{safe_id(result.result_id)}",
+        packet_id=f"flowpkt:{stable_safe_id(state.graph_run_id)}:{stable_safe_id(edge_id)}:{stable_safe_id(result.result_id)}",
         packet_type=_packet_type(edge),
         graph_run_id=state.graph_run_id,
         task_run_id=state.task_run_id,
@@ -218,7 +218,7 @@ def flow_packet_inbound_projection(packet: FlowPacket, *, packet_ref: str = "") 
     return {
         "authority": "harness.graph.inbound_context",
         "packet_authority": packet.authority,
-        "context_id": f"ginctx:{safe_id(packet.graph_run_id)}:{safe_id(packet.edge_id)}:{safe_id(packet.packet_id)}",
+        "context_id": f"ginctx:{stable_safe_id(packet.graph_run_id)}:{stable_safe_id(packet.edge_id)}:{stable_safe_id(packet.packet_id)}",
         "packet_id": packet.packet_id,
         "packet_ref": packet_ref,
         "packet_type": packet.packet_type,

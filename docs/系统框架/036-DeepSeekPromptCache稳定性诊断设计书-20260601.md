@@ -10,6 +10,8 @@
 
 ## 2. 外部参考结论
 
+DeepSeek 当前官方 API 主模型入口是 `deepseek-v4-pro` / `deepseek-v4-flash`；二者支持 1M 上下文和最大 384K 输出。`deepseek-chat` / `deepseek-reasoner` 仅为兼容别名并将废弃，不应作为项目默认或 preset。Thinking 模式的 `reasoning_effort` 支持 `high` / `max`；系统默认保持 `high`，前端提供 `Max` 作为显式强推理档。
+
 Codex 的成熟做法是把请求缓存身份与上下文窗口代际分开：`prompt_cache_key` 默认绑定 thread，会被普通请求和 compact 请求复用；`window_generation/current_window_id` 用于标识当前上下文窗口。压缩是替换 history 的运行时事件，不是把摘要伪装成普通 assistant 历史消息。
 
 Claude Code 的成熟做法是把系统 prompt section 默认 memoize，只有显式标记的动态 section 才允许每轮重算；同时对会影响 prompt cache 的 TTL、beta header、mode header 做 session latch，避免中途开关破坏服务端缓存。它的上下文处理顺序也清楚：compact boundary 后，先做 tool result budget replacement，再 microcompact，再 collapse/autocompact。

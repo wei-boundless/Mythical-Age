@@ -56,12 +56,12 @@ CONTEXT_BUDGET_PRESETS: tuple[ContextBudgetPreset, ...] = (
     ContextBudgetPreset(
         preset_id="deepseek_1m",
         title="DeepSeek 1M 档",
-        model_hint="1M 上下文模型",
+        model_hint="deepseek-v4-pro / deepseek-v4-flash",
         context_window_tokens=1_000_000,
         available_context_tokens=900_000,
         reserved_output_tokens=64_000,
         long_term_token_cap=120_000,
-        description="当前推荐档位。为 1M 窗口保留输出和安全余量，压缩阈值大幅后移。",
+        description="默认 DeepSeek V4 档。匹配 V4 Pro/Flash 的 1M 上下文窗口，为输出和安全余量预留空间；预算上限不代表每轮都会装满。",
     ),
 )
 

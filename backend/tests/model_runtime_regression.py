@@ -1147,7 +1147,7 @@ def test_model_runtime_records_prompt_stability_report_and_provider_usage(tmp_pa
     runtime = _runtime(retries=0)
     ledger = PromptAccountingLedger(tmp_path)
     runtime.attach_prompt_accounting_ledger(ledger)
-    spec = ModelSpec(provider="deepseek", model="deepseek-chat", api_key="key", base_url="https://api.deepseek.com/v1")
+    spec = ModelSpec(provider="deepseek", model="deepseek-v4-pro", api_key="key", base_url="https://api.deepseek.com/v1")
     first_messages = [
         {"role": "system", "content": "stable runtime"},
         {"role": "system", "content": "stable contract A"},
@@ -1314,7 +1314,7 @@ def test_model_runtime_prompt_stability_detects_dynamic_param_change(tmp_path: P
         tools=None,
         spec=ModelSpec(
             provider="deepseek",
-            model="deepseek-chat",
+            model="deepseek-v4-pro",
             api_key="key",
             base_url="https://api.deepseek.com/v1",
             temperature=0.0,
@@ -1333,7 +1333,7 @@ def test_model_runtime_prompt_stability_detects_dynamic_param_change(tmp_path: P
         tools=None,
         spec=ModelSpec(
             provider="deepseek",
-            model="deepseek-chat",
+            model="deepseek-v4-pro",
             api_key="key",
             base_url="https://api.deepseek.com/v1",
             temperature=0.7,
@@ -1395,7 +1395,7 @@ def test_model_runtime_prompt_stability_ignores_client_only_timeout_changes(tmp_
         tools=None,
         spec=ModelSpec(
             provider="deepseek",
-            model="deepseek-chat",
+            model="deepseek-v4-pro",
             api_key="key",
             base_url="https://api.deepseek.com/v1",
             timeout_seconds=10,
@@ -1415,7 +1415,7 @@ def test_model_runtime_prompt_stability_ignores_client_only_timeout_changes(tmp_
         tools=None,
         spec=ModelSpec(
             provider="deepseek",
-            model="deepseek-chat",
+            model="deepseek-v4-pro",
             api_key="key",
             base_url="https://api.deepseek.com/v1",
             timeout_seconds=30,
@@ -1476,7 +1476,7 @@ def test_model_runtime_prompt_stability_records_tool_call_options(tmp_path: Path
             },
         ],
     ).to_dict()
-    spec = ModelSpec(provider="deepseek", model="deepseek-chat", api_key="key", base_url="https://api.deepseek.com/v1")
+    spec = ModelSpec(provider="deepseek", model="deepseek-v4-pro", api_key="key", base_url="https://api.deepseek.com/v1")
 
     runtime._begin_prompt_accounting(
         messages,
@@ -1552,7 +1552,7 @@ def test_model_runtime_prompt_stability_compares_same_session_across_runs(tmp_pa
             },
         ],
     ).to_dict()
-    spec = ModelSpec(provider="deepseek", model="deepseek-chat", api_key="key", base_url="https://api.deepseek.com/v1")
+    spec = ModelSpec(provider="deepseek", model="deepseek-v4-pro", api_key="key", base_url="https://api.deepseek.com/v1")
 
     runtime._begin_prompt_accounting(
         messages,
@@ -1623,7 +1623,7 @@ def test_model_runtime_prompt_stability_records_context_window_facts(tmp_path: P
     runtime._begin_prompt_accounting(
         messages,
         tools=None,
-        spec=ModelSpec(provider="deepseek", model="deepseek-chat", api_key="key", base_url="https://api.deepseek.com/v1"),
+        spec=ModelSpec(provider="deepseek", model="deepseek-v4-pro", api_key="key", base_url="https://api.deepseek.com/v1"),
         accounting_context={
             "request_id": "modelreq:context-window-stability:1",
             "session_id": "session:context-window-stability",
@@ -1675,7 +1675,7 @@ def test_model_runtime_prompt_stability_keeps_deepseek_thinking_tool_choice(tmp_
     }
     spec = ModelSpec(
         provider="deepseek",
-        model="deepseek-chat",
+        model="deepseek-v4-pro",
         api_key="key",
         base_url="https://api.deepseek.com/v1",
         thinking_mode="enabled",
@@ -1728,7 +1728,7 @@ def test_model_runtime_prompt_stability_keeps_global_deepseek_thinking_tool_choi
         tools=[tool],
         spec=ModelSpec(
             provider="deepseek",
-            model="deepseek-chat",
+            model="deepseek-v4-pro",
             api_key="key",
             base_url="https://api.deepseek.com/v1",
         ),

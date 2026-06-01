@@ -11,7 +11,7 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 from harness import AgentHarness, GraphHarness
-from harness.graph.models import NodeResultEnvelope
+from harness.graph.models import NodeResultEnvelope, stable_safe_id
 from harness.loop.task_executor import recover_interrupted_task_executors
 from runtime.shared.models import TaskRun
 from query import QueryRuntime
@@ -1333,6 +1333,12 @@ def test_graph_node_result_refs_remain_unique_for_long_retry_ids() -> None:
     assert first_ref != second_ref
     assert _runtime_object_payload(runtime, first_ref)["status"] == "blocked"
     assert _runtime_object_payload(runtime, second_ref)["status"] == "completed"
+
+
+def test_graph_runtime_object_safe_ids_include_stable_hash_for_normalized_collisions() -> None:
+    assert stable_safe_id("node:a") != stable_safe_id("node/a")
+    assert stable_safe_id("node:a").startswith("node_a_")
+    assert stable_safe_id("node/a").startswith("node_a_")
 
 
 def test_graph_resume_does_not_requeue_nonrecoverable_blocked_node() -> None:

@@ -25,8 +25,8 @@ export function ChatPanel() {
     workspaceInitializing,
     modelProviderConfig,
     soulImageAssetConfig,
-    thinkingEnabled,
-    setThinkingEnabled,
+    chatThinkingMode,
+    setChatThinkingMode,
     selectedChatModelId,
     setSelectedChatModel,
     searchPolicy,
@@ -143,8 +143,8 @@ export function ChatPanel() {
           soulImageAssetConfig={soulImageAssetConfig}
           onSelectChatModel={setSelectedChatModel}
           selectedChatModelId={selectedChatModelId}
-          thinkingEnabled={thinkingEnabled}
-          onToggleThinking={setThinkingEnabled}
+          chatThinkingMode={chatThinkingMode}
+          onSelectThinkingMode={setChatThinkingMode}
         />
       </div>
     </section>

@@ -27,6 +27,18 @@ RUNTIME_PLAIN_CONVERSATION_PROMPT = """
 """.strip()
 
 
+RUNTIME_SINGLE_AGENT_TURN_PROMPT = """
+你是当前会话的主 agent。系统已经为你装配本轮可见上下文、任务环境、权限边界和可用动作；你负责理解用户当前请求并选择最合适的下一步。
+如果可以直接回答，应直接自然回答用户，不要开启任务。
+如果目标需要真实交付物、文件写入、命令验证、浏览器验证、长期执行、失败恢复或多步骤验收，可以调用 request_task_run。
+如果当前有正在进行或可继续的工作，系统会提供 active_work_context；你需要判断用户这句话是否要控制、补充或询问当前工作。无关聊天应正常回答，不要被当前工作劫持。
+如果需要控制当前工作，可以调用 active_work_control；补充要求必须作为新增指令记录，不能覆盖原合同。
+如果缺少必要信息，可以询问用户。
+如果请求越界、权限不足或无法继续，应说明阻塞原因。
+不要暴露隐藏推理、内部编号、runtime packet、task id 或系统协议。用户可见内容只描述结果、进展、问题或阻塞原因。
+""".strip()
+
+
 RUNTIME_TASK_EXECUTION_PROMPT = """
 你是持续任务生命周期中的执行 agent。你正在执行一个已建立的任务合同。
 你的职责是按合同真实推进工作：必要时调用工具创建或修改交付物，记录可验证证据，最后只在合同满足时给出完成答复。
@@ -94,6 +106,13 @@ def list_builtin_runtime_prompt_resources() -> tuple[PromptResource, ...]:
             invocation_kind="plain_conversation",
         ),
         _runtime_resource(
+            prompt_id="runtime.single_agent_turn.v1",
+            subtype="single_agent_turn",
+            title="Single agent turn protocol",
+            content=RUNTIME_SINGLE_AGENT_TURN_PROMPT,
+            invocation_kind="single_agent_turn",
+        ),
+        _runtime_resource(
             prompt_id="runtime.task_execution.v1",
             subtype="task_execution",
             title="Task execution protocol",
@@ -134,6 +153,13 @@ def list_builtin_prompt_packs() -> tuple[PromptPack, ...]:
             cache_scope="static",
         ),
         PromptPack(
+            pack_id="runtime.pack.single_agent_turn.v1",
+            invocation_kind="single_agent_turn",
+            ordered_prompt_refs=("runtime.single_agent_turn.v1",),
+            title="Single agent turn runtime pack",
+            cache_scope="static",
+        ),
+        PromptPack(
             pack_id="runtime.pack.task_execution.v1",
             invocation_kind="task_execution",
             ordered_prompt_refs=("runtime.task_execution.v1",),
@@ -160,6 +186,7 @@ def list_builtin_prompt_packs() -> tuple[PromptPack, ...]:
 def default_pack_ref_for_invocation(invocation_kind: str) -> str:
     mapping = {
         "plain_conversation": "runtime.pack.plain_conversation.v1",
+        "single_agent_turn": "runtime.pack.single_agent_turn.v1",
         "turn_action": "runtime.pack.turn_action.v1",
         "task_execution": "runtime.pack.task_execution.v1",
         "tool_observation_followup": "runtime.pack.observation_followup.v1",

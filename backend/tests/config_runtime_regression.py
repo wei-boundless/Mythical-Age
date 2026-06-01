@@ -492,7 +492,7 @@ def test_provider_specific_llm_model_takes_precedence_over_global_model(monkeypa
 
 def test_provider_specific_fallback_model_takes_precedence_over_global_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("LLM_PROVIDER", "deepseek")
-    monkeypatch.setenv("DEEPSEEK_MODEL", "deepseek-chat")
+    monkeypatch.setenv("DEEPSEEK_MODEL", "deepseek-v4-flash")
     monkeypatch.setenv("LLM_FALLBACK_PROVIDER", "bailian")
     monkeypatch.setenv("LLM_FALLBACK_MODEL", "glm-5")
     monkeypatch.setenv("BAILIAN_MODEL", "qwen3.5-plus")
@@ -511,7 +511,7 @@ def test_runtime_override_exposes_llm_fallback(monkeypatch: pytest.MonkeyPatch, 
 {
   "model_provider": {
     "provider": "deepseek",
-    "model": "deepseek-chat",
+    "model": "deepseek-v4-pro",
     "base_url": "https://api.deepseek.com",
     "api_key": "primary-key",
     "fallback_provider": "bailian",
@@ -682,14 +682,15 @@ def test_runtime_config_console_includes_long_output_fields(monkeypatch: pytest.
     assert field_map["llm_reasoning_effort"]["options"] == ["high", "max"]
 
 
-def test_repo_default_runtime_config_prefers_deepseek_pro_long_output_defaults() -> None:
+def test_repo_default_runtime_config_uses_deepseek_1m_context_with_conservative_model_defaults() -> None:
     import json
 
     payload = json.loads((BACKEND_DIR / "config.json").read_text(encoding="utf-8"))
 
     assert payload["model_provider"]["provider"] == "deepseek"
-    assert payload["model_provider"]["model"] == "deepseek-v4-pro"
+    assert payload["model_provider"]["model"] == "deepseek-v4-flash"
     assert payload["model_provider"]["base_url"] == "https://api.deepseek.com/v1"
+    assert payload["context_budget_preset"] == "deepseek_1m"
 
     runtime = payload["system_config"]["runtime"]
     assert runtime["llm_max_output_tokens"] == 65536

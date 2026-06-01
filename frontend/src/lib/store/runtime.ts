@@ -45,7 +45,7 @@ import {
 import { createIdleSessionActivity, type Store } from "./core";
 import { reduceStreamEvent, startStreamingTurn, type StreamSession } from "./events";
 import { RuntimeMonitorController } from "../runtime-monitor/controller";
-import type { CenterWorkspaceTarget, ChatMode, ChatModelSelection, ChatTaskEnvironmentBinding, Message, RuntimeProgressEntry, SearchPolicySource, StoreActions, StoreState, TaskGraphMonitorBinding, TaskSelectionState, WorkspaceView } from "./types";
+import type { CenterWorkspaceTarget, ChatMode, ChatModelSelection, ChatTaskEnvironmentBinding, ChatThinkingMode, Message, RuntimeProgressEntry, SearchPolicySource, StoreActions, StoreState, TaskGraphMonitorBinding, TaskSelectionState, WorkspaceView } from "./types";
 import { makeId, toUiMessages } from "./utils";
 
 type HarnessSessionMonitor = NonNullable<Awaited<ReturnType<typeof getOrchestrationHarnessSessionLiveMonitor>>["monitor"]>;
@@ -120,8 +120,8 @@ export class WorkspaceRuntime {
       setSelectedChatMode: (mode) => {
         this.setSelectedChatMode(mode);
       },
-      setThinkingEnabled: (enabled) => {
-        this.setThinkingEnabled(enabled);
+      setChatThinkingMode: (mode) => {
+        this.setChatThinkingMode(mode);
       },
       switchSoul: async (key) => {
         await this.switchSoul(key);
@@ -298,7 +298,7 @@ export class WorkspaceRuntime {
       soulOptions: souls.options,
       activeSoulKey: souls.activeSoulKey,
       selectedChatMode: this.resolveSelectedChatMode(prev.selectedChatModelId, modelProviderConfig),
-      thinkingEnabled: String(modelProviderConfig?.thinking_mode || "").trim().toLowerCase() === "enabled",
+      chatThinkingMode: chatThinkingModeFromProviderConfig(modelProviderConfig),
     }));
   }
 
@@ -1274,8 +1274,8 @@ export class WorkspaceRuntime {
     this.store.setState((prev) => ({ ...prev, selectedChatMode: mode }));
   }
 
-  private setThinkingEnabled(enabled: boolean) {
-    this.store.setState((prev) => ({ ...prev, thinkingEnabled: enabled }));
+  private setChatThinkingMode(mode: ChatThinkingMode) {
+    this.store.setState((prev) => ({ ...prev, chatThinkingMode: normalizeChatThinkingMode(mode) }));
   }
 
   private chatTaskSelectionPayload(state: StoreState): Record<string, unknown> | undefined {
@@ -1312,8 +1312,9 @@ export class WorkspaceRuntime {
       credential_ref: credentialRef,
     };
     if (supportsHiddenReasoning) {
-      payload.thinking_mode = state.thinkingEnabled ? "enabled" : "disabled";
-      payload.reasoning_effort = state.thinkingEnabled ? "max" : "high";
+      const thinkingMode = normalizeChatThinkingMode(state.chatThinkingMode);
+      payload.thinking_mode = thinkingMode === "normal" ? "disabled" : "enabled";
+      payload.reasoning_effort = thinkingMode === "max" ? "max" : "high";
     }
     return payload;
   }
@@ -2344,4 +2345,15 @@ function isOpenAIReasoningModel(model: string) {
     || normalized.startsWith("o1")
     || normalized.startsWith("o3")
     || normalized.startsWith("o4");
+}
+
+function normalizeChatThinkingMode(mode: ChatThinkingMode | string | null | undefined): ChatThinkingMode {
+  return mode === "thinking" || mode === "max" ? mode : "normal";
+}
+
+function chatThinkingModeFromProviderConfig(config: { thinking_mode?: string; reasoning_effort?: string } | null): ChatThinkingMode {
+  if (String(config?.thinking_mode || "").trim().toLowerCase() !== "enabled") {
+    return "normal";
+  }
+  return String(config?.reasoning_effort || "").trim().toLowerCase() === "max" ? "max" : "thinking";
 }

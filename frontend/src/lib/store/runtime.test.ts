@@ -1435,7 +1435,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
         },
         authority: "runtime.model_provider",
       },
-      thinkingEnabled: true,
+      chatThinkingMode: "max",
     });
     const runtime = new WorkspaceRuntime(store);
 
@@ -1450,6 +1450,128 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       credential_ref: "provider:openai:primary",
       thinking_mode: "enabled",
       reasoning_effort: "max",
+    });
+  });
+
+  it("sends high effort when chat thinking mode is thinking", async () => {
+    vi.useRealTimers();
+    api.listSessions.mockResolvedValue([{
+      id: "session:thinking-high",
+      title: "Thinking High",
+      created_at: 1,
+      updated_at: 1,
+      message_count: 1,
+    }]);
+    const store = createStore<StoreState>({
+      ...getDefaultState(),
+      currentSessionId: "session:thinking-high",
+      modelProviderConfig: {
+        provider: "deepseek",
+        model: "deepseek-v4-flash",
+        base_url: "https://api.deepseek.com/v1",
+        credential_ref: "provider:deepseek:primary",
+        api_key_configured: true,
+        fallback_provider: "",
+        fallback_model: "",
+        fallback_base_url: "",
+        fallback_credential_ref: "",
+        fallback_api_key_configured: false,
+        supported_providers: {
+          deepseek: {
+            provider: "deepseek",
+            default_model: "deepseek-v4-flash",
+            default_base_url: "https://api.deepseek.com/v1",
+            credential_ref: "provider:deepseek:primary",
+            capability_tags: ["reasoning", "openai_compatible"],
+          },
+        },
+        provider_catalog: {
+          authority: "runtime.model_provider_catalog",
+          default_provider: "deepseek",
+          default_model: "deepseek-v4-flash",
+          providers: {
+            deepseek: {
+              provider: "deepseek",
+              default_model: "deepseek-v4-flash",
+              default_base_url: "https://api.deepseek.com/v1",
+              credential_ref: "provider:deepseek:primary",
+              capability_tags: ["reasoning", "openai_compatible"],
+            },
+          },
+          credential_refs: [],
+        },
+        authority: "runtime.model_provider",
+      },
+      chatThinkingMode: "thinking",
+    });
+    const runtime = new WorkspaceRuntime(store);
+
+    await runtime.actions.sendMessage("检查设计");
+
+    expect(api.streamChat.mock.calls[0]?.[0]?.model_selection).toMatchObject({
+      thinking_mode: "enabled",
+      reasoning_effort: "high",
+    });
+  });
+
+  it("sends disabled thinking when chat thinking mode is normal", async () => {
+    vi.useRealTimers();
+    api.listSessions.mockResolvedValue([{
+      id: "session:thinking-normal",
+      title: "Thinking Normal",
+      created_at: 1,
+      updated_at: 1,
+      message_count: 1,
+    }]);
+    const store = createStore<StoreState>({
+      ...getDefaultState(),
+      currentSessionId: "session:thinking-normal",
+      modelProviderConfig: {
+        provider: "deepseek",
+        model: "deepseek-v4-flash",
+        base_url: "https://api.deepseek.com/v1",
+        credential_ref: "provider:deepseek:primary",
+        api_key_configured: true,
+        fallback_provider: "",
+        fallback_model: "",
+        fallback_base_url: "",
+        fallback_credential_ref: "",
+        fallback_api_key_configured: false,
+        supported_providers: {
+          deepseek: {
+            provider: "deepseek",
+            default_model: "deepseek-v4-flash",
+            default_base_url: "https://api.deepseek.com/v1",
+            credential_ref: "provider:deepseek:primary",
+            capability_tags: ["reasoning", "openai_compatible"],
+          },
+        },
+        provider_catalog: {
+          authority: "runtime.model_provider_catalog",
+          default_provider: "deepseek",
+          default_model: "deepseek-v4-flash",
+          providers: {
+            deepseek: {
+              provider: "deepseek",
+              default_model: "deepseek-v4-flash",
+              default_base_url: "https://api.deepseek.com/v1",
+              credential_ref: "provider:deepseek:primary",
+              capability_tags: ["reasoning", "openai_compatible"],
+            },
+          },
+          credential_refs: [],
+        },
+        authority: "runtime.model_provider",
+      },
+      chatThinkingMode: "normal",
+    });
+    const runtime = new WorkspaceRuntime(store);
+
+    await runtime.actions.sendMessage("普通回答");
+
+    expect(api.streamChat.mock.calls[0]?.[0]?.model_selection).toMatchObject({
+      thinking_mode: "disabled",
+      reasoning_effort: "high",
     });
   });
 

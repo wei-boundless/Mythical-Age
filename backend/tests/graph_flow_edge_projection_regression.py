@@ -158,6 +158,63 @@ def test_flow_packet_preserves_edge_contract_target_slot() -> None:
     assert inbound["payload"]["bounded_outputs"] == {"public": "visible"}
 
 
+def test_flow_packet_ids_preserve_long_result_identity() -> None:
+    graph_config = _config(
+        (
+            {
+                "edge_id": "edge.draft.review.structured",
+                "source_node_id": "draft",
+                "target_node_id": "review",
+                "edge_type": "structured_handoff",
+                "semantic_role": "control",
+                "scheduler_role": "dependency",
+            },
+        )
+    )
+    state = GraphLoopState(
+        state_id="gstate:test:flow_packet_long",
+        graph_run_id="grun:test:flow_packet_long",
+        task_run_id="taskrun:test:flow_packet_long",
+        session_id="session:test",
+        config_id=graph_config.config_id,
+        config_hash=graph_config.content_hash,
+        graph_id=graph_config.graph_id,
+        status="running",
+    )
+    common_prefix = "nresult:" + "x" * 180
+    first = build_flow_packet(
+        graph_config=graph_config,
+        state=state,
+        edge=dict(graph_config.edges[0]),
+        result=NodeResultEnvelope(
+            result_id=f"{common_prefix}:first",
+            graph_run_id=state.graph_run_id,
+            task_run_id=state.task_run_id,
+            node_id="draft",
+            work_order_id="gwork:test:draft:first",
+            outputs={"public": "first"},
+        ),
+        result_ref="rtobj:nresult:first",
+    )
+    second = build_flow_packet(
+        graph_config=graph_config,
+        state=state,
+        edge=dict(graph_config.edges[0]),
+        result=NodeResultEnvelope(
+            result_id=f"{common_prefix}:second",
+            graph_run_id=state.graph_run_id,
+            task_run_id=state.task_run_id,
+            node_id="draft",
+            work_order_id="gwork:test:draft:second",
+            outputs={"public": "second"},
+        ),
+        result_ref="rtobj:nresult:second",
+    )
+
+    assert first.packet_id != second.packet_id
+    assert flow_packet_inbound_projection(first)["context_id"] != flow_packet_inbound_projection(second)["context_id"]
+
+
 def test_resource_flow_edges_materialize_as_view_requests_not_result_context() -> None:
     graph_config = _config(
         (

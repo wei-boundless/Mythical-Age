@@ -32,6 +32,11 @@ class CompleteModelRuntimeStub:
                     "authority": "harness.loop.model_action_request",
                     "request_id": "model-action:graph-complete",
                     "action_type": "respond",
+                    "public_progress_note": "图节点已完成当前职责，准备提交给图运行器。",
+                    "public_action_state": {
+                        "current_judgment": "当前节点结果可提交。",
+                        "next_action": "提交结果给图运行器。",
+                    },
                     "final_answer": "图节点输出正文。",
                     "diagnostics": {
                         "verification": "ok",

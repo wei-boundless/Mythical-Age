@@ -593,7 +593,7 @@ def _artifact_materialization_receipts(
         receipts.append(
             {
                 **dict(receipt or {}),
-                "receipt_id": f"artifact-receipt:{safe_id(work_order.work_order_id)}:{safe_id(str(dict(receipt or {}).get('materialization_id') or task_run_id))}",
+                "receipt_id": f"artifact-receipt:{stable_safe_id(work_order.work_order_id)}:{stable_safe_id(str(dict(receipt or {}).get('materialization_id') or task_run_id))}",
                 "status": "materialized",
                 "task_environment_id": str(graph_config.task_environment_id or ""),
                 "node_executor_task_run_id": task_run_id,
@@ -655,7 +655,7 @@ def _formal_memory_receipts(
                 write_payload = write_transaction.to_dict() if hasattr(write_transaction, "to_dict") else dict(write_transaction or {})
                 candidate_receipts.append(
                     {
-                        "receipt_id": f"memory-candidate:{safe_id(work_order.work_order_id)}:{safe_id(str(version_payload.get('version_id') or 'candidate'))}",
+                        "receipt_id": f"memory-candidate:{stable_safe_id(work_order.work_order_id)}:{stable_safe_id(str(version_payload.get('version_id') or 'candidate'))}",
                         "status": "candidate_recorded",
                         "operation": "memory_write_candidate",
                         "edge_id": str(edge.get("edge_id") or ""),
@@ -679,7 +679,7 @@ def _formal_memory_receipts(
                     )
                     receipts.append(
                         {
-                            "receipt_id": f"memory-commit:{safe_id(work_order.work_order_id)}:{safe_id(str(version_payload.get('version_id') or 'commit'))}",
+                            "receipt_id": f"memory-commit:{stable_safe_id(work_order.work_order_id)}:{stable_safe_id(str(version_payload.get('version_id') or 'commit'))}",
                             "status": "committed",
                             "operation": "memory_commit",
                             "edge_id": str(edge.get("edge_id") or ""),
