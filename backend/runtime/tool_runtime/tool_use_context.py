@@ -9,6 +9,11 @@ from typing import Any
 class ToolUseContext:
     workspace_root: Path
     sandbox_root: Path | None = None
+    tool_invocation_id: str = ""
+    caller_kind: str = ""
+    caller_ref: str = ""
+    turn_id: str = ""
+    idempotency_key: str = ""
     task_run_id: str = ""
     session_id: str = ""
     agent_run_id: str = ""

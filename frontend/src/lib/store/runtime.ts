@@ -715,10 +715,13 @@ export class WorkspaceRuntime {
           clearChatStreamCursor(sessionId);
           await this.refreshSessionDetails(sessionId).catch(() => undefined);
           return false;
+        } else {
+          this.applyActiveTurnSnapshotFromChatRun(cursorRun);
         }
       }
       if (!streamRunId) {
         const latestRun = await getLatestChatRunForSession(sessionId, true, this.sessionScopeForSession(sessionId)).catch(() => null);
+        this.applyActiveTurnSnapshotFromChatRun(latestRun);
         streamRunId = String(latestRun?.stream_run_id || "");
       }
       if (!streamRunId) {
@@ -742,6 +745,25 @@ export class WorkspaceRuntime {
     return Number.isFinite(latestOffset)
       && Number.isFinite(cursorOffset)
       && cursorOffset >= latestOffset;
+  }
+
+  private applyActiveTurnSnapshotFromChatRun(run: { active_turn_snapshot?: Record<string, unknown> | null } | null | undefined) {
+    const snapshot = run?.active_turn_snapshot;
+    if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot)) {
+      return;
+    }
+    const turnId = String(snapshot.turn_id ?? "").trim();
+    if (!turnId) {
+      return;
+    }
+    this.store.setState((prev) => ({
+      ...prev,
+      activeTurnSnapshot: {
+        turn_id: turnId,
+        task_run_id: String(snapshot.bound_task_run_id ?? snapshot.task_run_id ?? "").trim(),
+        state: String(snapshot.state ?? "").trim(),
+      },
+    }));
   }
 
   private startRecoveredChatRunStream(sessionId: string, streamRunId: string, cursor: ChatStreamCursor | null) {
@@ -1175,7 +1197,7 @@ export class WorkspaceRuntime {
     if (!taskRunId) {
       return;
     }
-    await pauseOrchestrationHarnessTaskRun(taskRunId, "user_pause_from_chat");
+    await pauseOrchestrationHarnessTaskRun(taskRunId, "user_pause_from_chat", this.activeExpectedTurnIdForTaskRun(taskRunId));
     await this.refreshActiveSessionMonitor();
   }
 
@@ -1184,7 +1206,7 @@ export class WorkspaceRuntime {
     if (!taskRunId) {
       return;
     }
-    await resumeOrchestrationHarnessTaskRun(taskRunId, 12);
+    await resumeOrchestrationHarnessTaskRun(taskRunId, 12, this.activeExpectedTurnIdForTaskRun(taskRunId));
     await this.refreshActiveSessionMonitor();
   }
 
@@ -1193,7 +1215,7 @@ export class WorkspaceRuntime {
     if (!taskRunId) {
       return;
     }
-    await stopOrchestrationHarnessTaskRun(taskRunId, "user_stop_from_chat");
+    await stopOrchestrationHarnessTaskRun(taskRunId, "user_stop_from_chat", this.activeExpectedTurnIdForTaskRun(taskRunId));
     await this.refreshActiveSessionMonitor();
   }
 
@@ -1211,6 +1233,14 @@ export class WorkspaceRuntime {
       return "";
     }
     return String(taskRun.task_run_id ?? monitor?.task_run_id ?? "").trim();
+  }
+
+  private activeExpectedTurnIdForTaskRun(taskRunId: string) {
+    const snapshot = this.store.getState().activeTurnSnapshot;
+    if (String(snapshot?.task_run_id ?? "").trim() !== taskRunId) {
+      return "";
+    }
+    return String(snapshot?.turn_id ?? "").trim();
   }
 
   private async refreshActiveSessionMonitor() {
@@ -1796,10 +1826,18 @@ export class WorkspaceRuntime {
       const graphRunId = String(activeMonitor.graph_run_id ?? activeTaskRun.graph_run_id ?? "").trim();
       this.updateSessionActivityFromLiveMonitor(liveStatus, taskRunId, graphRunId, controlState);
       if (this.store.getState().currentSessionId === targetSessionId && this.orchestrationHydrateRequest === requestId) {
+        const activeTurnTaskRunId = String(this.store.getState().activeTurnSnapshot?.task_run_id ?? "").trim();
+        if (activeTurnTaskRunId && activeTurnTaskRunId === taskRunId) {
         this.store.setState((prev) => ({
           ...this.patchRuntimeAttachmentFromMonitor(prev, activeMonitor),
           taskGraphLiveMonitor: activeMonitor,
         }));
+        } else {
+          this.store.setState((prev) => ({
+            ...prev,
+            taskGraphLiveMonitor: null,
+          }));
+        }
       }
       return hasActiveHarnessRun || hasPendingApproval;
     } catch {
@@ -2093,7 +2131,10 @@ export class WorkspaceRuntime {
         return anchor;
       }
     }
-    return this.turnIdFromRunId(runId);
+    if (runId.startsWith("turnrun:turn:")) {
+      return runId.slice("turnrun:".length);
+    }
+    return "";
   }
 
   private patchRuntimeAttachmentFromRuntimeEvent(state: StoreState, runtimeEvent: RuntimeMonitorEvent): StoreState {
@@ -2248,27 +2289,6 @@ export class WorkspaceRuntime {
         };
       }),
     };
-  }
-
-  private turnIdFromRunId(runId: string) {
-    const normalized = String(runId || "").trim();
-    if (normalized.startsWith("turnrun:turn:")) {
-      return normalized.slice("turnrun:".length);
-    }
-    return this.turnIdFromTaskRunId(normalized);
-  }
-
-  private turnIdFromTaskRunId(taskRunId: string) {
-    const parts = taskRunId.split(":");
-    if (parts.length < 4 || parts[0] !== "taskrun" || parts[1] !== "turn") {
-      return "";
-    }
-    for (let index = 2; index < parts.length; index += 1) {
-      if (/^\d+$/.test(parts[index])) {
-        return parts.slice(1, index + 1).join(":");
-      }
-    }
-    return parts.slice(1, -1).join(":");
   }
 
   private setTaskSelection(selection: TaskSelectionState | null) {

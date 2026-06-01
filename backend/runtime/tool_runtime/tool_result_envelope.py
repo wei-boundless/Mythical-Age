@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+import json
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
@@ -81,9 +82,23 @@ def build_tool_result_envelope(
 
 
 def _structured_result_payload(result: Any) -> dict[str, Any]:
+    if isinstance(result, str):
+        parsed = _json_result_payload(result)
+        if not parsed:
+            return {}
+        return _structured_result_payload(parsed)
     if not isinstance(result, dict):
         return {}
     payload = dict(result)
+    if payload.get("ok") is False or payload.get("structured_error") or payload.get("error"):
+        structured_payload = {
+            "structured_error": dict(payload.get("structured_error") or {}) if isinstance(payload.get("structured_error"), dict) else {},
+            "error": str(payload.get("error") or ""),
+        }
+        return {
+            "text": json.dumps(payload, ensure_ascii=False, sort_keys=True),
+            "structured_payload": structured_payload,
+        }
     if "structured_payload" not in payload:
         return {}
     return {

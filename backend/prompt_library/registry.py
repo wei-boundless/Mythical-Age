@@ -70,6 +70,7 @@ class PromptLibraryRegistry:
             for item in (
                 *list_builtin_runtime_prompt_resources(),
                 *list_builtin_agent_prompt_resources(),
+                *list_agent_prompt_resources_from_backend_dir(self.base_dir),
                 *list_environment_prompt_resources_from_backend_dir(self.base_dir),
             )
         }
@@ -242,6 +243,33 @@ def _agent_prompt_resources_from_profiles(profiles: tuple[Any, ...], *, source_p
     resources: list[PromptResource] = []
     for profile in profiles:
         metadata = dict(profile.metadata or {})
+        for invocation_kind, content in _work_role_prompt_by_invocation(metadata).items():
+            prompt_id = _agent_work_role_prompt_id(str(profile.agent_profile_id or ""), invocation_kind=invocation_kind)
+            resources.append(
+                PromptResource(
+                    prompt_id=prompt_id,
+                    resource_id=prompt_id,
+                    category="agent",
+                    subtype=f"{invocation_kind}.work_role",
+                    resource_type="work_role",
+                    title=f"{profile.agent_profile_id} {invocation_kind} work role",
+                    content=content,
+                    owner_layer="agent",
+                    cache_scope="static",
+                    model_visible=True,
+                    allowed_invocation_kinds=(invocation_kind,),
+                    allowed_agent_refs=(str(profile.agent_profile_id or ""),),
+                    source_ref=f"{source_prefix}#{profile.agent_profile_id}.metadata.work_role_prompt_by_invocation.{invocation_kind}",
+                    version="v1",
+                    enabled=True,
+                    status="active",
+                    metadata={
+                        "managed_by": "prompt_library.agent_profile_sync",
+                        "source_type": "agent_work_role_prompt_by_invocation",
+                        "invocation_kind": invocation_kind,
+                    },
+                )
+            )
         content = str(
             metadata.get("work_role_prompt")
             or metadata.get("agent_work_role_prompt")
@@ -324,8 +352,22 @@ def _environment_prompt_resources_from_definitions(definitions: tuple[Any, ...],
     return tuple(resources)
 
 
-def _agent_work_role_prompt_id(agent_profile_id: str) -> str:
+def _agent_work_role_prompt_id(agent_profile_id: str, *, invocation_kind: str = "") -> str:
     normalized = ".".join(part for part in str(agent_profile_id or "agent").replace(":", ".").split(".") if part)
-    return f"agent.{normalized}.work_role.v1"
+    invocation = ".".join(part for part in str(invocation_kind or "").replace(":", ".").split(".") if part)
+    return f"agent.{normalized}.{invocation}.work_role.v1" if invocation else f"agent.{normalized}.work_role.v1"
+
+
+def _work_role_prompt_by_invocation(metadata: dict[str, Any]) -> dict[str, str]:
+    raw = (
+        metadata.get("work_role_prompt_by_invocation")
+        or metadata.get("agent_work_role_prompt_by_invocation")
+        or {}
+    )
+    return {
+        str(key).strip(): str(value or "").strip()
+        for key, value in dict(raw or {}).items()
+        if str(key).strip() and str(value or "").strip()
+    }
 
 

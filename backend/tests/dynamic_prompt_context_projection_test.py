@@ -62,11 +62,12 @@ def test_runtime_compiler_emits_dynamic_context_report_and_projected_task_state(
 
     assert "dynamic_context_report" in manifest
     assert all(item["volatility_reason"] for item in manifest["dynamic_context_report"]["section_reports"])
-    assert volatile_payload["execution_state"]["current_facts"][0]["summary"] == "已创建入口文件"
-    assert volatile_payload["execution_state"]["artifact_evidence"][0]["path"] == "artifacts/file.txt"
-    assert volatile_payload["execution_state"]["pending_user_steers"][0]["steer_id"] == "steer:1"
+    task_state = volatile_payload["task_state"]
+    assert task_state["current_facts"][0]["summary"] == "已创建入口文件"
+    assert task_state["artifact_evidence"][0]["path"] == "artifacts/file.txt"
+    assert task_state["pending_user_steers"][0]["steer_id"] == "steer:1"
     assert "large_internal_blob" not in json.dumps(volatile_payload, ensure_ascii=False)
-    assert volatile_payload["observations"]["latest_observations"][0]["tool_result"]["tool_name"] == "read_file"
+    assert task_state["latest_tool_results"][0]["tool_name"] == "read_file"
     assert packet.artifact_refs == ("artifacts/file.txt",)
 
 
@@ -99,7 +100,181 @@ def test_task_work_rollout_only_enters_model_through_dynamic_context_projection(
     volatile_payload = _payload_after_title(result.packet.model_messages[-1]["content"], "Task execution current state")
 
     assert "ROOT_AGENT_BRIEF_SHOULD_NOT_BYPASS_PROJECTOR" not in model_input
-    assert volatile_payload["work_history"]["recent_steps"][0]["summary"] == "已创建基础文件"
+    assert volatile_payload["task_state"]["work_progress"]["recent_steps"][0]["summary"] == "已创建基础文件"
+
+
+def test_task_execution_state_deduplicates_observation_failures_and_preserves_retry_fields() -> None:
+    observation = {
+        "observation_id": "obs:image",
+        "payload": {
+            "tool_name": "image_generate",
+            "result": json.dumps(
+                {
+                    "ok": False,
+                    "error": "gateway timeout",
+                    "structured_error": {
+                        "code": "image_provider_transient_error",
+                        "message": "Image API failed with status 504",
+                        "retryable": False,
+                        "origin": "image_provider",
+                        "provider_retryable": True,
+                        "agent_retry_policy": "do_not_auto_retry",
+                        "attempts": [
+                            {
+                                "model": "gpt-image-2",
+                                "attempt_index": 1,
+                                "http_status": 504,
+                                "code": "image_provider_transient_error",
+                                "retryable": True,
+                            }
+                        ],
+                    },
+                }
+            ),
+        },
+        "runtime_freshness": {"visibility": "active"},
+    }
+    result = RuntimeCompiler().compile_task_execution_packet(
+        session_id="session:task-state-dedupe",
+        task_run={"task_run_id": "taskrun:task-state-dedupe", "diagnostics": {"executor_status": "running"}},
+        contract={"task_run_goal": "执行单次 image_generate，失败后只报告错误字段，不重试", "completion_criteria": ["只调用一次"]},
+        observations=[observation],
+        execution_state={
+            "system_projection": {
+                "runtime_status": "running",
+                "active_failures": [
+                    {
+                        "observation_ref": "obs:image",
+                        "tool_name": "image_generate",
+                        "status": "error",
+                        "summary": "gateway timeout",
+                        "error": {
+                            "code": "image_provider_transient_error",
+                            "message": "Image API failed with status 504",
+                            "retryable": False,
+                            "origin": "image_provider",
+                            "provider_retryable": True,
+                            "agent_retry_policy": "do_not_auto_retry",
+                        },
+                    }
+                ],
+                "last_action_receipts": [
+                    {
+                        "observation_ref": "obs:image",
+                        "tool_name": "image_generate",
+                        "status": "error",
+                        "summary": "gateway timeout",
+                    }
+                ],
+            }
+        },
+        runtime_assembly={
+            "profile": {"mode": "professional"},
+            "task_environment": {"environment_id": "env.development.sandbox"},
+            "operation_authorization": {"allowed_operations": ["op.image_generate"]},
+        },
+    )
+
+    volatile_payload = _payload_after_title(result.packet.model_messages[-1]["content"], "Task execution current state")
+    task_state = volatile_payload["task_state"]
+    assert "observations" not in volatile_payload
+    assert "execution_state" not in volatile_payload
+    assert len(task_state["active_failures"]) == 1
+    error = task_state["active_failures"][0]["error"]
+    assert error["provider_retryable"] is True
+    assert error["agent_retry_policy"] == "do_not_auto_retry"
+    assert error["attempts"][0]["http_status"] == 504
+
+
+def test_task_execution_uses_invocation_scoped_agent_prompt_refs() -> None:
+    result = RuntimeCompiler().compile_task_execution_packet(
+        session_id="session:prompt-scope",
+        task_run={"task_run_id": "taskrun:prompt-scope", "diagnostics": {"executor_status": "running"}},
+        contract={
+            "task_run_goal": "执行单次 image_generate 调用，失败后只报告错误字段，不重试",
+            "completion_criteria": ["只调用一次 image_generate"],
+        },
+        observations=[],
+        available_tools=[
+            {"tool_name": "image_generate", "operation_id": "op.image_generate"},
+            {"tool_name": "python_symbol_search", "operation_id": "op.python_symbol_search"},
+        ],
+        runtime_assembly={
+            "profile": {
+                "mode": "professional",
+                "metadata": {},
+            },
+            "agent_prompt_refs": ["agent.main_interactive_agent.single_agent_turn.work_role.v1"],
+            "agent_prompt_refs_by_invocation": {
+                "single_agent_turn": ["agent.main_interactive_agent.single_agent_turn.work_role.v1"],
+                "task_execution": ["agent.main_interactive_agent.task_execution.work_role.v1"],
+            },
+            "environment_prompt_refs": ["environment.development.sandbox.v1"],
+            "task_environment": {
+                "environment_id": "env.development.sandbox",
+                "title": "Development Sandbox",
+                "description": "Project workspace boundary",
+            },
+            "operation_authorization": {"allowed_operations": ["op.image_generate", "op.python_symbol_search"]},
+        },
+    )
+
+    model_input = "\n".join(str(message["content"]) for message in result.packet.model_messages)
+    manifest = result.packet.diagnostics["prompt_manifest"]
+    assert "agent.main_interactive_agent.task_execution.work_role.v1" in manifest["stable_prompt_refs"]
+    assert "agent.main_interactive_agent.single_agent_turn.work_role.v1" not in manifest["stable_prompt_refs"]
+    assert "持续任务执行 agent" in model_input
+    assert "不负责重新判断是否建立任务生命周期" in model_input
+    assert "请求持续任务生命周期" not in model_input
+    assert "处理 Python 开发任务" not in model_input
+    assert "python_symbol_search 定位定义或引用" not in model_input
+
+
+def test_task_execution_includes_strategy_only_when_runtime_assembly_selects_prompt_ref() -> None:
+    result = RuntimeCompiler().compile_task_execution_packet(
+        session_id="session:structured-strategy",
+        task_run={"task_run_id": "taskrun:structured-strategy", "diagnostics": {"executor_status": "running"}},
+        contract={
+            "task_run_goal": "执行单次 image_generate 调用，失败后只报告错误字段，不重试",
+            "completion_criteria": ["只调用一次 image_generate"],
+        },
+        observations=[],
+        available_tools=[
+            {"tool_name": "image_generate", "operation_id": "op.image_generate"},
+            {"tool_name": "python_symbol_search", "operation_id": "op.python_symbol_search"},
+        ],
+        runtime_assembly={
+            "profile": {"mode": "professional"},
+            "environment_prompt_refs": ["environment.development.sandbox.v1", "strategy.development.execution.v1"],
+            "task_environment": {
+                "environment_id": "env.development.sandbox",
+                "title": "Development Sandbox",
+                "description": "Project workspace boundary",
+            },
+            "operation_authorization": {"allowed_operations": ["op.image_generate", "op.python_symbol_search"]},
+        },
+    )
+
+    model_input = "\n".join(str(message["content"]) for message in result.packet.model_messages)
+    assert "处理 Python 开发任务" in model_input
+    assert "python_symbol_search 定位定义或引用" in model_input
+
+
+def test_runtime_compiler_rejects_wrong_invocation_prompt_ref() -> None:
+    with pytest.raises(ValueError, match="resource_invocation_kind_mismatch"):
+        RuntimeCompiler().compile_task_execution_packet(
+            session_id="session:wrong-ref",
+            task_run={"task_run_id": "taskrun:wrong-ref", "diagnostics": {"executor_status": "running"}},
+            contract={"task_run_goal": "验证错误 prompt ref 不会静默装配", "completion_criteria": ["抛出错误"]},
+            observations=[],
+            runtime_assembly={
+                "profile": {"mode": "professional"},
+                "agent_prompt_refs_by_invocation": {
+                    "task_execution": ["agent.main_interactive_agent.single_agent_turn.work_role.v1"],
+                },
+                "task_environment": {"environment_id": "env.general.workspace"},
+            },
+        )
 
 
 def test_single_agent_turn_keeps_compressed_context_outside_recent_history_window() -> None:

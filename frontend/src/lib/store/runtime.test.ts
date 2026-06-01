@@ -702,7 +702,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
           summary: "已接上当前工作，正在整理上下文。",
           public_progress_note: "我正在整理任务上下文。",
         },
-        refs: { task_run_ref: taskRunId },
+        refs: { task_run_ref: taskRunId, turn_ref: "turn:session:stream:1" },
         authority: "orchestration.runtime_event",
       },
     });
@@ -721,7 +721,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
           summary: "任务 runtime packet 已送入模型，系统正在等待 agent 返回任务动作。",
           public_progress_note: "我已经把任务上下文交给 agent，正在等待下一步动作。",
         },
-        refs: { task_run_ref: taskRunId },
+        refs: { task_run_ref: taskRunId, turn_ref: "turn:session:stream:1" },
         authority: "orchestration.runtime_event",
       },
     });
@@ -779,7 +779,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
             retryable: true,
           }),
         },
-        refs: { task_run_ref: taskRunId },
+        refs: { task_run_ref: taskRunId, turn_ref: "turn:session:observation:1" },
         authority: "orchestration.runtime_event",
       },
     });
@@ -934,6 +934,10 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     const store = createStore<StoreState>({
       ...getDefaultState(),
       currentSessionId: "session:live",
+      activeTurnSnapshot: {
+        turn_id: "turn:session:live:1",
+        task_run_id: taskRunId,
+      },
       messages: [
         {
           id: "user:1",
@@ -1019,6 +1023,10 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     const store = createStore<StoreState>({
       ...getDefaultState(),
       currentSessionId: "session:live",
+      activeTurnSnapshot: {
+        turn_id: "turn:session:live:1",
+        task_run_id: taskRunId,
+      },
       messages: [
         { id: "user:1", role: "user", content: "开始任务", toolCalls: [], retrievals: [], sourceIndex: 0 },
         { id: "assistant:1", role: "assistant", content: "任务已接管", toolCalls: [], retrievals: [], sourceIndex: 1 },
@@ -1067,6 +1075,10 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     const store = createStore<StoreState>({
       ...getDefaultState(),
       currentSessionId: "session-control",
+      activeTurnSnapshot: {
+        turn_id: "turn:session-control:1",
+        task_run_id: taskRunId,
+      },
       taskGraphLiveMonitor: {
         authority: "single_agent_runtime_monitor.item",
         task_run_id: taskRunId,
@@ -1104,9 +1116,9 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     await runtime.actions.resumeActiveTaskRun();
     await runtime.actions.stopActiveTaskRun();
 
-    expect(api.pauseOrchestrationHarnessTaskRun).toHaveBeenCalledWith(taskRunId, "user_pause_from_chat");
-    expect(api.resumeOrchestrationHarnessTaskRun).toHaveBeenCalledWith(taskRunId, 12);
-    expect(api.stopOrchestrationHarnessTaskRun).toHaveBeenCalledWith(taskRunId, "user_stop_from_chat");
+    expect(api.pauseOrchestrationHarnessTaskRun).toHaveBeenCalledWith(taskRunId, "user_pause_from_chat", "turn:session-control:1");
+    expect(api.resumeOrchestrationHarnessTaskRun).toHaveBeenCalledWith(taskRunId, 12, "turn:session-control:1");
+    expect(api.stopOrchestrationHarnessTaskRun).toHaveBeenCalledWith(taskRunId, "user_stop_from_chat", "turn:session-control:1");
     expect(store.getState().sessionActivity.title).toBe("已暂停");
   });
 

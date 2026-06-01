@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -7,6 +8,7 @@ from runtime.context_management.tool_result_storage import DEFAULT_PREVIEW_SIZE_
 
 from .models import compact_text, dict_tuple, drop_empty, stable_json_hash, string_tuple
 from .replacement_store import ReplacementStore
+from .structured_error_projection import structured_error_projection
 
 
 PROJECTOR_VERSION = "tool_result_projector.v1"
@@ -104,7 +106,7 @@ class ToolResultProjector:
                 "status": str(normalized.get("status") or ("error" if error else "ok")),
                 "preview": preview,
                 "result_ref": result_ref,
-                "structured_error": _structured_error_projection(structured_error),
+                "structured_error": structured_error_projection(structured_error),
                 "error": compact_text(error, limit=500),
                 "artifact_refs": model_visible_artifact_refs(normalized.get("artifact_refs")),
                 "observed_paths": list(string_tuple(normalized.get("observed_paths"))),
@@ -142,58 +144,130 @@ def _tool_payload_from_observation(observation: dict[str, Any]) -> dict[str, Any
 def _normalize_tool_result(tool_result: dict[str, Any]) -> dict[str, Any]:
     item = dict(tool_result or {})
     envelope = dict(item.get("result_envelope") or item.get("envelope") or {})
-    structured = dict(item.get("structured_payload") or envelope.get("structured_payload") or {})
-    nested_tool_result = dict(structured.get("tool_result") or {})
-    artifact_refs = (
-        item.get("artifact_refs")
-        or envelope.get("artifact_refs")
-        or structured.get("artifact_refs")
-        or nested_tool_result.get("artifact_refs")
-        or []
-    )
-    text = (
+    raw_text = (
         envelope.get("text")
         or item.get("text")
         or item.get("result")
         or item.get("content")
         or item.get("summary")
-        or nested_tool_result.get("data")
         or ""
     )
-    status = str(envelope.get("status") or item.get("status") or nested_tool_result.get("status") or "").strip()
-    structured_error = dict(item.get("structured_error") or envelope.get("structured_error") or nested_tool_result.get("structured_error") or {})
-    error = str(envelope.get("error") or item.get("error") or nested_tool_result.get("error") or "")
+    parsed_text = _parse_json_object(raw_text)
+    parsed_tool_result = dict(parsed_text.get("tool_result") or {})
+    parsed_structured_payload = dict(parsed_text.get("structured_payload") or {})
+    structured = _merge_dicts(parsed_structured_payload, envelope.get("structured_payload"), item.get("structured_payload"))
+    nested_tool_result = _merge_dicts(parsed_tool_result, structured.get("tool_result"))
+    artifact_refs = (
+        item.get("artifact_refs")
+        or envelope.get("artifact_refs")
+        or structured.get("artifact_refs")
+        or nested_tool_result.get("artifact_refs")
+        or parsed_text.get("artifact_refs")
+        or []
+    )
+    text = _first_text(
+        envelope.get("text"),
+        item.get("text"),
+        item.get("content"),
+        item.get("summary"),
+        nested_tool_result.get("text"),
+        nested_tool_result.get("data"),
+        parsed_text.get("text"),
+        parsed_text.get("summary"),
+        parsed_text.get("result"),
+        parsed_text.get("message"),
+        parsed_text.get("error"),
+        raw_text,
+    )
+    status = str(
+        envelope.get("status")
+        or item.get("status")
+        or nested_tool_result.get("status")
+        or parsed_text.get("status")
+        or _status_from_ok(parsed_text.get("ok"))
+        or ""
+    ).strip()
+    structured_error = _merge_dicts(
+        parsed_text.get("structured_error"),
+        nested_tool_result.get("structured_error"),
+        envelope.get("structured_error"),
+        item.get("structured_error"),
+    )
+    error = _first_text(
+        envelope.get("error"),
+        item.get("error"),
+        nested_tool_result.get("error"),
+        parsed_text.get("error"),
+        structured_error.get("message"),
+    )
     return drop_empty(
         {
             "tool_result_ref": str(item.get("tool_result_ref") or item.get("observation_id") or ""),
             "envelope_id": str(envelope.get("envelope_id") or ""),
-            "tool_name": str(envelope.get("tool_name") or item.get("tool_name") or ""),
+            "tool_name": str(envelope.get("tool_name") or item.get("tool_name") or parsed_text.get("tool_name") or ""),
             "tool_args": dict(envelope.get("tool_args") or item.get("tool_args") or {}),
             "status": status or ("error" if error or structured_error else "ok"),
             "text": str(text or ""),
             "structured_payload": structured,
             "structured_error": structured_error,
-            "observed_paths": list(string_tuple(envelope.get("observed_paths") or structured.get("observed_paths") or item.get("observed_paths"))),
-            "matched_paths": list(string_tuple(envelope.get("matched_paths") or structured.get("matched_paths") or item.get("matched_paths"))),
+            "observed_paths": list(
+                string_tuple(envelope.get("observed_paths") or structured.get("observed_paths") or item.get("observed_paths") or parsed_text.get("observed_paths"))
+            ),
+            "matched_paths": list(
+                string_tuple(envelope.get("matched_paths") or structured.get("matched_paths") or item.get("matched_paths") or parsed_text.get("matched_paths"))
+            ),
             "artifact_refs": list(dict_tuple(artifact_refs)),
-            "command_receipt": dict(envelope.get("command_receipt") or structured.get("command_receipt") or item.get("command_receipt") or {}),
-            "result_ref": str(envelope.get("result_ref") or item.get("result_ref") or ""),
+            "command_receipt": dict(
+                envelope.get("command_receipt") or structured.get("command_receipt") or item.get("command_receipt") or parsed_text.get("command_receipt") or {}
+            ),
+            "result_ref": str(envelope.get("result_ref") or item.get("result_ref") or parsed_text.get("result_ref") or ""),
             "error": error,
         }
     )
 
 
-def _structured_error_projection(value: dict[str, Any]) -> dict[str, Any]:
-    if not isinstance(value, dict):
+def _parse_json_object(value: Any) -> dict[str, Any]:
+    if not isinstance(value, str):
         return {}
-    return drop_empty(
-        {
-            "code": compact_text(value.get("code") or value.get("error_code") or "", limit=120),
-            "message": compact_text(value.get("message") or value.get("detail") or "", limit=500),
-            "retryable": value.get("retryable") if isinstance(value.get("retryable"), bool) else None,
-            "origin": compact_text(value.get("origin") or "", limit=120),
-        }
-    )
+    text = value.strip()
+    if not text or text[0] not in "{[":
+        return {}
+    try:
+        parsed = json.loads(text)
+    except (TypeError, ValueError):
+        return {}
+    return dict(parsed) if isinstance(parsed, dict) else {}
+
+
+def _merge_dicts(*values: Any) -> dict[str, Any]:
+    merged: dict[str, Any] = {}
+    for value in values:
+        if isinstance(value, dict):
+            merged.update(value)
+    return drop_empty(merged)
+
+
+def _first_text(*values: Any) -> str:
+    for value in values:
+        if value in (None, "", [], {}):
+            continue
+        if isinstance(value, str):
+            return value
+        if isinstance(value, (int, float, bool)):
+            return str(value)
+        try:
+            return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+        except (TypeError, ValueError):
+            return str(value)
+    return ""
+
+
+def _status_from_ok(value: Any) -> str:
+    if value is True:
+        return "ok"
+    if value is False:
+        return "error"
+    return ""
 
 
 def model_visible_artifact_refs(refs: Any) -> list[dict[str, Any]]:

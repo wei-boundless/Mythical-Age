@@ -4,7 +4,6 @@ import asyncio
 import json
 from pathlib import Path
 from typing import Any, Type
-from uuid import uuid4
 
 from langchain_core.callbacks.manager import AsyncCallbackManagerForToolRun, CallbackManagerForToolRun
 from langchain_core.tools import BaseTool
@@ -70,7 +69,8 @@ class ImageGenerationTool(BaseTool):
         clean_prompt = str(prompt or "").strip()
         if not clean_prompt:
             return json.dumps({"ok": False, "error": "Image prompt is required"}, ensure_ascii=False)
-        safe_target = str(target_id or "").strip() or f"tool-{uuid4().hex}"
+        invocation_id = _context_value(run_manager, "tool_invocation_id")
+        safe_target = str(target_id or "").strip() or _target_from_invocation(invocation_id)
         try:
             generated = await SoulImageAssetService(self._root_dir).generate(
                 prompt=clean_prompt,
@@ -88,6 +88,7 @@ class ImageGenerationTool(BaseTool):
             provider_retryable = bool(structured_error.get("retryable", False))
             structured_error["provider_retryable"] = provider_retryable
             structured_error["retryable"] = False
+            structured_error["agent_auto_retry_allowed"] = False
             structured_error["agent_retry_policy"] = "do_not_auto_retry"
             return json.dumps(
                 {
@@ -110,9 +111,31 @@ class ImageGenerationTool(BaseTool):
                     "model": generated.get("model") or str(model or ""),
                     "duration_ms": generated.get("duration_ms") or 0,
                 },
+                "artifact_refs": [
+                    {
+                        "kind": "image",
+                        "path": generated.get("file_path"),
+                        "src": generated.get("asset_path"),
+                        "bytes": generated.get("bytes"),
+                    }
+                ],
             },
             ensure_ascii=False,
             sort_keys=True,
         )
+
+
+def _target_from_invocation(invocation_id: str) -> str:
+    clean = "".join(ch if ch.isalnum() or ch in {"-", "_"} else "-" for ch in str(invocation_id or "").strip())
+    return f"tool-{clean}" if clean else "tool-image"
+
+
+def _context_value(run_manager: Any, key: str) -> str:
+    try:
+        metadata = dict(getattr(run_manager, "metadata", None) or {})
+    except Exception:
+        metadata = {}
+    value = metadata.get(key)
+    return str(value or "").strip()
 
 

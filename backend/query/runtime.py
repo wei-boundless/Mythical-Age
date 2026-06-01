@@ -203,16 +203,16 @@ class QueryRuntime:
                     },
                 )
                 return
+            input_commit_gate = self._commit_user_message(
+                session_id=request.session_id,
+                content=request.message,
+                turn_id=turn_id,
+            )
             self.single_agent_runtime_host.active_turn_registry.start(
                 session_id=request.session_id,
                 turn_id=turn_id,
                 stream_run_id=str(dict(getattr(request, "runtime_profile", {}) or {}).get("stream_run_id") or ""),
                 state="starting",
-            )
-            input_commit_gate = self._commit_user_message(
-                session_id=request.session_id,
-                content=request.message,
-                turn_id=turn_id,
             )
             with start_turn_trace(
                 session_id=request.session_id,
@@ -316,6 +316,14 @@ class QueryRuntime:
                 return
         except Exception as exc:
             logger.exception("QueryRuntime failed while streaming request.")
+            try:
+                self.single_agent_runtime_host.active_turn_registry.complete(
+                    session_id=request.session_id,
+                    expected_turn_id=turn_id,
+                    terminal_reason="query_runtime_error",
+                )
+            except Exception:
+                logger.debug("failed to release active turn after query runtime error", exc_info=True)
             failure_text = self._user_visible_error(exc)
             error_payload = {"type": "error", "error": failure_text}
             if isinstance(exc, ModelRuntimeError):

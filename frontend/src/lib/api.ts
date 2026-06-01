@@ -3576,6 +3576,12 @@ export type ChatRun = {
   root_request_ref: string;
   status: string;
   latest_event_offset: number;
+  active_turn_snapshot?: {
+    turn_id?: string;
+    bound_task_run_id?: string;
+    task_run_id?: string;
+    state?: string;
+  } | null;
   is_reconnectable?: boolean;
   terminal_event?: string;
   stream_url: string;
@@ -4130,32 +4136,32 @@ export async function getOrchestrationHarnessTaskRunLiveMonitor(taskRunId: strin
   );
 }
 
-export async function pauseOrchestrationHarnessTaskRun(taskRunId: string, reason = "") {
+export async function pauseOrchestrationHarnessTaskRun(taskRunId: string, reason = "", expectedActiveTurnId = "") {
   return request<Record<string, unknown>>(
     `/orchestration/harness/task-runs/${encodeURIComponent(taskRunId)}/pause`,
     {
       method: "POST",
-      body: JSON.stringify({ reason }),
+      body: JSON.stringify({ reason, expected_active_turn_id: expectedActiveTurnId }),
     }
   );
 }
 
-export async function resumeOrchestrationHarnessTaskRun(taskRunId: string, maxSteps = 12) {
+export async function resumeOrchestrationHarnessTaskRun(taskRunId: string, maxSteps = 12, expectedActiveTurnId = "") {
   return request<Record<string, unknown>>(
     `/orchestration/harness/task-runs/${encodeURIComponent(taskRunId)}/resume`,
     {
       method: "POST",
-      body: JSON.stringify({ max_steps: maxSteps }),
+      body: JSON.stringify({ max_steps: maxSteps, expected_active_turn_id: expectedActiveTurnId }),
     }
   );
 }
 
-export async function stopOrchestrationHarnessTaskRun(taskRunId: string, reason = "") {
+export async function stopOrchestrationHarnessTaskRun(taskRunId: string, reason = "", expectedActiveTurnId = "") {
   return request<Record<string, unknown>>(
     `/orchestration/harness/task-runs/${encodeURIComponent(taskRunId)}/stop`,
     {
       method: "POST",
-      body: JSON.stringify({ reason }),
+      body: JSON.stringify({ reason, expected_active_turn_id: expectedActiveTurnId }),
     }
   );
 }

@@ -4,6 +4,7 @@ from typing import Any
 
 from .models import compact_text, dict_tuple, drop_empty
 from .replacement_store import ReplacementStore
+from .structured_error_projection import structured_error_projection
 from .tool_result_projector import ToolResultProjector, model_visible_artifact_refs
 
 
@@ -81,7 +82,7 @@ class ObservationProjector:
             task_run_id=task_run_id,
             projection_policy=projection_policy,
         )
-        structured_error = _structured_error_projection(source.get("structured_error") or observation.get("structured_error") or tool_projection.get("structured_error"))
+        structured_error = structured_error_projection(source.get("structured_error") or observation.get("structured_error") or tool_projection.get("structured_error"))
         error = str(source.get("error") or observation.get("error") or tool_projection.get("error") or "")
         status = str(source.get("status") or source.get("result_status") or tool_projection.get("status") or ("error" if error or structured_error else "ok"))
         artifact_refs = model_visible_artifact_refs(
@@ -137,19 +138,6 @@ def _visibility(source: dict[str, Any]) -> str:
     freshness = dict(source.get("runtime_freshness") or {})
     value = str(source.get("visibility") or freshness.get("visibility") or "")
     return value if value in {"active", "historical"} else "active"
-
-
-def _structured_error_projection(value: Any) -> dict[str, Any]:
-    if not isinstance(value, dict):
-        return {}
-    return drop_empty(
-        {
-            "code": compact_text(value.get("code") or value.get("error_code") or "", limit=120),
-            "message": compact_text(value.get("message") or value.get("detail") or "", limit=500),
-            "retryable": value.get("retryable") if isinstance(value.get("retryable"), bool) else None,
-            "origin": compact_text(value.get("origin") or "", limit=120),
-        }
-    )
 
 
 def _compact_tool_result(tool_projection: dict[str, Any]) -> dict[str, Any]:

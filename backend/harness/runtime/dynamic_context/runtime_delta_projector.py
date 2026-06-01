@@ -35,6 +35,7 @@ class RuntimeDeltaProjector:
                         "mode": profile.get("mode"),
                         "task_environment_id": environment.get("environment_id"),
                         "agent_prompt_refs": string_tuple(assembly.get("agent_prompt_refs")),
+                        "agent_prompt_refs_by_invocation": _prompt_refs_by_invocation(assembly.get("agent_prompt_refs_by_invocation")),
                         "environment_prompt_refs": string_tuple(assembly.get("environment_prompt_refs")),
                     }
                 ),
@@ -72,6 +73,7 @@ def _runtime_context_projection(
             }
         ),
         "agent_prompt_refs": string_tuple(assembly_payload.get("agent_prompt_refs")),
+        "agent_prompt_refs_by_invocation": _prompt_refs_by_invocation(assembly_payload.get("agent_prompt_refs_by_invocation")),
         "environment_prompt_refs": string_tuple(assembly_payload.get("environment_prompt_refs")),
         "allowed_operation_count": len(list(dict(assembly_payload.get("operation_authorization") or {}).get("allowed_operations") or [])),
         "runtime_policy_refs": drop_empty(
@@ -85,6 +87,14 @@ def _runtime_context_projection(
         "agent_visible_runtime_projection": dict(agent_visible_runtime_projection or {}),
     }
     return drop_empty(payload)
+
+
+def _prompt_refs_by_invocation(value: Any) -> dict[str, tuple[str, ...]]:
+    return {
+        str(key): string_tuple(item)
+        for key, item in dict(value or {}).items()
+        if str(key).strip() and string_tuple(item)
+    }
 
 
 def _runtime_envelope_projection(envelope: dict[str, Any]) -> dict[str, Any]:

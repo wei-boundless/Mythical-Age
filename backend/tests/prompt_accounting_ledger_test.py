@@ -244,9 +244,13 @@ def test_task_execution_packet_places_stable_contract_before_volatile_state() ->
     assert "审查并修复监控系统" in requirement_content
     assert any("本次运行边界" in str(message.get("content") or "") for message in messages)
     current_state_content = _message_content_with_title(result.packet, "Task execution current state")
-    assert "observations" in current_state_content
     stable_payload = json.loads(messages[1]["content"].split("\n", 1)[1])
     volatile_payload = json.loads(current_state_content.split("\n", 1)[1])
+    assert "task_state" in volatile_payload
+    assert "observations" not in volatile_payload
+    assert "execution_state" not in volatile_payload
+    assert "work_history" not in volatile_payload
+    assert "task_run_state" not in volatile_payload
     runtime_boundary_content = _message_content_with_title(result.packet, "Task execution runtime boundary")
     assert "Task run model-visible context" in runtime_boundary_content
     runtime_task_context = json.loads(runtime_boundary_content.split("Task run model-visible context\n", 1)[1].split("\nTask execution runtime boundary", 1)[0])
@@ -259,12 +263,12 @@ def test_task_execution_packet_places_stable_contract_before_volatile_state() ->
     assert stable_payload["available_tools"][0]["input_schema_ref"].startswith("sha256:")
     assert stable_payload["available_tools"][0]["input_schema_summary"]["properties"]["path"] == "string"
     assert stable_payload["available_tools"][0]["input_schema_summary"]["required"] == ["path"]
-    assert volatile_payload["task_run_state"]["diagnostics"] == {
+    assert volatile_payload["task_state"]["task_run_state"]["diagnostics"] == {
         "executor_status": "retrying",
         "recoverable_error": "tool_failed",
         "recovery_action": "retry_with_current_file",
     }
-    assert volatile_payload["observations"]["latest_observations"][0]["structured_error"] == {
+    assert volatile_payload["task_state"]["latest_tool_results"][0]["structured_error"] == {
         "code": "tool_http_error",
         "message": "Fetch failed for https://example.invalid/rss.xml",
         "retryable": False,

@@ -19,10 +19,12 @@ router = APIRouter()
 
 class TaskRunExecuteRequest(BaseModel):
     max_steps: int = Field(default=12, ge=1, le=50)
+    expected_active_turn_id: str = Field(default="", max_length=300)
 
 
 class TaskRunControlRequest(BaseModel):
     reason: str = Field(default="", max_length=500)
+    expected_active_turn_id: str = Field(default="", max_length=300)
 
 
 @router.get("/orchestration/harness/sessions/{session_id}/task-runs")
@@ -131,8 +133,10 @@ async def pause_harness_task_run(
     payload: TaskRunControlRequest | None = None,
 ) -> dict[str, Any]:
     runtime = require_runtime()
+    runtime_host = runtime.query_runtime.single_agent_runtime_host
+    _assert_expected_active_turn(runtime_host, task_run_id, payload.expected_active_turn_id if payload is not None else "")
     result = request_task_run_pause(
-        runtime.query_runtime.single_agent_runtime_host,
+        runtime_host,
         task_run_id,
         reason=payload.reason if payload is not None else "",
         requested_by="user",
@@ -151,6 +155,7 @@ async def resume_harness_task_run(
 ) -> dict[str, Any]:
     runtime = require_runtime()
     runtime_host = runtime.query_runtime.single_agent_runtime_host
+    _assert_expected_active_turn(runtime_host, task_run_id, payload.expected_active_turn_id if payload is not None else "")
     result = resume_paused_task_run(runtime_host, task_run_id, requested_by="user")
     if result.get("error") == "task_run_not_found":
         raise HTTPException(status_code=404, detail="TaskRun not found")
@@ -188,8 +193,10 @@ async def stop_harness_task_run(
     payload: TaskRunControlRequest | None = None,
 ) -> dict[str, Any]:
     runtime = require_runtime()
+    runtime_host = runtime.query_runtime.single_agent_runtime_host
+    _assert_expected_active_turn(runtime_host, task_run_id, payload.expected_active_turn_id if payload is not None else "")
     result = stop_task_run(
-        runtime.query_runtime.single_agent_runtime_host,
+        runtime_host,
         task_run_id,
         reason=payload.reason if payload is not None else "",
         requested_by="user",
@@ -199,6 +206,26 @@ async def stop_harness_task_run(
     if not result.get("ok"):
         raise HTTPException(status_code=409, detail=str(result.get("error") or "task_run_stop_rejected"))
     return result
+
+
+def _assert_expected_active_turn(runtime_host: Any, task_run_id: str, expected_active_turn_id: str) -> None:
+    expected = str(expected_active_turn_id or "").strip()
+    if not expected:
+        return
+    active_turn = runtime_host.active_turn_registry.snapshot(_task_run_session_id(runtime_host, task_run_id))
+    if active_turn is None:
+        raise HTTPException(status_code=409, detail="active_turn_not_found")
+    if active_turn.turn_id != expected:
+        raise HTTPException(status_code=409, detail="active_turn_mismatch")
+    if active_turn.bound_task_run_id != task_run_id:
+        raise HTTPException(status_code=409, detail="active_turn_task_run_mismatch")
+
+
+def _task_run_session_id(runtime_host: Any, task_run_id: str) -> str:
+    task_run = runtime_host.state_index.get_task_run(task_run_id)
+    if task_run is None:
+        raise HTTPException(status_code=404, detail="TaskRun not found")
+    return str(getattr(task_run, "session_id", "") or "")
 
 
 @router.get("/orchestration/harness/task-runs/{task_run_id}/artifacts")

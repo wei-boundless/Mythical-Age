@@ -57,7 +57,7 @@ class RuntimeCompiler:
         profile_payload = dict(assembly_payload.get("profile") or {})
         environment_payload = dict(assembly_payload.get("task_environment") or {})
         control_capabilities = dict(assembly_payload.get("control_capabilities") or {})
-        agent_profile_ref = str(agent_profile_ref or assembly_payload.get("agent_profile_ref") or "main_interactive_agent")
+        agent_profile_ref = str(assembly_payload.get("agent_profile_ref") or agent_profile_ref or "main_interactive_agent")
         task_environment_ref = str(environment_payload.get("environment_id") or "env.general.workspace")
         prompt_pack_refs = _prompt_pack_refs_for_invocation(profile_payload, invocation_kind="single_agent_turn")
         soul_role_prompt = dict(assembly_payload.get("soul_role_prompt") or {})
@@ -117,8 +117,8 @@ class RuntimeCompiler:
             task_environment_ref=task_environment_ref,
         )
         agent_prompt_assembly = self._assemble_prompt_refs(
-            invocation_kind="agent_profile",
-            prompt_refs=_string_tuple(assembly_payload.get("agent_prompt_refs")),
+            invocation_kind="single_agent_turn",
+            prompt_refs=_agent_prompt_refs_for_invocation(assembly_payload, invocation_kind="single_agent_turn"),
             agent_profile_ref=agent_profile_ref,
             task_environment_ref=task_environment_ref,
         )
@@ -133,7 +133,7 @@ class RuntimeCompiler:
             environment_payload,
             environment_prompt_assembly=environment_prompt_assembly,
         )
-        agent_instruction = _agent_prompt_instruction(agent_prompt_assembly)
+        agent_instruction = _agent_prompt_instruction(agent_prompt_assembly, invocation_kind="single_agent_turn")
         soul_instruction = _soul_instruction(soul_role_prompt)
         skill_candidate_instruction = _skill_candidate_instruction(assembly_payload)
         stable_payload = {
@@ -290,7 +290,7 @@ class RuntimeCompiler:
         self._bind_assembly_base_dir(assembly_payload)
         profile_payload = dict(assembly_payload.get("profile") or {})
         environment_payload = dict(assembly_payload.get("task_environment") or {})
-        agent_profile_ref = str(agent_profile_ref or assembly_payload.get("agent_profile_ref") or "main_interactive_agent")
+        agent_profile_ref = str(assembly_payload.get("agent_profile_ref") or agent_profile_ref or "main_interactive_agent")
         task_environment_ref = str(environment_payload.get("environment_id") or "env.general.workspace")
         task_run_id = str(task_run.get("task_run_id") or "")
         task_run_diagnostics = dict(task_run.get("diagnostics") or {})
@@ -365,8 +365,8 @@ class RuntimeCompiler:
             graph_node_prompt_contract=graph_node_prompt_contract,
         )
         agent_prompt_assembly = self._assemble_prompt_refs(
-            invocation_kind="agent_profile",
-            prompt_refs=_string_tuple(assembly_payload.get("agent_prompt_refs")),
+            invocation_kind="task_execution",
+            prompt_refs=_agent_prompt_refs_for_invocation(assembly_payload, invocation_kind="task_execution"),
             agent_profile_ref=agent_profile_ref,
             task_environment_ref=task_environment_ref,
         )
@@ -389,7 +389,7 @@ class RuntimeCompiler:
             environment_payload,
             environment_prompt_assembly=environment_prompt_assembly,
         )
-        agent_instruction = _agent_prompt_instruction(agent_prompt_assembly)
+        agent_instruction = _agent_prompt_instruction(agent_prompt_assembly, invocation_kind="task_execution")
         stable_payload = {
             "schema": schema,
             "task_contract": _task_contract_stable_payload(contract),
@@ -453,7 +453,7 @@ class RuntimeCompiler:
                     role="system",
                     content=agent_instruction,
                     kind="agent_stable",
-                    source_ref=",".join(_string_tuple(assembly_payload.get("agent_prompt_refs"))),
+                    source_ref=",".join(agent_prompt_assembly.manifest.get("stable_prompt_refs") or ()),
                     cache_scope="session",
                     cache_role="session_stable",
                     compression_role="preserve",
@@ -501,7 +501,7 @@ class RuntimeCompiler:
                     cache_scope="none",
                     cache_role="volatile",
                     compression_role="summarize",
-                    metadata=_dynamic_context_segment_metadata(dynamic_context, source="execution_state"),
+                    metadata=_dynamic_context_segment_metadata(dynamic_context, source="task_state"),
                 ),
             ],
             enforce_dynamic_context_reports=True,
@@ -522,11 +522,9 @@ class RuntimeCompiler:
             ),
             volatile_state_refs=(
                 "runtime_envelope",
-                "execution_state",
+                "task_state",
                 "pending_user_steers",
                 "active_contract_revisions",
-                "observations",
-                "work_history",
             ),
         ).to_dict()
         prompt_manifest["segment_plan_ref"] = segment_plan.segment_plan_id
@@ -581,7 +579,7 @@ class RuntimeCompiler:
         self._bind_assembly_base_dir(assembly_payload)
         profile_payload = dict(assembly_payload.get("profile") or {})
         environment_payload = dict(assembly_payload.get("task_environment") or {})
-        agent_profile_ref = str(agent_profile_ref or assembly_payload.get("agent_profile_ref") or "main_interactive_agent")
+        agent_profile_ref = str(assembly_payload.get("agent_profile_ref") or agent_profile_ref or "main_interactive_agent")
         task_environment_ref = str(environment_payload.get("environment_id") or "env.general.workspace")
         runtime_policy = {
             "planning_policy": dict(profile_payload.get("planning_policy") or {}),
@@ -632,8 +630,8 @@ class RuntimeCompiler:
             task_environment_ref=task_environment_ref,
         )
         agent_prompt_assembly = self._assemble_prompt_refs(
-            invocation_kind="agent_profile",
-            prompt_refs=_string_tuple(assembly_payload.get("agent_prompt_refs")),
+            invocation_kind="tool_observation_followup",
+            prompt_refs=_agent_prompt_refs_for_invocation(assembly_payload, invocation_kind="tool_observation_followup"),
             agent_profile_ref=agent_profile_ref,
             task_environment_ref=task_environment_ref,
         )
@@ -648,7 +646,7 @@ class RuntimeCompiler:
             environment_payload,
             environment_prompt_assembly=environment_prompt_assembly,
         )
-        agent_instruction = _agent_prompt_instruction(agent_prompt_assembly)
+        agent_instruction = _agent_prompt_instruction(agent_prompt_assembly, invocation_kind="tool_observation_followup")
         soul_instruction = _soul_instruction(soul_role_prompt)
         skill_candidate_instruction = _skill_candidate_instruction(assembly_payload)
         stable_payload = {
@@ -712,7 +710,7 @@ class RuntimeCompiler:
                     role="system",
                     content=_join_prompt_sections(soul_instruction, agent_instruction),
                     kind="agent_stable",
-                    source_ref=",".join(_string_tuple(assembly_payload.get("agent_prompt_refs"))),
+                    source_ref=",".join(agent_prompt_assembly.manifest.get("stable_prompt_refs") or ()),
                     cache_scope="session",
                     cache_role="session_stable",
                     compression_role="preserve",
@@ -866,7 +864,7 @@ class RuntimeCompiler:
                 invocation_kind=invocation_kind,
                 sections=(),
             )
-        return PromptAssemblyService(self.base_dir).assemble(
+        assembly = PromptAssemblyService(self.base_dir).assemble(
             PromptAssemblyRequest(
                 invocation_kind=invocation_kind,
                 prompt_pack_refs=(),
@@ -875,6 +873,12 @@ class RuntimeCompiler:
                 task_environment_ref=task_environment_ref,
             )
         )
+        _validate_runtime_prompt_ref_assembly(
+            assembly,
+            invocation_kind=invocation_kind,
+            requested_refs=prompt_refs,
+        )
+        return assembly
 
 
 def _validate_runtime_prompt_pack_assembly(
@@ -897,6 +901,30 @@ def _validate_runtime_prompt_pack_assembly(
     if not str(assembly.content or "").strip():
         raise ValueError(
             "runtime prompt pack assembly produced empty content: "
+            f"invocation_kind={invocation_kind} refs={','.join(requested_refs)}"
+        )
+
+
+def _validate_runtime_prompt_ref_assembly(
+    assembly: PromptAssemblyResult,
+    *,
+    invocation_kind: str,
+    requested_refs: tuple[str, ...],
+) -> None:
+    if not tuple(requested_refs or ()):
+        return
+    rejected_refs = tuple(dict(item) for item in tuple(assembly.rejected_refs or ()))
+    if rejected_refs:
+        rejected = ", ".join(
+            f"{item.get('ref', '')}:{item.get('reason', '')}" for item in rejected_refs
+        )
+        raise ValueError(
+            "runtime prompt ref assembly rejected refs: "
+            f"invocation_kind={invocation_kind} refs={rejected}"
+        )
+    if not str(assembly.content or "").strip():
+        raise ValueError(
+            "runtime prompt ref assembly produced empty content: "
             f"invocation_kind={invocation_kind} refs={','.join(requested_refs)}"
         )
 
@@ -1302,6 +1330,14 @@ def _prompt_pack_refs_for_invocation(profile_payload: dict[str, Any], *, invocat
     return _string_tuple(profile_payload.get("prompt_pack_refs"))
 
 
+def _agent_prompt_refs_for_invocation(assembly_payload: dict[str, Any], *, invocation_kind: str) -> tuple[str, ...]:
+    by_invocation = dict(assembly_payload.get("agent_prompt_refs_by_invocation") or {})
+    refs = _string_tuple(by_invocation.get(invocation_kind))
+    if refs:
+        return refs
+    return _string_tuple(assembly_payload.get("agent_prompt_refs"))
+
+
 def _task_run_context_enabled(profile_payload: dict[str, Any]) -> bool:
     context_policy = dict(profile_payload.get("context_policy") or {})
     raw = context_policy.get("task_run_context", context_policy.get("task_context", True))
@@ -1580,7 +1616,8 @@ def _soul_instruction(soul_role_prompt: dict[str, Any]) -> str:
     return "以下是本次角色表达锚点；它不改变工具、任务或系统边界：\n" + content + "\n"
 
 
-def _agent_prompt_instruction(agent_prompt_assembly: PromptAssemblyResult) -> str:
+def _agent_prompt_instruction(agent_prompt_assembly: PromptAssemblyResult, *, invocation_kind: str = "") -> str:
+    del invocation_kind
     content = str(agent_prompt_assembly.content or "").strip()
     if not content:
         return ""

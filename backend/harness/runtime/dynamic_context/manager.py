@@ -10,6 +10,7 @@ from .models import DynamicContextInput, DynamicContextProjection, VolatileSecti
 from .observation_projector import ObservationProjector
 from .replacement_store import MemoryReplacementStore, ReplacementStore
 from .runtime_delta_projector import RuntimeDeltaProjector
+from .task_state_projector import TaskStateProjector
 from .token_budget import build_budget_report
 from .tool_result_projector import ToolResultProjector
 from .work_history_projector import WorkHistoryProjector
@@ -24,6 +25,7 @@ class DynamicContextManager:
         self.work_history_projector = WorkHistoryProjector()
         self.history_projector = HistoryProjector()
         self.runtime_delta_projector = RuntimeDeltaProjector()
+        self.task_state_projector = TaskStateProjector()
 
     def project(self, request: DynamicContextInput) -> DynamicContextProjection:
         replacement_store, storage_root = self._replacement_store_for_request(request)
@@ -156,13 +158,15 @@ class DynamicContextManager:
         if request.invocation_kind != "task_execution":
             return {}
         payload = {
-            "execution_state": execution_projection,
-            "observations": observation_projection,
+            "task_state": self.task_state_projector.project(
+                execution_projection=execution_projection,
+                observation_projection=observation_projection,
+                work_history_projection=work_history_projection,
+                task_run_state=self.execution_state_projector.task_run_state(request.task_run),
+                envelope_projection=envelope_projection,
+                include_task_run_context=bool(dict(request.projection_policy or {}).get("include_task_run_context", True)),
+            ),
         }
-        if bool(dict(request.projection_policy or {}).get("include_task_run_context", True)):
-            payload["runtime_envelope"] = envelope_projection
-            payload["task_run_state"] = self.execution_state_projector.task_run_state(request.task_run)
-            payload["work_history"] = work_history_projection
         return drop_empty(payload)
 
     def _section_reports(
@@ -202,7 +206,7 @@ class DynamicContextManager:
             reports.append(
                 VolatileSectionReport(
                     section_id=f"dynamic_context:{request.invocation_kind}:task_state",
-                    source="execution_state",
+                    source="task_state",
                     volatility_reason="task execution state, observations, and work progress change each step",
                     input_chars=estimate_chars({"execution_state": request.execution_state, "observations": request.observations, "work_rollout": request.work_rollout}),
                     output_chars=estimate_chars(volatile_state),

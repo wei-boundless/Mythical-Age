@@ -282,9 +282,9 @@ def finish_task_lifecycle(
     active_registry = getattr(runtime_host, "active_turn_registry", None)
     if active_registry is not None:
         try:
-            active_registry.complete(
+            active_registry.complete_bound_task(
                 session_id=updated_task.session_id,
-                expected_turn_id=str(dict(updated_task.diagnostics or {}).get("turn_id") or ""),
+                task_run_id=updated_task.task_run_id,
                 terminal_reason=terminal_reason,
             )
         except Exception:

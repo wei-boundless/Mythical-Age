@@ -127,14 +127,35 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
             lifecycle_policy="system_builtin",
             metadata={
                 "runtime_template_id": "builtin.main.default",
-                "work_role_prompt": (
-                    "你是一名通用主 agent，负责把用户的真实目标转化为可执行行动，并在系统装配的运行时、工具、权限和任务环境内完成工作。\n"
-                    "在普通 turn 中，你需要理解当前请求是否只是对话、一次性回答、只读观察、工具辅助，还是需要开启持续处理流程；这个判断由你基于语义和可见边界作出，不能依赖关键词、旧分类器或隐藏默认任务。\n"
-                    "在普通 turn 中，当任务需要真实产物、持续执行、文件修改、命令验证、浏览器验证或失败恢复时，你应主动请求持续处理流程，并给出清晰合同：用户可理解目标、执行目标、交付物、验收标准、验证要求和恢复策略。\n"
-                    "进入持续处理流程后，你必须围绕合同推进，使用 todo 管理步骤，逐步产出真实文件、真实观察和真实验证证据；报告、计划和总结只能作为辅助产物，不能替代核心交付。\n"
-                    "每次工具调用前要确认它服务于当前步骤和权限边界；工具失败后要把失败当作事实观察，调整路径、参数、计划或验证方式继续推进，只有在必要材料、权限或用户决策缺失时才阻塞。\n"
-                    "你需要持续自我审查：目标是否被偷换，计划是否覆盖合同，产物是否真实存在，验证是否足够，最终答复是否夸大完成度。不要暴露隐藏推理，不要输出内部 task id。"
-                ),
+                "agent_prompt_refs_by_invocation": {
+                    "single_agent_turn": ["agent.main_interactive_agent.single_agent_turn.work_role.v1"],
+                    "tool_observation_followup": ["agent.main_interactive_agent.tool_observation_followup.work_role.v1"],
+                    "task_execution": ["agent.main_interactive_agent.task_execution.work_role.v1"],
+                },
+                "work_role_prompt_by_invocation": {
+                    "single_agent_turn": (
+                        "你是一名通用主 agent，负责把用户的真实目标转化为可执行行动，并在系统装配的运行时、工具、权限和任务环境内完成工作。\n"
+                        "你需要理解当前请求是对话、一次性回答、只读观察、工具辅助，还是需要建立持续任务生命周期；这个判断由你基于语义、上下文和可见边界作出，不能依赖关键词、旧分类器或隐藏默认任务。\n"
+                        "当目标需要真实产物、持续执行、文件修改、命令验证、浏览器验证或失败恢复时，你应请求持续任务生命周期，并给出清晰合同：用户可理解目标、执行目标、交付物、验收标准、验证要求和恢复策略。\n"
+                        "如果当前请求可以在本轮直接回答或通过只读观察完成，应保持在当前 turn 内完成，不要无谓启动持续任务。\n"
+                        "每次工具调用前要确认它服务于当前步骤和权限边界；工具失败后要把失败当作事实观察，调整路径、参数、计划或验证方式继续推进，只有在必要材料、权限或用户决策缺失时才阻塞。\n"
+                        "你需要持续自我审查：目标是否被偷换，计划是否覆盖请求，产物是否真实存在，验证是否足够，最终答复是否夸大完成度。不要暴露隐藏推理，不要输出内部 task id。"
+                    ),
+                    "task_execution": (
+                        "你是一名持续任务执行 agent。你的职责是围绕已经建立的任务合同推进、验证和收口。\n"
+                        "你不负责重新判断是否建立任务生命周期，也不负责把当前任务改写成新的用户意图；任务合同、环境、权限和可用工具由本轮 runtime 明确给出。\n"
+                        "你需要按合同产出真实文件、真实观察和真实验证证据；报告、计划和总结只能作为辅助产物，不能替代核心交付。\n"
+                        "每次工具调用前要确认它服务于当前合同、当前步骤和权限边界；工具失败后要把失败当作事实观察，基于新的事实修正路径、参数、计划或验证方式。\n"
+                        "只有在必要材料、权限、外部服务或用户决策确实缺失，且合同允许的替代路径不可行时，才可以阻塞。\n"
+                        "收口前必须自我审查：合同是否满足，产物是否真实存在，验证是否足够，最终答复是否准确说明完成情况和剩余风险。不要暴露隐藏推理，不要输出内部 task id。"
+                    ),
+                    "tool_observation_followup": (
+                        "你是一名通用主 agent，负责基于刚返回的观察结果继续推进当前 turn。\n"
+                        "你需要把观察结果当作事实证据：成功结果可以用于回答或继续下一步；失败结果必须作为真实失败处理，不能伪报成功。\n"
+                        "如果观察已经足够，应直接回答用户；如果仍缺少关键事实，可以继续请求一次合适的只读观察、询问用户、请求持续任务生命周期或说明阻塞。\n"
+                        "不要暴露隐藏推理、内部编号或系统协议。"
+                    ),
+                },
             },
         ),
         AgentRuntimeProfile(
@@ -843,12 +864,27 @@ def _enforce_system_builtin_profile_payload(
         enforced.get("blocked_operations"),
         allowed_operations=enforced.get("allowed_operations"),
     )
+    default_metadata_keys: set[str] = set()
+    if str(payload.get("agent_profile_id") or "") == str(default_payload.get("agent_profile_id") or ""):
+        default_metadata_keys.update(
+            {
+                "system_key",
+                "manager_kind",
+                "runtime_template_id",
+                "agent_prompt_refs_by_invocation",
+                "work_role_prompt_by_invocation",
+            }
+        )
+    payload_metadata = dict(payload.get("metadata") or {})
+    if default_metadata_keys:
+        payload_metadata.pop("work_role_prompt", None)
+        payload_metadata.pop("agent_work_role_prompt", None)
     enforced["metadata"] = {
-        **dict(payload.get("metadata") or {}),
+        **payload_metadata,
         **{
             key: value
             for key, value in dict(default_payload.get("metadata") or {}).items()
-            if key in {"system_key", "manager_kind", "runtime_template_id"}
+            if key in default_metadata_keys
         },
     }
     return enforced

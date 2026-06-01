@@ -160,6 +160,15 @@ class ActiveTurnRegistry:
             raise ActiveTurnMismatch(expected=expected_turn_id, actual=record.turn_id)
         return self._update(record, state="terminal", steerable=False, terminal_reason=str(terminal_reason or "completed"))
 
+    def complete_bound_task(self, *, session_id: str, task_run_id: str, terminal_reason: str) -> ActiveTurnRecord | None:
+        record = self.snapshot(session_id)
+        if record is None:
+            return None
+        expected_task_run_id = str(task_run_id or "").strip()
+        if not expected_task_run_id or record.bound_task_run_id != expected_task_run_id:
+            return record
+        return self._update(record, state="terminal", steerable=False, terminal_reason=str(terminal_reason or "completed"))
+
     def steer(
         self,
         *,

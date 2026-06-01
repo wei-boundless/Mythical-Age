@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from harness.runtime.dynamic_context.replacement_store import ReplacementStore
@@ -96,3 +97,84 @@ def test_tool_result_projector_reuses_projection_bytes_for_same_content(tmp_path
     assert second == first
     assert first["status"] == "error"
     assert first["error"] == "gateway timeout"
+
+
+def test_tool_result_projector_preserves_provider_retry_policy_fields(tmp_path: Path) -> None:
+    projector = ToolResultProjector(root_dir=tmp_path, replacement_store=ReplacementStore(tmp_path))
+
+    projection, _ = projector.project(
+        {
+            "result_envelope": {
+                "envelope_id": "tool-result:image-error",
+                "tool_name": "image_generate",
+                "status": "error",
+                "structured_error": {
+                    "code": "image_provider_transient_error",
+                    "message": "gateway timeout",
+                    "retryable": False,
+                    "origin": "image_provider",
+                    "provider_retryable": True,
+                    "agent_retry_policy": "do_not_auto_retry",
+                    "attempts": [
+                        {
+                            "model": "gpt-image-2",
+                            "attempt_index": 1,
+                            "http_status": 504,
+                            "code": "image_provider_transient_error",
+                            "retryable": True,
+                        }
+                    ],
+                },
+            }
+        },
+        task_run_id="taskrun:image-error",
+        projection_policy={"tool_result_preview_chars": 300},
+    )
+
+    structured_error = projection["structured_error"]
+    assert structured_error["provider_retryable"] is True
+    assert structured_error["agent_retry_policy"] == "do_not_auto_retry"
+    assert structured_error["attempts"][0]["http_status"] == 504
+
+
+def test_tool_result_projector_extracts_structured_error_from_json_result_text(tmp_path: Path) -> None:
+    projector = ToolResultProjector(root_dir=tmp_path, replacement_store=ReplacementStore(tmp_path))
+
+    projection, _ = projector.project(
+        {
+            "tool_result_ref": "obs:image",
+            "tool_name": "image_generate",
+            "result": json.dumps(
+                {
+                    "ok": False,
+                    "error": "gateway timeout",
+                    "structured_error": {
+                        "code": "image_provider_transient_error",
+                        "message": "Image API failed with status 504",
+                        "retryable": False,
+                        "origin": "image_provider",
+                        "provider_retryable": True,
+                        "agent_retry_policy": "do_not_auto_retry",
+                        "attempts": [
+                            {
+                                "model": "gpt-image-2",
+                                "attempt_index": 1,
+                                "http_status": 504,
+                                "code": "image_provider_transient_error",
+                                "retryable": True,
+                            }
+                        ],
+                    },
+                }
+            ),
+        },
+        task_run_id="taskrun:image-error-json",
+        projection_policy={"tool_result_preview_chars": 300},
+    )
+
+    assert projection["status"] == "error"
+    assert projection["error"] == "gateway timeout"
+    structured_error = projection["structured_error"]
+    assert structured_error["provider_retryable"] is True
+    assert structured_error["agent_retry_policy"] == "do_not_auto_retry"
+    assert structured_error["attempts"][0]["http_status"] == 504

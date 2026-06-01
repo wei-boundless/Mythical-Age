@@ -2880,11 +2880,12 @@ def _build_execution_state_projection(records: list[dict[str, Any]]) -> dict[str
             "summary": summary,
         }
         last_action_receipts.append(receipt)
-        if status == "ok" and visibility == "active":
-            current_facts.append(receipt)
-            for ref in list(record.get("artifact_refs") or []):
-                if isinstance(ref, dict):
-                    artifact_evidence.append({**dict(ref), "observation_ref": receipt["observation_ref"]})
+        if status == "ok":
+            if visibility == "active":
+                current_facts.append(receipt)
+                for ref in list(record.get("artifact_refs") or []):
+                    if isinstance(ref, dict):
+                        artifact_evidence.append({**dict(ref), "observation_ref": receipt["observation_ref"]})
             continue
         failure = {
             **receipt,
@@ -3065,21 +3066,23 @@ def _structured_error_from_observation(observation: dict[str, Any]) -> dict[str,
     for source in (tool_result, structured, envelope, payload):
         error = source.get("error") if isinstance(source, dict) else None
         if isinstance(error, dict):
-            return {
-                "code": str(error.get("code") or error.get("error_code") or source.get("code") or "tool_error"),
-                "message": str(error.get("message") or error.get("detail") or error),
-                "retryable": bool(error.get("retryable", source.get("retryable", True))),
-                "origin": str(error.get("origin") or source.get("origin") or "tool_provider"),
-            }
+            return _project_structured_error(
+                error,
+                code=str(error.get("code") or error.get("error_code") or source.get("code") or "tool_error"),
+                message=str(error.get("message") or error.get("detail") or error),
+                retryable=bool(error.get("retryable", source.get("retryable", True))),
+                origin=str(error.get("origin") or source.get("origin") or "tool_provider"),
+            )
     parsed_result = _json_payload(payload.get("result"))
     parsed_error = parsed_result.get("structured_error")
     if isinstance(parsed_error, dict) and parsed_error:
-        return {
-            "code": str(parsed_error.get("code") or parsed_result.get("error_code") or parsed_result.get("code") or "tool_error"),
-            "message": str(parsed_error.get("message") or parsed_result.get("error") or parsed_error),
-            "retryable": bool(parsed_error.get("retryable", parsed_result.get("retryable", True))),
-            "origin": str(parsed_error.get("origin") or _error_origin(observation)),
-        }
+        return _project_structured_error(
+            parsed_error,
+            code=str(parsed_error.get("code") or parsed_result.get("error_code") or parsed_result.get("code") or "tool_error"),
+            message=str(parsed_error.get("message") or parsed_result.get("error") or parsed_error),
+            retryable=bool(parsed_error.get("retryable", parsed_result.get("retryable", True))),
+            origin=str(parsed_error.get("origin") or _error_origin(observation)),
+        )
     if parsed_result.get("ok") is False and parsed_result.get("error"):
         return {
             "code": str(parsed_result.get("error_code") or parsed_result.get("code") or "tool_error"),
@@ -3091,12 +3094,13 @@ def _structured_error_from_observation(observation: dict[str, Any]) -> dict[str,
     if message:
         structured_error = payload.get("structured_error")
         if isinstance(structured_error, dict) and structured_error:
-            return {
-                "code": str(structured_error.get("code") or payload.get("error_code") or payload.get("code") or "tool_error"),
-                "message": str(structured_error.get("message") or message),
-                "retryable": bool(structured_error.get("retryable", payload.get("retryable", True))),
-                "origin": str(structured_error.get("origin") or _error_origin(observation)),
-            }
+            return _project_structured_error(
+                structured_error,
+                code=str(structured_error.get("code") or payload.get("error_code") or payload.get("code") or "tool_error"),
+                message=str(structured_error.get("message") or message),
+                retryable=bool(structured_error.get("retryable", payload.get("retryable", True))),
+                origin=str(structured_error.get("origin") or _error_origin(observation)),
+            )
         return {
             "code": str(payload.get("error_code") or payload.get("code") or "tool_error"),
             "message": message,
@@ -3111,6 +3115,18 @@ def _structured_error_from_observation(observation: dict[str, Any]) -> dict[str,
             "origin": "validator",
         }
     return {}
+
+
+def _project_structured_error(source: dict[str, Any], **defaults: Any) -> dict[str, Any]:
+    payload = dict(defaults)
+    if isinstance(source.get("provider_retryable"), bool):
+        payload["provider_retryable"] = source.get("provider_retryable")
+    if str(source.get("agent_retry_policy") or "").strip():
+        payload["agent_retry_policy"] = str(source.get("agent_retry_policy") or "")
+    attempts = [dict(item) for item in list(source.get("attempts") or []) if isinstance(item, dict)]
+    if attempts:
+        payload["attempts"] = attempts
+    return payload
 
 
 def _error_origin(observation: dict[str, Any]) -> str:

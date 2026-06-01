@@ -16,7 +16,14 @@ class PromptAssemblyService:
 
     def assemble(self, request: PromptAssemblyRequest) -> PromptAssemblyResult:
         pack_refs = tuple(request.prompt_pack_refs or ())
-        if not pack_refs:
+        has_explicit_refs = bool(
+            tuple(request.prompt_refs or ())
+            or tuple(request.skill_prompt_refs or ())
+            or str(request.soul_prompt_ref or "").strip()
+            or dict(request.task_prompt_contract or {})
+            or dict(request.graph_node_prompt_contract or {})
+        )
+        if not pack_refs and not has_explicit_refs:
             default_ref = default_pack_ref_for_invocation(request.invocation_kind)
             pack_refs = (default_ref,) if default_ref else ()
         prompt_refs: list[str] = []

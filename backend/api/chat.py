@@ -131,14 +131,14 @@ async def create_chat_run(payload: ChatRequest):
     assert_optional_session_scope(runtime.session_manager, session_id, payload.session_scope)
     request = _query_request_from_payload(payload, session_id=session_id)
     run = _create_and_schedule_run(runtime, request)
-    return _run_response(run)
+    return _run_response(runtime, run)
 
 
 @router.get("/chat/runs/{stream_run_id}")
 async def get_chat_run(stream_run_id: str):
     runtime = require_runtime()
     run = _get_run_or_404(runtime, stream_run_id)
-    return _run_response(run)
+    return _run_response(runtime, run)
 
 
 @router.get("/chat/sessions/{session_id}/latest-run")
@@ -158,7 +158,7 @@ async def get_latest_chat_run_for_session(
     ]
     if not candidates:
         raise HTTPException(status_code=404, detail="chat run not found")
-    return _run_response(candidates[0])
+    return _run_response(runtime, candidates[0])
 
 
 @router.get("/chat/runs/{stream_run_id}/events")
@@ -188,7 +188,7 @@ async def resume_chat_run(stream_run_id: str):
     # message would duplicate model/tool side effects; actual task continuation
     # remains owned by the runtime resume and execution-record paths.
     return {
-        **_run_response(run),
+        **_run_response(runtime, run),
         "resume_mode": "attach_existing_run",
     }
 
@@ -288,9 +288,9 @@ async def _run_chat_to_event_log(runtime: Any, run: RuntimeRun, request: QueryRe
         async for event in runtime.query_runtime.astream(request):
             event_type = str(event.get("type", "message") or "message")
             runtime_refs = _runtime_run_refs_from_event(event)
-            runtime_task_run_id = runtime_refs["task_run_id"]
-            runtime_turn_run_id = runtime_refs["turn_run_id"]
-            runtime_active_turn_id = runtime_refs["active_turn_id"]
+            runtime_task_run_id = runtime_refs.get("task_run_id", "")
+            runtime_turn_run_id = runtime_refs.get("turn_run_id", "")
+            runtime_active_turn_id = runtime_refs.get("active_turn_id", "")
             projection = _project_public_stream_event(event_type, event)
             if projection is None:
                 continue
@@ -431,12 +431,20 @@ def _get_run_or_404(runtime: Any, stream_run_id: str) -> RuntimeRun:
     return run
 
 
-def _run_response(run: RuntimeRun) -> dict[str, Any]:
+def _run_response(runtime: Any, run: RuntimeRun) -> dict[str, Any]:
     payload = run.to_dict()
     payload.pop("owner_process_id", None)
     payload.pop("owner_instance_id", None)
+    active_turn_snapshot = None
+    try:
+        active_turn = runtime.query_runtime.single_agent_runtime_host.active_turn_registry.snapshot(run.session_id)
+        if active_turn is not None:
+            active_turn_snapshot = active_turn.to_dict()
+    except Exception:
+        active_turn_snapshot = None
     return {
         **payload,
+        "active_turn_snapshot": active_turn_snapshot,
         "is_reconnectable": run.reconnectable_until >= time.time()
         and run.status not in TERMINAL_RUN_STATUSES,
         "stream_url": f"/api/chat/runs/{run.stream_run_id}/events",
@@ -540,4 +548,7 @@ def _runtime_run_refs_from_event(event: dict[str, Any]) -> dict[str, str]:
         active_turn = event.get("active_turn")
         if isinstance(active_turn, dict):
             active_turn_id = str(active_turn.get("turn_id") or "").strip()
-    return {"task_run_id": task_run_id, "turn_run_id": turn_run_id, "active_turn_id": active_turn_id}
+    refs = {"task_run_id": task_run_id, "turn_run_id": turn_run_id}
+    if active_turn_id:
+        refs["active_turn_id"] = active_turn_id
+    return refs
