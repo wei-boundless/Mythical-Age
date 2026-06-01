@@ -12,9 +12,9 @@ from evidence import EvidenceOrchestrator, PDFWorker, RetrievalWorker, Structure
 from evidence.output_policy import RAGEvidenceOutputPolicy
 from observability import build_debug_trace_event, start_turn_trace
 from capability_system.tool_authorization import build_tool_authorization_index
-from harness import AgentHarness, GraphHarness
-from harness.runtime import AgentRuntimeServices, RuntimeCompiler, SingleAgentRuntimeHost, TaskExecutorServices, assemble_runtime
-from harness.routing import TurnRoute, decide_turn_route
+from harness import GraphHarness
+from harness.runtime import AgentRuntimeServices, SingleAgentRuntimeHost, TaskExecutorServices, assemble_runtime
+from harness.routing import TurnRoute, build_turn_route
 from runtime import ModelResponseRuntimeExecutor, ModelRuntimeError, ToolRuntimeExecutor
 from runtime.shared.history_assembler import assemble_runtime_history
 from agent_system.profiles.runtime_profile_registry import AgentRuntimeRegistry
@@ -26,21 +26,20 @@ from orchestration import (
 from project_layout import ProjectLayout
 from query.models import QueryRequest
 from query.system_routes import run_direct_system_route
-from harness.runtime import AgentRunRequest
 from harness.loop.active_work import (
     ActiveWorkContext,
     ActiveWorkTurnDecision,
+    active_work_turn_decision_from_payload,
     active_work_status_reply,
     build_active_work_context,
     default_reply_for_action,
     public_active_work_text,
 )
 from harness.loop.model_action_protocol import ModelActionRequest
-from harness.loop.model_action_runtime import call_model_invoker
-from harness.loop.native_turn import run_agent_native_turn
 from harness.loop.presentation import error_event, final_answer_event
 from harness.loop.resume_policy import build_resume_plan
 from harness.loop.resume_policy import ResumePlan
+from harness.loop.single_agent_turn import run_single_agent_turn
 from harness.loop.task_checkout import checkout_task_run_for_resume
 from harness.loop.task_executor import (
     append_user_work_instruction,
@@ -56,8 +55,6 @@ from harness.loop.task_run_recovery_state import should_auto_continue_task_run
 from harness.loop.task_lifecycle import (
     TaskLifecycleRecord,
     TaskRunContract,
-)
-from harness.loop.task_lifecycle_bridge import (
     start_task_lifecycle_from_action_request,
     start_task_lifecycle_from_contract,
 )
@@ -131,34 +128,22 @@ class QueryRuntime:
         attach_prompt_accounting = getattr(self.model_runtime, "attach_prompt_accounting_ledger", None)
         if callable(attach_prompt_accounting):
             attach_prompt_accounting(self.single_agent_runtime_host.prompt_accounting_ledger)
-        self.agent_harness = AgentHarness(
-            services=AgentRuntimeServices.from_runtime_host(
-                self.single_agent_runtime_host,
-                execute_task_run_callback=self.execute_task_run,
-                execute_graph_agent_work_order_callback=self.execute_graph_agent_work_order,
-                model_runtime=self.model_runtime,
-                tool_runtime_executor=self.tool_runtime_executor,
-                tool_instances=tuple(self._all_tool_instances()),
-                agent_runtime_profile_resolver=self.agent_runtime_registry.get_profile,
-            )
+        self.agent_runtime_services = AgentRuntimeServices.from_runtime_host(
+            self.single_agent_runtime_host,
+            execute_task_run_callback=self.execute_task_run,
+            execute_graph_agent_work_order_callback=self.execute_graph_agent_work_order,
+            model_runtime=self.model_runtime,
+            tool_runtime_executor=self.tool_runtime_executor,
+            tool_instances=tuple(self._all_tool_instances()),
+            agent_runtime_profile_resolver=self.agent_runtime_registry.get_profile,
         )
         self.graph_harness = GraphHarness(
-            services=AgentRuntimeServices.from_runtime_host(
-                self.single_agent_runtime_host,
-                execute_task_run_callback=self.execute_task_run,
-                execute_graph_agent_work_order_callback=self.execute_graph_agent_work_order,
-                model_runtime=self.model_runtime,
-                tool_runtime_executor=self.tool_runtime_executor,
-                tool_instances=tuple(self._all_tool_instances()),
-                agent_runtime_profile_resolver=self.agent_runtime_registry.get_profile,
-            ),
-            agent_harness=self.agent_harness,
+            services=self.agent_runtime_services,
         )
         self.single_agent_runtime_host.runtime_monitor_service.attach_graph_harness(self.graph_harness)
         self.task_executor_recovery = recover_interrupted_task_executors(self.single_agent_runtime_host)
         self.runtime_components = {
             "query_runtime": "adapter_only",
-            "agent_harness": "active",
             "graph_harness": "active",
             "evidence_orchestrator": "active" if retrieval_enabled else "disabled_missing_retrieval_service",
             "task_executor_recovery": self.task_executor_recovery,
@@ -239,58 +224,17 @@ class QueryRuntime:
                     "runtime_assembly": runtime_assembly.to_dict(),
                 }
 
-                turn_route, active_work_context, active_work_decision = await self._decide_turn_route(
-                    request=request,
-                    runtime_assembly=runtime_assembly,
+                turn_route = build_turn_route(runtime_assembly=runtime_assembly)
+                active_work_context = build_active_work_context(
+                    self.single_agent_runtime_host,
+                    session_id=request.session_id,
                 )
                 yield {
                     "type": "turn_route_decided",
                     "turn_route": turn_route.to_dict(),
                 }
-                if turn_route.route_kind == "active_work_control":
-                    if active_work_context is None or active_work_decision is None:
-                        yield error_event(
-                            content="当前工作控制路由缺少可执行上下文，系统已停止本轮控制。",
-                            code="active_work_route_context_missing",
-                            reason="active_work_route_context_missing",
-                        )
-                        return
-                    content = await self._apply_active_work_turn_decision(
-                        decision=active_work_decision,
-                        context=active_work_context,
-                        turn_id=turn_id,
-                        user_message=request.message,
-                    )
-                    await self._apply_assistant_message_commit_async(
-                        request.session_id,
-                        {
-                            "role": "assistant",
-                            "content": content,
-                            "turn_id": turn_id,
-                            "answer_channel": "active_work_control",
-                            "answer_source": "harness.routing.active_work_control",
-                            "answer_canonical_state": "final",
-                            "answer_persist_policy": "persist_canonical",
-                            "answer_finalization_policy": "assistant_final",
-                        },
-                    )
-                    yield final_answer_event(
-                        content=content,
-                        answer_source="harness.routing.active_work_control",
-                        terminal_reason=active_work_decision.action,
-                        extra={
-                            "turn_route": turn_route.to_dict(),
-                            "active_work": {
-                                "action": active_work_decision.action,
-                                "task_run_id": active_work_context.task_run_id,
-                                "status": active_work_context.status,
-                                "control_state": active_work_context.control_state,
-                            },
-                        },
-                    )
-                    return
-                if turn_route.route_kind == "plain_conversation":
-                    async for event in self._run_plain_conversation_turn(
+                if turn_route.route_kind == "single_agent_turn":
+                    async for event in self._run_single_agent_turn(
                         request=request,
                         turn_id=turn_id,
                         history=history,
@@ -299,19 +243,7 @@ class QueryRuntime:
                         agent_runtime_profile=agent_runtime_profile,
                         runtime_assembly=runtime_assembly,
                         turn_route=turn_route,
-                    ):
-                        yield event
-                    return
-                if turn_route.route_kind == "agent_native_turn":
-                    async for event in self._run_agent_native_turn(
-                        request=request,
-                        turn_id=turn_id,
-                        history=history,
-                        session_context=session_context,
-                        agent_invocation_id=agent_invocation_id,
-                        agent_runtime_profile=agent_runtime_profile,
-                        runtime_assembly=runtime_assembly,
-                        turn_route=turn_route,
+                        active_work_context=active_work_context,
                     ):
                         yield event
                     return
@@ -325,39 +257,20 @@ class QueryRuntime:
                     ):
                         yield event
                     return
-
-                async for event in self.agent_harness.run_stream(
-                    AgentRunRequest(
-                        session_id=request.session_id,
-                        turn_id=turn_id,
-                        user_message=request.message,
-                        history=history,
-                        session_context=session_context,
-                        source="query_runtime.adapter",
-                        model_response_executor=self.model_response_executor,
-                        task_selection=runtime_task_selection,
-                        assistant_message_committer=lambda payload: self._apply_assistant_message_commit_async(
-                            request.session_id,
-                            {**dict(payload or {}), "turn_id": turn_id},
-                        ),
-                        tool_runtime_executor=self.tool_runtime_executor,
-                        tool_instances=tool_instances,
-                        agent_runtime_profile=agent_runtime_profile,
-                        search_policy=list(request.search_policy) if request.search_policy is not None else None,
-                        model_selection=dict(request.model_selection or {}),
-                        agent_invocation={"agent_invocation_id": agent_invocation_id},
-                        runtime_assembly=runtime_assembly,
+                if turn_route.route_kind == "blocked_runtime":
+                    yield error_event(
+                        content="当前运行环境未能完成装配，本轮无法继续。",
+                        code="blocked_runtime",
+                        reason=turn_route.reason,
                     )
-                ):
-                    if event.get("type") == "agent_turn_terminal":
-                        terminal_payload = dict(dict(event.get("event") or {}).get("payload") or {})
-                        marker = getattr(trace, "mark_terminal", None)
-                        if callable(marker):
-                            marker(
-                                status=str(terminal_payload.get("status") or ""),
-                                reason=str(terminal_payload.get("terminal_reason") or ""),
-                            )
-                    yield event
+                    return
+
+                yield error_event(
+                    content="当前请求没有匹配到可执行的单 agent 入口。",
+                    code="turn_route_unhandled",
+                    reason=str(turn_route.route_kind),
+                )
+                return
         except Exception as exc:
             logger.exception("QueryRuntime failed while streaming request.")
             failure_text = self._user_visible_error(exc)
@@ -366,23 +279,7 @@ class QueryRuntime:
                 error_payload["code"] = exc.code
             yield error_payload
 
-    async def _decide_turn_route(
-        self,
-        *,
-        request: QueryRequest,
-        runtime_assembly: Any,
-    ) -> tuple[TurnRoute, ActiveWorkContext | None, ActiveWorkTurnDecision | None]:
-        route, context, decision = await decide_turn_route(
-            runtime_host=self.single_agent_runtime_host,
-            runtime_assembly=runtime_assembly,
-            session_id=request.session_id,
-            user_message=request.message,
-            model_runtime=self.model_runtime,
-            model_selection=dict(request.model_selection or {}),
-        )
-        return route, context, decision
-
-    async def _run_plain_conversation_turn(
+    async def _run_single_agent_turn(
         self,
         *,
         request: QueryRequest,
@@ -393,101 +290,7 @@ class QueryRuntime:
         agent_runtime_profile: Any,
         runtime_assembly: Any,
         turn_route: TurnRoute,
-    ):
-        compiler = RuntimeCompiler()
-        compilation = compiler.compile_plain_conversation_packet(
-            session_id=request.session_id,
-            turn_id=turn_id,
-            agent_invocation_id=agent_invocation_id,
-            user_message=request.message,
-            history=history,
-            session_context=session_context,
-            agent_profile_ref=str(getattr(agent_runtime_profile, "agent_profile_id", "") or "main_interactive_agent"),
-            model_selection=dict(request.model_selection or {}),
-            runtime_assembly=runtime_assembly,
-        )
-        yield {
-            "type": "plain_conversation_started",
-            "turn_route": turn_route.to_dict(),
-            "packet_ref": compilation.packet.packet_id,
-        }
-        model_runtime = getattr(self.model_response_executor, "model_runtime", None)
-        invoker = getattr(model_runtime, "invoke_messages", None)
-        if not callable(invoker):
-            yield error_event(
-                content="当前模型运行时不可用，无法完成本轮对话。",
-                code="model_runtime_unavailable",
-                reason="model_runtime_unavailable",
-            )
-            return
-        try:
-            response = await call_model_invoker(
-                invoker,
-                list(compilation.packet.model_messages),
-                model_selection=dict(request.model_selection or {}),
-                accounting_context={
-                    "request_id": f"modelreq:{compilation.packet.packet_id}:1",
-                    "session_id": request.session_id,
-                    "turn_id": turn_id,
-                    "packet_ref": compilation.packet.packet_id,
-                    "source": "harness.route.plain_conversation",
-                    "segment_plan": dict(compilation.packet.segment_plan or {}),
-                    "prompt_manifest": dict(compilation.packet.diagnostics.get("prompt_manifest") or {}),
-                },
-            )
-        except Exception as exc:
-            logger.exception("plain conversation model invocation failed")
-            yield error_event(
-                content="模型生成本轮对话回复时失败。",
-                code="plain_conversation_model_failed",
-                reason=str(exc),
-            )
-            return
-        content = str(getattr(response, "content", response) or "").strip()
-        if not content:
-            yield error_event(
-                content="模型没有返回可用的对话内容。",
-                code="plain_conversation_empty_response",
-                reason="plain_conversation_empty_response",
-            )
-            return
-        await self._apply_assistant_message_commit_async(
-            request.session_id,
-            {
-                "role": "assistant",
-                "content": content,
-                "turn_id": turn_id,
-                "answer_channel": "conversation",
-                "answer_source": "harness.route.plain_conversation",
-                "answer_canonical_state": "final",
-                "answer_persist_policy": "persist_canonical",
-                "answer_finalization_policy": "assistant_final",
-            },
-        )
-        yield {
-            "type": "assistant_message_committed",
-            "answer_channel": "conversation",
-            "answer_source": "harness.route.plain_conversation",
-            "answer_canonical_state": "final",
-        }
-        yield final_answer_event(
-            content=content,
-            answer_source="harness.route.plain_conversation",
-            terminal_reason="plain_conversation_completed",
-            extra={"turn_route": turn_route.to_dict()},
-        )
-
-    async def _run_agent_native_turn(
-        self,
-        *,
-        request: QueryRequest,
-        turn_id: str,
-        history: list[dict[str, Any]],
-        session_context: dict[str, Any],
-        agent_invocation_id: str,
-        agent_runtime_profile: Any,
-        runtime_assembly: Any,
-        turn_route: TurnRoute,
+        active_work_context: ActiveWorkContext | None,
     ):
         async def start_task(action_request: ModelActionRequest):
             async for event in start_task_lifecycle_from_action_request(
@@ -500,8 +303,8 @@ class QueryRuntime:
                 agent_runtime_profile=agent_runtime_profile,
                 runtime_assembly=runtime_assembly,
                 turn_route=turn_route,
-                answer_source="harness.routing.agent_native_turn.request_task_run",
-                scheduler="agent_native_turn",
+                answer_source="harness.route.single_agent_turn.request_task_run",
+                scheduler="single_agent_turn",
                 max_steps=_CONVERSATION_TASK_EXECUTION_STEPS,
                 commit_assistant_message=self._apply_assistant_message_commit_async,
                 initialize_task_todo=self._initialize_task_todo_for_contract,
@@ -509,7 +312,33 @@ class QueryRuntime:
             ):
                 yield event
 
-        async for event in run_agent_native_turn(
+        async def apply_active_work_control(control_payload: dict[str, Any]) -> str:
+            if active_work_context is None:
+                return "当前没有可控制的进行中工作。"
+            decision = active_work_turn_decision_from_payload(
+                {
+                    "authority": "harness.loop.active_work_turn_decision",
+                    "action": str(control_payload.get("action") or ""),
+                    "response": str(control_payload.get("response") or ""),
+                    "appended_instruction": str(control_payload.get("appended_instruction") or ""),
+                    "continuation_strategy": str(control_payload.get("continuation_strategy") or ""),
+                    "turn_response_policy": str(control_payload.get("turn_response_policy") or ""),
+                    "user_turn_kind": str(control_payload.get("user_turn_kind") or ""),
+                    "answer_obligation": str(control_payload.get("answer_obligation") or ""),
+                    "confidence": control_payload.get("confidence") or 1.0,
+                    "relation_to_current_work": str(control_payload.get("relation_to_current_work") or "current_work"),
+                    "evidence": str(control_payload.get("evidence") or "single agent native active work control"),
+                },
+                user_message=request.message,
+            )
+            return await self._apply_active_work_turn_decision(
+                decision=decision,
+                context=active_work_context,
+                turn_id=turn_id,
+                user_message=request.message,
+            )
+
+        async for event in run_single_agent_turn(
             session_id=request.session_id,
             turn_id=turn_id,
             user_message=request.message,
@@ -519,10 +348,13 @@ class QueryRuntime:
             agent_runtime_profile=agent_runtime_profile,
             model_selection=dict(request.model_selection or {}),
             runtime_assembly=runtime_assembly,
+            runtime_host=self.single_agent_runtime_host,
             turn_route=turn_route,
+            active_work_context=active_work_context,
             model_runtime=getattr(self.model_response_executor, "model_runtime", None),
             commit_assistant_message=self._apply_assistant_message_commit_async,
             start_task_from_action_request=start_task,
+            apply_active_work_control=apply_active_work_control,
         ):
             yield event
 

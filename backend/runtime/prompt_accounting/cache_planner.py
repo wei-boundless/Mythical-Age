@@ -32,14 +32,33 @@ class PromptCachePlanner:
         ttl_seconds: int = 300,
         created_at: float | None = None,
     ) -> PromptCacheRecord:
-        stable_prefix = []
+        legacy_stable_prefix = []
+        provider_global_prefix = []
+        session_prefix = []
+        task_prefix = []
+        collect_provider_global = True
+        collect_session = True
+        collect_task = True
         for segment in segment_map.segments:
             if segment.cache_role in {"cacheable_prefix", "session_stable"}:
-                stable_prefix.append(segment)
-                continue
-            break
+                legacy_stable_prefix.append(segment)
+            tier = str(getattr(segment, "prefix_tier", "") or "none")
+            if collect_provider_global and tier == "provider_global":
+                provider_global_prefix.append(segment)
+            else:
+                collect_provider_global = False
+            if collect_session and tier in {"provider_global", "session"}:
+                session_prefix.append(segment)
+            else:
+                collect_session = False
+            if collect_task and tier in {"provider_global", "session", "task"}:
+                task_prefix.append(segment)
+            else:
+                collect_task = False
+            if not collect_task and not (segment.cache_role in {"cacheable_prefix", "session_stable"}):
+                break
         timestamp = time.time() if created_at is None else float(created_at or 0.0)
-        if not stable_prefix:
+        if not provider_global_prefix:
             return PromptCacheRecord(
                 cache_record_id=f"pcache:{segment_map.request_id}",
                 request_id=segment_map.request_id,
@@ -50,11 +69,17 @@ class PromptCachePlanner:
                 session_id=segment_map.session_id,
                 scope="none",
                 status="bypassed",
-                cache_safety_reasons=("no_stable_prefix_boundary",),
+                cache_safety_reasons=("no_provider_global_prefix_boundary",),
                 created_at=timestamp,
+                diagnostics=_prefix_diagnostics(
+                    legacy_stable_prefix=legacy_stable_prefix,
+                    provider_global_prefix=provider_global_prefix,
+                    session_prefix=session_prefix,
+                    task_prefix=task_prefix,
+                ),
             )
-        boundary = stable_prefix[-1]
-        prefix_hash = stable_text_hash("|".join(segment.content_hash for segment in stable_prefix))
+        boundary = provider_global_prefix[-1]
+        prefix_hash = stable_text_hash("|".join(segment.content_hash for segment in provider_global_prefix))
         key = prompt_cache_key(
             scope="model_request_prefix",
             inputs={
@@ -65,6 +90,12 @@ class PromptCachePlanner:
                 "boundary_ordinal": boundary.ordinal,
                 "boundary_content_hash": boundary.content_hash,
             },
+        )
+        diagnostics = _prefix_diagnostics(
+            legacy_stable_prefix=legacy_stable_prefix,
+            provider_global_prefix=provider_global_prefix,
+            session_prefix=session_prefix,
+            task_prefix=task_prefix,
         )
         return PromptCacheRecord(
             cache_record_id=f"pcache:{segment_map.request_id}",
@@ -83,8 +114,9 @@ class PromptCachePlanner:
             cache_safety_reasons=(),
             created_at=timestamp,
             diagnostics={
-                "stable_prefix_segment_count": len(stable_prefix),
-                "stable_prefix_predicted_tokens": sum(int(item.predicted_tokens or 0) for item in stable_prefix),
+                **diagnostics,
+                "stable_prefix_segment_count": len(legacy_stable_prefix),
+                "stable_prefix_predicted_tokens": sum(int(item.predicted_tokens or 0) for item in legacy_stable_prefix),
             },
         )
 
@@ -126,3 +158,25 @@ def _json_stable(value: Any) -> Any:
     if isinstance(value, (str, int, float, bool)) or value is None:
         return value
     return repr(value)
+
+
+def _prefix_diagnostics(
+    *,
+    legacy_stable_prefix: list[Any],
+    provider_global_prefix: list[Any],
+    session_prefix: list[Any],
+    task_prefix: list[Any],
+) -> dict[str, Any]:
+    return {
+        "prefix_key_tier": "provider_global",
+        "legacy_stable_prefix_hash": stable_text_hash("|".join(segment.content_hash for segment in legacy_stable_prefix)) if legacy_stable_prefix else "",
+        "provider_global_prefix_hash": stable_text_hash("|".join(segment.content_hash for segment in provider_global_prefix)) if provider_global_prefix else "",
+        "session_prefix_hash": stable_text_hash("|".join(segment.content_hash for segment in session_prefix)) if session_prefix else "",
+        "task_prefix_hash": stable_text_hash("|".join(segment.content_hash for segment in task_prefix)) if task_prefix else "",
+        "provider_global_prefix_segment_count": len(provider_global_prefix),
+        "session_prefix_segment_count": len(session_prefix),
+        "task_prefix_segment_count": len(task_prefix),
+        "provider_global_prefix_predicted_tokens": sum(int(item.predicted_tokens or 0) for item in provider_global_prefix),
+        "session_prefix_predicted_tokens": sum(int(item.predicted_tokens or 0) for item in session_prefix),
+        "task_prefix_predicted_tokens": sum(int(item.predicted_tokens or 0) for item in task_prefix),
+    }

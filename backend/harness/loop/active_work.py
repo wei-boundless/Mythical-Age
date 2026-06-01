@@ -11,6 +11,7 @@ from .task_run_recovery_state import recovery_state_for_task_run
 from .task_steering import list_pending_task_steers
 from .work_rollout import ensure_work_rollout, work_rollout_summary
 from harness.runtime.public_progress import public_runtime_progress_summary
+from harness.runtime.prompt_segment_plan import build_prompt_segment_plan
 
 
 ActiveWorkTurnAction = Literal[
@@ -314,12 +315,11 @@ async def decide_active_work_turn(
             invoker,
             messages,
             model_selection=dict(model_selection or {}),
-            accounting_context={
-                "source": "harness.loop.active_work_turn_decision",
-                "session_id": active_work_context.session_id,
-                "task_run_id": active_work_context.task_run_id,
-                "request_id": f"modelreq:active-work:{uuid.uuid4().hex[:10]}",
-            },
+            accounting_context=_active_work_utility_accounting_context(
+                messages=messages,
+                session_id=active_work_context.session_id,
+                task_run_id=active_work_context.task_run_id,
+            ),
         )
     except Exception:
         return ActiveWorkTurnDecision(
@@ -331,6 +331,46 @@ async def decide_active_work_turn(
         parse_json_object(getattr(response, "content", response)),
         user_message=user_message,
     )
+
+
+def _active_work_utility_accounting_context(
+    *,
+    messages: list[dict[str, Any]],
+    session_id: str,
+    task_run_id: str,
+) -> dict[str, Any]:
+    segment_plan = build_prompt_segment_plan(
+        packet_id=f"utility:active_work_turn_decision:{uuid.uuid4().hex[:8]}",
+        invocation_kind="utility_model_call",
+        message_specs=[
+            {
+                "role": str(message.get("role") or "user"),
+                "content": str(message.get("content") or ""),
+                "kind": "utility_static" if index == 0 else "utility_volatile",
+                "source_ref": "utility.active_work_turn_decision",
+                "cache_scope": "global" if index == 0 else "none",
+                "cache_role": "cacheable_prefix" if index == 0 else "volatile",
+                "prefix_tier": "provider_global" if index == 0 else "volatile",
+                "compression_role": "preserve" if index == 0 else "summarize",
+            }
+            for index, message in enumerate(list(messages or []))
+        ],
+    ).to_dict()
+    return {
+        "source": "harness.loop.active_work_turn_decision",
+        "session_id": session_id,
+        "task_run_id": task_run_id,
+        "request_id": f"modelreq:active-work:{uuid.uuid4().hex[:10]}",
+        "call_purpose": "utility.active_work_turn_decision",
+        "cache_metric_scope": "utility_minimal_plan",
+        "segment_plan": segment_plan,
+        "prompt_manifest": {
+            "invocation_kind": "utility_model_call",
+            "cache_metric_scope": "utility_minimal_plan",
+            "utility_purpose": "utility.active_work_turn_decision",
+            "segment_plan_ref": str(segment_plan.get("segment_plan_id") or ""),
+        },
+    }
 
 
 def active_work_turn_decision_from_payload(payload: dict[str, Any] | None, *, user_message: str = "") -> ActiveWorkTurnDecision:

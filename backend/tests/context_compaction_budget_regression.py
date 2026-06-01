@@ -58,6 +58,9 @@ def test_compression_budget_planner_reports_required_reduction_and_summary_targe
     assert decision.summarized_segments == ("seg:history",)
     assert decision.dropped_segments == ("seg:tool",)
     assert decision.cache_impact == "preserved"
+    assert decision.cache_impact_tiers["provider_global"] == "preserved"
+    assert decision.cache_impact_tiers["task"] == "preserved"
+    assert decision.cache_impact_tiers["volatile"] == "volatile_preserved"
 
 
 def test_context_compactor_builds_semantic_request_for_context_compactor_agent(tmp_path) -> None:

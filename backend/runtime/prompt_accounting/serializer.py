@@ -61,6 +61,7 @@ class CanonicalPromptSerializer:
             planned = planned_by_index.get(index)
             kind = str(planned.get("kind") or "unknown_unplanned") if planned else "unknown_unplanned"
             cache_role = _cache_role(planned.get("cache_role")) if planned else "never_cache"
+            prefix_tier = _prefix_tier(planned.get("prefix_tier"), cache_scope=str(planned.get("cache_scope") or "none"), cache_role=cache_role) if planned else "none"
             compression_role = _compression_role(planned.get("compression_role")) if planned else "summarize"
             token_count = self.token_counter.count_text(segment_payload, provider=provider, model=model)
             segments.append(
@@ -77,6 +78,7 @@ class CanonicalPromptSerializer:
                     byte_length=len(segment_payload.encode("utf-8", errors="ignore")),
                     predicted_tokens=token_count.tokens,
                     cache_role=cache_role,
+                    prefix_tier=prefix_tier,
                     compression_role=compression_role,
                     source=str(planned.get("source_ref") or "model_request.message") if planned else "model_request.unplanned_message",
                     created_at=timestamp,
@@ -273,6 +275,12 @@ def _bindings_by_message_index(bindings: list[dict[str, Any]]) -> dict[int, dict
         result[index] = {
             "kind": str(binding.get("kind") or "unknown_unplanned"),
             "cache_role": _cache_role(binding.get("cache_role")),
+            "prefix_tier": _prefix_tier(
+                binding.get("prefix_tier"),
+                cache_scope=str(binding.get("cache_scope") or "none"),
+                cache_role=_cache_role(binding.get("cache_role")),
+            ),
+            "cache_scope": str(binding.get("cache_scope") or "none"),
             "compression_role": _compression_role(binding.get("compression_role")),
             "source_ref": str(binding.get("source_ref") or ""),
             "metadata": {
@@ -315,6 +323,26 @@ def _cache_role(value: Any) -> str:
     if normalized in {"cacheable_prefix", "session_stable", "volatile", "never_cache"}:
         return normalized
     return "volatile"
+
+
+def _prefix_tier(value: Any, *, cache_scope: str, cache_role: str) -> str:
+    normalized = str(value or "").strip()
+    if normalized in {"provider_global", "session", "task", "volatile", "none"}:
+        return normalized
+    if cache_role == "cacheable_prefix":
+        return "provider_global"
+    if cache_role == "session_stable":
+        scope = str(cache_scope or "").strip()
+        if scope == "task":
+            return "task"
+        if scope == "session":
+            return "session"
+        if scope == "global":
+            return "provider_global"
+        return "session"
+    if cache_role == "volatile":
+        return "volatile"
+    return "none"
 
 
 def _compression_role(value: Any) -> str:

@@ -156,6 +156,61 @@ def test_model_runtime_retries_transient_invoke_failure(monkeypatch: pytest.Monk
     assert response.content == "ok"
 
 
+def test_model_runtime_records_fallback_candidate_switch_in_prompt_accounting(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runtime = _runtime(
+        retries=0,
+        max_output_tokens=4096,
+        fallback_provider="deepseek",
+        fallback_model="deepseek-v4-pro",
+        fallback_api_key="fallback-key",
+        fallback_base_url="https://api.deepseek.com/v1",
+    )
+    ledger = PromptAccountingLedger(tmp_path)
+    runtime.attach_prompt_accounting_ledger(ledger)
+    models = [
+        _FakeModel(RuntimeError("rate limit exceeded")),
+        _FakeModel(SimpleNamespace(content="ok")),
+    ]
+    monkeypatch.setattr(runtime, "_build_chat_model_for_spec", lambda _spec: models.pop(0))
+
+    response = asyncio.run(
+        runtime.invoke_messages(
+            [{"role": "user", "content": "hello"}],
+            accounting_context={"request_id": "modelreq:fallback-switch", "session_id": "session:fallback"},
+        )
+    )
+
+    records = ledger.list_prompt_cache_breaks(session_id="session:fallback")
+    assert response.content == "ok"
+    assert any(record.reason == "model_candidate_switch" for record in records)
+    switch = next(record for record in records if record.reason == "model_candidate_switch")
+    assert switch.diagnostics["from_model"]
+    assert switch.diagnostics["to_model"] == "deepseek-v4-pro"
+    assert switch.diagnostics["call_kind"] == "invoke_messages"
+
+
+def test_generate_title_uses_utility_minimal_segment_plan(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runtime = _runtime(retries=0)
+    ledger = PromptAccountingLedger(tmp_path)
+    runtime.attach_prompt_accounting_ledger(ledger)
+    monkeypatch.setattr(runtime, "_build_chat_model_for_spec", lambda _spec: _FakeModel(SimpleNamespace(content="标题")))
+
+    title = asyncio.run(runtime.generate_title("请检查缓存命中率"))
+
+    records = ledger.list_token_usage()
+    local = next(record for record in records if record.source == "local_prediction")
+    assert title == "标题"
+    assert local.diagnostics["cache_metric_scope"] == "utility_minimal_plan"
+    assert local.diagnostics["call_purpose"] == "utility.generate_title"
+    assert local.diagnostics["prompt_manifest"]["cache_metric_scope"] == "utility_minimal_plan"
+
+
 def test_model_runtime_maps_timeout_errors(monkeypatch: pytest.MonkeyPatch) -> None:
     runtime = _runtime(timeout=0.01, retries=0, max_output_tokens=4096)
 

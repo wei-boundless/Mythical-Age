@@ -1129,6 +1129,112 @@ export type TaskAssignmentUpsertPayload = {
   enabled?: boolean;
   metadata?: Record<string, unknown>;
 };
+
+export type ProjectInstance = {
+  project_id: string;
+  environment_id: string;
+  title: string;
+  project_kind: string;
+  template_id?: string;
+  library_id: string;
+  lifecycle_state: string;
+  schema_version: string;
+  created_at?: string;
+  updated_at?: string;
+  metadata?: Record<string, unknown>;
+  authority?: string;
+};
+
+export type ProjectRepositoryBinding = {
+  repository_id: string;
+  role: string;
+  root_ref: string;
+  lifecycle: string;
+  readable: boolean;
+  writable: boolean;
+  searchable: boolean;
+  commit_gate?: string;
+  metadata?: Record<string, unknown>;
+};
+
+export type ProjectLibraryManifest = {
+  library_id: string;
+  project_id: string;
+  environment_id: string;
+  file_profile_id: string;
+  schema_version: string;
+  template_id?: string;
+  repositories: ProjectRepositoryBinding[];
+  indexes: Record<string, string>;
+  migration_log: Array<Record<string, unknown>>;
+  metadata?: Record<string, unknown>;
+  authority?: string;
+};
+
+export type ProjectLibraryPayload = {
+  authority: string;
+  project: ProjectInstance;
+  library: ProjectLibraryManifest;
+};
+
+export type ProjectLibraryRepository = {
+  repository_id: string;
+  repository_kind: string;
+  title: string;
+  readable?: boolean;
+  writable?: boolean;
+  searchable?: boolean;
+  project_role?: string;
+  project_root_ref?: string;
+  project_lifecycle?: string;
+  selected_roles?: string[];
+  metadata?: Record<string, unknown>;
+};
+
+export type ProjectRepositoriesPayload = {
+  authority: string;
+  project_id: string;
+  library_id: string;
+  repositories: ProjectLibraryRepository[];
+  summary: Record<string, number>;
+};
+
+export type ProjectTreeNode = {
+  name: string;
+  path: string;
+  kind: "directory" | "file";
+  depth: number;
+  children: ProjectTreeNode[];
+  truncated: boolean;
+};
+
+export type ProjectFileTreePayload = {
+  authority: string;
+  project_id: string;
+  library_id: string;
+  repository_id: string;
+  path: string;
+  total_entries: number;
+  truncated: boolean;
+  tree: ProjectTreeNode;
+};
+
+export type ProjectFilePayload = {
+  authority: string;
+  project_id: string;
+  library_id: string;
+  repository_id: string;
+  path: string;
+  content: string;
+  metadata?: Record<string, unknown>;
+};
+
+export type TaskEnvironmentTasksPayload = {
+  authority: string;
+  environment_id: string;
+  tasks: Array<Record<string, unknown>>;
+  summary: Record<string, number>;
+};
 export type TaskNodeConfigurationSpec = {
   node_config_id: string;
   title: string;
@@ -1236,6 +1342,12 @@ export type TaskSystemOverview = {
       management_scope?: string;
       metadata?: Record<string, unknown>;
     }>;
+    summary: Record<string, number>;
+  };
+  project_instance_management?: {
+    authority: string;
+    projects: ProjectInstance[];
+    by_environment?: Record<string, ProjectInstance[]>;
     summary: Record<string, number>;
   };
   task_management: {
@@ -4490,6 +4602,49 @@ export async function deleteTaskSystemTaskAssignment(taskId: string) {
   return request<TaskSystemOverview>(`/tasks/task-assignments/${encodeURIComponent(taskId)}`, {
     method: "DELETE"
   });
+}
+
+export async function getTaskSystemEnvironmentProjects(environmentId: string) {
+  return request<{
+    authority: string;
+    environment_id: string;
+    projects: ProjectInstance[];
+    summary: Record<string, number>;
+  }>(`/tasks/environments/${encodeURIComponent(environmentId)}/projects`);
+}
+
+export async function getTaskSystemEnvironmentTasks(environmentId: string) {
+  return request<TaskEnvironmentTasksPayload>(`/tasks/environments/${encodeURIComponent(environmentId)}/tasks`);
+}
+
+export async function getTaskSystemProject(projectId: string) {
+  return request<ProjectLibraryPayload>(`/tasks/projects/${encodeURIComponent(projectId)}`);
+}
+
+export async function getTaskSystemProjectRepositories(projectId: string) {
+  return request<ProjectRepositoriesPayload>(`/tasks/projects/${encodeURIComponent(projectId)}/repositories`);
+}
+
+export async function getTaskSystemProjectRepositoryTree(
+  projectId: string,
+  repositoryId: string,
+  options: { path?: string; maxDepth?: number; maxEntries?: number } = {}
+) {
+  const params = new URLSearchParams();
+  if (options.path) params.set("path", options.path);
+  if (options.maxDepth) params.set("max_depth", String(options.maxDepth));
+  if (options.maxEntries) params.set("max_entries", String(options.maxEntries));
+  const query = params.toString();
+  return request<ProjectFileTreePayload>(
+    `/tasks/projects/${encodeURIComponent(projectId)}/repositories/${encodeURIComponent(repositoryId)}/tree${query ? `?${query}` : ""}`
+  );
+}
+
+export async function getTaskSystemProjectRepositoryFile(projectId: string, repositoryId: string, path: string) {
+  const params = new URLSearchParams({ path });
+  return request<ProjectFilePayload>(
+    `/tasks/projects/${encodeURIComponent(projectId)}/repositories/${encodeURIComponent(repositoryId)}/files?${params.toString()}`
+  );
 }
 
 export async function upsertTaskSystemEnvironmentGroup(groupId: string, payload: TaskEnvironmentGroupUpsertPayload) {

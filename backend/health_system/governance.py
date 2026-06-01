@@ -75,7 +75,11 @@ class HealthGovernanceBuilder:
             reverse=True,
         )[: max(1, min(int(limit or 100), 300))]
         monitor_index = self._monitor_index(limit=max(100, len(task_runs)))
-        tasks = [self._task_record(task_run, monitor_index=monitor_index) for task_run in task_runs]
+        token_summary_index = self._token_summary_index(task_runs)
+        tasks = [
+            self._task_record(task_run, monitor_index=monitor_index, token_summary_index=token_summary_index)
+            for task_run in task_runs
+        ]
         return {
             "authority": "health_system.governance.tasks",
             "tasks": tasks,
@@ -92,7 +96,7 @@ class HealthGovernanceBuilder:
         if task_run is None:
             raise KeyError(task_run_id)
         monitor_index = self._monitor_index(limit=120)
-        record = self._task_record(task_run, monitor_index=monitor_index)
+        record = self._task_record(task_run, monitor_index=monitor_index, token_summary_index=self._token_summary_index([task_run]))
         monitor = self.runtime_host.get_task_run_live_monitor(task_run_id) or {}
         graph_monitor: dict[str, Any] = {}
         events = [item.to_dict() for item in self._recent_events(task_run_id, limit=160)]
@@ -203,7 +207,13 @@ class HealthGovernanceBuilder:
             return None
         return HealthStore(base_dir)
 
-    def _task_record(self, task_run: Any, *, monitor_index: dict[str, dict[str, Any]] | None = None) -> dict[str, Any]:
+    def _task_record(
+        self,
+        task_run: Any,
+        *,
+        monitor_index: dict[str, dict[str, Any]] | None = None,
+        token_summary_index: dict[str, dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
         task_run_id = str(task_run.task_run_id or "")
         events = self._recent_events(task_run_id, limit=240)
         event_dicts = [item.to_dict() for item in events]
@@ -222,7 +232,7 @@ class HealthGovernanceBuilder:
             if "error" in str(item.get("event_type") or "").lower()
             or str(item.get("payload") or "").lower().find("error") >= 0
         )
-        token_summary = self._task_token_summary(task_run, event_dicts)
+        token_summary = self._task_token_summary(task_run, event_dicts, token_summary_index=token_summary_index)
         token_total = int(token_summary.get("effective_total_tokens") or token_summary.get("total_tokens") or 0)
         risk_level = self._risk_level(monitor=monitor, duration_seconds=duration, error_count=error_count)
         latest_risk = self._latest_task_risk_title(monitor=monitor, duration_seconds=duration, error_count=error_count)
@@ -304,6 +314,9 @@ class HealthGovernanceBuilder:
         return int(fallback)
 
     def _task_monitor(self, task_run: Any, *, monitor_index: dict[str, dict[str, Any]] | None = None) -> dict[str, Any]:
+        task_run_id = str(getattr(task_run, "task_run_id", "") or "")
+        if task_run_id and monitor_index is not None:
+            return dict(monitor_index.get(task_run_id) or {})
         projector = getattr(self.runtime_host, "monitor_projector", None)
         project = getattr(projector, "project_task_run", None)
         if callable(project):
@@ -311,9 +324,6 @@ class HealthGovernanceBuilder:
                 return dict(project(task_run, now=self.now) or {})
             except Exception:
                 return {}
-        task_run_id = str(getattr(task_run, "task_run_id", "") or "")
-        if task_run_id and monitor_index is not None:
-            return dict(monitor_index.get(task_run_id) or {})
         return {}
 
     def _monitor_index(self, *, limit: int = 120) -> dict[str, dict[str, Any]]:
@@ -728,11 +738,35 @@ class HealthGovernanceBuilder:
             model="legacy_trace_estimate",
         ).tokens
 
-    def _task_token_summary(self, task_run: Any, events: list[dict[str, Any]]) -> dict[str, Any]:
+    def _token_summary_index(self, task_runs: list[Any]) -> dict[str, dict[str, Any]]:
+        ledger = self.prompt_accounting_ledger
+        summarizer = getattr(ledger, "summarize_tasks", None)
+        task_run_ids = [
+            str(getattr(task_run, "task_run_id", "") or "")
+            for task_run in list(task_runs or [])
+            if str(getattr(task_run, "task_run_id", "") or "")
+        ]
+        if not callable(summarizer) or not task_run_ids:
+            return {}
+        try:
+            return {
+                str(task_run_id): dict(summary or {})
+                for task_run_id, summary in dict(summarizer(task_run_ids) or {}).items()
+            }
+        except Exception:
+            return {}
+
+    def _task_token_summary(
+        self,
+        task_run: Any,
+        events: list[dict[str, Any]],
+        *,
+        token_summary_index: dict[str, dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
         task_run_id = str(getattr(task_run, "task_run_id", "") or "")
-        ledger_summary = {}
+        ledger_summary = dict(dict(token_summary_index or {}).get(task_run_id) or {})
         summarizer = getattr(self.prompt_accounting_ledger, "summarize_task", None)
-        if callable(summarizer) and task_run_id:
+        if not ledger_summary and callable(summarizer) and task_run_id:
             try:
                 ledger_summary = dict(summarizer(task_run_id) or {})
             except Exception:

@@ -111,10 +111,15 @@ def diagnose(
     usage_by_request = {str(row.get("request_id") or ""): row for row in provider_usage}
     cache_by_request = {str(row.get("request_id") or ""): row for row in cache_records}
 
+    cache_metric_scope_counts = Counter(_cache_metric_scope(row) for row in local_predictions)
+    utility_request_ids = {str(row.get("request_id") or "") for row in local_predictions if _cache_metric_scope(row).startswith("utility")}
+    agent_provider_usage = [row for row in provider_usage if str(row.get("request_id") or "") not in utility_request_ids]
     prompt_tokens = sum(_int(row.get("prompt_tokens")) for row in provider_usage)
     cached_tokens = sum(max(_int(row.get("cached_tokens")), _int(row.get("cache_read_tokens"))) for row in provider_usage)
     cache_miss_tokens = max(0, prompt_tokens - cached_tokens)
     hit_rate = round(cached_tokens / prompt_tokens, 4) if prompt_tokens > 0 else 0.0
+    agent_prompt_tokens = sum(_int(row.get("prompt_tokens")) for row in agent_provider_usage)
+    agent_cached_tokens = sum(max(_int(row.get("cached_tokens")), _int(row.get("cache_read_tokens"))) for row in agent_provider_usage)
     status_counts = Counter(str(row.get("status") or "unknown") for row in cache_records)
     policy_counts = Counter(_provider_cache_policy_mode(row) for row in cache_records)
 
@@ -161,6 +166,11 @@ def diagnose(
         "cached_tokens": cached_tokens,
         "cache_miss_tokens": cache_miss_tokens,
         "deepseek_cache_hit_rate": hit_rate,
+        "agent_runtime_prompt_tokens": agent_prompt_tokens,
+        "agent_runtime_cached_tokens": agent_cached_tokens,
+        "agent_runtime_cache_miss_tokens": max(0, agent_prompt_tokens - agent_cached_tokens),
+        "agent_runtime_deepseek_cache_hit_rate": round(agent_cached_tokens / agent_prompt_tokens, 4) if agent_prompt_tokens > 0 else 0.0,
+        "cache_metric_scope_counts": dict(sorted(cache_metric_scope_counts.items())),
         "cache_status_counts": dict(sorted(status_counts.items())),
         "provider_cache_policy_modes": dict(sorted(policy_counts.items())),
     }
@@ -396,6 +406,11 @@ def _recent_requests(
                 "prompt_tokens": prompt_tokens,
                 "cached_tokens": cached_tokens,
                 "hit_rate": round(cached_tokens / prompt_tokens, 4) if prompt_tokens > 0 else 0.0,
+                "cache_metric_scope": _cache_metric_scope(local or usage or {}),
+                "call_purpose": str(dict((local or usage or {}).get("diagnostics") or {}).get("call_purpose") or ""),
+                "provider_global_prefix_tokens": _int(dict(row.get("diagnostics") or {}).get("provider_global_prefix_predicted_tokens")),
+                "session_prefix_tokens": _int(dict(row.get("diagnostics") or {}).get("session_prefix_predicted_tokens")),
+                "task_prefix_tokens": _int(dict(row.get("diagnostics") or {}).get("task_prefix_predicted_tokens")),
                 "stable_prefix_tokens": _int(dict(row.get("diagnostics") or {}).get("stable_prefix_predicted_tokens")),
                 "stable_prefix_segments": _int(dict(row.get("diagnostics") or {}).get("stable_prefix_segment_count")),
                 "prefix_hash": str(row.get("prefix_hash") or ""),
@@ -423,6 +438,9 @@ def _recent_stability_reports(records: list[dict[str, Any]], *, limit: int) -> l
                 "context_window_generation": _int(row.get("context_window_generation")),
                 "compaction_generation": _int(row.get("compaction_generation")),
                 "stable_prefix_tokens": _int(row.get("stable_prefix_tokens")),
+                "provider_global_prefix_tokens": _int(row.get("provider_global_prefix_tokens")),
+                "session_prefix_tokens": _int(row.get("session_prefix_tokens")),
+                "task_prefix_tokens": _int(row.get("task_prefix_tokens")),
                 "stable_section_count": _int(row.get("stable_section_count")),
                 "volatile_token_count": _int(row.get("volatile_token_count")),
                 "stable_prefix_hash": str(row.get("stable_prefix_hash") or "")[:19],
@@ -539,6 +557,11 @@ def _provider_cache_policy_mode(row: dict[str, Any]) -> str:
     return str(policy.get("mode") or "unknown")
 
 
+def _cache_metric_scope(row: dict[str, Any]) -> str:
+    diagnostics = dict(row.get("diagnostics") or {})
+    return str(diagnostics.get("cache_metric_scope") or "agent_runtime")
+
+
 def _print_report(diagnosis: Diagnosis, *, ledger_dir: Path) -> None:
     payload = diagnosis.to_dict()
     summary = payload["summary"]
@@ -559,6 +582,14 @@ def _print_report(diagnosis: Diagnosis, *, ledger_dir: Path) -> None:
         f"miss={summary['cache_miss_tokens']} "
         f"deepseek_hit_rate={summary['deepseek_cache_hit_rate']:.2%}"
     )
+    print(
+        "agent_runtime_tokens: "
+        f"prompt={summary['agent_runtime_prompt_tokens']} "
+        f"cached={summary['agent_runtime_cached_tokens']} "
+        f"miss={summary['agent_runtime_cache_miss_tokens']} "
+        f"deepseek_hit_rate={summary['agent_runtime_deepseek_cache_hit_rate']:.2%}"
+    )
+    print(f"cache_metric_scope_counts: {json.dumps(summary['cache_metric_scope_counts'], ensure_ascii=False, sort_keys=True)}")
     print(f"cache_status_counts: {json.dumps(summary['cache_status_counts'], ensure_ascii=False, sort_keys=True)}")
     print(f"provider_cache_policy_modes: {json.dumps(summary['provider_cache_policy_modes'], ensure_ascii=False, sort_keys=True)}")
 
@@ -581,12 +612,12 @@ def _print_report(diagnosis: Diagnosis, *, ledger_dir: Path) -> None:
     _print_section(
         "recent_requests",
         payload["recent_requests"],
-        fields=("status", "provider_usage", "prompt_tokens", "cached_tokens", "hit_rate", "stable_prefix_tokens", "first_changed_section", "dynamic_param_diff", "likely_break_reason", "packet_ref"),
+        fields=("status", "provider_usage", "cache_metric_scope", "call_purpose", "prompt_tokens", "cached_tokens", "hit_rate", "provider_global_prefix_tokens", "session_prefix_tokens", "task_prefix_tokens", "first_changed_section", "dynamic_param_diff", "likely_break_reason", "packet_ref"),
     )
     _print_section(
         "prompt_stability_reports",
         payload["stability_reports"],
-        fields=("request_id", "stable_section_count", "stable_prefix_tokens", "volatile_token_count", "hit_rate", "context_window_generation", "compaction_generation", "compressed_summary", "replacement_history", "first_changed_section", "dynamic_param_diff", "likely_break_reason"),
+        fields=("request_id", "stable_section_count", "provider_global_prefix_tokens", "session_prefix_tokens", "task_prefix_tokens", "stable_prefix_tokens", "volatile_token_count", "hit_rate", "context_window_generation", "compaction_generation", "compressed_summary", "replacement_history", "first_changed_section", "dynamic_param_diff", "likely_break_reason"),
     )
 
 

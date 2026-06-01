@@ -14,47 +14,48 @@ class MonitorResourceResolver:
         self.base_dir = Path(base_dir or getattr(runtime_host, "backend_dir", Path.cwd()))
         self.project_root = ProjectLayout.from_backend_dir(self.base_dir).project_root
 
-    def task_run_ref(self, task_run_id: str, *, label: str = "任务运行") -> dict[str, Any]:
+    def task_run_ref(self, task_run_id: str, *, label: str = "任务运行", available: bool | None = None) -> dict[str, Any]:
+        resolved_available = self._task_run_exists(task_run_id) if available is None else bool(available)
         return self._resource_ref(
             kind="task_run",
             resource_id=task_run_id,
             label=label,
-            available=self._task_run_exists(task_run_id),
+            available=resolved_available,
         )
 
     def session_ref(self, session_id: str, *, label: str = "会话") -> dict[str, Any]:
         return self._resource_ref(kind="session", resource_id=session_id, label=label, available=bool(session_id))
 
-    def graph_run_ref(self, graph_run_id: str, *, label: str = "任务图运行") -> dict[str, Any]:
-        available = False
-        if graph_run_id and self.graph_harness is not None:
+    def graph_run_ref(self, graph_run_id: str, *, label: str = "任务图运行", available: bool | None = None) -> dict[str, Any]:
+        resolved_available = bool(available) if available is not None else False
+        if available is None and graph_run_id and self.graph_harness is not None:
             get_graph_run = getattr(self.graph_harness, "get_graph_run", None)
             if callable(get_graph_run):
                 try:
-                    available = bool(get_graph_run(graph_run_id))
+                    resolved_available = bool(get_graph_run(graph_run_id))
                 except Exception:
-                    available = False
-        return self._resource_ref(kind="graph_run", resource_id=graph_run_id, label=label, available=available)
+                    resolved_available = False
+        return self._resource_ref(kind="graph_run", resource_id=graph_run_id, label=label, available=resolved_available)
 
-    def graph_config_ref(self, graph_harness_config_id: str, *, label: str = "任务图配置") -> dict[str, Any]:
-        available = False
-        if graph_harness_config_id:
+    def graph_config_ref(self, graph_harness_config_id: str, *, label: str = "任务图配置", available: bool | None = None) -> dict[str, Any]:
+        resolved_available = bool(available) if available is not None else False
+        if available is None and graph_harness_config_id:
             try:
                 from task_system import TaskFlowRegistry
 
-                available = TaskFlowRegistry(self.base_dir).get_graph_harness_config(graph_harness_config_id) is not None
+                resolved_available = TaskFlowRegistry(self.base_dir).get_graph_harness_config(graph_harness_config_id) is not None
             except Exception:
-                available = False
+                resolved_available = False
         return self._resource_ref(
             kind="graph_harness_config",
             resource_id=graph_harness_config_id,
             label=label,
-            available=available,
+            available=resolved_available,
         )
 
-    def artifact_refs(self, refs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def artifact_refs(self, refs: list[dict[str, Any]], *, resolve_availability: bool = True) -> list[dict[str, Any]]:
         return [
-            self._artifact_ref(ref)
+            self._artifact_ref(ref, resolve_availability=resolve_availability)
             for ref in refs
             if isinstance(ref, dict)
         ]
@@ -91,10 +92,10 @@ class MonitorResourceResolver:
         except Exception:
             return False
 
-    def _artifact_ref(self, ref: dict[str, Any]) -> dict[str, Any]:
+    def _artifact_ref(self, ref: dict[str, Any], *, resolve_availability: bool) -> dict[str, Any]:
         path_text = str(ref.get("absolute_path") or ref.get("path") or ref.get("src") or "").strip()
         exists = False
-        if path_text:
+        if resolve_availability and path_text:
             candidate = Path(path_text)
             resolved = candidate.resolve() if candidate.is_absolute() else (self.project_root / path_text).resolve()
             exists = _inside(resolved, self.project_root) and resolved.exists() and resolved.is_file()

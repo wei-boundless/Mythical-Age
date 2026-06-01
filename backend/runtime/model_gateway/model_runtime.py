@@ -21,10 +21,12 @@ except ImportError:  # pragma: no cover - optional dependency at runtime
 
 from bootstrap.settings import AppSettingsService
 from config import LLM_PROVIDER_DEFAULTS
+from harness.runtime.prompt_segment_plan import build_prompt_segment_plan
 from runtime.prompt_accounting import (
     CanonicalPromptSerializer,
     ModelTokenUsageRecord,
     PromptAccountingLedger,
+    PromptCacheBreakRecord,
     PromptCacheBreakDetector,
     PromptCachePlanner,
     PromptStabilityReporter,
@@ -181,7 +183,10 @@ class ModelRuntime:
     @property
     def max_retries(self) -> int:
         static = self.settings_service.static
-        return max(0, int(getattr(static, "llm_max_retries", 2) or 2))
+        value = getattr(static, "llm_max_retries", 2)
+        if value in {None, ""}:
+            value = 2
+        return max(0, int(value))
 
     @property
     def max_output_tokens(self) -> int:
@@ -278,6 +283,14 @@ class ModelRuntime:
             if last_error is None:
                 continue
             if spec_index < len(candidates) - 1:
+                self._record_model_candidate_switch(
+                    accounting_context=accounting_context,
+                    from_spec=spec,
+                    to_spec=candidates[spec_index + 1],
+                    attempt=self._max_retries_for_spec(spec) + 1,
+                    call_kind="invoke_messages",
+                    error=last_error,
+                )
                 logger.warning(
                     "Switching model candidate after %s on %s/%s: %s",
                     last_error.code,
@@ -349,6 +362,14 @@ class ModelRuntime:
             if last_error is None:
                 continue
             if spec_index < len(candidates) - 1:
+                self._record_model_candidate_switch(
+                    accounting_context=accounting_context,
+                    from_spec=spec,
+                    to_spec=candidates[spec_index + 1],
+                    attempt=self._max_retries_for_spec(spec) + 1,
+                    call_kind="invoke_messages_with_tools",
+                    error=last_error,
+                )
                 logger.warning(
                     "Switching tool-enabled model candidate after %s on %s/%s: %s",
                     last_error.code,
@@ -414,6 +435,14 @@ class ModelRuntime:
             if last_error is None:
                 continue
             if spec_index < len(candidates) - 1:
+                self._record_model_candidate_switch(
+                    accounting_context=accounting_context,
+                    from_spec=spec,
+                    to_spec=candidates[spec_index + 1],
+                    attempt=self._max_retries_for_spec(spec) + 1,
+                    call_kind="astream_messages",
+                    error=last_error,
+                )
                 logger.warning(
                     "Switching stream model candidate after %s on %s/%s: %s",
                     last_error.code,
@@ -493,6 +522,14 @@ class ModelRuntime:
             if last_error is None:
                 continue
             if spec_index < len(candidates) - 1:
+                self._record_model_candidate_switch(
+                    accounting_context=accounting_context,
+                    from_spec=spec,
+                    to_spec=candidates[spec_index + 1],
+                    attempt=self._max_retries_for_spec(spec) + 1,
+                    call_kind="astream_messages_with_tools",
+                    error=last_error,
+                )
                 logger.warning(
                     "Switching tool-enabled stream model candidate after %s on %s/%s: %s",
                     last_error.code,
@@ -569,6 +606,14 @@ class ModelRuntime:
             if last_error is None:
                 continue
             if spec_index < len(candidates) - 1:
+                self._record_model_candidate_switch(
+                    accounting_context=accounting_context,
+                    from_spec=spec,
+                    to_spec=candidates[spec_index + 1],
+                    attempt=self._max_retries_for_spec(spec) + 1,
+                    call_kind="astream_conversation",
+                    error=last_error,
+                )
                 logger.warning(
                     "Switching stream model candidate after %s on %s/%s: %s",
                     last_error.code,
@@ -586,12 +631,17 @@ class ModelRuntime:
             "要求不超过 10 个汉字，不要带引号，不要解释。"
         )
         try:
+            messages = [
+                {"role": "system", "content": prompt},
+                {"role": "user", "content": first_user_message},
+            ]
             response = await self.invoke_messages(
-                [
-                    {"role": "system", "content": prompt},
-                    {"role": "user", "content": first_user_message},
-                ],
-                accounting_context={"source": "model_runtime.generate_title"},
+                messages,
+                accounting_context=_utility_accounting_context(
+                    source="model_runtime.generate_title",
+                    messages=messages,
+                    purpose="utility.generate_title",
+                ),
             )
             title = stringify_content(getattr(response, "content", "")).strip()
             return title[:10] or "新会话"
@@ -618,12 +668,17 @@ class ModelRuntime:
         transcript = "\n".join(transcript_lines)
 
         try:
+            messages = [
+                {"role": "system", "content": prompt},
+                {"role": "user", "content": transcript},
+            ]
             response = await self.invoke_messages(
-                [
-                    {"role": "system", "content": prompt},
-                    {"role": "user", "content": transcript},
-                ],
-                accounting_context={"source": "model_runtime.summarize_history"},
+                messages,
+                accounting_context=_utility_accounting_context(
+                    source="model_runtime.summarize_history",
+                    messages=messages,
+                    purpose="utility.summarize_history",
+                ),
             )
             summary = stringify_content(getattr(response, "content", "")).strip()
             return summary[:500]
@@ -919,6 +974,8 @@ class ModelRuntime:
             "packet_ref": str(context.get("packet_ref") or ""),
             "turn_id": str(context.get("turn_id") or ""),
             "invocation_index": context.get("invocation_index"),
+            "call_purpose": str(context.get("call_purpose") or ""),
+            "cache_metric_scope": str(context.get("cache_metric_scope") or "agent_runtime"),
             "prompt_manifest": dict(context.get("prompt_manifest") or {}),
             "cache_relevant_params": self._cache_relevant_params_for_spec(
                 spec,
@@ -955,6 +1012,9 @@ class ModelRuntime:
                     "model_request_ref": model_request.request_id,
                     "provider_cache_policy": cache_policy.to_dict(),
                     "stable_prefix_hash": model_request.stable_prefix_hash,
+                    "provider_global_prefix_hash": model_request.provider_global_prefix_hash,
+                    "session_prefix_hash": model_request.session_prefix_hash,
+                    "task_prefix_hash": model_request.task_prefix_hash,
                 },
                 segment_plan=segment_plan,
                 model_request=model_request,
@@ -977,6 +1037,9 @@ class ModelRuntime:
                     "canonical_hash": segment_map.canonical_hash,
                     "model_request_canonical_hash": model_request.canonical_hash,
                     "stable_prefix_hash": model_request.stable_prefix_hash,
+                    "provider_global_prefix_hash": model_request.provider_global_prefix_hash,
+                    "session_prefix_hash": model_request.session_prefix_hash,
+                    "task_prefix_hash": model_request.task_prefix_hash,
                     "provider_cache_policy": cache_policy.to_dict(),
                     **metadata,
                 },
@@ -991,12 +1054,15 @@ class ModelRuntime:
             model_request_diagnostics = dict(model_request.diagnostics or {})
             prefix_hash_matches_model_request = (
                 bool(cache_record.prefix_hash)
-                and cache_record.prefix_hash == model_request.stable_prefix_hash
+                and cache_record.prefix_hash == model_request.provider_global_prefix_hash
             )
             cache_record_diagnostics = {
                 **dict(cache_record.diagnostics or {}),
                 "provider_cache_policy": cache_policy.to_dict(),
                 "model_request_stable_prefix_hash": model_request.stable_prefix_hash,
+                "model_request_provider_global_prefix_hash": model_request.provider_global_prefix_hash,
+                "model_request_session_prefix_hash": model_request.session_prefix_hash,
+                "model_request_task_prefix_hash": model_request.task_prefix_hash,
                 "prefix_hash_matches_model_request": prefix_hash_matches_model_request,
                 "unplanned_message_count": int(model_request_diagnostics.get("unplanned_message_count") or 0),
                 "bound_segment_count": int(model_request_diagnostics.get("bound_segment_count") or 0),
@@ -1094,6 +1160,9 @@ class ModelRuntime:
                         "provider_cache_policy": cache_policy.to_dict(),
                         "model_request_ref": str(getattr(model_request, "request_id", "") or ""),
                         "stable_prefix_hash": str(getattr(model_request, "stable_prefix_hash", "") or ""),
+                        "provider_global_prefix_hash": str(getattr(model_request, "provider_global_prefix_hash", "") or ""),
+                        "session_prefix_hash": str(getattr(model_request, "session_prefix_hash", "") or ""),
+                        "task_prefix_hash": str(getattr(model_request, "task_prefix_hash", "") or ""),
                         "duration_seconds": duration_seconds,
                     },
                 )
@@ -1101,7 +1170,9 @@ class ModelRuntime:
             if cache_record is not None:
                 updated_cache_record = self._prompt_cache_planner.with_provider_usage(cache_record, provider_usage)
                 stable_prefix_predicted_tokens = int(
-                    dict(updated_cache_record.diagnostics or {}).get("stable_prefix_predicted_tokens") or 0
+                    dict(updated_cache_record.diagnostics or {}).get("provider_global_prefix_predicted_tokens")
+                    or dict(updated_cache_record.diagnostics or {}).get("stable_prefix_predicted_tokens")
+                    or 0
                 )
                 cached_tokens = max(int(provider_usage.cached_tokens or 0), int(provider_usage.cache_read_tokens or 0))
                 cache_efficiency = (
@@ -1219,6 +1290,51 @@ class ModelRuntime:
             "chat_openai_reasoning_effort": self._chat_openai_reasoning_effort_for_spec(spec) or "",
             "stream_policy": dict(spec.stream_policy or {}),
         }
+
+    def _record_model_candidate_switch(
+        self,
+        *,
+        accounting_context: dict[str, Any] | None,
+        from_spec: ModelSpec,
+        to_spec: ModelSpec,
+        attempt: int,
+        call_kind: str,
+        error: ModelRuntimeError | None,
+    ) -> None:
+        ledger = self.prompt_accounting_ledger
+        if ledger is None:
+            return
+        context = dict(accounting_context or {})
+        request_id = str(context.get("request_id") or f"modelreq:{uuid.uuid4().hex}")
+        timestamp = time.time()
+        record = PromptCacheBreakRecord(
+            break_id=f"pcbreak:{request_id}:candidate-switch:{uuid.uuid4().hex[:8]}",
+            request_id=request_id,
+            run_id=str(context.get("run_id") or context.get("task_run_id") or ""),
+            task_run_id=str(context.get("task_run_id") or ""),
+            session_id=str(context.get("session_id") or ""),
+            provider=str(from_spec.provider or ""),
+            model=str(from_spec.model or ""),
+            cache_key="",
+            prefix_hash="",
+            reason="model_candidate_switch",
+            diagnostics={
+                "severity": "medium",
+                "call_kind": str(call_kind or ""),
+                "attempt": max(0, int(attempt or 0)),
+                "from_provider": str(from_spec.provider or ""),
+                "from_model": str(from_spec.model or ""),
+                "from_base_url": _cache_relevant_base_url(from_spec.base_url),
+                "to_provider": str(to_spec.provider or ""),
+                "to_model": str(to_spec.model or ""),
+                "to_base_url": _cache_relevant_base_url(to_spec.base_url),
+                "error_code": str(getattr(error, "code", "") or ""),
+                "error_detail": _compact_error_detail(str(getattr(error, "detail", "") or "")),
+                "source": str(context.get("source") or ""),
+            },
+            created_at=timestamp,
+        )
+        ledger.record_prompt_cache_break(record)
 
     def _map_error(self, exc: Exception, spec: ModelSpec) -> ModelRuntimeError:
         if isinstance(exc, ModelRuntimeError):
@@ -1442,6 +1558,43 @@ def _previous_stability_report(
             continue
         return report
     return None
+
+
+def _utility_accounting_context(
+    *,
+    source: str,
+    messages: list[dict[str, Any]],
+    purpose: str,
+) -> dict[str, Any]:
+    segment_plan = build_prompt_segment_plan(
+        packet_id=f"utility:{purpose}:{uuid.uuid4().hex[:8]}",
+        invocation_kind="utility_model_call",
+        message_specs=[
+            {
+                "role": str(message.get("role") or "user"),
+                "content": str(message.get("content") or ""),
+                "kind": "utility_static" if index == 0 else "utility_volatile",
+                "source_ref": purpose,
+                "cache_scope": "global" if index == 0 else "none",
+                "cache_role": "cacheable_prefix" if index == 0 else "volatile",
+                "prefix_tier": "provider_global" if index == 0 else "volatile",
+                "compression_role": "preserve" if index == 0 else "summarize",
+            }
+            for index, message in enumerate(list(messages or []))
+        ],
+    ).to_dict()
+    return {
+        "source": source,
+        "call_purpose": purpose,
+        "cache_metric_scope": "utility_minimal_plan",
+        "segment_plan": segment_plan,
+        "prompt_manifest": {
+            "invocation_kind": "utility_model_call",
+            "cache_metric_scope": "utility_minimal_plan",
+            "utility_purpose": purpose,
+            "segment_plan_ref": segment_plan.get("segment_plan_id", ""),
+        },
+    }
 
 
 def _optional_float(value: Any) -> float | None:

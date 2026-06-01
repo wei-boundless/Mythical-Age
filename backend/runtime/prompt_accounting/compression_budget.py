@@ -21,6 +21,7 @@ class CompressionBudgetDecision:
     summarized_segments: tuple[str, ...]
     dropped_segments: tuple[str, ...]
     cache_impact: str
+    cache_impact_tiers: dict[str, str]
     summary_target_tokens: int
 
     def to_dict(self) -> dict[str, Any]:
@@ -38,6 +39,7 @@ class CompressionBudgetDecision:
             "summarized_segments": list(self.summarized_segments),
             "dropped_segments": list(self.dropped_segments),
             "cache_impact": self.cache_impact,
+            "cache_impact_tiers": dict(self.cache_impact_tiers),
             "summary_target_tokens": self.summary_target_tokens,
         }
 
@@ -76,7 +78,8 @@ class CompressionBudgetPlanner:
             decision = "microcompact"
         else:
             decision = "fail_closed"
-        cache_impact = self._cache_impact(compressible)
+        cache_impact_tiers = self._cache_impact_tiers(compressible)
+        cache_impact = cache_impact_tiers.get("provider_global") or "preserved"
         summary_target_tokens = self._summary_target_tokens(
             compressible_budget=compressible_budget,
             compressible_tokens=compressible_tokens,
@@ -96,22 +99,30 @@ class CompressionBudgetPlanner:
             summarized_segments=tuple(item.segment_id for item in summarized),
             dropped_segments=tuple(item.segment_id for item in dropped),
             cache_impact=cache_impact,
+            cache_impact_tiers=cache_impact_tiers,
             summary_target_tokens=summary_target_tokens,
         )
 
     def _is_hard_required(self, segment: PromptSegment) -> bool:
         if segment.compression_role == "preserve":
             return True
+        if str(getattr(segment, "prefix_tier", "") or "") in {"provider_global", "session", "task"}:
+            return True
         if segment.cache_role in {"cacheable_prefix", "session_stable"}:
             return True
         return False
 
     def _cache_impact(self, compressible: list[PromptSegment]) -> str:
-        if any(item.cache_role == "cacheable_prefix" for item in compressible):
-            return "invalidated"
-        if any(item.cache_role == "session_stable" for item in compressible):
-            return "rebuilt"
-        return "preserved"
+        return self._cache_impact_tiers(compressible).get("provider_global", "preserved")
+
+    def _cache_impact_tiers(self, compressible: list[PromptSegment]) -> dict[str, str]:
+        tiers = {str(getattr(item, "prefix_tier", "") or "none") for item in compressible}
+        return {
+            "provider_global": "global_invalidated" if "provider_global" in tiers else "preserved",
+            "session": "session_rebuilt" if "session" in tiers else "preserved",
+            "task": "task_rebuilt" if "task" in tiers else "preserved",
+            "volatile": "volatile_preserved" if "volatile" in tiers else "preserved",
+        }
 
     def _summary_target_tokens(
         self,

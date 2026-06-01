@@ -106,6 +106,7 @@ class RuntimeMonitorProjector:
             graph_run_id=graph_run_id,
             graph_harness_config_id=graph_harness_config_id,
             artifact_refs=artifact_refs,
+            resolve_availability=include_runtime_details,
         )
         graph_monitor = self._graph_monitor(graph_run_id, graph_harness_config_id) if include_runtime_details and kind == "task_graph" else None
         graph_status = self._graph_status(graph_monitor, graph_id=graph_id, graph_run_id=graph_run_id) if kind == "task_graph" else None
@@ -451,18 +452,19 @@ class RuntimeMonitorProjector:
         graph_run_id: str,
         graph_harness_config_id: str,
         artifact_refs: list[dict[str, Any]],
+        resolve_availability: bool = True,
     ) -> list[dict[str, Any]]:
         resolver = self.resource_resolver
         if resolver is None:
             return []
-        refs = [resolver.task_run_ref(task_run_id)]
+        refs = [_resolver_task_run_ref(resolver, task_run_id, available=True)]
         if session_id:
             refs.append(resolver.session_ref(session_id))
         if graph_run_id:
-            refs.append(resolver.graph_run_ref(graph_run_id))
+            refs.append(_resolver_graph_run_ref(resolver, graph_run_id, available=True if not resolve_availability else None))
         if graph_harness_config_id:
-            refs.append(resolver.graph_config_ref(graph_harness_config_id))
-        refs.extend(resolver.artifact_refs(artifact_refs))
+            refs.append(_resolver_graph_config_ref(resolver, graph_harness_config_id, available=True if not resolve_availability else None))
+        refs.extend(_resolver_artifact_refs(resolver, artifact_refs, resolve_availability=resolve_availability))
         return refs
 
     def _graph_monitor(self, graph_run_id: str, graph_harness_config_id: str) -> dict[str, Any] | None:
@@ -549,6 +551,38 @@ def _latest_interaction_turn_id(events: list[Any], *, diagnostics: dict[str, Any
                 if turn_id:
                     return turn_id
     return _valid_turn_ref(diagnostics.get("latest_interaction_turn_id"))
+
+
+def _resolver_task_run_ref(resolver: Any, task_run_id: str, *, available: bool) -> dict[str, Any]:
+    try:
+        return resolver.task_run_ref(task_run_id, available=available)
+    except TypeError:
+        return resolver.task_run_ref(task_run_id)
+
+
+def _resolver_graph_run_ref(resolver: Any, graph_run_id: str, *, available: bool | None) -> dict[str, Any]:
+    if available is None:
+        return resolver.graph_run_ref(graph_run_id)
+    try:
+        return resolver.graph_run_ref(graph_run_id, available=available)
+    except TypeError:
+        return resolver.graph_run_ref(graph_run_id)
+
+
+def _resolver_graph_config_ref(resolver: Any, graph_harness_config_id: str, *, available: bool | None) -> dict[str, Any]:
+    if available is None:
+        return resolver.graph_config_ref(graph_harness_config_id)
+    try:
+        return resolver.graph_config_ref(graph_harness_config_id, available=available)
+    except TypeError:
+        return resolver.graph_config_ref(graph_harness_config_id)
+
+
+def _resolver_artifact_refs(resolver: Any, artifact_refs: list[dict[str, Any]], *, resolve_availability: bool) -> list[dict[str, Any]]:
+    try:
+        return list(resolver.artifact_refs(artifact_refs, resolve_availability=resolve_availability))
+    except TypeError:
+        return list(resolver.artifact_refs(artifact_refs))
 
 
 def _valid_turn_ref(value: Any) -> str:

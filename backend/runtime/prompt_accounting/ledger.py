@@ -136,6 +136,44 @@ class PromptAccountingLedger:
             cache_records=self.list_prompt_cache(task_run_id=task_run_id),
         )
 
+    def summarize_tasks(self, task_run_ids: list[str] | tuple[str, ...] | set[str]) -> dict[str, dict[str, Any]]:
+        targets = {str(item).strip() for item in task_run_ids if str(item).strip()}
+        if not targets:
+            return {}
+        usage_by_task: dict[str, list[ModelTokenUsageRecord]] = {task_run_id: [] for task_run_id in targets}
+        cache_by_task: dict[str, list[PromptCacheRecord]] = {task_run_id: [] for task_run_id in targets}
+        latest_usage: dict[tuple[str, str], ModelTokenUsageRecord] = {}
+        for row in self._read_jsonl("token_usage.jsonl"):
+            task_run_id = str(row.get("task_run_id") or row.get("run_id") or "")
+            if task_run_id not in targets:
+                continue
+            record = ModelTokenUsageRecord.from_dict(row)
+            key = (task_run_id, record.usage_id or f"{record.request_id}:{record.source}:{record.created_at}")
+            previous = latest_usage.get(key)
+            if previous is None or record.created_at >= previous.created_at:
+                latest_usage[key] = record
+        for (task_run_id, _key), record in latest_usage.items():
+            usage_by_task.setdefault(task_run_id, []).append(record)
+        latest_cache: dict[tuple[str, str], PromptCacheRecord] = {}
+        for row in self._read_jsonl("prompt_cache.jsonl"):
+            task_run_id = str(row.get("task_run_id") or row.get("run_id") or "")
+            if task_run_id not in targets:
+                continue
+            record = PromptCacheRecord.from_dict(row)
+            key = (task_run_id, record.cache_record_id or f"{record.request_id}:{record.created_at}")
+            previous = latest_cache.get(key)
+            if previous is None or record.created_at >= previous.created_at:
+                latest_cache[key] = record
+        for (task_run_id, _key), record in latest_cache.items():
+            cache_by_task.setdefault(task_run_id, []).append(record)
+        return {
+            task_run_id: summarize_usage_records(
+                sorted(usage_by_task.get(task_run_id) or [], key=lambda item: item.created_at),
+                cache_records=sorted(cache_by_task.get(task_run_id) or [], key=lambda item: item.created_at),
+            )
+            for task_run_id in targets
+        }
+
     def summarize_run(self, run_id: str) -> dict[str, Any]:
         return summarize_usage_records(
             self.list_token_usage(run_id=run_id),
@@ -291,6 +329,7 @@ def _segment_from_dict(payload: dict[str, Any]) -> PromptSegment:
         byte_length=int(payload.get("byte_length") or 0),
         predicted_tokens=int(payload.get("predicted_tokens") or 0),
         cache_role=payload.get("cache_role", "volatile"),
+        prefix_tier=payload.get("prefix_tier", "volatile"),
         compression_role=payload.get("compression_role", "summarize"),
         source=str(payload.get("source") or ""),
         created_at=float(payload.get("created_at") or 0.0),

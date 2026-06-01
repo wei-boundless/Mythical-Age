@@ -12,6 +12,56 @@ from health_system.governance import HealthGovernanceBuilder
 router = APIRouter()
 
 
+class HealthRuntimeQueryAdapter:
+    """Read-only health runtime view backed by the current single-agent host.
+
+    Health governance still has a few APIs that were written against the old
+    AgentHarness facade. This adapter keeps trace inspection working without
+    re-attaching that old execution facade to QueryRuntime.
+    """
+
+    def __init__(self, query_runtime: Any) -> None:
+        self._query_runtime = query_runtime
+        self._services = getattr(query_runtime, "agent_runtime_services", None)
+        self._host = getattr(query_runtime, "single_agent_runtime_host", None)
+
+    def get_task_run(self, task_run_id: str) -> Any | None:
+        if self._services is not None and callable(getattr(self._services, "get_task_run", None)):
+            return self._services.get_task_run(task_run_id)
+        if self._host is not None:
+            return self._host.state_index.get_task_run(task_run_id)
+        return None
+
+    def get_trace(self, task_run_id: str, **kwargs: Any) -> dict[str, Any] | None:
+        if self._services is not None and callable(getattr(self._services, "get_trace", None)):
+            return self._services.get_trace(task_run_id, **kwargs)
+        if self._host is not None and callable(getattr(self._host, "get_trace", None)):
+            return self._host.get_trace(task_run_id, **kwargs)
+        return None
+
+    def event_count(self, task_run_id: str) -> int:
+        if self._services is not None and callable(getattr(self._services, "event_count", None)):
+            return int(self._services.event_count(task_run_id))
+        event_log = getattr(self._host, "event_log", None)
+        if event_log is not None:
+            estimator = getattr(event_log, "estimated_event_count", None)
+            if callable(estimator):
+                return int(estimator(task_run_id))
+            counter = getattr(event_log, "event_count", None)
+            if callable(counter):
+                return int(counter(task_run_id))
+        return 0
+
+    async def run_stream(self, _request: Any):
+        if False:
+            yield {}
+        raise RuntimeError("health_agent_run_execution_not_migrated_to_single_agent_turn_lifecycle")
+
+
+def _health_runtime_adapter(runtime: Any) -> HealthRuntimeQueryAdapter:
+    return HealthRuntimeQueryAdapter(runtime.query_runtime)
+
+
 class HealthAgentRunPreviewRequest(BaseModel):
     health_action: str = Field(default="issue_triage")
 
@@ -170,7 +220,7 @@ async def health_system_submit_command(payload: HealthManagementCommandRequest) 
     try:
         return await HealthRegistry(runtime.base_dir).submit_command(
             payload.model_dump(),
-            agent_runtime=runtime.query_runtime.agent_harness,
+            agent_runtime=_health_runtime_adapter(runtime),
             model_response_executor=runtime.query_runtime.model_response_executor,
             tool_runtime_executor=runtime.query_runtime.tool_runtime_executor,
             tool_instances=runtime.query_runtime._all_tool_instances(),
@@ -251,7 +301,7 @@ async def health_system_append_conversation_message(
         response = await registry.respond_in_conversation(
             session_id,
             payload.model_dump(),
-            agent_runtime=runtime.query_runtime.agent_harness,
+            agent_runtime=_health_runtime_adapter(runtime),
             model_response_executor=runtime.query_runtime.model_response_executor,
             tool_runtime_executor=runtime.query_runtime.tool_runtime_executor,
             tool_instances=runtime.query_runtime._all_tool_instances(),
@@ -288,7 +338,7 @@ async def health_system_create_issue(payload: HealthIssueCreateRequest) -> dict[
                 "source": "health_system.issues_api",
                 "payload": payload.model_dump(),
             },
-            agent_runtime=runtime.query_runtime.agent_harness,
+            agent_runtime=_health_runtime_adapter(runtime),
             model_response_executor=runtime.query_runtime.model_response_executor,
             tool_runtime_executor=runtime.query_runtime.tool_runtime_executor,
             tool_instances=runtime.query_runtime._all_tool_instances(),
@@ -337,7 +387,7 @@ async def health_system_agent_run_trace_report(run_id: str) -> dict[str, Any]:
     try:
         return HealthRegistry(runtime.base_dir).build_agent_run_trace_report(
             run_id=run_id,
-            agent_runtime=runtime.query_runtime.agent_harness,
+            agent_runtime=_health_runtime_adapter(runtime),
         )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Unknown health agent run or trace") from exc
@@ -366,7 +416,7 @@ async def health_system_agent_run_start(issue_id: str, payload: HealthAgentRunSt
                 "target_ref": issue_id,
                 "health_action": payload.health_action,
             },
-            agent_runtime=runtime.query_runtime.agent_harness,
+            agent_runtime=_health_runtime_adapter(runtime),
             model_response_executor=runtime.query_runtime.model_response_executor,
             tool_runtime_executor=runtime.query_runtime.tool_runtime_executor,
             tool_instances=runtime.query_runtime._all_tool_instances(),

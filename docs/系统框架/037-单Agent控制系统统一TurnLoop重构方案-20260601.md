@@ -193,6 +193,8 @@ packet 必须按能力动态生成 output contract：
   allowed_actions 包含 request_task_run
   forbidden 不得包含 task_run_request
 
+基础动作始终包含 respond、ask_user、block。
+
 如果 may_call_tools = false:
   不暴露普通工具
   forbidden 包含 general_tool_call
@@ -201,8 +203,9 @@ packet 必须按能力动态生成 output contract：
   model-visible context 包含当前任务摘要
   allowed_actions 包含 active_work_control
 
-如果 conversation_only = true:
-  allowed_actions 只包含 assistant_message
+如果显式能力边界关闭 may_request_task_run / may_control_active_work:
+  allowed_actions 不包含 request_task_run / active_work_control
+  本轮仍属于 single_agent_turn，不新增 conversation-only 或 plain_conversation 控制路径
 ```
 
 active work context 必须只提供事实，不做语义裁决：

@@ -8,6 +8,7 @@ TokenUsageSource = Literal["provider_usage", "local_prediction", "trace_estimate
 PromptCacheStatus = Literal["eligible", "hit", "miss", "bypassed", "invalidated"]
 PromptCacheScope = Literal["global", "org", "session", "task", "none"]
 PromptCacheRole = Literal["cacheable_prefix", "session_stable", "volatile", "never_cache"]
+PromptPrefixTier = Literal["provider_global", "session", "task", "volatile", "none"]
 CompressionRole = Literal["preserve", "summarize", "drop_if_cold", "ref_only"]
 
 
@@ -25,6 +26,7 @@ class PromptSegment:
     byte_length: int = 0
     predicted_tokens: int = 0
     cache_role: PromptCacheRole = "volatile"
+    prefix_tier: PromptPrefixTier = "volatile"
     compression_role: CompressionRole = "summarize"
     source: str = ""
     created_at: float = 0.0

@@ -1,919 +1,254 @@
-# 单 Agent Harness 路由系统与 Agent 模式控制解耦优化方案
+# 单 Agent Harness 路由系统与 Agent Mode 解耦方案
 
 日期：2026-06-01
 
-## 1. 问题定义
+## 1. 当前结论
 
-当前单 Agent Harness 的主要问题不是缺少“意图识别”，而是缺少一个明确的 turn 路由权威层。
+本系统没有“会话模式”。`role`、`standard`、`professional` 或历史 `runtime_mode` 不能控制 harness，也不能决定本轮走普通对话、任务、active work 或旧 action loop。
 
-现有链路中，`QueryRuntime.astream()` 在完成 `assemble_runtime()` 后，只检查 `direct_system_route` 与 `active_work`，如果没有被拦截，就无条件进入 `AgentHarness.run_stream()`。进入 harness 后，`run_agent_invocation_stream()` 会立即创建 synthetic `turnrun:*`，然后编译 `turn_action` JSON 协议，让模型返回 `model_action_request_json`。
-
-这导致普通对话、角色对话、工具型 turn、任务启动、任务续跑和 active work 控制被压进同一条 heavy action loop。用户看到的结果就是：任务完成后会话不自然，agent 像仍被任务控制协议包裹；更深层的问题是 agent mode 正在越权决定 harness 控制流，而不是只作为配置预设存在。
-
-本方案的目标是：
-
-1. 先切断 agent mode 对 harness 控制流的污染。
-2. 接入显式 `TurnRuntimeRouter`。
-3. 让路由由运行时事实和能力边界决定，而不是由 `runtime_mode` 直接决定。
-4. 保留“角色/标准/专家/自定义”作为配置预设或 UI 选择来源，但不让任何 mode 继续作为主链路由权威。
-
-## 2. 当前代码证据
-
-### 2.1 QueryRuntime 缺少 turn router
-
-文件：`backend/query/runtime.py`
-
-当前主链：
+当前单 agent 主链只允许三类 route：
 
 ```text
-commit user message
--> run_direct_system_route
--> assemble_runtime
--> _handle_active_work_turn
--> agent_harness.run_stream
-```
-
-关键位置：
-
-- `runtime.py:213`：先跑 direct system route。
-- `runtime.py:236`：编译 runtime assembly。
-- `runtime.py:252`：尝试 active work route。
-- `runtime.py:261`：否则无条件进入 `agent_harness.run_stream()`。
-
-问题：这里没有一个统一的 `TurnRuntimeRouter` 产出 route decision。`active_work` 是旁路拦截，不是统一路由体系的一部分。
-
-### 2.2 Agent loop 过早创建 synthetic turnrun
-
-文件：`backend/harness/loop/agent_loop.py`
-
-关键位置：
-
-- `agent_loop.py:62`：`_start_turn_runtime()` 在模型判断前执行。
-- `agent_loop.py:70`：立刻发出 `harness_run_started`。
-- `agent_loop.py:118`：随后编译 `compile_turn_action_packet()`。
-
-问题：普通对话还没有证明需要任务生命周期，却已经创建了 `turnrun:*`。这让监控、状态、会话展示都被任务运行结构污染。
-
-### 2.3 turn_action 固定为 JSON action 协议
-
-文件：`backend/harness/runtime/compiler.py`
-
-关键位置：
-
-- `compiler.py:41`：`compile_turn_action_packet()` 是默认 turn 编译入口。
-- `compiler.py:74`：`invocation_kind="turn_action"`。
-- `compiler.py:97`：`output_policy={"format": "model_action_request_json"}`。
-
-问题：默认 turn 不支持普通 assistant message 输出。即使只是角色聊天，也必须返回 JSON action。
-
-### 2.4 Agent mode 仍绑定 turn_action 与控制策略
-
-文件：`backend/agent_system/profiles/runtime_mode_config.py`
-
-关键位置：
-
-- `runtime_mode_config.py:56`：role mode 禁止 `request_task_run`。
-- `runtime_mode_config.py:62`：role mode 禁用 `active_work_context`。
-- `runtime_mode_config.py:69`：role mode 仍绑定 `"turn_action": ("runtime.pack.turn_action.v1",)`。
-- `runtime_mode_config.py:101`：standard mode 也绑定 `turn_action`。
-- `runtime_mode_config.py:137`：professional mode 也绑定 `turn_action`。
-
-问题：mode 配置同时承担交互风格、权限、prompt pack、task lifecycle、active work、subagent 等职责。它本应是配置输入，却实际变成了 harness 控制源。role mode 只是最容易暴露问题的例子，不是唯一问题。
-
-### 2.5 测试保护了旧行为
-
-文件：`backend/tests/query_runtime_runtime_loop_regression.py`
-
-关键位置：
-
-- `test_direct_agent_response_does_not_start_task_run`
-- 断言 `harness_run_started` 存在。
-- 断言 `task_run_count == 1`。
-
-问题：测试名义上说“不启动 task run”，实际上保护了 synthetic `turnrun`。这会阻碍目标架构落地。
-
-## 3. 成熟 Agent 架构对照
-
-### 3.1 Codex 的核心原则
-
-本地参考：
-
-- `D:/AI应用/openai-codex/codex-rs/core/src/session/turn.rs`
-- `D:/AI应用/openai-codex/codex-rs/core/src/tools/router.rs`
-
-Codex turn loop 的关键原则：
-
-```text
-model returns assistant message -> record and finish turn
-model returns tool call -> route tool call, execute, feed observation back
-```
-
-也就是说，assistant message 是一等结果，不需要先被包成任务动作 JSON。工具路由处理的是模型真实返回的 tool call，而不是先对用户消息做模糊意图分类。
-
-### 3.2 Claude Code 的核心原则
-
-本地参考：
-
-- `D:/AI应用/claude-code-nb-main/query.ts`
-- `D:/AI应用/claude-code-nb-main/tools.ts`
-- `D:/AI应用/claude-code-nb-main/tools/AgentTool/runAgent.ts`
-
-Claude Code 的核心做法是：
-
-1. query loop 管理消息、工具结果、递归 follow-up 和 token/compact。
-2. 工具和子 agent 由显式 permission/context 装配。
-3. 子 agent 是显式工具/能力，不是普通消息被模糊分类后暗中转走。
-4. 普通 assistant message 可以自然完成 turn。
-
-这说明成熟 agent 需要 route/dispatch，但不需要旧式“每轮意图识别层”。路由应处理运行时事实、能力边界和显式 action，而不是猜用户属于哪个任务类型。
-
-## 4. 目标设计原则
-
-### 4.1 route 是控制结果，mode 不是控制权威
-
-`runtime_mode` 不能继续决定 loop 形态。它最多是 UI 或配置层的预设输入。
-
-目标控制轴应是：
-
-```text
-TurnRoute.route_kind
-```
-
-而不是：
-
-```text
-runtime_mode = role | standard | professional
-```
-
-### 4.2 Agent mode 先断开控制
-
-本次不急于彻底删除 role/standard/professional/custom 字段，因为它们已经被前端、任务图、契约和历史配置引用。
-
-但必须先做到：
-
-1. mode 不再直接决定 `turn_action`、`plain_conversation`、`task_execution` 或 active work 控制路径。
-2. mode 不再直接决定是否创建 synthetic `turnrun:*`。
-3. mode 不再直接决定是否参与 active work 控制。
-4. mode 只作为配置预设展开为 agent profile、persona、context policy、permission ceiling、task lifecycle policy 等运行时能力。
-5. route 判断不直接写 `if mode == ...` 作为长期控制逻辑，而是读取装配后的 `control_capabilities`。
-
-切断控制的硬约束：
-
-- `TurnRoute` 结构中不允许出现 `mode`、`runtime_mode`、`role_mode`、`standard_mode`、`professional_mode` 这类控制字段。
-- `QueryRuntime` 的 dispatch 不允许读取 mode 名称。
-- `agent_loop` 不允许读取 mode 名称来决定是否启动 task run、是否走 JSON action、是否控制 active work。
-- mode 字段只能在 assembly 阶段被展开为 `control_capabilities`；进入 router 后，mode 只能作为 diagnostics 的历史输入记录，不能作为决策输入。
-
-### 4.3 路由只能基于显式事实
-
-允许路由依据：
-
-- 请求是否已经被 direct system route 消费。
-- 是否存在 active work continuation candidate。
-- active work relation decision 是否确认本轮属于当前工作。
-- 是否存在显式 engagement contract / task contract。
-- agent profile 装配出的能力边界。
-- task lifecycle 是否允许启动。
-- 可见工具是否存在。
-- 当前 invocation 是否要求普通对话、action turn、task execution 或 graph node execution。
-
-禁止路由依据：
-
-- 用户消息关键词表。
-- 模糊 task type 猜测。
-- 为了绕过 bug 写的 fallback action。
-- mode 名称直接决定主链。
-
-### 4.4 普通对话必须是一等路径
-
-`plain_conversation` 不是任何 mode 的私有路径。它是成熟 agent turn 的基本路径。
-
-本轮如果只需要自然回答，系统应允许模型直接输出 assistant message，并把它作为 canonical assistant answer 提交会话。它不应该先创建 task run，也不应该要求 JSON action。
-
-### 4.5 task run 只能由任务生命周期开启
-
-`task_run` 不应该作为普通 turn 的容器。
-
-只有以下情况能启动 task run：
-
-1. 模型在 `agent_action` route 中明确请求 `request_task_run`。
-2. API / task system 显式传入 task or engagement contract。
-3. active work control 明确续跑既有任务。
-
-普通 `respond`、角色聊天、轻问答、只读工具观察，都不应该创建 task run。
-
-## 5. 目标架构
-
-### 5.1 新主链
-
-```text
-QueryRuntime.astream
--> commit user message
--> direct_system_route
--> assemble_runtime
--> build_turn_route
--> dispatch route
-   -> plain_conversation_runner
-   -> agent_action_runner
-   -> active_work_control_runner
-   -> explicit_contract_task_runner
-   -> blocked_runtime_response
--> commit canonical assistant message
--> emit final stream event
-```
-
-### 5.2 TurnRoute 数据结构
-
-新增文件：
-
-```text
-backend/harness/routing/turn_router.py
-```
-
-建议数据结构：
-
-```python
-@dataclass(frozen=True, slots=True)
-class TurnRoute:
-    route_kind: str
-    invocation_kind: str
-    dispatch_target: str
-    reason: str
-    control_capabilities: dict[str, Any]
-    monitor_policy: dict[str, Any]
-    diagnostics: dict[str, Any]
-```
-
-建议 route kind：
-
-```text
-plain_conversation
-agent_action
-active_work_control
+single_agent_turn
 explicit_contract_task
 blocked_runtime
 ```
 
-建议 invocation kind：
+含义：
+
+- `single_agent_turn`：默认 agent turn。模型可以直接回复，也可以通过已装配的 native runtime action 请求任务启动、active work 控制、澄清或阻止。
+- `explicit_contract_task`：系统收到成型任务合同，直接进入任务生命周期，不做意图识别。
+- `blocked_runtime`：runtime 装配失败或边界明确阻断。
+
+`ask_user` 和 `block` 不是“会话模式允许澄清/阻止”，而是所有成熟 agent turn 都必须具备的通用收口动作。它们表示模型认为需要用户补充，或当前边界下无法继续。
+
+## 2. 权威链
+
+目标链路：
 
 ```text
-plain_conversation
-turn_action
-active_work_control
-task_execution
+QueryRuntime.astream
+-> commit user message
+-> direct system route
+-> assemble_runtime
+-> build_turn_route
+-> run_single_agent_turn | run_explicit_contract_task | blocked_runtime_response
+-> commit assistant message or task handoff
+-> public stream projection
 ```
 
-### 5.3 control_capabilities
+职责：
 
-`control_capabilities` 是 mode 解耦的关键。它由 runtime assembly 产出，router 只读取它，不关心它来自某个 mode preset、agent profile 还是显式 task selection。
+- `QueryRuntime`：API adapter，负责加载会话、提交用户消息、调用 runtime/harness、转发事件。
+- `assemble_runtime`：装配 agent profile、任务环境、工具可见性、权限投影和 control capabilities。
+- `turn_router`：只做结构路由，不读 mode，不调用模型，不做关键词判断。
+- `RuntimeCompiler`：根据 runtime assembly 生成模型请求包，保证 allowed/forbidden action 和真实能力一致。
+- `single_agent_turn`：统一处理 assistant message、native `request_task_run`、native active work control、`ask_user`、`block`。
+- `task_lifecycle`：统一创建、记录、调度、恢复 task run。
+- `monitor/public projection`：只呈现公开状态，不反向决定任务意图。
 
-建议字段：
+## 3. 路由规则
+
+`build_turn_route()` 的判断顺序：
+
+```text
+runtime blocked -> blocked_runtime
+explicit contract present -> explicit_contract_task
+otherwise -> single_agent_turn
+```
+
+禁止：
+
+- `if runtime_mode == ...`
+- `if role/standard/professional`
+- `conversation_only`
+- `plain_conversation` route
+- `agent_native_turn` route
+- `agent_action` 作为单 agent 主链 route
+- active work 在 router 中调用模型判断
+- 用户消息关键词表
+
+## 4. Capability 边界
+
+control capabilities 只能表达具体能力，不允许表达模式。
+
+有效字段：
 
 ```json
 {
-  "conversation_only": true,
   "may_emit_assistant_message": true,
   "may_call_tools": false,
-  "may_request_task_run": false,
-  "may_control_active_work": false,
+  "may_request_task_run": true,
+  "may_control_active_work": true,
   "may_use_subagents": false,
-  "requires_json_action_protocol": false
+  "requires_json_action_protocol": false,
+  "has_explicit_contract": false,
+  "visible_tool_count": 0
 }
 ```
 
-不同 preset 可以展开成不同能力边界。router 看到的是能力，不是 `mode == role`、`mode == standard` 或 `mode == professional`。
-
-### 5.4 agent mode 断开规则
-
-第一阶段必须达成：
-
-```text
-mode preset
--> runtime assembly profile
--> control_capabilities
--> TurnRuntimeRouter.route_kind
--> route-specific compiler
--> route-specific runner
--> canonical assistant/task result
-```
-
-不允许：
-
-```text
-mode preset
--> directly choose harness loop
--> directly choose task lifecycle
--> directly create synthetic turnrun
-```
-
-## 6. 执行计划
-
-### Phase 1：新增路由层，不改任务执行器
-
-目标：
-
-1. 新增 `backend/harness/routing/turn_router.py`。
-2. 定义 `TurnRoute`。
-3. 在 `QueryRuntime.astream()` 中接入 router。
-4. 当前具备 action 能力的 runtime capability 可先走既有 `agent_action` 路径。
-5. conversation-only capability 路由到 `plain_conversation`。
-
-完成标准：
-
-- 所有 turn 都有明确 `turn_route_decided` 事件。
-- conversation-only capability 的 turn 不再进入 `agent_harness.run_stream()`。
-- 所有路线都由 `control_capabilities` 与显式请求事实决定，不由 mode 名称进入 loop。
-
-### Phase 2：新增 plain conversation 编译与 runner
-
-目标：
-
-1. 在 `RuntimeCompiler` 中新增 `compile_plain_conversation_packet()`。
-2. 新增普通对话 prompt pack，例如 `runtime.pack.plain_conversation.v1`。
-3. plain conversation packet 不包含 `model_action_request_json` schema。
-4. plain conversation runner 直接调用模型，接收 assistant text。
-5. 提交 assistant message 时标记：
+关闭任务能力时，必须写：
 
 ```json
 {
-  "answer_source": "harness.route.plain_conversation",
-  "answer_channel": "conversation",
-  "answer_canonical_state": "final"
+  "may_request_task_run": false,
+  "may_control_active_work": false
 }
 ```
 
-完成标准：
-
-- conversation-only capability 的 direct chat 有自然 assistant answer。
-- 不创建 task run。
-- 不产生 `harness_run_started`。
-- 不暴露 runtime packet、task id、内部协议字段。
-
-### Phase 3：把 active work 纳入 router 结果
-
-目标：
-
-1. `_handle_active_work_turn()` 不再作为 QueryRuntime 的独立旁路。
-2. router 先检查 active work candidate。
-3. 如果需要模型判断 relation，调用现有 `decide_active_work_turn()`。
-4. 如果 decision 是 active work control，route_kind=`active_work_control`。
-5. 如果 decision 是 `normal_response` 或 `start_new_work`，router 继续选择普通 route。
-
-完成标准：
-
-- active work 控制是 router 的一种结果。
-- 无关闲聊不会续跑旧任务。
-- 用户询问当前任务状态时仍能自然回答。
-
-### Phase 4：收缩 agent_action 的职责
-
-目标：
-
-1. `agent_action` route 只负责“模型需要选择 action”的 turn。
-2. 逐步取消普通 `respond` 也创建 synthetic `turnrun` 的行为。
-3. 将 `turnrun:*` 从普通 turn 监控中剥离。
-4. 真正的 task run 只在 `request_task_run` 或 explicit contract 后创建。
-
-完成标准：
-
-- direct `respond` 不再增加 `task_run_count`。
-- tool-call turn 可以记录 turn trace，但不伪装成 task run。
-- task monitor 只展示真实任务和等待监管的任务。
-
-### Phase 5：清理 mode 控制残留
-
-目标：
-
-1. `runtime_mode_config.py` 不再直接绑定主链 invocation。
-2. `prompt_pack_refs_by_invocation.turn_action` 不再被任何 mode preset 当作 harness 控制入口。
-3. `allowed_runtime_modes` 只作为资源装配约束，不作为控制流条件。
-4. 旧测试中保护 synthetic turnrun 的断言删除或改写。
-
-完成标准：
-
-- 搜索 `mode ==`、`runtime_mode ==`，不能存在主链路由判断。
-- 搜索 `role_conversation`、`standard_mode`、`professional_mode`，只允许出现在 profile/preset/prompt 描述，不允许作为 loop 分支权威。
-- 搜索 `turn_action`，不能被 mode preset 当作直接 harness 控制入口。
-
-## 7. 文件级执行清单
-
-### 新增
-
-- `backend/harness/routing/__init__.py`
-- `backend/harness/routing/turn_router.py`
-
-### 修改
-
-- `backend/query/runtime.py`
-  - 在 `assemble_runtime()` 后调用 `build_turn_route()`。
-  - 根据 route dispatch。
-  - 移除 `_handle_active_work_turn()` 的独立旁路位置，后续改为 router runner。
-
-- `backend/harness/runtime/assembly.py`
-  - 在 `RuntimeAssemblyProfile` 或 assembly payload 中加入 `control_capabilities`。
-  - 所有 mode preset 都先展开为能力边界，router 不读取 mode 名称。
-
-- `backend/harness/runtime/compiler.py`
-  - 增加 `compile_plain_conversation_packet()`。
-  - plain conversation 不挂 `model_action_request_json`。
-
-- `backend/prompt_library/packs.py`
-  - 新增 `runtime.plain_conversation.v1`。
-  - 新增 `runtime.pack.plain_conversation.v1`。
-  - prompt 必须写给 agent，而不是写开发说明。
-
-- `backend/agent_system/profiles/runtime_mode_config.py`
-  - mode preset 不再绑定主链 invocation。
-  - mode preset 只表达配置预设与能力边界。
-
-- `backend/harness/loop/agent_loop.py`
-  - Phase 1 可暂不大改。
-  - Phase 4 需要拆掉普通 turn synthetic task run。
-
-- `backend/tests/query_runtime_runtime_loop_regression.py`
-  - 删除或重写保护旧行为的 direct response 测试。
-  - 新增 conversation-only/plain conversation route 测试。
-
-- `backend/tests/runtime_monitor_projection_test.py`
-  - 验证 plain conversation 不进入 task monitor。
-
-### 暂不修改
-
-- 图任务执行器。
-- 特定任务契约结构。
-- 子 agent 生命周期。
-- 前端任务图编辑器。
-
-这些系统会受到最终 mode 解耦影响，但不是第一阶段入口。
-
-## 8. 验收标准
-
-### 8.1 conversation-only capability
-
-输入：
+关闭工具/子 agent 时，必须写：
 
 ```json
 {
-  "runtime_profile": {
-    "control_capabilities": {
-      "conversation_only": true,
-      "may_emit_assistant_message": true,
-      "may_call_tools": false,
-      "may_request_task_run": false,
-      "requires_json_action_protocol": false
-    }
-  },
-  "message": "你今天心情怎么样？"
+  "may_call_tools": false,
+  "may_use_subagents": false
 }
 ```
 
-说明：如果旧 UI 仍传入 `runtime_mode=role`，只能由 assembly 把它展开为上面的 capability。router 和 loop 不允许直接读取 `runtime_mode=role`。
+不得再生成或读取：
 
-期望：
-
-- 产生 `turn_route_decided route_kind=plain_conversation`。
-- 不产生 `harness_run_started`。
-- 不产生 `taskrun:` 或 `turnrun:`。
-- 不要求模型返回 JSON。
-- assistant message 自然写入会话。
-
-### 8.2 action-capable 普通 turn
-
-输入普通问题。
-
-期望：
-
-- Phase 1 可由 capability route 继续走 `agent_action`。
-- 后续 Phase 4 应逐步支持直接 assistant message 或 action route 内 respond 不创建 task run。
-
-### 8.3 explicit contract task
-
-输入显式 task/engagement contract。
-
-期望：
-
-- 直接 route 到 `explicit_contract_task` 或 `agent_action -> request_task_run`。
-- 不经过 fuzzy intent recognition。
-- task run 绑定真实 contract、artifact policy 和 verification policy。
-
-### 8.4 active work control
-
-有 active work 时输入：
-
-```text
-继续
+```json
+{"conversation_only": true}
 ```
 
-期望：
+## 5. Agent 与系统交互
 
-- router 检查 active work candidate。
-- relation decision 确认后 route 到 `active_work_control`。
-- 续跑或追加指令。
-
-有 active work 时输入无关闲聊。
-
-期望：
-
-- 不续跑旧任务。
-- 进入普通 route。
-
-### 8.5 监控展示
-
-期望：
-
-- plain conversation 不出现在任务监控台。
-- task monitor 只展示真实运行中、等待监管、失败恢复中的任务。
-- 会话页可以展示自然进行中的思考/工具/观察/结果，不暴露内部 task id。
-
-## 9. 禁止事项
-
-实施时禁止：
-
-1. 新增关键词意图识别。
-2. 用 `if "继续" in message` 这类逻辑决定续跑。
-3. 把 role/standard/professional 改名后继续作为主链控制权威。
-4. 在旧 `agent_loop` 上继续堆 mode 特例。
-5. 为了兼容旧测试保留 synthetic turnrun 作为普通 turn 容器。
-6. 用 fallback 隐式启动任务。
-7. 把开发说明当作 agent prompt。
-
-## 10. 风险与控制
-
-### 风险 1：plain conversation route 切断 task monitor 后前端状态缺事件
-
-控制：
-
-- `plain_conversation_runner` 必须发出轻量事件：
+### 5.1 普通回复
 
 ```text
-turn_route_decided
-plain_conversation_started
-assistant_message_committed
-done
+用户消息
+-> runtime 装配
+-> route = single_agent_turn
+-> compiler 装配 single agent turn packet
+-> 模型返回 assistant message
+-> commit assistant message
+-> agent_turn_terminal
+-> done
 ```
 
-不要用 task monitor 事件补位。
+普通回复不创建 task run，不进入旧 JSON action 协议。
 
-### 风险 2：旧测试失败较多
-
-控制：
-
-- 失败测试按行为目标重写。
-- 保护旧 synthetic turnrun 的测试直接删除或改成反向断言。
-
-### 风险 3：agent_action executor 仍然重链路
-
-控制：
-
-- Phase 1 先保证 route 权威切换完成。
-- 这里的“重链路”只能指 `agent_action` executor 本身仍沿用旧实现，不能指 standard/professional 这类 mode。
-- Phase 4 单独处理 non-task turn trace 与 task run 分离。
-
-### 风险 4：mode 字段历史依赖很多
-
-控制：
-
-- 本次不强行删除字段。
-- 先禁止它作为主链 route authority。
-- 后续再迁移成 profile preset / runtime preset。
-
-## 11. 最小实施顺序
-
-推荐按以下顺序执行：
-
-1. 新增 router 数据结构和 route decision。
-2. assembly 增加 `control_capabilities`。
-3. assembly 将现有 mode/profile/task selection 展开为 `control_capabilities`。
-4. compiler 增加 plain conversation packet。
-5. QueryRuntime 接 router dispatch。
-6. plain conversation runner 写入 assistant message。
-7. 测试 plain conversation path 不创建 turnrun。
-8. 将 active work 旁路纳入 router。
-9. 清理 mode preset 对 turn_action 的直接控制引用。
-10. 更新旧测试。
-
-第一轮实施只要求 agent mode 不再直接控制 harness，conversation-only capability path 与 router 接入稳定，不要求一次性删除所有 `runtime_mode` 字段。
-
-## 12. 自审结论
-
-本方案允许继续出现 `role`、`standard`、`professional`、`runtime_mode` 的场景只有三类：
-
-1. 当前代码证据：说明旧结构哪里把 mode 绑定到了控制流。
-2. 迁移输入：旧 UI、旧配置或历史任务仍可能传入 mode 字段，但只能由 assembly 展开成 `control_capabilities`。
-3. 禁止事项或清理标准：用于检查不能再把 mode 名称作为 route、dispatch、loop、task run 或 monitor 的控制依据。
-
-本方案不允许出现的场景：
-
-1. `TurnRoute` 携带 mode 字段。
-2. `QueryRuntime` 根据 mode 名称选择 runner。
-3. `agent_loop` 根据 mode 名称决定是否创建 task run。
-4. `RuntimeCompiler` 根据 mode 名称决定本轮是 `plain_conversation`、`turn_action` 还是 `task_execution`。
-5. monitor 根据 mode 名称决定是否展示为任务。
-6. 测试断言某个 mode 必然走某个 loop。
-
-仍需后续清理但不构成本方案控制冲突的旧债：
-
-1. `runtime_mode_config.py` 作为历史 preset catalog 暂时存在。
-2. `prompt_library` 中的 `allowed_runtime_modes` 暂时作为资源装配约束存在，但不能参与控制流。
-3. `agent_action` executor 在 Phase 1 可以复用旧执行器，但它代表的是 action-capable route，不代表 standard/professional mode。
-4. 图任务和特定任务中历史字段 `runtime_mode` 需要后续迁移成 profile/capability preset，不在第一轮直接删除。
-
-真正的最终状态是：
+### 5.2 任务启动
 
 ```text
-mode/preset 负责配置
-route 负责控制
-loop 负责执行
-monitor 负责呈现
-task run 只属于真实任务生命周期
+用户消息
+-> route = single_agent_turn
+-> 模型判断需要持续执行
+-> 模型调用 native request_task_run
+-> harness normalize 成 ModelActionRequest
+-> task_lifecycle 建立 TaskRunContract
+-> 初始化 todo
+-> 记录 lifecycle event / step summary / monitor 状态
+-> 调度 executor 或进入人工门控
+-> turn terminal
 ```
 
-## 13. 代码审查补充：当前实现缺口
+任务启动由 agent 的显式动作触发，不由系统猜测用户意图触发。
 
-审查日期：2026-06-01
+### 5.3 显式合同
 
-审查范围：
+```text
+API/task system 传入 engagement_contract 或 task_contract
+-> route = explicit_contract_task
+-> 标准化合同
+-> 权限/监督检查
+-> task_lifecycle start
+-> 调度 executor 或等待人工门控
+```
 
-- `backend/harness/routing/turn_router.py`
-- `backend/query/runtime.py`
-- `backend/harness/runtime/assembly.py`
-- `backend/harness/runtime/compiler.py`
-- `backend/harness/loop/agent_loop.py`
-- `backend/api/chat.py`
-- `backend/runtime/shared/stream_replay.py`
-- `frontend/src/lib/store/events.ts`
+显式合同是系统收到的成型契约，不经过模型意图识别。
 
-### 13.1 已落地部分
+### 5.4 Active Work
 
-当前实现已经具备独立 `TurnRoute` 结构，且 `TurnRoute` 不携带 `mode`、`runtime_mode`、`role_mode`、`standard_mode` 或 `professional_mode`。
+```text
+存在 active work context
+-> context 作为事实进入 single_agent_turn packet
+-> 模型根据用户本轮消息决定是否调用 native active_work_control
+-> harness 执行 continue / pause / stop / append_instruction / answer_about_active_work
+```
 
-当前 `QueryRuntime` 已在 runtime assembly 后调用 turn router，并能把 `plain_conversation` 分发到普通对话 runner。
+router 不判断“用户是不是想继续当前任务”。判断权在模型 turn 内，执行权在 harness。
 
-当前 `conversation_only` capability 下不会进入 `AgentHarness.run_stream()`，不会产生 `harness_run_started`，也不会创建 `taskrun` 或 `turnrun`。
+### 5.5 澄清与阻止
 
-### 13.2 P1：公共 stream/replay 仍保存内部 runtime payload
+```text
+ask_user -> commit clarification question -> terminal
+block -> commit public block reason -> terminal
+```
+
+这两个动作不属于某种 mode。它们是所有 single agent turn 的基础安全出口。
+
+## 6. 当前必须修复的问题
+
+### P1：`conversation_only` 残留
 
 问题：
 
-`QueryRuntime.astream()` 仍会产出 `runtime_assembly_compiled`，其中包含完整 `runtime_assembly.to_dict()`。`backend/api/chat.py` 对 `astream()` 的所有事件直接 `append_public_event()`，导致内部 assembly、runtime packet、prompt refs、工具表、权限投影、路径和 diagnostics 被作为 public replay 保存。前端隐藏这些事件不能解决后端已经公开持久化的问题。
+- `assembly.py` 曾用 `conversation_only` 隐式关闭工具、任务和 active work。
+- `compiler.py` 曾用 `conversation_only` 改写 allowed actions。
+- `turn_router.py` 曾允许该字段穿过 route。
+- 测试曾以 `conversation_only` 保护旧行为。
 
-目标：
+修复标准：
 
-公共 chat stream 只能保存用户可见事件和经过投影的运行状态。内部 runtime assembly、runtime invocation packet、model messages、compilation payload、prompt manifest、operation authorization 等只能进入内部 trace/debug，不允许进入 public replay。
+- assembly 不生成 `conversation_only`。
+- compiler 不读取 `conversation_only`。
+- router 不允许 `conversation_only` 字段。
+- 测试改用具体 capability。
 
-修复要求：
-
-1. 在 `backend/api/chat.py` 增加 public stream 投影边界。
-2. 对 `runtime_assembly_compiled`、`runtime_assembly_bound`、`runtime_invocation_packet` 这类内部事件直接过滤。
-3. 对允许公开的事件做字段级投影，不允许透传 `compilation`、`model_messages`、`runtime_assembly`、`operation_authorization`、`prompt_manifest` 等内部对象。
-4. 更新测试，反向断言 public replay 不包含内部事件和敏感字段。
-
-### 13.3 P1：`explicit_contract_task` 仍是假独立 route
-
-问题：
-
-当前 router 能识别 explicit contract，但返回：
-
-```text
-route_kind = explicit_contract_task
-invocation_kind = turn_action
-dispatch_target = agent_harness.agent_action
-```
-
-`QueryRuntime` 没有单独处理 `explicit_contract_task`，因此它最终落回 generic action loop。这样显式 contract 并没有真正由系统任务生命周期承接，而是重新交给模型 action 协议判断。
-
-目标：
-
-显式 contract 是系统已经收到的成型契约，不应再经过普通语义判断。它应直接进入任务生命周期启动判断，生成真实 `TaskRunContract` 和 `task_run`，并根据监督策略等待确认或调度 executor。
-
-修复要求：
-
-1. 增加 explicit contract runner。
-2. explicit contract runner 只做 contract 标准化、权限/监督检查、task lifecycle start 和 executor scheduling，不做用户意图识别。
-3. router 对 explicit contract 输出 `invocation_kind=task_execution_start` 或等价系统任务启动语义，不能继续伪装为 `turn_action`。
-4. 测试必须断言 explicit contract 不产生 `runtime_invocation_packet` 或 `model_action_request`，但会产生真实 `task_run_lifecycle_started`。
-
-### 13.4 P2：action-capable 普通 turn 仍进入 heavy action loop
+### P1：health API 旧 harness 引用
 
 问题：
 
-当前 `requires_json_action_protocol=True` 时默认进入 `agent_action`。这已经不再由 mode 名称控制，但普通闲聊或轻问答仍会被 action loop 包裹，并创建 synthetic `turnrun`。
+`backend/api/health_system.py` 仍引用 `runtime.query_runtime.agent_harness`。`QueryRuntime` 已经不再拥有旧 `AgentHarness` 主链，因此这些接口会断。
 
-目标：
+修复标准：
 
-Phase 4 需要把 `respond` 从 synthetic turnrun/task monitor 中剥离。action route 可以保留为模型动作选择层，但直接回答不应该污染任务监控。
+- 不把旧 `AgentHarness` 塞回 `QueryRuntime`。
+- health 只通过当前 `agent_runtime_services` / `single_agent_runtime_host` 获取 task run、trace、event count。
+- 旧 health `run_stream` 执行入口未迁移时必须显式失败，不能静默复活旧链。
 
-修复要求：
+### P2：QueryRuntime 仍承载过多 harness 细节
 
-1. 短期保留 action route，但 public monitor 不展示 synthetic turnrun。
-2. 中期拆分 non-task turn trace 与 task run。
-3. direct respond 只形成会话结果和内部 turn trace，不进入 task monitor。
+当前仍待后续切出：
 
-### 13.5 P2：active work 判断权威还没有完全收敛到 router
+- active work control 执行细节。
+- task executor scheduling。
+- task todo 初始化。
 
-问题：
-
-当前 `QueryRuntime._decide_turn_route()` 先调用 `_active_work_router_enabled_for_assembly()` 和 `decide_active_work_turn()`，再把 decision 传给 router。router 不是完整的 route authority。
-
-目标：
-
-QueryRuntime 只提供 request/runtime facts。active work candidate、relation decision 和最终 route 都应属于 router service。
-
-修复要求：
-
-1. 增加 router service 或 route context builder。
-2. 把 `_active_work_router_enabled_for_assembly()` 从 QueryRuntime 移入 routing 层。
-3. `QueryRuntime` 只调用一个 route decision 入口。
-
-### 13.6 P2：测试仍保护内部事件公开
-
-问题：
-
-当前测试仍断言 `runtime_assembly_compiled` 存在于 stream。这保护了错误公共边界。
-
-目标：
-
-测试分为两类：
-
-- 内部 runtime 测试可以检查 `QueryRuntime.astream()` raw events。
-- public chat API 测试必须检查 replay/SSE 不含内部 payload。
-
-修复要求：
-
-1. 保留 raw event 测试只验证内部链路。
-2. 新增 public replay 测试，断言内部事件被过滤。
-3. 禁止用前端隐藏作为安全边界。
-
-## 14. 修复顺序补充
-
-本轮优先顺序：
-
-1. 修复 public stream/replay 投影边界。
-2. 更新 public replay 回归测试。
-3. 实现 explicit contract task 独立 runner。
-4. 将 active work route decision 完整迁入 routing 层。
-5. Phase 4 再拆 action loop 中的 non-task turn trace 与 synthetic turnrun。
-
-验收原则：
-
-- 用户会话流看不到内部 runtime payload。
-- 内部 trace 仍可审计 runtime assembly 和 invocation packet。
-- 显式 contract 不经过模型 action 协议也能启动真实任务生命周期。
-- 普通对话和真实任务在 stream、monitor、trace 三层边界清晰。
-
-## 15. Phase 4 落地记录：非任务 turn trace 与公开任务流分离
-
-落地日期：2026-06-01
-
-本轮处理的是 `13.4` 中的短期目标：保留 action-capable turn 的内部 `TurnRun` trace，但禁止它污染公开任务状态。
-
-### 15.1 决策边界
-
-`TurnRun` 仍是内部执行 trace，用于记录 action loop、模型动作协议、观察回灌、terminal reason 和 prompt accounting。它不是 `TaskRun`，不能作为公开任务生命周期的开始信号。
-
-`TaskRun` 仍由任务生命周期独立开启。只有真实 task lifecycle 产生的 `harness_run_started` 才能进入公开 chat replay 和前端任务进度。
-
-因此本阶段不删除 `agent_loop._start_turn_runtime()`，但将其公开呈现边界收紧：
-
-1. `agent_action` route 的 `monitor_policy.record_task_monitor` 改为 `False`。
-2. `backend/api/chat.py` 对 turn trace-only `harness_run_started` 直接过滤。
-3. 公开 chat event 不再携带 `runtime_turn_run_id`；该值只保留在 run registry diagnostics 中，供内部追踪。
-4. 前端 `runtimeVisibilityProjection` 对缺少真实 `task_run_id` 的 `harness_run_started` 返回空投影，不再显示“正在整理上下文”。
-5. 公开 `turn_route` 只保留 `route_kind` 和 `reason`，不公开 `dispatch_target`、`monitor_policy`、`authority` 等控制实现字段。
-
-### 15.2 验收结果
-
-已通过：
+迁移方向：
 
 ```text
-python -m py_compile backend/query/runtime.py backend/harness/routing/turn_router.py backend/harness/loop/agent_loop.py backend/harness/loop/task_lifecycle.py backend/api/chat.py
-python -m pytest backend/tests/query_runtime_runtime_loop_regression.py -q
-npm test -- --run src/lib/runtimeVisibilityProjection.test.ts src/lib/store/runtime.test.ts
+QueryRuntime thin adapter
+-> harness.loop.active_work_control
+-> harness.loop.task_scheduler
+-> harness.loop.task_todo
 ```
 
-后端回归结果：
+本项不能用“兼容”长期保留在 QueryRuntime。若暂未迁移，必须作为明确技术债记录。
+
+## 7. 验收标准
+
+代码搜索：
 
 ```text
-96 passed, 1 warning
+backend/harness backend/query backend/api 不存在 conversation_only
+backend/harness/routing 不存在 mode/runtime_mode 分支
+backend/query/runtime.py 不引用 query_runtime.agent_harness
 ```
 
-前端投影和 store 回归结果：
+行为验收：
+
+- 简单对话 route 为 `single_agent_turn`。
+- 显式关闭任务能力时，不暴露 `request_task_run` native action。
+- active work 存在但能力关闭时，不执行 active work control。
+- 显式合同 route 为 `explicit_contract_task`，不进入模型意图识别。
+- health API 不因缺少 `query_runtime.agent_harness` 抛 `AttributeError`。
+
+测试命令：
 
 ```text
-53 passed
+python -m py_compile backend/harness/runtime/assembly.py backend/harness/runtime/compiler.py backend/harness/routing/turn_router.py backend/api/health_system.py backend/query/runtime.py
+python -m pytest backend/tests/query_runtime_runtime_loop_regression.py backend/tests/dynamic_prompt_context_projection_test.py backend/tests/prompt_library_registry_regression.py backend/tests/runtime_monitor_projection_test.py -q
+python -m pytest backend/tests/health_management_control_plane_regression.py -q
 ```
-
-公开 chat replay 实测结果：
-
-```text
-status = completed
-public_types = [
-  chat_run_started,
-  input_commit_gate,
-  turn_route_decided,
-  runtime_step_summary,
-  runtime_step_summary,
-  runtime_step_summary,
-  model_action_request,
-  runtime_step_summary,
-  model_action_admission,
-  runtime_step_summary,
-  agent_turn_terminal,
-  done
-]
-route_payloads = [{"route_kind": "agent_action", "reason": "action_capable_runtime"}]
-has_public_turnrun_harness_start = False
-has_public_runtime_turn_run_id = False
-```
-
-结论：
-
-普通 action-capable 回复仍有内部 trace，但不会再被公开会话层解释为任务启动。真实任务启动仍通过 `TaskRun` 生命周期进入公开监控。
-
-## 16. 下一阶段设计：assistant-message-first 与任务启动动作分离
-
-审查日期：2026-06-01
-
-### 16.1 当前结构性问题
-
-`backend/harness/runtime/assembly.py` 中 `requires_json_action_protocol` 的默认计算目前把 `may_request_task_run` 纳入触发条件：
-
-```text
-not conversation_only and (may_call_tools or may_request_task_run or may_use_subagents or has_explicit_contract)
-```
-
-这会导致一个不合理结果：只要主 agent 具备“可以请求任务生命周期”的能力，普通 turn 就必须进入 JSON action 协议。任务启动能力变成了普通对话的协议污染源。
-
-成熟 agent 的控制方式不是这样。成熟 loop 应允许模型先自然产生 assistant message；当模型需要工具或系统动作时，通过工具调用/结构化动作通道进入执行。也就是说：
-
-```text
-assistant message 是一等 turn 结果
-request_task_run 是一个可调用系统动作
-task run 生命周期只由系统动作或显式 contract 开启
-```
-
-### 16.2 目标切分
-
-本阶段新增 `agent_native_turn`，用于承接“能自然回答，也能结构化请求任务启动”的普通主 agent turn。
-
-边界：
-
-1. `agent_native_turn` 不使用旧 JSON action prompt。
-2. 模型可以直接返回 assistant message，系统提交为普通会话答复。
-3. 模型可以通过原生工具调用 `request_task_run` 请求持续任务生命周期。
-4. 系统将 `request_task_run` 工具调用转换为 `ModelActionRequest`，复用现有 admission、contract 和 task lifecycle。
-5. 本阶段暂不把所有真实工具调用迁入 native loop；普通工具、子 agent 和多步观察仍保留在旧 `agent_action` route，后续再迁移。
-6. 因此 `agent_native_turn` 只覆盖“没有可见直接工具、没有可用子 agent、但允许发起 task run”的 turn。
-7. 不允许用关键词识别用户意图决定是否任务启动。
-
-### 16.3 路由规则
-
-`requires_json_action_protocol` 不应再因为 `may_request_task_run=True` 自动开启。
-
-新路由规则：
-
-```text
-explicit_contract -> explicit_contract_task
-conversation_only -> plain_conversation
-may_call_tools 或 may_use_subagents -> agent_action
-may_request_task_run 且没有工具/子 agent -> agent_native_turn
-否则 -> plain_conversation
-```
-
-解释：
-
-- `may_request_task_run` 是可用系统动作，不是强制 action 协议。
-- 有真实工具或子 agent 时，当前系统尚未完成 native tool loop，因此继续走旧 `agent_action`。
-- 没有工具/子 agent，仅有任务启动能力时，native turn 已足够表达：直接回答或调用 `request_task_run`。
-
-### 16.4 交互细节
-
-native turn 的模型输入：
-
-1. 使用 `plain_conversation` 的稳定 prompt、agent prompt、environment prompt 和历史上下文。
-2. 额外绑定一个系统工具：`request_task_run`。
-3. 工具描述必须写给 agent，而不是写代码说明：
-
-```text
-当用户目标需要持续执行、真实产物、文件写入、命令验证、浏览器验证、失败恢复或多步骤交付时，调用 request_task_run。
-参数必须包含用户可理解目标、执行目标、交付物、验收标准和验证要求。
-如果当前请求可直接回答，不要调用工具，直接回复用户。
-```
-
-native turn 的系统处理：
-
-1. 若响应没有 tool call：提交 assistant message，结束 turn。
-2. 若响应包含 `request_task_run`：转换为 `ModelActionRequest(action_type=request_task_run)`。
-3. 进入 admission。
-4. admission allow 后调用 `start_task_lifecycle()`。
-5. 初始化 todo。
-6. 根据监督策略等待用户确认或调度 executor。
-7. 会话中返回 task handoff，不暴露 task id。
-
-### 16.5 验收标准
-
-1. 仅有 `may_request_task_run=True` 时，普通回复不产生 `runtime_invocation_packet` 的 JSON action 协议，不产生 `model_action_request`。
-2. 仅有 `may_request_task_run=True` 时，模型原生调用 `request_task_run` 能创建真实 `task_run_lifecycle_started`。
-3. 有真实工具或子 agent 能力时，仍走旧 `agent_action`，避免未完成 native tool loop 造成工具能力回退。
-4. 公开 chat replay 不显示 turnrun-only `harness_run_started`。
-5. 不出现用户消息关键词表或任务类型猜测层。

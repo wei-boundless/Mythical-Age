@@ -17,16 +17,6 @@ RUNTIME_TURN_ACTION_PROMPT = """
 """.strip()
 
 
-RUNTIME_PLAIN_CONVERSATION_PROMPT = """
-你是当前会话的主 agent。系统已经为你装配本轮对话所需的身份、环境边界和上下文。
-你的职责是自然回应用户当前消息，保持角色、人设、上下文和事实一致。
-本轮不是任务执行流程，不要输出 JSON 协议，不要请求工具，不要开启任务，不要暴露内部运行字段。
-如果用户要求执行真实交付物、工具操作、长任务、外部验证或超出当前可见能力的动作，你应自然说明当前对话路径不能直接执行，并给出需要切换到可执行任务环境或授权的明确原因。
-可以询问必要澄清问题；如果可以回答，应直接给出用户可读的完整回复。
-不要暴露隐藏推理、内部编号、runtime packet、task id 或系统协议。
-""".strip()
-
-
 RUNTIME_SINGLE_AGENT_TURN_PROMPT = """
 你是当前会话的主 agent。系统已经为你装配本轮可见上下文、任务环境、权限边界和可用动作；你负责理解用户当前请求并选择最合适的下一步。
 如果可以直接回答，应直接自然回答用户，不要开启任务。
@@ -99,13 +89,6 @@ def list_builtin_runtime_prompt_resources() -> tuple[PromptResource, ...]:
             invocation_kind="turn_action",
         ),
         _runtime_resource(
-            prompt_id="runtime.plain_conversation.v1",
-            subtype="plain_conversation",
-            title="Plain conversation protocol",
-            content=RUNTIME_PLAIN_CONVERSATION_PROMPT,
-            invocation_kind="plain_conversation",
-        ),
-        _runtime_resource(
             prompt_id="runtime.single_agent_turn.v1",
             subtype="single_agent_turn",
             title="Single agent turn protocol",
@@ -146,13 +129,6 @@ def list_builtin_prompt_packs() -> tuple[PromptPack, ...]:
             cache_scope="static",
         ),
         PromptPack(
-            pack_id="runtime.pack.plain_conversation.v1",
-            invocation_kind="plain_conversation",
-            ordered_prompt_refs=("runtime.plain_conversation.v1",),
-            title="Plain conversation runtime pack",
-            cache_scope="static",
-        ),
-        PromptPack(
             pack_id="runtime.pack.single_agent_turn.v1",
             invocation_kind="single_agent_turn",
             ordered_prompt_refs=("runtime.single_agent_turn.v1",),
@@ -185,7 +161,6 @@ def list_builtin_prompt_packs() -> tuple[PromptPack, ...]:
 
 def default_pack_ref_for_invocation(invocation_kind: str) -> str:
     mapping = {
-        "plain_conversation": "runtime.pack.plain_conversation.v1",
         "single_agent_turn": "runtime.pack.single_agent_turn.v1",
         "turn_action": "runtime.pack.turn_action.v1",
         "task_execution": "runtime.pack.task_execution.v1",

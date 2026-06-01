@@ -267,181 +267,6 @@ class RuntimeCompiler:
         )
         return RuntimeCompilationResult(envelope=envelope, packet=packet)
 
-    def compile_plain_conversation_packet(
-        self,
-        *,
-        session_id: str,
-        turn_id: str,
-        agent_invocation_id: str,
-        user_message: str,
-        history: list[dict[str, Any]],
-        session_context: dict[str, Any] | None = None,
-        agent_profile_ref: str = "main_interactive_agent",
-        model_selection: dict[str, Any] | None = None,
-        runtime_assembly: Any | None = None,
-    ) -> RuntimeCompilationResult:
-        assembly_payload = runtime_assembly.to_dict() if hasattr(runtime_assembly, "to_dict") else dict(runtime_assembly or {})
-        self._bind_assembly_base_dir(assembly_payload)
-        profile_payload = dict(assembly_payload.get("profile") or {})
-        environment_payload = dict(assembly_payload.get("task_environment") or {})
-        control_capabilities = dict(assembly_payload.get("control_capabilities") or {})
-        agent_profile_ref = str(agent_profile_ref or assembly_payload.get("agent_profile_ref") or "main_interactive_agent")
-        task_environment_ref = str(environment_payload.get("environment_id") or "env.general.workspace")
-        prompt_pack_refs = _prompt_pack_refs_for_invocation(profile_payload, invocation_kind="plain_conversation")
-        soul_role_prompt = dict(assembly_payload.get("soul_role_prompt") or {})
-        envelope = RuntimeEnvelope(
-            envelope_id=f"rtenv:{turn_id}:plain_conversation",
-            scope_kind="turn",
-            session_id=session_id,
-            turn_id=turn_id,
-            agent_profile_ref=agent_profile_ref,
-            task_environment_ref=task_environment_ref,
-            sandbox_policy=dict(environment_payload.get("sandbox_policy") or {}),
-            file_policy={
-                "file_management": dict(environment_payload.get("file_management") or {}),
-                "file_access_tables": list(environment_payload.get("file_access_tables") or []),
-            },
-            artifact_policy=dict(environment_payload.get("artifact_policy") or {}),
-            permission_policy=dict(profile_payload.get("permission_policy") or {}),
-            prompt_policy={"invocation_kind": "plain_conversation"},
-            output_policy={"format": "assistant_message"},
-            diagnostics={
-                "agent_invocation_id": agent_invocation_id,
-                "model_selection": dict(model_selection or {}),
-                "runtime_assembly_id": str(assembly_payload.get("assembly_id") or ""),
-                "control_capabilities": dict(control_capabilities),
-            },
-        )
-        prompt_assembly = self._assemble_prompt_pack(
-            invocation_kind="plain_conversation",
-            prompt_pack_refs=prompt_pack_refs,
-            agent_profile_ref=agent_profile_ref,
-            task_environment_ref=task_environment_ref,
-        )
-        agent_prompt_assembly = self._assemble_prompt_refs(
-            invocation_kind="agent_profile",
-            prompt_refs=_string_tuple(assembly_payload.get("agent_prompt_refs")),
-            agent_profile_ref=agent_profile_ref,
-            task_environment_ref=task_environment_ref,
-        )
-        environment_prompt_assembly = self._assemble_prompt_refs(
-            invocation_kind="environment",
-            prompt_refs=_string_tuple(assembly_payload.get("environment_prompt_refs")),
-            agent_profile_ref=agent_profile_ref,
-            task_environment_ref=task_environment_ref,
-        )
-        environment_instruction = _environment_instruction(
-            environment_payload,
-            environment_prompt_assembly=environment_prompt_assembly,
-        )
-        agent_instruction = _agent_prompt_instruction(agent_prompt_assembly)
-        soul_instruction = _soul_instruction(soul_role_prompt)
-        stable_payload = {
-            "control_capabilities": dict(control_capabilities),
-            "session_context": _session_context_model_visible_payload(session_context),
-            "task_environment": _environment_model_visible_payload(environment_payload),
-            "output_contract": {
-                "format": "assistant_message",
-                "forbidden": ["json_action_protocol", "tool_call_request", "task_run_request", "runtime_ids"],
-            },
-        }
-        packet_id = f"rtpacket:{turn_id}:plain_conversation:1"
-        history_specs = [
-            _message_spec(
-                role=str(item.get("role") or "user"),
-                content=str(item.get("content") or ""),
-                kind="conversation_history",
-                source_ref="conversation_history",
-                cache_scope="none",
-                cache_role="volatile",
-                compression_role="summarize",
-            )
-            for item in list(history or [])
-            if isinstance(item, dict) and str(item.get("role") or "") in {"user", "assistant", "system"} and str(item.get("content") or "").strip()
-        ]
-        model_messages, segment_plan = _model_messages_and_segment_plan(
-            packet_id=packet_id,
-            invocation_kind="plain_conversation",
-            specs=[
-                _message_spec(
-                    role="system",
-                    content=prompt_assembly.content,
-                    kind="global_static",
-                    source_ref=",".join(prompt_assembly.prompt_pack_refs),
-                    cache_scope="global",
-                    cache_role="cacheable_prefix",
-                    compression_role="preserve",
-                ),
-                _message_spec(
-                    role="system",
-                    content=_packet_payload_content("Plain conversation stable boundary", stable_payload),
-                    kind="conversation_stable",
-                    source_ref="plain_conversation_stable_boundary",
-                    cache_scope="session",
-                    cache_role="session_stable",
-                    compression_role="preserve",
-                ),
-                _message_spec(
-                    role="system",
-                    content=_join_prompt_sections(soul_instruction, agent_instruction, environment_instruction),
-                    kind="conversation_context",
-                    source_ref="plain_conversation_context",
-                    cache_scope="session",
-                    cache_role="session_stable",
-                    compression_role="preserve",
-                ),
-                *history_specs,
-                _message_spec(
-                    role="user",
-                    content=str(user_message or ""),
-                    kind="current_user_message",
-                    source_ref="plain_conversation_current_user_message",
-                    cache_scope="none",
-                    cache_role="volatile",
-                    compression_role="preserve",
-                ),
-            ],
-        )
-        prompt_manifest = build_runtime_prompt_manifest(
-            invocation_kind="plain_conversation",
-            assembly=_merge_prompt_assemblies(
-                prompt_assembly,
-                agent_prompt_assembly,
-                environment_prompt_assembly,
-                invocation_kind="plain_conversation",
-            ),
-            packet_id=packet_id,
-            volatile_state_refs=("history", "user_message"),
-        ).to_dict()
-        prompt_manifest["segment_plan_ref"] = segment_plan.segment_plan_id
-        prompt_manifest["context_window"] = _context_window_report(
-            session_context=session_context,
-            history=history,
-        )
-        _attach_model_message_metrics(prompt_manifest, model_messages=model_messages, segment_plan=segment_plan.to_dict())
-        packet = RuntimeInvocationPacket(
-            packet_id=packet_id,
-            envelope_ref=envelope.envelope_id,
-            invocation_kind="plain_conversation",
-            invocation_index=1,
-            session_id=session_id,
-            turn_id=turn_id,
-            model_messages=model_messages,
-            segment_plan=segment_plan.to_dict(),
-            prompt_pack_refs=prompt_assembly.prompt_pack_refs,
-            available_tools=(),
-            allowed_action_types=("respond", "ask_user"),
-            output_contract={"format": "assistant_message"},
-            hidden_control_refs={"agent_invocation_id": agent_invocation_id, "runtime_assembly_id": str(assembly_payload.get("assembly_id") or "")},
-            diagnostics={
-                "prompt_manifest": prompt_manifest,
-                "segment_plan": segment_plan.to_dict(),
-                "model_input_authority": "runtime_invocation_packet.model_messages",
-                "control_capabilities": dict(control_capabilities),
-            },
-        )
-        return RuntimeCompilationResult(envelope=envelope, packet=packet)
-
     def compile_turn_action_packet(
         self,
         *,
@@ -1377,9 +1202,7 @@ def _single_agent_turn_allowed_actions(
     control_capabilities: dict[str, Any],
     active_work_context: dict[str, Any] | None,
 ) -> tuple[str, ...]:
-    if bool(control_capabilities.get("conversation_only") is True):
-        return ("assistant_message", "ask_user", "block")
-    actions: list[str] = ["assistant_message", "ask_user", "block"]
+    actions: list[str] = ["respond", "ask_user", "block"]
     if bool(control_capabilities.get("may_request_task_run") is True):
         actions.append("request_task_run")
     if active_work_context and bool(control_capabilities.get("may_control_active_work") is not False):
@@ -2188,9 +2011,7 @@ def _json_stable(value: Any) -> Any:
 
 def _task_run_stable_payload(task_run: dict[str, Any], *, graph_runtime_projection: bool = False) -> dict[str, Any]:
     diagnostics = dict(task_run.get("diagnostics") or {})
-    return {
-        "task_run_id": str(task_run.get("task_run_id") or ""),
-        "session_id": str(task_run.get("session_id") or ""),
+    return _drop_empty_payload({
         "task_id": str(task_run.get("task_id") or ""),
         "task_contract_ref": str(task_run.get("task_contract_ref") or ""),
         "owner_agent_seat_id": str(task_run.get("owner_agent_seat_id") or ""),
@@ -2199,7 +2020,7 @@ def _task_run_stable_payload(task_run: dict[str, Any], *, graph_runtime_projecti
         "execution_runtime_kind": str(task_run.get("execution_runtime_kind") or ""),
         "diagnostics": _graph_task_run_diagnostics_model_visible(diagnostics) if graph_runtime_projection else _task_run_diagnostics_stable_payload(diagnostics),
         "authority": str(task_run.get("authority") or "orchestration.task_run"),
-    }
+    })
 
 
 def _task_run_diagnostics_stable_payload(diagnostics: dict[str, Any]) -> dict[str, Any]:
@@ -2212,10 +2033,7 @@ def _task_run_diagnostics_stable_payload(diagnostics: dict[str, Any]) -> dict[st
             "origin_authority",
             "origin_ref",
             "parent_run_ref",
-            "graph_run_id",
             "graph_harness_config_id",
-            "graph_node_id",
-            "graph_work_order_id",
             "node_id",
             "project_id",
             "runtime_scope",

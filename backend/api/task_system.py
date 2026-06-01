@@ -41,6 +41,7 @@ from task_system.node_configurations import (
     TaskNodeConfigurationRepository,
     build_node_configuration_catalog,
 )
+from task_system.projects import ProjectFileService
 
 router = APIRouter()
 
@@ -556,6 +557,25 @@ def _environment_graph_inventory(task_graphs: list[dict[str, object]]) -> dict[s
     }
 
 
+def _project_instance_management(base_dir) -> dict[str, object]:
+    service = ProjectFileService(base_dir)
+    projects = []
+    for environment_id in (
+        "env.creation.writing",
+        "env.development.sandbox",
+    ):
+        projects.extend(service.list_environment_projects(environment_id))
+    by_environment: dict[str, list[dict[str, object]]] = {}
+    for project in projects:
+        by_environment.setdefault(str(project.get("environment_id") or ""), []).append(project)
+    return {
+        "authority": "task_system.project_instance_management",
+        "projects": projects,
+        "by_environment": by_environment,
+        "summary": {"project_count": len(projects)},
+    }
+
+
 def _contract_usage_index(
     *,
     task_assignments: list[dict[str, object]],
@@ -676,6 +696,7 @@ def _task_system_payload(base_dir) -> dict[str, object]:
     environment_kind_management = _environment_kind_management_payload(base_dir)
     environment_task_inventory = _environment_task_inventory(task_assignments)
     environment_graph_inventory = _environment_graph_inventory(full_task_graphs)
+    project_instance_management = _project_instance_management(base_dir)
     contract_usage_index = _contract_usage_index(
         task_assignments=task_assignments,
         task_flows=task_flows,
@@ -740,6 +761,7 @@ def _task_system_payload(base_dir) -> dict[str, object]:
             "workflow_resources": workflow_resources,
         },
         "task_environment_management": task_environment_management,
+        "project_instance_management": project_instance_management,
         "environment_kind_management": environment_kind_management,
         "environment_task_inventory": environment_task_inventory,
         "environment_graph_inventory": environment_graph_inventory,
@@ -1443,6 +1465,110 @@ async def delete_task_system_task_assignment(task_id: str) -> dict[str, object]:
     runtime = require_runtime()
     TaskFlowRegistry(runtime.base_dir).assignment_repository.delete_for_task_ids({task_id})
     return _task_system_payload(runtime.base_dir)
+
+
+@router.get("/tasks/environments/{environment_id}/tasks")
+async def list_task_system_environment_tasks(environment_id: str) -> dict[str, object]:
+    runtime = require_runtime()
+    task_assignments = [item.to_dict() for item in TaskFlowRegistry(runtime.base_dir).list_task_assignments()]
+    inventory = _environment_task_inventory(task_assignments)
+    tasks = list(dict(inventory.get("by_environment") or {}).get(environment_id) or [])
+    return {
+        "authority": "task_system.environment_tasks_api",
+        "environment_id": environment_id,
+        "tasks": tasks,
+        "summary": {"task_count": len(tasks)},
+    }
+
+
+@router.get("/tasks/environments/{environment_id}/projects")
+async def list_task_system_environment_projects(environment_id: str) -> dict[str, object]:
+    runtime = require_runtime()
+    try:
+        projects = ProjectFileService(runtime.base_dir).list_environment_projects(environment_id)
+    except (KeyError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {
+        "authority": "task_system.environment_projects_api",
+        "environment_id": environment_id,
+        "projects": projects,
+        "summary": {"project_count": len(projects)},
+    }
+
+
+@router.get("/tasks/projects/{project_id}")
+async def get_task_system_project(project_id: str) -> dict[str, object]:
+    runtime = require_runtime()
+    try:
+        return ProjectFileService(runtime.base_dir).project_payload(project_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/tasks/projects/{project_id}/library")
+async def get_task_system_project_library(project_id: str) -> dict[str, object]:
+    runtime = require_runtime()
+    try:
+        return ProjectFileService(runtime.base_dir).project_payload(project_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/tasks/projects/{project_id}/repositories")
+async def list_task_system_project_repositories(project_id: str) -> dict[str, object]:
+    runtime = require_runtime()
+    try:
+        return ProjectFileService(runtime.base_dir).repositories(project_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/tasks/projects/{project_id}/repositories/{repository_id}/tree")
+async def get_task_system_project_repository_tree(
+    project_id: str,
+    repository_id: str,
+    path: str = "",
+    max_depth: int = 4,
+    max_entries: int = 500,
+) -> dict[str, object]:
+    runtime = require_runtime()
+    try:
+        return ProjectFileService(runtime.base_dir).tree(
+            project_id,
+            repository_id,
+            path,
+            max_depth=max_depth,
+            max_entries=max_entries,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except (ValueError, PermissionError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/tasks/projects/{project_id}/repositories/{repository_id}/files")
+async def get_task_system_project_repository_file(
+    project_id: str,
+    repository_id: str,
+    path: str,
+) -> dict[str, object]:
+    runtime = require_runtime()
+    try:
+        return ProjectFileService(runtime.base_dir).read_file(project_id, repository_id, path)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except (ValueError, PermissionError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.put("/tasks/environment-groups/{group_id}")

@@ -24,6 +24,7 @@ class PromptStabilityReporter:
         stable_segments, volatile_segments = _split_segments(segment_map.segments)
         stable_sections = tuple(_section_from_segment(segment) for segment in stable_segments)
         volatile_sections = tuple(_section_from_segment(segment) for segment in volatile_segments)
+        tier_prefixes = _tier_prefixes(segment_map.segments)
         dynamic_summary = _dynamic_param_summary(model_request=model_request, segment_map=segment_map)
         dynamic_hash = _stable_hash(dynamic_summary)
         dynamic_param_diff = _diff_dynamic_params(previous_report, dynamic_summary)
@@ -33,6 +34,21 @@ class PromptStabilityReporter:
             getattr(model_request, "stable_prefix_hash", "")
             or getattr(cache_record, "prefix_hash", "")
             or _stable_hash([section.content_hash for section in stable_sections])
+        )
+        provider_global_prefix_hash = str(
+            getattr(model_request, "provider_global_prefix_hash", "")
+            or dict(getattr(cache_record, "diagnostics", {}) or {}).get("provider_global_prefix_hash")
+            or _prefix_hash(tier_prefixes["provider_global"])
+        )
+        session_prefix_hash = str(
+            getattr(model_request, "session_prefix_hash", "")
+            or dict(getattr(cache_record, "diagnostics", {}) or {}).get("session_prefix_hash")
+            or _prefix_hash(tier_prefixes["session"])
+        )
+        task_prefix_hash = str(
+            getattr(model_request, "task_prefix_hash", "")
+            or dict(getattr(cache_record, "diagnostics", {}) or {}).get("task_prefix_hash")
+            or _prefix_hash(tier_prefixes["task"])
         )
         diagnostics = _diagnostics(
             stable_sections=stable_sections,
@@ -55,7 +71,13 @@ class PromptStabilityReporter:
             context_window_generation=1 if context_window.get("replacement_history_ref") else 0,
             compaction_generation=1 if context_window.get("compressed_summary_hash") else 0,
             stable_prefix_hash=stable_prefix_hash,
+            provider_global_prefix_hash=provider_global_prefix_hash,
+            session_prefix_hash=session_prefix_hash,
+            task_prefix_hash=task_prefix_hash,
             stable_prefix_tokens=sum(int(section.predicted_tokens or 0) for section in stable_sections),
+            provider_global_prefix_tokens=sum(int(segment.predicted_tokens or 0) for segment in tier_prefixes["provider_global"]),
+            session_prefix_tokens=sum(int(segment.predicted_tokens or 0) for segment in tier_prefixes["session"]),
+            task_prefix_tokens=sum(int(segment.predicted_tokens or 0) for segment in tier_prefixes["task"]),
             stable_section_count=len(stable_sections),
             volatile_token_count=sum(int(section.predicted_tokens or 0) for section in volatile_sections),
             stable_sections=stable_sections,
@@ -119,6 +141,7 @@ def _section_from_segment(segment: PromptSegment) -> PromptStabilitySection:
         ordinal=segment.ordinal,
         source_ref=segment.source,
         cache_role=segment.cache_role,
+        prefix_tier=str(getattr(segment, "prefix_tier", "") or "volatile"),
         content_hash=segment.content_hash,
         predicted_tokens=int(segment.predicted_tokens or 0),
         volatility_reason=str(metadata.get("volatility_reason") or metadata.get("cache_impact") or ""),
@@ -247,6 +270,24 @@ def _diagnostics(
     )
 
 
+def _tier_prefixes(segments: tuple[PromptSegment, ...]) -> dict[str, list[PromptSegment]]:
+    rules = {
+        "provider_global": {"provider_global"},
+        "session": {"provider_global", "session"},
+        "task": {"provider_global", "session", "task"},
+    }
+    result: dict[str, list[PromptSegment]] = {}
+    for tier, allowed in rules.items():
+        items: list[PromptSegment] = []
+        for segment in segments:
+            if str(getattr(segment, "prefix_tier", "") or "none") in allowed:
+                items.append(segment)
+                continue
+            break
+        result[tier] = items
+    return result
+
+
 def _diff_dynamic_params(
     previous_report: PromptStabilityReport | None,
     current_summary: dict[str, Any],
@@ -289,6 +330,12 @@ def _session_cache_key(segment_map: PromptSegmentMap) -> str:
 def _stable_hash(value: Any) -> str:
     payload = json.dumps(_json_stable(value), ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return "sha256:" + hashlib.sha256(payload.encode("utf-8", errors="ignore")).hexdigest()
+
+
+def _prefix_hash(segments: list[PromptSegment]) -> str:
+    if not segments:
+        return ""
+    return _stable_hash([segment.content_hash for segment in segments])
 
 
 def _json_stable(value: Any) -> Any:

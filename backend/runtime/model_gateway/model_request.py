@@ -18,6 +18,7 @@ class ModelRequestSegmentBinding:
     source_ref: str = ""
     cache_scope: str = "none"
     cache_role: str = "volatile"
+    prefix_tier: str = "volatile"
     compression_role: str = "summarize"
     planned_content_hash: str = ""
     planned_model_message_hash: str = ""
@@ -44,6 +45,9 @@ class ModelRequestPacket:
     segment_bindings: tuple[ModelRequestSegmentBinding, ...] = ()
     canonical_hash: str = ""
     stable_prefix_hash: str = ""
+    provider_global_prefix_hash: str = ""
+    session_prefix_hash: str = ""
+    task_prefix_hash: str = ""
     cache_policy: ProviderCachePolicy = field(default_factory=lambda: ProviderCachePolicy(provider=""))
     diagnostics: dict[str, Any] = field(default_factory=dict)
     authority: str = "runtime.model_gateway.model_request_packet"
@@ -80,6 +84,7 @@ class ModelRequestBuilder:
         plan = dict(segment_plan or {})
         bindings = tuple(_bindings_from_plan(plan, normalized_messages))
         stable_prefix_hash = _stable_prefix_hash(bindings)
+        tier_hashes = _prefix_tier_hashes(bindings)
         binding_diagnostics = _binding_diagnostics(bindings, normalized_messages)
         canonical = canonical_json(
             {
@@ -99,12 +104,16 @@ class ModelRequestBuilder:
             segment_bindings=bindings,
             canonical_hash=_stable_text_hash(canonical),
             stable_prefix_hash=stable_prefix_hash,
+            provider_global_prefix_hash=tier_hashes["provider_global"],
+            session_prefix_hash=tier_hashes["session"],
+            task_prefix_hash=tier_hashes["task"],
             cache_policy=cache_policy,
             diagnostics={
                 "planned_segment_count": len(list(plan.get("segments") or [])),
                 "bound_segment_count": len(bindings),
                 "unplanned_message_count": max(0, len(normalized_messages) - len(bindings)),
                 **binding_diagnostics,
+                "prefix_tier_hashes": tier_hashes,
                 **dict(metadata or {}),
             },
         )
@@ -133,6 +142,7 @@ def _bindings_from_plan(
                 source_ref=str(raw_segment.get("source_ref") or ""),
                 cache_scope=str(raw_segment.get("cache_scope") or "none"),
                 cache_role=_cache_role(raw_segment.get("cache_role")),
+                prefix_tier=_prefix_tier(raw_segment.get("prefix_tier"), cache_scope=str(raw_segment.get("cache_scope") or "none"), cache_role=_cache_role(raw_segment.get("cache_role"))),
                 compression_role=_compression_role(raw_segment.get("compression_role")),
                 planned_content_hash=str(raw_segment.get("content_hash") or ""),
                 planned_model_message_hash=str(raw_segment.get("model_message_hash") or ""),
@@ -158,6 +168,29 @@ def _stable_prefix_hash(bindings: tuple[ModelRequestSegmentBinding, ...]) -> str
     if not parts:
         return ""
     return _stable_text_hash("|".join(parts))
+
+
+def _prefix_tier_hashes(bindings: tuple[ModelRequestSegmentBinding, ...]) -> dict[str, str]:
+    tiers = {
+        "provider_global": {"provider_global"},
+        "session": {"provider_global", "session"},
+        "task": {"provider_global", "session", "task"},
+    }
+    result: dict[str, str] = {}
+    ordered = sorted(bindings, key=lambda item: item.ordinal)
+    for name, allowed in tiers.items():
+        parts: list[str] = []
+        expected_index = 0
+        for binding in ordered:
+            if binding.model_message_index != expected_index:
+                break
+            if binding.prefix_tier in allowed:
+                parts.append(binding.request_content_hash)
+                expected_index += 1
+                continue
+            break
+        result[name] = _stable_text_hash("|".join(parts)) if parts else ""
+    return result
 
 
 def _binding_diagnostics(
@@ -190,6 +223,26 @@ def _cache_role(value: Any) -> str:
     if normalized in {"cacheable_prefix", "session_stable", "volatile", "never_cache"}:
         return normalized
     return "volatile"
+
+
+def _prefix_tier(value: Any, *, cache_scope: str, cache_role: str) -> str:
+    normalized = str(value or "").strip()
+    if normalized in {"provider_global", "session", "task", "volatile", "none"}:
+        return normalized
+    if cache_role == "cacheable_prefix":
+        return "provider_global"
+    if cache_role == "session_stable":
+        scope = str(cache_scope or "").strip()
+        if scope == "task":
+            return "task"
+        if scope == "session":
+            return "session"
+        if scope == "global":
+            return "provider_global"
+        return "session"
+    if cache_role == "volatile":
+        return "volatile"
+    return "none"
 
 
 def _compression_role(value: Any) -> str:

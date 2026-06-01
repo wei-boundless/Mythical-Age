@@ -118,14 +118,40 @@ class SingleMessageModelRuntimeStub:
 
 
 class NativeToolCallModelRuntimeStub(SingleMessageModelRuntimeStub):
-    def __init__(self, *, content: str = "", tool_calls: list[dict[str, object]] | None = None) -> None:
-        super().__init__(content=content)
+    def __init__(
+        self,
+        *,
+        content: str = "",
+        tool_calls: list[dict[str, object]] | None = None,
+        agent_turn_action_request: dict[str, object] | None = None,
+    ) -> None:
+        super().__init__(content=content, agent_turn_action_request=agent_turn_action_request)
         self.tool_calls = list(tool_calls or [])
         self.seen_tools: list[object] = []
 
     async def invoke_messages_with_tools(self, messages, tools, **_kwargs):
         self.seen_tools.append(list(tools or []))
-        return SimpleNamespace(content=self.content, tool_calls=list(self.tool_calls))
+        if self.tool_calls:
+            return SimpleNamespace(content=self.content, tool_calls=list(self.tool_calls))
+        if any(dict(tool).get("name") == "request_task_run" for tool in list(tools or [])) and self.agent_turn_action_request.get("action_type") == "request_task_run":
+            seed = dict(self.agent_turn_action_request.get("task_contract_seed") or {})
+            return SimpleNamespace(
+                content=self.content,
+                tool_calls=[
+                    {
+                        "id": "stub-request-task-run",
+                        "name": "request_task_run",
+                        "args": {
+                            "user_visible_goal": str(seed.get("user_visible_goal") or ""),
+                            "task_run_goal": str(seed.get("task_run_goal") or ""),
+                            "required_artifacts": list(seed.get("required_artifacts") or []),
+                            "required_verifications": list(seed.get("required_verifications") or []),
+                            "completion_criteria": list(seed.get("completion_criteria") or []),
+                        },
+                    }
+                ],
+            )
+        return SimpleNamespace(content=self.content, tool_calls=[])
 
 
 class StreamingMessageModelRuntimeStub(SingleMessageModelRuntimeStub):
@@ -213,7 +239,7 @@ def _is_model_action_request(messages: Any) -> bool:
     except Exception:
         return False
     content = str(dict(first).get("content") if isinstance(first, dict) else getattr(first, "content", "") or "")
-    return "当前 turn 的主 agent" in content and "harness.loop.model_action_request" in str(messages)
+    return "harness.loop.model_action_request" in str(messages)
 
 
 def _default_agent_turn_action_request(messages: Any) -> dict[str, object]:

@@ -11,6 +11,7 @@ class PromptStabilitySection:
     ordinal: int
     source_ref: str = ""
     cache_role: str = "volatile"
+    prefix_tier: str = "volatile"
     content_hash: str = ""
     predicted_tokens: int = 0
     volatility_reason: str = ""
@@ -27,6 +28,7 @@ class PromptStabilitySection:
             ordinal=_int(payload.get("ordinal")),
             source_ref=str(payload.get("source_ref") or ""),
             cache_role=str(payload.get("cache_role") or "volatile"),
+            prefix_tier=str(payload.get("prefix_tier") or "volatile"),
             content_hash=str(payload.get("content_hash") or ""),
             predicted_tokens=_int(payload.get("predicted_tokens")),
             volatility_reason=str(payload.get("volatility_reason") or ""),
@@ -49,7 +51,13 @@ class PromptStabilityReport:
     context_window_generation: int = 0
     compaction_generation: int = 0
     stable_prefix_hash: str = ""
+    provider_global_prefix_hash: str = ""
+    session_prefix_hash: str = ""
+    task_prefix_hash: str = ""
     stable_prefix_tokens: int = 0
+    provider_global_prefix_tokens: int = 0
+    session_prefix_tokens: int = 0
+    task_prefix_tokens: int = 0
     stable_section_count: int = 0
     volatile_token_count: int = 0
     stable_sections: tuple[PromptStabilitySection, ...] = ()
@@ -90,7 +98,13 @@ class PromptStabilityReport:
             context_window_generation=_int(payload.get("context_window_generation")),
             compaction_generation=_int(payload.get("compaction_generation")),
             stable_prefix_hash=str(payload.get("stable_prefix_hash") or ""),
+            provider_global_prefix_hash=str(payload.get("provider_global_prefix_hash") or ""),
+            session_prefix_hash=str(payload.get("session_prefix_hash") or ""),
+            task_prefix_hash=str(payload.get("task_prefix_hash") or ""),
             stable_prefix_tokens=_int(payload.get("stable_prefix_tokens")),
+            provider_global_prefix_tokens=_int(payload.get("provider_global_prefix_tokens")),
+            session_prefix_tokens=_int(payload.get("session_prefix_tokens")),
+            task_prefix_tokens=_int(payload.get("task_prefix_tokens")),
             stable_section_count=_int(payload.get("stable_section_count")),
             volatile_token_count=_int(payload.get("volatile_token_count")),
             stable_sections=tuple(

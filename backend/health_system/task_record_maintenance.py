@@ -148,8 +148,15 @@ class HealthTaskRecordMaintenanceService:
         requested = set(self._requested_ids(task_run_ids))
         monitor_by_id = self._monitor_by_task_run_id()
         reported_task_run_ids = self._reported_task_run_ids()
+        lineage_index = self._lineage_index()
         records: list[dict[str, Any]] = []
-        for task_run in self.state_index.list_task_runs():
+        task_runs = (
+            [item for item in (self.state_index.get_task_run(task_run_id) for task_run_id in requested) if item is not None]
+            if requested
+            else self.state_index.list_recent_task_runs(limit=240)
+        )
+        token_summary_index = self._token_summary_index(task_runs)
+        for task_run in task_runs:
             task_run_id = str(getattr(task_run, "task_run_id", "") or "")
             if not task_run_id:
                 continue
@@ -159,6 +166,8 @@ class HealthTaskRecordMaintenanceService:
                 monitor=monitor,
                 reported_task_run_ids=reported_task_run_ids,
                 min_age_seconds=min_age_seconds,
+                lineage_index=lineage_index,
+                token_summary_index=token_summary_index,
             )
             if requested:
                 if task_run_id in requested:
@@ -179,6 +188,8 @@ class HealthTaskRecordMaintenanceService:
         monitor: dict[str, Any],
         reported_task_run_ids: set[str],
         min_age_seconds: int,
+        lineage_index: dict[str, Any],
+        token_summary_index: dict[str, dict[str, Any]],
     ) -> dict[str, Any]:
         task_run_id = str(getattr(task_run, "task_run_id", "") or "")
         status = str(getattr(task_run, "status", "") or "unknown")
@@ -189,7 +200,7 @@ class HealthTaskRecordMaintenanceService:
         bucket = str(monitor.get("bucket") or self._bucket_from_status(status))
         resource_class = str(monitor.get("resource_class") or ("dynamic" if status in ACTIVE_TASK_STATUSES else "static"))
         event_count = self._event_count(task_run_id)
-        token_summary = self._token_summary(task_run_id)
+        token_summary = dict(token_summary_index.get(task_run_id) or {})
         protection_reasons: list[str] = []
         if status in ACTIVE_TASK_STATUSES or resource_class == "dynamic" or bucket == "running":
             protection_reasons.append("active_or_dynamic_runtime")
@@ -199,7 +210,7 @@ class HealthTaskRecordMaintenanceService:
             protection_reasons.append("failed_without_health_report")
         if self._has_lineage(task_run, diagnostics=diagnostics):
             protection_reasons.append("task_lineage_record")
-        if self._has_lineage_dependents(task_run_id):
+        if task_run_id in set(lineage_index.get("parent_task_run_ids") or set()):
             protection_reasons.append("task_lineage_parent")
         return {
             "task_run_id": task_run_id,
@@ -277,6 +288,23 @@ class HealthTaskRecordMaintenanceService:
         except Exception:
             return {}
 
+    def _token_summary_index(self, task_runs: list[Any]) -> dict[str, dict[str, Any]]:
+        summarizer = getattr(self.prompt_accounting_ledger, "summarize_tasks", None)
+        task_run_ids = [
+            str(getattr(task_run, "task_run_id", "") or "")
+            for task_run in list(task_runs or [])
+            if str(getattr(task_run, "task_run_id", "") or "")
+        ]
+        if not callable(summarizer) or not task_run_ids:
+            return {}
+        try:
+            return {
+                str(task_run_id): dict(summary or {})
+                for task_run_id, summary in dict(summarizer(task_run_ids) or {}).items()
+            }
+        except Exception:
+            return {}
+
     def _has_lineage(self, task_run: Any, *, diagnostics: dict[str, Any]) -> bool:
         lineage = dict(diagnostics.get("lineage") or {})
         origin = dict(diagnostics.get("origin") or {})
@@ -286,18 +314,19 @@ class HealthTaskRecordMaintenanceService:
         task_run_id = str(getattr(task_run, "task_run_id", "") or "")
         return bool(parent_id or (root_id and root_id != task_run_id) or origin_kind == "checkout_resume")
 
-    def _has_lineage_dependents(self, task_run_id: str) -> bool:
-        if not task_run_id:
-            return False
-        for other in self.state_index.list_task_runs():
+    def _lineage_index(self) -> dict[str, Any]:
+        parent_task_run_ids: set[str] = set()
+        for other in self.state_index.list_recent_task_runs(limit=240):
             diagnostics = dict(getattr(other, "diagnostics", {}) or {})
             lineage = dict(diagnostics.get("lineage") or {})
             origin = dict(diagnostics.get("origin") or {})
             parent_id = str(diagnostics.get("parent_task_run_id") or lineage.get("parent_task_run_id") or origin.get("parent_task_run_id") or "")
             root_id = str(diagnostics.get("root_task_run_id") or lineage.get("root_task_run_id") or "")
-            if parent_id == task_run_id or root_id == task_run_id:
-                return True
-        return False
+            if parent_id:
+                parent_task_run_ids.add(parent_id)
+            if root_id:
+                parent_task_run_ids.add(root_id)
+        return {"parent_task_run_ids": parent_task_run_ids}
 
     def _recent_maintenance_receipts(self) -> list[dict[str, Any]]:
         if self.store is None:

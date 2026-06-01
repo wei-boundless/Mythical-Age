@@ -7,9 +7,13 @@ from .specific_task_repository import SpecificTaskRepository
 from .domain_repository import TaskDomainRepository
 from .assignment_repository import AssignmentRepository
 from .assembly_config_repository import TaskAssemblyConfigRepository
+from .project_instance_repository import ProjectInstanceRepository
+from .project_library_manifest_repository import ProjectLibraryManifestRepository
 
 __all__ = [
     "AssignmentRepository",
+    "ProjectInstanceRepository",
+    "ProjectLibraryManifestRepository",
     "TaskAssemblyConfigRepository",
     "FlowRepository",
     "GraphHarnessConfigRepository",

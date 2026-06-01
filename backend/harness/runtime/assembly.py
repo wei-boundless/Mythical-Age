@@ -191,24 +191,6 @@ def assemble_runtime(
         visible_tool_names=visible_tool_names,
         engagement_contract=engagement_contract,
     )
-    if bool(control_capabilities.get("conversation_only") is True) and visible_tool_names:
-        visibility_filtered = (
-            *visibility_filtered,
-            *(
-                {
-                    "tool_name": str(tool_name),
-                    "reason": "conversation_only_capability_hides_tools",
-                }
-                for tool_name in visible_tool_names
-            ),
-        )
-        visible_tool_names = ()
-        control_capabilities = _control_capabilities_for_runtime(
-            profile=profile,
-            selection=selection,
-            visible_tool_names=visible_tool_names,
-            engagement_contract=engagement_contract,
-        )
     available_tools = tuple(
         _tool_view(
             tool_name=name,
@@ -496,38 +478,35 @@ def _control_capabilities_for_runtime(
     active_work_disabled = active_work_context in {"disabled", "none", "off", "false", "0", "readonly"}
     task_run_allowed = task_lifecycle.get("request_task_run") is not False
     subagent_enabled = bool(subagent.get("enabled") is True)
-    explicit_conversation_only = explicit.get("conversation_only")
-    conversation_only = bool(explicit_conversation_only is True)
     may_emit_assistant_message = bool(explicit.get("may_emit_assistant_message", True) is not False)
     may_call_tools = bool(
         explicit.get("may_call_tools")
         if "may_call_tools" in explicit
-        else (bool(visible_tool_names) and not conversation_only)
+        else bool(visible_tool_names)
     )
     may_request_task_run = bool(
         explicit.get("may_request_task_run")
         if "may_request_task_run" in explicit
-        else (task_run_allowed and not conversation_only)
+        else task_run_allowed
     )
     may_control_active_work = bool(
         explicit.get("may_control_active_work")
         if "may_control_active_work" in explicit
-        else (not active_work_disabled and not conversation_only)
+        else not active_work_disabled
     )
     may_use_subagents = bool(
         explicit.get("may_use_subagents")
         if "may_use_subagents" in explicit
-        else (subagent_enabled and not conversation_only)
+        else subagent_enabled
     )
     has_explicit_contract = bool(engagement_contract or selection.get("task_contract") or selection.get("task_contract_seed"))
     requires_json_action_protocol = bool(
         explicit.get("requires_json_action_protocol")
         if "requires_json_action_protocol" in explicit
-        else (not conversation_only and (may_call_tools or may_use_subagents or has_explicit_contract))
+        else (may_call_tools or may_use_subagents or has_explicit_contract)
     )
     return {
         "authority": "harness.runtime.control_capabilities",
-        "conversation_only": conversation_only,
         "may_emit_assistant_message": may_emit_assistant_message,
         "may_call_tools": may_call_tools,
         "may_request_task_run": may_request_task_run,
@@ -535,7 +514,7 @@ def _control_capabilities_for_runtime(
         "may_use_subagents": may_use_subagents,
         "requires_json_action_protocol": requires_json_action_protocol,
         "has_explicit_contract": has_explicit_contract,
-        "visible_tool_count": 0 if conversation_only else len(visible_tool_names),
+        "visible_tool_count": len(visible_tool_names),
     }
 
 

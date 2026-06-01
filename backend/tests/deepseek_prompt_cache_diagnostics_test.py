@@ -200,6 +200,56 @@ def test_deepseek_cache_diagnosis_summarizes_context_window_facts(tmp_path: Path
     assert report["replacement_history"] == "replacement-history:abcdef123456"
 
 
+def test_deepseek_cache_diagnosis_splits_utility_scope_from_agent_runtime(tmp_path: Path) -> None:
+    ledger_dir = tmp_path / "prompt_accounting"
+    ledger_dir.mkdir()
+    _write_jsonl(
+        ledger_dir / "token_usage.jsonl",
+        [
+            {
+                **_provider_usage("req:agent", prompt_tokens=100, cached_tokens=50),
+                "created_at": 2,
+            },
+            {
+                **_provider_usage("req:utility", prompt_tokens=100, cached_tokens=0),
+                "created_at": 2,
+            },
+            {
+                "usage_id": "tokuse:req:agent:local_prediction",
+                "request_id": "req:agent",
+                "provider": "deepseek",
+                "model": "deepseek-v4-flash",
+                "source": "local_prediction",
+                "prompt_tokens": 100,
+                "diagnostics": {"cache_metric_scope": "agent_runtime"},
+                "created_at": 1,
+            },
+            {
+                "usage_id": "tokuse:req:utility:local_prediction",
+                "request_id": "req:utility",
+                "provider": "deepseek",
+                "model": "deepseek-v4-flash",
+                "source": "local_prediction",
+                "prompt_tokens": 100,
+                "diagnostics": {
+                    "cache_metric_scope": "utility_minimal_plan",
+                    "call_purpose": "utility.generate_title",
+                },
+                "created_at": 1,
+            },
+        ],
+    )
+
+    result = diagnose(ledger_dir=ledger_dir)
+
+    assert result.summary["deepseek_cache_hit_rate"] == 0.25
+    assert result.summary["agent_runtime_deepseek_cache_hit_rate"] == 0.5
+    assert result.summary["cache_metric_scope_counts"] == {
+        "agent_runtime": 1,
+        "utility_minimal_plan": 1,
+    }
+
+
 def _write_jsonl(path: Path, rows: list[dict]) -> None:
     path.write_text(
         "\n".join(json.dumps(row, ensure_ascii=False, sort_keys=True) for row in rows) + "\n",

@@ -247,7 +247,9 @@ def test_task_execution_packet_places_stable_contract_before_volatile_state() ->
     assert "observations" in current_state_content
     stable_payload = json.loads(messages[1]["content"].split("\n", 1)[1])
     volatile_payload = json.loads(current_state_content.split("\n", 1)[1])
-    assert stable_payload["task_run"]["diagnostics"] == {"graph_run_id": "graph:stable"}
+    assert stable_payload["task_run"] == {"authority": "orchestration.task_run"}
+    assert "graph_run_id" not in messages[1]["content"]
+    assert "task_run_id" not in messages[1]["content"]
     assert stable_payload["tool_catalog_hash"].startswith("sha256:")
     assert "input_schema" not in stable_payload["available_tools"][0]
     assert stable_payload["available_tools"][0]["input_schema_ref"].startswith("sha256:")
@@ -305,8 +307,12 @@ def test_task_execution_packet_places_stable_contract_before_volatile_state() ->
         model="deepseek-v4-pro",
         segment_plan=result.packet.segment_plan,
     )
-    assert model_request.stable_prefix_hash == cache_record.prefix_hash
+    assert model_request.provider_global_prefix_hash == cache_record.prefix_hash
+    assert model_request.stable_prefix_hash != cache_record.prefix_hash
+    assert cache_record.diagnostics["prefix_key_tier"] == "provider_global"
     assert cache_record.diagnostics["stable_prefix_segment_count"] == 4
+    assert cache_record.diagnostics["provider_global_prefix_segment_count"] == 1
+    assert cache_record.diagnostics["task_prefix_segment_count"] == 4
     assert manifest["token_estimate"]["assembly_prompt_chars"] == manifest["token_estimate"]["prompt_chars"]
     assert manifest["token_estimate"]["model_visible_chars"] == sum(len(message["content"]) for message in messages)
     assert manifest["token_estimate"]["cacheable_prefix_chars"] > manifest["token_estimate"]["assembly_prompt_chars"]

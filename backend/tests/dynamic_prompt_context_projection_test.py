@@ -159,11 +159,11 @@ def test_observation_followup_projects_session_context_with_observations() -> No
     assert volatile_payload["observations"]["latest_observations"][0]["summary"] == "read_file ok"
 
 
-def test_plain_conversation_projects_compressed_context_as_session_context() -> None:
-    result = RuntimeCompiler().compile_plain_conversation_packet(
-        session_id="session:plain-context",
-        turn_id="turn:plain-context",
-        agent_invocation_id="aginvoke:plain-context",
+def test_single_agent_turn_projects_compressed_context_as_session_context() -> None:
+    result = RuntimeCompiler().compile_single_agent_turn_packet(
+        session_id="session:single-turn-context",
+        turn_id="turn:single-turn-context",
+        agent_invocation_id="aginvoke:single-turn-context",
         user_message="继续。",
         history=[
             {"role": "user", "content": "上一轮用户消息"},
@@ -176,15 +176,14 @@ def test_plain_conversation_projects_compressed_context_as_session_context() -> 
         },
     )
 
-    stable_payload = _payload_after_title(
-        result.packet.model_messages[1]["content"],
-        "Plain conversation stable boundary",
-    )
+    volatile_payload = _payload_after_title(result.packet.model_messages[-1]["content"], "Single agent turn current request")
     message_texts = [str(message["content"]) for message in result.packet.model_messages]
 
-    assert stable_payload["session_context"]["compressed_summary"] == "此前已经完成项目结构审查。"
+    assert volatile_payload["history"]["session_context"]["compressed_summary"] == "此前已经完成项目结构审查。"
     assert "[Compressed session context]" not in "\n".join(message_texts)
-    assert message_texts[-3:] == ["上一轮用户消息", "上一轮助手回复", "继续。"]
+    assert [item["content"] for item in volatile_payload["history"]["recent_turns"]] == ["上一轮用户消息", "上一轮助手回复"]
+    assert volatile_payload["history"]["current_user_message_ref"] == "volatile_current_request"
+    assert result.packet.invocation_kind == "single_agent_turn"
     context_window = result.packet.diagnostics["prompt_manifest"]["context_window"]
     assert context_window["compressed_summary_present"] is True
     assert str(context_window["compressed_summary_hash"]).startswith("sha256:")

@@ -496,7 +496,7 @@ def test_preselected_long_term_notes_do_not_require_query_signal(tmp_path) -> No
     assert result.selected_notes[0]["note_id"] == "preselected-note"
 
 
-def test_memory_runtime_view_collects_conversation_only_when_requested(tmp_path) -> None:
+def test_memory_runtime_view_collects_conversation_layer_when_requested(tmp_path) -> None:
     session_id = "session-h-conversation"
     facade = MemoryFacade(tmp_path)
     manager = facade.session_memory.manager(session_id)
