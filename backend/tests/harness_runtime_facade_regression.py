@@ -11,7 +11,7 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-from query.models import QueryRequest
+from harness.entrypoint.models import HarnessRuntimeRequest
 from api.chat import _project_public_stream_event, _runtime_run_refs_from_event
 from runtime.shared.models import AgentRunResult, TaskRun
 from harness.loop.model_action_protocol import ModelActionRequest
@@ -19,10 +19,11 @@ from harness.loop.task_executor import _tool_call_progress_summary
 from harness.loop.task_lifecycle import TaskLifecycleRecord, TaskRunContract
 from capability_system.tool_definitions import build_tool_instances, get_tool_definitions
 from tests.support.runtime_stubs import (
+    NativeToolCallSequenceModelRuntimeStub,
     NativeToolCallModelRuntimeStub,
     PrimarySettingsStub,
     SingleMessageModelRuntimeStub,
-    build_query_runtime,
+    build_harness_runtime,
 )
 from runtime.prompt_accounting import (
     CanonicalPromptSerializer,
@@ -55,6 +56,18 @@ def _packet_payload_after_title(content: str, title: str) -> dict[str, object]:
     return json.loads(content[len(marker):])
 
 
+def _admission_payloads(events: list[dict[str, object]]) -> list[dict[str, object]]:
+    payloads: list[dict[str, object]] = []
+    for event in events:
+        if event.get("type") != "model_action_admission":
+            continue
+        runtime_event = dict(event.get("event") or {})
+        payload = dict(runtime_event.get("payload") or {})
+        if payload:
+            payloads.append(payload)
+    return payloads
+
+
 def _action_request(
     *,
     action_type: str,
@@ -82,14 +95,14 @@ def _action_request(
 
 
 def test_explicit_capability_boundary_uses_single_agent_turn_without_task_run() -> None:
-    runtime = build_query_runtime(
+    runtime = build_harness_runtime(
         model_runtime=SingleMessageModelRuntimeStub(content="自然对话回复。")
     )
 
     async def _collect() -> list[dict[str, object]]:
         events: list[dict[str, object]] = []
         async for event in runtime.astream(
-            QueryRequest(
+            HarnessRuntimeRequest(
                 session_id="session-plain",
                 message="和我随便聊两句。",
                 task_selection={
@@ -107,12 +120,12 @@ def test_explicit_capability_boundary_uses_single_agent_turn_without_task_run() 
 
     events = asyncio.run(_collect())
     stream_types = [str(event.get("type") or "") for event in events]
-    route_events = [dict(event.get("turn_route") or {}) for event in events if event.get("type") == "turn_route_decided"]
+    branch_events = [dict(event.get("runtime_branch") or {}) for event in events if event.get("type") == "runtime_branch_decided"]
 
     assert any(event.get("type") == "done" and event.get("content") == "自然对话回复。" for event in events)
     assert "runtime_assembly_compiled" in stream_types
-    assert "turn_route_decided" in stream_types
-    assert route_events and route_events[0].get("route_kind") == "single_agent_turn"
+    assert "runtime_branch_decided" in stream_types
+    assert branch_events and branch_events[0].get("branch_kind") == "single_agent_turn"
     assert "single_agent_turn_started" in stream_types
     assert "assistant_message_committed" in stream_types
     assert "runtime_invocation_packet" not in stream_types
@@ -133,12 +146,12 @@ def test_single_agent_turn_receives_compressed_context_from_session_record() -> 
             return await super().invoke_messages(messages, **kwargs)
 
     model = RecordingModelRuntime()
-    runtime = build_query_runtime(model_runtime=model)
+    runtime = build_harness_runtime(model_runtime=model)
     runtime.session_manager.compressed_context = "此前已经确认项目采用 DeepSeek。"
 
     async def _collect() -> None:
         async for _event in runtime.astream(
-            QueryRequest(
+            HarnessRuntimeRequest(
                 session_id="session-plain-compressed",
                 message="继续。",
                 task_selection={
@@ -160,14 +173,14 @@ def test_single_agent_turn_receives_compressed_context_from_session_record() -> 
     assert "[Compressed session context]" not in payload
 
 
-def test_default_turn_routes_to_single_agent_turn_without_task_run() -> None:
-    runtime = build_query_runtime(
+def test_default_runtime_branches_to_single_agent_turn_without_task_run() -> None:
+    runtime = build_harness_runtime(
         model_runtime=SingleMessageModelRuntimeStub(content="直接回答，不进入任务生命周期。")
     )
 
     async def _collect() -> list[dict[str, object]]:
         events: list[dict[str, object]] = []
-        async for event in runtime.astream(QueryRequest(session_id="session-direct", message="介绍一下 harness。")):
+        async for event in runtime.astream(HarnessRuntimeRequest(session_id="session-direct", message="介绍一下 harness。")):
             events.append(event)
         return events
 
@@ -175,10 +188,10 @@ def test_default_turn_routes_to_single_agent_turn_without_task_run() -> None:
 
     assert any(event.get("type") == "done" for event in events)
     assert any(event.get("type") == "runtime_assembly_compiled" for event in events)
-    route_events = [dict(event.get("turn_route") or {}) for event in events if event.get("type") == "turn_route_decided"]
-    assert route_events and route_events[0].get("route_kind") == "single_agent_turn"
-    assert dict(route_events[0].get("monitor_policy") or {}).get("record_task_monitor") is False
-    assert dict(route_events[0].get("monitor_policy") or {}).get("record_turn_monitor") is False
+    branch_events = [dict(event.get("runtime_branch") or {}) for event in events if event.get("type") == "runtime_branch_decided"]
+    assert branch_events and branch_events[0].get("branch_kind") == "single_agent_turn"
+    assert dict(branch_events[0].get("monitor_policy") or {}).get("record_task_monitor") is False
+    assert dict(branch_events[0].get("monitor_policy") or {}).get("record_turn_monitor") is False
     assert "single_agent_turn_started" in [str(event.get("type") or "") for event in events]
     traces = runtime.single_agent_runtime_host.list_session_traces("session-direct")
     assert traces["task_run_count"] == 0
@@ -198,7 +211,7 @@ def test_single_agent_turn_projection_only_exposes_executable_native_actions() -
     base_dir = Path(__file__).resolve().parents[1]
     tool_instances = [tool for tool in build_tool_instances(base_dir) if getattr(tool, "name", "") == "read_file"]
     definitions = [definition for definition in get_tool_definitions() if definition.name == "read_file"]
-    runtime = build_query_runtime(
+    runtime = build_harness_runtime(
         base_dir=base_dir,
         model_runtime=model,
         tool_runtime=SimpleNamespace(
@@ -211,7 +224,7 @@ def test_single_agent_turn_projection_only_exposes_executable_native_actions() -
 
     async def _collect() -> list[dict[str, object]]:
         events: list[dict[str, object]] = []
-        async for event in runtime.astream(QueryRequest(session_id="session-native-boundary", message="介绍一下项目。")):
+        async for event in runtime.astream(HarnessRuntimeRequest(session_id="session-native-boundary", message="介绍一下项目。")):
             events.append(event)
         return events
 
@@ -227,18 +240,179 @@ def test_single_agent_turn_projection_only_exposes_executable_native_actions() -
     model_input = "\n".join(str(message.get("content") or "") for message in model.last_messages)
 
     assert dict(assembly.get("control_capabilities") or {}).get("may_call_tools") is True
-    assert packet_tools == ["request_task_run", "ask_user", "block"]
-    assert start.get("allowed_action_types") == ["respond", "ask_user", "block", "request_task_run"]
-    assert effective_capabilities.get("may_call_tools") is False
+    assert packet_tools == ["read_file", "request_task_run", "ask_user", "block"]
+    assert start.get("allowed_action_types") == ["respond", "ask_user", "block", "request_task_run", "tool_call"]
+    assert effective_capabilities.get("may_call_tools") is True
     assert effective_capabilities.get("may_use_subagents") is False
     assert effective_capabilities.get("requires_json_action_protocol") is False
-    assert "调用本次可见工具" not in model_input
+    assert "调用本次可见工具" in model_input
     assert "子 agent 协作" not in model_input
     assert any(event.get("type") == "done" and str(event.get("content") or "") == "直接回答。" for event in events)
 
 
+def test_single_agent_turn_read_only_tool_executes_through_control_plane_and_followup_answers() -> None:
+    model = NativeToolCallSequenceModelRuntimeStub(
+        [
+            {
+                "tool_calls": [
+                    {
+                        "id": "call-read-requirements",
+                        "name": "read_file",
+                        "args": {"path": "requirements.txt", "limit": 120},
+                    }
+                ]
+            },
+            {"content": "已经读取 requirements.txt。"},
+        ]
+    )
+    base_dir = Path(__file__).resolve().parents[1]
+    tool_instances = [tool for tool in build_tool_instances(base_dir) if getattr(tool, "name", "") == "read_file"]
+    definitions = [definition for definition in get_tool_definitions() if definition.name == "read_file"]
+    runtime = build_harness_runtime(
+        base_dir=base_dir,
+        model_runtime=model,
+        tool_runtime=SimpleNamespace(
+            base_dir=base_dir,
+            definitions=definitions,
+            instances=tool_instances,
+            get_definition=lambda name: next((definition for definition in definitions if definition.name == name), None),
+            get_instance=lambda name: next((tool for tool in tool_instances if getattr(tool, "name", "") == name), None),
+        ),
+    )
+
+    async def _collect() -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime.astream(HarnessRuntimeRequest(session_id="session-single-turn-read-tool", message="看看依赖文件。")):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_collect())
+    tool_observations = [dict(event.get("tool_observation") or {}) for event in events if event.get("type") == "tool_observation"]
+    followup_messages = [dict(item) for item in list(model.seen_messages[-1] or []) if isinstance(item, dict)]
+    assistant_tool_message = next(item for item in followup_messages if item.get("role") == "assistant" and item.get("tool_calls"))
+    tool_message = next(item for item in followup_messages if item.get("role") == "tool")
+
+    assert model.calls == 2
+    assert tool_observations and tool_observations[0]["status"] == "ok"
+    assert tool_observations[0]["caller_kind"] == "agent_turn"
+    assert tool_observations[0]["tool_name"] == "read_file"
+    assert dict(tool_observations[0].get("diagnostics") or {}).get("stage") == "tool_runtime_executor_core"
+    assert str(tool_observations[0].get("caller_ref") or "").startswith("turnrun:")
+    assert "task_run_id" not in dict(tool_observations[0].get("result_envelope") or {})
+    assert dict(list(assistant_tool_message["tool_calls"])[0]).get("id") == "call-read-requirements"
+    assert tool_message["tool_call_id"] == "call-read-requirements"
+    assert any(event.get("type") == "turn_tool_observation_recorded" for event in events)
+    assert any(event.get("type") == "done" and str(event.get("content") or "") == "已经读取 requirements.txt。" for event in events)
+    assert runtime.single_agent_runtime_host.list_session_traces("session-single-turn-read-tool")["task_run_count"] == 0
+
+
+def test_single_agent_turn_side_effect_tool_is_blocked_before_runtime_dispatch() -> None:
+    model = NativeToolCallSequenceModelRuntimeStub(
+        [
+            {
+                "tool_calls": [
+                    {
+                        "id": "call-write",
+                        "name": "write_file",
+                        "args": {"path": "tmp/blocked.txt", "content": "no"},
+                    }
+                ]
+            }
+        ]
+    )
+    base_dir = Path(__file__).resolve().parents[1]
+    names = {"write_file", "read_file"}
+    tool_instances = [tool for tool in build_tool_instances(base_dir) if getattr(tool, "name", "") in names]
+    definitions = [definition for definition in get_tool_definitions() if definition.name in names]
+    runtime = build_harness_runtime(
+        base_dir=base_dir,
+        model_runtime=model,
+        tool_runtime=SimpleNamespace(
+            base_dir=base_dir,
+            definitions=definitions,
+            instances=tool_instances,
+            get_definition=lambda name: next((definition for definition in definitions if definition.name == name), None),
+            get_instance=lambda name: next((tool for tool in tool_instances if getattr(tool, "name", "") == name), None),
+        ),
+    )
+
+    async def _collect() -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime.astream(HarnessRuntimeRequest(session_id="session-single-turn-write-tool", message="写一个文件。")):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_collect())
+    admissions = _admission_payloads(events)
+
+    assert model.calls == 1
+    assert admissions
+    assert dict(admissions[0].get("admission") or {}).get("decision") == "deny"
+    assert dict(admissions[0].get("admission") or {}).get("system_reason") == "tool_not_in_runtime_assembly"
+    assert not any(event.get("type") == "tool_observation" for event in events)
+    assert any(event.get("type") == "done" and "请求的工具没有在本次运行时中开放" in str(event.get("content") or "") for event in events)
+
+
+def test_single_agent_turn_tool_loop_blocks_before_fourth_tool_call() -> None:
+    model = NativeToolCallSequenceModelRuntimeStub(
+        [
+            {
+                "tool_calls": [
+                    {"id": "call-exists-1", "name": "path_exists", "args": {"path": "requirements.txt"}},
+                ]
+            },
+            {
+                "tool_calls": [
+                    {"id": "call-exists-2", "name": "path_exists", "args": {"path": "requirements.txt"}},
+                ]
+            },
+            {
+                "tool_calls": [
+                    {"id": "call-exists-3", "name": "path_exists", "args": {"path": "requirements.txt"}},
+                ]
+            },
+            {
+                "tool_calls": [
+                    {"id": "call-exists-4", "name": "path_exists", "args": {"path": "requirements.txt"}},
+                ]
+            },
+        ]
+    )
+    base_dir = Path(__file__).resolve().parents[1]
+    tool_instances = [tool for tool in build_tool_instances(base_dir) if getattr(tool, "name", "") == "path_exists"]
+    definitions = [definition for definition in get_tool_definitions() if definition.name == "path_exists"]
+    runtime = build_harness_runtime(
+        base_dir=base_dir,
+        model_runtime=model,
+        tool_runtime=SimpleNamespace(
+            base_dir=base_dir,
+            definitions=definitions,
+            instances=tool_instances,
+            get_definition=lambda name: next((definition for definition in definitions if definition.name == name), None),
+            get_instance=lambda name: next((tool for tool in tool_instances if getattr(tool, "name", "") == name), None),
+        ),
+    )
+
+    async def _collect() -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime.astream(HarnessRuntimeRequest(session_id="session-single-turn-loop-limit", message="反复检查文件。")):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_collect())
+    observations = [event for event in events if event.get("type") == "tool_observation"]
+
+    assert model.calls == 4
+    assert len(observations) == 3
+    assert any(
+        event.get("type") == "done"
+        and dict(event).get("terminal_reason") == "single_turn_tool_iteration_limit"
+        for event in events
+    )
+
+
 def test_explicit_contract_task_starts_lifecycle_without_model_action_loop() -> None:
-    runtime = build_query_runtime(
+    runtime = build_harness_runtime(
         model_runtime=SingleMessageModelRuntimeStub(
             content="单轮收口回答",
             agent_turn_action_request=_action_request(
@@ -251,7 +425,7 @@ def test_explicit_contract_task_starts_lifecycle_without_model_action_loop() -> 
     async def _collect() -> list[dict[str, object]]:
         events: list[dict[str, object]] = []
         async for event in runtime.astream(
-            QueryRequest(
+            HarnessRuntimeRequest(
                 session_id="session-explicit-contract",
                 message="按合同启动任务。",
                 task_selection={
@@ -272,7 +446,7 @@ def test_explicit_contract_task_starts_lifecycle_without_model_action_loop() -> 
 
     events = asyncio.run(_collect())
     stream_types = [str(event.get("type") or "") for event in events]
-    route = dict(next(event for event in events if event.get("type") == "turn_route_decided").get("turn_route") or {})
+    branch = dict(next(event for event in events if event.get("type") == "runtime_branch_decided").get("runtime_branch") or {})
     lifecycle = [
         event
         for event in events
@@ -285,8 +459,8 @@ def test_explicit_contract_task_starts_lifecycle_without_model_action_loop() -> 
     stored_task = runtime.single_agent_runtime_host.state_index.get_task_run(task_run_id)
     contract = dict(runtime.single_agent_runtime_host.runtime_objects.get_object(str(getattr(stored_task, "task_contract_ref", "") or "")) or {})
 
-    assert route.get("route_kind") == "explicit_contract_task"
-    assert route.get("invocation_kind") == "task_execution_start"
+    assert branch.get("branch_kind") == "explicit_contract_task"
+    assert branch.get("invocation_kind") == "task_execution_start"
     assert "runtime_invocation_packet" not in stream_types
     assert "model_action_request" not in stream_types
     assert "model_action_admission" not in stream_types
@@ -297,11 +471,11 @@ def test_explicit_contract_task_starts_lifecycle_without_model_action_loop() -> 
     assert contract["source_contract_ref"] == "contract:explicit:test"
     assert contract["task_environment_id"] == "env.development.sandbox"
     assert dict(getattr(stored_task, "diagnostics", {}) or {}).get("origin_kind") == "explicit_contract"
-    assert dict(getattr(stored_task, "diagnostics", {}) or {}).get("origin_authority") == "harness.routing.explicit_contract_task"
+    assert dict(getattr(stored_task, "diagnostics", {}) or {}).get("origin_authority") == "harness.explicit_contract_task"
 
 
 def test_plain_task_contract_selection_does_not_bypass_agent_turn() -> None:
-    runtime = build_query_runtime(
+    runtime = build_harness_runtime(
         model_runtime=SingleMessageModelRuntimeStub(
             content="我会先判断是否需要启动任务。",
             agent_turn_action_request=_action_request(
@@ -314,7 +488,7 @@ def test_plain_task_contract_selection_does_not_bypass_agent_turn() -> None:
     async def _collect() -> list[dict[str, object]]:
         events: list[dict[str, object]] = []
         async for event in runtime.astream(
-            QueryRequest(
+            HarnessRuntimeRequest(
                 session_id="session-plain-contract-selection",
                 message="这个只是普通会话输入，不能直接启动任务。",
                 task_selection={
@@ -332,9 +506,9 @@ def test_plain_task_contract_selection_does_not_bypass_agent_turn() -> None:
 
     events = asyncio.run(_collect())
     stream_types = [str(event.get("type") or "") for event in events]
-    route = dict(next(event for event in events if event.get("type") == "turn_route_decided").get("turn_route") or {})
+    branch = dict(next(event for event in events if event.get("type") == "runtime_branch_decided").get("runtime_branch") or {})
 
-    assert route.get("route_kind") == "single_agent_turn"
+    assert branch.get("branch_kind") == "single_agent_turn"
     assert "single_agent_turn_started" in stream_types
     assert "task_run_lifecycle_started" not in stream_types
 
@@ -354,13 +528,13 @@ def test_chat_public_projection_filters_internal_runtime_payloads() -> None:
     ) is None
 
     projected = _project_public_stream_event(
-        "turn_route_decided",
+        "runtime_branch_decided",
         {
-            "type": "turn_route_decided",
-            "turn_route": {
-                "route_kind": "single_agent_turn",
+            "type": "runtime_branch_decided",
+            "runtime_branch": {
+                "branch_kind": "single_agent_turn",
                 "invocation_kind": "single_agent_turn",
-                "dispatch_target": "query_runtime.single_agent_turn",
+                "dispatch_target": "harness_runtime.single_agent_turn",
                 "reason": "default_agent_runtime_turn",
                 "control_capabilities": {"may_call_tools": False},
                 "diagnostics": {"backend_dir": "D:/secret"},
@@ -372,12 +546,12 @@ def test_chat_public_projection_filters_internal_runtime_payloads() -> None:
 
     assert projected is not None
     public_event_type, data = projected
-    assert public_event_type == "turn_route_decided"
+    assert public_event_type == "runtime_branch_decided"
     assert "runtime_assembly" not in data
     assert "model_messages" not in data
-    route = dict(data.get("turn_route") or {})
-    assert route == {
-        "route_kind": "single_agent_turn",
+    branch = dict(data.get("runtime_branch") or {})
+    assert branch == {
+        "branch_kind": "single_agent_turn",
         "reason": "default_agent_runtime_turn",
     }
 
@@ -472,7 +646,7 @@ def test_agent_action_request_launches_task_run_and_initializes_todo() -> None:
         "model": "turn-bound-test-model",
         "timeout_seconds": 7,
     }
-    runtime = build_query_runtime(
+    runtime = build_harness_runtime(
         model_runtime=NativeToolCallModelRuntimeStub(
             content="",
             agent_turn_action_request=_action_request(
@@ -491,7 +665,7 @@ def test_agent_action_request_launches_task_run_and_initializes_todo() -> None:
     async def _collect() -> list[dict[str, object]]:
         events: list[dict[str, object]] = []
         async for event in runtime.astream(
-            QueryRequest(
+            HarnessRuntimeRequest(
                 session_id="session-taskrun",
                 message="请交付产物。",
                 model_selection=model_selection,
@@ -515,12 +689,16 @@ def test_agent_action_request_launches_task_run_and_initializes_todo() -> None:
         for item in list(dict(trace or {}).get("events") or [])
     ]
     stream_types = [str(event.get("type") or "") for event in events]
-    route_events = [dict(event.get("turn_route") or {}) for event in events if event.get("type") == "turn_route_decided"]
+    branch_events = [dict(event.get("runtime_branch") or {}) for event in events if event.get("type") == "runtime_branch_decided"]
 
     assert "runtime_assembly_compiled" in stream_types
-    assert route_events and route_events[0].get("route_kind") == "single_agent_turn"
+    assert branch_events and branch_events[0].get("branch_kind") == "single_agent_turn"
     assert "single_agent_turn_started" in stream_types
     assert "model_action_request" not in stream_types
+    admissions = _admission_payloads(events)
+    assert admissions
+    assert dict(admissions[0].get("admission") or {}).get("decision") == "allow"
+    assert dict(admissions[0].get("model_action_request") or {}).get("action_type") == "request_task_run"
     assert "task_run_lifecycle_started" in stream_types
     assert "task_run_lifecycle_event" in stream_types
     assert "agent_todo_initialized" in event_types
@@ -547,7 +725,7 @@ def test_agent_action_request_launches_task_run_and_initializes_todo() -> None:
 
 def test_global_live_monitor_groups_running_completed_and_failed_runs(monkeypatch) -> None:
     monkeypatch.setattr("harness.runtime.single_agent_host.time.time", lambda: 1000.0)
-    runtime = build_query_runtime()
+    runtime = build_harness_runtime()
     host = runtime.single_agent_runtime_host
     host.state_index.upsert_task_run(TaskRun(
         task_run_id="taskrun:old-running",
@@ -630,7 +808,7 @@ def test_global_live_monitor_groups_running_completed_and_failed_runs(monkeypatc
 
 def test_task_run_detail_monitor_exposes_step_summary_and_recent_terminal_status(monkeypatch) -> None:
     monkeypatch.setattr("harness.runtime.single_agent_host.time.time", lambda: 1000.0)
-    runtime = build_query_runtime()
+    runtime = build_harness_runtime()
     host = runtime.single_agent_runtime_host
     task_run = TaskRun(
         task_run_id="taskrun:recent-completed",
@@ -679,7 +857,7 @@ def test_task_run_detail_monitor_exposes_step_summary_and_recent_terminal_status
 
 
 def test_invalid_single_agent_task_request_reports_error_without_task_run() -> None:
-    runtime = build_query_runtime(
+    runtime = build_harness_runtime(
         model_runtime=NativeToolCallModelRuntimeStub(
             tool_calls=[
                 {
@@ -693,7 +871,7 @@ def test_invalid_single_agent_task_request_reports_error_without_task_run() -> N
 
     async def _collect() -> list[dict[str, object]]:
         events: list[dict[str, object]] = []
-        async for event in runtime.astream(QueryRequest(session_id="session-invalid", message="请执行。")):
+        async for event in runtime.astream(HarnessRuntimeRequest(session_id="session-invalid", message="请执行。")):
             events.append(event)
         return events
 
@@ -822,11 +1000,11 @@ class _SlowTaskExecutorModelRuntime:
 
 
 def test_malformed_agent_action_request_fails_closed() -> None:
-    runtime = build_query_runtime(model_runtime=_MalformedModelRuntime())
+    runtime = build_harness_runtime(model_runtime=_MalformedModelRuntime())
 
     async def _collect() -> list[dict[str, object]]:
         events: list[dict[str, object]] = []
-        async for event in runtime.astream(QueryRequest(session_id="session-malformed", message="继续。")):
+        async for event in runtime.astream(HarnessRuntimeRequest(session_id="session-malformed", message="继续。")):
             events.append(event)
         return events
 
@@ -837,11 +1015,11 @@ def test_malformed_agent_action_request_fails_closed() -> None:
 
 
 def test_single_turn_does_not_emit_synthetic_model_wait_progress() -> None:
-    runtime = build_query_runtime(model_runtime=_SlowRespondingModelRuntime())
+    runtime = build_harness_runtime(model_runtime=_SlowRespondingModelRuntime())
 
     async def _collect() -> list[dict[str, object]]:
         events: list[dict[str, object]] = []
-        async for event in runtime.astream(QueryRequest(session_id="session-slow-model", message="慢一点回答。")):
+        async for event in runtime.astream(HarnessRuntimeRequest(session_id="session-slow-model", message="慢一点回答。")):
             events.append(event)
         return events
 
@@ -856,10 +1034,10 @@ def test_single_turn_does_not_emit_synthetic_model_wait_progress() -> None:
 
 
 def test_turn_stream_cancellation_closes_running_turn() -> None:
-    runtime = build_query_runtime(model_runtime=_NeverRespondingModelRuntime())
+    runtime = build_harness_runtime(model_runtime=_NeverRespondingModelRuntime())
 
     async def _start_and_cancel() -> None:
-        stream = runtime.astream(QueryRequest(session_id="session-cancelled-turn", message="保持等待。"))
+        stream = runtime.astream(HarnessRuntimeRequest(session_id="session-cancelled-turn", message="保持等待。"))
         async for event in stream:
             if event.get("type") == "single_agent_turn_started":
                 await stream.aclose()
@@ -880,7 +1058,7 @@ def test_turn_stream_cancellation_closes_running_turn() -> None:
 
 
 def test_legacy_json_action_text_is_treated_as_assistant_message() -> None:
-    runtime = build_query_runtime(
+    runtime = build_harness_runtime(
         model_runtime=_TurnActionSequenceModelRuntime(
             [
                 {"authority": "harness.loop.model_action_request", "action_type": ""},
@@ -891,7 +1069,7 @@ def test_legacy_json_action_text_is_treated_as_assistant_message() -> None:
 
     async def _collect() -> list[dict[str, object]]:
         events: list[dict[str, object]] = []
-        async for event in runtime.astream(QueryRequest(session_id="session-turn-protocol-repair", message="继续。")):
+        async for event in runtime.astream(HarnessRuntimeRequest(session_id="session-turn-protocol-repair", message="继续。")):
             events.append(event)
         return events
 
@@ -905,7 +1083,7 @@ def test_legacy_json_action_text_is_treated_as_assistant_message() -> None:
 
 
 def test_task_executor_schedule_missing_callback_blocks_task_run() -> None:
-    runtime = build_query_runtime()
+    runtime = build_harness_runtime()
     task_run_id = _seed_active_work(runtime, task_run_id="taskrun:missing-scheduler")
 
     async def _missing_executor(*_args, **_kwargs):
@@ -932,7 +1110,7 @@ def test_task_executor_schedule_missing_callback_blocks_task_run() -> None:
 
 
 def test_task_executor_scheduler_auto_continues_waiting_executor() -> None:
-    runtime = build_query_runtime()
+    runtime = build_harness_runtime()
     task_run_id = _seed_active_work(runtime, task_run_id="taskrun:auto-continue")
     calls = {"count": 0}
 
@@ -969,7 +1147,7 @@ def test_task_executor_scheduler_auto_continues_waiting_executor() -> None:
 
 
 def test_task_executor_commits_final_answer_to_session_history() -> None:
-    runtime = build_query_runtime(
+    runtime = build_harness_runtime(
         model_runtime=_TaskExecutorSequenceModelRuntime(
             [
                 _action_request(
@@ -1028,7 +1206,7 @@ def test_task_executor_commits_final_answer_to_session_history() -> None:
 
 def test_task_executor_wait_heartbeat_does_not_repeat_visible_step_summary(monkeypatch) -> None:
     monkeypatch.setattr("harness.loop.task_executor._TASK_MODEL_ACTION_WAIT_STATUS_INTERVAL_SECONDS", 0.001)
-    runtime = build_query_runtime(model_runtime=_SlowTaskExecutorModelRuntime())
+    runtime = build_harness_runtime(model_runtime=_SlowTaskExecutorModelRuntime())
     host = runtime.single_agent_runtime_host
     contract = TaskRunContract(
         contract_id="task-contract:slow-task-wait",
@@ -1100,7 +1278,7 @@ def test_task_executor_wait_heartbeat_does_not_repeat_visible_step_summary(monke
 def test_session_runtime_timeline_keeps_completed_task_attachment() -> None:
     from harness.runtime.session_timeline import build_session_runtime_timeline
 
-    runtime = build_query_runtime(
+    runtime = build_harness_runtime(
         model_runtime=_TaskExecutorSequenceModelRuntime(
             [
                 _action_request(
@@ -1184,7 +1362,7 @@ def test_session_runtime_timeline_keeps_completed_task_attachment() -> None:
 def test_session_runtime_timeline_projects_tool_observation_as_agent_visible_observation() -> None:
     from harness.runtime.session_timeline import build_session_runtime_timeline
 
-    runtime = build_query_runtime()
+    runtime = build_harness_runtime()
     host = runtime.single_agent_runtime_host
     task_run_id = "taskrun:turn:session-observation:1:abc"
     host.state_index.upsert_task_run(
@@ -1284,7 +1462,7 @@ def test_session_runtime_timeline_projects_tool_observation_as_agent_visible_obs
 def test_session_runtime_timeline_derives_turn_anchor_from_structural_task_run_id() -> None:
     from harness.runtime.session_timeline import build_session_runtime_timeline
 
-    runtime = build_query_runtime()
+    runtime = build_harness_runtime()
     host = runtime.single_agent_runtime_host
     host.state_index.upsert_task_run(
         TaskRun(
@@ -1317,7 +1495,7 @@ def test_session_runtime_timeline_anchors_checkout_to_latest_user_control_turn()
     from harness.loop.task_executor import append_user_work_instruction
     from harness.runtime.session_timeline import build_session_runtime_timeline
 
-    runtime = build_query_runtime()
+    runtime = build_harness_runtime()
     host = runtime.single_agent_runtime_host
     contract = TaskRunContract(
         contract_id="task-contract:timeline-checkout-anchor",
@@ -1433,7 +1611,7 @@ def test_waiting_executor_with_stale_running_diagnostics_is_resumable_not_runnin
     from harness.loop.resume_policy import build_resume_plan
     from harness.loop.task_executor import is_task_run_executable, is_task_run_executor_claimed
 
-    runtime = build_query_runtime()
+    runtime = build_harness_runtime()
     task_run_id = _seed_active_work(
         runtime,
         task_run_id="taskrun:stale-running-waiting",
@@ -1468,7 +1646,7 @@ def test_waiting_executor_with_stale_running_diagnostics_is_resumable_not_runnin
 
 
 def test_execute_task_run_rejects_duplicate_running_claim() -> None:
-    runtime = build_query_runtime(
+    runtime = build_harness_runtime(
         model_runtime=SingleMessageModelRuntimeStub(
             agent_turn_action_request=_action_request(action_type="respond", final_answer="unused")
         )
@@ -1503,7 +1681,7 @@ def test_execute_task_run_rejects_duplicate_running_claim() -> None:
 
 
 def test_execute_task_run_accepts_scheduled_claim_start() -> None:
-    runtime = build_query_runtime(
+    runtime = build_harness_runtime(
         model_runtime=_TaskExecutorSequenceModelRuntime(
             [_action_request(action_type="respond", final_answer="调度接管完成。")],
             agent_turn_action_request=_action_request(action_type="respond", final_answer="unused"),
@@ -1565,7 +1743,7 @@ def test_task_executor_uses_task_bound_model_selection_for_runtime_packet_and_in
             )
 
     model_runtime = _CapturingModelRuntime()
-    runtime = build_query_runtime(model_runtime=model_runtime)
+    runtime = build_harness_runtime(model_runtime=model_runtime)
     host = runtime.single_agent_runtime_host
     contract = TaskRunContract(
         contract_id="task-contract:model-selection-binding",
@@ -1640,7 +1818,7 @@ def test_execute_task_run_uses_task_bound_agent_profile_for_runtime_assembly() -
                 )
             )
 
-    runtime = build_query_runtime(model_runtime=_CapturingModelRuntime())
+    runtime = build_harness_runtime(model_runtime=_CapturingModelRuntime())
     runtime.agent_runtime_registry.upsert_profile(
         agent_id="agent:3",
         agent_profile_id="custom_single_agent_task_profile",
@@ -1706,7 +1884,7 @@ def test_execute_task_run_uses_task_bound_agent_profile_for_runtime_assembly() -
 
 
 def test_schedule_task_run_executor_marks_startup_exception_blocked() -> None:
-    runtime = build_query_runtime()
+    runtime = build_harness_runtime()
     host = runtime.single_agent_runtime_host
     contract = TaskRunContract(
         contract_id="task-contract:schedule-failure",
@@ -1771,7 +1949,7 @@ def test_task_executor_services_include_backend_config_for_runtime_fingerprint()
                 }
             }
 
-    runtime = build_query_runtime(settings_service=_SettingsWithBackendConfig())
+    runtime = build_harness_runtime(settings_service=_SettingsWithBackendConfig())
 
     services = runtime._task_executor_services()
     config = _safe_backend_config(services.backend_config)
@@ -1836,7 +2014,7 @@ def test_task_contract_preserves_runtime_fields_without_goal_aliases() -> None:
 
 
 def test_agent_requested_task_run_inherits_selected_runtime_environment() -> None:
-    runtime = build_query_runtime(
+    runtime = build_harness_runtime(
         model_runtime=NativeToolCallModelRuntimeStub(
             content="",
             agent_turn_action_request=_action_request(
@@ -1855,7 +2033,7 @@ def test_agent_requested_task_run_inherits_selected_runtime_environment() -> Non
     async def _collect() -> list[dict[str, object]]:
         events: list[dict[str, object]] = []
         async for event in runtime.astream(
-            QueryRequest(
+            HarnessRuntimeRequest(
                 session_id="session-selected-env-taskrun",
                 message="开发一个可运行页面。",
                 task_selection={"task_environment_id": "env.development.sandbox"},
@@ -1882,9 +2060,9 @@ def test_agent_requested_task_run_inherits_selected_runtime_environment() -> Non
 
 
 def test_runtime_start_recovers_interrupted_task_executor_lease() -> None:
-    from harness.loop.task_executor import recover_interrupted_task_executors
+    from harness.loop.task_executor_controller import TaskExecutorController
 
-    runtime = build_query_runtime()
+    runtime = build_harness_runtime()
     host = runtime.single_agent_runtime_host
     host.state_index.upsert_task_run(
         TaskRun(
@@ -1902,10 +2080,11 @@ def test_runtime_start_recovers_interrupted_task_executor_lease() -> None:
         )
     )
 
-    result = recover_interrupted_task_executors(host)
+    result = TaskExecutorController(runtime_host=host, execute_task_run_callback=runtime.execute_task_run).recover_interrupted_executor_leases()
     task_run = host.state_index.get_task_run("taskrun:interrupted-executor")
 
     assert result["recovered_count"] == 1
+    assert result["authority"] == "harness.loop.task_executor_controller.runtime_start_recovery"
     assert task_run is not None
     assert task_run.status == "waiting_executor"
     assert task_run.terminal_reason == "waiting_executor"
@@ -1916,9 +2095,9 @@ def test_runtime_start_recovers_interrupted_task_executor_lease() -> None:
 
 
 def test_runtime_start_recovery_skips_graph_node_assigned_task_run() -> None:
-    from harness.loop.task_executor import recover_interrupted_task_executors
+    from harness.loop.task_executor_controller import TaskExecutorController
 
-    runtime = build_query_runtime()
+    runtime = build_harness_runtime()
     host = runtime.single_agent_runtime_host
     host.state_index.upsert_task_run(
         TaskRun(
@@ -1942,7 +2121,7 @@ def test_runtime_start_recovery_skips_graph_node_assigned_task_run() -> None:
         )
     )
 
-    result = recover_interrupted_task_executors(host)
+    result = TaskExecutorController(runtime_host=host, execute_task_run_callback=runtime.execute_task_run).recover_interrupted_executor_leases()
     task_run = host.state_index.get_task_run("gtask:graph:node:work")
 
     assert result["recovered_count"] == 0
@@ -1954,7 +2133,7 @@ def test_runtime_start_recovery_skips_graph_node_assigned_task_run() -> None:
 
 
 def test_task_run_executor_keeps_model_call_failure_recoverable() -> None:
-    runtime = build_query_runtime(model_runtime=_FailingModelRuntime())
+    runtime = build_harness_runtime(model_runtime=_FailingModelRuntime())
     task_run_id = _seed_active_work(
         runtime,
         task_run_id="taskrun:recoverable-model-failure",
@@ -1976,7 +2155,7 @@ def test_task_run_executor_keeps_model_call_failure_recoverable() -> None:
 
 
 def test_task_run_executor_recovers_invalid_model_action_as_observation() -> None:
-    runtime = build_query_runtime(
+    runtime = build_harness_runtime(
         model_runtime=_TaskExecutorSequenceModelRuntime(
             task_actions=[
                 {
@@ -2016,7 +2195,7 @@ def test_task_run_executor_recovers_invalid_model_action_as_observation() -> Non
 
 
 def test_task_run_executor_blocks_repeated_invalid_model_actions_as_recoverable() -> None:
-    runtime = build_query_runtime(
+    runtime = build_harness_runtime(
         model_runtime=_TaskExecutorSequenceModelRuntime(
             task_actions=[
                 {"authority": "harness.loop.model_action_request", "request_id": "model-action:test:bad-1", "turn_id": "", "action_type": ""},
@@ -2047,7 +2226,7 @@ def test_task_run_executor_blocks_repeated_invalid_model_actions_as_recoverable(
 
 
 def test_recoverable_terminal_closeout_clears_stale_running_executor_status() -> None:
-    runtime = build_query_runtime(
+    runtime = build_harness_runtime(
         model_runtime=_TaskExecutorSequenceModelRuntime(
             task_actions=[
                 {"authority": "harness.loop.model_action_request", "request_id": "model-action:test:bad-1", "turn_id": "", "action_type": ""},
@@ -2079,7 +2258,7 @@ def test_recoverable_terminal_closeout_clears_stale_running_executor_status() ->
 
 
 def test_ask_user_blocks_as_waiting_executor_without_running_lease() -> None:
-    runtime = build_query_runtime(
+    runtime = build_harness_runtime(
         model_runtime=_TaskExecutorSequenceModelRuntime(
             task_actions=[
                 _action_request(
@@ -2117,7 +2296,7 @@ def test_ask_user_blocks_as_waiting_executor_without_running_lease() -> None:
 def test_resume_recoverable_blocked_task_preserves_recovery_and_becomes_schedulable() -> None:
     from harness.loop.task_executor import is_task_run_executable, resume_paused_task_run
 
-    runtime = build_query_runtime()
+    runtime = build_harness_runtime()
     host = runtime.single_agent_runtime_host
     contract = TaskRunContract(
         contract_id="task-contract:resume-recoverable-blocked",
@@ -2172,7 +2351,7 @@ def test_resume_recoverable_blocked_task_preserves_recovery_and_becomes_schedula
 
 
 def test_task_run_executor_step_budget_exhaustion_waits_for_next_run() -> None:
-    runtime = build_query_runtime(
+    runtime = build_harness_runtime(
         model_runtime=_TaskExecutorSequenceModelRuntime(
             task_actions=[
                 {
@@ -2212,7 +2391,7 @@ def test_task_run_pause_resume_and_stop_control_plane() -> None:
         task_run_control_state,
     )
 
-    runtime = build_query_runtime(
+    runtime = build_harness_runtime(
         model_runtime=_TaskExecutorSequenceModelRuntime(
             task_actions=[
                 _action_request(action_type="respond", final_answer="暂停后继续完成。"),
@@ -2282,7 +2461,7 @@ def test_task_run_pause_resume_and_stop_control_plane() -> None:
 def test_task_run_stop_before_executor_marks_user_aborted() -> None:
     from harness.loop.task_executor import stop_task_run, task_run_control_state
 
-    runtime = build_query_runtime()
+    runtime = build_harness_runtime()
     host = runtime.single_agent_runtime_host
     contract = TaskRunContract(
         contract_id="task-contract:stop-before-executor",
@@ -2330,7 +2509,7 @@ def test_user_aborted_work_rollout_records_single_breakpoint_and_checkout_inheri
     from harness.loop.task_executor import stop_task_run
     from harness.loop.work_rollout import work_rollout_summary
 
-    runtime = build_query_runtime()
+    runtime = build_harness_runtime()
     host = runtime.single_agent_runtime_host
     contract = TaskRunContract(
         contract_id="task-contract:rollout-breakpoint",
@@ -2468,12 +2647,12 @@ def test_single_agent_turn_does_not_control_active_work_without_native_action() 
             return SimpleNamespace(content="普通回复。")
 
     model = NoActiveWorkToolModelRuntime()
-    runtime = build_query_runtime(model_runtime=model)
+    runtime = build_harness_runtime(model_runtime=model)
     task_run_id = _seed_active_work(runtime, task_run_id="taskrun:active-work-route-gate")
 
     async def _collect() -> list[dict[str, object]]:
         events: list[dict[str, object]] = []
-        async for event in runtime.astream(QueryRequest(session_id="session-active-work", message="解释一下 LangGraph 的 checkpoint 机制")):
+        async for event in runtime.astream(HarnessRuntimeRequest(session_id="session-active-work", message="解释一下 LangGraph 的 checkpoint 机制")):
             events.append(event)
         return events
 
@@ -2499,13 +2678,13 @@ def test_capability_boundary_bypasses_active_work_control() -> None:
             "confidence": 0.99,
         }
     ])
-    runtime = build_query_runtime(model_runtime=model)
+    runtime = build_harness_runtime(model_runtime=model)
     task_run_id = _seed_active_work(runtime, task_run_id="taskrun:capability-boundary-active-work")
 
     async def _collect() -> list[dict[str, object]]:
         events: list[dict[str, object]] = []
         async for event in runtime.astream(
-            QueryRequest(
+            HarnessRuntimeRequest(
                 session_id="session-active-work",
                 message="修复了吗",
                 soul_id="hebo",
@@ -2545,13 +2724,13 @@ def test_active_work_router_is_gated_by_runtime_assembly_context_policy() -> Non
             "confidence": 0.99,
         }
     ])
-    runtime = build_query_runtime(model_runtime=model)
+    runtime = build_harness_runtime(model_runtime=model)
     task_run_id = _seed_active_work(runtime, task_run_id="taskrun:active-work-context-disabled")
 
     async def _collect() -> list[dict[str, object]]:
         events: list[dict[str, object]] = []
         async for event in runtime.astream(
-            QueryRequest(
+            HarnessRuntimeRequest(
                 session_id="session-active-work",
                 message="继续当前工作",
                 task_selection={
@@ -2596,7 +2775,7 @@ def test_pending_active_task_steer_is_injected_into_task_execution_packet() -> N
         ],
         agent_turn_action_request=_action_request(action_type="respond", final_answer="unused"),
     )
-    runtime = build_query_runtime(model_runtime=model)
+    runtime = build_harness_runtime(model_runtime=model)
     host = runtime.single_agent_runtime_host
     task_run_id = _seed_active_work(runtime, task_run_id="taskrun:active-work-steer-packet")
     steer_result = append_user_work_instruction(
@@ -2692,7 +2871,7 @@ def test_late_active_task_steer_blocks_completion_before_next_packet() -> None:
             return SimpleNamespace(content=json.dumps(_action_request(action_type="respond", final_answer="unused")))
 
     model = LateSteerModelRuntime()
-    runtime = build_query_runtime(model_runtime=model)
+    runtime = build_harness_runtime(model_runtime=model)
     host = runtime.single_agent_runtime_host
     task_run_id = _seed_active_work(runtime, task_run_id="taskrun:late-steer-before-completion")
 
@@ -2745,7 +2924,7 @@ def test_running_task_steer_cancels_inflight_model_call_and_replans() -> None:
             return SimpleNamespace(content=json.dumps(_action_request(action_type="respond", final_answer="unused")))
 
     model = InterruptibleModelRuntime()
-    runtime = build_query_runtime(model_runtime=model)
+    runtime = build_harness_runtime(model_runtime=model)
     host = runtime.single_agent_runtime_host
     task_run_id = _seed_active_work(runtime, task_run_id="taskrun:running-steer-replan")
 
@@ -2800,7 +2979,7 @@ def test_running_task_pause_cancels_inflight_model_call_without_auto_replan() ->
             return SimpleNamespace(content=json.dumps(_action_request(action_type="respond", final_answer="unused")))
 
     model = InterruptibleModelRuntime()
-    runtime = build_query_runtime(model_runtime=model)
+    runtime = build_harness_runtime(model_runtime=model)
     host = runtime.single_agent_runtime_host
     task_run_id = _seed_active_work(runtime, task_run_id="taskrun:running-pause")
 
@@ -2844,7 +3023,7 @@ def test_running_task_stop_cancels_inflight_model_call_and_finishes_aborted() ->
             return SimpleNamespace(content=json.dumps(_action_request(action_type="respond", final_answer="unused")))
 
     model = InterruptibleModelRuntime()
-    runtime = build_query_runtime(model_runtime=model)
+    runtime = build_harness_runtime(model_runtime=model)
     host = runtime.single_agent_runtime_host
     task_run_id = _seed_active_work(runtime, task_run_id="taskrun:running-stop")
 
@@ -2875,7 +3054,7 @@ def test_running_task_stop_cancels_inflight_model_call_and_finishes_aborted() ->
 def test_stopped_task_cannot_be_revived_by_stale_executor_or_write_tool() -> None:
     from harness.loop.task_executor import stop_task_run
 
-    runtime = build_query_runtime(
+    runtime = build_harness_runtime(
         model_runtime=_TaskExecutorSequenceModelRuntime(
             [
                 _tool_action_request(
@@ -2967,7 +3146,7 @@ def test_scheduler_restarts_after_running_steer_and_next_packet_contains_instruc
             )
 
     model = ReplanningModelRuntime()
-    runtime = build_query_runtime(model_runtime=model)
+    runtime = build_harness_runtime(model_runtime=model)
     host = runtime.single_agent_runtime_host
     task_run_id = _seed_active_work(runtime, task_run_id="taskrun:scheduler-replan")
     model.host = host
@@ -3009,14 +3188,14 @@ def test_scheduler_restarts_after_running_steer_and_next_packet_contains_instruc
 
 
 def test_explicit_capability_boundary_can_use_soul_prompt() -> None:
-    runtime = build_query_runtime(
+    runtime = build_harness_runtime(
         model_runtime=SingleMessageModelRuntimeStub(content="单轮收口回答")
     )
 
     async def _collect() -> list[dict[str, object]]:
         events: list[dict[str, object]] = []
         async for event in runtime.astream(
-            QueryRequest(
+            HarnessRuntimeRequest(
                 session_id="session-role",
                 message="保持角色对话。",
                 soul_id="hebo",
@@ -3037,7 +3216,7 @@ def test_explicit_capability_boundary_can_use_soul_prompt() -> None:
     events = asyncio.run(_collect())
     assembly = dict(next(event for event in events if event.get("type") == "runtime_assembly_compiled").get("runtime_assembly") or {})
     profile = dict(assembly.get("profile") or {})
-    route = dict(next(event for event in events if event.get("type") == "turn_route_decided").get("turn_route") or {})
+    branch = dict(next(event for event in events if event.get("type") == "runtime_branch_decided").get("runtime_branch") or {})
     capabilities = dict(assembly.get("control_capabilities") or {})
 
     assert profile["profile_ref"] == "main_interactive_agent"
@@ -3046,7 +3225,7 @@ def test_explicit_capability_boundary_can_use_soul_prompt() -> None:
     assert capabilities.get("may_call_tools") is False
     assert capabilities.get("may_request_task_run") is False
     assert capabilities.get("may_control_active_work") is False
-    assert route.get("route_kind") == "single_agent_turn"
+    assert branch.get("branch_kind") == "single_agent_turn"
     assert not any(event.get("type") == "model_action_admission" for event in events)
     assert any(event.get("type") == "done" and str(event.get("content") or "") == "单轮收口回答" for event in events)
     assert not any(
@@ -3056,12 +3235,12 @@ def test_explicit_capability_boundary_can_use_soul_prompt() -> None:
 
 
 def test_task_run_permission_without_tools_uses_single_agent_turn_for_direct_answer() -> None:
-    runtime = build_query_runtime(model_runtime=SingleMessageModelRuntimeStub(content="可以直接回答。"))
+    runtime = build_harness_runtime(model_runtime=SingleMessageModelRuntimeStub(content="可以直接回答。"))
 
     async def _collect() -> list[dict[str, object]]:
         events: list[dict[str, object]] = []
         async for event in runtime.astream(
-            QueryRequest(
+            HarnessRuntimeRequest(
                 session_id="session-native-direct",
                 message="这个问题可以直接回答。",
                 task_selection={
@@ -3075,9 +3254,9 @@ def test_task_run_permission_without_tools_uses_single_agent_turn_for_direct_ans
 
     events = asyncio.run(_collect())
     stream_types = [str(event.get("type") or "") for event in events]
-    route = dict(next(event for event in events if event.get("type") == "turn_route_decided").get("turn_route") or {})
+    branch = dict(next(event for event in events if event.get("type") == "runtime_branch_decided").get("runtime_branch") or {})
 
-    assert route.get("route_kind") == "single_agent_turn"
+    assert branch.get("branch_kind") == "single_agent_turn"
     assert "single_agent_turn_started" in stream_types
     assert "runtime_invocation_packet" not in stream_types
     assert "model_action_request" not in stream_types
@@ -3101,12 +3280,12 @@ def test_single_agent_turn_request_task_run_tool_starts_real_task_lifecycle() ->
             }
         ]
     )
-    runtime = build_query_runtime(model_runtime=model)
+    runtime = build_harness_runtime(model_runtime=model)
 
     async def _collect() -> list[dict[str, object]]:
         events: list[dict[str, object]] = []
         async for event in runtime.astream(
-            QueryRequest(
+            HarnessRuntimeRequest(
                 session_id="session-native-taskrun",
                 message="帮我做一个页面。",
                 task_selection={
@@ -3120,7 +3299,7 @@ def test_single_agent_turn_request_task_run_tool_starts_real_task_lifecycle() ->
 
     events = asyncio.run(_collect())
     stream_types = [str(event.get("type") or "") for event in events]
-    route = dict(next(event for event in events if event.get("type") == "turn_route_decided").get("turn_route") or {})
+    branch = dict(next(event for event in events if event.get("type") == "runtime_branch_decided").get("runtime_branch") or {})
     lifecycle = [event for event in events if event.get("type") == "task_run_lifecycle_started"][0]
     task_run_event = dict(lifecycle.get("event") or {})
     payload = dict(task_run_event.get("payload") or {})
@@ -3128,8 +3307,12 @@ def test_single_agent_turn_request_task_run_tool_starts_real_task_lifecycle() ->
     task_run_id = str(task_run.get("task_run_id") or "")
     stored_task = runtime.single_agent_runtime_host.state_index.get_task_run(task_run_id)
 
-    assert route.get("route_kind") == "single_agent_turn"
+    assert branch.get("branch_kind") == "single_agent_turn"
     assert model.seen_tools and any(dict(tool).get("name") == "request_task_run" for tool in list(model.seen_tools[0] or []))
+    admissions = _admission_payloads(events)
+    assert admissions
+    assert dict(admissions[0].get("admission") or {}).get("decision") == "allow"
+    assert dict(admissions[0].get("model_action_request") or {}).get("action_type") == "request_task_run"
     assert "runtime_invocation_packet" not in stream_types
     assert "model_action_request" not in stream_types
     assert "task_run_lifecycle_started" in stream_types
@@ -3139,13 +3322,67 @@ def test_single_agent_turn_request_task_run_tool_starts_real_task_lifecycle() ->
     assert any(event.get("type") == "done" and "交付一个真实页面" in str(event.get("content") or "") for event in events)
 
 
+def test_single_agent_turn_ask_user_tool_goes_through_admission() -> None:
+    model = NativeToolCallModelRuntimeStub(
+        tool_calls=[
+            {
+                "id": "call-ask-user",
+                "name": "ask_user",
+                "args": {"question": "请补充目标平台。"},
+            }
+        ]
+    )
+    runtime = build_harness_runtime(model_runtime=model)
+
+    async def _collect() -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime.astream(HarnessRuntimeRequest(session_id="session-native-ask", message="帮我做适配。")):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_collect())
+    admissions = _admission_payloads(events)
+
+    assert admissions
+    assert dict(admissions[0].get("admission") or {}).get("decision") == "allow"
+    assert dict(admissions[0].get("model_action_request") or {}).get("action_type") == "ask_user"
+    assert any(event.get("type") == "done" and "请补充目标平台" in str(event.get("content") or "") for event in events)
+
+
+def test_single_agent_turn_block_tool_goes_through_admission() -> None:
+    model = NativeToolCallModelRuntimeStub(
+        tool_calls=[
+            {
+                "id": "call-block",
+                "name": "block",
+                "args": {"reason": "当前环境缺少必要授权。"},
+            }
+        ]
+    )
+    runtime = build_harness_runtime(model_runtime=model)
+
+    async def _collect() -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime.astream(HarnessRuntimeRequest(session_id="session-native-block", message="执行受限操作。")):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_collect())
+    admissions = _admission_payloads(events)
+
+    assert admissions
+    assert dict(admissions[0].get("admission") or {}).get("decision") == "allow"
+    assert dict(admissions[0].get("model_action_request") or {}).get("action_type") == "block"
+    assert any(event.get("type") == "done" and "当前环境缺少必要授权" in str(event.get("content") or "") for event in events)
+
+
 def test_default_runtime_policy_rejects_soul_prompt_without_persona_leakage() -> None:
-    runtime = build_query_runtime()
+    runtime = build_harness_runtime()
 
     async def _collect() -> list[dict[str, object]]:
         events: list[dict[str, object]] = []
         async for event in runtime.astream(
-            QueryRequest(
+            HarnessRuntimeRequest(
                 session_id="session-standard-soul",
                 message="普通对话。",
                 soul_id="hebo",
@@ -3165,12 +3402,12 @@ def test_default_runtime_policy_rejects_soul_prompt_without_persona_leakage() ->
 
 
 def test_default_runtime_policy_exposes_plan_policy_without_soul_prompt() -> None:
-    runtime = build_query_runtime()
+    runtime = build_harness_runtime()
 
     async def _collect() -> list[dict[str, object]]:
         events: list[dict[str, object]] = []
         async for event in runtime.astream(
-            QueryRequest(
+            HarnessRuntimeRequest(
                 session_id="session-default-policy",
                 message="执行需要真实产物的任务。",
                 soul_id="hebo",
@@ -3191,12 +3428,12 @@ def test_default_runtime_policy_exposes_plan_policy_without_soul_prompt() -> Non
 
 
 def test_runtime_policy_can_override_default_runtime_assembly() -> None:
-    runtime = build_query_runtime()
+    runtime = build_harness_runtime()
 
     async def _collect() -> list[dict[str, object]]:
         events: list[dict[str, object]] = []
         async for event in runtime.astream(
-            QueryRequest(
+            HarnessRuntimeRequest(
                 session_id="session-specific-mode-policy",
                 message="按特定任务配置运行。",
                 task_selection={
@@ -3223,12 +3460,12 @@ def test_runtime_policy_can_override_default_runtime_assembly() -> None:
 
 
 def test_runtime_profile_uses_explicit_runtime_policy_and_environment() -> None:
-    runtime = build_query_runtime()
+    runtime = build_harness_runtime()
 
     async def _collect() -> list[dict[str, object]]:
         events: list[dict[str, object]] = []
         async for event in runtime.astream(
-            QueryRequest(
+            HarnessRuntimeRequest(
                 session_id="session-custom-mode-policy",
                 message="按显式运行策略执行。",
                 task_selection={"task_environment_id": "env.development.readonly"},
@@ -3270,11 +3507,11 @@ def test_turn_packet_does_not_expose_legacy_task_goal_type_from_selection() -> N
             return SimpleNamespace(content=json.dumps(_action_request(action_type="respond", final_answer="ok")))
 
     model = CaptureModelRuntime()
-    runtime = build_query_runtime(model_runtime=model)
+    runtime = build_harness_runtime(model_runtime=model)
 
     async def _collect() -> None:
         async for _event in runtime.astream(
-            QueryRequest(
+            HarnessRuntimeRequest(
                 session_id="session-no-legacy-goal-type",
                 message="做一个小游戏。",
                 task_selection={"task_goal_type": "code_fix_execution", "selected_task_id": "legacy"},
@@ -3357,10 +3594,10 @@ def test_main_session_model_action_writes_prompt_accounting_ledger() -> None:
                 )
             return response
 
-    runtime = build_query_runtime(model_runtime=AccountingModelRuntime())
+    runtime = build_harness_runtime(model_runtime=AccountingModelRuntime())
 
     async def _collect() -> None:
-        async for _event in runtime.astream(QueryRequest(session_id="session-accounting", message="hello")):
+        async for _event in runtime.astream(HarnessRuntimeRequest(session_id="session-accounting", message="hello")):
             pass
 
     asyncio.run(_collect())
@@ -3375,7 +3612,7 @@ def test_main_session_model_action_writes_prompt_accounting_ledger() -> None:
 def test_required_artifact_completion_requires_existing_file() -> None:
     from harness.loop.task_executor import _verify_completion
 
-    runtime = build_query_runtime()
+    runtime = build_harness_runtime()
     project_root = Path(runtime.base_dir).resolve().parent
     contract = {"required_artifacts": [{"artifact_kind": "html_game", "user_visible_name": "游戏"}]}
     runtime_assembly = {
@@ -3413,7 +3650,7 @@ def test_required_artifact_completion_requires_existing_file() -> None:
 def test_sandbox_artifact_is_published_before_completion() -> None:
     from harness.loop.task_executor import _task_sandbox_policy, _verify_completion
 
-    runtime = build_query_runtime()
+    runtime = build_harness_runtime()
     project_root = Path(runtime.base_dir).resolve().parent
     task_run_id = "taskrun:test:publish"
     runtime_assembly = {
@@ -3451,7 +3688,7 @@ def test_sandbox_artifact_is_published_before_completion() -> None:
 def test_sandbox_artifact_publish_overwrites_stale_workspace_file() -> None:
     from harness.loop.task_executor import _task_sandbox_policy, _verify_completion
 
-    runtime = build_query_runtime()
+    runtime = build_harness_runtime()
     project_root = Path(runtime.base_dir).resolve().parent
     task_run_id = "taskrun:test:publish-overwrite-stale"
     runtime_assembly = {
@@ -3485,7 +3722,7 @@ def test_sandbox_artifact_publish_overwrites_stale_workspace_file() -> None:
 def test_completion_discovers_sandbox_artifacts_not_returned_by_tool_refs() -> None:
     from harness.loop.task_executor import _task_sandbox_policy, _verify_completion
 
-    runtime = build_query_runtime()
+    runtime = build_harness_runtime()
     project_root = Path(runtime.base_dir).resolve().parent
     task_run_id = "taskrun:test:discover-sandbox-artifacts"
     runtime_assembly = {
@@ -3522,7 +3759,7 @@ def test_completion_discovers_sandbox_artifacts_not_returned_by_tool_refs() -> N
 def test_completion_discovery_ignores_free_text_artifact_names() -> None:
     from harness.loop.task_executor import _task_sandbox_policy, _verify_completion
 
-    runtime = build_query_runtime()
+    runtime = build_harness_runtime()
     task_run_id = "taskrun:test:discover-structured-only"
     runtime_assembly = {
         "task_environment": {
@@ -3643,7 +3880,7 @@ def test_public_runtime_progress_preserves_user_level_task_wording() -> None:
 def test_task_sandbox_workspace_root_is_project_root() -> None:
     from harness.loop.task_executor import _task_sandbox_policy
 
-    runtime = build_query_runtime()
+    runtime = build_harness_runtime()
     project_root = Path(runtime.base_dir).resolve().parent
     policy = _task_sandbox_policy(
         {"task_environment": {"storage_space": {}, "sandbox_policy": {}}},
@@ -3657,7 +3894,7 @@ def test_task_sandbox_workspace_root_is_project_root() -> None:
 def test_task_sandbox_grants_environment_scratch_without_publishing_it() -> None:
     from harness.loop.task_executor import _task_sandbox_policy, _verify_completion
 
-    runtime = build_query_runtime()
+    runtime = build_harness_runtime()
     task_run_id = "taskrun:test:scratch-scope"
     runtime_assembly = {
         "task_environment": {
@@ -3695,7 +3932,7 @@ def test_task_sandbox_grants_environment_scratch_without_publishing_it() -> None
 
 
 def test_task_run_artifact_view_returns_only_existing_files() -> None:
-    runtime = build_query_runtime()
+    runtime = build_harness_runtime()
     project_root = Path(runtime.base_dir).resolve().parent
     existing = project_root / "storage/task_environments/development/sandbox/artifacts/final.html"
     existing.parent.mkdir(parents=True, exist_ok=True)
@@ -3721,7 +3958,7 @@ def test_task_run_artifact_view_returns_only_existing_files() -> None:
 
 
 def test_running_task_artifact_view_includes_tool_observation_refs() -> None:
-    runtime = build_query_runtime()
+    runtime = build_harness_runtime()
     host = runtime.single_agent_runtime_host
     project_root = Path(runtime.base_dir).resolve().parent
     canonical_artifact = project_root / "storage/task_environments/general/workspace/artifacts/plan.md"
@@ -3789,7 +4026,7 @@ def test_running_task_artifact_view_includes_tool_observation_refs() -> None:
 def test_task_observation_projection_separates_stale_and_active_failures() -> None:
     from harness.loop.task_executor import _observations_for_packet
 
-    runtime = build_query_runtime()
+    runtime = build_harness_runtime()
     host = runtime.single_agent_runtime_host
     task_run_id = "taskrun:test:observation-projection"
     stale_fingerprint = {
@@ -3855,7 +4092,7 @@ def test_task_observation_projection_separates_stale_and_active_failures() -> No
 def test_task_observation_projection_extracts_structured_error_from_tool_json_result() -> None:
     from harness.loop.task_executor import _observations_for_packet
 
-    runtime = build_query_runtime()
+    runtime = build_harness_runtime()
     host = runtime.single_agent_runtime_host
     task_run_id = "taskrun:test:image-json-error"
     fingerprint = {
@@ -3907,7 +4144,7 @@ def test_task_observation_projection_extracts_structured_error_from_tool_json_re
 def test_task_observation_projection_treats_missing_fingerprint_failure_as_historical() -> None:
     from harness.loop.task_executor import _observations_for_packet
 
-    runtime = build_query_runtime()
+    runtime = build_harness_runtime()
     host = runtime.single_agent_runtime_host
     task_run_id = "taskrun:test:missing-fingerprint"
     host.event_log.append(
@@ -3940,7 +4177,7 @@ def test_task_observation_projection_treats_missing_fingerprint_failure_as_histo
 def test_task_observation_projection_does_not_classify_historical_success_as_failure() -> None:
     from harness.loop.task_executor import _observations_for_packet
 
-    runtime = build_query_runtime()
+    runtime = build_harness_runtime()
     host = runtime.single_agent_runtime_host
     task_run_id = "taskrun:test:historical-success"
     host.event_log.append(
@@ -3972,7 +4209,7 @@ def test_task_observation_projection_does_not_classify_historical_success_as_fai
 def test_task_observation_projection_marks_superseded_success_as_historical() -> None:
     from harness.loop.task_executor import _observations_for_packet
 
-    runtime = build_query_runtime()
+    runtime = build_harness_runtime()
     host = runtime.single_agent_runtime_host
     task_run_id = "taskrun:test:superseded-success"
     stale_fingerprint = {
@@ -4034,7 +4271,7 @@ def test_terminal_diagnostics_are_stripped_before_task_resume_packet() -> None:
 def test_task_observation_projection_keeps_success_artifact_evidence() -> None:
     from harness.loop.task_executor import _observations_for_packet
 
-    runtime = build_query_runtime()
+    runtime = build_harness_runtime()
     host = runtime.single_agent_runtime_host
     task_run_id = "taskrun:test:observation-artifact"
     fingerprint = {"tool_config_hash": "current"}
@@ -4076,7 +4313,7 @@ def test_task_observation_projection_keeps_success_artifact_evidence() -> None:
 def test_task_observation_projection_ignores_already_projected_records() -> None:
     from harness.loop.task_executor import _observations_for_packet
 
-    runtime = build_query_runtime()
+    runtime = build_harness_runtime()
     host = runtime.single_agent_runtime_host
     context = _observations_for_packet(
         host,

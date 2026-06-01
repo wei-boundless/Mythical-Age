@@ -9,7 +9,7 @@ from typing import Any, Callable
 from context_system import ContextController
 from context_system.budget.presets import get_context_budget_preset
 from project_layout import ProjectLayout
-from response_system.boundary.boundary import sanitize_visible_assistant_content
+from runtime.output_boundary import sanitize_visible_assistant_content
 
 from .paths import normalize_session_id, safe_session_dir
 from .storage.models import Message, utc_now_iso

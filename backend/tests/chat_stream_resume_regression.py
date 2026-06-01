@@ -41,18 +41,18 @@ def _create_chat_run(client: TestClient, *, session_id: str, message: str) -> di
 def _wait_for_run(runtime, stream_run_id: str, predicate, *, timeout_seconds: float = 2):
     deadline = time.time() + timeout_seconds
     while time.time() < deadline:
-        current = runtime.query_runtime.single_agent_runtime_host.run_registry.get_run(stream_run_id)
+        current = runtime.harness_runtime.single_agent_runtime_host.run_registry.get_run(stream_run_id)
         if current is not None and predicate(current):
             return current
         time.sleep(0.01)
-    return runtime.query_runtime.single_agent_runtime_host.run_registry.get_run(stream_run_id)
+    return runtime.harness_runtime.single_agent_runtime_host.run_registry.get_run(stream_run_id)
 
 
 def test_chat_run_event_stream_replays_after_offset_with_sse_ids() -> None:
     with TestClient(app) as client:
         runtime = app_runtime.require_ready()
-        original_astream = runtime.query_runtime.astream
-        runtime.query_runtime.astream = _fake_resumable_astream  # type: ignore[method-assign]
+        original_astream = runtime.harness_runtime.astream
+        runtime.harness_runtime.astream = _fake_resumable_astream  # type: ignore[method-assign]
         try:
             session_id = _create_session(client, "Resumable stream")
             run = _create_chat_run(client, session_id=session_id, message="hello resumable")
@@ -80,14 +80,14 @@ def test_chat_run_event_stream_replays_after_offset_with_sse_ids() -> None:
             assert latest_run["status"] == "completed"
             assert latest_run["is_reconnectable"] is False
         finally:
-            runtime.query_runtime.astream = original_astream  # type: ignore[method-assign]
+            runtime.harness_runtime.astream = original_astream  # type: ignore[method-assign]
 
 
 def test_chat_run_event_stream_resumes_from_last_event_id_header() -> None:
     with TestClient(app) as client:
         runtime = app_runtime.require_ready()
-        original_astream = runtime.query_runtime.astream
-        runtime.query_runtime.astream = _fake_resumable_astream  # type: ignore[method-assign]
+        original_astream = runtime.harness_runtime.astream
+        runtime.harness_runtime.astream = _fake_resumable_astream  # type: ignore[method-assign]
         try:
             session_id = _create_session(client, "Last event id resume")
             run = _create_chat_run(client, session_id=session_id, message="hello last event id")
@@ -102,20 +102,20 @@ def test_chat_run_event_stream_resumes_from_last_event_id_header() -> None:
             assert "beta" in replay.text
             assert "event: done" in replay.text
         finally:
-            runtime.query_runtime.astream = original_astream  # type: ignore[method-assign]
+            runtime.harness_runtime.astream = original_astream  # type: ignore[method-assign]
 
 
 def test_chat_run_resume_is_attach_only_and_does_not_reexecute_turn() -> None:
     with TestClient(app) as client:
         runtime = app_runtime.require_ready()
-        original_astream = runtime.query_runtime.astream
+        original_astream = runtime.harness_runtime.astream
         calls = {"count": 0}
 
         async def fake_counting_astream(_request):
             calls["count"] += 1
             yield {"type": "done", "content": "finished once"}
 
-        runtime.query_runtime.astream = fake_counting_astream  # type: ignore[method-assign]
+        runtime.harness_runtime.astream = fake_counting_astream  # type: ignore[method-assign]
         try:
             session_id = _create_session(client, "Attach only resume")
             run = _create_chat_run(client, session_id=session_id, message="run once")
@@ -130,13 +130,13 @@ def test_chat_run_resume_is_attach_only_and_does_not_reexecute_turn() -> None:
             assert resume.json()["resume_mode"] == "attach_existing_run"
             assert calls["count"] == 1
         finally:
-            runtime.query_runtime.astream = original_astream  # type: ignore[method-assign]
+            runtime.harness_runtime.astream = original_astream  # type: ignore[method-assign]
 
 
 def test_disconnected_event_stream_does_not_cancel_background_chat_run() -> None:
     with TestClient(app) as client:
         runtime = app_runtime.require_ready()
-        original_astream = runtime.query_runtime.astream
+        original_astream = runtime.harness_runtime.astream
         calls = {"count": 0}
         release = threading.Event()
 
@@ -148,7 +148,7 @@ def test_disconnected_event_stream_does_not_cancel_background_chat_run() -> None
 
         import asyncio
 
-        runtime.query_runtime.astream = fake_long_astream  # type: ignore[method-assign]
+        runtime.harness_runtime.astream = fake_long_astream  # type: ignore[method-assign]
         try:
             session_id = _create_session(client, "Disconnect keeps running")
             run = _create_chat_run(client, session_id=session_id, message="keep running")
@@ -173,7 +173,7 @@ def test_disconnected_event_stream_does_not_cancel_background_chat_run() -> None
             assert "event: done" in replay.text
             assert calls["count"] == 1
         finally:
-            runtime.query_runtime.astream = original_astream  # type: ignore[method-assign]
+            runtime.harness_runtime.astream = original_astream  # type: ignore[method-assign]
 
 
 def test_runtime_startup_marks_previous_process_active_chat_runs_orphaned(tmp_path) -> None:
@@ -225,8 +225,8 @@ def test_runtime_startup_uses_instance_owner_not_only_process_id_for_recovery(tm
 def test_legacy_chat_stream_is_wrapped_by_resumable_run_stream() -> None:
     with TestClient(app) as client:
         runtime = app_runtime.require_ready()
-        original_astream = runtime.query_runtime.astream
-        runtime.query_runtime.astream = _fake_resumable_astream  # type: ignore[method-assign]
+        original_astream = runtime.harness_runtime.astream
+        runtime.harness_runtime.astream = _fake_resumable_astream  # type: ignore[method-assign]
         try:
             created = client.post("/api/sessions", json={"title": "Legacy wrapper"})
             assert created.status_code == 200
@@ -243,14 +243,14 @@ def test_legacy_chat_stream_is_wrapped_by_resumable_run_stream() -> None:
             assert "event: done" in response.text
             assert '"stream_run_id": "strun:' in response.text
         finally:
-            runtime.query_runtime.astream = original_astream  # type: ignore[method-assign]
+            runtime.harness_runtime.astream = original_astream  # type: ignore[method-assign]
 
 
 def test_non_stream_chat_collects_terminal_event_from_run_stream() -> None:
     with TestClient(app) as client:
         runtime = app_runtime.require_ready()
-        original_astream = runtime.query_runtime.astream
-        runtime.query_runtime.astream = _fake_resumable_astream  # type: ignore[method-assign]
+        original_astream = runtime.harness_runtime.astream
+        runtime.harness_runtime.astream = _fake_resumable_astream  # type: ignore[method-assign]
         try:
             created = client.post("/api/sessions", json={"title": "Non stream wrapper"})
             assert created.status_code == 200
@@ -264,4 +264,4 @@ def test_non_stream_chat_collects_terminal_event_from_run_stream() -> None:
             assert response.status_code == 200
             assert response.json() == {"content": "alpha beta"}
         finally:
-            runtime.query_runtime.astream = original_astream  # type: ignore[method-assign]
+            runtime.harness_runtime.astream = original_astream  # type: ignore[method-assign]

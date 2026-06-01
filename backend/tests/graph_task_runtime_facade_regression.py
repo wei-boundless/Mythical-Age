@@ -12,10 +12,10 @@ if str(BACKEND_DIR) not in sys.path:
 
 from harness import GraphHarness
 from harness.graph.models import NodeResultEnvelope, stable_safe_id
-from harness.loop.task_executor import recover_interrupted_task_executors
+from harness.loop.task_executor_controller import TaskExecutorController
 from runtime.shared.models import TaskRun
-from query import QueryRuntime
-from query.runtime import _graph_node_task_run_id
+from harness.entrypoint import HarnessRuntimeFacade
+from harness.graph.work_order_contract import _graph_node_task_run_id
 from task_system import TaskFlowRegistry
 from task_system.compiler.graph_harness_config_publisher import publish_graph_harness_config_for_graph
 from tests.support.runtime_stubs import (
@@ -24,7 +24,7 @@ from tests.support.runtime_stubs import (
     EmptyToolRuntimeStub,
     InMemorySessionManagerStub,
     PrimarySettingsStub,
-    QueryRuntimeMemoryFacadeStub,
+    HarnessRuntimeFacadeMemoryFacadeStub,
     SingleMessageModelRuntimeStub,
     isolated_backend_root,
 )
@@ -100,12 +100,12 @@ class ArtifactTaskExecutionModelRuntimeStub:
         )
 
 
-def _runtime(prefix: str = "graph-task-runtime-facade-") -> QueryRuntime:
-    return QueryRuntime(
+def _runtime(prefix: str = "graph-task-runtime-facade-") -> HarnessRuntimeFacade:
+    return HarnessRuntimeFacade(
         base_dir=isolated_backend_root(prefix),
         settings_service=PrimarySettingsStub(),
         session_manager=InMemorySessionManagerStub(),
-        memory_facade=QueryRuntimeMemoryFacadeStub(),
+        memory_facade=HarnessRuntimeFacadeMemoryFacadeStub(),
         retrieval_service=SimpleNamespace(),
         tool_runtime=EmptyToolRuntimeStub(),
         skill_registry=EmptySkillRegistryStub(),
@@ -114,12 +114,12 @@ def _runtime(prefix: str = "graph-task-runtime-facade-") -> QueryRuntime:
     )
 
 
-def _task_execution_runtime(prefix: str) -> QueryRuntime:
-    return QueryRuntime(
+def _task_execution_runtime(prefix: str) -> HarnessRuntimeFacade:
+    return HarnessRuntimeFacade(
         base_dir=isolated_backend_root(prefix),
         settings_service=PrimarySettingsStub(),
         session_manager=InMemorySessionManagerStub(),
-        memory_facade=QueryRuntimeMemoryFacadeStub(),
+        memory_facade=HarnessRuntimeFacadeMemoryFacadeStub(),
         retrieval_service=SimpleNamespace(),
         tool_runtime=EmptyToolRuntimeStub(),
         skill_registry=EmptySkillRegistryStub(),
@@ -128,13 +128,13 @@ def _task_execution_runtime(prefix: str) -> QueryRuntime:
     )
 
 
-def _runtime_object_payload(runtime: QueryRuntime, ref: str) -> dict:
+def _runtime_object_payload(runtime: HarnessRuntimeFacade, ref: str) -> dict:
     payload = runtime.single_agent_runtime_host.runtime_objects.get_object(ref)
     assert payload, f"runtime object not found: {ref}"
     return payload
 
 
-def test_query_runtime_exposes_graph_harness_facade() -> None:
+def test_harness_runtime_exposes_graph_harness_facade() -> None:
     runtime = _runtime()
 
     assert isinstance(runtime.graph_harness, GraphHarness)
@@ -145,7 +145,7 @@ def test_query_runtime_exposes_graph_harness_facade() -> None:
 
 def test_graph_harness_starts_published_config_and_creates_node_work_order() -> None:
     from harness.runtime.compiler import RuntimeCompiler
-    from query.runtime import _graph_node_contract_from_work_order
+    from harness.graph.work_order_contract import _graph_node_contract_from_work_order
 
     runtime = _runtime("graph-task-runtime-start-")
     registry = TaskFlowRegistry(runtime.base_dir)
@@ -628,7 +628,7 @@ def test_graph_edge_contract_payload_projects_artifact_text_without_agent_tool(t
 
 def test_graph_node_task_contract_keeps_model_visible_artifact_payload(tmp_path: Path) -> None:
     from harness.runtime.compiler import RuntimeCompiler
-    from query.runtime import _graph_node_contract_from_work_order
+    from harness.graph.work_order_contract import _graph_node_contract_from_work_order
 
     runtime = _runtime("graph-node-contract-artifact-payload-")
     artifact_path = tmp_path / "world.md"
@@ -1182,11 +1182,11 @@ def test_graph_resume_fails_closed_on_config_hash_mismatch() -> None:
 
 def test_graph_resume_requeues_blocked_agent_node_after_recoverable_model_failure() -> None:
     model_runtime = TimeoutThenTaskExecutionModelRuntimeStub()
-    runtime = QueryRuntime(
+    runtime = HarnessRuntimeFacade(
         base_dir=isolated_backend_root("graph-task-resume-blocked-agent-"),
         settings_service=PrimarySettingsStub(),
         session_manager=InMemorySessionManagerStub(),
-        memory_facade=QueryRuntimeMemoryFacadeStub(),
+        memory_facade=HarnessRuntimeFacadeMemoryFacadeStub(),
         retrieval_service=SimpleNamespace(),
         tool_runtime=EmptyToolRuntimeStub(),
         skill_registry=EmptySkillRegistryStub(),
@@ -1275,11 +1275,11 @@ def test_graph_resume_requeues_blocked_agent_node_after_recoverable_model_failur
 
 def test_graph_node_result_refs_remain_unique_for_long_retry_ids() -> None:
     model_runtime = TimeoutThenTaskExecutionModelRuntimeStub()
-    runtime = QueryRuntime(
+    runtime = HarnessRuntimeFacade(
         base_dir=isolated_backend_root("graph-task-long-result-ref-"),
         settings_service=PrimarySettingsStub(),
         session_manager=InMemorySessionManagerStub(),
-        memory_facade=QueryRuntimeMemoryFacadeStub(),
+        memory_facade=HarnessRuntimeFacadeMemoryFacadeStub(),
         retrieval_service=SimpleNamespace(),
         tool_runtime=EmptyToolRuntimeStub(),
         skill_registry=EmptySkillRegistryStub(),
@@ -1388,11 +1388,11 @@ def test_graph_resume_does_not_requeue_nonrecoverable_blocked_node() -> None:
 
 
 def test_graph_harness_executes_agent_work_order_and_advances_loop() -> None:
-    runtime = QueryRuntime(
+    runtime = HarnessRuntimeFacade(
         base_dir=isolated_backend_root("graph-task-runtime-execute-work-order-"),
         settings_service=PrimarySettingsStub(),
         session_manager=InMemorySessionManagerStub(),
-        memory_facade=QueryRuntimeMemoryFacadeStub(),
+        memory_facade=HarnessRuntimeFacadeMemoryFacadeStub(),
         retrieval_service=SimpleNamespace(),
         tool_runtime=EmptyToolRuntimeStub(),
         skill_registry=EmptySkillRegistryStub(),
@@ -1847,7 +1847,10 @@ def test_graph_node_task_runs_are_hidden_from_global_monitor_and_recovery() -> N
         )
     )
 
-    recovery = recover_interrupted_task_executors(runtime.single_agent_runtime_host)
+    recovery = TaskExecutorController(
+        runtime_host=runtime.single_agent_runtime_host,
+        execute_task_run_callback=runtime.execute_task_run,
+    ).recover_interrupted_executor_leases()
     monitor = runtime.single_agent_runtime_host.list_global_live_monitor(limit=20)
     stored = runtime.single_agent_runtime_host.state_index.get_task_run(task_run.task_run_id)
 
@@ -1954,11 +1957,11 @@ def test_graph_run_monitor_exposes_node_runtime_views_after_runner() -> None:
 
 def test_graph_agent_node_records_artifact_repository_receipts(tmp_path: Path) -> None:
     artifact_rel = "storage/task_environments/development/sandbox/artifacts/graph-node-artifact.md"
-    runtime = QueryRuntime(
+    runtime = HarnessRuntimeFacade(
         base_dir=isolated_backend_root("graph-artifact-repository-"),
         settings_service=PrimarySettingsStub(),
         session_manager=InMemorySessionManagerStub(),
-        memory_facade=QueryRuntimeMemoryFacadeStub(),
+        memory_facade=HarnessRuntimeFacadeMemoryFacadeStub(),
         retrieval_service=SimpleNamespace(),
         tool_runtime=EmptyToolRuntimeStub(),
         skill_registry=EmptySkillRegistryStub(),
@@ -2066,8 +2069,11 @@ def test_graph_agent_node_materializes_declared_final_content_artifact() -> None
     node_result = _runtime_object_payload(runtime, node_result_summary["result_ref"])
     artifact_path = (
         runtime.base_dir.parent
-        / "output"
-        / "test_graph_artifacts"
+        / "storage"
+        / "task_environments"
+        / "development"
+        / "sandbox"
+        / "artifacts"
         / "project-artifact-test"
         / "world"
         / "world_candidate_round_002.md"
@@ -2082,11 +2088,14 @@ def test_graph_agent_node_materializes_declared_final_content_artifact() -> None
     assert "图节点执行完成" in artifact_path.read_text(encoding="utf-8")
     assert "outputs" not in node_result_summary
     assert node_result["artifact_refs"] == [
-        "output/test_graph_artifacts/project-artifact-test/world/world_candidate_round_002.md"
+        "storage/task_environments/development/sandbox/artifacts/project-artifact-test/world/world_candidate_round_002.md"
     ]
     assert node_result["artifact_materialization_receipts"][0]["authority"] == "artifact_repository.service"
     assert overview["artifact_count"] == 1
-    assert overview["artifacts"][0]["path"] == "output/test_graph_artifacts/project-artifact-test/world/world_candidate_round_002.md"
+    assert (
+        overview["artifacts"][0]["path"]
+        == "storage/task_environments/development/sandbox/artifacts/project-artifact-test/world/world_candidate_round_002.md"
+    )
 
 
 def test_graph_agent_node_writes_formal_memory_candidate_and_commit() -> None:

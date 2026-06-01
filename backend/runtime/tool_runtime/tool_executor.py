@@ -11,6 +11,12 @@ from runtime.tool_runtime.tool_result_envelope import build_tool_result_envelope
 from runtime.tool_runtime.sandbox_backend import DEFAULT_SIDE_EFFECT_TOOL_NAMES, LocalOverlaySandboxBackend
 from runtime.tool_runtime.native_tools import build_native_runtime_tool
 from runtime.tool_runtime.tool_adapter import RuntimeToolAdapter
+from runtime.tool_runtime.tool_invocation_control import (
+    ToolInvocationContext,
+    build_tool_invocation_id,
+    build_tool_invocation_idempotency_key,
+    registry_for,
+)
 from runtime.tool_runtime.tool_use_context import ToolUseContext
 from orchestration.runtime_directive import RuntimeDirective
 from runtime.shared.action_request import (
@@ -26,7 +32,6 @@ from runtime.shared.execution_record import (
     build_execution_receipt,
 )
 from runtime.shared.policy_rejection_observation import build_policy_rejection_observation
-from harness.loop.task_run_execution_control import attach_tool_task, clear_tool_task, peek_executor_signal
 
 
 class ToolRuntimeExecutor:
@@ -183,6 +188,7 @@ class ToolRuntimeExecutor:
         max_result_size_chars: int = 0,
         sandbox_policy: dict[str, Any] | None = None,
         file_management_policy: dict[str, Any] | None = None,
+        tool_invocation_context: ToolInvocationContext | None = None,
     ) -> dict[str, Any]:
         tool_name = str(action_request.payload.get("tool_name") or "").strip()
         tool_call = dict(action_request.payload.get("tool_call") or {})
@@ -361,9 +367,33 @@ class ToolRuntimeExecutor:
         policy_payload = dict(sandbox_policy or {})
         file_policy_payload = dict(file_management_policy or {})
         tool_args = _bind_runtime_scoped_tool_args(tool_name, tool_args, policy_payload=policy_payload, task_run_id=task_run_id)
+        invocation_context = _resolve_tool_invocation_context(
+            task_run_id=task_run_id,
+            action_request=action_request,
+            tool_name=tool_name,
+            tool_args=tool_args,
+            tool_call_id=tool_call_id,
+            sandbox_policy=policy_payload,
+            explicit_context=tool_invocation_context,
+        )
+        tool_args = _bind_tool_invocation_args(tool_name, tool_args, invocation_context=invocation_context)
+        invocation_context = _resolve_tool_invocation_context(
+            task_run_id=task_run_id,
+            action_request=action_request,
+            tool_name=tool_name,
+            tool_args=tool_args,
+            tool_call_id=tool_call_id,
+            sandbox_policy=policy_payload,
+            explicit_context=invocation_context,
+        )
         tool_context = ToolUseContext(
             workspace_root=execution_root,
             sandbox_root=self.sandbox_backend.execution_root(sandbox_context) if sandbox_context else None,
+            tool_invocation_id=invocation_context.tool_invocation_id,
+            caller_kind=invocation_context.caller_kind,
+            caller_ref=invocation_context.caller_ref,
+            turn_id=invocation_context.turn_id,
+            idempotency_key=invocation_context.idempotency_key,
             task_run_id=task_run_id,
             session_id=_session_id_from_policy(policy_payload),
             agent_run_id=_agent_run_id_from_policy(policy_payload, task_run_id),
@@ -438,16 +468,30 @@ class ToolRuntimeExecutor:
                 "recoverable_error": error,
             }
         try:
+            registry = registry_for(getattr(self.tool_runtime, "runtime_host", None))
+            if registry is not None:
+                registry.start(
+                    tool_invocation_id=invocation_context.tool_invocation_id,
+                    caller_kind=invocation_context.caller_kind,
+                    caller_ref=invocation_context.caller_ref,
+                    session_id=invocation_context.session_id,
+                    turn_id=invocation_context.turn_id,
+                    task_run_id=invocation_context.task_run_id,
+                    tool_name=tool_name,
+                    tool_args=tool_args,
+                    tool_call_id=tool_call_id,
+                    idempotency_key=invocation_context.idempotency_key,
+                    diagnostics={"action_request_ref": action_request.request_id, "directive_ref": directive.directive_id},
+                )
             envelope = await _call_runtime_tool_with_control(
                 runtime_tool,
                 tool_args,
                 tool_context,
                 runtime_host=getattr(self.tool_runtime, "runtime_host", None),
-                task_run_id=task_run_id,
-                sandbox_policy=policy_payload,
+                tool_invocation_id=invocation_context.tool_invocation_id,
             )
         except asyncio.CancelledError as exc:
-            signal = _tool_signal(getattr(self.tool_runtime, "runtime_host", None), task_run_id, policy_payload)
+            signal = _tool_signal(getattr(self.tool_runtime, "runtime_host", None), invocation_context.tool_invocation_id)
             reason = str(signal.get("reason") or "tool_cancelled_by_runtime_control")
             kind = str(signal.get("kind") or "stop")
             error = f"Tool execution interrupted by runtime control: {kind}: {reason}"
@@ -474,6 +518,9 @@ class ToolRuntimeExecutor:
             }
         except Exception as exc:
             error = f"Tool execution failed: {exc}"
+            registry = registry_for(getattr(self.tool_runtime, "runtime_host", None))
+            if registry is not None:
+                registry.fail(invocation_context.tool_invocation_id, error=error)
             if execution_store is not None:
                 current_record = execution_store.mark_failed(current_record, error=error)
             return {
@@ -507,6 +554,22 @@ class ToolRuntimeExecutor:
             truncated=truncated,
             sandbox=sandbox_context.to_dict() if sandbox_context else None,
         )
+        registry = registry_for(getattr(self.tool_runtime, "runtime_host", None))
+        if registry is not None:
+            structured_error = dict(envelope.structured_payload.get("structured_error") or {})
+            if envelope.status == "error":
+                registry.fail(
+                    invocation_context.tool_invocation_id,
+                    error=str(envelope.error or text or "tool_execution_failed"),
+                    structured_error=structured_error,
+                    diagnostics={"result_ref": result_ref},
+                )
+            else:
+                registry.complete(
+                    invocation_context.tool_invocation_id,
+                    result_ref=result_ref,
+                    artifact_refs=[dict(item) for item in envelope.artifact_refs],
+                )
         if execution_store is not None:
             result_payload = {
                 "tool_name": tool_name,
@@ -546,6 +609,251 @@ class ToolRuntimeExecutor:
             "observation": observation,
             "execution_record": current_record,
             "error": "",
+            "sandbox": sandbox_context.to_dict() if sandbox_context else {},
+        }
+
+    async def run_core(
+        self,
+        *,
+        caller_kind: str,
+        caller_ref: str,
+        session_id: str,
+        turn_id: str,
+        tool_invocation_id: str,
+        tool_name: str,
+        tool_call_id: str,
+        tool_args: dict[str, Any],
+        operation_id: str = "",
+        sandbox_policy: dict[str, Any] | None = None,
+        file_management_policy: dict[str, Any] | None = None,
+        max_result_size_chars: int = 0,
+    ) -> dict[str, Any]:
+        definition = self.tool_runtime.get_definition(tool_name)
+        if definition is None:
+            return {
+                "status": "error",
+                "text": f"Tool execution failed: unknown tool {tool_name}.",
+                "error": f"Tool execution failed: unknown tool {tool_name}.",
+                "result_envelope": {},
+            }
+        expected_operation_id = str(getattr(definition, "operation_id", "") or "").strip()
+        if operation_id and expected_operation_id and str(operation_id or "").strip() != expected_operation_id:
+            error = (
+                "Tool execution blocked by dispatch guard: action_request_operation_mismatch. "
+                f"Expected tool {tool_name} with operation {expected_operation_id}."
+            )
+            return {"status": "error", "text": error, "error": error, "result_envelope": {}}
+        runtime_tool = build_native_runtime_tool(capability_definition=definition)
+        sandbox_context = self.sandbox_backend.context_for_tool(tool_name=tool_name, sandbox_policy=sandbox_policy)
+        sandbox_guard_error = _sandbox_context_guard_error(tool_name=tool_name, sandbox_policy=sandbox_policy, sandbox_context=sandbox_context)
+        if sandbox_guard_error:
+            return {
+                "status": "error",
+                "text": sandbox_guard_error,
+                "recoverable_error": sandbox_guard_error,
+                "result_envelope": {},
+                "sandbox": sandbox_context.to_dict() if sandbox_context else {},
+            }
+        if sandbox_context:
+            self.sandbox_backend.prepare_tool_call(
+                tool_name=tool_name,
+                tool_args=tool_args,
+                context=sandbox_context,
+            )
+        tool = None
+        if runtime_tool is None:
+            invocation_validation = ToolInvocationValidator(mode="enforce").evaluate(
+                tool_name=tool_name,
+                contract=definition.contract,
+                tool_input=dict(tool_args or {}),
+            )
+            if invocation_validation.should_block:
+                error = _invocation_validation_error(invocation_validation)
+                return {
+                    "status": "error",
+                    "text": error,
+                    "recoverable_error": error if _is_recoverable_invocation_validation_error(invocation_validation) else "",
+                    "error": "" if _is_recoverable_invocation_validation_error(invocation_validation) else error,
+                    "result_envelope": {},
+                    "diagnostics": {"tool_invocation_validation": invocation_validation.to_dict()},
+                }
+            tool = _capability_tool_instance(
+                tool_runtime=self.tool_runtime,
+                sandbox_backend=self.sandbox_backend,
+                definition=definition,
+                tool_name=tool_name,
+                sandbox_context=sandbox_context,
+            )
+            if tool is not None:
+                runtime_tool = RuntimeToolAdapter.from_capability_definition(
+                    capability_definition=definition,
+                    tool_instance=tool,
+                )
+        if runtime_tool is None:
+            error = f"Tool execution failed: {tool_name} is unavailable."
+            return {"status": "error", "text": error, "error": error, "result_envelope": {}}
+        workspace_root = Path(getattr(self.tool_runtime, "base_dir", ".")).resolve()
+        execution_root = self.sandbox_backend.tool_workspace_root(sandbox_context) if sandbox_context else workspace_root
+        policy_payload = dict(sandbox_policy or {})
+        file_policy_payload = dict(file_management_policy or {})
+        tool_args = _bind_runtime_scoped_tool_args(tool_name, dict(tool_args or {}), policy_payload=policy_payload, task_run_id="")
+        invocation_context = ToolInvocationContext(
+            tool_invocation_id=tool_invocation_id,
+            caller_kind=caller_kind,
+            caller_ref=caller_ref,
+            session_id=session_id,
+            turn_id=turn_id,
+            task_run_id="",
+            tool_call_id=tool_call_id,
+            idempotency_key=build_tool_invocation_idempotency_key(
+                tool_name=tool_name,
+                tool_args=tool_args,
+                tool_invocation_id=tool_invocation_id,
+            ),
+        )
+        tool_args = _bind_tool_invocation_args(tool_name, tool_args, invocation_context=invocation_context)
+        invocation_context = ToolInvocationContext(
+            tool_invocation_id=tool_invocation_id,
+            caller_kind=caller_kind,
+            caller_ref=caller_ref,
+            session_id=session_id,
+            turn_id=turn_id,
+            task_run_id="",
+            tool_call_id=tool_call_id,
+            idempotency_key=build_tool_invocation_idempotency_key(
+                tool_name=tool_name,
+                tool_args=tool_args,
+                tool_invocation_id=tool_invocation_id,
+            ),
+        )
+        tool_context = ToolUseContext(
+            workspace_root=execution_root,
+            sandbox_root=self.sandbox_backend.execution_root(sandbox_context) if sandbox_context else None,
+            tool_invocation_id=invocation_context.tool_invocation_id,
+            caller_kind=invocation_context.caller_kind,
+            caller_ref=invocation_context.caller_ref,
+            turn_id=invocation_context.turn_id,
+            idempotency_key=invocation_context.idempotency_key,
+            task_run_id="",
+            session_id=session_id,
+            agent_run_id="",
+            tool_call_id=tool_call_id,
+            read_scopes=tuple(str(item) for item in list(policy_payload.get("read_scopes") or [])),
+            write_scopes=tuple(str(item) for item in list(policy_payload.get("write_scopes") or [])),
+            material_mounts=tuple(dict(item) for item in list(policy_payload.get("material_mounts") or []) if isinstance(item, dict)),
+            artifact_root=str(policy_payload.get("artifact_root") or ""),
+            approval_policy=str(policy_payload.get("approval_policy") or ""),
+            approval_fingerprint=_approval_fingerprint_from_policy(file_policy_payload, fallback_policy=policy_payload),
+            permission_mode=str(policy_payload.get("permission_mode") or ""),
+            sandbox_policy=policy_payload,
+            file_management_policy=file_policy_payload,
+            environment_snapshot=RuntimeEnvironment(
+                workspace_root=workspace_root,
+                sandbox_root=self.sandbox_backend.execution_root(sandbox_context) if sandbox_context else None,
+            ).snapshot(),
+            execution_receipt={},
+        )
+        validation = runtime_tool.validate_input(tool_args, tool_context)
+        if not validation.allowed:
+            error = validation.reason or "tool_input_validation_failed"
+            return {
+                "status": "error",
+                "text": validation.repair_instruction or error,
+                "recoverable_error": error,
+                "result_envelope": {},
+                "diagnostics": {"tool_validation": validation.diagnostics},
+            }
+        tool_args = dict(validation.normalized_args or tool_args)
+        permission = runtime_tool.check_permissions(tool_args, tool_context)
+        if not permission.allowed:
+            error = permission.reason or "tool_permission_denied"
+            return {
+                "status": "error",
+                "text": permission.repair_instruction or error,
+                "recoverable_error": error,
+                "result_envelope": {},
+                "diagnostics": {"tool_permission": permission.diagnostics},
+            }
+        try:
+            registry = registry_for(getattr(self.tool_runtime, "runtime_host", None))
+            if registry is not None:
+                registry.start(
+                    tool_invocation_id=invocation_context.tool_invocation_id,
+                    caller_kind=invocation_context.caller_kind,
+                    caller_ref=invocation_context.caller_ref,
+                    session_id=invocation_context.session_id,
+                    turn_id=invocation_context.turn_id,
+                    task_run_id=invocation_context.task_run_id,
+                    tool_name=tool_name,
+                    tool_args=tool_args,
+                    tool_call_id=tool_call_id,
+                    idempotency_key=invocation_context.idempotency_key,
+                    diagnostics={"operation_id": operation_id, "core_dispatch": True},
+                )
+            envelope = await _call_runtime_tool_with_control(
+                runtime_tool,
+                tool_args,
+                tool_context,
+                runtime_host=getattr(self.tool_runtime, "runtime_host", None),
+                tool_invocation_id=invocation_context.tool_invocation_id,
+            )
+        except asyncio.CancelledError:
+            signal = _tool_signal(getattr(self.tool_runtime, "runtime_host", None), invocation_context.tool_invocation_id)
+            reason = str(signal.get("reason") or "tool_cancelled_by_runtime_control")
+            kind = str(signal.get("kind") or "stop")
+            error = f"Tool execution interrupted by runtime control: {kind}: {reason}"
+            return {
+                "status": "error",
+                "text": error,
+                "recoverable_error": error if kind in {"pause", "replan"} else "",
+                "error": error if kind == "stop" else "",
+                "result_envelope": {},
+            }
+        except Exception as exc:
+            error = f"Tool execution failed: {exc}"
+            registry = registry_for(getattr(self.tool_runtime, "runtime_host", None))
+            if registry is not None:
+                registry.fail(invocation_context.tool_invocation_id, error=error)
+            return {"status": "error", "text": error, "error": error, "result_envelope": {}}
+        text = str(envelope.text or "")
+        limit = max(0, int(max_result_size_chars or 0))
+        truncated = bool(limit and len(text) > limit)
+        if truncated:
+            text = text[:limit]
+        result_ref = f"tool-result:{tool_invocation_id}"
+        envelope = _finalize_runtime_tool_envelope(
+            envelope=envelope,
+            tool_name=tool_name,
+            tool_args=tool_args,
+            text=text,
+            execution_receipt={},
+            result_ref=result_ref,
+            truncated=truncated,
+            sandbox=sandbox_context.to_dict() if sandbox_context else None,
+        )
+        registry = registry_for(getattr(self.tool_runtime, "runtime_host", None))
+        if registry is not None:
+            structured_error = dict(envelope.structured_payload.get("structured_error") or {})
+            if envelope.status == "error":
+                registry.fail(
+                    invocation_context.tool_invocation_id,
+                    error=str(envelope.error or text or "tool_execution_failed"),
+                    structured_error=structured_error,
+                    diagnostics={"result_ref": result_ref},
+                )
+            else:
+                registry.complete(
+                    invocation_context.tool_invocation_id,
+                    result_ref=result_ref,
+                    artifact_refs=[dict(item) for item in envelope.artifact_refs],
+                )
+        return {
+            "status": str(envelope.status or "ok"),
+            "text": text,
+            "result_ref": result_ref,
+            "result_envelope": envelope.to_dict(),
+            "artifact_refs": [dict(item) for item in envelope.artifact_refs],
+            "error": str(envelope.error or "") if envelope.status == "error" else "",
             "sandbox": sandbox_context.to_dict() if sandbox_context else {},
         }
 
@@ -747,35 +1055,27 @@ async def _call_runtime_tool_with_control(
     tool_context: ToolUseContext,
     *,
     runtime_host: Any | None,
-    task_run_id: str,
-    sandbox_policy: dict[str, Any],
+    tool_invocation_id: str,
 ) -> Any:
-    executor_epoch = _executor_epoch_from_policy(sandbox_policy)
-    if runtime_host is None or executor_epoch <= 0:
+    registry = registry_for(runtime_host)
+    if registry is None or not str(tool_invocation_id or "").strip():
         return await runtime_tool.call(tool_args, tool_context)
     task = asyncio.create_task(runtime_tool.call(tool_args, tool_context))
-    attach_tool_task(runtime_host, task_run_id=task_run_id, executor_epoch=executor_epoch, tool_task=task)
+    registry.attach_task(tool_invocation_id, task)
     try:
         return await task
     finally:
-        clear_tool_task(runtime_host, task_run_id=task_run_id, executor_epoch=executor_epoch, tool_task=task)
+        registry.clear_task(tool_invocation_id, task)
 
 
-def _tool_signal(runtime_host: Any | None, task_run_id: str, sandbox_policy: dict[str, Any]) -> dict[str, Any]:
-    executor_epoch = _executor_epoch_from_policy(sandbox_policy)
-    if runtime_host is None or executor_epoch <= 0 or not task_run_id:
+def _tool_signal(runtime_host: Any | None, tool_invocation_id: str) -> dict[str, Any]:
+    registry = registry_for(runtime_host)
+    if registry is None or not str(tool_invocation_id or "").strip():
         return {}
-    signal = peek_executor_signal(runtime_host, task_run_id=task_run_id, executor_epoch=executor_epoch)
+    signal = registry.signal(tool_invocation_id)
     if signal is None:
         return {}
-    return signal.to_dict() if hasattr(signal, "to_dict") else {
-        "kind": str(getattr(signal, "kind", "") or ""),
-        "task_run_id": str(getattr(signal, "task_run_id", "") or task_run_id),
-        "executor_epoch": int(getattr(signal, "executor_epoch", 0) or executor_epoch),
-        "reason": str(getattr(signal, "reason", "") or ""),
-        "requested_by": str(getattr(signal, "requested_by", "") or ""),
-        "requested_at": float(getattr(signal, "requested_at", 0.0) or 0.0),
-    }
+    return signal.to_dict() if hasattr(signal, "to_dict") else {}
 
 
 def _executor_epoch_from_policy(policy: dict[str, Any]) -> int:
@@ -827,6 +1127,70 @@ def _bind_memory_search_scope(
     if project_id:
         bound_args["project_id"] = project_id
     return bound_args
+
+
+def _resolve_tool_invocation_context(
+    *,
+    task_run_id: str,
+    action_request: RuntimeActionRequest,
+    tool_name: str,
+    tool_args: dict[str, Any],
+    tool_call_id: str,
+    sandbox_policy: dict[str, Any],
+    explicit_context: ToolInvocationContext | None,
+) -> ToolInvocationContext:
+    policy = dict(sandbox_policy or {})
+    session_id = str(getattr(explicit_context, "session_id", "") or _session_id_from_policy(policy))
+    task_ref = str(getattr(explicit_context, "task_run_id", "") or task_run_id or action_request.task_run_id or "").strip()
+    caller_kind = str(getattr(explicit_context, "caller_kind", "") or ("task_run" if task_ref else "agent_turn")).strip()
+    caller_ref = str(getattr(explicit_context, "caller_ref", "") or task_ref or policy.get("turn_id") or action_request.task_run_id).strip()
+    turn_id = str(getattr(explicit_context, "turn_id", "") or policy.get("turn_id") or "").strip()
+    invocation_id = str(getattr(explicit_context, "tool_invocation_id", "") or "").strip()
+    if not invocation_id:
+        invocation_id = build_tool_invocation_id(
+            caller_ref=caller_ref,
+            action_request_ref=action_request.request_id,
+            tool_name=tool_name,
+            tool_call_id=tool_call_id,
+        )
+    idempotency_key = build_tool_invocation_idempotency_key(
+        tool_name=tool_name,
+        tool_args=dict(tool_args or {}),
+        tool_invocation_id=invocation_id,
+    )
+    return ToolInvocationContext(
+        tool_invocation_id=invocation_id,
+        caller_kind=caller_kind,
+        caller_ref=caller_ref,
+        session_id=session_id,
+        turn_id=turn_id,
+        task_run_id=task_ref,
+        tool_call_id=str(getattr(explicit_context, "tool_call_id", "") or tool_call_id or "").strip(),
+        idempotency_key=idempotency_key,
+    )
+
+
+def _bind_tool_invocation_args(
+    tool_name: str,
+    tool_args: dict[str, Any],
+    *,
+    invocation_context: ToolInvocationContext,
+) -> dict[str, Any]:
+    args = dict(tool_args or {})
+    if str(tool_name or "").strip() != "image_generate":
+        return args
+    if str(args.get("target_id") or "").strip():
+        return args
+    return {
+        **args,
+        "target_id": _target_id_from_invocation(invocation_context.tool_invocation_id),
+        "overwrite": bool(args.get("overwrite") is True),
+    }
+
+
+def _target_id_from_invocation(tool_invocation_id: str) -> str:
+    safe = "".join(ch if ch.isalnum() or ch in {"-", "_"} else "-" for ch in str(tool_invocation_id or "").strip())
+    return f"tool-{safe}" if safe else "tool-invocation"
 
 
 def _session_id_from_policy(policy: dict[str, Any]) -> str:

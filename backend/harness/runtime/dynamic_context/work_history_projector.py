@@ -13,6 +13,8 @@ class WorkHistoryProjector:
             return {}
         policy = dict(projection_policy or {})
         limit = int(policy.get("recent_work_step_limit") or 8)
+        summary_limit = int(policy.get("work_step_summary_chars") or 500)
+        progress_limit = int(policy.get("work_progress_chars") or 500)
         history = [dict(item) for item in list(rollout.get("model_visible_history") or []) if isinstance(item, dict)]
         recent_steps = [
             drop_empty(
@@ -20,7 +22,7 @@ class WorkHistoryProjector:
                     "type": str(item.get("type") or ""),
                     "title": compact_text(item.get("title") or "", limit=160),
                     "status": str(item.get("status") or ""),
-                    "summary": compact_text(item.get("summary") or "", limit=500),
+                    "summary": compact_text(item.get("summary") or "", limit=max(200, summary_limit)),
                     "agent_brief_output": compact_text(item.get("agent_brief_output") or "", limit=300),
                     "event_offset": item.get("event_offset"),
                     "refs": dict(item.get("refs") or {}),
@@ -30,7 +32,7 @@ class WorkHistoryProjector:
         ]
         return drop_empty(
             {
-                "latest_progress": compact_text(rollout.get("latest_progress") or "", limit=500),
+                "latest_progress": compact_text(rollout.get("latest_progress") or "", limit=max(200, progress_limit)),
                 "latest_step_title": compact_text(rollout.get("latest_step_title") or "", limit=160),
                 "active_facts": _active_facts(history),
                 "recent_steps": recent_steps,

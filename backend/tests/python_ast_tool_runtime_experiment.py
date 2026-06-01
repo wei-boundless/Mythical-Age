@@ -15,7 +15,7 @@ from capability_system.tool_authorization import build_tool_authorization_index 
 from capability_system.tool_definitions import build_tool_instances, get_tool_definitions  # noqa: E402
 from permissions import OperationGate, OperationGatePipelineContext, build_model_response_runtime_admission  # noqa: E402
 from capability_system.validators import validate_filesystem_path  # noqa: E402
-from runtime.capabilities import build_current_turn_capability_plan, tool_instances_for_capability_plan  # noqa: E402
+from harness.runtime import build_runtime_tool_plan, tool_instances_for_runtime_tool_plan  # noqa: E402
 
 
 PYTHON_AST_OPERATIONS = (
@@ -80,19 +80,21 @@ def main() -> None:
 
         tool_instances = build_tool_instances(root)
         index = build_tool_authorization_index(get_tool_definitions())
-        plan = build_current_turn_capability_plan(
-            tool_instances=tool_instances,
-            resource_policy=resource_policy,
-            definitions_by_name=index.definitions_by_name,
-            normalize_operation_id=registry.normalize_id,
-            task_operation=task_operation,
+        plan = build_runtime_tool_plan(
+            runtime_assembly=_runtime_assembly_for_tools(
+                "turn:python-ast",
+                tool_names=PYTHON_AST_TOOLS,
+                definitions_by_name=index.definitions_by_name,
+            ),
+            invocation_kind="task_execution",
+            tool_definitions_by_name=index.definitions_by_name,
         )
-        final_tools = tool_instances_for_capability_plan(
+        final_tools = tool_instances_for_runtime_tool_plan(
             tool_instances=tool_instances,
-            capability_plan=plan,
+            tool_plan=plan,
         )
         final_by_name = {str(getattr(tool, "name", "") or ""): tool for tool in final_tools}
-        assert set(PYTHON_AST_TOOLS).issubset(set(plan.model_visible_tools))
+        assert set(PYTHON_AST_TOOLS).issubset({str(item.get("tool_name") or "") for item in plan.model_visible_tools})
         assert set(PYTHON_AST_TOOLS).issubset(set(final_by_name))
 
         outline = final_by_name["python_code_outline"]._run("pkg/sample.py")
@@ -128,7 +130,27 @@ def main() -> None:
         assert denied_gate.allowed is False
         assert denied_gate.pipeline_stage == "operation_specific_safety_validator"
 
-    print("ALL PASSED (python ast tool runtime experiment)")
+class _runtime_assembly_for_tools:
+    def __init__(self, turn_id: str, *, tool_names: tuple[str, ...], definitions_by_name: dict[str, object]) -> None:
+        self.turn_id = turn_id
+        self.tool_names = tool_names
+        self.definitions_by_name = definitions_by_name
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "session_id": "session:python-ast",
+            "turn_id": self.turn_id,
+            "agent_invocation_id": f"aginvoke:{self.turn_id}",
+            "available_tools": [
+                {
+                    "tool_name": name,
+                    "operation_id": str(getattr(self.definitions_by_name[name], "operation_id", "") or name),
+                }
+                for name in self.tool_names
+            ],
+            "task_environment": {"environment_id": "env.test"},
+            "operation_authorization": {},
+        }
 
 
 if __name__ == "__main__":

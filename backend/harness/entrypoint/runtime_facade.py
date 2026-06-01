@@ -1,10 +1,8 @@
 from __future__ import annotations
 
-import asyncio
 import logging
 import time
 import uuid
-from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -14,7 +12,6 @@ from observability import build_debug_trace_event, start_turn_trace
 from capability_system.tool_authorization import build_tool_authorization_index
 from harness import GraphHarness
 from harness.runtime import AgentRuntimeServices, SingleAgentRuntimeHost, TaskExecutorServices, assemble_runtime
-from harness.routing import TurnRoute, build_turn_route
 from runtime import ModelResponseRuntimeExecutor, ModelRuntimeError, ToolRuntimeExecutor
 from runtime.shared.history_assembler import assemble_runtime_history
 from agent_system.profiles.runtime_profile_registry import AgentRuntimeRegistry
@@ -24,8 +21,8 @@ from orchestration import (
     build_user_message_commit_decision,
 )
 from project_layout import ProjectLayout
-from query.models import QueryRequest
-from query.system_routes import run_direct_system_route
+from harness.entrypoint.models import HarnessRuntimeRequest
+from api.chat_direct_routes import run_direct_system_route
 from harness.loop.active_work import (
     ActiveWorkContext,
     ActiveWorkTurnDecision,
@@ -43,14 +40,11 @@ from harness.loop.task_checkout import checkout_task_run_for_resume
 from harness.loop.task_executor import (
     append_user_work_instruction,
     execute_task_run,
-    is_task_run_executable,
-    is_task_run_executor_claimed,
-    recover_interrupted_task_executors,
     request_task_run_pause,
     resume_paused_task_run,
     stop_task_run,
 )
-from harness.loop.task_run_recovery_state import should_auto_continue_task_run
+from harness.loop.task_executor_controller import TaskExecutorController
 from harness.loop.task_lifecycle import (
     TaskLifecycleRecord,
     TaskRunContract,
@@ -65,12 +59,12 @@ logger = logging.getLogger(__name__)
 _CONVERSATION_TASK_EXECUTION_STEPS = 50
 
 
-class QueryRuntime:
+class HarnessRuntimeFacade:
     """Thin API adapter for the agent runtime chain.
 
     The old query layer used to own planning, tool routing, worker orchestration,
     follow-up execution, context restore, and writeback. Those responsibilities
-    are intentionally gone from this class. QueryRuntime now only accepts API
+    are intentionally gone from this class. HarnessRuntimeFacade now only accepts API
     input, emits stream events, and calls the admitted agent harness.
     """
 
@@ -123,7 +117,10 @@ class QueryRuntime:
             tool_authorization_index=build_tool_authorization_index(
                 list(getattr(tool_runtime, "definitions", []) or [])
             ),
+            tool_runtime_executor=self.tool_runtime_executor,
         )
+        if self.tool_runtime is not None:
+            setattr(self.tool_runtime, "runtime_host", self.single_agent_runtime_host)
         attach_prompt_accounting = getattr(self.model_runtime, "attach_prompt_accounting_ledger", None)
         if callable(attach_prompt_accounting):
             attach_prompt_accounting(self.single_agent_runtime_host.prompt_accounting_ledger)
@@ -136,19 +133,23 @@ class QueryRuntime:
             tool_instances=tuple(self._all_tool_instances()),
             agent_runtime_profile_resolver=self.agent_runtime_registry.get_profile,
         )
+        self.task_executor_controller = TaskExecutorController(
+            runtime_host=self.single_agent_runtime_host,
+            execute_task_run_callback=lambda task_run_id, **kwargs: self.execute_task_run(task_run_id, **kwargs),
+        )
         self.graph_harness = GraphHarness(
             services=self.agent_runtime_services,
         )
         self.single_agent_runtime_host.runtime_monitor_service.attach_graph_harness(self.graph_harness)
-        self.task_executor_recovery = recover_interrupted_task_executors(self.single_agent_runtime_host)
+        self.task_executor_recovery = self.task_executor_controller.recover_interrupted_executor_leases()
         self.runtime_components = {
-            "query_runtime": "adapter_only",
+            "harness.entrypoint": "application_runtime_facade",
             "graph_harness": "active",
             "evidence_orchestrator": "active" if retrieval_enabled else "disabled_missing_retrieval_service",
             "task_executor_recovery": self.task_executor_recovery,
         }
 
-    async def astream(self, request: QueryRequest):
+    async def astream(self, request: HarnessRuntimeRequest):
         history_record = self.session_manager.load_session_record(request.session_id)
         raw_history = request.history or self.session_manager.load_session_for_agent(request.session_id)
         history_assembly = assemble_runtime_history(
@@ -220,10 +221,10 @@ class QueryRuntime:
                 history_length=len(history),
                 metadata={
                     "request_kind": "chat",
-                    "query_runtime_role": "adapter_only",
+                    "harness.entrypoint_role": "application_runtime_facade",
                     "history_assembly": dict(history_assembly.diagnostics),
                 },
-                tags=["query-runtime", "agent-runtime-chain"],
+                tags=["harness-entrypoint", "agent-runtime-chain"],
             ) as trace:
                 debug_event = build_debug_trace_event(trace)
                 if debug_event is not None:
@@ -270,13 +271,13 @@ class QueryRuntime:
                     "runtime_assembly": runtime_assembly.to_dict(),
                 }
 
-                turn_route = build_turn_route(runtime_assembly=runtime_assembly)
+                runtime_branch = _runtime_branch_projection(runtime_assembly=runtime_assembly)
                 active_work_context = self._active_work_context_from_active_turn(request.session_id)
                 yield {
-                    "type": "turn_route_decided",
-                    "turn_route": turn_route.to_dict(),
+                    "type": "runtime_branch_decided",
+                    "runtime_branch": runtime_branch,
                 }
-                if turn_route.route_kind == "single_agent_turn":
+                if runtime_branch.get("branch_kind") == "single_agent_turn":
                     async for event in self._run_single_agent_turn(
                         request=request,
                         turn_id=turn_id,
@@ -285,42 +286,42 @@ class QueryRuntime:
                         agent_invocation_id=agent_invocation_id,
                         agent_runtime_profile=agent_runtime_profile,
                         runtime_assembly=runtime_assembly,
-                        turn_route=turn_route,
+                        runtime_branch=runtime_branch,
                         active_work_context=active_work_context,
                     ):
                         yield event
                     return
-                if turn_route.route_kind == "explicit_contract_task":
+                if runtime_branch.get("branch_kind") == "explicit_contract_task":
                     async for event in self._run_explicit_contract_task_turn(
                         request=request,
                         turn_id=turn_id,
                         agent_runtime_profile=agent_runtime_profile,
                         runtime_assembly=runtime_assembly,
-                        turn_route=turn_route,
+                        runtime_branch=runtime_branch,
                     ):
                         yield event
                     return
-                if turn_route.route_kind == "blocked_runtime":
+                if runtime_branch.get("branch_kind") == "blocked_runtime":
                     yield error_event(
                         content="当前运行环境未能完成装配，本轮无法继续。",
                         code="blocked_runtime",
-                        reason=turn_route.reason,
+                        reason=str(runtime_branch.get("reason") or "runtime_assembly_blocked"),
                     )
                     return
 
                 yield error_event(
                     content="当前请求没有匹配到可执行的单 agent 入口。",
-                    code="turn_route_unhandled",
-                    reason=str(turn_route.route_kind),
+                    code="runtime_branch_unhandled",
+                    reason=str(runtime_branch.get("branch_kind") or ""),
                 )
                 return
         except Exception as exc:
-            logger.exception("QueryRuntime failed while streaming request.")
+            logger.exception("HarnessRuntimeFacade failed while streaming request.")
             try:
                 self.single_agent_runtime_host.active_turn_registry.complete(
                     session_id=request.session_id,
                     expected_turn_id=turn_id,
-                    terminal_reason="query_runtime_error",
+                    terminal_reason="harness.entrypoint_error",
                 )
             except Exception:
                 logger.debug("failed to release active turn after query runtime error", exc_info=True)
@@ -333,14 +334,14 @@ class QueryRuntime:
     async def _run_single_agent_turn(
         self,
         *,
-        request: QueryRequest,
+        request: HarnessRuntimeRequest,
         turn_id: str,
         history: list[dict[str, Any]],
         session_context: dict[str, Any],
         agent_invocation_id: str,
         agent_runtime_profile: Any,
         runtime_assembly: Any,
-        turn_route: TurnRoute,
+        runtime_branch: dict[str, Any],
         active_work_context: ActiveWorkContext | None,
     ):
         async def start_task(action_request: ModelActionRequest):
@@ -353,8 +354,8 @@ class QueryRuntime:
                 action_request=action_request,
                 agent_runtime_profile=agent_runtime_profile,
                 runtime_assembly=runtime_assembly,
-                turn_route=turn_route,
-                answer_source="harness.route.single_agent_turn.request_task_run",
+                runtime_branch=runtime_branch,
+                answer_source="harness.single_agent_turn.request_task_run",
                 scheduler="single_agent_turn",
                 max_steps=_CONVERSATION_TASK_EXECUTION_STEPS,
                 commit_assistant_message=self._apply_assistant_message_commit_async,
@@ -401,7 +402,7 @@ class QueryRuntime:
             model_selection=dict(request.model_selection or {}),
             runtime_assembly=runtime_assembly,
             runtime_host=self.single_agent_runtime_host,
-            turn_route=turn_route,
+            runtime_branch=runtime_branch,
             active_work_context=active_work_context,
             model_runtime=getattr(self.model_response_executor, "model_runtime", None),
             commit_assistant_message=self._apply_assistant_message_commit_async,
@@ -413,11 +414,11 @@ class QueryRuntime:
     async def _run_explicit_contract_task_turn(
         self,
         *,
-        request: QueryRequest,
+        request: HarnessRuntimeRequest,
         turn_id: str,
         agent_runtime_profile: Any,
         runtime_assembly: Any,
-        turn_route: TurnRoute,
+        runtime_branch: dict[str, Any],
     ):
         action_request = _explicit_contract_action_request(
             request=request,
@@ -439,7 +440,7 @@ class QueryRuntime:
                     "content": content,
                     "turn_id": turn_id,
                     "answer_channel": "task_control",
-                    "answer_source": "harness.routing.explicit_contract_task.invalid_contract",
+                    "answer_source": "harness.explicit_contract_task.invalid_contract",
                     "answer_canonical_state": "final",
                     "answer_persist_policy": "persist_canonical",
                     "answer_finalization_policy": "assistant_final",
@@ -460,8 +461,8 @@ class QueryRuntime:
             contract=contract,
             agent_runtime_profile=agent_runtime_profile,
             runtime_assembly=runtime_assembly,
-            turn_route=turn_route,
-            answer_source="harness.routing.explicit_contract_task",
+            runtime_branch=runtime_branch,
+            answer_source="harness.explicit_contract_task",
             scheduler="explicit_contract_task",
             task_id=str(contract.source_contract_ref or contract.contract_id or f"task:{turn_id}"),
             scheduled_status_text="我会按这个合同继续推进。",
@@ -818,76 +819,42 @@ class QueryRuntime:
         turn_id: str = "",
         max_steps: int = _CONVERSATION_TASK_EXECUTION_STEPS,
     ) -> dict[str, Any]:
-        runtime_host = self.single_agent_runtime_host
-        task_run = runtime_host.state_index.get_task_run(task_run_id)
-        if task_run is None:
-            return {"ok": False, "scheduled": False, "reason": "task_run_not_found"}
-        if is_task_run_executor_claimed(task_run):
-            return {"ok": True, "scheduled": False, "reason": "already_running"}
-        if not is_task_run_executable(task_run):
-            return {"ok": False, "scheduled": False, "reason": f"not_executable:{getattr(task_run, 'status', '')}"}
-        scheduled_event = runtime_host.event_log.append(
+        return self.task_executor_controller.schedule(
             task_run_id,
-            "task_run_executor_scheduled",
-            payload={
-                "task_run_id": task_run_id,
-                "max_steps": max_steps,
-                "scheduler": scheduler,
-                **({"turn_id": turn_id} if turn_id else {}),
-            },
-            refs={"task_run_ref": task_run_id, **({"turn_ref": turn_id} if turn_id else {})},
-        )
-        progress_summary = "已开始继续处理；接下来会持续汇报正在推进的步骤。"
-        progress_event = runtime_host.event_log.append(
-            task_run_id,
-            "step_summary_recorded",
-            payload={
-                "step": "task_executor_scheduled",
-                "status": "running",
-                "summary": progress_summary,
-                "public_progress_note": progress_summary,
-                "presentation_source": "conversation_task_schedule",
-            },
-            refs={"task_run_ref": task_run_id, **({"turn_ref": turn_id} if turn_id else {})},
-        )
-        runtime_host.state_index.upsert_task_run(
-            replace(
-                task_run,
-                status="running",
-                updated_at=progress_event.created_at or scheduled_event.created_at or time.time(),
-                latest_event_offset=progress_event.offset,
-                terminal_reason="",
-                diagnostics={
-                    **dict(task_run.diagnostics or {}),
-                    "executor_status": "scheduled",
-                    "latest_step": "task_executor_scheduled",
-                    "latest_step_status": "running",
-                    "latest_step_summary": progress_summary,
-                    "latest_public_progress_note": progress_summary,
-                    **({"latest_interaction_turn_id": turn_id} if turn_id else {}),
-                },
-            )
+            scheduler=scheduler,
+            turn_id=turn_id,
+            max_steps=max_steps,
         )
 
-        async def _runner() -> None:
-            try:
-                while True:
-                    result = await self.execute_task_run(task_run_id, max_steps=max_steps)
-                    payload = dict(result or {}) if isinstance(result, dict) else {}
-                    if not _task_executor_should_auto_continue(runtime_host, task_run_id=task_run_id, result=payload):
-                        return
-                    runtime_host.event_log.append(
-                        task_run_id,
-                        "task_run_executor_rescheduled",
-                        payload={"task_run_id": task_run_id, "reason": str(payload.get("error") or "waiting_executor"), "scheduler": scheduler},
-                        refs={"task_run_ref": task_run_id},
-                    )
-                    await asyncio.sleep(0)
-            except Exception as exc:
-                _mark_query_scheduled_task_failed(runtime_host, task_run_id=task_run_id, error=str(exc) or exc.__class__.__name__)
+    def recover_scheduled_task_run_executor(
+        self,
+        task_run_id: str,
+        *,
+        scheduler: str,
+        max_steps: int = _CONVERSATION_TASK_EXECUTION_STEPS,
+        recovered_from: str = "scheduled_executor_claim",
+    ) -> dict[str, Any]:
+        return self.task_executor_controller.recover_scheduled(
+            task_run_id,
+            scheduler=scheduler,
+            max_steps=max_steps,
+            recovered_from=recovered_from,
+        )
 
-        runtime_host.spawn_background_task(_runner(), name=f"task-run-executor:{task_run_id}")
-        return {"ok": True, "scheduled": True, "task_run_id": task_run_id}
+    def schedule_or_recover_task_run_executor(
+        self,
+        task_run_id: str,
+        *,
+        scheduler: str,
+        max_steps: int = _CONVERSATION_TASK_EXECUTION_STEPS,
+        recovered_from: str = "scheduled_executor_claim",
+    ) -> dict[str, Any]:
+        return self.task_executor_controller.recover_scheduled(
+            task_run_id,
+            scheduler=scheduler,
+            max_steps=max_steps,
+            recovered_from=recovered_from,
+        )
 
     async def generate_title(self, first_user_message: str) -> str:
         return await self.model_runtime.generate_title(first_user_message)
@@ -947,6 +914,7 @@ class QueryRuntime:
             runtime_host=self.single_agent_runtime_host,
             backend_dir=self.base_dir,
             model_runtime=self.model_runtime,
+            tool_control_plane=getattr(self.single_agent_runtime_host, "tool_control_plane", None),
             tool_runtime_executor=self.tool_runtime_executor,
             tool_instances=tuple(self._all_tool_instances()),
             agent_runtime_profile=profile,
@@ -995,7 +963,7 @@ class QueryRuntime:
             created_at=now,
             updated_at=now,
             diagnostics={
-                "source": "query_runtime.graph_agent_work_order_adapter",
+                "source": "harness.entrypoint.graph_agent_work_order_adapter",
                 "origin": origin,
                 **origin,
                 "graph_run_id": work_order.graph_run_id,
@@ -1085,7 +1053,7 @@ class QueryRuntime:
             session_id=session_id,
             content=content,
             task_id=turn_id,
-            source="query_runtime.adapter_input",
+            source="harness.entrypoint.adapter_input",
         )
         if decision.commit_allowed:
             payload = dict(decision.commit_candidate.payload)
@@ -1217,51 +1185,6 @@ class QueryRuntime:
         if isinstance(exc, ModelRuntimeError):
             return str(exc)
         return "请求处理失败，运行时已按 fail-closed 策略停止。"
-
-
-def _task_executor_should_auto_continue(runtime_host: Any, *, task_run_id: str, result: dict[str, Any]) -> bool:
-    if str(result.get("error") or "") not in {"task_execution_step_budget_exhausted", "user_interrupt_replan_required"}:
-        return False
-    if not bool(result.get("retryable")):
-        return False
-    task_run = runtime_host.state_index.get_task_run(task_run_id)
-    if task_run is None:
-        return False
-    return should_auto_continue_task_run(task_run)
-
-
-def _mark_query_scheduled_task_failed(runtime_host: Any, *, task_run_id: str, error: str) -> None:
-    event = runtime_host.event_log.append(
-        task_run_id,
-        "task_run_executor_schedule_failed",
-        payload={"task_run_id": task_run_id, "error": error, "scheduler": "conversation"},
-        refs={"task_run_ref": task_run_id},
-    )
-    current = runtime_host.state_index.get_task_run(task_run_id)
-    if current is None:
-        return
-    runtime_host.state_index.upsert_task_run(
-        replace(
-            current,
-            status="blocked",
-            updated_at=event.created_at,
-            latest_event_offset=event.offset,
-            terminal_reason="task_executor_schedule_failed",
-            diagnostics={
-                **dict(current.diagnostics or {}),
-                "executor_status": "blocked",
-                "latest_step": "task_executor_schedule_failed",
-                "latest_step_status": "blocked",
-                "latest_step_summary": f"继续处理时遇到调度失败：{error}",
-                "recoverable_error": {
-                    "error_code": "task_executor_schedule_failed",
-                    "retryable": True,
-                    "detail": error,
-                },
-                "recovery_action": "rerun_task_executor",
-            },
-        )
-    )
 
 
 def _active_work_schedule_failure_reply(result: dict[str, Any]) -> str:
@@ -1456,7 +1379,7 @@ def _graph_node_runtime_scope(work_order: Any) -> dict[str, Any]:
         **dict(dispatch_context.get("runtime_scope") or {}),
         "graph_run_id": str(getattr(work_order, "graph_run_id", "") or ""),
         "task_run_id": str(getattr(work_order, "task_run_id", "") or ""),
-        "authority": "query_runtime.graph_node_runtime_scope",
+        "authority": "harness.entrypoint.graph_node_runtime_scope",
     }
 
 
@@ -1543,7 +1466,7 @@ def _continuation_strategy_for_execution(*, decision_strategy: str, context: Act
 
 def _explicit_contract_action_request(
     *,
-    request: QueryRequest,
+    request: HarnessRuntimeRequest,
     turn_id: str,
     runtime_assembly: Any,
 ) -> ModelActionRequest:
@@ -1582,7 +1505,7 @@ def _explicit_contract_action_request(
         },
         diagnostics={
             "origin_kind": "explicit_contract",
-            "origin_authority": "harness.routing.explicit_contract_task",
+            "origin_authority": "harness.explicit_contract_task",
             "source_contract_ref": str(source.get("contract_id") or source.get("source_ref") or ""),
         },
     )
@@ -1590,7 +1513,7 @@ def _explicit_contract_action_request(
 
 def _task_run_contract_from_explicit_contract(
     *,
-    request: QueryRequest,
+    request: HarnessRuntimeRequest,
     turn_id: str,
     runtime_assembly: Any,
     action_request: ModelActionRequest,
@@ -1677,23 +1600,83 @@ def _task_run_contract_from_explicit_contract(
         graph_slot=dict(source.get("graph_slot") or source.get("graph_contract") or {}),
         origin={
             "origin_kind": "explicit_contract",
-            "origin_authority": "harness.routing.explicit_contract_task",
+            "origin_authority": "harness.explicit_contract_task",
             "turn_id": turn_id,
         },
     )
     return contract, []
 
 
-def _explicit_contract_source_payload(assembly_payload: dict[str, Any]) -> dict[str, Any]:
+def _runtime_branch_projection(*, runtime_assembly: Any) -> dict[str, Any]:
+    assembly_payload = runtime_assembly.to_dict() if hasattr(runtime_assembly, "to_dict") else dict(runtime_assembly or {})
+    capabilities = dict(assembly_payload.get("control_capabilities") or {})
+    if _runtime_is_blocked(assembly_payload):
+        return {
+            "branch_kind": "blocked_runtime",
+            "invocation_kind": "blocked_runtime",
+            "dispatch_target": "harness.entrypoint.blocked_runtime",
+            "reason": "runtime_assembly_blocked",
+            "control_capabilities": capabilities,
+            "monitor_policy": {"record_task_monitor": False, "record_turn_monitor": False},
+            "diagnostics": {"runtime_status": str(assembly_payload.get("status") or "")},
+            "authority": "harness.entrypoint.runtime_branch",
+        }
+    explicit_contract = _system_issued_explicit_contract_payload(assembly_payload)
+    if explicit_contract:
+        return {
+            "branch_kind": "explicit_contract_task",
+            "invocation_kind": "task_execution_start",
+            "dispatch_target": "harness.entrypoint.explicit_contract_task",
+            "reason": "system_issued_explicit_contract_present",
+            "control_capabilities": capabilities,
+            "monitor_policy": {"record_task_monitor": True, "record_turn_monitor": False},
+            "diagnostics": {
+                "explicit_contract_present": True,
+                "contract_id": str(explicit_contract.get("contract_id") or explicit_contract.get("source_ref") or ""),
+            },
+            "authority": "harness.entrypoint.runtime_branch",
+        }
+    return {
+        "branch_kind": "single_agent_turn",
+        "invocation_kind": "single_agent_turn",
+        "dispatch_target": "harness.entrypoint.single_agent_turn",
+        "reason": "default_agent_runtime_turn",
+        "control_capabilities": capabilities,
+        "monitor_policy": {"record_task_monitor": False, "record_turn_monitor": False},
+        "diagnostics": {"explicit_contract_present": False},
+        "authority": "harness.entrypoint.runtime_branch",
+    }
+
+
+def _runtime_is_blocked(assembly_payload: dict[str, Any]) -> bool:
+    status = str(assembly_payload.get("status") or "").strip().lower()
+    if status in {"blocked", "failed", "invalid"}:
+        return True
+    diagnostics = dict(assembly_payload.get("diagnostics") or {})
+    return bool(diagnostics.get("blocked_runtime") is True or diagnostics.get("runtime_blocked") is True)
+
+
+def _system_issued_explicit_contract_payload(assembly_payload: dict[str, Any]) -> dict[str, Any]:
     task_selection = dict(assembly_payload.get("task_selection") or {})
+    candidates: list[dict[str, Any]] = []
     for key in ("task_contract", "task_contract_seed", "engagement_contract"):
         value = task_selection.get(key)
         if isinstance(value, dict) and value:
-            return dict(value)
+            candidates.append(dict(value))
     engagement_contract = dict(assembly_payload.get("engagement_contract") or {})
     if engagement_contract:
-        return engagement_contract
+        candidates.append(engagement_contract)
+    if not candidates:
+        return {}
+    system_issued = bool(task_selection.get("system_issued_contract") is True)
+    for candidate in candidates:
+        if system_issued or candidate.get("system_issued") is True:
+            return candidate
     return {}
+
+
+def _explicit_contract_source_payload(assembly_payload: dict[str, Any]) -> dict[str, Any]:
+    return _system_issued_explicit_contract_payload(assembly_payload)
 
 
 def _contract_string_tuple(value: Any) -> tuple[str, ...]:

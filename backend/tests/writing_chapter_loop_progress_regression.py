@@ -114,8 +114,8 @@ def _chapter_loop_config():
 def test_chapter_progress_receipt_partial_commit_continues_from_next_missing_chapter(tmp_path: Path) -> None:
     runtime = _runtime_with_graph_harness(base_dir=tmp_path / "backend", runtime_root=tmp_path / "runtime_state")
     graph_config = _chapter_loop_config()
-    loop = runtime.query_runtime.graph_harness.graph_loop
-    started = runtime.query_runtime.graph_harness.start_run(
+    loop = runtime.harness_runtime.graph_harness.graph_loop
+    started = runtime.harness_runtime.graph_harness.start_run(
         session_id="session",
         task_id="task.test",
         graph_config=graph_config,
@@ -195,8 +195,8 @@ def test_progress_receipt_route_policy_preserves_explicit_receipt_source() -> No
 def test_chapter_progress_receipt_route_blocks_when_receipt_missing(tmp_path: Path) -> None:
     runtime = _runtime_with_graph_harness(base_dir=tmp_path / "backend", runtime_root=tmp_path / "runtime_state")
     graph_config = _chapter_loop_config()
-    loop = runtime.query_runtime.graph_harness.graph_loop
-    started = runtime.query_runtime.graph_harness.start_run(
+    loop = runtime.harness_runtime.graph_harness.graph_loop
+    started = runtime.harness_runtime.graph_harness.start_run(
         session_id="session",
         task_id="task.test",
         graph_config=graph_config,
@@ -223,8 +223,8 @@ def test_chapter_progress_receipt_route_blocks_when_receipt_missing(tmp_path: Pa
 def test_progress_receipt_route_uses_explicit_source_over_router_output(tmp_path: Path) -> None:
     runtime = _runtime_with_graph_harness(base_dir=tmp_path / "backend", runtime_root=tmp_path / "runtime_state")
     graph_config = _chapter_loop_config()
-    loop = runtime.query_runtime.graph_harness.graph_loop
-    started = runtime.query_runtime.graph_harness.start_run(
+    loop = runtime.harness_runtime.graph_harness.graph_loop
+    started = runtime.harness_runtime.graph_harness.start_run(
         session_id="session",
         task_id="task.test",
         graph_config=graph_config,
@@ -309,7 +309,7 @@ def test_memory_commit_node_requires_structured_chapter_progress_receipt(tmp_pat
         task_ref="task.test.chapter.commit",
         input_package={"initial_inputs": {"batch_start_index": 1, "batch_end_index": 10}},
     )
-    executor = GraphNodeWorkOrderExecutor(services=runtime.query_runtime)
+    executor = GraphNodeWorkOrderExecutor(services=runtime.harness_runtime)
 
     result = executor._node_result_from_agent_execution(
         graph_config=graph_config,

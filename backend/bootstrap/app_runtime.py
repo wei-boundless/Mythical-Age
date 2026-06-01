@@ -9,7 +9,7 @@ from capability_system.tool_runtime import ToolRuntime
 from capability_system.paths import CapabilitySystemPaths
 from memory_system import MemoryFacade
 from permissions import PermissionService
-from query import QueryRuntime
+from harness.entrypoint import HarnessRuntimeFacade
 from bootstrap.settings import AppSettingsService
 from knowledge_system import RetrievalService
 from sessions import SessionManager
@@ -29,7 +29,7 @@ class AppRuntime:
         self.retrieval_service: RetrievalService | None = None
         self.permission_service: PermissionService | None = None
         self.model_runtime: ModelRuntime | None = None
-        self.query_runtime: QueryRuntime | None = None
+        self.harness_runtime: HarnessRuntimeFacade | None = None
 
     def initialize(self, base_dir: Path) -> None:
         self.base_dir = base_dir
@@ -53,7 +53,7 @@ class AppRuntime:
             "durable_memory_index_rebuild",
             self._run_durable_memory_index_rebuild,
         )
-        self.query_runtime = QueryRuntime(
+        self.harness_runtime = HarnessRuntimeFacade(
             base_dir=base_dir,
             settings_service=self.settings,
             session_manager=self.session_manager,
@@ -76,7 +76,7 @@ class AppRuntime:
             or self.retrieval_service is None
             or self.permission_service is None
             or self.model_runtime is None
-            or self.query_runtime is None
+            or self.harness_runtime is None
         ):
             raise RuntimeError("App runtime is not initialized")
         return self

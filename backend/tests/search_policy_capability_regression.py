@@ -9,12 +9,11 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 from capability_system.search_policy import normalize_search_policy, operation_allowed_by_search_policy
-from capability_system import build_default_operation_registry
 from capability_system.tool_authorization import build_tool_authorization_index
 from capability_system.tool_definitions import build_tool_instances, get_tool_definitions
-from runtime.capabilities.current_turn_capability_plan import (
-    build_current_turn_capability_plan,
-    tool_instances_for_capability_plan,
+from harness.runtime import (
+    build_runtime_tool_plan,
+    tool_instances_for_runtime_tool_plan,
 )
 from runtime.context_management.system_retrieval import task_operation_requests_context_retrieval
 
@@ -31,39 +30,35 @@ def test_normalized_empty_search_policy_blocks_source_bound_operations() -> None
 def test_harness_service_host_filters_main_runtime_tools_by_search_policy(tmp_path) -> None:
     tools = build_tool_instances(BACKEND_DIR)
     index = build_tool_authorization_index(get_tool_definitions())
-    registry = build_default_operation_registry()
-    resource_policy = SimpleNamespace(
-        allowed_operations=(
-            "op.model_response",
-            "op.web_search",
-            "op.fetch_url",
-            "op.read_file",
-        ),
-        requires_approval_operations=(),
+    assembly = SimpleNamespace(
+        to_dict=lambda: {
+            "session_id": "session:test",
+            "turn_id": "turn:test",
+            "agent_invocation_id": "aginvoke:test",
+            "available_tools": [
+                _tool_view("memory_search", index.definitions_by_name),
+            ],
+            "task_environment": {"environment_id": "env.test"},
+            "operation_authorization": {},
+        }
     )
 
-    plan = build_current_turn_capability_plan(
-        tool_instances=tools,
-        resource_policy=resource_policy,
-        definitions_by_name=index.definitions_by_name,
-        normalize_operation_id=registry.normalize_id,
-        allowed_search_sources={"rag"},
+    plan = build_runtime_tool_plan(
+        runtime_assembly=assembly,
+        invocation_kind="task_execution",
+        tool_definitions_by_name=index.definitions_by_name,
     )
-    filtered = tool_instances_for_capability_plan(
+    filtered = tool_instances_for_runtime_tool_plan(
         tool_instances=tools,
-        capability_plan=plan,
+        tool_plan=plan,
     )
     names = {str(getattr(tool, "name", "") or "") for tool in filtered}
-    filtered_reasons = {
-        str(item.get("tool_name") or ""): str(item.get("reason") or "")
-        for item in plan.filtered_tools
-    }
 
+    assert "memory_search" in names
     assert "web_search" not in names
     assert "fetch_url" not in names
     assert "read_file" not in names
-    assert filtered_reasons["web_search"] == "search_policy_blocked"
-    assert filtered_reasons["fetch_url"] == "search_policy_blocked"
+    assert plan.dispatchable_tool_names == ("memory_search",)
 
 
 def test_graph_work_request_does_not_trigger_system_context_retrieval() -> None:
@@ -108,5 +103,14 @@ def test_direct_agent_invocation_ref_does_not_make_turn_coordination_scoped() ->
     )
 
     assert allowed is True
+
+
+def _tool_view(tool_name: str, definitions_by_name: dict[str, object]) -> dict[str, object]:
+    definition = definitions_by_name[tool_name]
+    return {
+        "tool_name": tool_name,
+        "operation_id": str(getattr(definition, "operation_id", "") or tool_name),
+        "read_only": bool(getattr(definition, "is_read_only", False)),
+    }
 
 

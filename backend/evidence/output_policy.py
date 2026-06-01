@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from typing import Any, Literal
 
 from runtime.model_gateway.model_runtime import ModelRuntimeError, stringify_content, utility_accounting_context
-from response_system import (
+from runtime.output_boundary import (
     answer_looks_like_snippet_dump,
     build_rag_answer_finalization_messages,
     normalize_finalized_answer,

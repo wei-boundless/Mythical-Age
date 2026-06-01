@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from intent.execution_obligation import build_execution_obligation
+from task_system.contracts.execution_obligation import build_execution_obligation
 from request_intent.request_signals import build_request_signals
 from task_system.services.assembly_support import build_runtime_task_intent_contract
 

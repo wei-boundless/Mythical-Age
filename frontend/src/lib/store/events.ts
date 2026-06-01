@@ -419,7 +419,7 @@ function eventNodeId(event: string) {
   if (event === "done" || event === "error") {
     return "output";
   }
-  if (event === "turn_route_decided" || event === "single_agent_turn_started") {
+  if (event === "runtime_branch_decided" || event === "single_agent_turn_started") {
     return "agent-turn";
   }
   if (event === "task_run_lifecycle_started" || event === "task_run_lifecycle_event") {

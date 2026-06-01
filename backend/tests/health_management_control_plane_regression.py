@@ -192,8 +192,8 @@ def test_health_conversation_session_uses_orchestration_config_not_payload_overr
 def test_health_conversation_message_fails_closed_until_agent_config_is_rebuilt() -> None:
     with TestClient(app) as client:
         runtime = app_runtime.require_ready()
-        original_stream = runtime.query_runtime.model_response_executor.stream
-        runtime.query_runtime.model_response_executor.stream = _fake_health_executor_stream  # type: ignore[method-assign]
+        original_stream = runtime.harness_runtime.model_response_executor.stream
+        runtime.harness_runtime.model_response_executor.stream = _fake_health_executor_stream  # type: ignore[method-assign]
         try:
             issue = client.post(
                 "/api/health-system/issues",
@@ -230,7 +230,7 @@ def test_health_conversation_message_fails_closed_until_agent_config_is_rebuilt(
             ]
             assert runs == []
         finally:
-            runtime.query_runtime.model_response_executor.stream = original_stream  # type: ignore[method-assign]
+            runtime.harness_runtime.model_response_executor.stream = original_stream  # type: ignore[method-assign]
 
 
 def test_health_conversation_without_bound_issue_returns_block_message() -> None:

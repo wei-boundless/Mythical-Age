@@ -19,9 +19,13 @@ class HistoryProjector:
     ) -> dict[str, Any]:
         policy = dict(projection_policy or {})
         recent_limit = int(policy.get("recent_history_message_limit") or 6)
-        session_payload = _session_context_projection(session_context)
+        message_char_limit = int(policy.get("history_message_chars") or 1200)
+        session_payload = _session_context_projection(
+            session_context,
+            compressed_summary_chars=int(policy.get("compressed_summary_chars") or 4000),
+        )
         normalized = [
-            _normalize_message(item)
+            _normalize_message(item, content_limit=message_char_limit)
             for item in list(history or [])
             if isinstance(item, dict) and not _is_compressed_context_message(item)
         ]
@@ -33,7 +37,11 @@ class HistoryProjector:
             "context_summary": _context_summary(older_count),
             "pinned_facts": [],
             "recent_turns": recent,
-            "active_tool_trajectory": _tool_trajectory(normalized[-max(recent_limit * 2, 12):]),
+            "active_tool_trajectory": _tool_trajectory(
+                normalized[-max(recent_limit * 2, 12):],
+                limit=int(policy.get("tool_trajectory_limit") or 8),
+                result_preview_chars=int(policy.get("tool_trajectory_result_chars") or 300),
+            ),
             "omitted_history": {
                 "turn_count": older_count,
                 "reason": "recent_history_message_limit",
@@ -46,9 +54,9 @@ class HistoryProjector:
         return drop_empty(payload)
 
 
-def _normalize_message(item: dict[str, Any]) -> dict[str, Any]:
+def _normalize_message(item: dict[str, Any], *, content_limit: int) -> dict[str, Any]:
     role = str(item.get("role") or item.get("type") or "user")
-    content = compact_text(item.get("content") or item.get("text") or "", limit=1200)
+    content = compact_text(item.get("content") or item.get("text") or "", limit=max(300, int(content_limit or 1200)))
     payload = {
         "role": role,
         "content": content,
@@ -60,9 +68,12 @@ def _normalize_message(item: dict[str, Any]) -> dict[str, Any]:
     return drop_empty(payload)
 
 
-def _session_context_projection(session_context: dict[str, Any] | None) -> dict[str, Any]:
+def _session_context_projection(session_context: dict[str, Any] | None, *, compressed_summary_chars: int) -> dict[str, Any]:
     payload = dict(session_context or {})
-    compressed = compact_text(payload.get("compressed_context") or payload.get("compressed_summary") or "", limit=4000)
+    compressed = compact_text(
+        payload.get("compressed_context") or payload.get("compressed_summary") or "",
+        limit=max(1000, int(compressed_summary_chars or 4000)),
+    )
     return drop_empty(
         {
             "compressed_summary": compressed,
@@ -82,7 +93,7 @@ def _context_summary(older_count: int) -> str:
     return f"{older_count} earlier message-equivalent item(s) are omitted by dynamic context projection; rely on recent_turns, pinned_facts, and active observations."
 
 
-def _tool_trajectory(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _tool_trajectory(messages: list[dict[str, Any]], *, limit: int, result_preview_chars: int) -> list[dict[str, Any]]:
     trajectory: list[dict[str, Any]] = []
     for item in messages:
         if item.get("tool_calls"):
@@ -97,7 +108,10 @@ def _tool_trajectory(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 {
                     "role": "tool",
                     "tool_call_id": str(item.get("tool_call_id") or ""),
-                    "result_preview": compact_text(item.get("content") or "", limit=300),
+                    "result_preview": compact_text(
+                        item.get("content") or "",
+                        limit=max(120, int(result_preview_chars or 300)),
+                    ),
                 }
             )
-    return trajectory[-8:]
+    return trajectory[-max(1, int(limit or 8)):]

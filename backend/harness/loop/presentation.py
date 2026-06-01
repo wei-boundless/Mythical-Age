@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from response_system.boundary.boundary import sanitize_visible_assistant_content
+from runtime.output_boundary import sanitize_visible_assistant_content
 
 
 def final_answer_event(

@@ -16,8 +16,8 @@ PROJECT_ROOT = BACKEND_DIR.parent
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-from query.models import QueryRequest
-from tests.support.runtime_stubs import build_query_runtime
+from harness.entrypoint.models import HarnessRuntimeRequest
+from tests.support.runtime_stubs import build_harness_runtime
 
 
 def _action_request(
@@ -134,7 +134,7 @@ def _user_message_from_active_work_prompt(messages: Any) -> str:
     return str(payload.get("user_message") or "").strip()
 
 
-async def _collect_stream(runtime: Any, request: QueryRequest) -> list[dict[str, Any]]:
+async def _collect_stream(runtime: Any, request: HarnessRuntimeRequest) -> list[dict[str, Any]]:
     events: list[dict[str, Any]] = []
     async for event in runtime.astream(request):
         events.append(dict(event))
@@ -171,13 +171,13 @@ async def _run_experiment(output_root: Path) -> dict[str, Any]:
     output_dir.mkdir(parents=True, exist_ok=True)
 
     model = ActiveTaskSteeringExperimentModelRuntime()
-    runtime = build_query_runtime(model_runtime=model)
+    runtime = build_harness_runtime(model_runtime=model)
     host = runtime.single_agent_runtime_host
     session_id = f"session-active-steering-experiment-{uuid.uuid4().hex[:8]}"
 
     create_events = await _collect_stream(
         runtime,
-        QueryRequest(
+        HarnessRuntimeRequest(
             session_id=session_id,
             message="请启动一个可验证的长任务，用于检查运行中补充要求是否会被真实处理。",
         ),
@@ -190,7 +190,7 @@ async def _run_experiment(output_root: Path) -> dict[str, Any]:
 
     steering_events = await _collect_stream(
         runtime,
-        QueryRequest(
+        HarnessRuntimeRequest(
             session_id=session_id,
             message="不是直接完成。请先纳入这条运行中补充要求，并说明完成前要检查它。",
         ),

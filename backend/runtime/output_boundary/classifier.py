@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 
-from response_system.models.output_models import OutputCandidate, OutputDecision
+from runtime.output_boundary.output_models import OutputCandidate, OutputDecision
 
 
 _PROCEDURAL_PREFIX_RE = re.compile(

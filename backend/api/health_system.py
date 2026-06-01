@@ -12,18 +12,18 @@ from health_system.governance import HealthGovernanceBuilder
 router = APIRouter()
 
 
-class HealthRuntimeQueryAdapter:
+class HealthRuntimeHarnessAdapter:
     """Read-only health runtime view backed by the current single-agent host.
 
     Health governance still has a few APIs that were written against the old
     AgentHarness facade. This adapter keeps trace inspection working without
-    re-attaching that old execution facade to QueryRuntime.
+    re-attaching that old execution facade to HarnessRuntimeFacade.
     """
 
-    def __init__(self, query_runtime: Any) -> None:
-        self._query_runtime = query_runtime
-        self._services = getattr(query_runtime, "agent_runtime_services", None)
-        self._host = getattr(query_runtime, "single_agent_runtime_host", None)
+    def __init__(self, harness_runtime: Any) -> None:
+        self._harness_runtime = harness_runtime
+        self._services = getattr(harness_runtime, "agent_runtime_services", None)
+        self._host = getattr(harness_runtime, "single_agent_runtime_host", None)
 
     def get_task_run(self, task_run_id: str) -> Any | None:
         if self._services is not None and callable(getattr(self._services, "get_task_run", None)):
@@ -52,8 +52,8 @@ class HealthRuntimeQueryAdapter:
                 return int(counter(task_run_id))
         return 0
 
-def _health_runtime_adapter(runtime: Any) -> HealthRuntimeQueryAdapter:
-    return HealthRuntimeQueryAdapter(runtime.query_runtime)
+def _health_runtime_adapter(runtime: Any) -> HealthRuntimeHarnessAdapter:
+    return HealthRuntimeHarnessAdapter(runtime.harness_runtime)
 
 
 class HealthAgentRunPreviewRequest(BaseModel):
@@ -215,9 +215,9 @@ async def health_system_submit_command(payload: HealthManagementCommandRequest) 
         return await HealthRegistry(runtime.base_dir).submit_command(
             payload.model_dump(),
             agent_runtime=_health_runtime_adapter(runtime),
-            model_response_executor=runtime.query_runtime.model_response_executor,
-            tool_runtime_executor=runtime.query_runtime.tool_runtime_executor,
-            tool_instances=runtime.query_runtime._all_tool_instances(),
+            model_response_executor=runtime.harness_runtime.model_response_executor,
+            tool_runtime_executor=runtime.harness_runtime.tool_runtime_executor,
+            tool_instances=runtime.harness_runtime._all_tool_instances(),
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -296,9 +296,9 @@ async def health_system_append_conversation_message(
             session_id,
             payload.model_dump(),
             agent_runtime=_health_runtime_adapter(runtime),
-            model_response_executor=runtime.query_runtime.model_response_executor,
-            tool_runtime_executor=runtime.query_runtime.tool_runtime_executor,
-            tool_instances=runtime.query_runtime._all_tool_instances(),
+            model_response_executor=runtime.harness_runtime.model_response_executor,
+            tool_runtime_executor=runtime.harness_runtime.tool_runtime_executor,
+            tool_instances=runtime.harness_runtime._all_tool_instances(),
         )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Unknown health conversation session") from exc
@@ -333,9 +333,9 @@ async def health_system_create_issue(payload: HealthIssueCreateRequest) -> dict[
                 "payload": payload.model_dump(),
             },
             agent_runtime=_health_runtime_adapter(runtime),
-            model_response_executor=runtime.query_runtime.model_response_executor,
-            tool_runtime_executor=runtime.query_runtime.tool_runtime_executor,
-            tool_instances=runtime.query_runtime._all_tool_instances(),
+            model_response_executor=runtime.harness_runtime.model_response_executor,
+            tool_runtime_executor=runtime.harness_runtime.tool_runtime_executor,
+            tool_instances=runtime.harness_runtime._all_tool_instances(),
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -411,9 +411,9 @@ async def health_system_agent_run_start(issue_id: str, payload: HealthAgentRunSt
                 "health_action": payload.health_action,
             },
             agent_runtime=_health_runtime_adapter(runtime),
-            model_response_executor=runtime.query_runtime.model_response_executor,
-            tool_runtime_executor=runtime.query_runtime.tool_runtime_executor,
-            tool_instances=runtime.query_runtime._all_tool_instances(),
+            model_response_executor=runtime.harness_runtime.model_response_executor,
+            tool_runtime_executor=runtime.harness_runtime.tool_runtime_executor,
+            tool_instances=runtime.harness_runtime._all_tool_instances(),
         )
         return dict(response.get("run_result") or response)
     except KeyError as exc:

@@ -17,6 +17,14 @@ from runtime.shared.execution_record import RuntimeExecutionStore, build_idempot
 from runtime.tool_runtime.tool_executor import ToolRuntimeExecutor
 
 
+def test_tool_runtime_executor_does_not_depend_on_taskrun_tool_task_control() -> None:
+    source = (BACKEND_DIR / "runtime" / "tool_runtime" / "tool_executor.py").read_text(encoding="utf-8")
+
+    assert "attach_tool_task" not in source
+    assert "clear_tool_task" not in source
+    assert "peek_executor_signal" not in source
+
+
 def test_sandbox_read_file_copies_workspace_file_into_overlay(tmp_path: Path) -> None:
     workspace = tmp_path / "project"
     sandbox_root = tmp_path / "sandbox" / "workspace"
@@ -227,10 +235,12 @@ def test_image_generate_tool_disables_agent_auto_retry_on_provider_failure(tmp_p
     assert structured_error["agent_retry_policy"] == "do_not_auto_retry"
 
 
-def test_image_generate_tool_auto_targets_are_unique_and_do_not_overwrite_by_default(tmp_path: Path, monkeypatch) -> None:
-    from capability_system.units.tools.image_generation_tool import ImageGenerationTool
+def test_image_generate_executor_injects_stable_target_and_does_not_overwrite_by_default(tmp_path: Path, monkeypatch) -> None:
     from soul.image_asset_service import SoulImageAssetService
 
+    workspace = tmp_path / "project"
+    sandbox_root = tmp_path / "sandbox" / "workspace"
+    workspace.mkdir(parents=True)
     calls: list[dict] = []
 
     async def _fake_generate(self, **kwargs):
@@ -247,14 +257,19 @@ def test_image_generate_tool_auto_targets_are_unique_and_do_not_overwrite_by_def
 
     monkeypatch.setattr(SoulImageAssetService, "generate", _fake_generate)
 
-    tool = ImageGenerationTool(tmp_path)
-    asyncio.run(tool._arun(prompt="first"))
-    asyncio.run(tool._arun(prompt="second"))
+    result = _run_tool(
+        workspace=workspace,
+        sandbox_root=sandbox_root,
+        tool_name="image_generate",
+        tool_args={"prompt": "first"},
+        operation_id="op.image_generate",
+    )
 
-    assert len(calls) == 2
-    assert calls[0]["target_id"] != calls[1]["target_id"]
+    assert result["error"] == ""
+    assert len(calls) == 1
+    assert calls[0]["target_id"].startswith("tool-toolinv-")
     assert calls[0]["overwrite"] is False
-    assert calls[1]["overwrite"] is False
+    assert result["observation"].payload["tool_args"]["target_id"] == calls[0]["target_id"]
 
 
 def test_sandbox_search_uses_overlay_view_after_read_copies_workspace_file(tmp_path: Path) -> None:

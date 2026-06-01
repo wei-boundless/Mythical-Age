@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from response_system import AssistantOutputBoundary
-from response_system.classification.classifier import classify_output_candidate
+from runtime.output_boundary import AssistantOutputBoundary
+from runtime.output_boundary.classifier import classify_output_candidate
 
 
 def _classify(text: str):

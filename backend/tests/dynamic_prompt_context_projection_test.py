@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from harness.runtime.compiler import RuntimeCompiler, _dynamic_context_segment_metadata
+from harness.runtime.context_budget_policy import build_model_aware_context_budget_policy
 from harness.runtime.dynamic_context import DynamicContextProjection, VolatileSectionReport
 from harness.runtime.prompt_segment_plan import build_prompt_segment_plan
 
@@ -226,38 +227,36 @@ def test_task_execution_uses_invocation_scoped_agent_prompt_refs() -> None:
     assert "持续任务执行 agent" in model_input
     assert "不负责重新判断是否建立任务生命周期" in model_input
     assert "请求持续任务生命周期" not in model_input
-    assert "处理 Python 开发任务" not in model_input
-    assert "python_symbol_search 定位定义或引用" not in model_input
-
-
-def test_task_execution_includes_strategy_only_when_runtime_assembly_selects_prompt_ref() -> None:
-    result = RuntimeCompiler().compile_task_execution_packet(
-        session_id="session:structured-strategy",
-        task_run={"task_run_id": "taskrun:structured-strategy", "diagnostics": {"executor_status": "running"}},
-        contract={
-            "task_run_goal": "执行单次 image_generate 调用，失败后只报告错误字段，不重试",
-            "completion_criteria": ["只调用一次 image_generate"],
-        },
-        observations=[],
-        available_tools=[
-            {"tool_name": "image_generate", "operation_id": "op.image_generate"},
-            {"tool_name": "python_symbol_search", "operation_id": "op.python_symbol_search"},
-        ],
-        runtime_assembly={
-            "profile": {"mode": "professional"},
-            "environment_prompt_refs": ["environment.development.sandbox.v1", "strategy.development.execution.v1"],
-            "task_environment": {
-                "environment_id": "env.development.sandbox",
-                "title": "Development Sandbox",
-                "description": "Project workspace boundary",
-            },
-            "operation_authorization": {"allowed_operations": ["op.image_generate", "op.python_symbol_search"]},
-        },
-    )
-
-    model_input = "\n".join(str(message["content"]) for message in result.packet.model_messages)
     assert "处理 Python 开发任务" in model_input
-    assert "python_symbol_search 定位定义或引用" in model_input
+    assert "AST 工具只用于只读代码智能" in model_input
+
+
+def test_environment_strategy_prompt_ref_is_rejected_after_strategy_moves_to_agent_profile() -> None:
+    obsolete_environment_strategy_ref = "strategy." + "development.execution.v1"
+    with pytest.raises(ValueError, match="runtime prompt ref assembly rejected refs"):
+        RuntimeCompiler().compile_task_execution_packet(
+            session_id="session:structured-strategy",
+            task_run={"task_run_id": "taskrun:structured-strategy", "diagnostics": {"executor_status": "running"}},
+            contract={
+                "task_run_goal": "执行单次 image_generate 调用，失败后只报告错误字段，不重试",
+                "completion_criteria": ["只调用一次 image_generate"],
+            },
+            observations=[],
+            available_tools=[
+                {"tool_name": "image_generate", "operation_id": "op.image_generate"},
+                {"tool_name": "python_symbol_search", "operation_id": "op.python_symbol_search"},
+            ],
+            runtime_assembly={
+                "profile": {"mode": "professional"},
+                "environment_prompt_refs": ["environment.development.sandbox.v1", obsolete_environment_strategy_ref],
+                "task_environment": {
+                    "environment_id": "env.development.sandbox",
+                    "title": "Development Sandbox",
+                    "description": "Project workspace boundary",
+                },
+                "operation_authorization": {"allowed_operations": ["op.image_generate", "op.python_symbol_search"]},
+            },
+        )
 
 
 def test_runtime_compiler_rejects_wrong_invocation_prompt_ref() -> None:
@@ -300,14 +299,7 @@ def test_single_agent_turn_keeps_compressed_context_outside_recent_history_windo
     history_payload = volatile_payload["history"]
 
     assert history_payload["session_context"]["compressed_summary"] == "此前已经确认项目采用 DeepSeek。"
-    assert [item["content"] for item in history_payload["recent_turns"]] == [
-        "user-2",
-        "user-3",
-        "user-4",
-        "user-5",
-        "user-6",
-        "user-7",
-    ]
+    assert [item["content"] for item in history_payload["recent_turns"]] == [f"user-{index}" for index in range(8)]
     assert all("[Compressed session context]" not in item["content"] for item in history_payload["recent_turns"])
 
 
@@ -362,6 +354,75 @@ def test_single_agent_turn_projects_compressed_context_as_session_context() -> N
     context_window = result.packet.diagnostics["prompt_manifest"]["context_window"]
     assert context_window["compressed_summary_present"] is True
     assert str(context_window["compressed_summary_hash"]).startswith("sha256:")
+
+
+def test_model_aware_context_budget_uses_deepseek_1m_for_v4_models() -> None:
+    policy = build_model_aware_context_budget_policy(
+        invocation_kind="single_agent_turn",
+        model_selection={
+            "provider": "deepseek",
+            "model": "deepseek-v4-pro",
+            "context_budget_preset": "deepseek_1m",
+            "max_output_tokens": 65536,
+            "thinking_mode": "enabled",
+            "reasoning_effort": "max",
+        },
+    )
+
+    assert policy.effective_preset_id == "deepseek_1m"
+    assert policy.context_window_tokens == 1_000_000
+    assert policy.available_context_tokens >= 800_000
+    assert policy.projection_limits["recent_history_message_limit"] > 100
+    assert policy.volatile_char_budget > 1_000_000
+    assert policy.thinking_mode == "enabled"
+    assert policy.reasoning_effort == "max"
+
+
+def test_model_aware_context_budget_does_not_enable_deepseek_1m_for_other_models() -> None:
+    policy = build_model_aware_context_budget_policy(
+        invocation_kind="single_agent_turn",
+        model_selection={
+            "provider": "openai",
+            "model": "gpt-4.1-mini",
+            "context_budget_preset": "deepseek_1m",
+        },
+    )
+
+    assert policy.requested_preset_id == "deepseek_1m"
+    assert policy.effective_preset_id == "long_128k"
+    assert policy.preset_status == "incompatible_model_downgraded"
+    assert policy.context_window_tokens == 128_000
+    assert policy.diagnostics["preset_rejection_reason"] == "deepseek_1m_requires_deepseek_v4_pro_or_flash"
+
+
+def test_runtime_compiler_exposes_model_budget_policy_in_context_window_report() -> None:
+    result = RuntimeCompiler().compile_single_agent_turn_packet(
+        session_id="session:budget-policy",
+        turn_id="turn:budget-policy",
+        agent_invocation_id="aginvoke:budget-policy",
+        user_message="继续审查上下文预算。",
+        history=[],
+        model_selection={
+            "provider": "deepseek",
+            "model": "deepseek-v4-flash",
+            "context_budget_preset": "deepseek_1m",
+            "thinking_mode": "enabled",
+            "reasoning_effort": "high",
+        },
+        runtime_assembly={
+            "profile": {"mode": "professional"},
+            "task_environment": {"environment_id": "env.general.workspace"},
+            "operation_authorization": {"allowed_operations": ["op.model_response"]},
+        },
+    )
+
+    budget_report = result.packet.diagnostics["prompt_manifest"]["context_window"]["budget_report"]
+    policy = budget_report["context_budget_policy"]
+
+    assert policy["authority"] == "harness.runtime.context_budget_policy"
+    assert policy["effective_preset_id"] == "deepseek_1m"
+    assert policy["context_window_tokens"] == 1_000_000
+    assert budget_report["volatile_char_budget"] == policy["volatile_char_budget"]
 
 
 def test_dynamic_context_manager_rebinds_to_runtime_assembly_backend_dir(tmp_path: Path) -> None:

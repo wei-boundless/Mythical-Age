@@ -7,8 +7,6 @@ from pydantic import BaseModel, Field
 
 from api.deps import require_runtime
 from harness.loop.task_executor import (
-    is_task_run_executable,
-    is_task_run_executor_claimed,
     request_task_run_pause,
     resume_paused_task_run,
     stop_task_run,
@@ -30,7 +28,7 @@ class TaskRunControlRequest(BaseModel):
 @router.get("/orchestration/harness/sessions/{session_id}/task-runs")
 async def list_harness_task_runs(session_id: str) -> dict[str, Any]:
     runtime = require_runtime()
-    return runtime.query_runtime.single_agent_runtime_host.list_session_traces(session_id)
+    return runtime.harness_runtime.single_agent_runtime_host.list_session_traces(session_id)
 
 
 @router.get("/orchestration/harness/task-runs/{task_run_id}")
@@ -41,7 +39,7 @@ async def get_harness_trace(
     event_limit: int | None = None,
 ) -> dict[str, Any]:
     runtime = require_runtime()
-    trace = runtime.query_runtime.single_agent_runtime_host.get_trace(
+    trace = runtime.harness_runtime.single_agent_runtime_host.get_trace(
         task_run_id,
         include_payloads=include_payloads,
         include_model_messages=include_model_messages,
@@ -60,7 +58,7 @@ async def get_harness_turn_trace(
     event_limit: int | None = None,
 ) -> dict[str, Any]:
     runtime = require_runtime()
-    trace = runtime.query_runtime.single_agent_runtime_host.get_turn_trace(
+    trace = runtime.harness_runtime.single_agent_runtime_host.get_turn_trace(
         turn_run_id,
         include_payloads=include_payloads,
         include_model_messages=include_model_messages,
@@ -77,44 +75,21 @@ async def execute_harness_task_run(
     payload: TaskRunExecuteRequest | None = None,
 ) -> dict[str, Any]:
     runtime = require_runtime()
-    runtime_host = runtime.query_runtime.single_agent_runtime_host
+    runtime_host = runtime.harness_runtime.single_agent_runtime_host
     task_run = runtime_host.state_index.get_task_run(task_run_id)
     if task_run is None:
         raise HTTPException(status_code=404, detail="TaskRun not found")
     if str(getattr(task_run, "execution_runtime_kind", "") or "") not in {"single_agent_task", "subagent_task"}:
         raise HTTPException(status_code=409, detail="not_single_agent_task_run")
     max_steps = payload.max_steps if payload is not None else 12
-    if is_task_run_executor_claimed(task_run):
-        executor_status = str(dict(getattr(task_run, "diagnostics", {}) or {}).get("executor_status") or "")
-        if executor_status != "scheduled":
-            raise HTTPException(status_code=409, detail="task_run_executor_already_running")
-
-        async def _recover_scheduled_executor() -> None:
-            await runtime.query_runtime.execute_task_run(task_run_id, max_steps=max_steps)
-
-        runtime_host.spawn_background_task(
-            _recover_scheduled_executor(),
-            name=f"task-run-executor-recover:{task_run_id}",
-        )
-        return {
-            "ok": True,
-            "accepted": True,
-            "background_started": True,
-            "task_run_id": task_run_id,
-            "status": task_run.status,
-            "monitor_url": f"/api/orchestration/runtime-monitor/task-runs/{task_run_id}",
-            "trace_url": f"/api/orchestration/harness/task-runs/{task_run_id}",
-            "recovered_from": "scheduled_executor_claim",
-        }
-    if not is_task_run_executable(task_run):
-        raise HTTPException(status_code=409, detail=f"task_run_not_executable:{task_run.status}")
-    schedule_result = runtime.query_runtime.schedule_task_run_executor(
+    schedule_result = runtime.harness_runtime.schedule_or_recover_task_run_executor(
         task_run_id,
         scheduler="task_run_execute_api",
         max_steps=max_steps,
+        recovered_from="scheduled_executor_claim",
     )
     if not schedule_result.get("ok") or not schedule_result.get("scheduled"):
-        raise HTTPException(status_code=409, detail=str(schedule_result.get("reason") or "task_run_schedule_rejected"))
+        raise HTTPException(status_code=409, detail=_schedule_rejection_detail(schedule_result, fallback_status=str(getattr(task_run, "status", "") or "")))
     updated_task_run = runtime_host.state_index.get_task_run(task_run_id) or task_run
     return {
         "ok": True,
@@ -124,6 +99,7 @@ async def execute_harness_task_run(
         "status": updated_task_run.status,
         "monitor_url": f"/api/orchestration/runtime-monitor/task-runs/{task_run_id}",
         "trace_url": f"/api/orchestration/harness/task-runs/{task_run_id}",
+        **({"recovered_from": schedule_result.get("recovered_from")} if schedule_result.get("recovered_from") else {}),
     }
 
 
@@ -133,7 +109,7 @@ async def pause_harness_task_run(
     payload: TaskRunControlRequest | None = None,
 ) -> dict[str, Any]:
     runtime = require_runtime()
-    runtime_host = runtime.query_runtime.single_agent_runtime_host
+    runtime_host = runtime.harness_runtime.single_agent_runtime_host
     _assert_expected_active_turn(runtime_host, task_run_id, payload.expected_active_turn_id if payload is not None else "")
     result = request_task_run_pause(
         runtime_host,
@@ -154,7 +130,7 @@ async def resume_harness_task_run(
     payload: TaskRunExecuteRequest | None = None,
 ) -> dict[str, Any]:
     runtime = require_runtime()
-    runtime_host = runtime.query_runtime.single_agent_runtime_host
+    runtime_host = runtime.harness_runtime.single_agent_runtime_host
     _assert_expected_active_turn(runtime_host, task_run_id, payload.expected_active_turn_id if payload is not None else "")
     result = resume_paused_task_run(runtime_host, task_run_id, requested_by="user")
     if result.get("error") == "task_run_not_found":
@@ -164,18 +140,14 @@ async def resume_harness_task_run(
     task_run = runtime_host.state_index.get_task_run(task_run_id)
     if task_run is None:
         raise HTTPException(status_code=404, detail="TaskRun not found")
-    if is_task_run_executor_claimed(task_run):
-        raise HTTPException(status_code=409, detail="task_run_executor_already_running")
-    if not is_task_run_executable(task_run):
-        raise HTTPException(status_code=409, detail=f"task_run_not_executable:{task_run.status}")
     max_steps = payload.max_steps if payload is not None else 12
-    schedule_result = runtime.query_runtime.schedule_task_run_executor(
+    schedule_result = runtime.harness_runtime.schedule_task_run_executor(
         task_run_id,
         scheduler="task_run_resume_api",
         max_steps=max_steps,
     )
     if not schedule_result.get("ok") or not schedule_result.get("scheduled"):
-        raise HTTPException(status_code=409, detail=str(schedule_result.get("reason") or "task_run_schedule_rejected"))
+        raise HTTPException(status_code=409, detail=_schedule_rejection_detail(schedule_result, fallback_status=str(getattr(task_run, "status", "") or "")))
     updated_task_run = runtime_host.state_index.get_task_run(task_run_id) or task_run
     return {
         **result,
@@ -193,7 +165,7 @@ async def stop_harness_task_run(
     payload: TaskRunControlRequest | None = None,
 ) -> dict[str, Any]:
     runtime = require_runtime()
-    runtime_host = runtime.query_runtime.single_agent_runtime_host
+    runtime_host = runtime.harness_runtime.single_agent_runtime_host
     _assert_expected_active_turn(runtime_host, task_run_id, payload.expected_active_turn_id if payload is not None else "")
     result = stop_task_run(
         runtime_host,
@@ -228,22 +200,32 @@ def _task_run_session_id(runtime_host: Any, task_run_id: str) -> str:
     return str(getattr(task_run, "session_id", "") or "")
 
 
+def _schedule_rejection_detail(result: dict[str, Any], *, fallback_status: str = "") -> str:
+    reason = str(result.get("reason") or "task_run_schedule_rejected")
+    if reason == "already_running":
+        return "task_run_executor_already_running"
+    if reason.startswith("not_executable:"):
+        status = reason.split(":", 1)[1] or fallback_status
+        return f"task_run_not_executable:{status}"
+    return reason
+
+
 @router.get("/orchestration/harness/task-runs/{task_run_id}/artifacts")
 async def get_harness_task_run_artifacts(task_run_id: str) -> dict[str, Any]:
     runtime = require_runtime()
-    return runtime.query_runtime.single_agent_runtime_host.get_task_run_artifacts(task_run_id)
+    return runtime.harness_runtime.single_agent_runtime_host.get_task_run_artifacts(task_run_id)
 
 
 @router.get("/orchestration/harness/task-runs/{task_run_id}/memory-receipts")
 async def get_harness_task_run_memory_receipts(task_run_id: str) -> dict[str, Any]:
     runtime = require_runtime()
-    return runtime.query_runtime.single_agent_runtime_host.get_task_run_memory_receipts(task_run_id)
+    return runtime.harness_runtime.single_agent_runtime_host.get_task_run_memory_receipts(task_run_id)
 
 
 @router.get("/orchestration/projects/{project_id}/runtime-status")
 async def get_project_runtime_status(project_id: str) -> dict[str, Any]:
     runtime = require_runtime()
-    status = runtime.query_runtime.single_agent_runtime_host.get_project_runtime_status(project_id)
+    status = runtime.harness_runtime.single_agent_runtime_host.get_project_runtime_status(project_id)
     if status is None:
         raise HTTPException(status_code=404, detail="Project runtime status not found")
     return status

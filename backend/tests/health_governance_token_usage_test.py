@@ -102,7 +102,7 @@ def test_health_token_usage_is_task_trace_scoped_not_session_duplicated() -> Non
         prompt_accounting_ledger=None,
         list_global_live_monitor=lambda limit: {"summary": {}, "task_runs": []},
     )
-    runtime = SimpleNamespace(query_runtime=SimpleNamespace(single_agent_runtime_host=runtime_host))
+    runtime = SimpleNamespace(harness_runtime=SimpleNamespace(single_agent_runtime_host=runtime_host))
 
     token_usage = HealthGovernanceBuilder(runtime).build_token_usage(limit=10)
     task_tokens = [int(item["token_total"]) for item in token_usage["tasks"]]
@@ -159,7 +159,7 @@ def test_health_token_usage_prefers_prompt_accounting_provider_usage(tmp_path) -
         prompt_accounting_ledger=ledger,
         list_global_live_monitor=lambda limit: {"summary": {}, "task_runs": []},
     )
-    runtime = SimpleNamespace(query_runtime=SimpleNamespace(single_agent_runtime_host=runtime_host))
+    runtime = SimpleNamespace(harness_runtime=SimpleNamespace(single_agent_runtime_host=runtime_host))
 
     token_usage = HealthGovernanceBuilder(runtime).build_token_usage(limit=10)
     task = token_usage["tasks"][0]
@@ -221,7 +221,7 @@ def test_health_task_record_maintenance_dry_run_does_not_delete_records() -> Non
             ],
         },
     )
-    runtime = SimpleNamespace(query_runtime=SimpleNamespace(single_agent_runtime_host=runtime_host))
+    runtime = SimpleNamespace(harness_runtime=SimpleNamespace(single_agent_runtime_host=runtime_host))
 
     result = HealthGovernanceBuilder(runtime).prune_task_records(
         task_run_ids=["taskrun:old-completed", "taskrun:running"],
@@ -285,7 +285,7 @@ def test_health_task_record_maintenance_protects_failed_without_report_and_delet
             ],
         },
     )
-    runtime = SimpleNamespace(query_runtime=SimpleNamespace(single_agent_runtime_host=runtime_host))
+    runtime = SimpleNamespace(harness_runtime=SimpleNamespace(single_agent_runtime_host=runtime_host))
 
     result = HealthGovernanceBuilder(runtime).prune_task_records(
         task_run_ids=["taskrun:old-completed", "taskrun:failed"],
@@ -373,7 +373,7 @@ def test_health_governance_reports_rollout_and_checkout_lineage_risks() -> None:
         prompt_accounting_ledger=None,
         list_global_live_monitor=lambda limit: monitor_projector.build_global_monitor(state_index.list_task_runs(), now=now, limit=limit),
     )
-    runtime = SimpleNamespace(query_runtime=SimpleNamespace(single_agent_runtime_host=runtime_host))
+    runtime = SimpleNamespace(harness_runtime=SimpleNamespace(single_agent_runtime_host=runtime_host))
 
     risks = HealthGovernanceBuilder(runtime).build_risks(limit=10)["risks"]
     risk_codes = {str(item.get("risk_code") or "") for item in risks}
@@ -439,7 +439,7 @@ def test_health_task_record_maintenance_protects_checkout_lineage_records() -> N
             ],
         },
     )
-    runtime = SimpleNamespace(query_runtime=SimpleNamespace(single_agent_runtime_host=runtime_host))
+    runtime = SimpleNamespace(harness_runtime=SimpleNamespace(single_agent_runtime_host=runtime_host))
 
     result = HealthGovernanceBuilder(runtime).prune_task_records(
         task_run_ids=["taskrun:lineage-source", "taskrun:lineage-source:checkout:a"],

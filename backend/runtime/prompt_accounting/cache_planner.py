@@ -32,7 +32,7 @@ class PromptCachePlanner:
         ttl_seconds: int = 300,
         created_at: float | None = None,
     ) -> PromptCacheRecord:
-        legacy_stable_prefix = []
+        combined_stable_prefix = []
         provider_global_prefix = []
         session_prefix = []
         task_prefix = []
@@ -41,7 +41,7 @@ class PromptCachePlanner:
         collect_task = True
         for segment in segment_map.segments:
             if segment.cache_role in {"cacheable_prefix", "session_stable"}:
-                legacy_stable_prefix.append(segment)
+                combined_stable_prefix.append(segment)
             tier = str(getattr(segment, "prefix_tier", "") or "none")
             if collect_provider_global and tier == "provider_global":
                 provider_global_prefix.append(segment)
@@ -77,7 +77,7 @@ class PromptCachePlanner:
                 cache_safety_reasons=("no_stable_prefix_boundary",),
                 created_at=timestamp,
                 diagnostics=_prefix_diagnostics(
-                    legacy_stable_prefix=legacy_stable_prefix,
+                    combined_stable_prefix=combined_stable_prefix,
                     provider_global_prefix=provider_global_prefix,
                     session_prefix=session_prefix,
                     task_prefix=task_prefix,
@@ -98,7 +98,7 @@ class PromptCachePlanner:
             },
         )
         diagnostics = _prefix_diagnostics(
-            legacy_stable_prefix=legacy_stable_prefix,
+            combined_stable_prefix=combined_stable_prefix,
             provider_global_prefix=provider_global_prefix,
             session_prefix=session_prefix,
             task_prefix=task_prefix,
@@ -122,8 +122,8 @@ class PromptCachePlanner:
             diagnostics={
                 **diagnostics,
                 "prefix_key_tier": key_tier,
-                "stable_prefix_segment_count": len(legacy_stable_prefix),
-                "stable_prefix_predicted_tokens": sum(int(item.predicted_tokens or 0) for item in legacy_stable_prefix),
+                "stable_prefix_segment_count": len(combined_stable_prefix),
+                "stable_prefix_predicted_tokens": sum(int(item.predicted_tokens or 0) for item in combined_stable_prefix),
             },
         )
 
@@ -169,13 +169,13 @@ def _json_stable(value: Any) -> Any:
 
 def _prefix_diagnostics(
     *,
-    legacy_stable_prefix: list[Any],
+    combined_stable_prefix: list[Any],
     provider_global_prefix: list[Any],
     session_prefix: list[Any],
     task_prefix: list[Any],
 ) -> dict[str, Any]:
     return {
-        "legacy_stable_prefix_hash": stable_text_hash("|".join(segment.content_hash for segment in legacy_stable_prefix)) if legacy_stable_prefix else "",
+        "combined_stable_prefix_hash": stable_text_hash("|".join(segment.content_hash for segment in combined_stable_prefix)) if combined_stable_prefix else "",
         "provider_global_prefix_hash": stable_text_hash("|".join(segment.content_hash for segment in provider_global_prefix)) if provider_global_prefix else "",
         "session_prefix_hash": stable_text_hash("|".join(segment.content_hash for segment in session_prefix)) if session_prefix else "",
         "task_prefix_hash": stable_text_hash("|".join(segment.content_hash for segment in task_prefix)) if task_prefix else "",

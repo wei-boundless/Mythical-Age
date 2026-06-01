@@ -354,7 +354,7 @@ async def orchestration_catalog() -> dict[str, Any]:
     return {
         "permission_mode": runtime.permission_service.current_mode(),
         "supported_permission_modes": runtime.permission_service.supported_modes(),
-        "tool_invocation_validation_mode": runtime.query_runtime.tool_invocation_validation_mode,
+        "tool_invocation_validation_mode": runtime.harness_runtime.tool_invocation_validation_mode,
         "orchestration_plan_mode": runtime.settings.get_orchestration_plan_mode(),
         "orchestration_state": "wiring_cleared",
         "supported_orchestration_plan_modes": ["primary"],
@@ -579,9 +579,9 @@ async def orchestration_runtime_spec_preview(payload: OrchestrationPreviewReques
 
 
 def _preview_runtime_assembly(runtime: Any, payload: OrchestrationPreviewRequest):
-    query_runtime = runtime.query_runtime
-    agent_profile = query_runtime.agent_runtime_registry.get_profile("agent:0")
-    tool_instances = query_runtime._all_tool_instances()
+    harness_runtime = runtime.harness_runtime
+    agent_profile = harness_runtime.agent_runtime_registry.get_profile("agent:0")
+    tool_instances = harness_runtime._all_tool_instances()
     return assemble_runtime(
         backend_dir=runtime.base_dir,
         session_id=payload.session_id,
@@ -596,7 +596,7 @@ def _preview_runtime_assembly(runtime: Any, payload: OrchestrationPreviewRequest
         model_selection={},
         agent_runtime_profile=agent_profile,
         tool_instances=tool_instances,
-        definitions_by_name=dict(query_runtime.single_agent_runtime_host.tool_authorization_index.definitions_by_name or {}),
+        definitions_by_name=dict(harness_runtime.single_agent_runtime_host.tool_authorization_index.definitions_by_name or {}),
     )
 
 

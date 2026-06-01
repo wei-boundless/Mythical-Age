@@ -364,12 +364,7 @@ class SoulImageAssetService:
 
     @staticmethod
     def _request_concurrency() -> int:
-        override = dict(runtime_config.load().get("soul_image_assets") or {})
-        raw = os.getenv("SOUL_IMAGE_CONCURRENCY") or override.get("concurrency") or 1
-        try:
-            return min(8, max(1, int(raw)))
-        except (TypeError, ValueError):
-            return 1
+        return 1
 
 
 def _api_error_from_response(response: httpx.Response) -> dict[str, Any]:

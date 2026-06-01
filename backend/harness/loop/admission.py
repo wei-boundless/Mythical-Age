@@ -3,9 +3,6 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Any, Literal
 
-from permissions import OperationGatePipelineContext, ResourcePolicy
-from runtime.shared.safety import build_task_safety_validators
-
 from .model_action_protocol import ModelActionRequest
 
 
@@ -40,15 +37,29 @@ class AdmissionDecision:
 def admit_model_action(
     action_request: ModelActionRequest,
     *,
+    packet_allowed_action_types: tuple[str, ...] = (),
+    invocation_kind: str = "",
     definitions_by_name: dict[str, Any] | None = None,
     allowed_tool_names: set[str] | None = None,
     runtime_profile: dict[str, Any] | None = None,
-    operation_gate: Any | None = None,
     permission_mode: str = "default",
-    directive_ref: str = "",
-    workspace_root: Any | None = None,
-    side_effect_tools_allowed: bool = False,
+    side_effect_policy: Literal["requires_task_run", "runtime_authorized"] = "requires_task_run",
 ) -> AdmissionDecision:
+    allowed_actions = {str(item or "").strip() for item in tuple(packet_allowed_action_types or ()) if str(item or "").strip()}
+    if allowed_actions and action_request.action_type not in allowed_actions:
+        return AdmissionDecision(
+            admission_id=f"admission:{action_request.request_id}",
+            action_request_ref=action_request.request_id,
+            decision="deny",
+            user_visible_reason="本轮运行时不允许执行该动作。",
+            system_reason="action_not_allowed_by_packet",
+            resource_errors=(f"action_not_allowed_by_packet:{action_request.action_type}",),
+            permission_delta={
+                "action_type": action_request.action_type,
+                "allowed_action_types": sorted(allowed_actions),
+                "invocation_kind": str(invocation_kind or ""),
+            },
+        )
     if action_request.action_type == "tool_call":
         tool_name = str(action_request.tool_call.get("tool_name") or action_request.tool_call.get("name") or "").strip()
         tool_args = action_request.tool_call.get("args") or action_request.tool_call.get("tool_args") or {}
@@ -75,7 +86,7 @@ def admit_model_action(
                 system_reason="tool_not_available",
                 resource_errors=(f"tool_not_available:{tool_name}",),
             )
-        if not bool(getattr(definition, "is_read_only", False)) and not side_effect_tools_allowed:
+        if not bool(getattr(definition, "is_read_only", False)) and side_effect_policy != "runtime_authorized":
             return AdmissionDecision(
                 admission_id=f"admission:{action_request.request_id}",
                 action_request_ref=action_request.request_id,
@@ -85,36 +96,6 @@ def admit_model_action(
                 resource_errors=(f"tool_requires_task_run:{tool_name}",),
             )
         operation_id = str(getattr(definition, "operation_id", "") or tool_name)
-        gate_result = _check_operation_gate(
-            operation_gate=operation_gate,
-            operation_id=operation_id,
-            action_request=action_request,
-            directive_ref=directive_ref,
-            permission_mode=permission_mode,
-            tool_name=tool_name,
-            tool_args=tool_args,
-            workspace_root=workspace_root,
-        )
-        if gate_result is not None and getattr(gate_result, "requires_approval", False):
-            return AdmissionDecision(
-                admission_id=f"admission:{action_request.request_id}",
-                action_request_ref=action_request.request_id,
-                decision="ask_approval",
-                user_visible_reason="这个观察动作需要权限批准，当前通用 turn 不会自动执行。",
-                system_reason=str(getattr(gate_result, "reason", "") or "operation_requires_approval"),
-                permission_delta={"gate": gate_result.to_dict()},
-                approval_request_ref=f"approval:{action_request.request_id}",
-            )
-        if gate_result is not None and not getattr(gate_result, "allowed", False):
-            return AdmissionDecision(
-                admission_id=f"admission:{action_request.request_id}",
-                action_request_ref=action_request.request_id,
-                decision="deny",
-                user_visible_reason="这个观察动作未通过运行时权限检查。",
-                system_reason=str(getattr(gate_result, "reason", "") or "operation_gate_denied"),
-                resource_errors=(f"operation_gate_denied:{operation_id}",),
-                permission_delta={"gate": gate_result.to_dict()},
-            )
         return AdmissionDecision(
             admission_id=f"admission:{action_request.request_id}",
             action_request_ref=action_request.request_id,
@@ -123,7 +104,8 @@ def admit_model_action(
                 "tool_name": tool_name,
                 "operation_id": operation_id,
                 "read_only": bool(getattr(definition, "is_read_only", False)),
-                "gate": gate_result.to_dict() if hasattr(gate_result, "to_dict") else None,
+                "gate_stage": "deferred_to_tool_control_plane",
+                "permission_mode": str(permission_mode or "default"),
             },
             )
     if action_request.action_type == "request_task_run":
@@ -166,9 +148,25 @@ def admit_model_action(
                 system_reason="engagement_plan_id_missing",
                 contract_errors=("engagement_plan_id_missing",),
             )
+    if action_request.action_type == "active_work_control":
+        task_lifecycle_policy = dict(dict(runtime_profile or {}).get("task_lifecycle_policy") or {})
+        if task_lifecycle_policy.get("active_work_control") is False:
+            return AdmissionDecision(
+                admission_id=f"admission:{action_request.request_id}",
+                action_request_ref=action_request.request_id,
+                decision="deny",
+                user_visible_reason="当前运行模式不允许控制进行中的工作。",
+                system_reason="active_work_control_disabled_by_runtime_profile",
+                contract_errors=("active_work_control_disabled_by_runtime_profile",),
+            )
     return AdmissionDecision(
         admission_id=f"admission:{action_request.request_id}",
         action_request_ref=action_request.request_id,
+        permission_delta={
+            "action_type": action_request.action_type,
+            "allowed_action_types": sorted(allowed_actions),
+            "invocation_kind": str(invocation_kind or ""),
+        },
         decision="allow",
     )
 
@@ -181,52 +179,4 @@ def _invalid(action_request: ModelActionRequest, reason: str) -> AdmissionDecisi
         user_visible_reason="本轮处理格式不完整，已停止执行。",
         system_reason=reason,
         resource_errors=(reason,),
-    )
-
-
-def _check_operation_gate(
-    *,
-    operation_gate: Any | None,
-    operation_id: str,
-    action_request: ModelActionRequest,
-    directive_ref: str,
-    permission_mode: str,
-    tool_name: str,
-    tool_args: dict[str, Any],
-    workspace_root: Any | None,
-) -> Any | None:
-    if operation_gate is None or not hasattr(operation_gate, "check"):
-        return None
-    resource_policy = ResourcePolicy(
-        policy_id=f"resource-policy:{action_request.turn_id}:bounded-observation",
-        task_id=action_request.turn_id,
-        allowed_operations=(str(operation_id or "").strip(),),
-        allowed_tools=(tool_name,),
-        authority="harness.loop.bounded_observation_resource_policy",
-        runtime_view_only=False,
-        adopted=True,
-        runtime_executable=True,
-    )
-    validators = {}
-    if workspace_root is not None:
-        validators = build_task_safety_validators(
-            root_dir=workspace_root,
-            safety_envelope={},
-            sandbox_policy={},
-        )
-    return operation_gate.check(
-        operation_id,
-        resource_policy=resource_policy,
-        directive_ref=directive_ref or f"bounded-observation:{action_request.request_id}",
-        context=OperationGatePipelineContext(
-            permission_mode=str(permission_mode or "default"),
-            operation_input={
-                "operation_id": operation_id,
-                "id": action_request.request_id,
-                "name": tool_name,
-                "tool_name": tool_name,
-                "args": dict(tool_args or {}),
-            },
-            validators=validators,
-        ),
     )

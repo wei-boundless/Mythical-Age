@@ -63,8 +63,8 @@ def test_chat_accepts_per_turn_model_selection() -> None:
 
     with TestClient(app) as client:
         runtime = app_runtime.require_ready()
-        original_astream = runtime.query_runtime.astream
-        runtime.query_runtime.astream = fake_astream  # type: ignore[method-assign]
+        original_astream = runtime.harness_runtime.astream
+        runtime.harness_runtime.astream = fake_astream  # type: ignore[method-assign]
         try:
             created = client.post("/api/sessions", json={"title": "Model selection"})
             assert created.status_code == 200
@@ -91,7 +91,7 @@ def test_chat_accepts_per_turn_model_selection() -> None:
                 "credential_ref": "provider:deepseek:primary",
             }
         finally:
-            runtime.query_runtime.astream = original_astream  # type: ignore[method-assign]
+            runtime.harness_runtime.astream = original_astream  # type: ignore[method-assign]
 
 
 def test_chat_routes_gpt_image_2_to_image_generation() -> None:
@@ -159,8 +159,8 @@ def test_api_smoke_flow() -> None:
     with TestClient(app) as client:
         runtime = app_runtime.require_ready()
 
-        original_astream = runtime.query_runtime.astream
-        runtime.query_runtime.astream = _fake_astream  # type: ignore[method-assign]
+        original_astream = runtime.harness_runtime.astream
+        runtime.harness_runtime.astream = _fake_astream  # type: ignore[method-assign]
         try:
             health = client.get("/health")
             assert health.status_code == 200
@@ -186,15 +186,15 @@ def test_api_smoke_flow() -> None:
             assert "event: token" in response.text
             assert "event: done" in response.text
         finally:
-            runtime.query_runtime.astream = original_astream  # type: ignore[method-assign]
+            runtime.harness_runtime.astream = original_astream  # type: ignore[method-assign]
 
 
 def test_non_stream_chat_returns_error_status() -> None:
     with TestClient(app) as client:
         runtime = app_runtime.require_ready()
 
-        original_astream = runtime.query_runtime.astream
-        runtime.query_runtime.astream = _fake_error_astream  # type: ignore[method-assign]
+        original_astream = runtime.harness_runtime.astream
+        runtime.harness_runtime.astream = _fake_error_astream  # type: ignore[method-assign]
         try:
             created = client.post("/api/sessions", json={"title": "Error smoke"})
             assert created.status_code == 200
@@ -210,15 +210,15 @@ def test_non_stream_chat_returns_error_status() -> None:
                 "code": "provider_unavailable",
             }
         finally:
-            runtime.query_runtime.astream = original_astream  # type: ignore[method-assign]
+            runtime.harness_runtime.astream = original_astream  # type: ignore[method-assign]
 
 
 def test_stream_chat_emits_error_when_runtime_ends_without_terminal_event() -> None:
     with TestClient(app) as client:
         runtime = app_runtime.require_ready()
 
-        original_astream = runtime.query_runtime.astream
-        runtime.query_runtime.astream = _fake_missing_terminal_astream  # type: ignore[method-assign]
+        original_astream = runtime.harness_runtime.astream
+        runtime.harness_runtime.astream = _fake_missing_terminal_astream  # type: ignore[method-assign]
         try:
             created = client.post("/api/sessions", json={"title": "Missing terminal"})
             assert created.status_code == 200
@@ -235,7 +235,7 @@ def test_stream_chat_emits_error_when_runtime_ends_without_terminal_event() -> N
             assert "event: error" in response.text
             assert "missing_terminal_event" in response.text
         finally:
-            runtime.query_runtime.astream = original_astream  # type: ignore[method-assign]
+            runtime.harness_runtime.astream = original_astream  # type: ignore[method-assign]
 
 
 def test_chat_rejects_invalid_session_id_before_streaming() -> None:

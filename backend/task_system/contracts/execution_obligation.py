@@ -5,7 +5,7 @@ from typing import Any
 
 from task_system.goal_profiles import get_task_goal_profile
 
-from .obligation_models import ExecutionObligation
+from task_system.contracts.execution_obligation_models import ExecutionObligation
 
 
 _PATH_RE = re.compile(

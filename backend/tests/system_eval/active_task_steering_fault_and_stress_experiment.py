@@ -20,9 +20,9 @@ if str(BACKEND_DIR) not in sys.path:
 from harness.loop.task_contract_revision import ensure_revision_for_steer
 from harness.loop.task_executor import append_user_work_instruction
 from harness.loop.task_lifecycle import TaskLifecycleRecord, TaskRunContract
-from query.models import QueryRequest
+from harness.entrypoint.models import HarnessRuntimeRequest
 from runtime.shared.models import TaskRun
-from tests.support.runtime_stubs import build_query_runtime
+from tests.support.runtime_stubs import build_harness_runtime
 
 
 def _action_request(
@@ -151,7 +151,7 @@ def _seed_task(runtime: Any, *, task_run_id: str, session_id: str, status: str =
     return task_run_id
 
 
-async def _collect_stream(runtime: Any, request: QueryRequest) -> list[dict[str, Any]]:
+async def _collect_stream(runtime: Any, request: HarnessRuntimeRequest) -> list[dict[str, Any]]:
     events: list[dict[str, Any]] = []
     async for event in runtime.astream(request):
         events.append(dict(event))
@@ -214,7 +214,7 @@ async def _case_wrong_consumed_ref() -> dict[str, Any]:
             _action_request(action_type="block", blocking_reason="实验边界停止。"),
         ]
     )
-    runtime = build_query_runtime(model_runtime=model)
+    runtime = build_harness_runtime(model_runtime=model)
     host = runtime.single_agent_runtime_host
     task_run_id = _seed_task(runtime, task_run_id=f"taskrun:fault-wrong-consumed-{uuid.uuid4().hex[:6]}", session_id="session-fault-wrong-consumed")
     steer = append_user_work_instruction(host, task_run_id, content="必须真实处理这条补充要求，不能伪造 consumed ref。", turn_id="turn:fault:1")["steer"]
@@ -249,7 +249,7 @@ async def _case_active_revision_blocks_completion() -> dict[str, Any]:
             _action_request(action_type="block", blocking_reason="实验边界停止。"),
         ]
     )
-    runtime = build_query_runtime(model_runtime=model)
+    runtime = build_harness_runtime(model_runtime=model)
     host = runtime.single_agent_runtime_host
     task_run_id = _seed_task(runtime, task_run_id=f"taskrun:fault-active-revision-{uuid.uuid4().hex[:6]}", session_id="session-fault-active-revision")
     steer = append_user_work_instruction(host, task_run_id, content="把验收标准改成必须检查完成门禁。", turn_id="turn:fault:2")["steer"]
@@ -282,7 +282,7 @@ async def _case_active_revision_blocks_completion() -> dict[str, Any]:
 
 
 async def _case_duplicate_executor_guard() -> dict[str, Any]:
-    runtime = build_query_runtime(model_runtime=SequenceModelRuntime([_action_request(action_type="respond", final_answer="unused")]))
+    runtime = build_harness_runtime(model_runtime=SequenceModelRuntime([_action_request(action_type="respond", final_answer="unused")]))
     host = runtime.single_agent_runtime_host
     task_run_id = _seed_task(runtime, task_run_id=f"taskrun:fault-duplicate-{uuid.uuid4().hex[:6]}", session_id="session-fault-duplicate", status="running")
     task_run = host.state_index.get_task_run(task_run_id)
@@ -306,7 +306,7 @@ async def _case_resume_monotonic_ids() -> dict[str, Any]:
             {"authority": "harness.loop.model_action_request", "request_id": "bad2", "turn_id": "", "action_type": ""},
         ]
     )
-    runtime = build_query_runtime(model_runtime=model)
+    runtime = build_harness_runtime(model_runtime=model)
     host = runtime.single_agent_runtime_host
     task_run_id = _seed_task(runtime, task_run_id=f"taskrun:fault-monotonic-{uuid.uuid4().hex[:6]}", session_id="session-fault-monotonic")
 
@@ -333,7 +333,7 @@ async def _case_resume_monotonic_ids() -> dict[str, Any]:
 
 
 async def _case_monitor_reconnect_snapshot() -> dict[str, Any]:
-    runtime = build_query_runtime(model_runtime=SequenceModelRuntime([_action_request(action_type="respond", final_answer="unused")]))
+    runtime = build_harness_runtime(model_runtime=SequenceModelRuntime([_action_request(action_type="respond", final_answer="unused")]))
     host = runtime.single_agent_runtime_host
     task_run_id = _seed_task(runtime, task_run_id=f"taskrun:fault-monitor-{uuid.uuid4().hex[:6]}", session_id="session-fault-monitor", status="running")
     task_run = host.state_index.get_task_run(task_run_id)
@@ -367,7 +367,7 @@ async def _case_monitor_reconnect_snapshot() -> dict[str, Any]:
 
 async def _late_steer_iteration(index: int) -> dict[str, Any]:
     model = LateSteerStressModelRuntime()
-    runtime = build_query_runtime(model_runtime=model)
+    runtime = build_harness_runtime(model_runtime=model)
     host = runtime.single_agent_runtime_host
     task_run_id = _seed_task(
         runtime,

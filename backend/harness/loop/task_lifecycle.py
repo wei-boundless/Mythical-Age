@@ -371,7 +371,7 @@ async def start_task_lifecycle_from_action_request(
     action_request: ModelActionRequest,
     agent_runtime_profile: Any,
     runtime_assembly: Any,
-    turn_route: Any,
+    runtime_branch: dict[str, Any],
     answer_source: str,
     scheduler: str,
     max_steps: int,
@@ -409,7 +409,7 @@ async def start_task_lifecycle_from_action_request(
         contract=contract,
         agent_runtime_profile=agent_runtime_profile,
         runtime_assembly=runtime_assembly,
-        turn_route=turn_route,
+        runtime_branch=runtime_branch,
         answer_source=answer_source,
         scheduler=scheduler,
         task_id=task_selection.get("selected_task_id") or task_selection.get("task_id") or f"task:{turn_id}",
@@ -433,7 +433,7 @@ async def start_task_lifecycle_from_contract(
     contract: TaskRunContract,
     agent_runtime_profile: Any,
     runtime_assembly: Any,
-    turn_route: Any,
+    runtime_branch: dict[str, Any],
     answer_source: str,
     scheduler: str,
     task_id: str,
@@ -506,7 +506,7 @@ async def start_task_lifecycle_from_contract(
             answer_source=f"{answer_source}.supervision",
             terminal_reason="task_launch_supervision",
             extra={
-                "turn_route": turn_route.to_dict(),
+                "runtime_branch": dict(runtime_branch or {}),
                 "task_run": {"task_run_id": gated_task.task_run_id, "status": gated_task.status},
             },
         )
@@ -541,7 +541,7 @@ async def start_task_lifecycle_from_contract(
             code="task_executor_schedule_failed",
             reason=reason,
             extra={
-                "turn_route": turn_route.to_dict(),
+                "runtime_branch": dict(runtime_branch or {}),
                 "task_run": {"task_run_id": failed_task.task_run_id, "status": failed_task.status},
             },
         )
@@ -577,7 +577,7 @@ async def start_task_lifecycle_from_contract(
         answer_source=answer_source,
         terminal_reason="task_executor_scheduled",
         extra={
-            "turn_route": turn_route.to_dict(),
+            "runtime_branch": dict(runtime_branch or {}),
             "task_run": {"task_run_id": task_run.task_run_id, "status": "running"},
         },
     )

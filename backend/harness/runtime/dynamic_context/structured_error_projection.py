@@ -14,6 +14,7 @@ def structured_error_projection(value: Any) -> dict[str, Any]:
             "message": compact_text(value.get("message") or value.get("detail") or "", limit=500),
             "retryable": value.get("retryable") if isinstance(value.get("retryable"), bool) else None,
             "provider_retryable": value.get("provider_retryable") if isinstance(value.get("provider_retryable"), bool) else None,
+            "agent_auto_retry_allowed": value.get("agent_auto_retry_allowed") if isinstance(value.get("agent_auto_retry_allowed"), bool) else None,
             "agent_retry_policy": compact_text(value.get("agent_retry_policy") or "", limit=120),
             "origin": compact_text(value.get("origin") or "", limit=120),
             "attempts": _attempts_projection(value.get("attempts")),

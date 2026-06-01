@@ -15,6 +15,7 @@ from prompt_library import (
 )
 from task_system.contracts.runtime_contracts import expand_selected_skill_bodies, render_skill_candidate_cards
 
+from .context_budget_policy import build_model_aware_context_budget_policy
 from .dynamic_context import DynamicContextInput, DynamicContextManager, DynamicContextProjection
 from .envelope import RuntimeEnvelope
 from .invocation_packet import RuntimeInvocationPacket
@@ -65,9 +66,16 @@ class RuntimeCompiler:
             control_capabilities=control_capabilities,
             active_work_context=active_work_context,
         )
+        single_turn_tools = _single_agent_turn_tools(
+            assembly_payload=assembly_payload,
+            control_capabilities=control_capabilities,
+        )
+        if single_turn_tools and "tool_call" not in allowed_actions:
+            allowed_actions = (*allowed_actions, "tool_call")
         effective_control_capabilities = _single_agent_turn_effective_control_capabilities(
             control_capabilities=control_capabilities,
             allowed_actions=allowed_actions,
+            visible_tool_count=len(single_turn_tools),
         )
         output_contract = _single_agent_turn_output_contract(
             allowed_actions=allowed_actions,
@@ -79,7 +87,7 @@ class RuntimeCompiler:
             profile_payload=profile_payload,
             environment_payload=environment_payload,
             operation_authorization=dict(assembly_payload.get("operation_authorization") or {}),
-            available_tools=(),
+            available_tools=single_turn_tools,
         )
         envelope = RuntimeEnvelope(
             envelope_id=f"rtenv:{turn_id}:single_agent_turn",
@@ -140,6 +148,7 @@ class RuntimeCompiler:
             "control_capabilities": dict(effective_control_capabilities),
             "task_environment": _environment_model_visible_payload(environment_payload),
             "output_contract": output_contract,
+            "available_tools": _stable_tool_catalog_payload(single_turn_tools),
         }
         packet_id = f"rtpacket:{turn_id}:single_agent_turn:1"
         dynamic_context = self.dynamic_context_manager.project(
@@ -152,11 +161,16 @@ class RuntimeCompiler:
                 runtime_assembly=assembly_payload,
                 runtime_envelope=envelope.to_dict(),
                 current_user_message=str(user_message or ""),
-                projection_policy={
-                    "agent_visible_runtime_projection": agent_visible_runtime_projection,
-                    "operation_authorization": dict(assembly_payload.get("operation_authorization") or {}),
-                    "active_work_context": dict(active_work_context or {}),
-                },
+                projection_policy=_dynamic_context_projection_policy(
+                    invocation_kind="single_agent_turn",
+                    model_selection=model_selection,
+                    assembly_payload=assembly_payload,
+                    overrides={
+                        "agent_visible_runtime_projection": agent_visible_runtime_projection,
+                        "operation_authorization": dict(assembly_payload.get("operation_authorization") or {}),
+                        "active_work_context": dict(active_work_context or {}),
+                    },
+                ),
             )
         )
         dynamic_payload = dict(dynamic_context.dynamic_runtime_projection or {})
@@ -255,7 +269,7 @@ class RuntimeCompiler:
             model_messages=model_messages,
             segment_plan=segment_plan.to_dict(),
             prompt_pack_refs=prompt_assembly.prompt_pack_refs,
-            available_tools=(),
+            available_tools=single_turn_tools,
             allowed_action_types=allowed_actions,
             output_contract=output_contract,
             hidden_control_refs={"agent_invocation_id": agent_invocation_id, "runtime_assembly_id": str(assembly_payload.get("assembly_id") or "")},
@@ -409,11 +423,16 @@ class RuntimeCompiler:
                 work_rollout=dict(work_rollout or {}),
                 runtime_assembly=assembly_payload,
                 runtime_envelope=envelope.to_dict(),
-                projection_policy={
-                    "agent_visible_runtime_projection": agent_visible_runtime_projection,
-                    "operation_authorization": operation_authorization,
-                    "include_task_run_context": task_run_context_enabled,
-                },
+                projection_policy=_dynamic_context_projection_policy(
+                    invocation_kind="task_execution",
+                    model_selection=model_selection,
+                    assembly_payload=assembly_payload,
+                    overrides={
+                        "agent_visible_runtime_projection": agent_visible_runtime_projection,
+                        "operation_authorization": operation_authorization,
+                        "include_task_run_context": task_run_context_enabled,
+                    },
+                ),
             )
         )
         dynamic_payload = dynamic_context.dynamic_runtime_projection
@@ -667,10 +686,15 @@ class RuntimeCompiler:
                 runtime_assembly=assembly_payload,
                 runtime_envelope=envelope.to_dict(),
                 current_user_message=str(user_message or ""),
-                projection_policy={
-                    "agent_visible_runtime_projection": agent_visible_runtime_projection,
-                    "operation_authorization": dict(assembly_payload.get("operation_authorization") or {}),
-                },
+                projection_policy=_dynamic_context_projection_policy(
+                    invocation_kind="tool_observation_followup",
+                    model_selection=model_selection,
+                    assembly_payload=assembly_payload,
+                    overrides={
+                        "agent_visible_runtime_projection": agent_visible_runtime_projection,
+                        "operation_authorization": dict(assembly_payload.get("operation_authorization") or {}),
+                    },
+                ),
             )
         )
         dynamic_payload = dynamic_context.dynamic_runtime_projection
@@ -1045,14 +1069,15 @@ def _single_agent_turn_effective_control_capabilities(
     *,
     control_capabilities: dict[str, Any],
     allowed_actions: tuple[str, ...],
+    visible_tool_count: int = 0,
 ) -> dict[str, Any]:
     effective = dict(control_capabilities or {})
     allowed = {str(item) for item in allowed_actions if str(item)}
     effective["authority"] = "harness.runtime.single_agent_turn_control_capabilities"
-    effective["may_call_tools"] = False
+    effective["may_call_tools"] = "tool_call" in allowed and visible_tool_count > 0
     effective["may_use_subagents"] = False
     effective["requires_json_action_protocol"] = False
-    effective["visible_tool_count"] = 0
+    effective["visible_tool_count"] = visible_tool_count
     effective["may_request_task_run"] = "request_task_run" in allowed
     effective["may_control_active_work"] = "active_work_control" in allowed
     effective.setdefault("may_emit_assistant_message", True)
@@ -1064,7 +1089,11 @@ def _single_agent_turn_output_contract(
     allowed_actions: tuple[str, ...],
     control_capabilities: dict[str, Any],
 ) -> dict[str, Any]:
-    forbidden: list[str] = ["json_action_protocol", "general_tool_call", "delegate_subagent"]
+    forbidden: list[str] = ["json_action_protocol", "delegate_subagent"]
+    if "tool_call" not in allowed_actions:
+        forbidden.append("general_tool_call")
+    else:
+        forbidden.append("side_effect_tool_call")
     if "request_task_run" not in allowed_actions:
         forbidden.append("task_run_request")
     if "active_work_control" not in allowed_actions:
@@ -1074,6 +1103,10 @@ def _single_agent_turn_output_contract(
         "allowed_actions": list(allowed_actions),
         "forbidden": list(dict.fromkeys(forbidden)),
         "native_actions": {
+            "tool_call": {
+                "enabled": "tool_call" in allowed_actions,
+                "boundary": "read_only_visible_tools_only",
+            },
             "request_task_run": {
                 "enabled": "request_task_run" in allowed_actions,
                 "required_fields": ["user_visible_goal", "task_run_goal", "completion_criteria"],
@@ -1092,6 +1125,27 @@ def _single_agent_turn_output_contract(
         },
         "capability_source": dict(control_capabilities or {}),
     }
+
+
+def _single_agent_turn_tools(
+    *,
+    assembly_payload: dict[str, Any],
+    control_capabilities: dict[str, Any],
+) -> tuple[dict[str, Any], ...]:
+    if bool(control_capabilities.get("may_call_tools") is False):
+        return ()
+    tools: list[dict[str, Any]] = []
+    for item in list(assembly_payload.get("available_tools") or []):
+        if not isinstance(item, dict):
+            continue
+        tool = dict(item)
+        if not bool(tool.get("read_only") is True):
+            continue
+        name = str(tool.get("tool_name") or tool.get("name") or "").strip()
+        if not name:
+            continue
+        tools.append(tool)
+    return tuple(sorted(tools, key=lambda item: str(item.get("tool_name") or item.get("name") or "")))
 
 
 def _active_work_model_visible_payload(active_work_context: dict[str, Any] | None) -> dict[str, Any]:
@@ -1320,6 +1374,24 @@ def _merge_prompt_assemblies(
 
 def _string_tuple(value: Any) -> tuple[str, ...]:
     return tuple(str(item).strip() for item in list(value or []) if str(item).strip())
+
+
+def _dynamic_context_projection_policy(
+    *,
+    invocation_kind: str,
+    model_selection: dict[str, Any] | None,
+    assembly_payload: dict[str, Any],
+    overrides: dict[str, Any],
+) -> dict[str, Any]:
+    budget_policy = build_model_aware_context_budget_policy(
+        invocation_kind=invocation_kind,
+        model_selection=model_selection,
+        runtime_assembly=assembly_payload,
+    ).to_projection_policy()
+    return {
+        **budget_policy,
+        **dict(overrides or {}),
+    }
 
 
 def _prompt_pack_refs_for_invocation(profile_payload: dict[str, Any], *, invocation_kind: str) -> tuple[str, ...]:

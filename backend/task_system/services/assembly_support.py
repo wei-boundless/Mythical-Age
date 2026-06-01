@@ -7,7 +7,7 @@ from request_intent.frame_access import (
     turn_signals,
 )
 from capability_system.local_mcp_registry import get_local_mcp_unit_for_source_kind
-from intent.execution_obligation import build_execution_obligation
+from task_system.contracts.execution_obligation import build_execution_obligation
 
 from task_system.services.bundle_models import BundleItemSpec, BundleSpec
 from task_system.tasks.definitions import default_task_definitions

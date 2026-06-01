@@ -24,7 +24,7 @@ CHECKOUTABLE_TERMINAL_REASONS = {
 class HealthGovernanceBuilder:
     def __init__(self, runtime: Any) -> None:
         self.runtime = runtime
-        self.runtime_host = runtime.query_runtime.single_agent_runtime_host
+        self.runtime_host = runtime.harness_runtime.single_agent_runtime_host
         self.state_index = self.runtime_host.state_index
         self.prompt_accounting_ledger = getattr(self.runtime_host, "prompt_accounting_ledger", None)
         self.token_counter = TokenCounterRegistry()

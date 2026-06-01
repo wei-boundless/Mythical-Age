@@ -26,7 +26,7 @@ from harness.loop.task_executor import (
 from harness.loop.task_lifecycle import TaskLifecycleRecord, TaskRunContract
 from harness.loop.work_rollout import work_rollout_summary
 from runtime.shared.models import TaskRun
-from tests.support.runtime_stubs import build_query_runtime
+from tests.support.runtime_stubs import build_harness_runtime
 
 
 def _action_request(
@@ -155,7 +155,7 @@ async def _case_pause_resume_same_task_run() -> dict[str, Any]:
             _action_request(action_type="respond", final_answer="resume 后同一个 TaskRun 完成。"),
         ]
     )
-    runtime = build_query_runtime(model_runtime=model)
+    runtime = build_harness_runtime(model_runtime=model)
     host = runtime.single_agent_runtime_host
     task_run_id = _seed_task(runtime, task_run_id=f"taskrun:control-pause-resume-{uuid.uuid4().hex[:6]}", session_id="session-control-pause-resume")
 
@@ -232,7 +232,7 @@ async def _case_stop_checkout_resume() -> dict[str, Any]:
             _action_request(action_type="respond", final_answer="checkout child 完成。"),
         ]
     )
-    runtime = build_query_runtime(model_runtime=model)
+    runtime = build_harness_runtime(model_runtime=model)
     host = runtime.single_agent_runtime_host
     source_task_run_id = _seed_task(runtime, task_run_id=f"taskrun:control-stop-checkout-{uuid.uuid4().hex[:6]}", session_id="session-control-stop-checkout")
 

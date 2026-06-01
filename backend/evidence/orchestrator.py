@@ -9,7 +9,7 @@ from agent_system.a2a.official_adapter import (
 )
 from capability_system.local_mcp_registry import get_local_mcp_unit
 from evidence.graph import EvidenceArtifactGraph, result_handle_from_payload, subset_handle_from_payload
-from response_system import build_rag_evidence_pack
+from runtime.output_boundary import build_rag_evidence_pack
 from .pdf_worker import PDFWorker
 from .projection import MCPProjectionAdapter
 from .retrieval_worker import RetrievalWorker

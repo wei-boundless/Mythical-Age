@@ -51,6 +51,8 @@ _MODEL_SELECTION_INVOCATION_FIELDS = frozenset(
         "temperature",
         "thinking_mode",
         "reasoning_effort",
+        "context_budget_preset",
+        "context_window_preset",
         "stream_policy",
         "model_response_timeout_seconds",
         "model_timeout_seconds",

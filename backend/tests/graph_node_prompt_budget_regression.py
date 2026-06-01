@@ -10,7 +10,7 @@ if str(BACKEND_DIR) not in sys.path:
 
 from harness.graph.models import GraphNodeWorkOrder
 from harness.runtime.compiler import RuntimeCompiler
-from query.runtime import _graph_node_contract_from_work_order
+from harness.graph.work_order_contract import _graph_node_contract_from_work_order
 
 
 def test_graph_node_task_packet_does_not_embed_full_graph_policy() -> None:

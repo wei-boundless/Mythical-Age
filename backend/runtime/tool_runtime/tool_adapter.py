@@ -82,7 +82,15 @@ class RuntimeToolAdapter:
     async def call(self, args: dict[str, Any], context: ToolUseContext) -> ToolResultEnvelope:
         tool = self.tool_instance
         if hasattr(tool, "ainvoke"):
-            result = await tool.ainvoke(dict(args or {}))
+            result = await tool.ainvoke(
+                dict(args or {}),
+                config={
+                    "metadata": {
+                        "tool_invocation_id": context.tool_invocation_id,
+                        "idempotency_key": context.idempotency_key,
+                    }
+                },
+            )
         else:
             result = await asyncio.to_thread(tool.invoke, dict(args or {}))
         return build_tool_result_envelope(

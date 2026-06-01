@@ -5,7 +5,7 @@ from typing import Any
 
 
 @dataclass(frozen=True, slots=True)
-class QueryEvent:
+class HarnessRuntimeEvent:
     type: str
     payload: dict[str, Any] = field(default_factory=dict)
 
@@ -14,7 +14,7 @@ class QueryEvent:
 
 
 @dataclass(frozen=True, slots=True)
-class QueryRequest:
+class HarnessRuntimeRequest:
     session_id: str
     message: str
     history: list[dict[str, Any]] | None = None
@@ -30,7 +30,7 @@ class QueryRequest:
 
 
 @dataclass(slots=True)
-class QueryResult:
+class HarnessRuntimeResult:
     content: str
     segments: list[dict[str, Any]] = field(default_factory=list)
 

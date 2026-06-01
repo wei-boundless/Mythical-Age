@@ -138,7 +138,7 @@ async def get_session_timeline(
     return build_session_runtime_timeline(
         session_id=session_id,
         history=history,
-        runtime_host=runtime.query_runtime.single_agent_runtime_host,
+        runtime_host=runtime.harness_runtime.single_agent_runtime_host,
     )
 
 
@@ -191,13 +191,13 @@ async def generate_title(
         messages = runtime.session_manager.load_session(session_id)
         first_user = next((item["content"] for item in messages if item.get("role") == "user"), "")
         seed = first_user
-    title = await runtime.query_runtime.generate_title(seed or DEFAULT_SESSION_TITLE)
+    title = await runtime.harness_runtime.generate_title(seed or DEFAULT_SESSION_TITLE)
     runtime.session_manager.set_title(session_id, title)
     return {"session_id": session_id, "title": title}
 
 
 def _latest_prompt_manifest_summary(runtime: Any, session_id: str) -> dict[str, Any]:
-    ledger = runtime.query_runtime.single_agent_runtime_host.prompt_accounting_ledger
+    ledger = runtime.harness_runtime.single_agent_runtime_host.prompt_accounting_ledger
     maps = ledger.list_segment_maps(session_id=session_id)
     latest = maps[-1] if maps else {}
     return {

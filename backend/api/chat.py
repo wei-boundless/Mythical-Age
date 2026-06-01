@@ -11,7 +11,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from api.deps import require_runtime
-from query import QueryRequest
+from harness.entrypoint import HarnessRuntimeRequest
 from runtime.shared.events import RuntimeEvent
 from runtime.shared.runtime_run_registry import RuntimeRun
 from runtime.shared.stream_replay import (
@@ -43,8 +43,8 @@ INTERNAL_PUBLIC_DATA_KEYS = {
 PUBLIC_EVENT_DATA_ALLOWLIST = {
     "chat_run_started": {"status"},
     "input_commit_gate": {"status", "message_ref"},
-    "turn_route_decided": {"turn_route"},
-    "single_agent_turn_started": {"turn_route", "allowed_action_types"},
+    "runtime_branch_decided": {"runtime_branch"},
+    "single_agent_turn_started": {"runtime_branch", "allowed_action_types"},
     "assistant_message_committed": {
         "answer_channel",
         "answer_source",
@@ -70,6 +70,7 @@ PUBLIC_EVENT_DATA_ALLOWLIST = {
     },
     "model_action_request": {"event"},
     "model_action_admission": {"event"},
+    "model_action_admission_checked": {"event"},
     "bounded_observation": {"event"},
     "registered_engagement": {"event"},
     "task_run_lifecycle_started": {"event"},
@@ -148,7 +149,7 @@ async def get_latest_chat_run_for_session(
 ):
     runtime = require_runtime()
     validated_session_id = validate_session_id(session_id)
-    registry = runtime.query_runtime.single_agent_runtime_host.run_registry
+    registry = runtime.harness_runtime.single_agent_runtime_host.run_registry
     now = time.time()
     candidates = [
         run
@@ -229,8 +230,8 @@ async def chat(payload: ChatRequest):
     )
 
 
-def _query_request_from_payload(payload: ChatRequest, *, session_id: str) -> QueryRequest:
-    return QueryRequest(
+def _query_request_from_payload(payload: ChatRequest, *, session_id: str) -> HarnessRuntimeRequest:
+    return HarnessRuntimeRequest(
         session_id=session_id,
         message=payload.message,
         explicit_subtasks=list(payload.explicit_subtasks or []),
@@ -245,8 +246,8 @@ def _query_request_from_payload(payload: ChatRequest, *, session_id: str) -> Que
     )
 
 
-def _create_and_schedule_run(runtime: Any, request: QueryRequest) -> RuntimeRun:
-    host = runtime.query_runtime.single_agent_runtime_host
+def _create_and_schedule_run(runtime: Any, request: HarnessRuntimeRequest) -> RuntimeRun:
+    host = runtime.harness_runtime.single_agent_runtime_host
     run = host.run_registry.create_run(
         session_id=request.session_id,
         owner_process_id=getattr(host, "owner_process_id", None),
@@ -272,8 +273,8 @@ def _create_and_schedule_run(runtime: Any, request: QueryRequest) -> RuntimeRun:
     return run
 
 
-async def _run_chat_to_event_log(runtime: Any, run: RuntimeRun, request: QueryRequest) -> None:
-    host = runtime.query_runtime.single_agent_runtime_host
+async def _run_chat_to_event_log(runtime: Any, run: RuntimeRun, request: HarnessRuntimeRequest) -> None:
+    host = runtime.harness_runtime.single_agent_runtime_host
     registry = host.run_registry
     replay = host.stream_replay
     terminal_event = ""
@@ -285,7 +286,7 @@ async def _run_chat_to_event_log(runtime: Any, run: RuntimeRun, request: QueryRe
             data={"status": "running"},
         )
         current = registry.mark_event(current, latest_event_offset=start_event.offset, status="running")
-        async for event in runtime.query_runtime.astream(request):
+        async for event in runtime.harness_runtime.astream(request):
             event_type = str(event.get("type", "message") or "message")
             runtime_refs = _runtime_run_refs_from_event(event)
             runtime_task_run_id = runtime_refs.get("task_run_id", "")
@@ -350,7 +351,7 @@ async def _run_chat_to_event_log(runtime: Any, run: RuntimeRun, request: QueryRe
 
 
 async def _stream_run_events(runtime: Any, run: RuntimeRun, *, after_offset: int):
-    host = runtime.query_runtime.single_agent_runtime_host
+    host = runtime.harness_runtime.single_agent_runtime_host
     registry = host.run_registry
     replay = host.stream_replay
     subscription = host.event_log.subscribe(run_id=run.event_log_id)
@@ -382,7 +383,7 @@ async def _stream_run_events(runtime: Any, run: RuntimeRun, *, after_offset: int
 
 
 async def _wait_for_terminal_public_event(runtime: Any, run: RuntimeRun) -> tuple[str, dict[str, Any]]:
-    host = runtime.query_runtime.single_agent_runtime_host
+    host = runtime.harness_runtime.single_agent_runtime_host
     replay = host.stream_replay
     subscription = host.event_log.subscribe(run_id=run.event_log_id)
     latest_offset = -1
@@ -425,7 +426,7 @@ def _resolve_after_offset(run: RuntimeRun, *, after_offset: int | None, last_eve
 
 
 def _get_run_or_404(runtime: Any, stream_run_id: str) -> RuntimeRun:
-    run = runtime.query_runtime.single_agent_runtime_host.run_registry.get_run(stream_run_id)
+    run = runtime.harness_runtime.single_agent_runtime_host.run_registry.get_run(stream_run_id)
     if run is None:
         raise HTTPException(status_code=404, detail="chat run not found")
     return run
@@ -437,7 +438,7 @@ def _run_response(runtime: Any, run: RuntimeRun) -> dict[str, Any]:
     payload.pop("owner_instance_id", None)
     active_turn_snapshot = None
     try:
-        active_turn = runtime.query_runtime.single_agent_runtime_host.active_turn_registry.snapshot(run.session_id)
+        active_turn = runtime.harness_runtime.single_agent_runtime_host.active_turn_registry.snapshot(run.session_id)
         if active_turn is not None:
             active_turn_snapshot = active_turn.to_dict()
     except Exception:
@@ -478,13 +479,13 @@ def _project_public_stream_event(event_type: str, event: dict[str, Any]) -> tupl
     else:
         data = {key: raw_data[key] for key in allowed if key in raw_data}
     data = _redact_public_stream_data(data)
-    if normalized == "turn_route_decided":
-        route = dict(data.get("turn_route") or {})
-        data["turn_route"] = _public_turn_route(route)
+    if normalized == "runtime_branch_decided":
+        branch = dict(data.get("runtime_branch") or {})
+        data["runtime_branch"] = _public_runtime_branch(branch)
     elif normalized == "single_agent_turn_started":
-        route = dict(data.get("turn_route") or {})
+        branch = dict(data.get("runtime_branch") or {})
         data = {
-            "turn_route": _public_turn_route(route),
+            "runtime_branch": _public_runtime_branch(branch),
             "allowed_action_types": list(data.get("allowed_action_types") or []),
         }
     return normalized, data
@@ -495,11 +496,11 @@ def _is_turn_trace_only_harness_start(event: dict[str, Any]) -> bool:
     return bool(refs["turn_run_id"]) and not bool(refs["task_run_id"])
 
 
-def _public_turn_route(route: dict[str, Any]) -> dict[str, Any]:
+def _public_runtime_branch(branch: dict[str, Any]) -> dict[str, Any]:
     return {
-        key: route.get(key)
-        for key in ("route_kind", "reason")
-        if key in route
+        key: branch.get(key)
+        for key in ("branch_kind", "reason")
+        if key in branch
     }
 
 

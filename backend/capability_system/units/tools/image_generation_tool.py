@@ -69,8 +69,7 @@ class ImageGenerationTool(BaseTool):
         clean_prompt = str(prompt or "").strip()
         if not clean_prompt:
             return json.dumps({"ok": False, "error": "Image prompt is required"}, ensure_ascii=False)
-        invocation_id = _context_value(run_manager, "tool_invocation_id")
-        safe_target = str(target_id or "").strip() or _target_from_invocation(invocation_id)
+        safe_target = str(target_id or "").strip()
         try:
             generated = await SoulImageAssetService(self._root_dir).generate(
                 prompt=clean_prompt,
@@ -123,19 +122,5 @@ class ImageGenerationTool(BaseTool):
             ensure_ascii=False,
             sort_keys=True,
         )
-
-
-def _target_from_invocation(invocation_id: str) -> str:
-    clean = "".join(ch if ch.isalnum() or ch in {"-", "_"} else "-" for ch in str(invocation_id or "").strip())
-    return f"tool-{clean}" if clean else "tool-image"
-
-
-def _context_value(run_manager: Any, key: str) -> str:
-    try:
-        metadata = dict(getattr(run_manager, "metadata", None) or {})
-    except Exception:
-        metadata = {}
-    value = metadata.get(key)
-    return str(value or "").strip()
 
 

@@ -11,7 +11,7 @@ from capability_system import build_default_operation_registry
 from capability_system.tool_authorization import build_tool_authorization_index
 from capability_system.tool_definitions import build_tool_instances, get_tool_definitions
 from agent_system.profiles.runtime_profile_models import AgentRuntimeProfile
-from runtime.capabilities import build_current_turn_capability_plan, tool_instances_for_capability_plan
+from harness.runtime import build_runtime_tool_plan, tool_instances_for_runtime_tool_plan
 from permissions import (
     OperationGate,
     OperationGatePipelineContext,
@@ -188,26 +188,47 @@ def test_agent_todo_reaches_current_turn_capability_plan_and_tool_instances() ->
     )
     tool_instances = build_tool_instances(ROOT)
     index = build_tool_authorization_index(get_tool_definitions())
-    plan = build_current_turn_capability_plan(
-        tool_instances=tool_instances,
-        resource_policy=resource_policy,
-        definitions_by_name=index.definitions_by_name,
-        normalize_operation_id=registry.normalize_id,
-        task_operation=task_operation,
-        execution_permit=dict(task_operation["execution_permit"]),
+    plan = build_runtime_tool_plan(
+        runtime_assembly=_runtime_assembly_for_tools(
+            "task:test:agent-todo-final-tools",
+            tool_names=("agent_todo",),
+            definitions_by_name=index.definitions_by_name,
+        ),
+        invocation_kind="task_execution",
+        tool_definitions_by_name=index.definitions_by_name,
     )
-    final_tools = tool_instances_for_capability_plan(
+    final_tools = tool_instances_for_runtime_tool_plan(
         tool_instances=tool_instances,
-        capability_plan=plan,
+        tool_plan=plan,
     )
     final_tool_names = {str(getattr(tool, "name", "") or "") for tool in final_tools}
 
-    assert "op.agent_todo" in plan.allowed_operations
-    assert "agent_todo" in plan.model_visible_tools
-    assert "agent_todo" in plan.dispatchable_tools
+    assert "op.agent_todo" in plan.capability_table.dispatchable_operations
+    assert "agent_todo" in {str(item.get("tool_name") or "") for item in plan.model_visible_tools}
+    assert "agent_todo" in plan.dispatchable_tool_names
     assert "agent_todo" in final_tool_names
 
-    print("ALL PASSED (runtime capability state)")
+class _runtime_assembly_for_tools:
+    def __init__(self, turn_id: str, *, tool_names: tuple[str, ...], definitions_by_name: dict[str, object]) -> None:
+        self.turn_id = turn_id
+        self.tool_names = tool_names
+        self.definitions_by_name = definitions_by_name
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "session_id": "session:test",
+            "turn_id": self.turn_id,
+            "agent_invocation_id": f"aginvoke:{self.turn_id}",
+            "available_tools": [
+                {
+                    "tool_name": name,
+                    "operation_id": str(getattr(self.definitions_by_name[name], "operation_id", "") or name),
+                }
+                for name in self.tool_names
+            ],
+            "task_environment": {"environment_id": "env.test"},
+            "operation_authorization": {},
+        }
 
 
 if __name__ == "__main__":

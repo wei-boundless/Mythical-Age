@@ -24,7 +24,7 @@ def _sse(event: str, data: dict[str, Any], *, event_id: str = "") -> str:
 
 def _service():
     runtime = require_runtime()
-    return runtime.query_runtime.single_agent_runtime_host.runtime_monitor_service
+    return runtime.harness_runtime.single_agent_runtime_host.runtime_monitor_service
 
 
 @router.get("/orchestration/runtime-monitor/live")
@@ -35,7 +35,7 @@ async def list_runtime_monitor_live(limit: int = 20) -> dict[str, Any]:
 @router.get("/orchestration/runtime-monitor/events")
 async def stream_runtime_monitor_events(request: Request, limit: int = 40):
     runtime = require_runtime()
-    runtime_host = runtime.query_runtime.single_agent_runtime_host
+    runtime_host = runtime.harness_runtime.single_agent_runtime_host
     service = runtime_host.runtime_monitor_service
     subscription = runtime_host.event_log.subscribe()
     requested_limit = max(1, min(int(limit or 40), 100))

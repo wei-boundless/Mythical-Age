@@ -3,17 +3,20 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+import uuid
 from dataclasses import replace
 from typing import Any, AsyncIterator, Awaitable, Callable
 
+from harness.loop.admission import AdmissionDecision, admit_model_action
 from harness.loop.model_action_protocol import ModelActionRequest
 from harness.loop.model_action_runtime import call_model_invoker
 from harness.loop.presentation import error_event, final_answer_event
-from harness.runtime import RuntimeCompiler
+from harness.runtime import RuntimeCompiler, build_runtime_tool_plan
 from harness.runtime.public_progress import public_runtime_progress_summary
 from runtime.model_gateway.model_runtime import stringify_content
 from runtime.shared.models import TurnRun
-from runtime.tool_runtime.provider_tool_call_adapter import normalize_tool_call_dicts
+from runtime.tool_runtime import ToolInvocationRequest, build_tool_invocation_id
+from runtime.tool_runtime.provider_tool_call_adapter import normalize_tool_call_dicts, tool_calls_for_langchain_messages
 
 
 logger = logging.getLogger(__name__)
@@ -27,6 +30,7 @@ _STEER_ACTIVE_WORK_ACTIONS = {
     "append_instruction_to_active_work",
     "answer_then_continue_active_work",
 }
+_MAX_SINGLE_TURN_TOOL_ITERATIONS = 3
 
 
 async def run_single_agent_turn(
@@ -40,7 +44,7 @@ async def run_single_agent_turn(
     agent_runtime_profile: Any,
     runtime_assembly: Any,
     runtime_host: Any,
-    turn_route: Any,
+    runtime_branch: dict[str, Any],
     active_work_context: Any | None,
     model_runtime: Any,
     model_selection: dict[str, Any],
@@ -75,13 +79,19 @@ async def run_single_agent_turn(
         )
         yield {
             "type": "single_agent_turn_started",
-            "turn_route": turn_route.to_dict(),
+            "runtime_branch": dict(runtime_branch or {}),
             "packet_ref": compilation.packet.packet_id,
             "allowed_action_types": list(compilation.packet.allowed_action_types),
         }
+        runtime_tool_plan = build_runtime_tool_plan(
+            runtime_assembly=runtime_assembly,
+            invocation_kind="single_agent_turn",
+            tool_definitions_by_name=getattr(getattr(runtime_host, "tool_authorization_index", None), "definitions_by_name", {}),
+        )
+        model_messages = list(compilation.packet.model_messages)
         response = await _invoke_single_turn_model(
             model_runtime=model_runtime,
-            model_messages=list(compilation.packet.model_messages),
+            model_messages=model_messages,
             model_selection=dict(model_selection or {}),
             accounting_context={
                 "request_id": f"modelreq:{compilation.packet.packet_id}:1",
@@ -89,12 +99,203 @@ async def run_single_agent_turn(
                 "run_id": turn_run.turn_run_id if turn_run is not None else "",
                 "turn_id": turn_id,
                 "packet_ref": compilation.packet.packet_id,
-                "source": "harness.route.single_agent_turn",
+                "source": "harness.single_agent_turn",
                 "segment_plan": dict(compilation.packet.segment_plan or {}),
                 "prompt_manifest": dict(compilation.packet.diagnostics.get("prompt_manifest") or {}),
             },
-            native_tools=_native_tools_for_packet(compilation.packet.allowed_action_types),
+            native_tools=_native_tools_for_packet(compilation.packet.allowed_action_types, available_tools=compilation.packet.available_tools),
         )
+        tool_iteration = 0
+        while True:
+            if isinstance(response, dict) and response.get("type") == "error":
+                break
+            tool_calls = normalize_tool_call_dicts(response)
+            tool_action = _tool_action_request_from_native_tool_calls(
+                tool_calls,
+                turn_id=turn_id,
+                packet_ref=compilation.packet.packet_id,
+                iteration=tool_iteration + 1,
+            )
+            if tool_action is None:
+                break
+            if tool_iteration >= _MAX_SINGLE_TURN_TOOL_ITERATIONS:
+                content = "本轮工具观察次数已达到上限，我需要先停止并请你确认下一步。"
+                await _commit_final_message(
+                    commit_assistant_message,
+                    session_id=session_id,
+                    turn_id=turn_id,
+                    content=content,
+                    answer_channel="blocked",
+                    answer_source="harness.single_agent_turn.tool_loop",
+                )
+                yield final_answer_event(
+                    content=content,
+                    answer_source="harness.single_agent_turn.tool_loop",
+                    terminal_reason="single_turn_tool_iteration_limit",
+                    extra={"runtime_branch": dict(runtime_branch or {})},
+                )
+                if runtime_host is not None and turn_run is not None:
+                    terminal = _record_turn_terminal(
+                        runtime_host,
+                        turn_run=turn_run,
+                        turn_id=turn_id,
+                        status="blocked",
+                        terminal_reason="single_turn_tool_iteration_limit",
+                    )
+                    terminal_recorded = True
+                    yield {"type": "agent_turn_terminal", "event": terminal}
+                return
+            tool_iteration += 1
+            admission = admit_model_action(
+                tool_action,
+                packet_allowed_action_types=tuple(compilation.packet.allowed_action_types),
+                invocation_kind="single_agent_turn",
+                definitions_by_name=getattr(getattr(runtime_host, "tool_authorization_index", None), "definitions_by_name", {}),
+                allowed_tool_names=set(runtime_tool_plan.dispatchable_tool_names),
+                runtime_profile=_runtime_profile_payload(runtime_assembly),
+                permission_mode=runtime_host._current_permission_mode() if runtime_host is not None and hasattr(runtime_host, "_current_permission_mode") else "default",
+                side_effect_policy="requires_task_run",
+            )
+            if runtime_host is not None and turn_run is not None:
+                event = _record_model_action_admission(
+                    runtime_host,
+                    turn_run=turn_run,
+                    turn_id=turn_id,
+                    action_request=tool_action,
+                    admission=admission,
+                    packet_ref=compilation.packet.packet_id,
+                )
+                yield {"type": "model_action_admission", "event": event}
+            if admission.decision == "needs_contract":
+                content = admission.user_visible_reason or "这个动作需要先建立持续处理任务。"
+                await _commit_final_message(
+                    commit_assistant_message,
+                    session_id=session_id,
+                    turn_id=turn_id,
+                    content=content,
+                    answer_channel="blocked",
+                    answer_source="harness.single_agent_turn.tool_admission",
+                )
+                yield final_answer_event(
+                    content=content,
+                    answer_source="harness.single_agent_turn.tool_admission",
+                    terminal_reason=admission.system_reason or admission.decision,
+                    extra={"runtime_branch": dict(runtime_branch or {}), "admission": admission.to_dict()},
+                )
+                if runtime_host is not None and turn_run is not None:
+                    terminal = _record_turn_terminal(
+                        runtime_host,
+                        turn_run=turn_run,
+                        turn_id=turn_id,
+                        status="blocked",
+                        terminal_reason=admission.system_reason or admission.decision,
+                    )
+                    terminal_recorded = True
+                    yield {"type": "agent_turn_terminal", "event": terminal}
+                return
+            if admission.decision != "allow":
+                content = admission.user_visible_reason or "本轮工具调用没有通过运行时准入，已停止执行。"
+                await _commit_final_message(
+                    commit_assistant_message,
+                    session_id=session_id,
+                    turn_id=turn_id,
+                    content=content,
+                    answer_channel="blocked",
+                    answer_source="harness.single_agent_turn.tool_admission",
+                )
+                yield final_answer_event(
+                    content=content,
+                    answer_source="harness.single_agent_turn.tool_admission",
+                    terminal_reason=admission.system_reason or admission.decision,
+                    extra={"runtime_branch": dict(runtime_branch or {}), "admission": admission.to_dict()},
+                )
+                if runtime_host is not None and turn_run is not None:
+                    terminal = _record_turn_terminal(
+                        runtime_host,
+                        turn_run=turn_run,
+                        turn_id=turn_id,
+                        status="blocked",
+                        terminal_reason=admission.system_reason or admission.decision,
+                    )
+                    terminal_recorded = True
+                    yield {"type": "agent_turn_terminal", "event": terminal}
+                return
+            tool_call = dict(tool_action.tool_call or {})
+            observation = await _invoke_turn_tool(
+                runtime_host=runtime_host,
+                runtime_assembly=runtime_assembly,
+                turn_run=turn_run,
+                session_id=session_id,
+                turn_id=turn_id,
+                action_request=tool_action,
+                admission=admission,
+                packet_ref=compilation.packet.packet_id,
+                tool_plan=runtime_tool_plan,
+            )
+            yield observation.to_turn_observation_event()
+            if runtime_host is not None and turn_run is not None:
+                event = runtime_host.event_log.append(
+                    turn_run.turn_run_id,
+                    "turn_tool_observation_recorded",
+                    payload={
+                        "turn_id": turn_id,
+                        "tool_observation": observation.to_dict(),
+                    },
+                    refs={
+                        "turn_ref": turn_id,
+                        "turn_run_ref": turn_run.turn_run_id,
+                        "tool_invocation_ref": observation.invocation_id,
+                    },
+                )
+                yield {"type": "turn_tool_observation_recorded", "event": event.to_dict()}
+            if observation.status != "ok":
+                content = observation.text or "本轮工具调用失败，已停止执行。"
+                await _commit_final_message(
+                    commit_assistant_message,
+                    session_id=session_id,
+                    turn_id=turn_id,
+                    content=content,
+                    answer_channel="blocked",
+                    answer_source="harness.single_agent_turn.tool_observation",
+                )
+                yield final_answer_event(
+                    content=content,
+                    answer_source="harness.single_agent_turn.tool_observation",
+                    terminal_reason=observation.status,
+                    extra={"runtime_branch": dict(runtime_branch or {}), "tool_observation": observation.to_dict()},
+                )
+                if runtime_host is not None and turn_run is not None:
+                    terminal = _record_turn_terminal(
+                        runtime_host,
+                        turn_run=turn_run,
+                        turn_id=turn_id,
+                        status="blocked",
+                        terminal_reason=f"tool_{observation.status}",
+                    )
+                    terminal_recorded = True
+                    yield {"type": "agent_turn_terminal", "event": terminal}
+                return
+            model_messages = [
+                *model_messages,
+                _assistant_tool_call_message(response, [tool_call]),
+                _tool_observation_message(observation, tool_call_id=str(tool_call.get("id") or "")),
+            ]
+            response = await _invoke_single_turn_model(
+                model_runtime=model_runtime,
+                model_messages=model_messages,
+                model_selection=dict(model_selection or {}),
+                accounting_context={
+                    "request_id": f"modelreq:{compilation.packet.packet_id}:tool-followup:{tool_iteration}",
+                    "session_id": session_id,
+                    "run_id": turn_run.turn_run_id if turn_run is not None else "",
+                    "turn_id": turn_id,
+                    "packet_ref": compilation.packet.packet_id,
+                    "source": "harness.single_agent_turn.tool_followup",
+                    "segment_plan": dict(compilation.packet.segment_plan or {}),
+                    "prompt_manifest": dict(compilation.packet.diagnostics.get("prompt_manifest") or {}),
+                },
+                native_tools=_native_tools_for_packet(compilation.packet.allowed_action_types, available_tools=compilation.packet.available_tools),
+            )
         if isinstance(response, dict) and response.get("type") == "error":
             yield response
             if runtime_host is not None and turn_run is not None:
@@ -114,7 +315,64 @@ async def run_single_agent_turn(
             turn_id=turn_id,
             packet_ref=compilation.packet.packet_id,
         )
+        if action_request is None:
+            action_request = _active_work_action_request_from_native_tool_calls(
+                tool_calls,
+                turn_id=turn_id,
+                packet_ref=compilation.packet.packet_id,
+            )
         if action_request is not None:
+            admission = admit_model_action(
+                action_request,
+                packet_allowed_action_types=tuple(compilation.packet.allowed_action_types),
+                invocation_kind="single_agent_turn",
+                definitions_by_name=getattr(getattr(runtime_host, "tool_authorization_index", None), "definitions_by_name", {}),
+                allowed_tool_names=set(
+                    str(item.get("tool_name") or item.get("name") or "")
+                    for item in list(getattr(compilation.packet, "available_tools", ()) or [])
+                    if isinstance(item, dict)
+                ),
+                runtime_profile=_runtime_profile_payload(runtime_assembly),
+                permission_mode=runtime_host._current_permission_mode() if runtime_host is not None and hasattr(runtime_host, "_current_permission_mode") else "default",
+                side_effect_policy="requires_task_run",
+            )
+            if runtime_host is not None and turn_run is not None:
+                event = _record_model_action_admission(
+                    runtime_host,
+                    turn_run=turn_run,
+                    turn_id=turn_id,
+                    action_request=action_request,
+                    admission=admission,
+                    packet_ref=compilation.packet.packet_id,
+                )
+                yield {"type": "model_action_admission", "event": event}
+            if admission.decision != "allow":
+                content = admission.user_visible_reason or "本轮动作没有通过运行时准入，已停止执行。"
+                await _commit_final_message(
+                    commit_assistant_message,
+                    session_id=session_id,
+                    turn_id=turn_id,
+                    content=content,
+                    answer_channel="blocked",
+                    answer_source="harness.single_agent_turn.admission",
+                )
+                yield final_answer_event(
+                    content=content,
+                    answer_source="harness.single_agent_turn.admission",
+                    terminal_reason=admission.system_reason or admission.decision,
+                    extra={"runtime_branch": dict(runtime_branch or {}), "admission": admission.to_dict()},
+                )
+                if runtime_host is not None and turn_run is not None:
+                    terminal = _record_turn_terminal(
+                        runtime_host,
+                        turn_run=turn_run,
+                        turn_id=turn_id,
+                        status="blocked",
+                        terminal_reason=admission.system_reason or admission.decision,
+                    )
+                    terminal_recorded = True
+                    yield {"type": "agent_turn_terminal", "event": terminal}
+                return
             if action_request.action_type == "request_task_run":
                 async for event in start_task_from_action_request(action_request):
                     yield event
@@ -138,13 +396,13 @@ async def run_single_agent_turn(
                     turn_id=turn_id,
                     content=content,
                     answer_channel="blocked",
-                    answer_source="harness.route.single_agent_turn.block",
+                    answer_source="harness.single_agent_turn.block",
                 )
                 yield final_answer_event(
                     content=content,
-                    answer_source="harness.route.single_agent_turn.block",
+                    answer_source="harness.single_agent_turn.block",
                     terminal_reason="blocked",
-                    extra={"turn_route": turn_route.to_dict()},
+                    extra={"runtime_branch": dict(runtime_branch or {})},
                 )
                 if runtime_host is not None and turn_run is not None:
                     terminal = _record_turn_terminal(
@@ -165,13 +423,13 @@ async def run_single_agent_turn(
                     turn_id=turn_id,
                     content=content,
                     answer_channel="conversation",
-                    answer_source="harness.route.single_agent_turn.ask_user",
+                    answer_source="harness.single_agent_turn.ask_user",
                 )
                 yield final_answer_event(
                     content=content,
-                    answer_source="harness.route.single_agent_turn.ask_user",
+                    answer_source="harness.single_agent_turn.ask_user",
                     terminal_reason="ask_user",
-                    extra={"turn_route": turn_route.to_dict()},
+                    extra={"runtime_branch": dict(runtime_branch or {})},
                 )
                 if runtime_host is not None and turn_run is not None:
                     terminal = _record_turn_terminal(
@@ -184,56 +442,51 @@ async def run_single_agent_turn(
                     terminal_recorded = True
                     yield {"type": "agent_turn_terminal", "event": terminal}
                 return
-
-        active_control = _active_work_control_from_native_tool_calls(
-            tool_calls,
-            turn_id=turn_id,
-            packet_ref=compilation.packet.packet_id,
-        )
-        if active_control is not None:
-            content = await apply_active_work_control(active_control)
-            resolved_action = str(active_control.get("resolved_action") or active_control.get("action") or "active_work_control")
-            is_task_steer = resolved_action in _STEER_ACTIVE_WORK_ACTIONS
-            if is_task_steer:
-                yield {
-                    "type": "active_task_steer_accepted",
-                    "summary": content,
-                    "status": "accepted",
-                    "terminal_reason": resolved_action,
-                    "turn_route": turn_route.to_dict(),
-                    "active_work": dict(active_control),
-                }
-            else:
-                await _commit_final_message(
-                    commit_assistant_message,
-                    session_id=session_id,
-                    turn_id=turn_id,
+            if action_request.action_type == "active_work_control":
+                active_control = dict(action_request.active_work_control or {})
+                content = await apply_active_work_control(active_control)
+                resolved_action = str(active_control.get("resolved_action") or active_control.get("action") or "active_work_control")
+                is_task_steer = resolved_action in _STEER_ACTIVE_WORK_ACTIONS
+                if is_task_steer:
+                    yield {
+                        "type": "active_task_steer_accepted",
+                        "summary": content,
+                        "status": "accepted",
+                        "terminal_reason": resolved_action,
+                        "runtime_branch": dict(runtime_branch or {}),
+                        "active_work": dict(active_control),
+                    }
+                else:
+                    await _commit_final_message(
+                        commit_assistant_message,
+                        session_id=session_id,
+                        turn_id=turn_id,
+                        content=content,
+                        answer_channel="active_work_control",
+                        answer_source="harness.single_agent_turn.active_work_control",
+                    )
+                yield final_answer_event(
                     content=content,
-                    answer_channel="active_work_control",
-                    answer_source="harness.route.single_agent_turn.active_work_control",
-                )
-            yield final_answer_event(
-                content=content,
-                answer_source="harness.route.single_agent_turn.active_work_control",
-                terminal_reason=resolved_action,
-                extra={
-                    "turn_route": turn_route.to_dict(),
-                    "active_work": dict(active_control),
-                    "completion_state": "task_steer_accepted" if is_task_steer else "completed",
-                    "summary": content if is_task_steer else "",
-                },
-            )
-            if runtime_host is not None and turn_run is not None:
-                terminal = _record_turn_terminal(
-                    runtime_host,
-                    turn_run=turn_run,
-                    turn_id=turn_id,
-                    status="completed",
+                    answer_source="harness.single_agent_turn.active_work_control",
                     terminal_reason=resolved_action,
+                    extra={
+                        "runtime_branch": dict(runtime_branch or {}),
+                        "active_work": dict(active_control),
+                        "completion_state": "task_steer_accepted" if is_task_steer else "completed",
+                        "summary": content if is_task_steer else "",
+                    },
                 )
-                terminal_recorded = True
-                yield {"type": "agent_turn_terminal", "event": terminal}
-            return
+                if runtime_host is not None and turn_run is not None:
+                    terminal = _record_turn_terminal(
+                        runtime_host,
+                        turn_run=turn_run,
+                        turn_id=turn_id,
+                        status="completed",
+                        terminal_reason=resolved_action,
+                    )
+                    terminal_recorded = True
+                    yield {"type": "agent_turn_terminal", "event": terminal}
+                return
 
         content = stringify_content(getattr(response, "content", response)).strip()
         if not content:
@@ -259,19 +512,19 @@ async def run_single_agent_turn(
             turn_id=turn_id,
             content=content,
             answer_channel="conversation",
-            answer_source="harness.route.single_agent_turn",
+            answer_source="harness.single_agent_turn",
         )
         yield {
             "type": "assistant_message_committed",
             "answer_channel": "conversation",
-            "answer_source": "harness.route.single_agent_turn",
+            "answer_source": "harness.single_agent_turn",
             "answer_canonical_state": "final",
         }
         yield final_answer_event(
             content=content,
-            answer_source="harness.route.single_agent_turn",
+            answer_source="harness.single_agent_turn",
             terminal_reason="assistant_message",
-            extra={"turn_route": turn_route.to_dict()},
+            extra={"runtime_branch": dict(runtime_branch or {})},
         )
         if runtime_host is not None and turn_run is not None:
             terminal = _record_turn_terminal(
@@ -344,9 +597,11 @@ async def _invoke_single_turn_model(
     )
 
 
-def _native_tools_for_packet(allowed_action_types: tuple[str, ...]) -> list[dict[str, Any]]:
+def _native_tools_for_packet(allowed_action_types: tuple[str, ...], *, available_tools: tuple[dict[str, Any], ...] = ()) -> list[dict[str, Any]]:
     allowed = set(allowed_action_types or ())
     tools: list[dict[str, Any]] = []
+    if "tool_call" in allowed:
+        tools.extend(_runtime_native_tools(available_tools))
     if "request_task_run" in allowed:
         tools.append(request_task_run_native_tool())
     if "active_work_control" in allowed:
@@ -355,6 +610,31 @@ def _native_tools_for_packet(allowed_action_types: tuple[str, ...]) -> list[dict
         tools.append(ask_user_native_tool())
     if "block" in allowed:
         tools.append(block_native_tool())
+    return tools
+
+
+def _runtime_native_tools(available_tools: tuple[dict[str, Any], ...]) -> list[dict[str, Any]]:
+    tools: list[dict[str, Any]] = []
+    for item in available_tools:
+        tool = dict(item or {})
+        name = str(tool.get("tool_name") or tool.get("name") or "").strip()
+        if not name or not bool(tool.get("read_only") is True):
+            continue
+        schema = dict(tool.get("input_schema") or {}) if isinstance(tool.get("input_schema"), dict) else {}
+        if not schema:
+            properties = {str(value): {"type": "string"} for value in list(tool.get("required_inputs") or []) if str(value)}
+            schema = {
+                "type": "object",
+                "properties": properties,
+                "required": list(properties),
+            }
+        tools.append(
+            {
+                "name": name,
+                "description": str(tool.get("description") or tool.get("display_name") or name),
+                "input_schema": schema,
+            }
+        )
     return tools
 
 
@@ -529,12 +809,46 @@ def _action_request_from_native_tool_calls(
     return None
 
 
-def _active_work_control_from_native_tool_calls(
+def _tool_action_request_from_native_tool_calls(
     tool_calls: list[dict[str, Any]],
     *,
     turn_id: str,
     packet_ref: str,
-) -> dict[str, Any] | None:
+    iteration: int,
+) -> ModelActionRequest | None:
+    reserved = {"request_task_run", "active_work_control", "ask_user", "block"}
+    for call in tool_calls:
+        tool_name = str(call.get("name") or "").strip()
+        if not tool_name or tool_name in reserved:
+            continue
+        args = dict(call.get("args") or {})
+        call_id = str(call.get("id") or f"call:{tool_name}:{iteration}")
+        return ModelActionRequest(
+            request_id=f"model-action:{turn_id}:single-agent-tool:{iteration}:{uuid.uuid4().hex[:8]}",
+            turn_id=turn_id,
+            action_type="tool_call",
+            public_progress_note=f"正在读取必要上下文：{tool_name}。",
+            tool_call={"tool_name": tool_name, "name": tool_name, "id": call_id, "args": args},
+            diagnostics={
+                "origin_kind": "single_agent_turn_native_tool_call",
+                "origin_authority": "harness.loop.single_agent_turn",
+                "packet_ref": packet_ref,
+                "native_tool_call": {
+                    "id": call_id,
+                    "name": tool_name,
+                    "source": str(call.get("source") or ""),
+                },
+            },
+        )
+    return None
+
+
+def _active_work_action_request_from_native_tool_calls(
+    tool_calls: list[dict[str, Any]],
+    *,
+    turn_id: str,
+    packet_ref: str,
+) -> ModelActionRequest | None:
     for call in tool_calls:
         if str(call.get("name") or "").strip() != "active_work_control":
             continue
@@ -549,7 +863,7 @@ def _active_work_control_from_native_tool_calls(
             "answer_then_continue_active_work",
         }:
             return None
-        return {
+        active_work_control = {
             "action": action,
             "response": str(args.get("response") or "").strip(),
             "appended_instruction": str(args.get("appended_instruction") or "").strip(),
@@ -563,7 +877,122 @@ def _active_work_control_from_native_tool_calls(
             "turn_id": turn_id,
             "packet_ref": packet_ref,
         }
+        return ModelActionRequest(
+            request_id=f"model-action:{turn_id}:single-agent-active-work-control",
+            turn_id=turn_id,
+            action_type="active_work_control",
+            public_progress_note="正在处理当前工作控制请求。",
+            active_work_control=active_work_control,
+            diagnostics={
+                "origin_kind": "single_agent_turn_native_action",
+                "origin_authority": "harness.loop.single_agent_turn",
+                "packet_ref": packet_ref,
+                "native_tool_call": {
+                    "id": str(call.get("id") or ""),
+                    "name": str(call.get("name") or ""),
+                    "source": str(call.get("source") or ""),
+                },
+            },
+        )
     return None
+
+
+def _runtime_profile_payload(runtime_assembly: Any) -> dict[str, Any]:
+    payload = runtime_assembly.to_dict() if hasattr(runtime_assembly, "to_dict") else dict(runtime_assembly or {})
+    return dict(payload.get("profile") or {})
+
+
+async def _invoke_turn_tool(
+    *,
+    runtime_host: Any,
+    runtime_assembly: Any,
+    turn_run: TurnRun | None,
+    session_id: str,
+    turn_id: str,
+    action_request: ModelActionRequest,
+    admission: AdmissionDecision,
+    packet_ref: str,
+    tool_plan: Any,
+):
+    tool_call = dict(action_request.tool_call or {})
+    tool_name = str(tool_call.get("tool_name") or tool_call.get("name") or "").strip()
+    tool_call_id = str(tool_call.get("id") or action_request.request_id)
+    tool_args = dict(tool_call.get("args") or tool_call.get("tool_args") or {})
+    definitions = getattr(getattr(runtime_host, "tool_authorization_index", None), "definitions_by_name", {})
+    definition = dict(definitions or {}).get(tool_name)
+    operation_id = str(getattr(definition, "operation_id", "") or tool_name)
+    invocation_id = build_tool_invocation_id(
+        caller_ref=turn_run.turn_run_id if turn_run is not None else f"turnrun:{turn_id}",
+        action_request_ref=action_request.request_id,
+        tool_name=tool_name,
+        tool_call_id=tool_call_id,
+    )
+    assembly_payload = runtime_assembly.to_dict() if hasattr(runtime_assembly, "to_dict") else dict(runtime_assembly or {})
+    request = ToolInvocationRequest(
+        invocation_id=invocation_id,
+        caller_kind="agent_turn",
+        caller_ref=turn_run.turn_run_id if turn_run is not None else f"turnrun:{turn_id}",
+        session_id=session_id,
+        turn_id=turn_id,
+        action_request_ref=action_request.request_id,
+        packet_ref=packet_ref,
+        tool_name=tool_name,
+        tool_call_id=tool_call_id,
+        tool_args=tool_args,
+        operation_id=operation_id,
+        tool_plan_ref=str(getattr(tool_plan, "plan_id", "") or ""),
+        admission_ref=admission.admission_id,
+        permission_mode=runtime_host._current_permission_mode() if runtime_host is not None and hasattr(runtime_host, "_current_permission_mode") else "default",
+        sandbox_scope=_single_turn_sandbox_scope(assembly_payload),
+        file_scope=dict(dict(assembly_payload.get("task_environment") or {}).get("file_management") or {}),
+        requested_constraints={
+            "runtime_host": runtime_host,
+            "runtime_assembly": assembly_payload,
+            "backend_dir": str(getattr(runtime_host, "backend_dir", "") or assembly_payload.get("backend_dir") or ""),
+        },
+    )
+    control_plane = getattr(runtime_host, "tool_control_plane", None)
+    if control_plane is None:
+        from runtime.tool_runtime import ToolObservation
+
+        return ToolObservation(
+            observation_id=f"toolobs:{invocation_id}:{uuid.uuid4().hex[:8]}",
+            invocation_id=invocation_id,
+            caller_kind="agent_turn",
+            caller_ref=request.caller_ref,
+            tool_name=tool_name,
+            operation_id=operation_id,
+            status="error",
+            text="runtime_tool_control_plane_unavailable",
+            diagnostics={"stage": "runtime_tool_control_plane_unavailable"},
+        )
+    return await control_plane.invoke(request, tool_plan=tool_plan)
+
+
+def _single_turn_sandbox_scope(assembly_payload: dict[str, Any]) -> dict[str, Any]:
+    environment = dict(assembly_payload.get("task_environment") or {})
+    sandbox = dict(environment.get("sandbox_policy") or {})
+    storage = dict(environment.get("storage_space") or {})
+    if storage.get("workspace_root") and "workspace_root" not in sandbox:
+        sandbox["workspace_root"] = str(storage.get("workspace_root") or "")
+    return sandbox
+
+
+def _assistant_tool_call_message(response: Any, tool_calls: list[dict[str, Any]]) -> dict[str, Any]:
+    return {
+        "role": "assistant",
+        "content": stringify_content(getattr(response, "content", response)),
+        "tool_calls": tool_calls_for_langchain_messages(tool_calls),
+    }
+
+
+def _tool_observation_message(observation: Any, *, tool_call_id: str) -> dict[str, Any]:
+    return {
+        "role": "tool",
+        "name": observation.tool_name,
+        "tool_call_id": str(tool_call_id or observation.invocation_id),
+        "content": observation.text,
+    }
 
 
 async def _commit_final_message(
@@ -680,6 +1109,46 @@ def _record_step_summary(
             )
         )
     return {"type": "runtime_step_summary", **payload, "event": event.to_dict()}
+
+
+def _record_model_action_admission(
+    runtime_host: Any,
+    *,
+    turn_run: TurnRun,
+    turn_id: str,
+    action_request: ModelActionRequest,
+    admission: AdmissionDecision,
+    packet_ref: str,
+) -> dict[str, Any]:
+    event = runtime_host.event_log.append(
+        turn_run.turn_run_id,
+        "model_action_admission_checked",
+        payload={
+            "turn_id": turn_id,
+            "model_action_request": action_request.to_dict(),
+            "admission": admission.to_dict(),
+        },
+        refs={
+            "turn_ref": turn_id,
+            "turn_run_ref": turn_run.turn_run_id,
+            "action_request_ref": action_request.request_id,
+            "runtime_invocation_packet_ref": packet_ref,
+        },
+    )
+    current = runtime_host.state_index.get_turn_run(turn_run.turn_run_id) or turn_run
+    runtime_host.state_index.upsert_turn_run(
+        replace(
+            current,
+            updated_at=event.created_at,
+            latest_event_offset=event.offset,
+            diagnostics={
+                **dict(current.diagnostics or {}),
+                "latest_admission_decision": admission.decision,
+                "latest_action_type": action_request.action_type,
+            },
+        )
+    )
+    return event.to_dict()
 
 
 def _record_turn_terminal(

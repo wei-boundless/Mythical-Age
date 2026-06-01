@@ -13,11 +13,11 @@ from harness.loop.task_steering import (
     mark_task_steers_consumed,
     mark_task_steers_included,
 )
-from tests.support.runtime_stubs import build_query_runtime
+from tests.support.runtime_stubs import build_harness_runtime
 
 
 def test_active_task_steer_records_submission_and_lifecycle_events() -> None:
-    runtime = build_query_runtime()
+    runtime = build_harness_runtime()
     host = runtime.single_agent_runtime_host
     task_run_id = "taskrun:steer-protocol"
     host.state_index.upsert_task_run(
@@ -51,7 +51,7 @@ def test_active_task_steer_records_submission_and_lifecycle_events() -> None:
 
 
 def test_consumed_steer_cannot_be_reopened_by_late_include_transition() -> None:
-    runtime = build_query_runtime()
+    runtime = build_harness_runtime()
     host = runtime.single_agent_runtime_host
     task_run_id = "taskrun:steer-terminal-state"
     host.state_index.upsert_task_run(

@@ -48,10 +48,12 @@ def test_default_task_environments_are_grouped_scene_platforms() -> None:
     assert "op.image_generate" in development.sandbox_policy.side_effect_operations
     assert development.resource_space.storage_namespace == "development/sandbox"
     assert development.environment_prompts
+    assert [item.prompt_id for item in development.environment_prompts] == ["environment.development.sandbox.v1"]
     development_prompt = "\n".join(item.content for item in development.environment_prompts)
-    assert "优先使用 search_text、search_files、glob_paths、read_file、list_dir" in development_prompt
     assert "sandbox overlay" in development_prompt
-    assert "old_text not found" in development_prompt
+    assert "优先使用 search_text、search_files、glob_paths、read_file、list_dir" not in development_prompt
+    assert "old_text not found" not in development_prompt
+    assert ("strategy." + "development.execution.v1") not in development_prompt
     assert "runtime packet" not in development_prompt
 
     assert "file_profile.writing_manuscript" in writing.file_management.file_profile_refs
@@ -366,8 +368,10 @@ def test_development_environment_prompt_is_in_task_execution_packet() -> None:
     ).packet
 
     model_input = _model_input_text(packet)
+    stable_payload = json.loads(packet.model_messages[1]["content"].split("\n", 1)[1])
     assert "当前任务环境说明" in model_input
-    assert "优先使用 search_text、search_files、glob_paths、read_file、list_dir" in model_input
+    assert stable_payload["task_environment"]["environment_prompt_refs"] == ["environment.development.sandbox.v1"]
+    assert "处理 Python 开发任务" in model_input
     assert "old_text not found" in model_input
     assert "sandbox overlay" in model_input
 

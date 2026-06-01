@@ -21,6 +21,7 @@ from runtime.shared.execution_record import RuntimeExecutionStore
 from runtime.shared.runtime_run_registry import RuntimeRun, RuntimeRunRegistry
 from runtime.shared.runtime_object_store import RuntimeObjectStore
 from runtime.shared.stream_replay import RuntimeStreamReplayService
+from runtime.tool_runtime.tool_control_plane import RuntimeToolControlPlane
 from .active_turn import ActiveTurnRegistry
 from langgraph.checkpoint.sqlite import SqliteSaver
 
@@ -39,6 +40,7 @@ class SingleAgentRuntimeHost:
         permission_mode_provider: Callable[[], str] | None = None,
         tool_authorization_index: ToolAuthorizationIndex | None = None,
         tool_definitions: list[Any] | tuple[Any, ...] | None = None,
+        tool_runtime_executor: Any | None = None,
     ) -> None:
         self.root_dir = Path(root_dir)
         self.owner_process_id = os.getpid()
@@ -55,6 +57,10 @@ class SingleAgentRuntimeHost:
         self.active_turn_registry = ActiveTurnRegistry(self)
         self.graph_checkpoint_store = LangGraphCheckpointStore(_build_graph_checkpoint_saver(self.root_dir))
         self.operation_gate = operation_gate or OperationGate(build_default_operation_registry())
+        self.tool_control_plane = RuntimeToolControlPlane(
+            tool_runtime_executor=tool_runtime_executor,
+            operation_gate=self.operation_gate,
+        )
         self.permission_mode_provider = permission_mode_provider
         self.tool_authorization_index = tool_authorization_index or build_tool_authorization_index(
             tuple(tool_definitions or ())

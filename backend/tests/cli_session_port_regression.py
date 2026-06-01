@@ -453,7 +453,7 @@ def test_interactive_mode_creates_session_when_none_is_selected(tmp_path: Path) 
 
 def test_cli_modules_do_not_import_runtime_internals() -> None:
     cli_dir = BACKEND_DIR / "cli"
-    forbidden = ("QueryRuntime", "HarnessServiceHost", "query.runtime", "runtime import")
+    forbidden = ("HarnessRuntimeFacade", "HarnessServiceHost", "query.runtime", "runtime import")
     for path in cli_dir.glob("*.py"):
         text = path.read_text(encoding="utf-8")
         for token in forbidden:

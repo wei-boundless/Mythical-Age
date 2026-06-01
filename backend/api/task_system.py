@@ -1324,7 +1324,7 @@ async def start_task_system_engagement_plan(plan_id: str, payload: EngagementSta
     invalid = sorted(key for key in forbidden if key in startup)
     if invalid:
         raise HTTPException(status_code=400, detail={"errors": [f"forbidden_start_field:{key}" for key in invalid]})
-    runtime_host = runtime.query_runtime.single_agent_runtime_host
+    runtime_host = runtime.harness_runtime.single_agent_runtime_host
     return EngagementService(runtime.base_dir).start(
         runtime_host=runtime_host,
         plan_id=plan_id,
@@ -1373,7 +1373,7 @@ async def get_task_system_engagement_run(engagement_run_id: str) -> dict[str, ob
 @router.post("/tasks/engagement-runs/{engagement_run_id}/sync-closeout")
 async def sync_task_system_engagement_run_closeout(engagement_run_id: str) -> dict[str, object]:
     runtime = require_runtime()
-    runtime_host = runtime.query_runtime.single_agent_runtime_host
+    runtime_host = runtime.harness_runtime.single_agent_runtime_host
     try:
         result = sync_engagement_run_closeout(
             backend_dir=runtime.base_dir,
@@ -1564,7 +1564,7 @@ async def resolve_task_environment_session(
         graph_run_id = str(payload.graph_run_id or "").strip()
         if not graph_run_id:
             raise HTTPException(status_code=400, detail="graph_run_id is required for resume_graph")
-        graph_run = runtime.query_runtime.graph_harness.get_graph_run(graph_run_id)
+        graph_run = runtime.harness_runtime.graph_harness.get_graph_run(graph_run_id)
         graph_run_payload = dict(graph_run or {})
         if not graph_run_payload:
             raise HTTPException(status_code=404, detail="GraphRun not found")

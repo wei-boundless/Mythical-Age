@@ -15,7 +15,7 @@ from evidence.pdf_worker import PDFWorker
 from evidence.retrieval_worker import RetrievalWorker
 from evidence.structured_data_worker import StructuredDataWorker
 from runtime.model_gateway.model_runtime import ModelRuntimeError
-from response_system import build_rag_evidence_pack
+from runtime.output_boundary import build_rag_evidence_pack
 
 
 def main() -> None:

@@ -11,7 +11,7 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 from evidence.output_policy import RAGEvidenceOutputPolicy
-from response_system import build_rag_evidence_pack
+from runtime.output_boundary import build_rag_evidence_pack
 
 
 def test_rag_finalizer_uses_scoped_segment_plan() -> None:

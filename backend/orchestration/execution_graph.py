@@ -10,7 +10,7 @@ CommitType = Literal["session_message", "session_memory", "durable_memory", "tas
 
 @dataclass(slots=True, frozen=True)
 class ExecutionNode:
-    """Directive-owned execution unit, independent from query planner models."""
+    """Directive-owned execution unit, independent from planner models."""
 
     node_id: str
     node_type: ExecutionNodeType

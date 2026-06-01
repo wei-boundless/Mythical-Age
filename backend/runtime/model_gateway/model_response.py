@@ -13,7 +13,7 @@ from runtime.model_gateway.model_runtime import ModelRuntimeError, stringify_con
 from task_system.runtime_semantics.protocol_boundary import detect_protocol_leak
 from orchestration.commit_gate import build_blocked_runtime_commit_gate
 from orchestration.runtime_directive import RuntimeDirective
-from response_system.boundary.boundary import AssistantOutputBoundary, sanitize_visible_assistant_content
+from runtime.output_boundary import AssistantOutputBoundary, sanitize_visible_assistant_content
 
 class ModelResponseRuntimeExecutor:
     """Directive-only executor for the current agent invocation."""

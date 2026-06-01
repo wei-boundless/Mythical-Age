@@ -15,7 +15,7 @@ def test_graph_task_delete_removes_run_scoped_memory_artifacts_and_runtime_state
     backend_dir = tmp_path / "backend"
     graph_config = build_graph_harness_config_from_graph(graph=_graph())
     runtime = _runtime_with_graph_harness(base_dir=backend_dir, runtime_root=backend_dir / "storage" / "runtime_state")
-    started = runtime.query_runtime.graph_harness.start_run(
+    started = runtime.harness_runtime.graph_harness.start_run(
         session_id="session-delete",
         task_id="task.test.delete",
         graph_config=graph_config,
@@ -26,7 +26,7 @@ def test_graph_task_delete_removes_run_scoped_memory_artifacts_and_runtime_state
     task_run_id = started.task_run.task_run_id
     project_id = started.task_run.diagnostics["runtime_scope"]["project_id"]
     namespace_id = started.task_run.diagnostics["runtime_scope"]["memory_namespace_id"]
-    services = runtime.query_runtime.graph_harness._services
+    services = runtime.harness_runtime.graph_harness._services
 
     services.formal_memory_service.store.upsert_repository(
         FormalMemoryRepository(
@@ -78,11 +78,11 @@ def test_graph_task_delete_removes_run_scoped_memory_artifacts_and_runtime_state
     (artifact_dir / "draft.md").write_text("draft", encoding="utf-8")
     services.event_log.append(task_run_id, "test_event", payload={"graph_run_id": graph_run_id})
 
-    result = GraphTaskLifecycleManager(base_dir=backend_dir, graph_harness=runtime.query_runtime.graph_harness).delete_graph_run(graph_run_id)
+    result = GraphTaskLifecycleManager(base_dir=backend_dir, graph_harness=runtime.harness_runtime.graph_harness).delete_graph_run(graph_run_id)
 
     assert result["root_task_run_id"] == task_run_id
     assert services.state_index.get_task_run(task_run_id) is None
-    assert runtime.query_runtime.graph_harness.get_graph_run(graph_run_id) is None
+    assert runtime.harness_runtime.graph_harness.get_graph_run(graph_run_id) is None
     assert not artifact_dir.exists()
     assert services.formal_memory_service.store.list_repositories() == ()
     assert services.artifact_repository_service.store.list_artifacts(graph_run_id=graph_run_id) == ()

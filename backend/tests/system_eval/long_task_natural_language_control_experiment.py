@@ -17,8 +17,8 @@ PROJECT_ROOT = BACKEND_DIR.parent
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-from query.models import QueryRequest
-from tests.support.runtime_stubs import build_query_runtime
+from harness.entrypoint.models import HarnessRuntimeRequest
+from tests.support.runtime_stubs import build_harness_runtime
 
 
 def _action_request(
@@ -203,7 +203,7 @@ def _unique_refs(values: list[str]) -> list[str]:
 
 async def _collect_stream(runtime: Any, session_id: str, message: str) -> list[dict[str, Any]]:
     events: list[dict[str, Any]] = []
-    async for event in runtime.astream(QueryRequest(session_id=session_id, message=message)):
+    async for event in runtime.astream(HarnessRuntimeRequest(session_id=session_id, message=message)):
         events.append(dict(event))
     return events
 
@@ -292,7 +292,7 @@ async def _run_experiment(output_root: Path) -> dict[str, Any]:
     output_dir.mkdir(parents=True, exist_ok=True)
 
     model = LongTaskNaturalLanguageModelRuntime()
-    runtime = build_query_runtime(model_runtime=model)
+    runtime = build_harness_runtime(model_runtime=model)
     host = runtime.single_agent_runtime_host
     session_id = f"session-long-task-control-{uuid.uuid4().hex[:8]}"
 

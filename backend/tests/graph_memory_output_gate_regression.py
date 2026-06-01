@@ -10,7 +10,7 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-from query import QueryRuntime
+from harness.entrypoint import HarnessRuntimeFacade
 from task_system import TaskFlowRegistry
 from task_system.compiler.graph_harness_config_publisher import publish_graph_harness_config_for_graph
 from tests.support.runtime_stubs import (
@@ -19,7 +19,7 @@ from tests.support.runtime_stubs import (
     EmptyToolRuntimeStub,
     InMemorySessionManagerStub,
     PrimarySettingsStub,
-    QueryRuntimeMemoryFacadeStub,
+    HarnessRuntimeFacadeMemoryFacadeStub,
     isolated_backend_root,
 )
 
@@ -50,12 +50,12 @@ class CompleteModelRuntimeStub:
         )
 
 
-def _runtime(prefix: str) -> QueryRuntime:
-    return QueryRuntime(
+def _runtime(prefix: str) -> HarnessRuntimeFacade:
+    return HarnessRuntimeFacade(
         base_dir=isolated_backend_root(prefix),
         settings_service=PrimarySettingsStub(),
         session_manager=InMemorySessionManagerStub(),
-        memory_facade=QueryRuntimeMemoryFacadeStub(),
+        memory_facade=HarnessRuntimeFacadeMemoryFacadeStub(),
         retrieval_service=SimpleNamespace(),
         tool_runtime=EmptyToolRuntimeStub(),
         skill_registry=EmptySkillRegistryStub(),
@@ -64,7 +64,7 @@ def _runtime(prefix: str) -> QueryRuntime:
     )
 
 
-def _runtime_object_payload(runtime: QueryRuntime, ref: str) -> dict:
+def _runtime_object_payload(runtime: HarnessRuntimeFacade, ref: str) -> dict:
     payload = runtime.single_agent_runtime_host.runtime_objects.get_object(ref)
     assert payload, f"runtime object not found: {ref}"
     return payload

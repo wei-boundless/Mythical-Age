@@ -35,7 +35,7 @@ async def session_tokens(
     )
 
     record = runtime.session_manager.get_history(session_id)
-    prompt_usage = runtime.query_runtime.single_agent_runtime_host.prompt_accounting_ledger.summarize_session(session_id)
+    prompt_usage = runtime.harness_runtime.single_agent_runtime_host.prompt_accounting_ledger.summarize_session(session_id)
     message_text = []
     for item in record.get("messages", []):
         message_text.append(str(item.get("content", "")))

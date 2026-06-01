@@ -10,24 +10,14 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
-from capability_system import build_default_operation_registry
-from permissions import OperationGatePipelineContext, ResourcePolicy
-from runtime.shared.action_request import RuntimeActionRequest
-from runtime.shared.execution_record import (
-    build_idempotency_token,
-    build_request_fingerprint,
-    derive_replay_policy,
-)
 from runtime.shared.models import AgentRun, AgentRunResult
-from runtime.shared.safety import build_task_safety_validators
 from runtime.memory.tool_observation_ledger import build_tool_observation_record
+from runtime.tool_runtime import ToolInvocationRequest, build_tool_invocation_id
 
-from orchestration.runtime_directive import RuntimeDirective
 from orchestration.commit_gate import build_assistant_session_message_commit_decision
 from project_layout import ProjectLayout
-from harness.runtime import RuntimeCompiler, TaskExecutorServices, assemble_runtime, build_execution_context
+from harness.runtime import RuntimeCompiler, TaskExecutorServices, assemble_runtime, build_runtime_tool_plan
 from harness.runtime.public_progress import public_action_progress_summary, public_runtime_progress_summary
-from harness.agent_control.controller import SUBAGENT_TOOL_NAMES, SubagentControl
 
 from .admission import admit_model_action
 from .executor_sequence import claim_executor_sequence, next_model_action_request_id
@@ -449,69 +439,6 @@ def append_user_work_instruction(
     return {**result, "task_run": updated.to_dict()}
 
 
-def recover_interrupted_task_executors(runtime_host: Any) -> dict[str, Any]:
-    recovered: list[str] = []
-    skipped_graph_node_task_run_ids: list[str] = []
-    for task_run in runtime_host.state_index.list_task_runs():
-        if not _is_single_agent_task_run(task_run):
-            continue
-        if _origin_kind(task_run) == "graph_node_assigned":
-            skipped_graph_node_task_run_ids.append(task_run.task_run_id)
-            continue
-        if not is_task_run_executor_claimed(task_run):
-            continue
-        event = runtime_host.event_log.append(
-            task_run.task_run_id,
-            "task_run_executor_recovered_after_runtime_start",
-            payload={
-                "task_run_id": task_run.task_run_id,
-                "previous_status": str(task_run.status or ""),
-                "previous_executor_status": str(dict(task_run.diagnostics or {}).get("executor_status") or ""),
-            },
-            refs={"task_run_ref": task_run.task_run_id},
-        )
-        recovered_task = replace(
-            task_run,
-            status="waiting_executor",
-            updated_at=event.created_at,
-            latest_event_offset=event.offset,
-            terminal_reason="waiting_executor",
-            diagnostics={
-                **_strip_terminal_diagnostics(dict(task_run.diagnostics or {})),
-                "executor_status": "waiting_executor",
-                "latest_step": "task_executor_recovered_after_runtime_start",
-                "latest_step_status": "waiting_executor",
-                "latest_step_summary": "后端运行时已重启，当前工作已恢复为可继续状态。",
-                "latest_public_progress_note": "后端运行时已重启，当前工作已恢复为可继续状态。",
-                "recoverable_error": {
-                    "error_code": "task_executor_interrupted_by_runtime_restart",
-                    "retryable": True,
-                    "user_message": "后端运行时已重启，任务可以继续续跑。",
-                },
-                "recovery_action": "rerun_task_executor",
-            },
-        )
-        runtime_host.state_index.upsert_task_run(recovered_task)
-        append_work_rollout_item(
-            runtime_host,
-            task_run=recovered_task,
-            item_type="interrupted_boundary",
-            title="恢复断点",
-            status="waiting_executor",
-            summary="后端运行时已重启，当前工作已恢复为可继续状态。",
-            event_offset=event.offset,
-            refs={"task_run_ref": task_run.task_run_id},
-            payload={"terminal_reason": "task_executor_interrupted_by_runtime_restart"},
-        )
-        recovered.append(task_run.task_run_id)
-    return {
-        "recovered_count": len(recovered),
-        "task_run_ids": recovered,
-        "skipped_graph_node_task_run_ids": skipped_graph_node_task_run_ids,
-        "authority": "harness.task_executor.runtime_start_recovery",
-    }
-
-
 async def execute_task_run(
     services: TaskExecutorServices,
     task_run_id: str,
@@ -576,8 +503,13 @@ async def execute_task_run(
         tool_instances=services.all_tool_instances(),
         definitions_by_name=dict(runtime_host.tool_authorization_index.definitions_by_name or {}),
     )
-    runtime_available_tools = _runtime_available_tools(runtime_assembly.to_dict())
-    allowed_tool_names = _runtime_allowed_tool_names(runtime_available_tools)
+    runtime_tool_plan = build_runtime_tool_plan(
+        runtime_assembly=runtime_assembly,
+        invocation_kind="task_execution",
+        tool_definitions_by_name=dict(runtime_host.tool_authorization_index.definitions_by_name or {}),
+    )
+    runtime_available_tools = list(runtime_tool_plan.model_visible_tools)
+    allowed_tool_names = set(runtime_tool_plan.dispatchable_tool_names)
     runtime_fingerprint = _current_runtime_fingerprint(
         runtime_assembly.to_dict(),
         runtime_host=runtime_host,
@@ -644,6 +576,7 @@ async def execute_task_run(
             agent_run=agent_run,
             contract=contract,
             runtime_assembly=runtime_assembly,
+            runtime_tool_plan=runtime_tool_plan,
             runtime_available_tools=runtime_available_tools,
             allowed_tool_names=allowed_tool_names,
             runtime_fingerprint=runtime_fingerprint,
@@ -669,6 +602,7 @@ async def _execute_claimed_task_run(
     agent_run: Any,
     contract: Any,
     runtime_assembly: Any,
+    runtime_tool_plan: Any,
     runtime_available_tools: list[dict[str, Any]],
     allowed_tool_names: set[str],
     runtime_fingerprint: str,
@@ -914,17 +848,13 @@ async def _execute_claimed_task_run(
         if control_result is not None:
             return control_result
 
-        project_root = ProjectLayout.from_backend_dir(runtime_host.backend_dir).project_root.resolve()
         admission = admit_model_action(
             action_request,
             definitions_by_name=getattr(runtime_host.tool_authorization_index, "definitions_by_name", {}),
             allowed_tool_names=allowed_tool_names,
             runtime_profile=dict(runtime_assembly.profile.to_dict()),
-            operation_gate=None,
             permission_mode=runtime_host._current_permission_mode(),
-            directive_ref=f"task-execution:{action_request.request_id}",
-            workspace_root=project_root,
-            side_effect_tools_allowed=True,
+            side_effect_policy="runtime_authorized",
         )
         runtime_host.event_log.append(
             current_task.task_run_id,
@@ -981,6 +911,7 @@ async def _execute_claimed_task_run(
                     packet_ref=compilation.packet.packet_id,
                     action_request=action_request,
                     runtime_assembly=runtime_assembly.to_dict(),
+                    runtime_tool_plan=runtime_tool_plan,
                 )
             except TaskRunExecutorInterrupted as exc:
                 interrupted_task = runtime_host.state_index.get_task_run(current_task.task_run_id) or current_task
@@ -1313,6 +1244,7 @@ async def _execute_task_tool_call(
     packet_ref: str,
     action_request: ModelActionRequest,
     runtime_assembly: dict[str, Any],
+    runtime_tool_plan: Any,
 ) -> dict[str, Any]:
     executor_epoch = int(dict(getattr(task_run, "diagnostics", {}) or {}).get("executor_epoch") or 0)
     signal = peek_executor_signal(runtime_host, task_run_id=task_run.task_run_id, executor_epoch=executor_epoch)
@@ -1334,177 +1266,88 @@ async def _execute_task_tool_call(
     tool_args = dict(action_request.tool_call.get("args") or action_request.tool_call.get("tool_args") or {})
     definition = getattr(runtime_host.tool_authorization_index, "definitions_by_name", {}).get(tool_name)
     operation_id = str(getattr(definition, "operation_id", "") or tool_name)
-    directive = RuntimeDirective(
-        directive_id=f"runtime-directive:{task_run.task_run_id}:tool:{action_request.request_id}",
-        task_id=task_run.task_id,
-        plan_ref=f"orchplan:{task_run.task_run_id}:single-agent-task",
-        stage_ref=f"orchstage:{task_run.task_run_id}:step",
-        executor_type="tool",
-        adopted_resource_policy_ref=f"respol:{task_run.task_run_id}:tool:{action_request.request_id}",
-        operation_refs=(operation_id,),
-        input_contract_ref=str(getattr(definition, "input_contract_ref", "") or ""),
-        output_contract_ref=str(getattr(definition, "output_contract_ref", "") or ""),
-        execution_graph_ref=f"execgraph:{task_run.task_run_id}:single-agent-task",
-        diagnostics={"packet_ref": packet_ref, "source": "single_agent_task_executor"},
-    )
-    runtime_action = RuntimeActionRequest(
-        request_id=action_request.request_id,
-        task_run_id=task_run.task_run_id,
-        request_type="tool_call",
-        step_id=f"task-step:{action_request.request_id}",
-        directive_ref=directive.directive_id,
-        operation_id=operation_id,
-        payload={
-            "tool_name": tool_name,
-            "tool_call": {
-                "id": action_request.request_id,
-                "name": tool_name,
-                "args": tool_args,
-            },
-        },
-        created_at=time.time(),
-    )
     sandbox_policy = _task_sandbox_policy(runtime_assembly, runtime_host=runtime_host, task_run_id=task_run.task_run_id)
     file_policy = _task_file_policy(runtime_assembly, sandbox_policy=sandbox_policy)
-    resource_policy = ResourcePolicy(
-        policy_id=directive.adopted_resource_policy_ref,
-        task_id=task_run.task_id,
-        allowed_operations=(operation_id,),
-        allowed_tools=(tool_name,),
-        approval_policy="task_environment_sandbox",
-        runtime_view_only=False,
-        adopted=True,
-        runtime_executable=True,
-        diagnostics={"source": "single_agent_task_executor", "sandbox_policy": _public_policy(sandbox_policy)},
-    )
     sandbox_policy = {
         **sandbox_policy,
         "session_id": task_run.session_id,
         "executor_epoch": int(dict(getattr(task_run, "diagnostics", {}) or {}).get("executor_epoch") or 0),
         **_task_runtime_scope_policy(task_run),
     }
-    gate_result = runtime_host.operation_gate.check(
-        operation_id,
-        resource_policy=resource_policy,
-        directive_ref=directive.directive_id,
-        context=OperationGatePipelineContext(
-            permission_mode="default",
-            operation_input={"operation_id": operation_id, "tool_name": tool_name, "name": tool_name, "args": tool_args},
-            validators=build_task_safety_validators(
-                root_dir=runtime_host.backend_dir,
-                safety_envelope={"write_mode": "bounded_create", "write_roots": _sandbox_relative_write_roots(sandbox_policy)},
-                sandbox_policy=sandbox_policy,
-            ),
-            strip_dangerous_allow_rules=False,
-        ),
-    )
-    if not getattr(gate_result, "allowed", False):
-        observation = _executor_error_observation(
-            task_run_id=task_run.task_run_id,
-            request_ref=action_request.request_id,
-            directive_ref=directive.directive_id,
-            tool_name=tool_name,
-            tool_args=tool_args,
-            error=str(getattr(gate_result, "reason", "") or "operation_gate_denied"),
-        )
-        observation["payload"]["operation_gate"] = gate_result.to_dict() if hasattr(gate_result, "to_dict") else {}
-        observation["payload"]["runtime_fingerprint"] = _current_runtime_fingerprint(
-            runtime_assembly,
-            runtime_host=runtime_host,
-            backend_config=services.backend_config,
-        )
-        return observation
-    if tool_name in SUBAGENT_TOOL_NAMES:
-        parent_agent_run = _ensure_executor_agent_run(runtime_host, task_run=task_run)
-        payload = await SubagentControl(runtime_host, services=services).execute_tool(
-            tool_name=tool_name,
-            tool_args=tool_args,
-            task_run=task_run,
-            parent_agent_run=parent_agent_run,
-            runtime_assembly=runtime_assembly,
-        )
-        observation = _subagent_control_observation(
-            task_run_id=task_run.task_run_id,
-            request_ref=action_request.request_id,
-            directive_ref=directive.directive_id,
-            tool_name=tool_name,
-            tool_args=tool_args,
-            payload=payload,
-        )
-        observation["payload"]["operation_gate"] = gate_result.to_dict() if hasattr(gate_result, "to_dict") else {}
-        observation["payload"]["runtime_fingerprint"] = _current_runtime_fingerprint(
-            runtime_assembly,
-            runtime_host=runtime_host,
-            backend_config=services.backend_config,
-        )
-        return observation
-    execution_context = build_execution_context(
-        packet_ref=packet_ref,
+    agent_run = _ensure_executor_agent_run(runtime_host, task_run=task_run)
+    invocation_id = build_tool_invocation_id(
+        caller_ref=task_run.task_run_id,
         action_request_ref=action_request.request_id,
-        admission_ref="task_executor_admission",
         tool_name=tool_name,
-        operation_id=operation_id,
-        workspace_root=ProjectLayout.from_backend_dir(runtime_host.backend_dir).project_root.resolve(),
-        permission_snapshot={"permission_mode": runtime_host._current_permission_mode(), "task_run": True},
+        tool_call_id=action_request.request_id,
     )
-    fingerprint = build_request_fingerprint(
-        step_id=runtime_action.step_id,
-        operation_id=operation_id,
-        payload=runtime_action.payload,
-    )
-    registry = build_default_operation_registry()
-    descriptor = registry.get_operation(operation_id)
-    record = runtime_host.execution_store.create_record(
+    request = ToolInvocationRequest(
+        invocation_id=invocation_id,
+        caller_kind="task_run",
+        caller_ref=task_run.task_run_id,
+        session_id=task_run.session_id,
+        turn_id=str(dict(getattr(task_run, "diagnostics", {}) or {}).get("turn_id") or task_run.task_id or ""),
         task_run_id=task_run.task_run_id,
-        step_id=runtime_action.step_id,
-        action_request=runtime_action,
-        directive_ref=directive.directive_id,
+        agent_run_id=str(getattr(agent_run, "agent_run_id", "") or ""),
+        action_request_ref=action_request.request_id,
+        packet_ref=packet_ref,
+        tool_name=tool_name,
+        tool_call_id=action_request.request_id,
+        tool_args=tool_args,
         operation_id=operation_id,
-        executor_type="tool",
-        replay_policy=derive_replay_policy(descriptor),
-        request_fingerprint=fingerprint,
-        idempotency_token=build_idempotency_token(
-            task_run_id=task_run.task_run_id,
-            step_id=runtime_action.step_id,
-            operation_id=operation_id,
-            request_fingerprint=fingerprint,
-        ),
-        diagnostics={"execution_context": execution_context.to_dict(), "operation_gate": gate_result.to_dict()},
+        tool_plan_ref=str(getattr(runtime_tool_plan, "plan_id", "") or ""),
+        admission_ref="task_executor_admission",
+        permission_mode=runtime_host._current_permission_mode(),
+        caller_resource_scope={
+            "task_id": task_run.task_id,
+            "step_id": f"task-step:{action_request.request_id}",
+            "plan_ref": f"orchplan:{task_run.task_run_id}:single-agent-task",
+            "stage_ref": f"orchstage:{task_run.task_run_id}:step",
+            "execution_graph_ref": f"execgraph:{task_run.task_run_id}:single-agent-task",
+            "resource_policy_ref": f"respol:{task_run.task_run_id}:tool:{action_request.request_id}",
+        },
+        sandbox_scope=sandbox_policy,
+        file_scope=file_policy,
+        requested_constraints={
+            "runtime_host": runtime_host,
+            "services": services,
+            "runtime_assembly": runtime_assembly,
+            "backend_dir": str(runtime_host.backend_dir),
+        },
     )
-    if services.tool_runtime_executor is None:
+    tool_control_plane = getattr(services, "tool_control_plane", None) or getattr(runtime_host, "tool_control_plane", None)
+    if tool_control_plane is None:
         return _executor_error_observation(
             task_run_id=task_run.task_run_id,
             request_ref=action_request.request_id,
-            directive_ref=directive.directive_id,
+            directive_ref=f"runtime-directive:{task_run.task_run_id}:tool:{action_request.request_id}",
             tool_name=tool_name,
             tool_args=tool_args,
-            error="tool_runtime_executor_unavailable",
+            error="runtime_tool_control_plane_unavailable",
         )
-    tool_runtime = getattr(services.tool_runtime_executor, "tool_runtime", None)
-    if tool_runtime is not None and getattr(tool_runtime, "runtime_host", None) is None:
-        setattr(tool_runtime, "runtime_host", runtime_host)
-    result = await services.tool_runtime_executor.run(
-        task_run_id=task_run.task_run_id,
-        action_request=runtime_action,
-        directive=directive,
-        execution_record=record,
-        execution_store=runtime_host.execution_store,
-        sandbox_policy=sandbox_policy,
-        file_management_policy=file_policy,
-    )
+    observation_result = await tool_control_plane.invoke(request, tool_plan=runtime_tool_plan)
     signal = peek_executor_signal(runtime_host, task_run_id=task_run.task_run_id, executor_epoch=executor_epoch)
     if signal is not None:
         raise TaskRunExecutorInterrupted(signal)
-    observation = dict(result.get("observation").to_dict() if hasattr(result.get("observation"), "to_dict") else result.get("observation") or {})
-    if result.get("error") or result.get("recoverable_error"):
-        observation["error"] = str(result.get("error") or result.get("recoverable_error") or "tool_execution_failed")
+    observation = observation_result.to_task_observation(
+        task_run_id=task_run.task_run_id,
+        request_ref=action_request.request_id,
+        directive_ref=f"runtime-directive:{task_run.task_run_id}:tool:{action_request.request_id}",
+    )
     observation.setdefault("payload", {})
     if isinstance(observation.get("payload"), dict):
-        observation["payload"]["runtime_fingerprint"] = _current_runtime_fingerprint(
+        payload = observation["payload"]
+        payload["runtime_fingerprint"] = _current_runtime_fingerprint(
             runtime_assembly,
             runtime_host=runtime_host,
             backend_config=services.backend_config,
         )
+        payload.setdefault("tool_name", tool_name)
+        payload.setdefault("tool_args", tool_args)
+        if observation_result.status != "ok":
+            error = observation_result.text or observation_result.status
+            payload.setdefault("error", error)
+            observation["error"] = error
     return observation
 
 
@@ -1700,20 +1543,6 @@ def _task_file_policy(runtime_assembly: dict[str, Any], *, sandbox_policy: dict[
         "storage_space": storage,
         "artifact_root": str(storage.get("artifact_root") or sandbox_policy.get("artifact_root") or ""),
     }
-
-
-def _sandbox_relative_write_roots(sandbox_policy: dict[str, Any]) -> list[str]:
-    sandbox_root = Path(str(sandbox_policy.get("sandbox_root") or ".")).resolve()
-    roots: list[str] = []
-    for raw in list(sandbox_policy.get("write_scopes") or []):
-        text = str(raw or "").replace("\\", "/").strip().strip("/")
-        if not text:
-            continue
-        try:
-            roots.append((sandbox_root / text).resolve().relative_to(sandbox_root).as_posix())
-        except Exception:
-            roots.append(text)
-    return roots
 
 
 def _task_scratch_write_scopes(storage: dict[str, Any]) -> list[str]:
@@ -3861,51 +3690,12 @@ def _public_tool_display_name(tool_name: str) -> str:
     return normalized.replace("_", " ") or "工具"
 
 
-def _subagent_control_observation(
-    *,
-    task_run_id: str,
-    request_ref: str,
-    directive_ref: str,
-    tool_name: str,
-    tool_args: dict[str, Any],
-    payload: dict[str, Any],
-) -> dict[str, Any]:
-    ok = bool(dict(payload or {}).get("ok") is True)
-    return {
-        "observation_id": f"rtobs:{task_run_id}:subagent:{uuid.uuid4().hex[:8]}",
-        "task_run_id": task_run_id,
-        "observation_type": "tool_result" if ok else "executor_error",
-        "source": f"tool:{tool_name}",
-        "request_ref": request_ref,
-        "directive_ref": directive_ref,
-        "content_chars": len(json.dumps(payload, ensure_ascii=False)),
-        "payload": {
-            "tool_name": tool_name,
-            "tool_args": tool_args,
-            "result": payload,
-            **({"error": str(dict(payload).get("error") or "subagent_control_failed")} if not ok else {}),
-        },
-        "needs_model_followup": not ok,
-        "created_at": time.time(),
-        "authority": "orchestration.runtime_observation",
-        **({"error": str(dict(payload).get("error") or "subagent_control_failed")} if not ok else {}),
-    }
-
-
 def _tool_target_preview(args: dict[str, Any]) -> str:
     for key in ("path", "file_path", "target_path", "prompt", "query", "command"):
         value = str(args.get(key) or "").strip()
         if value:
             return " ".join(value.split())[:120].rstrip()
     return ""
-
-
-def _public_policy(policy: dict[str, Any]) -> dict[str, Any]:
-    return {
-        key: value
-        for key, value in dict(policy or {}).items()
-        if key in {"enabled", "sandbox_root", "workspace_root", "artifact_root", "write_scopes", "approval_policy", "side_effect_operations"}
-    }
 
 
 def _not_found(task_run_id: str) -> dict[str, Any]:

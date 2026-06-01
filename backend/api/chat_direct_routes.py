@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Awaitable, Callable
 
-from query.models import QueryRequest
+from harness.entrypoint.models import HarnessRuntimeRequest
 
 
 AssistantCommitter = Callable[[dict[str, Any]], Awaitable[Any]]
@@ -19,7 +19,7 @@ def is_direct_image_generation_request(image_generation: dict[str, Any] | None) 
 async def run_direct_system_route(
     *,
     base_dir: Path,
-    request: QueryRequest,
+    request: HarnessRuntimeRequest,
     turn_id: str,
     assistant_message_committer: AssistantCommitter,
 ) -> dict[str, Any] | None:

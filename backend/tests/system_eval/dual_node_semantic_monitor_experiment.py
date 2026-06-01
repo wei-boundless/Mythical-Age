@@ -18,7 +18,7 @@ if str(BACKEND_DIR) not in sys.path:
 
 from task_system import TaskFlowRegistry
 from task_system.compiler.graph_harness_config_publisher import publish_graph_harness_config_for_graph
-from tests.support.runtime_stubs import build_query_runtime
+from tests.support.runtime_stubs import build_harness_runtime
 
 
 def _action(final_answer: str, *, diagnostics: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -485,7 +485,7 @@ async def _run(output_root: Path, *, rounds: int, round_delay_seconds: float = 0
     output_dir.mkdir(parents=True, exist_ok=True)
     started_at = time.time()
     model = DualNodeSemanticMonitorModelRuntime(rounds=rounds, round_delay_seconds=round_delay_seconds)
-    runtime = build_query_runtime(model_runtime=model)
+    runtime = build_harness_runtime(model_runtime=model)
     graph_config = _build_graph(runtime)
     start = runtime.graph_harness.start_run(
         session_id=f"session-dual-node-semantic-{uuid.uuid4().hex[:8]}",

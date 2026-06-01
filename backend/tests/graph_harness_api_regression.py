@@ -113,32 +113,32 @@ def _runtime_with_graph_harness(*, base_dir: Path, runtime_root: Path) -> Simple
     return SimpleNamespace(
         base_dir=base_dir,
         session_manager=SessionManager(base_dir),
-        query_runtime=SimpleNamespace(
+        harness_runtime=SimpleNamespace(
             graph_harness=graph_harness,
         ),
     )
 
 
-def _query_runtime_with_graph_executor(*, base_dir: Path):
+def _harness_runtime_with_graph_executor(*, base_dir: Path):
     from tests.support.runtime_stubs import (
         DefaultPermissionStub,
         EmptySkillRegistryStub,
         EmptyToolRuntimeStub,
         InMemorySessionManagerStub,
         PrimarySettingsStub,
-        QueryRuntimeMemoryFacadeStub,
+        HarnessRuntimeFacadeMemoryFacadeStub,
     )
-    from query import QueryRuntime
+    from harness.entrypoint import HarnessRuntimeFacade
 
     session_manager = SessionManager(base_dir)
     return SimpleNamespace(
         base_dir=base_dir,
         session_manager=session_manager,
-        query_runtime=QueryRuntime(
+        harness_runtime=HarnessRuntimeFacade(
             base_dir=base_dir,
             settings_service=PrimarySettingsStub(),
             session_manager=session_manager,
-            memory_facade=QueryRuntimeMemoryFacadeStub(),
+            memory_facade=HarnessRuntimeFacadeMemoryFacadeStub(),
             retrieval_service=SimpleNamespace(),
             tool_runtime=EmptyToolRuntimeStub(),
             skill_registry=EmptySkillRegistryStub(),
@@ -466,7 +466,7 @@ def test_graph_harness_api_executes_work_order_and_accepts_result(tmp_path: Path
         enabled=True,
     )
     graph_config = publish_graph_harness_config_for_graph(base_dir=backend_dir, graph_id=graph.graph_id)
-    runtime = _query_runtime_with_graph_executor(base_dir=backend_dir)
+    runtime = _harness_runtime_with_graph_executor(base_dir=backend_dir)
 
     original = orchestration_api.require_runtime
     orchestration_api.require_runtime = lambda: runtime  # type: ignore[assignment]
@@ -548,7 +548,7 @@ def test_graph_harness_api_runs_graph_until_idle(tmp_path: Path) -> None:
         enabled=True,
     )
     graph_config = publish_graph_harness_config_for_graph(base_dir=backend_dir, graph_id=graph.graph_id)
-    runtime = _query_runtime_with_graph_executor(base_dir=backend_dir)
+    runtime = _harness_runtime_with_graph_executor(base_dir=backend_dir)
 
     original = orchestration_api.require_runtime
     orchestration_api.require_runtime = lambda: runtime  # type: ignore[assignment]
@@ -596,7 +596,7 @@ def test_task_graph_start_api_can_auto_run_graph(tmp_path: Path) -> None:
         enabled=True,
     )
     publish_graph_harness_config_for_graph(base_dir=backend_dir, graph_id=graph.graph_id)
-    runtime = _query_runtime_with_graph_executor(base_dir=backend_dir)
+    runtime = _harness_runtime_with_graph_executor(base_dir=backend_dir)
 
     original = orchestration_api.require_runtime
     orchestration_api.require_runtime = lambda: runtime  # type: ignore[assignment]
@@ -715,7 +715,7 @@ def test_graph_run_until_idle_result_includes_active_work_orders_when_budget_sto
         enabled=True,
     )
     graph_config = publish_graph_harness_config_for_graph(base_dir=backend_dir, graph_id=graph.graph_id)
-    runtime = _query_runtime_with_graph_executor(base_dir=backend_dir)
+    runtime = _harness_runtime_with_graph_executor(base_dir=backend_dir)
 
     original = orchestration_api.require_runtime
     orchestration_api.require_runtime = lambda: runtime  # type: ignore[assignment]
@@ -784,7 +784,7 @@ def test_graph_runtime_requires_explicit_project_scope_for_project_scoped_memory
     runtime = _runtime_with_graph_harness(base_dir=backend_dir, runtime_root=tmp_path / "runtime_state")
 
     with pytest.raises(ValueError, match="project_scoped formal memory requires project_id"):
-        runtime.query_runtime.graph_harness.start_run(
+        runtime.harness_runtime.graph_harness.start_run(
             session_id="session-test",
             task_id="task.test.project_scope",
             graph_config=graph_config,
@@ -809,7 +809,7 @@ def test_graph_node_task_run_uses_session_scope_instead_of_initial_input_project
         enabled=True,
     )
     graph_config = publish_graph_harness_config_for_graph(base_dir=backend_dir, graph_id=graph.graph_id)
-    runtime = _query_runtime_with_graph_executor(base_dir=backend_dir)
+    runtime = _harness_runtime_with_graph_executor(base_dir=backend_dir)
 
     original = orchestration_api.require_runtime
     orchestration_api.require_runtime = lambda: runtime  # type: ignore[assignment]
@@ -935,8 +935,8 @@ def test_graph_loop_contract_drives_generic_repeated_node_progression(tmp_path: 
     )
     graph_config = build_graph_harness_config_from_graph(graph=graph)
     runtime = _runtime_with_graph_harness(base_dir=backend_dir, runtime_root=tmp_path / "runtime_state")
-    loop = runtime.query_runtime.graph_harness.graph_loop
-    started = runtime.query_runtime.graph_harness.start_run(
+    loop = runtime.harness_runtime.graph_harness.graph_loop
+    started = runtime.harness_runtime.graph_harness.start_run(
         session_id="session-test",
         task_id="task.test.loop",
         graph_config=graph_config,
@@ -983,7 +983,7 @@ def test_graph_loop_contract_drives_generic_repeated_node_progression(tmp_path: 
     assert len(state.result_history["commit"]) == 3
     assert len(state.result_history["router"]) == 3
     exit_summary = state.result_index["exit"]
-    exit_result = _runtime_object_payload(runtime.query_runtime.graph_harness, exit_summary["result_ref"])
+    exit_result = _runtime_object_payload(runtime.harness_runtime.graph_harness, exit_summary["result_ref"])
     assert "outputs" not in exit_summary
     assert exit_result["outputs"]["step"] == 10
     assert completed_orders == ["produce", "commit", "router", "produce", "commit", "router", "produce", "commit", "router", "exit"]

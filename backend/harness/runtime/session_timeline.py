@@ -80,10 +80,10 @@ def _recent_events(runtime_host: Any, task_run_id: str, *, limit: int) -> list[A
             return list(reader(task_run_id))
         except Exception:
             return []
-    legacy_reader = getattr(runtime_host.event_log, "list_events", None)
-    if callable(legacy_reader):
+    all_events_reader = getattr(runtime_host.event_log, "list_events", None)
+    if callable(all_events_reader):
         try:
-            return list(legacy_reader(task_run_id))[-max(1, int(limit or 160)) :]
+            return list(all_events_reader(task_run_id))[-max(1, int(limit or 160)) :]
         except Exception:
             return []
     return []

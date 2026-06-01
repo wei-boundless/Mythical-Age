@@ -224,7 +224,7 @@ SCENARIOS: tuple[ConversationScenario, ...] = (
             "runtime trace with task run and agent run result",
         ),
         related_regressions=(
-            "backend/tests/query_runtime_runtime_loop_regression.py",
+            "backend/tests/harness_runtime_runtime_loop_regression.py",
             "backend/tests/orchestration_cutover_regression.py",
             "backend/tests/system_eval/long_scenarios_regression.py",
         ),
@@ -254,7 +254,7 @@ SCENARIOS: tuple[ConversationScenario, ...] = (
             "runtime trace with graph run, node results and agent run results",
         ),
         related_regressions=(
-            "backend/tests/query_runtime_runtime_loop_regression.py",
+            "backend/tests/harness_runtime_runtime_loop_regression.py",
             "backend/tests/orchestration_cutover_regression.py",
             "backend/tests/system_eval/long_scenarios_regression.py",
         ),
@@ -286,7 +286,7 @@ SCENARIOS: tuple[ConversationScenario, ...] = (
             "runtime event runtime_sandbox_prepared",
         ),
         related_regressions=(
-            "backend/tests/query_runtime_runtime_loop_regression.py",
+            "backend/tests/harness_runtime_runtime_loop_regression.py",
             "backend/tests/sandbox_policy_regression.py",
             "backend/tests/system_eval/long_scenarios_regression.py",
         ),

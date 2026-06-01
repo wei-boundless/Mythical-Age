@@ -204,7 +204,7 @@ def test_model_runtime_marks_missing_segment_plan_as_unplanned(tmp_path: Path) -
         accounting_context={
             "request_id": "modelreq:unplanned",
             "session_id": "session:unplanned",
-            "source": "harness.route.single_agent_turn",
+            "source": "harness.single_agent_turn",
         },
         attempt=1,
         call_kind="invoke_messages",

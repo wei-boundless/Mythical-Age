@@ -24,7 +24,7 @@ class MemoryApiRuntimeStub(RuntimeBaseDirStub):
         self.refreshed_paths.append(path)
 
 
-class QueryRuntimeMemoryFacadeStub:
+class HarnessRuntimeFacadeMemoryFacadeStub:
     session_memory = SimpleNamespace(
         manager=lambda _session_id: SimpleNamespace(load_state=lambda: None),
         update_runtime_state_from_context_state=lambda *_args, **_kwargs: None,
@@ -154,6 +154,25 @@ class NativeToolCallModelRuntimeStub(SingleMessageModelRuntimeStub):
         return SimpleNamespace(content=self.content, tool_calls=[])
 
 
+class NativeToolCallSequenceModelRuntimeStub(SingleMessageModelRuntimeStub):
+    def __init__(self, responses: list[dict[str, object]]) -> None:
+        super().__init__(content="")
+        self.responses = [dict(item) for item in list(responses or [])]
+        self.calls = 0
+        self.seen_tools: list[object] = []
+        self.seen_messages: list[list[object]] = []
+
+    async def invoke_messages_with_tools(self, messages, tools, **_kwargs):
+        self.calls += 1
+        self.seen_tools.append(list(tools or []))
+        self.seen_messages.append(list(messages or []))
+        response = self.responses[min(self.calls - 1, max(0, len(self.responses) - 1))] if self.responses else {}
+        return SimpleNamespace(
+            content=str(response.get("content") or ""),
+            tool_calls=[dict(item) for item in list(response.get("tool_calls") or []) if isinstance(item, dict)],
+        )
+
+
 class StreamingMessageModelRuntimeStub(SingleMessageModelRuntimeStub):
     def __init__(self, *, chunks: list[str], content: str | None = None) -> None:
         super().__init__(content=content or "".join(chunks))
@@ -275,7 +294,7 @@ def isolated_backend_root(prefix: str = "backend-test-") -> Path:
     return root
 
 
-def build_query_runtime(
+def build_harness_runtime(
     *,
     base_dir: Path | None = None,
     settings_service: Any | None = None,
@@ -287,13 +306,13 @@ def build_query_runtime(
     permission_service: Any | None = None,
     model_runtime: Any | None = None,
 ):
-    from query import QueryRuntime
+    from harness.entrypoint import HarnessRuntimeFacade
 
-    return QueryRuntime(
+    return HarnessRuntimeFacade(
         base_dir=base_dir or isolated_backend_root(),
         settings_service=settings_service or PrimarySettingsStub(),
         session_manager=session_manager or InMemorySessionManagerStub(),
-        memory_facade=memory_facade or QueryRuntimeMemoryFacadeStub(),
+        memory_facade=memory_facade or HarnessRuntimeFacadeMemoryFacadeStub(),
         retrieval_service=retrieval_service or SimpleNamespace(),
         tool_runtime=tool_runtime or EmptyToolRuntimeStub(),
         skill_registry=skill_registry or EmptySkillRegistryStub(),

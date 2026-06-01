@@ -2,7 +2,7 @@
 
 后端测试体系现在以 `test_system.case_registry` 为登记权威，按四层组织：
 
-- `chain`：验证真实主链的关键接线，例如 RuntimeLoop 事件、测试登记表、QueryRuntime adapter、任务-操作 preview。
+- `chain`：验证真实主链的关键接线，例如 RuntimeLoop 事件、测试登记表、HarnessRuntimeFacade adapter、任务-操作 preview。
 - `functional`：验证单个系统合同，例如能力系统、记忆系统、灵魂系统、工具注册、权限服务。
 - `system`：验证跨系统装配、应用 smoke、测试产物持久化和门禁运行。
 - `scenario`：验证长场景与真实实测报告，不作为快速开发门禁。

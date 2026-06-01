@@ -3,15 +3,15 @@ from __future__ import annotations
 from pathlib import Path
 
 from memory_system import MemoryFacade
-from query.runtime import QueryRuntime
+from harness.entrypoint import HarnessRuntimeFacade
 
 
 def test_assistant_commit_uses_context_state_writeback_for_file_work_objects(tmp_path: Path) -> None:
-    runtime = QueryRuntime.__new__(QueryRuntime)
+    runtime = HarnessRuntimeFacade.__new__(HarnessRuntimeFacade)
     runtime.session_manager = _SessionManager()
     runtime.memory_facade = MemoryFacade(tmp_path)
 
-    result = QueryRuntime._apply_assistant_message_commit(
+    result = HarnessRuntimeFacade._apply_assistant_message_commit(
         runtime,
         "session-1",
         {

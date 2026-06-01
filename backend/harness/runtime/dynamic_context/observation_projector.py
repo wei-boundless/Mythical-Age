@@ -47,12 +47,13 @@ class ObservationProjector:
                 else:
                     active_failures.append(projection)
         latest = latest[-int(policy.get("latest_observation_limit") or 12):]
+        failure_limit = int(policy.get("active_failure_limit") or 8)
         return (
             drop_empty(
                 {
                     "latest_observations": latest,
-                    "active_failures": active_failures[-8:],
-                    "historical_failures": historical_failures[-8:],
+                    "active_failures": active_failures[-failure_limit:],
+                    "historical_failures": historical_failures[-failure_limit:],
                     "artifact_evidence": _dedupe_artifacts(artifact_evidence),
                     "omitted_observations": {
                         "count": max(0, len(list(observations or [])) - len(latest)),

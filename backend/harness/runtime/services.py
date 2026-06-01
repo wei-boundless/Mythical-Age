@@ -10,7 +10,7 @@ class AgentRuntimeServices:
     """Small service table for the single-agent harness.
 
     The loop receives stores and gateways explicitly. It must not call back
-    into legacy turn controllers or task routers to decide what the agent wants.
+    into external turn controllers or task routers to decide what the agent wants.
     """
 
     root_dir: Path
@@ -23,6 +23,7 @@ class AgentRuntimeServices:
     graph_checkpoint_store: Any
     execution_store: Any
     operation_gate: Any
+    tool_control_plane: Any
     tool_authorization_index: Any
     current_permission_mode: Any
     get_trace_callback: Any
@@ -68,6 +69,7 @@ class AgentRuntimeServices:
             graph_checkpoint_store=host.graph_checkpoint_store,
             execution_store=host.execution_store,
             operation_gate=host.operation_gate,
+            tool_control_plane=getattr(host, "tool_control_plane", None),
             tool_authorization_index=host.tool_authorization_index,
             current_permission_mode=host._current_permission_mode,
             get_trace_callback=host.get_trace,
@@ -127,12 +129,13 @@ class TaskExecutorServices:
 
     The task executor is part of the harness, not the API adapter. It receives
     the exact runtime services it needs instead of reaching back into
-    QueryRuntime.
+    HarnessRuntimeFacade.
     """
 
     runtime_host: Any
     backend_dir: Path
     model_runtime: Any
+    tool_control_plane: Any | None
     tool_runtime_executor: Any | None
     tool_instances: tuple[Any, ...]
     agent_runtime_profile: Any | None
