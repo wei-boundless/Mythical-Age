@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import sys
 from pathlib import Path
-from types import SimpleNamespace
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
@@ -19,25 +18,54 @@ class _OrchestratorStub:
     async def stream_execution(self, *, session_id, execution, mcp_plan, main_context, trace):
         route = mcp_plan.mcp_route
         yield {
+            "type": "mcp_evidence",
+            "evidence": {
+                "query": mcp_plan.request.query,
+                "source_mcp": route,
+                "evidence_items": [{"text": f"{route} evidence"}],
+            },
+        }
+        yield {
+            "type": "mcp_end",
+            "task_status": "completed",
+            "result": {
+                "ok": True,
+                "answer": f"{route} answer",
+                "diagnostics": {"route": route},
+            },
+        }
+        yield {
             "type": "done",
-            "status": "ok",
-            "mcp_result": SimpleNamespace(
-                to_dict=lambda: {
-                    "status": "ok",
-                    "canonical_result": {
-                        "ok": True,
-                        "answer": f"{route} answer",
-                    },
-                    "evidence_envelope": {
-                        "query": mcp_plan.request.query,
-                        "source_mcp": route,
-                    },
-                    "diagnostics": {"route": route},
-                }
-            ).to_dict(),
+            "task_status": "completed",
+            "content": f"{route} answer",
             "main_context": {"answer_source": route},
             "task_summary_refs": [],
         }
+
+
+class _TopKRetrievalService:
+    def __init__(self) -> None:
+        self.calls = []
+
+    def retrieve(self, query, top_k=5):
+        return list(self.retrieve_execution(query, top_k=top_k).results)
+
+    def retrieve_execution(self, query, top_k=5):
+        from capability_system.capabilities.retrieval.service import RetrievalExecutionResult
+
+        self.calls.append({"query": query, "top_k": top_k})
+        return RetrievalExecutionResult(
+            status="ok",
+            results=(
+                {
+                    "text": "alpha evidence",
+                    "source": "note.md",
+                    "score": 0.9,
+                    "metadata": {"block_id": "block:alpha"},
+                },
+            ),
+            diagnostics={"result_count": 1},
+        )
 
 
 def _local_mcp_policy(*operations: str) -> ResourcePolicy:
@@ -92,6 +120,7 @@ def test_standard_mcp_executor_routes_registered_units() -> None:
     assert result["route"] == "pdf"
     assert result["operation_id"] == "op.mcp_pdf"
     assert result["answer"] == "pdf answer"
+    assert result["evidence"]["source_mcp"] == "pdf"
 
 
 def test_standard_mcp_tool_call_executes_registered_unit() -> None:
@@ -121,6 +150,28 @@ def test_standard_mcp_tool_call_executes_registered_unit() -> None:
     assert result["status"] == "ok"
     assert result["route"] == "structured_data"
     assert result["operation_id"] == "op.mcp_structured_data"
+
+
+def test_standard_mcp_executor_returns_real_orchestrator_evidence_and_honors_top_k() -> None:
+    retrieval_service = _TopKRetrievalService()
+    executor = LocalCapabilityMCPExecutor(
+        backend_dir=BACKEND_DIR,
+        retrieval_service=retrieval_service,
+        resource_policy=_local_mcp_policy("op.mcp_retrieval"),
+    )
+
+    result = executor.execute_sync(
+        LocalMCPToolRequest(
+            route="retrieval",
+            query="alpha",
+            top_k=2,
+        )
+    )
+
+    assert result["status"] == "ok"
+    assert result["route"] == "retrieval"
+    assert result["evidence"]["evidence_items"][0]["text"] == "alpha evidence"
+    assert retrieval_service.calls == [{"query": "alpha", "top_k": 2}]
 
 
 def test_standard_mcp_server_exposes_resources_and_prompts() -> None:

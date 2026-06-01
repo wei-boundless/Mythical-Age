@@ -2,18 +2,18 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from capability_system.skills.paths import AgentSkillPaths
+from capability_system.skills.paths import CapabilitySkillPaths
 from capability_system.skills.registry import SkillRegistry
 from capability_system.skills.scanner import refresh_snapshot
 from capability_system.tools.registry import refresh_tool_registry
 from capability_system.tools.native_tool_runtime import ToolRuntime
-from capability_system.mcp.paths import RuntimeMCPPaths
-from capability_system.tools.paths import ToolRuntimePaths
+from capability_system.mcp.paths import CapabilityMCPPaths
+from capability_system.tools.paths import CapabilityToolPaths
 from memory_system import MemoryFacade
 from permissions import PermissionService
 from harness.entrypoint import HarnessRuntimeFacade
 from bootstrap.settings import AppSettingsService
-from knowledge_system import RetrievalService
+from capability_system.capabilities.retrieval import RetrievalService
 from sessions import SessionManager
 from runtime import ModelRuntime
 from runtime.prompt_accounting import PromptAccountingLedger
@@ -35,9 +35,9 @@ class AppRuntime:
 
     def initialize(self, base_dir: Path) -> None:
         self.base_dir = base_dir
-        AgentSkillPaths.from_base_dir(base_dir).ensure()
-        ToolRuntimePaths.from_base_dir(base_dir).ensure()
-        RuntimeMCPPaths.from_base_dir(base_dir).ensure()
+        CapabilitySkillPaths.from_base_dir(base_dir).ensure()
+        CapabilityToolPaths.from_base_dir(base_dir).ensure()
+        CapabilityMCPPaths.from_base_dir(base_dir).ensure()
         self.settings = AppSettingsService(base_dir)
         refresh_snapshot(base_dir)
         refresh_tool_registry(base_dir)
@@ -102,7 +102,7 @@ class AppRuntime:
     def refresh_indexes_for_path(self, relative_path: str) -> None:
         runtime = self.require_ready()
         normalized = relative_path.replace("\\", "/")
-        if normalized.startswith("agent_system/skills/") or normalized.startswith("runtime/tool_runtime/registries/"):
+        if normalized.startswith("capability_system/skills/") or normalized.startswith("capability_system/tools/registries/"):
             self.refresh_catalogs()
             return
         if normalized.startswith("durable_memory/"):

@@ -7,7 +7,7 @@
       "name": "browser-operation",
       "title": "网页操作",
       "description": "让主 Agent 使用受控浏览器打开网页、观察页面、点击、输入、等待、截图和抽取内容。",
-      "path": "agent_system/skills/builtin/browser-operation/SKILL.md",
+      "path": "capability_system/skills/builtin/browser-operation/SKILL.md",
       "supported_modalities": [
         "web",
         "browser",
@@ -65,7 +65,7 @@
         "name": "browser-operation",
         "title": "网页操作",
         "description": "让主 Agent 使用受控浏览器打开网页、观察页面、点击、输入、等待、截图和抽取内容。",
-        "path": "agent_system/skills/builtin/browser-operation/SKILL.md",
+        "path": "capability_system/skills/builtin/browser-operation/SKILL.md",
         "supported_modalities": [
           "web",
           "browser",
@@ -136,7 +136,7 @@
       "name": "deep-web-research",
       "title": "深度网络研究",
       "description": "用于跨来源深度网络研究，要求建立研究合同、分面搜索、阅读关键原文、交叉验证证据，并输出可信度、限制和可追溯来源。",
-      "path": "agent_system/skills/builtin/deep-web-research/SKILL.md",
+      "path": "capability_system/skills/builtin/deep-web-research/SKILL.md",
       "supported_modalities": [
         "web",
         "text",
@@ -208,7 +208,7 @@
         "name": "deep-web-research",
         "title": "深度网络研究",
         "description": "用于跨来源深度网络研究，要求建立研究合同、分面搜索、阅读关键原文、交叉验证证据，并输出可信度、限制和可追溯来源。",
-        "path": "agent_system/skills/builtin/deep-web-research/SKILL.md",
+        "path": "capability_system/skills/builtin/deep-web-research/SKILL.md",
         "supported_modalities": [
           "web",
           "text",
@@ -293,7 +293,7 @@
       "name": "image-prompt-design",
       "title": "生图提示词设计",
       "description": "用于角色立绘、场景图、封面图和视觉参考图生成。主 Agent 应在用户明确要求出图时，用它把意图整理成可执行的高质量提示词，并调用生图工具产出真实图片。",
-      "path": "agent_system/skills/builtin/image-prompt-design/SKILL.md",
+      "path": "capability_system/skills/builtin/image-prompt-design/SKILL.md",
       "supported_modalities": [
         "image",
         "visual",
@@ -347,7 +347,7 @@
         "name": "image-prompt-design",
         "title": "生图提示词设计",
         "description": "用于角色立绘、场景图、封面图和视觉参考图生成。主 Agent 应在用户明确要求出图时，用它把意图整理成可执行的高质量提示词，并调用生图工具产出真实图片。",
-        "path": "agent_system/skills/builtin/image-prompt-design/SKILL.md",
+        "path": "capability_system/skills/builtin/image-prompt-design/SKILL.md",
         "supported_modalities": [
           "image",
           "visual",
@@ -414,7 +414,7 @@
       "name": "pdf-analysis",
       "title": "PDF 阅读分析",
       "description": "用于本地 PDF 的整篇阅读、章节定位和页级问答，适合回答“这份文档讲什么”“这一部分讲什么”“第几页写了什么”等深读问题。",
-      "path": "agent_system/skills/builtin/pdf-analysis/SKILL.md",
+      "path": "capability_system/skills/builtin/pdf-analysis/SKILL.md",
       "supported_modalities": [
         "pdf",
         "document"
@@ -463,7 +463,7 @@
       "context_mode": "isolated",
       "route_authority": "candidate_only",
       "reference_paths": [
-        "agent_system/skills/builtin/pdf-analysis/references/pdf_reading.md"
+        "capability_system/skills/builtin/pdf-analysis/references/pdf_reading.md"
       ],
       "requires_operations": [
         "op.mcp_pdf"
@@ -475,7 +475,7 @@
         "name": "pdf-analysis",
         "title": "PDF 阅读分析",
         "description": "用于本地 PDF 的整篇阅读、章节定位和页级问答，适合回答“这份文档讲什么”“这一部分讲什么”“第几页写了什么”等深读问题。",
-        "path": "agent_system/skills/builtin/pdf-analysis/SKILL.md",
+        "path": "capability_system/skills/builtin/pdf-analysis/SKILL.md",
         "supported_modalities": [
           "pdf",
           "document"
@@ -524,7 +524,7 @@
         "context_mode": "isolated",
         "route_authority": "candidate_only",
         "reference_paths": [
-          "agent_system/skills/builtin/pdf-analysis/references/pdf_reading.md"
+          "capability_system/skills/builtin/pdf-analysis/references/pdf_reading.md"
         ],
         "requires_operations": [
           "op.mcp_pdf"
@@ -549,7 +549,7 @@
       "name": "rag-skill",
       "title": "知识库问答",
       "description": "面向本地知识库、FAQ 和内部资料的检索问答工作流，适合做基于现有材料的事实确认、规则解释和可追溯回答。",
-      "path": "agent_system/skills/builtin/rag-skill/SKILL.md",
+      "path": "capability_system/skills/builtin/rag-skill/SKILL.md",
       "supported_modalities": [
         "text",
         "document",
@@ -608,7 +608,7 @@
         "name": "rag-skill",
         "title": "知识库问答",
         "description": "面向本地知识库、FAQ 和内部资料的检索问答工作流，适合做基于现有材料的事实确认、规则解释和可追溯回答。",
-        "path": "agent_system/skills/builtin/rag-skill/SKILL.md",
+        "path": "capability_system/skills/builtin/rag-skill/SKILL.md",
         "supported_modalities": [
           "text",
           "document",
@@ -680,7 +680,7 @@
       "name": "skill-creator",
       "title": "Skill 创建顾问",
       "description": "用于创建、改写和审查能力系统 Skill，帮助把用户意图整理成清晰的能力边界、触发条件、执行准则和模型可见提示。",
-      "path": "agent_system/skills/builtin/skill-creator/SKILL.md",
+      "path": "capability_system/skills/builtin/skill-creator/SKILL.md",
       "supported_modalities": [
         "text",
         "markdown",
@@ -740,7 +740,7 @@
         "name": "skill-creator",
         "title": "Skill 创建顾问",
         "description": "用于创建、改写和审查能力系统 Skill，帮助把用户意图整理成清晰的能力边界、触发条件、执行准则和模型可见提示。",
-        "path": "agent_system/skills/builtin/skill-creator/SKILL.md",
+        "path": "capability_system/skills/builtin/skill-creator/SKILL.md",
         "supported_modalities": [
           "text",
           "markdown",
@@ -813,7 +813,7 @@
       "name": "structured-data-analysis",
       "title": "结构化数据分析",
       "description": "用于本地 Excel、CSV、JSON 等结构化数据的可计算分析，适合筛选、排序、分组汇总、Top N、极值记录和结构检查。",
-      "path": "agent_system/skills/builtin/structured-data-analysis/SKILL.md",
+      "path": "capability_system/skills/builtin/structured-data-analysis/SKILL.md",
       "supported_modalities": [
         "table",
         "spreadsheet",
@@ -873,8 +873,8 @@
       "context_mode": "isolated",
       "route_authority": "candidate_only",
       "reference_paths": [
-        "agent_system/skills/builtin/structured-data-analysis/references/excel_analysis.md",
-        "agent_system/skills/builtin/structured-data-analysis/references/excel_reading.md"
+        "capability_system/skills/builtin/structured-data-analysis/references/excel_analysis.md",
+        "capability_system/skills/builtin/structured-data-analysis/references/excel_reading.md"
       ],
       "requires_operations": [
         "op.mcp_structured_data"
@@ -886,7 +886,7 @@
         "name": "structured-data-analysis",
         "title": "结构化数据分析",
         "description": "用于本地 Excel、CSV、JSON 等结构化数据的可计算分析，适合筛选、排序、分组汇总、Top N、极值记录和结构检查。",
-        "path": "agent_system/skills/builtin/structured-data-analysis/SKILL.md",
+        "path": "capability_system/skills/builtin/structured-data-analysis/SKILL.md",
         "supported_modalities": [
           "table",
           "spreadsheet",
@@ -946,8 +946,8 @@
         "context_mode": "isolated",
         "route_authority": "candidate_only",
         "reference_paths": [
-          "agent_system/skills/builtin/structured-data-analysis/references/excel_analysis.md",
-          "agent_system/skills/builtin/structured-data-analysis/references/excel_reading.md"
+          "capability_system/skills/builtin/structured-data-analysis/references/excel_analysis.md",
+          "capability_system/skills/builtin/structured-data-analysis/references/excel_reading.md"
         ],
         "requires_operations": [
           "op.mcp_structured_data"
@@ -972,7 +972,7 @@
       "name": "visual-asset-generation",
       "title": "视觉资产生成",
       "description": "在任务合同或用户请求需要真实图片交付物时，指导 agent 调用 image_generate 生成可验收的视觉资产，并把工具返回的真实路径作为交付证据。",
-      "path": "agent_system/skills/builtin/visual-asset-generation/SKILL.md",
+      "path": "capability_system/skills/builtin/visual-asset-generation/SKILL.md",
       "supported_modalities": [
         "image",
         "visual",
@@ -1021,7 +1021,7 @@
         "name": "visual-asset-generation",
         "title": "视觉资产生成",
         "description": "在任务合同或用户请求需要真实图片交付物时，指导 agent 调用 image_generate 生成可验收的视觉资产，并把工具返回的真实路径作为交付证据。",
-        "path": "agent_system/skills/builtin/visual-asset-generation/SKILL.md",
+        "path": "capability_system/skills/builtin/visual-asset-generation/SKILL.md",
         "supported_modalities": [
           "image",
           "visual",
@@ -1083,7 +1083,7 @@
       "name": "web-search-briefing",
       "title": "快速网络简报",
       "description": "用于快速搜索当前网络信息并给出简短、有来源链接的简报，适合新闻、官网状态、当前事实和轻量资料确认。",
-      "path": "agent_system/skills/builtin/web-search-briefing/SKILL.md",
+      "path": "capability_system/skills/builtin/web-search-briefing/SKILL.md",
       "supported_modalities": [
         "web",
         "text"
@@ -1146,7 +1146,7 @@
         "name": "web-search-briefing",
         "title": "快速网络简报",
         "description": "用于快速搜索当前网络信息并给出简短、有来源链接的简报，适合新闻、官网状态、当前事实和轻量资料确认。",
-        "path": "agent_system/skills/builtin/web-search-briefing/SKILL.md",
+        "path": "capability_system/skills/builtin/web-search-briefing/SKILL.md",
         "supported_modalities": [
           "web",
           "text"

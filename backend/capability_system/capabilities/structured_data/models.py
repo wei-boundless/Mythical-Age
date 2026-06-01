@@ -17,6 +17,15 @@ class StructuredFilter:
         return f"{self.column}{separator}{self.value}"
 
 
+@dataclass(frozen=True, slots=True)
+class StructuredDerivedMetric:
+    name: str
+    kind: str
+    left_column: str
+    right_column: str
+    lower_bound: float | None = None
+
+
 @dataclass(slots=True)
 class StructuredQueryPlan:
     table_name: str = "dataset"
@@ -29,7 +38,7 @@ class StructuredQueryPlan:
     order_by: str | None = None
     order_direction: str = "desc"
     limit: int = 10
-    derived_metrics: list[str] = field(default_factory=list)
+    derived_metrics: list[StructuredDerivedMetric] = field(default_factory=list)
     metric_condition_operator: str | None = None
     metric_condition_value: float | None = None
 
@@ -42,6 +51,7 @@ class StructuredQueryPlan:
 class StructuredDataPlan:
     path: str
     analysis_type: str
+    profile_id: str = ""
     sheet_name: str = ""
     limit: int = 10
     metric: str | None = None

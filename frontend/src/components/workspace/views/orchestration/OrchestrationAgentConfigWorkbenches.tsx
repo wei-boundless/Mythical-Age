@@ -21,7 +21,6 @@ type RuntimeDraftLike = {
   blocked_operations?: string[];
   allowed_memory_scopes?: string[];
   allowed_context_sections?: string[];
-  use_shared_contract?: boolean;
   subagent_policy?: {
     enabled: boolean;
     allowed_subagent_ids: string[];
@@ -761,7 +760,6 @@ export function OrchestrationContextMemoryWorkbench({
   displayId,
   memorySummary,
   contextSummary,
-  sharedContractEnabled,
 }: {
   runtimeDraft: RuntimeDraftLike;
   patchRuntimeDraft: (patch: Partial<RuntimeDraftLike>) => void;
@@ -772,7 +770,6 @@ export function OrchestrationContextMemoryWorkbench({
   displayId: (value: unknown, fallback?: string) => string;
   memorySummary: string;
   contextSummary: string;
-  sharedContractEnabled: boolean;
 }) {
   const selectedMemoryScopes = dedupe(runtimeDraft.allowed_memory_scopes ?? []);
   const selectedContextSections = dedupe(runtimeDraft.allowed_context_sections ?? []);
@@ -832,14 +829,6 @@ export function OrchestrationContextMemoryWorkbench({
           options={contextSectionOptionItems}
           selectedValues={selectedContextSections}
         />
-        <label className="boundary-check">
-          <input
-            checked={Boolean(runtimeDraft.use_shared_contract ?? true)}
-            onChange={(event) => patchRuntimeDraft({ use_shared_contract: event.target.checked })}
-            type="checkbox"
-          />
-          采用共同契约
-        </label>
       </div>
 
       <section className="boundary-card orchestration-memory-interface-card">
@@ -900,7 +889,6 @@ export function OrchestrationContextMemoryWorkbench({
         <div className="boundary-kv">
           <p><span>记忆</span><strong>{memorySummary}</strong></p>
           <p><span>上下文</span><strong>{contextSummary}</strong></p>
-          <p><span>共同契约</span><strong>{sharedContractEnabled ? "采用" : "不采用"}</strong></p>
           <p><span>写入治理</span><strong>{hasSessionMaintenance || hasDurableCandidate ? "由记忆管理 Agent 接管" : "当前未开放写入"}</strong></p>
         </div>
       </aside>

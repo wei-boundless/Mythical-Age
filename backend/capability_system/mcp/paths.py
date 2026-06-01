@@ -5,17 +5,17 @@ from pathlib import Path
 
 
 @dataclass(frozen=True, slots=True)
-class RuntimeMCPPaths:
+class CapabilityMCPPaths:
     base_dir: Path
     code_dir: Path
     external_servers_path: Path
 
     @classmethod
-    def from_base_dir(cls, base_dir: str | Path) -> "RuntimeMCPPaths":
+    def from_base_dir(cls, base_dir: str | Path) -> "CapabilityMCPPaths":
         resolved_base_dir = Path(base_dir).resolve()
         return cls(
             base_dir=resolved_base_dir,
-            code_dir=resolved_base_dir / "runtime" / "mcp",
+            code_dir=resolved_base_dir / "capability_system" / "mcp",
             external_servers_path=resolved_base_dir / "mcp_external_servers.json",
         )
 

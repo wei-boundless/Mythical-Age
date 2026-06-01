@@ -2237,11 +2237,29 @@ def _task_contract_stable_payload(contract: dict[str, Any]) -> dict[str, Any]:
             }
         )
     resource_requirements = dict(payload.get("resource_requirements") or {})
-    if resource_requirements:
-        payload["resource_requirements"] = _resource_requirements_stable_payload(resource_requirements)
-    payload.pop("prompt_contract", None)
-    payload.pop("graph_node_prompt_contract", None)
-    return payload
+    permission_requirements = dict(payload.get("permission_requirements") or {})
+    return _drop_empty_payload(
+        {
+            "title": str(payload.get("title") or "").strip(),
+            "user_visible_goal": str(payload.get("user_visible_goal") or "").strip(),
+            "task_run_goal": str(payload.get("task_run_goal") or "").strip(),
+            "task_environment_id": str(payload.get("task_environment_id") or "").strip(),
+            "required_artifacts": [
+                dict(item) for item in list(payload.get("required_artifacts") or []) if isinstance(item, dict)
+            ],
+            "required_verifications": [
+                dict(item) for item in list(payload.get("required_verifications") or []) if isinstance(item, dict)
+            ],
+            "completion_criteria": _string_list(payload.get("completion_criteria")),
+            "constraints": _string_list(payload.get("constraints")),
+            "forbidden_actions": _string_list(payload.get("forbidden_actions")),
+            "resource_requirements": _resource_requirements_stable_payload(resource_requirements) if resource_requirements else {},
+            "permission_requirements": permission_requirements,
+            "acceptance_policy": dict(payload.get("acceptance_policy") or {}),
+            "recovery_policy": dict(payload.get("recovery_policy") or {}),
+            "authority": "harness.runtime.task_contract.model_visible",
+        }
+    )
 
 
 def _graph_task_contract_origin_model_visible(origin: dict[str, Any]) -> dict[str, Any]:

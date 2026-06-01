@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from runtime.context_management.tool_result_storage import DEFAULT_PREVIEW_SIZE_BYTES, ToolResultStore
+from runtime_objects.tool_result_storage import DEFAULT_PREVIEW_SIZE_BYTES, ToolResultStore
 
 from .models import compact_text, dict_tuple, drop_empty, stable_json_hash, string_tuple
 from .replacement_store import ReplacementStore

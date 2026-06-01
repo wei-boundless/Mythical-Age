@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "authority": "runtime.mcp.client.external_config_store",
+  "authority": "capability_system.mcp.client.external_config_store",
   "servers": [
     {
       "server_id": "playwright_edge",

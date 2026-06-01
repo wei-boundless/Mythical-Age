@@ -30,6 +30,14 @@ from tests.support.runtime_stubs import (
 )
 
 
+def _message_content_with_title(packet, title: str) -> str:
+    for message in packet.model_messages:
+        content = str(message.get("content") or "")
+        if content.startswith(title):
+            return content
+    raise AssertionError(f"message title not found: {title}")
+
+
 class TaskExecutionModelRuntimeStub:
     async def invoke_messages(self, messages, **_kwargs):
         import json
@@ -248,12 +256,13 @@ def test_graph_harness_starts_published_config_and_creates_node_work_order() -> 
             "operation_authorization": {"allowed_operations": []},
         },
     ).packet
-    stable_payload = json.loads(packet.model_messages[1]["content"].split("\n", 1)[1])
+    task_contract_content = _message_content_with_title(packet, "Task execution task contract")
+    stable_payload = json.loads(task_contract_content.split("\n", 1)[1])
     graph_context = stable_payload["task_contract"]["graph_node_context"]
     visible_initial = graph_context["authorized_inputs"][0]["payload"]["initial_inputs"]
     assert visible_initial == {"goal": "smoke"}
-    assert "input_package" not in packet.model_messages[1]["content"]
-    assert "graph_slot" not in packet.model_messages[1]["content"]
+    assert "input_package" not in task_contract_content
+    assert "graph_slot" not in task_contract_content
     work_order_summary = start.loop_state.work_order_index[start.node_work_orders[0].work_order_id]
     assert work_order_summary["node_id"] == "draft"
     assert work_order_summary["work_order_ref"]
@@ -698,7 +707,8 @@ def test_graph_node_task_contract_keeps_model_visible_artifact_payload(tmp_path:
             "operation_authorization": {"allowed_operations": []},
         },
     ).packet
-    stable_payload = json.loads(packet.model_messages[1]["content"].split("\n", 1)[1])
+    task_contract_content = _message_content_with_title(packet, "Task execution task contract")
+    stable_payload = json.loads(task_contract_content.split("\n", 1)[1])
     visible_contract = stable_payload["task_contract"]
     inbound = visible_contract["graph_node_context"]["authorized_inputs"][0]
 

@@ -3088,6 +3088,33 @@ def test_stopped_task_cannot_be_revived_by_stale_executor_or_write_tool() -> Non
     )
 
 
+def test_task_executor_records_task_action_without_cross_context_fields() -> None:
+    runtime = build_harness_runtime(
+        model_runtime=_TaskExecutorSequenceModelRuntime(
+            [_action_request(action_type="respond", final_answer="已完成当前任务。")],
+            agent_turn_action_request=_action_request(action_type="respond", final_answer="unused"),
+        )
+    )
+    task_run_id = _seed_active_work(runtime, task_run_id="taskrun:slim-task-action")
+    host = runtime.single_agent_runtime_host
+
+    asyncio.run(runtime.execute_task_run(task_run_id, max_steps=1))
+    event = next(
+        event
+        for event in host.event_log.list_events(task_run_id)
+        if event.event_type == "model_action_request_received"
+    )
+    action_payload = dict(dict(event.payload or {}).get("model_action_request") or {})
+
+    assert action_payload["action_type"] == "respond"
+    assert "task_contract_seed" not in action_payload
+    assert "completion_contract" not in action_payload
+    assert "permission_request" not in action_payload
+    assert "engagement_request" not in action_payload
+    assert "active_work_control" not in action_payload
+    assert "selected_skill_ids" not in action_payload
+
+
 def test_scheduler_restarts_after_running_steer_and_next_packet_contains_instruction() -> None:
     from harness.loop.task_executor import append_user_work_instruction
 
@@ -3864,6 +3891,70 @@ def test_task_model_action_request_rejects_action_outside_packet_contract() -> N
     assert action is None
     assert diagnostics["status"] == "invalid"
     assert "action_type_not_allowed_for_context:request_task_run" in diagnostics["validation_errors"]
+
+
+def test_task_execution_action_request_omits_empty_cross_context_fields() -> None:
+    from harness.loop.model_action_protocol import task_execution_action_request_from_payload
+
+    action, diagnostics = task_execution_action_request_from_payload(
+        {
+            "authority": "harness.loop.model_action_request",
+            "request_id": "model-action:test:task-tool",
+            "turn_id": "taskrun:test:task-tool",
+            "action_type": "tool_call",
+            "public_progress_note": "准备读取文件。",
+            "public_action_state": {
+                "current_judgment": "需要读取文件确认状态。",
+                "next_action": "调用 read_file。",
+            },
+            "tool_call": {"tool_name": "read_file", "args": {"path": "README.md"}},
+            "selected_skill_ids": [],
+            "task_contract_seed": {},
+            "completion_contract": {},
+            "permission_request": {},
+            "engagement_request": {},
+            "active_work_control": {},
+        },
+        turn_id="taskrun:test:task-tool",
+        allowed_action_types=("respond", "ask_user", "tool_call", "block"),
+    )
+
+    assert diagnostics["status"] == "accepted"
+    assert action is not None
+    payload = action.to_dict()
+    assert payload["action_type"] == "tool_call"
+    assert "task_contract_seed" not in payload
+    assert "completion_contract" not in payload
+    assert "permission_request" not in payload
+    assert "engagement_request" not in payload
+    assert "active_work_control" not in payload
+    assert "selected_skill_ids" not in payload
+
+
+def test_task_execution_action_request_rejects_non_empty_cross_context_fields() -> None:
+    from harness.loop.model_action_protocol import task_execution_action_request_from_payload
+
+    action, diagnostics = task_execution_action_request_from_payload(
+        {
+            "authority": "harness.loop.model_action_request",
+            "request_id": "model-action:test:task-cross-context",
+            "turn_id": "taskrun:test:task-cross-context",
+            "action_type": "tool_call",
+            "public_progress_note": "准备读取文件。",
+            "public_action_state": {
+                "current_judgment": "需要读取文件确认状态。",
+                "next_action": "调用 read_file。",
+            },
+            "tool_call": {"tool_name": "read_file", "args": {"path": "README.md"}},
+            "task_contract_seed": {"user_visible_goal": "不应出现在 task_execution。"},
+        },
+        turn_id="taskrun:test:task-cross-context",
+        allowed_action_types=("respond", "ask_user", "tool_call", "block"),
+    )
+
+    assert action is None
+    assert diagnostics["status"] == "invalid"
+    assert "field_not_allowed_for_task_execution:task_contract_seed" in diagnostics["validation_errors"]
 
 
 def test_tool_call_status_does_not_replace_agent_public_judgment() -> None:

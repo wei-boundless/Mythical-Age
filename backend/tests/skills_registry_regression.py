@@ -6,11 +6,11 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-SCANNER_PATH = ROOT / "agent_system" / "skills" / "scanner.py"
+SCANNER_PATH = ROOT / "capability_system" / "skills" / "scanner.py"
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from capability_system.skills.paths import AgentSkillPaths
+from capability_system.skills.paths import CapabilitySkillPaths
 from capability_system.skills.contracts import SkillPromptContract
 from capability_system.skills.registry import SkillRegistry
 
@@ -26,7 +26,7 @@ def load_scanner_module():
 
 
 def main() -> None:
-    skill_paths = AgentSkillPaths.from_base_dir(ROOT)
+    skill_paths = CapabilitySkillPaths.from_base_dir(ROOT)
     scanner = load_scanner_module()
     scanner.refresh_snapshot(ROOT)
 

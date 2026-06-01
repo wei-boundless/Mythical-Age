@@ -5,16 +5,16 @@ from pathlib import Path
 
 
 @dataclass(frozen=True, slots=True)
-class ToolRuntimePaths:
+class CapabilityToolPaths:
     base_dir: Path
     code_dir: Path
     registries_dir: Path
     tools_registry_path: Path
 
     @classmethod
-    def from_base_dir(cls, base_dir: str | Path) -> "ToolRuntimePaths":
+    def from_base_dir(cls, base_dir: str | Path) -> "CapabilityToolPaths":
         resolved_base_dir = Path(base_dir).resolve()
-        code_dir = resolved_base_dir / "runtime" / "tool_runtime"
+        code_dir = resolved_base_dir / "capability_system" / "tools"
         registries_dir = code_dir / "registries"
         return cls(
             base_dir=resolved_base_dir,

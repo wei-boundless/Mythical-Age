@@ -1564,13 +1564,25 @@ export class WorkspaceRuntime {
   }
 
   private async loadInspectorFile(path: string) {
-    const file = await loadFile(path);
-    this.store.setState((prev) => ({
-      ...prev,
-      inspectorPath: file.path,
-      inspectorContent: file.content,
-      inspectorDirty: false
-    }));
+    try {
+      const file = await loadFile(path);
+      this.store.setState((prev) => ({
+        ...prev,
+        inspectorPath: file.path,
+        inspectorContent: file.content,
+        inspectorDirty: false,
+        workspaceTreeError: ""
+      }));
+    } catch (error) {
+      const message = this.errorMessage(error, `无法打开文件：${path}`);
+      this.store.setState((prev) => ({
+        ...prev,
+        inspectorPath: path,
+        inspectorContent: message,
+        inspectorDirty: false,
+        workspaceTreeError: message
+      }));
+    }
   }
 
   private async refreshWorkspaceTree() {

@@ -13,6 +13,14 @@ from harness.runtime.compiler import RuntimeCompiler
 from harness.graph.work_order_contract import _graph_node_contract_from_work_order
 
 
+def _message_content_with_title(packet, title: str) -> str:
+    for message in packet.model_messages:
+        content = str(message.get("content") or "")
+        if content.startswith(title):
+            return content
+    raise AssertionError(f"message title not found: {title}")
+
+
 def test_graph_node_task_packet_does_not_embed_full_graph_policy() -> None:
     read_rules = [
         {
@@ -106,11 +114,12 @@ def test_graph_node_task_packet_does_not_embed_full_graph_policy() -> None:
         },
     ).packet
 
-    stable_payload = json.loads(packet.model_messages[1]["content"].split("\n", 1)[1])
+    task_contract_content = _message_content_with_title(packet, "Task execution task contract")
+    stable_payload = json.loads(task_contract_content.split("\n", 1)[1])
 
-    assert len(packet.model_messages[1]["content"]) < 80000
+    assert len(task_contract_content) < 80000
     assert "task_run" not in stable_payload
-    assert "other_node_79" not in packet.model_messages[1]["content"]
+    assert "other_node_79" not in task_contract_content
     all_message_content = "".join(message["content"] for message in packet.model_messages)
     assert "graph_identity" not in all_message_content
     assert "state_refs" not in all_message_content

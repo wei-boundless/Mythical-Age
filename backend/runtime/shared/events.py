@@ -67,7 +67,6 @@ RuntimeEventType = Literal[
     "model_item_received",
     "task_model_action_wait_heartbeat",
     "executor_observation_received",
-    "system_retrieval_blocked_by_search_policy",
     "output_boundary_applied",
     "commit_gate_checked",
     "task_artifact_validation_checked",

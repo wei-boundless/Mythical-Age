@@ -19,7 +19,7 @@ from capability_system.skills.contracts import (
     SkillPromptContract,
     SkillRuntimeContract,
 )
-from capability_system.skills.paths import AgentSkillPaths
+from capability_system.skills.paths import CapabilitySkillPaths
 
 FRONTMATTER_PATTERN = re.compile(r"^---\n(.*?)\n---\n?", re.DOTALL)
 SECTION_HEADING_PATTERN = re.compile(r"^#{2,3}\s+(.+?)\s*$", re.MULTILINE)
@@ -169,7 +169,7 @@ def _extract_description(meta: dict[str, Any], body: str, skill_dir_name: str) -
 
 
 def _collect_reference_paths(base_dir: Path, skill_dir: Path) -> list[str]:
-    paths_helper = AgentSkillPaths.from_base_dir(base_dir)
+    paths_helper = CapabilitySkillPaths.from_base_dir(base_dir)
     references_dir = skill_dir / "references"
     if not references_dir.exists():
         return []
@@ -182,7 +182,7 @@ def _collect_reference_paths(base_dir: Path, skill_dir: Path) -> list[str]:
 
 
 def scan_skills(base_dir: Path) -> list[SkillRecord]:
-    paths = AgentSkillPaths.from_base_dir(base_dir)
+    paths = CapabilitySkillPaths.from_base_dir(base_dir)
     skills_dir = paths.skills_dir
     records: list[SkillRecord] = []
     if not skills_dir.exists():
@@ -345,7 +345,7 @@ def build_registry(skills: list[SkillRecord]) -> dict[str, Any]:
 
 
 def refresh_snapshot(base_dir: Path) -> Path:
-    paths = AgentSkillPaths.from_base_dir(base_dir)
+    paths = CapabilitySkillPaths.from_base_dir(base_dir)
     paths.ensure()
     skills = scan_skills(base_dir)
     snapshot_path = paths.skills_snapshot_path

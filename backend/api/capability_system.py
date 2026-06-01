@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 
 from api.deps import require_runtime
 from capability_system.skills.authoring import set_skill_prompt_view
-from capability_system.skills.paths import AgentSkillPaths
+from capability_system.skills.paths import CapabilitySkillPaths
 from capability_system import (
     TOOL_TYPE_OPTIONS,
     build_capability_catalog,
@@ -111,7 +111,7 @@ def _safe_skill_name(name: str) -> str:
 
 def _skill_path(base_dir: Path, skill_name: str) -> Path:
     normalized = _safe_skill_name(skill_name)
-    root = AgentSkillPaths.from_base_dir(base_dir).skills_dir.resolve()
+    root = CapabilitySkillPaths.from_base_dir(base_dir).skills_dir.resolve()
     path = (root / normalized / "SKILL.md").resolve()
     if root not in path.parents:
         raise HTTPException(status_code=400, detail="Invalid skill path")
@@ -286,7 +286,7 @@ async def create_capability_skill(payload: CreateSkillRequest) -> dict[str, Any]
 async def save_capability_skill(skill_name: str, payload: SaveSkillRequest) -> dict[str, Any]:
     runtime = require_runtime()
     path = _find_skill_path(runtime, skill_name)
-    root = AgentSkillPaths.from_base_dir(runtime.base_dir).skills_dir.resolve()
+    root = CapabilitySkillPaths.from_base_dir(runtime.base_dir).skills_dir.resolve()
     if root not in path.parents or path.name != "SKILL.md":
         raise HTTPException(status_code=400, detail="Invalid skill path")
     path.write_text(payload.content, encoding="utf-8")
@@ -298,7 +298,7 @@ async def save_capability_skill(skill_name: str, payload: SaveSkillRequest) -> d
 async def update_capability_skill_prompt_view(skill_name: str, payload: SkillPromptViewRequest) -> dict[str, Any]:
     runtime = require_runtime()
     path = _find_skill_path(runtime, skill_name)
-    root = AgentSkillPaths.from_base_dir(runtime.base_dir).skills_dir.resolve()
+    root = CapabilitySkillPaths.from_base_dir(runtime.base_dir).skills_dir.resolve()
     if root not in path.parents or path.name != "SKILL.md":
         raise HTTPException(status_code=400, detail="Invalid skill path")
     current_name = _safe_skill_name(skill_name)
@@ -320,7 +320,7 @@ async def update_capability_skill_prompt_view(skill_name: str, payload: SkillPro
 async def delete_capability_skill(skill_name: str) -> dict[str, Any]:
     runtime = require_runtime()
     path = _find_skill_path(runtime, skill_name)
-    root = AgentSkillPaths.from_base_dir(runtime.base_dir).skills_dir.resolve()
+    root = CapabilitySkillPaths.from_base_dir(runtime.base_dir).skills_dir.resolve()
     skill_dir = path.parent.resolve()
     if root not in skill_dir.parents or skill_dir == root:
         raise HTTPException(status_code=400, detail="Invalid skill path")

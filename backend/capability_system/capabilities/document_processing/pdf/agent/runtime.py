@@ -92,6 +92,7 @@ class PDFReadAgentRuntime:
                     "document_total_pages": prepared.total_pages,
                     "readable_pages": prepared.readable_pages,
                     "usable_pages": 0,
+                    "parse_diagnostics": list(prepared.parse_diagnostics),
                 },
             )
 
@@ -127,18 +128,31 @@ class PDFReadAgentRuntime:
                 "usable_pages": prepared.usable_pages,
                 "parse_strategy": prepared.parse_strategy,
                 "parse_confidence": prepared.parse_confidence,
+                "parse_diagnostics": list(prepared.parse_diagnostics),
                 "target_page_state": self._page_state_for_target(prepared=prepared, target_page=route.target_page),
                 "target_page_state_confidence": self._page_state_confidence_for_target(prepared=prepared, target_page=route.target_page),
             },
         )
 
     def _prepare_document(self, file_path: Path) -> PDFPreparedDocument:
-        page_snapshots = list(self._parser.extract_page_snapshots(file_path))
+        parse_document = getattr(self._parser, "parse_document", None)
+        parse_diagnostics: list[dict[str, object]] = []
+        if callable(parse_document):
+            bundle = parse_document(file_path)
+            page_snapshots = list(getattr(bundle, "snapshots", []) or [])
+            pages = list(getattr(bundle, "pages", []) or [])
+            segments = list(getattr(bundle, "segments", []) or [])
+            bundle_diagnostics = list(getattr(bundle, "diagnostics", []) or [])
+            for diagnostic in bundle_diagnostics:
+                to_dict = getattr(diagnostic, "to_dict", None)
+                parse_diagnostics.append(dict(to_dict()) if callable(to_dict) else dict(diagnostic))
+        else:
+            page_snapshots = list(self._parser.extract_page_snapshots(file_path))
+            pages = list(self._parser.extract_pages(file_path))
+            segments = list(self._parser.extract_segments(file_path))
         page_snapshot_by_number = {
             int(snapshot.page_number): snapshot for snapshot in page_snapshots if int(snapshot.page_number) > 0
         }
-        pages = list(self._parser.extract_pages(file_path))
-        segments = list(self._parser.extract_segments(file_path))
         section_by_page = self._sections_by_page(segments)
         segments_by_page = self._segments_by_page(segments)
         prepared_pages: list[PDFPreparedPage] = []
@@ -168,6 +182,7 @@ class PDFReadAgentRuntime:
             usable_pages=usable_count,
             parse_strategy=parse_strategy,
             parse_confidence=parse_confidence,
+            parse_diagnostics=parse_diagnostics,
         )
 
     def _document_total_pages(

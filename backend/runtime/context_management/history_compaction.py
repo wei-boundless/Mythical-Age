@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from .budget import estimate_text_bytes
-from .tool_result_storage import DEFAULT_PREVIEW_SIZE_BYTES, ToolResultStore
+from runtime_objects.tool_result_storage import DEFAULT_PREVIEW_SIZE_BYTES, ToolResultStore
 
 
 def microcompact_history(

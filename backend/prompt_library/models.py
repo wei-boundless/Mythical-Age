@@ -261,10 +261,9 @@ def prompt_pack_from_dict(payload: dict[str, Any]) -> PromptPack:
 def _category_from_resource_type(resource_type: str) -> str:
     value = str(resource_type or "").strip()
     mapping = {
-        "common_contract": "runtime",
         "work_role": "agent",
         "environment_prompt": "environment",
-        "role_prompt": "soul",
+        "role_prompt": "agent",
         "graph_node.role": "graph_node",
         "skill_prompt": "skill",
         "tool_guidance": "runtime",
@@ -277,10 +276,9 @@ def _category_from_resource_type(resource_type: str) -> str:
 def _subtype_from_resource_type(resource_type: str) -> str:
     value = str(resource_type or "").strip()
     mapping = {
-        "common_contract": "common_contract",
         "work_role": "main.work_role",
         "environment_prompt": "boundary",
-        "role_prompt": "role_persona",
+        "role_prompt": "role",
         "graph_node.role": "role",
         "skill_prompt": "usage",
         "tool_guidance": "tool_guidance",
@@ -303,7 +301,6 @@ def _owner_layer_from_category(category: str) -> str:
         "task": "task",
         "graph_node": "task",
         "skill": "agent",
-        "soul": "agent",
     }
     return mapping.get(value, value or "runtime")
 

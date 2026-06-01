@@ -195,8 +195,19 @@ class MultimodalParserAdapter:
     def _parse_pdf_file(self, path: Path) -> list[ParsedChunk]:
         if not self._pdf_parser.available():
             return []
+        parse_document = getattr(self._pdf_parser, "parse_document", None)
+        if callable(parse_document):
+            bundle = parse_document(path)
+            segments = list(getattr(bundle, "segments", []) or [])
+            parse_diagnostics = [
+                diagnostic.to_dict() if hasattr(diagnostic, "to_dict") else dict(diagnostic)
+                for diagnostic in list(getattr(bundle, "diagnostics", []) or [])
+            ]
+        else:
+            segments = list(self._pdf_parser.extract_segments(path))
+            parse_diagnostics = []
         chunks: list[ParsedChunk] = []
-        for segment in self._limit_pdf_segments(self._pdf_parser.extract_segments(path)):
+        for segment in self._limit_pdf_segments(segments):
             if not segment.text.strip():
                 continue
             cleaned_text = self._clean_text(
@@ -209,6 +220,7 @@ class MultimodalParserAdapter:
             metadata = {
                 "parser": segment.metadata.get("parser", "pdf_parser"),
                 "format": "pdf",
+                "parse_diagnostics": parse_diagnostics,
                 **segment.metadata,
             }
             chunks.append(

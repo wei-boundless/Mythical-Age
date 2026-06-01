@@ -41,6 +41,39 @@ class PdfPageSnapshot:
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
+@dataclass(slots=True, frozen=True)
+class PdfParseDiagnostic:
+    code: str
+    stage: str
+    severity: str = "warning"
+    message: str = ""
+    exception_type: str = ""
+
+    def to_dict(self) -> dict[str, str]:
+        payload = {
+            "code": self.code,
+            "stage": self.stage,
+            "severity": self.severity,
+        }
+        if self.message:
+            payload["message"] = self.message
+        if self.exception_type:
+            payload["exception_type"] = self.exception_type
+        return payload
+
+
+@dataclass(slots=True)
+class PdfParseBundle:
+    pages: list[tuple[int, str]] = field(default_factory=list)
+    segments: list[PdfSegment] = field(default_factory=list)
+    snapshots: list[PdfPageSnapshot] = field(default_factory=list)
+    total_pages: int = 0
+    diagnostics: list[PdfParseDiagnostic] = field(default_factory=list)
+
+    def diagnostics_payload(self) -> list[dict[str, str]]:
+        return [diagnostic.to_dict() for diagnostic in self.diagnostics]
+
+
 class PdfTextParser:
     def __init__(
         self,
@@ -54,7 +87,8 @@ class PdfTextParser:
         self.root_dir = root_dir
         self._mineru_client = mineru_client or build_default_mineru_client()
         self._remote_cache: dict[tuple[str, int, int], MinerUParseResult | None] = {}
-        self._document_cache: dict[tuple[str, int, int], tuple[list[tuple[int, str]], list[PdfSegment], int]] = {}
+        self._document_cache: dict[tuple[str, int, int], PdfParseBundle] = {}
+        self._active_parse_diagnostics: list[PdfParseDiagnostic] | None = None
         self._ocr_reader = ocr_reader
         self._ocr_engine: object | None = None
         self.enable_ocr_fallback = enable_ocr_fallback
@@ -62,6 +96,21 @@ class PdfTextParser:
 
     def available(self) -> bool:
         return self._mineru_client.available() or self._local_pdf_available() or self._ocr_available()
+
+    def parse_document(self, file_path: Path) -> PdfParseBundle:
+        cache_key = self._file_cache_key(file_path)
+        if cache_key in self._document_cache:
+            return self._clone_parse_bundle(self._document_cache[cache_key])
+
+        diagnostics: list[PdfParseDiagnostic] = []
+        previous_diagnostics = self._active_parse_diagnostics
+        self._active_parse_diagnostics = diagnostics
+        try:
+            bundle = self._parse_document_uncached(file_path, diagnostics=diagnostics)
+        finally:
+            self._active_parse_diagnostics = previous_diagnostics
+        self._document_cache[cache_key] = self._clone_parse_bundle(bundle)
+        return bundle
 
     def extract_pages(self, file_path: Path) -> list[tuple[int, str]]:
         pages, _segments, _total_pages = self._extract_document_content(file_path)
@@ -105,7 +154,15 @@ class PdfTextParser:
         return segments
 
     def extract_page_snapshots(self, file_path: Path) -> list[PdfPageSnapshot]:
-        pages_list, segments, total_pages = self._extract_document_content(file_path)
+        return list(self.parse_document(file_path).snapshots)
+
+    def _build_page_snapshots(
+        self,
+        *,
+        pages_list: list[tuple[int, str]],
+        segments: list[PdfSegment],
+        total_pages: int,
+    ) -> list[PdfPageSnapshot]:
         pages = dict(pages_list)
         snapshots: list[PdfPageSnapshot] = []
         for page_number in range(1, max(total_pages, 0) + 1):
@@ -147,10 +204,47 @@ class PdfTextParser:
             )
         return snapshots
 
+    def _clone_parse_bundle(self, bundle: PdfParseBundle) -> PdfParseBundle:
+        return PdfParseBundle(
+            pages=list(bundle.pages),
+            segments=list(bundle.segments),
+            snapshots=list(bundle.snapshots),
+            total_pages=int(bundle.total_pages or 0),
+            diagnostics=list(bundle.diagnostics),
+        )
+
+    def _add_parse_diagnostic(
+        self,
+        *,
+        code: str,
+        stage: str,
+        severity: str = "warning",
+        message: str = "",
+        exc: Exception | None = None,
+    ) -> None:
+        diagnostics = self._active_parse_diagnostics
+        if diagnostics is None:
+            return
+        diagnostics.append(
+            PdfParseDiagnostic(
+                code=code,
+                stage=stage,
+                severity=severity,
+                message=message or (str(exc) if exc is not None else ""),
+                exception_type=exc.__class__.__name__ if exc is not None else "",
+            )
+        )
+
     def _extract_segments_with_pdfplumber(self, file_path: Path) -> list[PdfSegment]:
         try:
             import pdfplumber  # type: ignore
-        except Exception:
+        except Exception as exc:
+            self._add_parse_diagnostic(
+                code="pdfplumber_unavailable",
+                stage="extract_segments_with_pdfplumber",
+                severity="info",
+                exc=exc,
+            )
             return []
 
         segments: list[PdfSegment] = []
@@ -203,7 +297,12 @@ class PdfTextParser:
                                 },
                             )
                         )
-        except Exception:
+        except Exception as exc:
+            self._add_parse_diagnostic(
+                code="pdfplumber_segment_extract_failed",
+                stage="extract_segments_with_pdfplumber",
+                exc=exc,
+            )
             return []
         return segments
 
@@ -231,8 +330,7 @@ class PdfTextParser:
         return re.sub(r"\s+", " ", str(value)).strip()
 
     def document_total_pages(self, file_path: Path) -> int:
-        _pages, _segments, total_pages = self._extract_document_content(file_path)
-        return total_pages
+        return self.parse_document(file_path).total_pages
 
     def _document_total_pages_without_ocr(
         self,
@@ -263,10 +361,10 @@ class PdfTextParser:
         return self._count_pages_with_pypdf(file_path)
 
     def _extract_document_content(self, file_path: Path) -> tuple[list[tuple[int, str]], list[PdfSegment], int]:
-        cache_key = self._file_cache_key(file_path)
-        if cache_key in self._document_cache:
-            return self._document_cache[cache_key]
+        bundle = self.parse_document(file_path)
+        return (list(bundle.pages), list(bundle.segments), int(bundle.total_pages or 0))
 
+    def _parse_document_uncached(self, file_path: Path, *, diagnostics: list[PdfParseDiagnostic]) -> PdfParseBundle:
         local_pages = self._extract_pages_locally(file_path)
         local_segments = self._extract_segments_with_pdfplumber(file_path)
         remote: MinerUParseResult | None = None
@@ -305,9 +403,27 @@ class PdfTextParser:
                 total_pages=total_pages,
             )
 
-        result = (pages, segments, total_pages)
-        self._document_cache[cache_key] = result
-        return result
+        if not pages and not segments:
+            diagnostics.append(
+                PdfParseDiagnostic(
+                    code="pdf_no_extractable_content",
+                    stage="parse_document",
+                    severity="error",
+                    message="No readable pages or segments were extracted from the PDF.",
+                )
+            )
+        snapshots = self._build_page_snapshots(
+            pages_list=pages,
+            segments=segments,
+            total_pages=total_pages,
+        )
+        return PdfParseBundle(
+            pages=list(pages),
+            segments=list(segments),
+            snapshots=snapshots,
+            total_pages=int(total_pages or 0),
+            diagnostics=list(diagnostics),
+        )
 
     def _merge_ocr_fallback_pages(
         self,
@@ -317,7 +433,15 @@ class PdfTextParser:
         segments: list[PdfSegment],
         total_pages: int,
     ) -> tuple[list[tuple[int, str]], list[PdfSegment]]:
-        if total_pages <= 0 or not self._ocr_available():
+        if total_pages <= 0:
+            return pages, segments
+        if not self._ocr_available():
+            self._add_parse_diagnostic(
+                code="ocr_unavailable_for_fallback",
+                stage="merge_ocr_fallback_pages",
+                severity="info",
+                message="OCR fallback was requested by page quality but OCR dependencies are unavailable.",
+            )
             return pages, segments
 
         page_text = {int(page_number): str(text or "") for page_number, text in pages if int(page_number) > 0}
@@ -345,6 +469,11 @@ class PdfTextParser:
             if text and not self.looks_unusable_text(text):
                 ocr_pages[page_number] = text
         if not ocr_pages:
+            self._add_parse_diagnostic(
+                code="ocr_fallback_produced_no_usable_text",
+                stage="merge_ocr_fallback_pages",
+                message=f"OCR fallback was attempted for pages: {candidate_pages}",
+            )
             return pages, segments
 
         merged_pages: dict[int, str] = {
@@ -402,7 +531,15 @@ class PdfTextParser:
         if cached is not None:
             return cached
         if self._ocr_reader is not None:
-            text = self._normalize_page_text(self._ocr_reader(file_path, page_number))
+            try:
+                text = self._normalize_page_text(self._ocr_reader(file_path, page_number))
+            except Exception as exc:
+                self._add_parse_diagnostic(
+                    code="custom_ocr_reader_failed",
+                    stage="read_ocr_page_text",
+                    exc=exc,
+                )
+                return ""
             self._write_persisted_ocr_page(file_path=file_path, page_number=page_number, text=text)
             return text
         text = self._normalize_page_text(self._rapidocr_page(file_path=file_path, page_number=page_number))
@@ -412,16 +549,31 @@ class PdfTextParser:
     def _rapidocr_page(self, *, file_path: Path, page_number: int) -> str:
         try:
             image_path = self._render_pdf_page_to_temp_png(file_path=file_path, page_number=page_number)
-        except Exception:
+        except Exception as exc:
+            self._add_parse_diagnostic(
+                code="ocr_render_failed",
+                stage="rapidocr_page",
+                exc=exc,
+            )
             return ""
         try:
             engine = self._rapidocr_engine()
             if engine is None:
+                self._add_parse_diagnostic(
+                    code="rapidocr_unavailable",
+                    stage="rapidocr_page",
+                    severity="info",
+                )
                 return ""
             result = engine(str(image_path))
             texts = list(getattr(result, "txts", ()) or ())
             return self._normalize_page_text("\n".join(str(item) for item in texts if str(item).strip()))
-        except Exception:
+        except Exception as exc:
+            self._add_parse_diagnostic(
+                code="rapidocr_extract_failed",
+                stage="rapidocr_page",
+                exc=exc,
+            )
             return ""
         finally:
             try:
@@ -690,10 +842,20 @@ class PdfTextParser:
 
     def _load_remote_result(self, file_path: Path) -> MinerUParseResult | None:
         if not self._mineru_client.available():
+            self._add_parse_diagnostic(
+                code="mineru_unavailable",
+                stage="load_remote_result",
+                severity="info",
+            )
             return None
         try:
             stat = file_path.stat()
-        except OSError:
+        except OSError as exc:
+            self._add_parse_diagnostic(
+                code="pdf_stat_failed",
+                stage="load_remote_result",
+                exc=exc,
+            )
             return None
 
         cache_key = (str(file_path.resolve()), int(stat.st_mtime_ns), int(stat.st_size))
@@ -702,7 +864,12 @@ class PdfTextParser:
 
         try:
             result = self._mineru_client.parse_pdf(file_path)
-        except Exception:
+        except Exception as exc:
+            self._add_parse_diagnostic(
+                code="mineru_parse_failed",
+                stage="load_remote_result",
+                exc=exc,
+            )
             result = None
         self._remote_cache[cache_key] = result
         return result
@@ -728,7 +895,13 @@ class PdfTextParser:
     def _extract_pages_with_pdfplumber(self, file_path: Path) -> list[tuple[int, str]]:
         try:
             import pdfplumber  # type: ignore
-        except Exception:
+        except Exception as exc:
+            self._add_parse_diagnostic(
+                code="pdfplumber_unavailable",
+                stage="extract_pages_with_pdfplumber",
+                severity="info",
+                exc=exc,
+            )
             return []
 
         pages: list[tuple[int, str]] = []
@@ -739,33 +912,60 @@ class PdfTextParser:
                     if not text:
                         continue
                     pages.append((page_number, self._normalize_page_text(text)))
-        except Exception:
+        except Exception as exc:
+            self._add_parse_diagnostic(
+                code="pdfplumber_page_extract_failed",
+                stage="extract_pages_with_pdfplumber",
+                exc=exc,
+            )
             return []
         return pages
 
     def _count_pages_with_pdfplumber(self, file_path: Path) -> int:
         try:
             import pdfplumber  # type: ignore
-        except Exception:
+        except Exception as exc:
+            self._add_parse_diagnostic(
+                code="pdfplumber_unavailable",
+                stage="count_pages_with_pdfplumber",
+                severity="info",
+                exc=exc,
+            )
             return 0
 
         try:
             with pdfplumber.open(file_path) as pdf:
                 return len(pdf.pages)
-        except Exception:
+        except Exception as exc:
+            self._add_parse_diagnostic(
+                code="pdfplumber_page_count_failed",
+                stage="count_pages_with_pdfplumber",
+                exc=exc,
+            )
             return 0
 
     def _extract_pages_with_pypdf(self, file_path: Path) -> list[tuple[int, str]]:
         try:
             from pypdf import PdfReader  # type: ignore
-        except Exception:
+        except Exception as exc:
+            self._add_parse_diagnostic(
+                code="pypdf_unavailable",
+                stage="extract_pages_with_pypdf",
+                severity="info",
+                exc=exc,
+            )
             return []
 
         try:
             with suppress_pypdf_warnings():
                 reader = PdfReader(str(file_path))
                 pages_iterable = list(reader.pages)
-        except Exception:
+        except Exception as exc:
+            self._add_parse_diagnostic(
+                code="pypdf_page_extract_failed",
+                stage="extract_pages_with_pypdf",
+                exc=exc,
+            )
             return []
 
         pages: list[tuple[int, str]] = []
@@ -779,14 +979,25 @@ class PdfTextParser:
     def _count_pages_with_pypdf(self, file_path: Path) -> int:
         try:
             from pypdf import PdfReader  # type: ignore
-        except Exception:
+        except Exception as exc:
+            self._add_parse_diagnostic(
+                code="pypdf_unavailable",
+                stage="count_pages_with_pypdf",
+                severity="info",
+                exc=exc,
+            )
             return 0
 
         try:
             with suppress_pypdf_warnings():
                 reader = PdfReader(str(file_path))
                 return len(reader.pages)
-        except Exception:
+        except Exception as exc:
+            self._add_parse_diagnostic(
+                code="pypdf_page_count_failed",
+                stage="count_pages_with_pypdf",
+                exc=exc,
+            )
             return 0
 
     def _normalize_page_text(self, text: str) -> str:

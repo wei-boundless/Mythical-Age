@@ -34,7 +34,7 @@ from .model_action_runtime import (
     normalize_model_selection_for_invocation,
     parse_json_object,
 )
-from .model_action_protocol import ModelActionRequest, model_action_request_from_payload
+from .model_action_protocol import AnyModelActionRequest, task_execution_action_request_from_payload
 from .task_run_execution_control import (
     ExecutorControlSignal,
     attach_model_task,
@@ -1136,7 +1136,7 @@ async def _invoke_task_model_action(
     invocation_index: int,
     model_selection: dict[str, Any],
     executor_epoch: int = 0,
-) -> tuple[ModelActionRequest | None, dict[str, Any]]:
+) -> tuple[AnyModelActionRequest | None, dict[str, Any]]:
     invoker = getattr(model_runtime, "invoke_messages", None)
     if not callable(invoker):
         return None, {"status": "invalid", "validation_errors": ["model_runtime_unavailable"]}
@@ -1170,7 +1170,7 @@ async def _invoke_task_model_action(
             suffix=uuid.uuid4().hex[:8],
         ),
     )
-    return model_action_request_from_payload(
+    return task_execution_action_request_from_payload(
         payload,
         turn_id=task_run_id,
         require_public_progress_note=True,
@@ -1190,7 +1190,7 @@ async def _await_task_model_action_with_status(
     model_runtime: Any,
     packet: Any,
     model_selection: dict[str, Any],
-) -> tuple[ModelActionRequest | None, dict[str, Any]]:
+) -> tuple[AnyModelActionRequest | None, dict[str, Any]]:
     task = asyncio.create_task(
         _invoke_task_model_action(
             model_runtime=model_runtime,
@@ -1249,7 +1249,7 @@ async def _execute_task_tool_call(
     services: TaskExecutorServices,
     task_run: Any,
     packet_ref: str,
-    action_request: ModelActionRequest,
+    action_request: AnyModelActionRequest,
     runtime_assembly: dict[str, Any],
     runtime_tool_plan: Any,
 ) -> dict[str, Any]:
@@ -2568,7 +2568,7 @@ def _contract_revision_for_projection(revision: dict[str, Any]) -> dict[str, Any
     }
 
 
-def _consumed_steer_ids(action_request: ModelActionRequest, included_steer_ids: list[str]) -> list[str]:
+def _consumed_steer_ids(action_request: AnyModelActionRequest, included_steer_ids: list[str]) -> list[str]:
     wanted = {str(item or "").strip() for item in included_steer_ids if str(item or "").strip()}
     diagnostics = dict(action_request.diagnostics or {})
     raw = diagnostics.get("consumed_steer_refs")
@@ -2582,7 +2582,7 @@ def _consumed_steer_ids(action_request: ModelActionRequest, included_steer_ids: 
     return result
 
 
-def _contract_revision_decisions(action_request: ModelActionRequest) -> list[dict[str, Any]]:
+def _contract_revision_decisions(action_request: AnyModelActionRequest) -> list[dict[str, Any]]:
     diagnostics = dict(action_request.diagnostics or {})
     raw = diagnostics.get("contract_revision_decisions")
     if raw is None:
@@ -3138,7 +3138,7 @@ def _diagnostics_with_runtime_control(
     }
 
 
-def _completion_repair_observation(*, task_run_id: str, packet_ref: str, action_request: ModelActionRequest, verdict: dict[str, Any]) -> dict[str, Any]:
+def _completion_repair_observation(*, task_run_id: str, packet_ref: str, action_request: AnyModelActionRequest, verdict: dict[str, Any]) -> dict[str, Any]:
     return {
         "observation_id": f"rtobs:{task_run_id}:{uuid.uuid4().hex[:8]}",
         "task_run_id": task_run_id,
@@ -3159,7 +3159,7 @@ def _active_steer_completion_repair_observation(
     *,
     task_run_id: str,
     packet_ref: str,
-    action_request: ModelActionRequest,
+    action_request: AnyModelActionRequest,
     pending_steer_ids: list[str],
     active_revisions: list[dict[str, Any]],
 ) -> dict[str, Any]:
@@ -3277,7 +3277,7 @@ def _artifact_refs_from_observation(observation: dict[str, Any]) -> list[dict[st
     return []
 
 
-def _artifacts_from_action(action_request: ModelActionRequest) -> list[dict[str, Any]]:
+def _artifacts_from_action(action_request: AnyModelActionRequest) -> list[dict[str, Any]]:
     diagnostics = dict(action_request.diagnostics or {})
     return [dict(item) for item in list(diagnostics.get("artifacts") or []) if isinstance(item, dict)]
 
@@ -3627,7 +3627,7 @@ def _record_task_model_wait_heartbeat(
     return event.to_dict()
 
 
-def _action_progress_note(action_request: ModelActionRequest) -> str:
+def _action_progress_note(action_request: AnyModelActionRequest) -> str:
     state = _action_public_state(action_request)
     return (
         public_runtime_progress_summary(action_request.public_progress_note)
@@ -3637,7 +3637,7 @@ def _action_progress_note(action_request: ModelActionRequest) -> str:
     )
 
 
-def _action_public_state(action_request: ModelActionRequest) -> dict[str, Any]:
+def _action_public_state(action_request: AnyModelActionRequest) -> dict[str, Any]:
     state = dict(action_request.public_action_state or {})
     result: dict[str, Any] = {}
     for key in ("current_judgment", "next_action", "completion_status"):
@@ -3653,7 +3653,7 @@ def _action_public_state(action_request: ModelActionRequest) -> dict[str, Any]:
     return result
 
 
-def _tool_call_progress_summary(action_request: ModelActionRequest) -> str:
+def _tool_call_progress_summary(action_request: AnyModelActionRequest) -> str:
     tool_call = dict(action_request.tool_call or {})
     tool_name = str(tool_call.get("tool_name") or tool_call.get("name") or "").strip()
     args = dict(tool_call.get("args") or tool_call.get("tool_args") or {})

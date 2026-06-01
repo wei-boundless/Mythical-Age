@@ -53,6 +53,7 @@ class PDFPreparedDocument:
     usable_pages: int = 0
     parse_strategy: str = "text_fast"
     parse_confidence: float = 0.0
+    parse_diagnostics: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass(slots=True)

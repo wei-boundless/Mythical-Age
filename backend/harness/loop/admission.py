@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Any, Literal
 
-from .model_action_protocol import ModelActionRequest
+from .model_action_protocol import AnyModelActionRequest
 
 
 AdmissionDecisionValue = Literal["allow", "deny", "ask_approval", "invalid", "needs_contract"]
@@ -35,7 +35,7 @@ class AdmissionDecision:
 
 
 def admit_model_action(
-    action_request: ModelActionRequest,
+    action_request: AnyModelActionRequest,
     *,
     packet_allowed_action_types: tuple[str, ...] = (),
     invocation_kind: str = "",
@@ -119,7 +119,7 @@ def admit_model_action(
                 system_reason="task_lifecycle_disabled_by_runtime_profile",
                 contract_errors=("task_lifecycle_disabled_by_runtime_profile",),
             )
-    if action_request.action_type == "request_task_run" and not action_request.task_contract_seed:
+    if action_request.action_type == "request_task_run" and not getattr(action_request, "task_contract_seed", {}):
         return AdmissionDecision(
             admission_id=f"admission:{action_request.request_id}",
             action_request_ref=action_request.request_id,
@@ -139,7 +139,8 @@ def admit_model_action(
                 system_reason="registered_engagement_disabled_by_runtime_profile",
                 contract_errors=("registered_engagement_disabled_by_runtime_profile",),
             )
-        if not str(action_request.engagement_request.get("plan_id") or "").strip():
+        engagement_request = dict(getattr(action_request, "engagement_request", {}) or {})
+        if not str(engagement_request.get("plan_id") or "").strip():
             return AdmissionDecision(
                 admission_id=f"admission:{action_request.request_id}",
                 action_request_ref=action_request.request_id,
@@ -171,7 +172,7 @@ def admit_model_action(
     )
 
 
-def _invalid(action_request: ModelActionRequest, reason: str) -> AdmissionDecision:
+def _invalid(action_request: AnyModelActionRequest, reason: str) -> AdmissionDecision:
     return AdmissionDecision(
         admission_id=f"admission:{action_request.request_id}",
         action_request_ref=action_request.request_id,

@@ -1535,7 +1535,6 @@ export type OrchestrationAgentRuntimeProfile = {
   blocked_operations: string[];
   allowed_memory_scopes: string[];
   allowed_context_sections: string[];
-  use_shared_contract: boolean;
   subagent_policy: OrchestrationSubagentPolicy;
   approval_policy: string;
   trace_policy: string;

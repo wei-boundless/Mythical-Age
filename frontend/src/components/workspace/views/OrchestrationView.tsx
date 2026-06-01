@@ -107,7 +107,6 @@ const EMPTY_RUNTIME_DRAFT: RuntimeDraft = {
   blocked_operations: [],
   allowed_memory_scopes: [],
   allowed_context_sections: [],
-  use_shared_contract: true,
   subagent_policy: {
     enabled: false,
     allowed_subagent_ids: [],
@@ -345,7 +344,6 @@ function runtimeDraftFrom(
     blocked_operations: uniqueList(merged.blocked_operations),
     allowed_memory_scopes: uniqueList(merged.allowed_memory_scopes),
     allowed_context_sections: uniqueList(merged.allowed_context_sections),
-    use_shared_contract: Boolean(merged.use_shared_contract ?? true),
     subagent_policy: normalizeSubagentPolicy(merged.subagent_policy),
     approval_policy: String(merged.approval_policy || "default"),
     trace_policy: String(merged.trace_policy || "runtime_event_log"),
@@ -362,7 +360,6 @@ function runtimePayloadFromDraft(draft: RuntimeDraft) {
     blocked_operations: uniqueList(draft.blocked_operations),
     allowed_memory_scopes: uniqueList(draft.allowed_memory_scopes),
     allowed_context_sections: uniqueList(draft.allowed_context_sections),
-    use_shared_contract: Boolean(draft.use_shared_contract),
     subagent_policy: normalizeSubagentPolicy(draft.subagent_policy),
     approval_policy: draft.approval_policy,
     trace_policy: draft.trace_policy,
@@ -665,7 +662,7 @@ export function OrchestrationView() {
     { label: "类别", value: CATEGORY_LABELS[agentDraft.agent_category as AgentCategory] ?? text(agentDraft.agent_category), ready: Boolean(agentDraft.agent_category) },
     { label: "允许操作", value: displayOptionList(allowedOps.slice(0, 4), runtimeOptionLabels), ready: Boolean(allowedOps.length) },
     { label: "阻断冲突", value: overlapOps.length ? overlapOps.join(" / ") : "无", ready: !overlapOps.length },
-    { label: "上下文段", value: `${displayOptionList(uniqueList(runtimeDraft.allowed_context_sections).slice(0, 4), runtimeOptionLabels)} / ${runtimeDraft.use_shared_contract ? "采用共同契约" : "不采用共同契约"}`, ready: Boolean(uniqueList(runtimeDraft.allowed_context_sections).length) },
+    { label: "上下文段", value: displayOptionList(uniqueList(runtimeDraft.allowed_context_sections).slice(0, 4), runtimeOptionLabels), ready: Boolean(uniqueList(runtimeDraft.allowed_context_sections).length) },
   ];
   const agentLayerTabs: Array<[OrchestrationLayer, string, string]> = [
     ["identity", "身份", agentMode === "new" ? "草稿" : "名册"],
@@ -1148,7 +1145,6 @@ export function OrchestrationView() {
                   memorySummary={memorySummary}
                   patchRuntimeDraft={(patch) => setRuntimeDraft((current) => ({ ...current, ...patch }))}
                   runtimeDraft={runtimeDraft}
-                  sharedContractEnabled={Boolean(runtimeDraft.use_shared_contract)}
                 />
               ) : null}
 

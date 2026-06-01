@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from capability_system.skills.contracts import SkillContract, SkillPromptContract, SkillRuntimeContract
-from capability_system.skills.paths import AgentSkillPaths
+from capability_system.skills.paths import CapabilitySkillPaths
 
 SkillPromptView = SkillPromptContract
 
@@ -35,7 +35,7 @@ class SkillDefinition:
 class SkillRegistry:
     def __init__(self, base_dir: Path) -> None:
         self.base_dir = base_dir
-        self.registry_path = AgentSkillPaths.from_base_dir(base_dir).skills_registry_path
+        self.registry_path = CapabilitySkillPaths.from_base_dir(base_dir).skills_registry_path
         self._skills: list[SkillDefinition] = []
         self.reload()
 

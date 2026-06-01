@@ -5,7 +5,7 @@ from pathlib import Path
 
 
 @dataclass(frozen=True, slots=True)
-class AgentSkillPaths:
+class CapabilitySkillPaths:
     base_dir: Path
     code_dir: Path
     skills_dir: Path
@@ -14,9 +14,9 @@ class AgentSkillPaths:
     skills_registry_path: Path
 
     @classmethod
-    def from_base_dir(cls, base_dir: str | Path) -> "AgentSkillPaths":
+    def from_base_dir(cls, base_dir: str | Path) -> "CapabilitySkillPaths":
         resolved_base_dir = Path(base_dir).resolve()
-        code_dir = resolved_base_dir / "agent_system" / "skills"
+        code_dir = resolved_base_dir / "capability_system" / "skills"
         registries_dir = code_dir / "registries"
         return cls(
             base_dir=resolved_base_dir,

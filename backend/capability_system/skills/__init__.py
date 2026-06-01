@@ -4,7 +4,7 @@ from importlib import import_module
 
 
 _EXPORTS: dict[str, tuple[str, str]] = {
-    "AgentSkillPaths": (".paths", "AgentSkillPaths"),
+    "CapabilitySkillPaths": (".paths", "CapabilitySkillPaths"),
     "SkillContract": (".contracts", "SkillContract"),
     "SkillDefinition": (".registry", "SkillDefinition"),
     "SkillPromptContract": (".contracts", "SkillPromptContract"),

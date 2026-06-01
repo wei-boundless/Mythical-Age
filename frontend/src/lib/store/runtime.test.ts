@@ -270,6 +270,23 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(store.getState().taskGraphMonitorError).toBe("");
   });
 
+  it("surfaces project file open failures instead of leaving stale inspector content", async () => {
+    api.loadFile.mockRejectedValue(new Error("Path is not visible in the project file tree"));
+    const store = createStore({
+      ...getDefaultState(),
+      inspectorPath: "AGENTS.md",
+      inspectorContent: "previous content",
+    });
+    const runtime = new WorkspaceRuntime(store);
+
+    await runtime.actions.loadInspectorFile(".env");
+
+    expect(store.getState().inspectorPath).toBe(".env");
+    expect(store.getState().inspectorContent).toContain("Path is not visible in the project file tree");
+    expect(store.getState().workspaceTreeError).toContain("Path is not visible in the project file tree");
+    expect(store.getState().inspectorDirty).toBe(false);
+  });
+
   it("reads TaskGraph detail only through explicit monitor evaluation", async () => {
     api.getGraphRunMonitor.mockRejectedValue(new Error('{"detail":"GraphHarnessConfig not found"}'));
     const store = createStore(getDefaultState());

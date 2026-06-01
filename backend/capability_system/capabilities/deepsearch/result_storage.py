@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from runtime.context_management.tool_result_storage import (
+from runtime_objects.tool_result_storage import (
     DEFAULT_FIELD_SIZE_LIMIT_BYTES,
     DEFAULT_PAYLOAD_BUDGET_BYTES,
     DEFAULT_PREVIEW_SIZE_BYTES,
@@ -25,5 +25,3 @@ __all__ = [
     "PERSISTED_OUTPUT_TAG",
     "SearchToolResultStore",
 ]
-
-

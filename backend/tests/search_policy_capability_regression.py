@@ -20,7 +20,6 @@ from harness.runtime import (
     build_runtime_tool_plan,
     tool_instances_for_runtime_tool_plan,
 )
-from runtime.context_management.system_retrieval import task_operation_requests_context_retrieval
 
 
 def test_normalized_empty_search_policy_blocks_source_bound_operations() -> None:
@@ -71,50 +70,6 @@ def test_harness_service_host_filters_main_runtime_tools_by_search_policy(tmp_pa
     assert "fetch_url" not in names
     assert "read_file" not in names
     assert plan.dispatchable_tool_names == ("memory_search",)
-
-
-def test_graph_work_request_does_not_trigger_system_context_retrieval() -> None:
-    allowed = task_operation_requests_context_retrieval(
-        {
-            "current_turn_context": {
-                "work_request_ref": "workreq:graph-node:test",
-                "continuation_stage_id": "world_design",
-                "selected_task_id": "task.writing.modular_novel.node.world_design",
-            },
-            "operation_requirement": {"optional_operations": ["op.mcp_retrieval"]},
-            "selected_recipe": {"source_kind": "knowledge"},
-        },
-    )
-
-    assert allowed is False
-
-
-def test_main_session_can_request_system_context_retrieval() -> None:
-    allowed = task_operation_requests_context_retrieval(
-        {
-            "current_turn_context": {"turn_id": "turn:test"},
-            "operation_requirement": {"optional_operations": ["op.mcp_retrieval"]},
-            "selected_recipe": {"source_kind": "knowledge"},
-        },
-    )
-
-    assert allowed is True
-
-
-def test_direct_agent_invocation_ref_does_not_make_turn_coordination_scoped() -> None:
-    allowed = task_operation_requests_context_retrieval(
-        {
-            "current_turn_context": {
-                "turn_id": "turn:test",
-                "work_order_id": "work:direct:test",
-                "assembly_id": "assembly:direct:test",
-            },
-            "operation_requirement": {"optional_operations": ["op.mcp_retrieval"]},
-            "selected_recipe": {"source_kind": "knowledge"},
-        },
-    )
-
-    assert allowed is True
 
 
 def _tool_view(tool_name: str, definitions_by_name: dict[str, object]) -> dict[str, object]:

@@ -39,7 +39,7 @@ Binary `.doc/.ppt/.xls` files are recognized, but the parser will only produce a
   Local multimodal parser kept as a fallback for document conversion.
 - `registry.py`
   Collection wrapper around the active retrieval backend. New runtime code
-  should prefer `knowledge_system.retrieval.RetrievalService`.
+  should prefer `capability_system.capabilities.retrieval.RetrievalService`.
 - `cli.py`
   Maintenance helper for collection status, rebuilds, and test queries.
 
@@ -58,7 +58,7 @@ Use `APP_EXTERNAL_DATA_ROOT`, `APP_KNOWLEDGE_ROOT`, `APP_INDEXES_ROOT`, or
 ```python
 from pathlib import Path
 
-from knowledge_system.retrieval import RetrievalService
+from capability_system.capabilities.retrieval import RetrievalService
 
 service = RetrievalService(Path("backend").resolve())
 result = service.retrieve_execution("What does the table say?", top_k=5)
@@ -68,10 +68,10 @@ result = service.retrieve_execution("What does the table say?", top_k=5)
 
 ```bash
 cd backend
-python -m knowledge_system.retrieval.cli status
-python -m knowledge_system.retrieval.cli clean --path knowledge/example.pdf
-python -m knowledge_system.retrieval.cli rebuild --ocr-language eng
-python -m knowledge_system.retrieval.cli query --query "What is described in the image?" --top-k 5
+python -m capability_system.capabilities.retrieval.cli status
+python -m capability_system.capabilities.retrieval.cli clean --path knowledge/example.pdf
+python -m capability_system.capabilities.retrieval.cli rebuild --ocr-language eng
+python -m capability_system.capabilities.retrieval.cli query --query "What is described in the image?" --top-k 5
 ```
 
 ## Notes

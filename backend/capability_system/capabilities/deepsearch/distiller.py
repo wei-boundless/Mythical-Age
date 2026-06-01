@@ -6,8 +6,6 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
-from runtime.model_gateway.model_runtime import stringify_content
-
 from .web_text import best_web_excerpt, clean_web_text
 
 
@@ -130,7 +128,7 @@ class ModelBackedSearchEvidenceDistiller(SearchEvidenceDistiller):
                 conflicts=fallback_result.conflicts,
                 method="deterministic_distiller_fallback",
             )
-        parsed = _parse_model_distillation(stringify_content(getattr(response, "content", response)), sources=sources)
+        parsed = _parse_model_distillation(_stringify_content(getattr(response, "content", response)), sources=sources)
         if not parsed.claims:
             return DistillationResult(
                 claims=fallback_result.claims,
@@ -153,6 +151,33 @@ def _extract_claim(*, title: str, excerpt: str) -> str:
     if title_text and title_text.lower() not in preferred.lower():
         return _compact(f"{title_text}. {preferred}", 420)
     return _compact(preferred, 420)
+
+
+def _stringify_content(content: Any) -> str:
+    if content is None:
+        return ""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts: list[str] = []
+        for item in content:
+            if isinstance(item, dict):
+                if "text" in item:
+                    parts.append(str(item.get("text") or ""))
+                elif "content" in item:
+                    parts.append(str(item.get("content") or ""))
+                else:
+                    parts.append(json.dumps(item, ensure_ascii=False, default=str))
+            else:
+                parts.append(str(item))
+        return "\n".join(part for part in parts if part)
+    if isinstance(content, dict):
+        if "text" in content:
+            return str(content.get("text") or "")
+        if "content" in content:
+            return str(content.get("content") or "")
+        return json.dumps(content, ensure_ascii=False, default=str)
+    return str(content)
 
 
 def _distiller_user_payload(*, query: str, sources: list[dict[str, Any]]) -> str:

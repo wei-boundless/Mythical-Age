@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from capability_system.tools.paths import ToolRuntimePaths
+from capability_system.tools.paths import CapabilityToolPaths
 from capability_system.tools.native_tool_catalog import (
     ToolDefinition,
     build_tool_registry_payload,
@@ -14,7 +14,7 @@ from capability_system.tools.native_tool_catalog import (
 class ToolRegistry:
     def __init__(self, base_dir: Path) -> None:
         self.base_dir = base_dir
-        self.registry_path = ToolRuntimePaths.from_base_dir(base_dir).tools_registry_path
+        self.registry_path = CapabilityToolPaths.from_base_dir(base_dir).tools_registry_path
         self._tools: list[ToolDefinition] = []
         self.reload()
 
@@ -170,7 +170,7 @@ def build_tool_registry() -> dict[str, Any]:
 
 
 def refresh_tool_registry(base_dir: Path) -> Path:
-    paths = ToolRuntimePaths.from_base_dir(base_dir)
+    paths = CapabilityToolPaths.from_base_dir(base_dir)
     paths.ensure()
     registry_path = paths.tools_registry_path
     registry_path.write_text(

@@ -249,7 +249,7 @@ def test_capability_unit_projection_uses_skill_declared_operation_dependencies()
                         "name": "skill-creator",
                         "title": "Skill 创建顾问",
                         "description": "Skill authoring workflow.",
-                        "path": "agent_system/skills/builtin/skill-creator/SKILL.md",
+                        "path": "capability_system/skills/builtin/skill-creator/SKILL.md",
                         "preferred_route": "capability_authoring",
                         "activation_policy": "model_visible",
                         "context_mode": "inline",

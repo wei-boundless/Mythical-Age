@@ -14,7 +14,8 @@ class RetrievalWorker:
 
     def run(self, request: MCPRequest, *, top_k: int = 5) -> MCPResult:
         query = str(request.query or "").strip()
-        execution = self._retrieve_execution(query, top_k=max(int(top_k or 1), 1))
+        requested_top_k = _top_k_from_request(request, fallback=top_k)
+        execution = self._retrieve_execution(query, top_k=requested_top_k)
         raw_results = list(execution.results or [])
         envelope = build_evidence_envelope_from_retrieval(
             query=query,
@@ -105,5 +106,14 @@ def _binding_candidates_from_envelope(envelope: EvidenceEnvelope) -> list[Bindin
             )
         )
     return candidates
+
+
+def _top_k_from_request(request: MCPRequest, *, fallback: int) -> int:
+    constraints = dict(getattr(request, "constraints", {}) or {})
+    value = constraints.get("top_k", fallback)
+    try:
+        return max(int(value or 1), 1)
+    except (TypeError, ValueError):
+        return max(int(fallback or 1), 1)
 
 

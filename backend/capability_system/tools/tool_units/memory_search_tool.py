@@ -10,6 +10,7 @@ from langchain_core.callbacks.manager import AsyncCallbackManagerForToolRun, Cal
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 
+from memory_system.runtime_scope import project_id_for_task_run
 from memory_system.runtime_services import MemoryRuntimeServices
 
 
@@ -55,7 +56,7 @@ class MemorySearchTool(BaseTool):
         result_limit = max(1, min(int(limit or 8), 20))
         service = MemoryRuntimeServices.from_runtime_root(self._storage_root).formal_memory
         task_scope = str(task_run_id or "").strip()
-        project_scope = str(project_id or "").strip() or _project_id_for_task_run(self._storage_root, task_scope)
+        project_scope = str(project_id or "").strip() or project_id_for_task_run(self._storage_root, task_scope)
         versions = _searchable_versions(service, task_run_id=task_scope, project_id=project_scope)
         terms = _query_terms(normalized_query)
         matches: list[dict[str, Any]] = []
@@ -142,23 +143,6 @@ def _version_visible_to_search(version: Any, *, task_run_id: str, project_id: st
     if project_id and str(getattr(version, "scope_kind", "") or "") == "project_scoped":
         return str(getattr(version, "scope_id", "") or "") == project_id
     return False
-
-
-def _project_id_for_task_run(storage_root: Path, task_run_id: str) -> str:
-    if not task_run_id:
-        return ""
-    from runtime.memory.state_index import RuntimeStateIndex
-
-    runtime_root = storage_root / "runtime_state" if storage_root.name == "storage" else storage_root
-    if runtime_root.name != "runtime_state":
-        runtime_root = MemoryRuntimeServices.from_runtime_root(storage_root).storage_root / "runtime_state"
-    try:
-        task_run = RuntimeStateIndex(runtime_root).get_task_run(task_run_id)
-    except Exception:
-        task_run = None
-    if task_run is None:
-        return ""
-    return str(dict(getattr(task_run, "diagnostics", {}) or {}).get("project_id") or "").strip()
 
 
 def _query_terms(query: str) -> list[str]:

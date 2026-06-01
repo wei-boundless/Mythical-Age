@@ -41,7 +41,6 @@ class AgentRuntimeProfileRequest(BaseModel):
     blocked_operations: list[str] = Field(default_factory=list)
     allowed_memory_scopes: list[str] = Field(default_factory=list)
     allowed_context_sections: list[str] = Field(default_factory=list)
-    use_shared_contract: bool = True
     subagent_policy: dict[str, Any] = Field(default_factory=dict)
     approval_policy: str = Field(default="default", max_length=80)
     trace_policy: str = Field(default="runtime_event_log", max_length=120)
@@ -622,7 +621,6 @@ async def upsert_orchestration_agent_runtime_profile(
             blocked_operations=tuple(payload.blocked_operations),
             allowed_memory_scopes=tuple(payload.allowed_memory_scopes),
             allowed_context_sections=tuple(payload.allowed_context_sections),
-            use_shared_contract=payload.use_shared_contract,
             subagent_policy=payload.subagent_policy,
             approval_policy=payload.approval_policy,
             trace_policy=payload.trace_policy,

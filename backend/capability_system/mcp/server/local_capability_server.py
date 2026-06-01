@@ -15,7 +15,6 @@ from evidence.output_policy import RAGEvidenceOutputPolicy
 from evidence.pdf_worker import PDFWorker
 from evidence.retrieval_worker import RetrievalWorker
 from evidence.structured_data_worker import StructuredDataWorker
-from runtime.model_gateway.model_runtime import ModelRuntime
 from permissions import OperationGate, OperationGatePipelineContext, ResourcePolicy
 from capability_system.capabilities.retrieval import RetrievalService
 
@@ -49,16 +48,21 @@ class LocalCapabilityMCPExecutor:
         self.backend_dir = Path(backend_dir).resolve()
         self.retrieval_service = retrieval_service or RetrievalService(self.backend_dir)
         self.tool_runtime = tool_runtime or ToolRuntime(self.backend_dir)
-        self.model_runtime = model_runtime or ModelRuntime(_MCPSettingsStub())
+        self.model_runtime = model_runtime
         self.operation_registry = build_default_operation_registry()
         self.operation_gate = operation_gate or OperationGate(self.operation_registry)
         self.resource_policy = resource_policy
         self.permission_mode = permission_mode
+        output_policy = (
+            RAGEvidenceOutputPolicy(model_runtime=self.model_runtime)
+            if self.model_runtime is not None
+            else _NoModelOutputPolicy()
+        )
         self.orchestrator = orchestrator or EvidenceOrchestrator(
             retrieval_worker=RetrievalWorker(retrieval_service=self.retrieval_service),
             pdf_worker=PDFWorker(root_dir=self.backend_dir),
             structured_data_worker=StructuredDataWorker(root_dir=self.backend_dir),
-            output_policy=RAGEvidenceOutputPolicy(model_runtime=self.model_runtime),
+            output_policy=output_policy,
         )
 
     async def execute(self, request: LocalMCPToolRequest) -> dict[str, Any]:
@@ -113,6 +117,8 @@ class LocalCapabilityMCPExecutor:
             cutover_mode="primary",
         )
         done_event: dict[str, Any] | None = None
+        end_event: dict[str, Any] | None = None
+        evidence_event: dict[str, Any] | None = None
         events: list[dict[str, Any]] = []
         async for event in self.orchestrator.stream_execution(
             session_id=request.session_id,
@@ -124,6 +130,12 @@ class LocalCapabilityMCPExecutor:
             event_payload = dict(event)
             if event_payload.get("type") == "done":
                 done_event = event_payload
+            elif event_payload.get("type") == "mcp_end":
+                end_event = event_payload
+                events.append(event_payload)
+            elif event_payload.get("type") == "mcp_evidence":
+                evidence_event = event_payload
+                events.append(event_payload)
             else:
                 events.append(event_payload)
         if done_event is None:
@@ -133,7 +145,13 @@ class LocalCapabilityMCPExecutor:
                 "route": unit.route,
                 "events": events,
             }
-        return _compact_done_event(done_event, route=unit.route, operation_id=unit.operation_id)
+        return _compact_execution_events(
+            done_event=done_event,
+            end_event=end_event,
+            evidence_event=evidence_event,
+            route=unit.route,
+            operation_id=unit.operation_id,
+        )
 
     def execute_sync(self, request: LocalMCPToolRequest) -> dict[str, Any]:
         return asyncio.run(self.execute(request))
@@ -157,20 +175,31 @@ class LocalCapabilityMCPExecutor:
         return constraints
 
 
-def _compact_done_event(done_event: dict[str, Any], *, route: str, operation_id: str) -> dict[str, Any]:
-    result = dict(done_event.get("mcp_result") or {})
-    canonical = dict(result.get("canonical_result") or {})
-    envelope = dict(result.get("evidence_envelope") or {})
+def _compact_execution_events(
+    *,
+    done_event: dict[str, Any],
+    end_event: dict[str, Any] | None,
+    evidence_event: dict[str, Any] | None,
+    route: str,
+    operation_id: str,
+) -> dict[str, Any]:
+    end_payload = dict(end_event or {})
+    canonical = dict(end_payload.get("result") or {})
+    evidence_payload = dict(dict(evidence_event or {}).get("evidence") or {})
+    has_evidence = bool(list(evidence_payload.get("evidence_items") or []))
+    ok = bool(canonical.get("ok", False)) or has_evidence
+    task_status = str(done_event.get("task_status") or end_payload.get("task_status") or "").strip()
+    status = "ok" if ok or task_status == "completed" else "error"
     return {
-        "status": str(result.get("status") or done_event.get("status") or "unknown"),
+        "status": status,
         "route": route,
         "operation_id": operation_id,
-        "answer": str(canonical.get("answer") or ""),
+        "answer": str(done_event.get("content") or canonical.get("answer") or ""),
         "canonical_result": canonical,
-        "evidence": envelope,
+        "evidence": evidence_payload,
         "main_context": dict(done_event.get("main_context") or {}),
         "task_summary_refs": [dict(item) for item in list(done_event.get("task_summary_refs") or []) if isinstance(item, dict)],
-        "diagnostics": dict(result.get("diagnostics") or {}),
+        "diagnostics": dict(canonical.get("diagnostics") or {}),
     }
 
 
@@ -179,15 +208,14 @@ def _slug(value: str) -> str:
     return normalized[:64] or "request"
 
 
-class _MCPSettingsStub:
-    def get_model_config(self) -> dict[str, Any]:
-        return {}
+class _NoModelOutputPolicy:
+    def rag_evidence_pack_can_finalize(self, evidence_pack) -> bool:
+        _ = evidence_pack
+        return False
 
-    def get_active_provider_config(self) -> dict[str, Any]:
-        return {}
-
-    def get_provider_api_key(self, _provider: str) -> str:
-        return ""
+    async def rewrite_rag_answer_with_model(self, *, evidence_pack):
+        _ = evidence_pack
+        return None
 
 
 def build_local_mcp_resource_policy(operation_id: str, *, task_id: str = "standard-mcp") -> ResourcePolicy:

@@ -9,7 +9,7 @@ def test_skill_contract_normalizes_and_validates_runtime_fields() -> None:
             name="demo-skill",
             title="演示 Skill",
             description="用于验证统一契约。",
-            path="agent_system/skills/builtin/demo-skill/SKILL.md",
+            path="capability_system/skills/builtin/demo-skill/SKILL.md",
             activation_policy="unknown",
             context_mode="bad",
             route_authority="bad",
@@ -29,7 +29,7 @@ def test_skill_contract_accepts_historical_registry_payload() -> None:
             "name": "historic-skill",
             "title": "历史 Skill",
             "description": "旧版 registry 仍可兼容。",
-            "path": "agent_system/skills/builtin/historic-skill/SKILL.md",
+            "path": "capability_system/skills/builtin/historic-skill/SKILL.md",
         }
     )
 
@@ -44,7 +44,7 @@ def test_skill_contract_does_not_default_unknown_route_to_rag() -> None:
             name="authoring-skill",
             title="能力编写",
             description="用于能力编写。",
-            path="agent_system/skills/builtin/authoring-skill/SKILL.md",
+            path="capability_system/skills/builtin/authoring-skill/SKILL.md",
             preferred_route="",
         )
     )
@@ -58,7 +58,7 @@ def test_skill_contract_requires_explicit_operation_for_known_routes() -> None:
             name="bad-rag",
             title="坏检索",
             description="缺少依赖声明。",
-            path="agent_system/skills/builtin/bad-rag/SKILL.md",
+            path="capability_system/skills/builtin/bad-rag/SKILL.md",
             preferred_route="rag",
         )
     )
@@ -72,7 +72,7 @@ def test_skill_contract_preserves_negative_activation_guidance() -> None:
             "name": "research-skill",
             "title": "研究 Skill",
             "description": "用于验证不适用场景。",
-            "path": "agent_system/skills/builtin/research-skill/SKILL.md",
+            "path": "capability_system/skills/builtin/research-skill/SKILL.md",
             "not_for": ["只需要一条新闻时不要使用。"],
         }
     )

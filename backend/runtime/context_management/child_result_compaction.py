@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from .tool_result_storage import DEFAULT_FIELD_SIZE_LIMIT_BYTES, DEFAULT_PREVIEW_SIZE_BYTES, ToolResultStore
+from runtime_objects.tool_result_storage import DEFAULT_FIELD_SIZE_LIMIT_BYTES, DEFAULT_PREVIEW_SIZE_BYTES, ToolResultStore
 
 
 def compact_child_result_observation(

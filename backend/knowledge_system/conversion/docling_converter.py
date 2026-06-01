@@ -78,8 +78,19 @@ class DoclingConverter:
 
     def _convert_pdf_with_parser(self, record: SourceFileRecord) -> ConversionResult | None:
         try:
-            snapshots = self._pdf_parser.extract_page_snapshots(record.absolute_path)
-            segments = self._pdf_parser.extract_segments(record.absolute_path)
+            parse_document = getattr(self._pdf_parser, "parse_document", None)
+            if callable(parse_document):
+                bundle = parse_document(record.absolute_path)
+                snapshots = list(getattr(bundle, "snapshots", []) or [])
+                segments = list(getattr(bundle, "segments", []) or [])
+                parse_diagnostics = [
+                    diagnostic.to_dict() if hasattr(diagnostic, "to_dict") else dict(diagnostic)
+                    for diagnostic in list(getattr(bundle, "diagnostics", []) or [])
+                ]
+            else:
+                snapshots = self._pdf_parser.extract_page_snapshots(record.absolute_path)
+                segments = self._pdf_parser.extract_segments(record.absolute_path)
+                parse_diagnostics = []
         except Exception:
             return None
         blocks = self._blocks_from_pdf_segments(record, segments)
@@ -109,6 +120,7 @@ class DoclingConverter:
                 "source_path": record.source_path,
                 "fallback_used": False,
                 "page_aware": True,
+                "parse_diagnostics": parse_diagnostics,
             },
         )
 

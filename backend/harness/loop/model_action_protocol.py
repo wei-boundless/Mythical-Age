@@ -13,6 +13,7 @@ ModelActionType = Literal[
     "active_work_control",
     "block",
 ]
+TaskExecutionModelActionType = Literal["respond", "ask_user", "tool_call", "block"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -51,6 +52,35 @@ class ModelActionRequest:
         payload["active_work_control"] = dict(self.active_work_control or {})
         payload["diagnostics"] = dict(self.diagnostics or {})
         return payload
+
+
+@dataclass(frozen=True, slots=True)
+class TaskExecutionModelActionRequest:
+    request_id: str
+    turn_id: str
+    action_type: TaskExecutionModelActionType
+    public_progress_note: str = ""
+    public_action_state: dict[str, Any] = field(default_factory=dict)
+    final_answer: str = ""
+    user_question: str = ""
+    blocking_reason: str = ""
+    tool_call: dict[str, Any] = field(default_factory=dict)
+    diagnostics: dict[str, Any] = field(default_factory=dict)
+    authority: str = "harness.loop.model_action_request"
+
+    def __post_init__(self) -> None:
+        if self.authority != "harness.loop.model_action_request":
+            raise ValueError("TaskExecutionModelActionRequest authority must be harness.loop.model_action_request")
+
+    def to_dict(self) -> dict[str, Any]:
+        payload = asdict(self)
+        payload["tool_call"] = dict(self.tool_call or {})
+        payload["public_action_state"] = dict(self.public_action_state or {})
+        payload["diagnostics"] = dict(self.diagnostics or {})
+        return payload
+
+
+AnyModelActionRequest = ModelActionRequest | TaskExecutionModelActionRequest
 
 
 def model_action_request_from_payload(
@@ -162,6 +192,74 @@ def model_action_request_from_payload(
     }
 
 
+_TASK_EXECUTION_CROSS_CONTEXT_FIELDS = (
+    "selected_skill_ids",
+    "task_contract_seed",
+    "completion_contract",
+    "permission_request",
+    "engagement_request",
+    "active_work_control",
+    "plan_id",
+)
+
+
+def task_execution_action_request_from_payload(
+    payload: dict[str, Any] | None,
+    *,
+    turn_id: str,
+    require_public_progress_note: bool = True,
+    require_public_action_state: bool = True,
+    allowed_action_types: tuple[str, ...] | set[str] | None = None,
+) -> tuple[TaskExecutionModelActionRequest | None, dict[str, Any]]:
+    raw = dict(payload or {})
+    forbidden_errors = [
+        f"field_not_allowed_for_task_execution:{field}"
+        for field in _TASK_EXECUTION_CROSS_CONTEXT_FIELDS
+        if _has_non_empty_value(raw.get(field))
+    ]
+    action_request, diagnostics = model_action_request_from_payload(
+        raw,
+        turn_id=turn_id,
+        require_public_progress_note=require_public_progress_note,
+        require_public_action_state=require_public_action_state,
+        allowed_action_types=tuple(allowed_action_types or ("respond", "ask_user", "tool_call", "block")),
+    )
+    if forbidden_errors:
+        validation_errors = [
+            *forbidden_errors,
+            *list(dict(diagnostics or {}).get("validation_errors") or []),
+        ]
+        return None, {
+            "status": "invalid",
+            "validation_errors": validation_errors,
+            "authority": "harness.loop.model_action_protocol",
+        }
+    if action_request is None:
+        return None, diagnostics
+    if action_request.action_type not in {"respond", "ask_user", "tool_call", "block"}:
+        return None, {
+            "status": "invalid",
+            "validation_errors": [f"action_type_not_allowed_for_task_execution:{action_request.action_type}"],
+            "authority": "harness.loop.model_action_protocol",
+        }
+    return TaskExecutionModelActionRequest(
+        request_id=action_request.request_id,
+        turn_id=action_request.turn_id,
+        action_type=action_request.action_type,  # type: ignore[arg-type]
+        public_progress_note=action_request.public_progress_note,
+        public_action_state=dict(action_request.public_action_state or {}),
+        final_answer=action_request.final_answer,
+        user_question=action_request.user_question,
+        blocking_reason=action_request.blocking_reason,
+        tool_call=dict(action_request.tool_call or {}),
+        diagnostics=dict(action_request.diagnostics or {}),
+    ), {
+        "status": "accepted",
+        "validation_errors": [],
+        "authority": "harness.loop.model_action_protocol",
+    }
+
+
 def _public_progress_note(value: Any) -> str:
     text = str(value or "").strip()
     if not text:
@@ -210,3 +308,13 @@ def _string_tuple(value: Any) -> tuple[str, ...]:
         seen.add(item)
         result.append(item)
     return tuple(result)
+
+
+def _has_non_empty_value(value: Any) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, str):
+        return bool(value.strip())
+    if isinstance(value, (list, tuple, set, dict)):
+        return bool(value)
+    return bool(value)

@@ -260,6 +260,11 @@ def test_task_execution_packet_places_stable_contract_before_volatile_state() ->
     assert "task_contract_seed" not in action_schema_payload["schema"]
     assert "completion_contract" not in action_schema_payload["schema"]
     assert "permission_request" not in action_schema_payload["schema"]
+    assert "runtime_profile" not in task_contract_payload["task_contract"]
+    assert "created_from_packet_ref" not in task_contract_payload["task_contract"]
+    assert "source_contract_ref" not in task_contract_payload["task_contract"]
+    assert "origin" not in task_contract_payload["task_contract"]
+    assert "graph_slot" not in task_contract_payload["task_contract"]
     assert task_contract_payload["task_contract"]["task_run_goal"] == "审查并修复监控系统"
     assert task_contract_payload["task_contract"]["completion_criteria"] == ["完成真实验证"]
     assert tool_index_payload["tool_catalog_hash"].startswith("sha256:")

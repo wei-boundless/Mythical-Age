@@ -7,8 +7,9 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from api.deps import require_runtime
-from capability_system.skills.paths import AgentSkillPaths
+from capability_system.skills.paths import CapabilitySkillPaths
 from capability_system.skills.scanner import scan_skills
+from code_environment.workspace_tree import _is_excluded_relative_path
 from project_layout import ProjectLayout
 
 router = APIRouter()
@@ -18,9 +19,9 @@ READABLE_PREFIXES = (
     "session-memory/",
     "sessions/",
     "knowledge/",
-    "agent_system/skills/builtin/",
-    "agent_system/skills/registries/",
-    "runtime/tool_runtime/registries/",
+    "capability_system/skills/builtin/",
+    "capability_system/skills/registries/",
+    "capability_system/tools/registries/",
     "backend/",
     "frontend/",
     "docs/",
@@ -32,7 +33,7 @@ EDITABLE_PREFIXES = (
     "session-memory/",
     "sessions/",
     "knowledge/",
-    "agent_system/skills/builtin/",
+    "capability_system/skills/builtin/",
 )
 
 READABLE_PROJECT_FILES = frozenset(
@@ -58,6 +59,42 @@ PROJECT_READABLE_PREFIXES = (
     "scripts/",
 )
 
+SENSITIVE_PROJECT_FILE_NAMES = frozenset(
+    {
+        ".env",
+        ".env.local",
+        ".env.development",
+        ".env.production",
+        ".npmrc",
+        ".pypirc",
+        "id_rsa",
+        "id_dsa",
+        "id_ecdsa",
+        "id_ed25519",
+    }
+)
+
+SENSITIVE_PROJECT_SUFFIXES = (
+    ".pem",
+    ".key",
+    ".p12",
+    ".pfx",
+)
+
+NON_TEXT_FILE_SUFFIXES = (
+    ".apng",
+    ".avif",
+    ".bmp",
+    ".gif",
+    ".ico",
+    ".jpeg",
+    ".jpg",
+    ".pdf",
+    ".png",
+    ".webp",
+    ".zip",
+)
+
 
 class SaveFileRequest(BaseModel):
     path: str = Field(..., min_length=1)
@@ -79,6 +116,14 @@ async def get_workspace_context() -> dict[str, Any]:
 
 
 def _read_text_with_fallback(file_path: Path) -> str:
+    if file_path.suffix.lower() in NON_TEXT_FILE_SUFFIXES:
+        raise HTTPException(status_code=415, detail="File is not a supported text file")
+    try:
+        sample = file_path.read_bytes()[:4096]
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    if b"\x00" in sample:
+        raise HTTPException(status_code=415, detail="File is not a supported text file")
     encodings = ("utf-8", "utf-8-sig", "gb18030", "gbk")
     for encoding in encodings:
         try:
@@ -91,12 +136,11 @@ def _read_text_with_fallback(file_path: Path) -> str:
 def _resolve_path(relative_path: str, *, for_write: bool = False) -> Path:
     runtime = require_runtime()
     layout = ProjectLayout.from_backend_dir(runtime.base_dir)
-    skill_paths = AgentSkillPaths.from_base_dir(runtime.base_dir)
+    skill_paths = CapabilitySkillPaths.from_base_dir(runtime.base_dir)
 
     normalized = relative_path.replace("\\", "/").strip("/")
-    if not _is_allowed_workspace_path(normalized, for_write=for_write):
-        detail = "Path is not in the editable whitelist" if for_write else "Path is not in the readable whitelist"
-        raise HTTPException(status_code=400, detail=detail)
+    if for_write and not _is_allowed_workspace_path(normalized, for_write=True):
+        raise HTTPException(status_code=400, detail="Path is not in the editable whitelist")
 
     if normalized.startswith("durable_memory/"):
         candidate = (layout.durable_memory_dir / normalized.removeprefix("durable_memory/")).resolve()
@@ -110,16 +154,13 @@ def _resolve_path(relative_path: str, *, for_write: bool = False) -> Path:
     elif normalized.startswith("knowledge/"):
         candidate = (layout.knowledge_storage_dir / normalized.removeprefix("knowledge/")).resolve()
         allowed_root = layout.knowledge_storage_dir.resolve()
-    elif normalized.startswith("agent_system/skills/"):
+    elif normalized.startswith("capability_system/skills/"):
         candidate = (runtime.base_dir / normalized).resolve()
         allowed_root = skill_paths.code_dir.resolve()
-    elif normalized.startswith("runtime/tool_runtime/registries/"):
+    elif normalized.startswith("capability_system/tools/registries/"):
         candidate = (runtime.base_dir / normalized).resolve()
-        allowed_root = (runtime.base_dir / "runtime" / "tool_runtime" / "registries").resolve()
-    elif not for_write and (
-        normalized in READABLE_PROJECT_FILES
-        or normalized.startswith(PROJECT_READABLE_PREFIXES)
-    ):
+        allowed_root = (runtime.base_dir / "capability_system" / "tools" / "registries").resolve()
+    elif not for_write:
         candidate = (layout.project_root / normalized).resolve()
         allowed_root = layout.project_root.resolve()
     else:
@@ -127,6 +168,8 @@ def _resolve_path(relative_path: str, *, for_write: bool = False) -> Path:
         allowed_root = runtime.base_dir.resolve()
     if allowed_root not in candidate.parents and candidate != allowed_root:
         raise HTTPException(status_code=400, detail="Path traversal detected")
+    if not for_write and not _is_readable_project_path(normalized, candidate, layout):
+        raise HTTPException(status_code=400, detail="Path is not visible in the project file tree")
     return candidate
 
 
@@ -136,11 +179,29 @@ def _is_allowed_workspace_path(normalized: str, *, for_write: bool) -> bool:
     return normalized in READABLE_PROJECT_FILES or normalized.startswith(READABLE_PREFIXES)
 
 
+def _is_readable_project_path(normalized: str, candidate: Path, layout: ProjectLayout) -> bool:
+    if normalized in READABLE_PROJECT_FILES or normalized.startswith(READABLE_PREFIXES):
+        return True
+    if _is_excluded_relative_path(normalized):
+        return False
+    name = candidate.name.lower()
+    if name in SENSITIVE_PROJECT_FILE_NAMES:
+        return False
+    if any(name.endswith(suffix) for suffix in SENSITIVE_PROJECT_SUFFIXES):
+        return False
+    project_root = layout.project_root.resolve()
+    if project_root not in candidate.parents and candidate != project_root:
+        return False
+    return True
+
+
 @router.get("/files")
 async def read_file(path: str = Query(..., min_length=1)) -> dict[str, str]:
     file_path = _resolve_path(path, for_write=False)
     if not file_path.exists():
         raise HTTPException(status_code=404, detail="File not found")
+    if not file_path.is_file():
+        raise HTTPException(status_code=400, detail="Path is not a file")
     return {
         "path": path.replace("\\", "/"),
         "content": _read_text_with_fallback(file_path),

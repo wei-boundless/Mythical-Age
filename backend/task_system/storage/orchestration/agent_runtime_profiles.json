@@ -46,7 +46,6 @@
         "tool",
         "runtime_contracts"
       ],
-      "use_shared_contract": true,
       "approval_policy": "default",
       "trace_policy": "runtime_event_log",
       "lifecycle_policy": "system_builtin",
@@ -120,7 +119,6 @@
         "prompt_manifest",
         "runtime_contracts"
       ],
-      "use_shared_contract": true,
       "approval_policy": "read_only_first",
       "trace_policy": "runtime_event_log",
       "lifecycle_policy": "system_builtin",
@@ -181,7 +179,6 @@
         "runtime_trace",
         "runtime_contracts"
       ],
-      "use_shared_contract": true,
       "approval_policy": "read_only_first",
       "trace_policy": "runtime_event_log",
       "lifecycle_policy": "system_builtin",
@@ -242,7 +239,6 @@
         "runtime_trace",
         "runtime_contracts"
       ],
-      "use_shared_contract": true,
       "approval_policy": "read_only_first",
       "trace_policy": "runtime_event_log",
       "lifecycle_policy": "system_builtin",
@@ -303,7 +299,6 @@
         "runtime_trace",
         "runtime_contracts"
       ],
-      "use_shared_contract": true,
       "approval_policy": "read_only_first",
       "trace_policy": "runtime_event_log",
       "lifecycle_policy": "system_builtin",
@@ -368,7 +363,6 @@
         "runtime_contracts",
         "artifact_refs"
       ],
-      "use_shared_contract": true,
       "approval_policy": "read_only_first",
       "trace_policy": "runtime_event_log",
       "lifecycle_policy": "system_builtin",
@@ -454,7 +448,6 @@
         "runtime_contracts",
         "artifact_refs"
       ],
-      "use_shared_contract": true,
       "approval_policy": "read_only_first",
       "trace_policy": "runtime_event_log",
       "lifecycle_policy": "system_builtin",
@@ -523,7 +516,6 @@
         "runtime_contracts",
         "artifact_refs"
       ],
-      "use_shared_contract": true,
       "approval_policy": "read_only_first",
       "trace_policy": "runtime_event_log",
       "lifecycle_policy": "system_builtin",
@@ -587,7 +579,6 @@
         "runtime_contracts",
         "artifact_refs"
       ],
-      "use_shared_contract": true,
       "approval_policy": "read_only_first",
       "trace_policy": "runtime_event_log",
       "lifecycle_policy": "system_builtin",
@@ -653,7 +644,6 @@
         "runtime_contracts",
         "artifact_refs"
       ],
-      "use_shared_contract": true,
       "approval_policy": "read_only_first",
       "trace_policy": "runtime_event_log",
       "lifecycle_policy": "system_builtin",
@@ -759,7 +749,6 @@
         "runtime_contracts",
         "artifact_refs"
       ],
-      "use_shared_contract": true,
       "approval_policy": "read_only_first",
       "trace_policy": "runtime_event_log",
       "lifecycle_policy": "system_builtin",
@@ -851,7 +840,6 @@
         "artifact_refs",
         "memory_runtime_view"
       ],
-      "use_shared_contract": true,
       "approval_policy": "read_only_first",
       "trace_policy": "runtime_event_log",
       "lifecycle_policy": "system_builtin",
@@ -933,7 +921,6 @@
         "runtime_contracts",
         "artifact_refs"
       ],
-      "use_shared_contract": true,
       "approval_policy": "read_only_first",
       "trace_policy": "runtime_event_log",
       "lifecycle_policy": "system_builtin",

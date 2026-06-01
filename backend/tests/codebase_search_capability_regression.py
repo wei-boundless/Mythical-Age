@@ -113,13 +113,13 @@ def test_file_slicer_reads_bounded_context() -> None:
     slicer = FileSlicer(Path("."))
 
     result = slicer.slice_file(
-        "backend/knowledge_system/codebase_search/runtime.py",
+        "backend/capability_system/capabilities/codebase_search/runtime.py",
         matched_line=15,
         max_slice_lines=30,
     )
 
     assert result is not None
-    assert result.file == "backend/knowledge_system/codebase_search/runtime.py"
+    assert result.file == "backend/capability_system/capabilities/codebase_search/runtime.py"
     assert result.end_line - result.start_line + 1 <= 30
     assert "CodebaseSearchCapability" in result.snippet
 
