@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import sys
 from pathlib import Path
 
@@ -118,6 +119,142 @@ def test_sandbox_keeps_image_generate_bound_to_backend_config_root(tmp_path: Pat
 
     assert result["error"] == ""
     assert observed_roots == [workspace.resolve()]
+
+
+def test_image_generate_tool_task_is_cancelled_by_runtime_stop(tmp_path: Path, monkeypatch) -> None:
+    workspace = tmp_path / "project"
+    sandbox_root = tmp_path / "sandbox" / "workspace"
+    workspace.mkdir(parents=True)
+    runtime_host = _ControlRuntimeHost()
+    task_run_id = "taskrun-image-control"
+    executor_epoch = 7
+
+    from capability_system.units.tools.image_generation_tool import ImageGenerationTool
+    from harness.loop.task_run_execution_control import register_executor_epoch, request_executor_stop
+
+    started = asyncio.Event()
+    cancelled = asyncio.Event()
+
+    async def _fake_arun(self, *args, **kwargs):
+        started.set()
+        try:
+            await asyncio.sleep(60)
+        except asyncio.CancelledError:
+            cancelled.set()
+            raise
+        return "{\"ok\": true}"
+
+    monkeypatch.setattr(ImageGenerationTool, "_arun", _fake_arun)
+    register_executor_epoch(runtime_host, task_run_id=task_run_id, executor_epoch=executor_epoch)
+
+    async def _run_and_stop() -> dict:
+        execution_store = RuntimeExecutionStore(workspace / ".runtime-test")
+        action_request, directive = _tool_request_and_directive(
+            task_run_id=task_run_id,
+            tool_name="image_generate",
+            tool_args={"prompt": "slow image"},
+            operation_id="op.image_generate",
+        )
+        fingerprint = build_request_fingerprint(step_id="step:1", operation_id="op.image_generate", payload=action_request.payload)
+        record = execution_store.create_record(
+            task_run_id=task_run_id,
+            step_id="step:1",
+            action_request=action_request,
+            directive_ref=directive.directive_id,
+            operation_id="op.image_generate",
+            executor_type="tool",
+            replay_policy="deny_auto_replay",
+            request_fingerprint=fingerprint,
+            idempotency_token=build_idempotency_token(
+                task_run_id=task_run_id,
+                step_id="step:1",
+                operation_id="op.image_generate",
+                request_fingerprint=fingerprint,
+            ),
+        )
+        tool_runtime = ToolRuntime(workspace)
+        setattr(tool_runtime, "runtime_host", runtime_host)
+        task = asyncio.create_task(
+            ToolRuntimeExecutor(tool_runtime=tool_runtime).run(
+                task_run_id=task_run_id,
+                action_request=action_request,
+                directive=directive,
+                execution_record=record,
+                execution_store=execution_store,
+                sandbox_policy={
+                    "enabled": True,
+                    "mode": "workspace_overlay",
+                    "sandbox_root": str(sandbox_root),
+                    "workspace_root": str(workspace),
+                    "executor_epoch": executor_epoch,
+                },
+            )
+        )
+        await asyncio.wait_for(started.wait(), timeout=2)
+        request_executor_stop(runtime_host, task_run_id=task_run_id, reason="test_stop", requested_by="user")
+        result = await asyncio.wait_for(task, timeout=2)
+        await asyncio.wait_for(cancelled.wait(), timeout=1)
+        return result
+
+    result = asyncio.run(_run_and_stop())
+
+    assert result["error"].startswith("Tool execution interrupted by runtime control: stop")
+    assert result["execution_record"].status == "failed"
+    assert "Tool execution interrupted by runtime control" in result["observation"].payload["error"]
+
+
+def test_image_generate_tool_disables_agent_auto_retry_on_provider_failure(tmp_path: Path, monkeypatch) -> None:
+    from capability_system.units.tools.image_generation_tool import ImageGenerationTool
+    from soul.image_asset_service import SoulImageAssetError, SoulImageAssetService
+
+    async def _fail_generate(self, **kwargs):
+        raise SoulImageAssetError(
+            "provider timed out",
+            code="timeout",
+            retryable=True,
+            attempts=[{"code": "timeout", "retryable": True}],
+        )
+
+    monkeypatch.setattr(SoulImageAssetService, "generate", _fail_generate)
+
+    result = asyncio.run(ImageGenerationTool(tmp_path)._arun(prompt="large image"))
+    payload = json.loads(result)
+    structured_error = dict(payload["structured_error"])
+
+    assert payload["ok"] is False
+    assert structured_error["retryable"] is False
+    assert structured_error["provider_retryable"] is True
+    assert structured_error["agent_retry_policy"] == "do_not_auto_retry"
+
+
+def test_image_generate_tool_auto_targets_are_unique_and_do_not_overwrite_by_default(tmp_path: Path, monkeypatch) -> None:
+    from capability_system.units.tools.image_generation_tool import ImageGenerationTool
+    from soul.image_asset_service import SoulImageAssetService
+
+    calls: list[dict] = []
+
+    async def _fake_generate(self, **kwargs):
+        calls.append(dict(kwargs))
+        return {
+            "asset_path": f"/souls/generated/chat-{kwargs['target_id']}.png",
+            "file_path": str(tmp_path / f"chat-{kwargs['target_id']}.png"),
+            "bytes": 10,
+            "provider_size": "1024x1024",
+            "final_size": "1024x1024",
+            "duration_ms": 1,
+            "model": "gpt-image-2",
+        }
+
+    monkeypatch.setattr(SoulImageAssetService, "generate", _fake_generate)
+
+    tool = ImageGenerationTool(tmp_path)
+    asyncio.run(tool._arun(prompt="first"))
+    asyncio.run(tool._arun(prompt="second"))
+
+    assert len(calls) == 2
+    assert calls[0]["target_id"] != calls[1]["target_id"]
+    assert calls[0]["overwrite"] is False
+    assert calls[1]["overwrite"] is False
 
 
 def test_sandbox_search_uses_overlay_view_after_read_copies_workspace_file(tmp_path: Path) -> None:
@@ -420,12 +557,14 @@ def _run_tool(
     tool_name: str,
     tool_args: dict[str, str],
     operation_id: str,
+    task_run_id: str | None = None,
     tool_call_name: str | None = None,
+    runtime_host: object | None = None,
     sandbox_policy_extra: dict | None = None,
 ) -> dict:
     workspace.mkdir(parents=True, exist_ok=True)
     sandbox_root.mkdir(parents=True, exist_ok=True)
-    task_run_id = f"taskrun-{tool_name}"
+    task_run_id = task_run_id or f"taskrun-{tool_name}"
     action_request, directive = _tool_request_and_directive(
         task_run_id=task_run_id,
         tool_name=tool_name,
@@ -455,7 +594,10 @@ def _run_tool(
             request_fingerprint=fingerprint,
         ),
     )
-    executor = ToolRuntimeExecutor(tool_runtime=ToolRuntime(workspace))
+    tool_runtime = ToolRuntime(workspace)
+    if runtime_host is not None:
+        setattr(tool_runtime, "runtime_host", runtime_host)
+    executor = ToolRuntimeExecutor(tool_runtime=tool_runtime)
     return asyncio.run(
         executor.run(
             task_run_id=task_run_id,
@@ -524,3 +666,7 @@ class _MissingInstanceRuntime:
 
     def get_instance(self, _name):
         return None
+
+
+class _ControlRuntimeHost:
+    pass

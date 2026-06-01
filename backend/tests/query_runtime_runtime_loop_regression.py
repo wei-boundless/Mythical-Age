@@ -256,6 +256,7 @@ def test_explicit_contract_task_starts_lifecycle_without_model_action_loop() -> 
                 message="按合同启动任务。",
                 task_selection={
                     "task_environment_id": "env.development.sandbox",
+                    "system_issued_contract": True,
                     "task_contract": {
                         "contract_id": "contract:explicit:test",
                         "user_visible_goal": "交付显式合同任务。",
@@ -297,6 +298,45 @@ def test_explicit_contract_task_starts_lifecycle_without_model_action_loop() -> 
     assert contract["task_environment_id"] == "env.development.sandbox"
     assert dict(getattr(stored_task, "diagnostics", {}) or {}).get("origin_kind") == "explicit_contract"
     assert dict(getattr(stored_task, "diagnostics", {}) or {}).get("origin_authority") == "harness.routing.explicit_contract_task"
+
+
+def test_plain_task_contract_selection_does_not_bypass_agent_turn() -> None:
+    runtime = build_query_runtime(
+        model_runtime=SingleMessageModelRuntimeStub(
+            content="我会先判断是否需要启动任务。",
+            agent_turn_action_request=_action_request(
+                action_type="respond",
+                final_answer="我会先判断是否需要启动任务。",
+            )
+        )
+    )
+
+    async def _collect() -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime.astream(
+            QueryRequest(
+                session_id="session-plain-contract-selection",
+                message="这个只是普通会话输入，不能直接启动任务。",
+                task_selection={
+                    "task_environment_id": "env.development.sandbox",
+                    "task_contract": {
+                        "contract_id": "contract:plain:test",
+                        "user_visible_goal": "普通输入里的合同片段。",
+                        "task_run_goal": "不应由路由直接启动。",
+                    },
+                },
+            )
+        ):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_collect())
+    stream_types = [str(event.get("type") or "") for event in events]
+    route = dict(next(event for event in events if event.get("type") == "turn_route_decided").get("turn_route") or {})
+
+    assert route.get("route_kind") == "single_agent_turn"
+    assert "single_agent_turn_started" in stream_types
+    assert "task_run_lifecycle_started" not in stream_types
 
 
 def test_chat_public_projection_filters_internal_runtime_payloads() -> None:
@@ -725,8 +765,6 @@ class _ActiveWorkDecisionModelRuntime:
             decision.pop("authority", None)
             if str(decision.get("action") or "") in {"normal_response", "start_new_work"}:
                 return SimpleNamespace(content="普通回复。", tool_calls=[])
-            decision.setdefault("relation_to_current_work", "current_work")
-            decision.setdefault("evidence", "测试桩指向当前工作")
             return SimpleNamespace(
                 content="",
                 tool_calls=[
@@ -761,6 +799,17 @@ class _TaskExecutorSequenceModelRuntime:
         return SimpleNamespace(content=json.dumps(self.agent_turn_action_request, ensure_ascii=False))
 
 
+def _tool_action_request(
+    *,
+    tool_name: str,
+    args: dict[str, object],
+    public_progress_note: str = "准备调用工具。",
+) -> dict[str, object]:
+    payload = _action_request(action_type="tool_call", public_progress_note=public_progress_note)
+    payload["tool_call"] = {"tool_name": tool_name, "args": dict(args)}
+    return payload
+
+
 class _SlowTaskExecutorModelRuntime:
     async def invoke_messages(self, _messages, **_kwargs):
         await asyncio.sleep(0.1)
@@ -787,7 +836,7 @@ def test_malformed_agent_action_request_fails_closed() -> None:
     assert any(event.get("type") == "single_agent_turn_started" for event in events)
 
 
-def test_turn_model_wait_is_observable() -> None:
+def test_single_turn_does_not_emit_synthetic_model_wait_progress() -> None:
     runtime = build_query_runtime(model_runtime=_SlowRespondingModelRuntime())
 
     async def _collect() -> list[dict[str, object]]:
@@ -800,8 +849,8 @@ def test_turn_model_wait_is_observable() -> None:
     step_summaries = [event for event in events if event.get("type") == "runtime_step_summary"]
     steps = [str(event.get("step") or "") for event in step_summaries]
 
-    assert "model_turn_invocation_started" in steps
-    assert "model_turn_output_received" in steps
+    assert "model_turn_invocation_started" not in steps
+    assert "model_turn_output_received" not in steps
     _assert_no_visible_runtime_internals("\n".join(str(event.get("summary") or "") for event in step_summaries))
     assert any(event.get("type") == "done" for event in events)
 
@@ -812,7 +861,7 @@ def test_turn_stream_cancellation_closes_running_turn() -> None:
     async def _start_and_cancel() -> None:
         stream = runtime.astream(QueryRequest(session_id="session-cancelled-turn", message="保持等待。"))
         async for event in stream:
-            if event.get("type") == "runtime_step_summary" and str(event.get("step") or "") == "model_turn_invocation_started":
+            if event.get("type") == "single_agent_turn_started":
                 await stream.aclose()
                 return
 
@@ -851,7 +900,7 @@ def test_legacy_json_action_text_is_treated_as_assistant_message() -> None:
     steps = [str(event.get("step") or "") for event in events if event.get("type") == "runtime_step_summary"]
 
     assert "bounded_observation" not in event_types
-    assert "model_turn_output_received" in steps
+    assert "model_turn_output_received" not in steps
     assert any(event.get("type") == "done" and "harness.loop.model_action_request" in str(event.get("content") or "") for event in events)
 
 
@@ -1028,9 +1077,24 @@ def test_task_executor_wait_heartbeat_does_not_repeat_visible_step_summary(monke
         if str(dict(event).get("event_type") or "") == "task_model_action_wait_heartbeat"
     ]
 
+    visible_invocation_steps = [
+        event
+        for event in events
+        if str(dict(event).get("event_type") or "") == "step_summary_recorded"
+        and str(dict(dict(event).get("payload") or {}).get("step") or "").startswith("task_model_action_invocation_started:")
+    ]
+    summaries = "\n".join(
+        str(dict(dict(event).get("payload") or {}).get("summary") or "")
+        for event in events
+        if str(dict(event).get("event_type") or "") == "step_summary_recorded"
+    )
+
     assert result["ok"] is True
-    assert len(visible_wait_steps) == 1
+    assert visible_invocation_steps == []
+    assert visible_wait_steps == []
     assert wait_heartbeats
+    assert "正在根据最新进展" not in summaries
+    assert "思考下一步处理方式" not in summaries
 
 
 def test_session_runtime_timeline_keeps_completed_task_attachment() -> None:
@@ -1115,6 +1179,106 @@ def test_session_runtime_timeline_keeps_completed_task_attachment() -> None:
         ensure_ascii=False,
     )
     _assert_no_visible_runtime_internals(visible_attachment_text)
+
+
+def test_session_runtime_timeline_projects_tool_observation_as_agent_visible_observation() -> None:
+    from harness.runtime.session_timeline import build_session_runtime_timeline
+
+    runtime = build_query_runtime()
+    host = runtime.single_agent_runtime_host
+    task_run_id = "taskrun:turn:session-observation:1:abc"
+    host.state_index.upsert_task_run(
+        TaskRun(
+            task_run_id=task_run_id,
+            session_id="session-observation",
+            task_id="task:turn:session-observation:1",
+            execution_runtime_kind="single_agent_task",
+            status="running",
+            created_at=1.0,
+            updated_at=2.0,
+            diagnostics={"turn_id": "turn:session-observation:1"},
+        )
+    )
+    host.event_log.append(
+        task_run_id,
+        "task_tool_observation_recorded",
+        payload={
+            "observation": {
+                "observation_id": "rtobs:session-observation:image",
+                "source": "tool:image_generate",
+                "payload": {
+                    "tool_name": "image_generate",
+                    "result": json.dumps(
+                        {
+                            "ok": False,
+                            "error": "Image API request timed out",
+                            "retryable": True,
+                        },
+                        ensure_ascii=False,
+                    ),
+                },
+            }
+        },
+    )
+    host.event_log.append(
+        task_run_id,
+        "step_summary_recorded",
+        payload={
+            "task_run_id": task_run_id,
+            "step": "task_tool_observation_recorded:3",
+            "status": "running",
+            "summary": "工具调用已完成，正在根据结果继续。",
+            "agent_brief_output": json.dumps(
+                {
+                    "ok": False,
+                    "error": "Image API request timed out",
+                    "retryable": True,
+                },
+                ensure_ascii=False,
+            ),
+        },
+        refs={
+            "turn_ref": "turn:session-observation:1",
+            "observation_ref": "rtobs:session-observation:image",
+            "tool_name": "image_generate",
+        },
+    )
+    host.event_log.append(
+        task_run_id,
+        "step_summary_recorded",
+        payload={
+            "task_run_id": task_run_id,
+            "step": "model_action_received:4",
+            "status": "running",
+            "summary": "重试生成主角美术图片，调整参数避免超时。",
+            "public_progress_note": "重试生成主角美术图片，调整参数避免超时。",
+            "public_action_state": {
+                "current_judgment": "远程生图超时，但可以重试。",
+                "next_action": "降低并发后继续生成资源。",
+            },
+        },
+        refs={"turn_ref": "turn:session-observation:1"},
+    )
+
+    timeline = build_session_runtime_timeline(
+        session_id="session-observation",
+        history={"messages": []},
+        runtime_host=host,
+    )
+
+    entries = timeline["runtime_attachments"][0]["progress_entries"]
+    assert [item["kind"] for item in entries] == ["observation", "model"]
+    assert entries[0]["kind"] == "observation"
+    assert entries[0]["title"] == "工具观察：image_generate"
+    assert entries[0]["level"] == "error"
+    assert entries[0]["body"] == "工具返回失败：Image API request timed out"
+    assert entries[1]["kind"] == "model"
+    assert entries[0]["toolName"] == "image_generate"
+    assert entries[1]["body"] == "判断：远程生图超时，但可以重试。；下一步：降低并发后继续生成资源。"
+    assert entries[1]["meta"] == [
+        {"label": "判断", "value": "远程生图超时，但可以重试。"},
+        {"label": "下一步", "value": "降低并发后继续生成资源。"},
+    ]
 
 
 def test_session_runtime_timeline_derives_turn_anchor_from_structural_task_run_id() -> None:
@@ -1729,7 +1893,12 @@ def test_runtime_start_recovers_interrupted_task_executor_lease() -> None:
             task_id="task:interrupted-executor",
             execution_runtime_kind="single_agent_task",
             status="running",
-            diagnostics={"executor_status": "scheduled", "latest_step": "task_executor_scheduled"},
+            diagnostics={
+                "executor_status": "scheduled",
+                "latest_step": "task_executor_scheduled",
+                "latest_step_summary": "正在根据最新进展思考下一步处理方式。",
+                "latest_public_progress_note": "正在根据最新进展思考下一步处理方式。",
+            },
         )
     )
 
@@ -1740,7 +1909,10 @@ def test_runtime_start_recovers_interrupted_task_executor_lease() -> None:
     assert task_run is not None
     assert task_run.status == "waiting_executor"
     assert task_run.terminal_reason == "waiting_executor"
-    assert dict(task_run.diagnostics or {}).get("executor_status") == "waiting_executor"
+    diagnostics = dict(task_run.diagnostics or {})
+    assert diagnostics.get("executor_status") == "waiting_executor"
+    assert diagnostics.get("latest_step_summary") == "后端运行时已重启，当前工作已恢复为可继续状态。"
+    assert diagnostics.get("latest_public_progress_note") == "后端运行时已重启，当前工作已恢复为可继续状态。"
 
 
 def test_runtime_start_recovery_skips_graph_node_assigned_task_run() -> None:
@@ -2407,7 +2579,7 @@ def test_active_work_router_is_gated_by_runtime_assembly_context_policy() -> Non
     assert "task_run_executor_scheduled" not in event_types
 
 
-def test_active_work_router_coerces_question_turns_to_status_answer() -> None:
+def test_active_work_router_answers_question_then_continues_task() -> None:
     model = _ActiveWorkDecisionModelRuntime([
         {
             "authority": "harness.loop.active_work_turn_decision",
@@ -2436,15 +2608,14 @@ def test_active_work_router_coerces_question_turns_to_status_answer() -> None:
     task_run = runtime.single_agent_runtime_host.state_index.get_task_run(task_run_id)
 
     assert model.active_work_decision_count == 1
-    assert any(event.get("type") == "done" and "现在是" in str(event.get("content") or "") for event in events)
-    assert any(event.get("type") == "done" and "我会继续推进" not in str(event.get("content") or "") for event in events)
-    assert "task_run_resume_requested" not in event_types
-    assert "task_run_executor_scheduled" not in event_types
+    assert any(event.get("type") == "done" and str(event.get("content") or "") == "我会继续推进。" for event in events)
+    assert "task_run_resume_requested" in event_types
+    assert "task_run_executor_scheduled" in event_types
     assert task_run is not None
-    assert task_run.status == "waiting_executor"
+    assert task_run.status == "running"
 
 
-def test_active_work_router_coerces_complaint_turns_to_status_answer() -> None:
+def test_active_work_router_answers_complaint_then_continues_task() -> None:
     model = _ActiveWorkDecisionModelRuntime([
         {
             "authority": "harness.loop.active_work_turn_decision",
@@ -2473,11 +2644,11 @@ def test_active_work_router_coerces_complaint_turns_to_status_answer() -> None:
     task_run = runtime.single_agent_runtime_host.state_index.get_task_run(task_run_id)
 
     assert model.active_work_decision_count == 1
-    assert any(event.get("type") == "done" and "现在是" in str(event.get("content") or "") for event in events)
-    assert "task_run_resume_requested" not in event_types
-    assert "task_run_executor_scheduled" not in event_types
+    assert any(event.get("type") == "done" and str(event.get("content") or "") == "我会继续处理。" for event in events)
+    assert "task_run_resume_requested" in event_types
+    assert "task_run_executor_scheduled" in event_types
     assert task_run is not None
-    assert task_run.status == "waiting_executor"
+    assert task_run.status == "running"
 
 
 def test_active_work_router_can_answer_user_first_then_continue_task() -> None:
@@ -2617,7 +2788,7 @@ def test_active_work_continue_emits_user_feedback_and_schedules_executor() -> No
     assert any("持续汇报" in str(item.get("summary") or "") for item in step_events)
 
 
-def test_active_work_control_without_current_work_evidence_does_not_resume_task() -> None:
+def test_active_work_control_uses_agent_decision_without_requiring_duplicate_evidence_field() -> None:
     model = _ActiveWorkDecisionModelRuntime([
         {
             "authority": "harness.loop.active_work_turn_decision",
@@ -2645,13 +2816,14 @@ def test_active_work_control_without_current_work_evidence_does_not_resume_task(
     ]
 
     assert model.active_work_decision_count == 1
-    assert any(event.get("type") == "done" and str(event.get("content") or "") == "普通回复。" for event in events)
+    assert any(event.get("type") == "done" and str(event.get("content") or "") == "好，我接着处理。" for event in events)
+    assert any(event.get("type") == "done" and str(event.get("terminal_reason") or "") == "continue_active_work" for event in events)
     assert any(event.get("type") == "harness_run_started" for event in events)
     assert task_runs == 1
     assert task_run is not None
-    assert task_run.status == "waiting_executor"
-    assert "task_run_resume_requested" not in event_types
-    assert "task_run_executor_scheduled" not in event_types
+    assert task_run.status == "running"
+    assert "task_run_resume_requested" in event_types
+    assert "task_run_executor_scheduled" in event_types
 
 
 def test_active_work_continue_user_aborted_creates_checkout_without_reviving_source() -> None:
@@ -2663,6 +2835,8 @@ def test_active_work_continue_user_aborted_creates_checkout_without_reviving_sou
             "authority": "harness.loop.active_work_turn_decision",
             "action": "continue_active_work",
             "continuation_strategy": "checkout_fork",
+            "relation_to_current_work": "current_work",
+            "evidence": "用户明确说继续刚才那个任务",
             "response": "好，我会先检查上次中断处的现状，再接着处理。",
             "confidence": 0.95,
         }
@@ -2723,6 +2897,8 @@ def test_interrupted_continue_requires_model_checkout_strategy() -> None:
         {
             "authority": "harness.loop.active_work_turn_decision",
             "action": "continue_active_work",
+            "relation_to_current_work": "current_work",
+            "evidence": "用户明确说继续刚才那个任务",
             "response": "好，我接着处理。",
             "confidence": 0.95,
         }
@@ -2772,6 +2948,8 @@ def test_active_work_continue_prefers_interrupted_task_over_stale_completed_exec
             "authority": "harness.loop.active_work_turn_decision",
             "action": "continue_active_work",
             "continuation_strategy": "checkout_fork",
+            "relation_to_current_work": "current_work",
+            "evidence": "用户明确说继续刚才那个任务",
             "response": "好，我会先检查上次中断处的现状，再接着处理。",
             "confidence": 0.95,
         }
@@ -2847,6 +3025,8 @@ def test_active_work_append_instruction_to_user_aborted_creates_checkout_with_in
             "authority": "harness.loop.active_work_turn_decision",
             "action": "append_instruction_to_active_work",
             "continuation_strategy": "checkout_fork",
+            "relation_to_current_work": "current_work",
+            "evidence": "用户要求继续并补充先检查文件状态",
             "response": "收到，我会按这个补充方向继续处理。",
             "appended_instruction": "恢复后先检查当前文件状态，再继续实现。",
             "confidence": 0.95,
@@ -2898,12 +3078,16 @@ def test_active_work_pause_and_status_are_natural_language_controls() -> None:
         {
             "authority": "harness.loop.active_work_turn_decision",
             "action": "pause_active_work",
+            "relation_to_current_work": "current_work",
+            "evidence": "用户说先停一下",
             "response": "好，我先停在这里。",
             "confidence": 0.93,
         },
         {
             "authority": "harness.loop.active_work_turn_decision",
             "action": "answer_about_active_work",
+            "relation_to_current_work": "current_work",
+            "evidence": "用户询问现在到哪了",
             "response": "",
             "confidence": 0.92,
         },
@@ -2938,6 +3122,8 @@ def test_active_work_appends_user_instruction_to_current_task_run() -> None:
             "authority": "harness.loop.active_work_turn_decision",
             "action": "append_instruction_to_active_work",
             "continuation_strategy": "same_run_resume",
+            "relation_to_current_work": "current_work",
+            "evidence": "用户说按刚才方向改",
             "response": "收到，我会按这个补充方向继续处理。",
             "appended_instruction": "把界面改得更自然，少一点开发痕迹。",
             "confidence": 0.95,
@@ -2974,6 +3160,8 @@ def test_active_work_running_continue_records_steer_without_duplicate_executor()
             "authority": "harness.loop.active_work_turn_decision",
             "action": "continue_active_work",
             "continuation_strategy": "already_running",
+            "relation_to_current_work": "current_work",
+            "evidence": "用户说继续并指定优先修美术资源加载",
             "response": "我正在接着处理，新的进展会继续更新在这里。",
             "appended_instruction": "优先修美术资源加载",
             "confidence": 0.95,
@@ -3014,6 +3202,8 @@ def test_active_work_running_plain_continue_does_not_create_work_instruction() -
             "authority": "harness.loop.active_work_turn_decision",
             "action": "continue_active_work",
             "continuation_strategy": "already_running",
+            "relation_to_current_work": "current_work",
+            "evidence": "用户说继续",
             "response": "我正在接着处理，新的进展会继续更新在这里。",
             "confidence": 0.95,
         }
@@ -3331,6 +3521,44 @@ def test_running_task_stop_cancels_inflight_model_call_and_finishes_aborted() ->
     assert "recoverable_error" not in diagnostics
     assert "pending_user_steer_count" not in diagnostics
     assert "active_contract_revision_count" not in diagnostics
+
+
+def test_stopped_task_cannot_be_revived_by_stale_executor_or_write_tool() -> None:
+    from harness.loop.task_executor import stop_task_run
+
+    runtime = build_query_runtime(
+        model_runtime=_TaskExecutorSequenceModelRuntime(
+            [
+                _tool_action_request(
+                    tool_name="write_file",
+                    args={"path": "storage/task_environments/general/workspace/artifacts/should_not_exist.txt", "content": "bad"},
+                    public_progress_note="准备写入测试文件。",
+                )
+            ],
+            agent_turn_action_request=_action_request(action_type="respond", final_answer="unused"),
+        )
+    )
+    task_run_id = _seed_active_work(runtime, task_run_id="taskrun:stopped-no-write")
+    host = runtime.single_agent_runtime_host
+    stop_task_run(host, task_run_id, reason="user_stop", requested_by="user")
+
+    result = asyncio.run(runtime.execute_task_run(task_run_id, max_steps=1))
+    task_run = host.state_index.get_task_run(task_run_id)
+    diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
+    written_path = Path(runtime.base_dir) / "storage/task_environments/general/workspace/artifacts/should_not_exist.txt"
+
+    assert result["ok"] is False
+    assert result["error"] == "user_aborted"
+    assert task_run is not None
+    assert task_run.status == "aborted"
+    assert task_run.terminal_reason == "user_aborted"
+    assert diagnostics["executor_status"] == "stopped"
+    assert not written_path.exists()
+    assert not any(
+        dict(event.payload or {}).get("model_action_request")
+        for event in host.event_log.list_events(task_run_id)
+        if event.event_type == "model_action_request_received"
+    )
 
 
 def test_scheduler_restarts_after_running_steer_and_next_packet_contains_instruction() -> None:

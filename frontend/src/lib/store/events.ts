@@ -42,34 +42,30 @@ const INTERNAL_RUNTIME_STEP_SUMMARIES = new Set([
 
 const ORCHESTRATION_NODES: Array<{ id: string; label: string; description: string }> = [
   { id: "input", label: "用户输入", description: "接收本轮用户请求，并绑定当前会话。" },
-  { id: "followup", label: "Follow-up 仲裁", description: "判断是否续接已有任务、对象或 bundle item。" },
-  { id: "planner", label: "任务规划", description: "形成 route、execution mode、tool、skill 和 worker 决策。" },
-  { id: "execution-mode", label: "执行模式", description: "进入 single、bundle 或 explicit fanout 执行拓扑。" },
+  { id: "runtime", label: "运行时装配", description: "装配当前 agent、环境、权限、工具和上下文边界。" },
+  { id: "agent-turn", label: "Agent 判断", description: "由 agent 判断本轮是直接回复、启动任务，还是控制当前工作。" },
+  { id: "task-lifecycle", label: "任务生命周期", description: "需要长任务时创建合同、待办、验收要求和执行记录。" },
   { id: "context", label: "上下文压缩", description: "整理历史窗口和上下文压力。" },
-  { id: "memory", label: "记忆读取", description: "读取状态记忆、长期记忆和上下文包。" },
+  { id: "memory", label: "记忆与状态", description: "读取当前会话、任务状态、观察记录和必要记忆。" },
   { id: "prompt", label: "Prompt 装配", description: "组合身份、准则、记忆、skill 和本轮提示。" },
-  { id: "capability", label: "能力调度", description: "决定进入模型、工具或 worker 分支。" },
-  { id: "model", label: "模型生成", description: "模型主链流式输出或发起工具调用。" },
-  { id: "worker", label: "Worker / Agent", description: "检索、PDF、结构化数据等 worker 分支。" },
-  { id: "tool", label: "工具执行", description: "direct tool 或模型工具调用。" },
-  { id: "output", label: "输出收口", description: "选择最终可见答案并过滤内部协议。" },
-  { id: "persistence", label: "状态写回", description: "写回会话、状态记忆和长期记忆抽取任务。" }
+  { id: "model", label: "模型行动", description: "模型生成回复或发出结构化行动请求。" },
+  { id: "tool", label: "工具与观察", description: "执行获准工具调用并记录观察、失败和产物。" },
+  { id: "output", label: "结果收口", description: "形成用户可见回复、进度摘要或任务交接信息。" },
+  { id: "persistence", label: "写回状态", description: "写回会话、运行事件、任务状态和产物引用。" }
 ];
 
 const ORCHESTRATION_EDGES: Array<{ id: string; from: string; to: string; label: string }> = [
-  { id: "input-followup", from: "input", to: "followup", label: "提交请求" },
-  { id: "followup-planner", from: "followup", to: "planner", label: "进入规划" },
-  { id: "planner-execution", from: "planner", to: "execution-mode", label: "确定拓扑" },
-  { id: "execution-context", from: "execution-mode", to: "context", label: "创建上下文" },
-  { id: "context-memory", from: "context", to: "memory", label: "读取记忆" },
+  { id: "input-runtime", from: "input", to: "runtime", label: "提交请求" },
+  { id: "runtime-agent-turn", from: "runtime", to: "agent-turn", label: "进入 agent 判断" },
+  { id: "agent-task-lifecycle", from: "agent-turn", to: "task-lifecycle", label: "需要长任务" },
+  { id: "agent-context", from: "agent-turn", to: "context", label: "准备上下文" },
+  { id: "task-context", from: "task-lifecycle", to: "context", label: "绑定任务状态" },
+  { id: "context-memory", from: "context", to: "memory", label: "读取状态" },
   { id: "memory-prompt", from: "memory", to: "prompt", label: "注入上下文" },
-  { id: "prompt-capability", from: "prompt", to: "capability", label: "交给调度" },
-  { id: "capability-model", from: "capability", to: "model", label: "模型主链" },
-  { id: "capability-worker", from: "capability", to: "worker", label: "worker 分支" },
-  { id: "capability-tool", from: "capability", to: "tool", label: "工具分支" },
+  { id: "prompt-model", from: "prompt", to: "model", label: "模型行动" },
+  { id: "model-tool", from: "model", to: "tool", label: "请求工具" },
   { id: "model-output", from: "model", to: "output", label: "候选答案" },
-  { id: "worker-output", from: "worker", to: "output", label: "worker 结果" },
-  { id: "tool-output", from: "tool", to: "output", label: "工具结果" },
+  { id: "tool-output", from: "tool", to: "output", label: "观察结果" },
   { id: "output-persistence", from: "output", to: "persistence", label: "落盘写回" }
 ];
 
@@ -173,7 +169,13 @@ function activityDetailForEvent(event: string, data: Record<string, unknown>) {
   if (event === "stream_reconnect_failed") {
     return "自动重连次数已用尽，后台运行可在监控中查看。";
   }
+  if (event === "active_task_steer_accepted") {
+    return stringValue(data.summary) || "你的补充要求已纳入当前任务。";
+  }
   if (event === "done") {
+    if (stringValue(data.completion_state) === "task_steer_accepted") {
+      return stringValue(data.summary) || "当前任务已继续接收这次输入。";
+    }
     if (stringValue(data.completion_state) === "partial_timeout") {
       return "模型已生成部分内容，但结束信号超时。";
     }
@@ -236,10 +238,13 @@ function userReceiptForEvent(event: string, data: Record<string, unknown>): User
     const answerSource = stringValue(data.answer_source);
     const body = stringValue(data.receipt_summary ?? data.summary ?? data.message);
     const partialTimeout = stringValue(data.completion_state) === "partial_timeout";
+    const taskSteerAccepted = stringValue(data.completion_state) === "task_steer_accepted";
     return {
       level: partialTimeout ? "warning" : "success",
-      title: partialTimeout ? "已生成部分内容" : paths.length ? `已更新 ${paths.length} 个文件` : "已处理 1 个命令",
-      body: partialTimeout ? "模型结束信号超时，当前内容已保留。" : body && !isMachineReference(body) ? body : "结果已写回会话。",
+      title: taskSteerAccepted ? "已纳入当前任务" : partialTimeout ? "已生成部分内容" : paths.length ? `已更新 ${paths.length} 个文件` : "已处理 1 个命令",
+      body: taskSteerAccepted
+        ? body && !isMachineReference(body) ? body : "当前任务会在后续步骤中处理这次输入。"
+        : partialTimeout ? "模型结束信号超时，当前内容已保留。" : body && !isMachineReference(body) ? body : "结果已写回会话。",
       artifacts: paths.map((path) => ({ label: "文件已更新", path })),
       debug: {
         event,
@@ -379,16 +384,19 @@ function normalizeSnapshotEdges(snapshot: OrchestrationSnapshot): OrchestrationS
 
 function eventNodeId(event: string) {
   if (event === "orchestration_plan") {
-    return "execution-mode";
+    return "task-lifecycle";
   }
   if (event === "orchestration_diff") {
     return "output";
   }
   if (event === "orchestration_runtime_control") {
-    return "execution-mode";
+    return "agent-turn";
+  }
+  if (event === "active_task_steer_accepted") {
+    return "task-lifecycle";
   }
   if (event === "behavior_trace") {
-    return "task-understanding";
+    return "agent-turn";
   }
   if (event === "context_management") {
     return "context";
@@ -400,7 +408,7 @@ function eventNodeId(event: string) {
     return "prompt";
   }
   if (event.startsWith("worker") || event === "retrieval") {
-    return "worker";
+    return "tool";
   }
   if (event.startsWith("tool")) {
     return "tool";
@@ -411,7 +419,16 @@ function eventNodeId(event: string) {
   if (event === "done" || event === "error") {
     return "output";
   }
-  return "capability";
+  if (event === "turn_route_decided" || event === "single_agent_turn_started") {
+    return "agent-turn";
+  }
+  if (event === "task_run_lifecycle_started" || event === "task_run_lifecycle_event") {
+    return "task-lifecycle";
+  }
+  if (event === "runtime_assembly_compiled") {
+    return "runtime";
+  }
+  return "agent-turn";
 }
 
 function resolveSnapshotNodeId(snapshot: OrchestrationSnapshot, event: string) {
@@ -423,14 +440,14 @@ function resolveSnapshotNodeId(snapshot: OrchestrationSnapshot, event: string) {
     context_management: "context",
     memory_context: "context",
     prompt_manifest: "prompt",
-    token: "execution",
-    debug: "execution",
+    token: "model",
+    debug: "model",
     done: "output",
     error: "output",
-    worker_start: "capability",
-    worker_end: "execution"
+    worker_start: "tool",
+    worker_end: "tool"
   };
-  const fallback = fallbackByEvent[event] ?? "capability";
+  const fallback = fallbackByEvent[event] ?? "agent-turn";
   if (snapshot.nodes.some((node) => node.id === fallback)) {
     return fallback;
   }
@@ -460,6 +477,10 @@ function eventSummary(event: string, data: Record<string, unknown>) {
     return String(snapshot.summary ?? "行为决策 trace 已生成。");
   }
   if (event === "done") {
+    if (stringValue(data.completion_state) === "task_steer_accepted") {
+      const summary = stringValue(data.summary ?? data.message);
+      return summary && !isMachineReference(summary) ? summary.slice(0, 220) : "已纳入当前任务";
+    }
     const summary = stringValue(data.receipt_summary ?? data.summary ?? data.message ?? data.content);
     return summary && !isMachineReference(summary) ? summary.slice(0, 220) : "完成输出";
   }
@@ -487,6 +508,7 @@ function eventSummary(event: string, data: Record<string, unknown>) {
 function publicStreamEventLabel(event: string) {
   const map: Record<string, string> = {
     answer_candidate: "正在整理回答",
+    active_task_steer_accepted: "已纳入当前任务",
     behavior_trace: "处理路径已检查",
     content_delta: "正在生成回答",
     context_management: "上下文已整理",
@@ -594,7 +616,7 @@ export function buildSnapshotFromHarnessTrace(trace: HarnessTaskRunTrace): Orche
         {
           index: snapshot.events.length,
           event: eventType,
-          node_id: snapshot.events[snapshot.events.length - 1]?.node_id ?? "capability",
+          node_id: snapshot.events[snapshot.events.length - 1]?.node_id ?? "agent-turn",
           summary: summarizeRuntimeEvent(eventType, eventData),
           ts_ms: runtimeEvent.created_at ? Math.round(runtimeEvent.created_at * 1000) : null,
           data: eventData,
@@ -634,7 +656,7 @@ function updateOrchestrationSnapshot(
         {
           index: snapshot.events.length + 1,
           event,
-          node_id: nextSnapshot.problem_node_id || "task-understanding",
+          node_id: nextSnapshot.problem_node_id || "agent-turn",
           summary: String(nextSnapshot.summary || "行为决策 trace 已生成。"),
           data
         }
@@ -653,12 +675,10 @@ function updateOrchestrationSnapshot(
       data
     }
   ];
-  const autoVisited = new Set<string>(["followup", "planner", "execution-mode", "capability"]);
+  const autoVisited = new Set<string>(["runtime", "agent-turn"]);
   if (["context_management", "memory_context", "prompt_manifest", "worker_start", "token", "content_delta", "answer_candidate", "done"].includes(event)) {
-    autoVisited.add("followup");
-    autoVisited.add("planner");
-    autoVisited.add("execution-mode");
-    autoVisited.add("capability");
+    autoVisited.add("runtime");
+    autoVisited.add("agent-turn");
   }
   const nodes = snapshot.nodes.map((node) => {
     if (event === "error" && node.id === nodeId) {
@@ -841,10 +861,33 @@ export function reduceStreamEvent(
   data: Record<string, unknown>
 ): StreamTransition {
   const visibility = projectRuntimeStreamEvent(event, data);
+  const activeTurnId = String(data.active_turn_id ?? "").trim();
+  const activeTurn = data.active_turn && typeof data.active_turn === "object" && !Array.isArray(data.active_turn)
+    ? data.active_turn as Record<string, unknown>
+    : {};
+  const activeTurnSnapshot = activeTurnId || String(activeTurn.turn_id ?? "").trim()
+    ? {
+        turn_id: activeTurnId || String(activeTurn.turn_id ?? "").trim(),
+        turn_run_id: String(activeTurn.turn_run_id ?? "").trim() || undefined,
+        task_run_id: String(
+          activeTurn.task_run_id
+          ?? activeTurn.bound_task_run_id
+          ?? data.runtime_task_run_id
+          ?? "",
+        ).trim() || undefined,
+        state: String(activeTurn.state ?? "").trim() || undefined,
+        updated_at: Number(activeTurn.updated_at ?? 0) || undefined,
+      }
+    : null;
+  const stateWithActiveTurn = activeTurnSnapshot
+    ? { ...state, activeTurnSnapshot }
+    : event === "done" || event === "error" || event === "stopped"
+      ? { ...state, activeTurnSnapshot: null }
+      : state;
   const withOrchestration = updateOrchestrationSnapshot(state.orchestrationSnapshot, event, data);
-  const stateWithOrchestrationBase = withOrchestration === state.orchestrationSnapshot
-    ? state
-    : { ...state, orchestrationSnapshot: withOrchestration };
+  const stateWithOrchestrationBase = withOrchestration === stateWithActiveTurn.orchestrationSnapshot
+    ? stateWithActiveTurn
+    : { ...stateWithActiveTurn, orchestrationSnapshot: withOrchestration };
   const stateWithStage = patchAssistantStage(
     stateWithOrchestrationBase,
     session.assistantId,
@@ -886,14 +929,15 @@ export function reduceStreamEvent(
 
   if (event === "done") {
     const partialTimeout = String(data.completion_state ?? "").trim() === "partial_timeout";
+    const taskSteerAccepted = String(data.completion_state ?? "").trim() === "task_steer_accepted";
     return {
       state: patchAssistant(stateWithOrchestration, session.assistantId, (message) =>
         message.content
-          ? { ...message, stageStatus: partialTimeout ? "部分完成" : "完成", image: (data.image as Message["image"]) ?? message.image ?? null }
+          ? { ...message, stageStatus: taskSteerAccepted ? "已纳入当前任务" : partialTimeout ? "部分完成" : "完成", image: (data.image as Message["image"]) ?? message.image ?? null }
           : {
               ...message,
-              content: String(data.content ?? ""),
-              stageStatus: partialTimeout ? "部分完成" : "完成",
+              content: taskSteerAccepted ? "" : String(data.content ?? ""),
+              stageStatus: taskSteerAccepted ? "已纳入当前任务" : partialTimeout ? "部分完成" : "完成",
               image: (data.image as Message["image"]) ?? message.image ?? null
             }
       ),
@@ -910,6 +954,16 @@ export function reduceStreamEvent(
         const candidate = String(data.content ?? "").trim();
         return candidate ? { ...message, content: candidate } : message;
       }),
+      session
+    };
+  }
+
+  if (event === "active_task_steer_accepted") {
+    return {
+      state: patchAssistant(stateWithOrchestration, session.assistantId, (message) => ({
+        ...message,
+        stageStatus: "已纳入当前任务",
+      })),
       session
     };
   }

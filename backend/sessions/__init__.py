@@ -19,11 +19,26 @@ class SessionManager:
         self.sessions_dir = ProjectLayout.from_backend_dir(self.base_dir).sessions_dir
         self.sessions_dir.mkdir(parents=True, exist_ok=True)
 
-    def list_sessions(self) -> list[dict[str, Any]]:
-        sessions = [self._summary_from_payload(item) for item in self._load_all()]
+    def list_sessions(
+        self,
+        *,
+        workspace_view: str | None = None,
+        task_environment_id: str | None = None,
+        project_id: str | None = None,
+    ) -> list[dict[str, Any]]:
+        sessions = [
+            self._summary_from_payload(item)
+            for item in self._load_all()
+            if _scope_matches(
+                item,
+                workspace_view=workspace_view,
+                task_environment_id=task_environment_id,
+                project_id=project_id,
+            )
+        ]
         return sorted(sessions, key=lambda item: float(item.get("updated_at") or 0), reverse=True)
 
-    def create_session(self, *, title: str = "New Session") -> dict[str, Any]:
+    def create_session(self, *, title: str = "New Session", scope: dict[str, Any] | None = None) -> dict[str, Any]:
         now = time.time()
         session_id = f"session-{uuid.uuid4().hex[:16]}"
         payload = {
@@ -33,6 +48,7 @@ class SessionManager:
             "updated_at": now,
             "messages": [],
             "compressed_context": "",
+            "scope": _normalize_scope(scope),
         }
         self._write_payload(session_id, payload)
         return self._summary_from_payload(payload)
@@ -76,6 +92,7 @@ class SessionManager:
             "created_at": float(payload.get("created_at") or 0),
             "updated_at": float(payload.get("updated_at") or 0),
             "compressed_context": str(payload.get("compressed_context") or ""),
+            "scope": _normalize_scope(dict(payload.get("scope") or {})),
             "messages": list(payload.get("messages") or []),
         }
 
@@ -122,6 +139,7 @@ class SessionManager:
             "created_at": float(payload.get("created_at") or 0),
             "updated_at": float(payload.get("updated_at") or 0),
             "message_count": len(messages),
+            "scope": _normalize_scope(dict(payload.get("scope") or {})),
         }
 
     def _read_payload(self, session_id: str) -> dict[str, Any]:
@@ -151,6 +169,35 @@ def _safe_session_id(value: str) -> str:
     if not safe or safe in {".", ".."}:
         raise InvalidSessionId("Invalid session_id")
     return safe
+
+
+def _normalize_scope(scope: dict[str, Any] | None) -> dict[str, str]:
+    raw = dict(scope or {})
+    workspace_view = str(raw.get("workspace_view") or raw.get("view") or "chat").strip() or "chat"
+    task_environment_id = str(raw.get("task_environment_id") or raw.get("environment_id") or "").strip()
+    project_id = str(raw.get("project_id") or "").strip()
+    return {
+        "workspace_view": workspace_view,
+        "task_environment_id": task_environment_id,
+        "project_id": project_id,
+    }
+
+
+def _scope_matches(
+    payload: dict[str, Any],
+    *,
+    workspace_view: str | None = None,
+    task_environment_id: str | None = None,
+    project_id: str | None = None,
+) -> bool:
+    scope = _normalize_scope(dict(payload.get("scope") or {}))
+    if workspace_view is not None and scope["workspace_view"] != str(workspace_view or "").strip():
+        return False
+    if task_environment_id is not None and scope["task_environment_id"] != str(task_environment_id or "").strip():
+        return False
+    if project_id is not None and scope["project_id"] != str(project_id or "").strip():
+        return False
+    return True
 
 
 def _agent_message(payload: dict[str, Any]) -> dict[str, str] | None:

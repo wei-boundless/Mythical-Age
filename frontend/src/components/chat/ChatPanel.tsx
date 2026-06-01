@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef } from "react";
-import { Play, X } from "lucide-react";
+import { Play, Square, X } from "lucide-react";
 
 import { ChatInput } from "@/components/chat/ChatInput";
 import { ChatMessage } from "@/components/chat/ChatMessage";
@@ -19,6 +19,7 @@ export function ChatPanel() {
     sessionActivity,
     currentSessionId,
     taskGraphLiveMonitor,
+    stopActiveTaskRun,
     resumeActiveTaskRun,
     chatTaskEnvironmentBinding,
     clearChatTaskEnvironmentBinding,
@@ -47,10 +48,23 @@ export function ChatPanel() {
   ).trim();
   const monitorStatus = String(taskGraphLiveMonitor?.status ?? monitorTaskRun.status ?? "").trim();
   const monitorControlState = String(taskGraphLiveMonitor?.control_state ?? monitorRuntimeControl.state ?? "").trim();
-  const canResumeSingleAgentTask = Boolean(
+  const singleAgentTaskRunId = String(monitorTaskRun.task_run_id ?? taskGraphLiveMonitor?.task_run_id ?? "").trim();
+  const isSingleAgentTaskMonitor = Boolean(
     taskGraphLiveMonitor
     && monitorRuntimeKind === "single_agent_task"
-    && String(monitorRoute.kind ?? "").trim() !== "task_graph_run"
+    && String(monitorRoute.kind ?? "").trim() !== "task_graph_run",
+  );
+  const terminalTaskStatuses = new Set(["completed", "done", "failed", "error", "cancelled", "canceled", "stopped", "aborted", "user_aborted"]);
+  const terminalControlStates = new Set(["stopped", "aborted", "user_aborted"]);
+  const canStopSingleAgentTask = Boolean(
+    isSingleAgentTaskMonitor
+    && singleAgentTaskRunId
+    && !terminalTaskStatuses.has(monitorStatus)
+    && !terminalControlStates.has(monitorControlState)
+    && monitorControlState !== "stop_requested"
+  );
+  const canResumeSingleAgentTask = Boolean(
+    isSingleAgentTaskMonitor
     && !currentSessionStreaming
     && (
       monitorStatus === "waiting_executor"
@@ -108,6 +122,18 @@ export function ChatPanel() {
       <div className="chat-panel-footer min-w-0">
         <div className="chat-panel-status-row">
           <SessionActivityBar activity={sessionActivity} active={currentSessionStreaming} />
+          {canStopSingleAgentTask ? (
+            <button
+              className="chat-runtime-action chat-runtime-action--stop"
+              onClick={() => {
+                void stopActiveTaskRun();
+              }}
+              type="button"
+            >
+              <Square size={13} />
+              停止任务
+            </button>
+          ) : null}
           {canResumeSingleAgentTask ? (
             <button
               className="chat-runtime-action"

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from harness.runtime.public_progress import public_runtime_progress_summary, public_runtime_progress_title
@@ -191,6 +192,7 @@ def _turn_id_from_task_run(task_run_id: str) -> str:
 
 def _progress_entries(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
     entries: list[dict[str, Any]] = []
+    observations_by_ref = _observations_by_ref(events)
     for event in events:
         event_type = str(event.get("event_type") or "")
         payload = dict(event.get("payload") or {})
@@ -218,21 +220,64 @@ def _progress_entries(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
             )
             step = str(payload.get("step") or "").strip()
             status = str(payload.get("status") or "").strip()
-            if public_note or action_brief or summary or step:
+            if step.startswith("task_tool_observation_recorded"):
+                refs = dict(event.get("refs") or {})
+                observation = observations_by_ref.get(str(refs.get("observation_ref") or "").strip(), {})
+                source = str(observation.get("source") or "").strip()
+                ref_tool_name = str(refs.get("tool_name") or "").strip()
+                if _is_internal_tool_observation(source=source, text=agent_brief):
+                    continue
+                tool_name = source.removeprefix("tool:") or ref_tool_name
+                observation_body = _tool_observation_body(agent_brief or _observation_payload_result(observation) or public_note or summary)
+                failed = _observation_text_is_failure(agent_brief or observation_body)
                 entries.append(
                     _entry(
                         event,
-                        title=_step_title(step, status),
-                        body=public_note or next_action or current_judgment or summary,
+                        title=_observation_title(source or (f"tool:{tool_name}" if tool_name else ""), observation=observation),
+                        body=observation_body or public_note or summary,
+                        kind="observation",
+                        level="error" if failed else _level_from_status(status),
+                        status="failed" if failed else (status or "completed"),
+                        tool_name=tool_name,
+                        public_note=observation_body or public_note or summary,
+                        agent_brief=observation_body or agent_brief,
+                        evidence_type="tool_observation",
+                        meta=meta,
+                    )
+                )
+                continue
+            if _is_internal_step_only(step, summary=summary, public_note=public_note, action_brief=action_brief):
+                continue
+            if public_note or action_brief or summary or step:
+                body = action_brief if step.startswith("model_action_received") and action_brief else public_note or next_action or current_judgment or summary
+                entries.append(
+                    _entry(
+                        event,
+                        title="Agent 判断" if step.startswith("model_action_received") else _step_title(step, status),
+                        body=body,
                         kind=_step_kind(step),
                         level=_level_from_status(status),
                         status=status,
-                        public_note=public_note,
+                        public_note=public_note or body,
                         agent_brief=agent_brief or action_brief,
                         evidence_type=_evidence_type(event_type, step),
                         meta=meta,
                     )
                 )
+            continue
+        if event_type == "agent_todo_initialized":
+            entries.append(
+                _entry(
+                    event,
+                    title="待办已建立",
+                    body="已把任务目标转成可跟踪的待办清单。",
+                    kind="stage",
+                    level="success",
+                    status="completed",
+                    public_note="已把任务目标转成可跟踪的待办清单。",
+                    evidence_type="todo",
+                )
+            )
             continue
         if event_type in {"task_run_lifecycle_started", "task_run_executor_started"}:
             entries.append(
@@ -273,18 +318,43 @@ def _progress_entries(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 )
             )
             continue
-        if event_type in {"executor_observation_recorded", "bounded_observation_recorded", "task_run_lifecycle_event"}:
+        if event_type in {"executor_observation_recorded", "bounded_observation_recorded", "task_run_lifecycle_event", "task_tool_observation_recorded"}:
             observation = dict(payload.get("observation") or {})
             source = str(observation.get("source") or "").strip()
             summary = public_runtime_progress_summary(observation.get("summary") or "").strip()
+            if _is_internal_tool_observation(source=source, text=summary or _observation_payload_result(observation)):
+                continue
+            if event_type == "task_tool_observation_recorded" and source.startswith("tool:"):
+                observation_body = _tool_observation_body(summary or _observation_payload_result(observation))
+                if not observation_body:
+                    continue
+                failed = _observation_text_is_failure(observation_body)
+                entries.append(
+                    _entry(
+                        event,
+                        title=_observation_title(source, observation=observation),
+                        body=observation_body,
+                        kind="observation",
+                        level="error" if failed else "success",
+                        status="failed" if failed else "completed",
+                        tool_name=source.removeprefix("tool:"),
+                        public_note=observation_body,
+                        agent_brief=observation_body,
+                        evidence_type="tool_observation",
+                    )
+                )
+                continue
+            if source == "system:agent_todo" or _looks_like_raw_json(summary):
+                continue
             if source or summary:
                 entries.append(
                     _entry(
                         event,
-                        title=_observation_title(source),
+                        title=_observation_title(source, observation=observation),
                         body=summary,
                         kind="tool" if source.startswith("tool:") else "system",
-                        status="completed",
+                        level="error" if observation.get("error") else "success",
+                        status="failed" if observation.get("error") else "completed",
                         tool_name=source.removeprefix("tool:"),
                         public_note=summary,
                         agent_brief=summary,
@@ -353,6 +423,30 @@ def _formal_task_run_id(value: Any) -> str:
     return candidate if candidate.startswith("taskrun:") else ""
 
 
+def _observations_by_ref(events: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    result: dict[str, dict[str, Any]] = {}
+    for event in events:
+        if str(event.get("event_type") or "") != "task_tool_observation_recorded":
+            continue
+        observation = dict(dict(event.get("payload") or {}).get("observation") or {})
+        observation_id = str(observation.get("observation_id") or "").strip()
+        if observation_id:
+            result[observation_id] = observation
+    return result
+
+
+def _observation_payload_result(observation: dict[str, Any]) -> str:
+    return str(dict(observation.get("payload") or {}).get("result") or "").strip()
+
+
+def _is_internal_tool_observation(*, source: str, text: str) -> bool:
+    tool_name = str(source or "").strip().removeprefix("tool:")
+    if tool_name == "agent_todo":
+        return True
+    stripped = str(text or "").strip()
+    return stripped.startswith("{") and '"plan_id"' in stripped and '"items"' in stripped
+
+
 def _public_action_state_brief(
     *,
     current_judgment: str = "",
@@ -383,6 +477,68 @@ def _public_action_state_meta(
     return [{"label": label, "value": value} for label, value in labels if value]
 
 
+def _is_internal_step_only(step: str, *, summary: str, public_note: str, action_brief: str) -> bool:
+    if action_brief:
+        return False
+    if step.startswith(("task_model_action_invocation_started", "task_model_action_waiting")):
+        return True
+    if step.startswith("task_execution_packet_compiled") and (summary == "已同步最新进展。" or public_note == "已同步最新进展。"):
+        return True
+    return False
+
+
+def _looks_like_raw_json(value: str) -> bool:
+    text = str(value or "").strip()
+    if not text:
+        return False
+    return (text.startswith("{") and text.endswith("}")) or (text.startswith("[") and text.endswith("]"))
+
+
+def _tool_observation_body(value: str) -> str:
+    text = public_runtime_progress_summary(value).strip()
+    if not text:
+        return ""
+    if not _looks_like_raw_json(text):
+        return text
+    try:
+        data = json.loads(text)
+    except Exception:
+        return "工具返回了结构化结果，正在根据结果继续。"
+    if isinstance(data, dict):
+        ok = data.get("ok")
+        error = data.get("error") or data.get("message")
+        structured_error = data.get("structured_error")
+        if isinstance(structured_error, dict):
+            error = error or structured_error.get("message") or structured_error.get("error")
+        if ok is False or error:
+            message = public_runtime_progress_summary(error or "工具调用失败").strip()
+            return f"工具返回失败：{message}"
+        result = data.get("result") or data.get("summary") or data.get("output")
+        if result:
+            return public_runtime_progress_summary(result)
+        artifact_refs = data.get("artifact_refs")
+        if isinstance(artifact_refs, list) and artifact_refs:
+            return f"工具返回成功，产生 {len(artifact_refs)} 个产物引用。"
+        return "工具返回成功，正在根据结果继续。"
+    return "工具返回了结构化结果，正在根据结果继续。"
+
+
+def _observation_text_is_failure(value: str) -> bool:
+    text = str(value or "").strip()
+    if not text:
+        return False
+    if "工具返回失败" in text:
+        return True
+    if _looks_like_raw_json(text):
+        try:
+            data = json.loads(text)
+        except Exception:
+            return False
+        if isinstance(data, dict):
+            return data.get("ok") is False or bool(data.get("error") or data.get("structured_error"))
+    return False
+
+
 def _step_title(step: str, status: str) -> str:
     if step.startswith("task_model_action_invocation_started"):
         return "思考下一步"
@@ -402,6 +558,8 @@ def _step_title(step: str, status: str) -> str:
 
 
 def _step_kind(step: str) -> str:
+    if "observation" in step:
+        return "observation"
     if "tool" in step:
         return "tool"
     if "completed" in step:
@@ -423,11 +581,14 @@ def _level_from_status(status: str) -> str:
     return "running"
 
 
-def _observation_title(source: str) -> str:
+def _observation_title(source: str, *, observation: dict[str, Any] | None = None) -> str:
     if source.startswith("tool:"):
-        return "执行操作"
+        tool_name = source.removeprefix("tool:").strip()
+        return f"工具观察：{tool_name}" if tool_name else "工具观察"
+    if dict(observation or {}).get("error"):
+        return "观察到失败"
     if source:
-        return "处理观察"
+        return "观察结果"
     return "观察结果"
 
 

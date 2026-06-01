@@ -144,7 +144,24 @@ function buildChatModelOptions(config: ModelProviderConfig | null, imageConfig: 
   const systemLabel = config?.provider && config?.model
     ? config.model
     : "系统默认模型";
-  const options = [{ id: "system-default", label: systemLabel }];
+  const options: Array<{ id: string; label: string }> = [{ id: "system-default", label: systemLabel }];
+  if (config?.provider) {
+    const provider = String(config.provider || "").trim().toLowerCase();
+    const activeModel = String(config.model || "").trim();
+    const providerOption = providerCatalogOption(config, provider);
+    const presets = providerOption?.model_presets || [];
+    presets.forEach((model) => {
+      const modelId = String(model || "").trim();
+      if (!modelId || modelId === activeModel) {
+        return;
+      }
+      addConfiguredModelOption(options, {
+        id: `${provider}::${modelId}`,
+        label: modelId,
+        baseUrl: config.base_url || providerOption?.default_base_url,
+      });
+    });
+  }
   addConfiguredModelOption(options, {
     id: config?.fallback_provider && config?.fallback_model ? `${config.fallback_provider}::${config.fallback_model}` : "",
     label: config?.fallback_provider && config?.fallback_model ? config.fallback_model : "",
@@ -169,7 +186,7 @@ function addConfiguredModelOption(
   const id = String(item.id || "").trim();
   const label = String(item.label || "").trim();
   const baseUrl = String(item.baseUrl || "").trim();
-  if (!id || !label || !baseUrl || options.some((option) => option.id === id)) {
+  if (!id || !label || !baseUrl || options.some((option) => option.id === id || option.label === label)) {
     return;
   }
   options.push({ id, label });

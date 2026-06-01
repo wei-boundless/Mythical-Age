@@ -442,6 +442,15 @@ class AppSettingsService:
                     "description": "留空保存会保留已有密钥。",
                     "restart_required": False,
                 },
+                {
+                    "key": "request_timeout_seconds",
+                    "label": "请求超时秒数",
+                    "type": "number",
+                    "value": image_payload["request_timeout_seconds"],
+                    "source": "runtime_override" if "request_timeout_seconds" in image_overrides else "env_or_default",
+                    "description": "单次生图请求等待窗口。供应商返回可能接近 100 秒，默认 150 秒，最高 240 秒。",
+                    "restart_required": False,
+                },
             ],
             "metadata": {
                 "public_dir": image_payload["public_dir"],
@@ -561,6 +570,7 @@ class AppSettingsService:
                 base_url=str(values.get("base_url") or ""),
                 model=str(values.get("model") or "gpt-image-2"),
                 api_key=str(values.get("api_key") or "").strip() or None,
+                request_timeout_seconds=values.get("request_timeout_seconds"),
             )
             return self.runtime_config_console_payload()
         allowed_groups = {"embedding", "retrieval", "document", "runtime"}

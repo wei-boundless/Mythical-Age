@@ -6,6 +6,7 @@ import { CheckCircle2, GitBranch, MessageSquareShare, PauseCircle, PlayCircle, R
 import {
   compileTaskSystemTaskGraphContract,
   getOrchestrationHarnessTrace,
+  getPublishedTaskGraphHarnessConfig,
   runGraphRunUntilIdle,
   startTaskGraphHarnessRun,
   taskGraphRunsFromTrace,
@@ -215,8 +216,14 @@ export function TaskGraphPublishRunPage({
     setRunStartLoading(true);
     setRunTraceError("");
     try {
+      const graphConfig = await getPublishedTaskGraphHarnessConfig(graphId);
+      const sessionScope = {
+        workspace_view: "task_environment",
+        task_environment_id: String(graphConfig.task_environment_id || ""),
+      };
       const result = await startTaskGraphHarnessRun(graphId, {
         session_id: runSessionId.trim() || "session:task_graph_studio",
+        session_scope: sessionScope,
         include_trace: true,
         dispatch_ready: true,
         run_mode: "auto_run",
@@ -231,6 +238,7 @@ export function TaskGraphPublishRunPage({
         graph_harness_config_id: result.graph_harness_config_id,
         graph_id: graphId,
         session_id: runSessionId.trim() || "session:task_graph_studio",
+        session_scope: sessionScope,
         title: graphId,
       });
       onRunBound?.();
@@ -258,6 +266,7 @@ export function TaskGraphPublishRunPage({
     try {
       await runGraphRunUntilIdle(targetGraphRunId, {
         graph_harness_config_id: targetConfigId,
+        session_scope: taskGraphMonitorBinding?.session_scope,
         max_dispatch_requests: 1,
       });
       await loadRunTrace();

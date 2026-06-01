@@ -630,6 +630,24 @@ export function projectRuntimeStreamEvent(event: string, data: Record<string, un
       }),
     };
   }
+  if (event === "active_task_steer_accepted") {
+    const summary = publicRuntimeText(data.summary) || "当前任务会在后续步骤中处理这次输入。";
+    return {
+      stageStatus: "已纳入当前任务",
+      activityTitle: "已纳入当前任务",
+      activityDetail: summary,
+      level: "success",
+      progressEntry: entry("active_task_steer_accepted", "已纳入当前任务", {
+        body: summary,
+        publicNote: summary,
+        level: "success",
+        kind: "stage",
+        statusText: "已接收",
+        eventId: text(data.runtime_event_id),
+        createdAt: Date.now(),
+      }),
+    };
+  }
   if (event === "runtime_step_summary") {
     const step = text(data.step);
     const eventPayload = record(record(data.event).payload);

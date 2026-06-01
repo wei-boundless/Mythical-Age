@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, Circle, CircleDot, CircleEllipsis, CircleX } from "lucide-react";
+import { Check, Circle, CircleDot, CircleEllipsis, CircleX, Eye, Wrench, Brain } from "lucide-react";
 import React from "react";
 import { useEffect, useMemo, useState } from "react";
 
@@ -17,7 +17,12 @@ type RuntimeStepView = {
   output: string;
   status: string;
   agentBrief?: string;
+  kind?: RuntimeProgressEntry["kind"];
+  toolName?: string;
+  meta?: RuntimeProgressEntry["meta"];
 };
+
+type TraceLane = "tool" | "observation" | "judgment" | "progress";
 
 function cleanText(value: unknown) {
   return String(value ?? "")
@@ -76,6 +81,7 @@ function isVisibleEntry(entry: RuntimeProgressEntry) {
     "task_draft",
     "stage",
     "tool",
+    "observation",
     "verification",
     "permission",
     "terminal",
@@ -112,11 +118,12 @@ function runtimePhase(entry: RuntimeProgressEntry | undefined) {
   const kind = String(entry?.kind || "");
   if (kind === "task_order" || kind === "task_draft") return "确认目标";
   if (kind === "permission") return "确认边界";
-  if (kind === "tool") return "执行操作";
+  if (kind === "tool") return entry?.toolName ? `调用工具：${entry.toolName}` : "调用工具";
+  if (kind === "observation") return "观察结果";
   if (kind === "verification") return "补齐证据";
   if (kind === "artifact") return "记录产物";
   if (kind === "terminal") return "结果收口";
-  if (kind === "model") return "思考下一步";
+  if (kind === "model") return "Agent 判断";
   if (kind === "system") return "系统进展";
   return "推进中";
 }
@@ -167,6 +174,9 @@ function stepView(entry: RuntimeProgressEntry, runState: RuntimeRunState, isLate
     output: stageOutput(entry),
     status: entryStatus(entry, runState, isLatest),
     agentBrief: agentBrief(entry),
+    kind: entry.kind,
+    toolName: entry.toolName,
+    meta: entry.meta,
   };
 }
 
@@ -293,6 +303,13 @@ function entriesFromAttachments(attachments: SessionRuntimeAttachment[]): Runtim
   });
 }
 
+function typedStepIcon(step: RuntimeStepView) {
+  if (step.kind === "tool") return <Wrench size={12} />;
+  if (step.kind === "observation") return <Eye size={12} />;
+  if (step.kind === "model") return <Brain size={12} />;
+  return stepIcon(step.level);
+}
+
 function attachmentRunId(attachment: SessionRuntimeAttachment) {
   return String(attachment.run_id || attachment.task_run_id || attachment.attachment_id || "").trim();
 }
@@ -318,19 +335,46 @@ function conversationalLine(step: RuntimeStepView, runState: RuntimeRunState, is
   return output || "正在同步当前进展。";
 }
 
+function stepClassName(step: RuntimeStepView) {
+  return `runtime-run-summary__item runtime-run-summary__item--${traceLane(step)} runtime-run-summary__item--${step.kind || "stage"}`;
+}
+
+function traceLane(step: RuntimeStepView): TraceLane {
+  if (step.kind === "tool") return "tool";
+  if (step.kind === "observation") return "observation";
+  if (step.kind === "model") return "judgment";
+  return "progress";
+}
+
+function traceLaneLabel(step: RuntimeStepView) {
+  const lane = traceLane(step);
+  if (lane === "tool") return "Tool Call";
+  if (lane === "observation") return "Observation";
+  if (lane === "judgment") return "Agent";
+  return "Progress";
+}
+
+function traceCommand(step: RuntimeStepView) {
+  if (step.kind !== "tool") return "";
+  const target = cleanText(step.toolName || step.phase.replace(/^调用工具：/, "") || "tool");
+  const output = cleanText(step.output);
+  if (!output || output === target || output === step.phase) return target;
+  return `${target}  ${output}`;
+}
+
 export function RuntimeRunSummary({ entries, attachments = [] }: { entries: RuntimeProgressEntry[]; attachments?: SessionRuntimeAttachment[] }) {
   const activities = useMemo(() => [...entries, ...entriesFromAttachments(attachments)].filter(isVisibleEntry), [entries, attachments]);
   const runState = combinedRunState(activities, attachments);
-  const [expanded, setExpanded] = useState(runState === "error" || runState === "waiting");
   const planActivities = activities.filter(isPlanEntry);
   const progressActivities = activities.filter((entry) => !isPlanEntry(entry));
   const progressSource = progressActivities.length ? progressActivities : activities;
   const allSteps = compactStepViews(progressSource, runState);
   const planSteps = compactStepViews(planActivities, runState);
-  const detailSteps = expanded ? allSteps.slice(0, -1) : [];
+  const hasWorkActivity = activities.some(isWorkEntry);
+  const [expanded, setExpanded] = useState(runState === "error" || runState === "waiting" || hasWorkActivity);
+  const detailSteps = expanded ? allSteps : [];
   const visibleSteps = detailSteps.slice(-MAX_VISIBLE_STEPS);
   const latest = allSteps[allSteps.length - 1];
-  const hasWorkActivity = activities.some(isWorkEntry);
   const hasMoreSteps = detailSteps.length > visibleSteps.length;
   const hasPlan = planSteps.length > 0;
 
@@ -373,11 +417,29 @@ export function RuntimeRunSummary({ entries, attachments = [] }: { entries: Runt
       ) : null}
       <div className="runtime-run-summary__items" hidden={!expanded || !visibleSteps.length}>
         {visibleSteps.map((entry) => (
-          <div className="runtime-run-summary__item" data-level={entry.level} key={entry.id}>
-            <span className="runtime-run-summary__item-mark">{stepIcon(entry.level)}</span>
+          <div className={stepClassName(entry)} data-lane={traceLane(entry)} data-level={entry.level} key={entry.id}>
+            <span className="runtime-run-summary__item-mark">{typedStepIcon(entry)}</span>
             <span className="runtime-run-summary__item-copy">
-              <span>{conversationalLine(entry, runState, false)}</span>
+              <span className="runtime-run-summary__item-topline">
+                <em>{traceLaneLabel(entry)}</em>
+                <strong>{entry.phase}</strong>
+              </span>
+              {entry.kind === "tool" ? (
+                <code className="runtime-run-summary__command">{traceCommand(entry)}</code>
+              ) : (
+                <span>{conversationalLine(entry, runState, false)}</span>
+              )}
               {entry.agentBrief ? <small>{entry.agentBrief}</small> : null}
+              {entry.kind === "model" && entry.meta?.length ? (
+                <dl className="runtime-run-summary__judgment">
+                  {entry.meta.slice(0, 3).map((item) => (
+                    <React.Fragment key={`${entry.id}:${item.label}`}>
+                      <dt>{item.label}</dt>
+                      <dd>{item.value}</dd>
+                    </React.Fragment>
+                  ))}
+                </dl>
+              ) : null}
             </span>
           </div>
         ))}

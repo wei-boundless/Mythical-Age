@@ -14,7 +14,7 @@ from project_layout import ProjectLayout
 LLM_PROVIDER_DEFAULTS: dict[str, dict[str, Any]] = {
     "deepseek": {
         "display_name": "DeepSeek",
-        "model": "deepseek-v4-flash",
+        "model": "deepseek-v4-pro",
         "base_url": "https://api.deepseek.com/v1",
         "adapter": "deepseek_langchain",
         "credential_envs": ("DEEPSEEK_API_KEY", "LLM_API_KEY"),

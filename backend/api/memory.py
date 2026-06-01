@@ -13,6 +13,7 @@ from memory_system import MemoryHeader
 from memory_system.runtime_services import MemoryRuntimeServices
 from project_layout import ProjectLayout
 from request_intent.memory_intent import analyze_memory_intent
+from task_system.session_scope import assert_optional_session_scope, request_scope_from_query
 
 router = APIRouter()
 
@@ -394,8 +395,22 @@ async def recall_memory_preview(payload: RecallPreviewRequest) -> dict[str, Any]
 
 
 @router.get("/memory/session/{session_id}/files")
-async def get_session_memory_files(session_id: str) -> dict[str, Any]:
+async def get_session_memory_files(
+    session_id: str,
+    workspace_view: str | None = Query(default=None, max_length=80),
+    task_environment_id: str | None = Query(default=None, max_length=200),
+    project_id: str | None = Query(default=None, max_length=240),
+) -> dict[str, Any]:
     runtime = require_runtime()
+    assert_optional_session_scope(
+        runtime.session_manager,
+        session_id,
+        request_scope_from_query(
+            workspace_view=workspace_view,
+            task_environment_id=task_environment_id,
+            project_id=project_id,
+        ),
+    )
     assert runtime.base_dir is not None
 
     safe_session_id = _safe_session_id(session_id)

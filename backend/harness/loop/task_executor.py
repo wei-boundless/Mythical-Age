@@ -482,6 +482,7 @@ def recover_interrupted_task_executors(runtime_host: Any) -> dict[str, Any]:
                 "latest_step": "task_executor_recovered_after_runtime_start",
                 "latest_step_status": "waiting_executor",
                 "latest_step_summary": "后端运行时已重启，当前工作已恢复为可继续状态。",
+                "latest_public_progress_note": "后端运行时已重启，当前工作已恢复为可继续状态。",
                 "recoverable_error": {
                     "error_code": "task_executor_interrupted_by_runtime_restart",
                     "retryable": True,
@@ -616,6 +617,9 @@ async def execute_task_run(
     artifact_refs: list[dict[str, Any]] = list(observation_context["artifact_refs"])
     compiler = RuntimeCompiler()
     projected_task = runtime_host.state_index.get_task_run(task_run.task_run_id) or task_run
+    control_result = _apply_runtime_control_boundary(runtime_host, task_run=projected_task, agent_run=None, boundary="before_executor_claim")
+    if control_result is not None:
+        return control_result
     current_task = replace(
         projected_task,
         status="running",
@@ -751,12 +755,11 @@ async def _execute_claimed_task_run(
             event_offset=packet_event.offset,
             refs={"runtime_invocation_packet_ref": compilation.packet.packet_id},
         )
-        _record_task_step_summary(
+        _record_task_model_wait_heartbeat(
             runtime_host,
             task_run_id=current_task.task_run_id,
             step=f"task_model_action_invocation_started:{step_index}",
-            status="running",
-            summary="正在根据最新进展判断下一步。",
+            wait_round=0,
             refs={"runtime_invocation_packet_ref": compilation.packet.packet_id},
         )
         try:
@@ -929,6 +932,10 @@ async def _execute_claimed_task_run(
             payload={"admission": admission.to_dict()},
             refs={"task_run_ref": current_task.task_run_id, "action_request_ref": action_request.request_id},
         )
+        current_task = runtime_host.state_index.get_task_run(current_task.task_run_id) or current_task
+        control_result = _apply_runtime_control_boundary(runtime_host, task_run=current_task, agent_run=agent_run, boundary=f"after_action_admission:{step_index}")
+        if control_result is not None:
+            return control_result
         if admission.decision != "allow":
             return _finish_executor_blocked(
                 runtime_host,
@@ -940,13 +947,19 @@ async def _execute_claimed_task_run(
 
         if action_request.action_type == "tool_call":
             tool_progress = _tool_call_progress_summary(action_request)
+            tool_call_payload = dict(action_request.tool_call or {})
+            tool_args = dict(tool_call_payload.get("args") or tool_call_payload.get("tool_args") or {})
+            tool_name = str(tool_call_payload.get("tool_name") or tool_call_payload.get("name") or "").strip()
             _record_task_step_summary(
                 runtime_host,
                 task_run_id=current_task.task_run_id,
                 step=f"task_tool_call_started:{step_index}",
                 status="running",
                 summary=tool_progress,
+                tool_status=tool_progress,
                 presentation_source="system.tool_call_status",
+                tool_name=tool_name,
+                tool_target=_tool_target_preview(tool_args),
                 refs={"action_request_ref": action_request.request_id},
             )
             append_work_rollout_item(
@@ -960,14 +973,28 @@ async def _execute_claimed_task_run(
                 refs={"action_request_ref": action_request.request_id, "runtime_invocation_packet_ref": compilation.packet.packet_id},
                 payload={"tool_name": str(action_request.tool_call.get("tool_name") or action_request.tool_call.get("name") or "")},
             )
-            observation = await _execute_task_tool_call(
-                runtime_host,
-                services=services,
-                task_run=current_task,
-                packet_ref=compilation.packet.packet_id,
-                action_request=action_request,
-                runtime_assembly=runtime_assembly.to_dict(),
-            )
+            try:
+                observation = await _execute_task_tool_call(
+                    runtime_host,
+                    services=services,
+                    task_run=current_task,
+                    packet_ref=compilation.packet.packet_id,
+                    action_request=action_request,
+                    runtime_assembly=runtime_assembly.to_dict(),
+                )
+            except TaskRunExecutorInterrupted as exc:
+                interrupted_task = runtime_host.state_index.get_task_run(current_task.task_run_id) or current_task
+                if exc.signal.kind == "pause":
+                    return _pause_executor_for_user_control(runtime_host, task_run=interrupted_task, agent_run=agent_run, boundary=f"tool_execution:{step_index}")
+                if exc.signal.kind == "stop":
+                    return _stop_executor_for_user_control(runtime_host, task_run=interrupted_task, agent_run=agent_run, boundary=f"tool_execution:{step_index}")
+                return _replan_executor_for_user_control(
+                    runtime_host,
+                    task_run=interrupted_task,
+                    agent_run=agent_run,
+                    boundary=f"tool_execution:{step_index}",
+                    signal=exc.signal,
+                )
             raw_observations.append(observation)
             runtime_host.runtime_objects.put_object("observation", observation["observation_id"], observation)
             observation_event = runtime_host.event_log.append(
@@ -989,7 +1016,10 @@ async def _execute_claimed_task_run(
                 summary="工具调用已完成，正在根据结果继续。",
                 agent_brief_output=_observation_brief(observation),
                 presentation_source="tool_observation.summary",
-                refs={"observation_ref": observation["observation_id"]},
+                refs={
+                    "observation_ref": observation["observation_id"],
+                    "tool_name": str(action_request.tool_call.get("tool_name") or action_request.tool_call.get("name") or ""),
+                },
             )
             append_work_rollout_item(
                 runtime_host,
@@ -1255,15 +1285,6 @@ async def _await_task_model_action_with_status(
             if now - last_progress_at >= _TASK_MODEL_ACTION_WAIT_STATUS_INTERVAL_SECONDS:
                 wait_round += 1
                 last_progress_at = now
-                if wait_round == 1:
-                    _record_task_step_summary(
-                        runtime_host,
-                        task_run_id=task_run_id,
-                        step=f"task_model_action_waiting:{step_index}",
-                        status="running",
-                        summary="正在根据最新进展思考下一步处理方式。",
-                        refs={"runtime_invocation_packet_ref": packet_ref},
-                    )
                 _record_task_model_wait_heartbeat(
                     runtime_host,
                     task_run_id=task_run_id,
@@ -1293,6 +1314,22 @@ async def _execute_task_tool_call(
     action_request: ModelActionRequest,
     runtime_assembly: dict[str, Any],
 ) -> dict[str, Any]:
+    executor_epoch = int(dict(getattr(task_run, "diagnostics", {}) or {}).get("executor_epoch") or 0)
+    signal = peek_executor_signal(runtime_host, task_run_id=task_run.task_run_id, executor_epoch=executor_epoch)
+    if signal is not None:
+        raise TaskRunExecutorInterrupted(signal)
+    control_result = _apply_runtime_control_boundary(runtime_host, task_run=task_run, agent_run=None, boundary="before_tool_execution")
+    if control_result is not None:
+        raise TaskRunExecutorInterrupted(
+            ExecutorControlSignal(
+                kind="stop",
+                task_run_id=task_run.task_run_id,
+                executor_epoch=executor_epoch,
+                reason=str(dict(control_result.get("task_run") or {}).get("terminal_reason") or "task_run_stopped"),
+                requested_by="system",
+                requested_at=time.time(),
+            )
+        )
     tool_name = str(action_request.tool_call.get("tool_name") or action_request.tool_call.get("name") or "").strip()
     tool_args = dict(action_request.tool_call.get("args") or action_request.tool_call.get("tool_args") or {})
     definition = getattr(runtime_host.tool_authorization_index, "definitions_by_name", {}).get(tool_name)
@@ -1343,6 +1380,7 @@ async def _execute_task_tool_call(
     sandbox_policy = {
         **sandbox_policy,
         "session_id": task_run.session_id,
+        "executor_epoch": int(dict(getattr(task_run, "diagnostics", {}) or {}).get("executor_epoch") or 0),
         **_task_runtime_scope_policy(task_run),
     }
     gate_result = runtime_host.operation_gate.check(
@@ -1442,6 +1480,9 @@ async def _execute_task_tool_call(
             tool_args=tool_args,
             error="tool_runtime_executor_unavailable",
         )
+    tool_runtime = getattr(services.tool_runtime_executor, "tool_runtime", None)
+    if tool_runtime is not None and getattr(tool_runtime, "runtime_host", None) is None:
+        setattr(tool_runtime, "runtime_host", runtime_host)
     result = await services.tool_runtime_executor.run(
         task_run_id=task_run.task_run_id,
         action_request=runtime_action,
@@ -1451,6 +1492,9 @@ async def _execute_task_tool_call(
         sandbox_policy=sandbox_policy,
         file_management_policy=file_policy,
     )
+    signal = peek_executor_signal(runtime_host, task_run_id=task_run.task_run_id, executor_epoch=executor_epoch)
+    if signal is not None:
+        raise TaskRunExecutorInterrupted(signal)
     observation = dict(result.get("observation").to_dict() if hasattr(result.get("observation"), "to_dict") else result.get("observation") or {})
     if result.get("error") or result.get("recoverable_error"):
         observation["error"] = str(result.get("error") or result.get("recoverable_error") or "tool_execution_failed")
@@ -1611,9 +1655,9 @@ def _task_sandbox_policy(runtime_assembly: dict[str, Any], *, runtime_host: Any,
         namespace = task_run_id.replace(":", "_")
         sandbox_root = str((Path(runtime_host.root_dir) / "sandboxes" / namespace).resolve())
     artifact_root = str(storage.get("artifact_root") or "").strip()
-    publish_scopes = _dedupe_strings([*([artifact_root] if artifact_root else []), *_explicit_contract_write_roots(contract)])
+    publish_scopes = _dedupe_strings([artifact_root] if artifact_root else [])
     scratch_scopes = _task_scratch_write_scopes(storage)
-    write_scopes = _dedupe_strings([*list(sandbox.get("write_scopes") or []), *publish_scopes, *scratch_scopes])
+    write_scopes = _dedupe_strings([*publish_scopes, *scratch_scopes])
     materialized_roots = _dedupe_strings([*_explicit_contract_materialized_roots(contract), *publish_scopes])
     return {
         **sandbox,
@@ -2186,6 +2230,9 @@ def _pause_executor_for_model_recovery(
 
 def _apply_runtime_control_boundary(runtime_host: Any, *, task_run: Any, agent_run: Any | None, boundary: str) -> dict[str, Any] | None:
     current = runtime_host.state_index.get_task_run(task_run.task_run_id) or task_run
+    recovery_state = recovery_state_for_task_run(current)
+    if recovery_state.stopped:
+        return _stop_executor_for_terminal_control(runtime_host, task_run=current, agent_run=agent_run, boundary=boundary)
     state = task_run_control_state(current)
     if state == _TASK_RUN_PAUSE_REQUESTED:
         return _pause_executor_for_user_control(runtime_host, task_run=current, agent_run=agent_run, boundary=boundary)
@@ -2194,6 +2241,21 @@ def _apply_runtime_control_boundary(runtime_host: Any, *, task_run: Any, agent_r
     if state == _TASK_RUN_REPLAN_REQUESTED:
         return _replan_executor_for_user_control(runtime_host, task_run=current, agent_run=agent_run, boundary=boundary, signal=None)
     return None
+
+
+def _stop_executor_for_terminal_control(runtime_host: Any, *, task_run: Any, agent_run: Any | None, boundary: str) -> dict[str, Any]:
+    if str(getattr(task_run, "status", "") or "") == "aborted" and str(getattr(task_run, "terminal_reason", "") or "") == "user_aborted":
+        if agent_run is not None:
+            runtime_host.state_index.upsert_agent_run(
+                replace(
+                    agent_run,
+                    status="killed",
+                    updated_at=time.time(),
+                    diagnostics={**dict(agent_run.diagnostics or {}), "terminal_reason": "user_aborted", "runtime_control": _runtime_control_payload(task_run)},
+                )
+            )
+        return {"ok": False, "task_run": task_run.to_dict(), "error": "user_aborted", "boundary": boundary}
+    return _stop_executor_for_user_control(runtime_host, task_run=task_run, agent_run=agent_run, boundary=boundary)
 
 
 def _pause_executor_for_user_control(runtime_host: Any, *, task_run: Any, agent_run: Any | None, boundary: str) -> dict[str, Any]:
@@ -3610,6 +3672,9 @@ def _record_task_step_summary(
     open_risks: list[str] | None = None,
     evidence_refs: list[str] | None = None,
     presentation_source: str = "",
+    tool_status: str = "",
+    tool_name: str = "",
+    tool_target: str = "",
 ) -> dict[str, Any]:
     visible_summary = public_runtime_progress_summary(summary)
     visible_note = public_runtime_progress_summary(public_progress_note)
@@ -3652,6 +3717,13 @@ def _record_task_step_summary(
         )
     if presentation_source:
         payload["presentation_source"] = presentation_source
+    visible_tool_status = public_runtime_progress_summary(tool_status)
+    if visible_tool_status:
+        payload["tool_status"] = visible_tool_status
+    if tool_name:
+        payload["tool_name"] = str(tool_name or "").strip()
+    if tool_target:
+        payload["tool_target"] = public_runtime_progress_summary(tool_target)
     event = runtime_host.event_log.append(
         task_run_id,
         "step_summary_recorded",

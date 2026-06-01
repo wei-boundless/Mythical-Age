@@ -12,6 +12,16 @@ GRAPH_HARNESS_CONFIG_SCHEMA_VERSION = "graph_harness_config.v1"
 GRAPH_HARNESS_CONFIG_AUTHORITY = "harness.graph_harness_config"
 
 
+def _session_scope_key(*, workspace_view: str, task_environment_id: str, project_id: str) -> str:
+    return "|".join(
+        [
+            str(workspace_view or "").strip() or "chat",
+            str(task_environment_id or "").strip(),
+            str(project_id or "").strip(),
+        ]
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class GraphHarnessConfig:
     config_id: str
@@ -118,6 +128,10 @@ class GraphRun:
     graph_id: str
     config_id: str
     config_hash: str
+    workspace_view: str = "chat"
+    task_environment_id: str = ""
+    project_id: str = ""
+    session_scope_key: str = ""
     status: str = "running"
     created_at: float = 0.0
     updated_at: float = 0.0
@@ -136,7 +150,14 @@ class GraphRun:
             raise ValueError("GraphRun requires config_id")
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        payload = asdict(self)
+        if not payload.get("session_scope_key"):
+            payload["session_scope_key"] = _session_scope_key(
+                workspace_view=self.workspace_view,
+                task_environment_id=self.task_environment_id,
+                project_id=self.project_id,
+            )
+        return payload
 
     @classmethod
     def from_dict(cls, payload: dict[str, Any]) -> "GraphRun":
@@ -147,6 +168,10 @@ class GraphRun:
             graph_id=str(payload.get("graph_id") or ""),
             config_id=str(payload.get("config_id") or ""),
             config_hash=str(payload.get("config_hash") or ""),
+            workspace_view=str(payload.get("workspace_view") or "chat"),
+            task_environment_id=str(payload.get("task_environment_id") or dict(payload.get("diagnostics") or {}).get("task_environment_id") or ""),
+            project_id=str(payload.get("project_id") or dict(payload.get("diagnostics") or {}).get("project_id") or ""),
+            session_scope_key=str(payload.get("session_scope_key") or ""),
             status=str(payload.get("status") or "running"),
             created_at=float(payload.get("created_at") or 0.0),
             updated_at=float(payload.get("updated_at") or 0.0),

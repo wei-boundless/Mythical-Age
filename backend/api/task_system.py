@@ -42,6 +42,7 @@ from task_system.node_configurations import (
     build_node_configuration_catalog,
 )
 from task_system.projects import ProjectFileService, ProjectLifecycleService
+from task_system.session_scope import normalize_session_scope, session_scope_matches
 
 router = APIRouter()
 
@@ -257,6 +258,16 @@ class EngagementStartRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     session_id: str = Field(default="", max_length=200)
+
+
+class TaskEnvironmentSessionResolveRequest(BaseModel):
+    workspace_view: str = Field(default="chat", max_length=80)
+    project_id: str = Field(default="", max_length=240)
+    intent: str = Field(default="continue_conversation", max_length=80)
+    title: str = Field(default="", max_length=120)
+    preferred_session_id: str = Field(default="", max_length=200)
+    create_if_missing: bool = False
+    graph_run_id: str = Field(default="", max_length=240)
     startup_parameters: dict[str, object] = Field(default_factory=dict)
 
 
@@ -1500,6 +1511,128 @@ async def list_task_system_environment_projects(environment_id: str) -> dict[str
         "projects": projects,
         "summary": {"project_count": len(projects)},
     }
+
+
+@router.get("/task-environments/{environment_id}/sessions")
+async def list_task_environment_sessions(
+    environment_id: str,
+    workspace_view: str = "chat",
+    project_id: str = "",
+) -> dict[str, object]:
+    runtime = require_runtime()
+    scope = normalize_session_scope(
+        {
+            "workspace_view": workspace_view,
+            "task_environment_id": environment_id,
+            "project_id": project_id,
+        }
+    )
+    sessions = runtime.session_manager.list_sessions(**scope.to_dict())
+    return {
+        "authority": "task_environment.session_list",
+        "scope": scope.to_dict(),
+        "sessions": sessions,
+    }
+
+
+@router.post("/task-environments/{environment_id}/sessions/resolve")
+async def resolve_task_environment_session(
+    environment_id: str,
+    payload: TaskEnvironmentSessionResolveRequest,
+) -> dict[str, object]:
+    runtime = require_runtime()
+    scope = normalize_session_scope(
+        {
+            "workspace_view": payload.workspace_view,
+            "task_environment_id": environment_id,
+            "project_id": payload.project_id,
+        }
+    )
+    intent = str(payload.intent or "continue_conversation").strip() or "continue_conversation"
+    create_if_missing = bool(payload.create_if_missing)
+
+    if intent == "open_project":
+        return {
+            "authority": "task_environment.session_resolver",
+            "scope": scope.to_dict(),
+            "session": None,
+            "created": False,
+            "reason": "open_project_does_not_create_session",
+        }
+
+    if intent == "resume_graph":
+        graph_run_id = str(payload.graph_run_id or "").strip()
+        if not graph_run_id:
+            raise HTTPException(status_code=400, detail="graph_run_id is required for resume_graph")
+        graph_run = runtime.query_runtime.graph_harness.get_graph_run(graph_run_id)
+        graph_run_payload = dict(graph_run or {})
+        if not graph_run_payload:
+            raise HTTPException(status_code=404, detail="GraphRun not found")
+        graph_session_id = str(graph_run_payload.get("session_id") or "")
+        history = runtime.session_manager.get_history(graph_session_id)
+        if not session_scope_matches(history.get("scope"), scope):
+            raise HTTPException(status_code=409, detail="GraphRun session scope mismatch")
+        return {
+            "authority": "task_environment.session_resolver",
+            "scope": scope.to_dict(),
+            "session": runtime.session_manager._summary_from_payload(history),
+            "created": False,
+            "reason": "resume_graph_session",
+        }
+
+    preferred_session_id = str(payload.preferred_session_id or "").strip()
+    if preferred_session_id:
+        history = runtime.session_manager.get_history(preferred_session_id)
+        if not session_scope_matches(history.get("scope"), scope):
+            raise HTTPException(status_code=409, detail="Preferred session scope mismatch")
+        return {
+            "authority": "task_environment.session_resolver",
+            "scope": scope.to_dict(),
+            "session": runtime.session_manager._summary_from_payload(history),
+            "created": False,
+            "reason": "preferred_session_valid",
+        }
+
+    if intent == "new_conversation":
+        if not create_if_missing:
+            raise HTTPException(status_code=400, detail="create_if_missing is required for new_conversation")
+        created = runtime.session_manager.create_session(
+            title=payload.title or "New Session",
+            scope=scope.to_dict(),
+        )
+        return {
+            "authority": "task_environment.session_resolver",
+            "scope": scope.to_dict(),
+            "session": created,
+            "created": True,
+            "reason": "new_conversation_created",
+        }
+
+    if intent == "continue_conversation":
+        sessions = runtime.session_manager.list_sessions(**scope.to_dict())
+        if sessions:
+            return {
+                "authority": "task_environment.session_resolver",
+                "scope": scope.to_dict(),
+                "session": sessions[0],
+                "created": False,
+                "reason": "latest_scope_session",
+            }
+
+    if create_if_missing:
+        created = runtime.session_manager.create_session(
+            title=payload.title or "New Session",
+            scope=scope.to_dict(),
+        )
+        return {
+            "authority": "task_environment.session_resolver",
+            "scope": scope.to_dict(),
+            "session": created,
+            "created": True,
+            "reason": f"{intent}_created",
+        }
+
+    raise HTTPException(status_code=404, detail="Scoped session not found")
 
 
 @router.get("/tasks/projects/{project_id}")

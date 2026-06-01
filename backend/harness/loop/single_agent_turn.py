@@ -22,6 +22,12 @@ CommitAssistantMessage = Callable[[str, dict[str, Any]], Awaitable[Any]]
 StartTaskFromActionRequest = Callable[[ModelActionRequest], AsyncIterator[dict[str, Any]]]
 ApplyActiveWorkControl = Callable[[dict[str, Any]], Awaitable[str]]
 
+_STEER_ACTIVE_WORK_ACTIONS = {
+    "continue_active_work",
+    "append_instruction_to_active_work",
+    "answer_then_continue_active_work",
+}
+
 
 async def run_single_agent_turn(
     *,
@@ -73,17 +79,6 @@ async def run_single_agent_turn(
             "packet_ref": compilation.packet.packet_id,
             "allowed_action_types": list(compilation.packet.allowed_action_types),
         }
-        if runtime_host is not None and turn_run is not None:
-            yield _record_step_summary(
-                runtime_host,
-                run_id=turn_run.turn_run_id,
-                turn_id=turn_id,
-                step="model_turn_invocation_started",
-                status="running",
-                summary="正在思考。",
-                presentation_source="single_agent_turn.model_start",
-            )
-
         response = await _invoke_single_turn_model(
             model_runtime=model_runtime,
             model_messages=list(compilation.packet.model_messages),
@@ -113,17 +108,6 @@ async def run_single_agent_turn(
                 terminal_recorded = True
                 yield {"type": "agent_turn_terminal", "event": terminal}
             return
-        if runtime_host is not None and turn_run is not None:
-            yield _record_step_summary(
-                runtime_host,
-                run_id=turn_run.turn_run_id,
-                turn_id=turn_id,
-                step="model_turn_output_received",
-                status="running",
-                summary="已收到模型判断，正在执行下一步。",
-                presentation_source="single_agent_turn.model_result",
-            )
-
         tool_calls = normalize_tool_call_dicts(response)
         action_request = _action_request_from_native_tool_calls(
             tool_calls,
@@ -208,19 +192,36 @@ async def run_single_agent_turn(
         )
         if active_control is not None:
             content = await apply_active_work_control(active_control)
-            await _commit_final_message(
-                commit_assistant_message,
-                session_id=session_id,
-                turn_id=turn_id,
-                content=content,
-                answer_channel="active_work_control",
-                answer_source="harness.route.single_agent_turn.active_work_control",
-            )
+            resolved_action = str(active_control.get("resolved_action") or active_control.get("action") or "active_work_control")
+            is_task_steer = resolved_action in _STEER_ACTIVE_WORK_ACTIONS
+            if is_task_steer:
+                yield {
+                    "type": "active_task_steer_accepted",
+                    "summary": content,
+                    "status": "accepted",
+                    "terminal_reason": resolved_action,
+                    "turn_route": turn_route.to_dict(),
+                    "active_work": dict(active_control),
+                }
+            else:
+                await _commit_final_message(
+                    commit_assistant_message,
+                    session_id=session_id,
+                    turn_id=turn_id,
+                    content=content,
+                    answer_channel="active_work_control",
+                    answer_source="harness.route.single_agent_turn.active_work_control",
+                )
             yield final_answer_event(
                 content=content,
                 answer_source="harness.route.single_agent_turn.active_work_control",
-                terminal_reason=str(active_control.get("action") or "active_work_control"),
-                extra={"turn_route": turn_route.to_dict(), "active_work": dict(active_control)},
+                terminal_reason=resolved_action,
+                extra={
+                    "turn_route": turn_route.to_dict(),
+                    "active_work": dict(active_control),
+                    "completion_state": "task_steer_accepted" if is_task_steer else "completed",
+                    "summary": content if is_task_steer else "",
+                },
             )
             if runtime_host is not None and turn_run is not None:
                 terminal = _record_turn_terminal(
@@ -228,7 +229,7 @@ async def run_single_agent_turn(
                     turn_run=turn_run,
                     turn_id=turn_id,
                     status="completed",
-                    terminal_reason=str(active_control.get("action") or "active_work_control"),
+                    terminal_reason=resolved_action,
                 )
                 terminal_recorded = True
                 yield {"type": "agent_turn_terminal", "event": terminal}
@@ -547,7 +548,7 @@ def _active_work_control_from_native_tool_calls(
             "answer_about_active_work",
             "answer_then_continue_active_work",
         }:
-            return {"action": "answer_about_active_work", "response": "我需要确认当前工作状态后再继续。"}
+            return None
         return {
             "action": action,
             "response": str(args.get("response") or "").strip(),
@@ -630,6 +631,9 @@ def _start_turn_runtime(
     )
     updated = replace(turn_run, updated_at=event.created_at, latest_event_offset=event.offset)
     runtime_host.state_index.upsert_turn_run(updated)
+    active_registry = getattr(runtime_host, "active_turn_registry", None)
+    if active_registry is not None:
+        active_registry.bind_turn_run(session_id=session_id, turn_id=turn_id, turn_run_id=turn_run_id)
     return updated, event.to_dict()
 
 
@@ -714,6 +718,12 @@ def _record_turn_terminal(
             },
         )
     )
+    active_registry = getattr(runtime_host, "active_turn_registry", None)
+    if active_registry is not None and terminal_reason != "task_executor_scheduled":
+        try:
+            active_registry.complete(session_id=turn_run.session_id, expected_turn_id=turn_id, terminal_reason=terminal_reason)
+        except Exception:
+            logger.debug("failed to complete active turn", exc_info=True)
     return event.to_dict()
 
 

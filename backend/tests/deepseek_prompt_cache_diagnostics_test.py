@@ -228,6 +228,75 @@ def test_deepseek_cache_diagnosis_summarizes_context_window_facts(tmp_path: Path
     assert report["replacement_history"] == "replacement-history:abcdef123456"
 
 
+def test_deepseek_cache_diagnosis_does_not_mix_stable_hashes_across_tasks(tmp_path: Path) -> None:
+    ledger_dir = tmp_path / "prompt_accounting"
+    ledger_dir.mkdir()
+    _write_jsonl(
+        ledger_dir / "segment_maps.jsonl",
+        [
+            {
+                "request_id": "req:task:a",
+                "run_id": "taskrun:a",
+                "task_run_id": "taskrun:a",
+                "provider": "deepseek",
+                "model": "deepseek-v4-flash",
+                "metadata": {"packet_ref": "rtpacket:taskrun:a:task_execution:1"},
+                "segments": [_segment("task_stable", "session_stable", "hash:a", 100)],
+                "created_at": 1,
+            },
+            {
+                "request_id": "req:task:b",
+                "run_id": "taskrun:b",
+                "task_run_id": "taskrun:b",
+                "provider": "deepseek",
+                "model": "deepseek-v4-flash",
+                "metadata": {"packet_ref": "rtpacket:taskrun:b:task_execution:1"},
+                "segments": [_segment("task_stable", "session_stable", "hash:b", 100)],
+                "created_at": 2,
+            },
+        ],
+    )
+
+    result = diagnose(ledger_dir=ledger_dir)
+
+    assert result.unstable_stable_segments == ()
+
+
+def test_deepseek_cache_diagnosis_flags_stable_hash_changes_inside_same_task(tmp_path: Path) -> None:
+    ledger_dir = tmp_path / "prompt_accounting"
+    ledger_dir.mkdir()
+    _write_jsonl(
+        ledger_dir / "segment_maps.jsonl",
+        [
+            {
+                "request_id": "req:task:1",
+                "run_id": "taskrun:same",
+                "task_run_id": "taskrun:same",
+                "provider": "deepseek",
+                "model": "deepseek-v4-flash",
+                "metadata": {"packet_ref": "rtpacket:taskrun:same:task_execution:1"},
+                "segments": [_segment("task_stable", "session_stable", "hash:1", 100)],
+                "created_at": 1,
+            },
+            {
+                "request_id": "req:task:2",
+                "run_id": "taskrun:same",
+                "task_run_id": "taskrun:same",
+                "provider": "deepseek",
+                "model": "deepseek-v4-flash",
+                "metadata": {"packet_ref": "rtpacket:taskrun:same:task_execution:2"},
+                "segments": [_segment("task_stable", "session_stable", "hash:2", 100)],
+                "created_at": 2,
+            },
+        ],
+    )
+
+    result = diagnose(ledger_dir=ledger_dir)
+
+    assert result.unstable_stable_segments[0]["stability_scope"] == "task:taskrun:same"
+    assert result.unstable_stable_segments[0]["distinct_content_hashes"] == 2
+
+
 def test_deepseek_cache_diagnosis_splits_utility_scope_from_agent_runtime(tmp_path: Path) -> None:
     ledger_dir = tmp_path / "prompt_accounting"
     ledger_dir.mkdir()
@@ -276,6 +345,51 @@ def test_deepseek_cache_diagnosis_splits_utility_scope_from_agent_runtime(tmp_pa
         "agent_runtime": 1,
         "utility_minimal_plan": 1,
     }
+
+
+def test_deepseek_cache_diagnosis_flags_unplanned_model_call(tmp_path: Path) -> None:
+    ledger_dir = tmp_path / "prompt_accounting"
+    ledger_dir.mkdir()
+    _write_jsonl(
+        ledger_dir / "token_usage.jsonl",
+        [
+            _provider_usage("req:unplanned", prompt_tokens=100, cached_tokens=0),
+            {
+                "usage_id": "tokuse:req:unplanned:local_prediction",
+                "request_id": "req:unplanned",
+                "provider": "deepseek",
+                "model": "deepseek-v4-flash",
+                "source": "local_prediction",
+                "prompt_tokens": 100,
+                "diagnostics": {
+                    "cache_metric_scope": "unplanned_model_call",
+                    "prompt_manifest": {"unplanned_model_call": True},
+                },
+                "created_at": 1,
+            },
+        ],
+    )
+    _write_jsonl(
+        ledger_dir / "prompt_cache_breaks.jsonl",
+        [
+            {
+                "break_id": "pcbreak:req:unplanned",
+                "request_id": "req:unplanned",
+                "provider": "deepseek",
+                "model": "deepseek-v4-flash",
+                "reason": "unplanned_model_call",
+                "diagnostics": {"severity": "high"},
+                "created_at": 2,
+            }
+        ],
+    )
+
+    result = diagnose(ledger_dir=ledger_dir)
+
+    assert result.summary["unplanned_model_call_breaks"] == 1
+    assert result.summary["cache_metric_scope_counts"]["unplanned_model_call"] == 1
+    assert result.summary["cache_metric_scope_usage"]["unplanned_model_call"]["prompt_tokens"] == 100
+    assert any(issue["code"] == "unplanned_model_call" for issue in result.issues)
 
 
 def _write_jsonl(path: Path, rows: list[dict]) -> None:

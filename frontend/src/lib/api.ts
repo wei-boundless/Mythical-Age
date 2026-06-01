@@ -20,7 +20,28 @@ export type SessionSummary = {
   created_at: number;
   updated_at: number;
   message_count: number;
+  scope?: SessionScope;
 };
+
+export type SessionScope = {
+  workspace_view: string;
+  task_environment_id?: string;
+  project_id?: string;
+};
+
+function sessionScopeQuery(scope?: Partial<SessionScope>) {
+  const params = new URLSearchParams();
+  if (scope?.workspace_view) params.set("workspace_view", scope.workspace_view);
+  if (scope?.task_environment_id) params.set("task_environment_id", scope.task_environment_id);
+  if (scope?.project_id) params.set("project_id", scope.project_id);
+  return params;
+}
+
+function withSessionScopeQuery(path: string, scope?: Partial<SessionScope>) {
+  const params = sessionScopeQuery(scope);
+  const query = params.toString();
+  return query ? `${path}?${query}` : path;
+}
 
 export type SessionHistory = {
   id: string;
@@ -28,6 +49,7 @@ export type SessionHistory = {
   created_at: number;
   updated_at: number;
   compressed_context?: string;
+  scope?: SessionScope;
   messages: Array<{
     role: "user" | "assistant";
     content: string;
@@ -38,6 +60,25 @@ export type SessionHistory = {
       caption?: string;
     } | null;
   }>;
+};
+
+export type TaskEnvironmentSessionResolvePayload = {
+  workspace_view?: string;
+  project_id?: string;
+  intent?: "open_project" | "continue_conversation" | "new_conversation" | "resume_graph" | string;
+  title?: string;
+  preferred_session_id?: string;
+  create_if_missing?: boolean;
+  graph_run_id?: string;
+  startup_parameters?: Record<string, unknown>;
+};
+
+export type TaskEnvironmentSessionResolveResponse = {
+  authority: string;
+  scope: SessionScope;
+  session: SessionSummary | null;
+  created: boolean;
+  reason: string;
 };
 
 export type SessionRuntimeAttachment = {
@@ -3661,46 +3702,48 @@ function delay(ms: number, signal?: AbortSignal) {
   });
 }
 
-export async function listSessions() {
-  return request<SessionSummary[]>("/sessions");
+export async function listSessions(scope?: Partial<SessionScope>) {
+  const params = sessionScopeQuery(scope);
+  const query = params.toString();
+  return request<SessionSummary[]>(query ? `/sessions?${query}` : "/sessions");
 }
 
-export async function createSession(title = "New Session") {
+export async function createSession(title = "New Session", scope?: Partial<SessionScope>) {
   return request<SessionSummary>("/sessions", {
     method: "POST",
-    body: JSON.stringify({ title })
+    body: JSON.stringify({ title, ...(scope ? { scope } : {}) })
   });
 }
 
-export async function renameSession(sessionId: string, title: string) {
-  return request<SessionSummary>(`/sessions/${sessionId}`, {
+export async function renameSession(sessionId: string, title: string, scope?: Partial<SessionScope>) {
+  return request<SessionSummary>(withSessionScopeQuery(`/sessions/${sessionId}`, scope), {
     method: "PUT",
     body: JSON.stringify({ title })
   });
 }
 
-export async function deleteSession(sessionId: string) {
-  return request<{ ok: boolean }>(`/sessions/${sessionId}`, {
+export async function deleteSession(sessionId: string, scope?: Partial<SessionScope>) {
+  return request<{ ok: boolean }>(withSessionScopeQuery(`/sessions/${sessionId}`, scope), {
     method: "DELETE"
   });
 }
 
-export async function getSessionHistory(sessionId: string) {
-  return request<SessionHistory>(`/sessions/${sessionId}/history`);
+export async function getSessionHistory(sessionId: string, scope?: Partial<SessionScope>) {
+  return request<SessionHistory>(withSessionScopeQuery(`/sessions/${sessionId}/history`, scope));
 }
 
-export async function getSessionTimeline(sessionId: string) {
-  return request<SessionTimeline>(`/sessions/${sessionId}/timeline`);
+export async function getSessionTimeline(sessionId: string, scope?: Partial<SessionScope>) {
+  return request<SessionTimeline>(withSessionScopeQuery(`/sessions/${sessionId}/timeline`, scope));
 }
 
-export async function truncateSessionMessages(sessionId: string, messageIndex: number) {
-  return request<SessionTruncateResponse>(`/sessions/${sessionId}/messages/truncate`, {
+export async function truncateSessionMessages(sessionId: string, messageIndex: number, scope?: Partial<SessionScope>) {
+  return request<SessionTruncateResponse>(withSessionScopeQuery(`/sessions/${sessionId}/messages/truncate`, scope), {
     method: "POST",
     body: JSON.stringify({ message_index: messageIndex })
   });
 }
 
-export async function getSessionTokens(sessionId: string) {
+export async function getSessionTokens(sessionId: string, scope?: Partial<SessionScope>) {
   return request<{
     system_tokens: number;
     message_tokens: number;
@@ -3716,7 +3759,7 @@ export async function getSessionTokens(sessionId: string) {
     history_did_compact: boolean;
     history_did_microcompact: boolean;
     history_did_full_compact: boolean;
-  }>(`/tokens/session/${sessionId}`);
+  }>(withSessionScopeQuery(`/tokens/session/${sessionId}`, scope));
 }
 
 export async function listSkills() {
@@ -3852,8 +3895,10 @@ export async function getArtifactRepositoryOverview(payload?: {
   return request<ArtifactRepositoryOverview>(`/memory/artifacts/overview${suffix}`);
 }
 
-export async function getSessionMemoryFiles(sessionId: string) {
-  return request<MemorySessionFilesResponse>(`/memory/session/${encodeURIComponent(sessionId)}/files`);
+export async function getSessionMemoryFiles(sessionId: string, scope?: Partial<SessionScope>) {
+  return request<MemorySessionFilesResponse>(
+    withSessionScopeQuery(`/memory/session/${encodeURIComponent(sessionId)}/files`, scope)
+  );
 }
 
 export async function recallMemoryPreview(payload: { query: string; session_id?: string; limit?: number }) {
@@ -4150,6 +4195,7 @@ export async function startTaskGraphHarnessRun(
   payload: {
     session_id?: string;
     task_id?: string;
+    session_scope?: Partial<SessionScope>;
     initial_inputs?: Record<string, unknown>;
     include_trace?: boolean;
     dispatch_ready?: boolean;
@@ -4166,10 +4212,17 @@ export async function startTaskGraphHarnessRun(
   );
 }
 
+export async function getPublishedTaskGraphHarnessConfig(graphId: string) {
+  return request<GraphHarnessConfigPayload>(
+    `/orchestration/harness/task-graphs/${encodeURIComponent(graphId)}/published-config`
+  );
+}
+
 export async function runGraphRunUntilIdle(
   graphRunId: string,
   payload: {
     graph_harness_config_id: string;
+    session_scope?: Partial<SessionScope>;
     max_node_executions?: number;
     max_loop_iterations?: number;
     max_node_steps?: number;
@@ -4202,6 +4255,7 @@ export async function dispatchGraphRunReadyNodes(
   graphRunId: string,
   payload: {
     graph_harness_config_id: string;
+    session_scope?: Partial<SessionScope>;
     max_requests?: number;
   }
 ) {
@@ -4218,6 +4272,7 @@ export async function acceptGraphNodeResult(
   graphRunId: string,
   payload: {
     graph_harness_config_id: string;
+    session_scope?: Partial<SessionScope>;
     result: Record<string, unknown>;
   }
 ) {
@@ -4234,6 +4289,7 @@ export async function executeGraphWorkOrder(
   graphRunId: string,
   payload: {
     graph_harness_config_id: string;
+    session_scope?: Partial<SessionScope>;
     work_order: Record<string, unknown>;
     max_steps?: number;
     accept_result?: boolean;
@@ -4663,6 +4719,30 @@ export async function getTaskSystemEnvironmentProjects(environmentId: string) {
   }>(`/tasks/environments/${encodeURIComponent(environmentId)}/projects`);
 }
 
+export async function listTaskEnvironmentSessions(environmentId: string, scope?: Partial<SessionScope>) {
+  const params = sessionScopeQuery({
+    workspace_view: scope?.workspace_view ?? "task_environment",
+    task_environment_id: environmentId,
+    project_id: scope?.project_id,
+  });
+  return request<{ authority: string; scope: SessionScope; sessions: SessionSummary[] }>(
+    `/task-environments/${encodeURIComponent(environmentId)}/sessions?${params.toString()}`
+  );
+}
+
+export async function resolveTaskEnvironmentSession(
+  environmentId: string,
+  payload: TaskEnvironmentSessionResolvePayload
+) {
+  return request<TaskEnvironmentSessionResolveResponse>(
+    `/task-environments/${encodeURIComponent(environmentId)}/sessions/resolve`,
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }
+  );
+}
+
 export async function getTaskSystemEnvironmentTasks(environmentId: string) {
   return request<TaskEnvironmentTasksPayload>(`/tasks/environments/${encodeURIComponent(environmentId)}/tasks`);
 }
@@ -4956,11 +5036,14 @@ export async function uploadSoulPortrait(key: string, file: File) {
 export async function createChatRun(payload: {
   message: string;
   session_id: string;
+  session_scope?: Partial<SessionScope>;
   ephemeral_system_messages?: string[];
   search_policy?: string[];
   task_selection?: Record<string, unknown>;
   model_selection?: Record<string, unknown>;
   image_generation?: Record<string, unknown>;
+  expected_active_turn_id?: string;
+  active_turn_input_policy?: string;
 }) {
   return request<ChatRun>("/chat/runs", {
     method: "POST",
@@ -4981,8 +5064,9 @@ export async function resumeChatRun(streamRunId: string) {
   });
 }
 
-export async function getLatestChatRunForSession(sessionId: string, activeOnly = true) {
-  const params = new URLSearchParams({ active_only: activeOnly ? "true" : "false" });
+export async function getLatestChatRunForSession(sessionId: string, activeOnly = true, scope?: Partial<SessionScope>) {
+  const params = sessionScopeQuery(scope);
+  params.set("active_only", activeOnly ? "true" : "false");
   return request<ChatRun>(`/chat/sessions/${encodeURIComponent(sessionId)}/latest-run?${params.toString()}`);
 }
 
@@ -5200,6 +5284,7 @@ export async function streamChat(
   payload: {
     message: string;
     session_id: string;
+    session_scope?: Partial<SessionScope>;
     ephemeral_system_messages?: string[];
     search_policy?: string[];
     task_selection?: Record<string, unknown>;

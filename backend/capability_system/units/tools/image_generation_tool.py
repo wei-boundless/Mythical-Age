@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import asyncio
 import json
-import time
 from pathlib import Path
 from typing import Any, Type
+from uuid import uuid4
 
 from langchain_core.callbacks.manager import AsyncCallbackManagerForToolRun, CallbackManagerForToolRun
 from langchain_core.tools import BaseTool
@@ -20,9 +20,9 @@ class ImageGenerationInput(BaseModel):
     asset_kind: str = Field(default="chat", description="Asset kind used in the saved filename.")
     size: str = Field(default="1024x1024", description="Provider generation size. Use 1024x1024 unless the provider explicitly supports another size.")
     quality: str = Field(default="", description="Optional provider quality such as low, medium, high, auto, or standard.")
-    request_timeout_seconds: float = Field(default=55.0, ge=30.0, le=120.0, description="Single provider request timeout. Keep below gateway limits for long-running agent tasks.")
+    request_timeout_seconds: float = Field(default=150.0, ge=30.0, le=240.0, description="Single provider request timeout. Image providers can take around 100 seconds for a completed asset.")
     output_size: str = Field(default="", description="Optional final PNG size for local resizing, for example 128x128. This is not sent to the image provider.")
-    overwrite: bool = Field(default=True, description="Overwrite an existing generated asset with the same id.")
+    overwrite: bool = Field(default=False, description="Reuse an existing generated asset with the same id unless explicitly set true.")
 
 
 class ImageGenerationTool(BaseTool):
@@ -47,9 +47,9 @@ class ImageGenerationTool(BaseTool):
         asset_kind: str = "chat",
         size: str = "1024x1024",
         quality: str = "",
-        request_timeout_seconds: float = 55.0,
+        request_timeout_seconds: float = 150.0,
         output_size: str = "",
-        overwrite: bool = True,
+        overwrite: bool = False,
         run_manager: CallbackManagerForToolRun | None = None,
     ) -> str:
         return asyncio.run(self._arun(prompt, model, target_id, asset_kind, size, quality, request_timeout_seconds, output_size, overwrite, None))
@@ -62,15 +62,15 @@ class ImageGenerationTool(BaseTool):
         asset_kind: str = "chat",
         size: str = "1024x1024",
         quality: str = "",
-        request_timeout_seconds: float = 55.0,
+        request_timeout_seconds: float = 150.0,
         output_size: str = "",
-        overwrite: bool = True,
+        overwrite: bool = False,
         run_manager: AsyncCallbackManagerForToolRun | None = None,
     ) -> str:
         clean_prompt = str(prompt or "").strip()
         if not clean_prompt:
             return json.dumps({"ok": False, "error": "Image prompt is required"}, ensure_ascii=False)
-        safe_target = str(target_id or "").strip() or f"tool-{int(time.time())}"
+        safe_target = str(target_id or "").strip() or f"tool-{uuid4().hex}"
         try:
             generated = await SoulImageAssetService(self._root_dir).generate(
                 prompt=clean_prompt,
@@ -79,16 +79,21 @@ class ImageGenerationTool(BaseTool):
                 size=str(size or "1024x1024").strip() or "1024x1024",
                 quality=str(quality or "").strip(),
                 model=str(model or "").strip(),
-                request_timeout_seconds=float(request_timeout_seconds or 55.0),
+                request_timeout_seconds=float(request_timeout_seconds or 150.0),
                 output_size=str(output_size or "").strip(),
                 overwrite=bool(overwrite),
             )
         except SoulImageAssetError as exc:
+            structured_error = exc.to_dict()
+            provider_retryable = bool(structured_error.get("retryable", False))
+            structured_error["provider_retryable"] = provider_retryable
+            structured_error["retryable"] = False
+            structured_error["agent_retry_policy"] = "do_not_auto_retry"
             return json.dumps(
                 {
                     "ok": False,
                     "error": str(exc),
-                    "structured_error": exc.to_dict(),
+                    "structured_error": structured_error,
                 },
                 ensure_ascii=False,
             )

@@ -57,11 +57,22 @@ class SoulImageAssetService:
             "public_dir": str(self.public_dir),
         }
 
-    def set_config(self, *, base_url: str, model: str, api_key: str | None = None) -> dict[str, Any]:
+    def set_config(
+        self,
+        *,
+        base_url: str,
+        model: str,
+        api_key: str | None = None,
+        request_timeout_seconds: float | int | str | None = None,
+    ) -> dict[str, Any]:
         current = dict(runtime_config.load().get("soul_image_assets") or {})
         payload: dict[str, Any] = {
             "base_url": str(base_url or "").strip(),
             "model": str(model or "gpt-image-2").strip() or "gpt-image-2",
+            "request_timeout_seconds": _normalize_request_timeout(
+                request_timeout_seconds if request_timeout_seconds not in {None, ""} else current.get("request_timeout_seconds"),
+                default=150.0,
+            ),
         }
         next_api_key = str(api_key or "").strip()
         if next_api_key:
@@ -176,6 +187,8 @@ class SoulImageAssetService:
 
         self.public_dir.mkdir(parents=True, exist_ok=True)
         output_path.write_bytes(image_bytes)
+        if not output_path.exists() or output_path.stat().st_size <= 0:
+            raise SoulImageAssetError("Generated image was not written to disk", code="image_asset_write_failed", retryable=True, attempts=attempts)
         return {
             **self._asset_response(output_path, filename, reused=False),
             "created": data.get("created"),
@@ -343,11 +356,11 @@ class SoulImageAssetService:
     @staticmethod
     def _request_timeout_seconds() -> float:
         override = dict(runtime_config.load().get("soul_image_assets") or {})
-        raw = os.getenv("SOUL_IMAGE_REQUEST_TIMEOUT_SECONDS") or override.get("request_timeout_seconds") or 55
+        raw = os.getenv("SOUL_IMAGE_REQUEST_TIMEOUT_SECONDS") or override.get("request_timeout_seconds") or 150
         try:
-            return _normalize_request_timeout(float(raw), default=55.0)
+            return _normalize_request_timeout(float(raw), default=150.0)
         except (TypeError, ValueError):
-            return 55.0
+            return 150.0
 
     @staticmethod
     def _request_concurrency() -> int:
@@ -484,7 +497,7 @@ def _normalize_request_timeout(value: float | int | str | None, *, default: floa
         parsed = float(value if value is not None else default)
     except (TypeError, ValueError):
         parsed = float(default)
-    return min(120.0, max(30.0, parsed))
+    return min(240.0, max(30.0, parsed))
 
 
 def _resolve_generation_and_output_sizes(*, size: str, output_size: str) -> tuple[str, tuple[int, int] | None]:

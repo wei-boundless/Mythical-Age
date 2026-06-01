@@ -248,8 +248,8 @@ def test_task_execution_packet_places_stable_contract_before_volatile_state() ->
     stable_payload = json.loads(messages[1]["content"].split("\n", 1)[1])
     volatile_payload = json.loads(current_state_content.split("\n", 1)[1])
     runtime_boundary_content = _message_content_with_title(result.packet, "Task execution runtime boundary")
-    assert "Task run stable context" in runtime_boundary_content
-    runtime_task_context = json.loads(runtime_boundary_content.split("Task run stable context\n", 1)[1].split("\n\nTask execution runtime boundary", 1)[0])
+    assert "Task run model-visible context" in runtime_boundary_content
+    runtime_task_context = json.loads(runtime_boundary_content.split("Task run model-visible context\n", 1)[1].split("\nTask execution runtime boundary", 1)[0])
     assert runtime_task_context == {"authority": "orchestration.task_run"}
     assert "task_run" not in stable_payload
     assert "graph_run_id" not in messages[1]["content"]
@@ -311,9 +311,9 @@ def test_task_execution_packet_places_stable_contract_before_volatile_state() ->
         model="deepseek-v4-pro",
         segment_plan=result.packet.segment_plan,
     )
-    assert model_request.provider_global_prefix_hash == cache_record.prefix_hash
-    assert model_request.stable_prefix_hash != cache_record.prefix_hash
-    assert cache_record.diagnostics["prefix_key_tier"] == "provider_global"
+    assert model_request.task_prefix_hash == cache_record.prefix_hash
+    assert cache_record.diagnostics["prefix_key_tier"] == "task"
+    assert model_request.provider_global_prefix_hash != cache_record.prefix_hash
     assert cache_record.diagnostics["stable_prefix_segment_count"] == 4
     assert cache_record.diagnostics["provider_global_prefix_segment_count"] == 1
     assert cache_record.diagnostics["task_prefix_segment_count"] == 4

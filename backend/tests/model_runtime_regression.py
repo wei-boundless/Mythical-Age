@@ -192,6 +192,32 @@ def test_model_runtime_records_fallback_candidate_switch_in_prompt_accounting(
     assert switch.diagnostics["call_kind"] == "invoke_messages"
 
 
+def test_model_runtime_marks_missing_segment_plan_as_unplanned(tmp_path: Path) -> None:
+    runtime = _runtime(retries=0)
+    ledger = PromptAccountingLedger(tmp_path)
+    runtime.attach_prompt_accounting_ledger(ledger)
+
+    runtime._begin_prompt_accounting(
+        [{"role": "user", "content": "hello"}],
+        tools=None,
+        spec=ModelSpec(provider="deepseek", model="deepseek-v4-flash", api_key="key", base_url="https://api.deepseek.com/v1"),
+        accounting_context={
+            "request_id": "modelreq:unplanned",
+            "session_id": "session:unplanned",
+            "source": "harness.route.single_agent_turn",
+        },
+        attempt=1,
+        call_kind="invoke_messages",
+    )
+
+    local = [record for record in ledger.list_token_usage(session_id="session:unplanned") if record.source == "local_prediction"][0]
+    breaks = ledger.list_prompt_cache_breaks(session_id="session:unplanned")
+    assert local.diagnostics["cache_metric_scope"] == "unplanned_model_call"
+    assert local.diagnostics["prompt_manifest"]["unplanned_model_call"] is True
+    assert any(record.reason == "unplanned_model_call" for record in breaks)
+    assert next(record for record in breaks if record.reason == "unplanned_model_call").diagnostics["severity"] == "high"
+
+
 def test_generate_title_uses_utility_minimal_segment_plan(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -737,6 +763,44 @@ def test_model_response_does_not_execute_dsml_when_no_tools_are_bound() -> None:
     events = asyncio.run(_collect())
 
     assert [event["type"] for event in events] == ["model_protocol_violation"]
+
+
+def test_model_response_executor_records_segment_plan_for_directive_model_call(tmp_path: Path) -> None:
+    runtime = _runtime(retries=0)
+    ledger = PromptAccountingLedger(tmp_path)
+    runtime.attach_prompt_accounting_ledger(ledger)
+    runtime._get_chat_model_for_spec = lambda _spec: _FakeModel(SimpleNamespace(content="完成"))
+    executor = ModelResponseRuntimeExecutor(model_runtime=runtime)
+
+    async def _collect():
+        events = []
+        async for event in executor.stream(
+            user_message="close out",
+            model_messages=[
+                {"role": "system", "content": "你负责完成当前模型响应。"},
+                {"role": "user", "content": "请收口。"},
+            ],
+            directive=SimpleNamespace(
+                executor_type="model",
+                directive_id="directive:planned",
+                task_id="taskrun:planned",
+                plan_ref="plan:test",
+                execution_graph_ref="graph:test",
+                diagnostics={"session_id": "session:planned", "task_run_id": "taskrun:planned"},
+            ),
+            tool_instances=[],
+        ):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_collect())
+    local = next(record for record in ledger.list_token_usage(session_id="session:planned") if record.source == "local_prediction")
+    breaks = ledger.list_prompt_cache_breaks(session_id="session:planned")
+
+    assert any(event["type"] == "done" for event in events)
+    assert local.diagnostics["cache_metric_scope"] == "runtime_directive_model_response"
+    assert local.diagnostics["prompt_manifest"]["segment_plan_ref"]
+    assert not any(record.reason == "unplanned_model_call" for record in breaks)
 
 
 def test_provider_tool_call_adapter_strips_metadata_for_langchain_messages() -> None:
@@ -1577,7 +1641,7 @@ def test_model_runtime_prompt_stability_records_tool_call_options(tmp_path: Path
     }
 
 
-def test_model_runtime_prompt_stability_compares_same_session_across_runs(tmp_path: Path) -> None:
+def test_model_runtime_prompt_stability_compares_same_run_before_session(tmp_path: Path) -> None:
     runtime = _runtime(retries=0)
     ledger = PromptAccountingLedger(tmp_path)
     runtime.attach_prompt_accounting_ledger(ledger)
@@ -1640,7 +1704,27 @@ def test_model_runtime_prompt_stability_compares_same_session_across_runs(tmp_pa
 
     reports = ledger.list_prompt_stability(session_id="session:cross-run-stability")
 
-    assert reports[-1].previous_report_ref == "pstability:modelreq:session-cross-run-stability:1"
+    assert reports[-1].previous_report_ref == ""
+    assert reports[-1].diagnostics["has_previous_report"] is False
+
+    runtime._begin_prompt_accounting(
+        messages,
+        tools=None,
+        spec=spec,
+        accounting_context={
+            "request_id": "modelreq:session-cross-run-stability:3",
+            "run_id": "run:second",
+            "session_id": "session:cross-run-stability",
+            "source": "turn_action",
+            "segment_plan": segment_plan,
+        },
+        attempt=1,
+        call_kind="turn_action",
+    )
+
+    reports = ledger.list_prompt_stability(session_id="session:cross-run-stability")
+
+    assert reports[-1].previous_report_ref == "pstability:modelreq:session-cross-run-stability:2"
     assert reports[-1].diagnostics["has_previous_report"] is True
 
 

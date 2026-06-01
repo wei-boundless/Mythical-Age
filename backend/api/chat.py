@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from dataclasses import replace
 from typing import Any
 
 from fastapi import APIRouter, Header, HTTPException, Query
@@ -18,6 +19,7 @@ from runtime.shared.stream_replay import (
     parse_stream_event_id,
 )
 from sessions import validate_session_id
+from task_system.session_scope import assert_optional_session_scope
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -47,6 +49,11 @@ PUBLIC_EVENT_DATA_ALLOWLIST = {
         "answer_channel",
         "answer_source",
         "answer_canonical_state",
+    },
+    "active_task_steer_accepted": {
+        "summary",
+        "status",
+        "terminal_reason",
     },
     "harness_run_started": {"task_run", "turn_run", "event"},
     "runtime_step_summary": {
@@ -102,6 +109,9 @@ class ChatRequest(BaseModel):
     task_selection: dict[str, Any] = Field(default_factory=dict)
     model_selection: dict[str, Any] = Field(default_factory=dict)
     image_generation: dict[str, Any] = Field(default_factory=dict)
+    session_scope: dict[str, Any] | None = None
+    expected_active_turn_id: str = ""
+    active_turn_input_policy: str = "auto"
 
 
 def _error_status(code: str) -> int:
@@ -118,6 +128,7 @@ def _error_status(code: str) -> int:
 async def create_chat_run(payload: ChatRequest):
     runtime = require_runtime()
     session_id = validate_session_id(payload.session_id)
+    assert_optional_session_scope(runtime.session_manager, session_id, payload.session_scope)
     request = _query_request_from_payload(payload, session_id=session_id)
     run = _create_and_schedule_run(runtime, request)
     return _run_response(run)
@@ -186,6 +197,7 @@ async def resume_chat_run(stream_run_id: str):
 async def chat(payload: ChatRequest):
     runtime = require_runtime()
     session_id = validate_session_id(payload.session_id)
+    assert_optional_session_scope(runtime.session_manager, session_id, payload.session_scope)
     request = _query_request_from_payload(payload, session_id=session_id)
     run = _create_and_schedule_run(runtime, request)
 
@@ -228,6 +240,8 @@ def _query_request_from_payload(payload: ChatRequest, *, session_id: str) -> Que
         task_selection=dict(payload.task_selection or {}),
         model_selection=dict(payload.model_selection or {}),
         image_generation=dict(payload.image_generation or {}),
+        expected_active_turn_id=str(payload.expected_active_turn_id or ""),
+        active_turn_input_policy=str(payload.active_turn_input_policy or "auto"),
     )
 
 
@@ -235,7 +249,21 @@ def _create_and_schedule_run(runtime: Any, request: QueryRequest) -> RuntimeRun:
     host = runtime.query_runtime.single_agent_runtime_host
     run = host.run_registry.create_run(
         session_id=request.session_id,
-        diagnostics={"source": "api.chat", "message_chars": len(str(request.message or ""))},
+        owner_process_id=getattr(host, "owner_process_id", None),
+        owner_instance_id=getattr(host, "instance_id", ""),
+        diagnostics={
+            "source": "api.chat",
+            "message_chars": len(str(request.message or "")),
+            "expected_active_turn_id": str(request.expected_active_turn_id or ""),
+            "active_turn_input_policy": str(request.active_turn_input_policy or "auto"),
+        },
+    )
+    request = replace(
+        request,
+        runtime_profile={
+            **dict(request.runtime_profile or {}),
+            "stream_run_id": run.stream_run_id,
+        },
     )
     host.spawn_background_task(
         _run_chat_to_event_log(runtime, run, request),
@@ -262,12 +290,15 @@ async def _run_chat_to_event_log(runtime: Any, run: RuntimeRun, request: QueryRe
             runtime_refs = _runtime_run_refs_from_event(event)
             runtime_task_run_id = runtime_refs["task_run_id"]
             runtime_turn_run_id = runtime_refs["turn_run_id"]
+            runtime_active_turn_id = runtime_refs["active_turn_id"]
             projection = _project_public_stream_event(event_type, event)
             if projection is None:
                 continue
             public_event_type, data = projection
             if runtime_task_run_id:
                 data.setdefault("runtime_task_run_id", runtime_task_run_id)
+            if runtime_active_turn_id:
+                data.setdefault("active_turn_id", runtime_active_turn_id)
             logged = replay.append_public_event(current, public_event_type=public_event_type, data=data)
             terminal_event = public_event_type if public_event_type in TERMINAL_STREAM_EVENTS else terminal_event
             diagnostics = {
@@ -275,6 +306,7 @@ async def _run_chat_to_event_log(runtime: Any, run: RuntimeRun, request: QueryRe
                 for key, value in {
                     "runtime_task_run_id": runtime_task_run_id,
                     "runtime_turn_run_id": runtime_turn_run_id,
+                    "active_turn_id": runtime_active_turn_id,
                 }.items()
                 if value
             }
@@ -400,9 +432,13 @@ def _get_run_or_404(runtime: Any, stream_run_id: str) -> RuntimeRun:
 
 
 def _run_response(run: RuntimeRun) -> dict[str, Any]:
+    payload = run.to_dict()
+    payload.pop("owner_process_id", None)
+    payload.pop("owner_instance_id", None)
     return {
-        **run.to_dict(),
-        "is_reconnectable": run.reconnectable_until >= time.time(),
+        **payload,
+        "is_reconnectable": run.reconnectable_until >= time.time()
+        and run.status not in TERMINAL_RUN_STATUSES,
         "stream_url": f"/api/chat/runs/{run.stream_run_id}/events",
     }
 
@@ -475,6 +511,7 @@ def _redact_public_stream_data(value: Any) -> Any:
 def _runtime_run_refs_from_event(event: dict[str, Any]) -> dict[str, str]:
     task_run_id = ""
     turn_run_id = ""
+    active_turn_id = str(event.get("active_turn_id") or "").strip()
     runtime_event = dict(event.get("event") or {}) if isinstance(event.get("event"), dict) else {}
     runtime_payload = dict(runtime_event.get("payload") or {}) if isinstance(runtime_event.get("payload"), dict) else {}
     for value in (
@@ -499,4 +536,8 @@ def _runtime_run_refs_from_event(event: dict[str, Any]) -> dict[str, str]:
         if normalized.startswith("turnrun:"):
             turn_run_id = normalized
             break
-    return {"task_run_id": task_run_id, "turn_run_id": turn_run_id}
+    if not active_turn_id:
+        active_turn = event.get("active_turn")
+        if isinstance(active_turn, dict):
+            active_turn_id = str(active_turn.get("turn_id") or "").strip()
+    return {"task_run_id": task_run_id, "turn_run_id": turn_run_id, "active_turn_id": active_turn_id}

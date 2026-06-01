@@ -509,6 +509,7 @@ function CollapsedPanelRail({
 export function WorkbenchShell({
   children,
   className = "",
+  hideMainToolbar = false,
   leftPanel,
   leftPanelLabel = "任务环境",
   rightPanel,
@@ -516,6 +517,7 @@ export function WorkbenchShell({
 }: {
   children: ReactNode;
   className?: string;
+  hideMainToolbar?: boolean;
   leftPanel?: ReactNode;
   leftPanelLabel?: string;
   rightPanel?: ReactNode;
@@ -586,15 +588,17 @@ export function WorkbenchShell({
         />
       )}
       {leftCollapsed ? <div aria-hidden="true" /> : null}
-      <section className="workbench-center" aria-label="主任务环境">
-        <MainToolbar
-          centerPanel={centerPanel}
-          leftPanelCollapsed={leftCollapsed}
-          onReturnToChat={() => setCenterPanel("chat")}
-          onToggleLeftPanel={() => setLeftCollapsed((value) => !value)}
-          onToggleRightPanel={() => setRightCollapsed((value) => !value)}
-          rightPanelCollapsed={rightCollapsed}
-        />
+      <section className={hideMainToolbar ? "workbench-center workbench-center--no-toolbar" : "workbench-center"} aria-label="主任务环境">
+        {hideMainToolbar ? null : (
+          <MainToolbar
+            centerPanel={centerPanel}
+            leftPanelCollapsed={leftCollapsed}
+            onReturnToChat={() => setCenterPanel("chat")}
+            onToggleLeftPanel={() => setLeftCollapsed((value) => !value)}
+            onToggleRightPanel={() => setRightCollapsed((value) => !value)}
+            rightPanelCollapsed={rightCollapsed}
+          />
+        )}
         <div className="workbench-center-content">
           {centerPanel === "file" ? <CenterFilePage onReturnToChat={() => setCenterPanel("chat")} /> : children}
         </div>

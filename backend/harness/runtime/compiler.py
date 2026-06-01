@@ -397,7 +397,6 @@ class RuntimeCompiler:
             "available_tools": _stable_tool_catalog_payload(tool_payloads),
             "tool_catalog_hash": _stable_json_hash([dict(item) for item in tool_payloads]),
         }
-        task_run_stable_context = _task_run_stable_payload(task_run, graph_runtime_projection=graph_runtime_projection) if task_run_context_enabled else {}
         packet_id = f"rtpacket:{task_run_id}:task_execution:{executor_epoch}:{invocation_index}"
         dynamic_context = self.dynamic_context_manager.project(
             DynamicContextInput(
@@ -481,7 +480,10 @@ class RuntimeCompiler:
                     role="system",
                     content=_join_prompt_sections(
                         runtime_instruction,
-                        _packet_payload_content("Task run stable context", task_run_stable_context),
+                        _packet_payload_content(
+                            "Task run model-visible context",
+                            _task_run_stable_payload(task_run, graph_runtime_projection=graph_runtime_projection) if task_run_context_enabled else {},
+                        ),
                         _packet_payload_content("Task execution runtime boundary", dynamic_payload),
                     ),
                     kind="dynamic_projection",
@@ -807,7 +809,7 @@ class RuntimeCompiler:
         if not refs:
             default_ref = default_pack_ref_for_invocation(invocation_kind)
             refs = (default_ref,) if default_ref else ()
-        return PromptAssemblyService(self.base_dir).assemble(
+        assembly = PromptAssemblyService(self.base_dir).assemble(
             PromptAssemblyRequest(
                 invocation_kind=invocation_kind,
                 prompt_pack_refs=refs,
@@ -815,6 +817,12 @@ class RuntimeCompiler:
                 task_environment_ref=task_environment_ref,
             )
         )
+        _validate_runtime_prompt_pack_assembly(
+            assembly,
+            invocation_kind=invocation_kind,
+            requested_refs=refs,
+        )
+        return assembly
 
     def _assemble_prompt_contract(
         self,
@@ -869,16 +877,40 @@ class RuntimeCompiler:
         )
 
 
+def _validate_runtime_prompt_pack_assembly(
+    assembly: PromptAssemblyResult,
+    *,
+    invocation_kind: str,
+    requested_refs: tuple[str, ...],
+) -> None:
+    if not tuple(requested_refs or ()):
+        return
+    rejected_refs = tuple(dict(item) for item in tuple(assembly.rejected_refs or ()))
+    if rejected_refs:
+        rejected = ", ".join(
+            f"{item.get('ref', '')}:{item.get('reason', '')}" for item in rejected_refs
+        )
+        raise ValueError(
+            "runtime prompt pack assembly rejected refs: "
+            f"invocation_kind={invocation_kind} refs={rejected}"
+        )
+    if not str(assembly.content or "").strip():
+        raise ValueError(
+            "runtime prompt pack assembly produced empty content: "
+            f"invocation_kind={invocation_kind} refs={','.join(requested_refs)}"
+        )
+
+
 def model_action_request_schema(turn_id: str) -> dict[str, Any]:
     del turn_id
     return {
         "authority": "harness.loop.model_action_request",
         "action_type": "respond|ask_user|tool_call|request_task_run|request_registered_engagement|block",
-        "public_progress_note": "一句用户可理解的公开进展；不包含内部编号、系统结构、协议字段或隐藏推理。",
+        "public_progress_note": "一句用户可理解的公开进展；只描述你的公开判断、计划或已观察到的结果，不得把尚未执行的工具动作说成正在执行或已经完成；不包含内部编号、系统结构、协议字段或隐藏推理。",
         "public_action_state": {
             "evidence_refs": ["可选；你本轮判断引用的 observation/event/artifact ref"],
-            "current_judgment": "可选；你基于当前上下文作出的公开判断，只写结论，不暴露隐藏推理链。",
-            "next_action": "可选；你马上要采取的具体动作；如果收尾，说明准备提交什么结果。",
+            "current_judgment": "可选；你基于当前上下文作出的公开判断，只写结论，不暴露隐藏推理链，也不要声称工具动作已经发生。",
+            "next_action": "可选；你准备请求系统执行的具体动作；如果收尾，说明准备提交什么结果。",
             "open_risks": ["可选；仍未解决、会影响完成判断的公开风险"],
             "completion_status": "可选；working|verifying|ready_to_finish|blocked"
         },
@@ -929,11 +961,11 @@ def task_execution_action_schema() -> dict[str, Any]:
     return {
         "authority": "harness.loop.model_action_request",
         "action_type": "respond|ask_user|tool_call|block",
-        "public_progress_note": "一句用户可理解的公开进展；必须来自 public_action_state 的公开判断和下一步，不包含内部编号、系统结构、协议字段或隐藏推理。",
+        "public_progress_note": "一句用户可理解的公开进展；必须来自 public_action_state 的公开判断和下一步。它只能表达你的判断、计划或已观察结果，不得把尚未执行的工具动作说成正在执行或已经完成；不包含内部编号、系统结构、协议字段或隐藏推理。",
         "public_action_state": {
             "evidence_refs": ["你本轮判断引用的 observation/event/artifact ref；没有证据时留空"],
-            "current_judgment": "你基于当前上下文作出的公开判断，只写结论，不暴露隐藏推理链。",
-            "next_action": "你马上要采取的具体动作；如果收尾，说明准备提交什么结果。",
+            "current_judgment": "你基于当前上下文作出的公开判断，只写结论，不暴露隐藏推理链，也不要声称工具动作已经发生。",
+            "next_action": "你准备请求系统执行的具体动作；如果收尾，说明准备提交什么结果。",
             "open_risks": ["仍未解决、会影响完成判断的公开风险；没有则留空"],
             "completion_status": "working|verifying|ready_to_finish|blocked"
         },
@@ -1058,6 +1090,10 @@ def _active_work_model_visible_payload(active_work_context: dict[str, Any] | Non
                 "answer_about_active_work",
                 "answer_then_continue_active_work",
             ],
+            "decision_boundary": (
+                "This is context for the agent's own decision. The system does not ask the user to confirm by default; "
+                "if the user message clearly refers to this work, choose the appropriate active_work_control action."
+            ),
         }
     )
 
@@ -1479,6 +1515,7 @@ def _runtime_projection_instruction(projection: dict[str, Any]) -> str:
         )
         lines.append(
             "- public_progress_note 必须是 public_action_state 的一句自然语言摘要；不要写“正在思考”“正在分析当前目标”等空泛状态。"
+            "如果你要调用工具，公开状态应说明“准备请求/下一步将请求”这个动作；真实的“正在读取/写入/运行”和工具结果由系统工具事件展示。"
         )
     else:
         lines.append(
@@ -1506,6 +1543,14 @@ def _runtime_projection_instruction(projection: dict[str, Any]) -> str:
         lines.append(f"- 工具只能从本轮上下文中实际可见的工具选择；当前可见工具数：{visible_count}。")
     if bool(tool_boundary.get("subagent_lifecycle_enabled") is True):
         lines.append("- 如需子 agent 协作，只能通过可见的子 agent 生命周期工具启动、通信、观察和关闭；主 agent 仍负责最终判断和收口。")
+    if "active_work_control" in allowed_actions:
+        lines.append(
+            "- 如果本轮上下文包含 active_work_context，它只是当前工作事实和可用控制动作；"
+            "是否继续、暂停、停止、补充要求、回答进展或另开请求，由你根据用户当前话语判断。"
+        )
+        lines.append(
+            "- 当用户明确指向当前工作时，直接调用 active_work_control；不要把明确控制请求变成二次确认问题。"
+        )
     if bool(planning.get("todo_required_when_task_run") is True):
         lines.append("- 进入持续处理流程后，需要维护步骤状态；步骤状态不能替代真实交付物或验收证据。")
     if bool(task_lifecycle.get("requires_completion_evidence") is True):

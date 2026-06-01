@@ -211,6 +211,17 @@ def start_task_lifecycle(
     )
     runtime_host.state_index.upsert_task_run(task_run)
     runtime_host.state_index.upsert_agent_run(agent_run)
+    active_registry = getattr(runtime_host, "active_turn_registry", None)
+    if active_registry is not None:
+        try:
+            active_registry.bind_task_run(
+                session_id=session_id,
+                turn_id=turn_id,
+                task_run_id=task_run_id,
+                state="waiting_executor",
+            )
+        except Exception:
+            pass
     started_event = runtime_host.event_log.append(
         task_run_id,
         "task_run_lifecycle_started",
@@ -268,6 +279,16 @@ def finish_task_lifecycle(
         payload={"task_run": updated_task.to_dict(), "lifecycle": updated_lifecycle.to_dict()},
         refs={"task_lifecycle_ref": lifecycle_ref},
     )
+    active_registry = getattr(runtime_host, "active_turn_registry", None)
+    if active_registry is not None:
+        try:
+            active_registry.complete(
+                session_id=updated_task.session_id,
+                expected_turn_id=str(dict(updated_task.diagnostics or {}).get("turn_id") or ""),
+                terminal_reason=terminal_reason,
+            )
+        except Exception:
+            pass
     return updated_task, updated_lifecycle, event.to_dict()
 
 
@@ -491,12 +512,40 @@ async def start_task_lifecycle_from_contract(
         )
         return
 
-    schedule_task_run_executor(
+    schedule_result = schedule_task_run_executor(
         task_run.task_run_id,
         scheduler=scheduler,
         turn_id=turn_id,
         max_steps=max_steps,
     )
+    if not dict(schedule_result or {}).get("ok"):
+        reason = str(dict(schedule_result or {}).get("reason") or "task_executor_schedule_failed")
+        failed_task, _failed_lifecycle, failed_event = finish_task_lifecycle(
+            runtime_host,
+            task_run=task_run,
+            lifecycle=lifecycle,
+            status="failed",
+            terminal_reason=reason,
+        )
+        yield {"type": "task_run_lifecycle_event", "event": failed_event}
+        content = f"任务已经建立，但启动处理时失败：{_public_schedule_failure_reason(reason)}"
+        await commit_task_control_message(
+            commit_assistant_message,
+            session_id=session_id,
+            turn_id=turn_id,
+            content=content,
+            answer_source=f"{answer_source}.schedule_failed",
+        )
+        yield error_event(
+            content=content,
+            code="task_executor_schedule_failed",
+            reason=reason,
+            extra={
+                "turn_route": turn_route.to_dict(),
+                "task_run": {"task_run_id": failed_task.task_run_id, "status": failed_task.status},
+            },
+        )
+        return
     scheduled_summary = "任务执行器已接管，正在推进第一步。"
     scheduled_summary_event = runtime_host.event_log.append(
         task_run.task_run_id,
@@ -691,6 +740,17 @@ def _runtime_task_selection_from_contract(
             "authority": "task_system.engagement_contract_projection",
         }
     return selection
+
+
+def _public_schedule_failure_reason(reason: str) -> str:
+    value = str(reason or "").strip()
+    if value == "task_run_not_found":
+        return "没有找到刚创建的任务记录。"
+    if value.startswith("not_executable:"):
+        return "当前任务状态不允许启动执行。"
+    if value == "already_running":
+        return "任务已经在运行中。"
+    return "执行器未能接管任务。"
 
 
 def _task_lifecycle_origin(*, action_request: ModelActionRequest, turn_id: str) -> dict[str, str]:

@@ -25,6 +25,7 @@ class ExecutorEpochRecord:
     task_run_id: str
     executor_epoch: int
     model_task: asyncio.Task[Any] | None = None
+    tool_task: asyncio.Task[Any] | None = None
     signal: ExecutorControlSignal | None = None
     created_at: float = 0.0
 
@@ -47,6 +48,15 @@ def attach_model_task(runtime_host: Any, *, task_run_id: str, executor_epoch: in
     record.model_task = model_task
     if record.signal is not None and not model_task.done():
         model_task.cancel()
+
+
+def attach_tool_task(runtime_host: Any, *, task_run_id: str, executor_epoch: int, tool_task: asyncio.Task[Any]) -> None:
+    record = _current_record(runtime_host, task_run_id=task_run_id, executor_epoch=executor_epoch)
+    if record is None:
+        record = register_executor_epoch(runtime_host, task_run_id=task_run_id, executor_epoch=executor_epoch)
+    record.tool_task = tool_task
+    if record.signal is not None and not tool_task.done():
+        tool_task.cancel()
 
 
 def request_executor_pause(runtime_host: Any, *, task_run_id: str, reason: str = "", requested_by: str = "user") -> bool:
@@ -86,6 +96,12 @@ def clear_model_task(runtime_host: Any, *, task_run_id: str, executor_epoch: int
         record.model_task = None
 
 
+def clear_tool_task(runtime_host: Any, *, task_run_id: str, executor_epoch: int, tool_task: asyncio.Task[Any]) -> None:
+    record = _current_record(runtime_host, task_run_id=task_run_id, executor_epoch=executor_epoch)
+    if record is not None and record.tool_task is tool_task:
+        record.tool_task = None
+
+
 def clear_executor_epoch(runtime_host: Any, *, task_run_id: str, executor_epoch: int) -> None:
     record = _current_record(runtime_host, task_run_id=task_run_id, executor_epoch=executor_epoch)
     if record is not None:
@@ -96,7 +112,9 @@ def executor_epoch_is_live(runtime_host: Any, *, task_run_id: str, executor_epoc
     record = _current_record(runtime_host, task_run_id=task_run_id, executor_epoch=executor_epoch)
     if record is None:
         return False
-    return record.model_task is None or not record.model_task.done()
+    model_live = record.model_task is not None and not record.model_task.done()
+    tool_live = record.tool_task is not None and not record.tool_task.done()
+    return model_live or tool_live or (record.model_task is None and record.tool_task is None)
 
 
 def _request_signal(
@@ -123,6 +141,8 @@ def _request_signal(
     record.signal = signal
     if record.model_task is not None and not record.model_task.done():
         record.model_task.cancel()
+    if record.tool_task is not None and not record.tool_task.done():
+        record.tool_task.cancel()
     return True
 
 

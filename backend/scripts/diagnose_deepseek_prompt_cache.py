@@ -105,6 +105,13 @@ def diagnose(
         task_run_id=task_run_id,
         provider=provider,
     )
+    cache_breaks = _filter_rows(
+        _dedupe_latest(_read_jsonl(ledger_dir / "prompt_cache_breaks.jsonl"), key_fields=("break_id",)),
+        session_id=session_id,
+        run_id=run_id,
+        task_run_id=task_run_id,
+        provider=provider,
+    )
 
     provider_usage = [row for row in token_usage if str(row.get("source") or "") == "provider_usage"]
     local_predictions = [row for row in token_usage if str(row.get("source") or "") == "local_prediction"]
@@ -112,8 +119,15 @@ def diagnose(
     cache_by_request = {str(row.get("request_id") or ""): row for row in cache_records}
 
     cache_metric_scope_counts = Counter(_cache_metric_scope(row) for row in local_predictions)
-    utility_request_ids = {str(row.get("request_id") or "") for row in local_predictions if _cache_metric_scope(row).startswith("utility")}
-    agent_provider_usage = [row for row in provider_usage if str(row.get("request_id") or "") not in utility_request_ids]
+    scope_by_request = {str(row.get("request_id") or ""): _cache_metric_scope(row) for row in local_predictions}
+    non_agent_request_ids = {
+        request_id
+        for request_id, scope in scope_by_request.items()
+        if scope != "agent_runtime"
+    }
+    agent_provider_usage = [row for row in provider_usage if str(row.get("request_id") or "") not in non_agent_request_ids]
+    scoped_usage = _scope_usage_summary(provider_usage=provider_usage, scope_by_request=scope_by_request)
+    unplanned_breaks = [row for row in cache_breaks if str(row.get("reason") or "") == "unplanned_model_call"]
     prompt_tokens = sum(_int(row.get("prompt_tokens")) for row in provider_usage)
     cached_tokens = sum(max(_int(row.get("cached_tokens")), _int(row.get("cache_read_tokens"))) for row in provider_usage)
     cache_miss_tokens = max(0, prompt_tokens - cached_tokens)
@@ -148,6 +162,7 @@ def diagnose(
         unstable_stable_segments=unstable_stable_segments,
         hit_rate=hit_rate,
         policy_counts=policy_counts,
+        unplanned_breaks=unplanned_breaks,
     )
     summary = {
         "provider": provider or "all",
@@ -162,6 +177,8 @@ def diagnose(
         "cache_records": len(cache_records),
         "segment_maps": len(segment_maps),
         "stability_reports": len(stability_records),
+        "cache_break_records": len(cache_breaks),
+        "unplanned_model_call_breaks": len(unplanned_breaks),
         "prompt_tokens": prompt_tokens,
         "cached_tokens": cached_tokens,
         "cache_miss_tokens": cache_miss_tokens,
@@ -171,6 +188,7 @@ def diagnose(
         "agent_runtime_cache_miss_tokens": max(0, agent_prompt_tokens - agent_cached_tokens),
         "agent_runtime_deepseek_cache_hit_rate": round(agent_cached_tokens / agent_prompt_tokens, 4) if agent_prompt_tokens > 0 else 0.0,
         "cache_metric_scope_counts": dict(sorted(cache_metric_scope_counts.items())),
+        "cache_metric_scope_usage": scoped_usage,
         "cache_status_counts": dict(sorted(status_counts.items())),
         "provider_cache_policy_modes": dict(sorted(policy_counts.items())),
     }
@@ -355,11 +373,13 @@ def _find_volatile_stable_segments(segment_maps: list[dict[str, Any]], *, limit:
 
 
 def _find_unstable_stable_segments(segment_maps: list[dict[str, Any]], *, limit: int) -> list[dict[str, Any]]:
-    grouped: dict[tuple[str, str, str], dict[str, Any]] = {}
+    grouped: dict[tuple[str, str, str, str], dict[str, Any]] = {}
     for segment_map in segment_maps:
         invocation_kind = _packet_invocation_kind(segment_map)
+        stability_scope = _stability_scope(segment_map)
         for segment in _stable_prefix_segments(segment_map):
             key = (
+                stability_scope,
                 invocation_kind,
                 str(segment.get("kind") or ""),
                 str(segment.get("source") or ""),
@@ -367,9 +387,10 @@ def _find_unstable_stable_segments(segment_maps: list[dict[str, Any]], *, limit:
             bucket = grouped.setdefault(
                 key,
                 {
+                    "stability_scope": stability_scope,
                     "invocation_kind": invocation_kind,
-                    "kind": key[1],
-                    "source": key[2],
+                    "kind": key[2],
+                    "source": key[3],
                     "request_count": 0,
                     "hashes": Counter(),
                     "predicted_tokens": [],
@@ -391,6 +412,7 @@ def _find_unstable_stable_segments(segment_maps: list[dict[str, Any]], *, limit:
         findings.append(
             {
                 "invocation_kind": bucket["invocation_kind"],
+                "stability_scope": bucket["stability_scope"],
                 "kind": bucket["kind"],
                 "source": bucket["source"],
                 "request_count": bucket["request_count"],
@@ -497,6 +519,7 @@ def _build_issues(
     unstable_stable_segments: list[dict[str, Any]],
     hit_rate: float,
     policy_counts: Counter,
+    unplanned_breaks: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
     issues: list[dict[str, Any]] = []
     if not provider_usage:
@@ -514,6 +537,17 @@ def _build_issues(
                 "code": "provider_cache_policy_disabled",
                 "message": "部分请求的 provider cache policy 为 disabled。DeepSeek 应该是 automatic_prefix；请检查 provider/base_url 是否走官方 DeepSeek 适配。",
                 "count": policy_counts.get("disabled", 0),
+            }
+        )
+    if unplanned_breaks:
+        high_count = sum(1 for row in unplanned_breaks if str(dict(row.get("diagnostics") or {}).get("severity") or "") == "high")
+        issues.append(
+            {
+                "severity": "high" if high_count else "medium",
+                "code": "unplanned_model_call",
+                "message": "存在没有 segment_plan 的模型调用。agent 主链路必须通过 RuntimeCompiler 装配；utility 调用也必须显式标注 scope。",
+                "count": len(unplanned_breaks),
+                "high_count": high_count,
             }
         )
     repeated_miss_groups = [
@@ -585,6 +619,30 @@ def _packet_invocation_kind(segment_map: dict[str, Any]) -> str:
     return "unknown"
 
 
+def _stability_scope(segment_map: dict[str, Any]) -> str:
+    task_run_id = str(segment_map.get("task_run_id") or segment_map.get("run_id") or "").strip()
+    if task_run_id:
+        return f"task:{task_run_id}"
+    metadata = dict(segment_map.get("metadata") or {})
+    packet_ref = str(metadata.get("packet_ref") or "").strip()
+    if packet_ref:
+        return f"packet_family:{_packet_family_ref(packet_ref)}"
+    session_id = str(segment_map.get("session_id") or "").strip()
+    if session_id:
+        return f"session:{session_id}"
+    return "global"
+
+
+def _packet_family_ref(packet_ref: str) -> str:
+    value = str(packet_ref or "")
+    if ":attempt:" in value:
+        value = value.split(":attempt:", 1)[0]
+    parts = value.split(":")
+    if len(parts) > 5:
+        return ":".join(parts[:5])
+    return value
+
+
 def _provider_cache_policy_mode(row: dict[str, Any]) -> str:
     policy = dict(dict(row.get("diagnostics") or {}).get("provider_cache_policy") or {})
     return str(policy.get("mode") or "unknown")
@@ -593,6 +651,38 @@ def _provider_cache_policy_mode(row: dict[str, Any]) -> str:
 def _cache_metric_scope(row: dict[str, Any]) -> str:
     diagnostics = dict(row.get("diagnostics") or {})
     return str(diagnostics.get("cache_metric_scope") or "agent_runtime")
+
+
+def _scope_usage_summary(
+    *,
+    provider_usage: list[dict[str, Any]],
+    scope_by_request: dict[str, str],
+) -> dict[str, dict[str, Any]]:
+    buckets: dict[str, dict[str, Any]] = {}
+    for row in provider_usage:
+        request_id = str(row.get("request_id") or "")
+        scope = scope_by_request.get(request_id) or "agent_runtime"
+        bucket = buckets.setdefault(
+            scope,
+            {
+                "provider_usage_records": 0,
+                "prompt_tokens": 0,
+                "cached_tokens": 0,
+                "cache_miss_tokens": 0,
+                "deepseek_cache_hit_rate": 0.0,
+            },
+        )
+        prompt_tokens = _int(row.get("prompt_tokens"))
+        cached_tokens = max(_int(row.get("cached_tokens")), _int(row.get("cache_read_tokens")))
+        bucket["provider_usage_records"] += 1
+        bucket["prompt_tokens"] += prompt_tokens
+        bucket["cached_tokens"] += cached_tokens
+    for bucket in buckets.values():
+        prompt_tokens = int(bucket["prompt_tokens"] or 0)
+        cached_tokens = int(bucket["cached_tokens"] or 0)
+        bucket["cache_miss_tokens"] = max(0, prompt_tokens - cached_tokens)
+        bucket["deepseek_cache_hit_rate"] = round(cached_tokens / prompt_tokens, 4) if prompt_tokens > 0 else 0.0
+    return dict(sorted(buckets.items()))
 
 
 def _print_report(diagnosis: Diagnosis, *, ledger_dir: Path) -> None:
@@ -605,6 +695,7 @@ def _print_report(diagnosis: Diagnosis, *, ledger_dir: Path) -> None:
         f"provider_usage={summary['provider_usage_records']} "
         f"local_prediction={summary['local_prediction_records']} "
         f"cache={summary['cache_records']} "
+        f"cache_breaks={summary['cache_break_records']} "
         f"segment_maps={summary['segment_maps']} "
         f"stability={summary['stability_reports']}"
     )
@@ -623,6 +714,8 @@ def _print_report(diagnosis: Diagnosis, *, ledger_dir: Path) -> None:
         f"deepseek_hit_rate={summary['agent_runtime_deepseek_cache_hit_rate']:.2%}"
     )
     print(f"cache_metric_scope_counts: {json.dumps(summary['cache_metric_scope_counts'], ensure_ascii=False, sort_keys=True)}")
+    print(f"cache_metric_scope_usage: {json.dumps(summary['cache_metric_scope_usage'], ensure_ascii=False, sort_keys=True)}")
+    print(f"unplanned_model_call_breaks: {summary['unplanned_model_call_breaks']}")
     print(f"cache_status_counts: {json.dumps(summary['cache_status_counts'], ensure_ascii=False, sort_keys=True)}")
     print(f"provider_cache_policy_modes: {json.dumps(summary['provider_cache_policy_modes'], ensure_ascii=False, sort_keys=True)}")
 
@@ -640,7 +733,7 @@ def _print_report(diagnosis: Diagnosis, *, ledger_dir: Path) -> None:
     _print_section(
         "stable_segments_with_changing_hash",
         payload["unstable_stable_segments"],
-        fields=("invocation_kind", "kind", "request_count", "distinct_content_hashes", "avg_predicted_tokens", "source"),
+        fields=("stability_scope", "invocation_kind", "kind", "request_count", "distinct_content_hashes", "avg_predicted_tokens", "source"),
     )
     _print_section(
         "recent_requests",

@@ -32,7 +32,7 @@ import {
   switchSoulSystemSeed,
   truncateSessionMessages
 } from "@/lib/api";
-import type { ChatStreamCursor, GlobalRuntimeMonitor, RuntimeMonitorEventPayload, SessionRuntimeAttachment } from "@/lib/api";
+import type { ChatStreamCursor, GlobalRuntimeMonitor, RuntimeMonitorEventPayload, SessionRuntimeAttachment, SessionScope } from "@/lib/api";
 import {
   ACTIVE_SOUL_PATH,
   SOUL_SEED_PATHS,
@@ -224,7 +224,7 @@ export class WorkspaceRuntime {
       workspaceInitializing: true,
     }));
     try {
-      let sessions = await listSessions();
+      let sessions = await listSessions(this.currentSessionScope());
       this.store.setState((prev) => ({
         ...prev,
         sessions,
@@ -343,7 +343,7 @@ export class WorkspaceRuntime {
   }
 
   private async refreshSessions() {
-    const sessions = await listSessions();
+    const sessions = await listSessions(this.currentSessionScope());
     this.sessionListFailureNotifiedAt = 0;
     this.store.setState((prev) => ({ ...prev, sessions }));
   }
@@ -384,8 +384,8 @@ export class WorkspaceRuntime {
     const requestId = ++this.sessionDetailsRequest;
     try {
       const [history, tokens] = await Promise.all([
-        getSessionTimeline(sessionId).catch(() => getSessionHistory(sessionId)),
-        getSessionTokens(sessionId)
+        getSessionTimeline(sessionId, this.sessionScopeForSession(sessionId)).catch(() => getSessionHistory(sessionId, this.sessionScopeForSession(sessionId))),
+        getSessionTokens(sessionId, this.sessionScopeForSession(sessionId))
       ]);
       if (this.store.getState().currentSessionId !== sessionId || this.sessionDetailsRequest !== requestId) {
         return;
@@ -571,11 +571,12 @@ export class WorkspaceRuntime {
     }
 
     const pending = (async () => {
-      const created = await createSession();
+      const created = await createSession("New Session", this.currentSessionScope());
       this.store.setState((prev) => ({
         ...prev,
         sessions: [created, ...prev.sessions.filter((session) => session.id !== created.id)],
         currentSessionId: created.id,
+        activeSessionScope: created.scope ?? this.currentSessionScope() ?? null,
         messages: [],
         tokenStats: null
       }));
@@ -638,12 +639,40 @@ export class WorkspaceRuntime {
     await this.hydrateLatestOrchestrationSnapshot(sessionId).catch(() => false);
   }
 
+  private currentSessionScope(): Partial<SessionScope> | undefined {
+    const state = this.store.getState();
+    return state.activeSessionScope ?? this.scopeFromTaskEnvironmentBinding(state) ?? undefined;
+  }
+
+  private sessionScopeForSession(sessionId: string): Partial<SessionScope> | undefined {
+    const state = this.store.getState();
+    return this.resolveSessionScope(sessionId, state) ?? this.currentSessionScope();
+  }
+
+  private resolveSessionScope(sessionId: string, state: StoreState): Partial<SessionScope> | null {
+    return state.sessions.find((session) => session.id === sessionId)?.scope
+      ?? (state.currentSessionId === sessionId ? state.activeSessionScope : null)
+      ?? this.scopeFromTaskEnvironmentBinding(state);
+  }
+
+  private scopeFromTaskEnvironmentBinding(state: StoreState): Partial<SessionScope> | null {
+    const binding = state.chatTaskEnvironmentBinding;
+    if (!binding?.task_environment_id) {
+      return null;
+    }
+    return {
+      workspace_view: "task_environment",
+      task_environment_id: binding.task_environment_id,
+    };
+  }
+
   private applySelectedSessionShell(sessionId: string) {
     const streamingCache = this.streamingSessionCache.get(sessionId);
     if (this.store.getState().activeStreamSessionIds.includes(sessionId) && streamingCache) {
       this.store.setState((prev) => ({
         ...prev,
         currentSessionId: sessionId,
+        activeSessionScope: this.resolveSessionScope(sessionId, prev),
         messages: streamingCache.messages,
         orchestrationSnapshot: streamingCache.orchestrationSnapshot,
         taskGraphLiveMonitor: null,
@@ -655,6 +684,7 @@ export class WorkspaceRuntime {
     this.store.setState((prev) => ({
       ...prev,
       currentSessionId: sessionId,
+      activeSessionScope: this.resolveSessionScope(sessionId, prev),
       messages: [],
       orchestrationSnapshot: null,
       taskGraphLiveMonitor: null,
@@ -681,10 +711,14 @@ export class WorkspaceRuntime {
         ) {
           clearChatStreamCursor(sessionId);
           streamRunId = "";
+        } else if (this.chatRunCursorAlreadyReachedTerminal(cursorRun, cursor)) {
+          clearChatStreamCursor(sessionId);
+          await this.refreshSessionDetails(sessionId).catch(() => undefined);
+          return false;
         }
       }
       if (!streamRunId) {
-        const latestRun = await getLatestChatRunForSession(sessionId, true).catch(() => null);
+        const latestRun = await getLatestChatRunForSession(sessionId, true, this.sessionScopeForSession(sessionId)).catch(() => null);
         streamRunId = String(latestRun?.stream_run_id || "");
       }
       if (!streamRunId) {
@@ -696,6 +730,18 @@ export class WorkspaceRuntime {
     } finally {
       this.recoveringStreamSessionIds.delete(sessionId);
     }
+  }
+
+  private chatRunCursorAlreadyReachedTerminal(run: { terminal_event?: string; latest_event_offset?: number }, cursor: ChatStreamCursor | null) {
+    const terminalEvent = String(run.terminal_event || "").trim();
+    if (!terminalEvent || !["done", "error", "stopped"].includes(terminalEvent)) {
+      return false;
+    }
+    const latestOffset = Number(run.latest_event_offset ?? -1);
+    const cursorOffset = Number(cursor?.lastEventOffset ?? -1);
+    return Number.isFinite(latestOffset)
+      && Number.isFinite(cursorOffset)
+      && cursorOffset >= latestOffset;
   }
 
   private startRecoveredChatRunStream(sessionId: string, streamRunId: string, cursor: ChatStreamCursor | null) {
@@ -792,7 +838,7 @@ export class WorkspaceRuntime {
           {
             signal: abortController.signal,
             initialCursor: cursor,
-            replayFromStart: true,
+            replayFromStart: !cursor,
           }
         );
         if (streamResult.terminalEvent === "stopped") {
@@ -923,7 +969,7 @@ export class WorkspaceRuntime {
     this.store.setState((prev) => ({
       ...prev,
       orchestrationSnapshot: null,
-      taskGraphLiveMonitor: prev.taskGraphLiveMonitor,
+      taskGraphLiveMonitor: null,
       orchestrationInspectorTarget: prev.orchestrationInspectorTarget?.source === "live-session"
         ? null
         : prev.orchestrationInspectorTarget,
@@ -977,10 +1023,13 @@ export class WorkspaceRuntime {
         {
           message: trimmed,
           session_id: sessionId,
+          session_scope: this.sessionScopeForSession(sessionId),
           ephemeral_system_messages: ephemeralSystemMessages,
           search_policy: searchPolicy,
           task_selection: this.chatTaskSelectionPayload(state),
           model_selection: this.chatModelSelectionPayload(state),
+          expected_active_turn_id: String(state.activeTurnSnapshot?.turn_id ?? ""),
+          active_turn_input_policy: state.activeTurnSnapshot?.turn_id ? "steer" : "auto",
           image_generation: imageGeneration
             ? {
                 ...imageGeneration,
@@ -1195,7 +1244,7 @@ export class WorkspaceRuntime {
       return;
     }
     const visibleMessageIndex = state.messages.findIndex((message) => message.id === messageId);
-    await truncateSessionMessages(sessionId, targetMessage.sourceIndex);
+    await truncateSessionMessages(sessionId, targetMessage.sourceIndex, this.sessionScopeForSession(sessionId));
     this.store.setState((prev) => ({
       ...prev,
       messages: visibleMessageIndex > -1 ? prev.messages.slice(0, visibleMessageIndex) : prev.messages,
@@ -1341,7 +1390,9 @@ export class WorkspaceRuntime {
     const option = this.providerCatalogOption(config, provider);
     const isPrimaryConfigured = provider === config.provider && model === config.model;
     const isFallbackConfigured = provider === config.fallback_provider && model === config.fallback_model;
-    if (!isPrimaryConfigured && !isFallbackConfigured) {
+    const isProviderPreset = provider === config.provider
+      && Boolean(option?.model_presets?.some((preset) => String(preset || "").trim() === model));
+    if (!isPrimaryConfigured && !isFallbackConfigured && !isProviderPreset) {
       return null;
     }
     return {
@@ -1352,7 +1403,7 @@ export class WorkspaceRuntime {
         ? config.base_url
         : isFallbackConfigured
           ? config.fallback_base_url
-          : option?.default_base_url,
+          : config.base_url || option?.default_base_url,
       credentialRef: isFallbackConfigured
         ? config.fallback_credential_ref || `provider:${provider}:fallback`
         : option?.credential_ref || config.credential_ref || `provider:${provider}:primary`,
@@ -1477,14 +1528,14 @@ export class WorkspaceRuntime {
     if (!currentSessionId || !title.trim()) {
       return;
     }
-    await renameSession(currentSessionId, title.trim());
+    await renameSession(currentSessionId, title.trim(), this.sessionScopeForSession(currentSessionId));
     await this.refreshSessions().catch((error) => {
       this.noteSessionRefreshFailure(error);
     });
   }
 
   private async removeSession(sessionId: string) {
-    await deleteSession(sessionId);
+    await deleteSession(sessionId, this.sessionScopeForSession(sessionId));
     this.streamingSessionCache.delete(sessionId);
     this.removedStreamingSessionIds.add(sessionId);
     this.streamAbortControllers.get(sessionId)?.abort();
@@ -1504,7 +1555,7 @@ export class WorkspaceRuntime {
     if (this.store.getState().currentSessionId !== sessionId) {
       return;
     }
-    const nextSessions = await listSessions().catch((error) => {
+    const nextSessions = await listSessions(this.currentSessionScope()).catch((error) => {
       this.noteSessionRefreshFailure(error);
       return [];
     });
@@ -1515,7 +1566,8 @@ export class WorkspaceRuntime {
     if (nextSessions.length) {
       this.store.setState((prev) => ({
         ...prev,
-        currentSessionId: nextSessions[0].id
+        currentSessionId: nextSessions[0].id,
+        activeSessionScope: nextSessions[0].scope ?? this.currentSessionScope() ?? null
       }));
       this.store.setState((prev) => this.projectSelectedSessionActivity(prev, nextSessions[0].id));
       await this.refreshSessionDetails(nextSessions[0].id).catch(() => undefined);
@@ -1524,6 +1576,7 @@ export class WorkspaceRuntime {
     this.store.setState((prev) => ({
       ...prev,
       currentSessionId: null,
+      activeSessionScope: null,
       messages: [],
       orchestrationSnapshot: null,
       tokenStats: null,
@@ -1704,6 +1757,7 @@ export class WorkspaceRuntime {
     }
     await runGraphRunUntilIdle(runId, {
       graph_harness_config_id: graphHarnessConfigId,
+      session_scope: this.currentSessionScope(),
       max_dispatch_requests: Number(payload?.max_requests ?? 1),
     });
     const sessionId = this.store.getState().currentSessionId;
@@ -1761,8 +1815,10 @@ export class WorkspaceRuntime {
     }
     const activeTaskRunId = String(liveMonitor.active_task_run_id ?? "").trim();
     const taskRuns = Array.isArray(liveMonitor.task_runs) ? liveMonitor.task_runs : [];
+    if (!activeTaskRunId) {
+      return null;
+    }
     return taskRuns.find((item) => String(item.task_run_id ?? item.task_run?.task_run_id ?? "").trim() === activeTaskRunId)
-      ?? taskRuns[0]
       ?? null;
   }
 
@@ -1811,25 +1867,32 @@ export class WorkspaceRuntime {
       ?? "",
     );
     const stepName = String(latestStep.step ?? monitor.latest_step_name ?? "");
+    const kind = this.runtimeProgressKindFromStep(stepName);
+    const meta = this.runtimeProgressMetaFromPayload(latestStep);
+    const actionBody = kind === "model" && meta.length
+      ? meta.map((item) => `${item.label}：${item.value}`).join("；")
+      : "";
     return {
       id: eventId || `${taskRunId}:latest-step:${eventCount || String(latestStep.step ?? latestStep.status ?? "current")}`,
-      title: String(monitor.latest_step_summary ?? publicNote) || "正在处理",
-      body: publicNote || String(monitor.latest_step_summary ?? ""),
+      title: kind === "model" ? "Agent 判断" : String(monitor.latest_step_summary ?? publicNote) || "正在处理",
+      body: actionBody || publicNote || String(monitor.latest_step_summary ?? ""),
       publicNote,
       agentBrief,
       evidenceType: this.runtimeEvidenceTypeFromStep(stepName),
       eventType: String((monitor.latest_event as Record<string, unknown> | undefined)?.event_type ?? "runtime_live_monitor"),
-      kind: this.runtimeProgressKindFromStep(stepName),
+      kind,
       level: this.runtimeProgressLevelFromStatus(String(latestStep.status ?? monitor.latest_step_status ?? monitor.status ?? "")),
       statusText: String(latestStep.status ?? monitor.latest_step_status ?? monitor.status ?? ""),
       runId: taskRunId,
       taskRunId,
       createdAt: Number(latestStep.created_at ?? 0) || undefined,
+      meta: meta.length ? meta : undefined,
     };
   }
 
-  private runtimeProgressKindFromStep(step: string): "stage" | "tool" | "verification" | "model" | "terminal" {
+  private runtimeProgressKindFromStep(step: string): "stage" | "tool" | "verification" | "model" | "observation" | "terminal" {
     const normalized = step.toLowerCase();
+    if (normalized.includes("observation")) return "observation";
     if (normalized.includes("tool")) return "tool";
     if (normalized.includes("repair") || normalized.includes("verification") || normalized.includes("closeout")) return "verification";
     if (normalized.includes("model") || normalized.includes("agent")) return "model";
@@ -1839,6 +1902,7 @@ export class WorkspaceRuntime {
 
   private runtimeEvidenceTypeFromStep(step: string) {
     const normalized = step.toLowerCase();
+    if (normalized.includes("observation")) return "tool_observation";
     if (normalized.includes("tool")) return "tool_observation";
     if (normalized.includes("model_action")) return "model_action";
     if (normalized.includes("repair") || normalized.includes("verification")) return "verification";
@@ -1914,24 +1978,100 @@ export class WorkspaceRuntime {
     const summary = String(payload.summary ?? "").trim();
     const publicNote = String(payload.public_progress_note ?? summary).trim();
     const agentBrief = String(payload.agent_brief_output ?? "").trim();
+    const kind = this.runtimeProgressKindFromStep(step);
+    if (kind === "observation" && this.runtimeIsInternalToolObservation(agentBrief)) {
+      return null;
+    }
+    const observationBody = kind === "observation"
+      ? this.runtimeToolObservationBody(agentBrief || publicNote || summary)
+      : "";
+    const actionState = payload.public_action_state && typeof payload.public_action_state === "object" && !Array.isArray(payload.public_action_state)
+      ? payload.public_action_state as Record<string, unknown>
+      : {};
+    const meta = this.runtimeProgressMetaFromPayload(payload);
+    const actionBody = kind === "model" && meta.length
+      ? meta.map((item) => `${item.label}：${item.value}`).join("；")
+      : "";
+    const body = observationBody || publicNote || summary;
+    const level = kind === "observation" && this.runtimeObservationLooksFailed(agentBrief || observationBody)
+      ? "error"
+      : this.runtimeProgressLevelFromStatus(status);
     if (!summary && !publicNote && !step) {
       return null;
     }
     return {
       id: String(runtimeEvent.event_id ?? "").trim() || `${runId}:event:${runtimeEvent.offset}`,
-      title: publicNote || summary || step || "正在处理",
-      body: publicNote || summary,
-      publicNote,
-      agentBrief,
+      title: kind === "observation" ? "观察结果" : kind === "model" ? "Agent 判断" : publicNote || summary || step || "正在处理",
+      body: actionBody || body,
+      publicNote: publicNote || actionBody || observationBody,
+      agentBrief: observationBody || agentBrief,
       evidenceType: this.runtimeEvidenceTypeFromStep(step),
       eventType: runtimeEvent.event_type,
-      kind: this.runtimeProgressKindFromStep(step),
-      level: this.runtimeProgressLevelFromStatus(status),
-      statusText: status || "running",
+      kind,
+      level,
+      statusText: kind === "observation" && level === "error" ? "failed" : status || "running",
       runId,
       taskRunId: taskRunId || undefined,
       createdAt: Number(runtimeEvent.created_at ?? 0) || undefined,
+      meta: meta.length ? meta : undefined,
     };
+  }
+
+  private runtimeProgressMetaFromPayload(payload: Record<string, unknown>) {
+    const actionState = payload.public_action_state && typeof payload.public_action_state === "object" && !Array.isArray(payload.public_action_state)
+      ? payload.public_action_state as Record<string, unknown>
+      : {};
+    return [
+      { label: "判断", value: String(payload.current_judgment ?? actionState.current_judgment ?? "").trim() },
+      { label: "下一步", value: String(payload.next_action ?? actionState.next_action ?? "").trim() },
+      { label: "状态", value: String(payload.completion_status ?? actionState.completion_status ?? "").trim() },
+    ].filter((item) => item.value);
+  }
+
+  private runtimeIsInternalToolObservation(value: string) {
+    const text = String(value ?? "").trim();
+    return text.startsWith("{") && text.includes("\"plan_id\"") && text.includes("\"items\"");
+  }
+
+  private runtimeToolObservationBody(value: string) {
+    const text = String(value ?? "").trim();
+    if (!text) return "";
+    if (!this.looksLikeJson(text)) return text;
+    try {
+      const data = JSON.parse(text) as Record<string, unknown>;
+      const structured = data.structured_error && typeof data.structured_error === "object" && !Array.isArray(data.structured_error)
+        ? data.structured_error as Record<string, unknown>
+        : {};
+      const error = String(data.error ?? data.message ?? structured.message ?? structured.error ?? "").trim();
+      if (data.ok === false || error) {
+        return `工具返回失败：${error || "工具调用失败"}`;
+      }
+      const result = String(data.result ?? data.summary ?? data.output ?? "").trim();
+      if (result) return result;
+      const artifactRefs = Array.isArray(data.artifact_refs) ? data.artifact_refs : [];
+      if (artifactRefs.length) return `工具返回成功，产生 ${artifactRefs.length} 个产物引用。`;
+      return "工具返回成功，正在根据结果继续。";
+    } catch {
+      return "工具返回了结构化结果，正在根据结果继续。";
+    }
+  }
+
+  private runtimeObservationLooksFailed(value: string) {
+    const text = String(value ?? "").trim();
+    if (!text) return false;
+    if (text.includes("工具返回失败")) return true;
+    if (!this.looksLikeJson(text)) return false;
+    try {
+      const data = JSON.parse(text) as Record<string, unknown>;
+      return data.ok === false || Boolean(data.error || data.structured_error);
+    } catch {
+      return false;
+    }
+  }
+
+  private looksLikeJson(value: string) {
+    const text = String(value ?? "").trim();
+    return (text.startsWith("{") && text.endsWith("}")) || (text.startsWith("[") && text.endsWith("]"));
   }
 
   private runtimeEventAnchorTurnId(runtimeEvent: RuntimeMonitorEvent, state: StoreState) {
@@ -2054,9 +2194,19 @@ export class WorkspaceRuntime {
       ?? taskRunDiagnostics.latest_interaction_turn_id
       ?? "",
     ).trim();
+    const activeTurnId = String(state.activeTurnSnapshot?.turn_id ?? "").trim();
+    const activeTaskRunId = String(state.activeTurnSnapshot?.task_run_id ?? "").trim();
+    const explicitTurnMatches = latestInteractionTurnId.startsWith("turn:")
+      && (!activeTurnId || latestInteractionTurnId === activeTurnId);
+    const activeTaskMatches = Boolean(activeTaskRunId && activeTaskRunId === taskRunId);
+    if (!explicitTurnMatches && !activeTaskMatches) {
+      return state;
+    }
     const anchorTurnId = latestInteractionTurnId
-      || this.turnIdFromTaskRunId(taskRunId)
-      || String(taskRunDiagnostics.turn_id ?? taskIdForAnchor).trim().replace(/^task:/, "");
+      || activeTurnId;
+    if (!anchorTurnId) {
+      return state;
+    }
     const latestProgressEntry = this.runtimeProgressEntryFromMonitor(monitor, taskRunId);
     const attachment: SessionRuntimeAttachment = {
       attachment_id: `runtime-attachment:${taskRunId}`,
@@ -2141,11 +2291,15 @@ export class WorkspaceRuntime {
         source: binding.source,
         bound_at: Number(binding.bound_at || Date.now()),
       },
+      activeSessionScope: {
+        workspace_view: "task_environment",
+        task_environment_id: taskEnvironmentId,
+      },
     }));
   }
 
   private clearChatTaskEnvironmentBinding() {
-    this.store.setState((prev) => ({ ...prev, chatTaskEnvironmentBinding: null }));
+    this.store.setState((prev) => ({ ...prev, chatTaskEnvironmentBinding: null, activeSessionScope: null }));
   }
 
   private hasActiveChatStream() {

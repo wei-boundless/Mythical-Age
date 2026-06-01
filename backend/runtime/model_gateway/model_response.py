@@ -9,7 +9,7 @@ from types import SimpleNamespace
 from typing import Any
 
 from runtime.tool_runtime.provider_tool_call_adapter import normalize_tool_call_dicts
-from runtime.model_gateway.model_runtime import ModelRuntimeError, stringify_content
+from runtime.model_gateway.model_runtime import ModelRuntimeError, stringify_content, utility_accounting_context
 from task_system.runtime_semantics.protocol_boundary import detect_protocol_leak
 from orchestration.commit_gate import build_blocked_runtime_commit_gate
 from orchestration.runtime_directive import RuntimeDirective
@@ -66,7 +66,11 @@ class ModelResponseRuntimeExecutor:
         stream_policy = dict(model_stream_policy or {})
         stream_enabled = bool(stream_policy.get("enabled") is True)
         emit_content_delta = bool(stream_policy.get("emit_content_delta") is not False)
-        accounting_context = _accounting_context_from_directive(directive, stream_policy=stream_policy)
+        accounting_context = _accounting_context_from_directive(
+            directive,
+            stream_policy=stream_policy,
+            model_messages=model_messages,
+        )
         response_timeout_seconds = _model_response_timeout_seconds(
             self.model_runtime,
             model_spec=model_spec,
@@ -499,6 +503,7 @@ def _accounting_context_from_directive(
     directive: RuntimeDirective,
     *,
     stream_policy: dict[str, Any],
+    model_messages: list[Any],
 ) -> dict[str, Any]:
     diagnostics = dict(getattr(directive, "diagnostics", {}) or {})
     session_id = str(
@@ -520,14 +525,45 @@ def _accounting_context_from_directive(
         or diagnostics.get("packet_ref")
         or f"modelreq:{directive.directive_id}"
     )
+    source = str(stream_policy.get("source") or "runtime_directive.model_response")
+    context = utility_accounting_context(
+        source=source,
+        messages=_messages_for_utility_accounting(model_messages),
+        purpose=source,
+        cache_metric_scope="runtime_directive_model_response",
+        session_id=session_id,
+        run_id=task_run_id,
+        task_run_id=task_run_id,
+    )
     return {
+        **context,
         "request_id": request_id,
         "session_id": session_id,
         "task_run_id": task_run_id,
         "turn_id": str(diagnostics.get("turn_id") or ""),
         "packet_ref": str(diagnostics.get("runtime_invocation_packet_ref") or diagnostics.get("packet_ref") or ""),
-        "source": str(stream_policy.get("source") or "runtime_directive.model_response"),
+        "source": source,
     }
+
+
+def _messages_for_utility_accounting(messages: list[Any]) -> list[dict[str, Any]]:
+    normalized: list[dict[str, Any]] = []
+    for message in list(messages or []):
+        if isinstance(message, dict):
+            normalized.append(
+                {
+                    "role": str(message.get("role") or message.get("type") or "user"),
+                    "content": stringify_content(message.get("content") or ""),
+                }
+            )
+            continue
+        normalized.append(
+            {
+                "role": str(getattr(message, "role", "") or getattr(message, "type", "") or message.__class__.__name__ or "user"),
+                "content": stringify_content(getattr(message, "content", "") or ""),
+            }
+        )
+    return normalized
 
 
 def _seed_boundary_with_prior_tool_receipts(

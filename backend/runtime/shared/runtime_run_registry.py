@@ -26,6 +26,8 @@ class RuntimeRun:
     latest_checkpoint_ref: str = ""
     reconnectable_until: float = 0.0
     terminal_event: str = ""
+    owner_process_id: int = 0
+    owner_instance_id: str = ""
     diagnostics: dict[str, Any] | None = None
     authority: str = "runtime.run_registry"
 
@@ -59,6 +61,8 @@ class RuntimeRunRegistry:
         root_request_ref: str = "",
         reconnect_ttl_seconds: float = 6 * 60 * 60,
         diagnostics: dict[str, Any] | None = None,
+        owner_process_id: int | None = None,
+        owner_instance_id: str = "",
     ) -> RuntimeRun:
         now = time.time()
         stream_run_id = f"strun:{uuid.uuid4().hex}"
@@ -71,6 +75,8 @@ class RuntimeRunRegistry:
             created_at=now,
             updated_at=now,
             reconnectable_until=now + max(60.0, float(reconnect_ttl_seconds or 0)),
+            owner_process_id=int(owner_process_id or os.getpid()),
+            owner_instance_id=str(owner_instance_id or ""),
             diagnostics=dict(diagnostics or {}),
         )
         return self.upsert(run)
@@ -94,13 +100,17 @@ class RuntimeRunRegistry:
 
     def list_session_runs(self, session_id: str) -> list[RuntimeRun]:
         normalized = str(session_id or "").strip()
+        runs = [run for run in self.list_runs() if run.session_id == normalized]
+        return sorted(runs, key=lambda item: item.updated_at, reverse=True)
+
+    def list_runs(self) -> list[RuntimeRun]:
         runs: list[RuntimeRun] = []
         for path in self.run_dir.glob("*.json"):
             try:
                 payload = json.loads(path.read_text(encoding="utf-8"))
             except (OSError, json.JSONDecodeError):
                 continue
-            if not isinstance(payload, dict) or str(payload.get("session_id") or "") != normalized:
+            if not isinstance(payload, dict):
                 continue
             payload["event_log_id"] = str(payload.get("event_log_id") or payload.get("task_run_id") or "").strip()
             payload.pop("task_run_id", None)
@@ -142,6 +152,8 @@ class RuntimeRunRegistry:
         latest_event_offset: int | None = None,
         latest_checkpoint_ref: str | None = None,
         terminal_event: str | None = None,
+        owner_process_id: int | None = None,
+        owner_instance_id: str | None = None,
         diagnostics: dict[str, Any] | None = None,
     ) -> RuntimeRun:
         current = self.get_run(stream_run_id)
@@ -157,6 +169,8 @@ class RuntimeRunRegistry:
                 latest_event_offset=current.latest_event_offset if latest_event_offset is None else int(latest_event_offset),
                 latest_checkpoint_ref=current.latest_checkpoint_ref if latest_checkpoint_ref is None else str(latest_checkpoint_ref or ""),
                 terminal_event=current.terminal_event if terminal_event is None else str(terminal_event or ""),
+                owner_process_id=current.owner_process_id if owner_process_id is None else int(owner_process_id or 0),
+                owner_instance_id=current.owner_instance_id if owner_instance_id is None else str(owner_instance_id or ""),
                 diagnostics=merged_diagnostics,
                 updated_at=time.time(),
             )

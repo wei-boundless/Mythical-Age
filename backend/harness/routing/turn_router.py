@@ -63,7 +63,7 @@ def build_turn_route(*, runtime_assembly: Any) -> TurnRoute:
             monitor_policy={"record_task_monitor": False, "record_turn_monitor": False},
             diagnostics={"runtime_status": str(assembly_payload.get("status") or "")},
         )
-    if _has_explicit_contract(assembly_payload):
+    if _has_system_issued_explicit_contract(assembly_payload):
         return TurnRoute(
             route_kind="explicit_contract_task",
             invocation_kind="task_execution_start",
@@ -92,13 +92,24 @@ def _runtime_blocked(assembly_payload: dict[str, Any]) -> bool:
     return bool(diagnostics.get("blocked_runtime") is True or diagnostics.get("runtime_blocked") is True)
 
 
-def _has_explicit_contract(assembly_payload: dict[str, Any]) -> bool:
+def _has_system_issued_explicit_contract(assembly_payload: dict[str, Any]) -> bool:
     engagement_contract = dict(assembly_payload.get("engagement_contract") or {})
     task_selection = dict(assembly_payload.get("task_selection") or {})
-    return bool(
+    if not bool(
         engagement_contract
         or task_selection.get("task_contract")
         or task_selection.get("task_contract_seed")
         or task_selection.get("engagement_contract")
-        or task_selection.get("engagement_contract_ref")
-    )
+    ):
+        return False
+    source = str(
+        task_selection.get("contract_dispatch_source")
+        or task_selection.get("runtime_entrypoint")
+        or task_selection.get("source")
+        or engagement_contract.get("dispatch_source")
+        or engagement_contract.get("source")
+        or ""
+    ).strip()
+    if source in {"system_explicit_contract", "specific_task_contract", "task_graph_contract"}:
+        return True
+    return bool(task_selection.get("system_issued_contract") is True or engagement_contract.get("system_issued") is True)

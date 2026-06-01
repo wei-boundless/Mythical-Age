@@ -425,6 +425,7 @@ def test_runtime_config_console_includes_soul_image_asset_group() -> None:
     assert field_map["base_url"]["type"] == "text"
     assert field_map["model"]["value"] == "gpt-image-2"
     assert field_map["api_key"]["type"] == "secret"
+    assert field_map["request_timeout_seconds"]["value"] == 150.0
     assert "api_key" not in str(field_map["api_key"].get("value", ""))
 
 
@@ -682,13 +683,13 @@ def test_runtime_config_console_includes_long_output_fields(monkeypatch: pytest.
     assert field_map["llm_reasoning_effort"]["options"] == ["high", "max"]
 
 
-def test_repo_default_runtime_config_uses_deepseek_1m_context_with_conservative_model_defaults() -> None:
+def test_repo_default_runtime_config_uses_deepseek_1m_context_with_deepseek_pro_primary() -> None:
     import json
 
     payload = json.loads((BACKEND_DIR / "config.json").read_text(encoding="utf-8"))
 
     assert payload["model_provider"]["provider"] == "deepseek"
-    assert payload["model_provider"]["model"] == "deepseek-v4-flash"
+    assert payload["model_provider"]["model"] == "deepseek-v4-pro"
     assert payload["model_provider"]["base_url"] == "https://api.deepseek.com/v1"
     assert payload["context_budget_preset"] == "deepseek_1m"
 

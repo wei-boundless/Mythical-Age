@@ -364,12 +364,14 @@ def _recipe_profile(execution_shape: ExecutionShape) -> dict[str, Any]:
             "safety_policy": {
                 "safety_class": "S1_bounded_artifact_write" if is_game else "S1_bounded_patch",
                 "write_mode": "bounded_create" if is_game else "scoped_patch",
-                "default_write_roots": ["frontend/public/games", "docs/系统规划/任务系统实测记录/artifacts"] if is_game else [],
+                "default_write_roots": [] if is_game else [],
+                "default_publish_targets": ["frontend/public/games", "docs/系统规划/任务系统实测记录/artifacts"] if is_game else [],
                 "forbidden_paths": [".env", ".env.local", ".git", "node_modules"],
             },
             "metadata": {
                 "default_artifact_name": "game.html" if is_game else "",
-                "default_write_roots": ["frontend/public/games", "docs/系统规划/任务系统实测记录/artifacts"] if is_game else [],
+                "default_write_roots": [] if is_game else [],
+                "default_publish_targets": ["frontend/public/games", "docs/系统规划/任务系统实测记录/artifacts"] if is_game else [],
             },
         }
     return {

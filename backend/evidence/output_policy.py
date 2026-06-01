@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
-from runtime.model_gateway.model_runtime import ModelRuntimeError, stringify_content
+from runtime.model_gateway.model_runtime import ModelRuntimeError, stringify_content, utility_accounting_context
 from response_system import (
     answer_looks_like_snippet_dump,
     build_rag_answer_finalization_messages,
@@ -37,7 +37,15 @@ class RAGEvidenceOutputPolicy:
             )
         messages = build_rag_answer_finalization_messages(evidence_pack=evidence_pack)
         try:
-            response = await self.model_runtime.invoke_messages(messages)
+            response = await self.model_runtime.invoke_messages(
+                messages,
+                accounting_context=utility_accounting_context(
+                    source="evidence.rag_answer_finalizer",
+                    messages=messages,
+                    purpose="utility.rag_answer_finalizer",
+                    cache_metric_scope="rag_finalizer",
+                ),
+            )
         except ModelRuntimeError as exc:
             return RAGAnswerFinalizationResult(
                 status="error",

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import sys
+import threading
+import time
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -11,6 +13,8 @@ if str(BACKEND_DIR) not in sys.path:
 
 from app import app
 from bootstrap.app_runtime import app_runtime
+from harness.runtime.single_agent_host import SingleAgentRuntimeHost
+from runtime.shared.runtime_run_registry import RuntimeRunRegistry
 
 
 async def _fake_resumable_astream(_request):
@@ -19,22 +23,39 @@ async def _fake_resumable_astream(_request):
     yield {"type": "done", "content": "alpha beta"}
 
 
+def _create_session(client: TestClient, title: str) -> str:
+    created = client.post("/api/sessions", json={"title": title})
+    assert created.status_code == 200
+    return created.json()["id"]
+
+
+def _create_chat_run(client: TestClient, *, session_id: str, message: str) -> dict:
+    response = client.post(
+        "/api/chat/runs",
+        json={"message": message, "session_id": session_id, "stream": True},
+    )
+    assert response.status_code == 200
+    return response.json()
+
+
+def _wait_for_run(runtime, stream_run_id: str, predicate, *, timeout_seconds: float = 2):
+    deadline = time.time() + timeout_seconds
+    while time.time() < deadline:
+        current = runtime.query_runtime.single_agent_runtime_host.run_registry.get_run(stream_run_id)
+        if current is not None and predicate(current):
+            return current
+        time.sleep(0.01)
+    return runtime.query_runtime.single_agent_runtime_host.run_registry.get_run(stream_run_id)
+
+
 def test_chat_run_event_stream_replays_after_offset_with_sse_ids() -> None:
     with TestClient(app) as client:
         runtime = app_runtime.require_ready()
         original_astream = runtime.query_runtime.astream
         runtime.query_runtime.astream = _fake_resumable_astream  # type: ignore[method-assign]
         try:
-            created = client.post("/api/sessions", json={"title": "Resumable stream"})
-            assert created.status_code == 200
-            session_id = created.json()["id"]
-
-            run_response = client.post(
-                "/api/chat/runs",
-                json={"message": "hello resumable", "session_id": session_id, "stream": True},
-            )
-            assert run_response.status_code == 200
-            run = run_response.json()
+            session_id = _create_session(client, "Resumable stream")
+            run = _create_chat_run(client, session_id=session_id, message="hello resumable")
             assert run["stream_run_id"].startswith("strun:")
             assert run["event_log_id"].startswith("chatrun:")
 
@@ -56,7 +77,8 @@ def test_chat_run_event_stream_replays_after_offset_with_sse_ids() -> None:
             assert latest.status_code == 200
             latest_run = latest.json()
             assert latest_run["stream_run_id"] == run["stream_run_id"]
-            assert latest_run["is_reconnectable"] is True
+            assert latest_run["status"] == "completed"
+            assert latest_run["is_reconnectable"] is False
         finally:
             runtime.query_runtime.astream = original_astream  # type: ignore[method-assign]
 
@@ -67,16 +89,8 @@ def test_chat_run_event_stream_resumes_from_last_event_id_header() -> None:
         original_astream = runtime.query_runtime.astream
         runtime.query_runtime.astream = _fake_resumable_astream  # type: ignore[method-assign]
         try:
-            created = client.post("/api/sessions", json={"title": "Last event id resume"})
-            assert created.status_code == 200
-            session_id = created.json()["id"]
-
-            run_response = client.post(
-                "/api/chat/runs",
-                json={"message": "hello last event id", "session_id": session_id, "stream": True},
-            )
-            assert run_response.status_code == 200
-            run = run_response.json()
+            session_id = _create_session(client, "Last event id resume")
+            run = _create_chat_run(client, session_id=session_id, message="hello last event id")
 
             first_stream = client.get(run["stream_url"])
             assert first_stream.status_code == 200
@@ -89,6 +103,123 @@ def test_chat_run_event_stream_resumes_from_last_event_id_header() -> None:
             assert "event: done" in replay.text
         finally:
             runtime.query_runtime.astream = original_astream  # type: ignore[method-assign]
+
+
+def test_chat_run_resume_is_attach_only_and_does_not_reexecute_turn() -> None:
+    with TestClient(app) as client:
+        runtime = app_runtime.require_ready()
+        original_astream = runtime.query_runtime.astream
+        calls = {"count": 0}
+
+        async def fake_counting_astream(_request):
+            calls["count"] += 1
+            yield {"type": "done", "content": "finished once"}
+
+        runtime.query_runtime.astream = fake_counting_astream  # type: ignore[method-assign]
+        try:
+            session_id = _create_session(client, "Attach only resume")
+            run = _create_chat_run(client, session_id=session_id, message="run once")
+
+            stream = client.get(run["stream_url"])
+            assert stream.status_code == 200
+            assert "finished once" in stream.text
+            assert calls["count"] == 1
+
+            resume = client.post(f"/api/chat/runs/{run['stream_run_id']}/resume")
+            assert resume.status_code == 200
+            assert resume.json()["resume_mode"] == "attach_existing_run"
+            assert calls["count"] == 1
+        finally:
+            runtime.query_runtime.astream = original_astream  # type: ignore[method-assign]
+
+
+def test_disconnected_event_stream_does_not_cancel_background_chat_run() -> None:
+    with TestClient(app) as client:
+        runtime = app_runtime.require_ready()
+        original_astream = runtime.query_runtime.astream
+        calls = {"count": 0}
+        release = threading.Event()
+
+        async def fake_long_astream(_request):
+            calls["count"] += 1
+            yield {"type": "token", "content": "started"}
+            await asyncio.to_thread(release.wait)
+            yield {"type": "done", "content": "finished after disconnect"}
+
+        import asyncio
+
+        runtime.query_runtime.astream = fake_long_astream  # type: ignore[method-assign]
+        try:
+            session_id = _create_session(client, "Disconnect keeps running")
+            run = _create_chat_run(client, session_id=session_id, message="keep running")
+            stream_run_id = run["stream_run_id"]
+
+            current = _wait_for_run(runtime, stream_run_id, lambda item: item.latest_event_offset >= 1)
+            assert calls["count"] == 1
+            assert current is not None
+            assert current.status == "running"
+            assert current.latest_event_offset >= 1
+
+            release.set()
+
+            current = _wait_for_run(runtime, stream_run_id, lambda item: item.status == "completed")
+            assert current is not None
+            assert current.status == "completed"
+            assert calls["count"] == 1
+
+            replay = client.get(f"{run['stream_url']}?after_offset=1")
+            assert replay.status_code == 200
+            assert "finished after disconnect" in replay.text
+            assert "event: done" in replay.text
+            assert calls["count"] == 1
+        finally:
+            runtime.query_runtime.astream = original_astream  # type: ignore[method-assign]
+
+
+def test_runtime_startup_marks_previous_process_active_chat_runs_orphaned(tmp_path) -> None:
+    registry = RuntimeRunRegistry(tmp_path)
+    stale = registry.create_run(
+        session_id="session:stale",
+        owner_process_id=999999,
+        owner_instance_id="runtime-instance:previous",
+    )
+    stale = registry.mark_running(stale)
+    registry.mark_event(stale, latest_event_offset=0, status="running")
+
+    host = SingleAgentRuntimeHost(tmp_path)
+
+    recovered = host.run_registry.get_run(stale.stream_run_id)
+    assert recovered is not None
+    assert recovered.status == "orphaned"
+    assert recovered.terminal_event == "error"
+    assert recovered.latest_event_offset >= 0
+    assert recovered.diagnostics is not None
+    assert recovered.diagnostics["reason"] == "runtime_process_restarted"
+
+    events = host.stream_replay.list_public_events_after(recovered, after_offset=-1)
+    assert len(events) == 1
+    payload = dict(events[0].payload or {})
+    assert payload["public_event_type"] == "error"
+    data = dict(payload["data"])
+    assert data["code"] == "runtime_process_restarted"
+    assert "重新判断下一步" in data["error"]
+
+
+def test_runtime_startup_uses_instance_owner_not_only_process_id_for_recovery(tmp_path) -> None:
+    host = SingleAgentRuntimeHost(tmp_path)
+    current = host.run_registry.create_run(
+        session_id="session:current",
+        owner_process_id=host.owner_process_id,
+        owner_instance_id=host.instance_id,
+    )
+    current = host.run_registry.mark_running(current)
+    host.run_registry.mark_event(current, latest_event_offset=0, status="running")
+
+    same_process_new_instance_host = SingleAgentRuntimeHost(tmp_path)
+
+    recovered = same_process_new_instance_host.run_registry.get_run(current.stream_run_id)
+    assert recovered is not None
+    assert recovered.status == "orphaned"
 
 
 def test_legacy_chat_stream_is_wrapped_by_resumable_run_stream() -> None:

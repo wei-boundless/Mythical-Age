@@ -529,10 +529,8 @@ def _default_task_artifact_path(selected_recipe, current_turn_context: dict[str,
         return ""
     artifact_root = str(
         current_turn_context.get("artifact_root")
-        or current_turn_context.get("workspace_root")
         or dict(current_turn_context.get("explicit_inputs") or {}).get("artifact_root")
-        or dict(current_turn_context.get("explicit_inputs") or {}).get("workspace_root")
-        or recipe_metadata.get("default_write_root")
+        or recipe_metadata.get("default_artifact_root")
         or (
             list(recipe_metadata.get("default_write_roots") or [""])[0]
             if isinstance(recipe_metadata.get("default_write_roots"), list)
@@ -798,12 +796,16 @@ def _build_task_safety_envelope(
         for item in list(effective_policy.get("write_roots") or effective_policy.get("default_write_roots") or [])
         if str(item).strip()
     ]
-    if explicit_target_root:
-        write_roots = [explicit_target_root]
+    publish_targets = [
+        str(item).strip()
+        for item in list(effective_policy.get("publish_targets") or effective_policy.get("default_publish_targets") or [])
+        if str(item).strip()
+    ]
     return {
         "safety_class": str(effective_policy.get("safety_class") or "S0_readonly").strip(),
         "write_mode": str(effective_policy.get("write_mode") or "none").strip(),
         "write_roots": write_roots,
+        "publish_targets": [*publish_targets, *([explicit_target_root] if explicit_target_root else [])],
         "forbidden_paths": [
             str(item).strip()
             for item in list(effective_policy.get("forbidden_paths") or [])

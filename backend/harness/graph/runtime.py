@@ -54,6 +54,7 @@ class GraphRuntime:
             initial_inputs=dict(initial_inputs or {}),
             diagnostics=dict(diagnostics or {}),
         )
+        session_scope = _session_scope_from_runtime_scope(runtime_scope)
         task_run = TaskRun(
             task_run_id=task_run_id,
             session_id=session_id,
@@ -72,6 +73,8 @@ class GraphRuntime:
                 "graph_harness_config_id": graph_config.config_id,
                 "graph_harness_config_hash": graph_config.content_hash,
                 "task_environment_id": graph_config.task_environment_id,
+                "session_scope": session_scope,
+                "session_scope_key": _session_scope_key(session_scope),
                 "runtime_scope": runtime_scope,
                 **_public_scope_fields(runtime_scope),
                 "origin": origin,
@@ -85,12 +88,18 @@ class GraphRuntime:
             graph_id=graph_config.graph_id,
             config_id=graph_config.config_id,
             config_hash=graph_config.content_hash,
+            workspace_view=session_scope["workspace_view"],
+            task_environment_id=session_scope["task_environment_id"],
+            project_id=session_scope["project_id"],
+            session_scope_key=_session_scope_key(session_scope),
             status="running",
             created_at=now,
             updated_at=now,
             diagnostics={
                 **dict(diagnostics or {}),
                 "task_environment_id": graph_config.task_environment_id,
+                "session_scope": session_scope,
+                "session_scope_key": _session_scope_key(session_scope),
                 "root_task_ref": graph_config.root_task_ref,
                 "runtime_scope": runtime_scope,
                 **_public_scope_fields(runtime_scope),
@@ -350,8 +359,7 @@ def _graph_runtime_scope(
         scope["scope_id"] = scope_id
         scope.setdefault("scope_source", "harness.graph_runtime.explicit_scope")
     else:
-        scope["project_id"] = f"graphrun.{safe_id(graph_run_id)}"
-        scope["scope_source"] = "harness.graph_runtime.generated_graph_run_project_scope"
+        scope["scope_source"] = "harness.graph_runtime.unscoped_graph_run"
     graph_task_memory_namespace = _graph_task_memory_namespace(
         graph_config=graph_config,
         graph_run_id=graph_run_id,
@@ -417,6 +425,24 @@ def _public_scope_fields(runtime_scope: dict[str, Any]) -> dict[str, str]:
         if value:
             result[key] = value
     return result
+
+
+def _session_scope_from_runtime_scope(runtime_scope: dict[str, Any]) -> dict[str, str]:
+    return {
+        "workspace_view": str(dict(runtime_scope or {}).get("workspace_view") or "task_environment").strip() or "task_environment",
+        "task_environment_id": str(dict(runtime_scope or {}).get("task_environment_id") or "").strip(),
+        "project_id": str(dict(runtime_scope or {}).get("project_id") or "").strip(),
+    }
+
+
+def _session_scope_key(scope: dict[str, Any]) -> str:
+    return "|".join(
+        [
+            str(dict(scope or {}).get("workspace_view") or "chat").strip() or "chat",
+            str(dict(scope or {}).get("task_environment_id") or "").strip(),
+            str(dict(scope or {}).get("project_id") or "").strip(),
+        ]
+    )
 
 
 def _first_scope_value(*values: Any) -> str:

@@ -736,9 +736,6 @@ def _contract_artifact_root(
     values: dict[str, Any],
 ) -> Path | None:
     workspace_root = _workspace_root_from_services(services)
-    explicit_root = _explicit_artifact_root(work_order)
-    if explicit_root:
-        return _resolve_inside_workspace(workspace_root=workspace_root, value=explicit_root)
     environment = dict(graph_config.environment or {})
     storage_space = dict(environment.get("storage_space") or {})
     environment_projection = dict(policy.get("environment_projection") or {})
@@ -753,18 +750,19 @@ def _contract_artifact_root(
     environment_root = str(environment_projection.get("environment_artifact_root") or storage_space.get("artifact_root") or work_order.artifact_space_ref or "").strip()
     policy_root = "" if raw_policy_root.startswith("repo.") else raw_policy_root
     root_value = str(
-        policy_root
+        environment_root
+        or policy_root
         or artifact_materialization.get("default_artifact_root")
         or output_policy.get("default_artifact_root")
         or policy.get("default_artifact_root")
-        or environment_root
         or policy.get("root")
         or ""
     ).strip()
     root = _resolve_inside_workspace(workspace_root=workspace_root, value=_render_artifact_template(root_value, values))
     if root is None:
         return None
-    subdir_template = str(
+    explicit_subdir = _artifact_subdir_from_explicit_root(work_order)
+    subdir_template = explicit_subdir or str(
         artifact_materialization.get("subdir_template")
         or artifact_materialization.get("scope_template")
         or output_policy.get("subdir_template")
@@ -794,6 +792,19 @@ def _explicit_artifact_root(work_order: GraphNodeWorkOrder) -> str:
     return ""
 
 
+def _artifact_subdir_from_explicit_root(work_order: GraphNodeWorkOrder) -> str:
+    explicit_root = _explicit_artifact_root(work_order)
+    if not explicit_root:
+        return ""
+    clean = _sanitize_relative_path(explicit_root)
+    parts = [part for part in clean.split("/") if part]
+    if len(parts) >= 3 and parts[:3] == ["frontend", "public", "games"]:
+        return "/".join(parts[3:])
+    if len(parts) >= 1 and parts[0] in {"storage", "frontend", "backend", "docs"}:
+        return parts[-1]
+    return clean
+
+
 def _artifact_materialization_root(*, graph_config: GraphHarnessConfig, work_order: GraphNodeWorkOrder) -> str:
     resolved = resolve_output_policy(graph_config=graph_config, work_order=work_order)
     environment_projection = dict(resolved.get("environment_projection") or {})
@@ -803,12 +814,11 @@ def _artifact_materialization_root(*, graph_config: GraphHarnessConfig, work_ord
     raw_policy_root = str(artifact_materialization.get("artifact_root") or output_policy.get("artifact_root") or "").strip()
     policy_root = "" if raw_policy_root.startswith("repo.") else raw_policy_root
     return str(
-        _explicit_artifact_root(work_order)
-        or _render_artifact_template(policy_root, values)
-        or _render_artifact_template(str(artifact_materialization.get("default_artifact_root") or output_policy.get("default_artifact_root") or "").strip(), values)
-        or environment_projection.get("environment_artifact_root")
+        environment_projection.get("environment_artifact_root")
         or work_order.artifact_space_ref
         or _environment_artifact_root(graph_config)
+        or _render_artifact_template(policy_root, values)
+        or _render_artifact_template(str(artifact_materialization.get("default_artifact_root") or output_policy.get("default_artifact_root") or "").strip(), values)
     ).strip()
 
 

@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from pathlib import Path
 import sqlite3
 import time
+import uuid
 from typing import Any, Callable
 
 from capability_system import build_default_operation_registry
@@ -16,9 +18,10 @@ from runtime.memory.state_index import RuntimeStateIndex
 from runtime.prompt_accounting import PromptAccountingLedger
 from runtime.shared.event_log import RuntimeEventLog
 from runtime.shared.execution_record import RuntimeExecutionStore
-from runtime.shared.runtime_run_registry import RuntimeRunRegistry
+from runtime.shared.runtime_run_registry import RuntimeRun, RuntimeRunRegistry
 from runtime.shared.runtime_object_store import RuntimeObjectStore
 from runtime.shared.stream_replay import RuntimeStreamReplayService
+from .active_turn import ActiveTurnRegistry
 from langgraph.checkpoint.sqlite import SqliteSaver
 
 class SingleAgentRuntimeHost:
@@ -38,14 +41,18 @@ class SingleAgentRuntimeHost:
         tool_definitions: list[Any] | tuple[Any, ...] | None = None,
     ) -> None:
         self.root_dir = Path(root_dir)
+        self.owner_process_id = os.getpid()
+        self.instance_id = f"runtime-instance:{os.getpid()}:{uuid.uuid4().hex[:12]}"
         self.backend_dir = Path(backend_dir) if backend_dir is not None else ProjectLayout.from_runtime_root(self.root_dir).backend_dir
         self.event_log = RuntimeEventLog(self.root_dir)
         self.run_registry = RuntimeRunRegistry(self.root_dir)
         self.stream_replay = RuntimeStreamReplayService(self.event_log)
+        self._close_unowned_active_chat_runs()
         self.prompt_accounting_ledger = PromptAccountingLedger(self.root_dir)
         self.execution_store = RuntimeExecutionStore(self.root_dir)
         self.state_index = RuntimeStateIndex(self.root_dir)
         self.runtime_objects = RuntimeObjectStore(self.root_dir)
+        self.active_turn_registry = ActiveTurnRegistry(self)
         self.graph_checkpoint_store = LangGraphCheckpointStore(_build_graph_checkpoint_saver(self.root_dir))
         self.operation_gate = operation_gate or OperationGate(build_default_operation_registry())
         self.permission_mode_provider = permission_mode_provider
@@ -62,6 +69,35 @@ class SingleAgentRuntimeHost:
         self._background_tasks.add(task)
         task.add_done_callback(self._background_tasks.discard)
         return task
+
+    def _close_unowned_active_chat_runs(self) -> None:
+        for run in self.run_registry.list_runs():
+            if not _active_chat_run_not_owned_by_current_host(
+                run,
+                owner_process_id=self.owner_process_id,
+                owner_instance_id=self.instance_id,
+            ):
+                continue
+            current = self.run_registry.get_run(run.stream_run_id) or run
+            event = self.stream_replay.append_public_event(
+                current,
+                public_event_type="error",
+                data={
+                    "error": "运行进程已重启，原执行流不能继续自动推进。请发送新的消息，系统会根据当前任务状态重新判断下一步。",
+                    "code": "runtime_process_restarted",
+                    "reason": "background_executor_missing_after_restart",
+                },
+            )
+            self.run_registry.mark_event(
+                current,
+                latest_event_offset=event.offset,
+                status="orphaned",
+                terminal_event="error",
+                diagnostics={
+                    "orphaned_by": "single_agent_runtime_host.startup_reconciliation",
+                    "reason": "runtime_process_restarted",
+                },
+            )
 
     def _current_permission_mode(self) -> str:
         provider = self.permission_mode_provider
@@ -393,3 +429,20 @@ def _build_graph_checkpoint_saver(root_dir: Path) -> SqliteSaver:
     saver = SqliteSaver(connection)
     saver.setup()
     return saver
+
+
+def _active_chat_run_not_owned_by_current_host(
+    run: RuntimeRun,
+    *,
+    owner_process_id: int,
+    owner_instance_id: str,
+) -> bool:
+    if run.status in {"completed", "failed", "stopped", "orphaned"}:
+        return False
+    if not str(run.event_log_id or "").startswith("chatrun:"):
+        return False
+    if run.owner_instance_id:
+        return run.owner_instance_id != owner_instance_id
+    if run.owner_process_id:
+        return int(run.owner_process_id) != int(owner_process_id)
+    return True

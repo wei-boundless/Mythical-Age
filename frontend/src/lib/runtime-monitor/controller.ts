@@ -318,6 +318,7 @@ export class RuntimeMonitorController {
     try {
       await runGraphRunUntilIdle(graphRunId, {
         graph_harness_config_id: graphHarnessConfigId,
+        session_scope: binding?.session_scope,
         max_dispatch_requests: 1,
       });
       const monitor = await fetchRuntimeMonitorGraphDetail(graphRunId, graphHarnessConfigId);
@@ -625,6 +626,7 @@ export class RuntimeMonitorController {
       graph_id: String(binding.graph_id ?? "").trim() || undefined,
       session_id: String(binding.session_id ?? "").trim() || undefined,
       project_id: String(binding.project_id ?? "").trim() || undefined,
+      session_scope: binding.session_scope,
       title: String(binding.title ?? "").trim() || undefined,
       bound_at: Number(binding.bound_at ?? Date.now() / 1000),
     };
@@ -684,6 +686,7 @@ export class RuntimeMonitorController {
     try {
       await runGraphRunUntilIdle(graphRunId, {
         graph_harness_config_id: graphHarnessConfigId,
+        session_scope: state.taskGraphMonitorBinding?.session_scope,
         max_dispatch_requests: 1,
       });
       const monitor = await fetchRuntimeMonitorGraphDetail(graphRunId, graphHarnessConfigId);

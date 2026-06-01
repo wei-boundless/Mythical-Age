@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
@@ -25,6 +26,7 @@ from runtime.shared.execution_record import (
     build_execution_receipt,
 )
 from runtime.shared.policy_rejection_observation import build_policy_rejection_observation
+from harness.loop.task_run_execution_control import attach_tool_task, clear_tool_task, peek_executor_signal
 
 
 class ToolRuntimeExecutor:
@@ -436,7 +438,40 @@ class ToolRuntimeExecutor:
                 "recoverable_error": error,
             }
         try:
-            envelope = await runtime_tool.call(tool_args, tool_context)
+            envelope = await _call_runtime_tool_with_control(
+                runtime_tool,
+                tool_args,
+                tool_context,
+                runtime_host=getattr(self.tool_runtime, "runtime_host", None),
+                task_run_id=task_run_id,
+                sandbox_policy=policy_payload,
+            )
+        except asyncio.CancelledError as exc:
+            signal = _tool_signal(getattr(self.tool_runtime, "runtime_host", None), task_run_id, policy_payload)
+            reason = str(signal.get("reason") or "tool_cancelled_by_runtime_control")
+            kind = str(signal.get("kind") or "stop")
+            error = f"Tool execution interrupted by runtime control: {kind}: {reason}"
+            if execution_store is not None:
+                current_record = execution_store.mark_failed(
+                    current_record,
+                    error=error,
+                    diagnostics={"runtime_control": signal, "tool_interrupted": True},
+                )
+            return {
+                "observation": build_tool_execution_error_observation(
+                    task_run_id=task_run_id,
+                    request_ref=action_request.request_id,
+                    directive_ref=directive.directive_id,
+                    tool_name=tool_name,
+                    tool_call_id=tool_call_id,
+                    tool_args=tool_args,
+                    error=error,
+                    execution_receipt=build_execution_receipt(current_record, error=error).to_dict(),
+                ),
+                "execution_record": current_record,
+                "recoverable_error": error if kind in {"pause", "replan"} else "",
+                "error": error if kind == "stop" else "",
+            }
         except Exception as exc:
             error = f"Tool execution failed: {exc}"
             if execution_store is not None:
@@ -704,6 +739,50 @@ def _capability_tool_instance(
 
 def _uses_system_backend_root(tool_name: str) -> bool:
     return str(tool_name or "").strip() in {"agent_todo", "image_generate"}
+
+
+async def _call_runtime_tool_with_control(
+    runtime_tool: Any,
+    tool_args: dict[str, Any],
+    tool_context: ToolUseContext,
+    *,
+    runtime_host: Any | None,
+    task_run_id: str,
+    sandbox_policy: dict[str, Any],
+) -> Any:
+    executor_epoch = _executor_epoch_from_policy(sandbox_policy)
+    if runtime_host is None or executor_epoch <= 0:
+        return await runtime_tool.call(tool_args, tool_context)
+    task = asyncio.create_task(runtime_tool.call(tool_args, tool_context))
+    attach_tool_task(runtime_host, task_run_id=task_run_id, executor_epoch=executor_epoch, tool_task=task)
+    try:
+        return await task
+    finally:
+        clear_tool_task(runtime_host, task_run_id=task_run_id, executor_epoch=executor_epoch, tool_task=task)
+
+
+def _tool_signal(runtime_host: Any | None, task_run_id: str, sandbox_policy: dict[str, Any]) -> dict[str, Any]:
+    executor_epoch = _executor_epoch_from_policy(sandbox_policy)
+    if runtime_host is None or executor_epoch <= 0 or not task_run_id:
+        return {}
+    signal = peek_executor_signal(runtime_host, task_run_id=task_run_id, executor_epoch=executor_epoch)
+    if signal is None:
+        return {}
+    return signal.to_dict() if hasattr(signal, "to_dict") else {
+        "kind": str(getattr(signal, "kind", "") or ""),
+        "task_run_id": str(getattr(signal, "task_run_id", "") or task_run_id),
+        "executor_epoch": int(getattr(signal, "executor_epoch", 0) or executor_epoch),
+        "reason": str(getattr(signal, "reason", "") or ""),
+        "requested_by": str(getattr(signal, "requested_by", "") or ""),
+        "requested_at": float(getattr(signal, "requested_at", 0.0) or 0.0),
+    }
+
+
+def _executor_epoch_from_policy(policy: dict[str, Any]) -> int:
+    try:
+        return int(dict(policy or {}).get("executor_epoch") or 0)
+    except (TypeError, ValueError):
+        return 0
 
 
 def _bind_runtime_scoped_tool_args(

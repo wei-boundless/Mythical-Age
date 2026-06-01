@@ -119,9 +119,23 @@ def tool_result_envelope_from_payload(payload: dict[str, Any] | None) -> ToolRes
 
 def _looks_failed(text: str) -> bool:
     lowered = str(text or "").lower()
+    structured = _json_result_payload(text)
+    if structured and (structured.get("ok") is False or structured.get("error") or structured.get("structured_error")):
+        return True
     if lowered.startswith(("read failed", "structured read failed", "search failed", "write failed", "edit failed", "blocked:", "timed out")):
         return True
     return _looks_like_failed_command_output(lowered)
+
+
+def _json_result_payload(text: str) -> dict[str, Any]:
+    stripped = str(text or "").strip()
+    if not (stripped.startswith("{") and stripped.endswith("}")):
+        return {}
+    try:
+        parsed = __import__("json").loads(stripped)
+    except Exception:
+        return {}
+    return dict(parsed) if isinstance(parsed, dict) else {}
 
 
 def _looks_like_failed_command_output(lowered: str) -> bool:

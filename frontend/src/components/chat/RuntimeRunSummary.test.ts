@@ -231,4 +231,56 @@ describe("RuntimeRunSummary", () => {
     expect(html).not.toContain("single_agent");
     expect(html).not.toContain(".respond");
   });
+
+  it("presents tool observations and agent judgments as separate trace rows", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(RuntimeRunSummary, {
+        entries: [
+          {
+            id: "tool-call",
+            kind: "tool",
+            level: "success",
+            title: "调用工具：write_file",
+            body: "已写入游戏 HTML 骨架。",
+            toolName: "write_file",
+            eventType: "step_summary_recorded",
+            statusText: "completed",
+            runId: "taskrun:turn:session-trace:1:abc",
+          },
+          {
+            id: "observation",
+            kind: "observation",
+            level: "success",
+            title: "观察结果",
+            body: "文件存在，包含启动界面和战斗按钮。",
+            eventType: "task_tool_observation_recorded",
+            statusText: "completed",
+            runId: "taskrun:turn:session-trace:1:abc",
+          },
+          {
+            id: "judgment",
+            kind: "model",
+            level: "running",
+            title: "Agent 判断",
+            body: "继续接入装备和 Boss 战。",
+            eventType: "step_summary_recorded",
+            statusText: "running",
+            runId: "taskrun:turn:session-trace:1:abc",
+            meta: [
+              { label: "判断", value: "核心骨架已可运行。" },
+              { label: "下一步", value: "接入装备、Boss 和验收脚本。" },
+            ],
+          },
+        ],
+      }),
+    );
+
+    expect(html).toContain("调用工具：write_file");
+    expect(html).toContain("观察结果");
+    expect(html).toContain("Agent 判断");
+    expect(html).toContain("核心骨架已可运行");
+    expect(html).toContain("接入装备、Boss 和验收脚本");
+    expect(html).not.toContain("agent-todo");
+    expect(html).not.toContain("{&quot;status&quot;");
+  });
 });

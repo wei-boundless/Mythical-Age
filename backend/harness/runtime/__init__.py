@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from .assembly import RuntimeAssembly, RuntimeAssemblyProfile, assemble_runtime, build_runtime_assembly_profile
+from .active_turn import ActiveTurnConflict, ActiveTurnMismatch, ActiveTurnRecord, ActiveTurnRegistry, TurnSteerResult
 from .compiler import RuntimeCompilationResult, RuntimeCompiler
 from .envelope import RuntimeEnvelope
 from .execution_context import ExecutionContext, build_execution_context
@@ -11,6 +12,10 @@ from .single_agent_host import SingleAgentRuntimeHost
 
 __all__ = [
     "AgentRuntimeServices",
+    "ActiveTurnConflict",
+    "ActiveTurnMismatch",
+    "ActiveTurnRecord",
+    "ActiveTurnRegistry",
     "TaskExecutorServices",
     "SingleAgentRuntimeHost",
     "RuntimeAssembly",
@@ -20,6 +25,7 @@ __all__ = [
     "RuntimeEnvelope",
     "ExecutionContext",
     "RuntimeInvocationPacket",
+    "TurnSteerResult",
     "artifact_policy_from_task_execution_assembly",
     "assemble_runtime",
     "build_runtime_assembly_profile",

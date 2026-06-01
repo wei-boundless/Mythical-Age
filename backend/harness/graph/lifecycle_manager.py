@@ -78,7 +78,7 @@ class GraphTaskLifecycleManager:
         root_payload = root_task.to_dict() if hasattr(root_task, "to_dict") else {}
         diagnostics = dict(root_payload.get("diagnostics") or graph_run.get("diagnostics") or {})
         runtime_scope = dict(diagnostics.get("runtime_scope") or {})
-        project_id = str(runtime_scope.get("project_id") or diagnostics.get("project_id") or f"graphrun.{safe_id(target)}").strip()
+        project_id = str(runtime_scope.get("project_id") or diagnostics.get("project_id") or "").strip()
         memory_namespace = dict(runtime_scope.get("graph_task_memory_namespace") or {})
         memory_namespace_id = str(
             runtime_scope.get("memory_namespace_id")

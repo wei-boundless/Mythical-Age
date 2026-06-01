@@ -247,7 +247,7 @@ def _validate_prefix_tier_content(*, kind: str, prefix_tier: SegmentPrefixTier, 
     if payload is None:
         return
     keys = _nested_keys(payload)
-    runtime_fields = sorted(keys & RUNTIME_INSTANCE_FIELDS)
+    runtime_fields = sorted(_runtime_instance_value_fields(payload))
     if runtime_fields:
         raise ValueError(
             "stable prefix segment contains runtime instance fields: "
@@ -289,3 +289,36 @@ def _nested_keys(value: Any) -> set[str]:
         for item in value:
             result.update(_nested_keys(item))
     return result
+
+
+def _runtime_instance_value_fields(value: Any) -> set[str]:
+    result: set[str] = set()
+    if isinstance(value, dict):
+        if _looks_like_json_schema_object(value):
+            return result
+        for key, item in value.items():
+            text_key = str(key)
+            if text_key in {"schema", "input_schema", "input_schema_summary", "properties"}:
+                continue
+            if text_key in RUNTIME_INSTANCE_FIELDS and not _looks_like_schema_field_definition(item):
+                result.add(text_key)
+            result.update(_runtime_instance_value_fields(item))
+    elif isinstance(value, list):
+        for item in value:
+            result.update(_runtime_instance_value_fields(item))
+    return result
+
+
+def _looks_like_json_schema_object(value: dict[str, Any]) -> bool:
+    return (
+        str(value.get("type") or "") == "object"
+        and isinstance(value.get("properties"), dict)
+        and any(key in value for key in ("required", "additionalProperties", "$schema"))
+    )
+
+
+def _looks_like_schema_field_definition(value: Any) -> bool:
+    if not isinstance(value, dict):
+        return False
+    schema_keys = {"type", "description", "enum", "items", "properties", "required", "default", "additionalProperties"}
+    return bool(set(str(key) for key in value.keys()) & schema_keys)

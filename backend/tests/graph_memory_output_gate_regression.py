@@ -218,6 +218,69 @@ def test_graph_output_policy_materializes_to_environment_artifact_area() -> None
     assert overview["artifacts"][0]["collection_id"] == "chapter_drafts"
 
 
+def test_graph_artifact_root_input_cannot_escape_general_task_environment() -> None:
+    runtime = _runtime("graph-output-policy-general-env-")
+    registry = TaskFlowRegistry(runtime.base_dir)
+    graph = registry.upsert_task_graph(
+        graph_id="graph.test.general_workspace_artifact_boundary",
+        title="General Workspace Artifact Boundary",
+        graph_kind="multi_agent",
+        entry_node_id="bundle",
+        output_node_id="bundle",
+        nodes=(
+            {
+                "node_id": "bundle",
+                "node_type": "agent",
+                "title": "产物节点",
+                "task_id": "task.test.bundle",
+                "agent_id": "agent:0",
+                "contract_bindings": {
+                    "output": {
+                        "primary_content_key": "final_answer",
+                        "artifact_materialization_policy": {
+                            "required": True,
+                            "artifact_targets": [
+                                {"path": "index.html", "required": True, "content_source": "final_answer"}
+                            ],
+                        },
+                    }
+                },
+            },
+        ),
+        runtime_policy={"coordinator_agent_id": "agent:0", "task_environment_id": "env.general.workspace"},
+        publish_state="published",
+        enabled=True,
+    )
+    graph_config = publish_graph_harness_config_for_graph(base_dir=runtime.base_dir, graph_id=graph.graph_id)
+    start = runtime.graph_harness.start_run(
+        session_id="session:test",
+        task_id="",
+        graph_config=graph_config,
+        initial_inputs={"artifact_root": "frontend/public/games/arcane_dungeon_studio"},
+    )
+
+    result = asyncio.run(
+        runtime.graph_harness.run_until_idle(
+            graph_config=graph_config,
+            graph_run_id=start.graph_run.graph_run_id,
+            max_node_executions=1,
+            max_node_steps=1,
+        )
+    )
+    state = runtime.graph_harness.get_checkpoint_state(start.graph_run.graph_run_id)
+    node_result = _runtime_object_payload(runtime, state["result_index"]["bundle"]["result_ref"])
+    project_root = runtime.base_dir.parent
+    expected_path = project_root / "storage" / "task_environments" / "general" / "workspace" / "artifacts" / "arcane_dungeon_studio" / "index.html"
+    escaped_path = project_root / "frontend" / "public" / "games" / "arcane_dungeon_studio" / "index.html"
+
+    assert result.status == "completed"
+    assert expected_path.exists()
+    assert not escaped_path.exists()
+    assert node_result["artifact_refs"] == [
+        "storage/task_environments/general/workspace/artifacts/arcane_dungeon_studio/index.html"
+    ]
+
+
 def test_post_node_review_gate_waits_before_outbound_edges_and_can_continue() -> None:
     runtime = _runtime("graph-post-node-gate-")
     registry = TaskFlowRegistry(runtime.base_dir)

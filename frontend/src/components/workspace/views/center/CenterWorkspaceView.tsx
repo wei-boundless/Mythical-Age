@@ -257,9 +257,17 @@ export function CenterWorkspaceView() {
     try {
       const initialInputs = buildCenterWorkspaceTaskGraphInitialInputs(message, selectedGraph);
       const sessionId = centerWorkspaceTaskGraphSessionId(currentSessionId);
+      const sessionScope = {
+        workspace_view: "task_environment",
+        task_environment_id: centerWorkspaceTaskEnvironmentId(selectedGraph),
+      };
       const result = await startTaskGraphHarnessRun(graphId, {
         session_id: sessionId,
-        initial_inputs: initialInputs,
+        session_scope: sessionScope,
+        initial_inputs: {
+          ...initialInputs,
+          session_scope: sessionScope,
+        },
         include_trace: true,
         dispatch_ready: true,
         run_mode: "auto_run",
@@ -270,6 +278,7 @@ export function CenterWorkspaceView() {
         graph_harness_config_id: result.graph_harness_config_id,
         graph_id: graphId,
         session_id: sessionId,
+        session_scope: sessionScope,
         title: selectedGraph?.title || graphId,
       });
       setTaskMessage("");

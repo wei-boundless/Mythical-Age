@@ -737,6 +737,118 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     });
   });
 
+  it("projects live tool observation summaries as observation rows", () => {
+    const taskRunId = "taskrun:turn:session:observation:1:abc";
+    const store = createStore<StoreState>({
+      ...getDefaultState(),
+      currentSessionId: "session:observation",
+      messages: [
+        { id: "user:1", role: "user", content: "开始长任务", toolCalls: [], retrievals: [], sourceIndex: 0 },
+        { id: "assistant:1", role: "assistant", content: "任务已接管。", toolCalls: [], retrievals: [], sourceIndex: 1 },
+      ],
+    });
+    const runtime = new WorkspaceRuntime(store) as unknown as {
+      applyGlobalRuntimeMonitorStreamPayload: (payload: Record<string, unknown>) => void;
+    };
+
+    runtime.applyGlobalRuntimeMonitorStreamPayload({
+      source: "runtime_event_log",
+      monitor: monitorForTest([
+        itemForMonitor({
+          task_run_id: taskRunId,
+          session_id: "session:observation",
+          task_id: "task:turn:session:observation:1",
+          latest_event_type: "step_summary_recorded",
+          route: { kind: "agent_runtime_run", session_id: "session:observation", task_run_id: taskRunId },
+        }),
+      ]),
+      runtime_event: {
+        event_id: "rtevt:observation",
+        run_id: taskRunId,
+        event_type: "step_summary_recorded",
+        offset: 12,
+        created_at: 12,
+        payload: {
+          task_run_id: taskRunId,
+          step: "task_tool_observation_recorded:3",
+          status: "running",
+          summary: "工具调用已完成，正在根据结果继续。",
+          agent_brief_output: JSON.stringify({
+            ok: false,
+            error: "Image API request timed out",
+            retryable: true,
+          }),
+        },
+        refs: { task_run_ref: taskRunId },
+        authority: "orchestration.runtime_event",
+      },
+    });
+
+    const attachment = store.getState().messages[1]?.runtimeAttachments?.[0];
+    expect(attachment?.progress_entries?.[0]).toMatchObject({
+      id: "rtevt:observation",
+      kind: "observation",
+      level: "error",
+      title: "观察结果",
+      body: "工具返回失败：Image API request timed out",
+      publicNote: "工具调用已完成，正在根据结果继续。",
+      agentBrief: "工具返回失败：Image API request timed out",
+      eventType: "step_summary_recorded",
+      taskRunId,
+    });
+  });
+
+  it("does not show internal agent todo observations as user-facing observation rows", () => {
+    const taskRunId = "taskrun:turn:session:todo-observation:1:abc";
+    const store = createStore<StoreState>({
+      ...getDefaultState(),
+      currentSessionId: "session:todo-observation",
+      messages: [
+        { id: "user:1", role: "user", content: "开始长任务", toolCalls: [], retrievals: [], sourceIndex: 0 },
+        { id: "assistant:1", role: "assistant", content: "任务已接管。", toolCalls: [], retrievals: [], sourceIndex: 1 },
+      ],
+    });
+    const runtime = new WorkspaceRuntime(store) as unknown as {
+      applyGlobalRuntimeMonitorStreamPayload: (payload: Record<string, unknown>) => void;
+    };
+
+    runtime.applyGlobalRuntimeMonitorStreamPayload({
+      source: "runtime_event_log",
+      monitor: monitorForTest([
+        itemForMonitor({
+          task_run_id: taskRunId,
+          session_id: "session:todo-observation",
+          task_id: "task:turn:session:todo-observation:1",
+          latest_event_type: "step_summary_recorded",
+          route: { kind: "agent_runtime_run", session_id: "session:todo-observation", task_run_id: taskRunId },
+        }),
+      ]),
+      runtime_event: {
+        event_id: "rtevt:todo-observation",
+        run_id: taskRunId,
+        event_type: "step_summary_recorded",
+        offset: 12,
+        created_at: 12,
+        payload: {
+          task_run_id: taskRunId,
+          step: "task_tool_observation_recorded:3",
+          status: "running",
+          summary: "工具调用已完成，正在根据结果继续。",
+          agent_brief_output: JSON.stringify({
+            status: "ok",
+            plan_id: "agent-todo:test",
+            items: [{ todo_id: "step1", status: "completed" }],
+          }),
+        },
+        refs: { task_run_ref: taskRunId },
+        authority: "orchestration.runtime_event",
+      },
+    });
+
+    const attachment = store.getState().messages[1]?.runtimeAttachments?.[0];
+    expect(attachment?.progress_entries ?? []).toEqual([]);
+  });
+
   it("does not start TaskGraph detail polling while a chat stream is active", async () => {
     api.streamChat.mockImplementation(() => new Promise(() => undefined));
     const store = createStore<StoreState>({
@@ -1233,11 +1345,106 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       expect.any(Object),
       expect.objectContaining({
         initialCursor: cursor,
-        replayFromStart: true,
+        replayFromStart: false,
       }),
     );
     expect(store.getState().currentSessionId).toBe("session:existing");
     expect(store.getState().messages.some((message) => message.role === "assistant" && message.content.includes("续"))).toBe(true);
+  });
+
+  it("reattaches the latest active chat run without a cursor by replaying from the beginning", async () => {
+    vi.useRealTimers();
+    api.listSessions.mockResolvedValue([{
+      id: "session:latest",
+      title: "Latest",
+      created_at: 1,
+      updated_at: 1,
+      message_count: 1,
+    }]);
+    api.readChatStreamCursor.mockReturnValue(null);
+    api.getLatestChatRunForSession.mockResolvedValue({
+      stream_run_id: "strun:latest",
+      session_id: "session:latest",
+      event_log_id: "chatrun:latest",
+      root_request_ref: "chatreq:latest",
+      status: "running",
+      latest_event_offset: 7,
+      is_reconnectable: true,
+      stream_url: "/api/chat/runs/strun:latest/events",
+    });
+    api.getSessionTimeline.mockResolvedValue({
+      messages: [
+        { role: "user", content: "继续处理" },
+      ],
+      runtime_attachments: [],
+    });
+    api.streamExistingChatRun.mockImplementation(async (_sessionId, _streamRunId, handlers) => {
+      handlers.onEvent("content_delta", { content: "恢复", event_offset: 1 });
+      handlers.onEvent("done", { content: "恢复完成", event_offset: 2 });
+      return { terminalEvent: "done", streamRunId: "strun:latest", eventLogId: "chatrun:latest", lastEventOffset: 2 };
+    });
+    const store = createStore(getDefaultState());
+    const runtime = new WorkspaceRuntime(store);
+
+    await runtime.initialize();
+    await Promise.resolve();
+
+    expect(api.streamChat).not.toHaveBeenCalled();
+    expect(api.getLatestChatRunForSession).toHaveBeenCalledWith("session:latest", true, undefined);
+    expect(api.streamExistingChatRun).toHaveBeenCalledWith(
+      "session:latest",
+      "strun:latest",
+      expect.any(Object),
+      expect.objectContaining({
+        initialCursor: null,
+        replayFromStart: true,
+      }),
+    );
+  });
+
+  it("does not reattach a terminal chat run when the persisted cursor already reached the final event", async () => {
+    vi.useRealTimers();
+    const cursor = {
+      streamRunId: "strun:terminal",
+      eventLogId: "chatrun:terminal",
+      lastEventOffset: 9,
+      lastEventId: "strun:terminal:chatrun:terminal:9",
+    };
+    api.listSessions.mockResolvedValue([{
+      id: "session:terminal",
+      title: "Terminal",
+      created_at: 1,
+      updated_at: 1,
+      message_count: 1,
+    }]);
+    api.readChatStreamCursor.mockReturnValue(cursor);
+    api.getChatRun.mockResolvedValue({
+      stream_run_id: "strun:terminal",
+      session_id: "session:terminal",
+      event_log_id: "chatrun:terminal",
+      root_request_ref: "chatreq:terminal",
+      status: "completed",
+      latest_event_offset: 9,
+      terminal_event: "done",
+      is_reconnectable: true,
+      stream_url: "/api/chat/runs/strun:terminal/events",
+    });
+    api.getSessionTimeline.mockResolvedValue({
+      messages: [
+        { role: "user", content: "任务" },
+        { role: "assistant", content: "完成" },
+      ],
+      runtime_attachments: [],
+    });
+    const store = createStore(getDefaultState());
+    const runtime = new WorkspaceRuntime(store);
+
+    await runtime.initialize();
+    await Promise.resolve();
+
+    expect(api.clearChatStreamCursor).toHaveBeenCalledWith("session:terminal");
+    expect(api.streamExistingChatRun).not.toHaveBeenCalled();
+    expect(api.streamChat).not.toHaveBeenCalled();
   });
 
   it("sends to the newly created session when the user submits during creation", async () => {
@@ -1510,6 +1717,76 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
 
     expect(api.streamChat.mock.calls[0]?.[0]?.model_selection).toMatchObject({
       thinking_mode: "enabled",
+      reasoning_effort: "high",
+    });
+  });
+
+  it("sends same-provider preset model selections", async () => {
+    vi.useRealTimers();
+    api.listSessions.mockResolvedValue([{
+      id: "session:model-preset",
+      title: "Model Preset",
+      created_at: 1,
+      updated_at: 1,
+      message_count: 1,
+    }]);
+    const providerConfig = {
+      provider: "deepseek",
+      model: "deepseek-v4-pro",
+      base_url: "https://api.deepseek.com/v1",
+      credential_ref: "provider:deepseek:primary",
+      api_key_configured: true,
+      fallback_provider: "",
+      fallback_model: "",
+      fallback_base_url: "",
+      fallback_credential_ref: "",
+      fallback_api_key_configured: false,
+      supported_providers: {
+        deepseek: {
+          provider: "deepseek",
+          default_model: "deepseek-v4-pro",
+          default_base_url: "https://api.deepseek.com/v1",
+          credential_ref: "provider:deepseek:primary",
+          capability_tags: ["reasoning", "openai_compatible"],
+          model_presets: ["deepseek-v4-pro", "deepseek-v4-flash"],
+        },
+      },
+      provider_catalog: {
+        authority: "runtime.model_provider_catalog",
+        default_provider: "deepseek",
+        default_model: "deepseek-v4-pro",
+        providers: {
+          deepseek: {
+            provider: "deepseek",
+            default_model: "deepseek-v4-pro",
+            default_base_url: "https://api.deepseek.com/v1",
+            credential_ref: "provider:deepseek:primary",
+            capability_tags: ["reasoning", "openai_compatible"],
+            model_presets: ["deepseek-v4-pro", "deepseek-v4-flash"],
+          },
+        },
+        credential_refs: [],
+      },
+      authority: "runtime.model_provider",
+    };
+    const store = createStore<StoreState>({
+      ...getDefaultState(),
+      currentSessionId: "session:model-preset",
+      modelProviderConfig: providerConfig,
+      selectedChatModelId: "deepseek::deepseek-v4-flash",
+      chatThinkingMode: "normal",
+    });
+    const runtime = new WorkspaceRuntime(store);
+
+    await runtime.actions.sendMessage("用快速模型回答");
+
+    expect(api.streamChat.mock.calls[0]?.[0]?.model_selection).toEqual({
+      selection_id: "deepseek::deepseek-v4-flash",
+      provider: "deepseek",
+      model: "deepseek-v4-flash",
+      base_url: "https://api.deepseek.com/v1",
+      credential_ref: "provider:deepseek:primary",
+      thinking_mode: "disabled",
       reasoning_effort: "high",
     });
   });

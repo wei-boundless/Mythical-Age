@@ -4,10 +4,13 @@ import asyncio
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from api import orchestration as orchestration_api
 from harness import AgentRuntimeServices, GraphHarness
 from harness.runtime import SingleAgentRuntimeHost
 from project_layout import ProjectLayout
+from sessions import SessionManager
 from task_system import TaskFlowRegistry
 from task_system.compiler.graph_harness_config_publisher import (
     build_graph_harness_config_from_graph,
@@ -15,6 +18,30 @@ from task_system.compiler.graph_harness_config_publisher import (
 )
 from task_system.graphs.task_graph_models import TaskGraphDefinition, TaskGraphEdgeDefinition, TaskGraphNodeDefinition
 from task_system.repositories import GraphHarnessConfigRepository
+
+
+GRAPH_TEST_SCOPE = {
+    "workspace_view": "task_environment",
+    "task_environment_id": "",
+    "project_id": "",
+}
+
+
+def _graph_test_session(runtime: SimpleNamespace, session_id: str = "session-test") -> str:
+    manager = getattr(runtime, "session_manager", None)
+    if manager is None:
+        manager = SessionManager(runtime.base_dir)
+        runtime.session_manager = manager
+    created = manager.create_session(title="Graph API test", scope=GRAPH_TEST_SCOPE)
+    return str(created["id"])
+
+
+def _graph_start_request(runtime: SimpleNamespace, **kwargs) -> orchestration_api.TaskGraphRunStartRequest:
+    return orchestration_api.TaskGraphRunStartRequest(
+        session_id=_graph_test_session(runtime),
+        session_scope=GRAPH_TEST_SCOPE,
+        **kwargs,
+    )
 
 
 def _runtime_object_payload(graph_harness: GraphHarness, ref: str) -> dict:
@@ -85,6 +112,7 @@ def _runtime_with_graph_harness(*, base_dir: Path, runtime_root: Path) -> Simple
     graph_harness = GraphHarness(services=services)
     return SimpleNamespace(
         base_dir=base_dir,
+        session_manager=SessionManager(base_dir),
         query_runtime=SimpleNamespace(
             graph_harness=graph_harness,
         ),
@@ -102,12 +130,14 @@ def _query_runtime_with_graph_executor(*, base_dir: Path):
     )
     from query import QueryRuntime
 
+    session_manager = SessionManager(base_dir)
     return SimpleNamespace(
         base_dir=base_dir,
+        session_manager=session_manager,
         query_runtime=QueryRuntime(
             base_dir=base_dir,
             settings_service=PrimarySettingsStub(),
-            session_manager=InMemorySessionManagerStub(),
+            session_manager=session_manager,
             memory_facade=QueryRuntimeMemoryFacadeStub(),
             retrieval_service=SimpleNamespace(),
             tool_runtime=EmptyToolRuntimeStub(),
@@ -168,10 +198,7 @@ def test_task_graph_start_api_requires_published_config_binding(tmp_path: Path) 
             asyncio.run(
                 orchestration_api.start_task_graph_harness_run(
                     graph.graph_id,
-                    orchestration_api.TaskGraphRunStartRequest(
-                        session_id="session-test",
-                        execute_initial_stage=False,
-                    ),
+                    _graph_start_request(runtime, execute_initial_stage=False),
                 )
             )
             raised = None
@@ -208,10 +235,7 @@ def test_task_graph_start_api_returns_node_work_order_for_published_config(tmp_p
         payload = asyncio.run(
             orchestration_api.start_task_graph_harness_run(
                 graph.graph_id,
-                orchestration_api.TaskGraphRunStartRequest(
-                    session_id="session-test",
-                    execute_initial_stage=False,
-                ),
+                _graph_start_request(runtime, execute_initial_stage=False),
             )
         )
     finally:
@@ -264,10 +288,7 @@ def test_task_graph_start_api_rejects_stale_published_config_as_conflict(tmp_pat
             asyncio.run(
                 orchestration_api.start_task_graph_harness_run(
                     graph.graph_id,
-                    orchestration_api.TaskGraphRunStartRequest(
-                        session_id="session-test",
-                        dispatch_ready=True,
-                    ),
+                    _graph_start_request(runtime, dispatch_ready=True),
                 )
             )
             raised = None
@@ -344,10 +365,7 @@ def test_graph_harness_api_accepts_node_result_and_returns_next_work_order(tmp_p
         started = asyncio.run(
             orchestration_api.start_task_graph_harness_run(
                 graph.graph_id,
-                orchestration_api.TaskGraphRunStartRequest(
-                    session_id="session-test",
-                    dispatch_ready=True,
-                ),
+                _graph_start_request(runtime, dispatch_ready=True),
             )
         )
         first_order = dict(started["node_work_orders"][0])
@@ -356,6 +374,7 @@ def test_graph_harness_api_accepts_node_result_and_returns_next_work_order(tmp_p
                 str(started["graph_run_id"]),
                 orchestration_api.GraphNodeResultRequest(
                     graph_harness_config_id=graph_config.config_id,
+                    session_scope=GRAPH_TEST_SCOPE,
                     result={
                         "result_id": "nresult:api:first",
                         "task_run_id": str(started["task_run_id"]),
@@ -399,10 +418,7 @@ def test_graph_harness_dispatch_ready_api_checkpoints_active_work_orders(tmp_pat
         started = asyncio.run(
             orchestration_api.start_task_graph_harness_run(
                 graph.graph_id,
-                orchestration_api.TaskGraphRunStartRequest(
-                    session_id="session-test",
-                    dispatch_ready=False,
-                ),
+                _graph_start_request(runtime, dispatch_ready=False),
             )
         )
         first_dispatch = asyncio.run(
@@ -410,6 +426,7 @@ def test_graph_harness_dispatch_ready_api_checkpoints_active_work_orders(tmp_pat
                 str(started["graph_run_id"]),
                 orchestration_api.GraphRunDispatchReadyRequest(
                     graph_harness_config_id=graph_config.config_id,
+                    session_scope=GRAPH_TEST_SCOPE,
                     max_requests=1,
                 ),
             )
@@ -419,6 +436,7 @@ def test_graph_harness_dispatch_ready_api_checkpoints_active_work_orders(tmp_pat
                 str(started["graph_run_id"]),
                 orchestration_api.GraphRunDispatchReadyRequest(
                     graph_harness_config_id=graph_config.config_id,
+                    session_scope=GRAPH_TEST_SCOPE,
                     max_requests=1,
                 ),
             )
@@ -456,10 +474,7 @@ def test_graph_harness_api_executes_work_order_and_accepts_result(tmp_path: Path
         started = asyncio.run(
             orchestration_api.start_task_graph_harness_run(
                 graph.graph_id,
-                orchestration_api.TaskGraphRunStartRequest(
-                    session_id="session-test",
-                    dispatch_ready=True,
-                ),
+                _graph_start_request(runtime, dispatch_ready=True),
             )
         )
         executed = asyncio.run(
@@ -467,6 +482,7 @@ def test_graph_harness_api_executes_work_order_and_accepts_result(tmp_path: Path
                 str(started["graph_run_id"]),
                 orchestration_api.GraphWorkOrderExecuteRequest(
                     graph_harness_config_id=graph_config.config_id,
+                    session_scope=GRAPH_TEST_SCOPE,
                     work_order=dict(started["node_work_orders"][0]),
                     max_steps=1,
                 ),
@@ -540,10 +556,7 @@ def test_graph_harness_api_runs_graph_until_idle(tmp_path: Path) -> None:
         started = asyncio.run(
             orchestration_api.start_task_graph_harness_run(
                 graph.graph_id,
-                orchestration_api.TaskGraphRunStartRequest(
-                    session_id="session-test",
-                    dispatch_ready=True,
-                ),
+                _graph_start_request(runtime, dispatch_ready=True),
             )
         )
         runner = asyncio.run(
@@ -551,6 +564,7 @@ def test_graph_harness_api_runs_graph_until_idle(tmp_path: Path) -> None:
                 str(started["graph_run_id"]),
                 orchestration_api.GraphRunUntilIdleRequest(
                     graph_harness_config_id=graph_config.config_id,
+                    session_scope=GRAPH_TEST_SCOPE,
                     max_node_executions=3,
                     max_node_steps=1,
                 ),
@@ -590,12 +604,7 @@ def test_task_graph_start_api_can_auto_run_graph(tmp_path: Path) -> None:
         payload = asyncio.run(
             orchestration_api.start_task_graph_harness_run(
                 graph.graph_id,
-                orchestration_api.TaskGraphRunStartRequest(
-                    session_id="session-test",
-                    dispatch_ready=True,
-                    run_mode="auto_run",
-                    runner_budget={"max_node_executions": 2, "max_node_steps": 1},
-                ),
+                _graph_start_request(runtime, dispatch_ready=True, run_mode="auto_run", runner_budget={"max_node_executions": 2, "max_node_steps": 1}),
             )
         )
     finally:
@@ -636,10 +645,7 @@ def test_graph_run_monitor_returns_recoverable_active_work_orders(tmp_path: Path
         started = asyncio.run(
             orchestration_api.start_task_graph_harness_run(
                 graph.graph_id,
-                orchestration_api.TaskGraphRunStartRequest(
-                    session_id="session-test",
-                    dispatch_ready=True,
-                ),
+                _graph_start_request(runtime, dispatch_ready=True),
             )
         )
         monitor = asyncio.run(
@@ -717,10 +723,7 @@ def test_graph_run_until_idle_result_includes_active_work_orders_when_budget_sto
         started = asyncio.run(
             orchestration_api.start_task_graph_harness_run(
                 graph.graph_id,
-                orchestration_api.TaskGraphRunStartRequest(
-                    session_id="session-test",
-                    dispatch_ready=True,
-                ),
+                _graph_start_request(runtime, dispatch_ready=True),
             )
         )
         runner = asyncio.run(
@@ -728,6 +731,7 @@ def test_graph_run_until_idle_result_includes_active_work_orders_when_budget_sto
                 str(started["graph_run_id"]),
                 orchestration_api.GraphRunUntilIdleRequest(
                     graph_harness_config_id=graph_config.config_id,
+                    session_scope=GRAPH_TEST_SCOPE,
                     max_node_executions=1,
                     max_node_steps=1,
                 ),
@@ -742,7 +746,7 @@ def test_graph_run_until_idle_result_includes_active_work_orders_when_budget_sto
     assert runner["graph_loop_state"]["running_node_ids"] == ["second"]
 
 
-def test_graph_runtime_generates_managed_project_scope_for_project_scoped_memory(tmp_path: Path) -> None:
+def test_graph_runtime_requires_explicit_project_scope_for_project_scoped_memory(tmp_path: Path) -> None:
     backend_dir = tmp_path / "backend"
     graph = TaskGraphDefinition(
         graph_id="graph.test.project_scoped_memory_start",
@@ -779,24 +783,17 @@ def test_graph_runtime_generates_managed_project_scope_for_project_scoped_memory
     graph_config = build_graph_harness_config_from_graph(graph=graph)
     runtime = _runtime_with_graph_harness(base_dir=backend_dir, runtime_root=tmp_path / "runtime_state")
 
-    started = runtime.query_runtime.graph_harness.start_run(
-        session_id="session-test",
-        task_id="task.test.project_scope",
-        graph_config=graph_config,
-        initial_inputs={},
-        dispatch_ready=True,
-    )
-
-    runtime_scope = dict(started.envelope.memory_scope["runtime_scope"])
-    assert runtime_scope["project_id"].startswith("graphrun.")
-    assert started.task_run.diagnostics["runtime_scope"]["project_id"] == runtime_scope["project_id"]
-    assert started.loop_state.diagnostics["runtime_scope"]["project_id"] == runtime_scope["project_id"]
-    assert started.node_work_orders[0].input_package["runtime_scope"]["project_id"] == runtime_scope["project_id"]
-    repositories = runtime.query_runtime.graph_harness._services.formal_memory_service.overview()["repositories"]
-    assert repositories[0]["effective_repository_id"] == f"project:{runtime_scope['project_id']}:memory.project.baseline"
+    with pytest.raises(ValueError, match="project_scoped formal memory requires project_id"):
+        runtime.query_runtime.graph_harness.start_run(
+            session_id="session-test",
+            task_id="task.test.project_scope",
+            graph_config=graph_config,
+            initial_inputs={},
+            dispatch_ready=True,
+        )
 
 
-def test_graph_node_task_run_receives_explicit_runtime_project_scope(tmp_path: Path) -> None:
+def test_graph_node_task_run_uses_session_scope_instead_of_initial_input_project_scope(tmp_path: Path) -> None:
     backend_dir = tmp_path / "backend"
     graph = _graph()
     registry = TaskFlowRegistry(backend_dir)
@@ -820,11 +817,7 @@ def test_graph_node_task_run_receives_explicit_runtime_project_scope(tmp_path: P
         started = asyncio.run(
             orchestration_api.start_task_graph_harness_run(
                 graph.graph_id,
-                orchestration_api.TaskGraphRunStartRequest(
-                    session_id="session-test",
-                    initial_inputs={"project_id": "project:explicit"},
-                    dispatch_ready=True,
-                ),
+                _graph_start_request(runtime, initial_inputs={"project_id": "project:explicit"}, dispatch_ready=True),
             )
         )
         executed = asyncio.run(
@@ -832,6 +825,7 @@ def test_graph_node_task_run_receives_explicit_runtime_project_scope(tmp_path: P
                 str(started["graph_run_id"]),
                 orchestration_api.GraphWorkOrderExecuteRequest(
                     graph_harness_config_id=graph_config.config_id,
+                    session_scope=GRAPH_TEST_SCOPE,
                     work_order=dict(started["node_work_orders"][0]),
                     max_steps=1,
                     accept_result=False,
@@ -843,9 +837,9 @@ def test_graph_node_task_run_receives_explicit_runtime_project_scope(tmp_path: P
 
     work_order_scope = dict(started["node_work_orders"][0]["input_package"]["runtime_scope"])
     task_run_summary = dict(executed["node_executor_task_run"])
-    assert work_order_scope["project_id"] == "project:explicit"
-    assert task_run_summary["project_id"] == "project:explicit"
-    assert task_run_summary["runtime_scope"]["project_id"] == "project:explicit"
+    assert work_order_scope.get("project_id", "") == ""
+    assert task_run_summary.get("project_id", "") == ""
+    assert task_run_summary["runtime_scope"].get("project_id", "") == ""
 
 
 def test_graph_loop_contract_drives_generic_repeated_node_progression(tmp_path: Path) -> None:

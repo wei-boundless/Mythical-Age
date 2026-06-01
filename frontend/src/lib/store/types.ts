@@ -8,6 +8,7 @@ import type {
   SoulImageAssetConfig,
   HarnessTaskRunLiveMonitor,
   SessionRuntimeAttachment,
+  SessionScope,
   SessionSummary,
   ToolCall,
   WorkspaceContext,
@@ -71,6 +72,7 @@ export type RuntimeProgressEntry = {
     | "context"
     | "memory"
     | "model"
+    | "observation"
     | "terminal"
     | "system";
   statusText?: string;
@@ -200,8 +202,17 @@ export type TaskGraphMonitorBinding = {
   graph_id?: string;
   session_id?: string;
   project_id?: string;
+  session_scope?: Partial<SessionScope>;
   title?: string;
   bound_at: number;
+};
+
+export type ActiveTurnSnapshot = {
+  turn_id: string;
+  turn_run_id?: string;
+  task_run_id?: string;
+  state?: string;
+  updated_at?: number;
 };
 
 export type CenterWorkspaceTarget = {
@@ -223,6 +234,7 @@ export type StoreState = {
   workspaceTreeError: string;
   sessions: SessionSummary[];
   currentSessionId: string | null;
+  activeSessionScope: Partial<SessionScope> | null;
   workspaceInitializing: boolean;
   messages: Message[];
   isStreaming: boolean;
@@ -249,6 +261,7 @@ export type StoreState = {
   memoryInspectorTarget: MemoryInspectorTarget | null;
   orchestrationSnapshot: OrchestrationSnapshot | null;
   taskGraphMonitorBinding: TaskGraphMonitorBinding | null;
+  activeTurnSnapshot: ActiveTurnSnapshot | null;
   taskGraphLiveMonitor: HarnessTaskRunLiveMonitor | null;
   globalRuntimeMonitor: GlobalRuntimeMonitor | null;
   globalRuntimeMonitorRevision: string;

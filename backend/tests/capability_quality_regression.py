@@ -265,7 +265,7 @@ def _run(awaitable):
     return asyncio.run(awaitable)
 
 
-async def _raise_model_runtime_error(_messages):
+async def _raise_model_runtime_error(_messages, **_kwargs):
     raise ModelRuntimeError(
         code="provider_error",
         provider="test",

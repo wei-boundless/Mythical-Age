@@ -957,6 +957,12 @@ class ModelRuntime:
         if ledger is None:
             return {}
         context = dict(accounting_context or {})
+        context, unplanned_reason = _normalize_accounting_context_for_prompt_plan(
+            context,
+            call_kind=call_kind,
+            message_count=len(list(messages or [])),
+            tool_count=len(list(tools or [])),
+        )
         request_id = str(context.get("request_id") or "").strip()
         if not request_id:
             request_id = f"modelreq:{uuid.uuid4().hex}"
@@ -1052,13 +1058,17 @@ class ModelRuntime:
                 created_at=created_at,
             )
             model_request_diagnostics = dict(model_request.diagnostics or {})
-            prefix_hash_matches_model_request = (
-                bool(cache_record.prefix_hash)
-                and cache_record.prefix_hash == model_request.provider_global_prefix_hash
+            prefix_key_tier = str(dict(cache_record.diagnostics or {}).get("prefix_key_tier") or "")
+            expected_prefix_hash = _model_request_prefix_hash_for_tier(
+                model_request,
+                prefix_key_tier=prefix_key_tier,
             )
+            prefix_hash_matches_model_request = bool(cache_record.prefix_hash) and cache_record.prefix_hash == expected_prefix_hash
             cache_record_diagnostics = {
                 **dict(cache_record.diagnostics or {}),
                 "provider_cache_policy": cache_policy.to_dict(),
+                "model_request_prefix_key_tier": prefix_key_tier,
+                "model_request_selected_prefix_hash": expected_prefix_hash,
                 "model_request_stable_prefix_hash": model_request.stable_prefix_hash,
                 "model_request_provider_global_prefix_hash": model_request.provider_global_prefix_hash,
                 "model_request_session_prefix_hash": model_request.session_prefix_hash,
@@ -1086,6 +1096,31 @@ class ModelRuntime:
                     diagnostics=cache_record_diagnostics,
                 )
             ledger.record_prompt_cache(cache_record)
+            if unplanned_reason:
+                ledger.record_prompt_cache_break(
+                    PromptCacheBreakRecord(
+                        break_id=f"pcbreak:{request_id}:unplanned:{uuid.uuid4().hex[:8]}",
+                        request_id=request_id,
+                        run_id=run_id,
+                        task_run_id=task_run_id,
+                        session_id=session_id,
+                        provider=spec.provider,
+                        model=spec.model,
+                        cache_key=cache_record.cache_key,
+                        prefix_hash=cache_record.prefix_hash,
+                        reason="unplanned_model_call",
+                        created_at=created_at,
+                        diagnostics={
+                            "severity": "high" if _agent_runtime_like_call(call_kind=call_kind, context=context) else "medium",
+                            "call_kind": call_kind,
+                            "source": str(context.get("source") or ""),
+                            "cache_metric_scope": str(metadata.get("cache_metric_scope") or ""),
+                            "message_count": len(list(messages or [])),
+                            "tool_count": len(list(tools or [])),
+                            "unplanned_reason": unplanned_reason,
+                        },
+                    )
+                )
             previous_stability_reports = ledger.list_prompt_stability(
                 **_previous_stability_report_filter(
                     run_id=run_id,
@@ -1530,12 +1565,12 @@ def _cache_relevant_tool_call_options(
 
 
 def _previous_stability_report_filter(*, run_id: str, task_run_id: str, session_id: str) -> dict[str, str]:
-    if session_id:
-        return {"session_id": session_id}
     if task_run_id:
         return {"task_run_id": task_run_id}
     if run_id:
         return {"run_id": run_id}
+    if session_id:
+        return {"session_id": session_id}
     return {}
 
 
@@ -1558,6 +1593,19 @@ def _previous_stability_report(
             continue
         return report
     return None
+
+
+def _model_request_prefix_hash_for_tier(model_request: Any, *, prefix_key_tier: str) -> str:
+    tier = str(prefix_key_tier or "").strip()
+    if tier == "task":
+        return str(getattr(model_request, "task_prefix_hash", "") or "")
+    if tier == "session":
+        return str(getattr(model_request, "session_prefix_hash", "") or "")
+    if tier == "provider_global":
+        return str(getattr(model_request, "provider_global_prefix_hash", "") or "")
+    if tier == "stable":
+        return str(getattr(model_request, "stable_prefix_hash", "") or "")
+    return ""
 
 
 def _utility_accounting_context(
@@ -1594,6 +1642,66 @@ def _utility_accounting_context(
             "utility_purpose": purpose,
             "segment_plan_ref": segment_plan.get("segment_plan_id", ""),
         },
+    }
+
+
+def utility_accounting_context(
+    *,
+    source: str,
+    messages: list[dict[str, Any]],
+    purpose: str,
+    cache_metric_scope: str = "utility_minimal_plan",
+    session_id: str = "",
+    run_id: str = "",
+    task_run_id: str = "",
+) -> dict[str, Any]:
+    context = _utility_accounting_context(source=source, messages=messages, purpose=purpose)
+    if cache_metric_scope:
+        context["cache_metric_scope"] = str(cache_metric_scope)
+        context.setdefault("prompt_manifest", {})["cache_metric_scope"] = str(cache_metric_scope)
+    if session_id:
+        context["session_id"] = str(session_id)
+    if run_id:
+        context["run_id"] = str(run_id)
+    if task_run_id:
+        context["task_run_id"] = str(task_run_id)
+    return context
+
+
+def _normalize_accounting_context_for_prompt_plan(
+    context: dict[str, Any],
+    *,
+    call_kind: str,
+    message_count: int,
+    tool_count: int,
+) -> tuple[dict[str, Any], str]:
+    normalized = dict(context or {})
+    segment_plan = dict(normalized.get("segment_plan") or {})
+    if segment_plan.get("segments"):
+        return normalized, ""
+    scope = str(normalized.get("cache_metric_scope") or "").strip()
+    if not scope:
+        scope = "unplanned_model_call"
+        normalized["cache_metric_scope"] = scope
+    manifest = dict(normalized.get("prompt_manifest") or {})
+    manifest.setdefault("cache_metric_scope", scope)
+    manifest.setdefault("unplanned_model_call", True)
+    manifest.setdefault("call_kind", str(call_kind or ""))
+    manifest.setdefault("message_count", max(0, int(message_count or 0)))
+    manifest.setdefault("tool_count", max(0, int(tool_count or 0)))
+    normalized["prompt_manifest"] = manifest
+    return normalized, "missing_segment_plan"
+
+
+def _agent_runtime_like_call(*, call_kind: str, context: dict[str, Any]) -> bool:
+    scope = str(dict(context or {}).get("cache_metric_scope") or "")
+    if scope == "agent_runtime":
+        return True
+    source = str(dict(context or {}).get("source") or "")
+    return source.startswith("harness.") or str(call_kind or "") in {
+        "astream_conversation",
+        "astream_messages",
+        "astream_messages_with_tools",
     }
 
 
