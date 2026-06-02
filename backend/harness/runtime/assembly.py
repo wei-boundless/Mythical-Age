@@ -259,7 +259,7 @@ def build_runtime_assembly_profile(
     *,
     agent_runtime_profile: Any | None = None,
     selection: dict[str, Any] | None = None,
-    explicit_allowed_operations: tuple[str, ...] = (),
+    explicit_allowed_operations: tuple[str, ...] | None = None,
 ) -> RuntimeAssemblyProfile:
     selection = dict(selection or {})
     runtime_policy = _resolved_runtime_policy(
@@ -282,7 +282,7 @@ def build_runtime_assembly_profile(
     blocked_operations = set(_string_tuple(explicit_tool_policy.get("blocked_operations")))
     if blocked_operations:
         base_operations = tuple(item for item in base_operations if item not in blocked_operations)
-    if explicit_allowed_operations:
+    if explicit_allowed_operations is not None:
         base_operations = tuple(item for item in base_operations if item in set(explicit_allowed_operations))
     return RuntimeAssemblyProfile(
         profile_ref=str(getattr(agent_runtime_profile, "agent_profile_id", "") or "main_interactive_agent"),
@@ -308,7 +308,7 @@ def build_runtime_assembly_profile(
     )
 
 
-def _explicit_allowed_operations_from_runtime_selection(selection: dict[str, Any]) -> tuple[str, ...]:
+def _explicit_allowed_operations_from_runtime_selection(selection: dict[str, Any]) -> tuple[str, ...] | None:
     payload = dict(selection or {})
     scopes: list[tuple[str, ...]] = []
 
@@ -323,7 +323,7 @@ def _explicit_allowed_operations_from_runtime_selection(selection: dict[str, Any
             scopes.append(operations)
 
     if not scopes:
-        return ()
+        return None
     allowed = set(scopes[0])
     for scope in scopes[1:]:
         allowed.intersection_update(scope)

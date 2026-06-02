@@ -3,6 +3,8 @@ from __future__ import annotations
 import asyncio
 from types import SimpleNamespace
 
+import pytest
+
 from harness.loop.model_action_runtime import call_model_invoker, model_action_timeout_seconds
 from harness.loop.task_executor import _task_model_selection
 
@@ -101,3 +103,33 @@ def test_model_invoker_does_not_pass_metadata_only_model_selection() -> None:
     kwargs = dict(calls[0]["kwargs"])
     assert "model_spec" not in kwargs
     assert kwargs["accounting_context"] == {"source": "test"}
+
+
+def test_model_invoker_does_not_retry_bare_call_after_internal_type_error() -> None:
+    calls: list[dict[str, object]] = []
+
+    async def _invoker(messages, *, model_spec=None, accounting_context=None):
+        calls.append(
+            {
+                "messages": list(messages or []),
+                "model_spec": dict(model_spec or {}),
+                "accounting_context": dict(accounting_context or {}),
+            }
+        )
+        if accounting_context is not None:
+            raise TypeError("accounting_context exploded inside provider adapter")
+        return SimpleNamespace(content="{}")
+
+    with pytest.raises(TypeError, match="accounting_context exploded"):
+        asyncio.run(
+            call_model_invoker(
+                _invoker,
+                [{"role": "user", "content": "hello"}],
+                model_selection={"provider": "deepseek", "model": "deepseek-v4-pro"},
+                accounting_context={"source": "test"},
+            )
+        )
+
+    assert len(calls) == 1
+    assert calls[0]["model_spec"] == {"provider": "deepseek", "model": "deepseek-v4-pro"}
+    assert calls[0]["accounting_context"] == {"source": "test"}

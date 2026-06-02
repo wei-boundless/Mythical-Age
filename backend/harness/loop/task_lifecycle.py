@@ -718,7 +718,7 @@ def _runtime_task_selection_from_contract(
     selection = {
         "runtime_profile": runtime_profile,
     }
-    if allowed_operations:
+    if allowed_operations is not None:
         selection["allowed_operations"] = list(allowed_operations)
     if contract.task_environment_id:
         selection["task_environment_id"] = contract.task_environment_id
@@ -749,7 +749,7 @@ def _runtime_task_selection_from_contract(
     return selection
 
 
-def _explicit_allowed_operations_from_contract(contract: TaskRunContract) -> tuple[str, ...]:
+def _explicit_allowed_operations_from_contract(contract: TaskRunContract) -> tuple[str, ...] | None:
     runtime_profile = dict(contract.runtime_profile or {})
     execution_permit = dict(runtime_profile.get("execution_permit") or {})
     permission_requirements = dict(contract.permission_requirements or {})
@@ -763,14 +763,14 @@ def _explicit_allowed_operations_from_contract(contract: TaskRunContract) -> tup
         if operations:
             scopes.append(operations)
     if not scopes:
-        return ()
+        return None
     allowed = set(scopes[0])
     for scope in scopes[1:]:
         allowed.intersection_update(scope)
     return tuple(operation for operation in scopes[0] if operation in allowed)
 
 
-def _explicit_allowed_operations_from_contract_seed(seed: dict[str, Any]) -> tuple[str, ...]:
+def _explicit_allowed_operations_from_contract_seed(seed: dict[str, Any]) -> tuple[str, ...] | None:
     runtime_profile = dict(seed.get("runtime_profile") or {})
     execution_permit = dict(runtime_profile.get("execution_permit") or {})
     permission_requirements = dict(seed.get("permission_requirements") or seed.get("permission_request") or {})
@@ -785,7 +785,7 @@ def _explicit_allowed_operations_from_contract_seed(seed: dict[str, Any]) -> tup
         if operations:
             scopes.append(operations)
     if not scopes:
-        return ()
+        return None
     allowed = set(scopes[0])
     for scope in scopes[1:]:
         allowed.intersection_update(scope)
@@ -795,9 +795,9 @@ def _explicit_allowed_operations_from_contract_seed(seed: dict[str, Any]) -> tup
 def _runtime_profile_with_execution_permit_allowed_operations(
     runtime_profile: dict[str, Any],
     *,
-    allowed_operations: tuple[str, ...],
+    allowed_operations: tuple[str, ...] | None,
 ) -> dict[str, Any]:
-    if not allowed_operations:
+    if allowed_operations is None:
         return dict(runtime_profile or {})
     profile = dict(runtime_profile or {})
     execution_permit = dict(profile.get("execution_permit") or {})

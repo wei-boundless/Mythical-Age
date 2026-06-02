@@ -425,6 +425,35 @@ def test_runtime_execution_permit_limits_tools_before_prompt_index() -> None:
     assert decisions["op.shell"]["reason"] == "agent_permission_missing"
 
 
+def test_disjoint_explicit_operation_scopes_do_not_fallback_to_full_tool_pool() -> None:
+    definitions = get_tool_definitions()
+    index = build_tool_authorization_index(definitions)
+    profile = next(item for item in default_agent_runtime_profiles() if item.agent_profile_id == "main_interactive_agent")
+
+    assembly = assemble_runtime(
+        backend_dir=BACKEND_DIR,
+        session_id="session-disjoint-operation-scopes",
+        turn_id="turn-disjoint-operation-scopes",
+        agent_invocation_id="agent-invocation-disjoint-operation-scopes",
+        request_task_selection={
+            "task_environment_id": "env.development.sandbox",
+            "allowed_operations": ["op.read_file"],
+            "runtime_profile": {
+                "execution_permit": {
+                    "allowed_operations": ["op.write_file"],
+                },
+            },
+        },
+        model_selection={},
+        agent_runtime_profile=profile,
+        tool_instances=build_tool_instances(BACKEND_DIR),
+        definitions_by_name=index.definitions_by_name,
+    ).to_dict()
+
+    assert assembly["available_tools"] == []
+    assert dict(assembly.get("operation_authorization") or {}).get("allowed_operations") == []
+
+
 def test_development_environment_keeps_document_capability_routes() -> None:
     profile = next(item for item in default_agent_runtime_profiles() if item.agent_profile_id == "main_interactive_agent")
     definitions = get_tool_definitions()

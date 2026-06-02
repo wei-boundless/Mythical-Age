@@ -869,7 +869,7 @@ def test_deepseek_model_runtime_passes_long_output_and_thinking_controls() -> No
         max_output_tokens=65536,
         long_output_timeout_seconds=300,
         thinking_mode="disabled",
-        reasoning_effort="max",
+        reasoning_effort="high",
     )
     model = runtime._build_chat_model_for_spec(
         ModelSpec(

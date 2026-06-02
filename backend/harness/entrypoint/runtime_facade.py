@@ -1610,7 +1610,7 @@ def _explicit_allowed_operations_for_contract(
     *,
     selection: dict[str, Any],
     source: dict[str, Any],
-) -> tuple[str, ...]:
+) -> tuple[str, ...] | None:
     runtime_profile = dict(source.get("runtime_profile") or {})
     if not runtime_profile:
         runtime_profile = dict(dict(source.get("runtime_assembly_plan") or {}).get("runtime_profile") or {})
@@ -1635,7 +1635,7 @@ def _explicit_allowed_operations_for_contract(
         if operations:
             scopes.append(operations)
     if not scopes:
-        return ()
+        return None
     allowed = set(scopes[0])
     for scope in scopes[1:]:
         allowed.intersection_update(scope)
@@ -1645,9 +1645,9 @@ def _explicit_allowed_operations_for_contract(
 def _runtime_profile_with_execution_permit_allowed_operations(
     runtime_profile: dict[str, Any],
     *,
-    allowed_operations: tuple[str, ...],
+    allowed_operations: tuple[str, ...] | None,
 ) -> dict[str, Any]:
-    if not allowed_operations:
+    if allowed_operations is None:
         return dict(runtime_profile or {})
     profile = dict(runtime_profile or {})
     execution_permit = dict(profile.get("execution_permit") or {})
