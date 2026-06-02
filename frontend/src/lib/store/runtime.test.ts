@@ -106,6 +106,12 @@ function itemForMonitor(patch: Record<string, unknown>) {
   };
 }
 
+async function flushPromises(times = 5) {
+  for (let index = 0; index < times; index += 1) {
+    await Promise.resolve();
+  }
+}
+
 function monitorForTest(items: Array<Record<string, unknown>>, patch: Record<string, unknown> = {}) {
   const buckets = {
     running: items.filter((item) => item.bucket === "running"),
@@ -414,6 +420,22 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     });
   });
 
+  it("opens workspace files as a center workspace file tab target", () => {
+    const store = createStore<StoreState>({
+      ...getDefaultState(),
+      activeWorkspaceView: "code-environment",
+    });
+    const runtime = new WorkspaceRuntime(store);
+
+    runtime.actions.openWorkspaceFile(" AGENTS.md ");
+
+    expect(store.getState().activeWorkspaceView).toBe("chat");
+    expect(store.getState().centerWorkspaceTarget).toMatchObject({
+      layer: "file",
+      file_path: "AGENTS.md",
+    });
+  });
+
   it("does not fetch graph monitor details from global monitor selection alone", async () => {
     api.getGraphRunMonitor.mockRejectedValue(new Error('{"detail":"GraphHarnessConfig not found"}'));
     const store = createStore(getDefaultState());
@@ -456,7 +478,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(store.getState().taskGraphMonitorError).toBe("");
   });
 
-  it("opens a global monitor agent runtime run in the orchestration page", () => {
+  it("opens a global monitor agent runtime run in its owning session", () => {
     const store = createStore(getDefaultState());
     const runtime = new WorkspaceRuntime(store);
     const runtimeHarness = runtime as unknown as {
@@ -494,7 +516,8 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
 
     runtime.actions.openGlobalRuntimeMonitorTaskRun("taskrun:turn:session-a:1:abc");
 
-    expect(store.getState().activeWorkspaceView).toBe("orchestration");
+    expect(store.getState().activeWorkspaceView).toBe("chat");
+    expect(store.getState().currentSessionId).toBe("session-a");
     expect(store.getState().globalRuntimeMonitorSelectedTaskRunId).toBe("taskrun:turn:session-a:1:abc");
     expect(store.getState().centerWorkspaceTarget).toBeNull();
   });
@@ -1177,6 +1200,25 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(api.streamChat.mock.calls[0]?.[0]?.session_id).toBe("session:fresh");
   });
 
+  it("loads ordinary chat sessions with an explicit chat scope", async () => {
+    vi.useRealTimers();
+    const store = createStore(getDefaultState());
+    const runtime = new WorkspaceRuntime(store);
+
+    await runtime.initialize();
+
+    expect(api.listSessions.mock.calls[0]?.[0]).toEqual({
+      workspace_view: "chat",
+      task_environment_id: "",
+      project_id: "",
+    });
+    expect(api.createSession.mock.calls[0]?.[1]).toEqual({
+      workspace_view: "chat",
+      task_environment_id: "",
+      project_id: "",
+    });
+  });
+
   it("keeps stopped activity scoped to the session that was stopped", async () => {
     vi.useRealTimers();
     api.listSessions.mockResolvedValue([
@@ -1411,7 +1453,11 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     await Promise.resolve();
 
     expect(api.streamChat).not.toHaveBeenCalled();
-    expect(api.getLatestChatRunForSession).toHaveBeenCalledWith("session:latest", true, undefined);
+    expect(api.getLatestChatRunForSession).toHaveBeenCalledWith("session:latest", true, {
+      workspace_view: "chat",
+      task_environment_id: "",
+      project_id: "",
+    });
     expect(api.streamExistingChatRun).toHaveBeenCalledWith(
       "session:latest",
       "strun:latest",
@@ -1613,7 +1659,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     });
   });
 
-  it("sends hidden reasoning controls for a reasoning-capable system default chat model", async () => {
+  it("sends enabled thinking without explicit effort for a reasoning-capable system default chat model", async () => {
     vi.useRealTimers();
     api.streamChat.mockResolvedValue({ terminalEvent: "done" });
     api.listSessions.mockResolvedValue([{
@@ -1663,7 +1709,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
         },
         authority: "runtime.model_provider",
       },
-      chatThinkingMode: "max",
+      chatThinkingMode: "thinking",
     });
     const runtime = new WorkspaceRuntime(store);
 
@@ -1677,11 +1723,11 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       base_url: "https://api.openai.com/v1",
       credential_ref: "provider:openai:primary",
       thinking_mode: "enabled",
-      reasoning_effort: "max",
     });
+    expect(api.streamChat.mock.calls[0]?.[0]?.model_selection).not.toHaveProperty("reasoning_effort");
   });
 
-  it("sends high effort when chat thinking mode is thinking", async () => {
+  it("omits explicit effort when chat thinking mode is auto thinking", async () => {
     vi.useRealTimers();
     api.listSessions.mockResolvedValue([{
       id: "session:thinking-high",
@@ -1696,7 +1742,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       modelProviderConfig: {
         provider: "deepseek",
         model: "deepseek-v4-flash",
-        base_url: "https://api.deepseek.com/v1",
+        base_url: "https://api.deepseek.com",
         credential_ref: "provider:deepseek:primary",
         api_key_configured: true,
         fallback_provider: "",
@@ -1708,7 +1754,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
           deepseek: {
             provider: "deepseek",
             default_model: "deepseek-v4-flash",
-            default_base_url: "https://api.deepseek.com/v1",
+            default_base_url: "https://api.deepseek.com",
             credential_ref: "provider:deepseek:primary",
             capability_tags: ["reasoning", "openai_compatible"],
           },
@@ -1721,7 +1767,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
             deepseek: {
               provider: "deepseek",
               default_model: "deepseek-v4-flash",
-              default_base_url: "https://api.deepseek.com/v1",
+              default_base_url: "https://api.deepseek.com",
               credential_ref: "provider:deepseek:primary",
               capability_tags: ["reasoning", "openai_compatible"],
             },
@@ -1738,8 +1784,8 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
 
     expect(api.streamChat.mock.calls[0]?.[0]?.model_selection).toMatchObject({
       thinking_mode: "enabled",
-      reasoning_effort: "high",
     });
+    expect(api.streamChat.mock.calls[0]?.[0]?.model_selection).not.toHaveProperty("reasoning_effort");
   });
 
   it("sends same-provider preset model selections", async () => {
@@ -1754,7 +1800,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     const providerConfig = {
       provider: "deepseek",
       model: "deepseek-v4-pro",
-      base_url: "https://api.deepseek.com/v1",
+      base_url: "https://api.deepseek.com",
       credential_ref: "provider:deepseek:primary",
       api_key_configured: true,
       fallback_provider: "",
@@ -1766,7 +1812,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
         deepseek: {
           provider: "deepseek",
           default_model: "deepseek-v4-pro",
-          default_base_url: "https://api.deepseek.com/v1",
+          default_base_url: "https://api.deepseek.com",
           credential_ref: "provider:deepseek:primary",
           capability_tags: ["reasoning", "openai_compatible"],
           model_presets: ["deepseek-v4-pro", "deepseek-v4-flash"],
@@ -1780,7 +1826,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
           deepseek: {
             provider: "deepseek",
             default_model: "deepseek-v4-pro",
-            default_base_url: "https://api.deepseek.com/v1",
+            default_base_url: "https://api.deepseek.com",
             credential_ref: "provider:deepseek:primary",
             capability_tags: ["reasoning", "openai_compatible"],
             model_presets: ["deepseek-v4-pro", "deepseek-v4-flash"],
@@ -1805,10 +1851,9 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       selection_id: "deepseek::deepseek-v4-flash",
       provider: "deepseek",
       model: "deepseek-v4-flash",
-      base_url: "https://api.deepseek.com/v1",
+      base_url: "https://api.deepseek.com",
       credential_ref: "provider:deepseek:primary",
       thinking_mode: "disabled",
-      reasoning_effort: "high",
     });
   });
 
@@ -1827,7 +1872,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       modelProviderConfig: {
         provider: "deepseek",
         model: "deepseek-v4-flash",
-        base_url: "https://api.deepseek.com/v1",
+        base_url: "https://api.deepseek.com",
         credential_ref: "provider:deepseek:primary",
         api_key_configured: true,
         fallback_provider: "",
@@ -1839,7 +1884,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
           deepseek: {
             provider: "deepseek",
             default_model: "deepseek-v4-flash",
-            default_base_url: "https://api.deepseek.com/v1",
+            default_base_url: "https://api.deepseek.com",
             credential_ref: "provider:deepseek:primary",
             capability_tags: ["reasoning", "openai_compatible"],
           },
@@ -1852,7 +1897,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
             deepseek: {
               provider: "deepseek",
               default_model: "deepseek-v4-flash",
-              default_base_url: "https://api.deepseek.com/v1",
+              default_base_url: "https://api.deepseek.com",
               credential_ref: "provider:deepseek:primary",
               capability_tags: ["reasoning", "openai_compatible"],
             },
@@ -1869,8 +1914,8 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
 
     expect(api.streamChat.mock.calls[0]?.[0]?.model_selection).toMatchObject({
       thinking_mode: "disabled",
-      reasoning_effort: "high",
     });
+    expect(api.streamChat.mock.calls[0]?.[0]?.model_selection).not.toHaveProperty("reasoning_effort");
   });
 
   it("routes image turns without starting TaskGraph session monitor polling", async () => {
@@ -2016,6 +2061,86 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       binding_kind: "chat_task_environment",
       binding_source: "task-system",
       bound_at: 123,
+    });
+  });
+
+  it("switches the visible chat session list when binding a different task environment", async () => {
+    vi.useRealTimers();
+    api.listSessions.mockResolvedValueOnce([{
+      id: "session:env-b",
+      title: "Env B",
+      created_at: 2,
+      updated_at: 2,
+      message_count: 2,
+      scope: {
+        workspace_view: "task_environment",
+        task_environment_id: "env.b",
+        project_id: "",
+      },
+    }]);
+    api.getSessionTimeline.mockResolvedValueOnce({
+      messages: [
+        { role: "user", content: "B 环境问题" },
+        { role: "assistant", content: "B 环境回答" },
+      ],
+      runtime_attachments: [],
+    });
+    const store = createStore<StoreState>({
+      ...getDefaultState(),
+      currentSessionId: "session:env-a",
+      activeSessionScope: {
+        workspace_view: "task_environment",
+        task_environment_id: "env.a",
+        project_id: "",
+      },
+      chatTaskEnvironmentBinding: {
+        task_environment_id: "env.a",
+        environment_label: "Env A",
+        source: "task-system",
+        bound_at: 1,
+      },
+      sessions: [{
+        id: "session:env-a",
+        title: "Env A",
+        created_at: 1,
+        updated_at: 1,
+        message_count: 2,
+        scope: {
+          workspace_view: "task_environment",
+          task_environment_id: "env.a",
+          project_id: "",
+        },
+      }],
+      messages: [
+        { id: "old-user", role: "user", content: "A 环境问题", toolCalls: [], retrievals: [] },
+        { id: "old-assistant", role: "assistant", content: "A 环境回答", toolCalls: [], retrievals: [] },
+      ],
+    });
+    const runtime = new WorkspaceRuntime(store);
+
+    runtime.actions.setChatTaskEnvironmentBinding({
+      task_environment_id: "env.b",
+      environment_label: "Env B",
+      source: "task-system",
+      bound_at: 2,
+    });
+
+    expect(store.getState().currentSessionId).toBeNull();
+    expect(store.getState().messages).toEqual([]);
+    expect(api.listSessions.mock.calls[0]?.[0]).toEqual({
+      workspace_view: "task_environment",
+      task_environment_id: "env.b",
+      project_id: "",
+    });
+
+    await flushPromises(12);
+
+    expect(store.getState().currentSessionId).toBe("session:env-b");
+    expect(store.getState().messages.map((message) => message.content)).toEqual(["B 环境问题", "B 环境回答"]);
+    expect(api.getSessionTimeline.mock.calls[0]?.[1]).toEqual({
+      workspace_view: "task_environment",
+      task_environment_id: "env.b",
+      project_id: "",
     });
   });
 

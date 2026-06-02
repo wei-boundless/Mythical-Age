@@ -25,10 +25,9 @@ export type TaskGraphEditorAction = {
   id: string;
   title: string;
   description: string;
-  kind: "node" | "edge" | "template";
+  kind: "node" | "edge";
   nodeKind?: TaskGraphSemanticNodeKind;
   relationId?: TaskGraphSemanticRelationId;
-  templateId?: "review_repair_loop" | "long_project_cycle";
 };
 
 export const TASK_GRAPH_EDITOR_ACTION_GROUPS: TaskGraphEditorActionGroup[] = [
@@ -132,23 +131,9 @@ export const TASK_GRAPH_EDITOR_ACTION_GROUPS: TaskGraphEditorActionGroup[] = [
   },
   {
     id: "guards",
-    title: "模板与门控",
-    description: "用成熟结构快速起步，再只改必要配置。",
+    title: "门控",
+    description: "把需要人类确认的阻塞点挂到图上。",
     actions: [
-      {
-        id: "template.review-loop",
-        title: "写作-审核-返修",
-        description: "创建写作、审核、返修闭环。",
-        kind: "template",
-        templateId: "review_repair_loop",
-      },
-      {
-        id: "template.long-cycle",
-        title: "长期记忆循环",
-        description: "创建计划、执行、复盘、记忆提交结构。",
-        kind: "template",
-        templateId: "long_project_cycle",
-      },
       {
         id: "node.human-gate",
         title: "人工门控",

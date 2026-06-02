@@ -4287,6 +4287,62 @@ def test_running_task_artifact_view_includes_tool_observation_refs() -> None:
     assert monitor["artifact_refs"][0]["source"] == "write_file"
 
 
+def test_artifact_view_prefers_published_path_over_sandbox_absolute_path() -> None:
+    runtime = build_harness_runtime()
+    host = runtime.single_agent_runtime_host
+    project_root = Path(runtime.base_dir).resolve().parent
+    logical_path = "storage/task_environments/general/workspace/artifacts/calculator.html"
+    published_artifact = project_root / logical_path
+    published_artifact.parent.mkdir(parents=True, exist_ok=True)
+    published_artifact.write_text("<!doctype html><title>published</title>", encoding="utf-8")
+    sandbox_artifact = (
+        project_root
+        / "storage/runtime_state/sandboxes/taskrun_test_calculator/storage/task_environments/general/workspace/artifacts/calculator.html"
+    )
+    sandbox_artifact.parent.mkdir(parents=True, exist_ok=True)
+    sandbox_artifact.write_text("<!doctype html><title>sandbox</title>", encoding="utf-8")
+    task_run_id = "taskrun:test:calculator-artifact-index"
+    host.state_index.upsert_task_run(
+        TaskRun(
+            task_run_id=task_run_id,
+            session_id="session-calculator-artifact-index",
+            task_id="task:calculator-artifact-index",
+            status="running",
+            created_at=100.0,
+            updated_at=110.0,
+            execution_runtime_kind="single_agent_task",
+        )
+    )
+    host.event_log.append(
+        task_run_id,
+        "task_tool_observation_recorded",
+        payload={
+            "observation": {
+                "payload": {
+                    "tool_name": "write_file",
+                    "result_envelope": {
+                        "artifact_refs": [
+                            {
+                                "path": logical_path,
+                                "absolute_path": str(sandbox_artifact),
+                                "sandbox_path": logical_path,
+                                "kind": "file",
+                                "source": "write_file",
+                            }
+                        ],
+                    },
+                },
+            },
+        },
+    )
+
+    view = host.get_task_run_artifacts(task_run_id)
+
+    assert view["created_files"] == [logical_path]
+    assert view["artifact_refs"][0]["absolute_path"] == str(published_artifact.resolve())
+    assert Path(view["artifact_refs"][0]["absolute_path"]).read_text(encoding="utf-8") == "<!doctype html><title>published</title>"
+
+
 def test_task_observation_projection_separates_stale_and_active_failures() -> None:
     from harness.loop.task_executor import _observations_for_packet
 

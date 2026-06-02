@@ -98,14 +98,14 @@ def build_navigation_target(
         }
     if kind == "agent_run":
         return {
-            "target_kind": "task_instance",
-            "workspace_view": "orchestration",
+            "target_kind": "session",
+            "workspace_view": "chat",
             "session_id": session_id,
             "task_instance_id": task_instance_id,
             "task_run_id": task_run_id,
             "graph_run_id": "",
             "graph_id": "",
-            "mode": "runtime_detail",
+            "mode": "conversation",
             "focus_node_id": "",
         }
     return {

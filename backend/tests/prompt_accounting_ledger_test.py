@@ -505,6 +505,46 @@ def test_model_request_and_segment_map_canonical_hash_ignore_diagnostic_metadata
     assert first_map.canonical_hash == second_map.canonical_hash
 
 
+def test_prompt_accounting_marks_deepseek_reasoning_content_without_storing_raw_text() -> None:
+    messages = [
+        {"role": "user", "content": "Need weather."},
+        {
+            "role": "assistant",
+            "content": "",
+            "reasoning_content": "hidden DeepSeek native reasoning",
+            "tool_calls": [{"id": "call:1", "name": "get_weather", "args": {}}],
+        },
+        {"role": "tool", "tool_call_id": "call:1", "content": "Cloudy."},
+    ]
+
+    request = ModelRequestBuilder().build(
+        request_id="modelreq:deepseek-reasoning-accounting",
+        messages=messages,
+        provider="deepseek",
+        model="deepseek-v4-pro",
+    )
+    normalized_assistant = request.messages[1]
+    normalized_json = json.dumps(normalized_assistant, ensure_ascii=False, sort_keys=True)
+
+    assert normalized_assistant["reasoning_content_present"] is True
+    assert normalized_assistant["reasoning_content_chars"] == len("hidden DeepSeek native reasoning")
+    assert normalized_assistant["reasoning_content_estimated_tokens"] > 0
+    assert str(normalized_assistant["reasoning_content_hash"]).startswith("sha256:")
+    assert "hidden DeepSeek native reasoning" not in normalized_json
+
+    segment_map = CanonicalPromptSerializer().build_segment_map(
+        request_id="modelreq:deepseek-reasoning-accounting",
+        messages=messages,
+        provider="deepseek",
+        model="deepseek-v4-pro",
+        model_request=request,
+    )
+    assistant_segment = segment_map.segments[1]
+
+    assert assistant_segment.metadata["reasoning_content_predicted_tokens"] == normalized_assistant["reasoning_content_estimated_tokens"]
+    assert assistant_segment.predicted_tokens >= normalized_assistant["reasoning_content_estimated_tokens"]
+
+
 def test_runtime_prompt_uses_assembly_projection_not_mode_instruction() -> None:
     result = RuntimeCompiler().compile_single_agent_turn_packet(
         session_id="session:projection",

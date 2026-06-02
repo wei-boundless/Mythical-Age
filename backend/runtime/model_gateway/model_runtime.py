@@ -44,13 +44,14 @@ logger = logging.getLogger(__name__)
 
 
 class _DeepSeekReasoningCompatChatModel(ChatDeepSeek):
-    """Preserve DeepSeek thinking payload across tool-call round trips.
+    """Preserve DeepSeek native thinking payload across tool-call round trips.
 
     DeepSeek thinking mode requires the previous assistant tool-call message to
     replay its `reasoning_content` on the next request. LangChain stores that
     field in `AIMessage.additional_kwargs`, but the default OpenAI-compatible
-    message serializer drops it for chat/completions payloads. We patch the
-    serialized assistant messages here so multi-turn tool loops can continue.
+    message serializer drops it for chat/completions payloads. This is protocol
+    state for DeepSeek API replay, not a public progress note or generated
+    application-side chain of thought.
     """
 
     def _get_request_payload(
@@ -69,7 +70,8 @@ class _DeepSeekReasoningCompatChatModel(ChatDeepSeek):
         except Exception:
             return payload
 
-        for original_message, serialized_message in zip(original_messages, raw_messages):
+        raw_input_messages = list(input_) if isinstance(input_, list) else []
+        for index, (original_message, serialized_message) in enumerate(zip(original_messages, raw_messages)):
             if not isinstance(original_message, AIMessage):
                 continue
             if not isinstance(serialized_message, dict):
@@ -77,7 +79,8 @@ class _DeepSeekReasoningCompatChatModel(ChatDeepSeek):
             if str(serialized_message.get("role", "") or "").strip() != "assistant":
                 continue
 
-            reasoning_content = str(original_message.additional_kwargs.get("reasoning_content", "") or "").strip()
+            raw_message = raw_input_messages[index] if index < len(raw_input_messages) else None
+            reasoning_content = _deepseek_reasoning_content_from_message(original_message, raw_message)
             if reasoning_content:
                 serialized_message["reasoning_content"] = reasoning_content
 
@@ -94,6 +97,23 @@ def stringify_content(content: Any) -> str:
                 parts.append(str(block.get("text", "")))
         return "".join(parts)
     return str(content or "")
+
+
+def _deepseek_reasoning_content_from_message(message: Any, raw_message: Any = None) -> str:
+    candidates: list[Any] = []
+    additional_kwargs = getattr(message, "additional_kwargs", None)
+    if isinstance(additional_kwargs, dict):
+        candidates.append(additional_kwargs.get("reasoning_content"))
+    if isinstance(raw_message, dict):
+        candidates.append(raw_message.get("reasoning_content"))
+        raw_additional_kwargs = raw_message.get("additional_kwargs")
+        if isinstance(raw_additional_kwargs, dict):
+            candidates.append(raw_additional_kwargs.get("reasoning_content"))
+    for candidate in candidates:
+        text = str(candidate or "").strip()
+        if text:
+            return text
+    return ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -215,7 +235,7 @@ class ModelRuntime:
     @property
     def reasoning_effort(self) -> str:
         static = self.settings_service.static
-        return str(getattr(static, "llm_reasoning_effort", "high") or "high").strip().lower()
+        return str(getattr(static, "llm_reasoning_effort", "auto") or "auto").strip().lower()
 
     def build_chat_model(self):
         return self._get_chat_model_for_spec(self._candidate_specs()[0])
@@ -748,7 +768,9 @@ class ModelRuntime:
                 "extra_body": extra_body,
             }
             if thinking_enabled:
-                model_kwargs["reasoning_effort"] = self._reasoning_effort_for_spec(spec)
+                reasoning_effort = self._reasoning_effort_for_spec(spec)
+                if reasoning_effort:
+                    model_kwargs["reasoning_effort"] = reasoning_effort
             else:
                 model_kwargs["temperature"] = temperature
             return _DeepSeekReasoningCompatChatModel(**model_kwargs)
@@ -1287,7 +1309,12 @@ class ModelRuntime:
         return self._thinking_mode_for_spec(spec) == "enabled"
 
     def _reasoning_effort_for_spec(self, spec: ModelSpec) -> str:
-        return str(spec.reasoning_effort or self.reasoning_effort or "high").strip().lower()
+        value = str(spec.reasoning_effort or self.reasoning_effort or "auto").strip().lower()
+        if value in {"", "auto", "default", "adaptive"}:
+            return ""
+        if value in {"max", "xhigh"}:
+            return "max"
+        return "high"
 
     def _validate_deepseek_mode_for_spec(self, spec: ModelSpec) -> None:
         if str(spec.provider or "").strip().lower() != "deepseek":

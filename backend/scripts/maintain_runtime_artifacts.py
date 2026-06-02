@@ -26,7 +26,6 @@ FORMAL_TASK_FILES = {
     "task_graphs.json",
     "task_memory_request_profiles.json",
     "task_workflows.json",
-    "topology_templates.json",
 }
 
 

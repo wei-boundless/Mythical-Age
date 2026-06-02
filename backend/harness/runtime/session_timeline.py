@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from harness.runtime.progress_presenter import build_progress_presentation
 from harness.runtime.public_progress import public_runtime_progress_summary, public_runtime_progress_title
 
 
@@ -45,6 +46,7 @@ def _runtime_attachment(runtime_host: Any, task_run: Any, *, max_progress_entrie
     final_answer = str(diagnostics.get("final_answer") or "")
     artifact_refs = list(diagnostics.get("artifact_refs") or [])
     progress_entries = _progress_entries(events)[-max(1, int(max_progress_entries or 24)) :]
+    progress_presentation = build_progress_presentation(events=events, task_run=task_run, monitor=monitor)
     return {
         "attachment_id": f"runtime-attachment:{task_run_id}",
         "run_id": task_run_id,
@@ -61,6 +63,7 @@ def _runtime_attachment(runtime_host: Any, task_run: Any, *, max_progress_entrie
         "latest_step_summary": public_runtime_progress_summary(monitor.get("latest_step_summary") or ""),
         "latest_event_type": str(monitor.get("latest_event_type") or ""),
         "event_count": _event_count(runtime_host, task_run_id, fallback=len(events)),
+        "progress_presentation": progress_presentation,
         "progress_entries": progress_entries,
         "artifact_refs": artifact_refs,
         "final_answer": final_answer,
@@ -72,6 +75,17 @@ def _runtime_attachment(runtime_host: Any, task_run: Any, *, max_progress_entrie
 
 
 def _recent_events(runtime_host: Any, task_run_id: str, *, limit: int) -> list[Any]:
+    window_reader = getattr(runtime_host.event_log, "list_event_window", None)
+    if callable(window_reader):
+        try:
+            return list(window_reader(task_run_id, limit=max(1, int(limit or 160)), include_payloads=True))
+        except TypeError:
+            try:
+                return list(window_reader(task_run_id, limit=max(1, int(limit or 160))))
+            except Exception:
+                pass
+        except Exception:
+            pass
     reader = getattr(runtime_host.event_log, "list_recent_events", None)
     if callable(reader):
         try:
@@ -519,7 +533,7 @@ def _observation_text_is_failure(value: str) -> bool:
 
 def _step_title(step: str, status: str) -> str:
     if step.startswith("task_model_action_invocation_started"):
-        return "思考下一步"
+        return "确认下一步"
     if step.startswith("task_model_action_waiting"):
         return "等待结果"
     if step.startswith("task_execution_packet_compiled"):

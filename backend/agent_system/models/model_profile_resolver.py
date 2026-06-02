@@ -157,8 +157,8 @@ class ModelProfileResolver:
         reasoning_effort = str(
             agent_model_profile.reasoning_effort
             or defaults.get("reasoning_effort")
-            or getattr(settings, "llm_reasoning_effort", "high")
-            or "high"
+            or getattr(settings, "llm_reasoning_effort", "auto")
+            or "auto"
         ).strip().lower()
 
         api_key = self.resolve_credential_ref(credential_ref=credential_ref, provider=provider)
@@ -185,7 +185,7 @@ class ModelProfileResolver:
             max_retries=max_retries,
             temperature=temperature,
             thinking_mode=thinking_mode or "disabled",
-            reasoning_effort=reasoning_effort or "high",
+            reasoning_effort=reasoning_effort or "auto",
             stream_policy=dict(agent_model_profile.stream_policy or {}),
             source_chain=tuple(dict.fromkeys(source_chain)),
             diagnostics=diagnostics,

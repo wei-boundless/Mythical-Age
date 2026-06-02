@@ -5,7 +5,6 @@ import { useState } from "react";
 import type { TaskGraphContractPreview } from "@/lib/api";
 
 import { TaskGraphPublishRunPage } from "@/components/workspace/views/task-system/TaskGraphPublishRunPage";
-import { TaskGraphSetupWizard } from "@/components/workspace/views/task-system/TaskGraphSetupWizard";
 import { TaskGraphTopologyPage } from "@/components/workspace/views/task-system/TaskGraphTopologyPage";
 import { TaskGraphValidationWorkbench } from "@/components/workspace/views/task-system/TaskGraphValidationWorkbench";
 
@@ -26,7 +25,6 @@ import type { TaskGraphWorkbenchProps } from "./taskGraphTypes";
 export function TaskGraphWorkbench({
   taskGraphDraftV2,
   saveTaskGraphStack,
-  applyTaskGraphTemplate,
   addTaskGraphTaskNode,
   reverseTaskGraphEdge,
   removeTaskGraphEdge,
@@ -42,17 +40,15 @@ export function TaskGraphWorkbench({
   workspaceSlot,
   ...rest
 }: TaskGraphWorkbenchProps) {
-  const [editorFocus, setEditorFocus] = useState<TaskGraphEditorFocus>(() => ({ layer: activeGraphNodes.length ? "topology" : "blueprint" }));
+  const [editorFocus, setEditorFocus] = useState<TaskGraphEditorFocus>(() => ({ layer: "topology" }));
   const [graphContract, setGraphContract] = useState<TaskGraphContractPreview | null>(null);
   const [graphContractError, setGraphContractError] = useState("");
-  const [showTemplateChooser, setShowTemplateChooser] = useState(false);
   const taskGraphStandardView = rest.taskGraphStandardView;
   const taskGraphStandardViewLoading = rest.taskGraphStandardViewLoading;
   const taskGraphStandardViewError = rest.taskGraphStandardViewError;
   const taskGraphStandardViewStale = rest.taskGraphStandardViewStale;
   const refreshTaskGraphStandardView = rest.refreshTaskGraphStandardView;
   const activeLayer = editorFocus.layer;
-  const coordinatorAgentId = String(taskGraphDraftV2.runtime_policy.coordinator_agent_id || "agent:0");
   const issueCount = rest.editorIssueCount;
   const valid = rest.editorValid;
   const publishState = taskGraphDraftV2.publish_state;
@@ -271,25 +267,6 @@ export function TaskGraphWorkbench({
     standardView: taskGraphStandardView,
   });
   const pageContent = (() => {
-    if (!activeGraphNodes.length || showTemplateChooser) {
-      return (
-        <TaskGraphSetupWizard
-          domainTitle={rest.selectedDomain?.title || "当前任务域"}
-          existingGraphSummary={activeGraphNodes.length ? {
-            edgeCount: activeGraphEdges.length,
-            nodeCount: activeGraphNodes.length,
-            title: taskGraphDraftV2.title,
-          } : undefined}
-          onCancel={activeGraphNodes.length ? () => setShowTemplateChooser(false) : undefined}
-          taskCount={rest.selectedDomainTasks.length}
-          onApplyTemplate={(templateId, options) => {
-            applyTaskGraphTemplate(templateId, options);
-            setShowTemplateChooser(false);
-            setActiveLayer("topology");
-          }}
-        />
-      );
-    }
     if (activeLayer === "topology") {
       return (
         <TaskGraphTopologyPage
@@ -297,7 +274,6 @@ export function TaskGraphWorkbench({
           activeGraphNodes={activeGraphNodes}
           addTaskGraphSuccessorNode={addTaskGraphSuccessorNode}
           addTaskGraphTaskNode={addTaskGraphTaskNode}
-          applyTaskGraphTemplate={applyTaskGraphTemplate}
           contractSpecs={rest.contractSpecs}
           handleTopologyNodeClick={rest.handleTopologyNodeClick}
           editorFocus={editorFocus}
@@ -367,18 +343,13 @@ export function TaskGraphWorkbench({
   return (
     <TaskGraphStudioShell
       activeLayer={activeLayer}
-      coordinatorAgentId={coordinatorAgentId}
       dirty={rest.taskGraphDirty}
-      edgeCount={activeGraphEdges.length}
-      graphId={taskGraphDraftV2.graph_id}
       issueCount={issueCount}
-      nodeCount={activeGraphNodes.length}
       onLayerChange={setActiveLayer}
       onPublish={handlePublish}
       onSave={handleSaveDraft}
       publishState={publishState}
       saving={rest.saving}
-      title={taskGraphDraftV2.title}
       valid={valid}
       workspaceSlot={workspaceSlot}
     >

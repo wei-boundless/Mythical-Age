@@ -46,6 +46,7 @@ export function ChatMessage({
   const [failedImageSrc, setFailedImageSrc] = useState("");
   const imageUnavailable = Boolean(image?.src && failedImageSrc === image.src);
   const hasRuntimeDetails = !isUser && Boolean(runtimeAttachments.length || runtimeProgress.length);
+  const shouldRenderContent = isUser || Boolean(content) || Boolean(image?.src) || imageUnavailable || !hasRuntimeDetails;
 
   return (
     <article
@@ -70,68 +71,70 @@ export function ChatMessage({
         </button>
       ) : null}
       {!isUser && <RetrievalCard results={retrievals} />}
-      <div className={isUser ? "chat-message-shell__content whitespace-pre-wrap leading-7" : "chat-message-shell__content markdown"}>
-        {isUser && editing ? (
-          <div className="message-edit-form">
-            <textarea
-              className="message-edit-form__textarea"
-              onChange={(event) => setDraft(event.target.value)}
-              value={draft}
-            />
-            <div className="message-edit-form__actions">
-              <button
-                className="message-edit-form__button"
-                onClick={() => setEditing(false)}
-                type="button"
-              >
-                <X size={14} />
-                取消
-              </button>
-              <button
-                className="message-edit-form__button message-edit-form__button--primary"
-                disabled={!draft.trim() || draft.trim() === content.trim()}
-                onClick={() => {
-                  const nextValue = draft.trim();
-                  if (!nextValue || !onResendEdit) {
-                    return;
-                  }
-                  setEditing(false);
-                  void onResendEdit(id, nextValue);
-                }}
-                type="button"
-              >
-                <Check size={14} />
-                发送
-              </button>
-            </div>
-          </div>
-        ) : isUser ? (
-          content
-        ) : image?.src && !imageUnavailable ? (
-          <figure className="chat-image-message">
-            {/* Generated local assets are final files served from public/. */}
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              alt={image.alt || "生成图像"}
-              loading="lazy"
-              onError={() => setFailedImageSrc(image.src)}
-              src={image.src}
-            />
-            {image.caption ? <figcaption>{image.caption}</figcaption> : null}
-          </figure>
-        ) : imageUnavailable ? (
-          <div className="chat-image-message chat-image-message--missing">
-            <p>图像文件不可用。</p>
-            <span>{image?.src}</span>
-          </div>
-        ) : (
-          <ReactMarkdown remarkPlugins={[remarkGfm]}>
-            {content || (hasRuntimeDetails ? "" : "正在思考...")}
-          </ReactMarkdown>
-        )}
-      </div>
       {hasRuntimeDetails ? (
         <RuntimeRunSummary attachments={runtimeAttachments} entries={runtimeProgress} />
+      ) : null}
+      {shouldRenderContent ? (
+        <div className={isUser ? "chat-message-shell__content whitespace-pre-wrap leading-7" : "chat-message-shell__content markdown"}>
+          {isUser && editing ? (
+            <div className="message-edit-form">
+              <textarea
+                className="message-edit-form__textarea"
+                onChange={(event) => setDraft(event.target.value)}
+                value={draft}
+              />
+              <div className="message-edit-form__actions">
+                <button
+                  className="message-edit-form__button"
+                  onClick={() => setEditing(false)}
+                  type="button"
+                >
+                  <X size={14} />
+                  取消
+                </button>
+                <button
+                  className="message-edit-form__button message-edit-form__button--primary"
+                  disabled={!draft.trim() || draft.trim() === content.trim()}
+                  onClick={() => {
+                    const nextValue = draft.trim();
+                    if (!nextValue || !onResendEdit) {
+                      return;
+                    }
+                    setEditing(false);
+                    void onResendEdit(id, nextValue);
+                  }}
+                  type="button"
+                >
+                  <Check size={14} />
+                  发送
+                </button>
+              </div>
+            </div>
+          ) : isUser ? (
+            content
+          ) : image?.src && !imageUnavailable ? (
+            <figure className="chat-image-message">
+              {/* Generated local assets are final files served from public/. */}
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                alt={image.alt || "生成图像"}
+                loading="lazy"
+                onError={() => setFailedImageSrc(image.src)}
+                src={image.src}
+              />
+              {image.caption ? <figcaption>{image.caption}</figcaption> : null}
+            </figure>
+          ) : imageUnavailable ? (
+            <div className="chat-image-message chat-image-message--missing">
+              <p>图像文件不可用。</p>
+              <span>{image?.src}</span>
+            </div>
+          ) : (
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>
+              {content || "正在思考..."}
+            </ReactMarkdown>
+          )}
+        </div>
       ) : null}
       {!isUser && <RuntimeEvidencePanel toolCalls={toolCalls} />}
     </article>

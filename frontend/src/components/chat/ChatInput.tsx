@@ -1,7 +1,7 @@
 "use client";
 
-import { ArrowUp, BrainCircuit, Lightbulb, Square } from "lucide-react";
-import { useMemo, useState } from "react";
+import { ArrowUp, BrainCircuit, Square } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 
 import type { ModelProviderConfig, ImageAssetConfig } from "@/lib/api";
 import type { ChatThinkingMode } from "@/lib/store/types";
@@ -37,7 +37,21 @@ export function ChatInput({
     ? selectedChatModelId
     : "system-default";
   const activeModel = resolveActiveChatModel(activeModelId, modelProviderConfig);
-  const showThinkingToggle = Boolean(activeModel && supportsHiddenReasoning(activeModel.provider, activeModel.model, modelProviderConfig));
+  const activeModelSupportsReasoning = Boolean(activeModel && supportsHiddenReasoning(activeModel.provider, activeModel.model, modelProviderConfig));
+  const activeThinkingMode = activeModelSupportsReasoning ? chatThinkingMode : "normal";
+  const modelModeOptions = useMemo(
+    () => buildChatModelModeOptions(modelOptions, modelProviderConfig),
+    [modelOptions, modelProviderConfig]
+  );
+  const activeModelModeValue = encodeChatModelModeSelection(activeModelId, activeThinkingMode);
+  const panelClassName = `chat-input-panel chat-input-panel--inline${streaming ? " chat-input-panel--streaming" : ""}`;
+
+  useEffect(() => {
+    if (!activeModelSupportsReasoning && chatThinkingMode !== "normal") {
+      onSelectThinkingMode("normal");
+    }
+  }, [activeModelSupportsReasoning, chatThinkingMode, onSelectThinkingMode]);
+
   const submit = async () => {
     const nextValue = value.trim();
     if (inputDisabled || !nextValue) {
@@ -56,9 +70,10 @@ export function ChatInput({
   };
 
   return (
-    <div className="chat-input-panel chat-input-panel--inline">
+    <div className={panelClassName}>
       <div className="chat-input-panel__composer">
         <textarea
+          aria-label="输入消息"
           className="chat-input-panel__textarea"
           disabled={inputDisabled}
           onChange={(event) => setValue(event.target.value)}
@@ -71,7 +86,7 @@ export function ChatInput({
               void submit();
             }
           }}
-          placeholder="输入消息，Cmd/Ctrl + Enter 发送"
+          placeholder="输入任务、修改或继续说明"
           value={value}
         />
       </div>
@@ -79,39 +94,25 @@ export function ChatInput({
         <div className="chat-input-panel__controls">
           <div className="chat-control-cluster chat-control-cluster--model">
             <span className="chat-control-cluster__name">模型</span>
-            <label className="chat-model-select">
-              <BrainCircuit size={15} />
+            <label className="chat-model-select chat-model-select--compound">
+              <BrainCircuit size={16} />
               <select
-                aria-label="选择本轮模型"
-                disabled={inputDisabled || modelOptions.length <= 1}
-                onChange={(event) => onSelectChatModel(event.target.value)}
-                value={activeModelId}
+                aria-label="选择本轮模型和模式"
+                disabled={inputDisabled || modelModeOptions.length <= 1}
+                onChange={(event) => {
+                  const selection = decodeChatModelModeSelection(event.target.value);
+                  onSelectChatModel(selection.modelId);
+                  onSelectThinkingMode(selection.thinkingMode);
+                }}
+                value={activeModelModeValue}
               >
-                {modelOptions.map((option) => (
-                  <option key={option.id} value={option.id}>
+                {modelModeOptions.map((option) => (
+                  <option key={option.value} title={option.title} value={option.value}>
                     {option.label}
                   </option>
                 ))}
               </select>
             </label>
-            {showThinkingToggle ? (
-              <div aria-label="推理模式" className="chat-thinking-segment" role="group">
-                {THINKING_MODE_OPTIONS.map((option) => (
-                  <button
-                    aria-pressed={chatThinkingMode === option.value}
-                    className={chatThinkingMode === option.value ? "chat-thinking-segment__item chat-thinking-segment__item--active" : "chat-thinking-segment__item"}
-                    disabled={inputDisabled}
-                    key={option.value}
-                    onClick={() => onSelectThinkingMode(option.value)}
-                    title={option.title}
-                    type="button"
-                  >
-                    {option.value === "normal" ? null : <Lightbulb size={13} />}
-                    <span>{option.label}</span>
-                  </button>
-                ))}
-              </div>
-            ) : null}
           </div>
         </div>
         <div className="chat-input-panel__actions">
@@ -179,6 +180,22 @@ function buildChatModelOptions(config: ModelProviderConfig | null, imageConfig: 
   return options;
 }
 
+function buildChatModelModeOptions(
+  modelOptions: Array<{ id: string; label: string }>,
+  config: ModelProviderConfig | null
+) {
+  return modelOptions.flatMap((option) => {
+    const model = resolveActiveChatModel(option.id, config);
+    const supportsReasoning = Boolean(model && supportsHiddenReasoning(model.provider, model.model, config));
+    const modeOptions = supportsReasoning ? THINKING_MODE_OPTIONS : [THINKING_MODE_OPTIONS[0]];
+    return modeOptions.map((mode) => ({
+      value: encodeChatModelModeSelection(option.id, mode.value),
+      label: supportsReasoning ? `${option.label} · ${mode.label}` : option.label,
+      title: supportsReasoning ? mode.title : "使用标准调用模式",
+    }));
+  });
+}
+
 function addConfiguredModelOption(
   options: Array<{ id: string; label: string }>,
   item: { id?: string; label?: string; baseUrl?: string | null }
@@ -208,10 +225,28 @@ function resolveActiveChatModel(selectionId: string, config: ModelProviderConfig
 }
 
 const THINKING_MODE_OPTIONS: Array<{ value: ChatThinkingMode; label: string; title: string }> = [
-  { value: "normal", label: "普通", title: "关闭 Thinking" },
-  { value: "thinking", label: "Thinking", title: "开启 Thinking，reasoning_effort=high" },
-  { value: "max", label: "Max", title: "开启 Thinking，reasoning_effort=max" },
+  { value: "normal", label: "标准", title: "关闭 Thinking" },
+  { value: "thinking", label: "Thinking", title: "开启 Thinking，推理强度由 DeepSeek 自动调度" },
 ];
+
+const MODEL_MODE_SEPARATOR = "::mode::";
+
+function encodeChatModelModeSelection(modelId: string, thinkingMode: ChatThinkingMode) {
+  return `${encodeURIComponent(modelId)}${MODEL_MODE_SEPARATOR}${thinkingMode}`;
+}
+
+function decodeChatModelModeSelection(value: string): { modelId: string; thinkingMode: ChatThinkingMode } {
+  const [encodedModelId, rawThinkingMode] = value.split(MODEL_MODE_SEPARATOR);
+  const modelId = decodeURIComponent(encodedModelId || "system-default");
+  return {
+    modelId,
+    thinkingMode: isChatThinkingMode(rawThinkingMode) ? rawThinkingMode : "normal",
+  };
+}
+
+function isChatThinkingMode(value: string | undefined): value is ChatThinkingMode {
+  return value === "normal" || value === "thinking";
+}
 
 function supportsHiddenReasoning(provider: string, model: string, config: ModelProviderConfig | null) {
   const normalizedProvider = provider.trim().toLowerCase();

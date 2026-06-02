@@ -358,7 +358,6 @@ def build_task_execution_assembly_bundle(
         memory_request_profile_ref=str(getattr(memory_request_profile, "profile_id", "") or ""),
         communication_protocol_ref=str(getattr(communication_protocol, "protocol_id", "") or ""),
         graph_ref=graph_ref,
-        topology_template_ref=str(getattr(task_graph, "topology_template_id", "") or ""),
         operation_requirement_ref=operation_requirement.requirement_id,
         input_contract_id=str((registered_task or {}).get("input_contract_id") or ""),
         output_contract_id=str((registered_task or {}).get("output_contract_id") or ""),

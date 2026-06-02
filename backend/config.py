@@ -15,7 +15,7 @@ LLM_PROVIDER_DEFAULTS: dict[str, dict[str, Any]] = {
     "deepseek": {
         "display_name": "DeepSeek",
         "model": "deepseek-v4-pro",
-        "base_url": "https://api.deepseek.com/v1",
+        "base_url": "https://api.deepseek.com",
         "adapter": "deepseek_langchain",
         "credential_envs": ("DEEPSEEK_API_KEY", "LLM_API_KEY"),
         "model_presets": ("deepseek-v4-pro", "deepseek-v4-flash"),
@@ -387,7 +387,13 @@ def _resolve_llm_fallback_provider() -> str | None:
     value = _first_env("LLM_FALLBACK_PROVIDER")
     if not value:
         return None
-    normalized = _normalize_provider(value, default="", defaults=LLM_PROVIDER_DEFAULTS)
+    if str(value or "").strip().lower() in {"", "none", "disabled", "off"}:
+        return None
+    normalized = _normalize_provider_with_payload_hints(
+        value,
+        _first_env("LLM_FALLBACK_MODEL") or "",
+        _first_env("LLM_FALLBACK_BASE_URL") or "",
+    )
     return normalized or None
 
 
@@ -459,14 +465,17 @@ def _resolve_llm_fallback_model(provider: str | None) -> str | None:
     override_model = str(runtime_override.get("fallback_model") or "").strip()
     if override_model:
         return _normalize_llm_model_id(provider, override_model)
+    fallback_env_model = _first_env("LLM_FALLBACK_MODEL")
+    if fallback_env_model:
+        return _normalize_llm_model_id(provider, fallback_env_model)
     if provider == "zhipu":
-        model = _provider_first_env(provider, "ZHIPU_MODEL", "LLM_FALLBACK_MODEL") or LLM_PROVIDER_DEFAULTS[provider]["model"]
+        model = _first_env("ZHIPU_MODEL") or LLM_PROVIDER_DEFAULTS[provider]["model"]
         return _normalize_llm_model_id(provider, model)
     if provider == "bailian":
-        model = _provider_first_env(provider, "BAILIAN_MODEL", "LLM_FALLBACK_MODEL") or LLM_PROVIDER_DEFAULTS[provider]["model"]
+        model = _first_env("BAILIAN_MODEL") or LLM_PROVIDER_DEFAULTS[provider]["model"]
         return _normalize_llm_model_id(provider, model)
     if provider == "deepseek":
-        model = _provider_first_env(provider, "DEEPSEEK_MODEL", "LLM_FALLBACK_MODEL") or LLM_PROVIDER_DEFAULTS[provider]["model"]
+        model = _first_env("DEEPSEEK_MODEL") or LLM_PROVIDER_DEFAULTS[provider]["model"]
         return _normalize_llm_model_id(provider, model)
     provider_env_map = {
         "openrouter": "OPENROUTER_MODEL",
@@ -478,9 +487,9 @@ def _resolve_llm_fallback_model(provider: str | None) -> str | None:
         "ollama": "OLLAMA_MODEL",
     }
     if provider in provider_env_map:
-        model = _provider_first_env(provider, provider_env_map[provider], "LLM_FALLBACK_MODEL") or str(LLM_PROVIDER_DEFAULTS[provider]["model"])
+        model = _first_env(provider_env_map[provider]) or str(LLM_PROVIDER_DEFAULTS[provider]["model"])
         return _normalize_llm_model_id(provider, model)
-    model = _first_env("LLM_FALLBACK_MODEL") or LLM_PROVIDER_DEFAULTS[provider]["model"]
+    model = LLM_PROVIDER_DEFAULTS[provider]["model"]
     return _normalize_llm_model_id(provider, model)
 
 
@@ -491,12 +500,15 @@ def _resolve_llm_fallback_base_url(provider: str | None) -> str | None:
     override_base_url = str(runtime_override.get("fallback_base_url") or "").strip()
     if override_base_url:
         return override_base_url
+    fallback_env_base_url = _first_env("LLM_FALLBACK_BASE_URL")
+    if fallback_env_base_url:
+        return fallback_env_base_url
     if provider == "zhipu":
-        return _provider_first_env(provider, "ZHIPU_BASE_URL", "LLM_FALLBACK_BASE_URL") or LLM_PROVIDER_DEFAULTS[provider]["base_url"]
+        return _first_env("ZHIPU_BASE_URL") or LLM_PROVIDER_DEFAULTS[provider]["base_url"]
     if provider == "bailian":
-        return _provider_first_env(provider, "BAILIAN_BASE_URL", "LLM_FALLBACK_BASE_URL") or LLM_PROVIDER_DEFAULTS[provider]["base_url"]
+        return _first_env("BAILIAN_BASE_URL") or LLM_PROVIDER_DEFAULTS[provider]["base_url"]
     if provider == "deepseek":
-        return _provider_first_env(provider, "DEEPSEEK_BASE_URL", "LLM_FALLBACK_BASE_URL") or LLM_PROVIDER_DEFAULTS[provider]["base_url"]
+        return _first_env("DEEPSEEK_BASE_URL") or LLM_PROVIDER_DEFAULTS[provider]["base_url"]
     provider_env_map = {
         "openrouter": "OPENROUTER_BASE_URL",
         "anthropic": "ANTHROPIC_BASE_URL",
@@ -507,8 +519,8 @@ def _resolve_llm_fallback_base_url(provider: str | None) -> str | None:
         "ollama": "OLLAMA_BASE_URL",
     }
     if provider in provider_env_map:
-        return _provider_first_env(provider, provider_env_map[provider], "LLM_FALLBACK_BASE_URL") or str(LLM_PROVIDER_DEFAULTS[provider]["base_url"])
-    return _first_env("LLM_FALLBACK_BASE_URL", "OPENAI_BASE_URL") or LLM_PROVIDER_DEFAULTS[provider]["base_url"]
+        return _first_env(provider_env_map[provider]) or str(LLM_PROVIDER_DEFAULTS[provider]["base_url"])
+    return _first_env("OPENAI_BASE_URL") or LLM_PROVIDER_DEFAULTS[provider]["base_url"]
 
 
 def _resolve_llm_thinking_mode() -> str:
@@ -521,7 +533,9 @@ def _resolve_llm_thinking_mode() -> str:
 
 
 def _resolve_llm_reasoning_effort() -> str:
-    value = str(_runtime_system_value("runtime", "llm_reasoning_effort") or os.getenv("LLM_REASONING_EFFORT") or "high").strip().lower()
+    value = str(_runtime_system_value("runtime", "llm_reasoning_effort") or os.getenv("LLM_REASONING_EFFORT") or "auto").strip().lower()
+    if value in {"", "auto", "default", "adaptive"}:
+        return "auto"
     if value in {"max", "xhigh"}:
         return "max"
     return "high"

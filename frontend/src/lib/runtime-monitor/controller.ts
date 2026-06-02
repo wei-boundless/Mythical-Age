@@ -171,8 +171,8 @@ export class RuntimeMonitorController {
       : {};
     const work = runtimeWorkProjectionFromMonitorItem(selected);
     const taskInstanceIdForState = monitorItemInstanceId(selected);
-    if (navigation.target_kind === "session") {
-      const sessionId = String(navigation.session_id || selected.session_id || "").trim();
+    const sessionId = String(navigation.session_id || selected.route?.session_id || selected.session_id || "").trim();
+    if (navigation.target_kind === "session" || (work.workKind === "agent_runtime_run" && sessionId)) {
       if (sessionId) {
         this.host.applySelectedSessionShell(sessionId);
         void this.host.refreshSessionDetails(sessionId).catch(() => undefined);
@@ -186,6 +186,7 @@ export class RuntimeMonitorController {
         globalRuntimeMonitorSelectedLiveMonitor: null,
         globalRuntimeMonitorSelectedGraphMonitor: null,
       }));
+      this.host.syncWorkspaceViewUrl("chat");
       this.queueDetailRefresh(selected.task_run_id, this.store.getState().globalRuntimeMonitorRevision);
       return;
     }

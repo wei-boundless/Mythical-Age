@@ -238,7 +238,7 @@ function Workspace() {
   } else {
     content = (
       <SystemPageShell label="主会话" view="chat">
-        <WorkbenchShell>
+        <WorkbenchShell hideMainToolbar>
           <section className="workbench-view-host workbench-view-host--chat" aria-label="主会话">
             <CenterWorkspaceView />
           </section>

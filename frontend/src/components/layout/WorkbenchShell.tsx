@@ -20,10 +20,8 @@ import { useEffect, useState, type CSSProperties, type PointerEvent as ReactPoin
 
 import { TaskMonitorDock } from "@/components/layout/TaskMonitorDock";
 import { WorkspaceModeSwitcher } from "@/components/layout/WorkspaceModeSwitcher";
-import type { CodeEnvironmentTreeNode } from "@/lib/api";
+import { openCodeEnvironmentWorkspaceRoot, type CodeEnvironmentTreeNode } from "@/lib/api";
 import { useAppStore } from "@/lib/store";
-
-type CenterPanel = "chat" | "file";
 
 const LEFT_WIDTH_KEY = "agentWorkbench.leftWidth";
 const RIGHT_WIDTH_KEY = "agentWorkbench.rightWidth";
@@ -105,9 +103,19 @@ function fitWorkbenchPanelWidths({
   };
 }
 
-function compactFileName(path: string) {
-  const parts = path.split("/");
-  return parts[parts.length - 1] || path;
+function looksRuntimeIdentifier(value: string, currentSessionId = "") {
+  const text = value.trim();
+  if (!text) return false;
+  if (currentSessionId && text === currentSessionId) return true;
+  return /^(session|taskrun|task|turn|turnrun|grun|coordrun|rtobj|rtpacket)[:-]/i.test(text);
+}
+
+function friendlySessionTitle(title: string | undefined, currentSessionId: string) {
+  const candidate = String(title || "").trim();
+  if (candidate && !looksRuntimeIdentifier(candidate, currentSessionId)) {
+    return candidate;
+  }
+  return "当前会话";
 }
 
 function isEditableWorkspacePath(path: string, editablePrefixes: string[] = []) {
@@ -258,6 +266,20 @@ function WorkspaceManagerPanel({ onOpenFile }: { onOpenFile: (path: string) => v
   const projectName = workspaceContext?.project_name || "当前项目";
   const projectRoot = workspaceContext?.project_root || "未加载项目根";
   const projectTreeNodes = workspaceTree?.tree.children || [];
+  const [openingProjectRoot, setOpeningProjectRoot] = useState(false);
+  const [openProjectRootError, setOpenProjectRootError] = useState("");
+
+  async function handleOpenProjectRoot() {
+    setOpeningProjectRoot(true);
+    setOpenProjectRootError("");
+    try {
+      await openCodeEnvironmentWorkspaceRoot();
+    } catch (error) {
+      setOpenProjectRootError(error instanceof Error ? error.message : "无法打开项目目录。");
+    } finally {
+      setOpeningProjectRoot(false);
+    }
+  }
 
   return (
     <aside className="workbench-resource-panel" aria-label="任务环境管理">
@@ -290,9 +312,19 @@ function WorkspaceManagerPanel({ onOpenFile }: { onOpenFile: (path: string) => v
               <strong>项目文件</strong>
               <span>{workspaceTree ? `${workspaceTree.total_entries} 项` : workspaceTreeLoading ? "加载中" : "未加载"}</span>
             </div>
-            <FolderOpen size={15} />
+            <button
+              aria-label="打开项目目录"
+              className="workbench-file-tree__open-project"
+              disabled={openingProjectRoot}
+              onClick={() => void handleOpenProjectRoot()}
+              title={`打开项目目录：${projectRoot}`}
+              type="button"
+            >
+              <FolderOpen size={15} />
+            </button>
           </div>
           <div className="workbench-project-file-list">
+            {openProjectRootError ? <div className="workbench-tree-state workbench-tree-state--error">{openProjectRootError}</div> : null}
             {workspaceTreeError ? <div className="workbench-tree-state workbench-tree-state--error">{workspaceTreeError}</div> : null}
             {workspaceTreeLoading && !workspaceTree ? <div className="workbench-tree-state">正在读取项目目录。</div> : null}
             {!workspaceTreeLoading && !workspaceTreeError && workspaceTree && !projectTreeNodes.length ? (
@@ -351,16 +383,12 @@ function WorkspaceManagerPanel({ onOpenFile }: { onOpenFile: (path: string) => v
 }
 
 function MainToolbar({
-  centerPanel,
   leftPanelCollapsed,
-  onReturnToChat,
   onToggleLeftPanel,
   onToggleRightPanel,
   rightPanelCollapsed,
 }: {
-  centerPanel: CenterPanel;
   leftPanelCollapsed: boolean;
-  onReturnToChat: () => void;
   onToggleLeftPanel: () => void;
   onToggleRightPanel: () => void;
   rightPanelCollapsed: boolean;
@@ -372,10 +400,12 @@ function MainToolbar({
     inspectorPath,
     saveInspector,
     sessionActivity,
+    sessions,
     workspaceContext,
   } = useAppStore();
   const editable = isEditableWorkspacePath(inspectorPath, workspaceContext?.editable_prefixes);
-  const title = centerPanel === "file" ? "文件" : "会话";
+  const currentSession = sessions.find((session) => session.id === currentSessionId) ?? null;
+  const subject = friendlySessionTitle(currentSession?.title, currentSessionId || "");
   const streaming = Boolean(currentSessionId && activeStreamSessionIds.includes(currentSessionId));
   const activityLabel = streaming
     ? sessionActivity.title || sessionActivity.detail || sessionActivity.event || "执行中"
@@ -386,8 +416,8 @@ function MainToolbar({
   return (
     <header className="workbench-main-toolbar">
       <div className="workbench-breadcrumb">
-        <span>{title}</span>
-        <strong>{inspectorDirty ? `${compactFileName(inspectorPath)} 已修改` : compactFileName(inspectorPath || "workspace")}</strong>
+        <span>会话</span>
+        <strong>{subject}</strong>
       </div>
       <div className={streaming ? "workbench-runtime-state workbench-runtime-state--active" : "workbench-runtime-state"}>
         <CircleDot size={13} />
@@ -403,9 +433,6 @@ function MainToolbar({
         >
           {leftPanelCollapsed ? <PanelLeftOpen size={15} /> : <PanelLeftClose size={15} />}
         </button>
-        {centerPanel === "file" ? (
-          <button onClick={onReturnToChat} type="button">返回会话</button>
-        ) : null}
         <button
           aria-label={rightPanelCollapsed ? "打开辅助栏" : "收起辅助栏"}
           className="workbench-toolbar-icon-button"
@@ -434,52 +461,9 @@ function useViewportWidth() {
   return viewportWidth;
 }
 
-function CenterFilePage({ onReturnToChat }: { onReturnToChat: () => void }) {
-  const { inspectorContent, inspectorDirty, inspectorPath, saveInspector, updateInspectorContent, workspaceContext } = useAppStore();
-  const [editing, setEditing] = useState(false);
-  const editable = isEditableWorkspacePath(inspectorPath, workspaceContext?.editable_prefixes);
-
-  useEffect(() => {
-    if (!editable && editing) {
-      setEditing(false);
-    }
-  }, [editable, editing]);
-
-  return (
-    <section className="workbench-file-page" aria-label="文件查看">
-      <header>
-        <div>
-          <strong>{compactFileName(inspectorPath)}</strong>
-          <span>{inspectorPath}</span>
-        </div>
-        <div className="workbench-file-page__actions">
-          <button onClick={onReturnToChat} type="button">返回会话</button>
-          {!editable ? (
-            <span className="workbench-file-page__badge">只读</span>
-          ) : editing ? (
-            <button disabled={!inspectorDirty} onClick={() => void saveInspector().then(() => setEditing(false))} type="button">保存</button>
-          ) : (
-            <button onClick={() => setEditing(true)} type="button">编辑</button>
-          )}
-        </div>
-      </header>
-      {editing ? (
-        <textarea value={inspectorContent} onChange={(event) => updateInspectorContent(event.target.value)} spellCheck={false} />
-      ) : (
-        <pre>{inspectorContent || "文件为空。"}</pre>
-      )}
-    </section>
-  );
-}
-
 function RightToolPanel() {
   return (
     <aside className="workbench-right-panel" aria-label="辅助面板">
-      <header className="workbench-panel-head workbench-panel-head--right">
-        <div>
-          <strong>监控</strong>
-        </div>
-      </header>
       <div className="workbench-right-body">
         <TaskMonitorDock embedded />
       </div>
@@ -523,10 +507,9 @@ export function WorkbenchShell({
   rightPanel?: ReactNode;
   rightPanelLabel?: string;
 }) {
-  const { inspectorWidth, loadInspectorFile, setInspectorWidth, setSidebarWidth, sidebarWidth } = useAppStore();
+  const { inspectorWidth, openWorkspaceFile, setInspectorWidth, setSidebarWidth, sidebarWidth } = useAppStore();
   const [leftCollapsed, setLeftCollapsed] = useState(false);
   const [rightCollapsed, setRightCollapsed] = useState(false);
-  const [centerPanel, setCenterPanel] = useState<CenterPanel>("chat");
   const viewportWidth = useViewportWidth();
   usePersistedWorkbenchWidths();
 
@@ -555,7 +538,7 @@ export function WorkbenchShell({
   const left = leftPanel ?? (
     <WorkspaceManagerPanel
       onOpenFile={(path) => {
-        void loadInspectorFile(path).then(() => setCenterPanel("file"));
+        openWorkspaceFile(path);
       }}
     />
   );
@@ -591,16 +574,14 @@ export function WorkbenchShell({
       <section className={hideMainToolbar ? "workbench-center workbench-center--no-toolbar" : "workbench-center"} aria-label="主任务环境">
         {hideMainToolbar ? null : (
           <MainToolbar
-            centerPanel={centerPanel}
             leftPanelCollapsed={leftCollapsed}
-            onReturnToChat={() => setCenterPanel("chat")}
             onToggleLeftPanel={() => setLeftCollapsed((value) => !value)}
             onToggleRightPanel={() => setRightCollapsed((value) => !value)}
             rightPanelCollapsed={rightCollapsed}
           />
         )}
         <div className="workbench-center-content">
-          {centerPanel === "file" ? <CenterFilePage onReturnToChat={() => setCenterPanel("chat")} /> : children}
+          {children}
         </div>
       </section>
       {rightCollapsed ? null : (

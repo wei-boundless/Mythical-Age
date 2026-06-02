@@ -10,6 +10,9 @@ from .models import PromptSegment, PromptSegmentMap
 from .token_counter import TokenCounterRegistry
 
 
+REASONING_CONTENT_CHARS_PER_TOKEN_ESTIMATE = 4
+
+
 def canonical_json(value: Any) -> str:
     return json.dumps(_json_stable(value), ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
@@ -64,6 +67,7 @@ class CanonicalPromptSerializer:
             prefix_tier = _prefix_tier(planned.get("prefix_tier"), cache_scope=str(planned.get("cache_scope") or "none"), cache_role=cache_role) if planned else "none"
             compression_role = _compression_role(planned.get("compression_role")) if planned else "summarize"
             token_count = self.token_counter.count_text(segment_payload, provider=provider, model=model)
+            reasoning_token_supplement = _reasoning_content_token_supplement(message)
             segments.append(
                 PromptSegment(
                     segment_id=_segment_id(request_id, ordinal, kind, segment_payload),
@@ -76,7 +80,7 @@ class CanonicalPromptSerializer:
                     role=str(message.get("role") or ""),
                     content_hash=stable_text_hash(segment_payload),
                     byte_length=len(segment_payload.encode("utf-8", errors="ignore")),
-                    predicted_tokens=token_count.tokens,
+                    predicted_tokens=token_count.tokens + reasoning_token_supplement,
                     cache_role=cache_role,
                     prefix_tier=prefix_tier,
                     compression_role=compression_role,
@@ -84,6 +88,11 @@ class CanonicalPromptSerializer:
                     created_at=timestamp,
                     metadata={
                         "token_count_mode": token_count.mode,
+                        **(
+                            {"reasoning_content_predicted_tokens": reasoning_token_supplement}
+                            if reasoning_token_supplement
+                            else {}
+                        ),
                         **_planned_metadata(planned),
                     },
                 )
@@ -161,6 +170,7 @@ def _normalize_message(message: Any) -> dict[str, Any]:
                 payload[key] = str(message.get(key) or "")
         if message.get("tool_calls"):
             payload["tool_calls"] = _json_stable(message.get("tool_calls"))
+        _mark_reasoning_content(payload, message.get("reasoning_content"))
         return payload
     role = str(getattr(message, "type", "") or getattr(message, "role", "") or message.__class__.__name__).lower()
     payload = {
@@ -176,8 +186,38 @@ def _normalize_message(message: Any) -> dict[str, Any]:
         payload["tool_calls"] = _json_stable(tool_calls)
     additional_kwargs = getattr(message, "additional_kwargs", None)
     if isinstance(additional_kwargs, dict) and additional_kwargs.get("reasoning_content"):
-        payload["reasoning_content_present"] = True
+        _mark_reasoning_content(payload, additional_kwargs.get("reasoning_content"))
     return payload
+
+
+def _mark_reasoning_content(payload: dict[str, Any], value: Any) -> None:
+    reasoning_content = str(value or "")
+    if not reasoning_content:
+        return
+    payload["reasoning_content_present"] = True
+    payload["reasoning_content_chars"] = len(reasoning_content)
+    payload["reasoning_content_estimated_tokens"] = _estimate_reasoning_content_tokens(len(reasoning_content))
+    payload["reasoning_content_hash"] = stable_text_hash(reasoning_content)
+
+
+def _estimate_reasoning_content_tokens(char_count: int) -> int:
+    chars = max(0, int(char_count or 0))
+    if chars <= 0:
+        return 0
+    return max(1, (chars + REASONING_CONTENT_CHARS_PER_TOKEN_ESTIMATE - 1) // REASONING_CONTENT_CHARS_PER_TOKEN_ESTIMATE)
+
+
+def _reasoning_content_token_supplement(message: dict[str, Any]) -> int:
+    if not bool(message.get("reasoning_content_present")):
+        return 0
+    return _estimate_reasoning_content_tokens(_int_value(message.get("reasoning_content_chars")))
+
+
+def _int_value(value: Any) -> int:
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
 
 
 def _stringify_content(content: Any) -> str:

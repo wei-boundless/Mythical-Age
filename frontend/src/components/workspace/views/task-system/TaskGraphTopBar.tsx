@@ -1,48 +1,31 @@
 "use client";
 
 import { CheckCircle2, Save, Send } from "lucide-react";
+import type { ReactNode } from "react";
 
 import { TaskSystemToolbarButton } from "./TaskSystemWorkbenchUi";
-import { isTaskGraphPublishedState, taskGraphPublishStateLabel, type TaskGraphPublishStateV2 } from "./taskGraphDraftV2";
+import { isTaskGraphPublishedState, type TaskGraphPublishStateV2 } from "./taskGraphDraftV2";
 
 export function TaskGraphTopBar({
-  coordinatorAgentId,
-  graphId,
-  issueCount,
-  nodeCount,
-  edgeCount,
   onPublish,
   onSave,
   publishState,
   saving,
-  title,
   valid,
+  workspaceSlot,
 }: {
-  coordinatorAgentId: string;
-  graphId: string;
-  issueCount: number;
-  nodeCount: number;
-  edgeCount: number;
   onPublish: () => void;
   onSave: () => void;
   publishState: TaskGraphPublishStateV2;
   saving: string;
-  title: string;
   valid: boolean;
+  workspaceSlot?: ReactNode;
 }) {
   const published = isTaskGraphPublishedState(publishState);
   return (
     <header className="task-graph-studio-topbar">
-      <div className="task-graph-studio-topbar__identity">
-        <span>主会话 · 图任务工作台</span>
-        <strong>{title || graphId || "未命名任务图"}</strong>
-        <small>{graphId || "graph.draft"} · 协调者 {coordinatorAgentId || "agent:0"}</small>
-      </div>
-      <div className="task-graph-studio-topbar__facts" aria-label="任务图摘要">
-        <span>{nodeCount} 节点</span>
-        <span>{edgeCount} 边</span>
-        <span className={issueCount ? "task-graph-studio-topbar__fact--warn" : ""}>{issueCount} 问题</span>
-        <strong>{published ? taskGraphPublishStateLabel(publishState) : valid ? "可发布" : taskGraphPublishStateLabel(publishState)}</strong>
+      <div className="task-graph-studio-topbar__workspace">
+        {workspaceSlot}
       </div>
       <div className="task-graph-studio-topbar__actions">
         <TaskSystemToolbarButton disabled={saving === "task-graph"} onClick={onSave}>

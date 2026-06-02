@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import os
 import subprocess
+import sys
 from pathlib import Path
 from typing import Annotated
 
@@ -47,6 +49,35 @@ async def code_environment_workspace_tree(
         max_depth=max_depth,
         max_entries=max_entries,
     )
+
+
+@router.post("/code-environment/open-workspace-root")
+async def open_code_environment_workspace_root() -> dict[str, object]:
+    layout = ProjectLayout.from_backend_dir(Path(__file__).resolve().parents[1])
+    project_root = layout.project_root.resolve()
+    if not project_root.is_dir():
+        raise HTTPException(status_code=404, detail="Workspace root not found")
+    try:
+        _open_directory(project_root)
+    except (OSError, RuntimeError) as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    return {
+        "authority": "langchain-agent.code_environment.open_workspace_root",
+        "opened": True,
+        "path": str(project_root),
+    }
+
+
+def _open_directory(path: Path) -> None:
+    target = path.resolve()
+    if sys.platform.startswith("win"):
+        os.startfile(str(target))  # type: ignore[attr-defined]
+        return
+    command = ["open", str(target)] if sys.platform == "darwin" else ["xdg-open", str(target)]
+    try:
+        subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except FileNotFoundError as exc:
+        raise RuntimeError(f"Cannot open workspace directory: {command[0]} is not available") from exc
 
 
 @router.get("/code-environment/git-status")

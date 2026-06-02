@@ -151,7 +151,6 @@ export function buildTaskGraphUpsertPayload({
     metadata: compactRecord({
       ...metadata,
       protocol_id: taskGraphDraft.default_protocol_id || String(metadata.protocol_id ?? ""),
-      topology_template_id: String(metadata.topology_template_id ?? ""),
       task_environment_id: taskEnvironmentId || undefined,
       environment_id: taskEnvironmentId || undefined,
       domain_id,

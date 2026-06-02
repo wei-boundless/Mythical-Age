@@ -10,7 +10,6 @@ import type {
   TaskGraphStandardView,
   TaskSystemOverview,
 } from "@/lib/api";
-import type { TaskGraphTemplateBuildInput, TaskGraphTemplateId } from "./taskGraphTemplates";
 import type { TaskGraphDraftV2, TaskGraphPublishStateV2 } from "./taskGraphDraftV2";
 import type { TaskGraphEditorSelection } from "./taskGraphEditorSelection";
 import type { TaskGraphSemanticRelationPreset } from "./taskGraphSemanticRelations";
@@ -75,12 +74,9 @@ export type TaskGraphWorkbenchProps = {
   taskGraphDraftV2: TaskGraphDraftV2;
   selectedTaskGraph: TaskGraphRecord | null;
   saving: string;
-  applyTaskGraphTemplate: (template: TaskGraphTemplateId, options?: Partial<TaskGraphTemplateBuildInput>) => void;
-  duplicateTaskGraphDraft: () => Promise<void>;
   saveTaskGraphStack: (nextPublished?: boolean, nextEditorPublishState?: TaskGraphPublishStateV2) => Promise<void>;
   editorValid: boolean;
   editorIssueCount: number;
-  editorPublished: boolean;
   taskGraphDirty: boolean;
   activeGraphNodes: Array<Record<string, unknown>>;
   activeGraphEdges: Array<Record<string, unknown>>;

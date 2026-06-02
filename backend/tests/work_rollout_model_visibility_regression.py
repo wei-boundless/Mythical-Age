@@ -34,7 +34,7 @@ def test_model_invisible_rollout_item_stays_out_of_model_history() -> None:
         host,
         task_run=task_run,
         item_type="progress",
-        title="思考下一步",
+        title="确认下一步",
         status="running",
         summary="继续读取后半部分。",
         payload={"model_visible": False},

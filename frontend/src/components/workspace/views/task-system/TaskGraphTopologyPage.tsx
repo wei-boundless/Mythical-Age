@@ -1,8 +1,10 @@
 "use client";
 
+import { Activity, ExternalLink, PlayCircle, RefreshCw } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import type { ContractSpec } from "@/lib/api";
+import { useAppStore } from "@/lib/store";
 
 import { TaskGraphActionRail } from "./TaskGraphActionRail";
 import { TaskGraphCanvasPanel } from "./TaskGraphCanvasPanel";
@@ -25,7 +27,6 @@ import {
   type TaskGraphSemanticRelationId,
   type TaskGraphSemanticRelationPreset,
 } from "./taskGraphSemanticRelations";
-import type { TaskGraphTemplateId } from "./taskGraphTemplates";
 import type { TaskGraphWorkbenchProps } from "./taskGraphTypes";
 
 type TaskGraphTopologyPageProps = Pick<
@@ -34,7 +35,6 @@ type TaskGraphTopologyPageProps = Pick<
   | "activeGraphNodes"
   | "addTaskGraphSuccessorNode"
   | "addTaskGraphTaskNode"
-  | "applyTaskGraphTemplate"
   | "contractSpecs"
   | "handleTopologyNodeClick"
   | "linkingFromNodeId"
@@ -76,6 +76,15 @@ function asRecord(value: unknown): Record<string, unknown> {
 function stringValue(value: unknown, fallback = "") {
   const next = String(value ?? "").trim();
   return next || fallback;
+}
+
+function stringArray(value: unknown) {
+  return Array.isArray(value) ? value.map((item) => stringValue(item)).filter(Boolean) : [];
+}
+
+function numberValue(value: unknown) {
+  const next = Number(value ?? 0);
+  return Number.isFinite(next) ? next : 0;
 }
 
 function nodeIdOf(node: Record<string, unknown>, index: number) {
@@ -148,12 +157,39 @@ function contractTitle(contract: ContractSpec) {
   return stringValue(contract.title_zh ?? contract.title_en ?? contract.contract_id, contract.contract_id);
 }
 
+function graphRunNodeStatusMap(loopState: Record<string, unknown>) {
+  const statuses = new Map<string, string>();
+  for (const nodeId of stringArray(loopState.ready_node_ids)) statuses.set(nodeId, "ready");
+  for (const nodeId of stringArray(loopState.running_node_ids)) statuses.set(nodeId, "running");
+  for (const nodeId of stringArray(loopState.completed_node_ids)) statuses.set(nodeId, "completed");
+  for (const nodeId of stringArray(loopState.failed_node_ids)) statuses.set(nodeId, "failed");
+  for (const nodeId of stringArray(loopState.blocked_node_ids)) statuses.set(nodeId, "blocked");
+  return statuses;
+}
+
+function graphRunStatusLabel(status: string) {
+  if (status === "completed") return "已完成";
+  if (status === "failed") return "失败";
+  if (status === "running") return "运行中";
+  if (status === "created") return "已创建";
+  if (status === "blocked") return "阻塞";
+  return status || "等待运行";
+}
+
+function graphRunLatestTime(monitor: unknown) {
+  const record = asRecord(monitor);
+  const graphRun = asRecord(record.graph_run);
+  const taskRun = asRecord(record.task_run);
+  const events = Array.isArray(record.events) ? record.events : [];
+  const latestEventAt = events.reduce((max, event) => Math.max(max, numberValue(asRecord(event).created_at)), 0);
+  return Math.max(numberValue(graphRun.updated_at), numberValue(taskRun.updated_at), latestEventAt);
+}
+
 export function TaskGraphTopologyPage({
   activeGraphEdges,
   activeGraphNodes,
   addTaskGraphSuccessorNode,
   addTaskGraphTaskNode,
-  applyTaskGraphTemplate,
   contractSpecs,
   handleTopologyNodeClick,
   linkingFromNodeId,
@@ -175,9 +211,42 @@ export function TaskGraphTopologyPage({
   updateTaskGraphEdge,
   updateTaskGraphNode,
 }: TaskGraphTopologyPageProps) {
+  const {
+    continueBoundTaskGraphRun,
+    evaluateBoundTaskGraphMonitor,
+    setTaskGraphRunInteractionOpen,
+    taskGraphBoundRunMonitor,
+    taskGraphMonitorActionLoading,
+    taskGraphMonitorBinding,
+    taskGraphMonitorError,
+    taskGraphMonitorLoading,
+  } = useAppStore();
   const [edgeFlowFilter, setEdgeFlowFilter] = useState<EdgeFlowFilter>("all");
   const published = isTaskGraphPublishedState(taskGraphDraftV2.publish_state);
   const graphMetadata = asRecord(taskGraphDraftV2.metadata);
+  const monitorGraphId = stringValue(
+    taskGraphMonitorBinding?.graph_id
+    || asRecord(taskGraphBoundRunMonitor?.graph_run).graph_id
+    || asRecord(taskGraphBoundRunMonitor?.graph_harness_config).graph_id,
+  );
+  const monitorAppliesToDraft = Boolean(
+    taskGraphMonitorBinding
+    && (!monitorGraphId || monitorGraphId === taskGraphDraftV2.graph_id),
+  );
+  const visibleMonitor = monitorAppliesToDraft ? taskGraphBoundRunMonitor : null;
+  const visibleBinding = monitorAppliesToDraft ? taskGraphMonitorBinding : null;
+  const graphRunLoopState = asRecord(visibleMonitor?.graph_loop_state);
+  const runtimeMonitor = asRecord(visibleMonitor?.task_run_monitor || visibleMonitor?.runtime_monitor);
+  const graphRunStatus = stringValue(runtimeMonitor.lifecycle || runtimeMonitor.status || graphRunLoopState.status || asRecord(visibleMonitor?.graph_run).status);
+  const graphRunStatuses = useMemo(() => graphRunNodeStatusMap(graphRunLoopState), [graphRunLoopState]);
+  const readyNodeIds = stringArray(graphRunLoopState.ready_node_ids);
+  const runningNodeIds = stringArray(graphRunLoopState.running_node_ids);
+  const completedNodeIds = stringArray(graphRunLoopState.completed_node_ids);
+  const failedNodeIds = stringArray(graphRunLoopState.failed_node_ids);
+  const blockedNodeIds = stringArray(graphRunLoopState.blocked_node_ids);
+  const activeWorkOrders = Array.isArray(visibleMonitor?.active_node_work_orders) ? visibleMonitor.active_node_work_orders : [];
+  const latestAt = graphRunLatestTime(visibleMonitor);
+  const latestLabel = latestAt ? new Date(latestAt * 1000).toLocaleTimeString() : "暂无更新";
   const selectedNodeId = stringValue(selectedGraphNode?.node_id ?? selectedGraphNodeId);
   const selectedEdgeId = selectedGraphEdgeId;
   const contractOptions = contractSpecs.map((item) => item.contract_id);
@@ -198,9 +267,9 @@ export function TaskGraphTopologyPage({
       agentLabel: stringValue(node.role ?? node.node_type),
       role: stringValue(node.role),
       nodeKind: topologyNodeKind(node),
-      status: nodeId === taskGraphDraftV2.entry_node_id ? "ready" : nodeId === taskGraphDraftV2.output_node_id ? "waiting" : "idle",
+      status: graphRunStatuses.get(nodeId) || (nodeId === taskGraphDraftV2.entry_node_id ? "ready" : nodeId === taskGraphDraftV2.output_node_id ? "waiting" : "idle"),
     };
-  }), [activeGraphNodes, graphMetadata, taskGraphDraftV2.entry_node_id, taskGraphDraftV2.output_node_id]);
+  }), [activeGraphNodes, graphMetadata, graphRunStatuses, taskGraphDraftV2.entry_node_id, taskGraphDraftV2.output_node_id]);
 
   const graphEdges = visibleGraphEdges.map(({ edge, index }) => ({
     id: edgeIdOf(edge, index),
@@ -229,11 +298,6 @@ export function TaskGraphTopologyPage({
       nodes: [...(taskGraphDraftV2.nodes ?? []), node] as typeof taskGraphDraftV2.nodes,
     });
     selectNode(String(node.node_id));
-  };
-
-  const applyTemplate = (templateId: TaskGraphTemplateId) => {
-    applyTaskGraphTemplate(templateId);
-    onEditorFocus?.({ layer: "topology", facet: "graph" });
   };
 
   const applyRelation = (relationId: TaskGraphSemanticRelationId) => {
@@ -283,7 +347,6 @@ export function TaskGraphTopologyPage({
         onAddNode={addSemanticNode}
         onAddTaskNode={addTaskGraphTaskNode}
         onApplyRelation={applyRelation}
-        onApplyTemplate={applyTemplate}
         semanticRelationPresets={semanticRelationPresets}
         selectedDomainTasks={selectedDomainTasks}
         selectedNodeId={selectedNodeId}
@@ -304,6 +367,36 @@ export function TaskGraphTopologyPage({
             </button>
           ))}
         </section>
+        {visibleBinding || visibleMonitor ? (
+          <section className={taskGraphMonitorError ? "task-graph-inline-monitor task-graph-inline-monitor--error" : "task-graph-inline-monitor"} aria-label="图运行监控">
+            <div className="task-graph-inline-monitor__status">
+              <Activity size={14} />
+              <strong>{graphRunStatusLabel(graphRunStatus)}</strong>
+              <span>{visibleBinding?.title || visibleBinding?.graph_id || taskGraphDraftV2.title}</span>
+              <em>{latestLabel}</em>
+            </div>
+            <div className="task-graph-inline-monitor__metrics" aria-label="运行态节点统计">
+              <span>Ready {readyNodeIds.length}</span>
+              <span>Running {runningNodeIds.length}</span>
+              <span>Done {completedNodeIds.length}</span>
+              <span>Failed {failedNodeIds.length}</span>
+              <span>Blocked {blockedNodeIds.length}</span>
+              <span>WO {visibleMonitor?.active_node_work_order_count ?? activeWorkOrders.length}</span>
+            </div>
+            <div className="task-graph-inline-monitor__actions">
+              <button disabled={!visibleBinding || taskGraphMonitorLoading} onClick={() => void evaluateBoundTaskGraphMonitor()} title="刷新 GraphRun 监控" type="button">
+                <RefreshCw size={13} />
+              </button>
+              <button disabled={!visibleBinding || taskGraphMonitorLoading || taskGraphMonitorActionLoading} onClick={() => void continueBoundTaskGraphRun()} title="派发 Ready 节点" type="button">
+                <PlayCircle size={13} />
+              </button>
+              <button disabled={!visibleBinding} onClick={() => setTaskGraphRunInteractionOpen(true)} title="打开监控浮窗" type="button">
+                <ExternalLink size={13} />
+              </button>
+            </div>
+            {taskGraphMonitorError ? <p>{taskGraphMonitorError}</p> : null}
+          </section>
+        ) : null}
         <TaskGraphCanvasPanel
           disabled={published}
           edgeCount={activeGraphEdges.length}

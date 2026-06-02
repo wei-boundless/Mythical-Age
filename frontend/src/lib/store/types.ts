@@ -16,6 +16,14 @@ import type {
 } from "@/lib/api";
 import type { RuntimeTaskInstanceState } from "@/lib/runtime-monitor/types";
 
+export type {
+  RuntimeProgressEvidence,
+  RuntimeProgressMission,
+  RuntimeProgressPresentation,
+  RuntimeProgressTechnicalTrace,
+  RuntimeProgressWorkUnit,
+} from "@/lib/api";
+
 export type Message = {
   id: string;
   role: "user" | "assistant";
@@ -141,11 +149,11 @@ export type ChatModelSelection = {
   base_url?: string;
   credential_ref?: string;
   thinking_mode?: "enabled" | "disabled";
-  reasoning_effort?: "high" | "max";
+  reasoning_effort?: "auto" | "high" | "max";
 };
 
 export type ChatMode = "chat" | "image";
-export type ChatThinkingMode = "normal" | "thinking" | "max";
+export type ChatThinkingMode = "normal" | "thinking";
 
 export type MemoryInspectorTarget = {
   source: "manual";
@@ -212,7 +220,7 @@ export type ActiveTurnSnapshot = {
   updated_at?: number;
 };
 
-export type CenterWorkspaceTarget = {
+export type TaskGraphCenterWorkspaceTarget = {
   layer: "task-graph";
   mode?: "editor" | "monitor";
   graph_id?: string;
@@ -222,6 +230,14 @@ export type CenterWorkspaceTarget = {
   focus_node_id?: string;
   requested_at: number;
 };
+
+export type FileCenterWorkspaceTarget = {
+  layer: "file";
+  file_path: string;
+  requested_at: number;
+};
+
+export type CenterWorkspaceTarget = TaskGraphCenterWorkspaceTarget | FileCenterWorkspaceTarget;
 
 export type StoreState = {
   activeWorkspaceView: WorkspaceView;
@@ -322,7 +338,8 @@ export type StoreActions = {
   clearChatTaskEnvironmentBinding: () => void;
   selectGlobalRuntimeMonitorTaskRun: (taskRunId: string) => void;
   openGlobalRuntimeMonitorTaskRun: (taskRunId: string) => void;
-  openTaskGraphWorkspace: (target?: Omit<CenterWorkspaceTarget, "layer" | "requested_at">) => void;
+  openTaskGraphWorkspace: (target?: Omit<TaskGraphCenterWorkspaceTarget, "layer" | "requested_at">) => void;
+  openWorkspaceFile: (path: string) => void;
   clearCenterWorkspaceTarget: () => void;
   refreshGlobalRuntimeMonitor: () => Promise<void>;
 };

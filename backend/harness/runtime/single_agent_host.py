@@ -355,15 +355,24 @@ def _existing_artifact_refs(values: list[Any], *, project_root: Path) -> list[di
     seen: set[str] = set()
     for value in values:
         ref = dict(value) if isinstance(value, dict) else {"path": str(value or "")}
-        path_text = str(ref.get("absolute_path") or ref.get("path") or ref.get("src") or "").strip()
-        if not path_text:
+        logical_path = str(ref.get("path") or ref.get("published_path") or ref.get("src") or "").replace("\\", "/").strip().strip("/")
+        absolute_path = str(ref.get("absolute_path") or "").strip()
+        if not logical_path and not absolute_path:
             continue
-        candidate = Path(path_text)
-        resolved = candidate.resolve() if candidate.is_absolute() else (root / path_text).resolve()
+        resolved: Path | None = None
+        if logical_path:
+            project_candidate = (root / logical_path).resolve()
+            if _inside(project_candidate, root) and project_candidate.exists() and project_candidate.is_file():
+                resolved = project_candidate
+        if resolved is None and absolute_path:
+            candidate = Path(absolute_path)
+            resolved = candidate.resolve() if candidate.is_absolute() else (root / absolute_path).resolve()
+        if resolved is None and logical_path:
+            resolved = (root / logical_path).resolve()
         if not _inside(resolved, root) or not resolved.exists() or not resolved.is_file():
             continue
         rel = resolved.relative_to(root).as_posix()
-        key = str(ref.get("path") or rel)
+        key = logical_path or rel
         if key in seen:
             continue
         seen.add(key)

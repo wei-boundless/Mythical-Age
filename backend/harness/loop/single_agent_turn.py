@@ -993,11 +993,31 @@ def _single_turn_sandbox_scope(assembly_payload: dict[str, Any]) -> dict[str, An
 
 
 def _assistant_tool_call_message(response: Any, tool_calls: list[dict[str, Any]]) -> dict[str, Any]:
-    return {
+    message = {
         "role": "assistant",
         "content": stringify_content(getattr(response, "content", response)),
         "tool_calls": tool_calls_for_langchain_messages(tool_calls),
     }
+    reasoning_content = _reasoning_content_from_response(response)
+    if reasoning_content:
+        message["reasoning_content"] = reasoning_content
+    return message
+
+
+def _reasoning_content_from_response(response: Any) -> str:
+    additional_kwargs = getattr(response, "additional_kwargs", None)
+    if isinstance(additional_kwargs, dict):
+        reasoning_content = str(additional_kwargs.get("reasoning_content") or "").strip()
+        if reasoning_content:
+            return reasoning_content
+    if isinstance(response, dict):
+        reasoning_content = str(response.get("reasoning_content") or "").strip()
+        if reasoning_content:
+            return reasoning_content
+        response_additional_kwargs = response.get("additional_kwargs")
+        if isinstance(response_additional_kwargs, dict):
+            return str(response_additional_kwargs.get("reasoning_content") or "").strip()
+    return ""
 
 
 def _tool_observation_message(observation: Any, *, tool_call_id: str) -> dict[str, Any]:

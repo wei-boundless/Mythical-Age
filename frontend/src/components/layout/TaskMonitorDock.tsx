@@ -101,7 +101,7 @@ export function TaskMonitorDock({ embedded = false }: { embedded?: boolean }) {
         </button>
         <div className="task-monitor-dock__title">
           <Activity size={16} />
-          <span>监控</span>
+          {embedded ? null : <span>监控</span>}
         </div>
         {!collapsed ? (
           <button

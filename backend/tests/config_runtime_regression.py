@@ -64,6 +64,21 @@ def test_model_provider_payload_exposes_deepseek_thinking_defaults(monkeypatch: 
     assert payload["reasoning_effort"] == "max"
 
 
+def test_fallback_provider_uses_model_hint_to_avoid_cross_provider_pair(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("LLM_PROVIDER", "deepseek")
+    monkeypatch.setenv("LLM_MODEL", "deepseek-v4-pro")
+    monkeypatch.setenv("DEEPSEEK_MODEL", "deepseek-v4-pro")
+    monkeypatch.setenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
+    monkeypatch.setenv("LLM_FALLBACK_PROVIDER", "openai")
+    monkeypatch.setenv("LLM_FALLBACK_MODEL", "deepseek-v4-flash")
+
+    settings = config.get_settings()
+
+    assert settings.llm_fallback_provider == "deepseek"
+    assert settings.llm_fallback_model == "deepseek-v4-flash"
+    assert settings.llm_fallback_base_url == "https://api.deepseek.com"
+
+
 def test_image_asset_config_uses_env_before_runtime_override(monkeypatch: pytest.MonkeyPatch) -> None:
     from capability_system.capabilities.image_generation.image_asset_service import ImageAssetService
 
@@ -633,7 +648,7 @@ def test_runtime_system_config_exposes_long_output_controls(monkeypatch: pytest.
       "llm_max_output_tokens": 65536,
       "llm_long_output_timeout_seconds": 360,
       "llm_thinking_mode": "disabled",
-      "llm_reasoning_effort": "high"
+      "llm_reasoning_effort": "auto"
     }
   }
 }
@@ -647,7 +662,7 @@ def test_runtime_system_config_exposes_long_output_controls(monkeypatch: pytest.
     assert settings.llm_max_output_tokens == 65536
     assert settings.llm_long_output_timeout_seconds == 360
     assert settings.llm_thinking_mode == "disabled"
-    assert settings.llm_reasoning_effort == "high"
+    assert settings.llm_reasoning_effort == "auto"
 
 
 def test_runtime_config_console_includes_long_output_fields(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -662,7 +677,7 @@ def test_runtime_config_console_includes_long_output_fields(monkeypatch: pytest.
       "llm_max_output_tokens": 65536,
       "llm_long_output_timeout_seconds": 360,
       "llm_thinking_mode": "disabled",
-      "llm_reasoning_effort": "high"
+      "llm_reasoning_effort": "auto"
     }
   }
 }
@@ -680,7 +695,7 @@ def test_runtime_config_console_includes_long_output_fields(monkeypatch: pytest.
     assert field_map["llm_max_output_tokens"]["value"] == 65536
     assert field_map["llm_long_output_timeout_seconds"]["value"] == 360
     assert field_map["llm_thinking_mode"]["options"] == ["disabled", "enabled"]
-    assert field_map["llm_reasoning_effort"]["options"] == ["high", "max"]
+    assert "llm_reasoning_effort" not in field_map
 
 
 def test_repo_default_runtime_config_uses_deepseek_1m_context_with_deepseek_pro_primary() -> None:
@@ -690,14 +705,14 @@ def test_repo_default_runtime_config_uses_deepseek_1m_context_with_deepseek_pro_
 
     assert payload["model_provider"]["provider"] == "deepseek"
     assert payload["model_provider"]["model"] == "deepseek-v4-pro"
-    assert payload["model_provider"]["base_url"] == "https://api.deepseek.com/v1"
+    assert payload["model_provider"]["base_url"] == "https://api.deepseek.com"
     assert payload["context_budget_preset"] == "deepseek_1m"
 
     runtime = payload["system_config"]["runtime"]
     assert runtime["llm_max_output_tokens"] == 65536
     assert runtime["llm_long_output_timeout_seconds"] == 360.0
     assert runtime["llm_thinking_mode"] == "enabled"
-    assert runtime["llm_reasoning_effort"] == "high"
+    assert "llm_reasoning_effort" not in runtime
 
 
 

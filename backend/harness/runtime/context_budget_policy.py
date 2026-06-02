@@ -57,7 +57,7 @@ def build_model_aware_context_budget_policy(
     model = str(selection.get("model") or getattr(settings, "llm_model", "") or "").strip().lower()
     max_output_tokens = _positive_int(selection.get("max_output_tokens"), int(getattr(settings, "llm_max_output_tokens", 65536) or 65536))
     thinking_mode = str(selection.get("thinking_mode") or getattr(settings, "llm_thinking_mode", "disabled") or "disabled").strip().lower()
-    reasoning_effort = str(selection.get("reasoning_effort") or getattr(settings, "llm_reasoning_effort", "high") or "high").strip().lower()
+    reasoning_effort = str(selection.get("reasoning_effort") or getattr(settings, "llm_reasoning_effort", "auto") or "auto").strip().lower()
     requested_preset_id, preset_source = _requested_preset(selection=selection, runtime_assembly=assembly)
     effective_preset_id, preset_status = _effective_preset_for_model(
         requested_preset_id,

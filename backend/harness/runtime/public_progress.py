@@ -52,7 +52,7 @@ def public_runtime_progress_title(*, step: Any = "", status: Any = "", fallback:
     if step_text.startswith(("model_action_waiting", "task_model_action_waiting")):
         return "等待结果"
     if step_text.startswith(("model_action_invocation_started", "model_action_received", "task_model_action_invocation_started")):
-        return "思考下一步"
+        return "确认下一步"
     if step_text.startswith(("task_tool_", "tool_", "executor_observation", "bounded_observation")):
         return "执行操作"
     if step_text.startswith(("task_completion_repair", "model_action_protocol_repair", "verification")):

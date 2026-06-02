@@ -854,7 +854,7 @@ async def _execute_claimed_task_run(
             runtime_host,
             task_run=current_task,
             item_type="progress",
-            title="思考下一步",
+            title="确认下一步",
             status="running",
             summary=_action_progress_note(action_request),
             agent_brief_output=compact_text(action_request.final_answer, limit=300) if action_request.action_type == "respond" else "",

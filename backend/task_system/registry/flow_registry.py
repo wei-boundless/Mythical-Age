@@ -20,7 +20,6 @@ from task_system.registry.flow_models import (
     TaskFlowDefinition,
     TaskFlowContractBinding,
     TaskMemoryRequestProfile,
-    TopologyTemplate,
 )
 from task_system.contracts.contract_models import TaskContractDescriptor
 from task_system.graphs.task_graph_models import (
@@ -36,7 +35,6 @@ from task_system.repositories import (
     TaskDomainRepository,
     TaskCommunicationProtocolRepository,
     TaskGraphRepository,
-    TopologyRepository,
 )
 from task_system.services.graph_task_registry import TaskGraphRegistryService
 from task_system.services.registry_overview import TaskRegistryOverviewBuilder
@@ -151,9 +149,6 @@ def default_general_task_profiles() -> tuple[GeneralTaskProfile, ...]:
 def default_task_communication_protocols() -> tuple[TaskCommunicationProtocol, ...]:
     return ()
 
-def default_topology_templates() -> tuple[TopologyTemplate, ...]:
-    return ()
-
 def _default_flow_contract_binding(task: TaskAssignment) -> TaskFlowContractBinding:
     flow_contract_id = str(task.flow_id or "").strip()
     return TaskFlowContractBinding(
@@ -178,9 +173,6 @@ def _default_execution_policy(task: TaskAssignment) -> TaskExecutionPolicy:
     communication_protocol_id = str(
         task_structure.get("communication_protocol_id") or task_metadata.get("communication_protocol_id") or ""
     ).strip()
-    topology_template_id = str(
-        task_structure.get("topology_template_id") or task_metadata.get("topology_template_id") or ""
-    ).strip()
     agent_group_id = str(task_structure.get("agent_group_id") or task_metadata.get("agent_group_id") or "").strip()
     execution_chain_type = str(task.to_dict().get("execution_chain_type") or "").strip() or (
         "task_graph_chain" if task_graph_id else "agent_harness_chain"
@@ -202,7 +194,6 @@ def _default_execution_policy(task: TaskAssignment) -> TaskExecutionPolicy:
             "task_graph_id": task_graph_id,
             "graph_id": task_graph_id,
             "communication_protocol_id": communication_protocol_id,
-            "topology_template_id": topology_template_id,
             "agent_group_id": agent_group_id,
         },
     )
@@ -352,10 +343,6 @@ class TaskFlowRegistry:
             self.base_dir,
             default_protocols=default_task_communication_protocols,
         )
-        self.topology_repository = TopologyRepository(
-            self.base_dir,
-            default_topologies=default_topology_templates,
-        )
         self.graph_service = TaskGraphRegistryService(self, self.base_dir)
         self.overview_builder = TaskRegistryOverviewBuilder(self)
         self._cache: dict[str, Any] = {}
@@ -501,11 +488,6 @@ class TaskFlowRegistry:
             if str(item.metadata.get("domain_id") or item.domain_id or "") == target
             or any(ref in task_ids for ref in item.to_dict().get("subtask_refs") or [])
         }
-        topology_ids = {
-            item.template_id
-            for item in self.list_topology_templates()
-            if str(item.metadata.get("domain_id") or "") == target
-        }
         protocol_ids = {
             item.protocol_id
             for item in self.list_task_communication_protocols()
@@ -522,7 +504,6 @@ class TaskFlowRegistry:
         self.assignment_repository.delete_for_task_ids(task_ids)
         self.flow_repository.delete_many(flow_ids)
         self.assembly_config_repository.delete_for_task_ids(task_ids)
-        self.topology_repository.delete_many(topology_ids)
         self.protocol_repository.delete_many(protocol_ids)
         deleted_workflow_ids = self.workflow_registry.delete_workflows(workflow_ids)
         return {
@@ -531,7 +512,6 @@ class TaskFlowRegistry:
             "deleted_flow_ids": sorted(flow_ids),
             "deleted_workflow_ids": list(deleted_workflow_ids),
             "deleted_task_graph_ids": sorted(coordination_ids),
-            "deleted_topology_template_ids": sorted(topology_ids),
             "deleted_protocol_ids": sorted(protocol_ids),
         }
 
@@ -953,15 +933,6 @@ class TaskFlowRegistry:
         self._invalidate_cache()
         return stored
 
-    def get_topology_template(self, template_id: str) -> TopologyTemplate | None:
-        return self.topology_repository.get(template_id)
-
-    def list_topology_templates(self) -> list[TopologyTemplate]:
-        return self.topology_repository.list()
-
-    def next_topology_template_id(self) -> str:
-        return self.topology_repository.next_id()
-
     def list_task_communication_protocols(self) -> list[TaskCommunicationProtocol]:
         return self.protocol_repository.list()
 
@@ -1088,7 +1059,6 @@ class TaskFlowRegistry:
         domain_id: str = "",
         agent_group_id: str = "",
         participant_agent_ids: tuple[str, ...] = (),
-        topology_template_id: str = "",
         shared_context_policy: str = "explicit_refs_only",
         memory_sharing_policy: str = "isolated_by_default",
         handoff_policy: str = "filtered_handoff",
@@ -1110,7 +1080,6 @@ class TaskFlowRegistry:
             domain_id=domain_id,
             agent_group_id=agent_group_id,
             participant_agent_ids=participant_agent_ids,
-            topology_template_id=topology_template_id,
             shared_context_policy=shared_context_policy,
             memory_sharing_policy=memory_sharing_policy,
             handoff_policy=handoff_policy,
@@ -1136,33 +1105,6 @@ class TaskFlowRegistry:
             coordinator_agent_id=coordinator_agent_id,
             agent_group_id=agent_group_id,
             participant_agent_ids=participant_agent_ids,
-        )
-
-    def upsert_topology_template(
-        self,
-        *,
-        template_id: str,
-        title: str,
-        nodes: tuple[dict[str, Any], ...] = (),
-        edges: tuple[dict[str, Any], ...] = (),
-        handoff_rules: tuple[dict[str, Any], ...] = (),
-        join_policy: str = "explicit_join",
-        failure_policy: str = "fail_closed",
-        terminal_policy: str = "coordinator_terminal",
-        enabled: bool = False,
-        metadata: dict[str, Any] | None = None,
-    ) -> TopologyTemplate:
-        return self.topology_repository.upsert(
-            template_id=template_id,
-            title=title,
-            nodes=nodes,
-            edges=edges,
-            handoff_rules=handoff_rules,
-            join_policy=join_policy,
-            failure_policy=failure_policy,
-            terminal_policy=terminal_policy,
-            enabled=enabled,
-            metadata=metadata,
         )
 
     def build_binding_for_flow(self, flow: TaskFlowDefinition) -> TaskAgentBinding:

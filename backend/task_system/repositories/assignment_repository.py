@@ -113,7 +113,6 @@ class AssignmentRepository:
                 {
                     "task_graph_id": str(flow_metadata.get("task_graph_id") or flow_metadata.get("graph_id") or "").strip(),
                     "communication_protocol_id": str(flow_metadata.get("communication_protocol_id") or "").strip(),
-                    "topology_template_id": str(flow_metadata.get("topology_template_id") or "").strip(),
                     "agent_group_id": str(flow_metadata.get("agent_group_id") or "").strip(),
                 }
                 if flow is not None

@@ -20,7 +20,6 @@ from task_system.compiler.graph_harness_config_publisher import (
     build_graph_harness_config_from_graph,
     publish_graph_harness_config_for_graph,
 )
-from task_system.editor.graph_template_catalog import build_task_graph_template_catalog
 from task_system.environments import (
     TaskEnvironmentConfigError,
     TaskEnvironmentRepository,
@@ -396,19 +395,6 @@ class TaskGraphStandardViewUpsertRequest(BaseModel):
     metadata: dict[str, object] = Field(default_factory=dict)
 
 
-class TopologyTemplateUpsertRequest(BaseModel):
-    template_id: str = Field(..., min_length=3, max_length=160)
-    title: str = Field(..., min_length=1, max_length=160)
-    nodes: list[dict[str, object]] = Field(default_factory=list)
-    edges: list[dict[str, object]] = Field(default_factory=list)
-    handoff_rules: list[dict[str, object]] = Field(default_factory=list)
-    join_policy: str = Field(default="explicit_join", max_length=120)
-    failure_policy: str = Field(default="fail_closed", max_length=120)
-    terminal_policy: str = Field(default="coordinator_terminal", max_length=120)
-    enabled: bool = False
-    metadata: dict[str, object] = Field(default_factory=dict)
-
-
 class TaskCommunicationProtocolUpsertRequest(BaseModel):
     protocol_id: str = Field(..., min_length=3, max_length=160)
     title: str = Field(..., min_length=1, max_length=160)
@@ -697,7 +683,6 @@ def _task_system_payload(base_dir) -> dict[str, object]:
     full_task_graphs = [item.to_dict() for item in task_graph_models]
     task_graphs = [_task_graph_overview_item(item) for item in task_graph_models]
     semantic_relations = semantic_relation_catalog()
-    topology_templates = [item.to_dict() for item in registry.list_topology_templates()]
     communication_protocols = [item.to_dict() for item in registry.list_task_communication_protocols()]
     task_environment_management = build_task_environment_catalog(
         registry=task_environment_registry_from_backend_dir(base_dir),
@@ -757,7 +742,6 @@ def _task_system_payload(base_dir) -> dict[str, object]:
             "effective_execution_policy_count": len(execution_policy_models),
             "task_domain_count": len(task_domains),
             "task_graph_count": len(task_graphs),
-            "topology_template_count": len(topology_templates),
             "communication_protocol_count": len(communication_protocols),
             "contract_descriptor_count": len(contract_catalog),
             "contract_spec_count": int(contract_management["summary"]["contract_spec_count"]),
@@ -790,7 +774,6 @@ def _task_system_payload(base_dir) -> dict[str, object]:
             "task_graph_specs": [],
             "semantic_relation_catalog": semantic_relations,
             "semantic_relations": semantic_relations["relations"],
-            "topology_templates": [],
             "communication_protocols": communication_protocols,
             "a2a": {
                 "protocol_version": "0.3.0",
@@ -854,21 +837,18 @@ async def task_system_next_ids() -> dict[str, object]:
     flow_id = flow_registry.next_flow_id()
     workflow_id = TaskWorkflowRegistry(runtime.base_dir).next_workflow_id()
     graph_id = flow_registry.next_task_graph_id()
-    topology_template_id = flow_registry.next_topology_template_id()
     return {
         "authority": "task_system.id_registry",
         "task_id": task_id,
         "flow_id": flow_id,
         "workflow_id": workflow_id,
         "graph_id": graph_id,
-        "topology_template_id": topology_template_id,
         "display_numbers": {
             "task": _display_number(task_id, prefix="task.", fallback="任务"),
             "flow": _display_number(flow_id, prefix="flow.", fallback="流程"),
             "workflow": _display_number(workflow_id, prefix="workflow.", fallback="流程"),
             "graph": _display_number(graph_id, prefix="graph.", fallback="任务图"),
             "coordination": _display_number(graph_id, prefix="graph.", fallback="协作"),
-            "topology": _display_number(topology_template_id, prefix="topology.", fallback="拓扑"),
         },
     }
 
@@ -1091,12 +1071,6 @@ def _compile_task_graph_contract(graph_id: str) -> dict[str, object]:
             "issue_count": len(issues),
         },
     }
-
-@router.get("/tasks/task-graph-templates")
-async def get_task_system_task_graph_templates() -> dict[str, object]:
-    return build_task_graph_template_catalog()
-
-
 
 @router.get("/tasks/task-graph-contracts/task-graphs/{graph_id}/compile")
 async def compile_task_system_task_graph_contract(graph_id: str) -> dict[str, object]:
@@ -1994,31 +1968,6 @@ async def upsert_task_system_task_graph(
         )
         if payload.publish_state == "published":
             publish_graph_harness_config_for_graph(base_dir=runtime.base_dir, graph_id=payload.graph_id)
-    except ValueError as exc:
-        from fastapi import HTTPException
-
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return _task_system_payload(runtime.base_dir)
-
-
-@router.put("/tasks/topology-templates/{template_id}")
-async def upsert_task_system_topology_template(template_id: str, payload: TopologyTemplateUpsertRequest) -> dict[str, object]:
-    runtime = require_runtime()
-    if payload.template_id != template_id:
-        payload = payload.model_copy(update={"template_id": template_id})
-    try:
-        TaskFlowRegistry(runtime.base_dir).upsert_topology_template(
-            template_id=payload.template_id,
-            title=payload.title,
-            nodes=tuple(dict(item) for item in payload.nodes),
-            edges=tuple(dict(item) for item in payload.edges),
-            handoff_rules=tuple(dict(item) for item in payload.handoff_rules),
-            join_policy=payload.join_policy,
-            failure_policy=payload.failure_policy,
-            terminal_policy=payload.terminal_policy,
-            enabled=payload.enabled,
-            metadata=payload.metadata,
-        )
     except ValueError as exc:
         from fastapi import HTTPException
 

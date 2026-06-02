@@ -19,6 +19,7 @@ from runtime.model_gateway.model_response import ModelResponseRuntimeExecutor
 from runtime.tool_runtime.tool_call_policy import ToolCallBindingOptions
 from runtime.prompt_accounting import PromptAccountingLedger
 from harness.runtime.prompt_segment_plan import build_prompt_segment_plan
+from harness.loop.single_agent_turn import _assistant_tool_call_message
 
 MAIN_AGENT = SimpleNamespace(agent_id="agent:main:test")
 
@@ -862,6 +863,69 @@ def test_deepseek_payload_replays_reasoning_content_for_tool_roundtrip() -> None
     assert payload["messages"][1]["reasoning_content"] == "I should call get_date first."
 
 
+def test_deepseek_payload_replays_reasoning_content_from_dict_tool_roundtrip() -> None:
+    runtime = _runtime(retries=0)
+    model = runtime._build_chat_model_for_spec(
+        ModelSpec(
+            provider="deepseek",
+            model="deepseek-v4-flash",
+            api_key="deepseek-key",
+            base_url="https://api.deepseek.com",
+        )
+    )
+
+    payload = model._get_request_payload(
+        [
+            {"role": "user", "content": "明天是什么时候？"},
+            {
+                "role": "assistant",
+                "content": "",
+                "reasoning_content": "I should call get_date first.",
+                "tool_calls": [
+                    {
+                        "id": "call_123",
+                        "name": "get_date",
+                        "args": {},
+                        "type": "tool_call",
+                    }
+                ],
+            },
+            {"role": "tool", "tool_call_id": "call_123", "content": "2026-04-26"},
+        ]
+    )
+
+    assert payload["messages"][1]["role"] == "assistant"
+    assert payload["messages"][1]["reasoning_content"] == "I should call get_date first."
+
+
+def test_single_agent_turn_preserves_deepseek_reasoning_content_for_tool_followup() -> None:
+    message = _assistant_tool_call_message(
+        SimpleNamespace(
+            content="",
+            additional_kwargs={"reasoning_content": "I should inspect the file before answering."},
+        ),
+        [
+            {
+                "id": "call_123",
+                "name": "read_file",
+                "args": {"path": "README.md"},
+                "type": "tool_call",
+            }
+        ],
+    )
+
+    assert message["role"] == "assistant"
+    assert message["reasoning_content"] == "I should inspect the file before answering."
+    assert message["tool_calls"] == [
+        {
+            "id": "call_123",
+            "name": "read_file",
+            "args": {"path": "README.md"},
+            "type": "tool_call",
+        }
+    ]
+
+
 def test_deepseek_model_runtime_passes_long_output_and_thinking_controls() -> None:
     runtime = _runtime(
         retries=0,
@@ -904,6 +968,27 @@ def test_deepseek_model_runtime_only_sends_reasoning_effort_when_thinking_enable
     )
 
     assert model.reasoning_effort == "max"
+    assert model.temperature is None
+    assert model.extra_body == {"thinking": {"type": "enabled"}}
+
+
+def test_deepseek_model_runtime_omits_reasoning_effort_when_auto() -> None:
+    runtime = _runtime(
+        retries=0,
+        max_output_tokens=65536,
+        thinking_mode="enabled",
+        reasoning_effort="auto",
+    )
+    model = runtime._build_chat_model_for_spec(
+        ModelSpec(
+            provider="deepseek",
+            model="deepseek-v4-pro",
+            api_key="deepseek-key",
+            base_url="https://api.deepseek.com",
+        )
+    )
+
+    assert model.reasoning_effort is None
     assert model.temperature is None
     assert model.extra_body == {"thinking": {"type": "enabled"}}
 

@@ -268,27 +268,6 @@ class TaskCommunicationProtocol:
 
 
 @dataclass(frozen=True, slots=True)
-class TopologyTemplate:
-    template_id: str
-    title: str
-    nodes: tuple[dict[str, Any], ...] = ()
-    edges: tuple[dict[str, Any], ...] = ()
-    handoff_rules: tuple[dict[str, Any], ...] = ()
-    join_policy: str = "explicit_join"
-    failure_policy: str = "fail_closed"
-    terminal_policy: str = "coordinator_terminal"
-    enabled: bool = False
-    metadata: dict[str, Any] = field(default_factory=dict)
-
-    def to_dict(self) -> dict[str, Any]:
-        payload = asdict(self)
-        payload["nodes"] = [dict(item) for item in self.nodes]
-        payload["edges"] = [dict(item) for item in self.edges]
-        payload["handoff_rules"] = [dict(item) for item in self.handoff_rules]
-        return payload
-
-
-@dataclass(frozen=True, slots=True)
 class AgentTaskConnectionProfile:
     profile_id: str
     agent_id: str
@@ -300,7 +279,6 @@ class AgentTaskConnectionProfile:
     flow_refs: tuple[str, ...] = ()
     binding_refs: tuple[str, ...] = ()
     workflow_refs: tuple[str, ...] = ()
-    topology_refs: tuple[str, ...] = ()
     default_flow_ref: str = ""
     default_workflow_ref: str = ""
     validation_state: str = "unchecked"
@@ -314,7 +292,6 @@ class AgentTaskConnectionProfile:
             "flow_refs",
             "binding_refs",
             "workflow_refs",
-            "topology_refs",
             "blocked_reasons",
         ):
             payload[key] = list(payload[key])

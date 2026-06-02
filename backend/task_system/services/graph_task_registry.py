@@ -23,7 +23,6 @@ class TaskGraphRegistryService:
         domain_id: str = "",
         agent_group_id: str = "",
         participant_agent_ids: tuple[str, ...] = (),
-        topology_template_id: str = "",
         shared_context_policy: str = "explicit_refs_only",
         memory_sharing_policy: str = "isolated_by_default",
         handoff_policy: str = "filtered_handoff",
@@ -46,13 +45,6 @@ class TaskGraphRegistryService:
         )
         normalized_graph_nodes = tuple(dict(item) for item in graph_nodes if isinstance(item, dict))
         normalized_graph_edges = tuple(dict(item) for item in graph_edges if isinstance(item, dict))
-        topology_ref = str(topology_template_id or "").strip()
-        topology_template = self.registry.get_topology_template(topology_ref) if topology_ref else None
-        if topology_template is not None:
-            if not normalized_graph_nodes and topology_template.nodes:
-                normalized_graph_nodes = tuple(dict(item) for item in topology_template.nodes)
-            if not normalized_graph_edges and topology_template.edges:
-                normalized_graph_edges = tuple(dict(item) for item in topology_template.edges)
         if normalized_graph_nodes:
             normalized_subtask_refs = tuple(
                 dict.fromkeys([*normalized_subtask_refs, *_subtask_refs_from_graph_nodes(normalized_graph_nodes)])
@@ -94,7 +86,6 @@ class TaskGraphRegistryService:
                 **dict(metadata or {}),
                 "graph_id": target,
                 "domain_id": normalized_domain_id,
-                "topology_template_id": topology_ref,
                 "handoff_policy": str(handoff_policy or "filtered_handoff").strip(),
                 "conflict_resolution_policy": str(conflict_resolution_policy or "coordinator_review").strip(),
                 "output_merge_policy": str(output_merge_policy or "coordinator_final_merge").strip(),

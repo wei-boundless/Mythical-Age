@@ -62,6 +62,51 @@ export type SessionHistory = {
   }>;
 };
 
+export type RuntimeProgressMission = {
+  goal?: string;
+  phase?: string;
+  state?: "running" | "waiting" | "completed" | "blocked" | "failed" | string;
+  current_action?: string;
+  next_action?: string;
+  progress_label?: string;
+  closeout_summary?: string;
+};
+
+export type RuntimeProgressEvidence = {
+  label?: string;
+  summary?: string;
+  status?: "success" | "error" | "warning" | "negative_evidence" | "positive_evidence" | string;
+};
+
+export type RuntimeProgressWorkUnit = {
+  unit_id: string;
+  kind?: "inspect_path" | "write_file" | "search_text" | "terminal" | "model_judgment" | "verification" | "tool_action" | "stage" | string;
+  title?: string;
+  state?: "running" | "completed" | "waiting" | "error" | string;
+  judgment?: string;
+  action?: string;
+  evidence?: RuntimeProgressEvidence[];
+  next_action?: string;
+  risk?: string;
+  technical_trace_refs?: string[];
+};
+
+export type RuntimeProgressTechnicalTrace = {
+  event_id?: string;
+  event_type?: string;
+  created_at?: number;
+  tool_name?: string;
+  target?: string;
+  raw_preview?: string;
+};
+
+export type RuntimeProgressPresentation = {
+  mission?: RuntimeProgressMission;
+  work_units?: RuntimeProgressWorkUnit[];
+  technical_trace?: RuntimeProgressTechnicalTrace[];
+  authority?: string;
+};
+
 export type TaskEnvironmentSessionResolvePayload = {
   workspace_view?: string;
   project_id?: string;
@@ -99,6 +144,7 @@ export type SessionRuntimeAttachment = {
   agent_brief_output?: string;
   latest_event_type?: string;
   event_count?: number;
+  progress_presentation?: RuntimeProgressPresentation;
   progress_entries?: Array<Record<string, unknown>>;
   artifact_refs?: Array<Record<string, unknown>>;
   final_answer?: string;
@@ -221,7 +267,6 @@ export type AgentTaskConnectionProfile = {
   flow_refs: string[];
   binding_refs: string[];
   workflow_refs: string[];
-  topology_refs: string[];
   default_flow_ref: string;
   default_workflow_ref: string;
   validation_state: string;
@@ -249,13 +294,11 @@ export type TaskSystemNextIds = {
   flow_id: string;
   workflow_id: string;
   graph_id: string;
-  topology_template_id: string;
   display_numbers: {
     task: string;
     flow: string;
     workflow: string;
     graph: string;
-    topology: string;
   };
 };
 
@@ -1024,19 +1067,6 @@ export type TaskCommunicationProtocol = {
   metadata?: Record<string, unknown>;
 };
 
-export type TopologyTemplate = {
-  template_id: string;
-  title: string;
-  nodes: Array<Record<string, unknown>>;
-  edges: Array<Record<string, unknown>>;
-  handoff_rules: Array<Record<string, unknown>>;
-  join_policy: string;
-  failure_policy: string;
-  terminal_policy: string;
-  enabled: boolean;
-  metadata?: Record<string, unknown>;
-};
-
 export type AgentTaskCarryingProfile = {
   agent_id: string;
   display_name: string;
@@ -1363,7 +1393,6 @@ export type TaskAgentConnectionOverview = {
     profile_count: number;
     invalid_profile_count: number;
     domain_count: number;
-    topology_count: number;
   };
   diagnostics: Record<string, unknown>;
 };
@@ -1499,7 +1528,6 @@ export type TaskSystemOverview = {
     task_graph_specs?: TaskGraphDraftTopologySpec[];
     semantic_relation_catalog?: Record<string, unknown>;
     semantic_relations?: Array<Record<string, unknown>>;
-    topology_templates?: TopologyTemplate[];
     communication_protocols?: TaskCommunicationProtocol[];
     a2a?: {
       protocol_version: string;
@@ -1657,12 +1685,6 @@ export type TaskWorkflowRecord = {
 };
 
 export type TaskWorkflowUpsertPayload = TaskWorkflowRecord;
-
-export type TaskGraphTemplateCatalog = {
-  authority: string;
-  templates: Array<Record<string, unknown>>;
-  summary: Record<string, unknown>;
-};
 
 export type HealthRiskEvent = {
   event_id: string;
@@ -4198,6 +4220,12 @@ export async function getCodeEnvironmentWorkspaceTree(options: {
   return request<CodeEnvironmentWorkspaceTree>(`/code-environment/workspace-tree?${params.toString()}`);
 }
 
+export async function openCodeEnvironmentWorkspaceRoot() {
+  return request<{ authority: string; opened: boolean; path: string }>("/code-environment/open-workspace-root", {
+    method: "POST",
+  });
+}
+
 export async function getCodeEnvironmentGitStatus() {
   return request<CodeEnvironmentGitStatus>("/code-environment/git-status");
 }
@@ -4238,10 +4266,6 @@ export async function upsertTaskWorkflow(workflowId: string, payload: TaskWorkfl
 
 export async function getTaskSystemOverview() {
   return request<TaskSystemOverview>("/tasks/overview");
-}
-
-export async function getTaskGraphTemplates() {
-  return request<TaskGraphTemplateCatalog>("/tasks/task-graph-templates");
 }
 
 export async function upsertTaskSystemContract(contractId: string, payload: ContractSpecUpsertPayload) {

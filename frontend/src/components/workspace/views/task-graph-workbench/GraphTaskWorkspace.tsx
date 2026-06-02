@@ -1,9 +1,7 @@
 "use client";
 
-import { Link2, Network, Unlink2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { useConfirmDialog } from "@/components/layout/ConfirmDialogProvider";
 import { TaskGraphWorkbench } from "@/components/workspace/views/task-system/TaskGraphWorkbench";
 import {
   asRecord,
@@ -28,21 +26,16 @@ import {
   taskGraphEnvironmentId,
 } from "@/components/workspace/views/task-system/taskGraphSelection";
 import { normalizeTaskGraphSemanticRelationPresets } from "@/components/workspace/views/task-system/taskGraphSemanticRelations";
-import { buildTaskGraphTemplateDraft, type TaskGraphTemplateId } from "@/components/workspace/views/task-system/taskGraphTemplates";
 import {
   graphEdgeId,
   graphEdgeSource,
   graphEdgeTarget,
   graphNodeTaskId,
 } from "@/components/workspace/views/task-system/taskGraphTopologyUtils";
-import {
-  TaskGraphChromeSelect,
-  TaskSystemToolbarButton as ToolbarButton,
-} from "@/components/workspace/views/task-system/TaskSystemWorkbenchUi";
+import { TaskGraphChromeSelect } from "@/components/workspace/views/task-system/TaskSystemWorkbenchUi";
 import { buildTaskGraphUpsertPayload, resolveTaskGraphPublishCommit } from "@/components/workspace/views/task-system/taskGraphSaveMapper";
 import {
   getOrchestrationAgents,
-  getTaskSystemNextIds,
   getTaskSystemOverview,
   getTaskSystemTaskGraph,
   getTaskSystemTaskGraphStandardView,
@@ -57,7 +50,6 @@ import {
   type TaskGraphRecord,
   type TaskSystemOverview,
 } from "@/lib/api";
-import { useAppStore } from "@/lib/store";
 
 type DomainRecord = {
   domain_id: string;
@@ -274,12 +266,6 @@ export function GraphTaskWorkspace({
   requestedGraphId?: string;
   onSelectedGraphChange?: (graphId: string) => void;
 }) {
-  const confirm = useConfirmDialog();
-  const {
-    chatTaskEnvironmentBinding,
-    clearChatTaskEnvironmentBinding,
-    setChatTaskEnvironmentBinding,
-  } = useAppStore();
   const [consolePayload, setConsolePayload] = useState<TaskSystemOverview | null>(null);
   const [orchestrationAgentCatalog, setOrchestrationAgentCatalog] = useState<OrchestrationAgentRuntimeCatalog | null>(null);
   const [loading, setLoading] = useState(true);
@@ -735,49 +721,6 @@ export function GraphTaskWorkspace({
     setSelectedGraphEdgeId("");
   }
 
-  async function applyTaskGraphTemplate(template: TaskGraphTemplateId, options: Partial<Parameters<typeof buildTaskGraphTemplateDraft>[0]> = {}) {
-    const shouldReplace = !(taskGraphDraftV2.nodes?.length || taskGraphDraftV2.edges?.length)
-      || await confirm({
-        title: "替换当前拓扑草稿",
-        body: "应用图模板会替换当前未保存的节点和边。",
-        confirmLabel: "替换",
-        tone: "warning",
-      });
-    if (!shouldReplace) return;
-    const metadata = asRecord(taskGraphDraftV2.metadata);
-    const communicationModes = Array.isArray(metadata.business_communication_modes) ? metadata.business_communication_modes : [];
-    const mode = String(communicationModes[0] ?? "structured_handoff");
-    const selectedTaskForNode = editorEnvironmentTasks[0] ?? null;
-    const templateDraft = buildTaskGraphTemplateDraft({
-      template_id: template,
-      domain_id: editorDomain?.domain_id || taskGraphDraftV2.domain_id || "",
-      selected_task_title: selectedTaskForNode?.task_title || "",
-      communication_mode: mode,
-      ...options,
-    });
-    const nodes = templateDraft.nodes;
-    const edges = templateDraft.edges;
-    syncTaskGraphTopology(nodes, edges);
-    setTaskGraphDraftV2((current) => ({
-      ...current,
-      entry_node_id: templateDraft.entry_node_id,
-      output_node_id: templateDraft.output_node_id,
-      runtime_policy: {
-        ...current.runtime_policy,
-        coordination_mode: templateDraft.coordination_mode,
-        participant_agent_ids: templateDraft.participant_agent_ids,
-      },
-      metadata: {
-        ...asRecord(current.metadata),
-        ...templateDraft.metadata,
-        setup_template_id: template,
-      },
-    }));
-    setSelectedGraphNodeId(nodes[0]?.node_id ?? "");
-    setSelectedGraphEdgeId("");
-    setLinkingFromNodeId("");
-  }
-
   function addTaskGraphSuccessorNode(fromNodeId: string) {
     const nextIndex = (taskGraphDraftV2.nodes?.length || 0) + 1;
     const nodeId = `agent_${nextIndex}`;
@@ -879,133 +822,6 @@ export function GraphTaskWorkspace({
     const nextEdges = (taskGraphDraftV2.edges ?? []).filter((edge, index) => graphEdgeId(edge, index) !== edgeId);
     syncTaskGraphTopology(taskGraphDraftV2.nodes ?? [], nextEdges);
     if (selectedGraphEdgeId === edgeId) setSelectedGraphEdgeId("");
-  }
-
-  async function createTaskGraphDraft() {
-    const draftDomainId = editorDomain?.domain_id || taskGraphDraftV2.domain_id || "";
-    const draftEnvironmentId = activeEditorEnvironmentId;
-    if (!draftDomainId) {
-      setError("请先选择任务域，再创建任务图。");
-      return;
-    }
-    if (!draftEnvironmentId) {
-      setError("请先选择任务环境，再创建任务图。");
-      return;
-    }
-    setSaving("task-graph-create");
-    setError("");
-    setNotice("");
-    try {
-      const ids = await getTaskSystemNextIds();
-      const graphId = ids.graph_id;
-      const nextDraft: TaskGraphDraftV2 = {
-        ...emptyTaskGraphDraftV2(),
-        graph_id: graphId,
-        title: `${ids.display_numbers.graph} 任务图`,
-        domain_id: draftDomainId,
-        task_id: "",
-        metadata: {
-          managed_by: "task_domain_console",
-          graph_source: "task_graph_editor_v2",
-          draft_identity_locked: true,
-          domain_id: draftDomainId,
-          task_environment_id: draftEnvironmentId,
-          environment_id: draftEnvironmentId,
-        },
-        runtime_policy: {
-          ...emptyTaskGraphDraftV2().runtime_policy,
-          task_environment_id: draftEnvironmentId,
-          environment_id: draftEnvironmentId,
-        },
-        context_policy: {
-          ...emptyTaskGraphDraftV2().context_policy,
-          task_environment_id: draftEnvironmentId,
-          environment_id: draftEnvironmentId,
-        },
-      };
-      setEditorDomainId(draftDomainId);
-      setEditorTaskGraphId(nextDraft.graph_id);
-      setTaskGraphDraftV2(nextDraft);
-      setSelectedGraphNodeId("");
-      setSelectedGraphEdgeId("");
-      setLinkingFromNodeId("");
-      onSelectedGraphChange?.(nextDraft.graph_id);
-      setNotice(`已生成任务图草稿：${nextDraft.graph_id}`);
-    } catch (exc) {
-      setError(exc instanceof Error ? exc.message : "生成任务图草稿失败");
-    } finally {
-      setSaving("");
-    }
-  }
-
-  async function duplicateTaskGraphDraft() {
-    const sourceTaskGraph = editorSelectedTaskGraph;
-    if (!sourceTaskGraph) {
-      setError("当前没有可复制的任务图");
-      return;
-    }
-    const sourceDraft = taskGraphRecordToDraftV2(sourceTaskGraph);
-    const draftDomainId = editorDomain?.domain_id || sourceDraft.domain_id || "";
-    const draftEnvironmentId = taskGraphEnvironmentId(sourceTaskGraph)
-      || activeEditorEnvironmentId;
-    if (!draftEnvironmentId) {
-      setError("当前图没有标准任务环境，不能复制为可运行图任务。");
-      return;
-    }
-    setSaving("task-graph-duplicate");
-    setError("");
-    setNotice("");
-    try {
-      const ids = await getTaskSystemNextIds();
-      const nextGraphId = ids.graph_id;
-      const nextTitle = `${sourceDraft.title || ids.display_numbers.graph} 副本`;
-      const nextNodes = (sourceDraft.nodes ?? []).map(normalizeTaskGraphNode);
-      const nextEdges = (sourceDraft.edges ?? []).map(normalizeTaskGraphEdge);
-      const boundaries = inferTaskGraphBoundaryNodes(nextNodes, nextEdges);
-      const nextDraft: TaskGraphDraftV2 = {
-        ...sourceDraft,
-        graph_id: nextGraphId,
-        title: nextTitle,
-        domain_id: draftDomainId,
-        task_id: "",
-        nodes: nextNodes,
-        edges: nextEdges,
-        entry_node_id: boundaries.entry_node_id,
-        output_node_id: boundaries.output_node_id,
-        publish_state: "draft",
-        metadata: {
-          ...asRecord(sourceDraft.metadata),
-          graph_source: "task_graph_editor_v2",
-          duplicated_from_graph_id: sourceDraft.graph_id,
-          domain_id: draftDomainId,
-          task_environment_id: draftEnvironmentId,
-          environment_id: draftEnvironmentId,
-          task_id: undefined,
-        },
-        runtime_policy: {
-          ...sourceDraft.runtime_policy,
-          task_environment_id: draftEnvironmentId,
-          environment_id: draftEnvironmentId,
-        },
-        context_policy: {
-          ...sourceDraft.context_policy,
-          task_environment_id: draftEnvironmentId,
-          environment_id: draftEnvironmentId,
-        },
-      };
-      setEditorDomainId(draftDomainId);
-      setEditorTaskGraphId(nextGraphId);
-      setTaskGraphDraftV2(nextDraft);
-      setSelectedGraphNodeId(String((nextDraft.nodes ?? [])[0]?.node_id ?? ""));
-      setSelectedGraphEdgeId("");
-      setLinkingFromNodeId("");
-      onSelectedGraphChange?.(nextGraphId);
-      setNotice(`已复制任务图草稿：${nextGraphId}`);
-    } catch (exc) {
-      setError(exc instanceof Error ? exc.message : "复制任务图草稿失败");
-    } finally {
-      setSaving("");
-    }
   }
 
   async function saveTaskGraphStack(nextPublished?: boolean, nextEditorPublishState?: TaskGraphPublishStateV2) {
@@ -1234,19 +1050,7 @@ export function GraphTaskWorkspace({
   }
   const editorIssueCount = editorGraphSpec.issues.length;
   const editorValid = editorGraphSpec.valid;
-  const editorPublished = taskGraphDraftV2.publish_state === "published" || taskGraphDraftV2.publish_state === "run_bound";
   const topologyDirty = false;
-  const activeEditorEnvironmentLabel = environmentRecordTitle(activeEditorEnvironmentId, consolePayload)
-    || taskEnvironmentTitle(activeEditorEnvironmentId);
-  const activeEditorEnvironmentStorage = taskEnvironmentStorageLabel(activeEditorEnvironmentId, consolePayload);
-  const chatEnvironmentBoundToEditor = Boolean(
-    activeEditorEnvironmentId && chatTaskEnvironmentBinding?.task_environment_id === activeEditorEnvironmentId,
-  );
-  const chatBindingStatus = chatEnvironmentBoundToEditor
-    ? "主会话已绑定当前环境"
-    : chatTaskEnvironmentBinding
-      ? "主会话绑定其它环境"
-      : "主会话未绑定";
   const setGraphWorkbenchSelectedGraphId = (graphId: string) => {
     const target = allTaskGraphs.find((graph) => graph.graph_id === graphId);
     setEditorTaskGraphId(graphId);
@@ -1263,64 +1067,14 @@ export function GraphTaskWorkspace({
     <>
       <div className="task-graph-editor-chrome__controls">
         <TaskGraphChromeSelect
-          emptyLabel={editorTaskEnvironmentOptions.length ? "选择环境配置" : "暂无环境配置"}
-          label="环境配置"
-          onChange={(environmentId) => {
-            setEditorEnvironmentId(environmentId);
-            const nextGraphs = allTaskGraphs.filter((graph) => taskGraphEnvironmentId(graph) === environmentId);
-            const nextGraphId = recommendedTaskGraphId(nextGraphs);
-            if (nextGraphId) {
-              setGraphWorkbenchSelectedGraphId(nextGraphId);
-            }
-          }}
-          options={editorTaskEnvironmentOptions}
-          placeholder="选择环境配置"
-          value={activeEditorEnvironmentId}
-        />
-        <TaskGraphChromeSelect
           disabled={!editorDomain}
           emptyLabel={!editorDomain ? "先选择任务域" : editorGraphSelectOptions.length ? "选择图草稿" : "当前任务环境暂无图"}
-          label="图草稿"
+          label="具体任务"
           onChange={setGraphWorkbenchSelectedGraphId}
           options={editorGraphSelectOptions}
-          placeholder="选择图草稿"
+          placeholder="选择具体任务"
           value={editorTaskGraphId}
         />
-      </div>
-      <div className="task-graph-editor-chrome__status task-graph-editor-chrome__status--context">
-        <span className={topologyDirty ? "boundary-status boundary-status--warn" : "boundary-status"}>{topologyDirty ? "拓扑未同步" : "编辑态已打开"}</span>
-        <span className={chatEnvironmentBoundToEditor ? "boundary-status boundary-status--ok" : "boundary-status boundary-status--warn"}>{chatBindingStatus}</span>
-        <span className="boundary-status">{activeEditorEnvironmentLabel}</span>
-        {activeEditorEnvironmentStorage ? (
-          <span className="boundary-status">{activeEditorEnvironmentStorage}</span>
-        ) : null}
-      </div>
-      <div className="task-graph-editor-chrome__actions task-graph-editor-chrome__actions--minimal">
-        <ToolbarButton
-          disabled={!activeEditorEnvironmentId}
-          onClick={() => {
-            setChatTaskEnvironmentBinding({
-              task_environment_id: activeEditorEnvironmentId,
-              environment_label: activeEditorEnvironmentLabel || activeEditorEnvironmentId,
-              source: "task-graph-workbench",
-            });
-            setNotice(`主会话已绑定任务环境：${activeEditorEnvironmentLabel || activeEditorEnvironmentId}`);
-          }}
-          variant={chatEnvironmentBoundToEditor ? "primary" : "ghost"}
-        >
-          <Link2 size={15} />{chatEnvironmentBoundToEditor ? "已绑定主会话" : "绑定主会话"}
-        </ToolbarButton>
-        {chatTaskEnvironmentBinding ? (
-          <ToolbarButton
-            onClick={() => {
-              clearChatTaskEnvironmentBinding();
-              setNotice("主会话任务环境绑定已解除。");
-            }}
-          >
-            <Unlink2 size={15} />解除绑定
-          </ToolbarButton>
-        ) : null}
-        <ToolbarButton disabled={saving === "task-graph-create"} onClick={() => void createTaskGraphDraft()}><Network size={15} />新图草稿</ToolbarButton>
       </div>
     </>
   );
@@ -1344,14 +1098,11 @@ export function GraphTaskWorkspace({
         addTaskGraphTaskNode={addTaskGraphTaskNode}
         a2aCatalog={a2aCatalog}
         agentGroupOptions={editorAgentGroupOptions}
-        applyTaskGraphTemplate={applyTaskGraphTemplate}
         boundTaskGraphTaskIds={boundTaskGraphTaskIds}
         contractSpecs={editorContractSpecs}
         taskGraphs={editorTaskGraphs.length ? editorTaskGraphs : allTaskGraphs}
         domainTaskOptions={editorDomainTaskOptions}
-        duplicateTaskGraphDraft={duplicateTaskGraphDraft}
         editorIssueCount={editorIssueCount}
-        editorPublished={editorPublished}
         editorValid={editorValid}
         activeGraphEdges={activeGraphEdges}
         activeGraphNodes={activeGraphNodes}

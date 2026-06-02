@@ -75,13 +75,13 @@ export function TaskGraphCanvasPanel({
       {linkingFromNodeId ? (
         <div className="task-graph-linking-hint" role="status">
           <strong>正在建立关系</strong>
-          <span>起点 {linkingFromNodeId}。选择终点后点击左侧语义关系，或直接点击终点创建普通交接。</span>
+          <span>起点 {linkingFromNodeId}。选择终点后用左侧关系下拉应用语义关系。</span>
         </div>
       ) : null}
       <div className="coordination-topology-viewport coordination-topology-viewport--builder task-graph-topology-viewport">
         <TaskGraphTopologyCanvas
           edges={edges}
-          emptyDescription="先用左侧语义动作创建角色、资源或模板。"
+          emptyDescription="先用左侧添加节点创建角色或资源，再用关系下拉连接节点。"
           emptyTitle="当前任务图还没有拓扑节点"
           linkingFromNodeId={linkingFromNodeId}
           nodes={nodes}

@@ -346,6 +346,17 @@ def test_main_chat_taskinst_task_run_remains_monitorable():
     item = monitor["buckets"]["running"][0]
     assert item["route"]["kind"] == "agent_runtime_run"
     assert item["session_id"] == "session-a"
+    assert item["navigation_target"] == {
+        "target_kind": "session",
+        "workspace_view": "chat",
+        "session_id": "session-a",
+        "task_instance_id": run.task_run_id,
+        "task_run_id": run.task_run_id,
+        "graph_run_id": "",
+        "graph_id": "",
+        "mode": "conversation",
+        "focus_node_id": "",
+    }
 
 
 class ResourceResolverStub:

@@ -22,7 +22,6 @@ class TaskExecutionAssembly:
     memory_request_profile_ref: str = ""
     communication_protocol_ref: str = ""
     graph_ref: str = ""
-    topology_template_ref: str = ""
     operation_requirement_ref: str = ""
     input_contract_id: str = ""
     output_contract_id: str = ""

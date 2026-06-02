@@ -30,7 +30,7 @@ def main() -> int:
     parser.add_argument("--provider", default="deepseek")
     parser.add_argument("--model", default="deepseek-v4-pro")
     parser.add_argument("--thinking-mode", default="enabled", choices=("disabled", "enabled"))
-    parser.add_argument("--reasoning-effort", default="high", choices=("high", "max"))
+    parser.add_argument("--reasoning-effort", default="auto", choices=("auto", "high", "max"))
     parser.add_argument("--max-output-tokens", type=int, default=32768)
     parser.add_argument("--min-provider-calls", type=int, default=4)
     parser.add_argument("--stop-after-provider-calls", type=int, default=0)
@@ -69,7 +69,7 @@ def main() -> int:
 def _validate_model_mode_args(args: argparse.Namespace, parser: argparse.ArgumentParser) -> None:
     provider = str(args.provider or "").strip().lower()
     thinking_mode = str(args.thinking_mode or "disabled").strip().lower()
-    reasoning_effort = str(args.reasoning_effort or "high").strip().lower()
+    reasoning_effort = str(args.reasoning_effort or "auto").strip().lower()
     if provider == "deepseek" and reasoning_effort == "max" and thinking_mode != "enabled":
         parser.error("--reasoning-effort max requires --thinking-mode enabled for DeepSeek max mode.")
 
@@ -99,7 +99,7 @@ async def _run(args: argparse.Namespace) -> dict[str, Any]:
         "max_retries": 0,
         "temperature": 0,
         "thinking_mode": str(args.thinking_mode or "disabled"),
-        "reasoning_effort": str(args.reasoning_effort or "high"),
+        "reasoning_effort": str(args.reasoning_effort or "auto"),
     }
     task_selection = _task_selection(run_id=run_id, artifact_path=artifact_path, model_selection=model_selection)
     request = HarnessRuntimeRequest(

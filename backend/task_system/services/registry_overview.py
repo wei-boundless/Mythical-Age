@@ -66,7 +66,6 @@ class TaskRegistryOverviewBuilder:
     def list_agent_task_connection_profiles(self, *, owner_system: str = "") -> list[AgentTaskConnectionProfile]:
         flows = self.registry.list_flows()
         bindings = self.registry.list_bindings()
-        topologies = self.registry.list_topology_templates()
         profiles: list[AgentTaskConnectionProfile] = []
         for agent in self.registry.agent_registry.list_agents():
             if owner_system and agent.owner_system != owner_system:
@@ -74,11 +73,6 @@ class TaskRegistryOverviewBuilder:
             agent_bindings = [item for item in bindings if item.agent_id == agent.agent_id]
             agent_flows = [flow for flow in flows if any(binding.flow_id == flow.flow_id for binding in agent_bindings)]
             capability = self.registry.agent_runtime_registry.get_profile(agent.agent_id)
-            topology_refs = tuple(
-                template.template_id
-                for template in topologies
-                if any(dict(node).get("agent_id") == agent.agent_id for node in template.nodes)
-            )
             blocked_reasons = tuple(
                 dict.fromkeys(
                     reason
@@ -107,7 +101,6 @@ class TaskRegistryOverviewBuilder:
                     flow_refs=tuple(flow.flow_id for flow in agent_flows),
                     binding_refs=tuple(binding.binding_id for binding in agent_bindings),
                     workflow_refs=tuple(dict.fromkeys(binding.workflow_id for binding in agent_bindings if binding.workflow_id)),
-                    topology_refs=topology_refs,
                     default_flow_ref=default_flow.flow_id if default_flow is not None else "",
                     default_workflow_ref=default_binding.workflow_id if default_binding is not None else "",
                     validation_state=validation_state,
@@ -117,7 +110,6 @@ class TaskRegistryOverviewBuilder:
                         "runtime_profile_present": capability is not None,
                         "flow_count": len(agent_flows),
                         "binding_count": len(agent_bindings),
-                        "topology_count": len(topology_refs),
                     },
                 )
             )
@@ -125,14 +117,12 @@ class TaskRegistryOverviewBuilder:
 
     def build_agent_task_connection_overview(self, *, owner_system: str = "") -> dict[str, Any]:
         profiles = self.list_agent_task_connection_profiles(owner_system=owner_system)
-        topology_refs = {topology for profile in profiles for topology in profile.topology_refs}
         return {
             "authority": "task_system.agent_task_connections",
             "profiles": [item.to_dict() for item in profiles],
             "summary": {
                 "profile_count": len(profiles),
                 "invalid_profile_count": sum(1 for item in profiles if item.validation_state == "invalid"),
-                "topology_count": len(topology_refs),
             },
             "diagnostics": {
                 "owner_system_filter": owner_system,
@@ -305,7 +295,6 @@ class TaskRegistryOverviewBuilder:
             "agent_execution_policies": [item.to_dict() for item in execution_policies],
             "templates": [],
             "template_validation_matrix": _removed_template_protocol_matrix(),
-            "topology_templates": [item.to_dict() for item in self.registry.list_topology_templates()],
             "communication_protocols": [item.to_dict() for item in communication_protocols],
             "link_permission_matrix": self.build_link_permission_matrix(),
             "agent_task_connections": self.build_agent_task_connection_overview(),

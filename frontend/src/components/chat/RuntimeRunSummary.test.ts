@@ -5,15 +5,155 @@ import { describe, expect, it } from "vitest";
 import { RuntimeRunSummary } from "./RuntimeRunSummary";
 
 describe("RuntimeRunSummary", () => {
-  it("uses model authored public progress notes before runtime fallback text", () => {
+  it("renders backend progress presentation as a mission and one work unit", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(RuntimeRunSummary, {
+        entries: [],
+        attachments: [
+          {
+            attachment_id: "runtime-attachment:taskrun:turn:session-progress:1:abc",
+            run_id: "taskrun:turn:session-progress:1:abc",
+            anchor_turn_id: "turn:session-progress:1",
+            task_run_id: "taskrun:turn:session-progress:1:abc",
+            status: "running",
+            progress_presentation: {
+              mission: {
+                goal: "创建 calculator.html 并验证路径可用",
+                phase: "确认 artifact 路径",
+                state: "running",
+                current_action: "检查 calculator.html 是否已存在。",
+                next_action: "创建 calculator.html。",
+                progress_label: "0/1 确认 artifact 路径",
+              },
+              work_units: [
+                {
+                  unit_id: "workunit:path-check",
+                  kind: "inspect_path",
+                  title: "确认 artifact 路径",
+                  state: "completed",
+                  judgment: "需要先确认 artifact 路径状态。",
+                  action: "检查 storage/task_environments/general/workspace/calculator.html 是否已存在。",
+                  evidence: [
+                    {
+                      label: "path_exists",
+                      summary: "目标文件尚未存在，路径检查成功；下一步需要创建。",
+                      status: "negative_evidence",
+                    },
+                  ],
+                  next_action: "创建 calculator.html。",
+                  technical_trace_refs: ["rtevt:obs"],
+                },
+              ],
+              technical_trace: [
+                {
+                  event_id: "rtevt:obs",
+                  event_type: "task_tool_observation_recorded",
+                  tool_name: "path_exists",
+                  target: "storage/task_environments/general/workspace/calculator.html",
+                  raw_preview: "false",
+                },
+              ],
+            },
+          },
+        ],
+      }),
+    );
+
+    expect(html).toContain("确认 artifact 路径");
+    expect(html).toContain("需要先确认 artifact 路径状态");
+    expect(html).toContain("目标文件尚未存在，路径检查成功");
+    expect(html).toContain("执行轨迹");
+    expect(html).not.toContain("Tool Call");
+    expect(html).not.toContain("Observation");
+    expect(html).not.toContain("Agent 判断");
+  });
+
+  it("keeps technical trace available but collapsed by default", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(RuntimeRunSummary, {
+        entries: [],
+        attachments: [
+          {
+            attachment_id: "runtime-attachment:taskrun:turn:session-progress:1:abc",
+            run_id: "taskrun:turn:session-progress:1:abc",
+            anchor_turn_id: "turn:session-progress:1",
+            status: "running",
+            progress_presentation: {
+              mission: {
+                phase: "写入文件",
+                state: "running",
+                current_action: "写入 calculator.html。",
+              },
+              work_units: [],
+              technical_trace: [
+                {
+                  event_id: "rtevt:write",
+                  event_type: "task_tool_observation_recorded",
+                  tool_name: "write_file",
+                  raw_preview: "{\"ok\":true}",
+                },
+              ],
+            },
+          },
+        ],
+      }),
+    );
+
+    expect(html).toContain("技术日志");
+    expect(html).toContain("write_file");
+    expect(html).toContain("<details class=\"runtime-technical-trace\">");
+    expect(html).not.toContain("<details open");
+  });
+
+  it("shows a closeout summary when the backend marks the run completed", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(RuntimeRunSummary, {
+        entries: [],
+        attachments: [
+          {
+            attachment_id: "runtime-attachment:taskrun:turn:session-closeout:1:abc",
+            run_id: "taskrun:turn:session-closeout:1:abc",
+            anchor_turn_id: "turn:session-closeout:1",
+            status: "completed",
+            progress_presentation: {
+              mission: {
+                goal: "完成五层地下塔长任务验收",
+                phase: "结果收口",
+                state: "completed",
+                current_action: "已完成五层地下塔的核心结构、关键交互和验收记录。",
+                progress_label: "1/1 结果收口",
+                closeout_summary: "已完成五层地下塔的核心结构、关键交互和验收记录。",
+              },
+              work_units: [
+                {
+                  unit_id: "workunit:closeout",
+                  kind: "terminal",
+                  title: "结果收口",
+                  state: "completed",
+                  judgment: "已完成五层地下塔的核心结构、关键交互和验收记录。",
+                },
+              ],
+              technical_trace: [],
+            },
+          },
+        ],
+      }),
+    );
+
+    expect(html).toContain("结果收口");
+    expect(html).toContain("已完成五层地下塔的核心结构、关键交互和验收记录");
+    expect(html).toContain("runtime-run-summary--success");
+  });
+
+  it("falls back to a minimal status summary without restoring split event cards", () => {
     const html = renderToStaticMarkup(
       React.createElement(RuntimeRunSummary, {
         entries: [
           {
-            id: "model-action",
+            id: "model",
             kind: "model",
             level: "running",
-            title: "agent 正在处理",
+            title: "Agent 判断",
             body: "系统已为当前任务步骤装配 runtime packet，并交给 agent 判断下一步。",
             publicNote: "我先核对当前文件状态，确认可以从断点继续。",
             agentBrief: "已定位到上次中断前的入口文件。",
@@ -25,262 +165,9 @@ describe("RuntimeRunSummary", () => {
     );
 
     expect(html).toContain("我先核对当前文件状态");
-    expect(html).toContain("已定位到上次中断前的入口文件");
-    expect(html).not.toContain("runtime packet");
-    expect(html).not.toContain("装配");
-  });
-
-  it("labels completed work attachments as process progress without exposing internal task wording", () => {
-    const html = renderToStaticMarkup(
-      React.createElement(RuntimeRunSummary, {
-        entries: [],
-        attachments: [
-          {
-            attachment_id: "runtime-attachment:taskrun:turn:session-e2e:1:abc",
-            run_id: "taskrun:turn:session-e2e:1:abc",
-            anchor_turn_id: "turn:session-e2e:1",
-            task_run_id: "taskrun:turn:session-e2e:1:abc",
-            status: "completed",
-            progress_entries: [
-          {
-            id: "tool:1",
-            kind: "tool",
-            level: "running",
-            title: "工具调用完成",
-            body: "工具调用已完成。",
-          },
-          {
-            id: "terminal:1",
-            kind: "terminal",
-            level: "success",
-            title: "任务已完成",
-            body: "目标已满足。",
-          },
-            ],
-          },
-        ],
-      }),
-    );
-
-    expect(html).toContain("目标已满足");
-    expect(html).not.toContain("2 步");
-    expect(html).not.toContain("任务运行");
-    expect(html).not.toContain("会话运行");
-    expect(html).not.toContain("TaskRun");
-  });
-
-  it("separates planned work from conversational progress", () => {
-    const html = renderToStaticMarkup(
-      React.createElement(RuntimeRunSummary, {
-        entries: [
-          {
-            id: "plan",
-            kind: "task_draft",
-            level: "running",
-            title: "确认目标",
-            body: "先检查当前实现，再修复自然交互。",
-            eventType: "task_run_lifecycle_started",
-            statusText: "running",
-          },
-          {
-            id: "progress",
-            kind: "stage",
-            level: "running",
-            title: "处理中",
-            body: "我正在检查运行链路。",
-            eventType: "runtime_step_summary",
-            statusText: "running",
-          },
-        ],
-      }),
-    );
-
-    expect(html).toContain("我正在检查运行链路");
-    expect(html).toContain("计划");
-    expect(html).toContain("先检查当前实现");
-  });
-
-  it("presents runtime records as process progress with a short stage output", () => {
-    const html = renderToStaticMarkup(
-      React.createElement(RuntimeRunSummary, {
-        entries: [
-          {
-            id: "packet",
-            kind: "stage",
-            level: "running",
-            title: "整理上下文",
-            body: "已同步会话上下文。",
-            eventType: "runtime_live_monitor",
-            statusText: "running",
-          },
-          {
-            id: "model",
-            kind: "model",
-            level: "running",
-            title: "思考下一步",
-            body: "已确认产物存在，下一步做最终验收。",
-            publicNote: "已确认产物存在，下一步做最终验收。",
-            eventType: "step_summary_recorded",
-            statusText: "running",
-          },
-        ],
-      }),
-    );
-
-    expect(html).toContain("已确认产物存在，下一步做最终验收");
-    expect(html).not.toContain("1/2 已完成");
-    expect(html).not.toContain("系统已为当前任务步骤装配 runtime packet");
-    expect(html).not.toContain("任务模型调用仍在进行中");
+    expect(html).toContain("技术日志");
+    expect(html).not.toContain("Tool Call");
+    expect(html).not.toContain("Observation");
     expect(html).not.toContain("Agent 判断");
-    expect(html).not.toContain("agent");
-    expect(html).toContain("runtime-run-summary--inline");
-    expect(html).not.toContain("<details");
-  });
-
-  it("marks completed phases explicitly while the newest phase remains running", () => {
-    const html = renderToStaticMarkup(
-      React.createElement(RuntimeRunSummary, {
-        entries: [],
-        attachments: [
-          {
-            attachment_id: "runtime-attachment:turnrun:turn:session-live:1",
-            run_id: "turnrun:turn:session-live:1",
-            anchor_turn_id: "turn:session-live:1",
-            status: "running",
-            progress_entries: [
-              {
-                id: "step:packet",
-                kind: "stage",
-                level: "running",
-                title: "整理上下文",
-                body: "已同步会话上下文。",
-                statusText: "running",
-              },
-              {
-                id: "step:model",
-                kind: "model",
-                level: "running",
-                title: "思考下一步",
-                body: "已确认产物存在，下一步做最终验收。",
-                publicNote: "已确认产物存在，下一步做最终验收。",
-                statusText: "running",
-              },
-            ],
-          },
-        ],
-      }),
-    );
-
-    expect(html).toContain("runtime-run-summary--work");
-    expect(html).toContain("已确认产物存在，下一步做最终验收");
-    expect(html).not.toContain("1/2 已完成");
-    expect(html).not.toContain("runtime-run-summary--task");
-  });
-
-  it("marks historical steps completed when the run has reached a terminal success state", () => {
-    const html = renderToStaticMarkup(
-      React.createElement(RuntimeRunSummary, {
-        entries: [
-          {
-            id: "tool",
-            kind: "tool",
-            level: "running",
-            title: "工具调用完成",
-            body: "工具调用已完成。",
-            eventType: "step_summary_recorded",
-            statusText: "running",
-          },
-          {
-            id: "terminal",
-            kind: "terminal",
-            level: "success",
-            title: "任务已完成",
-            body: "目标已满足。",
-            eventType: "task_run_lifecycle_finished",
-            statusText: "completed",
-          },
-        ],
-      }),
-    );
-
-    expect(html).toContain("目标已满足");
-    expect(html).not.toContain(">进行中<");
-    expect(html).not.toContain("我已经完成这轮处理");
-    expect(html).not.toContain("会话运行");
-  });
-
-  it("filters internal module names from historical progress entries", () => {
-    const html = renderToStaticMarkup(
-      React.createElement(RuntimeRunSummary, {
-        entries: [
-          {
-            id: "done",
-            kind: "terminal",
-            level: "success",
-            title: "会话输出完成",
-            body: "harness.loop.single_agent.respond",
-            eventType: "done",
-            statusText: "completed",
-          },
-        ],
-      }),
-    );
-
-    expect(html).toContain("目标已满足");
-    expect(html).not.toContain("harness");
-    expect(html).not.toContain("single_agent");
-    expect(html).not.toContain(".respond");
-  });
-
-  it("presents tool observations and agent judgments as separate trace rows", () => {
-    const html = renderToStaticMarkup(
-      React.createElement(RuntimeRunSummary, {
-        entries: [
-          {
-            id: "tool-call",
-            kind: "tool",
-            level: "success",
-            title: "调用工具：write_file",
-            body: "已写入游戏 HTML 骨架。",
-            toolName: "write_file",
-            eventType: "step_summary_recorded",
-            statusText: "completed",
-            runId: "taskrun:turn:session-trace:1:abc",
-          },
-          {
-            id: "observation",
-            kind: "observation",
-            level: "success",
-            title: "观察结果",
-            body: "文件存在，包含启动界面和战斗按钮。",
-            eventType: "task_tool_observation_recorded",
-            statusText: "completed",
-            runId: "taskrun:turn:session-trace:1:abc",
-          },
-          {
-            id: "judgment",
-            kind: "model",
-            level: "running",
-            title: "Agent 判断",
-            body: "继续接入装备和 Boss 战。",
-            eventType: "step_summary_recorded",
-            statusText: "running",
-            runId: "taskrun:turn:session-trace:1:abc",
-            meta: [
-              { label: "判断", value: "核心骨架已可运行。" },
-              { label: "下一步", value: "接入装备、Boss 和验收脚本。" },
-            ],
-          },
-        ],
-      }),
-    );
-
-    expect(html).toContain("调用工具：write_file");
-    expect(html).toContain("观察结果");
-    expect(html).toContain("Agent 判断");
-    expect(html).toContain("核心骨架已可运行");
-    expect(html).toContain("接入装备、Boss 和验收脚本");
-    expect(html).not.toContain("agent-todo");
-    expect(html).not.toContain("{&quot;status&quot;");
   });
 });
