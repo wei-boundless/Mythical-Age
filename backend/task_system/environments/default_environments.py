@@ -57,21 +57,7 @@ def development_sandbox_environment() -> TaskEnvironmentDefinition:
         environment_id=record.environment_id,
         environment_prompts=(
             EnvironmentPrompt(
-                prompt_id="environment.development.sandbox.v1",
-                content=(
-                    "你处在开发工作环境中。你是一名在真实项目里工作的 coding agent，任务对象通常是代码、配置、测试、脚本、前端页面、运行链路或工程结构。"
-                    "动手前先读相关文件、调用链、测试、项目约定和已有改动；让现有架构教你怎么改，不要凭空新建风格。"
-                    "实现以用户目标为边界，做最小充分的真实修改；不要添加未要求的功能、装饰性重构、无法发生场景的兜底，或只使用一次的抽象。"
-                    "如果用户明确要求重构，要以目标架构为主，删除旧壳、重复决策源、无用兼容层和保护旧路径的测试，不要在旧结构上堆新壳。"
-                    "任何时候都要保护用户已有改动；遇到脏工作区、冲突或不属于本任务的变更时，先识别并避让，不能擅自回滚或覆盖。"
-                    "修改文件时保持代码可维护：命名清晰，边界清楚，注释只解释不明显的原因，不用注释复述代码正在做什么。"
-                    "验证必须真实执行；测试、命令输出、运行观察、文件 diff、日志或可复核 artifact 才能作为完成证据。"
-                    "如果没有运行某项验证，直接说明没有运行；如果测试失败，报告失败和关键输出，不能暗示通过。"
-                    "必须区分已确认事实、基于事实的判断和仍未知的部分；不要伪造文件内容、执行结果、测试通过、检索命中、历史记忆或外部依据。"
-                    "不要把计划、分类、prompt、状态字段、todo 或自我说明当成完成证据；完成必须落到真实代码、真实运行或明确限制上。"
-                    "发现计划假设错误、权限不足、测试暴露结构性问题或需要扩大改动范围时，停止伪装完成，说明阻塞、风险和下一步。"
-                    "交付时优先给出结果、关键文件、验证证据和剩余风险；不要把过程堆成日志，也不要掩盖未完成的部分。"
-                ),
+                prompt_id="environment.development.sandbox.orientation.v1",
             ),
         ),
         sandbox_policy=SandboxPolicy(
@@ -159,17 +145,7 @@ def creation_writing_environment() -> TaskEnvironmentDefinition:
         environment_id=record.environment_id,
         environment_prompts=(
             EnvironmentPrompt(
-                prompt_id="environment.creation.writing.v1",
-                content=(
-                    "你处在创作工作环境中，任务对象通常是作品设定、章节草稿、素材整理、风格审查、改稿和可交付文本。"
-                    "处理创作任务时要区分正式作品、草稿、参考材料和审查记录；不要把草稿当成已发布成果。"
-                    "需要研究时保留来源依据，需要改稿时说明修改意图、影响范围和仍需作者裁决的问题。"
-                    "输出应服务于作品质量：保持设定一致、情绪和节奏可读、商业表达清晰，同时避免无依据扩写、空泛夸奖和模板化建议。"
-                    "创作判断要面向可读性、连续性、角色动机、冲突推进和目标读者；发现设定矛盾时先指出问题，再给可执行修正方向。"
-                    "必须区分原文事实、参考资料、创作推断和新增草稿；不要伪造来源、记忆、审查结论或已提交状态。"
-                    "不要把设定分类、流程状态或写作计划当成完成证据；可交付结果必须能回溯到文本、来源或明确的作者裁决。"
-                    "如果材料不足、设定矛盾或任务目标不明确，应指出缺口并给出可执行的下一步。"
-                ),
+                prompt_id="environment.creation.writing.orientation.v1",
             ),
         ),
         sandbox_policy=SandboxPolicy(
@@ -233,16 +209,7 @@ def general_workspace_environment() -> TaskEnvironmentDefinition:
         environment_id=record.environment_id,
         environment_prompts=(
             EnvironmentPrompt(
-                prompt_id="environment.general.workspace.v1",
-                content=(
-                    "你处在通用工作环境中，任务可能跨越问答、资料整理、分析、文件处理、研究、检查和多步骤执行。"
-                    "先明确用户目标、约束和可验证结果，再选择最小充分的执行路径。"
-                    "需要事实依据时优先收集证据，需要修改或生成交付物时保持边界清晰并留下可复核结果。"
-                    "不要过度设计任务流程；简单问题直接回答，复杂问题先拆出关键判断、风险和可验证步骤。"
-                    "必须区分已确认事实、合理判断和未知事项；不要伪造工具观察、检索来源、执行记录、文件内容或历史记忆。"
-                    "不要把计划、流程、分类、prompt 或状态字段当成完成证据；交付前应说明真实完成内容和验证依据。"
-                    "遇到不确定、信息不足或风险较高的动作，应把问题具体化，不要用猜测填补关键事实。"
-                ),
+                prompt_id="environment.general.workspace.orientation.v1",
             ),
         ),
         sandbox_policy=SandboxPolicy(

@@ -109,6 +109,10 @@ def contract_from_action_request(
         errors.append("completion_evidence_required")
     if errors:
         return None, errors
+    runtime_profile = _runtime_profile_with_execution_permit_allowed_operations(
+        dict(seed.get("runtime_profile") or {}),
+        allowed_operations=_explicit_allowed_operations_from_contract_seed(seed),
+    )
     contract = TaskRunContract(
         contract_id=f"task-contract:{uuid.uuid4().hex[:12]}",
         contract_source="model_request",
@@ -127,7 +131,7 @@ def contract_from_action_request(
         source_contract_ref=str(seed.get("source_contract_ref") or seed.get("contract_ref") or "").strip(),
         external_plan_ref=str(seed.get("external_plan_ref") or seed.get("plan_ref") or "").strip(),
         task_environment_id=str(task_environment_id or "").strip(),
-        runtime_profile=dict(seed.get("runtime_profile") or {}),
+        runtime_profile=runtime_profile,
         prompt_contract=dict(seed.get("prompt_contract") or {}),
         graph_slot=dict(seed.get("graph_slot") or {}),
     )
@@ -710,9 +714,12 @@ def _runtime_task_selection_from_contract(
     selected_skill_ids: tuple[str, ...] = (),
 ) -> dict[str, Any]:
     runtime_profile = dict(contract.runtime_profile or {})
+    allowed_operations = _explicit_allowed_operations_from_contract(contract)
     selection = {
         "runtime_profile": runtime_profile,
     }
+    if allowed_operations:
+        selection["allowed_operations"] = list(allowed_operations)
     if contract.task_environment_id:
         selection["task_environment_id"] = contract.task_environment_id
     if selected_skill_ids:
@@ -740,6 +747,63 @@ def _runtime_task_selection_from_contract(
             "authority": "task_system.engagement_contract_projection",
         }
     return selection
+
+
+def _explicit_allowed_operations_from_contract(contract: TaskRunContract) -> tuple[str, ...]:
+    runtime_profile = dict(contract.runtime_profile or {})
+    execution_permit = dict(runtime_profile.get("execution_permit") or {})
+    permission_requirements = dict(contract.permission_requirements or {})
+    scopes: list[tuple[str, ...]] = []
+    for value in (
+        runtime_profile.get("allowed_operations"),
+        execution_permit.get("allowed_operations"),
+        permission_requirements.get("allowed_operations"),
+    ):
+        operations = _string_tuple(value)
+        if operations:
+            scopes.append(operations)
+    if not scopes:
+        return ()
+    allowed = set(scopes[0])
+    for scope in scopes[1:]:
+        allowed.intersection_update(scope)
+    return tuple(operation for operation in scopes[0] if operation in allowed)
+
+
+def _explicit_allowed_operations_from_contract_seed(seed: dict[str, Any]) -> tuple[str, ...]:
+    runtime_profile = dict(seed.get("runtime_profile") or {})
+    execution_permit = dict(runtime_profile.get("execution_permit") or {})
+    permission_requirements = dict(seed.get("permission_requirements") or seed.get("permission_request") or {})
+    scopes: list[tuple[str, ...]] = []
+    for value in (
+        seed.get("allowed_operations"),
+        runtime_profile.get("allowed_operations"),
+        execution_permit.get("allowed_operations"),
+        permission_requirements.get("allowed_operations"),
+    ):
+        operations = _string_tuple(value)
+        if operations:
+            scopes.append(operations)
+    if not scopes:
+        return ()
+    allowed = set(scopes[0])
+    for scope in scopes[1:]:
+        allowed.intersection_update(scope)
+    return tuple(operation for operation in scopes[0] if operation in allowed)
+
+
+def _runtime_profile_with_execution_permit_allowed_operations(
+    runtime_profile: dict[str, Any],
+    *,
+    allowed_operations: tuple[str, ...],
+) -> dict[str, Any]:
+    if not allowed_operations:
+        return dict(runtime_profile or {})
+    profile = dict(runtime_profile or {})
+    execution_permit = dict(profile.get("execution_permit") or {})
+    execution_permit["allowed_operations"] = list(allowed_operations)
+    profile["execution_permit"] = execution_permit
+    return profile
 
 
 def _public_schedule_failure_reason(reason: str) -> str:

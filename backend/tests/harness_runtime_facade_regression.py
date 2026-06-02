@@ -517,6 +517,7 @@ def test_explicit_contract_task_starts_lifecycle_without_model_action_loop() -> 
                 message="按合同启动任务。",
                 task_selection={
                     "task_environment_id": "env.development.sandbox",
+                    "allowed_operations": ["op.model_response", "op.read_file"],
                     "system_issued_contract": True,
                     "task_contract": {
                         "contract_id": "contract:explicit:test",
@@ -557,6 +558,10 @@ def test_explicit_contract_task_starts_lifecycle_without_model_action_loop() -> 
     assert contract["contract_source"] == "explicit_contract"
     assert contract["source_contract_ref"] == "contract:explicit:test"
     assert contract["task_environment_id"] == "env.development.sandbox"
+    assert contract["runtime_profile"]["execution_permit"]["allowed_operations"] == ["op.model_response", "op.read_file"]
+    runtime_task_selection = dict(dict(getattr(stored_task, "diagnostics", {}) or {}).get("runtime_task_selection") or {})
+    assert runtime_task_selection["allowed_operations"] == ["op.model_response", "op.read_file"]
+    assert dict(runtime_task_selection["runtime_profile"])["execution_permit"]["allowed_operations"] == ["op.model_response", "op.read_file"]
     assert dict(getattr(stored_task, "diagnostics", {}) or {}).get("origin_kind") == "explicit_contract"
     assert dict(getattr(stored_task, "diagnostics", {}) or {}).get("origin_authority") == "harness.explicit_contract_task"
 

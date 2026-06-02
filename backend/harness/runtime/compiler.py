@@ -200,8 +200,8 @@ class RuntimeCompiler:
                 _message_spec(
                     role="system",
                     content=_join_prompt_sections(
-                        agent_instruction,
                         environment_instruction,
+                        agent_instruction,
                         skill_candidate_instruction,
                     ),
                     kind="turn_context",
@@ -240,8 +240,8 @@ class RuntimeCompiler:
             invocation_kind="single_agent_turn",
             assembly=_merge_prompt_assemblies(
                 prompt_assembly,
-                agent_prompt_assembly,
                 environment_prompt_assembly,
+                agent_prompt_assembly,
                 invocation_kind="single_agent_turn",
             ),
             packet_id=packet_id,
@@ -460,21 +460,21 @@ class RuntimeCompiler:
                 ),
                 _message_spec(
                     role="system",
-                    content=agent_instruction,
-                    kind="agent_stable",
-                    source_ref=",".join(agent_prompt_assembly.manifest.get("stable_prompt_refs") or ()),
-                    cache_scope="session",
-                    cache_role="session_stable",
-                    compression_role="preserve",
-                ),
-                _message_spec(
-                    role="system",
                     content=_join_prompt_sections(
                         environment_instruction,
                         _packet_payload_content("Task execution environment boundary", environment_stable_payload),
                     ),
                     kind="environment_stable",
                     source_ref=",".join(_string_tuple(assembly_payload.get("environment_prompt_refs"))),
+                    cache_scope="session",
+                    cache_role="session_stable",
+                    compression_role="preserve",
+                ),
+                _message_spec(
+                    role="system",
+                    content=agent_instruction,
+                    kind="agent_stable",
+                    source_ref=",".join(agent_prompt_assembly.manifest.get("stable_prompt_refs") or ()),
                     cache_scope="session",
                     cache_role="session_stable",
                     compression_role="preserve",
@@ -545,9 +545,9 @@ class RuntimeCompiler:
             invocation_kind="task_execution",
             assembly=_merge_prompt_assemblies(
                 prompt_assembly,
-                task_prompt_assembly,
-                agent_prompt_assembly,
                 environment_prompt_assembly,
+                agent_prompt_assembly,
+                task_prompt_assembly,
                 invocation_kind="task_execution",
             ),
             packet_id=packet_id,
@@ -741,9 +741,9 @@ class RuntimeCompiler:
                 ),
                 _message_spec(
                     role="system",
-                    content=skill_candidate_instruction,
-                    kind="skill_candidates",
-                    source_ref="runtime_skill_candidates",
+                    content=environment_instruction,
+                    kind="environment_stable",
+                    source_ref=",".join(_string_tuple(assembly_payload.get("environment_prompt_refs"))),
                     cache_scope="session",
                     cache_role="session_stable",
                     compression_role="preserve",
@@ -759,9 +759,9 @@ class RuntimeCompiler:
                 ),
                 _message_spec(
                     role="system",
-                    content=environment_instruction,
-                    kind="environment_stable",
-                    source_ref=",".join(_string_tuple(assembly_payload.get("environment_prompt_refs"))),
+                    content=skill_candidate_instruction,
+                    kind="skill_candidates",
+                    source_ref="runtime_skill_candidates",
                     cache_scope="session",
                     cache_role="session_stable",
                     compression_role="preserve",
@@ -796,8 +796,8 @@ class RuntimeCompiler:
             invocation_kind="tool_observation_followup",
             assembly=_merge_prompt_assemblies(
                 prompt_assembly,
-                agent_prompt_assembly,
                 environment_prompt_assembly,
+                agent_prompt_assembly,
                 invocation_kind="tool_observation_followup",
             ),
             packet_id=packet_id,
@@ -1699,7 +1699,7 @@ def _environment_instruction(
     environment_prompt_assembly: PromptAssemblyResult,
     include_storage_note: bool = True,
 ) -> str:
-    content = str(environment_prompt_assembly.content or "").strip()
+    content = _environment_prompt_section_content(environment_prompt_assembly)
     environment_id = str(environment_payload.get("environment_id") or environment_payload.get("task_environment_id") or "").strip()
     title = str(environment_payload.get("title") or environment_id or "未命名任务环境").strip()
     description = str(environment_payload.get("description") or "").strip()
@@ -1729,13 +1729,27 @@ def _environment_instruction(
     return "\n".join(identity_lines) + "\n当前任务环境说明：\n" + "\n".join(detail_sections) + "\n"
 
 
+def _environment_prompt_section_content(environment_prompt_assembly: PromptAssemblyResult) -> str:
+    sections = [section for section in environment_prompt_assembly.sections if str(section.content or "").strip()]
+    if not sections:
+        return ""
+    rendered: list[str] = []
+    for section in sections:
+        prompt_ref = str(section.prompt_ref or "").strip()
+        title = str(section.title or prompt_ref or "环境提示").strip()
+        prefix = "环境资源提示" if prompt_ref.startswith("environment.resource.") else "任务环境提示"
+        rendered.append(f"【{prefix}：{title}】\n{str(section.content or '').strip()}")
+    return "\n\n".join(rendered).strip()
+
+
 def _environment_stable_payload(environment_payload: dict[str, Any]) -> dict[str, Any]:
     payload = dict(environment_payload or {})
+    environment_boundary = dict(payload.get("environment_boundary") or {})
     prompt_refs = [
         str(item.get("prompt_id") or "").strip()
         for item in list(payload.get("environment_prompts") or [])
         if isinstance(item, dict) and str(item.get("prompt_id") or "").strip()
-    ]
+    ] or _string_tuple(environment_boundary.get("prompt_refs"))
     if "environment_prompts" in payload:
         payload["environment_prompts"] = [
             {
@@ -1757,11 +1771,11 @@ def _environment_model_visible_payload(environment_payload: dict[str, Any]) -> d
     file_management = dict(payload.get("file_management") or {})
     environment_boundary = dict(payload.get("environment_boundary") or {})
     boundary_contract = dict(environment_boundary.get("boundary_contract") or {})
-    prompt_refs = [
+    prompt_refs = _string_tuple(environment_boundary.get("prompt_refs")) or tuple(
         str(item.get("prompt_id") or "").strip()
         for item in list(payload.get("environment_prompts") or [])
         if isinstance(item, dict) and str(item.get("prompt_id") or "").strip()
-    ]
+    )
     model_payload = {
         "environment_id": str(payload.get("environment_id") or payload.get("task_environment_id") or ""),
         "title": str(payload.get("title") or ""),
@@ -1792,6 +1806,7 @@ def _environment_model_visible_payload(environment_payload: dict[str, Any]) -> d
                 "tool_authority": str(boundary_contract.get("tool_authority") or ""),
                 "file_boundary_authority": str(boundary_contract.get("file_boundary_authority") or ""),
                 "environment_prompts_source": str(boundary_contract.get("environment_prompts_source") or ""),
+                "environment_prompt_role": str(boundary_contract.get("environment_prompt_role") or ""),
             }
         ),
         "policy_hash": _stable_json_hash(payload) if payload else "",

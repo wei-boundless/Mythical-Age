@@ -152,7 +152,7 @@ def assemble_runtime(
     profile = build_runtime_assembly_profile(
         agent_runtime_profile=agent_runtime_profile,
         selection=selection,
-        explicit_allowed_operations=_string_tuple(selection.get("allowed_operations")),
+        explicit_allowed_operations=_explicit_allowed_operations_from_runtime_selection(selection),
     )
     task_environment, environment_diagnostics = _resolve_runtime_task_environment(
         backend_dir=backend_dir,
@@ -306,6 +306,28 @@ def build_runtime_assembly_profile(
         permission_policy=dict(runtime_policy.get("approval_policy") or runtime_policy.get("permission_policy") or {}),
         step_summary_policy=dict(runtime_policy.get("step_summary_policy") or {}),
     )
+
+
+def _explicit_allowed_operations_from_runtime_selection(selection: dict[str, Any]) -> tuple[str, ...]:
+    payload = dict(selection or {})
+    scopes: list[tuple[str, ...]] = []
+
+    for value in (
+        payload.get("allowed_operations"),
+        dict(payload.get("execution_permit") or {}).get("allowed_operations"),
+        dict(payload.get("runtime_profile") or {}).get("allowed_operations"),
+        dict(dict(payload.get("runtime_profile") or {}).get("execution_permit") or {}).get("allowed_operations"),
+    ):
+        operations = _string_tuple(value)
+        if operations:
+            scopes.append(operations)
+
+    if not scopes:
+        return ()
+    allowed = set(scopes[0])
+    for scope in scopes[1:]:
+        allowed.intersection_update(scope)
+    return tuple(operation for operation in scopes[0] if operation in allowed)
 
 
 def _work_role_prompt(agent_runtime_profile: Any | None) -> str:
@@ -686,6 +708,9 @@ def _drop_generic_operation_denials(filtered_tools: tuple[dict[str, str], ...]) 
 
 
 def _string_tuple(value: Any) -> tuple[str, ...]:
+    if isinstance(value, str):
+        text = value.strip()
+        return (text,) if text else ()
     return tuple(str(item).strip() for item in list(value or []) if str(item).strip())
 
 

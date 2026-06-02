@@ -456,7 +456,7 @@ def test_task_execution_uses_invocation_scoped_agent_prompt_refs() -> None:
                 "single_agent_turn": ["agent.main_interactive_agent.single_agent_turn.work_role.v1"],
                 "task_execution": ["agent.main_interactive_agent.task_execution.work_role.v1"],
             },
-            "environment_prompt_refs": ["environment.development.sandbox.v1"],
+            "environment_prompt_refs": ["environment.development.sandbox.orientation.v1"],
             "task_environment": {
                 "environment_id": "env.development.sandbox",
                 "title": "Development Sandbox",
@@ -494,7 +494,10 @@ def test_environment_strategy_prompt_ref_is_rejected_after_strategy_moves_to_age
             ],
             runtime_assembly={
                 "profile": {"mode": "professional"},
-                "environment_prompt_refs": ["environment.development.sandbox.v1", obsolete_environment_strategy_ref],
+                "environment_prompt_refs": [
+                    "environment.development.sandbox.orientation.v1",
+                    obsolete_environment_strategy_ref,
+                ],
                 "task_environment": {
                     "environment_id": "env.development.sandbox",
                     "title": "Development Sandbox",

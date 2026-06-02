@@ -10,6 +10,7 @@ from file_management import (
 )
 
 from .models import TaskEnvironmentGroup, TaskEnvironmentSpec
+from .prompt_resources import environment_resource_prompt_refs
 from .registry import TaskEnvironmentRegistry, default_task_environment_registry
 
 
@@ -86,11 +87,16 @@ def _environment_boundary_payload(resolved: ResolvedTaskEnvironment) -> dict:
     spec = resolved.spec
     storage_space = _storage_space_payload(spec)
     file_access_tables = [table.to_dict() for table in resolved.file_access_tables]
+    prompt_refs = _environment_prompt_refs(spec)
     return {
         "environment_id": spec.environment_id,
         "group_id": resolved.group.group_id if resolved.group is not None else "",
-        "prompt_refs": [item.prompt_id for item in spec.environment_prompts],
-        "prompt_count": len(spec.environment_prompts),
+        "prompt_refs": list(prompt_refs),
+        "resource_prompt_refs": list(environment_resource_prompt_refs(spec)),
+        "environment_specific_prompt_refs": [
+            item.prompt_id for item in spec.environment_prompts if str(item.prompt_id or "").strip()
+        ],
+        "prompt_count": len(prompt_refs),
         "storage_space": storage_space,
         "sandbox_policy": spec.sandbox_policy.to_dict(),
         "file_management": spec.file_management.to_dict(),
@@ -103,7 +109,8 @@ def _environment_boundary_payload(resolved: ResolvedTaskEnvironment) -> dict:
         "execution_policy": spec.execution_policy.to_dict(),
         "risk_policy": spec.risk_policy.to_dict(),
         "boundary_contract": {
-            "environment_prompts_source": "task_environment_config",
+            "environment_prompts_source": _environment_prompts_source(spec),
+            "environment_prompt_role": "outer_environment_orientation",
             "tool_authority": "agent_profile_only",
             "skill_authority": "agent_profile_only",
             "mode_authority": "runtime_profile_only",
@@ -113,5 +120,38 @@ def _environment_boundary_payload(resolved: ResolvedTaskEnvironment) -> dict:
         },
         "authority": "task_system.resolved_environment_boundary",
     }
+
+
+def _environment_prompt_refs(spec: TaskEnvironmentSpec) -> tuple[str, ...]:
+    refs = [
+        *environment_resource_prompt_refs(spec),
+        *[
+            str(item.prompt_id or "").strip()
+            for item in spec.environment_prompts
+            if str(item.prompt_id or "").strip()
+        ],
+    ]
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for ref in refs:
+        if ref in seen:
+            continue
+        seen.add(ref)
+        ordered.append(ref)
+    return tuple(ordered)
+
+
+def _environment_prompts_source(spec: TaskEnvironmentSpec) -> str:
+    has_resource_refs = bool(environment_resource_prompt_refs(spec))
+    prompt_items = tuple(spec.environment_prompts or ())
+    has_inline = any(str(item.content or "").strip() for item in prompt_items)
+    has_ref_only = any(str(item.prompt_id or "").strip() and not str(item.content or "").strip() for item in prompt_items)
+    if has_resource_refs and has_inline:
+        return "resource_prompt_library_and_task_environment_config"
+    if has_inline and has_ref_only:
+        return "prompt_library_and_task_environment_config"
+    if has_inline:
+        return "task_environment_config"
+    return "prompt_library"
 
 

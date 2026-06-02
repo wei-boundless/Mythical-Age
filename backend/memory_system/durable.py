@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 from pathlib import Path
 from typing import Any, Callable
@@ -10,9 +11,41 @@ from pydantic import BaseModel, Field
 from .manifest_scan import MemoryHeader, format_memory_manifest, scan_memory_headers
 from memory_system.layout import durable_memory_layout_from_backend_dir
 from memory_system.storage.memory_manager import MemoryManager
+from runtime.model_gateway.model_runtime import utility_accounting_context
 
 
 MessageInvoker = Callable[[list[dict[str, str]]], Any]
+
+
+async def _call_message_invoker(
+    message_invoker: MessageInvoker,
+    messages: list[dict[str, str]],
+    *,
+    accounting_context: dict[str, Any],
+) -> Any:
+    if _callable_accepts_kwarg(message_invoker, "accounting_context"):
+        response = message_invoker(messages, accounting_context=accounting_context)
+    else:
+        response = message_invoker(messages)
+    if inspect.isawaitable(response):
+        return await response
+    return response
+
+
+def _callable_accepts_kwarg(callback: Callable[..., Any], kwarg: str) -> bool:
+    try:
+        signature = inspect.signature(callback)
+    except (TypeError, ValueError):
+        return True
+    for parameter in signature.parameters.values():
+        if parameter.kind == inspect.Parameter.VAR_KEYWORD:
+            return True
+        if parameter.name == kwarg and parameter.kind in {
+            inspect.Parameter.POSITIONAL_OR_KEYWORD,
+            inspect.Parameter.KEYWORD_ONLY,
+        }:
+            return True
+    return False
 
 
 class MemoryRecallRequest(BaseModel):
@@ -127,11 +160,19 @@ class MemoryReadAgent:
             ensure_ascii=False,
         )
         try:
-            response = await self._message_invoker(
-                [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt},
-                ]
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ]
+            response = await _call_message_invoker(
+                self._message_invoker,
+                messages,
+                accounting_context=utility_accounting_context(
+                    source="memory_system.durable_memory_recall",
+                    messages=messages,
+                    purpose="memory.durable_recall_selector",
+                    cache_metric_scope="durable_memory_recall",
+                ),
             )
             content = getattr(response, "content", "")
             if isinstance(content, list):

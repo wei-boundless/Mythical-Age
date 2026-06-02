@@ -21,6 +21,7 @@ from agent_system.profiles.runtime_profile_registry import default_agent_runtime
 from capability_system.tools.authorization import build_tool_authorization_index
 from capability_system.tools.native_tool_catalog import build_tool_instances, get_tool_definitions
 from harness.runtime import RuntimeCompiler, assemble_runtime, build_runtime_tool_plan
+from prompt_library import PromptLibraryRegistry, PromptResource
 from task_system.tasks.definitions import default_task_definitions
 
 
@@ -48,15 +49,22 @@ def test_default_task_environments_are_grouped_scene_platforms() -> None:
     assert development.resource_space.storage_namespace == "development/sandbox"
     assert "AGENTS.md" not in development.memory_space.project_knowledge_refs
     assert development.environment_prompts
-    assert [item.prompt_id for item in development.environment_prompts] == ["environment.development.sandbox.v1"]
-    development_prompt = "\n".join(item.content for item in development.environment_prompts)
-    assert "你处在开发工作环境中" in development_prompt
-    assert "验证必须真实执行" in development_prompt
-    assert "保护用户已有改动" in development_prompt
-    assert "优先使用 search_text、search_files、glob_paths、read_file、list_dir" not in development_prompt
-    assert "old_text not found" not in development_prompt
-    assert ("strategy." + "development.execution.v1") not in development_prompt
-    assert "runtime packet" not in development_prompt
+    assert [item.prompt_id for item in development.environment_prompts] == [
+        "environment.development.sandbox.orientation.v1"
+    ]
+    assert all(not item.content for item in development.environment_prompts)
+    prompt_registry = PromptLibraryRegistry(BACKEND_DIR)
+    development_prompt = prompt_registry.get_active_resource("environment.development.sandbox.orientation.v1")
+    assert development_prompt is not None
+    assert "开发沙盒任务环境" in development_prompt.content
+    assert "沙盒本身不是完成证据" not in development_prompt.content
+    sandbox_resource_prompt = prompt_registry.get_active_resource("environment.resource.sandbox_overlay.orientation.v1")
+    assert sandbox_resource_prompt is not None
+    assert "不能替代完成证据" in sandbox_resource_prompt.content
+    assert "优先使用 search_text、search_files、glob_paths、read_file、list_dir" not in development_prompt.content
+    assert "old_text not found" not in development_prompt.content
+    assert ("strategy." + "development.execution.v1") not in development_prompt.content
+    assert "runtime packet" not in development_prompt.content
 
     assert "file_profile.writing_manuscript" in writing.file_management.file_profile_refs
     assert writing.resource_space.storage_namespace == "creation/writing"
@@ -274,8 +282,14 @@ def test_development_environment_prompt_is_in_task_execution_packet() -> None:
     model_input = _model_input_text(packet)
     stable_message = _message_content_with_title(packet, "Task execution environment boundary")
     stable_payload = _payload_after_title(stable_message, "Task execution environment boundary")
+    expected_environment_refs = [
+        "environment.resource.project_workspace.orientation.v1",
+        "environment.resource.sandbox_overlay.orientation.v1",
+        "environment.development.sandbox.orientation.v1",
+    ]
     assert "当前任务环境说明" in model_input
-    assert stable_payload["task_environment"]["environment_prompt_refs"] == ["environment.development.sandbox.v1"]
+    assert stable_payload["task_environment"]["environment_prompt_refs"] == expected_environment_refs
+    assert assembly.environment_prompt_refs == tuple(expected_environment_refs)
     assert "处理 Python 开发任务" in model_input
     assert "old_text not found" in model_input
     assert "next_offset" in model_input
@@ -284,8 +298,10 @@ def test_development_environment_prompt_is_in_task_execution_packet() -> None:
     assert "验证必须真实" in model_input
     assert "Windows PowerShell 5.1" in model_input
     assert "不要使用 Bash 专属的 &&、||" in model_input
-    assert "你处在开发工作环境中" in model_input
-    assert "保护用户已有改动" in model_input
+    assert "你处在开发沙盒任务环境中" in model_input
+    assert "项目工作区是理解代码" in model_input
+    assert "当前环境包含沙盒工作资源" in model_input
+    assert "不属于本任务的变更" in model_input
 
 
 def test_resolved_environment_exports_storage_and_file_boundaries() -> None:
@@ -370,6 +386,43 @@ def test_creation_environment_filters_development_execution_tools_before_runtime
     assert decisions["op.write_file"]["final_decision"] == "allow"
     assert decisions["op.web_search"]["final_decision"] == "allow"
     assert decisions["op.shell"]["environment_constraint"] == "env.creation.writing"
+
+
+def test_runtime_execution_permit_limits_tools_before_prompt_index() -> None:
+    definitions = get_tool_definitions()
+    index = build_tool_authorization_index(definitions)
+    profile = next(item for item in default_agent_runtime_profiles() if item.agent_profile_id == "main_interactive_agent")
+
+    assembly = assemble_runtime(
+        backend_dir=BACKEND_DIR,
+        session_id="session-execution-permit",
+        turn_id="turn-execution-permit",
+        agent_invocation_id="agent-invocation-execution-permit",
+        request_task_selection={
+            "task_environment_id": "env.development.sandbox",
+            "runtime_profile": {
+                "execution_permit": {
+                    "allowed_operations": ["op.model_response", "op.read_file"],
+                },
+            },
+        },
+        model_selection={},
+        agent_runtime_profile=profile,
+        tool_instances=build_tool_instances(BACKEND_DIR),
+        definitions_by_name=index.definitions_by_name,
+    ).to_dict()
+
+    tool_names = {str(item.get("tool_name") or "") for item in list(assembly.get("available_tools") or [])}
+    allowed_operations = set(dict(assembly.get("operation_authorization") or {}).get("allowed_operations") or [])
+    decisions = {
+        str(item.get("operation_id") or ""): dict(item)
+        for item in list(dict(assembly.get("operation_authorization") or {}).get("decisions") or [])
+    }
+
+    assert tool_names == {"read_file"}
+    assert allowed_operations == {"op.model_response", "op.read_file"}
+    assert decisions["op.write_file"]["reason"] == "agent_permission_missing"
+    assert decisions["op.shell"]["reason"] == "agent_permission_missing"
 
 
 def test_development_environment_keeps_document_capability_routes() -> None:
@@ -610,8 +663,14 @@ def test_configured_task_environment_loads_from_backend_storage(tmp_path: Path) 
     assert registry.require("env.custom.lab").record.title == "Custom Lab"
     assert payload["storage_space"]["environment_storage_root"] == "storage/task_environments/custom/lab"
     assert payload["environment_prompts"][0]["content"].startswith("你处在自定义实验环境中")
-    assert payload["environment_boundary"]["prompt_refs"] == ["environment.custom.lab.v1"]
-    assert payload["environment_boundary"]["boundary_contract"]["environment_prompts_source"] == "task_environment_config"
+    assert payload["environment_boundary"]["prompt_refs"] == [
+        "environment.resource.general_workspace.orientation.v1",
+        "environment.custom.lab.v1",
+    ]
+    assert (
+        payload["environment_boundary"]["boundary_contract"]["environment_prompts_source"]
+        == "resource_prompt_library_and_task_environment_config"
+    )
     assert payload["environment_boundary"]["boundary_contract"]["tool_authority"] == "agent_profile_only"
     assert payload["environment_boundary"]["boundary_contract"]["skill_authority"] == "agent_profile_only"
     assert payload["file_access_tables"]
@@ -750,7 +809,14 @@ def test_runtime_assembly_can_select_configured_task_environment(tmp_path: Path)
 
     assert environment["environment_id"] == "env.custom.runtime"
     assert environment["storage_space"]["storage_namespace"] == "custom/runtime"
-    assert environment["environment_boundary"]["boundary_contract"]["environment_prompts_source"] == "task_environment_config"
+    assert (
+        environment["environment_boundary"]["boundary_contract"]["environment_prompts_source"]
+        == "resource_prompt_library_and_task_environment_config"
+    )
+    assert environment["environment_boundary"]["prompt_refs"] == [
+        "environment.resource.general_workspace.orientation.v1",
+        "environment.custom.runtime.v1",
+    ]
     assert environment["environment_boundary"]["boundary_contract"]["tool_authority"] == "agent_profile_only"
     assert tool_names == set()
 
@@ -829,13 +895,112 @@ def test_runtime_packet_includes_environment_prompt_boundary_from_configured_env
     stable_payload = _payload_after_title(stable_message, "Task execution environment boundary")
 
     assert "你处在自定义提示环境中" in _model_input_text(packet)
-    assert stable_payload["task_environment"]["environment_prompt_refs"] == ["environment.custom.prompted.v1"]
+    assert stable_payload["task_environment"]["environment_prompt_refs"] == [
+        "environment.resource.general_workspace.orientation.v1",
+        "environment.custom.prompted.v1",
+    ]
     assert "environment_prompts" not in stable_payload["task_environment"]
     assert "你处在自定义提示环境中" not in json.dumps(stable_payload, ensure_ascii=False)
     assert (
         stable_payload["task_environment"]["boundary_contract"]["environment_prompts_source"]
-        == "task_environment_config"
+        == "resource_prompt_library_and_task_environment_config"
     )
+
+
+def test_configured_environment_can_reuse_prompt_library_resources(tmp_path: Path) -> None:
+    backend_dir = tmp_path / "backend"
+    PromptLibraryRegistry(backend_dir).upsert_resource(
+        PromptResource(
+            prompt_id="environment.shared.readonly_workspace.orientation.v1",
+            resource_id="environment.shared.readonly_workspace.orientation.v1",
+            category="environment",
+            subtype="orientation",
+            resource_type="environment_prompt",
+            title="共享只读工作区导览",
+            content="当前环境复用共享只读工作区导览。先读取事实，再报告限制；不要假设可以写入。",
+            owner_layer="environment",
+            cache_scope="static_environment",
+            model_visible=True,
+            source_ref="test.shared_environment_prompt",
+            version="v1",
+            enabled=True,
+            status="active",
+        )
+    )
+    config_dir = backend_dir / "task_system" / "storage" / "task_environments"
+    config_dir.mkdir(parents=True)
+    (config_dir / "environments.json").write_text(
+        json.dumps(
+            {
+                "environments": [
+                    {
+                        "record": {
+                            "environment_id": "env.custom.reused_prompt",
+                            "title": "Reused Prompt Runtime",
+                            "group_id": "environment_group.general",
+                            "environment_kind": "custom",
+                        },
+                        "spec": {
+                            "spec_id": "envspec.custom.reused_prompt.v1",
+                            "environment_id": "env.custom.reused_prompt",
+                            "environment_prompts": [
+                                {"prompt_id": "environment.shared.readonly_workspace.orientation.v1"}
+                            ],
+                            "file_management": {"file_profile_refs": ["file_profile.general_workspace"]},
+                            "resource_space": {"storage_namespace": "custom/reused-prompt"},
+                        },
+                    }
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    profile = SimpleNamespace(
+        agent_profile_id="custom-reused-prompt-agent",
+        allowed_operations=("op.model_response",),
+        blocked_operations=(),
+        metadata={},
+    )
+    definitions = get_tool_definitions()
+    index = build_tool_authorization_index(definitions)
+    assembly = assemble_runtime(
+        backend_dir=backend_dir,
+        session_id="session-custom-reused-prompt",
+        turn_id="turn-custom-reused-prompt",
+        agent_invocation_id="agent-invocation-custom-reused-prompt",
+        request_task_selection={"task_environment_id": "env.custom.reused_prompt"},
+        model_selection={},
+        agent_runtime_profile=profile,
+        tool_instances=build_tool_instances(BACKEND_DIR),
+        definitions_by_name=index.definitions_by_name,
+    )
+
+    packet = RuntimeCompiler().compile_task_execution_packet(
+        session_id="session-custom-reused-prompt",
+        task_run={
+            "task_run_id": "taskrun:custom-reused-prompt",
+            "session_id": "session-custom-reused-prompt",
+            "task_id": "task:custom-reused-prompt",
+            "agent_profile_id": "custom-reused-prompt-agent",
+        },
+        contract={"user_visible_goal": "验证复用环境 prompt", "completion_criteria": ["复用 prompt 已装配"]},
+        observations=[],
+        execution_state={},
+        agent_profile_ref="custom-reused-prompt-agent",
+        available_tools=assembly.available_tools,
+        runtime_assembly=assembly,
+        invocation_index=1,
+    ).packet
+    stable_message = _message_content_with_title(packet, "Task execution environment boundary")
+    stable_payload = _payload_after_title(stable_message, "Task execution environment boundary")
+
+    assert "当前环境复用共享只读工作区导览" in _model_input_text(packet)
+    assert stable_payload["task_environment"]["environment_prompt_refs"] == [
+        "environment.resource.general_workspace.orientation.v1",
+        "environment.shared.readonly_workspace.orientation.v1",
+    ]
+    assert stable_payload["task_environment"]["boundary_contract"]["environment_prompts_source"] == "prompt_library"
 
 
 def _payload_after_title(content: str, title: str) -> dict[str, object]:

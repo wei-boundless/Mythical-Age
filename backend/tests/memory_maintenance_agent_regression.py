@@ -88,6 +88,35 @@ def test_memory_maintenance_coordinator_writes_session_and_durable_via_agent(tmp
     assert facade.memory_manager.note_path("memory-agent-boundary").exists()
 
 
+def test_memory_maintenance_model_call_has_prompt_accounting_context(tmp_path) -> None:
+    facade = MemoryFacade(tmp_path)
+    calls: list[dict[str, object]] = []
+
+    async def invoker(messages, *, accounting_context=None):
+        calls.append({"messages": list(messages), "accounting_context": dict(accounting_context or {})})
+        return SimpleNamespace(content=json.dumps(_agent_payload(), ensure_ascii=False))
+
+    facade.set_model_invoker(invoker)
+
+    receipt = facade.run_memory_maintenance_after_commit(
+        session_id="session-maintenance-accounting",
+        messages=[
+            {"role": "user", "content": "继续检查 prompt cache"},
+            {"role": "assistant", "content": "已完成一轮检查"},
+        ],
+        turn_id="turn:session-maintenance-accounting:1",
+    )
+
+    assert receipt.status == "succeeded"
+    assert calls
+    context = calls[0]["accounting_context"]
+    assert context["cache_metric_scope"] == "memory_maintenance"
+    assert context["session_id"] == "session-maintenance-accounting"
+    assert context["run_id"] == "memory-maintenance:session-maintenance-accounting:2"
+    assert context["prompt_manifest"]["utility_purpose"] == "memory.maintenance_after_commit"
+    assert context["segment_plan"]["segments"]
+
+
 def test_memory_maintenance_agent_session_draft_does_not_overwrite_process_state(tmp_path) -> None:
     facade = MemoryFacade(tmp_path)
     facade.set_model_invoker(_fake_invoker(_agent_payload()))
@@ -112,6 +141,50 @@ def test_memory_maintenance_agent_session_draft_does_not_overwrite_process_state
     assert state.active_goal not in rendered_view
     assert receipt.diagnostics["proposal_authority"] == "memory_maintenance_agent.proposal"
     assert receipt.diagnostics["commit_authority"] == "memory_system.memory_committer"
+
+
+def test_durable_memory_recall_model_call_has_prompt_accounting_context(tmp_path) -> None:
+    facade = MemoryFacade(tmp_path)
+    facade.memory_manager.save_note(
+        MemoryNote(
+            slug="prompt-cache-policy",
+            title="Prompt cache policy",
+            summary="Prompt cache must use runtime segment plans.",
+            canonical_statement="Utility model calls must carry prompt accounting context.",
+            body="Utility model calls must carry prompt accounting context.",
+            memory_type="project",
+            memory_class="work",
+        )
+    )
+    calls: list[dict[str, object]] = []
+
+    async def invoker(messages, *, accounting_context=None):
+        calls.append({"messages": list(messages), "accounting_context": dict(accounting_context or {})})
+        return SimpleNamespace(
+            content=json.dumps(
+                {
+                    "should_recall": True,
+                    "selected_note_ids": ["prompt-cache-policy"],
+                    "reason": "matches query",
+                    "confidence": 0.9,
+                    "needs_verification": False,
+                    "manifest_only": False,
+                    "ignore_memory": False,
+                },
+                ensure_ascii=False,
+            )
+        )
+
+    facade.durable_memory.set_message_invoker(invoker)
+
+    result = facade.durable_memory.recall_memories(query="prompt cache accounting", note_limit=2)
+
+    assert result.selection.selected_note_ids == ["prompt-cache-policy"]
+    assert calls
+    context = calls[0]["accounting_context"]
+    assert context["cache_metric_scope"] == "durable_memory_recall"
+    assert context["prompt_manifest"]["utility_purpose"] == "memory.durable_recall_selector"
+    assert context["segment_plan"]["segments"]
 
 
 def test_memory_maintenance_model_failure_does_not_fallback_write_durable(tmp_path) -> None:

@@ -46,13 +46,16 @@ class TaskEnvironmentRecord:
 @dataclass(frozen=True, slots=True)
 class EnvironmentPrompt:
     prompt_id: str
-    content: str
+    content: str = ""
     version: str = "v1"
-    prompt_kind: str = "environment"
+    prompt_kind: str = "orientation"
     cache_scope: str = "static_environment"
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        payload = asdict(self)
+        if not str(self.content or "").strip():
+            payload.pop("content", None)
+        return payload
 
 
 @dataclass(frozen=True, slots=True)

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 import threading
 from datetime import datetime, timezone
@@ -12,6 +13,7 @@ from pydantic import BaseModel, Field, field_validator
 from project_layout import ProjectLayout
 from memory_system.storage.models import MemoryNote
 from memory_system.storage.text_utils import normalize_storage_text
+from runtime.model_gateway.model_runtime import utility_accounting_context
 
 from .manifest_scan import scan_memory_headers
 from .paths import normalize_session_id, safe_runtime_session_key
@@ -246,6 +248,37 @@ class MemoryMaintenanceReceipt(BaseModel):
 MessageInvoker = Callable[[list[dict[str, str]]], Awaitable[object]]
 
 
+async def _call_message_invoker(
+    message_invoker: MessageInvoker,
+    messages: list[dict[str, str]],
+    *,
+    accounting_context: dict[str, Any],
+) -> object:
+    if _callable_accepts_kwarg(message_invoker, "accounting_context"):
+        response = message_invoker(messages, accounting_context=accounting_context)  # type: ignore[call-arg]
+    else:
+        response = message_invoker(messages)
+    if inspect.isawaitable(response):
+        return await response
+    return response
+
+
+def _callable_accepts_kwarg(callback: Callable[..., Any], kwarg: str) -> bool:
+    try:
+        signature = inspect.signature(callback)
+    except (TypeError, ValueError):
+        return True
+    for parameter in signature.parameters.values():
+        if parameter.kind == inspect.Parameter.VAR_KEYWORD:
+            return True
+        if parameter.name == kwarg and parameter.kind in {
+            inspect.Parameter.POSITIONAL_OR_KEYWORD,
+            inspect.Parameter.KEYWORD_ONLY,
+        }:
+            return True
+    return False
+
+
 class MemoryMaintenanceAgent:
     """Model-backed agent:1 implementation that returns proposals only."""
 
@@ -258,11 +291,21 @@ class MemoryMaintenanceAgent:
     async def maintain(self, request: MemoryMaintenanceRequest) -> MemoryMaintenanceProposal:
         if self._message_invoker is None:
             raise RuntimeError("memory maintenance model invoker is not configured")
-        response = await self._message_invoker(
-            [
-                {"role": "system", "content": self.system_prompt()},
-                {"role": "user", "content": self._user_payload(request)},
-            ]
+        messages = [
+            {"role": "system", "content": self.system_prompt()},
+            {"role": "user", "content": self._user_payload(request)},
+        ]
+        response = await _call_message_invoker(
+            self._message_invoker,
+            messages,
+            accounting_context=utility_accounting_context(
+                source="memory_system.maintenance_agent",
+                messages=messages,
+                purpose="memory.maintenance_after_commit",
+                cache_metric_scope="memory_maintenance",
+                session_id=request.session_id,
+                run_id=request.run_id,
+            ),
         )
         payload = self._extract_json(self._response_text(response))
         return self._proposal_from_payload(payload)

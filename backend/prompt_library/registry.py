@@ -70,6 +70,7 @@ class PromptLibraryRegistry:
             for item in (
                 *list_builtin_runtime_prompt_resources(),
                 *list_builtin_agent_prompt_resources(),
+                *list_builtin_environment_prompt_resources(),
                 *list_agent_prompt_resources_from_backend_dir(self.base_dir),
                 *list_environment_prompt_resources_from_backend_dir(self.base_dir),
             )
@@ -302,9 +303,40 @@ def _agent_prompt_resources_from_profiles(profiles: tuple[Any, ...], *, source_p
 
 
 def list_builtin_environment_prompt_resources() -> tuple[PromptResource, ...]:
-    from task_system.environments.default_environments import default_task_environments
+    from task_system.environments.prompt_resources import default_environment_prompt_resource_specs
 
-    return _environment_prompt_resources_from_definitions(default_task_environments(), source_prefix="task_environment.default")
+    resources: list[PromptResource] = []
+    for spec in default_environment_prompt_resource_specs():
+        environment_id = str(spec.environment_id or "").strip()
+        allowed_environment_refs = (environment_id,) if environment_id.startswith("env.") else ()
+        resources.append(
+            PromptResource(
+                prompt_id=spec.prompt_id,
+                resource_id=spec.prompt_id,
+                category="environment",
+                subtype=spec.subtype,
+                resource_type="environment_prompt",
+                title=spec.title,
+                content=spec.content,
+                owner_layer="environment",
+                cache_scope=spec.cache_scope,
+                model_visible=True,
+                allowed_environment_refs=allowed_environment_refs,
+                source_ref=f"task_system.environments.prompt_resources#{spec.prompt_id}",
+                version=spec.version,
+                enabled=True,
+                status="active",
+                metadata={
+                    "managed_by": "prompt_library.default_environment_prompt_resources",
+                    "source_type": "environment_resource_prompt"
+                    if environment_id.startswith("resource.")
+                    else "environment_orientation_prompt",
+                    "environment_id": environment_id if environment_id.startswith("env.") else "",
+                    "resource_ref": environment_id if environment_id.startswith("resource.") else "",
+                },
+            )
+        )
+    return tuple(resources)
 
 
 def list_environment_prompt_resources_from_backend_dir(base_dir: Path) -> tuple[PromptResource, ...]:
@@ -332,7 +364,7 @@ def _environment_prompt_resources_from_definitions(definitions: tuple[Any, ...],
                     category="environment",
                     subtype=str(prompt.prompt_kind or "boundary"),
                     resource_type="environment_prompt",
-                    title=f"{environment_id} environment boundary",
+                    title=f"环境提示：{environment_id}",
                     content=content,
                     owner_layer="environment",
                     cache_scope=str(prompt.cache_scope or "static_environment"),

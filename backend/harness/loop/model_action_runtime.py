@@ -13,27 +13,33 @@ async def call_model_invoker(
     accounting_context: dict[str, Any] | None = None,
 ) -> Any:
     model_selection = normalize_model_selection_for_invocation(model_selection)
+    supports_model_spec = _callable_accepts_kwarg(invoker, "model_spec")
+    supports_accounting_context = _callable_accepts_kwarg(invoker, "accounting_context")
+    kwargs: dict[str, Any] = {}
     if model_selection:
-        try:
-            return await await_if_needed(
-                invoker(messages, model_spec=model_selection, accounting_context=accounting_context)
-            )
-        except TypeError as exc:
-            if "model_spec" not in str(exc) and "accounting_context" not in str(exc):
-                raise
-        try:
-            return await await_if_needed(invoker(messages, model_spec=model_selection))
-        except TypeError as exc:
-            if "model_spec" not in str(exc):
-                raise
-            return await await_if_needed(invoker(messages))
-    if accounting_context:
-        try:
-            return await await_if_needed(invoker(messages, accounting_context=accounting_context))
-        except TypeError as exc:
-            if "accounting_context" not in str(exc):
-                raise
+        if supports_model_spec:
+            kwargs["model_spec"] = model_selection
+    if accounting_context and supports_accounting_context:
+        kwargs["accounting_context"] = accounting_context
+    if kwargs:
+        return await await_if_needed(invoker(messages, **kwargs))
     return await await_if_needed(invoker(messages))
+
+
+def _callable_accepts_kwarg(callback: Any, kwarg: str) -> bool:
+    try:
+        signature = inspect.signature(callback)
+    except (TypeError, ValueError):
+        return True
+    for parameter in signature.parameters.values():
+        if parameter.kind == inspect.Parameter.VAR_KEYWORD:
+            return True
+        if parameter.name == kwarg and parameter.kind in {
+            inspect.Parameter.POSITIONAL_OR_KEYWORD,
+            inspect.Parameter.KEYWORD_ONLY,
+        }:
+            return True
+    return False
 
 
 _MODEL_SELECTION_INVOCATION_FIELDS = frozenset(

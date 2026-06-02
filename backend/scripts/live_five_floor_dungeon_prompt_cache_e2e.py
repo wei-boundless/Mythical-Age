@@ -139,15 +139,18 @@ async def _run(args: argparse.Namespace) -> dict[str, Any]:
     cache_breaks = [item.to_dict() for item in ledger.list_prompt_cache_breaks(task_run_id=task_run_id)]
     summary = _cache_summary(provider_usage)
     packet_summary = _packet_summary(segment_maps)
+    task_status = str(getattr(task, "status", "") or "")
+    measurement_ok = bool(provider_usage) and bool(segment_maps)
 
     report = {
-        "ok": bool(provider_usage) and bool(segment_maps),
+        "ok": measurement_ok and task_status == "completed",
+        "measurement_ok": measurement_ok,
         "authority": "backend.scripts.live_five_floor_dungeon_prompt_cache_e2e",
         "run_id": run_id,
         "report_dir": str(report_dir),
         "session_id": session_id,
         "task_run_id": task_run_id,
-        "task_status": str(getattr(task, "status", "") or ""),
+        "task_status": task_status,
         "task_terminal_reason": str(getattr(task, "terminal_reason", "") or ""),
         "model_selection": {key: value for key, value in model_selection.items() if key != "api_key"},
         "artifact_path": artifact_path,
@@ -296,28 +299,34 @@ async def _wait_for_task(
         if stop_after_provider_calls and len(usage) >= stop_after_provider_calls and not stop_requested and status not in TERMINAL_STATUSES:
             stop_task_run(host, task_run_id, reason="live_prompt_cache_probe_stop_after_provider_calls", requested_by="system")
             stop_requested = True
-        if status in TERMINAL_STATUSES and len(usage) >= min_provider_calls:
+        if status in TERMINAL_STATUSES:
             return {
-                "finished": True,
+                "finished": status == "completed" and len(usage) >= min_provider_calls,
+                "terminal_reached": True,
                 "timeout": False,
                 "stop_requested": stop_requested,
                 "provider_usage_records": len(usage),
+                "min_provider_calls": min_provider_calls,
+                "provider_usage_sufficient": len(usage) >= min_provider_calls,
                 "status": status,
+                "terminal_reason": str(getattr(task, "terminal_reason", "") or ""),
                 "samples": samples[-20:],
             }
         terminal_reason = str(getattr(task, "terminal_reason", "") or "")
         if (
-            len(usage) >= min_provider_calls
-            and status == "waiting_executor"
+            status == "waiting_executor"
             and terminal_reason
             and terminal_reason != "waiting_executor"
             and not _has_running_background_task(host, task_run_id)
         ):
             return {
                 "finished": False,
+                "terminal_reached": False,
                 "timeout": False,
                 "stop_requested": stop_requested,
                 "provider_usage_records": len(usage),
+                "min_provider_calls": min_provider_calls,
+                "provider_usage_sufficient": len(usage) >= min_provider_calls,
                 "status": status,
                 "terminal_reason": terminal_reason,
                 "samples": samples[-20:],
@@ -338,9 +347,12 @@ async def _wait_for_task(
             await asyncio.sleep(0.5)
     return {
         "finished": False,
+        "terminal_reached": status in TERMINAL_STATUSES,
         "timeout": True,
         "stop_requested": stop_requested,
         "provider_usage_records": len(usage),
+        "min_provider_calls": min_provider_calls,
+        "provider_usage_sufficient": len(usage) >= min_provider_calls,
         "status": str(getattr(task, "status", "") or ""),
         "terminal_reason": str(getattr(task, "terminal_reason", "") or ""),
         "samples": samples[-20:],

@@ -1497,6 +1497,10 @@ def _task_run_contract_from_explicit_contract(
     runtime_profile = dict(source.get("runtime_profile") or {})
     if not runtime_profile:
         runtime_profile = dict(dict(source.get("runtime_assembly_plan") or {}).get("runtime_profile") or {})
+    runtime_profile = _runtime_profile_with_execution_permit_allowed_operations(
+        runtime_profile,
+        allowed_operations=_explicit_allowed_operations_for_contract(selection=selection, source=source),
+    )
     contract = TaskRunContract(
         contract_id=f"task-contract:{uuid.uuid4().hex[:12]}",
         contract_source="explicit_contract",
@@ -1600,6 +1604,56 @@ def _system_issued_explicit_contract_payload(assembly_payload: dict[str, Any]) -
 
 def _explicit_contract_source_payload(assembly_payload: dict[str, Any]) -> dict[str, Any]:
     return _system_issued_explicit_contract_payload(assembly_payload)
+
+
+def _explicit_allowed_operations_for_contract(
+    *,
+    selection: dict[str, Any],
+    source: dict[str, Any],
+) -> tuple[str, ...]:
+    runtime_profile = dict(source.get("runtime_profile") or {})
+    if not runtime_profile:
+        runtime_profile = dict(dict(source.get("runtime_assembly_plan") or {}).get("runtime_profile") or {})
+    source_execution_permit = dict(runtime_profile.get("execution_permit") or {})
+    selection_runtime_profile = dict(selection.get("runtime_profile") or {})
+    selection_execution_permit = dict(selection.get("execution_permit") or {})
+    selection_runtime_execution_permit = dict(selection_runtime_profile.get("execution_permit") or {})
+    permission_requirements = dict(source.get("permission_requirements") or source.get("tool_scope") or {})
+    operation_requirement = dict(source.get("operation_requirement") or {})
+    scopes: list[tuple[str, ...]] = []
+    for value in (
+        selection.get("allowed_operations"),
+        selection_execution_permit.get("allowed_operations"),
+        selection_runtime_profile.get("allowed_operations"),
+        selection_runtime_execution_permit.get("allowed_operations"),
+        source.get("allowed_operations"),
+        source_execution_permit.get("allowed_operations"),
+        permission_requirements.get("allowed_operations"),
+        operation_requirement.get("allowed_operations"),
+    ):
+        operations = _contract_string_tuple(value)
+        if operations:
+            scopes.append(operations)
+    if not scopes:
+        return ()
+    allowed = set(scopes[0])
+    for scope in scopes[1:]:
+        allowed.intersection_update(scope)
+    return tuple(operation for operation in scopes[0] if operation in allowed)
+
+
+def _runtime_profile_with_execution_permit_allowed_operations(
+    runtime_profile: dict[str, Any],
+    *,
+    allowed_operations: tuple[str, ...],
+) -> dict[str, Any]:
+    if not allowed_operations:
+        return dict(runtime_profile or {})
+    profile = dict(runtime_profile or {})
+    execution_permit = dict(profile.get("execution_permit") or {})
+    execution_permit["allowed_operations"] = list(allowed_operations)
+    profile["execution_permit"] = execution_permit
+    return profile
 
 
 def _contract_string_tuple(value: Any) -> tuple[str, ...]:

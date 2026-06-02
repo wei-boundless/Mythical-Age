@@ -110,7 +110,6 @@ class AppRuntime:
                 "durable_memory_index_rebuild",
                 payload={"collection": "durable_memory", "source_path": normalized},
                 source="bootstrap.app_runtime",
-                lane_id="durable_memory_extraction",
                 coalesce_key="durable_memory",
             )
             return
@@ -129,7 +128,6 @@ class AppRuntime:
                 "durable_memory_index_rebuild",
                 payload={"collection": "durable_memory", "saved_count": saved_count},
                 source="bootstrap.app_runtime",
-                lane_id="durable_memory_extraction",
                 coalesce_key="durable_memory",
             )
 
