@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from capability_system.tools.native_tool_catalog import ToolDefinition
 
-PERMISSION_MODES = ("default", "plan", "accept_edits", "bypass")
+PERMISSION_MODES = ("default", "plan", "accept_edits", "bypass", "full_access")
 
 
 def normalize_permission_mode(mode: str | None) -> str:
@@ -18,6 +18,9 @@ def mode_allows_tool(definition: ToolDefinition, *, mode: str) -> tuple[bool, st
 
     if normalized_mode == "bypass":
         return True, "policy_allow_bypass"
+
+    if normalized_mode == "full_access":
+        return True, "policy_allow_full_access"
 
     if normalized_mode == "plan":
         if not definition.is_read_only:

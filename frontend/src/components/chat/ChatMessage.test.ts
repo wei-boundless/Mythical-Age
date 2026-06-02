@@ -21,15 +21,14 @@ describe("ChatMessage", () => {
             anchor_turn_id: "turn:session:1",
             status: "failed",
             terminal_reason: "task_executor_schedule_failed",
-            progress_presentation: {
-              mission: {
-                phase: "生图资产",
-                state: "failed",
-                current_action: "生图工具未配置，无法完成合同要求的真实美术资产。",
+            public_timeline: [
+              {
+                item_id: "blocked:image",
+                kind: "blocked",
+                text: "生图工具未配置，无法完成合同要求的真实美术资产。",
+                state: "error",
               },
-              work_units: [],
-              technical_trace: [],
-            },
+            ],
           },
         ],
         toolCalls: [],
@@ -38,7 +37,8 @@ describe("ChatMessage", () => {
 
     expect(html).not.toContain("我会按这个目标推进");
     expect(html).toContain("生图工具未配置");
-    expect(html).toContain("我卡在这里");
+    expect(html).not.toContain("查看执行细节");
+    expect(html).not.toContain("查看技术细节");
   });
 
   it("softens legacy single-turn tool-loop guard messages in history", () => {

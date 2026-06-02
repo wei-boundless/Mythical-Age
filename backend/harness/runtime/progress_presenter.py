@@ -187,55 +187,137 @@ def build_progress_presentation(
 
 def _apply_model_action(unit: dict[str, Any], action: dict[str, Any], event: dict[str, Any]) -> None:
     action_type = _text(action.get("action_type"))
-    public_state = _record(action.get("public_action_state"))
-    current_judgment = action.get("current_judgment") or public_state.get("current_judgment")
-    next_action = action.get("next_action") or public_state.get("next_action")
     progress_note = action.get("public_progress_note")
     if action_type == "tool_call":
         _apply_tool_action(unit, action, {}, event)
-        _set_if_visible(unit, "judgment", current_judgment or progress_note)
-        _set_if_visible(unit, "next_action", next_action)
+        _set_if_visible(unit, "action", progress_note or unit.get("action"))
     elif action_type == "respond":
         _set_if_better(unit, "kind", "terminal")
-        _set_if_better(unit, "title", "整理最终回复")
-        _set_if_visible(unit, "judgment", current_judgment or progress_note or action.get("final_answer"))
+        _set_if_better(unit, "title", "正在整理回复")
+        _set_if_visible(unit, "action", progress_note)
         _set_if_better(unit, "state", "running")
     elif action_type == "ask_user":
-        _set_if_better(unit, "kind", "model_judgment")
+        _set_if_better(unit, "kind", "stage")
         _set_if_better(unit, "title", "等待补充信息")
-        _set_if_visible(unit, "judgment", current_judgment or progress_note)
-        _set_if_visible(unit, "next_action", action.get("user_question") or next_action)
+        _set_if_visible(unit, "action", progress_note or action.get("user_question"))
         _set_if_better(unit, "state", "waiting")
     elif action_type == "block":
-        _set_if_better(unit, "kind", "model_judgment")
-        _set_if_better(unit, "title", "确认阻塞边界")
-        _set_if_visible(unit, "judgment", action.get("blocking_reason") or current_judgment or progress_note)
+        _set_if_better(unit, "kind", "stage")
+        _set_if_better(unit, "title", "当前步骤受阻")
+        _set_if_visible(unit, "judgment", action.get("blocking_reason") or progress_note)
         _set_if_better(unit, "state", "error")
     else:
-        _set_if_better(unit, "kind", "model_judgment")
-        _set_if_better(unit, "title", "确认下一步")
-        _set_if_visible(unit, "judgment", current_judgment or progress_note)
+        _set_if_better(unit, "kind", "stage")
+        _set_if_better(unit, "title", "正在思考")
+        _set_if_visible(unit, "action", progress_note or "正在思考。")
         _set_if_better(unit, "state", "running")
-    _set_if_visible(unit, "next_action", next_action)
+    _apply_agent_public_action_state(unit, action=action, public_state=_record(action.get("public_action_state")))
     _append_trace_ref(unit, event)
 
 
 def _apply_model_action_state(unit: dict[str, Any], payload: dict[str, Any], action: dict[str, Any], event: dict[str, Any]) -> None:
     public_state = _record(payload.get("public_action_state"))
-    current_judgment = payload.get("current_judgment") or public_state.get("current_judgment")
-    next_action = payload.get("next_action") or public_state.get("next_action")
     completion_status = payload.get("completion_status") or public_state.get("completion_status")
     if action:
         _apply_model_action(unit, action, event)
     else:
-        _set_if_better(unit, "kind", "model_judgment")
-        _set_if_better(unit, "title", "确认下一步")
-    _set_if_visible(unit, "judgment", current_judgment or payload.get("public_progress_note") or payload.get("summary"))
-    _set_if_visible(unit, "next_action", next_action)
+        _set_if_better(unit, "kind", "stage")
+        _set_if_better(unit, "title", "正在思考")
+    _set_if_visible(unit, "action", payload.get("public_progress_note") or payload.get("summary") or "正在思考。")
+    _apply_agent_public_action_state(unit, action=action, public_state=public_state)
     if completion_status:
         _set_if_visible(unit, "risk", completion_status)
     _set_if_better(unit, "state", _state_from_status(payload.get("status")))
     _append_trace_ref(unit, event)
+
+
+def _apply_agent_public_action_state(unit: dict[str, Any], *, action: dict[str, Any], public_state: dict[str, Any]) -> None:
+    state = dict(public_state or _record(action.get("public_action_state")))
+    if not state:
+        return
+    _set_if_visible(unit, "judgment", state.get("current_judgment"))
+    next_action = _validated_agent_next_action(action=action, value=state.get("next_action"))
+    if next_action:
+        _set_if_visible(unit, "next_action", next_action)
+
+
+def _validated_agent_next_action(*, action: dict[str, Any], value: Any) -> str:
+    candidate = _visible_text(value)
+    if not candidate:
+        return ""
+    action_type = _text(action.get("action_type")).lower()
+    if action_type == "tool_call":
+        return candidate if _next_action_matches_tool_call(candidate, action) else ""
+    if action_type == "respond":
+        return candidate if _contains_any(candidate, ("回复", "回答", "整理", "总结", "收口", "说明", "respond")) else ""
+    if action_type == "ask_user":
+        return candidate if _contains_any(candidate, ("询问", "提问", "确认", "补充", "请你", "需要你", "ask")) else ""
+    if action_type in {"request_task_run", "request_registered_engagement"}:
+        return candidate if _contains_any(candidate, ("任务", "运行", "持续", "后台", "建立", "启动", "处理流程")) else ""
+    if action_type == "block":
+        return candidate if _contains_any(candidate, ("阻塞", "受阻", "说明", "无法", "等待", "确认")) else ""
+    return ""
+
+
+def _next_action_matches_tool_call(candidate: str, action: dict[str, Any]) -> bool:
+    tool_call = _record(action.get("tool_call"))
+    tool_name = _tool_name(tool_call.get("tool_name") or tool_call.get("name"))
+    tool_args = _record(tool_call.get("args") or tool_call.get("tool_args"))
+    target = _tool_target_preview(tool_args)
+    fragments = [
+        tool_name,
+        tool_name.replace("_", " "),
+        _tool_title(tool_name, target),
+        _tool_action_sentence(tool_name, target),
+        *_target_fragments(target),
+        *_tool_action_keywords(tool_name),
+    ]
+    return _contains_any(candidate, tuple(item for item in fragments if item))
+
+
+def _target_fragments(target: str) -> tuple[str, ...]:
+    text = _text(target)
+    if not text:
+        return ()
+    normalized = text.replace("\\", "/")
+    basename = normalized.rsplit("/", 1)[-1]
+    fragments = [text, basename]
+    stem = basename.rsplit(".", 1)[0] if "." in basename else basename
+    if stem and stem != basename:
+        fragments.append(stem)
+    return tuple(dict.fromkeys(item for item in fragments if item))
+
+
+def _tool_action_keywords(tool_name: str) -> tuple[str, ...]:
+    normalized = tool_name.lower()
+    if normalized in {"image_generate", "generate_image", "image_asset"}:
+        return ("图像", "图片", "生图", "美术", "资源", "生成", "image")
+    if normalized == "path_exists":
+        return ("路径", "存在", "检查", "确认", "artifact", "path")
+    if normalized in {"stat_path", "list_dir"}:
+        return ("路径", "目录", "检查", "读取", "列表", "path", "dir")
+    if normalized in {"read_file", "read_path"}:
+        return ("读取", "查看", "文件", "内容", "read")
+    if normalized in {"write_file", "edit_file", "apply_patch"}:
+        return ("写入", "创建", "修改", "编辑", "补丁", "文件", "write", "edit", "patch")
+    if normalized in {"search_text", "search_files", "glob_paths"}:
+        return ("搜索", "查找", "检索", "匹配", "search", "grep")
+    if normalized in {"terminal", "shell", "run_command", "powershell"}:
+        return ("命令", "终端", "运行", "执行", "shell", "powershell")
+    return tuple(part for part in normalized.replace("-", "_").split("_") if part)
+
+
+def _contains_any(candidate: str, fragments: tuple[str, ...]) -> bool:
+    haystack = _match_text(candidate)
+    for fragment in fragments:
+        needle = _match_text(fragment)
+        if len(needle) >= 2 and needle in haystack:
+            return True
+    return False
+
+
+def _match_text(value: Any) -> str:
+    return _text(value).lower().replace("_", " ").replace("-", " ")
 
 
 def _apply_tool_action(unit: dict[str, Any], action: dict[str, Any], payload: dict[str, Any], event: dict[str, Any]) -> None:
@@ -266,8 +348,6 @@ def _apply_tool_observation(unit: dict[str, Any], observation: dict[str, Any], e
     _set_if_visible(unit, "action", _tool_action_sentence(tool_name, target))
     if evidence:
         _append_evidence(unit, evidence)
-        inferred_next = _next_action_from_evidence(tool_name, evidence, target)
-        _set_if_visible(unit, "next_action", inferred_next)
     _set_if_better(unit, "state", "error" if evidence.get("status") == "error" else "completed")
     _append_trace_ref(unit, event)
 
@@ -303,13 +383,13 @@ def _tool_evidence(*, tool_name: str, tool_args: dict[str, Any], observation: di
         if exists is False:
             return {
                 "label": "path_exists",
-                "summary": "目标文件尚未存在，路径检查成功；下一步需要创建。",
+                "summary": "目标文件尚未存在，路径检查已完成。",
                 "status": "negative_evidence",
             }
         if exists is True:
             return {
                 "label": "path_exists",
-                "summary": "目标路径已存在，可进入读取、覆盖判断或验收。",
+                "summary": "目标路径已存在，路径检查已完成。",
                 "status": "positive_evidence",
             }
 
@@ -325,14 +405,14 @@ def _tool_evidence(*, tool_name: str, tool_args: dict[str, Any], observation: di
         path = (observed_paths or [target])[0] if (observed_paths or target) else ""
         return {
             "label": _tool_label(tool_name),
-            "summary": f"已读取文件：{path}" if path else "文件内容已读取，可继续分析。",
+            "summary": f"已读取文件：{path}" if path else "文件内容已读取，结果已记录。",
             "status": "success",
         }
 
     if normalized in {"list_dir", "stat_path"}:
         return {
             "label": _tool_label(tool_name),
-            "summary": "已读取路径信息，可继续判断目录结构。",
+            "summary": "已读取路径信息。",
             "status": "success",
         }
 
@@ -347,7 +427,7 @@ def _tool_evidence(*, tool_name: str, tool_args: dict[str, Any], observation: di
         if _result_bool(parsed if parsed is not None else raw_result) is False or not _visible_text(result_text):
             return {
                 "label": _tool_label(tool_name),
-                "summary": "未找到关键文本，需要补充实现或换关键词验证。",
+                "summary": "未找到关键文本。",
                 "status": "negative_evidence",
             }
         return {
@@ -360,7 +440,7 @@ def _tool_evidence(*, tool_name: str, tool_args: dict[str, Any], observation: di
         if _terminal_failed(payload, parsed):
             return {
                 "label": _tool_label(tool_name),
-                "summary": "命令失败，需要修正命令或路径。",
+                "summary": "命令失败，结果已记录。",
                 "status": "error",
             }
         return {
@@ -392,8 +472,7 @@ def _build_mission(*, task_run: Any, monitor: dict[str, Any], work_units: list[d
     current_action = _visible_text(
         closeout_summary if state == "completed" else ""
     ) or _visible_text(
-        focus.get("judgment")
-        or _first_evidence_summary(focus)
+        _first_evidence_summary(focus)
         or focus.get("action")
         or monitor.get("latest_step_summary")
         or monitor.get("summary")
@@ -702,6 +781,8 @@ def _is_suppressed_step(step: str, payload: dict[str, Any]) -> bool:
         return True
     if step.startswith(("task_model_action_invocation_started", "task_model_action_waiting")):
         return True
+    if step.startswith("task_duplicate_tool_call_guarded"):
+        return True
     if step.startswith("task_execution_packet_compiled"):
         return True
     summary = _visible_text(payload.get("summary"))
@@ -908,22 +989,6 @@ def _terminal_failed(payload: dict[str, Any], parsed: Any) -> bool:
     return False
 
 
-def _next_action_from_evidence(tool_name: str, evidence: dict[str, str], target: str) -> str:
-    status = evidence.get("status")
-    normalized = tool_name.lower()
-    if status == "error" and normalized in {"image_generate", "generate_image", "image_asset"}:
-        return "确认生图服务配置后重试，或改用代码绘制的最低配置资源。"
-    if status == "error":
-        return "修正失败原因后重新执行。"
-    if normalized == "path_exists" and status == "negative_evidence":
-        return f"创建 {target}。" if target else "创建目标文件。"
-    if normalized in {"write_file", "edit_file", "apply_patch"}:
-        return "继续读取或运行验证。"
-    if normalized in {"search_text", "search_files", "glob_paths"} and status == "negative_evidence":
-        return "补充实现后重新验证关键文本。"
-    return ""
-
-
 def _state_from_status(value: Any) -> str:
     status = _text(value).lower()
     if status in {"completed", "success", "done"}:
@@ -1015,7 +1080,7 @@ def _stage_title(step: str, status: Any) -> str:
     if step.startswith("task_tool"):
         return "执行操作"
     if step.startswith("model"):
-        return "确认下一步"
+        return "正在思考"
     return "推进任务"
 
 

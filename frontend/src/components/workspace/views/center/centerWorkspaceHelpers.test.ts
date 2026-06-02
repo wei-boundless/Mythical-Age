@@ -4,7 +4,6 @@ import type { TaskSystemOverview } from "@/lib/api";
 
 import {
   buildCenterWorkspaceTaskGraphInitialInputs,
-  centerWorkspaceTaskGraphSessionId,
   listCenterWorkspaceTaskGraphs,
   resolveCenterWorkspaceSelectedGraphId,
 } from "./centerWorkspaceHelpers";
@@ -67,11 +66,6 @@ describe("center workspace helpers", () => {
       task_graph_title: "推荐图",
     });
     expect(() => buildCenterWorkspaceTaskGraphInitialInputs("   ", graph)).toThrow("请输入任务目标。");
-  });
-
-  it("normalizes the current chat session id for task graph runtime", () => {
-    expect(centerWorkspaceTaskGraphSessionId("session:abc")).toBe("session_abc");
-    expect(centerWorkspaceTaskGraphSessionId("")).toBe("task_graph_studio");
   });
 
   it("returns sorted graphs for the launch list", () => {

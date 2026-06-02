@@ -49,7 +49,7 @@ def test_harness_service_host_filters_main_runtime_tools_by_search_policy(tmp_pa
             "available_tools": [
                 _tool_view("memory_search", index.definitions_by_name),
             ],
-            "task_environment": {"environment_id": "env.test"},
+            "task_environment": {"environment_id": "env.general.workspace"},
             "operation_authorization": {},
         }
     )

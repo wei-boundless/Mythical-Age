@@ -277,8 +277,33 @@ def test_operation_gate_pipeline_strips_dangerous_auto_allow() -> None:
     )
 
     assert result.allowed is False
-    assert result.reason == "dangerous allow rule stripped in auto/bypass permission mode"
+    assert result.reason == "dangerous allow rule stripped in auto permission mode"
     assert result.pipeline_stage == "dangerous_allow_rule_stripper"
+
+
+def test_operation_gate_full_access_modes_do_not_restrip_adopted_allow_policy() -> None:
+    registry = build_default_operation_registry()
+    policy = _runtime_policy(
+        allowed=("op.shell",),
+        task_id="task-full-access",
+    )
+    gate = OperationGate(registry)
+
+    for mode in ("bypass", "full_access"):
+        result = gate.check(
+            "op.shell",
+            resource_policy=policy,
+            directive_ref=f"directive-{mode}",
+            context=OperationGatePipelineContext(
+                permission_mode=mode,
+                operation_input={"command": "git status"},
+                validators={"shell_read_only": validate_shell_read_only},
+            ),
+        )
+
+        assert result.allowed is True
+        assert result.reason == "operation allowed by adopted resource policy"
+        assert result.pipeline_stage == "allow_rule"
 
 
 def test_operation_gate_headless_approval_requires_matching_token() -> None:

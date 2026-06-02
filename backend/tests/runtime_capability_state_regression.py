@@ -226,7 +226,7 @@ class _runtime_assembly_for_tools:
                 }
                 for name in self.tool_names
             ],
-            "task_environment": {"environment_id": "env.test"},
+            "task_environment": {"environment_id": "env.general.workspace"},
             "operation_authorization": {},
         }
 

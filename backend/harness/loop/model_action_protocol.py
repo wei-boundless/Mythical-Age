@@ -268,7 +268,8 @@ def _public_progress_note(value: Any) -> str:
     return text[:160].rstrip()
 
 
-_PUBLIC_ACTION_COMPLETION_STATUSES = {"working", "verifying", "ready_to_finish", "blocked"}
+_PUBLIC_ACTION_COMPLETION_STATUSES = {"working", "waiting_for_tool", "verifying", "ready_to_finish", "blocked"}
+_PUBLIC_ACTION_VISIBLE_STATUSES = {"thinking", "waiting_for_tool", "tool_returned", "responding", "blocked"}
 
 
 def _public_action_state(value: Any) -> dict[str, Any]:
@@ -278,8 +279,11 @@ def _public_action_state(value: Any) -> dict[str, Any]:
     current_judgment = _public_progress_note(value.get("current_judgment"))
     next_action = _public_progress_note(value.get("next_action"))
     completion_status = str(value.get("completion_status") or "").strip()
+    visible_status = str(value.get("visible_status") or "").strip()
     evidence_refs = _string_tuple(value.get("evidence_refs"))
     open_risks = _string_tuple(value.get("open_risks"))
+    if visible_status in _PUBLIC_ACTION_VISIBLE_STATUSES:
+        normalized["visible_status"] = visible_status
     if current_judgment:
         normalized["current_judgment"] = current_judgment[:220].rstrip()
     if next_action:
@@ -294,7 +298,17 @@ def _public_action_state(value: Any) -> dict[str, Any]:
 
 
 def _has_public_action_state(state: dict[str, Any]) -> bool:
-    return bool(str(state.get("current_judgment") or "").strip() and str(state.get("next_action") or "").strip())
+    return any(
+        bool(state.get(key))
+        for key in (
+            "visible_status",
+            "completion_status",
+            "evidence_refs",
+            "open_risks",
+            "current_judgment",
+            "next_action",
+        )
+    )
 
 
 def _string_tuple(value: Any) -> tuple[str, ...]:

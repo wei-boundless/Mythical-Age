@@ -31,7 +31,7 @@ import {
   streamExistingChatRun,
   truncateSessionMessages
 } from "@/lib/api";
-import type { ChatStreamCursor, GlobalRuntimeMonitor, RuntimeMonitorEventPayload, SessionRuntimeAttachment, SessionScope } from "@/lib/api";
+import type { ChatStreamCursor, GlobalRuntimeMonitor, PublicChatTimelineItem, RuntimeMonitorEventPayload, SessionRuntimeAttachment, SessionScope } from "@/lib/api";
 
 import { createIdleSessionActivity, type Store } from "./core";
 import { reduceStreamEvent, startStreamingTurn, type StreamSession } from "./events";
@@ -52,7 +52,7 @@ const TASK_ENVIRONMENT_WORKSPACE_MODES: Record<TaskEnvironmentWorkspaceView, { e
     taskEnvironmentId: "env.development.sandbox",
   },
   creative: {
-    environmentLabel: "Creative Writing",
+    environmentLabel: "写作环境",
     taskEnvironmentId: "env.creation.writing",
   },
 };
@@ -2117,7 +2117,7 @@ export class WorkspaceRuntime {
       : "";
     return {
       id: eventId || `${taskRunId}:latest-step:${eventCount || String(latestStep.step ?? latestStep.status ?? "current")}`,
-      title: kind === "model" ? "Agent 判断" : String(monitor.latest_step_summary ?? publicNote) || "正在处理",
+      title: kind === "model" ? "正在思考" : String(monitor.latest_step_summary ?? publicNote) || "正在处理",
       body: actionBody || publicNote || String(monitor.latest_step_summary ?? ""),
       publicNote,
       agentBrief,
@@ -2131,6 +2131,76 @@ export class WorkspaceRuntime {
       createdAt: Number(latestStep.created_at ?? 0) || undefined,
       meta: meta.length ? meta : undefined,
     };
+  }
+
+  private publicTimelineItemFromRuntimeProgressEntry(entry: RuntimeProgressEntry | null): PublicChatTimelineItem | null {
+    if (!entry) {
+      return null;
+    }
+    const eventType = String(entry.eventType ?? "").trim();
+    if (["done", "agent_turn_terminal"].includes(eventType)) {
+      return null;
+    }
+    const kind = String(entry.kind ?? "").trim();
+    const body = this.publicRuntimeText(entry.publicNote || entry.agentBrief || entry.body || entry.title);
+    const title = this.publicRuntimeText(entry.title);
+    if (!body && !title) {
+      return null;
+    }
+    if (this.publicRuntimeTextLooksInternal(body || title)) {
+      return null;
+    }
+    const state = entry.level === "error" ? "error" : entry.level === "success" ? "done" : "running";
+    if (state === "done" && kind === "terminal") {
+      return null;
+    }
+    if (state === "error") {
+      return {
+        item_id: `live:${entry.id}`,
+        kind: "blocked",
+        text: body || title || "处理遇到阻塞",
+        state: "error",
+        trace_refs: [entry.id].filter(Boolean),
+      };
+    }
+    const publicKind = this.publicTimelineKindFromProgressKind(kind);
+    return {
+      item_id: `live:${entry.id}`,
+      kind: publicKind,
+      title: title && !["正在思考", "Agent 判断", "观察结果"].includes(title) ? title : body,
+      detail: title && title !== body ? body : "",
+      state,
+      stream_state: state === "running" ? "streaming" : "done",
+      trace_refs: [entry.id].filter(Boolean),
+    };
+  }
+
+  private publicTimelineKindFromProgressKind(kind: string) {
+    if (kind === "model") return "assistant_text";
+    if (kind === "tool" || kind === "observation") return "tool_activity";
+    if (kind === "verification") return "verification";
+    if (kind === "terminal") return "final_summary";
+    return "status_update";
+  }
+
+  private publicRuntimeText(value: unknown) {
+    const text = String(value ?? "").replace(/\s+/g, " ").trim();
+    if (!text) {
+      return "";
+    }
+    const lower = text.toLowerCase();
+    if (["done", "completed", "running", "working", "ready_to_finish", "true", "false"].includes(lower)) {
+      return "";
+    }
+    if (text === "回答已生成并写回会话" || text === "会话输出完成" || text === "工具调用已完成，正在根据结果继续。") {
+      return "";
+    }
+    return text.length > 180 ? `${text.slice(0, 179)}...` : text;
+  }
+
+  private publicRuntimeTextLooksInternal(value: string) {
+    return /(agent_turn_terminal|runtime_invocation_packet_compiled|task_execution_packet_compiled|step_summary_recorded)/.test(value)
+      || /^(?:rtevt|taskrun|turnrun|task):/.test(value);
   }
 
   private runtimeProgressKindFromStep(step: string): "stage" | "tool" | "verification" | "model" | "observation" | "terminal" {
@@ -2187,11 +2257,47 @@ export class WorkspaceRuntime {
       .slice(-MAX_LIVE_RUNTIME_PROGRESS_ENTRIES);
   }
 
+  private mergePublicTimelineItems(existing: PublicChatTimelineItem[] | undefined, latest: PublicChatTimelineItem[] | undefined) {
+    const items = [...(Array.isArray(existing) ? existing : [])];
+    for (const item of Array.isArray(latest) ? latest : []) {
+      const key = this.publicTimelineItemKey(item);
+      if (!key) {
+        continue;
+      }
+      const existingIndex = items.findIndex((candidate) => this.publicTimelineItemKey(candidate) === key);
+      if (existingIndex >= 0) {
+        items[existingIndex] = { ...items[existingIndex], ...item };
+      } else {
+        items.push(item);
+      }
+    }
+    return items.slice(-MAX_LIVE_RUNTIME_PROGRESS_ENTRIES);
+  }
+
+  private publicTimelineItemKey(item: PublicChatTimelineItem | undefined) {
+    const itemId = String(item?.item_id ?? "").trim();
+    if (itemId) {
+      return itemId;
+    }
+    const refs = Array.isArray(item?.trace_refs) ? item.trace_refs.filter(Boolean).join(",") : "";
+    if (refs) {
+      return `${item?.kind ?? "item"}:${refs}`;
+    }
+    return [
+      item?.kind,
+      item?.title,
+      item?.detail,
+      item?.text,
+      item?.path,
+    ].map((value) => String(value ?? "").trim()).join("|");
+  }
+
   private mergeRuntimeAttachment(existing: SessionRuntimeAttachment | undefined, attachment: SessionRuntimeAttachment): SessionRuntimeAttachment {
     return {
       ...existing,
       ...attachment,
       progress_entries: this.mergeRuntimeProgressEntries(existing?.progress_entries, attachment.progress_entries?.[0] ?? null),
+      public_timeline: this.mergePublicTimelineItems(existing?.public_timeline, attachment.public_timeline),
     };
   }
 
@@ -2244,7 +2350,7 @@ export class WorkspaceRuntime {
     }
     return {
       id: String(runtimeEvent.event_id ?? "").trim() || `${runId}:event:${runtimeEvent.offset}`,
-      title: kind === "observation" ? "观察结果" : kind === "model" ? "Agent 判断" : publicNote || summary || step || "正在处理",
+      title: kind === "observation" ? "观察结果" : kind === "model" ? "正在思考" : publicNote || summary || step || "正在处理",
       body: actionBody || body,
       publicNote: publicNote || actionBody || observationBody,
       agentBrief: observationBody || agentBrief,
@@ -2264,11 +2370,72 @@ export class WorkspaceRuntime {
     const actionState = payload.public_action_state && typeof payload.public_action_state === "object" && !Array.isArray(payload.public_action_state)
       ? payload.public_action_state as Record<string, unknown>
       : {};
+    const currentJudgment = String(payload.current_judgment ?? actionState.current_judgment ?? "").trim();
+    const nextAction = this.runtimeValidatedNextAction(payload, actionState);
     return [
-      { label: "判断", value: String(payload.current_judgment ?? actionState.current_judgment ?? "").trim() },
-      { label: "下一步", value: String(payload.next_action ?? actionState.next_action ?? "").trim() },
+      { label: "模型说明", value: currentJudgment },
+      { label: "计划动作", value: nextAction },
       { label: "状态", value: String(payload.completion_status ?? actionState.completion_status ?? "").trim() },
     ].filter((item) => item.value);
+  }
+
+  private runtimeValidatedNextAction(payload: Record<string, unknown>, actionState: Record<string, unknown>) {
+    const candidate = String(payload.next_action ?? actionState.next_action ?? "").trim();
+    if (!candidate) {
+      return "";
+    }
+    const actionType = String(payload.action_type ?? actionState.action_type ?? "").trim().toLowerCase();
+    if (!actionType) {
+      return candidate;
+    }
+    if (actionType === "tool_call") {
+      const toolName = String(payload.tool_name ?? actionState.tool_name ?? "").trim();
+      const toolTarget = String(payload.tool_target ?? actionState.tool_target ?? "").trim();
+      return this.runtimeTextContainsAny(candidate, [
+        toolName,
+        toolName.replace(/[_-]+/g, " "),
+        toolTarget,
+        this.runtimeTargetBasename(toolTarget),
+        ...this.runtimeToolActionKeywords(toolName),
+      ]) ? candidate : "";
+    }
+    const keywords: Record<string, string[]> = {
+      respond: ["回复", "回答", "整理", "总结", "收口", "说明", "respond"],
+      ask_user: ["询问", "提问", "确认", "补充", "请你", "需要你", "ask"],
+      request_task_run: ["任务", "运行", "持续", "后台", "建立", "启动", "处理流程"],
+      request_registered_engagement: ["任务", "运行", "持续", "后台", "建立", "启动", "处理流程"],
+      block: ["阻塞", "受阻", "说明", "无法", "等待", "确认"],
+    };
+    return this.runtimeTextContainsAny(candidate, keywords[actionType] ?? []) ? candidate : "";
+  }
+
+  private runtimeTargetBasename(value: string) {
+    const normalized = String(value ?? "").trim().replace(/\\/g, "/");
+    return normalized ? normalized.split("/").pop() ?? "" : "";
+  }
+
+  private runtimeToolActionKeywords(toolName: string) {
+    const normalized = String(toolName ?? "").trim().toLowerCase();
+    if (["image_generate", "image_generation", "generate_image"].includes(normalized)) return ["图像", "图片", "生图", "美术", "资源", "生成", "image"];
+    if (normalized === "path_exists") return ["路径", "存在", "检查", "确认", "artifact", "path"];
+    if (["stat_path", "list_dir"].includes(normalized)) return ["路径", "目录", "检查", "读取", "列表", "path", "dir"];
+    if (["read_file", "read_path"].includes(normalized)) return ["读取", "查看", "文件", "内容", "read"];
+    if (["write_file", "edit_file", "apply_patch"].includes(normalized)) return ["写入", "创建", "修改", "编辑", "补丁", "文件", "write", "edit", "patch"];
+    if (["search_text", "search_files", "glob_paths"].includes(normalized)) return ["搜索", "查找", "检索", "匹配", "search", "grep"];
+    if (["terminal", "shell", "run_command", "powershell"].includes(normalized)) return ["命令", "终端", "运行", "执行", "shell", "powershell"];
+    return normalized.split(/[_-]+/).filter(Boolean);
+  }
+
+  private runtimeTextContainsAny(value: string, fragments: string[]) {
+    const haystack = this.runtimeMatchText(value);
+    return fragments.some((fragment) => {
+      const needle = this.runtimeMatchText(fragment);
+      return needle.length >= 2 && haystack.includes(needle);
+    });
+  }
+
+  private runtimeMatchText(value: string) {
+    return String(value ?? "").trim().toLowerCase().replace(/[_-]+/g, " ");
   }
 
   private runtimeIsInternalToolObservation(value: string) {
@@ -2358,6 +2525,7 @@ export class WorkspaceRuntime {
     if (!runId || !anchorTurnId) {
       return state;
     }
+    const publicItem = this.publicTimelineItemFromRuntimeProgressEntry(latestProgressEntry);
     const payload = runtimeEvent.payload && typeof runtimeEvent.payload === "object" && !Array.isArray(runtimeEvent.payload)
       ? runtimeEvent.payload
       : {};
@@ -2372,6 +2540,7 @@ export class WorkspaceRuntime {
       attachment_id: `runtime-attachment:${runId}`,
       run_id: runId,
       anchor_turn_id: anchorTurnId,
+      anchor_role: "assistant",
       task_run_id: taskRunId || undefined,
       task_id: String(payload.task_id ?? ""),
       status: String(payload.status ?? "running"),
@@ -2395,7 +2564,9 @@ export class WorkspaceRuntime {
       latest_event_type: runtimeEvent.event_type,
       event_count: Number(runtimeEvent.offset ?? -1) + 1,
       progress_entries: [latestProgressEntry],
+      public_timeline: publicItem ? [publicItem] : [],
       trace_available: true,
+      debug_trace_ref: taskRunId || runId,
       updated_at: Number(runtimeEvent.created_at ?? Date.now() / 1000),
     };
     const anchorIndex = Number(anchorTurnId.split(":").at(-1));
@@ -2415,11 +2586,15 @@ export class WorkspaceRuntime {
         if (!hasAttachment && !sourceMatches) {
           return message;
         }
+        const anchoredAttachment = {
+          ...attachment,
+          anchor_message_id: attachment.anchor_message_id || message.id,
+        };
         return {
           ...message,
           runtimeAttachments: hasAttachment
-            ? existing.map((item) => this.runtimeAttachmentRunId(item) === runId ? this.mergeRuntimeAttachment(item, attachment) : item)
-            : [...existing, attachment],
+            ? existing.map((item) => this.runtimeAttachmentRunId(item) === runId ? this.mergeRuntimeAttachment(item, anchoredAttachment) : item)
+            : [...existing, anchoredAttachment],
         };
       }),
     };
@@ -2454,10 +2629,12 @@ export class WorkspaceRuntime {
       return state;
     }
     const latestProgressEntry = this.runtimeProgressEntryFromMonitor(monitor, taskRunId);
+    const publicItem = this.publicTimelineItemFromRuntimeProgressEntry(latestProgressEntry);
     const attachment: SessionRuntimeAttachment = {
       attachment_id: `runtime-attachment:${taskRunId}`,
       run_id: taskRunId,
       anchor_turn_id: anchorTurnId,
+      anchor_role: "assistant",
       task_run_id: taskRunId,
       task_id: String(taskRun.task_id ?? monitor.task_id ?? ""),
       status: String(monitor.status ?? taskRun.status ?? ""),
@@ -2470,8 +2647,10 @@ export class WorkspaceRuntime {
       latest_event_type: String((monitor.latest_event as Record<string, unknown> | undefined)?.event_type ?? ""),
       event_count: Number(monitor.event_count ?? 0),
       progress_entries: latestProgressEntry ? [latestProgressEntry] : [],
+      public_timeline: publicItem ? [publicItem] : [],
       artifact_refs: Array.isArray(monitor.artifact_refs) ? monitor.artifact_refs : [],
       trace_available: true,
+      debug_trace_ref: taskRunId,
       updated_at: Number(monitor.updated_at ?? Date.now() / 1000),
     };
     return {
@@ -2486,11 +2665,15 @@ export class WorkspaceRuntime {
         if (!hasAttachment && !sourceMatches) {
           return message;
         }
+        const anchoredAttachment = {
+          ...attachment,
+          anchor_message_id: attachment.anchor_message_id || message.id,
+        };
         return {
           ...message,
           runtimeAttachments: hasAttachment
-            ? existing.map((item) => this.runtimeAttachmentRunId(item) === taskRunId ? this.mergeRuntimeAttachment(item, attachment) : item)
-            : [...existing, attachment],
+            ? existing.map((item) => this.runtimeAttachmentRunId(item) === taskRunId ? this.mergeRuntimeAttachment(item, anchoredAttachment) : item)
+            : [...existing, anchoredAttachment],
         };
       }),
     };
@@ -2625,12 +2808,12 @@ export class WorkspaceRuntime {
         sessionActivity: {
           level: "waiting",
           title: normalizedStatus === "waiting_executor" ? "等待继续" : normalizedStatus === "waiting_approval" ? "等待确认" : "运行受阻",
-          detail: normalizedStatus === "waiting_executor" ? "已确认目标，正在等待继续推进。" : normalizedStatus === "waiting_approval" ? "需要确认后继续执行。" : "当前处理需要处理。",
+          detail: normalizedStatus === "waiting_executor" ? "任务已进入等待队列。" : normalizedStatus === "waiting_approval" ? "需要确认后继续执行。" : "当前处理受阻。",
           event: "runtime_live_monitor",
           receipt: {
             level: "waiting",
             title: normalizedStatus === "waiting_executor" ? "等待继续" : normalizedStatus === "waiting_approval" ? "等待确认" : "运行受阻",
-            body: normalizedStatus === "waiting_executor" ? "已确认目标，正在等待继续推进。" : normalizedStatus === "waiting_approval" ? "需要确认后继续执行。" : "当前处理需要处理。",
+            body: normalizedStatus === "waiting_executor" ? "任务已进入等待队列。" : normalizedStatus === "waiting_approval" ? "需要确认后继续执行。" : "当前处理受阻。",
             debug: {
               event: "runtime_live_monitor",
               taskRunId: taskRunId || "",

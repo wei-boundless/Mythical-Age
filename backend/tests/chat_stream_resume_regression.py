@@ -202,7 +202,8 @@ def test_runtime_startup_marks_previous_process_active_chat_runs_orphaned(tmp_pa
     assert payload["public_event_type"] == "error"
     data = dict(payload["data"])
     assert data["code"] == "runtime_process_restarted"
-    assert "重新判断下一步" in data["error"]
+    assert "agent 没有收到新的模型轮次" in data["error"]
+    assert "系统会根据当前任务状态重新判断下一步" not in data["error"]
 
 
 def test_runtime_startup_uses_instance_owner_not_only_process_id_for_recovery(tmp_path) -> None:

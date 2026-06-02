@@ -10,6 +10,8 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 from harness.runtime import build_runtime_tool_plan
+from permissions import OperationGate
+from permissions.operations import build_default_operation_registry
 from runtime.tool_runtime import RuntimeToolControlPlane, ToolInvocationRequest
 
 
@@ -49,7 +51,7 @@ def test_runtime_tool_plan_stably_orders_visible_tools_and_hashes_schema() -> No
     assert plan_a.registry_hash == plan_b.registry_hash
 
 
-def test_runtime_tool_plan_single_turn_filters_side_effect_tools_from_dispatch() -> None:
+def test_runtime_tool_plan_single_turn_keeps_environment_visible_side_effect_tools_dispatchable() -> None:
     plan = build_runtime_tool_plan(
         runtime_assembly=_assembly(
             available_tools=[
@@ -64,8 +66,8 @@ def test_runtime_tool_plan_single_turn_filters_side_effect_tools_from_dispatch()
         },
     )
 
-    assert [tool["name"] for tool in plan.model_visible_tools] == ["read_file"]
-    assert plan.dispatchable_tool_names == ("read_file",)
+    assert [tool["name"] for tool in plan.model_visible_tools] == ["read_file", "write_file"]
+    assert plan.dispatchable_tool_names == ("read_file", "write_file")
 
 
 def test_runtime_tool_plan_general_environment_keeps_agent_authorized_tools_dispatchable() -> None:
@@ -421,6 +423,209 @@ def test_runtime_tool_control_plane_dispatches_agent_turn_through_core_without_t
     assert executor.last_core["session_id"] == "session:one"
     assert executor.last_core["turn_id"] == "turn:one:1"
     assert "task_run_id" not in executor.last_core
+
+
+def test_runtime_tool_control_plane_agent_turn_side_effect_requires_approval_outside_sandbox() -> None:
+    executor = _RecordingCoreToolExecutor()
+    plan = build_runtime_tool_plan(
+        runtime_assembly=_assembly(available_tools=[{"tool_name": "image_generate", "operation_id": "op.image_generate"}]),
+        invocation_kind="single_agent_turn",
+        tool_definitions_by_name={"image_generate": SimpleNamespace(operation_id="op.image_generate", is_read_only=False)},
+    )
+    request = ToolInvocationRequest(
+        invocation_id="toolinvoke:turn:image-approval",
+        caller_kind="agent_turn",
+        caller_ref="turnrun:one",
+        session_id="session:one",
+        turn_id="turn:one:1",
+        tool_name="image_generate",
+        tool_call_id="call:image",
+        tool_args={"prompt": "pixel tower"},
+        operation_id="op.image_generate",
+        sandbox_scope={"enabled": False},
+        requested_constraints={
+            "runtime_host": SimpleNamespace(
+                backend_dir=BACKEND_DIR,
+                tool_authorization_index=SimpleNamespace(
+                    definitions_by_name={"image_generate": SimpleNamespace(operation_id="op.image_generate", is_read_only=False)}
+                ),
+            ),
+            "backend_dir": str(BACKEND_DIR),
+            "runtime_assembly": _assembly(available_tools=[{"tool_name": "image_generate", "operation_id": "op.image_generate"}]).to_dict(),
+        },
+    )
+
+    observation = asyncio.run(
+        RuntimeToolControlPlane(
+            tool_runtime_executor=executor,
+            operation_gate=OperationGate(build_default_operation_registry()),
+        ).invoke(request, tool_plan=plan)
+    )
+
+    assert observation.status == "needs_approval"
+    assert observation.operation_gate["decision"] == "requires_approval"
+    assert observation.diagnostics["supervision"]["gate"]["pipeline_stage"] == "requires_approval_rule"
+    assert executor.core_calls == 0
+
+
+def test_runtime_tool_control_plane_agent_turn_side_effect_requires_approval_without_concrete_sandbox_boundary() -> None:
+    executor = _RecordingCoreToolExecutor()
+    plan = build_runtime_tool_plan(
+        runtime_assembly=_assembly(
+            available_tools=[{"tool_name": "image_generate", "operation_id": "op.image_generate"}],
+            task_environment={"environment_id": "env.development.sandbox"},
+        ),
+        invocation_kind="single_agent_turn",
+        tool_definitions_by_name={"image_generate": SimpleNamespace(operation_id="op.image_generate", is_read_only=False)},
+    )
+    request = ToolInvocationRequest(
+        invocation_id="toolinvoke:turn:image-sandbox",
+        caller_kind="agent_turn",
+        caller_ref="turnrun:one",
+        session_id="session:one",
+        turn_id="turn:one:1",
+        tool_name="image_generate",
+        tool_call_id="call:image",
+        tool_args={"prompt": "pixel tower"},
+        operation_id="op.image_generate",
+        sandbox_scope={
+            "enabled": True,
+            "side_effect_policy": "sandbox_boundary",
+            "side_effect_operations": ["op.image_generate"],
+        },
+        requested_constraints={
+            "runtime_host": SimpleNamespace(
+                backend_dir=BACKEND_DIR,
+                tool_authorization_index=SimpleNamespace(
+                    definitions_by_name={"image_generate": SimpleNamespace(operation_id="op.image_generate", is_read_only=False)}
+                ),
+            ),
+            "backend_dir": str(BACKEND_DIR),
+            "runtime_assembly": _assembly(
+                available_tools=[{"tool_name": "image_generate", "operation_id": "op.image_generate"}],
+                task_environment={"environment_id": "env.development.sandbox"},
+            ).to_dict(),
+        },
+    )
+
+    observation = asyncio.run(
+        RuntimeToolControlPlane(
+            tool_runtime_executor=executor,
+            operation_gate=OperationGate(build_default_operation_registry()),
+        ).invoke(request, tool_plan=plan)
+    )
+
+    assert observation.status == "needs_approval"
+    assert observation.operation_gate["decision"] == "requires_approval"
+    assert executor.core_calls == 0
+
+
+def test_runtime_tool_control_plane_agent_turn_native_side_effect_runs_with_concrete_sandbox_boundary(tmp_path: Path) -> None:
+    executor = _RecordingCoreToolExecutor()
+    plan = build_runtime_tool_plan(
+        runtime_assembly=_assembly(
+            available_tools=[{"tool_name": "write_file", "operation_id": "op.write_file"}],
+            task_environment={"environment_id": "env.development.sandbox"},
+        ),
+        invocation_kind="single_agent_turn",
+        tool_definitions_by_name={"write_file": SimpleNamespace(operation_id="op.write_file", is_read_only=False)},
+    )
+    request = ToolInvocationRequest(
+        invocation_id="toolinvoke:turn:write-sandbox",
+        caller_kind="agent_turn",
+        caller_ref="turnrun:one",
+        session_id="session:one",
+        turn_id="turn:one:1",
+        tool_name="write_file",
+        tool_call_id="call:write",
+        tool_args={"path": "artifacts/note.txt", "content": "hello"},
+        operation_id="op.write_file",
+        sandbox_scope={
+            "enabled": True,
+            "sandbox_root": str(tmp_path / "sandbox"),
+            "side_effect_policy": "sandbox_boundary",
+            "side_effect_operations": ["op.write_file"],
+            "write_scopes": ["artifacts"],
+        },
+        requested_constraints={
+            "runtime_host": SimpleNamespace(
+                backend_dir=BACKEND_DIR,
+                tool_authorization_index=SimpleNamespace(
+                    definitions_by_name={"write_file": SimpleNamespace(operation_id="op.write_file", is_read_only=False)}
+                ),
+            ),
+            "backend_dir": str(BACKEND_DIR),
+            "runtime_assembly": _assembly(
+                available_tools=[{"tool_name": "write_file", "operation_id": "op.write_file"}],
+                task_environment={"environment_id": "env.development.sandbox"},
+            ).to_dict(),
+        },
+    )
+
+    observation = asyncio.run(
+        RuntimeToolControlPlane(
+            tool_runtime_executor=executor,
+            operation_gate=OperationGate(build_default_operation_registry()),
+        ).invoke(request, tool_plan=plan)
+    )
+
+    assert observation.status == "ok"
+    assert observation.operation_gate["decision"] == "allow"
+    assert executor.core_calls == 1
+    assert executor.last_core["tool_name"] == "write_file"
+
+
+def test_runtime_tool_control_plane_agent_turn_browser_requires_approval_even_with_sandbox_root(tmp_path: Path) -> None:
+    executor = _RecordingCoreToolExecutor()
+    plan = build_runtime_tool_plan(
+        runtime_assembly=_assembly(
+            available_tools=[{"tool_name": "browser_control", "operation_id": "op.browser_control"}],
+            task_environment={"environment_id": "env.development.sandbox"},
+        ),
+        invocation_kind="single_agent_turn",
+        tool_definitions_by_name={"browser_control": SimpleNamespace(operation_id="op.browser_control", is_read_only=False)},
+    )
+    request = ToolInvocationRequest(
+        invocation_id="toolinvoke:turn:browser-sandbox",
+        caller_kind="agent_turn",
+        caller_ref="turnrun:one",
+        session_id="session:one",
+        turn_id="turn:one:1",
+        tool_name="browser_control",
+        tool_call_id="call:browser",
+        tool_args={"action": "open", "url": "https://example.com"},
+        operation_id="op.browser_control",
+        sandbox_scope={
+            "enabled": True,
+            "sandbox_root": str(tmp_path / "sandbox"),
+            "side_effect_policy": "sandbox_boundary",
+            "side_effect_operations": ["op.browser_control"],
+        },
+        requested_constraints={
+            "runtime_host": SimpleNamespace(
+                backend_dir=BACKEND_DIR,
+                tool_authorization_index=SimpleNamespace(
+                    definitions_by_name={"browser_control": SimpleNamespace(operation_id="op.browser_control", is_read_only=False)}
+                ),
+            ),
+            "backend_dir": str(BACKEND_DIR),
+            "runtime_assembly": _assembly(
+                available_tools=[{"tool_name": "browser_control", "operation_id": "op.browser_control"}],
+                task_environment={"environment_id": "env.development.sandbox"},
+            ).to_dict(),
+        },
+    )
+
+    observation = asyncio.run(
+        RuntimeToolControlPlane(
+            tool_runtime_executor=executor,
+            operation_gate=OperationGate(build_default_operation_registry()),
+        ).invoke(request, tool_plan=plan)
+    )
+
+    assert observation.status == "needs_approval"
+    assert observation.operation_gate["decision"] == "requires_approval"
+    assert executor.core_calls == 0
 
 
 class _assembly:

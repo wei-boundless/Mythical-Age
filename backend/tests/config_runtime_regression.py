@@ -79,6 +79,16 @@ def test_fallback_provider_uses_model_hint_to_avoid_cross_provider_pair(monkeypa
     assert settings.llm_fallback_base_url == "https://api.deepseek.com"
 
 
+def test_runtime_permission_mode_is_normalized_on_read_and_write() -> None:
+    config.runtime_config.set_permission_mode("dangerous_bypass")
+    assert config.runtime_config.get_permission_mode() == "default"
+    assert config.runtime_config.load()["permission_mode"] == "default"
+
+    config.runtime_config.set_permission_mode(" FULL_ACCESS ")
+    assert config.runtime_config.get_permission_mode() == "full_access"
+    assert config.runtime_config.load()["permission_mode"] == "full_access"
+
+
 def test_image_asset_config_uses_env_before_runtime_override(monkeypatch: pytest.MonkeyPatch) -> None:
     from capability_system.capabilities.image_generation.image_asset_service import ImageAssetService
 
@@ -323,7 +333,7 @@ def test_image_asset_generation_uses_output_size_for_local_resize(monkeypatch: p
     assert generated["final_size"] == "128x128"
 
 
-def test_image_asset_generation_does_not_auto_retry_transient_gateway_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_image_asset_generation_retries_transient_gateway_failure(monkeypatch: pytest.MonkeyPatch) -> None:
     import asyncio
     import pytest
 
@@ -365,10 +375,66 @@ def test_image_asset_generation_does_not_auto_retry_transient_gateway_failure(mo
     error = exc_info.value.to_dict()
     assert error["code"] == "image_provider_transient_error"
     assert error["retryable"] is True
-    assert error["attempts"]
+    assert len(error["attempts"]) == 2
     assert error["attempts"][0]["code"] == "image_provider_transient_error"
-    assert len(calls) == 1
+    assert error["attempts"][1]["attempt_index"] == 2
+    assert len(calls) == 2
     assert "response_format" not in calls[0]
+
+
+def test_image_asset_generation_recovers_after_transient_retry(monkeypatch: pytest.MonkeyPatch) -> None:
+    import asyncio
+    import base64
+    import io
+    import json
+
+    from PIL import Image
+    from capability_system.capabilities.image_generation.image_asset_service import ImageAssetService
+
+    service = ImageAssetService(BACKEND_DIR)
+    monkeypatch.setenv("IMAGE_API_BASE_URL", "https://images.example.test/v1")
+    monkeypatch.setenv("IMAGE_MODEL", "image-2")
+    monkeypatch.setenv("IMAGE_API_KEY", "image-key")
+    png_buffer = io.BytesIO()
+    Image.new("RGBA", (1024, 1024), (20, 30, 40, 255)).save(png_buffer, format="PNG")
+    calls: list[dict[str, object]] = []
+
+    class _Response:
+        def __init__(self, status_code: int, payload: dict[str, object] | None = None, text: str = "") -> None:
+            self.status_code = status_code
+            self._payload = payload or {}
+            self.text = text or json.dumps(self._payload)
+            self.headers = {"content-type": "application/json" if payload is not None else "text/html"}
+
+        def json(self):
+            if self.status_code >= 400:
+                raise json.JSONDecodeError("bad", self.text, 0)
+            return self._payload
+
+    class _Client:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        async def post(self, *args, **kwargs):
+            calls.append(dict(kwargs.get("json") or {}))
+            if len(calls) == 1:
+                return _Response(504, text="<html>timeout</html>")
+            return _Response(200, {"data": [{"b64_json": base64.b64encode(png_buffer.getvalue()).decode("ascii")}], "created": 1})
+
+    monkeypatch.setattr("capability_system.capabilities.image_generation.image_asset_service.httpx.AsyncClient", _Client)
+
+    generated = asyncio.run(service.generate(prompt="test image", target_id="retry-success-test", asset_kind="chat", overwrite=True))
+
+    assert generated["bytes"] == len(png_buffer.getvalue())
+    assert len(calls) == 2
+    assert calls[0]["model"] == "image-2"
+    assert calls[1]["model"] == "image-2"
 
 
 def test_image_asset_generation_honors_explicit_model_and_timeout(monkeypatch: pytest.MonkeyPatch) -> None:

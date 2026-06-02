@@ -984,13 +984,14 @@ def model_action_request_schema(turn_id: str) -> dict[str, Any]:
     return {
         "authority": "harness.loop.model_action_request",
         "action_type": "respond|ask_user|tool_call|request_task_run|request_registered_engagement|block",
-        "public_progress_note": "一句用户可理解的公开进展；只描述你的公开判断、计划或已观察到的结果，不得把尚未执行的工具动作说成正在执行或已经完成；不包含内部编号、系统结构、协议字段或隐藏推理。",
+        "public_progress_note": "一句用户可理解的公开进展；可以说明你正在做什么或下一步准备做什么，但必须与本轮 action_type 和实际 tool_call/回复/提问/阻塞完全一致。不得预测工具结果，不得把尚未完成的工具动作说成已经完成，不得写与实际 action_type 不一致的计划；不包含内部编号、系统结构、协议字段或隐藏推理。",
         "public_action_state": {
-            "evidence_refs": ["可选；你本轮判断引用的 observation/event/artifact ref"],
-            "current_judgment": "可选；你基于当前上下文作出的公开判断，只写结论，不暴露隐藏推理链，也不要声称工具动作已经发生。",
-            "next_action": "可选；你准备请求系统执行的具体动作；如果收尾，说明准备提交什么结果。",
-            "open_risks": ["可选；仍未解决、会影响完成判断的公开风险"],
-            "completion_status": "可选；working|verifying|ready_to_finish|blocked"
+            "visible_status": "可选；thinking|waiting_for_tool|tool_returned|responding|blocked",
+            "current_judgment": "可选；你对当前公开状态的简短说明。只能写本轮已经确定的事实或边界，不写隐藏推理。",
+            "next_action": "可选；你下一步准备执行的动作。必须与 action_type 对齐：tool_call 时必须指向同一个工具或同一目标；respond 时必须是整理回复；ask_user 时必须是向用户确认；request_task_run 时必须是建立任务运行；block 时必须是说明阻塞。",
+            "evidence_refs": ["可选；已经返回且可被用户理解的 observation/event/artifact ref；没有返回结果时留空"],
+            "open_risks": ["可选；已经观察到的公开阻塞或风险；不要写预测性风险"],
+            "completion_status": "可选；working|waiting_for_tool|verifying|ready_to_finish|blocked"
         },
         "final_answer": "",
         "user_question": "",
@@ -1039,13 +1040,14 @@ def task_execution_action_schema() -> dict[str, Any]:
     return {
         "authority": "harness.loop.model_action_request",
         "action_type": "respond|ask_user|tool_call|block",
-        "public_progress_note": "一句用户可理解的公开进展；必须来自 public_action_state 的公开判断和下一步。它只能表达你的判断、计划或已观察结果，不得把尚未执行的工具动作说成正在执行或已经完成；不包含内部编号、系统结构、协议字段或隐藏推理。",
+        "public_progress_note": "一句用户可理解的公开进展；可以说明你正在做什么或下一步准备做什么，但必须与本轮 action_type 和实际 tool_call/回复/提问/阻塞完全一致。不得预测工具结果，不得把尚未完成的工具动作说成已经完成，不得写与实际 action_type 不一致的计划；不包含内部编号、系统结构、协议字段或隐藏推理。",
         "public_action_state": {
-            "evidence_refs": ["你本轮判断引用的 observation/event/artifact ref；没有证据时留空"],
-            "current_judgment": "你基于当前上下文作出的公开判断，只写结论，不暴露隐藏推理链，也不要声称工具动作已经发生。",
-            "next_action": "你准备请求系统执行的具体动作；如果收尾，说明准备提交什么结果。",
-            "open_risks": ["仍未解决、会影响完成判断的公开风险；没有则留空"],
-            "completion_status": "working|verifying|ready_to_finish|blocked"
+            "visible_status": "thinking|waiting_for_tool|tool_returned|responding|blocked",
+            "current_judgment": "可选；你对当前公开状态的简短说明。只能写本轮已经确定的事实或边界，不写隐藏推理。",
+            "next_action": "可选；你下一步准备执行的动作。必须与 action_type 对齐：tool_call 时必须指向同一个工具或同一目标；respond 时必须是整理回复；ask_user 时必须是向用户确认；block 时必须是说明阻塞。",
+            "evidence_refs": ["已经返回且可被用户理解的 observation/event/artifact ref；没有返回结果时留空"],
+            "open_risks": ["已经观察到的公开阻塞或风险；没有则留空；不要写预测性风险"],
+            "completion_status": "working|waiting_for_tool|verifying|ready_to_finish|blocked"
         },
         "final_answer": "",
         "user_question": "",
@@ -1114,8 +1116,6 @@ def _single_agent_turn_output_contract(
     forbidden: list[str] = ["json_action_protocol", "delegate_subagent"]
     if "tool_call" not in allowed_actions:
         forbidden.append("general_tool_call")
-    else:
-        forbidden.append("side_effect_tool_call")
     if "request_task_run" not in allowed_actions:
         forbidden.append("task_run_request")
     if "active_work_control" not in allowed_actions:
@@ -1127,7 +1127,7 @@ def _single_agent_turn_output_contract(
         "native_actions": {
             "tool_call": {
                 "enabled": "tool_call" in allowed_actions,
-                "boundary": "read_only_visible_tools_only",
+                "boundary": "runtime_visible_tools_only",
             },
             "request_task_run": {
                 "enabled": "request_task_run" in allowed_actions,
@@ -1161,8 +1161,6 @@ def _single_agent_turn_tools(
         if not isinstance(item, dict):
             continue
         tool = dict(item)
-        if not bool(tool.get("read_only") is True):
-            continue
         name = str(tool.get("tool_name") or tool.get("name") or "").strip()
         if not name:
             continue
@@ -1195,7 +1193,7 @@ def _active_work_model_visible_payload(active_work_context: dict[str, Any] | Non
                 "answer_then_continue_active_work",
             ],
             "decision_boundary": (
-                "active_work_context only represents the current non-terminal active turn. "
+                "active_work_context represents the current non-terminal active turn or latest resumable executor checkpoint. "
                 "Historical work summaries, old artifacts, and terminal task records are not controllable current work."
             ),
         }
@@ -1742,7 +1740,7 @@ def _runtime_projection_instruction(projection: dict[str, Any]) -> str:
         lines.append("- 如需子 agent 协作，只能通过可见的子 agent 生命周期工具启动、通信、观察和关闭；主 agent 仍负责最终判断和收口。")
     if "active_work_control" in allowed_actions:
         lines.append(
-            "- 如果本轮上下文包含 active_work_context，它只是当前工作事实和可用控制动作；"
+            "- 如果本轮上下文包含 active_work_context，它只是当前工作或可恢复断点的事实和可用控制动作；"
             "是否继续、暂停、停止、补充要求、回答进展或另开请求，由你根据用户当前话语判断。"
         )
         lines.append(

@@ -25,7 +25,13 @@ def final_answer_event(
     }
 
 
-def error_event(*, content: str, code: str, reason: str = "") -> dict[str, Any]:
+def error_event(
+    *,
+    content: str,
+    code: str,
+    reason: str = "",
+    extra: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     return {
         "type": "error",
         "error": reason or code,
@@ -33,5 +39,6 @@ def error_event(*, content: str, code: str, reason: str = "") -> dict[str, Any]:
         "content": sanitize_visible_assistant_content(str(content or "")),
         "answer_channel": "orchestration_fail_closed",
         "answer_source": "harness.loop.single_agent",
+        **dict(extra or {}),
     }
 

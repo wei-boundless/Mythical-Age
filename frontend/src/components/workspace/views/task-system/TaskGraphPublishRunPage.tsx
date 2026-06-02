@@ -7,6 +7,7 @@ import {
   compileTaskSystemTaskGraphContract,
   getOrchestrationHarnessTrace,
   getPublishedTaskGraphHarnessConfig,
+  resolveTaskEnvironmentSession,
   runGraphRunUntilIdle,
   startTaskGraphHarnessRun,
   taskGraphRunsFromTrace,
@@ -123,7 +124,7 @@ export function TaskGraphPublishRunPage({
   const [runTraceError, setRunTraceError] = useState("");
   const [runTraceLoading, setRunTraceLoading] = useState(false);
   const [runStartLoading, setRunStartLoading] = useState(false);
-  const [runSessionId, setRunSessionId] = useState("session:task_graph_studio");
+  const [runSessionId, setRunSessionId] = useState("");
   const [graphRunId, setGraphRunId] = useState("");
   const [graphHarnessConfigId, setGraphHarnessConfigId] = useState("");
   const [resumeLoading, setResumeLoading] = useState(false);
@@ -221,13 +222,24 @@ export function TaskGraphPublishRunPage({
         workspace_view: "task_environment",
         task_environment_id: String(graphConfig.task_environment_id || ""),
       };
+      const resolved = await resolveTaskEnvironmentSession(String(graphConfig.task_environment_id || ""), {
+        workspace_view: "task_environment",
+        intent: "new_conversation",
+        title: `${graphId} 运行会话`,
+        create_if_missing: true,
+      });
+      const sessionId = String(resolved.session?.id || "").trim();
+      if (!sessionId) {
+        throw new Error("图运行需要先创建真实任务环境会话。");
+      }
       const result = await startTaskGraphHarnessRun(graphId, {
-        session_id: runSessionId.trim() || "session:task_graph_studio",
+        session_id: sessionId,
         session_scope: sessionScope,
         include_trace: true,
         dispatch_ready: true,
         run_mode: "auto_run",
       });
+      setRunSessionId(sessionId);
       setTaskRunId(result.task_run_id);
       setGraphRunId(result.graph_run_id);
       setGraphHarnessConfigId(result.graph_harness_config_id);
@@ -237,7 +249,7 @@ export function TaskGraphPublishRunPage({
         graph_run_id: result.graph_run_id,
         graph_harness_config_id: result.graph_harness_config_id,
         graph_id: graphId,
-        session_id: runSessionId.trim() || "session:task_graph_studio",
+        session_id: sessionId,
         session_scope: sessionScope,
         title: graphId,
       });
@@ -281,6 +293,11 @@ export function TaskGraphPublishRunPage({
     const latestGraphRun = taskGraphRuns[0] ?? {};
     const targetGraphRunId = String(graphRunId || latestGraphRun.graph_run_id || "").trim();
     const targetConfigId = String(graphHarnessConfigId || latestGraphRun.config_id || latestGraphRun.graph_harness_config_id || "").trim();
+    const targetSessionScope = {
+      workspace_view: String(latestGraphRun.workspace_view || "task_environment"),
+      task_environment_id: String(latestGraphRun.task_environment_id || ""),
+      project_id: String(latestGraphRun.project_id || ""),
+    };
     if (!targetGraphRunId || !targetConfigId) {
       setRunTraceError("请先读取包含 GraphRun 的 TaskRun trace，或创建一个新的图运行。");
       return;
@@ -291,7 +308,8 @@ export function TaskGraphPublishRunPage({
       graph_run_id: targetGraphRunId,
       graph_harness_config_id: targetConfigId,
       graph_id: graphId,
-      session_id: runSessionId.trim() || undefined,
+      session_id: String(latestGraphRun.session_id || runSessionId || "").trim() || undefined,
+      session_scope: targetSessionScope,
       title: graphId,
     });
   }
@@ -443,10 +461,6 @@ export function TaskGraphPublishRunPage({
       <section className="boundary-card">
         <header><strong>运行追踪与续跑</strong><span>Trace / Checkpoint / Resume</span></header>
         <div className="boundary-form">
-          <label>
-            <span>Session ID</span>
-            <input value={runSessionId} onChange={(event) => setRunSessionId(event.target.value)} placeholder="session:task_graph_studio" />
-          </label>
           <label>
             <span>TaskRun ID</span>
             <input value={taskRunId} onChange={(event) => setTaskRunId(event.target.value)} placeholder="task_run_xxx" />

@@ -5,9 +5,8 @@ import React, { useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
+import { hasPublicRunActivity, PublicRunActivity } from "@/components/chat/PublicRunActivity";
 import { RetrievalCard } from "@/components/chat/RetrievalCard";
-import { RuntimeEvidencePanel } from "@/components/chat/RuntimeEvidencePanel";
-import { RuntimeRunSummary } from "@/components/chat/RuntimeRunSummary";
 import type { RetrievalResult, SessionRuntimeAttachment, ToolCall } from "@/lib/api";
 import type { RuntimeProgressEntry } from "@/lib/store/types";
 
@@ -16,12 +15,9 @@ export function ChatMessage({
   role,
   content,
   image,
-  stageStatus,
-  runtimeProgress = [],
   runtimeAttachments = [],
   answerChannel,
   answerSource,
-  toolCalls,
   retrievals,
   canEdit = false,
   onResendEdit
@@ -49,15 +45,15 @@ export function ChatMessage({
   const [draft, setDraft] = useState(content);
   const [failedImageSrc, setFailedImageSrc] = useState("");
   const imageUnavailable = Boolean(image?.src && failedImageSrc === image.src);
-  const hasRuntimeDetails = !isUser && Boolean(runtimeAttachments.length || runtimeProgress.length);
   const displayContent = isUser ? content : assistantDisplayContent({ content, answerChannel, answerSource });
+  const hasRunActivity = !isUser && hasPublicRunActivity(runtimeAttachments, displayContent);
   const taskControlReceipt = !isUser && isTaskControlReceipt({ content, answerChannel, answerSource });
-  const hideTaskControlReceipt = taskControlReceipt && hasRuntimeDetails;
+  const hideTaskControlReceipt = taskControlReceipt && hasRunActivity;
   const shouldRenderContent =
     isUser
     || Boolean(image?.src)
     || imageUnavailable
-    || (!hideTaskControlReceipt && (Boolean(displayContent.trim()) || !hasRuntimeDetails));
+    || (!hideTaskControlReceipt && (Boolean(displayContent.trim()) || !hasRunActivity));
 
   return (
     <article
@@ -82,8 +78,8 @@ export function ChatMessage({
         </button>
       ) : null}
       {!isUser && <RetrievalCard results={retrievals} />}
-      {hasRuntimeDetails ? (
-        <RuntimeRunSummary attachments={runtimeAttachments} entries={runtimeProgress} />
+      {hasRunActivity ? (
+        <PublicRunActivity attachments={runtimeAttachments} assistantContent={displayContent} />
       ) : null}
       {shouldRenderContent ? (
         <div className={isUser ? "chat-message-shell__content whitespace-pre-wrap leading-7" : "chat-message-shell__content markdown"}>
@@ -147,7 +143,6 @@ export function ChatMessage({
           )}
         </div>
       ) : null}
-      {!isUser && <RuntimeEvidencePanel toolCalls={toolCalls} />}
     </article>
   );
 }

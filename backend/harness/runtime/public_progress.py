@@ -5,11 +5,11 @@ from typing import Any
 
 
 _ACTION_SUMMARIES = {
-    "respond": "已完成下一步判断，正在整理回复。",
-    "ask_user": "需要补充信息，正在准备向你确认。",
-    "tool_call": "正在执行必要操作，随后会根据结果继续。",
-    "request_task_run": "已确认需要持续处理，正在建立后续步骤。",
-    "request_registered_engagement": "已匹配到可承接的处理流程，正在开始推进。",
+    "respond": "正在整理回复。",
+    "ask_user": "正在整理需要确认的信息。",
+    "tool_call": "已发起工具调用，正在等待工具返回。",
+    "request_task_run": "正在建立任务运行。",
+    "request_registered_engagement": "正在启动处理流程。",
     "block": "当前步骤遇到边界，正在收口说明。",
 }
 
@@ -30,7 +30,7 @@ _PUBLIC_ERROR_REWRITES = {
 
 def public_action_progress_summary(action_type: Any) -> str:
     normalized = str(action_type or "").strip().lower()
-    return _ACTION_SUMMARIES.get(normalized, "已完成下一步判断。")
+    return _ACTION_SUMMARIES.get(normalized, "正在处理当前步骤。")
 
 
 def public_runtime_progress_summary(summary: Any) -> str:
@@ -64,6 +64,7 @@ def _public_progress_scrub(text: str) -> str:
     normalized = normalized.replace("image_generation_failed", "生图失败")
     normalized = normalized.replace("agent_auto_retry_allowed", "自动重试")
     normalized = normalized.replace("agent_retry_policy", "重试策略")
+    normalized = normalized.replace("bounded_retry_with_backoff", "有限退避重试")
     normalized = normalized.replace("do_not_auto_retry", "不自动重试")
     normalized = re.sub(r"\s+([，。；：、])", r"\1", normalized)
     normalized = re.sub(r"([（(])\s+", r"\1", normalized)
@@ -85,11 +86,11 @@ def public_runtime_progress_title(*, step: Any = "", status: Any = "", fallback:
     if step_text.startswith(("runtime_invocation_packet", "task_execution_packet_compiled")):
         return "整理上下文"
     if step_text.startswith(("model_action_waiting", "task_model_action_waiting")):
-        return "等待结果"
+        return "等待模型输出"
     if step_text.startswith(("model_action_invocation_started", "model_action_received", "task_model_action_invocation_started")):
-        return "确认下一步"
+        return "正在思考"
     if step_text.startswith(("task_tool_", "tool_", "executor_observation", "bounded_observation")):
-        return "执行操作"
+        return "等待工具返回"
     if step_text.startswith(("task_completion_repair", "model_action_protocol_repair", "verification")):
         return "补齐证据"
     if step_text.endswith("completed") or status_text == "completed":

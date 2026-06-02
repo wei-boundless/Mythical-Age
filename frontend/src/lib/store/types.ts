@@ -22,6 +22,7 @@ export type {
   RuntimeProgressPresentation,
   RuntimeProgressTechnicalTrace,
   RuntimeProgressWorkUnit,
+  PublicChatTimelineItem,
 } from "@/lib/api";
 
 export type Message = {

@@ -43,7 +43,7 @@ const INTERNAL_RUNTIME_STEP_SUMMARIES = new Set([
 const ORCHESTRATION_NODES: Array<{ id: string; label: string; description: string }> = [
   { id: "input", label: "用户输入", description: "接收本轮用户请求，并绑定当前会话。" },
   { id: "runtime", label: "运行时装配", description: "装配当前 agent、环境、权限、工具和上下文边界。" },
-  { id: "agent-turn", label: "Agent 判断", description: "由 agent 判断本轮是直接回复、启动任务，还是控制当前工作。" },
+  { id: "agent-turn", label: "模型行动", description: "模型输出回复或发起结构化行动请求。" },
   { id: "task-lifecycle", label: "任务生命周期", description: "需要长任务时创建合同、待办、验收要求和执行记录。" },
   { id: "context", label: "上下文压缩", description: "整理历史窗口和上下文压力。" },
   { id: "memory", label: "记忆与状态", description: "读取当前会话、任务状态、观察记录和必要记忆。" },
@@ -170,7 +170,7 @@ function activityDetailForEvent(event: string, data: Record<string, unknown>) {
     return "自动重连次数已用尽，后台运行可在监控中查看。";
   }
   if (event === "active_task_steer_accepted") {
-    return stringValue(data.summary) || "你的补充要求已纳入当前任务。";
+    return stringValue(data.summary) || "已收到你的补充要求。";
   }
   if (event === "done") {
     if (stringValue(data.completion_state) === "task_steer_accepted") {
@@ -241,7 +241,7 @@ function userReceiptForEvent(event: string, data: Record<string, unknown>): User
     const taskSteerAccepted = stringValue(data.completion_state) === "task_steer_accepted";
     return {
       level: partialTimeout ? "warning" : "success",
-      title: taskSteerAccepted ? "已纳入当前任务" : partialTimeout ? "已生成部分内容" : paths.length ? `已更新 ${paths.length} 个文件` : "已处理 1 个命令",
+      title: taskSteerAccepted ? "已收到补充要求" : partialTimeout ? "已生成部分内容" : paths.length ? `已更新 ${paths.length} 个文件` : "已处理 1 个命令",
       body: taskSteerAccepted
         ? body && !isMachineReference(body) ? body : "当前任务会在后续步骤中处理这次输入。"
         : partialTimeout ? "模型结束信号超时，当前内容已保留。" : body && !isMachineReference(body) ? body : "结果已写回会话。",
@@ -320,7 +320,7 @@ function stageStatusForRuntimeEvent(eventType: string) {
     return "整理上下文";
   }
   if (eventType === "runtime_directive_issued" || eventType === "operation_gate_checked") {
-    return "准备执行";
+    return "权限已检查";
   }
   if (eventType === "executor_started" || eventType === "executor_observation_received") {
     return "生成回答";
@@ -479,7 +479,7 @@ function eventSummary(event: string, data: Record<string, unknown>) {
   if (event === "done") {
     if (stringValue(data.completion_state) === "task_steer_accepted") {
       const summary = stringValue(data.summary ?? data.message);
-      return summary && !isMachineReference(summary) ? summary.slice(0, 220) : "已纳入当前任务";
+      return summary && !isMachineReference(summary) ? summary.slice(0, 220) : "已收到补充要求";
     }
     const summary = stringValue(data.receipt_summary ?? data.summary ?? data.message ?? data.content);
     return summary && !isMachineReference(summary) ? summary.slice(0, 220) : "完成输出";
@@ -508,7 +508,7 @@ function eventSummary(event: string, data: Record<string, unknown>) {
 function publicStreamEventLabel(event: string) {
   const map: Record<string, string> = {
     answer_candidate: "正在整理回答",
-    active_task_steer_accepted: "已纳入当前任务",
+    active_task_steer_accepted: "已收到补充要求",
     behavior_trace: "处理路径已检查",
     content_delta: "正在生成回答",
     context_management: "上下文已整理",
@@ -933,11 +933,11 @@ export function reduceStreamEvent(
     return {
       state: patchAssistant(stateWithOrchestration, session.assistantId, (message) =>
         message.content
-          ? { ...message, stageStatus: taskSteerAccepted ? "已纳入当前任务" : partialTimeout ? "部分完成" : "完成", image: (data.image as Message["image"]) ?? message.image ?? null }
+          ? { ...message, stageStatus: taskSteerAccepted ? "已收到补充要求" : partialTimeout ? "部分完成" : "完成", image: (data.image as Message["image"]) ?? message.image ?? null }
           : {
               ...message,
               content: taskSteerAccepted ? "" : String(data.content ?? ""),
-              stageStatus: taskSteerAccepted ? "已纳入当前任务" : partialTimeout ? "部分完成" : "完成",
+              stageStatus: taskSteerAccepted ? "已收到补充要求" : partialTimeout ? "部分完成" : "完成",
               image: (data.image as Message["image"]) ?? message.image ?? null
             }
       ),
@@ -962,7 +962,7 @@ export function reduceStreamEvent(
     return {
       state: patchAssistant(stateWithOrchestration, session.assistantId, (message) => ({
         ...message,
-        stageStatus: "已纳入当前任务",
+        stageStatus: "已收到补充要求",
       })),
       session
     };

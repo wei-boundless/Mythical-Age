@@ -5,6 +5,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from api.deps import require_runtime
 from api.session_summary import enrich_session_summaries, enrich_session_summary
+from sessions import SessionTaskBindingConflict, SessionTaskBindingMissing
 from agent_system.registry.agent_registry import AgentRegistry
 from agent_system.profiles.runtime_profile_registry import AgentRuntimeRegistry
 from harness.graph.scheduler_view import build_scheduler_view
@@ -1544,6 +1545,12 @@ async def resolve_task_environment_session(
         if not graph_run_payload:
             raise HTTPException(status_code=404, detail="GraphRun not found")
         graph_session_id = str(graph_run_payload.get("session_id") or "")
+        if not graph_session_id:
+            raise HTTPException(status_code=409, detail="GraphRun is not bound to a session")
+        try:
+            runtime.session_manager.assert_session_graph_instance(graph_session_id, graph_run_id)
+        except (SessionTaskBindingConflict, SessionTaskBindingMissing, ValueError) as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
         history = runtime.session_manager.get_history(graph_session_id)
         if not session_scope_matches(history.get("scope"), scope):
             raise HTTPException(status_code=409, detail="GraphRun session scope mismatch")
@@ -1560,6 +1567,12 @@ async def resolve_task_environment_session(
         history = runtime.session_manager.get_history(preferred_session_id)
         if not session_scope_matches(history.get("scope"), scope):
             raise HTTPException(status_code=409, detail="Preferred session scope mismatch")
+        preferred_graph_run_id = str(payload.graph_run_id or "").strip()
+        if preferred_graph_run_id:
+            try:
+                runtime.session_manager.assert_session_graph_instance(preferred_session_id, preferred_graph_run_id)
+            except (SessionTaskBindingConflict, SessionTaskBindingMissing, ValueError) as exc:
+                raise HTTPException(status_code=409, detail=str(exc)) from exc
         return {
             "authority": "task_environment.session_resolver",
             "scope": scope.to_dict(),

@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 from app import app
 from bootstrap.app_runtime import app_runtime
 from capability_system.mcp.client import ExternalMCPConfigStore, ExternalMCPManager
+from capability_system.mcp.client.permission import check_external_mcp_tool_permission
 from capability_system.mcp.client.models import ExternalMCPServerConfig
 from capability_system.mcp.server.tool_pool import build_mcp_tool_pool
 
@@ -25,6 +26,17 @@ def _fake_server_config(backend_dir: Path) -> ExternalMCPServerConfig:
         cwd=str(backend_dir),
         scope="project",
         tags=("test", "external"),
+        allowed_operations=("op.external_mcp.external_demo.external_echo",),
+    )
+
+
+def _unauthorized_fake_server_config(backend_dir: Path) -> ExternalMCPServerConfig:
+    config = _fake_server_config(backend_dir)
+    return ExternalMCPServerConfig(
+        **{
+            **config.to_dict(),
+            "allowed_operations": [],
+        }
     )
 
 
@@ -72,6 +84,44 @@ def test_external_mcp_tool_call_and_tool_pool() -> None:
             assert "mcp__external_demo__external_echo" in names
     finally:
         _clear_external_demo(backend_dir)
+
+
+def test_external_mcp_requires_explicit_operation_authorization() -> None:
+    backend_dir = Path(__file__).resolve().parents[1]
+    server = _unauthorized_fake_server_config(backend_dir)
+    permission = check_external_mcp_tool_permission(
+        server=server,
+        tool={
+            "name": "external_echo",
+            "description": "Echo one message.",
+            "annotations": {"readOnlyHint": True, "destructiveHint": False, "openWorldHint": False},
+        },
+        permission_mode="default",
+        tool_input={"message": "hello"},
+    )
+
+    assert permission["authorized"] is False
+    assert permission["gate"]["decision"] == "deny"
+    assert permission["gate"]["pipeline_stage"] == "allow_rule"
+
+
+def test_external_mcp_missing_readonly_hint_defaults_to_approval_required() -> None:
+    backend_dir = Path(__file__).resolve().parents[1]
+    server = _fake_server_config(backend_dir)
+    permission = check_external_mcp_tool_permission(
+        server=server,
+        tool={
+            "name": "external_echo",
+            "description": "Echo one message.",
+            "annotations": {},
+        },
+        permission_mode="default",
+        tool_input={"message": "hello"},
+    )
+
+    assert permission["authorized"] is False
+    assert permission["operation"]["read_only"] is False
+    assert permission["operation"]["destructive"] is True
 
 
 def test_external_mcp_api_catalog_and_tool_call() -> None:

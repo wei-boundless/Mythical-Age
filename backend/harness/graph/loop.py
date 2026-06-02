@@ -285,6 +285,27 @@ class GraphLoop:
             edge_states = {key: dict(value) for key, value in next_state.edge_states.items()}
             result_index = {key: dict(value) for key, value in next_state.result_index.items()}
             active_work_orders = dict(next_state.active_work_orders)
+        revision_route_decision: dict[str, Any] = {}
+        revision_targets = _ready_rejected_revision_targets(graph_config=graph_config, state=next_state)
+        if revision_targets:
+            reset_node_ids = _revision_reset_node_ids(graph_config=graph_config, start_node_ids=revision_targets)
+            next_state = _state_after_revision_requeue(
+                graph_config=graph_config,
+                state=next_state,
+                targets=revision_targets,
+                reset_node_ids=reset_node_ids,
+            )
+            node_states = {key: dict(value) for key, value in next_state.node_states.items()}
+            edge_states = {key: dict(value) for key, value in next_state.edge_states.items()}
+            result_index = {key: dict(value) for key, value in next_state.result_index.items()}
+            active_work_orders = dict(next_state.active_work_orders)
+            revision_route_decision = {
+                "authority": "harness.graph.revision_route_decision",
+                "action": "request_revision",
+                "source_node_id": envelope.node_id,
+                "revision_target_node_ids": list(revision_targets),
+                "reset_node_ids": list(reset_node_ids),
+            }
         status_snapshot = self._state_machine.status_snapshot(
             graph_config=graph_config,
             node_states=node_states,
@@ -322,6 +343,7 @@ class GraphLoop:
                     "graph_run_id": next_state.graph_run_id,
                     "node_result": _node_result_summary(envelope, result_ref=result_ref),
                     "loop_route_decision": route_decision,
+                    "revision_route_decision": revision_route_decision,
                     "graph_loop_state": _loop_state_summary(next_state),
                     "node_work_orders": [_work_order_summary(item) for item in work_orders],
                     "graph_result": _graph_result_summary(graph_result),
@@ -488,59 +510,11 @@ class GraphLoop:
                 checkpoint=checkpoint.to_dict() if checkpoint is not None else {},
             )
         reset_node_ids = _revision_reset_node_ids(graph_config=graph_config, start_node_ids=targets)
-        node_states = {key: dict(value) for key, value in state.node_states.items()}
-        edge_states = {key: dict(value) for key, value in state.edge_states.items()}
-        result_index = {key: dict(value) for key, value in state.result_index.items()}
-        active_work_orders = dict(state.active_work_orders)
-        now = time.time()
-        for node_id in reset_node_ids:
-            node = dict(node_states.get(node_id) or {})
-            if not node:
-                continue
-            node["status"] = "ready" if node_id in targets else "pending"
-            node["updated_at"] = now
-            for key in ("blocked_reason", "result_ref", "work_order_id"):
-                node.pop(key, None)
-            node_states[node_id] = node
-            result_index.pop(node_id, None)
-            active_work_orders.pop(node_id, None)
-        for edge in graph_config.edges:
-            edge_id = str(edge.get("edge_id") or "")
-            source = str(edge.get("source_node_id") or "")
-            target = str(edge.get("target_node_id") or "")
-            if not edge_id or source not in reset_node_ids:
-                continue
-            edge_state = dict(edge_states.get(edge_id) or {})
-            edge_state.update(
-                {
-                    "edge_id": edge_id,
-                    "source_node_id": source,
-                    "target_node_id": target,
-                    "status": "pending",
-                    "updated_at": now,
-                }
-            )
-            for key in (
-                "source_result_ref",
-                "handoff_packet_id",
-                "packet_refs",
-                "latest_packet_id",
-                "latest_packet_ref",
-                "latest_packet",
-            ):
-                edge_state.pop(key, None)
-            edge_states[edge_id] = edge_state
-        next_state = _replace_state(
-            state,
-            status="running",
-            node_states=node_states,
-            edge_states=edge_states,
-            result_index=result_index,
-            active_work_orders=active_work_orders,
-            ready_node_ids=targets,
-            running_node_ids=(),
-            blocked_node_ids=(),
-            terminal_reason="",
+        next_state = _state_after_revision_requeue(
+            graph_config=graph_config,
+            state=state,
+            targets=targets,
+            reset_node_ids=reset_node_ids,
         )
         next_state = _advance_event_cursor(next_state)
         checkpoint = self._write_state(next_state)
@@ -1507,6 +1481,71 @@ def _revision_reset_node_ids(
         if node_id not in seen:
             ordered.append(node_id)
     return tuple(ordered)
+
+
+def _state_after_revision_requeue(
+    *,
+    graph_config: GraphHarnessConfig,
+    state: GraphLoopState,
+    targets: tuple[str, ...],
+    reset_node_ids: tuple[str, ...],
+) -> GraphLoopState:
+    node_states = {key: dict(value) for key, value in state.node_states.items()}
+    edge_states = {key: dict(value) for key, value in state.edge_states.items()}
+    result_index = {key: dict(value) for key, value in state.result_index.items()}
+    active_work_orders = dict(state.active_work_orders)
+    target_set = set(targets)
+    reset_set = set(reset_node_ids)
+    now = time.time()
+    for node_id in reset_node_ids:
+        node = dict(node_states.get(node_id) or {})
+        if not node:
+            continue
+        node["status"] = "ready" if node_id in target_set else "pending"
+        node["updated_at"] = now
+        for key in ("blocked_reason", "result_ref", "work_order_id", "human_gate"):
+            node.pop(key, None)
+        node_states[node_id] = node
+        result_index.pop(node_id, None)
+        active_work_orders.pop(node_id, None)
+    for edge in graph_config.edges:
+        edge_id = str(edge.get("edge_id") or "")
+        source = str(edge.get("source_node_id") or "")
+        target = str(edge.get("target_node_id") or "")
+        if not edge_id or (source not in reset_set and target not in reset_set):
+            continue
+        edge_state = dict(edge_states.get(edge_id) or {})
+        edge_state.update(
+            {
+                "edge_id": edge_id,
+                "source_node_id": source,
+                "target_node_id": target,
+                "status": "pending",
+                "updated_at": now,
+            }
+        )
+        for key in (
+            "source_result_ref",
+            "handoff_packet_id",
+            "packet_refs",
+            "latest_packet_id",
+            "latest_packet_ref",
+            "latest_packet",
+        ):
+            edge_state.pop(key, None)
+        edge_states[edge_id] = edge_state
+    return _replace_state(
+        state,
+        status="running",
+        node_states=node_states,
+        edge_states=edge_states,
+        result_index=result_index,
+        active_work_orders=active_work_orders,
+        ready_node_ids=targets,
+        running_node_ids=(),
+        blocked_node_ids=(),
+        terminal_reason="",
+    )
 
 
 def _state_with_work_orders(

@@ -268,6 +268,40 @@ def test_stable_prefix_allows_runtime_field_names_inside_protocol_schema() -> No
     assert plan.segments[0].prefix_tier == "task"
 
 
+def test_session_prefix_allows_task_field_names_inside_tool_schema_summary() -> None:
+    plan = build_prompt_segment_plan(
+        packet_id="packet:tool-schema-session",
+        invocation_kind="single_agent_turn",
+        message_specs=[
+            {
+                "role": "system",
+                "content": "Stable\n"
+                + json.dumps(
+                    {
+                        "available_tools": [
+                            {
+                                "tool_name": "image_generate",
+                                "input_schema_summary": {
+                                    "properties": {"task_id": "string", "prompt": "string"},
+                                    "required": ["task_id", "prompt"],
+                                },
+                            }
+                        ],
+                    },
+                    ensure_ascii=False,
+                ),
+                "kind": "turn_stable",
+                "cache_scope": "session",
+                "cache_role": "session_stable",
+                "prefix_tier": "session",
+                "compression_role": "preserve",
+            }
+        ],
+    )
+
+    assert plan.segments[0].prefix_tier == "session"
+
+
 def test_provider_global_prefix_rejects_task_semantic_fields() -> None:
     with pytest.raises(ValueError, match="task semantic fields"):
         build_prompt_segment_plan(

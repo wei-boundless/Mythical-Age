@@ -81,8 +81,6 @@ class RuntimeMonitorProjector:
         summary = public_runtime_progress_summary(
             latest_step.get("public_progress_note")
             or latest_step.get("summary")
-            or latest_step.get("next_action")
-            or latest_step.get("current_judgment")
             or diagnostics.get("public_progress_note")
             or diagnostics.get("latest_public_progress_note")
             or diagnostics.get("latest_step_summary")

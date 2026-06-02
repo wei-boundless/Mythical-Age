@@ -19,7 +19,7 @@ def test_graph_task_delete_removes_run_scoped_memory_artifacts_and_runtime_state
         session_id="session-delete",
         task_id="task.test.delete",
         graph_config=graph_config,
-        initial_inputs={},
+        initial_inputs={"project_id": "project-test-delete"},
         dispatch_ready=False,
     )
     graph_run_id = started.graph_run.graph_run_id
@@ -83,7 +83,8 @@ def test_graph_task_delete_removes_run_scoped_memory_artifacts_and_runtime_state
     assert result["root_task_run_id"] == task_run_id
     assert services.state_index.get_task_run(task_run_id) is None
     assert runtime.harness_runtime.graph_harness.get_graph_run(graph_run_id) is None
-    assert not artifact_dir.exists()
+    assert artifact_dir.exists()
+    assert (artifact_dir / "draft.md").exists()
     assert services.formal_memory_service.store.list_repositories() == ()
     assert services.artifact_repository_service.store.list_artifacts(graph_run_id=graph_run_id) == ()
     assert services.event_log.list_events(task_run_id) == []

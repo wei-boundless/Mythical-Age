@@ -291,6 +291,25 @@ class RuntimeExecutionStore:
             "latest_execution_id": records[-1].execution_id if records else "",
         }
 
+    def prune_task_runs(self, task_run_ids: set[str] | list[str] | tuple[str, ...]) -> dict[str, Any]:
+        targets = {str(item).strip() for item in task_run_ids if str(item).strip()}
+        deleted: list[str] = []
+        for task_run_id in sorted(targets):
+            path = self._payload_path(task_run_id)
+            if not path.exists():
+                continue
+            try:
+                path.unlink()
+            except OSError:
+                continue
+            deleted.append(task_run_id)
+        return {
+            "authority": "orchestration.execution_store.prune_task_runs",
+            "requested_task_run_ids": sorted(targets),
+            "deleted_task_run_ids": deleted,
+            "deleted_count": len(deleted),
+        }
+
     def _payload_path(self, task_run_id: str) -> Path:
         return self.execution_dir / f"{_safe_id(task_run_id)}.json"
 

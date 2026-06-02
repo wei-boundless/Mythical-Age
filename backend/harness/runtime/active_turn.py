@@ -98,6 +98,14 @@ class ActiveTurnRegistry:
         record = _record_from_payload(payload)
         if record is None or record.state == "terminal":
             return None
+        if not self._owned_by_current_runtime_instance(record):
+            self._update(
+                record,
+                state="terminal",
+                steerable=False,
+                terminal_reason="runtime_instance_restarted",
+            )
+            return None
         return record
 
     def resolve_current(self, session_id: str) -> ActiveTurnRecord | None:
@@ -192,6 +200,48 @@ class ActiveTurnRegistry:
         if not expected_task_run_id or record.bound_task_run_id != expected_task_run_id:
             return record
         return self._update(record, state="terminal", steerable=False, terminal_reason=str(terminal_reason or "completed"))
+
+    def clear_session(self, session_id: str, *, reason: str = "session_deleted") -> dict[str, Any]:
+        normalized = str(session_id or "").strip()
+        if not normalized:
+            return {
+                "authority": "harness.runtime.active_turn.clear_session",
+                "session_id": "",
+                "deleted": False,
+                "pending_input_refs_deleted": [],
+            }
+        payload = self._read_session_payload(normalized)
+        pending_refs = [
+            str(item)
+            for item in list(payload.get("pending_input_refs") or [])
+            if str(item)
+        ]
+        deleted_pending: list[str] = []
+        for ref in pending_refs:
+            try:
+                if self.runtime_host.runtime_objects.delete_ref(ref):
+                    deleted_pending.append(ref)
+            except Exception:
+                continue
+        ref = f"rtobj:{self.object_kind}:{self._session_object_id(normalized)}"
+        deleted = False
+        if payload:
+            try:
+                terminal = _record_from_payload(payload)
+                if terminal is not None:
+                    self._update(terminal, state="terminal", steerable=False, terminal_reason=str(reason or "session_deleted"))
+            except Exception:
+                pass
+            try:
+                deleted = self.runtime_host.runtime_objects.delete_ref(ref)
+            except Exception:
+                deleted = False
+        return {
+            "authority": "harness.runtime.active_turn.clear_session",
+            "session_id": normalized,
+            "deleted": deleted,
+            "pending_input_refs_deleted": deleted_pending,
+        }
 
     def steer(
         self,
@@ -297,6 +347,12 @@ class ActiveTurnRegistry:
             return dict(self.runtime_host.runtime_objects.get_object(ref) or {})
         except Exception:
             return {}
+
+    def _owned_by_current_runtime_instance(self, record: ActiveTurnRecord) -> bool:
+        current_instance_id = str(getattr(self.runtime_host, "instance_id", "") or "").strip()
+        if not current_instance_id:
+            return True
+        return str(record.owner_instance_id or "").strip() == current_instance_id
 
     @staticmethod
     def _session_object_id(session_id: str) -> str:

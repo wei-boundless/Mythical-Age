@@ -21,7 +21,21 @@ export type SessionSummary = {
   updated_at: number;
   message_count: number;
   scope?: SessionScope;
+  task_binding?: SessionTaskBinding;
   active_task?: SessionTaskSummary;
+};
+
+export type SessionTaskBinding = {
+  kind: "task_graph" | string;
+  graph_run_id: string;
+  task_run_id?: string;
+  graph_id?: string;
+  graph_harness_config_id?: string;
+  task_environment_id?: string;
+  project_id?: string;
+  session_scope?: SessionScope;
+  bound_at?: number;
+  updated_at?: number;
 };
 
 export type SessionScope = {
@@ -74,7 +88,11 @@ export type SessionHistory = {
   updated_at: number;
   compressed_context?: string;
   scope?: SessionScope;
+  task_binding?: SessionTaskBinding;
   messages: Array<{
+    id?: string;
+    message_id?: string;
+    turn_id?: string;
     role: "user" | "assistant";
     content: string;
     tool_calls?: ToolCall[];
@@ -135,6 +153,21 @@ export type RuntimeProgressPresentation = {
   authority?: string;
 };
 
+export type PublicChatTimelineItem = {
+  item_id?: string;
+  kind: "assistant_text" | "tool_activity" | "artifact" | "verification" | "blocked" | "final_summary" | string;
+  title?: string;
+  detail?: string;
+  text?: string;
+  recovery_hint?: string;
+  href?: string;
+  path?: string;
+  state?: "running" | "done" | "error" | "ready" | "missing" | "passed" | "failed" | "partial" | string;
+  stream_state?: "streaming" | "done" | string;
+  trace_refs?: string[];
+  artifacts?: Array<Record<string, unknown>>;
+};
+
 export type TaskEnvironmentSessionResolvePayload = {
   workspace_view?: string;
   project_id?: string;
@@ -158,6 +191,8 @@ export type SessionRuntimeAttachment = {
   attachment_id: string;
   run_id: string;
   anchor_turn_id: string;
+  anchor_message_id?: string;
+  anchor_role?: "assistant" | string;
   task_run_id?: string;
   task_id?: string;
   status: string;
@@ -174,9 +209,11 @@ export type SessionRuntimeAttachment = {
   event_count?: number;
   progress_presentation?: RuntimeProgressPresentation;
   progress_entries?: Array<Record<string, unknown>>;
+  public_timeline?: PublicChatTimelineItem[];
   artifact_refs?: Array<Record<string, unknown>>;
   final_answer?: string;
   trace_available?: boolean;
+  debug_trace_ref?: string;
   created_at?: number;
   updated_at?: number;
 };
@@ -4005,7 +4042,7 @@ export async function getProjectRuntimeStatus(projectId: string) {
 export async function startTaskGraphHarnessRun(
   graphId: string,
   payload: {
-    session_id?: string;
+    session_id: string;
     task_id?: string;
     session_scope?: Partial<SessionScope>;
     initial_inputs?: Record<string, unknown>;
@@ -4052,11 +4089,19 @@ export async function runGraphRunUntilIdle(
   );
 }
 
-export async function getGraphRunMonitor(graphRunId: string, graphHarnessConfigId = "", eventLimit = 80) {
+export async function getGraphRunMonitor(
+  graphRunId: string,
+  graphHarnessConfigId = "",
+  eventLimit = 80,
+  sessionScope?: Partial<SessionScope>,
+) {
   const params = new URLSearchParams();
   if (graphHarnessConfigId) {
     params.set("graph_harness_config_id", graphHarnessConfigId);
   }
+  if (sessionScope?.workspace_view) params.set("workspace_view", sessionScope.workspace_view);
+  if (sessionScope?.task_environment_id) params.set("task_environment_id", sessionScope.task_environment_id);
+  if (sessionScope?.project_id) params.set("project_id", sessionScope.project_id);
   params.set("event_limit", String(Math.max(1, Math.min(Number(eventLimit || 80), 240))));
   return request<GraphRunMonitorView>(
     `/orchestration/harness/graph-runs/${encodeURIComponent(graphRunId)}/monitor?${params.toString()}`

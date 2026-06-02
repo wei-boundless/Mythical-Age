@@ -185,6 +185,7 @@ class HarnessRuntimeFacade:
         }
         turn_index = len(history_record.get("messages", [])) + 1
         turn_id = f"turn:{request.session_id}:{turn_index}"
+        started_active_turn_id = ""
         try:
             active_turn = self.single_agent_runtime_host.active_turn_registry.resolve_current(request.session_id)
             if active_turn is not None:
@@ -238,6 +239,7 @@ class HarnessRuntimeFacade:
                 stream_run_id=str(dict(getattr(request, "runtime_profile", {}) or {}).get("stream_run_id") or ""),
                 state="starting",
             )
+            started_active_turn_id = turn_id
             with start_turn_trace(
                 session_id=request.session_id,
                 user_message=request.message,
@@ -295,6 +297,8 @@ class HarnessRuntimeFacade:
 
                 runtime_branch = _runtime_branch_projection(runtime_assembly=runtime_assembly)
                 active_work_context = self._active_work_context_from_active_turn(request.session_id)
+                if active_work_context is None:
+                    active_work_context = self._resumable_work_context_from_latest_task(request.session_id)
                 if active_work_context is None:
                     recent_work_outcome = self._recent_work_outcome_from_latest_task(request.session_id)
                     if recent_work_outcome:
@@ -356,6 +360,13 @@ class HarnessRuntimeFacade:
             if isinstance(exc, ModelRuntimeError):
                 error_payload["code"] = exc.code
             yield error_payload
+        finally:
+            if started_active_turn_id:
+                self._release_transient_active_turn(
+                    session_id=request.session_id,
+                    turn_id=started_active_turn_id,
+                    terminal_reason="turn_stream_closed",
+                )
 
     async def _run_single_agent_turn(
         self,
@@ -507,6 +518,46 @@ class HarnessRuntimeFacade:
         task_run = self.single_agent_runtime_host.state_index.get_task_run(active_turn.bound_task_run_id)
         if task_run is None:
             return None
+        status = str(getattr(task_run, "status", "") or "")
+        if status in {"completed", "success", "failed", "aborted", "cancelled", "error"}:
+            return None
+        if str(getattr(task_run, "execution_runtime_kind", "") or "") != "single_agent_task":
+            return None
+        return self._active_work_context_from_task_run(
+            session_id=session_id,
+            task_run=task_run,
+            active_work_id=active_turn.turn_id,
+            authority="harness.runtime.active_turn_context",
+        )
+
+    def _resumable_work_context_from_latest_task(self, session_id: str) -> ActiveWorkContext | None:
+        task_runs = [
+            item
+            for item in list(self.single_agent_runtime_host.state_index.list_session_task_runs(session_id) or [])
+            if str(getattr(item, "execution_runtime_kind", "") or "") == "single_agent_task"
+        ]
+        if not task_runs:
+            return None
+        formal = [item for item in task_runs if _looks_like_chat_task_run(item)]
+        candidates = formal or task_runs
+        latest = sorted(candidates, key=lambda item: float(getattr(item, "updated_at", 0.0) or 0.0), reverse=True)[0]
+        if not _latest_task_is_resumable_executor_context(latest):
+            return None
+        return self._active_work_context_from_task_run(
+            session_id=session_id,
+            task_run=latest,
+            active_work_id=f"resumable:{getattr(latest, 'task_run_id', '')}",
+            authority="harness.runtime.resumable_task_context",
+        )
+
+    def _active_work_context_from_task_run(
+        self,
+        *,
+        session_id: str,
+        task_run: Any,
+        active_work_id: str,
+        authority: str,
+    ) -> ActiveWorkContext | None:
         diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
         status = str(getattr(task_run, "status", "") or "")
         if status in {"completed", "success", "failed", "aborted", "cancelled", "error"}:
@@ -534,8 +585,8 @@ class HarnessRuntimeFacade:
         ).strip()
         return ActiveWorkContext(
             session_id=session_id,
-            active_work_id=active_turn.turn_id,
-            task_run_id=active_turn.bound_task_run_id,
+            active_work_id=active_work_id,
+            task_run_id=str(getattr(task_run, "task_run_id", "") or ""),
             status=status,
             control_state=control_state,
             user_visible_goal=goal,
@@ -552,8 +603,36 @@ class HarnessRuntimeFacade:
             execution_runtime_kind=str(getattr(task_run, "execution_runtime_kind", "") or ""),
             continuation_kind=continuation_kind,
             same_run_allowed=same_run_allowed,
-            authority="harness.runtime.active_turn_context",
+            authority=authority,
         )
+
+    def _release_transient_active_turn(self, *, session_id: str, turn_id: str, terminal_reason: str) -> None:
+        record = self.single_agent_runtime_host.active_turn_registry.snapshot(session_id)
+        if record is None or record.turn_id != turn_id:
+            return
+        if record.bound_task_run_id:
+            task_run = self.single_agent_runtime_host.state_index.get_task_run(record.bound_task_run_id)
+            task_status = str(getattr(task_run, "status", "") or "").strip()
+            if task_run is not None and task_status not in {
+                "completed",
+                "success",
+                "failed",
+                "aborted",
+                "cancelled",
+                "canceled",
+                "error",
+                "stopped",
+                "user_aborted",
+            }:
+                return
+        try:
+            self.single_agent_runtime_host.active_turn_registry.complete(
+                session_id=session_id,
+                expected_turn_id=turn_id,
+                terminal_reason=terminal_reason,
+            )
+        except Exception:
+            logger.debug("failed to release transient active turn", exc_info=True)
 
     def _recent_work_outcome_from_latest_task(self, session_id: str) -> dict[str, Any]:
         """Return a read-only status fact for the latest non-active formal task.
@@ -1273,7 +1352,7 @@ def _active_work_schedule_failure_reply(result: dict[str, Any]) -> str:
     reason = str(result.get("reason") or result.get("error") or "unknown").strip()
     if not reason:
         reason = "unknown"
-    return f"我已重新判断当前工作，但恢复调度没有成功：{reason}。我会保留当前断点，下一步需要先修复这个运行问题再继续。"
+    return f"当前工作恢复调度没有成功：{reason}。断点已保留；需要先修复这个运行问题，再由 agent 在新的模型轮次中继续处理。"
 
 
 def _permission_mode_provider(*, permission_service: Any | None, settings_service: Any | None):
@@ -1731,6 +1810,29 @@ def _looks_like_chat_task_run(task_run: Any) -> bool:
     task_run_id = str(getattr(task_run, "task_run_id", "") or "")
     task_id = str(getattr(task_run, "task_id", "") or "")
     return task_run_id.startswith("taskrun:turn:") or task_id.startswith("task:turn:")
+
+
+def _latest_task_is_resumable_executor_context(task_run: Any) -> bool:
+    status = str(getattr(task_run, "status", "") or "").strip()
+    if status in {"completed", "success", "failed", "error", "aborted", "cancelled", "canceled", "stopped", "user_aborted"}:
+        return False
+    diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
+    control = diagnostics.get("runtime_control") if isinstance(diagnostics.get("runtime_control"), dict) else {}
+    control_state = str(dict(control or {}).get("state") or "").strip()
+    if control_state in {"stop_requested", "stopped"}:
+        return False
+    if status == "waiting_executor":
+        return True
+    recovery_action = str(diagnostics.get("recovery_action") or "").strip()
+    executor_status = str(diagnostics.get("executor_status") or "").strip()
+    recoverable = diagnostics.get("recoverable_error")
+    return (
+        recovery_action == "rerun_task_executor"
+        and executor_status in {"", "waiting_executor"}
+        and isinstance(recoverable, dict)
+        and bool(recoverable.get("retryable") is not False)
+        and status in {"created", "running", "blocked", "waiting_executor"}
+    )
 
 
 def _recent_work_outcome_status(*, status: str, terminal_reason: str) -> bool:

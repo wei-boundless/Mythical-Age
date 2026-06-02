@@ -2,7 +2,6 @@ import type { TaskGraphRecord, TaskSystemOverview } from "@/lib/api";
 import { recommendedTaskGraphId, sortTaskGraphsForWorkbench } from "../task-system/taskGraphSelection";
 
 export type CenterWorkspaceLayer = "chat" | "task-graph";
-const FALLBACK_TASK_GRAPH_SESSION_ID = "task_graph_studio";
 
 function text(value: unknown, fallback = "") {
   const next = String(value ?? "").trim();
@@ -57,11 +56,6 @@ export function resolveCenterWorkspaceSelectedGraphId(overview: TaskSystemOvervi
     return current;
   }
   return recommendedTaskGraphId(graphs);
-}
-
-export function centerWorkspaceTaskGraphSessionId(sessionId: string | null | undefined) {
-  const normalized = text(sessionId).replace(/[^A-Za-z0-9_-]+/g, "_").slice(0, 80);
-  return normalized || FALLBACK_TASK_GRAPH_SESSION_ID;
 }
 
 export function buildCenterWorkspaceTaskGraphInitialInputs(message: string, graph: TaskGraphRecord | null | undefined) {

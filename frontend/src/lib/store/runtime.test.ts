@@ -1105,7 +1105,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
             status: "running",
             created_at: 1,
           },
-          latest_step_summary: "系统已为当前任务步骤装配 runtime packet，并交给 agent 判断下一步。",
+          latest_step_summary: "正在整理上下文，准备继续处理。",
           latest_event: { event_type: "step_summary_recorded" },
           updated_at: 1,
           task_run: {
@@ -2453,7 +2453,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
 
     const assistant = transition.state.messages.at(-1);
     expect(assistant?.runtimeProgress?.map((entry) => entry.title)).toEqual([
-      "已确认目标",
+      "处理已开始",
       "处理清单已建立",
       "继续在后台处理",
     ]);
@@ -2534,7 +2534,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     });
 
     const assistant = transition.state.messages.at(-1);
-    expect(assistant?.stageStatus).toBe("准备执行");
+    expect(assistant?.stageStatus).toBe("权限已检查");
     expect(assistant?.runtimeProgress).toEqual([]);
   });
 

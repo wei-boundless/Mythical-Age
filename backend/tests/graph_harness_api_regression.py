@@ -5,6 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from fastapi import HTTPException
 
 from api import orchestration as orchestration_api
 from harness import AgentRuntimeServices, GraphHarness
@@ -232,12 +233,20 @@ def test_task_graph_start_api_returns_node_work_order_for_published_config(tmp_p
     original = orchestration_api.require_runtime
     orchestration_api.require_runtime = lambda: runtime  # type: ignore[assignment]
     try:
+        request = _graph_start_request(runtime, execute_initial_stage=False)
         payload = asyncio.run(
             orchestration_api.start_task_graph_harness_run(
                 graph.graph_id,
-                _graph_start_request(runtime, execute_initial_stage=False),
+                request,
             )
         )
+        with pytest.raises(HTTPException) as conflict:
+            asyncio.run(
+                orchestration_api.start_task_graph_harness_run(
+                    graph.graph_id,
+                    request,
+                )
+            )
     finally:
         orchestration_api.require_runtime = original  # type: ignore[assignment]
 
@@ -247,6 +256,8 @@ def test_task_graph_start_api_returns_node_work_order_for_published_config(tmp_p
     assert payload["node_work_orders"][0]["node_id"] == "produce"
     assert payload["node_work_orders"][0]["work_kind"] == "agent"
     assert payload["graph_run"]["graph_id"] == graph.graph_id
+    assert runtime.session_manager.get_task_binding(request.session_id)["graph_run_id"] == payload["graph_run_id"]
+    assert conflict.value.status_code == 409
     assert set(payload).issuperset({"graph_run", "graph_loop_state", "node_work_orders", "checkpoint"})
     assert payload["checkpoint"]["state"]["graph_id"] == graph.graph_id
 
@@ -652,6 +663,9 @@ def test_graph_run_monitor_returns_recoverable_active_work_orders(tmp_path: Path
             orchestration_api.get_graph_run_monitor(
                 str(started["graph_run_id"]),
                 graph_harness_config_id=graph_config.config_id,
+                workspace_view=GRAPH_TEST_SCOPE["workspace_view"],
+                task_environment_id=GRAPH_TEST_SCOPE["task_environment_id"],
+                project_id=GRAPH_TEST_SCOPE["project_id"],
             )
         )
     finally:

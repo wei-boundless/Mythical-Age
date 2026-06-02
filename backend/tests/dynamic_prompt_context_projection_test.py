@@ -249,10 +249,13 @@ def test_task_execution_state_deduplicates_observation_failures_and_preserves_re
                     "structured_error": {
                         "code": "image_provider_transient_error",
                         "message": "Image API failed with status 504",
-                        "retryable": False,
+                        "retryable": True,
                         "origin": "image_provider",
                         "provider_retryable": True,
-                        "agent_retry_policy": "do_not_auto_retry",
+                        "agent_auto_retry_allowed": True,
+                        "agent_retry_policy": "bounded_retry_with_backoff",
+                        "max_agent_retry_attempts": 2,
+                        "suggested_retry_delay_seconds": 15,
                         "attempts": [
                             {
                                 "model": "gpt-image-2",
@@ -271,7 +274,7 @@ def test_task_execution_state_deduplicates_observation_failures_and_preserves_re
     result = RuntimeCompiler().compile_task_execution_packet(
         session_id="session:task-state-dedupe",
         task_run={"task_run_id": "taskrun:task-state-dedupe", "diagnostics": {"executor_status": "running"}},
-        contract={"task_run_goal": "执行单次 image_generate，失败后只报告错误字段，不重试", "completion_criteria": ["只调用一次"]},
+        contract={"task_run_goal": "执行 image_generate，遇到供应商瞬时错误时允许有限退避重试", "completion_criteria": ["生成图片或说明重试耗尽"]},
         observations=[observation],
         execution_state={
             "system_projection": {
@@ -285,10 +288,13 @@ def test_task_execution_state_deduplicates_observation_failures_and_preserves_re
                         "error": {
                             "code": "image_provider_transient_error",
                             "message": "Image API failed with status 504",
-                            "retryable": False,
+                            "retryable": True,
                             "origin": "image_provider",
                             "provider_retryable": True,
-                            "agent_retry_policy": "do_not_auto_retry",
+                            "agent_auto_retry_allowed": True,
+                            "agent_retry_policy": "bounded_retry_with_backoff",
+                            "max_agent_retry_attempts": 2,
+                            "suggested_retry_delay_seconds": 15,
                         },
                     }
                 ],
@@ -316,7 +322,9 @@ def test_task_execution_state_deduplicates_observation_failures_and_preserves_re
     assert len(task_state["active_failures"]) == 1
     error = task_state["active_failures"][0]["error"]
     assert error["provider_retryable"] is True
-    assert error["agent_retry_policy"] == "do_not_auto_retry"
+    assert error["agent_auto_retry_allowed"] is True
+    assert error["agent_retry_policy"] == "bounded_retry_with_backoff"
+    assert error["max_agent_retry_attempts"] == 2
     assert error["attempts"][0]["http_status"] == 504
 
 
@@ -438,8 +446,8 @@ def test_task_execution_uses_invocation_scoped_agent_prompt_refs() -> None:
         session_id="session:prompt-scope",
         task_run={"task_run_id": "taskrun:prompt-scope", "diagnostics": {"executor_status": "running"}},
         contract={
-            "task_run_goal": "执行单次 image_generate 调用，失败后只报告错误字段，不重试",
-            "completion_criteria": ["只调用一次 image_generate"],
+            "task_run_goal": "执行 image_generate 调用，供应商瞬时失败时允许有限退避重试",
+            "completion_criteria": ["生成图片，或说明有限重试后仍失败"],
         },
         observations=[],
         available_tools=[
@@ -484,8 +492,8 @@ def test_environment_strategy_prompt_ref_is_rejected_after_strategy_moves_to_age
             session_id="session:structured-strategy",
             task_run={"task_run_id": "taskrun:structured-strategy", "diagnostics": {"executor_status": "running"}},
             contract={
-                "task_run_goal": "执行单次 image_generate 调用，失败后只报告错误字段，不重试",
-                "completion_criteria": ["只调用一次 image_generate"],
+                "task_run_goal": "执行 image_generate 调用，供应商瞬时失败时允许有限退避重试",
+                "completion_criteria": ["生成图片，或说明有限重试后仍失败"],
             },
             observations=[],
             available_tools=[

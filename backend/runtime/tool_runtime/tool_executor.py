@@ -33,6 +33,11 @@ from runtime.shared.execution_record import (
 )
 from runtime.shared.policy_rejection_observation import build_policy_rejection_observation
 
+_SANDBOX_CONTEXT_REQUIRED_SIDE_EFFECT_TOOL_NAMES = DEFAULT_SIDE_EFFECT_TOOL_NAMES | {
+    "browser_control",
+    "image_generate",
+}
+
 
 class ToolRuntimeExecutor:
     """Executes tool RuntimeDirectives after OperationGate approval."""
@@ -628,32 +633,55 @@ class ToolRuntimeExecutor:
         file_management_policy: dict[str, Any] | None = None,
         max_result_size_chars: int = 0,
     ) -> dict[str, Any]:
+        tool_args = dict(tool_args or {})
+        invocation_context = _core_invocation_context(
+            caller_kind=caller_kind,
+            caller_ref=caller_ref,
+            session_id=session_id,
+            turn_id=turn_id,
+            tool_invocation_id=tool_invocation_id,
+            tool_name=tool_name,
+            tool_call_id=tool_call_id,
+            tool_args=tool_args,
+        )
         definition = self.tool_runtime.get_definition(tool_name)
         if definition is None:
-            return {
-                "status": "error",
-                "text": f"Tool execution failed: unknown tool {tool_name}.",
-                "error": f"Tool execution failed: unknown tool {tool_name}.",
-                "result_envelope": {},
-            }
+            error = f"Tool execution failed: unknown tool {tool_name}."
+            return _core_error_result(
+                invocation_context,
+                tool_name=tool_name,
+                tool_args=tool_args,
+                operation_id=operation_id,
+                text=error,
+                error=error,
+            )
         expected_operation_id = str(getattr(definition, "operation_id", "") or "").strip()
         if operation_id and expected_operation_id and str(operation_id or "").strip() != expected_operation_id:
             error = (
                 "Tool execution blocked by dispatch guard: action_request_operation_mismatch. "
                 f"Expected tool {tool_name} with operation {expected_operation_id}."
             )
-            return {"status": "error", "text": error, "error": error, "result_envelope": {}}
+            return _core_error_result(
+                invocation_context,
+                tool_name=tool_name,
+                tool_args=tool_args,
+                operation_id=operation_id or expected_operation_id,
+                text=error,
+                error=error,
+            )
         runtime_tool = build_native_runtime_tool(capability_definition=definition)
         sandbox_context = self.sandbox_backend.context_for_tool(tool_name=tool_name, sandbox_policy=sandbox_policy)
         sandbox_guard_error = _sandbox_context_guard_error(tool_name=tool_name, sandbox_policy=sandbox_policy, sandbox_context=sandbox_context)
         if sandbox_guard_error:
-            return {
-                "status": "error",
-                "text": sandbox_guard_error,
-                "recoverable_error": sandbox_guard_error,
-                "result_envelope": {},
-                "sandbox": sandbox_context.to_dict() if sandbox_context else {},
-            }
+            return _core_error_result(
+                invocation_context,
+                tool_name=tool_name,
+                tool_args=tool_args,
+                operation_id=operation_id or expected_operation_id,
+                text=sandbox_guard_error,
+                recoverable_error=sandbox_guard_error,
+                sandbox=sandbox_context.to_dict() if sandbox_context else {},
+            )
         if sandbox_context:
             self.sandbox_backend.prepare_tool_call(
                 tool_name=tool_name,
@@ -669,14 +697,18 @@ class ToolRuntimeExecutor:
             )
             if invocation_validation.should_block:
                 error = _invocation_validation_error(invocation_validation)
-                return {
-                    "status": "error",
-                    "text": error,
-                    "recoverable_error": error if _is_recoverable_invocation_validation_error(invocation_validation) else "",
-                    "error": "" if _is_recoverable_invocation_validation_error(invocation_validation) else error,
-                    "result_envelope": {},
-                    "diagnostics": {"tool_invocation_validation": invocation_validation.to_dict()},
-                }
+                recoverable = _is_recoverable_invocation_validation_error(invocation_validation)
+                return _core_error_result(
+                    invocation_context,
+                    tool_name=tool_name,
+                    tool_args=tool_args,
+                    operation_id=operation_id or expected_operation_id,
+                    text=error,
+                    recoverable_error=error if recoverable else "",
+                    error="" if recoverable else error,
+                    sandbox=sandbox_context.to_dict() if sandbox_context else {},
+                    diagnostics={"tool_invocation_validation": invocation_validation.to_dict()},
+                )
             tool = _capability_tool_instance(
                 tool_runtime=self.tool_runtime,
                 sandbox_backend=self.sandbox_backend,
@@ -691,40 +723,46 @@ class ToolRuntimeExecutor:
                 )
         if runtime_tool is None:
             error = f"Tool execution failed: {tool_name} is unavailable."
-            return {"status": "error", "text": error, "error": error, "result_envelope": {}}
+            return _core_error_result(
+                invocation_context,
+                tool_name=tool_name,
+                tool_args=tool_args,
+                operation_id=operation_id or expected_operation_id,
+                text=error,
+                error=error,
+                sandbox=sandbox_context.to_dict() if sandbox_context else {},
+            )
         workspace_root = Path(getattr(self.tool_runtime, "base_dir", ".")).resolve()
         execution_root = self.sandbox_backend.tool_workspace_root(sandbox_context) if sandbox_context else workspace_root
         policy_payload = dict(sandbox_policy or {})
         file_policy_payload = dict(file_management_policy or {})
-        tool_args = _bind_runtime_scoped_tool_args(tool_name, dict(tool_args or {}), policy_payload=policy_payload, task_run_id="")
-        invocation_context = ToolInvocationContext(
-            tool_invocation_id=tool_invocation_id,
+        tool_args = _bind_runtime_scoped_tool_args(tool_name, tool_args, policy_payload=policy_payload, task_run_id="")
+        invocation_context = _core_invocation_context(
             caller_kind=caller_kind,
             caller_ref=caller_ref,
             session_id=session_id,
             turn_id=turn_id,
-            task_run_id="",
+            tool_invocation_id=tool_invocation_id,
+            tool_name=tool_name,
             tool_call_id=tool_call_id,
-            idempotency_key=build_tool_invocation_idempotency_key(
-                tool_name=tool_name,
-                tool_args=tool_args,
-                tool_invocation_id=tool_invocation_id,
-            ),
+            tool_args=tool_args,
         )
         tool_args = _bind_tool_invocation_args(tool_name, tool_args, invocation_context=invocation_context)
-        invocation_context = ToolInvocationContext(
-            tool_invocation_id=tool_invocation_id,
+        invocation_context = _core_invocation_context(
             caller_kind=caller_kind,
             caller_ref=caller_ref,
             session_id=session_id,
             turn_id=turn_id,
-            task_run_id="",
+            tool_invocation_id=tool_invocation_id,
+            tool_name=tool_name,
             tool_call_id=tool_call_id,
-            idempotency_key=build_tool_invocation_idempotency_key(
-                tool_name=tool_name,
-                tool_args=tool_args,
-                tool_invocation_id=tool_invocation_id,
-            ),
+            tool_args=tool_args,
+        )
+        execution_receipt = _core_execution_receipt(
+            invocation_context,
+            tool_name=tool_name,
+            operation_id=operation_id or expected_operation_id,
+            status="dispatched",
         )
         tool_context = ToolUseContext(
             workspace_root=execution_root,
@@ -751,29 +789,35 @@ class ToolRuntimeExecutor:
                 workspace_root=workspace_root,
                 sandbox_root=self.sandbox_backend.execution_root(sandbox_context) if sandbox_context else None,
             ).snapshot(),
-            execution_receipt={},
+            execution_receipt=execution_receipt,
         )
         validation = runtime_tool.validate_input(tool_args, tool_context)
         if not validation.allowed:
             error = validation.reason or "tool_input_validation_failed"
-            return {
-                "status": "error",
-                "text": validation.repair_instruction or error,
-                "recoverable_error": error,
-                "result_envelope": {},
-                "diagnostics": {"tool_validation": validation.diagnostics},
-            }
+            return _core_error_result(
+                invocation_context,
+                tool_name=tool_name,
+                tool_args=tool_args,
+                operation_id=operation_id or expected_operation_id,
+                text=validation.repair_instruction or error,
+                recoverable_error=error,
+                sandbox=sandbox_context.to_dict() if sandbox_context else {},
+                diagnostics={"tool_validation": validation.diagnostics},
+            )
         tool_args = dict(validation.normalized_args or tool_args)
         permission = runtime_tool.check_permissions(tool_args, tool_context)
         if not permission.allowed:
             error = permission.reason or "tool_permission_denied"
-            return {
-                "status": "error",
-                "text": permission.repair_instruction or error,
-                "recoverable_error": error,
-                "result_envelope": {},
-                "diagnostics": {"tool_permission": permission.diagnostics},
-            }
+            return _core_error_result(
+                invocation_context,
+                tool_name=tool_name,
+                tool_args=tool_args,
+                operation_id=operation_id or expected_operation_id,
+                text=permission.repair_instruction or error,
+                recoverable_error=error,
+                sandbox=sandbox_context.to_dict() if sandbox_context else {},
+                diagnostics={"tool_permission": permission.diagnostics},
+            )
         try:
             registry = registry_for(getattr(self.tool_runtime, "runtime_host", None))
             if registry is not None:
@@ -802,31 +846,53 @@ class ToolRuntimeExecutor:
             reason = str(signal.get("reason") or "tool_cancelled_by_runtime_control")
             kind = str(signal.get("kind") or "stop")
             error = f"Tool execution interrupted by runtime control: {kind}: {reason}"
-            return {
-                "status": "error",
-                "text": error,
-                "recoverable_error": error if kind in {"pause", "replan"} else "",
-                "error": error if kind == "stop" else "",
-                "result_envelope": {},
-            }
+            return _core_error_result(
+                invocation_context,
+                tool_name=tool_name,
+                tool_args=tool_args,
+                operation_id=operation_id or expected_operation_id,
+                text=error,
+                recoverable_error=error if kind in {"pause", "replan"} else "",
+                error=error if kind == "stop" else "",
+                sandbox=sandbox_context.to_dict() if sandbox_context else {},
+            )
         except Exception as exc:
             error = f"Tool execution failed: {exc}"
             registry = registry_for(getattr(self.tool_runtime, "runtime_host", None))
             if registry is not None:
                 registry.fail(invocation_context.tool_invocation_id, error=error)
-            return {"status": "error", "text": error, "error": error, "result_envelope": {}}
+            return _core_error_result(
+                invocation_context,
+                tool_name=tool_name,
+                tool_args=tool_args,
+                operation_id=operation_id or expected_operation_id,
+                text=error,
+                error=error,
+                sandbox=sandbox_context.to_dict() if sandbox_context else {},
+            )
         text = str(envelope.text or "")
         limit = max(0, int(max_result_size_chars or 0))
         truncated = bool(limit and len(text) > limit)
         if truncated:
             text = text[:limit]
         result_ref = f"tool-result:{tool_invocation_id}"
+        final_execution_receipt = {
+            **dict(envelope.execution_receipt or execution_receipt),
+            **_core_execution_receipt(
+                invocation_context,
+                tool_name=tool_name,
+                operation_id=operation_id or expected_operation_id,
+                status="failed" if envelope.status == "error" else "completed",
+                result_ref=result_ref,
+                error=str(envelope.error or "") if envelope.status == "error" else "",
+            ),
+        }
         envelope = _finalize_runtime_tool_envelope(
             envelope=envelope,
             tool_name=tool_name,
             tool_args=tool_args,
             text=text,
-            execution_receipt={},
+            execution_receipt=final_execution_receipt,
             result_ref=result_ref,
             truncated=truncated,
             sandbox=sandbox_context.to_dict() if sandbox_context else None,
@@ -930,8 +996,11 @@ def _sandbox_context_guard_error(
     policy = dict(sandbox_policy or {})
     if policy.get("enabled") is not True:
         return ""
+    permission_mode = str(policy.get("permission_mode") or "").strip().lower()
+    if permission_mode in {"full_access", "bypass"}:
+        return ""
     effective_tool = str(tool_name or "").strip()
-    if effective_tool not in DEFAULT_SIDE_EFFECT_TOOL_NAMES:
+    if effective_tool not in _SANDBOX_CONTEXT_REQUIRED_SIDE_EFFECT_TOOL_NAMES:
         return ""
     if sandbox_context is not None:
         return ""
@@ -939,6 +1008,108 @@ def _sandbox_context_guard_error(
         "sandbox_context_required_for_side_effect_tool: "
         f"{effective_tool} cannot run without the active task environment sandbox context."
     )
+
+
+def _core_execution_receipt(
+    invocation_context: ToolInvocationContext,
+    *,
+    tool_name: str,
+    operation_id: str,
+    status: str,
+    result_ref: str = "",
+    error: str = "",
+) -> dict[str, Any]:
+    invocation_id = str(invocation_context.tool_invocation_id or "").strip()
+    return {
+        "execution_id": f"rtcore:{invocation_id or 'unknown'}",
+        "request_ref": invocation_id,
+        "status": str(status or "").strip(),
+        "replay_decision": "deny_auto_replay",
+        "result_ref": str(result_ref or ""),
+        "error": str(error or ""),
+        "tool_name": str(tool_name or ""),
+        "operation_id": str(operation_id or ""),
+        "caller_kind": str(invocation_context.caller_kind or ""),
+        "caller_ref": str(invocation_context.caller_ref or ""),
+        "session_id": str(invocation_context.session_id or ""),
+        "turn_id": str(invocation_context.turn_id or ""),
+        "task_run_id": str(invocation_context.task_run_id or ""),
+        "tool_call_id": str(invocation_context.tool_call_id or ""),
+        "idempotency_key": str(invocation_context.idempotency_key or ""),
+        "authority": "runtime.tool_runtime.core_execution_receipt",
+    }
+
+
+def _core_invocation_context(
+    *,
+    caller_kind: str,
+    caller_ref: str,
+    session_id: str,
+    turn_id: str,
+    tool_invocation_id: str,
+    tool_name: str,
+    tool_call_id: str,
+    tool_args: dict[str, Any],
+) -> ToolInvocationContext:
+    invocation_id = str(tool_invocation_id or "").strip()
+    return ToolInvocationContext(
+        tool_invocation_id=invocation_id,
+        caller_kind=str(caller_kind or "").strip() or "agent_turn",
+        caller_ref=str(caller_ref or "").strip(),
+        session_id=str(session_id or "").strip(),
+        turn_id=str(turn_id or "").strip(),
+        task_run_id="",
+        tool_call_id=str(tool_call_id or "").strip(),
+        idempotency_key=build_tool_invocation_idempotency_key(
+            tool_name=tool_name,
+            tool_args=dict(tool_args or {}),
+            tool_invocation_id=invocation_id,
+        ),
+    )
+
+
+def _core_error_result(
+    invocation_context: ToolInvocationContext,
+    *,
+    tool_name: str,
+    tool_args: dict[str, Any],
+    operation_id: str,
+    text: str,
+    recoverable_error: str = "",
+    error: str = "",
+    sandbox: dict[str, Any] | None = None,
+    diagnostics: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    result_ref = f"tool-result:{invocation_context.tool_invocation_id}" if invocation_context.tool_invocation_id else ""
+    final_error = str(error or recoverable_error or text or "tool_execution_failed")
+    execution_receipt = _core_execution_receipt(
+        invocation_context,
+        tool_name=tool_name,
+        operation_id=operation_id,
+        status="failed",
+        result_ref=result_ref,
+        error=final_error,
+    )
+    envelope = build_tool_result_envelope(
+        tool_name=tool_name,
+        tool_args=tool_args,
+        result={"ok": False, "error": str(text or final_error)},
+        execution_receipt=execution_receipt,
+        result_ref=result_ref,
+        sandbox=dict(sandbox or {}),
+    )
+    payload = {
+        "status": "error",
+        "text": str(text or final_error),
+        "result_ref": result_ref,
+        "result_envelope": envelope.to_dict(),
+        "recoverable_error": str(recoverable_error or ""),
+        "error": str(error or ""),
+        "sandbox": dict(sandbox or {}),
+    }
+    if diagnostics:
+        payload["diagnostics"] = dict(diagnostics)
+    return payload
 
 
 def _finalize_runtime_tool_envelope(

@@ -134,6 +134,40 @@ def test_explicit_capability_boundary_uses_single_agent_turn_without_task_run() 
     assert "model_action_request" not in stream_types
     assert not any("compilation" in event or "model_messages" in event for event in events)
     assert runtime.single_agent_runtime_host.list_session_traces("session-plain")["task_run_count"] == 0
+    assert runtime.single_agent_runtime_host.active_turn_registry.snapshot("session-plain") is None
+
+
+def test_plain_single_agent_turn_releases_active_turn_before_next_message() -> None:
+    runtime = build_harness_runtime(
+        model_runtime=SingleMessageModelRuntimeStub(content="自然对话回复。")
+    )
+
+    async def _collect(message: str) -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime.astream(
+            HarnessRuntimeRequest(
+                session_id="session-plain-followup",
+                message=message,
+                task_selection={
+                    "control_capabilities": {
+                        "may_call_tools": False,
+                        "may_request_task_run": False,
+                        "may_control_active_work": False,
+                        "may_use_subagents": False,
+                    }
+                },
+            )
+        ):
+            events.append(event)
+        return events
+
+    first_events = asyncio.run(_collect("先随便聊一句。"))
+    second_events = asyncio.run(_collect("再回答我一句。"))
+
+    assert any(event.get("type") == "done" and event.get("content") == "自然对话回复。" for event in first_events)
+    assert any(event.get("type") == "done" and event.get("content") == "自然对话回复。" for event in second_events)
+    assert not any(event.get("type") == "error" and event.get("code") == "expected_turn_id_required" for event in second_events)
+    assert runtime.single_agent_runtime_host.active_turn_registry.snapshot("session-plain-followup") is None
 
 
 def test_single_agent_turn_receives_compressed_context_from_session_record() -> None:
@@ -1558,6 +1592,9 @@ def test_session_runtime_timeline_keeps_completed_task_attachment() -> None:
     assert attachment["anchor_turn_id"] == "turn:session-timeline:1"
     assert attachment["status"] == "completed"
     assert attachment["final_answer"] == "Timeline final answer."
+    assert attachment["anchor_role"] == "assistant"
+    assert attachment["debug_trace_ref"] == lifecycle.task_run_id
+    assert "public_timeline" in attachment
     assert attachment["progress_entries"]
     assert any(
         item.get("publicNote") == "我已完成 timeline 验证，正在整理最终回复。"
@@ -1667,6 +1704,7 @@ def test_session_runtime_timeline_projects_tool_observation_as_agent_visible_obs
     )
 
     entries = timeline["runtime_attachments"][0]["progress_entries"]
+    public_timeline = timeline["runtime_attachments"][0]["public_timeline"]
     assert [item["kind"] for item in entries] == ["observation", "model"]
     assert entries[0]["kind"] == "observation"
     assert entries[0]["title"] == "工具观察：image_generate"
@@ -1674,11 +1712,13 @@ def test_session_runtime_timeline_projects_tool_observation_as_agent_visible_obs
     assert entries[0]["body"] == "工具返回失败：Image API request timed out"
     assert entries[1]["kind"] == "model"
     assert entries[0]["toolName"] == "image_generate"
-    assert entries[1]["body"] == "判断：远程生图超时，但可以重试。；下一步：降低并发后继续生成资源。"
+    assert entries[1]["body"] == "重试生成主角美术图片，调整参数避免超时。"
     assert entries[1]["meta"] == [
-        {"label": "判断", "value": "远程生图超时，但可以重试。"},
-        {"label": "下一步", "value": "降低并发后继续生成资源。"},
+        {"label": "模型说明", "value": "远程生图超时，但可以重试。"},
+        {"label": "计划动作", "value": "降低并发后继续生成资源。"},
     ]
+    assert public_timeline[0]["kind"] == "blocked"
+    assert public_timeline[0]["text"] == "工具返回失败：Image API request timed out"
 
 
 def test_session_runtime_timeline_derives_turn_anchor_from_structural_task_run_id() -> None:
@@ -1710,6 +1750,45 @@ def test_session_runtime_timeline_derives_turn_anchor_from_structural_task_run_i
     attachment = timeline["runtime_attachments"][0]
     assert attachment["run_id"] == "taskrun:turn:session-anchor:3:abc"
     assert attachment["anchor_turn_id"] == "turn:session-anchor:3"
+
+
+def test_session_runtime_timeline_emits_stable_anchor_message_id_for_original_assistant_turn() -> None:
+    from harness.runtime.session_timeline import build_session_runtime_timeline
+
+    runtime = build_harness_runtime()
+    host = runtime.single_agent_runtime_host
+    host.state_index.upsert_task_run(
+        TaskRun(
+            task_run_id="taskrun:turn:session-anchor-message:1:abc",
+            session_id="session-anchor-message",
+            task_id="task:turn:session-anchor-message:1",
+            agent_profile_id="main_interactive_agent",
+            execution_runtime_kind="single_agent_task",
+            status="completed",
+            terminal_reason="completed",
+            created_at=1.0,
+            updated_at=2.0,
+            diagnostics={"turn_id": "turn:session-anchor-message:1"},
+        )
+    )
+
+    timeline = build_session_runtime_timeline(
+        session_id="session-anchor-message",
+        history={
+            "messages": [
+                {"role": "user", "content": "开始旧任务"},
+                {"role": "assistant", "content": "旧任务已接管", "id": "message:old-assistant"},
+                {"role": "user", "content": "新的继续"},
+                {"role": "assistant", "content": "新的回复", "id": "message:new-assistant"},
+            ]
+        },
+        runtime_host=host,
+    )
+
+    attachment = timeline["runtime_attachments"][0]
+    assert attachment["anchor_turn_id"] == "turn:session-anchor-message:1"
+    assert attachment["anchor_message_id"] == "message:old-assistant"
+    assert attachment["anchor_role"] == "assistant"
 
 
 def test_session_runtime_timeline_ignores_legacy_child_event_as_control_anchor() -> None:
@@ -1835,6 +1914,41 @@ def test_waiting_executor_with_stale_running_diagnostics_is_resumable_not_runnin
     assert context.same_run_allowed is True
     assert is_task_run_executor_claimed(task_run) is False
     assert is_task_run_executable(task_run) is True
+
+
+def test_latest_waiting_executor_without_active_turn_is_projected_as_resumable_context() -> None:
+    runtime = build_harness_runtime()
+    session_id = "session-latest-waiting-context"
+    task_run_id = _seed_active_work(
+        runtime,
+        task_run_id="taskrun:turn:session-latest-waiting-context:1:abc",
+        session_id=session_id,
+    )
+
+    assert runtime._active_work_context_from_active_turn(session_id) is None
+    context = runtime._resumable_work_context_from_latest_task(session_id)
+
+    assert context is not None
+    assert context.task_run_id == task_run_id
+    assert context.resumable is True
+    assert context.same_run_allowed is True
+    assert context.running is False
+    assert context.continuation_kind == "waiting"
+    assert context.authority == "harness.runtime.resumable_task_context"
+
+
+def test_terminal_latest_task_without_active_turn_is_not_projected_as_resumable_context() -> None:
+    runtime = build_harness_runtime()
+    session_id = "session-terminal-not-resumable-context"
+    _seed_active_work(
+        runtime,
+        task_run_id="taskrun:turn:session-terminal-not-resumable-context:1:abc",
+        session_id=session_id,
+        status="failed",
+    )
+
+    assert runtime._active_work_context_from_active_turn(session_id) is None
+    assert runtime._resumable_work_context_from_latest_task(session_id) is None
 
 
 def test_terminal_bound_active_turn_is_cleared_and_continue_starts_new_task_run() -> None:

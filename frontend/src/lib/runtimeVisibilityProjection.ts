@@ -482,8 +482,8 @@ function operationGateProjection(eventType: string, payload: Record<string, unkn
   const allowed = gate.allowed === true;
   const requiresApproval = gate.requires_approval === true || text(gate.decision).includes("approval");
   const level: SessionActivityLevel = requiresApproval ? "waiting" : allowed ? "running" : "warning";
-  const title = requiresApproval ? "等待确认" : "准备执行";
-  const detail = requiresApproval ? "需要你确认后才能继续执行。" : (allowed ? "执行条件已就绪。" : "当前执行受限。");
+  const title = requiresApproval ? "等待确认" : "权限已检查";
+  const detail = requiresApproval ? "需要你确认后才能继续执行。" : (allowed ? "当前操作已通过权限检查。" : "当前执行受限。");
   return {
     stageStatus: title,
     activityTitle: title,
@@ -555,7 +555,7 @@ export function projectHarnessLoopEvent(data: Record<string, unknown>): RuntimeV
     return loopTerminalProjection(eventType, payload, meta);
   }
   const simple: Record<string, { title: string; level?: SessionActivityLevel; body?: string; kind?: RuntimeProgressEntry["kind"]; statusText?: string }> = {
-    runtime_directive_issued: { title: "准备执行", kind: "stage", statusText: "已下发" },
+    runtime_directive_issued: { title: "指令已下发", kind: "stage", statusText: "已下发" },
     approval_waiting: { title: "等待确认", level: "waiting", kind: "stage", statusText: "等待" },
     recovery_attempted: { title: "尝试纠错", level: "warning" },
     loop_error: { title: "运行出错", level: "error", body: text(payload.error), kind: "terminal", statusText: "失败" },
@@ -628,11 +628,11 @@ export function projectRuntimeStreamEvent(event: string, data: Record<string, un
       return {};
     }
     return {
-      stageStatus: "已确认目标",
-      activityTitle: "已确认目标",
+      stageStatus: "处理已开始",
+      activityTitle: "处理已开始",
       activityDetail: publicRuntimeText(goal || text(taskRun.status) || "已进入处理队列"),
       level: "running",
-      progressEntry: entry("harness_run_started", "已确认目标", {
+      progressEntry: entry("harness_run_started", "处理已开始", {
         body: publicRuntimeText(goal || "已进入处理队列"),
         level: "running",
         kind: "task_order",
@@ -649,11 +649,11 @@ export function projectRuntimeStreamEvent(event: string, data: Record<string, un
   if (event === "active_task_steer_accepted") {
     const summary = publicRuntimeText(data.summary) || "当前任务会在后续步骤中处理这次输入。";
     return {
-      stageStatus: "已纳入当前任务",
-      activityTitle: "已纳入当前任务",
+      stageStatus: "已收到补充要求",
+      activityTitle: "已收到补充要求",
       activityDetail: summary,
       level: "success",
-      progressEntry: entry("active_task_steer_accepted", "已纳入当前任务", {
+      progressEntry: entry("active_task_steer_accepted", "已收到补充要求", {
         body: summary,
         publicNote: summary,
         level: "success",
@@ -796,22 +796,26 @@ export function projectRuntimeStreamEvent(event: string, data: Record<string, un
       || taskRunStatus === "blocked";
     const title = waiting ? "继续在后台处理" : failed ? "处理失败" : "本轮完成";
     const publicReason = publicRuntimeText(reason || status);
+    const handoffBody = "任务已切到后台继续执行。";
+    const runId = text(runtimeEvent.run_id) || text(runtimeEvent.task_run_id);
+    const taskRunId = text(taskRun.task_run_id) || formalTaskRunId(runId, runtimeEvent.task_run_id);
     return {
       stageStatus: title,
       activityTitle: title,
-      activityDetail: failed ? "详情已写入会话。" : publicReason,
+      activityDetail: waiting ? handoffBody : failed ? "详情已写入会话。" : publicReason,
       level: waiting ? "waiting" : failed ? "error" : "success",
-      progressEntry: entry("agent_turn_terminal", title, {
-        body: publicReason,
-        level: waiting ? "waiting" : failed ? "error" : "success",
-        kind: "terminal",
-        statusText: waiting ? "等待" : failed ? "失败" : "完成",
-        runId: text(runtimeEvent.run_id) || text(runtimeEvent.task_run_id),
-        taskRunId: formalTaskRunId(taskRun.task_run_id, runtimeEvent.run_id, runtimeEvent.task_run_id),
-        eventId: text(runtimeEvent.event_id),
-        createdAt: numberValue(runtimeEvent.created_at) ?? Date.now(),
-        completedAt: numberValue(runtimeEvent.created_at) ?? Date.now(),
-      }),
+      progressEntry: waiting
+        ? entry("agent_turn_terminal", title, {
+            body: handoffBody,
+            level: "waiting",
+            kind: "stage",
+            statusText: "等待",
+            runId,
+            taskRunId,
+            eventId: text(runtimeEvent.event_id),
+            createdAt: numberValue(runtimeEvent.created_at) ?? Date.now(),
+          })
+        : undefined,
     };
   }
   if (event === "task_order_draft") {
@@ -841,22 +845,12 @@ export function projectRuntimeStreamEvent(event: string, data: Record<string, un
   }
   if (event === "done") {
     const partialTimeout = text(data.completion_state) === "partial_timeout";
-    const summary = publicRuntimeText(data.receipt_summary ?? data.summary ?? data.message);
     return {
       stageStatus: partialTimeout ? "部分完成" : "完成",
       activityTitle: partialTimeout ? "已生成部分内容" : "完成",
-      activityDetail: partialTimeout ? "模型结束信号超时，当前内容已保留。" : "回答已生成并写回会话",
+      activityDetail: partialTimeout ? "模型结束信号超时，当前内容已保留。" : "",
       level: partialTimeout ? "warning" : "success",
       terminalEvent: "done",
-      progressEntry: entry("done", partialTimeout ? "会话输出部分完成" : "会话输出完成", {
-        body: partialTimeout ? "模型结束信号超时，当前内容已保留。" : summary || "回答已生成并写回会话",
-        level: partialTimeout ? "warning" : "success",
-        kind: "terminal",
-        statusText: partialTimeout ? "部分完成" : "完成",
-        createdAt: Date.now(),
-        completedAt: Date.now(),
-        artifacts: artifactsFromMixed(data.artifacts ?? data.files ?? data.paths),
-      }),
     };
   }
   if (event === "error") {

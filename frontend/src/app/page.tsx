@@ -195,7 +195,7 @@ function Workspace() {
     );
   } else if (activeWorkspaceView === "creative") {
     content = (
-      <SystemPageShell label="创作环境" view="creative">
+      <SystemPageShell label="写作环境" view="creative">
         <LazyView><CreativeEnvironmentView /></LazyView>
       </SystemPageShell>
     );

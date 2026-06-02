@@ -323,7 +323,7 @@ export class RuntimeMonitorController {
     }
     this.store.setState((prev) => ({ ...prev, taskGraphMonitorLoading: true, taskGraphMonitorError: "" }));
     try {
-      const monitor = await fetchRuntimeMonitorGraphDetail(graphRunId, graphHarnessConfigId);
+      const monitor = await fetchRuntimeMonitorGraphDetail(graphRunId, graphHarnessConfigId, binding?.session_scope);
       this.store.setState((prev) => ({ ...prev, taskGraphBoundRunMonitor: monitor }));
       await this.refresh();
     } catch (error) {
@@ -352,7 +352,7 @@ export class RuntimeMonitorController {
         session_scope: binding?.session_scope,
         max_dispatch_requests: 1,
       });
-      const monitor = await fetchRuntimeMonitorGraphDetail(graphRunId, graphHarnessConfigId);
+      const monitor = await fetchRuntimeMonitorGraphDetail(graphRunId, graphHarnessConfigId, binding?.session_scope);
       this.store.setState((prev) => ({ ...prev, taskGraphBoundRunMonitor: monitor }));
       await this.refresh();
     } catch (error) {
@@ -720,7 +720,7 @@ export class RuntimeMonitorController {
         session_scope: state.taskGraphMonitorBinding?.session_scope,
         max_dispatch_requests: 1,
       });
-      const monitor = await fetchRuntimeMonitorGraphDetail(graphRunId, graphHarnessConfigId);
+      const monitor = await fetchRuntimeMonitorGraphDetail(graphRunId, graphHarnessConfigId, state.taskGraphMonitorBinding?.session_scope);
       this.store.setState((prev) => ({ ...prev, taskGraphBoundRunMonitor: monitor }));
       this.scheduleGraphAutoAdvance(monitor);
     } catch (error) {

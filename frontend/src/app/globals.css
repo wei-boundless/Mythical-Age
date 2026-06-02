@@ -7743,114 +7743,104 @@ button:hover {
   background: transparent;
 }
 
-.runtime-run-summary {
+.public-run-activity {
   display: grid;
-  --runtime-accent: #2563eb;
-  --runtime-ink: #0f172a;
-  --runtime-muted: #64748b;
-  --runtime-soft: #94a3b8;
-  --runtime-line: rgba(148, 163, 184, 0.24);
   gap: 4px;
   width: min(100%, 78ch);
-  margin: 0 0 8px;
-  padding-left: 0;
-  border: 0;
-  color: var(--runtime-muted);
+  margin: 0 0 6px;
+  color: #475569;
   font-size: 13px;
 }
 
-.runtime-run-summary--running {
-  --runtime-accent: #2563eb;
-}
-
-.runtime-run-summary--waiting {
-  --runtime-accent: #d97706;
-}
-
-.runtime-run-summary--success {
-  --runtime-accent: #16a34a;
-}
-
-.runtime-run-summary--error {
-  --runtime-accent: #dc2626;
-}
-
-.runtime-mission-strip {
+.public-run-activity__row {
   display: grid;
-  grid-template-columns: 20px minmax(0, 1fr);
-  gap: 9px;
+  grid-template-columns: 18px minmax(0, 1fr);
+  gap: 8px;
   min-width: 0;
-  padding: 0;
+  align-items: start;
 }
 
-.runtime-mission-strip__mark {
-  position: relative;
+.public-run-activity__icon {
   display: inline-flex;
-  width: 20px;
-  height: 24px;
+  width: 18px;
+  height: 22px;
   align-items: center;
   justify-content: center;
-  color: var(--runtime-accent);
+  color: #2563eb;
 }
 
-.runtime-mission-strip__mark::after {
-  position: absolute;
-  top: 25px;
-  bottom: -38px;
-  left: 50%;
-  width: 1px;
-  background: var(--runtime-line);
-  content: "";
-  transform: translateX(-50%);
+.public-run-activity__spinner {
+  animation: public-run-activity-spin 0.9s linear infinite;
 }
 
-.runtime-mission-strip__copy {
+@keyframes public-run-activity-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.public-run-activity__row--done .public-run-activity__icon,
+.public-run-activity__row--ready .public-run-activity__icon {
+  color: #16a34a;
+}
+
+.public-run-activity__row--error .public-run-activity__icon {
+  color: #dc2626;
+}
+
+.public-run-activity__row--history,
+.public-run-activity__row--collapsed {
+  opacity: 0.68;
+}
+
+.public-run-activity__row--current .public-run-activity__copy strong {
+  color: #0f172a;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.public-run-activity__row--current .public-run-activity__copy small {
+  color: #475569;
+}
+
+.public-run-activity__row--final {
+  margin-top: 2px;
+}
+
+.public-run-activity__copy {
   display: grid;
-  gap: 3px;
+  gap: 2px;
   min-width: 0;
-}
-
-.runtime-mission-strip p,
-.runtime-mission-strip small {
-  min-width: 0;
-  margin: 0;
-  overflow-wrap: anywhere;
   line-height: 1.58;
 }
 
-.runtime-mission-strip__sentence {
-  display: flex;
+.public-run-activity__copy strong,
+.public-run-activity__copy small,
+.public-run-activity__copy code {
   min-width: 0;
-  align-items: baseline;
-  gap: 8px;
-  flex-wrap: wrap;
+  overflow-wrap: anywhere;
 }
 
-.runtime-mission-strip__sentence strong {
-  color: var(--runtime-ink);
+.public-run-activity__copy strong {
+  color: #1e293b;
   font-size: 13.5px;
-  font-weight: 720;
-  line-height: 1.35;
+  font-weight: 640;
 }
 
-.runtime-mission-strip__sentence span {
-  color: color-mix(in srgb, var(--runtime-accent) 70%, #64748b);
-  font-size: 12px;
-  font-weight: 620;
-  line-height: 1.4;
-}
-
-.runtime-mission-strip__body {
-  color: #334155;
-  font-size: 14px;
-  font-weight: 500;
-  max-width: 72ch;
-}
-
-.runtime-mission-strip small {
+.public-run-activity__copy small {
   color: #64748b;
   font-size: 12.5px;
-  font-weight: 470;
+  font-weight: 460;
+}
+
+.public-run-activity__copy code {
+  display: inline;
+  border: 0;
+  background: transparent;
+  color: #64748b;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+  padding: 0;
 }
 
 .workbench-collapsed-rail {
@@ -8308,6 +8298,20 @@ button:hover {
   border-top: 2px solid var(--creative-line-strong);
   min-height: 0;
   padding-top: 12px;
+}
+
+.creative-graph-workbench {
+  display: grid;
+  min-height: 0;
+  height: 100%;
+  border-top: 2px solid var(--creative-line-strong);
+  background: #f8fafc;
+  overflow: hidden;
+}
+
+.creative-graph-workbench .task-graph-editor-page {
+  min-height: 0;
+  height: 100%;
 }
 
 .creative-library-columns {
@@ -8792,230 +8796,6 @@ button:hover {
   display: grid;
   gap: 3px;
 }
-
-.runtime-progress-detail {
-  min-width: 0;
-  margin-left: 28px;
-}
-
-.runtime-progress-detail > summary {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-height: 23px;
-  color: #64748b;
-  cursor: pointer;
-  font-size: 12px;
-  font-weight: 680;
-  list-style: none;
-}
-
-.runtime-progress-detail > summary::-webkit-details-marker {
-  display: none;
-}
-
-.runtime-progress-detail[open] > summary svg {
-  transform: rotate(90deg);
-}
-
-.runtime-progress-detail > summary svg {
-  transition: transform 180ms ease;
-}
-
-.runtime-progress-detail > summary em {
-  color: color-mix(in srgb, var(--runtime-accent) 70%, #64748b);
-  font-size: 11px;
-  font-style: normal;
-  font-weight: 720;
-  padding: 0;
-}
-
-.runtime-progress-detail__units {
-  display: grid;
-  gap: 7px;
-  margin: 6px 0 0;
-  padding: 0 0 0 14px;
-  border-left: 1px solid rgba(148, 163, 184, 0.2);
-  list-style: none;
-}
-
-.runtime-progress-detail__unit {
-  display: grid;
-  position: relative;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 2px;
-  min-width: 0;
-  color: #64748b;
-  font-size: 12px;
-  line-height: 1.48;
-  padding: 0 0 0 4px;
-}
-
-.runtime-progress-detail__unit > span {
-  position: absolute;
-  top: 2px;
-  left: -22px;
-  display: inline-flex;
-  width: 14px;
-  height: 14px;
-  align-items: center;
-  justify-content: center;
-  background: #f8fafc;
-  color: #16a34a;
-}
-
-.runtime-progress-detail__unit--error > span {
-  color: #dc2626;
-}
-
-.runtime-progress-detail__unit--running > span {
-  color: #2563eb;
-}
-
-.runtime-progress-detail__unit--waiting > span {
-  color: #d97706;
-}
-
-.runtime-progress-detail__unit strong,
-.runtime-progress-detail__unit small {
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-
-.runtime-progress-detail__unit strong {
-  color: #334155;
-  font-weight: 700;
-}
-
-.runtime-progress-detail__unit small {
-  color: #64748b;
-}
-
-.runtime-technical-trace {
-  min-width: 0;
-}
-
-.runtime-technical-trace summary {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  margin-top: 7px;
-  min-height: 22px;
-  color: #94a3b8;
-  cursor: pointer;
-  font-size: 11.5px;
-  font-weight: 680;
-  list-style: none;
-}
-
-.runtime-technical-trace summary::-webkit-details-marker {
-  display: none;
-}
-
-.runtime-technical-trace[open] summary svg {
-  transform: rotate(90deg);
-}
-
-.runtime-technical-trace summary svg {
-  transition: transform 180ms ease;
-}
-
-.runtime-technical-trace summary em {
-  color: #64748b;
-  font-size: 10px;
-  font-style: normal;
-  padding: 0;
-}
-
-.runtime-technical-trace__rows {
-  display: grid;
-  gap: 6px;
-  margin-top: 5px;
-  padding-left: 16px;
-}
-
-.runtime-technical-trace__row {
-  display: grid;
-  grid-template-columns: minmax(88px, max-content) minmax(0, 1fr);
-  gap: 5px;
-  min-width: 0;
-  align-items: baseline;
-  color: #64748b;
-  font-size: 11px;
-  line-height: 1.45;
-}
-
-.runtime-technical-trace__row span,
-.runtime-technical-trace__row strong,
-.runtime-technical-trace__row code {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.runtime-technical-trace__row strong {
-  color: #475569;
-  font-weight: 760;
-}
-
-.runtime-technical-trace__row code {
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  color: #334155;
-  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
-  font-size: 10.8px;
-  padding: 0;
-}
-
-@keyframes runtime-current-pulse {
-  0%, 100% {
-    opacity: 0.68;
-    transform: scale(0.92);
-  }
-  50% {
-    opacity: 1;
-    transform: scale(1);
-  }
-}
-
-.runtime-run-summary--running .runtime-mission-strip__mark {
-  animation: runtime-current-pulse 1.4s ease-in-out infinite;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .runtime-run-summary--running .runtime-mission-strip__mark,
-  .runtime-progress-detail > summary svg,
-  .runtime-technical-trace summary svg {
-    animation: none;
-    transition: none;
-  }
-}
-
-@media (max-width: 720px) {
-  .runtime-run-summary {
-    width: 100%;
-  }
-
-  .runtime-mission-strip__sentence {
-    align-items: flex-start;
-    gap: 3px 7px;
-  }
-
-  .runtime-progress-detail {
-    margin-left: 28px;
-  }
-
-  .runtime-progress-detail__unit {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .runtime-technical-trace__row {
-    grid-template-columns: 1fr;
-  }
-}
-
 
 .mono {
   font-family: var(--font-mono), "Cascadia Code", monospace;
@@ -26733,106 +26513,6 @@ html[data-workspace-tone] .agent-workbench {
   padding: 0.55rem;
 }
 
-.runtime-evidence-panel__summary {
-  cursor: pointer;
-  list-style: none;
-}
-
-.runtime-evidence-panel__summary::-webkit-details-marker {
-  display: none;
-}
-
-.runtime-evidence-panel__chevron {
-  flex: 0 0 auto;
-  transition: transform 140ms ease;
-}
-
-.runtime-evidence-panel[open] .runtime-evidence-panel__chevron {
-  transform: rotate(90deg);
-}
-
-.runtime-evidence-panel {
-  margin: 2px 0 10px;
-  padding-left: 0;
-  color: #8a94a6;
-  font-size: 12px;
-}
-
-.runtime-evidence-panel__summary {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  min-height: 22px;
-  max-width: 100%;
-  color: #9aa3b2;
-  font-weight: 500;
-}
-
-.runtime-evidence-panel__summary strong {
-  color: #a8b0bd;
-  font-size: 12px;
-  font-weight: 500;
-}
-
-.runtime-evidence-panel__summary code {
-  min-width: 0;
-  overflow: hidden;
-  color: #8a94a6;
-  font-family: "Cascadia Code", "SFMono-Regular", Consolas, monospace;
-  font-size: 12px;
-  font-weight: 450;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.runtime-evidence-panel__list {
-  display: grid;
-  gap: 7px;
-  margin-top: 6px;
-  border-left: 1px solid #dbe3ee;
-  padding-left: 12px;
-}
-
-.runtime-evidence-panel__item,
-.runtime-evidence-panel__io-list {
-  display: grid;
-  gap: 6px;
-  min-width: 0;
-}
-
-.runtime-evidence-panel__tool {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-  color: #0f172a;
-  font-weight: 700;
-}
-
-.runtime-evidence-panel__io {
-  display: grid;
-  gap: 4px;
-  min-width: 0;
-  border: 1px solid #dbe3ee;
-  border-radius: 7px;
-  background: #f8fafc;
-  padding: 7px;
-}
-
-.runtime-evidence-panel__io-label {
-  color: #64748b;
-  font-size: 11px;
-  font-weight: 700;
-}
-
-.runtime-evidence-panel pre {
-  max-height: 260px;
-  overflow: auto;
-  color: #1e293b;
-  font-size: 11px;
-  line-height: 1.45;
-}
-
 .development-environment-shell {
   --development-accent: var(--console-accent, #1f5fbf);
   --development-success: var(--console-success, #16735c);
@@ -32191,8 +31871,7 @@ html[data-workspace-tone] .agent-workbench {
 
 .agent-workbench .chat-message-shell .archive-message-shell,
 .agent-workbench .chat-message-shell .archive-detail-card,
-.agent-workbench .runtime-run-summary,
-.agent-workbench .runtime-evidence-panel,
+.agent-workbench .public-run-activity,
 .agent-workbench .chat-image-message {
   grid-column: 1;
   justify-self: start;
@@ -32265,47 +31944,6 @@ html[data-workspace-tone] .agent-workbench {
 .agent-workbench .chat-message-shell__content.markdown strong {
   color: #020617;
   font-weight: 680;
-}
-
-.agent-workbench .runtime-run-summary,
-.agent-workbench .runtime-evidence-panel {
-  grid-column: 1;
-  margin: 4px 0 10px;
-  font-family: "Source Han Sans SC", "Noto Sans CJK SC", "PingFang SC", "Microsoft YaHei", ui-sans-serif, system-ui, sans-serif;
-}
-
-.agent-workbench .runtime-evidence-panel__summary {
-  display: flex;
-  width: auto;
-  min-height: 22px;
-  align-items: center;
-  justify-content: flex-start;
-  gap: 7px;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: #9aa3b2;
-  cursor: pointer;
-}
-
-.agent-workbench .runtime-evidence-panel__summary {
-  min-width: 0;
-  font-size: 12px;
-  font-weight: 500;
-}
-
-.agent-workbench .runtime-evidence-panel__list {
-  margin: 6px 0 0 8px;
-  padding: 4px 0 2px 14px;
-  border-top: 0;
-  border-left: 1px solid rgba(148, 163, 184, 0.35);
-}
-
-.agent-workbench .runtime-evidence-panel__item {
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  box-shadow: none;
 }
 
 .agent-workbench .chat-panel-footer {
@@ -34242,8 +33880,7 @@ body {
   margin: 18px 0;
 }
 
-.agent-workbench .chat-message-shell__content.markdown blockquote,
-.agent-workbench .runtime-evidence-panel__list {
+.agent-workbench .chat-message-shell__content.markdown blockquote {
   border-color: rgba(148, 163, 184, 0.2);
 }
 
@@ -34426,136 +34063,29 @@ body {
   row-gap: 6px;
 }
 
-.agent-workbench .runtime-run-summary {
+.agent-workbench .public-run-activity {
   width: min(100%, 78ch);
   margin: 0 0 8px;
-  padding: 0;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  box-shadow: none;
+  font-family: "Source Han Sans SC", "Noto Sans CJK SC", "PingFang SC", "Microsoft YaHei", ui-sans-serif, system-ui, sans-serif;
 }
 
-.agent-workbench .runtime-mission-strip {
-  display: grid;
-  grid-template-columns: 18px minmax(0, 1fr);
-  align-items: start;
-  gap: 9px;
-  min-height: 0;
-  border: 0;
-  background: transparent;
-  padding: 0;
-}
-
-.agent-workbench .runtime-mission-strip__mark {
-  display: grid;
-  width: 18px;
-  height: 22px;
-  place-items: center;
-  color: #2563eb;
-}
-
-.agent-workbench .runtime-mission-strip__mark::after {
-  display: none;
-}
-
-.agent-workbench .runtime-run-summary--success .runtime-mission-strip__mark {
-  color: #059669;
-}
-
-.agent-workbench .runtime-run-summary--error .runtime-mission-strip__mark {
-  color: #dc2626;
-}
-
-.agent-workbench .runtime-run-summary--waiting .runtime-mission-strip__mark {
-  color: #b45309;
-}
-
-.agent-workbench .runtime-mission-strip__copy {
-  min-width: 0;
-}
-
-.agent-workbench .runtime-mission-strip__sentence {
-  display: flex;
-  min-width: 0;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 7px;
-  margin: 0;
-}
-
-.agent-workbench .runtime-mission-strip__sentence strong {
-  color: #111827;
-  font-size: 14.5px;
-  font-weight: 680;
-  line-height: 1.45;
-}
-
-.agent-workbench .runtime-mission-strip__sentence span {
-  color: #16a34a;
-  font-size: 12px;
-  font-weight: 650;
-  line-height: 1.45;
-}
-
-.agent-workbench .runtime-run-summary--error .runtime-mission-strip__sentence span {
-  color: #dc2626;
-}
-
-.agent-workbench .runtime-mission-strip__body {
-  margin: 2px 0 0;
-  color: #64748b;
+.agent-workbench .public-run-activity__copy strong {
+  color: #1f2937;
   font-size: 13.5px;
-  font-weight: 460;
-  line-height: 1.58;
+  font-weight: 620;
 }
 
-.agent-workbench .runtime-mission-strip__next {
-  display: block;
-  margin-top: 2px;
-  color: #7c8797;
-  font-size: 12px;
-  font-style: normal;
-  line-height: 1.5;
+.agent-workbench .public-run-activity__copy small {
+  color: #6b7280;
 }
 
-.agent-workbench .runtime-progress-detail,
-.agent-workbench .runtime-technical-trace {
-  margin: 3px 0 0 27px;
-  color: #8b96a8;
+.agent-workbench .public-run-activity__row--current .public-run-activity__copy strong {
+  color: #111827;
+  font-size: 14px;
+  font-weight: 700;
 }
 
-.agent-workbench .runtime-progress-detail > summary,
-.agent-workbench .runtime-technical-trace summary,
-.agent-workbench .runtime-evidence-panel__summary {
-  width: fit-content;
-  min-height: 22px;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  color: #8b96a8;
-  font-size: 12px;
-  font-weight: 520;
-  padding: 0;
-  box-shadow: none;
-}
-
-.agent-workbench .runtime-progress-detail__units,
-.agent-workbench .runtime-technical-trace__rows,
-.agent-workbench .runtime-evidence-panel__list {
-  margin: 5px 0 0 6px;
-  padding: 2px 0 2px 13px;
-  border: 0;
-  border-left: 1px solid rgba(148, 163, 184, 0.25);
-  background: transparent;
-  box-shadow: none;
-}
-
-.agent-workbench .runtime-progress-detail__unit,
-.agent-workbench .runtime-technical-trace__row,
-.agent-workbench .runtime-evidence-panel__item {
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  box-shadow: none;
+.agent-workbench .public-run-activity__row--history .public-run-activity__copy strong,
+.agent-workbench .public-run-activity__row--collapsed .public-run-activity__copy small {
+  color: #6b7280;
 }

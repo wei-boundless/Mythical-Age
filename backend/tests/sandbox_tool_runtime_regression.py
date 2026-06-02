@@ -259,7 +259,7 @@ def test_image_generate_tool_task_is_cancelled_by_runtime_stop(tmp_path: Path, m
     assert "Tool execution interrupted by runtime control" in result["observation"].payload["error"]
 
 
-def test_image_generate_tool_disables_agent_auto_retry_on_provider_failure(tmp_path: Path, monkeypatch) -> None:
+def test_image_generate_tool_allows_bounded_agent_retry_on_provider_failure(tmp_path: Path, monkeypatch) -> None:
     from capability_system.tools.tool_units.image_generation_tool import ImageGenerationTool
     from capability_system.capabilities.image_generation.image_asset_service import ImageAssetError, ImageAssetService
 
@@ -278,9 +278,12 @@ def test_image_generate_tool_disables_agent_auto_retry_on_provider_failure(tmp_p
     structured_error = dict(payload["structured_error"])
 
     assert payload["ok"] is False
-    assert structured_error["retryable"] is False
+    assert structured_error["retryable"] is True
     assert structured_error["provider_retryable"] is True
-    assert structured_error["agent_retry_policy"] == "do_not_auto_retry"
+    assert structured_error["agent_auto_retry_allowed"] is True
+    assert structured_error["agent_retry_policy"] == "bounded_retry_with_backoff"
+    assert structured_error["max_agent_retry_attempts"] == 2
+    assert structured_error["suggested_retry_delay_seconds"] == 15
 
 
 def test_image_generate_executor_injects_stable_target_and_does_not_overwrite_by_default(tmp_path: Path, monkeypatch) -> None:
@@ -461,6 +464,79 @@ def test_tool_runtime_executor_returns_recoverable_invocation_validation_feedbac
     assert result["observation"].payload["missing_inputs"] == ["path"]
     assert result["observation"].payload["required_inputs"] == ["path", "content"]
     assert "Retry the same tool" in result["observation"].payload["result"]
+
+
+def test_tool_runtime_run_core_preserves_agent_turn_execution_receipt(tmp_path: Path) -> None:
+    workspace = tmp_path / "project"
+    sandbox_root = tmp_path / "sandbox" / "workspace"
+    workspace.mkdir(parents=True)
+    executor = ToolRuntimeExecutor(tool_runtime=ToolRuntime(workspace))
+
+    result = asyncio.run(
+        executor.run_core(
+            caller_kind="agent_turn",
+            caller_ref="turnrun:receipt",
+            session_id="session:receipt",
+            turn_id="turn:receipt:1",
+            tool_invocation_id="toolinvoke:receipt",
+            tool_name="write_file",
+            tool_call_id="call:write",
+            tool_args={"path": "artifacts/note.txt", "content": "hello"},
+            operation_id="op.write_file",
+            sandbox_policy={
+                "enabled": True,
+                "mode": "workspace_overlay",
+                "sandbox_root": str(sandbox_root),
+                "workspace_root": str(workspace),
+                "permission_mode": "default",
+                "write_scopes": ["artifacts"],
+            },
+        )
+    )
+
+    envelope = result["result_envelope"]
+    receipt = envelope["execution_receipt"]
+
+    assert result["status"] == "ok"
+    assert (sandbox_root / "artifacts" / "note.txt").read_text(encoding="utf-8") == "hello"
+    assert receipt["execution_id"] == "rtcore:toolinvoke:receipt"
+    assert receipt["status"] == "completed"
+    assert receipt["operation_id"] == "op.write_file"
+    assert receipt["caller_kind"] == "agent_turn"
+    assert receipt["idempotency_key"]
+
+
+def test_tool_runtime_run_core_blocks_non_native_side_effect_without_sandbox_context(tmp_path: Path) -> None:
+    workspace = tmp_path / "project"
+    workspace.mkdir(parents=True)
+    executor = ToolRuntimeExecutor(tool_runtime=ToolRuntime(workspace))
+
+    result = asyncio.run(
+        executor.run_core(
+            caller_kind="agent_turn",
+            caller_ref="turnrun:image",
+            session_id="session:image",
+            turn_id="turn:image:1",
+            tool_invocation_id="toolinvoke:image",
+            tool_name="image_generate",
+            tool_call_id="call:image",
+            tool_args={"prompt": "pixel tower"},
+            operation_id="op.image_generate",
+            sandbox_policy={
+                "enabled": True,
+                "side_effect_policy": "sandbox_boundary",
+                "side_effect_operations": ["op.image_generate"],
+                "permission_mode": "default",
+            },
+        )
+    )
+
+    assert result["status"] == "error"
+    assert result["recoverable_error"].startswith("sandbox_context_required_for_side_effect_tool")
+    receipt = result["result_envelope"]["execution_receipt"]
+    assert receipt["status"] == "failed"
+    assert receipt["operation_id"] == "op.image_generate"
+    assert receipt["caller_kind"] == "agent_turn"
 
 
 def test_tool_runtime_preflight_rejects_missing_input_before_execution_record(tmp_path: Path) -> None:

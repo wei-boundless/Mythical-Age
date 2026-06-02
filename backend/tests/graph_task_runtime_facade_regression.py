@@ -12,6 +12,7 @@ if str(BACKEND_DIR) not in sys.path:
 
 from harness import GraphHarness
 from harness.graph.models import NodeResultEnvelope, stable_safe_id
+from harness.graph.runner import GraphRunRunner
 from harness.loop.task_executor_controller import TaskExecutorController
 from runtime.shared.models import TaskRun
 from harness.entrypoint import HarnessRuntimeFacade
@@ -824,6 +825,196 @@ def test_graph_edge_summary_only_does_not_expose_outputs() -> None:
     assert payload["handoff_summary"] == "only summary"
     assert "bounded_outputs" not in payload
     assert packet["visible_payload"] == {"handoff_summary": "only summary"}
+
+
+def test_review_revise_requeues_revision_target_before_downstream_commit() -> None:
+    runtime = _runtime("graph-review-revise-requeues-")
+    registry = TaskFlowRegistry(runtime.base_dir)
+    graph = registry.upsert_task_graph(
+        graph_id="graph.test.review_revise_requeues",
+        title="Review Revise Requeues",
+        graph_kind="multi_agent",
+        entry_node_id="draft",
+        output_node_id="commit",
+        nodes=(
+            {"node_id": "draft", "node_type": "agent", "title": "起草", "task_id": "task.test.draft", "agent_id": "agent:0"},
+            {"node_id": "review", "node_type": "review_gate", "title": "审核", "task_id": "task.test.review", "agent_id": "agent:0"},
+            {"node_id": "commit", "node_type": "memory_commit", "title": "提交", "task_id": "task.test.commit", "agent_id": "agent:0"},
+        ),
+        edges=(
+            {
+                "edge_id": "edge.draft.review",
+                "source_node_id": "draft",
+                "target_node_id": "review",
+                "edge_type": "handoff",
+                "result_delivery_policy": "contract_payload_and_refs",
+            },
+            {
+                "edge_id": "edge.review.commit",
+                "source_node_id": "review",
+                "target_node_id": "commit",
+                "edge_type": "handoff",
+                "result_delivery_policy": "contract_payload_and_refs",
+            },
+            {
+                "edge_id": "edge.review.revise",
+                "source_node_id": "review",
+                "target_node_id": "draft",
+                "edge_type": "revision_request",
+                "semantic_role": "revision",
+                "result_delivery_policy": "contract_payload_and_refs",
+            },
+        ),
+        runtime_policy={"coordinator_agent_id": "agent:0"},
+        publish_state="published",
+        enabled=True,
+    )
+    graph_config = publish_graph_harness_config_for_graph(base_dir=runtime.base_dir, graph_id=graph.graph_id)
+    start = runtime.graph_harness.start_run(session_id="session:test", task_id="", graph_config=graph_config)
+    review = runtime.graph_harness.accept_node_result(
+        graph_config=graph_config,
+        graph_run_id=start.graph_run.graph_run_id,
+        result=NodeResultEnvelope(
+            result_id="nresult:test:draft:revise-route",
+            graph_run_id=start.graph_run.graph_run_id,
+            task_run_id=start.task_run.task_run_id,
+            node_id="draft",
+            work_order_id=start.node_work_orders[0].work_order_id,
+            handoff_summary="候选草稿",
+        ),
+    )
+
+    assert [order.node_id for order in review.node_work_orders] == ["review"]
+
+    revised = runtime.graph_harness.accept_node_result(
+        graph_config=graph_config,
+        graph_run_id=start.graph_run.graph_run_id,
+        result=NodeResultEnvelope(
+            result_id="nresult:test:review:revise-route",
+            graph_run_id=start.graph_run.graph_run_id,
+            task_run_id=start.task_run.task_run_id,
+            node_id="review",
+            work_order_id=review.node_work_orders[0].work_order_id,
+            handoff_summary="审核裁决：返修\n\n必须修改后才能进入提交。",
+        ),
+    )
+
+    assert revised.loop_state.status == "running"
+    assert [order.node_id for order in revised.node_work_orders] == ["draft"]
+    assert revised.loop_state.node_states["commit"]["status"] == "pending"
+    assert revised.loop_state.node_states["draft"]["status"] == "running"
+    assert "draft" in revised.loop_state.active_work_orders
+    assert "commit" not in revised.loop_state.active_work_orders
+
+
+def test_baseline_memory_seed_waits_for_accepted_outline_review() -> None:
+    runtime = _runtime("graph-baseline-waits-review-")
+    registry = TaskFlowRegistry(runtime.base_dir)
+    graph = registry.upsert_task_graph(
+        graph_id="graph.test.baseline_waits_review",
+        title="Baseline Waits Review",
+        graph_kind="multi_agent",
+        entry_node_id="outline_design",
+        output_node_id="baseline_memory_seed",
+        nodes=(
+            {"node_id": "outline_design", "node_type": "agent", "title": "细纲设计", "task_id": "task.test.outline_design", "agent_id": "agent:0"},
+            {"node_id": "outline_review", "node_type": "review_gate", "title": "细纲审核", "task_id": "task.test.outline_review", "agent_id": "agent:0"},
+            {
+                "node_id": "baseline_memory_seed",
+                "node_type": "memory_commit",
+                "title": "基准库初始化",
+                "task_id": "task.test.baseline_memory_seed",
+                "agent_id": "agent:0",
+            },
+        ),
+        edges=(
+            {
+                "edge_id": "edge.outline.review",
+                "source_node_id": "outline_design",
+                "target_node_id": "outline_review",
+                "edge_type": "handoff",
+                "result_delivery_policy": "contract_payload_and_refs",
+            },
+            {
+                "edge_id": "edge.outline_review.baseline",
+                "source_node_id": "outline_review",
+                "target_node_id": "baseline_memory_seed",
+                "edge_type": "handoff",
+                "result_delivery_policy": "contract_payload_and_refs",
+            },
+            {
+                "edge_id": "edge.outline_review.revise",
+                "source_node_id": "outline_review",
+                "target_node_id": "outline_design",
+                "edge_type": "revision_request",
+                "semantic_role": "revision",
+                "result_delivery_policy": "contract_payload_and_refs",
+            },
+        ),
+        runtime_policy={"coordinator_agent_id": "agent:0"},
+        publish_state="published",
+        enabled=True,
+    )
+    graph_config = publish_graph_harness_config_for_graph(base_dir=runtime.base_dir, graph_id=graph.graph_id)
+    start = runtime.graph_harness.start_run(session_id="session:test", task_id="", graph_config=graph_config)
+    review = runtime.graph_harness.accept_node_result(
+        graph_config=graph_config,
+        graph_run_id=start.graph_run.graph_run_id,
+        result=NodeResultEnvelope(
+            result_id="nresult:test:outline:baseline-waits",
+            graph_run_id=start.graph_run.graph_run_id,
+            task_run_id=start.task_run.task_run_id,
+            node_id="outline_design",
+            work_order_id=start.node_work_orders[0].work_order_id,
+            handoff_summary="全书细纲候选。",
+        ),
+    )
+    revised = runtime.graph_harness.accept_node_result(
+        graph_config=graph_config,
+        graph_run_id=start.graph_run.graph_run_id,
+        result=NodeResultEnvelope(
+            result_id="nresult:test:outline-review:baseline-waits-revise",
+            graph_run_id=start.graph_run.graph_run_id,
+            task_run_id=start.task_run.task_run_id,
+            node_id="outline_review",
+            work_order_id=review.node_work_orders[0].work_order_id,
+            handoff_summary="审核裁决：返修\n\n进入分卷规划前必须处理。",
+        ),
+    )
+
+    assert [order.node_id for order in revised.node_work_orders] == ["outline_design"]
+    assert revised.loop_state.node_states["baseline_memory_seed"]["status"] == "pending"
+
+    review_again = runtime.graph_harness.accept_node_result(
+        graph_config=graph_config,
+        graph_run_id=start.graph_run.graph_run_id,
+        result=NodeResultEnvelope(
+            result_id="nresult:test:outline:baseline-waits-after-revise",
+            graph_run_id=start.graph_run.graph_run_id,
+            task_run_id=start.task_run.task_run_id,
+            node_id="outline_design",
+            work_order_id=revised.node_work_orders[0].work_order_id,
+            handoff_summary="已修订的全书细纲。",
+        ),
+    )
+    passed = runtime.graph_harness.accept_node_result(
+        graph_config=graph_config,
+        graph_run_id=start.graph_run.graph_run_id,
+        result=NodeResultEnvelope(
+            result_id="nresult:test:outline-review:baseline-waits-pass",
+            graph_run_id=start.graph_run.graph_run_id,
+            task_run_id=start.task_run.task_run_id,
+            node_id="outline_review",
+            work_order_id=review_again.node_work_orders[0].work_order_id,
+            handoff_summary="审核裁决：通过\n\n允许进入基准库初始化。",
+        ),
+    )
+
+    assert [order.node_id for order in passed.node_work_orders] == ["baseline_memory_seed"]
+    baseline_order = passed.node_work_orders[0]
+    assert baseline_order.tool_scope == {}
+    inbound = baseline_order.input_package["inbound_context"][0]
+    assert inbound["payload"]["handoff_summary"].startswith("审核裁决：通过")
 
 
 def test_node_result_envelope_fails_closed_on_invalid_payload() -> None:
@@ -2490,6 +2681,37 @@ def test_graph_run_runner_rejects_reused_non_graph_node_task_run() -> None:
 
     assert raised is not None
     assert "origin_kind mismatch" in str(raised)
+
+
+def test_graph_run_runner_validates_executor_origin_from_persisted_task_run() -> None:
+    task_run = TaskRun(
+        task_run_id="gtask:persisted",
+        session_id="session:test",
+        task_id="task.test.execute",
+        execution_runtime_kind="single_agent_task",
+        status="completed",
+        diagnostics={
+            "origin": {
+                "origin_kind": "graph_node_assigned",
+                "origin_authority": "harness.graph_loop",
+                "origin_ref": "gwork:test",
+                "parent_run_ref": "grun:test",
+                "graph_run_id": "grun:test",
+                "node_id": "draft",
+            },
+            "graph_run_id": "grun:test",
+            "graph_work_order_id": "gwork:test",
+            "graph_node_id": "draft",
+        },
+    )
+    state_index = SimpleNamespace(get_task_run=lambda task_run_id: task_run if task_run_id == task_run.task_run_id else None)
+    runner = GraphRunRunner(services=SimpleNamespace(state_index=state_index), graph_loop=None, execute_work_order=lambda **_: None)
+
+    runner._validate_executor_origin(
+        graph_run_id="grun:test",
+        work_order=SimpleNamespace(work_order_id="gwork:test"),
+        execution={"node_executor_task_run": {"task_run_id": task_run.task_run_id}},
+    )
 
 
 def test_graph_run_runner_persists_human_gate_waiting_state() -> None:

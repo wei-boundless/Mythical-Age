@@ -65,13 +65,13 @@ export function monitorProgressLabel(item: RuntimeMonitorItem, fallback = "") {
     : {};
   return publicMonitorText(progress.tool_status)
     || publicMonitorText(progress.observation)
-    || publicMonitorText(progress.current_judgment)
-    || publicMonitorText(progress.next_action)
     || publicMonitorText(progress.completion_status)
     || publicMonitorText(progress.summary)
     || publicMonitorText(item.latest_public_progress_note)
     || publicMonitorText(item.latest_step_summary)
     || publicMonitorText(item.summary)
+    || publicMonitorText(progress.current_judgment)
+    || publicMonitorText(progress.next_action)
     || publicMonitorText(graphStatus.current_stage_summary)
     || monitorEventLabel(item.latest_event_type)
     || fallback;

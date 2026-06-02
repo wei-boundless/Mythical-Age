@@ -13,7 +13,7 @@ type WorkspaceModeItem = {
 const WORKSPACE_MODE_ITEMS: WorkspaceModeItem[] = [
   { view: "chat", optionLabel: "常规环境" },
   { view: "code-environment", optionLabel: "开发环境" },
-  { view: "creative", optionLabel: "创作环境" },
+  { view: "creative", optionLabel: "写作环境" },
 ];
 
 export function WorkspaceModeSwitcher({

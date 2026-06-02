@@ -4,6 +4,7 @@ import json
 from typing import Any
 
 from harness.runtime.progress_presenter import build_progress_presentation
+from harness.runtime.public_chat_timeline import build_public_chat_timeline
 from harness.runtime.public_progress import public_runtime_progress_summary, public_runtime_progress_title
 
 
@@ -14,8 +15,10 @@ def build_session_runtime_timeline(
     runtime_host: Any,
     max_progress_entries: int = 24,
 ) -> dict[str, Any]:
+    history_record = dict(history or {})
+    history_messages = list(history_record.get("messages") or [])
     attachments = [
-        _runtime_attachment(runtime_host, task_run, max_progress_entries=max_progress_entries)
+        _runtime_attachment(runtime_host, task_run, history_messages=history_messages, max_progress_entries=max_progress_entries)
         for task_run in sorted(
             runtime_host.state_index.list_session_task_runs(session_id),
             key=lambda item: float(getattr(item, "updated_at", 0.0) or 0.0),
@@ -23,7 +26,7 @@ def build_session_runtime_timeline(
         if _is_formal_chat_task_run(task_run)
     ]
     return {
-        **dict(history or {}),
+        **history_record,
         "session_id": session_id,
         "runtime_attachments": [item for item in attachments if item],
         "authority": "session_runtime_timeline",
@@ -36,7 +39,7 @@ def _is_formal_chat_task_run(task_run: Any) -> bool:
     return task_run_id.startswith("taskrun:turn:") or task_id.startswith("task:turn:")
 
 
-def _runtime_attachment(runtime_host: Any, task_run: Any, *, max_progress_entries: int) -> dict[str, Any]:
+def _runtime_attachment(runtime_host: Any, task_run: Any, *, history_messages: list[Any], max_progress_entries: int) -> dict[str, Any]:
     task_run_id = str(getattr(task_run, "task_run_id", "") or "")
     if not task_run_id:
         return {}
@@ -47,10 +50,23 @@ def _runtime_attachment(runtime_host: Any, task_run: Any, *, max_progress_entrie
     artifact_refs = list(diagnostics.get("artifact_refs") or [])
     progress_entries = _progress_entries(events)[-max(1, int(max_progress_entries or 24)) :]
     progress_presentation = build_progress_presentation(events=events, task_run=task_run, monitor=monitor)
+    anchor_turn_id = _anchor_turn_id(task_run_id=task_run_id, diagnostics=diagnostics, events=events)
+    anchor_message = _anchor_assistant_message(anchor_turn_id=anchor_turn_id, history_messages=history_messages)
+    assistant_text = str(anchor_message.get("content") or "") if anchor_message else ""
+    public_timeline = build_public_chat_timeline(
+        progress_presentation=progress_presentation,
+        final_answer=final_answer,
+        artifact_refs=artifact_refs,
+        status=str(getattr(task_run, "status", "") or ""),
+        terminal_reason=str(getattr(task_run, "terminal_reason", "") or ""),
+        assistant_text=assistant_text,
+    )
     return {
         "attachment_id": f"runtime-attachment:{task_run_id}",
         "run_id": task_run_id,
-        "anchor_turn_id": _anchor_turn_id(task_run_id=task_run_id, diagnostics=diagnostics, events=events),
+        "anchor_turn_id": anchor_turn_id,
+        "anchor_message_id": _history_message_id(anchor_message) if anchor_message else "",
+        "anchor_role": "assistant",
         "task_run_id": task_run_id,
         "task_id": str(getattr(task_run, "task_id", "") or ""),
         "status": str(getattr(task_run, "status", "") or ""),
@@ -65,9 +81,11 @@ def _runtime_attachment(runtime_host: Any, task_run: Any, *, max_progress_entrie
         "event_count": _event_count(runtime_host, task_run_id, fallback=len(events)),
         "progress_presentation": progress_presentation,
         "progress_entries": progress_entries,
+        "public_timeline": public_timeline,
         "artifact_refs": artifact_refs,
         "final_answer": final_answer,
         "trace_available": True,
+        "debug_trace_ref": task_run_id,
         "created_at": float(getattr(task_run, "created_at", 0.0) or 0.0),
         "updated_at": float(getattr(task_run, "updated_at", 0.0) or 0.0),
         "authority": "session_runtime_timeline.attachment",
@@ -134,6 +152,53 @@ def _anchor_turn_id(*, task_run_id: str, diagnostics: dict[str, Any], events: li
     )
 
 
+def _anchor_assistant_message(*, anchor_turn_id: str, history_messages: list[Any]) -> dict[str, Any]:
+    messages = [dict(item) for item in history_messages if isinstance(item, dict)]
+    if not messages:
+        return {}
+    for index, message in enumerate(messages):
+        if str(message.get("role") or "") != "assistant":
+            continue
+        if _message_turn_id(message) == anchor_turn_id:
+            return {**message, "__history_index": index}
+    anchor_index = _turn_index(anchor_turn_id)
+    if anchor_index >= 0:
+        for index, message in enumerate(messages):
+            if str(message.get("role") or "") == "assistant" and index >= anchor_index:
+                return {**message, "__history_index": index}
+    return {}
+
+
+def _history_message_id(message: dict[str, Any]) -> str:
+    for key in ("id", "message_id"):
+        value = str(message.get(key) or "").strip()
+        if value:
+            return value
+    turn_id = _message_turn_id(message)
+    if turn_id:
+        return f"history-message:{turn_id}:assistant"
+    index = message.get("__history_index")
+    if isinstance(index, int) and index >= 0:
+        return f"history-message:{index}"
+    return ""
+
+
+def _message_turn_id(message: dict[str, Any]) -> str:
+    for key in ("turn_id", "turn_ref", "anchor_turn_id"):
+        turn_id = _valid_turn_ref(message.get(key))
+        if turn_id:
+            return turn_id
+    return ""
+
+
+def _turn_index(turn_id: str) -> int:
+    tail = str(turn_id or "").split(":")[-1]
+    try:
+        return int(tail)
+    except Exception:
+        return -1
+
+
 def _latest_interaction_turn_id(events: list[dict[str, Any]]) -> str:
     for event in reversed(events):
         event_type = str(event.get("event_type") or "")
@@ -194,25 +259,38 @@ def _progress_entries(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
             public_note = public_runtime_progress_summary(payload.get("public_progress_note") or summary).strip()
             agent_brief = public_runtime_progress_summary(payload.get("agent_brief_output") or "").strip()
             public_action_state = dict(payload.get("public_action_state") or {})
-            current_judgment = public_runtime_progress_summary(
-                payload.get("current_judgment") or public_action_state.get("current_judgment") or ""
-            ).strip()
-            next_action = public_runtime_progress_summary(payload.get("next_action") or public_action_state.get("next_action") or "").strip()
             completion_status = public_runtime_progress_summary(
                 payload.get("completion_status") or public_action_state.get("completion_status") or ""
             ).strip()
+            current_judgment = public_runtime_progress_summary(
+                payload.get("current_judgment") or public_action_state.get("current_judgment") or ""
+            ).strip()
+            next_action = public_runtime_progress_summary(
+                payload.get("next_action") or public_action_state.get("next_action") or ""
+            ).strip()
+            action_type = str(payload.get("action_type") or public_action_state.get("action_type") or "").strip()
+            tool_name = str(payload.get("tool_name") or public_action_state.get("tool_name") or "").strip()
+            tool_target = public_runtime_progress_summary(payload.get("tool_target") or public_action_state.get("tool_target") or "").strip()
             action_brief = _public_action_state_brief(
                 current_judgment=current_judgment,
                 next_action=next_action,
                 completion_status=completion_status,
+                action_type=action_type,
+                tool_name=tool_name,
+                tool_target=tool_target,
             )
             meta = _public_action_state_meta(
                 current_judgment=current_judgment,
                 next_action=next_action,
                 completion_status=completion_status,
+                action_type=action_type,
+                tool_name=tool_name,
+                tool_target=tool_target,
             )
             step = str(payload.get("step") or "").strip()
             status = str(payload.get("status") or "").strip()
+            if step.startswith("task_duplicate_tool_call_guarded"):
+                continue
             if step.startswith("task_tool_observation_recorded"):
                 refs = dict(event.get("refs") or {})
                 observation = observations_by_ref.get(str(refs.get("observation_ref") or "").strip(), {})
@@ -242,11 +320,14 @@ def _progress_entries(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
             if _is_internal_step_only(step, summary=summary, public_note=public_note, action_brief=action_brief):
                 continue
             if public_note or action_brief or summary or step:
-                body = action_brief if step.startswith("model_action_received") and action_brief else public_note or next_action or current_judgment or summary
+                if step.startswith("model_action_received"):
+                    body = public_note or action_brief or _objective_model_step_body(step=step, status=status)
+                else:
+                    body = public_note or action_brief or summary
                 entries.append(
                     _entry(
                         event,
-                        title="Agent 判断" if step.startswith("model_action_received") else _step_title(step, status),
+                        title="正在思考" if step.startswith("model_action_received") else _step_title(step, status),
                         body=body,
                         kind=_step_kind(step),
                         level=_level_from_status(status),
@@ -464,12 +545,21 @@ def _public_action_state_brief(
     current_judgment: str = "",
     next_action: str = "",
     completion_status: str = "",
+    action_type: str = "",
+    tool_name: str = "",
+    tool_target: str = "",
 ) -> str:
     parts = []
     if current_judgment:
-        parts.append(f"判断：{current_judgment}")
-    if next_action:
-        parts.append(f"下一步：{next_action}")
+        parts.append(f"说明：{current_judgment}")
+    visible_next_action = _validated_public_next_action(
+        next_action=next_action,
+        action_type=action_type,
+        tool_name=tool_name,
+        tool_target=tool_target,
+    )
+    if visible_next_action:
+        parts.append(f"计划：{visible_next_action}")
     if completion_status:
         parts.append(f"状态：{completion_status}")
     return public_runtime_progress_summary("；".join(parts))
@@ -480,13 +570,92 @@ def _public_action_state_meta(
     current_judgment: str = "",
     next_action: str = "",
     completion_status: str = "",
+    action_type: str = "",
+    tool_name: str = "",
+    tool_target: str = "",
 ) -> list[dict[str, str]]:
+    visible_next_action = _validated_public_next_action(
+        next_action=next_action,
+        action_type=action_type,
+        tool_name=tool_name,
+        tool_target=tool_target,
+    )
     labels = (
-        ("判断", current_judgment),
-        ("下一步", next_action),
+        ("模型说明", current_judgment),
+        ("计划动作", visible_next_action),
         ("状态", completion_status),
     )
     return [{"label": label, "value": value} for label, value in labels if value]
+
+
+def _validated_public_next_action(*, next_action: str, action_type: str, tool_name: str, tool_target: str) -> str:
+    candidate = public_runtime_progress_summary(next_action).strip()
+    normalized_action = str(action_type or "").strip().lower()
+    if not candidate:
+        return ""
+    if normalized_action == "tool_call":
+        fragments = [
+            tool_name,
+            tool_name.replace("_", " "),
+            tool_target,
+            _target_basename(tool_target),
+            *_tool_action_keywords(tool_name),
+        ]
+        return candidate if _contains_public_fragment(candidate, fragments) else ""
+    if normalized_action == "respond":
+        return candidate if _contains_public_fragment(candidate, ("回复", "回答", "整理", "总结", "收口", "说明", "respond")) else ""
+    if normalized_action == "ask_user":
+        return candidate if _contains_public_fragment(candidate, ("询问", "提问", "确认", "补充", "请你", "需要你", "ask")) else ""
+    if normalized_action in {"request_task_run", "request_registered_engagement"}:
+        return candidate if _contains_public_fragment(candidate, ("任务", "运行", "持续", "后台", "建立", "启动", "处理流程")) else ""
+    if normalized_action == "block":
+        return candidate if _contains_public_fragment(candidate, ("阻塞", "受阻", "说明", "无法", "等待", "确认")) else ""
+    return candidate if not normalized_action else ""
+
+
+def _target_basename(target: str) -> str:
+    text = str(target or "").strip().replace("\\", "/")
+    return text.rsplit("/", 1)[-1] if text else ""
+
+
+def _tool_action_keywords(tool_name: str) -> tuple[str, ...]:
+    normalized = str(tool_name or "").strip().lower()
+    if normalized in {"image_generate", "image_generation", "generate_image"}:
+        return ("图像", "图片", "生图", "美术", "资源", "生成", "image")
+    if normalized == "path_exists":
+        return ("路径", "存在", "检查", "确认", "artifact", "path")
+    if normalized in {"stat_path", "list_dir"}:
+        return ("路径", "目录", "检查", "读取", "列表", "path", "dir")
+    if normalized in {"read_file", "read_path"}:
+        return ("读取", "查看", "文件", "内容", "read")
+    if normalized in {"write_file", "edit_file", "apply_patch"}:
+        return ("写入", "创建", "修改", "编辑", "补丁", "文件", "write", "edit", "patch")
+    if normalized in {"search_text", "search_files", "glob_paths"}:
+        return ("搜索", "查找", "检索", "匹配", "search", "grep")
+    if normalized in {"terminal", "shell", "run_command", "powershell"}:
+        return ("命令", "终端", "运行", "执行", "shell", "powershell")
+    return tuple(part for part in normalized.replace("-", "_").split("_") if part)
+
+
+def _contains_public_fragment(value: str, fragments: list[str] | tuple[str, ...]) -> bool:
+    haystack = _match_public_text(value)
+    for fragment in fragments:
+        needle = _match_public_text(fragment)
+        if len(needle) >= 2 and needle in haystack:
+            return True
+    return False
+
+
+def _match_public_text(value: Any) -> str:
+    return str(value or "").strip().lower().replace("_", " ").replace("-", " ")
+
+
+def _objective_model_step_body(*, step: str, status: str) -> str:
+    if str(status or "").strip().lower().startswith("wait"):
+        return "等待模型输出。"
+    if step.startswith(("task_model_action_waiting", "model_action_waiting")):
+        return "等待模型输出。"
+    return "正在思考。"
 
 
 def _is_internal_step_only(step: str, *, summary: str, public_note: str, action_brief: str) -> bool:
@@ -555,9 +724,9 @@ def _observation_text_is_failure(value: str) -> bool:
 
 def _step_title(step: str, status: str) -> str:
     if step.startswith("task_model_action_invocation_started"):
-        return "确认下一步"
+        return "正在思考"
     if step.startswith("task_model_action_waiting"):
-        return "等待结果"
+        return "等待模型输出"
     if step.startswith("task_execution_packet_compiled"):
         return "整理上下文"
     if step.startswith("task_tool_executed"):

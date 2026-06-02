@@ -127,7 +127,7 @@ async def run_single_agent_turn(
                     {
                         "role": "user",
                         "content": (
-                            "本轮只读工具观察已经达到运行边界。现在禁止继续调用工具。"
+                            "本轮工具观察已经达到运行边界。现在禁止继续调用工具。"
                             "请只基于当前用户问题、已有上下文和已经返回的工具观察直接回答用户。"
                             "如果事实不足，说明已知事实、缺口和下一步建议；不要再请求工具。"
                         ),
@@ -214,7 +214,7 @@ async def run_single_agent_turn(
                 allowed_tool_names=set(runtime_tool_plan.dispatchable_tool_names),
                 runtime_profile=_runtime_profile_payload(runtime_assembly),
                 permission_mode=runtime_host._current_permission_mode() if runtime_host is not None and hasattr(runtime_host, "_current_permission_mode") else "default",
-                side_effect_policy="requires_task_run",
+                side_effect_policy="runtime_authorized",
             )
             if runtime_host is not None and turn_run is not None:
                 event = _record_model_action_admission(
@@ -418,7 +418,7 @@ async def run_single_agent_turn(
                 ),
                 runtime_profile=_runtime_profile_payload(runtime_assembly),
                 permission_mode=runtime_host._current_permission_mode() if runtime_host is not None and hasattr(runtime_host, "_current_permission_mode") else "default",
-                side_effect_policy="requires_task_run",
+                side_effect_policy="runtime_authorized",
             )
             if runtime_host is not None and turn_run is not None:
                 event = _record_model_action_admission(
@@ -760,7 +760,7 @@ def _runtime_native_tools(available_tools: tuple[dict[str, Any], ...]) -> list[d
     for item in available_tools:
         tool = dict(item or {})
         name = str(tool.get("tool_name") or tool.get("name") or "").strip()
-        if not name or not bool(tool.get("read_only") is True):
+        if not name:
             continue
         schema = dict(tool.get("input_schema") or {}) if isinstance(tool.get("input_schema"), dict) else {}
         if not schema:
@@ -929,10 +929,9 @@ def _action_request_from_native_tool_calls(
             request_id=f"model-action:{turn_id}:single-agent-request-task-run",
             turn_id=turn_id,
             action_type="request_task_run",
-            public_progress_note="已判断需要进入持续处理流程，正在建立任务边界。",
+            public_progress_note="正在建立任务运行。",
             public_action_state={
-                "current_judgment": "当前目标需要持续处理。",
-                "next_action": "建立任务合同并启动执行生命周期。",
+                "visible_status": "thinking",
                 "completion_status": "working",
             },
             task_contract_seed=contract_seed,
@@ -969,7 +968,7 @@ def _tool_action_request_from_native_tool_calls(
             request_id=f"model-action:{turn_id}:single-agent-tool:{iteration}:{uuid.uuid4().hex[:8]}",
             turn_id=turn_id,
             action_type="tool_call",
-            public_progress_note=f"正在读取必要上下文：{tool_name}。",
+            public_progress_note=f"已发起工具调用，正在等待工具返回：{tool_name}。",
             tool_call={"tool_name": tool_name, "name": tool_name, "id": call_id, "args": args},
             diagnostics={
                 "origin_kind": "single_agent_turn_native_tool_call",

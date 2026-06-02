@@ -188,14 +188,6 @@ def _tool_name(tool: dict[str, Any]) -> str:
     return str(tool.get("tool_name") or tool.get("name") or "").strip()
 
 
-def _visible_in_invocation(tool: dict[str, Any], *, invocation_kind: str, definition: Any | None) -> bool:
-    if str(invocation_kind or "").strip() != "single_agent_turn":
-        return True
-    if definition is not None:
-        return bool(getattr(definition, "is_read_only", False))
-    return bool(tool.get("read_only") is True)
-
-
 def _tool_allowed_for_runtime_plan(
     tool: dict[str, Any],
     *,
@@ -244,16 +236,6 @@ def _tool_allowed_for_runtime_plan(
                 reason=environment_decision.reason,
                 source="task_environment",
                 metadata=environment_decision.to_dict(),
-            )
-        )
-        return False
-    if not _visible_in_invocation(tool, invocation_kind=invocation_kind, definition=definition):
-        filtered_issues.append(
-            ToolCapabilityFilterIssue(
-                operation_id=operation_id,
-                tool_name=tool_name,
-                reason="single_agent_turn_requires_read_only_tool",
-                source="invocation_kind",
             )
         )
         return False

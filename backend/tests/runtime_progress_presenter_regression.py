@@ -4,6 +4,7 @@ import json
 from types import SimpleNamespace
 
 from harness.runtime.progress_presenter import build_progress_presentation
+from harness.runtime.public_chat_timeline import build_public_chat_timeline
 from harness.runtime.public_progress import public_runtime_progress_summary
 
 
@@ -109,8 +110,8 @@ def test_progress_presenter_translates_path_exists_false_without_visible_raw_boo
     unit = presentation["work_units"][0]
     assert unit["title"] == "确认 artifact 路径"
     assert unit["judgment"] == "需要先确认 artifact 路径状态。"
-    assert unit["evidence"][0]["summary"] == "目标文件尚未存在，路径检查成功；下一步需要创建。"
-    assert unit["next_action"].startswith("创建")
+    assert unit["evidence"][0]["summary"] == "目标文件尚未存在，路径检查已完成。"
+    assert unit["next_action"] == "检查 calculator.html 是否存在。"
 
     visible_text = json.dumps(
         {"mission": presentation["mission"], "work_units": presentation["work_units"]},
@@ -273,3 +274,125 @@ def test_public_progress_scrubs_legacy_provider_failure_details() -> None:
     assert "图像目标" in text
     assert "agent_auto_retry_allowed" not in text
     assert "do_not_auto_retry" not in text
+
+
+def test_public_chat_timeline_projects_tool_activity_without_raw_trace() -> None:
+    timeline = build_public_chat_timeline(
+        progress_presentation={
+            "mission": {"state": "running", "current_action": "检查目标文件。"},
+            "work_units": [
+                {
+                    "unit_id": "workunit:path-check",
+                    "kind": "inspect_path",
+                    "title": "确认 artifact 路径",
+                    "state": "completed",
+                    "evidence": [
+                        {
+                            "label": "path_exists",
+                            "summary": "目标文件尚未存在，路径检查已完成。",
+                            "status": "negative_evidence",
+                        }
+                    ],
+                    "technical_trace_refs": ["rtevt:obs"],
+                }
+            ],
+        },
+        status="running",
+    )
+
+    assert timeline == [
+        {
+            "item_id": "workunit:path-check",
+            "kind": "tool_activity",
+            "title": "确认 artifact 路径",
+            "detail": "目标文件尚未存在，路径检查已完成。",
+            "state": "done",
+            "trace_refs": ["rtevt:obs"],
+        }
+    ]
+    assert "false" not in json.dumps(timeline, ensure_ascii=False).lower()
+
+
+def test_public_chat_timeline_suppresses_generic_terminal_receipts() -> None:
+    timeline = build_public_chat_timeline(
+        progress_presentation={
+            "mission": {
+                "state": "completed",
+                "current_action": "回答已生成并写回会话",
+                "closeout_summary": "completed",
+            },
+            "work_units": [
+                {
+                    "unit_id": "done",
+                    "kind": "terminal",
+                    "title": "done",
+                    "state": "completed",
+                    "judgment": "回答已生成并写回会话",
+                    "technical_trace_refs": ["agent_turn_terminal"],
+                }
+            ],
+        },
+        status="completed",
+        terminal_reason="completed",
+        assistant_text="任务完成。",
+    )
+
+    visible = json.dumps(timeline, ensure_ascii=False)
+    assert timeline == []
+    assert "回答已生成并写回会话" not in visible
+    assert "agent_turn_terminal" not in visible
+
+
+def test_public_chat_timeline_deduplicates_final_summary_against_assistant_text() -> None:
+    timeline = build_public_chat_timeline(
+        progress_presentation={
+            "mission": {
+                "state": "completed",
+                "closeout_summary": "已完成五层地下塔的核心结构、关键交互和验收记录。",
+            },
+            "work_units": [],
+        },
+        final_answer="已完成五层地下塔的核心结构、关键交互和验收记录。",
+        status="completed",
+        assistant_text="已完成五层地下塔的核心结构、关键交互和验收记录。",
+    )
+
+    assert timeline == []
+
+
+def test_public_chat_timeline_projects_provider_failure_as_blocked_item() -> None:
+    timeline = build_public_chat_timeline(
+        progress_presentation={
+            "mission": {
+                "state": "failed",
+                "current_action": "图像生成这一步卡住了，因为生图服务还没有可用配置。",
+                "next_action": "确认生图服务配置后重试。",
+            },
+            "work_units": [],
+        },
+        status="failed",
+        terminal_reason="task_executor_schedule_failed",
+    )
+
+    assert timeline == [
+        {
+            "item_id": timeline[0]["item_id"],
+            "kind": "blocked",
+            "text": "图像生成这一步卡住了，因为生图服务还没有可用配置。",
+            "state": "error",
+        }
+    ]
+
+
+def test_public_progress_scrubs_bounded_retry_policy_details() -> None:
+    text = public_runtime_progress_summary(
+        "当前处理已停止：image_generation_failed，"
+        "当前 image_generate 的 agent_auto_retry_allowed 为 true，"
+        "agent_retry_policy 为 bounded_retry_with_backoff。"
+    )
+
+    assert "当前步骤遇到阻塞" in text
+    assert "生图失败" in text
+    assert "agent_auto_retry_allowed" not in text
+    assert "bounded_retry_with_backoff" not in text
+    assert "有限退避重试" in text

@@ -10,7 +10,7 @@ from typing import Any
 from permissions.operations import build_default_operation_registry
 from harness.agent_control.controller import SubagentControl
 from orchestration.runtime_directive import RuntimeDirective
-from permissions import PermissionContext, ResourcePolicy
+from permissions import PermissionContext, ResourceDecision, ResourcePolicy
 from runtime.shared.action_request import RuntimeActionRequest
 from runtime.shared.execution_record import (
     build_idempotency_token,
@@ -26,6 +26,13 @@ from runtime.tool_runtime.tool_invocation_control import (
 from runtime.tool_runtime.tool_invocation_request import ToolInvocationRequest
 from runtime.tool_runtime.tool_observation import ToolObservation
 from runtime.tooling import ToolSupervisor
+
+_AGENT_TURN_SANDBOX_AUTO_ALLOW_OPERATIONS = {
+    "op.write_file",
+    "op.edit_file",
+    "op.shell",
+    "op.python_repl",
+}
 
 
 @dataclass(slots=True)
@@ -198,13 +205,6 @@ class RuntimeToolControlPlane:
                 status="denied",
                 text="tool definition is unavailable",
                 diagnostics={"stage": "tool_definition_unavailable", "tool_plan_ref": tool_plan.plan_id},
-            )
-        if not bool(getattr(definition, "is_read_only", False)):
-            return _observation(
-                request,
-                status="needs_contract",
-                text="side-effect tools require a TaskRun contract before execution",
-                diagnostics={"stage": "side_effect_tool_requires_task_run", "tool_plan_ref": tool_plan.plan_id},
             )
         directive, sandbox_policy, file_policy, resource_policy = _agent_turn_execution_contracts(request, tool_plan=tool_plan, definition=definition)
         supervisor = self.tool_supervisor or ToolSupervisor()
@@ -417,23 +417,100 @@ def _agent_turn_execution_contracts(request: ToolInvocationRequest, *, tool_plan
         "workspace_root": str(_workspace_root(request)),
     }
     file_policy = dict(request.file_scope or {})
+    registry = build_default_operation_registry()
+    descriptor = registry.get_operation(operation_id)
+    decision_kind, decision_reason = _agent_turn_resource_decision(
+        operation_id,
+        definition=definition,
+        descriptor=descriptor,
+        permission_mode=str(request.permission_mode or "default"),
+        sandbox_policy=sandbox_policy,
+    )
+    allowed_operations = (operation_id,) if decision_kind == "allow" else ()
+    requires_approval_operations = (operation_id,) if decision_kind == "requires_approval" else ()
+    denied_operations = (operation_id,) if decision_kind == "deny" else ()
     resource_policy = ResourcePolicy(
         policy_id=str(_caller_resource_scope(request).get("resource_policy_ref") or f"respol:{request.caller_ref}:tool:{request.tool_call_id}"),
         task_id=request.caller_ref or request.turn_id,
-        allowed_operations=(operation_id,),
+        allowed_operations=allowed_operations,
+        denied_operations=denied_operations,
+        requires_approval_operations=requires_approval_operations,
         allowed_tools=(request.tool_name,),
+        denied_tools=(request.tool_name,) if denied_operations else (),
         approval_policy=str(sandbox_policy.get("approval_policy") or "runtime_tool_control_plane"),
         runtime_view_only=False,
         adopted=True,
         runtime_executable=True,
+        decisions=(
+            ResourceDecision(
+                operation_id=operation_id,
+                decision=decision_kind,
+                reason=decision_reason,
+                risk_tags=tuple(getattr(descriptor, "risk_tags", ()) or ()),
+                requires_user_approval=decision_kind == "requires_approval",
+                approval_channel="runtime_approval" if decision_kind == "requires_approval" else "",
+                diagnostics={
+                    "caller_kind": request.caller_kind,
+                    "permission_mode": str(request.permission_mode or "default"),
+                    "sandbox_policy": _public_policy(sandbox_policy),
+                },
+            ),
+        ),
         diagnostics={
             "authority": "runtime.tool_runtime.tool_control_plane",
             "caller_kind": request.caller_kind,
             "tool_plan_ref": getattr(tool_plan, "plan_id", ""),
             "sandbox_policy": _public_policy(sandbox_policy),
+            "agent_turn_resource_decision": decision_kind,
+            "agent_turn_resource_reason": decision_reason,
         },
     )
     return directive, sandbox_policy, file_policy, resource_policy
+
+
+def _agent_turn_resource_decision(
+    operation_id: str,
+    *,
+    definition: Any,
+    descriptor: Any | None,
+    permission_mode: str,
+    sandbox_policy: dict[str, Any],
+) -> tuple[str, str]:
+    mode = str(permission_mode or "default").strip().lower()
+    read_only = bool(getattr(definition, "is_read_only", False)) or bool(getattr(descriptor, "read_only", False))
+    if read_only:
+        return "allow", "read-only operation allowed in visible RuntimeToolPlan"
+    if mode in {"full_access", "bypass"}:
+        return "allow", f"operation allowed by permission mode {mode}"
+    if _agent_turn_sandbox_allows_side_effect(operation_id, descriptor=descriptor, sandbox_policy=sandbox_policy):
+        return "allow", "operation allowed inside task environment sandbox boundary"
+    if descriptor is not None and (bool(getattr(descriptor, "requires_approval_by_default", False)) or bool(getattr(descriptor, "destructive", False))):
+        return "requires_approval", "operation requires approval by default"
+    return "requires_approval", "non-read-only operation outside sandbox requires approval"
+
+
+def _agent_turn_sandbox_allows_side_effect(operation_id: str, *, descriptor: Any | None, sandbox_policy: dict[str, Any]) -> bool:
+    policy = dict(sandbox_policy or {})
+    if policy.get("enabled") is not True:
+        return False
+    if not str(policy.get("sandbox_root") or "").strip():
+        return False
+    side_effect_policy = str(policy.get("side_effect_policy") or policy.get("approval_policy") or "").strip()
+    if side_effect_policy not in {"sandbox_boundary", "sandboxed_side_effects"}:
+        return False
+    operations = {
+        str(item or "").strip()
+        for item in list(policy.get("side_effect_operations") or [])
+        if str(item or "").strip()
+    }
+    operation = str(operation_id or "").strip()
+    if operations and operation not in operations:
+        return False
+    if operation not in _AGENT_TURN_SANDBOX_AUTO_ALLOW_OPERATIONS:
+        return False
+    if descriptor is not None and bool(getattr(descriptor, "read_only", False)):
+        return True
+    return bool(operation)
 
 
 def _create_execution_record(

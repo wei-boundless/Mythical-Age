@@ -247,7 +247,6 @@ def _validate_prefix_tier_content(*, kind: str, prefix_tier: SegmentPrefixTier, 
     payload = _parse_segment_payload(content)
     if payload is None:
         return
-    keys = _nested_keys(payload)
     runtime_fields = sorted(_runtime_instance_value_fields(payload))
     if runtime_fields:
         raise ValueError(
@@ -255,7 +254,7 @@ def _validate_prefix_tier_content(*, kind: str, prefix_tier: SegmentPrefixTier, 
             f"kind={kind} prefix_tier={prefix_tier} fields={','.join(runtime_fields)}"
         )
     if prefix_tier in {"provider_global", "session"}:
-        semantic_fields = sorted(keys & TASK_SEMANTIC_FIELDS)
+        semantic_fields = sorted(_semantic_payload_keys(payload) & TASK_SEMANTIC_FIELDS)
         if semantic_fields:
             raise ValueError(
                 "provider/session prefix segment contains task semantic fields: "
@@ -280,15 +279,20 @@ def _parse_segment_payload(content: str) -> Any | None:
     return None
 
 
-def _nested_keys(value: Any) -> set[str]:
+def _semantic_payload_keys(value: Any) -> set[str]:
     result: set[str] = set()
     if isinstance(value, dict):
+        if _looks_like_json_schema_object(value):
+            return result
         for key, item in value.items():
-            result.add(str(key))
-            result.update(_nested_keys(item))
+            text_key = str(key)
+            if text_key in {"schema", "input_schema", "input_schema_summary", "properties"}:
+                continue
+            result.add(text_key)
+            result.update(_semantic_payload_keys(item))
     elif isinstance(value, list):
         for item in value:
-            result.update(_nested_keys(item))
+            result.update(_semantic_payload_keys(item))
     return result
 
 

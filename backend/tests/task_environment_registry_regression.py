@@ -494,6 +494,37 @@ def test_development_environment_keeps_document_capability_routes() -> None:
     assert pdf_capability.dispatchable is False
 
 
+def test_single_agent_turn_packet_keeps_development_environment_side_effect_tools_visible() -> None:
+    profile = next(item for item in default_agent_runtime_profiles() if item.agent_profile_id == "main_interactive_agent")
+    definitions = get_tool_definitions()
+    index = build_tool_authorization_index(definitions)
+
+    assembly = assemble_runtime(
+        backend_dir=BACKEND_DIR,
+        session_id="session-single-turn-side-effects",
+        turn_id="turn-single-turn-side-effects",
+        agent_invocation_id="agent-invocation-single-turn-side-effects",
+        request_task_selection={"task_environment_id": "env.development.sandbox"},
+        model_selection={},
+        agent_runtime_profile=profile,
+        tool_instances=build_tool_instances(BACKEND_DIR),
+        definitions_by_name=index.definitions_by_name,
+    )
+    packet = RuntimeCompiler().compile_single_agent_turn_packet(
+        session_id="session-single-turn-side-effects",
+        turn_id="turn-single-turn-side-effects",
+        agent_invocation_id="agent-invocation-single-turn-side-effects",
+        user_message="生成一个像素风地下塔素材。",
+        history=[],
+        runtime_assembly=assembly,
+    ).packet
+    tool_names = {str(item.get("tool_name") or item.get("name") or "") for item in packet.available_tools}
+
+    assert "image_generate" in tool_names
+    assert "tool_call" in packet.allowed_action_types
+    assert packet.output_contract["native_actions"]["tool_call"]["boundary"] == "runtime_visible_tools_only"
+
+
 def test_runtime_compiler_stable_payload_keeps_environment_and_operation_projection_only() -> None:
     profile = next(item for item in default_agent_runtime_profiles() if item.agent_profile_id == "main_interactive_agent")
     definitions = get_tool_definitions()

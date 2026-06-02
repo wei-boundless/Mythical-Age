@@ -84,6 +84,18 @@ export function sanitizeToolCall(toolCall: ToolCall): ToolCall | null {
   };
 }
 
+function historyMessageId(message: SessionHistory["messages"][number], sourceIndex: number) {
+  const explicit = String(message.id ?? message.message_id ?? "").trim();
+  if (explicit) {
+    return explicit;
+  }
+  const turnId = String(message.turn_id ?? "").trim();
+  if (turnId) {
+    return `history-message:${turnId}:${message.role}`;
+  }
+  return `history-message:${sourceIndex}`;
+}
+
 function attachmentTurnIndex(anchorTurnId: string) {
   const parts = String(anchorTurnId || "").split(":");
   const tail = parts.at(-1) || "";
@@ -91,29 +103,38 @@ function attachmentTurnIndex(anchorTurnId: string) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function runtimeAttachmentsByAssistantIndex(
+function runtimeAttachmentsByAssistantMessageId(
   history: SessionHistory["messages"],
   attachments: SessionRuntimeAttachment[],
 ) {
-  const buckets = new Map<number, SessionRuntimeAttachment[]>();
-  const assistantIndexes = history
-    .map((message, index) => message.role === "assistant" ? index : -1)
-    .filter((index) => index >= 0);
+  const buckets = new Map<string, SessionRuntimeAttachment[]>();
+  const assistantRefs = history
+    .map((message, index) => message.role === "assistant"
+      ? { index, id: historyMessageId(message, index) }
+      : null)
+    .filter((item): item is { index: number; id: string } => Boolean(item));
 
   for (const attachment of attachments) {
-    const anchorIndex = attachmentTurnIndex(attachment.anchor_turn_id);
-    const assistantIndex = assistantIndexes.find((index) => index >= anchorIndex) ?? assistantIndexes.at(-1);
-    if (assistantIndex === undefined) {
+    const explicitMessageId = String(attachment.anchor_message_id ?? "").trim();
+    const assistantRef = explicitMessageId
+      ? assistantRefs.find((item) => item.id === explicitMessageId)
+      : null;
+    const fallbackRef = (() => {
+      const anchorIndex = attachmentTurnIndex(attachment.anchor_turn_id);
+      return assistantRefs.find((item) => item.index >= anchorIndex) ?? assistantRefs.at(-1) ?? null;
+    })();
+    const targetId = assistantRef?.id ?? (!explicitMessageId ? fallbackRef?.id : "");
+    if (!targetId) {
       continue;
     }
-    const existing = buckets.get(assistantIndex) ?? [];
-    buckets.set(assistantIndex, [...existing, attachment]);
+    const existing = buckets.get(targetId) ?? [];
+    buckets.set(targetId, [...existing, attachment]);
   }
   return buckets;
 }
 
 export function toUiMessages(history: SessionHistory["messages"], runtimeAttachments: SessionRuntimeAttachment[] = []) {
-  const attachmentsByAssistantIndex = runtimeAttachmentsByAssistantIndex(history, runtimeAttachments);
+  const attachmentsByAssistantId = runtimeAttachmentsByAssistantMessageId(history, runtimeAttachments);
   const normalized = history
     .map<Message | null>((message, sourceIndex) => {
       const toolCalls = (message.tool_calls ?? [])
@@ -127,7 +148,7 @@ export function toUiMessages(history: SessionHistory["messages"], runtimeAttachm
         return null;
       }
       return {
-        id: makeId(),
+        id: historyMessageId(message, sourceIndex),
         role: message.role,
         content,
         toolCalls,
@@ -136,7 +157,7 @@ export function toUiMessages(history: SessionHistory["messages"], runtimeAttachm
         answerChannel: message.answer_channel,
         answerSource: message.answer_source,
         image: message.image ?? null,
-        runtimeAttachments: attachmentsByAssistantIndex.get(sourceIndex) ?? []
+        runtimeAttachments: attachmentsByAssistantId.get(historyMessageId(message, sourceIndex)) ?? []
       };
     })
     .filter(Boolean) as Message[];

@@ -111,11 +111,13 @@ def test_tool_result_projector_preserves_provider_retry_policy_fields(tmp_path: 
                 "structured_error": {
                     "code": "image_provider_transient_error",
                     "message": "gateway timeout",
-                    "retryable": False,
+                    "retryable": True,
                     "origin": "image_provider",
                     "provider_retryable": True,
-                    "agent_auto_retry_allowed": False,
-                    "agent_retry_policy": "do_not_auto_retry",
+                    "agent_auto_retry_allowed": True,
+                    "agent_retry_policy": "bounded_retry_with_backoff",
+                    "max_agent_retry_attempts": 2,
+                    "suggested_retry_delay_seconds": 15,
                     "attempts": [
                         {
                             "model": "gpt-image-2",
@@ -134,8 +136,10 @@ def test_tool_result_projector_preserves_provider_retry_policy_fields(tmp_path: 
 
     structured_error = projection["structured_error"]
     assert structured_error["provider_retryable"] is True
-    assert structured_error["agent_auto_retry_allowed"] is False
-    assert structured_error["agent_retry_policy"] == "do_not_auto_retry"
+    assert structured_error["agent_auto_retry_allowed"] is True
+    assert structured_error["agent_retry_policy"] == "bounded_retry_with_backoff"
+    assert structured_error["max_agent_retry_attempts"] == 2
+    assert structured_error["suggested_retry_delay_seconds"] == 15
     assert structured_error["attempts"][0]["http_status"] == 504
 
 
@@ -153,10 +157,13 @@ def test_tool_result_projector_extracts_structured_error_from_json_result_text(t
                     "structured_error": {
                         "code": "image_provider_transient_error",
                         "message": "Image API failed with status 504",
-                        "retryable": False,
+                        "retryable": True,
                         "origin": "image_provider",
                         "provider_retryable": True,
-                        "agent_retry_policy": "do_not_auto_retry",
+                        "agent_auto_retry_allowed": True,
+                        "agent_retry_policy": "bounded_retry_with_backoff",
+                        "max_agent_retry_attempts": 2,
+                        "suggested_retry_delay_seconds": 15,
                         "attempts": [
                             {
                                 "model": "gpt-image-2",
@@ -178,5 +185,7 @@ def test_tool_result_projector_extracts_structured_error_from_json_result_text(t
     assert projection["error"] == "gateway timeout"
     structured_error = projection["structured_error"]
     assert structured_error["provider_retryable"] is True
-    assert structured_error["agent_retry_policy"] == "do_not_auto_retry"
+    assert structured_error["agent_auto_retry_allowed"] is True
+    assert structured_error["agent_retry_policy"] == "bounded_retry_with_backoff"
+    assert structured_error["max_agent_retry_attempts"] == 2
     assert structured_error["attempts"][0]["http_status"] == 504

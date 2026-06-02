@@ -13,6 +13,14 @@ class InvalidSessionId(ValueError):
     pass
 
 
+class SessionTaskBindingConflict(ValueError):
+    pass
+
+
+class SessionTaskBindingMissing(ValueError):
+    pass
+
+
 class SessionManager:
     def __init__(self, base_dir: Path) -> None:
         self.base_dir = Path(base_dir)
@@ -50,6 +58,7 @@ class SessionManager:
             "api_transcript": [],
             "compressed_context": "",
             "scope": _normalize_scope(scope),
+            "task_binding": {},
         }
         self._write_payload(session_id, payload)
         return self._summary_from_payload(payload)
@@ -106,8 +115,68 @@ class SessionManager:
             "updated_at": float(payload.get("updated_at") or 0),
             "compressed_context": str(payload.get("compressed_context") or ""),
             "scope": _normalize_scope(dict(payload.get("scope") or {})),
+            "task_binding": _normalize_task_binding(dict(payload.get("task_binding") or {})),
             "messages": list(payload.get("messages") or []),
         }
+
+    def get_task_binding(self, session_id: str) -> dict[str, Any]:
+        payload = self._read_payload(session_id)
+        return _normalize_task_binding(dict(payload.get("task_binding") or {}))
+
+    def bind_session_graph_instance(
+        self,
+        session_id: str,
+        *,
+        graph_run_id: str,
+        task_run_id: str = "",
+        graph_id: str = "",
+        graph_harness_config_id: str = "",
+        session_scope: dict[str, Any] | None = None,
+        task_environment_id: str = "",
+        project_id: str = "",
+    ) -> dict[str, Any]:
+        target_graph_run_id = str(graph_run_id or "").strip()
+        if not target_graph_run_id:
+            raise ValueError("graph_run_id is required")
+        payload = self._read_payload(session_id)
+        current = _normalize_task_binding(dict(payload.get("task_binding") or {}))
+        if current:
+            current_graph_run_id = str(current.get("graph_run_id") or "").strip()
+            if current_graph_run_id != target_graph_run_id:
+                raise SessionTaskBindingConflict("session already has a different graph task binding")
+            return current
+        now = time.time()
+        scope = _normalize_scope(session_scope)
+        binding = _normalize_task_binding(
+            {
+                "kind": "task_graph",
+                "graph_run_id": target_graph_run_id,
+                "task_run_id": task_run_id,
+                "graph_id": graph_id,
+                "graph_harness_config_id": graph_harness_config_id,
+                "task_environment_id": task_environment_id or scope["task_environment_id"],
+                "project_id": project_id or scope["project_id"],
+                "session_scope": scope,
+                "bound_at": now,
+                "updated_at": now,
+                "authority": "sessions.session_task_binding",
+            }
+        )
+        payload["task_binding"] = binding
+        payload["updated_at"] = now
+        self._write_payload(session_id, payload)
+        return binding
+
+    def assert_session_graph_instance(self, session_id: str, graph_run_id: str) -> dict[str, Any]:
+        target_graph_run_id = str(graph_run_id or "").strip()
+        if not target_graph_run_id:
+            raise ValueError("graph_run_id is required")
+        binding = self.get_task_binding(session_id)
+        if not binding:
+            raise SessionTaskBindingMissing("session has no graph task binding")
+        if str(binding.get("graph_run_id") or "").strip() != target_graph_run_id:
+            raise SessionTaskBindingConflict("session graph task binding mismatch")
+        return binding
 
     def append_messages(self, session_id: str, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
         payload = self._read_payload(session_id)
@@ -172,6 +241,7 @@ class SessionManager:
             "updated_at": float(payload.get("updated_at") or 0),
             "message_count": len(messages),
             "scope": _normalize_scope(dict(payload.get("scope") or {})),
+            "task_binding": _normalize_task_binding(dict(payload.get("task_binding") or {})),
         }
 
     def _read_payload(self, session_id: str) -> dict[str, Any]:
@@ -212,6 +282,31 @@ def _normalize_scope(scope: dict[str, Any] | None) -> dict[str, str]:
         "workspace_view": workspace_view,
         "task_environment_id": task_environment_id,
         "project_id": project_id,
+    }
+
+
+def _normalize_task_binding(binding: dict[str, Any] | None) -> dict[str, Any]:
+    raw = dict(binding or {})
+    graph_run_id = str(raw.get("graph_run_id") or "").strip()
+    if not graph_run_id:
+        return {}
+    session_scope = _normalize_scope(dict(raw.get("session_scope") or raw.get("scope") or {}))
+    task_environment_id = str(raw.get("task_environment_id") or session_scope["task_environment_id"] or "").strip()
+    project_id = str(raw.get("project_id") or session_scope["project_id"] or "").strip()
+    session_scope["task_environment_id"] = task_environment_id
+    session_scope["project_id"] = project_id
+    return {
+        "kind": str(raw.get("kind") or "task_graph").strip() or "task_graph",
+        "graph_run_id": graph_run_id,
+        "task_run_id": str(raw.get("task_run_id") or "").strip(),
+        "graph_id": str(raw.get("graph_id") or "").strip(),
+        "graph_harness_config_id": str(raw.get("graph_harness_config_id") or raw.get("config_id") or "").strip(),
+        "task_environment_id": task_environment_id,
+        "project_id": project_id,
+        "session_scope": session_scope,
+        "bound_at": float(raw.get("bound_at") or raw.get("created_at") or 0.0),
+        "updated_at": float(raw.get("updated_at") or raw.get("bound_at") or 0.0),
+        "authority": str(raw.get("authority") or "sessions.session_task_binding"),
     }
 
 

@@ -8,7 +8,7 @@ import time
 import uuid
 from dataclasses import replace
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable
 
 from runtime.shared.models import AgentRun, AgentRunResult
 from runtime.memory.tool_observation_ledger import build_tool_observation_record
@@ -820,6 +820,10 @@ async def _execute_claimed_task_run(
             },
         )
         public_action_state = _action_public_state(action_request)
+        action_tool_call = dict(action_request.tool_call or {})
+        action_tool_args = dict(action_tool_call.get("args") or action_tool_call.get("tool_args") or {})
+        action_tool_name = str(action_tool_call.get("tool_name") or action_tool_call.get("name") or "").strip()
+        action_tool_target = _tool_target_preview(action_tool_args)
         _record_task_step_summary(
             runtime_host,
             task_run_id=current_task.task_run_id,
@@ -828,12 +832,15 @@ async def _execute_claimed_task_run(
             summary=_action_progress_note(action_request),
             public_progress_note=action_request.public_progress_note,
             agent_brief_output=compact_text(action_request.final_answer, limit=300) if action_request.action_type == "respond" else "",
+            action_type=action_request.action_type,
             current_judgment=public_action_state.get("current_judgment", ""),
             next_action=public_action_state.get("next_action", ""),
             completion_status=public_action_state.get("completion_status", ""),
             open_risks=list(public_action_state.get("open_risks") or []),
             evidence_refs=list(public_action_state.get("evidence_refs") or []),
             presentation_source="model_action.public_progress_note" if action_request.public_progress_note else "model_action.action_type_fallback",
+            tool_name=action_tool_name,
+            tool_target=action_tool_target,
             refs={"action_request_ref": action_request.request_id},
         )
         consumed_steer_ids = _consumed_steer_ids(action_request, included_steer_ids)
@@ -854,7 +861,7 @@ async def _execute_claimed_task_run(
             runtime_host,
             task_run=current_task,
             item_type="progress",
-            title="确认下一步",
+            title="正在思考",
             status="running",
             summary=_action_progress_note(action_request),
             agent_brief_output=compact_text(action_request.final_answer, limit=300) if action_request.action_type == "respond" else "",
@@ -3172,8 +3179,14 @@ def _project_structured_error(source: dict[str, Any], **defaults: Any) -> dict[s
     payload = dict(defaults)
     if isinstance(source.get("provider_retryable"), bool):
         payload["provider_retryable"] = source.get("provider_retryable")
+    if isinstance(source.get("agent_auto_retry_allowed"), bool):
+        payload["agent_auto_retry_allowed"] = source.get("agent_auto_retry_allowed")
     if str(source.get("agent_retry_policy") or "").strip():
         payload["agent_retry_policy"] = str(source.get("agent_retry_policy") or "")
+    if isinstance(source.get("max_agent_retry_attempts"), int):
+        payload["max_agent_retry_attempts"] = source.get("max_agent_retry_attempts")
+    if isinstance(source.get("suggested_retry_delay_seconds"), (int, float)):
+        payload["suggested_retry_delay_seconds"] = source.get("suggested_retry_delay_seconds")
     attempts = [dict(item) for item in list(source.get("attempts") or []) if isinstance(item, dict)]
     if attempts:
         payload["attempts"] = attempts
@@ -3910,6 +3923,7 @@ def _record_task_step_summary(
     refs: dict[str, Any] | None = None,
     public_progress_note: str = "",
     agent_brief_output: str = "",
+    action_type: str = "",
     current_judgment: str = "",
     next_action: str = "",
     completion_status: str = "",
@@ -3927,6 +3941,8 @@ def _record_task_step_summary(
     visible_next_action = public_runtime_progress_summary(next_action)
     visible_completion_status = public_runtime_progress_summary(completion_status)
     payload = {"task_run_id": task_run_id, "step": step, "status": status, "summary": visible_summary}
+    if str(action_type or "").strip():
+        payload["action_type"] = str(action_type or "").strip()
     if visible_note:
         payload["public_progress_note"] = visible_note
     if visible_brief:
@@ -4125,10 +4141,78 @@ def _action_progress_note(action_request: AnyModelActionRequest) -> str:
     state = _action_public_state(action_request)
     return (
         public_runtime_progress_summary(action_request.public_progress_note)
-        or public_runtime_progress_summary(state.get("next_action") or "")
-        or public_runtime_progress_summary(state.get("current_judgment") or "")
+        or _action_state_feedback_note(action_request, state)
         or public_action_progress_summary(action_request.action_type)
     )
+
+
+def _action_state_feedback_note(action_request: AnyModelActionRequest, state: dict[str, Any]) -> str:
+    next_action = public_runtime_progress_summary(state.get("next_action") or "")
+    if next_action and _action_state_next_action_matches(action_request, next_action):
+        return next_action
+    return public_runtime_progress_summary(state.get("current_judgment") or "")
+
+
+def _action_state_next_action_matches(action_request: AnyModelActionRequest, next_action: str) -> bool:
+    action_type = str(action_request.action_type or "").strip().lower()
+    if action_type == "tool_call":
+        tool_call = dict(action_request.tool_call or {})
+        tool_name = str(tool_call.get("tool_name") or tool_call.get("name") or "").strip()
+        tool_args = dict(tool_call.get("args") or tool_call.get("tool_args") or {})
+        target = _tool_target_preview(tool_args)
+        fragments = [
+            tool_name,
+            tool_name.replace("_", " "),
+            _public_tool_display_name(tool_name),
+            target,
+            _target_basename(target),
+            *_tool_action_match_keywords(tool_name),
+        ]
+        return _contains_public_fragment(next_action, fragments)
+    if action_type == "respond":
+        return _contains_public_fragment(next_action, ("回复", "回答", "整理", "总结", "收口", "说明", "respond"))
+    if action_type == "ask_user":
+        return _contains_public_fragment(next_action, ("询问", "提问", "确认", "补充", "请你", "需要你", "ask"))
+    if action_type in {"request_task_run", "request_registered_engagement"}:
+        return _contains_public_fragment(next_action, ("任务", "运行", "持续", "后台", "建立", "启动", "处理流程"))
+    if action_type == "block":
+        return _contains_public_fragment(next_action, ("阻塞", "受阻", "说明", "无法", "等待", "确认"))
+    return False
+
+
+def _target_basename(target: str) -> str:
+    text = str(target or "").strip().replace("\\", "/")
+    return text.rsplit("/", 1)[-1] if text else ""
+
+
+def _tool_action_match_keywords(tool_name: str) -> tuple[str, ...]:
+    normalized = str(tool_name or "").strip().lower()
+    if normalized in {"image_generate", "image_generation", "generate_image"}:
+        return ("图像", "图片", "生图", "美术", "资源", "生成", "image")
+    if normalized == "path_exists":
+        return ("路径", "存在", "检查", "确认", "artifact", "path")
+    if normalized in {"read_file", "read_path"}:
+        return ("读取", "查看", "文件", "内容", "read")
+    if normalized in {"write_file", "edit_file", "apply_patch"}:
+        return ("写入", "创建", "修改", "编辑", "补丁", "文件", "write", "edit", "patch")
+    if normalized in {"search_text", "search_files", "glob_paths"}:
+        return ("搜索", "查找", "检索", "匹配", "search", "grep")
+    if normalized in {"terminal", "shell", "run_command", "powershell"}:
+        return ("命令", "终端", "运行", "执行", "shell", "powershell")
+    return tuple(part for part in normalized.replace("-", "_").split("_") if part)
+
+
+def _contains_public_fragment(value: str, fragments: Iterable[str]) -> bool:
+    haystack = _match_public_text(value)
+    for fragment in fragments:
+        needle = _match_public_text(fragment)
+        if len(needle) >= 2 and needle in haystack:
+            return True
+    return False
+
+
+def _match_public_text(value: Any) -> str:
+    return str(value or "").strip().lower().replace("_", " ").replace("-", " ")
 
 
 def _action_public_state(action_request: AnyModelActionRequest) -> dict[str, Any]:

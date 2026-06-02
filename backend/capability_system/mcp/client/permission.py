@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from permissions.operations import OperationDescriptor, OperationRegistry
-from permissions import OperationGate, OperationGatePipelineContext, ResourcePolicy
+from permissions import OperationGate, OperationGatePipelineContext, ResourceDecision, ResourcePolicy
 
 from .models import ExternalMCPServerConfig
 
@@ -20,7 +20,7 @@ def build_external_mcp_operation_descriptor(
     tool: dict[str, Any],
 ) -> OperationDescriptor:
     annotations = dict(tool.get("annotations") or {})
-    read_only = bool(annotations.get("readOnlyHint", True))
+    read_only = bool(annotations.get("readOnlyHint", False))
     destructive = bool(annotations.get("destructiveHint", not read_only))
     idempotent = bool(annotations.get("idempotentHint", read_only))
     open_world = bool(annotations.get("openWorldHint", True))
@@ -74,20 +74,27 @@ def check_external_mcp_tool_permission(
 ) -> dict[str, Any]:
     operation = build_external_mcp_operation_descriptor(server, tool)
     registry = OperationRegistry([operation])
-    allowed_operations = server.allowed_operations or (operation.operation_id,)
+    allowed_operations, requires_approval_operations, denied_operations, decision = _external_mcp_policy_decision(
+        server=server,
+        operation=operation,
+        permission_mode=permission_mode,
+    )
     policy = ResourcePolicy(
         policy_id=f"respol:external-mcp:{server.server_id}",
         task_id="external-mcp",
-        allowed_operations=tuple(allowed_operations),
-        denied_operations=tuple(server.denied_operations),
-        requires_approval_operations=tuple(server.requires_approval_operations),
+        allowed_operations=allowed_operations,
+        denied_operations=denied_operations,
+        requires_approval_operations=requires_approval_operations,
         allowed_mcps=(server.server_id,),
         runtime_view_only=False,
         adopted=True,
         runtime_executable=True,
+        decisions=(decision,),
         diagnostics={
             "authority": "capability_system.mcp.client.permission",
             "deny_first_enforced_by": "OperationGate",
+            "config_authorizes_operation": operation.operation_id in set(server.allowed_operations),
+            "risk_requires_approval": bool(operation.requires_approval_by_default or operation.destructive),
         },
     )
     result = OperationGate(registry).check(
@@ -105,6 +112,87 @@ def check_external_mcp_tool_permission(
         "gate": result.to_dict(),
         "authorized": result.allowed,
     }
+
+
+def _external_mcp_policy_decision(
+    *,
+    server: ExternalMCPServerConfig,
+    operation: OperationDescriptor,
+    permission_mode: str,
+) -> tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...], ResourceDecision]:
+    operation_id = operation.operation_id
+    configured_allowed = {str(item or "").strip() for item in tuple(server.allowed_operations or ()) if str(item or "").strip()}
+    configured_denied = {str(item or "").strip() for item in tuple(server.denied_operations or ()) if str(item or "").strip()}
+    configured_requires_approval = {
+        str(item or "").strip()
+        for item in tuple(server.requires_approval_operations or ())
+        if str(item or "").strip()
+    }
+    if operation_id in configured_denied:
+        return (
+            (),
+            (),
+            (operation_id,),
+            ResourceDecision(
+                operation_id=operation_id,
+                decision="deny",
+                reason="external MCP operation denied by server configuration",
+                risk_tags=operation.risk_tags,
+            ),
+        )
+    if operation_id not in configured_allowed:
+        return (
+            (),
+            (),
+            (),
+            ResourceDecision(
+                operation_id=operation_id,
+                decision="deny",
+                reason="external MCP operation is not explicitly authorized by server configuration",
+                risk_tags=operation.risk_tags,
+            ),
+        )
+    mode = str(permission_mode or "default").strip().lower()
+    if mode in {"full_access", "bypass"}:
+        return (
+            (operation_id,),
+            (),
+            (),
+            ResourceDecision(
+                operation_id=operation_id,
+                decision="allow",
+                reason=f"external MCP operation allowed by permission mode {mode}",
+                risk_tags=operation.risk_tags,
+                diagnostics={"permission_mode": mode},
+            ),
+        )
+    if operation_id in configured_requires_approval or operation.requires_approval_by_default or operation.destructive:
+        return (
+            (),
+            (operation_id,),
+            (),
+            ResourceDecision(
+                operation_id=operation_id,
+                decision="requires_approval",
+                reason="external MCP operation requires approval before execution",
+                risk_tags=operation.risk_tags,
+                requires_user_approval=True,
+                approval_channel="runtime_approval",
+                diagnostics={"permission_mode": mode},
+            ),
+        )
+    return (
+        (operation_id,),
+        (),
+        (),
+        ResourceDecision(
+            operation_id=operation_id,
+            decision="allow",
+            reason="external MCP read-only operation explicitly authorized by server configuration",
+            risk_tags=operation.risk_tags,
+            diagnostics={"permission_mode": mode},
+        ),
+    )
 
 
 def _slug(value: str) -> str:

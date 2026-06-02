@@ -49,10 +49,10 @@ import { useAppStore } from "@/lib/store";
 import {
   buildCenterWorkspaceTaskGraphInitialInputs,
   centerWorkspaceTaskEnvironmentId,
-  centerWorkspaceTaskGraphSessionId,
   listCenterWorkspaceTaskGraphs,
   resolveCenterWorkspaceSelectedGraphId,
 } from "@/components/workspace/views/center/centerWorkspaceHelpers";
+import { GraphTaskWorkspace } from "@/components/workspace/views/task-graph-workbench/GraphTaskWorkspace";
 
 const WRITING_ENVIRONMENT_ID = "env.creation.writing";
 
@@ -62,7 +62,7 @@ type SelectedFile = {
   name: string;
 };
 
-type DeskSection = "overview" | "library" | "workflow";
+type DeskSection = "overview" | "library" | "workflow" | "graph";
 type WritingFlowKind = "design" | "framework" | "draft" | "review";
 
 const WRITING_FLOW_LABELS: Record<WritingFlowKind, { title: string; description: string; keywords: string[] }> = {
@@ -264,8 +264,8 @@ function CreativeProjectRail({
     <aside className="workbench-resource-panel creative-project-rail" aria-label="写作项目">
       <header className="workbench-panel-head">
         <div>
-          <strong>创作环境</strong>
-          <span>作品、资料、创作流程</span>
+          <strong>写作环境</strong>
+          <span>作品、资料、写作流程</span>
         </div>
       </header>
 
@@ -428,6 +428,10 @@ function CreativeCommandDesk({
           <Workflow size={14} />
           <span>开始创作</span>
         </button>
+        <button aria-selected={activeSection === "graph"} onClick={() => onSelectSection("graph")} role="tab" type="button">
+          <Workflow size={14} />
+          <span>任务图</span>
+        </button>
       </div>
 
       {error ? <div className="creative-error-line">{error}</div> : null}
@@ -508,6 +512,11 @@ function CreativeCommandDesk({
                   <Workflow size={15} />
                   <span>提交写作需求</span>
                   <small>输入目标，选择创作流程，开始执行</small>
+                </button>
+                <button onClick={() => onSelectSection("graph")} type="button">
+                  <Workflow size={15} />
+                  <span>打开任务图编辑台</span>
+                  <small>查看和编辑写作任务图、节点和执行拓扑</small>
                 </button>
               </div>
             </section>
@@ -629,11 +638,21 @@ function CreativeCommandDesk({
             </section>
           </section>
         ) : null}
+
+        {activeSection === "graph" ? (
+          <section className="creative-graph-workbench" aria-label="写作任务图编辑台">
+            <GraphTaskWorkspace
+              requestedGraphId={selectedGraphId}
+              onSelectedGraphChange={onSelectGraph}
+              taskEnvironmentId={WRITING_ENVIRONMENT_ID}
+            />
+          </section>
+        ) : null}
       </div>
 
       <footer className="creative-desk-footer">
         <Search size={13} />
-        <span>{selectedFile ? `正在查看：${selectedFile.name}` : "选择资料后，右侧会显示内容预览。"}</span>
+        <span>{activeSection === "graph" ? "任务图编辑台已限定为写作环境。" : selectedFile ? `正在查看：${selectedFile.name}` : "选择资料后，右侧会显示内容预览。"}</span>
       </footer>
     </section>
   );
@@ -930,7 +949,7 @@ export function CreativeEnvironmentView() {
       await selectSession(sessionId);
       const sessionScope = creativeSessionScope(selectedProject.project_id);
       const result = await startTaskGraphHarnessRun(graph.graph_id, {
-        session_id: centerWorkspaceTaskGraphSessionId(sessionId),
+        session_id: sessionId,
         session_scope: sessionScope,
         initial_inputs: {
           ...buildCenterWorkspaceTaskGraphInitialInputs(message, graph),
@@ -947,7 +966,7 @@ export function CreativeEnvironmentView() {
         graph_run_id: result.graph_run_id,
         graph_harness_config_id: result.graph_harness_config_id,
         graph_id: graph.graph_id,
-        session_id: centerWorkspaceTaskGraphSessionId(sessionId),
+        session_id: sessionId,
         project_id: selectedProject.project_id,
         session_scope: sessionScope,
         title: graph.title || graph.graph_id,

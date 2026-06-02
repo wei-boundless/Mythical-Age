@@ -84,6 +84,17 @@ def test_active_turn_complete_releases_session(tmp_path: Path) -> None:
     assert host.active_turn_registry.snapshot("session:test") is None
 
 
+def test_active_turn_from_previous_runtime_instance_does_not_block_new_host(tmp_path: Path) -> None:
+    previous_host = SingleAgentRuntimeHost(tmp_path, backend_dir=Path.cwd())
+    previous_host.active_turn_registry.start(session_id="session:test", turn_id="turn:session:test:old")
+
+    new_host = SingleAgentRuntimeHost(tmp_path, backend_dir=Path.cwd())
+
+    assert new_host.active_turn_registry.snapshot("session:test") is None
+    current = new_host.active_turn_registry.start(session_id="session:test", turn_id="turn:session:test:new")
+    assert current.turn_id == "turn:session:test:new"
+
+
 def test_historical_task_finish_does_not_release_current_active_turn(tmp_path: Path) -> None:
     host = SingleAgentRuntimeHost(tmp_path, backend_dir=Path.cwd())
     host.active_turn_registry.start(session_id="session:test", turn_id="turn:session:test:current")

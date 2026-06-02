@@ -6,7 +6,7 @@ export type EnvironmentScope = "workspace" | "builtin_template" | "system_intern
 
 const KNOWN_ENVIRONMENT_COPY: Record<string, { title: string; purpose: string }> = {
   "env.creation.writing": {
-    title: "创作环境",
+    title: "写作环境",
     purpose: "加载作品资料、草稿、记忆和创作产物空间",
   },
   "env.development.readonly": {

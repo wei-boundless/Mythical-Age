@@ -29,6 +29,7 @@ DEFAULT_OVERLAY_TOOL_NAMES = {
     "edit_file",
     "terminal",
     "python_repl",
+    "image_generate",
 }
 OVERLAY_COPY_ON_WRITE_TOOL_NAMES = {"edit_file"}
 OVERLAY_COPY_ON_READ_TOOL_NAMES = {"read_file", "read_structured_file"}

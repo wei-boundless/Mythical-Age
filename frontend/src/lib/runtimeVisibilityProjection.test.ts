@@ -62,7 +62,7 @@ describe("runtimeVisibilityProjection", () => {
       },
     });
 
-    expect(projection.stageStatus).toBe("准备执行");
+    expect(projection.stageStatus).toBe("权限已检查");
     expect(projection.progressEntry).toBeUndefined();
   });
 
@@ -189,8 +189,8 @@ describe("runtimeVisibilityProjection", () => {
     });
 
     expect(started).toMatchObject({
-      stageStatus: "已确认目标",
-      activityTitle: "已确认目标",
+      stageStatus: "处理已开始",
+      activityTitle: "处理已开始",
       activityDetail: "重构主会话监控",
       level: "running",
     });
@@ -200,11 +200,13 @@ describe("runtimeVisibilityProjection", () => {
     });
     expect(waiting).toMatchObject({
       stageStatus: "继续在后台处理",
+      activityDetail: "任务已切到后台继续执行。",
       level: "waiting",
     });
     expect(waiting.progressEntry).toMatchObject({
-      kind: "terminal",
-      statusText: "等待",
+      title: "继续在后台处理",
+      body: "任务已切到后台继续执行。",
+      level: "waiting",
       taskRunId: "taskrun:turn:session-1:1:abc",
     });
   });
@@ -228,7 +230,7 @@ describe("runtimeVisibilityProjection", () => {
     expect(projection.progressEntry).toBeUndefined();
   });
 
-  it("keeps blocked turn reasons in message progress instead of the global status detail", () => {
+  it("keeps blocked turn reasons out of terminal receipt progress", () => {
     const reason = "当前环境的写入权限不足，且创建文件的工具不可见，无法在沙盒中创建 HTML 文件。";
     const projection = projectRuntimeStreamEvent("agent_turn_terminal", {
       event: {
@@ -253,11 +255,7 @@ describe("runtimeVisibilityProjection", () => {
       activityDetail: "详情已写入会话。",
       level: "error",
     });
-    expect(projection.progressEntry).toMatchObject({
-      kind: "terminal",
-      statusText: "失败",
-      body: reason,
-    });
+    expect(projection.progressEntry).toBeUndefined();
   });
 
   it("keeps stream error detail in the assistant message progress, not the global status detail", () => {
@@ -280,17 +278,10 @@ describe("runtimeVisibilityProjection", () => {
       answer_source: "harness.loop.single_agent.respond",
     });
 
-    const visibleText = [
-      projection.activityDetail,
-      projection.progressEntry?.title,
-      projection.progressEntry?.body,
-    ].join(" ");
+    const visibleText = [projection.activityDetail, projection.progressEntry?.title, projection.progressEntry?.body].join(" ");
 
-    expect(projection.progressEntry).toMatchObject({
-      kind: "terminal",
-      statusText: "完成",
-      body: "回答已生成并写回会话",
-    });
+    expect(projection.progressEntry).toBeUndefined();
+    expect(visibleText).not.toContain("回答已生成并写回会话");
     expect(visibleText).not.toContain("harness");
     expect(visibleText).not.toContain("single_agent");
     expect(visibleText).not.toContain(".respond");

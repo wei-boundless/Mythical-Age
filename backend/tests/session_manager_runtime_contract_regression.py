@@ -7,7 +7,9 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-from sessions import SessionManager
+import pytest
+
+from sessions import SessionManager, SessionTaskBindingConflict
 from scripts.migrate_legacy_task_session_scope import migrate_legacy_task_session_scope
 
 
@@ -31,6 +33,41 @@ def test_session_manager_exposes_runtime_session_record(tmp_path: Path) -> None:
     assert record["title"] == "Runtime contract"
     assert record["compressed_context"] == ""
     assert [item["content"] for item in record["messages"]] == ["hello", "hi"]
+    assert record["task_binding"] == {}
+
+
+def test_session_manager_binds_one_graph_task_instance_per_session(tmp_path: Path) -> None:
+    backend_dir = tmp_path / "backend"
+    backend_dir.mkdir()
+    manager = SessionManager(backend_dir)
+    session = manager.create_session(
+        title="Graph session",
+        scope={
+            "workspace_view": "task_environment",
+            "task_environment_id": "env.creation.writing",
+            "project_id": "proj:novel",
+        },
+    )
+    session_id = session["id"]
+
+    binding = manager.bind_session_graph_instance(
+        session_id,
+        graph_run_id="grun:novel:1",
+        task_run_id="taskrun:novel:1",
+        graph_id="graph.novel",
+        graph_harness_config_id="ghcfg:novel",
+        session_scope={
+            "workspace_view": "task_environment",
+            "task_environment_id": "env.creation.writing",
+            "project_id": "proj:novel",
+        },
+    )
+
+    assert binding["graph_run_id"] == "grun:novel:1"
+    assert manager.get_history(session_id)["task_binding"]["graph_run_id"] == "grun:novel:1"
+    assert manager.bind_session_graph_instance(session_id, graph_run_id="grun:novel:1") == binding
+    with pytest.raises(SessionTaskBindingConflict):
+        manager.bind_session_graph_instance(session_id, graph_run_id="grun:novel:2")
 
 
 def test_session_manager_agent_history_filters_to_model_messages(tmp_path: Path) -> None:

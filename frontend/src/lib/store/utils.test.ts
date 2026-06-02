@@ -4,6 +4,42 @@ import { toUiMessages } from "./utils";
 import type { SessionRuntimeAttachment } from "@/lib/api";
 
 describe("toUiMessages runtime attachments", () => {
+  it("uses stable anchor_message_id instead of nearest assistant index when provided", () => {
+    const attachment: SessionRuntimeAttachment = {
+      attachment_id: "runtime-attachment:taskrun:turn:session-a:1:abc",
+      run_id: "taskrun:turn:session-a:1:abc",
+      anchor_turn_id: "turn:session-a:1",
+      anchor_message_id: "history-message:1",
+      anchor_role: "assistant",
+      task_run_id: "taskrun:turn:session-a:1:abc",
+      status: "completed",
+      public_timeline: [
+        {
+          item_id: "tool:old",
+          kind: "tool_activity",
+          title: "旧任务活动",
+          state: "done",
+        },
+      ],
+    };
+
+    const messages = toUiMessages(
+      [
+        { role: "user", content: "开始旧任务" },
+        { role: "assistant", content: "任务已接管" },
+        { role: "user", content: "继续" },
+        { role: "assistant", content: "这是新的回复" },
+      ],
+      [attachment],
+    );
+
+    expect(messages.find((message) => message.content === "任务已接管")?.runtimeAttachments?.[0]).toMatchObject({
+      anchor_message_id: "history-message:1",
+      run_id: "taskrun:turn:session-a:1:abc",
+    });
+    expect(messages.find((message) => message.content === "这是新的回复")?.runtimeAttachments ?? []).toEqual([]);
+  });
+
   it("attaches a runtime timeline to the next assistant message after the anchor turn", () => {
     const attachment: SessionRuntimeAttachment = {
       attachment_id: "runtime-attachment:taskrun:turn:session-a:3:abc",

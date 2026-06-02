@@ -11,7 +11,6 @@ from permissions.resource_policy import ResourcePolicy
 PERMISSION_MODE_DEFAULT = "default"
 PERMISSION_MODE_DONT_ASK = "dont_ask"
 PERMISSION_MODE_HEADLESS = "headless"
-BYPASS_PERMISSION_MODES = {"bypass", "dangerous_bypass"}
 DANGEROUS_ALLOW_RISK_TAGS = {
     "shell_execution",
     "python_execution",
@@ -315,13 +314,13 @@ class OperationGate:
     ) -> OperationGateResult | None:
         if not context.strip_dangerous_allow_rules:
             return None
-        if context.permission_mode not in {"auto", *BYPASS_PERMISSION_MODES}:
+        if context.permission_mode != "auto":
             return None
         if descriptor.destructive or set(descriptor.risk_tags) & DANGEROUS_ALLOW_RISK_TAGS:
             return OperationGateResult(
                 operation_id=descriptor.operation_id,
                 decision="deny",
-                reason="dangerous allow rule stripped in auto/bypass permission mode",
+                reason="dangerous allow rule stripped in auto permission mode",
                 pipeline_stage="dangerous_allow_rule_stripper",
                 diagnostics={
                     "permission_mode": context.permission_mode,

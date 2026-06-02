@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import shutil
 from pathlib import Path
 from typing import Any
 
@@ -36,7 +35,7 @@ class GraphTaskLifecycleManager:
         if not scope["root_task_run_id"]:
             raise ValueError("graph run root task_run_id not found")
         task_run_ids = set(scope["task_run_ids"])
-        scope_ids = {scope["memory_namespace_id"], scope["project_id"]} - {""}
+        scope_ids = {scope["memory_namespace_id"]} - {""}
         effects: dict[str, Any] = {}
         formal_memory = getattr(self.services, "formal_memory_service", None)
         if formal_memory is not None and hasattr(formal_memory, "store"):
@@ -49,6 +48,12 @@ class GraphTaskLifecycleManager:
                 scope_ids=scope_ids,
             )
         effects["artifact_paths"] = self._delete_artifact_paths(scope)
+        prompt_accounting = getattr(self.services, "prompt_accounting_ledger", None)
+        if prompt_accounting is not None and hasattr(prompt_accounting, "prune_task_runs"):
+            effects["prompt_accounting"] = prompt_accounting.prune_task_runs(task_run_ids)
+        execution_store = getattr(self.services, "execution_store", None)
+        if execution_store is not None and hasattr(execution_store, "prune_task_runs"):
+            effects["executions"] = execution_store.prune_task_runs(task_run_ids)
         checkpoint_store = getattr(self.services, "graph_checkpoint_store", None)
         if checkpoint_store is not None and hasattr(checkpoint_store, "delete_graph_run"):
             effects["checkpoints"] = checkpoint_store.delete_graph_run(scope["graph_run_id"])
@@ -114,24 +119,10 @@ class GraphTaskLifecycleManager:
         return {item for item in task_ids if item}
 
     def _artifact_paths(self, scope: dict[str, Any]) -> list[Path]:
-        project_id = str(scope.get("project_id") or "").strip()
-        if not project_id:
-            return []
-        return [self.storage_root / "task_environments" / "creation" / "writing" / "artifacts" / project_id]
+        return []
 
     def _delete_artifact_paths(self, scope: dict[str, Any]) -> list[dict[str, Any]]:
-        deleted: list[dict[str, Any]] = []
-        root = (self.storage_root / "task_environments").resolve()
-        for path in self._artifact_paths(scope):
-            resolved = path.resolve()
-            if not str(resolved).startswith(str(root)):
-                deleted.append({"path": str(path), "deleted": False, "reason": "path_outside_task_environment_storage"})
-                continue
-            existed = resolved.exists()
-            if existed:
-                shutil.rmtree(resolved)
-            deleted.append({"path": str(resolved), "deleted": existed})
-        return deleted
+        return []
 
     def _delete_events(self, task_run_ids: set[str]) -> dict[str, Any]:
         deleted: list[str] = []

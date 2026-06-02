@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, Type
 from urllib.parse import urlparse
 
+import httpx
 from langchain_core.callbacks.manager import AsyncCallbackManagerForToolRun, CallbackManagerForToolRun
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
@@ -171,11 +172,18 @@ def _infer_topic(query: str, requested_topic: str | None) -> str:
     return "general"
 
 
+def _is_weather_query(query: str) -> bool:
+    lowered = query.lower()
+    return any(marker in lowered for marker in ("天气", "weather", "forecast"))
+
+
 def _infer_time_range(query: str, topic: str, requested: str | None) -> str | None:
     if requested in {"day", "week", "month", "year"}:
         return requested
     lowered = query.lower()
-    if any(marker in lowered for marker in ("今天", "今日", "today", "current", "当前", "实时")):
+    if _is_weather_query(query):
+        return None
+    if any(marker in lowered for marker in ("今天", "今日", "现在", "now", "today", "current", "当前", "实时")):
         return "day"
     if topic == "news" and any(marker in lowered for marker in ("最新", "latest", "recent", "近期")):
         return "month"

@@ -325,15 +325,35 @@ class GraphRunRunner:
         work_order: GraphNodeWorkOrder,
         execution: dict[str, Any],
     ) -> None:
-        task_run = dict(execution.get("node_executor_task_run") or {})
+        task_run = self._executor_task_run_payload(execution)
         if not task_run:
             return
-        if str(task_run.get("origin_kind") or "") != "graph_node_assigned":
+        if _task_run_origin_kind(task_run) != "graph_node_assigned":
             raise ValueError("GraphRunRunner node executor TaskRun origin_kind mismatch")
-        if str(task_run.get("graph_run_id") or "") != graph_run_id:
+        if _task_run_graph_run_id(task_run) != graph_run_id:
             raise ValueError("GraphRunRunner node executor TaskRun graph_run_id mismatch")
-        if str(task_run.get("graph_work_order_id") or "") != work_order.work_order_id:
+        if _task_run_work_order_id(task_run) != work_order.work_order_id:
             raise ValueError("GraphRunRunner node executor TaskRun work_order_id mismatch")
+
+    def _executor_task_run_payload(self, execution: dict[str, Any]) -> dict[str, Any]:
+        task_run = dict(execution.get("node_executor_task_run") or {})
+        if _task_run_origin_kind(task_run) and _task_run_graph_run_id(task_run) and _task_run_work_order_id(task_run):
+            return task_run
+        task_run_id = str(
+            task_run.get("task_run_id")
+            or dict(dict(execution.get("node_result") or {}).get("outputs") or {}).get("node_executor_task_run_id")
+            or ""
+        ).strip()
+        if not task_run_id:
+            return task_run
+        persisted = self._services.state_index.get_task_run(task_run_id)
+        persisted_payload = persisted.to_dict() if hasattr(persisted, "to_dict") else (dict(persisted) if isinstance(persisted, dict) else {})
+        if not persisted_payload:
+            return task_run
+        return {
+            **persisted_payload,
+            **{key: value for key, value in task_run.items() if value not in ("", None, {}, [])},
+        }
 
     def _append_runner_event(
         self,
@@ -442,6 +462,32 @@ def _runtime_budget_exhausted(started_at: float, *, max_runtime_seconds: float) 
     if max_runtime_seconds <= 0:
         return False
     return (time.monotonic() - started_at) >= max_runtime_seconds
+
+
+def _task_run_diagnostics(task_run: dict[str, Any]) -> dict[str, Any]:
+    return dict(task_run.get("diagnostics") or {})
+
+
+def _task_run_origin(task_run: dict[str, Any]) -> dict[str, Any]:
+    return dict(_task_run_diagnostics(task_run).get("origin") or {})
+
+
+def _task_run_origin_kind(task_run: dict[str, Any]) -> str:
+    diagnostics = _task_run_diagnostics(task_run)
+    origin = _task_run_origin(task_run)
+    return str(task_run.get("origin_kind") or origin.get("origin_kind") or diagnostics.get("origin_kind") or "").strip()
+
+
+def _task_run_graph_run_id(task_run: dict[str, Any]) -> str:
+    diagnostics = _task_run_diagnostics(task_run)
+    origin = _task_run_origin(task_run)
+    return str(task_run.get("graph_run_id") or diagnostics.get("graph_run_id") or origin.get("graph_run_id") or "").strip()
+
+
+def _task_run_work_order_id(task_run: dict[str, Any]) -> str:
+    diagnostics = _task_run_diagnostics(task_run)
+    origin = _task_run_origin(task_run)
+    return str(task_run.get("graph_work_order_id") or diagnostics.get("graph_work_order_id") or origin.get("origin_ref") or "").strip()
 
 
 def _loop_state_public_view(state: GraphLoopState) -> dict[str, Any]:

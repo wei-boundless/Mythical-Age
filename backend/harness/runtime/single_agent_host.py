@@ -70,13 +70,54 @@ class SingleAgentRuntimeHost:
         self.runtime_monitor_service = RuntimeMonitorService(runtime_host=self)
         self.monitor_projector = self.runtime_monitor_service.projector
         self._background_tasks: set[asyncio.Task[Any]] = set()
+        self._background_tasks_by_name: dict[str, set[asyncio.Task[Any]]] = {}
 
     def spawn_background_task(self, coro: Any, *, name: str = "") -> asyncio.Task[Any]:
         kwargs = {"name": name} if name else {}
         task = asyncio.create_task(coro, **kwargs)
         self._background_tasks.add(task)
-        task.add_done_callback(self._background_tasks.discard)
+        if name:
+            self._background_tasks_by_name.setdefault(name, set()).add(task)
+
+        def _discard(done: asyncio.Task[Any]) -> None:
+            self._background_tasks.discard(done)
+            if name:
+                named = self._background_tasks_by_name.get(name)
+                if named is not None:
+                    named.discard(done)
+                    if not named:
+                        self._background_tasks_by_name.pop(name, None)
+
+        task.add_done_callback(_discard)
         return task
+
+    async def cancel_background_tasks(
+        self,
+        *,
+        names: set[str] | list[str] | tuple[str, ...],
+        reason: str = "session_deleted",
+        timeout_seconds: float = 5.0,
+    ) -> dict[str, Any]:
+        target_names = {str(item).strip() for item in names if str(item).strip()}
+        current = asyncio.current_task()
+        tasks: set[asyncio.Task[Any]] = set()
+        for name in target_names:
+            tasks.update(self._background_tasks_by_name.get(name, set()))
+        tasks = {task for task in tasks if task is not current and not task.done()}
+        for task in tasks:
+            task.cancel(msg=reason)
+        timed_out = False
+        if tasks:
+            try:
+                await asyncio.wait_for(asyncio.gather(*tasks, return_exceptions=True), timeout=max(0.1, float(timeout_seconds or 5.0)))
+            except asyncio.TimeoutError:
+                timed_out = True
+        return {
+            "authority": "single_agent_runtime_host.cancel_background_tasks",
+            "requested_names": sorted(target_names),
+            "cancelled_count": len(tasks),
+            "timed_out": timed_out,
+        }
 
     def _close_unowned_active_chat_runs(self) -> None:
         for run in self.run_registry.list_runs():
@@ -91,7 +132,7 @@ class SingleAgentRuntimeHost:
                 current,
                 public_event_type="error",
                 data={
-                    "error": "运行进程已重启，原执行流不能继续自动推进。请发送新的消息，系统会根据当前任务状态重新判断下一步。",
+                    "error": "运行进程已重启，原执行流已经终止，agent 没有收到新的模型轮次。请发送新的消息；这条消息会作为新的用户输入交给 agent，由 agent 基于可见上下文和当前任务状态决定下一步。",
                     "code": "runtime_process_restarted",
                     "reason": "background_executor_missing_after_restart",
                 },

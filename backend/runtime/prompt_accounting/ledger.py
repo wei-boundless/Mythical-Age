@@ -214,6 +214,31 @@ class PromptAccountingLedger:
             "deleted_counts": {key: value for key, value in deleted_counts.items() if value},
         }
 
+    def prune_session(self, session_id: str, task_run_ids: set[str] | list[str] | tuple[str, ...] = ()) -> dict[str, Any]:
+        normalized = str(session_id or "").strip()
+        targets = {str(item).strip() for item in task_run_ids if str(item).strip()}
+        if not normalized and not targets:
+            return {
+                "authority": "runtime.prompt_accounting.ledger.prune_session",
+                "session_id": "",
+                "requested_task_run_ids": [],
+                "deleted_counts": {},
+            }
+        deleted_counts = {
+            "segment_maps": self._rewrite_without_session_or_tasks("segment_maps.jsonl", normalized, targets),
+            "segments": self._rewrite_without_session_or_tasks("segments.jsonl", normalized, targets),
+            "token_usage": self._rewrite_without_session_or_tasks("token_usage.jsonl", normalized, targets),
+            "prompt_cache": self._rewrite_without_session_or_tasks("prompt_cache.jsonl", normalized, targets),
+            "prompt_cache_breaks": self._rewrite_without_session_or_tasks("prompt_cache_breaks.jsonl", normalized, targets),
+            "prompt_stability": self._rewrite_without_session_or_tasks("prompt_stability.jsonl", normalized, targets),
+        }
+        return {
+            "authority": "runtime.prompt_accounting.ledger.prune_session",
+            "session_id": normalized,
+            "requested_task_run_ids": sorted(targets),
+            "deleted_counts": {key: value for key, value in deleted_counts.items() if value},
+        }
+
     def _append_jsonl(self, filename: str, payload: dict[str, Any]) -> None:
         path = self.ledger_dir / filename
         with self._lock:
@@ -248,6 +273,26 @@ class PromptAccountingLedger:
         deleted = 0
         for row in rows:
             if str(row.get("task_run_id") or "") in task_run_ids or str(row.get("run_id") or "") in task_run_ids:
+                deleted += 1
+                continue
+            kept.append(row)
+        with self._lock:
+            with path.open("w", encoding="utf-8", newline="\n") as handle:
+                for row in kept:
+                    handle.write(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n")
+        return deleted
+
+    def _rewrite_without_session_or_tasks(self, filename: str, session_id: str, task_run_ids: set[str]) -> int:
+        path = self.ledger_dir / filename
+        if not path.exists():
+            return 0
+        rows = self._read_jsonl(filename)
+        kept: list[dict[str, Any]] = []
+        deleted = 0
+        for row in rows:
+            row_task_run_id = str(row.get("task_run_id") or row.get("run_id") or "")
+            row_session_id = str(row.get("session_id") or "")
+            if row_task_run_id in task_run_ids or (session_id and row_session_id == session_id):
                 deleted += 1
                 continue
             kept.append(row)

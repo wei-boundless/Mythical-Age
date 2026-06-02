@@ -204,6 +204,13 @@ class Settings:
     terminal_timeout_seconds: int = 30
 
 
+def _normalize_runtime_permission_mode(mode: Any) -> str:
+    normalized = str(mode or "default").strip().lower()
+    if normalized in {"default", "plan", "accept_edits", "bypass", "full_access"}:
+        return normalized
+    return "default"
+
+
 def _load_env_file() -> Path:
     backend_dir = Path(__file__).resolve().parent
     load_dotenv(backend_dir / ".env")
@@ -991,10 +998,10 @@ class RuntimeConfigManager:
         return self.save({"rag_mode": enabled})
 
     def get_permission_mode(self) -> str:
-        return str(self.load().get("permission_mode", "default") or "default")
+        return _normalize_runtime_permission_mode(self.load().get("permission_mode", "default"))
 
     def set_permission_mode(self, mode: str) -> dict[str, Any]:
-        normalized = (mode or "default").strip() or "default"
+        normalized = _normalize_runtime_permission_mode(mode)
         return self.save({"permission_mode": normalized})
 
     def get_orchestration_plan_mode(self) -> str:

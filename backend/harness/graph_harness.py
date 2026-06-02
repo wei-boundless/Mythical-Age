@@ -458,6 +458,7 @@ def _task_run_summary(task_run: Any | None) -> dict[str, Any]:
         return {}
     payload = task_run.to_dict() if hasattr(task_run, "to_dict") else (dict(task_run) if isinstance(task_run, dict) else {})
     diagnostics = dict(payload.get("diagnostics") or {})
+    origin = dict(diagnostics.get("origin") or {})
     return {
         "task_run_id": str(payload.get("task_run_id") or ""),
         "session_id": str(payload.get("session_id") or ""),
@@ -469,9 +470,9 @@ def _task_run_summary(task_run: Any | None) -> dict[str, Any]:
         "latest_step": diagnostics.get("latest_step") or diagnostics.get("step_summary") or {},
         "latest_step_status": diagnostics.get("latest_step_status") or "",
         "latest_step_summary": diagnostics.get("latest_step_summary") or "",
-        "origin_kind": diagnostics.get("origin_kind") or "",
-        "graph_run_id": diagnostics.get("graph_run_id") or "",
-        "graph_work_order_id": diagnostics.get("graph_work_order_id") or "",
+        "origin_kind": diagnostics.get("origin_kind") or origin.get("origin_kind") or "",
+        "graph_run_id": diagnostics.get("graph_run_id") or origin.get("graph_run_id") or "",
+        "graph_work_order_id": diagnostics.get("graph_work_order_id") or origin.get("origin_ref") or "",
         "project_id": diagnostics.get("project_id") or "",
         "runtime_scope": dict(diagnostics.get("runtime_scope") or {}),
     }

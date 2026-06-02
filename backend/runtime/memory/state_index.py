@@ -338,6 +338,58 @@ class RuntimeStateIndex:
                 "deleted_counts": counts,
             }
 
+    def prune_turn_runs(self, turn_run_ids: set[str]) -> dict[str, Any]:
+        targets = {str(item).strip() for item in turn_run_ids if str(item).strip()}
+        if not targets:
+            return {
+                "authority": "orchestration.runtime_state_index.prune_turn_runs",
+                "requested_turn_run_ids": [],
+                "deleted_turn_run_ids": [],
+                "deleted_counts": {},
+            }
+        with _STATE_INDEX_WRITE_LOCK:
+            snapshot = self._read()
+            existing = targets.intersection(set(dict(snapshot.get("turn_runs") or {}).keys()))
+            if not existing:
+                return {
+                    "authority": "orchestration.runtime_state_index.prune_turn_runs",
+                    "requested_turn_run_ids": sorted(targets),
+                    "deleted_turn_run_ids": [],
+                    "deleted_counts": {},
+                }
+            pruned, counts = self._snapshot_without_turn_runs(snapshot, existing)
+            pruned["updated_at"] = time.time()
+            self.replace_snapshot(pruned)
+            return {
+                "authority": "orchestration.runtime_state_index.prune_turn_runs",
+                "requested_turn_run_ids": sorted(targets),
+                "deleted_turn_run_ids": sorted(existing),
+                "deleted_counts": counts,
+            }
+
+    def prune_session_runtime_records(self, session_id: str) -> dict[str, Any]:
+        normalized = str(session_id or "").strip()
+        if not normalized:
+            return {
+                "authority": "orchestration.runtime_state_index.prune_session_runtime_records",
+                "session_id": "",
+                "deleted_counts": {},
+            }
+        task_run_ids = {item.task_run_id for item in self.list_session_task_runs(normalized) if item.task_run_id}
+        turn_run_ids = {item.turn_run_id for item in self.list_session_turn_runs(normalized) if item.turn_run_id}
+        task_effect = self.prune_task_runs(task_run_ids)
+        turn_effect = self.prune_turn_runs(turn_run_ids)
+        return {
+            "authority": "orchestration.runtime_state_index.prune_session_runtime_records",
+            "session_id": normalized,
+            "task_run_ids": sorted(task_run_ids),
+            "turn_run_ids": sorted(turn_run_ids),
+            "effects": {
+                "task_runs": task_effect,
+                "turn_runs": turn_effect,
+            },
+        }
+
     def _snapshot_without_task_runs(self, snapshot: dict[str, Any], task_run_ids: set[str]) -> tuple[dict[str, Any], dict[str, int]]:
         pruned = self._empty_snapshot()
         counts: dict[str, int] = {}
@@ -366,6 +418,24 @@ class RuntimeStateIndex:
         self._rebuild_indexes(pruned)
         return pruned, counts
 
+    def _snapshot_without_turn_runs(self, snapshot: dict[str, Any], turn_run_ids: set[str]) -> tuple[dict[str, Any], dict[str, int]]:
+        pruned = self._empty_snapshot()
+        counts: dict[str, int] = {}
+        for bucket in self._record_buckets():
+            source = dict(snapshot.get(bucket) or {})
+            kept: dict[str, Any] = {}
+            for key, value in source.items():
+                if not isinstance(value, dict):
+                    continue
+                turn_run_id = str(value.get("turn_run_id") or "")
+                if bucket == "turn_runs" and turn_run_id in turn_run_ids:
+                    counts[bucket] = counts.get(bucket, 0) + 1
+                    continue
+                kept[str(key)] = value
+            pruned[bucket] = kept
+        self._rebuild_indexes(pruned)
+        return pruned, counts
+
     def _rebuild_indexes(self, snapshot: dict[str, Any]) -> None:
         for bucket in self._list_index_buckets():
             snapshot[bucket] = {}
@@ -379,6 +449,14 @@ class RuntimeStateIndex:
             if task_run_id and session_id:
                 self._snapshot_append_index(snapshot, "sessions", session_id, task_run_id)
                 self._snapshot_maybe_latest_task(snapshot, "session_latest_task_runs", session_id, task_run_id, float(task_run.get("updated_at") or 0.0), "task_runs")
+        for turn_run in dict(snapshot.get("turn_runs") or {}).values():
+            if not isinstance(turn_run, dict):
+                continue
+            turn_run_id = str(turn_run.get("turn_run_id") or "")
+            session_id = str(turn_run.get("session_id") or "")
+            if turn_run_id and session_id:
+                self._snapshot_append_index(snapshot, "session_turn_runs", session_id, turn_run_id)
+                self._snapshot_maybe_latest_task(snapshot, "session_latest_turn_runs", session_id, turn_run_id, float(turn_run.get("updated_at") or 0.0), "turn_runs")
         for agent_run in dict(snapshot.get("agent_runs") or {}).values():
             if isinstance(agent_run, dict):
                 self._snapshot_append_index(snapshot, "task_agent_runs", str(agent_run.get("task_run_id") or ""), str(agent_run.get("agent_run_id") or ""))

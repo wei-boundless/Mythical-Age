@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 
 from api.deps import require_runtime
 from api.session_summary import enrich_session_summaries
+from harness.runtime.session_lifecycle import SessionRuntimeLifecycleManager
 from harness.runtime.session_timeline import build_session_runtime_timeline
 from task_system.session_scope import assert_optional_session_scope, request_scope_from_query
 
@@ -78,16 +79,20 @@ async def delete_session(
     workspace_view: str | None = Query(default=None, max_length=80),
     task_environment_id: str | None = Query(default=None, max_length=200),
     project_id: str | None = Query(default=None, max_length=240),
-) -> dict[str, bool]:
+) -> dict[str, Any]:
     runtime = require_runtime()
     assert_optional_session_scope(
         runtime.session_manager,
         session_id,
         request_scope_from_query(workspace_view=workspace_view, task_environment_id=task_environment_id, project_id=project_id),
     )
+    try:
+        cleanup = await SessionRuntimeLifecycleManager(runtime).delete_session_runtime(session_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     runtime.session_manager.delete_session(session_id)
     runtime.memory_facade.delete_session_memory(session_id)
-    return {"ok": True}
+    return {"ok": True, "cleanup": cleanup}
 
 
 @router.get("/sessions/{session_id}/messages")

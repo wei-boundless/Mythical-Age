@@ -124,6 +124,36 @@ class RuntimeRunRegistry:
         runs = self.list_session_runs(session_id)
         return runs[0] if runs else None
 
+    def delete_session_runs(self, session_id: str) -> dict[str, Any]:
+        normalized = str(session_id or "").strip()
+        if not normalized:
+            return {
+                "authority": "runtime.run_registry.delete_session_runs",
+                "session_id": "",
+                "deleted_stream_run_ids": [],
+                "deleted_event_log_ids": [],
+            }
+        deleted_stream_run_ids: list[str] = []
+        deleted_event_log_ids: list[str] = []
+        with self._lock:
+            for run in self.list_session_runs(normalized):
+                path = self._run_path(run.stream_run_id)
+                if not path.exists():
+                    continue
+                try:
+                    path.unlink()
+                except OSError:
+                    continue
+                deleted_stream_run_ids.append(run.stream_run_id)
+                if run.event_log_id:
+                    deleted_event_log_ids.append(run.event_log_id)
+        return {
+            "authority": "runtime.run_registry.delete_session_runs",
+            "session_id": normalized,
+            "deleted_stream_run_ids": deleted_stream_run_ids,
+            "deleted_event_log_ids": deleted_event_log_ids,
+        }
+
     def mark_running(self, run: RuntimeRun) -> RuntimeRun:
         return self.update_run(run.stream_run_id, status="running")
 
