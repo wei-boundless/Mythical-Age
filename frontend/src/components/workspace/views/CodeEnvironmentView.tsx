@@ -3,33 +3,32 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
-  CheckCircle2,
   Cpu,
   FileCode2,
   GitBranch,
-  MonitorCog,
-  RefreshCw,
-  ShieldCheck,
-  TerminalSquare,
-  Wrench,
+  GitCommitHorizontal,
+  Github,
+  Globe2,
+  HardDrive,
+  Settings,
+  Sparkles,
+  SquarePlus,
+  Workflow,
 } from "lucide-react";
 
 import { ChatPanel } from "@/components/chat/ChatPanel";
 import { WorkbenchShell } from "@/components/layout/WorkbenchShell";
+import { GraphTaskWorkspace } from "@/components/workspace/views/task-graph-workbench/GraphTaskWorkspace";
 import {
   getCodeEnvironment,
   getCodeEnvironmentGitStatus,
-  getCodeEnvironmentWorkspaceTree,
-  getPiSidecarStatus,
-  runPiSidecarReadOnlyCommand,
-  startPiSidecar,
-  stopPiSidecar,
   type CodeEnvironmentGitStatus,
   type CodeEnvironmentStatus,
-  type CodeEnvironmentWorkspaceTree,
-  type PiSidecarCommandResponse,
-  type PiSidecarStatus,
 } from "@/lib/api";
+
+const DEVELOPMENT_TASK_ENVIRONMENT_ID = "env.development.sandbox";
+
+type DevelopmentLayer = "chat" | "task-graph";
 
 function hostConfig() {
   const config = globalThis.__MYTHICAL_AGENT_HOST__ || (typeof window !== "undefined" ? window.mythicalAgentHost?.getConfig() : undefined);
@@ -50,167 +49,126 @@ function environmentStatusLabel(environment: CodeEnvironmentStatus | null) {
   return "诊断";
 }
 
-function diagnosticLabel(level: string) {
-  if (level === "error") return "错误";
-  if (level === "warning") return "警告";
-  return "信息";
+function gitChangedCount(gitStatus: CodeEnvironmentGitStatus | null) {
+  if (!gitStatus?.available) return 0;
+  const changedCount = gitStatus.changed_count;
+  return typeof changedCount === "number" && Number.isFinite(changedCount) ? changedCount : gitStatus.items.length;
 }
 
-function DevelopmentRightPanel({
-  commandResult,
-  environment,
-  error,
+function formatGitNumber(value: unknown) {
+  const numberValue = typeof value === "number" && Number.isFinite(value) ? value : 0;
+  return numberValue.toLocaleString("en-US");
+}
+
+function gitChangesLabel(gitStatus: CodeEnvironmentGitStatus | null) {
+  if (!gitStatus) return "未读取";
+  if (!gitStatus.available) return gitStatus.error || "Git 不可用";
+  const count = gitChangedCount(gitStatus);
+  return count ? `${count} changes` : "Clean";
+}
+
+function DevelopmentGitFloatingPanel({
   gitStatus,
   loading,
-  sidecar,
-  sidecarLoading,
-  workspaceTree,
   onRefresh,
-  onRunSidecarAction,
+  scopeKey,
 }: {
-  commandResult: PiSidecarCommandResponse | null;
-  environment: CodeEnvironmentStatus | null;
-  error: string;
   gitStatus: CodeEnvironmentGitStatus | null;
   loading: boolean;
-  sidecar: PiSidecarStatus | null;
-  sidecarLoading: boolean;
-  workspaceTree: CodeEnvironmentWorkspaceTree | null;
   onRefresh: () => void;
-  onRunSidecarAction: (action: "start" | "stop" | "get_state" | "get_available_models") => void;
+  scopeKey: string;
 }) {
-  const diagnostics = environment?.pi.diagnostics ?? [];
-  const gitItems = gitStatus?.items ?? [];
-  const running = Boolean(sidecar?.running);
-  const projectReady = Boolean(environment?.pi.enabled);
-  const sidecarReady = Boolean(environment?.pi.available && environment.pi.cli_built && environment.pi.sidecar_enabled);
-  const projectRoot = environment?.pi.workspace_root || workspaceTree?.root_path || "未检测";
+  const [open, setOpen] = useState(false);
+  const branchLabel = gitStatus?.branch || "未读取";
+  const changedCount = gitChangedCount(gitStatus);
+  const additions = gitStatus?.diff_stat?.additions ?? 0;
+  const deletions = gitStatus?.diff_stat?.deletions ?? 0;
+  const hasDiffStat = Boolean(gitStatus?.diff_stat);
+  const ghAvailable = Boolean(gitStatus?.gh_available);
+
+  useEffect(() => {
+    setOpen(false);
+  }, [scopeKey]);
 
   return (
-    <aside className="workbench-right-panel development-right-panel" aria-label="开发环境状态">
-      <header className="workbench-panel-head workbench-panel-head--right">
-        <div>
-          <strong>开发状态</strong>
-          <span>{environmentStatusLabel(environment)}</span>
-        </div>
-        <button className="workbench-icon-button" disabled={loading} onClick={onRefresh} title="刷新开发状态" type="button">
-          <RefreshCw size={15} />
-        </button>
-      </header>
-
-      <div className="development-right-body">
-        {error ? <div className="development-alert development-alert--error">{error}</div> : null}
-
-        <section className="development-status-grid" aria-label="开发环境摘要">
-          <article className={projectReady ? "development-status-card development-status-card--ready" : "development-status-card"}>
-            {projectReady ? <CheckCircle2 size={16} /> : <AlertTriangle size={16} />}
-            <div>
-              <span>项目模式</span>
-              <strong>{projectReady ? "已启用" : "未启用"}</strong>
-            </div>
-          </article>
-          <article className={running ? "development-status-card development-status-card--ready" : "development-status-card"}>
-            {running ? <CheckCircle2 size={16} /> : <TerminalSquare size={16} />}
-            <div>
-              <span>Sidecar</span>
-              <strong>{running ? `PID ${sidecar?.pid || ""}` : sidecarReady ? "待启动" : "诊断"}</strong>
-            </div>
-          </article>
-        </section>
-
-        <section className="development-detail-panel">
-          <header>
-            <MonitorCog size={15} />
-            <strong>运行边界</strong>
-            <span>{environment?.pi.mode || "unknown"}</span>
+    <div className={open ? "development-git-float development-git-float--open" : "development-git-float"}>
+      {open ? (
+        <section className="development-git-popover" aria-label="开发环境状态浮窗">
+          <header className="development-git-popover__head">
+            <span>Environment</span>
+            <button aria-label="刷新环境状态" disabled={loading} onClick={onRefresh} title="刷新环境状态" type="button">
+              <Settings size={15} />
+            </button>
           </header>
-          <dl>
-            <div><dt>工作区</dt><dd title={projectRoot}>{projectRoot}</dd></div>
-            <div><dt>Node</dt><dd>{environment?.pi.node_version || "未检测"}</dd></div>
-            <div><dt>工具包</dt><dd>{environment?.pi.coding_agent_package_name || environment?.pi.package_name || "未检测"}</dd></div>
-            <div><dt>项目树</dt><dd>{workspaceTree ? `${workspaceTree.total_entries} 项` : "未加载"}</dd></div>
-          </dl>
-        </section>
 
-        <section className="development-detail-panel">
-          <header>
-            <GitBranch size={15} />
-            <strong>Git</strong>
-            <span>{gitStatus?.branch || "未读取"}</span>
-          </header>
-          {gitStatus?.available ? (
-            <div className="development-git-list">
-              {gitItems.length ? gitItems.slice(0, 14).map((item) => (
-                <div className="development-git-row" key={`${item.status}:${item.path}`}>
-                  <span>{item.status}</span>
-                  <strong title={item.path}>{item.path}</strong>
-                </div>
-              )) : <div className="development-empty">工作树无变更。</div>}
+          <div className="development-git-popover__body">
+            <div className="development-environment-menu">
+              <button className="development-environment-menu__row development-environment-menu__row--active" type="button">
+                <SquarePlus size={15} />
+                <span>Changes</span>
+                <strong aria-label={gitChangesLabel(gitStatus)}>
+                  {hasDiffStat ? (
+                    <>
+                      <span className="development-environment-menu__added">+{formatGitNumber(additions)}</span>
+                      <span className="development-environment-menu__deleted">-{formatGitNumber(deletions)}</span>
+                    </>
+                  ) : (
+                    <span>{gitChangesLabel(gitStatus)}</span>
+                  )}
+                </strong>
+              </button>
+              <button className="development-environment-menu__row" type="button">
+                <HardDrive size={15} />
+                <span>Local</span>
+              </button>
+              <button className="development-environment-menu__row" type="button">
+                <GitBranch size={15} />
+                <span>{branchLabel}</span>
+              </button>
+              <button className="development-environment-menu__row" type="button">
+                <GitCommitHorizontal size={15} />
+                <span>Commit</span>
+              </button>
+              <button className="development-environment-menu__row development-environment-menu__row--disabled" disabled type="button">
+                <Github size={15} />
+                <span>{ghAvailable ? "GitHub CLI available" : "GitHub CLI unavailable"}</span>
+              </button>
             </div>
-          ) : (
-            <div className="development-empty">{gitStatus?.error || "Git 状态未加载。"}</div>
-          )}
-        </section>
 
-        <section className="development-detail-panel">
-          <header>
-            <ShieldCheck size={15} />
-            <strong>诊断</strong>
-            <span>{diagnostics.length ? `${diagnostics.length} 项` : "通过"}</span>
-          </header>
-          <div className="development-diagnostic-list">
-            {diagnostics.length ? diagnostics.map((item) => (
-              <article className={`development-diagnostic development-diagnostic--${item.level}`} key={`${item.code}:${item.path || item.message}`}>
-                <span>{diagnosticLabel(item.level)}</span>
-                <strong>{item.code}</strong>
-                <p>{item.message}</p>
-                {item.path ? <small title={item.path}>{item.path}</small> : null}
-              </article>
-            )) : <div className="development-empty">没有阻断项。</div>}
+            <div className="development-environment-menu__divider" />
+
+            <div className="development-environment-menu">
+              <div className="development-environment-menu__section">Sources</div>
+              <button className="development-environment-menu__row" type="button">
+                <Globe2 size={15} />
+                <span>Web search</span>
+              </button>
+            </div>
           </div>
         </section>
+      ) : null}
 
-        <section className="development-detail-panel">
-          <header>
-            <TerminalSquare size={15} />
-            <strong>Sidecar</strong>
-            <span>{running ? "running" : "stopped"}</span>
-          </header>
-          <div className="development-sidecar-actions">
-            <button disabled={sidecarLoading || !sidecarReady || running} onClick={() => onRunSidecarAction("start")} type="button">启动</button>
-            <button disabled={sidecarLoading || !running} onClick={() => onRunSidecarAction("stop")} type="button">停止</button>
-            <button disabled={sidecarLoading || !running} onClick={() => onRunSidecarAction("get_state")} type="button">状态</button>
-            <button disabled={sidecarLoading || !running} onClick={() => onRunSidecarAction("get_available_models")} type="button">模型</button>
-          </div>
-          <dl>
-            <div><dt>CLI</dt><dd title={environment?.pi.pi_cli_path}>{environment?.pi.pi_cli_path || "未检测"}</dd></div>
-            <div><dt>stderr</dt><dd title={sidecar?.stderr_tail}>{sidecar?.stderr_tail || "无输出"}</dd></div>
-          </dl>
-        </section>
-
-        {commandResult ? (
-          <section className="development-detail-panel">
-            <header>
-              <Wrench size={15} />
-              <strong>只读命令</strong>
-              <span>{commandResult.command}</span>
-            </header>
-            <pre className="development-command-result">{JSON.stringify(commandResult, null, 2)}</pre>
-          </section>
-        ) : null}
-      </div>
-    </aside>
+      <button
+        aria-expanded={open}
+        aria-label={open ? "收起 Git 浮窗" : "打开 Git 浮窗"}
+        className={changedCount ? "development-git-trigger development-git-trigger--dirty" : "development-git-trigger"}
+        onClick={() => setOpen((current) => !current)}
+        type="button"
+      >
+        <GitBranch size={16} />
+        <span>{branchLabel}</span>
+        <strong>{changedCount}</strong>
+      </button>
+    </div>
   );
 }
 
 export function CodeEnvironmentView({ embedded = false }: { embedded?: boolean }) {
   const [environment, setEnvironment] = useState<CodeEnvironmentStatus | null>(null);
-  const [workspaceTree, setWorkspaceTree] = useState<CodeEnvironmentWorkspaceTree | null>(null);
   const [gitStatus, setGitStatus] = useState<CodeEnvironmentGitStatus | null>(null);
-  const [sidecar, setSidecar] = useState<PiSidecarStatus | null>(null);
-  const [commandResult, setCommandResult] = useState<PiSidecarCommandResponse | null>(null);
+  const [layer, setLayer] = useState<DevelopmentLayer>("chat");
+  const [selectedGraphId, setSelectedGraphId] = useState("");
   const [loading, setLoading] = useState(true);
-  const [sidecarLoading, setSidecarLoading] = useState(false);
   const [error, setError] = useState("");
   const host = useMemo(() => hostConfig(), []);
 
@@ -218,16 +176,12 @@ export function CodeEnvironmentView({ embedded = false }: { embedded?: boolean }
     setLoading(true);
     setError("");
     try {
-      const [nextEnvironment, nextSidecar, nextGitStatus, nextWorkspaceTree] = await Promise.all([
+      const [nextEnvironment, nextGitStatus] = await Promise.all([
         getCodeEnvironment(host),
-        getPiSidecarStatus(),
         getCodeEnvironmentGitStatus(),
-        getCodeEnvironmentWorkspaceTree({ maxDepth: 4, maxEntries: 4000 }),
       ]);
       setEnvironment(nextEnvironment);
-      setSidecar(nextSidecar.status);
       setGitStatus(nextGitStatus);
-      setWorkspaceTree(nextWorkspaceTree);
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : String(loadError));
     } finally {
@@ -239,63 +193,72 @@ export function CodeEnvironmentView({ embedded = false }: { embedded?: boolean }
     void loadEnvironment();
   }, [loadEnvironment]);
 
-  async function runSidecarAction(action: "start" | "stop" | "get_state" | "get_available_models") {
-    setSidecarLoading(true);
-    setError("");
-    try {
-      if (action === "start") {
-        setSidecar((await startPiSidecar()).status);
-      } else if (action === "stop") {
-        setSidecar((await stopPiSidecar()).status);
-      } else {
-        setCommandResult(await runPiSidecarReadOnlyCommand(action));
-      }
-    } catch (actionError) {
-      setError(actionError instanceof Error ? actionError.message : String(actionError));
-    } finally {
-      setSidecarLoading(false);
-      void loadEnvironment();
-    }
-  }
-
   const branchLabel = gitStatus?.branch || "未读取";
   const statusText = environmentStatusLabel(environment);
+  const diagnosticsCount = environment?.pi.diagnostics.length ?? 0;
 
   return (
     <WorkbenchShell
       className={embedded ? "development-environment-shell development-environment-shell--embedded" : "development-environment-shell"}
-      rightPanel={(
-        <DevelopmentRightPanel
-          commandResult={commandResult}
-          environment={environment}
-          error={error}
-          gitStatus={gitStatus}
-          loading={loading}
-          onRefresh={() => void loadEnvironment()}
-          onRunSidecarAction={(action) => void runSidecarAction(action)}
-          sidecar={sidecar}
-          sidecarLoading={sidecarLoading}
-          workspaceTree={workspaceTree}
-        />
-      )}
-      rightPanelLabel="开发状态"
+      rightPanelLabel="辅助栏"
     >
-      <section className="workbench-view-host development-center-host" aria-label="开发任务对话">
-        <div className="development-center-banner">
-          <div>
+      <section className="workbench-view-host development-center-host" aria-label="开发任务工作台">
+        <header className="development-center-banner">
+          <div className="development-center-title">
             <span>开发环境</span>
             <strong>专业 Coding Agent</strong>
           </div>
-          <div>
-            <FileCode2 size={15} />
-            <span>{branchLabel}</span>
+
+          <nav className="development-layer-tabs" aria-label="开发环境层级切换">
+            <button className={layer === "chat" ? "development-layer-tab development-layer-tab--active" : "development-layer-tab"} onClick={() => setLayer("chat")} type="button">
+              <Sparkles size={14} />
+              <span>会话层</span>
+            </button>
+            <button className={layer === "task-graph" ? "development-layer-tab development-layer-tab--active" : "development-layer-tab"} onClick={() => setLayer("task-graph")} type="button">
+              <Workflow size={14} />
+              <span>图任务层</span>
+            </button>
+          </nav>
+
+          <div className="development-center-meta" aria-label="开发状态摘要">
+            <span title={branchLabel}>
+              <FileCode2 size={15} />
+              {branchLabel}
+            </span>
+            <span title={diagnosticsCount ? `${diagnosticsCount} 个诊断项` : statusText}>
+              <Cpu size={15} />
+              {diagnosticsCount ? `${diagnosticsCount} 个诊断` : statusText}
+            </span>
           </div>
-          <div>
-            <Cpu size={15} />
-            <span>{statusText}</span>
-          </div>
+        </header>
+
+        <div className={error ? "development-layer-body development-layer-body--with-alert" : "development-layer-body"}>
+          {error ? (
+            <div className="development-alert development-alert--inline">
+              <AlertTriangle size={15} />
+              <span>{error}</span>
+            </div>
+          ) : null}
+
+          {layer === "chat" ? (
+            <ChatPanel />
+          ) : (
+            <div className="development-graph-layer">
+              <GraphTaskWorkspace
+                onSelectedGraphChange={setSelectedGraphId}
+                requestedGraphId={selectedGraphId}
+                taskEnvironmentId={DEVELOPMENT_TASK_ENVIRONMENT_ID}
+              />
+            </div>
+          )}
         </div>
-        <ChatPanel />
+
+        <DevelopmentGitFloatingPanel
+          gitStatus={gitStatus}
+          loading={loading}
+          onRefresh={() => void loadEnvironment()}
+          scopeKey={layer}
+        />
       </section>
     </WorkbenchShell>
   );

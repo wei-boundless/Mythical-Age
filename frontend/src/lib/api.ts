@@ -78,6 +78,10 @@ export type SessionHistory = {
     role: "user" | "assistant";
     content: string;
     tool_calls?: ToolCall[];
+    answer_channel?: string;
+    answer_source?: string;
+    answer_canonical_state?: string;
+    answer_finalization_policy?: string;
     image?: {
       src: string;
       alt?: string;
@@ -253,6 +257,11 @@ export type CodeEnvironmentGitStatus = {
   branch: string;
   items: Array<{ status: string; path: string }>;
   changed_count?: number;
+  diff_stat?: {
+    additions?: number;
+    deletions?: number;
+  };
+  gh_available?: boolean;
   error?: string;
 };
 

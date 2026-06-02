@@ -462,7 +462,7 @@ function eventSummary(event: string, data: Record<string, unknown>) {
     const warnings = Array.isArray(data.warnings) ? data.warnings.map((item) => String(item)) : [];
     const reason = warnings.map(runtimeControlWarningLabel).filter(Boolean)[0];
     if (reason) {
-      return `处理已停止，原因是${reason}`;
+      return `当前处理遇到边界：${reason}`;
     }
     if (data.primary_active) {
       return "处理流程已接管后续执行。";

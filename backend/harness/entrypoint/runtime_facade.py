@@ -12,6 +12,7 @@ from observability import build_debug_trace_event, start_turn_trace
 from capability_system.tools.authorization import build_tool_authorization_index
 from harness import GraphHarness
 from harness.runtime import AgentRuntimeServices, SingleAgentRuntimeHost, TaskExecutorServices, assemble_runtime
+from harness.runtime.public_progress import public_runtime_progress_summary
 from runtime import ModelResponseRuntimeExecutor, ModelRuntimeError, ToolRuntimeExecutor
 from runtime.shared.history_assembler import assemble_runtime_history
 from agent_system.profiles.runtime_profile_registry import AgentRuntimeRegistry
@@ -294,6 +295,10 @@ class HarnessRuntimeFacade:
 
                 runtime_branch = _runtime_branch_projection(runtime_assembly=runtime_assembly)
                 active_work_context = self._active_work_context_from_active_turn(request.session_id)
+                if active_work_context is None:
+                    recent_work_outcome = self._recent_work_outcome_from_latest_task(request.session_id)
+                    if recent_work_outcome:
+                        session_context["recent_work_outcome"] = recent_work_outcome
                 yield {
                     "type": "runtime_branch_decided",
                     "runtime_branch": runtime_branch,
@@ -548,6 +553,90 @@ class HarnessRuntimeFacade:
             continuation_kind=continuation_kind,
             same_run_allowed=same_run_allowed,
             authority="harness.runtime.active_turn_context",
+        )
+
+    def _recent_work_outcome_from_latest_task(self, session_id: str) -> dict[str, Any]:
+        """Return a read-only status fact for the latest non-active formal task.
+
+        This is context, not routing. The model still decides how to answer the
+        current user turn, but it no longer has to rediscover why the last task
+        stopped.
+        """
+        task_runs = [
+            item
+            for item in list(self.single_agent_runtime_host.state_index.list_session_task_runs(session_id) or [])
+            if str(getattr(item, "execution_runtime_kind", "") or "") == "single_agent_task"
+        ]
+        if not task_runs:
+            return {}
+        formal = [item for item in task_runs if _looks_like_chat_task_run(item)]
+        candidates = formal or task_runs
+        latest = sorted(candidates, key=lambda item: float(getattr(item, "updated_at", 0.0) or 0.0), reverse=True)[0]
+        status = str(getattr(latest, "status", "") or "").strip()
+        terminal_reason = str(getattr(latest, "terminal_reason", "") or "").strip()
+        if not _recent_work_outcome_status(status=status, terminal_reason=terminal_reason):
+            return {}
+        diagnostics = dict(getattr(latest, "diagnostics", {}) or {})
+        monitor = {}
+        try:
+            monitor = dict(self.single_agent_runtime_host.monitor_projector.project_task_run(latest, now=time.time()))
+        except Exception:
+            monitor = {}
+        contract = {}
+        contract_ref = str(getattr(latest, "task_contract_ref", "") or "").strip()
+        if contract_ref:
+            try:
+                contract = dict(self.single_agent_runtime_host.runtime_objects.get_object(contract_ref) or {})
+            except Exception:
+                contract = {}
+        goal = _public_status_text(
+            diagnostics.get("goal")
+            or contract.get("user_visible_goal")
+            or contract.get("task_run_goal")
+            or monitor.get("title")
+            or getattr(latest, "task_id", "")
+        )
+        latest_step = dict(monitor.get("latest_step") or {})
+        latest_progress = _public_status_text(
+            monitor.get("latest_public_progress_note")
+            or monitor.get("latest_step_summary")
+            or monitor.get("summary")
+            or latest_step.get("public_progress_note")
+            or diagnostics.get("latest_public_progress_note")
+            or diagnostics.get("latest_step_summary")
+            or diagnostics.get("summary")
+            or terminal_reason
+            or status
+        )
+        agent_brief = _public_status_text(
+            monitor.get("agent_brief_output")
+            or latest_step.get("agent_brief_output")
+            or diagnostics.get("agent_brief_output")
+        )
+        return _drop_empty_entrypoint_payload(
+            {
+                "task_run_id": str(getattr(latest, "task_run_id", "") or ""),
+                "task_id": str(getattr(latest, "task_id", "") or ""),
+                "status": status,
+                "terminal_reason": terminal_reason,
+                "lifecycle": str(monitor.get("lifecycle") or ""),
+                "bucket": str(monitor.get("bucket") or ""),
+                "user_visible_goal": goal,
+                "latest_progress": latest_progress,
+                "latest_step_name": str(monitor.get("latest_step_name") or latest_step.get("step") or diagnostics.get("latest_step") or ""),
+                "latest_step_status": str(monitor.get("latest_step_status") or latest_step.get("status") or diagnostics.get("latest_step_status") or ""),
+                "latest_event_type": str(monitor.get("latest_event_type") or ""),
+                "agent_brief_output": agent_brief,
+                "artifact_refs": list(monitor.get("artifact_refs") or diagnostics.get("artifact_refs") or [])[:6],
+                "updated_at": float(getattr(latest, "updated_at", 0.0) or 0.0),
+                "continuation_state": "terminal_or_interrupted_task_record",
+                "decision_boundary": (
+                    "This is a read-only result from the most recent terminal, blocked, or interrupted task. "
+                    "Use it to answer status or failure questions before using tools. "
+                    "Do not treat it as active work and do not resume that task unless the user starts a new task or the runtime exposes a current active-work context."
+                ),
+                "authority": "harness.runtime.recent_work_outcome",
+            }
         )
 
     def _initialize_task_todo_for_contract(
@@ -1636,6 +1725,52 @@ def _runtime_branch_projection(*, runtime_assembly: Any) -> dict[str, Any]:
         "diagnostics": {"explicit_contract_present": False},
         "authority": "harness.entrypoint.runtime_branch",
     }
+
+
+def _looks_like_chat_task_run(task_run: Any) -> bool:
+    task_run_id = str(getattr(task_run, "task_run_id", "") or "")
+    task_id = str(getattr(task_run, "task_id", "") or "")
+    return task_run_id.startswith("taskrun:turn:") or task_id.startswith("task:turn:")
+
+
+def _recent_work_outcome_status(*, status: str, terminal_reason: str) -> bool:
+    normalized_status = str(status or "").strip()
+    normalized_reason = str(terminal_reason or "").strip()
+    if normalized_status in {
+        "completed",
+        "success",
+        "failed",
+        "error",
+        "aborted",
+        "cancelled",
+        "canceled",
+        "blocked",
+        "stopped",
+        "user_aborted",
+    }:
+        return True
+    return normalized_reason in {
+        "user_aborted",
+        "model_call_recovery_required",
+        "model_action_protocol_repair_required",
+        "task_execution_step_budget_exhausted",
+        "task_execution_step_budget_exceeded",
+        "task_executor_schedule_failed",
+        "background_executor_missing_after_restart",
+    }
+
+
+def _public_status_text(value: Any, *, limit: int = 900) -> str:
+    text = public_runtime_progress_summary(value)
+    if not text:
+        text = " ".join(str(value or "").split())
+    if len(text) <= limit:
+        return text
+    return text[: max(0, limit - 3)].rstrip() + "..."
+
+
+def _drop_empty_entrypoint_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in payload.items() if value not in ("", None, [], {})}
 
 
 def _runtime_is_blocked(assembly_payload: dict[str, Any]) -> bool:

@@ -133,6 +133,8 @@ export function toUiMessages(history: SessionHistory["messages"], runtimeAttachm
         toolCalls,
         retrievals: [],
         sourceIndex,
+        answerChannel: message.answer_channel,
+        answerSource: message.answer_source,
         image: message.image ?? null,
         runtimeAttachments: attachmentsByAssistantIndex.get(sourceIndex) ?? []
       };
@@ -143,7 +145,8 @@ export function toUiMessages(history: SessionHistory["messages"], runtimeAttachm
   for (const message of normalized) {
     const previous = merged[merged.length - 1];
     const hasRuntimeAttachment = Boolean(message.runtimeAttachments?.length || previous?.runtimeAttachments?.length);
-    if (message.role === "assistant" && previous?.role === "assistant" && !hasRuntimeAttachment) {
+    const sameAnswerChannel = (message.answerChannel || "") === (previous?.answerChannel || "");
+    if (message.role === "assistant" && previous?.role === "assistant" && !hasRuntimeAttachment && sameAnswerChannel) {
       previous.content = appendMessageContent(previous.content, message.content);
       previous.toolCalls = [...previous.toolCalls, ...message.toolCalls];
       previous.retrievals = [...previous.retrievals, ...message.retrievals];

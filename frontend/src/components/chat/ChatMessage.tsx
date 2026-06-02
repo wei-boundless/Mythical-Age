@@ -1,7 +1,7 @@
 "use client";
 
 import { Check, Pencil, X } from "lucide-react";
-import { useState } from "react";
+import React, { useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -19,6 +19,8 @@ export function ChatMessage({
   stageStatus,
   runtimeProgress = [],
   runtimeAttachments = [],
+  answerChannel,
+  answerSource,
   toolCalls,
   retrievals,
   canEdit = false,
@@ -35,6 +37,8 @@ export function ChatMessage({
   stageStatus?: string;
   runtimeProgress?: RuntimeProgressEntry[];
   runtimeAttachments?: SessionRuntimeAttachment[];
+  answerChannel?: string;
+  answerSource?: string;
   toolCalls: ToolCall[];
   retrievals: RetrievalResult[];
   canEdit?: boolean;
@@ -46,7 +50,14 @@ export function ChatMessage({
   const [failedImageSrc, setFailedImageSrc] = useState("");
   const imageUnavailable = Boolean(image?.src && failedImageSrc === image.src);
   const hasRuntimeDetails = !isUser && Boolean(runtimeAttachments.length || runtimeProgress.length);
-  const shouldRenderContent = isUser || Boolean(content) || Boolean(image?.src) || imageUnavailable || !hasRuntimeDetails;
+  const displayContent = isUser ? content : assistantDisplayContent({ content, answerChannel, answerSource });
+  const taskControlReceipt = !isUser && isTaskControlReceipt({ content, answerChannel, answerSource });
+  const hideTaskControlReceipt = taskControlReceipt && hasRuntimeDetails;
+  const shouldRenderContent =
+    isUser
+    || Boolean(image?.src)
+    || imageUnavailable
+    || (!hideTaskControlReceipt && (Boolean(displayContent.trim()) || !hasRuntimeDetails));
 
   return (
     <article
@@ -131,12 +142,61 @@ export function ChatMessage({
             </div>
           ) : (
             <ReactMarkdown remarkPlugins={[remarkGfm]}>
-              {content || "正在思考..."}
+              {displayContent || "正在思考..."}
             </ReactMarkdown>
           )}
         </div>
       ) : null}
       {!isUser && <RuntimeEvidencePanel toolCalls={toolCalls} />}
     </article>
+  );
+}
+
+function assistantDisplayContent({
+  content,
+  answerChannel,
+  answerSource,
+}: {
+  content: string;
+  answerChannel?: string;
+  answerSource?: string;
+}) {
+  const normalized = String(content || "").trim();
+  const source = String(answerSource || "");
+  const legacyToolLoop =
+    source.includes("single_agent_turn.tool_loop")
+    || normalized.includes("本轮工具观察次数已达到上限")
+    || normalized.includes("连续检查了几次仍没有形成可靠结论");
+  if (!legacyToolLoop) {
+    return content;
+  }
+  if (String(answerChannel || "") === "blocked" || source.includes("tool_loop")) {
+    return "我刚才连续检查了几次，但没有拿到足够的新信息。现在应该基于已有事实收口说明，或等你指定要重点核查的位置。";
+  }
+  return content;
+}
+
+function isTaskControlReceipt({
+  content,
+  answerChannel,
+  answerSource,
+}: {
+  content: string;
+  answerChannel?: string;
+  answerSource?: string;
+}) {
+  const channel = String(answerChannel || "").trim();
+  if (channel === "task_control") {
+    return true;
+  }
+  const source = String(answerSource || "");
+  if (source.includes("task_lifecycle") || source.includes("explicit_contract_task")) {
+    return true;
+  }
+  const normalized = String(content || "").trim();
+  return (
+    normalized.startsWith("我会按这个目标推进")
+    || normalized.startsWith("我会按这个合同继续推进")
+    || normalized.startsWith("后续进展会汇总在当前会话")
   );
 }

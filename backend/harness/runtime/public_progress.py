@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Any
 
 
@@ -19,6 +20,13 @@ _DEPRECATED_STATUS_REWRITES = {
     "已更新本轮上下文，包含最新观察、产物和用户补充要求。": "已同步最新进展。",
 }
 
+_PUBLIC_ERROR_REWRITES = {
+    "Image generation is not configured": "生图服务没有配置",
+    "image generation is not configured": "生图服务没有配置",
+    "task_executor_schedule_failed": "任务调度失败",
+    "single_turn_tool_iteration_limit": "工具检查次数达到边界",
+}
+
 
 def public_action_progress_summary(action_type: Any) -> str:
     normalized = str(action_type or "").strip().lower()
@@ -33,7 +41,34 @@ def public_runtime_progress_summary(summary: Any) -> str:
         return ""
     normalized = " ".join(text.split()).strip()
     normalized = _DEPRECATED_STATUS_REWRITES.get(normalized, normalized)
+    normalized = _public_progress_scrub(normalized)
     return _public_role_label(normalized)
+
+
+def _public_progress_scrub(text: str) -> str:
+    normalized = text
+    for source, replacement in _PUBLIC_ERROR_REWRITES.items():
+        normalized = normalized.replace(source, replacement)
+    normalized = re.sub(r"当前处理已停止\s*[:：]", "当前步骤遇到阻塞：", normalized)
+    normalized = re.sub(
+        r"当前\s*image_generate\s*的\s*agent_auto_retry_allowed\s*为\s*false\s*[，,]\s*agent_retry_policy\s*为\s*do_not_auto_retry\s*[，,]",
+        "当前图像工具不允许自动重试，",
+        normalized,
+        flags=re.IGNORECASE,
+    )
+    normalized = re.sub(r"[（(]\s*target\s+id\s*[:：]\s*[^)）]+[)）]", "", normalized, flags=re.IGNORECASE)
+    normalized = re.sub(r"\btarget[_\s]+id\s*[:：]\s*[A-Za-z0-9_.:*\-\u4e00-\u9fff]+", "相关产物", normalized, flags=re.IGNORECASE)
+    normalized = re.sub(r"target_id", "图像目标", normalized, flags=re.IGNORECASE)
+    normalized = re.sub(r"target\s+id", "图像目标", normalized, flags=re.IGNORECASE)
+    normalized = re.sub(r"[（(]\s*错误代码\s*[:：]\s*[^)）]+[)）]", "", normalized)
+    normalized = normalized.replace("image_generation_failed", "生图失败")
+    normalized = normalized.replace("agent_auto_retry_allowed", "自动重试")
+    normalized = normalized.replace("agent_retry_policy", "重试策略")
+    normalized = normalized.replace("do_not_auto_retry", "不自动重试")
+    normalized = re.sub(r"\s+([，。；：、])", r"\1", normalized)
+    normalized = re.sub(r"([（(])\s+", r"\1", normalized)
+    normalized = re.sub(r"\s+([）)])", r"\1", normalized)
+    return normalized.strip()
 
 
 def _public_role_label(text: str) -> str:

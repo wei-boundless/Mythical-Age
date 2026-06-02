@@ -122,27 +122,84 @@ async def run_single_agent_turn(
             if tool_action is None:
                 break
             if tool_iteration >= _MAX_SINGLE_TURN_TOOL_ITERATIONS:
-                content = "本轮工具观察次数已达到上限，我需要先停止并请你确认下一步。"
+                synthesis_messages = [
+                    *model_messages,
+                    {
+                        "role": "user",
+                        "content": (
+                            "本轮只读工具观察已经达到运行边界。现在禁止继续调用工具。"
+                            "请只基于当前用户问题、已有上下文和已经返回的工具观察直接回答用户。"
+                            "如果事实不足，说明已知事实、缺口和下一步建议；不要再请求工具。"
+                        ),
+                        "turn_id": turn_id,
+                    },
+                ]
+                synthesis_segment_plan = _single_agent_turn_followup_segment_plan(
+                    base_segment_plan=dict(compilation.packet.segment_plan or {}),
+                    model_messages=synthesis_messages,
+                    packet_id=compilation.packet.packet_id,
+                    tool_iteration=tool_iteration + 1,
+                )
+                synthesis_response = await _invoke_single_turn_model(
+                    model_runtime=model_runtime,
+                    model_messages=synthesis_messages,
+                    model_selection=dict(model_selection or {}),
+                    accounting_context={
+                        "request_id": f"modelreq:{compilation.packet.packet_id}:tool-limit-synthesis",
+                        "session_id": session_id,
+                        "run_id": turn_run.turn_run_id if turn_run is not None else "",
+                        "turn_id": turn_id,
+                        "packet_ref": compilation.packet.packet_id,
+                        "source": "harness.single_agent_turn.tool_limit_synthesis",
+                        "segment_plan": synthesis_segment_plan,
+                        "prompt_manifest": {
+                            **dict(compilation.packet.diagnostics.get("prompt_manifest") or {}),
+                            "invocation_kind": "single_agent_turn_tool_limit_synthesis",
+                            "segment_plan_ref": str(synthesis_segment_plan.get("segment_plan_id") or ""),
+                        },
+                    },
+                    native_tools=[],
+                )
+                if isinstance(synthesis_response, dict) and synthesis_response.get("type") == "error":
+                    yield synthesis_response
+                    content = "我已经连续检查了几次，但无工具收口也没有成功生成可靠回复。本轮先停止，避免继续无效操作。"
+                    terminal_status = "failed"
+                else:
+                    content = stringify_content(getattr(synthesis_response, "content", synthesis_response)).strip()
+                    terminal_status = "completed" if content else "failed"
+                    if not content:
+                        content = "我连续检查了几次仍没有形成可靠结论，先停在这里，避免继续无效操作。你可以补充要我重点核查的位置，或让我根据当前已知状态直接说明。"
+                answer_source = "harness.single_agent_turn.tool_limit_synthesis"
+                answer_channel = "conversation" if terminal_status == "completed" else "blocked"
+                protocol_final = (
+                    _assistant_final_protocol_message(synthesis_response, turn_id=turn_id, include_reasoning=True)
+                    if terminal_status == "completed"
+                    else _assistant_protocol_message_from_content(content, turn_id=turn_id)
+                )
                 await _commit_final_message(
                     commit_assistant_message,
                     session_id=session_id,
                     turn_id=turn_id,
                     content=content,
-                    answer_channel="blocked",
-                    answer_source="harness.single_agent_turn.tool_loop",
+                    answer_channel=answer_channel,
+                    answer_source=answer_source,
+                    api_protocol_messages=[
+                        *api_protocol_messages,
+                        protocol_final,
+                    ],
                 )
                 yield final_answer_event(
                     content=content,
-                    answer_source="harness.single_agent_turn.tool_loop",
+                    answer_source=answer_source,
                     terminal_reason="single_turn_tool_iteration_limit",
-                    extra={"runtime_branch": dict(runtime_branch or {})},
+                    extra={"runtime_branch": dict(runtime_branch or {}), "completion_state": "tool_limit_synthesized"},
                 )
                 if runtime_host is not None and turn_run is not None:
                     terminal = _record_turn_terminal(
                         runtime_host,
                         turn_run=turn_run,
                         turn_id=turn_id,
-                        status="blocked",
+                        status=terminal_status,
                         terminal_reason="single_turn_tool_iteration_limit",
                     )
                     terminal_recorded = True

@@ -174,6 +174,68 @@ def test_single_agent_turn_receives_compressed_context_from_session_record() -> 
     assert "[Compressed session context]" not in payload
 
 
+def test_single_agent_turn_receives_recent_terminal_task_outcome_from_state_index() -> None:
+    class RecordingModelRuntime(SingleMessageModelRuntimeStub):
+        def __init__(self) -> None:
+            super().__init__(content="它卡住是因为生图工具未配置。")
+            self.last_messages: list[dict[str, object]] = []
+
+        async def invoke_messages(self, messages, **kwargs):
+            self.last_messages = [dict(item) for item in list(messages or []) if isinstance(item, dict)]
+            return await super().invoke_messages(messages, **kwargs)
+
+    model = RecordingModelRuntime()
+    runtime = build_harness_runtime(model_runtime=model)
+    runtime.single_agent_runtime_host.state_index.upsert_task_run(
+        TaskRun(
+            task_run_id="taskrun:turn:session-recent-outcome:1:root:test",
+            session_id="session-recent-outcome",
+            task_id="task:turn:session-recent-outcome:1",
+            agent_profile_id="main_interactive_agent",
+            execution_runtime_kind="single_agent_task",
+            status="failed",
+            terminal_reason="task_executor_schedule_failed",
+            created_at=1.0,
+            updated_at=2.0,
+            diagnostics={
+                "goal": "复杂版五层地下塔像素风游戏。",
+                "latest_public_progress_note": "生图工具未配置，无法完成合同要求的真实美术资产。",
+                "agent_brief_output": "image_generate returned Image generation is not configured.",
+            },
+        )
+    )
+
+    async def _collect() -> None:
+        async for _event in runtime.astream(
+            HarnessRuntimeRequest(
+                session_id="session-recent-outcome",
+                message="刚才为什么卡住了？",
+                task_selection={
+                    "control_capabilities": {
+                        "may_call_tools": False,
+                        "may_request_task_run": False,
+                        "may_control_active_work": False,
+                        "may_use_subagents": False,
+                    }
+                },
+            )
+        ):
+            pass
+
+    asyncio.run(_collect())
+    payload = "\n".join(str(message.get("content") or "") for message in model.last_messages)
+    current_request_payload = _packet_payload_after_title(
+        str(model.last_messages[-1].get("content") or ""),
+        "Single agent turn current request",
+    )
+
+    assert "recent_work_outcome" in payload
+    assert "task_executor_schedule_failed" in payload
+    assert "生图工具未配置，无法完成合同要求的真实美术资产。" in payload
+    assert "active_work_context" not in json.dumps(current_request_payload, ensure_ascii=False)
+    assert "只读事实" in payload
+
+
 def test_default_runtime_branches_to_single_agent_turn_without_task_run() -> None:
     runtime = build_harness_runtime(
         model_runtime=SingleMessageModelRuntimeStub(content="直接回答，不进入任务生命周期。")
@@ -388,31 +450,40 @@ def test_single_agent_turn_side_effect_tool_is_blocked_before_runtime_dispatch()
     assert any(event.get("type") == "done" and "请求的工具没有在本次运行时中开放" in str(event.get("content") or "") for event in events)
 
 
-def test_single_agent_turn_tool_loop_blocks_before_fourth_tool_call() -> None:
-    model = NativeToolCallSequenceModelRuntimeStub(
-        [
-            {
-                "tool_calls": [
-                    {"id": "call-exists-1", "name": "path_exists", "args": {"path": "requirements.txt"}},
+def test_single_agent_turn_tool_loop_synthesizes_answer_without_fourth_tool_call() -> None:
+    class SynthesizingLoopModel(NativeToolCallSequenceModelRuntimeStub):
+        def __init__(self) -> None:
+            super().__init__(
+                [
+                    {
+                        "tool_calls": [
+                            {"id": "call-exists-1", "name": "path_exists", "args": {"path": "requirements.txt"}},
+                        ]
+                    },
+                    {
+                        "tool_calls": [
+                            {"id": "call-exists-2", "name": "path_exists", "args": {"path": "requirements.txt"}},
+                        ]
+                    },
+                    {
+                        "tool_calls": [
+                            {"id": "call-exists-3", "name": "path_exists", "args": {"path": "requirements.txt"}},
+                        ]
+                    },
+                    {
+                        "tool_calls": [
+                            {"id": "call-exists-4", "name": "path_exists", "args": {"path": "requirements.txt"}},
+                        ]
+                    },
                 ]
-            },
-            {
-                "tool_calls": [
-                    {"id": "call-exists-2", "name": "path_exists", "args": {"path": "requirements.txt"}},
-                ]
-            },
-            {
-                "tool_calls": [
-                    {"id": "call-exists-3", "name": "path_exists", "args": {"path": "requirements.txt"}},
-                ]
-            },
-            {
-                "tool_calls": [
-                    {"id": "call-exists-4", "name": "path_exists", "args": {"path": "requirements.txt"}},
-                ]
-            },
-        ]
-    )
+            )
+            self.synthesis_messages: list[dict[str, object]] = []
+
+        async def invoke_messages(self, messages, **_kwargs):
+            self.synthesis_messages = [dict(item) for item in list(messages or []) if isinstance(item, dict)]
+            return SimpleNamespace(content="我已经连续核查 requirements.txt，当前应停止重复检查并基于已有结果回答。")
+
+    model = SynthesizingLoopModel()
     base_dir = Path(__file__).resolve().parents[1]
     tool_instances = [tool for tool in build_tool_instances(base_dir) if getattr(tool, "name", "") == "path_exists"]
     definitions = [definition for definition in get_tool_definitions() if definition.name == "path_exists"]
@@ -442,8 +513,12 @@ def test_single_agent_turn_tool_loop_blocks_before_fourth_tool_call() -> None:
     assert any(
         event.get("type") == "done"
         and dict(event).get("terminal_reason") == "single_turn_tool_iteration_limit"
+        and "停止重复检查" in str(event.get("content") or "")
         for event in events
     )
+    assert model.synthesis_messages[-1]["role"] == "user"
+    assert "禁止继续调用工具" in str(model.synthesis_messages[-1]["content"])
+    assert not any("本轮工具观察次数已达到上限" in str(item.get("content") or "") for item in runtime.session_manager.messages)
 
 
 def test_task_executor_guards_duplicate_read_only_tool_call_without_rerunning_tool() -> None:
@@ -962,8 +1037,9 @@ def test_task_run_detail_monitor_exposes_step_summary_and_recent_terminal_status
     assert item["resource_class"] == "static"
     assert item["ended_at"] == 990.0
     assert item["duration_seconds"] == 390.0
-    assert global_monitor["summary"]["completed"] == 0
-    assert task_run.task_run_id not in {entry["task_run_id"] for entry in global_monitor["task_runs"]}
+    assert global_monitor["summary"]["completed"] == 1
+    assert [entry["task_run_id"] for entry in global_monitor["buckets"]["completed"]] == [task_run.task_run_id]
+    assert task_run.task_run_id in {entry["task_run_id"] for entry in global_monitor["task_runs"]}
 
 
 def test_invalid_single_agent_task_request_reports_error_without_task_run() -> None:

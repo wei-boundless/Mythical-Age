@@ -52,6 +52,7 @@ class ImageAssetService:
             "model": self._model(),
             "quality": self._quality(),
             "request_timeout_seconds": self._request_timeout_seconds(),
+            "request_retry_attempts": self._request_retry_attempts(),
             "concurrency": self._request_concurrency(),
             "api_key_present": bool(self._api_key()),
             "public_dir": str(self.public_dir),
@@ -249,38 +250,46 @@ class ImageAssetService:
         request_timeout_seconds: float | None = None,
     ) -> dict[str, Any]:
         concurrency = self._request_concurrency()
-        tasks = [
-            asyncio.create_task(
-                self._post_generation_payload(
-                    endpoint=endpoint,
-                    headers=headers,
-                    payload=payload,
-                    attempt_index=index + 1,
-                    request_timeout_seconds=request_timeout_seconds,
-                )
-            )
-            for index in range(concurrency)
-        ]
+        max_attempts = self._request_retry_attempts()
         attempts: list[dict[str, Any]] = []
         last_api_error: dict[str, Any] = {}
-        try:
-            for task in asyncio.as_completed(tasks):
-                result = await task
-                attempts.extend(list(result.get("attempts") or []))
-                if result.get("data") is not None:
-                    for pending in tasks:
-                        if not pending.done():
-                            pending.cancel()
-                    await asyncio.gather(*tasks, return_exceptions=True)
-                    return {"data": result.get("data"), "attempts": attempts}
-                api_error = dict(result.get("api_error") or {})
-                if api_error:
-                    last_api_error = api_error
-        finally:
-            for task in tasks:
-                if not task.done():
-                    task.cancel()
-            await asyncio.gather(*tasks, return_exceptions=True)
+        for round_index in range(max_attempts):
+            tasks = [
+                asyncio.create_task(
+                    self._post_generation_payload(
+                        endpoint=endpoint,
+                        headers=headers,
+                        payload=payload,
+                        attempt_index=round_index * concurrency + index + 1,
+                        request_timeout_seconds=request_timeout_seconds,
+                    )
+                )
+                for index in range(concurrency)
+            ]
+            try:
+                for task in asyncio.as_completed(tasks):
+                    result = await task
+                    attempts.extend(list(result.get("attempts") or []))
+                    if result.get("data") is not None:
+                        for pending in tasks:
+                            if not pending.done():
+                                pending.cancel()
+                        await asyncio.gather(*tasks, return_exceptions=True)
+                        return {"data": result.get("data"), "attempts": attempts}
+                    api_error = dict(result.get("api_error") or {})
+                    if api_error:
+                        last_api_error = api_error
+            finally:
+                for task in tasks:
+                    if not task.done():
+                        task.cancel()
+                await asyncio.gather(*tasks, return_exceptions=True)
+            if not bool(last_api_error.get("retryable", False)):
+                break
+            if str(last_api_error.get("code") or "") == "model_endpoint_incompatible":
+                break
+            if round_index + 1 < max_attempts:
+                await asyncio.sleep(min(1.5, 0.35 * (round_index + 1)))
         return {"data": None, "attempts": attempts, "api_error": last_api_error}
 
     async def _post_generation_payload(
@@ -365,6 +374,16 @@ class ImageAssetService:
     @staticmethod
     def _request_concurrency() -> int:
         return 1
+
+    @staticmethod
+    def _request_retry_attempts() -> int:
+        override = dict(runtime_config.load().get("image_assets") or {})
+        raw = os.getenv("IMAGE_REQUEST_RETRY_ATTEMPTS") or override.get("request_retry_attempts") or 2
+        try:
+            parsed = int(raw)
+        except (TypeError, ValueError):
+            parsed = 2
+        return min(3, max(1, parsed))
 
 
 def _api_error_from_response(response: httpx.Response) -> dict[str, Any]:

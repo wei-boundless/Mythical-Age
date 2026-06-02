@@ -262,9 +262,11 @@ function deriveTaskGraphSpec(
 export function GraphTaskWorkspace({
   requestedGraphId = "",
   onSelectedGraphChange,
+  taskEnvironmentId: taskEnvironmentScopeId = "",
 }: {
   requestedGraphId?: string;
   onSelectedGraphChange?: (graphId: string) => void;
+  taskEnvironmentId?: string;
 }) {
   const [consolePayload, setConsolePayload] = useState<TaskSystemOverview | null>(null);
   const [orchestrationAgentCatalog, setOrchestrationAgentCatalog] = useState<OrchestrationAgentRuntimeCatalog | null>(null);
@@ -308,26 +310,34 @@ export function GraphTaskWorkspace({
     return run;
   }, []);
 
+  const scopedTaskGraphs = useCallback((graphs: TaskGraphRecord[]) => {
+    const scopedEnvironmentId = normalizeTaskEnvironmentId(taskEnvironmentScopeId);
+    if (!scopedEnvironmentId) return graphs;
+    return graphs.filter((graph) => taskGraphEnvironmentId(graph) === scopedEnvironmentId);
+  }, [taskEnvironmentScopeId]);
+
   const applyOverview = useCallback((overview: TaskSystemOverview) => {
     setConsolePayload(overview);
     const domains = buildDomains(overview);
     const allGraphs = sortTaskGraphsForWorkbench(overview.task_graph_management?.task_graphs ?? []);
+    const selectableGraphs = scopedTaskGraphs(allGraphs);
     const requested = requestedGraphIdRef.current;
-    const requestedGraph = requested ? allGraphs.find((graph) => graph.graph_id === requested) ?? null : null;
-    const recommendedGraph = requestedGraph ?? allGraphs[0] ?? null;
+    const requestedGraph = requested ? selectableGraphs.find((graph) => graph.graph_id === requested) ?? null : null;
+    const recommendedGraph = requestedGraph ?? selectableGraphs[0] ?? null;
     const recommendedDomain = domains.find((domain) => domain.domain_id === recommendedGraph?.domain_id)
       ?? domains.find((domain) => domain.tasks.length > 0)
       ?? domains[0]
       ?? null;
-    const recommendedEnvironmentId = recommendedGraph ? taskGraphEnvironmentId(recommendedGraph) : "";
+    const scopedEnvironmentId = normalizeTaskEnvironmentId(taskEnvironmentScopeId);
+    const recommendedEnvironmentId = scopedEnvironmentId || (recommendedGraph ? taskGraphEnvironmentId(recommendedGraph) : "");
     setEditorDomainId((current) => recommendedDomain?.domain_id || current || "");
     setEditorEnvironmentId((current) => recommendedEnvironmentId || current || overview.task_environment_management?.records?.[0]?.environment_id || "");
     setEditorTaskGraphId((current) => {
       if (requestedGraph) return requestedGraph.graph_id;
-      if (current && allGraphs.some((graph) => graph.graph_id === current)) return current;
-      return recommendedTaskGraphId(allGraphs);
+      if (current && selectableGraphs.some((graph) => graph.graph_id === current)) return current;
+      return recommendedTaskGraphId(selectableGraphs);
     });
-  }, []);
+  }, [scopedTaskGraphs, taskEnvironmentScopeId]);
 
   const load = useCallback(async () => {
     if (loadInFlightRef.current) {
@@ -363,6 +373,7 @@ export function GraphTaskWorkspace({
     () => sortTaskGraphsForWorkbench(consolePayload?.task_graph_management?.task_graphs ?? []),
     [consolePayload],
   );
+  const availableTaskGraphs = useMemo(() => scopedTaskGraphs(allTaskGraphs), [allTaskGraphs, scopedTaskGraphs]);
   const semanticRelationPresets = useMemo(
     () => normalizeTaskGraphSemanticRelationPresets(consolePayload?.task_graph_management?.semantic_relations),
     [consolePayload],
@@ -382,7 +393,8 @@ export function GraphTaskWorkspace({
     ?? domains[0]
     ?? null;
   const editorTaskEnvironmentOptions = useMemo(() => {
-    const environmentIds = uniqueStrings([
+    const scopedEnvironmentId = normalizeTaskEnvironmentId(taskEnvironmentScopeId);
+    const environmentIds = scopedEnvironmentId ? [scopedEnvironmentId] : uniqueStrings([
       ...(consolePayload?.task_environment_management?.records ?? []).map((item) => item.environment_id),
       ...tasks.map((task) => taskEnvironmentId(task)),
       ...allTaskGraphs.map((graph) => taskGraphEnvironmentId(graph)),
@@ -396,7 +408,7 @@ export function GraphTaskWorkspace({
         label: `${environmentRecordTitle(environmentId, consolePayload) || environmentId}${taskCount ? ` · ${taskCount} 个任务` : ""}${storage ? ` · ${storage}` : ""}`,
       };
     });
-  }, [allTaskGraphs, consolePayload, tasks]);
+  }, [allTaskGraphs, consolePayload, taskEnvironmentScopeId, tasks]);
   const activeEditorEnvironmentId = editorEnvironmentId
     || editorTaskEnvironmentOptions[0]?.value
     || "";
@@ -407,9 +419,9 @@ export function GraphTaskWorkspace({
   const editorContractSpecs = useMemo(() => scopedContractSpecs(contractSpecs, editorDomain), [contractSpecs, editorDomain]);
   const editorTaskGraphs = useMemo(
     () => activeEditorEnvironmentId
-      ? sortTaskGraphsForWorkbench(allTaskGraphs.filter((item) => taskGraphEnvironmentId(item) === activeEditorEnvironmentId))
-      : allTaskGraphs,
-    [activeEditorEnvironmentId, allTaskGraphs],
+      ? sortTaskGraphsForWorkbench(availableTaskGraphs.filter((item) => taskGraphEnvironmentId(item) === activeEditorEnvironmentId))
+      : availableTaskGraphs,
+    [activeEditorEnvironmentId, availableTaskGraphs],
   );
   const editorGraphSelectOptions = useMemo(() => {
     const options = editorTaskGraphs.map((task) => ({ value: task.graph_id, label: `${task.title} · ${task.graph_id}` }));
@@ -428,7 +440,6 @@ export function GraphTaskWorkspace({
     return options;
   }, [activeEditorEnvironmentId, editorTaskGraphs, taskGraphDraftV2]);
   const editorSelectedTaskGraph = editorTaskGraphs.find((item) => item.graph_id === editorTaskGraphId)
-    ?? allTaskGraphs.find((item) => item.graph_id === editorTaskGraphId)
     ?? editorTaskGraphs[0]
     ?? null;
   const activeTaskGraphId = editorTaskGraphId || editorSelectedTaskGraph?.graph_id || "";
@@ -446,13 +457,13 @@ export function GraphTaskWorkspace({
   );
   useEffect(() => {
     const nextRequestedGraphId = requestedGraphId.trim();
-    if (!nextRequestedGraphId || !allTaskGraphs.length) return;
-    const target = allTaskGraphs.find((graph) => graph.graph_id === nextRequestedGraphId);
+    if (!nextRequestedGraphId || !availableTaskGraphs.length) return;
+    const target = availableTaskGraphs.find((graph) => graph.graph_id === nextRequestedGraphId);
     if (!target) return;
     setEditorTaskGraphId(target.graph_id);
     setEditorDomainId(target.domain_id || "");
     setEditorEnvironmentId(taskGraphEnvironmentId(target));
-  }, [allTaskGraphs, requestedGraphId]);
+  }, [availableTaskGraphs, requestedGraphId]);
 
   useEffect(() => {
     if (!activeTaskGraphId) {
@@ -1052,7 +1063,7 @@ export function GraphTaskWorkspace({
   const editorValid = editorGraphSpec.valid;
   const topologyDirty = false;
   const setGraphWorkbenchSelectedGraphId = (graphId: string) => {
-    const target = allTaskGraphs.find((graph) => graph.graph_id === graphId);
+    const target = availableTaskGraphs.find((graph) => graph.graph_id === graphId);
     setEditorTaskGraphId(graphId);
     if (target) {
       setEditorDomainId(target.domain_id || "");
@@ -1100,7 +1111,7 @@ export function GraphTaskWorkspace({
         agentGroupOptions={editorAgentGroupOptions}
         boundTaskGraphTaskIds={boundTaskGraphTaskIds}
         contractSpecs={editorContractSpecs}
-        taskGraphs={editorTaskGraphs.length ? editorTaskGraphs : allTaskGraphs}
+        taskGraphs={editorTaskGraphs}
         domainTaskOptions={editorDomainTaskOptions}
         editorIssueCount={editorIssueCount}
         editorValid={editorValid}

@@ -54,7 +54,7 @@ def _runtime_attachment(runtime_host: Any, task_run: Any, *, max_progress_entrie
         "task_run_id": task_run_id,
         "task_id": str(getattr(task_run, "task_id", "") or ""),
         "status": str(getattr(task_run, "status", "") or ""),
-        "terminal_reason": str(getattr(task_run, "terminal_reason", "") or ""),
+        "terminal_reason": public_runtime_progress_summary(getattr(task_run, "terminal_reason", "") or ""),
         "lifecycle": str(monitor.get("lifecycle") or ""),
         "bucket": str(monitor.get("bucket") or ""),
         "title": str(monitor.get("title") or ""),
@@ -185,6 +185,7 @@ def _turn_id_from_task_run(task_run_id: str) -> str:
 def _progress_entries(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
     entries: list[dict[str, Any]] = []
     observations_by_ref = _observations_by_ref(events)
+    step_observation_refs = _step_observation_refs(events)
     for event in events:
         event_type = str(event.get("event_type") or "")
         payload = dict(event.get("payload") or {})
@@ -312,6 +313,10 @@ def _progress_entries(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
             continue
         if event_type in {"executor_observation_recorded", "bounded_observation_recorded", "task_run_lifecycle_event", "task_tool_observation_recorded"}:
             observation = dict(payload.get("observation") or {})
+            if event_type == "task_tool_observation_recorded":
+                observation_id = str(observation.get("observation_id") or "").strip()
+                if observation_id and observation_id in step_observation_refs:
+                    continue
             source = str(observation.get("source") or "").strip()
             summary = public_runtime_progress_summary(observation.get("summary") or "").strip()
             if _is_internal_tool_observation(source=source, text=summary or _observation_payload_result(observation)):
@@ -360,7 +365,7 @@ def _progress_entries(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
             entries.append(
                 _entry(
                     event,
-                    title="处理已完成" if status == "completed" else "处理已停止",
+                    title="处理完成" if status == "completed" else "处理遇到阻塞",
                     body=public_runtime_progress_summary(task_run.get("terminal_reason") or status),
                     kind="terminal",
                     level="success" if status == "completed" else "error",
@@ -427,6 +432,21 @@ def _observations_by_ref(events: list[dict[str, Any]]) -> dict[str, dict[str, An
     return result
 
 
+def _step_observation_refs(events: list[dict[str, Any]]) -> set[str]:
+    refs: set[str] = set()
+    for event in events:
+        if str(event.get("event_type") or "") != "step_summary_recorded":
+            continue
+        payload = dict(event.get("payload") or {})
+        step = str(payload.get("step") or "")
+        if not step.startswith(("task_tool_observation_recorded", "task_duplicate_tool_call_guarded")):
+            continue
+        observation_ref = str(dict(event.get("refs") or {}).get("observation_ref") or "").strip()
+        if observation_ref:
+            refs.add(observation_ref)
+    return refs
+
+
 def _observation_payload_result(observation: dict[str, Any]) -> str:
     return str(dict(observation.get("payload") or {}).get("result") or "").strip()
 
@@ -472,6 +492,8 @@ def _public_action_state_meta(
 def _is_internal_step_only(step: str, *, summary: str, public_note: str, action_brief: str) -> bool:
     if action_brief:
         return False
+    if step.startswith("task_lifecycle_started"):
+        return True
     if step.startswith(("task_model_action_invocation_started", "task_model_action_waiting")):
         return True
     if step.startswith("task_execution_packet_compiled") and (summary == "已同步最新进展。" or public_note == "已同步最新进展。"):

@@ -204,6 +204,7 @@ export function CenterWorkspaceView() {
           <GraphTaskWorkspace
             onSelectedGraphChange={setSelectedGraphId}
             requestedGraphId={selectedGraphId}
+            taskEnvironmentId="env.general.workspace"
           />
         </div>
       ) : (

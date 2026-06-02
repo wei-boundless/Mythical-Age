@@ -108,6 +108,8 @@ export function ChatPanel() {
               id={message.id}
               key={message.id}
               onResendEdit={resendEditedMessage}
+              answerChannel={message.answerChannel}
+              answerSource={message.answerSource}
               retrievals={message.retrievals}
               role={message.role}
               runtimeAttachments={message.runtimeAttachments}

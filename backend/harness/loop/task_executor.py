@@ -2078,26 +2078,38 @@ def _finish_executor_terminal(runtime_host: Any, *, task_run: Any, agent_run: An
         status=closeout_status,  # type: ignore[arg-type]
         terminal_reason=closeout_reason,
     )
+    closeout_summary = _executor_closeout_summary(status=closeout_status, terminal_reason=closeout_reason)
     _record_task_step_summary(
         runtime_host,
         task_run_id=task_run.task_run_id,
         step=f"task_run_{closeout_status}",
         status=closeout_status,
-        summary=f"当前处理已停止：{closeout_reason}。",
+        summary=closeout_summary,
     )
     append_work_rollout_item(
         runtime_host,
         task_run=finished_task,
         item_type="pause_boundary" if closeout_status == "waiting_executor" else ("interrupted_boundary" if closeout_status in {"aborted", "failed", "blocked"} else "progress"),
-        title="等待继续" if closeout_status == "waiting_executor" else ("已中断" if closeout_status in {"aborted", "failed", "blocked"} else "处理停止"),
+        title="等待继续" if closeout_status == "waiting_executor" else ("处理遇到阻塞" if closeout_status in {"aborted", "failed", "blocked"} else "处理结束"),
         status=closeout_status,
-        summary=f"当前处理已停止：{closeout_reason}。",
+        summary=closeout_summary,
         event_offset=_event_offset(event),
         refs={"task_run_ref": finished_task.task_run_id},
         payload={"terminal_reason": closeout_reason},
     )
     _sync_engagement_closeout(runtime_host, finished_task.task_run_id)
     return {"ok": False, "task_run": finished_task.to_dict(), "lifecycle": finished_lifecycle.to_dict(), "event": event, "error": closeout_reason}
+
+
+def _executor_closeout_summary(*, status: str, terminal_reason: str) -> str:
+    reason = public_runtime_progress_summary(terminal_reason) or "未知原因"
+    if status == "waiting_executor":
+        return f"当前步骤在等待继续：{reason}。"
+    if status in {"aborted", "failed", "blocked"}:
+        return f"当前步骤遇到阻塞：{reason}。"
+    if status == "completed":
+        return "当前步骤已完成。"
+    return f"当前步骤已结束：{reason}。"
 
 
 def _normalize_executor_terminal_closeout(*, status: str, terminal_reason: str, diagnostics: dict[str, Any]) -> tuple[str, str, dict[str, Any], str]:

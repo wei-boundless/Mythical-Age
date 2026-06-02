@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -101,12 +102,22 @@ async def code_environment_git_status() -> dict[str, object]:
             errors="replace",
             timeout=8,
         )
+        diff_stat_result = subprocess.run(
+            ["git", "-C", str(project_root), "diff", "--numstat", "HEAD", "--"],
+            check=False,
+            capture_output=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=8,
+        )
     except (OSError, subprocess.TimeoutExpired) as exc:
         return {
             "authority": "code_environment.git_status",
             "available": False,
             "branch": "",
             "items": [],
+            "diff_stat": {"additions": 0, "deletions": 0},
+            "gh_available": shutil.which("gh") is not None,
             "error": str(exc),
         }
     if status_result.returncode != 0:
@@ -115,6 +126,8 @@ async def code_environment_git_status() -> dict[str, object]:
             "available": False,
             "branch": branch_result.stdout.strip(),
             "items": [],
+            "diff_stat": {"additions": 0, "deletions": 0},
+            "gh_available": shutil.which("gh") is not None,
             "error": status_result.stderr.strip() or "git status failed",
         }
     lines = [line for line in status_result.stdout.splitlines() if line.strip()]
@@ -125,12 +138,26 @@ async def code_environment_git_status() -> dict[str, object]:
         status = line[:2].strip() or "?"
         path = line[3:].strip() if len(line) > 3 else ""
         items.append({"status": status, "path": path})
+    additions = 0
+    deletions = 0
+    if diff_stat_result.returncode == 0:
+        for line in diff_stat_result.stdout.splitlines():
+            parts = line.split("\t")
+            if len(parts) < 3:
+                continue
+            added, deleted = parts[0], parts[1]
+            if added.isdigit():
+                additions += int(added)
+            if deleted.isdigit():
+                deletions += int(deleted)
     return {
         "authority": "code_environment.git_status",
         "available": True,
         "branch": branch_result.stdout.strip(),
         "items": items,
         "changed_count": len(items),
+        "diff_stat": {"additions": additions, "deletions": deletions},
+        "gh_available": shutil.which("gh") is not None,
         "error": "",
     }
 

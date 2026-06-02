@@ -87,6 +87,22 @@ function publicRuntimeText(value: unknown, limit = 360) {
   return normalized.trim();
 }
 
+function terminalReasonIndicatesFailure(value: unknown) {
+  const reason = text(value).toLowerCase();
+  if (!reason || reason === "completed" || reason === "task_executor_scheduled" || reason === "waiting_executor") {
+    return false;
+  }
+  return (
+    reason.includes("failed")
+    || reason.includes("error")
+    || reason.includes("blocked")
+    || reason.includes("limit")
+    || reason.includes("exhausted")
+    || reason.includes("repair_required")
+    || reason.includes("user_aborted")
+  );
+}
+
 function shortCommand(value: unknown, limit = 180) {
   const normalized = text(value).replace(/\s+/g, " ");
   return normalized.length > limit ? `${normalized.slice(0, limit - 1)}...` : normalized;
@@ -775,6 +791,7 @@ export function projectRuntimeStreamEvent(event: string, data: Record<string, un
       || runtimeEventType === "agent_turn_blocked"
       || status === "failed"
       || status === "blocked"
+      || terminalReasonIndicatesFailure(reason)
       || taskRunStatus === "failed"
       || taskRunStatus === "blocked";
     const title = waiting ? "继续在后台处理" : failed ? "处理失败" : "本轮完成";

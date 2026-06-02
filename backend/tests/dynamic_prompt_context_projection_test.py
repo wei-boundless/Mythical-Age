@@ -605,6 +605,49 @@ def test_single_agent_turn_projects_compressed_context_as_session_context() -> N
     assert str(context_window["compressed_summary_hash"]).startswith("sha256:")
 
 
+def test_single_agent_turn_projects_recent_work_outcome_as_read_only_context() -> None:
+    result = RuntimeCompiler().compile_single_agent_turn_packet(
+        session_id="session:recent-work-outcome",
+        turn_id="turn:recent-work-outcome",
+        agent_invocation_id="aginvoke:recent-work-outcome",
+        user_message="刚才为什么卡住了？",
+        history=[
+            {"role": "user", "content": "开始复杂版五层地下塔。"},
+            {"role": "assistant", "content": "我会按这个目标推进。"},
+        ],
+        session_context={
+            "recent_work_outcome": {
+                "task_run_id": "taskrun:turn:session-recent:1:root",
+                "status": "failed",
+                "terminal_reason": "task_executor_schedule_failed",
+                "user_visible_goal": "制作复杂版五层地下塔像素风游戏。",
+                "latest_progress": "生图工具未配置，无法完成合同要求的真实美术资产。",
+                "agent_brief_output": "image_generate returned Image generation is not configured.",
+                "decision_boundary": "This is a read-only result from the most recent terminal task.",
+                "continuation_state": "terminal_or_interrupted_task_record",
+            }
+        },
+        runtime_assembly={
+            "profile": {"mode": "conversation"},
+            "task_environment": {"environment_id": "env.general.workspace"},
+        },
+    )
+
+    volatile_payload = _payload_after_title(result.packet.model_messages[-1]["content"], "Single agent turn current request")
+    outcome = volatile_payload["history"]["session_context"]["recent_work_outcome"]
+    model_input = "\n".join(str(message.get("content") or "") for message in result.packet.model_messages)
+
+    assert outcome["status"] == "failed"
+    assert outcome["terminal_reason"] == "task_executor_schedule_failed"
+    assert outcome["latest_progress"] == "生图工具未配置，无法完成合同要求的真实美术资产。"
+    assert outcome["continuation_state"] == "terminal_or_interrupted_task_record"
+    assert "active_work_context" not in json.dumps(volatile_payload, ensure_ascii=False)
+    assert "最近一次终止、阻塞或中断任务的只读事实" in model_input
+    context_window = result.packet.diagnostics["prompt_manifest"]["context_window"]
+    assert context_window["recent_work_outcome_present"] is True
+    assert str(context_window["recent_work_outcome_hash"]).startswith("sha256:")
+
+
 def test_single_agent_turn_replays_api_transcript_as_real_chat_messages() -> None:
     result = RuntimeCompiler().compile_single_agent_turn_packet(
         session_id="session:deepseek-protocol",

@@ -104,6 +104,56 @@ describe("RuntimeRunSummary", () => {
     expect(html).toContain("write_file");
     expect(html).toContain("<details class=\"runtime-technical-trace\">");
     expect(html).not.toContain("<details open");
+    expect(html).not.toContain("{&quot;ok&quot;:true}");
+  });
+
+  it("does not render internal runtime event rows as chat progress", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(RuntimeRunSummary, {
+        entries: [],
+        attachments: [
+          {
+            attachment_id: "runtime-attachment:taskrun:turn:session-internal:1",
+            run_id: "taskrun:turn:session-internal:1",
+            anchor_turn_id: "turn:session-internal:1",
+            status: "running",
+            progress_presentation: {
+              mission: {
+                phase: "整理上下文",
+                state: "running",
+                current_action: "我正在分析当前任务。"
+              },
+              work_units: [],
+              technical_trace: [
+                {
+                  event_id: "rtevt:step",
+                  event_type: "step_summary_recorded",
+                  raw_preview: "已进入任务生命周期，正在准备执行。",
+                },
+                {
+                  event_id: "rtevt:packet",
+                  event_type: "runtime_invocation_packet_compiled",
+                  raw_preview: "{\"envelope\":{\"agent_profile_ref\":\"main_interactive_agent\"}}",
+                },
+                {
+                  event_id: "rtevt:heartbeat",
+                  event_type: "task_model_action_wait_heartbeat",
+                  raw_preview: "{\"status\":\"running\"}",
+                },
+              ],
+            },
+          },
+        ],
+      }),
+    );
+
+    expect(html).toContain("我正在分析当前任务");
+    expect(html).not.toContain("step_summary_recorded");
+    expect(html).not.toContain("runtime_invocation_packet_compiled");
+    expect(html).not.toContain("task_model_action_wait_heartbeat");
+    expect(html).not.toContain("agent_profile_ref");
+    expect(html).not.toContain("已进入任务生命周期");
+    expect(html).not.toContain("查看技术细节");
   });
 
   it("shows a closeout summary when the backend marks the run completed", () => {
@@ -166,7 +216,7 @@ describe("RuntimeRunSummary", () => {
     );
 
     expect(html).toContain("我先核对当前文件状态");
-    expect(html).toContain("查看技术细节");
+    expect(html).not.toContain("查看技术细节");
     expect(html).not.toContain("Tool Call");
     expect(html).not.toContain("Observation");
     expect(html).not.toContain("Agent 判断");
@@ -191,9 +241,83 @@ describe("RuntimeRunSummary", () => {
       }),
     );
 
-    expect(html).toContain("我这一步卡住了");
-    expect(html).toContain("Image generation is not configured");
+    expect(html).toContain("我卡在这里");
+    expect(html).toContain("图像生成这一步卡住了，因为生图服务还没有可用配置。");
     expect(html).toContain("查看执行细节");
+    expect(html).not.toContain("Image generation is not configured");
     expect(html).not.toContain("Running");
+  });
+
+  it("lets a failed terminal reason override completed-looking progress rows", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(RuntimeRunSummary, {
+        entries: [],
+        attachments: [
+          {
+            attachment_id: "runtime-attachment:turnrun:limit",
+            run_id: "turnrun:limit",
+            anchor_turn_id: "turn:session-limit:2",
+            status: "completed",
+            terminal_reason: "single_turn_tool_iteration_limit",
+            progress_presentation: {
+              mission: {
+                phase: "推进中",
+                state: "completed",
+                current_action: "回答已生成并写回会话",
+              },
+              work_units: [
+                {
+                  unit_id: "done-row",
+                  title: "done",
+                  state: "completed",
+                  judgment: "回答已生成并写回会话",
+                },
+              ],
+              technical_trace: [],
+            },
+          },
+        ],
+      }),
+    );
+
+    expect(html).toContain("runtime-run-summary--error");
+    expect(html).toContain("我卡在这里");
+    expect(html).not.toContain("我已经处理完");
+  });
+
+  it("keeps provider errors conversational and pushes raw filenames out of the main feedback", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(RuntimeRunSummary, {
+        entries: [],
+        attachments: [
+          {
+            attachment_id: "runtime-attachment:image",
+            run_id: "taskrun:image",
+            anchor_turn_id: "turn:image:1",
+            status: "failed",
+            terminal_reason: "task_executor_schedule_failed",
+            progress_presentation: {
+              mission: {
+                phase: "处理已停止",
+                state: "failed",
+                current_action:
+                  "图像生成服务不可用（Image generation is not configured），无法生成合同要求的像素风场景图Boss图（target id: five-floor-dungeon-pixel-tower-five_floor_dungeon_e2e_20260602_133927_e98c34）。",
+                progress_label: "1/4 步",
+              },
+              work_units: [],
+              technical_trace: [],
+            },
+          },
+        ],
+      }),
+    );
+
+    expect(html).toContain("我卡在这里");
+    expect(html).toContain("图像生成这一步卡住了，因为生图服务还没有可用配置。");
+    expect(html).not.toContain("1/4 步");
+    expect(html).not.toContain("处理已停止");
+    expect(html).not.toContain("错误代码");
+    expect(html).not.toContain("Image generation is not configured");
+    expect(html).not.toContain("five-floor-dungeon");
   });
 });

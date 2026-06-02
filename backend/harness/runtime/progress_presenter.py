@@ -167,8 +167,8 @@ def build_progress_presentation(
             task_payload = _record(payload.get("task_run"))
             status = _text(task_payload.get("status") or getattr(task_run, "status", ""))
             _set_if_better(unit, "kind", "terminal")
-            _set_if_better(unit, "title", "处理已完成" if status == "completed" else "处理已停止")
-            _set_if_visible(unit, "judgment", task_payload.get("terminal_reason") or status)
+            _set_if_better(unit, "title", "结果收口" if status == "completed" else "确认阻塞原因")
+            _set_if_visible(unit, "judgment", _terminal_reason_summary(task_payload.get("terminal_reason") or status))
             _set_if_better(unit, "state", "completed" if status == "completed" else "error")
             _append_trace_ref(unit, event)
 
@@ -386,17 +386,19 @@ def _tool_evidence(*, tool_name: str, tool_args: dict[str, Any], observation: di
 def _build_mission(*, task_run: Any, monitor: dict[str, Any], work_units: list[dict[str, Any]]) -> dict[str, str]:
     latest = work_units[-1] if work_units else {}
     state = _mission_state(task_run=task_run, monitor=monitor, latest=latest)
-    phase = _mission_phase(latest, state)
+    focus = _mission_focus_unit(work_units, state=state) if work_units else {}
+    phase = _mission_phase(focus, state)
     closeout_summary = _closeout_summary(task_run=task_run, monitor=monitor)
     current_action = _visible_text(
         closeout_summary if state == "completed" else ""
     ) or _visible_text(
-        latest.get("judgment")
-        or latest.get("action")
+        focus.get("judgment")
+        or _first_evidence_summary(focus)
+        or focus.get("action")
         or monitor.get("latest_step_summary")
         or monitor.get("summary")
     )
-    next_action = _visible_text(latest.get("next_action"))
+    next_action = _visible_text(focus.get("next_action"))
     completed = sum(1 for unit in work_units if unit.get("state") == "completed")
     progress_label = f"{completed}/{len(work_units)} {phase}" if work_units else _state_label(state)
     return {
@@ -408,6 +410,29 @@ def _build_mission(*, task_run: Any, monitor: dict[str, Any], work_units: list[d
         "progress_label": progress_label,
         "closeout_summary": closeout_summary if state == "completed" else "",
     }
+
+
+def _mission_focus_unit(work_units: list[dict[str, Any]], *, state: str) -> dict[str, Any]:
+    if state == "failed":
+        for unit in reversed(work_units):
+            if unit.get("state") == "error" and unit.get("kind") != "terminal":
+                return unit
+        for unit in reversed(work_units):
+            if unit.get("state") == "error":
+                return unit
+    if state == "waiting":
+        for unit in reversed(work_units):
+            if unit.get("state") == "waiting":
+                return unit
+    return work_units[-1] if work_units else {}
+
+
+def _first_evidence_summary(unit: dict[str, Any]) -> str:
+    for item in list(unit.get("evidence") or []):
+        summary = _visible_text(_record(item).get("summary"))
+        if summary:
+            return summary
+    return ""
 
 
 def _ensure_closeout_unit(*, task_run: Any, monitor: dict[str, Any], work_units: list[dict[str, Any]]) -> None:
@@ -590,8 +615,11 @@ def _alias_unit_keys(
 
 
 def _technical_trace_item(event: dict[str, Any], *, observations_by_ref: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    event_type = _text(event.get("event_type"))
     payload = _record(event.get("payload"))
     refs = _record(event.get("refs"))
+    if _suppress_technical_trace_event(event_type=event_type, payload=payload):
+        return {}
     observation = _record(payload.get("observation"))
     if not observation:
         observation_ref = _text(refs.get("observation_ref"))
@@ -613,13 +641,26 @@ def _technical_trace_item(event: dict[str, Any], *, observations_by_ref: dict[st
     )
     result = {
         "event_id": _event_id(event),
-        "event_type": _text(event.get("event_type")),
+        "event_type": event_type,
         "created_at": float(event.get("created_at") or 0.0),
         "tool_name": tool_name,
         "target": _tool_target_preview(_record(observation_payload.get("tool_args") or tool_call.get("args") or tool_call.get("tool_args"))),
         "raw_preview": raw_preview,
     }
+    if not tool_name and event_type not in {"task_tool_observation_recorded", "model_action_request_received"}:
+        return {}
     return {key: value for key, value in result.items() if value not in ("", None)}
+
+
+def _suppress_technical_trace_event(*, event_type: str, payload: dict[str, Any]) -> bool:
+    if event_type in _INTERNAL_EVENT_TYPES | {"agent_todo_initialized", "task_run_lifecycle_started", "task_run_executor_started"}:
+        return True
+    if event_type != "step_summary_recorded":
+        return False
+    step = _text(payload.get("step"))
+    if step.startswith(("task_tool_observation_recorded", "task_tool_call_started", "task_duplicate_tool_call_guarded")):
+        return False
+    return True
 
 
 def _append_trace_ref(unit: dict[str, Any], event: dict[str, Any]) -> None:
@@ -657,6 +698,8 @@ def _set_if_better(unit: dict[str, Any], key: str, value: Any) -> None:
 
 
 def _is_suppressed_step(step: str, payload: dict[str, Any]) -> bool:
+    if step.startswith("task_lifecycle_started"):
+        return True
     if step.startswith(("task_model_action_invocation_started", "task_model_action_waiting")):
         return True
     if step.startswith("task_execution_packet_compiled"):
@@ -736,6 +779,8 @@ def _tool_target_preview(args: dict[str, Any]) -> str:
 
 def _tool_title(tool_name: str, target: str) -> str:
     normalized = tool_name.lower()
+    if normalized in {"image_generate", "generate_image", "image_asset"}:
+        return "生成图像"
     if normalized == "path_exists":
         return "确认 artifact 路径" if target else "确认路径状态"
     if normalized in {"stat_path", "list_dir"}:
@@ -753,6 +798,8 @@ def _tool_title(tool_name: str, target: str) -> str:
 
 def _tool_action_sentence(tool_name: str, target: str) -> str:
     normalized = tool_name.lower()
+    if normalized in {"image_generate", "generate_image", "image_asset"}:
+        return "生成图像资源。"
     if normalized == "path_exists":
         return f"检查 {target} 是否已存在。" if target else "检查目标路径是否已存在。"
     if normalized in {"read_file", "read_path"}:
@@ -864,6 +911,8 @@ def _terminal_failed(payload: dict[str, Any], parsed: Any) -> bool:
 def _next_action_from_evidence(tool_name: str, evidence: dict[str, str], target: str) -> str:
     status = evidence.get("status")
     normalized = tool_name.lower()
+    if status == "error" and normalized in {"image_generate", "generate_image", "image_asset"}:
+        return "确认生图服务配置后重试，或改用代码绘制的最低配置资源。"
     if status == "error":
         return "修正失败原因后重新执行。"
     if normalized == "path_exists" and status == "negative_evidence":
@@ -887,6 +936,8 @@ def _state_from_status(value: Any) -> str:
 
 
 def _mission_state(*, task_run: Any, monitor: dict[str, Any], latest: dict[str, Any]) -> str:
+    if _terminal_reason_indicates_failure(getattr(task_run, "terminal_reason", "")):
+        return "failed"
     for value in (
         getattr(task_run, "status", ""),
         monitor.get("lifecycle"),
@@ -909,7 +960,8 @@ def _mission_phase(latest: dict[str, Any], state: str) -> str:
     if state == "completed":
         return "结果收口"
     if state == "failed":
-        return "受阻"
+        title = _visible_text(latest.get("title"))
+        return "" if title in {"确认阻塞原因", "确认阻塞边界", "处理已停止", "失败", "受阻"} else title
     if state == "waiting":
         return "等待确认"
     title = _visible_text(latest.get("title"))
@@ -924,6 +976,22 @@ def _state_label(state: str) -> str:
         "blocked": "受阻",
         "failed": "失败",
     }.get(state, "正在处理")
+
+
+def _terminal_reason_indicates_failure(value: Any) -> bool:
+    reason = _text(value).lower()
+    if not reason or reason in {"completed", "task_executor_scheduled", "waiting_executor"}:
+        return False
+    return any(marker in reason for marker in ("failed", "error", "blocked", "limit", "exhausted", "repair_required", "user_aborted"))
+
+
+def _terminal_reason_summary(value: Any) -> str:
+    text = _visible_text(value)
+    if text == "任务调度失败":
+        return "当前步骤没有进入执行，需要先确认调度或工具服务是否可用。"
+    if text == "工具检查次数达到边界":
+        return "连续几次工具检查没有拿到新信息，需要基于已有事实收口，或等待新的核查方向。"
+    return text
 
 
 def _closeout_summary(*, task_run: Any, monitor: dict[str, Any]) -> str:
@@ -991,7 +1059,7 @@ def _raw_preview(value: Any, limit: int = 220) -> str:
             text = json.dumps(value, ensure_ascii=False, sort_keys=True)
         except Exception:
             text = str(value)
-    return _short(text, limit)
+    return _short(public_runtime_progress_summary(text) or text, limit)
 
 
 def _looks_like_raw_json(value: str) -> bool:

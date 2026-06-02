@@ -86,9 +86,14 @@ class ImageGenerationTool(BaseTool):
             structured_error = exc.to_dict()
             provider_retryable = bool(structured_error.get("retryable", False))
             structured_error["provider_retryable"] = provider_retryable
-            structured_error["retryable"] = False
-            structured_error["agent_auto_retry_allowed"] = False
-            structured_error["agent_retry_policy"] = "do_not_auto_retry"
+            structured_error["retryable"] = provider_retryable
+            structured_error["agent_auto_retry_allowed"] = provider_retryable
+            if provider_retryable:
+                structured_error["agent_retry_policy"] = "bounded_retry_with_backoff"
+                structured_error["max_agent_retry_attempts"] = 2
+                structured_error["suggested_retry_delay_seconds"] = 15
+            else:
+                structured_error["agent_retry_policy"] = "do_not_auto_retry"
             return json.dumps(
                 {
                     "ok": False,

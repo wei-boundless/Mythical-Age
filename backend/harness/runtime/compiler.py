@@ -249,8 +249,8 @@ class RuntimeCompiler:
                 invocation_kind="single_agent_turn",
             ),
             packet_id=packet_id,
-            dynamic_projection_refs=("agent_visible_runtime_projection", "operation_authorization", "active_work_context"),
-            volatile_state_refs=("runtime_envelope", "turn_id", "history", "user_message"),
+            dynamic_projection_refs=("agent_visible_runtime_projection", "operation_authorization", "active_work_context", "recent_work_outcome"),
+            volatile_state_refs=("runtime_envelope", "turn_id", "history", "user_message", "recent_work_outcome"),
         ).to_dict()
         prompt_manifest["segment_plan_ref"] = segment_plan.segment_plan_id
         prompt_manifest["dynamic_context_report"] = dynamic_context.to_report_dict()
@@ -1417,6 +1417,7 @@ def _context_window_report(
 ) -> dict[str, Any]:
     session_payload = dict(session_context or {})
     compressed = str(session_payload.get("compressed_context") or session_payload.get("compressed_summary") or "").strip()
+    recent_work_outcome = dict(session_payload.get("recent_work_outcome") or {}) if isinstance(session_payload.get("recent_work_outcome"), dict) else {}
     dynamic_report = dynamic_context.to_report_dict() if dynamic_context is not None else {}
     volatile_request = dict(getattr(dynamic_context, "volatile_request_projection", {}) or {}) if dynamic_context is not None else {}
     history_projection = dict(volatile_request.get("history") or {})
@@ -1432,6 +1433,8 @@ def _context_window_report(
         {
             "compressed_summary_hash": _stable_json_hash(compressed) if compressed else "",
             "compressed_summary_present": bool(compressed),
+            "recent_work_outcome_hash": _stable_json_hash(recent_work_outcome) if recent_work_outcome else "",
+            "recent_work_outcome_present": bool(recent_work_outcome),
             "replacement_history_ref": replacement_refs[0] if replacement_refs else "",
             "replacement_history_present": bool(replacement_refs),
             "raw_history_message_count": len(raw_history),
@@ -1749,6 +1752,12 @@ def _runtime_projection_instruction(projection: dict[str, Any]) -> str:
         lines.append(
             "- 本轮没有 active_work_context；系统当前没有可控制的进行中工作。"
             "不要把历史摘要、旧任务记录或旧产物目录当作当前工作；需要持续推进时请求进入持续处理流程。"
+        )
+    if projection.get("invocation_kind") == "single_agent_turn":
+        lines.append(
+            "- 如果当前请求的 history.session_context 中包含 recent_work_outcome，它只是最近一次终止、阻塞或中断任务的只读事实。"
+            "用户询问为什么停下、为什么卡住或上个任务状态时，先基于该事实说明；"
+            "不要把它当作当前可控制任务，也不要据此直接续入同一个任务。"
         )
     if bool(planning.get("todo_required_when_task_run") is True):
         lines.append("- 进入持续处理流程后，需要维护步骤状态；步骤状态不能替代真实交付物或验收证据。")

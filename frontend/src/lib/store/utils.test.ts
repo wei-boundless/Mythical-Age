@@ -44,4 +44,36 @@ describe("toUiMessages runtime attachments", () => {
       status: "completed",
     });
   });
+
+  it("preserves assistant answer channel and does not merge task receipts with answers", () => {
+    const messages = toUiMessages(
+      [
+        { role: "user", content: "开始任务" },
+        {
+          role: "assistant",
+          content: "我会按这个目标推进：开始任务",
+          answer_channel: "task_control",
+          answer_source: "harness.task_lifecycle",
+        },
+        {
+          role: "assistant",
+          content: "任务已卡住，因为生图工具未配置。",
+          answer_channel: "blocked",
+          answer_source: "harness.single_agent_turn.tool_loop",
+        },
+      ],
+      [],
+    );
+
+    expect(messages).toHaveLength(3);
+    expect(messages[1]).toMatchObject({
+      answerChannel: "task_control",
+      answerSource: "harness.task_lifecycle",
+      content: "我会按这个目标推进：开始任务",
+    });
+    expect(messages[2]).toMatchObject({
+      answerChannel: "blocked",
+      content: "任务已卡住，因为生图工具未配置。",
+    });
+  });
 });

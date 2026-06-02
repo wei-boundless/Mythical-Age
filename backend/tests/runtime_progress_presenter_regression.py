@@ -4,6 +4,7 @@ import json
 from types import SimpleNamespace
 
 from harness.runtime.progress_presenter import build_progress_presentation
+from harness.runtime.public_progress import public_runtime_progress_summary
 
 
 def _task_run(**kwargs: object) -> SimpleNamespace:
@@ -165,7 +166,7 @@ def test_progress_presenter_suppresses_empty_runtime_sync_steps() -> None:
     )
     assert "已同步最新进展" not in visible_text
     assert "需要补齐交付证据" in visible_text
-    assert presentation["technical_trace"][0]["raw_preview"] == "已同步最新进展。"
+    assert presentation["technical_trace"] == []
 
 
 def test_progress_presenter_keeps_tool_error_as_evidence_not_split_trace_card() -> None:
@@ -255,3 +256,20 @@ def test_progress_presenter_adds_closeout_summary_when_task_completed() -> None:
     assert presentation["mission"]["current_action"] == "已完成五层地下塔的核心结构、关键交互和验收记录。"
     assert presentation["work_units"][-1]["kind"] == "terminal"
     assert presentation["work_units"][-1]["judgment"] == "已完成五层地下塔的核心结构、关键交互和验收记录。"
+
+
+def test_public_progress_scrubs_legacy_provider_failure_details() -> None:
+    text = public_runtime_progress_summary(
+        "当前处理已停止：图像生成服务不可用（Image generation is not configured），"
+        "无法生成合同要求的像素风场景图（target_id: five-floor-dungeon-pixel-tower-*）。"
+        "下一步使用指定 target_id 继续。"
+        "当前 image_generate 的 agent_auto_retry_allowed 为 false，agent_retry_policy 为 do_not_auto_retry，无法通过重试解决。"
+    )
+
+    assert "当前步骤遇到阻塞" in text
+    assert "生图服务没有配置" in text
+    assert "Image generation is not configured" not in text
+    assert "target_id" not in text
+    assert "图像目标" in text
+    assert "agent_auto_retry_allowed" not in text
+    assert "do_not_auto_retry" not in text

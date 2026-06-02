@@ -74,10 +74,43 @@ def _session_context_projection(session_context: dict[str, Any] | None, *, compr
         payload.get("compressed_context") or payload.get("compressed_summary") or "",
         limit=max(1000, int(compressed_summary_chars or 4000)),
     )
+    recent_work_outcome = _recent_work_outcome_projection(payload.get("recent_work_outcome"))
     return drop_empty(
         {
             "compressed_summary": compressed,
-            "authority": "harness.runtime.dynamic_context.session_context_projection" if compressed else "",
+            "recent_work_outcome": recent_work_outcome,
+            "authority": "harness.runtime.dynamic_context.session_context_projection" if compressed or recent_work_outcome else "",
+        }
+    )
+
+
+def _recent_work_outcome_projection(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    artifact_refs = [
+        {
+            "path": compact_text(item.get("path") or item.get("artifact_path") or item.get("ref") or "", limit=240),
+            "kind": compact_text(item.get("kind") or item.get("artifact_kind") or "", limit=80),
+        }
+        for item in list(value.get("artifact_refs") or [])
+        if isinstance(item, dict)
+    ][:6]
+    return drop_empty(
+        {
+            "task_run_id": compact_text(value.get("task_run_id") or "", limit=240),
+            "status": compact_text(value.get("status") or "", limit=80),
+            "terminal_reason": compact_text(value.get("terminal_reason") or "", limit=160),
+            "lifecycle": compact_text(value.get("lifecycle") or "", limit=80),
+            "user_visible_goal": compact_text(value.get("user_visible_goal") or "", limit=900),
+            "latest_progress": compact_text(value.get("latest_progress") or "", limit=900),
+            "latest_step_name": compact_text(value.get("latest_step_name") or "", limit=120),
+            "latest_step_status": compact_text(value.get("latest_step_status") or "", limit=80),
+            "latest_event_type": compact_text(value.get("latest_event_type") or "", limit=120),
+            "agent_brief_output": compact_text(value.get("agent_brief_output") or "", limit=900),
+            "artifact_refs": artifact_refs,
+            "continuation_state": compact_text(value.get("continuation_state") or "", limit=120),
+            "decision_boundary": compact_text(value.get("decision_boundary") or "", limit=500),
+            "authority": "harness.runtime.dynamic_context.recent_work_outcome_projection",
         }
     )
 

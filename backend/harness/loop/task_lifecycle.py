@@ -463,7 +463,7 @@ async def start_task_lifecycle_from_contract(
     )
     for event in lifecycle_events:
         yield event
-    started_summary = "已建立任务生命周期，正在准备执行。"
+    started_summary = "已接手任务，正在整理执行步骤。"
     started_summary_event = runtime_host.event_log.append(
         task_run.task_run_id,
         "step_summary_recorded",

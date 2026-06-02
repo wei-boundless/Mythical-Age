@@ -34,6 +34,8 @@ export type Message = {
   runtimeAttachments?: SessionRuntimeAttachment[];
   stageStatus?: string;
   sourceIndex?: number;
+  answerChannel?: string;
+  answerSource?: string;
   image?: {
     src: string;
     alt?: string;

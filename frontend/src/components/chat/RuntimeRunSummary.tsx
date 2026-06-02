@@ -24,6 +24,31 @@ const MAX_TRACE_ROWS = 12;
 
 type RuntimeRunState = "error" | "waiting" | "running" | "success" | "stopped";
 
+const INTERNAL_TRACE_EVENT_TYPES = new Set([
+  "agent_todo_initialized",
+  "runtime_invocation_packet_compiled",
+  "task_execution_packet_compiled",
+  "task_model_action_wait_heartbeat",
+  "model_action_admission_checked",
+  "task_run_executor_claimed",
+  "task_run_executor_scheduled",
+  "task_run_lifecycle_started",
+  "task_run_executor_started",
+]);
+
+const MACHINE_PHASES = new Set([
+  "处理已停止",
+  "处理已完成",
+  "处理完成",
+  "处理遇到阻塞",
+  "确认阻塞原因",
+  "确认阻塞边界",
+  "推进中",
+  "失败",
+  "受阻",
+  "已停止",
+]);
+
 function cleanText(value: unknown) {
   return String(value ?? "")
     .replace(/\s+/g, " ")
@@ -55,10 +80,50 @@ function visibleText(value: unknown, limit = 180) {
   return text;
 }
 
+function readableFeedbackText(value: unknown, limit = 180) {
+  let text = visibleText(value, Math.max(limit, 320));
+  if (!text) return "";
+  text = text
+    .replace(/\bImage generation is not configured\b/g, "生图服务没有配置")
+    .replace(/\bimage generation is not configured\b/gi, "生图服务没有配置")
+    .replace(/\btask_executor_schedule_failed\b/g, "任务调度失败")
+    .replace(/\bsingle_turn_tool_iteration_limit\b/g, "工具检查次数达到边界")
+    .replace(/[（(]\s*target\s+id\s*[:：]\s*[^)）]+[)）]/gi, "")
+    .replace(/\btarget\s+id\s*[:：]\s*[A-Za-z0-9_.:-]+/gi, "相关产物")
+    .replace(/target_id/gi, "图像目标")
+    .replace(/target\s+id/gi, "图像目标")
+    .replace(/[（(]\s*错误代码\s*[:：]\s*[^)）]+[)）]/g, "")
+    .replace(/\b[A-Za-z]:[\\/][^\s，。；;、]+/g, "相关文件")
+    .replace(/\bstorage\/[^\s，。；;、]+/g, "相关文件");
+  text = text
+    .replace(/图像生成服务不可用[：:，,\s]*/g, "")
+    .replace(/图片生成服务不可用[：:，,\s]*/g, "")
+    .replace(/\s+([，。；：、])/g, "$1")
+    .replace(/([（(])\s+/g, "$1")
+    .replace(/\s+([）)])/g, "$1")
+    .trim();
+  if (/生图服务没有配置/.test(text) && /(?:图像|图片|生图|image_generate)/i.test(text)) {
+    return "图像生成这一步卡住了，因为生图服务还没有可用配置。";
+  }
+  if (/工具检查次数达到边界/.test(text)) {
+    return "连续几次工具检查没有拿到新信息，我会基于已有事实收口，或等你指定要继续核查的位置。";
+  }
+  text = text.replace(/(?:相关产物[、,\s]*){2,}/g, "相关产物");
+  return short(text, limit);
+}
+
 function runStateFromValue(value: unknown): RuntimeRunState | null {
   const status = cleanText(value).toLowerCase();
   if (!status) return null;
-  if (["failed", "error", "aborted", "cancelled", "blocked", "失败", "受阻"].includes(status)) return "error";
+  if (
+    ["failed", "error", "aborted", "cancelled", "blocked", "失败", "受阻"].includes(status)
+    || status.includes("failed")
+    || status.includes("error")
+    || status.includes("blocked")
+    || status.includes("limit")
+    || status.includes("exhausted")
+    || status.includes("repair_required")
+  ) return "error";
   if (["stopped", "已停止", "user_stopped"].includes(status)) return "stopped";
   if (status.includes("waiting") || status.includes("等待") || status === "queued" || status === "paused") return "waiting";
   if (["completed", "success", "完成", "已完成"].includes(status)) return "success";
@@ -88,6 +153,7 @@ function missionRunState(mission: RuntimeProgressMission | undefined, attachment
     ...attachments.flatMap((attachment) => [
       runStateFromValue(attachment.status),
       runStateFromValue(attachment.lifecycle),
+      runStateFromValue(attachment.terminal_reason),
     ]),
     ...entries.map((entry) => runStateFromValue(entry.statusText) || runStateFromLevel(entry.level)),
   ].filter((item): item is RuntimeRunState => Boolean(item));
@@ -113,6 +179,43 @@ function statusIcon(state: RuntimeRunState, size = 14) {
   if (state === "waiting") return <CircleEllipsis size={size} />;
   if (state === "stopped") return <Circle size={size} />;
   return <CircleDot size={size} />;
+}
+
+function visibleTechnicalTraceRows(trace: RuntimeProgressTechnicalTrace[]): RuntimeProgressTechnicalTrace[] {
+  return trace
+    .map((item): RuntimeProgressTechnicalTrace | null => {
+      const eventType = cleanText(item.event_type);
+      const stepLike = cleanText(item.event_id || eventType || item.raw_preview);
+      if (INTERNAL_TRACE_EVENT_TYPES.has(eventType)) {
+        return null;
+      }
+      if (eventType === "step_summary_recorded" && !cleanText(item.tool_name) && !cleanText(item.target)) {
+        return null;
+      }
+      const rawPreview = cleanText(item.raw_preview);
+      const safePreview = looksLikeRawJson(rawPreview) ? "" : readableFeedbackText(rawPreview, 220);
+      if (!cleanText(item.tool_name) && !cleanText(item.target) && !safePreview) {
+        return null;
+      }
+      return {
+        ...item,
+        event_type: traceEventLabel(item),
+        raw_preview: safePreview,
+        event_id: stepLike,
+      };
+    })
+    .filter((item): item is RuntimeProgressTechnicalTrace => Boolean(item))
+    .slice(-MAX_TRACE_ROWS);
+}
+
+function traceEventLabel(item: RuntimeProgressTechnicalTrace) {
+  const eventType = cleanText(item.event_type);
+  if (cleanText(item.tool_name)) {
+    return eventType.includes("observation") ? "工具结果" : "工具调用";
+  }
+  if (eventType.includes("observation")) return "观察结果";
+  if (eventType.includes("verification")) return "验证";
+  return "执行细节";
 }
 
 function normalizePresentation(value: unknown): RuntimeProgressPresentation | null {
@@ -204,25 +307,34 @@ function pickCurrentUnit(units: RuntimeProgressWorkUnit[]) {
 function unitSummary(unit: RuntimeProgressWorkUnit | null, limit = 220) {
   if (!unit) return "";
   const evidence = Array.isArray(unit.evidence) ? unit.evidence.find((item) => visibleText(item.summary)) : null;
-  return visibleText(unit.judgment || evidence?.summary || unit.action || unit.next_action, limit);
+  return readableFeedbackText(unit.judgment || evidence?.summary || unit.action || unit.next_action, limit);
 }
 
 function runStateActionLabel(state: RuntimeRunState) {
-  if (state === "success") return "我已经完成这步";
-  if (state === "error") return "我这一步卡住了";
-  if (state === "waiting") return "我在等下一步确认";
-  if (state === "stopped") return "我已停止处理";
+  if (state === "success") return "我已经处理完";
+  if (state === "error") return "我卡在这里";
+  if (state === "waiting") return "我在等你确认";
+  if (state === "stopped") return "我已停止";
   return "我正在处理";
 }
 
 function progressMeta(units: RuntimeProgressWorkUnit[], mission: RuntimeProgressMission) {
-  if (units.length) {
-    const completed = units.filter((unit) => workUnitState(unit, "running") === "success").length;
-    return `${completed}/${units.length} 步`;
-  }
   const label = visibleText(mission.progress_label, 48);
-  const count = label.match(/^\d+\s*\/\s*\d+/)?.[0];
-  return count ? `${count.replace(/\s+/g, "")} 步` : "";
+  if (MACHINE_PHASES.has(label)) {
+    return "";
+  }
+  if (/^\d+\s*\/\s*\d+/.test(label)) {
+    return "";
+  }
+  return label;
+}
+
+function displayPhase(value: unknown, state: RuntimeRunState) {
+  const phase = visibleText(value, 72);
+  if (!phase) return "";
+  if (MACHINE_PHASES.has(phase)) return "";
+  if (state === "error" && /^(处理|确认|失败|受阻|已停止)/.test(phase)) return "";
+  return phase;
 }
 
 function closeoutHeadline(value: unknown) {
@@ -255,11 +367,11 @@ function RuntimeMissionStrip({
   current: RuntimeProgressWorkUnit | null;
   units: RuntimeProgressWorkUnit[];
 }) {
-  const phase = visibleText(current?.title || mission.phase, 72);
+  const phase = displayPhase(current?.title || mission.phase, runState);
   const closeout = runState === "success" ? closeoutHeadline(mission.closeout_summary) : "";
-  const currentAction = closeout || unitSummary(current) || visibleText(mission.current_action) || stateLabel(runState);
+  const currentAction = closeout || unitSummary(current) || readableFeedbackText(mission.current_action) || stateLabel(runState);
   const nextAction = runState === "running" || runState === "waiting"
-    ? visibleText(current?.next_action || mission.next_action, 160)
+    ? readableFeedbackText(current?.next_action || mission.next_action, 160)
     : "";
   const meta = progressMeta(units, mission);
   const context = progressContext(phase, meta);
@@ -281,7 +393,7 @@ function RuntimeMissionStrip({
 }
 
 function RuntimeTechnicalTraceDrawer({ trace }: { trace: RuntimeProgressTechnicalTrace[] }) {
-  const rows = trace.filter((item) => cleanText(item.event_id || item.event_type || item.raw_preview)).slice(-MAX_TRACE_ROWS);
+  const rows = trace;
   if (!rows.length) return null;
   return (
     <details className="runtime-technical-trace">
@@ -314,7 +426,8 @@ function RuntimeProgressDetailDrawer({
   runState: RuntimeRunState;
 }) {
   const hasUnits = units.length > 0;
-  const hasTrace = trace.length > 0;
+  const visibleTrace = visibleTechnicalTraceRows(trace);
+  const hasTrace = visibleTrace.length > 0;
   if (!hasUnits && !hasTrace) return null;
   return (
     <details className="runtime-progress-detail">
@@ -328,7 +441,7 @@ function RuntimeProgressDetailDrawer({
           {units.map((unit) => {
             const state = workUnitState(unit, runState);
             const evidence = Array.isArray(unit.evidence) ? unit.evidence.find((item) => visibleText(item.summary)) : null;
-            const summary = visibleText(evidence?.summary || unit.judgment || unit.action || unit.next_action, 180);
+            const summary = readableFeedbackText(evidence?.summary || unit.judgment || unit.action || unit.next_action, 180);
             return (
               <li className={`runtime-progress-detail__unit runtime-progress-detail__unit--${state}`} key={unit.unit_id}>
                 <span aria-hidden="true">{state === "success" ? <Check size={12} /> : statusIcon(state, 12)}</span>
@@ -339,7 +452,7 @@ function RuntimeProgressDetailDrawer({
           })}
         </ol>
       ) : null}
-      <RuntimeTechnicalTraceDrawer trace={trace} />
+      <RuntimeTechnicalTraceDrawer trace={visibleTrace} />
     </details>
   );
 }
