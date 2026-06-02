@@ -3,7 +3,9 @@ param(
     [string]$GraphId = "graph.writing.modular_novel.master",
     [string]$TaskId = "task.writing.modular_novel.master",
     [string]$SessionId = "",
-    [string]$ProjectId = "project:honghuang-times",
+    [string]$WorkspaceView = "task_environment",
+    [string]$TaskEnvironmentId = "env.creation.writing",
+    [string]$ProjectId = "project.creation.writing.honghuang",
     [string]$ProjectTitle = "洪荒时代",
     [string]$ProjectBriefFile = "output/novel_artifacts/modular_novel/runs/project-honghuang-times-memoryscope-20260523-001/project_brief.md",
     [int]$TargetGroupCount = 5,
@@ -37,9 +39,47 @@ if ([string]::IsNullOrWhiteSpace($ArtifactRoot)) {
     $ArtifactRoot = "output/novel_artifacts/modular_novel/runs/$ProjectSlug/$SessionSlug"
 }
 
+$SessionScope = @{
+    workspace_view = $WorkspaceView
+    task_environment_id = $TaskEnvironmentId
+    project_id = $ProjectId
+}
+
+$SessionResolvePayload = @{
+    workspace_view = $WorkspaceView
+    project_id = $ProjectId
+    intent = if ([string]::IsNullOrWhiteSpace($SessionId)) { "new_conversation" } else { "new_conversation" }
+    title = "$ProjectTitle 写作图任务"
+    preferred_session_id = ""
+    create_if_missing = $true
+    startup_parameters = @{
+        graph_id = $GraphId
+        task_id = $TaskId
+        source = "scripts.start_writing_project_run"
+    }
+}
+
+if (-not [string]::IsNullOrWhiteSpace($SessionId) -and $SessionId.StartsWith("session-")) {
+    $SessionResolvePayload.intent = "continue_conversation"
+    $SessionResolvePayload.preferred_session_id = $SessionId
+}
+
+$ResolvedSession = Invoke-RestMethod `
+    -Method Post `
+    -Uri "$BaseUrl/task-environments/$TaskEnvironmentId/sessions/resolve" `
+    -ContentType "application/json; charset=utf-8" `
+    -Body ($SessionResolvePayload | ConvertTo-Json -Depth 8)
+
+$ResolvedSessionId = [string]$ResolvedSession.session.id
+if ([string]::IsNullOrWhiteSpace($ResolvedSessionId)) {
+    throw "Task environment session resolver did not return a session id."
+}
+$SessionId = $ResolvedSessionId
+
 $Payload = @{
     session_id = $SessionId
     task_id = $TaskId
+    session_scope = $SessionScope
     include_trace = $true
     dispatch_ready = $true
     run_mode = "dispatch_only"
@@ -80,6 +120,8 @@ $Response = Invoke-RestMethod `
 
 $Result = [pscustomobject]@{
     session_id = $SessionId
+    session_scope = $SessionScope
+    session_created = [bool]$ResolvedSession.created
     graph_id = $GraphId
     task_id = $TaskId
     task_run_id = [string]$Response.task_run_id

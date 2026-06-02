@@ -766,7 +766,12 @@
           "query"
         ],
         "required_bindings": [],
-        "optional_inputs": [],
+        "optional_inputs": [
+          "roots",
+          "paths",
+          "glob",
+          "max_results"
+        ],
         "owner_scope": "none",
         "allow_catalog_default": false,
         "allow_history_binding": false,
@@ -832,8 +837,8 @@
         ],
         "required_bindings": [],
         "optional_inputs": [
-          "offset",
-          "limit"
+          "start_line",
+          "line_count"
         ],
         "owner_scope": "explicit_path",
         "allow_catalog_default": false,

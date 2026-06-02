@@ -40,22 +40,22 @@ def test_sandbox_read_file_copies_workspace_file_into_overlay(tmp_path: Path) ->
     )
 
     assert result["error"] == ""
-    assert result["observation"].payload["result"] == "real content"
+    assert result["observation"].payload["result"] == "1 | real content"
     assert (sandbox_root / "docs" / "note.md").read_text(encoding="utf-8") == "real content"
     assert result["sandbox"]["backend"] == "local_overlay"
 
 
-def test_sandbox_read_file_respects_offset_limit_and_reports_window(tmp_path: Path) -> None:
+def test_sandbox_read_file_respects_line_window_and_reports_window(tmp_path: Path) -> None:
     workspace = tmp_path / "project"
     sandbox_root = tmp_path / "sandbox" / "workspace"
     (workspace / "docs").mkdir(parents=True)
-    (workspace / "docs" / "note.md").write_text("0123456789abcdef", encoding="utf-8")
+    (workspace / "docs" / "note.md").write_text("line1\nline2\nline3\nline4", encoding="utf-8")
 
     result = _run_tool(
         workspace=workspace,
         sandbox_root=sandbox_root,
         tool_name="read_file",
-        tool_args={"path": "docs/note.md", "offset": 4, "limit": 5},
+        tool_args={"path": "docs/note.md", "start_line": 2, "line_count": 2},
         operation_id="op.read_file",
     )
 
@@ -63,10 +63,13 @@ def test_sandbox_read_file_respects_offset_limit_and_reports_window(tmp_path: Pa
     tool_result = envelope["structured_payload"]["tool_result"]
 
     assert result["error"] == ""
-    assert result["observation"].payload["result"] == "45678"
-    assert tool_result["offset"] == 4
-    assert tool_result["end_offset"] == 9
-    assert tool_result["next_offset"] == 9
+    assert result["observation"].payload["result"] == "2 | line2\n3 | line3"
+    assert tool_result["start_line"] == 2
+    assert tool_result["end_line"] == 3
+    assert tool_result["next_start_line"] == 4
+    assert tool_result["line_count"] == 2
+    assert tool_result["returned_lines"] == 2
+    assert tool_result["total_lines"] == 4
     assert tool_result["has_more"] is True
 
 
@@ -351,6 +354,47 @@ def test_sandbox_search_uses_overlay_view_after_read_copies_workspace_file(tmp_p
     assert result["error"] == ""
     assert "docs/experiments/roguelike_long_task/index.html" in payload["result"]
     assert "docs/experiments/roguelike_long_task/assets/test.txt" in payload["result"]
+
+
+def test_sandbox_search_text_accepts_paths_and_rejects_files_in_roots(tmp_path: Path) -> None:
+    workspace = tmp_path / "project"
+    sandbox_root = tmp_path / "sandbox" / "workspace"
+    (workspace / "docs").mkdir(parents=True)
+    (workspace / "docs" / "plan.md").write_text("alpha\nneedle here\nneedle later\nomega", encoding="utf-8")
+    (workspace / "docs" / "other.md").write_text("needle elsewhere", encoding="utf-8")
+
+    read_result = _run_tool(
+        workspace=workspace,
+        sandbox_root=sandbox_root,
+        tool_name="read_file",
+        tool_args={"path": "docs/plan.md"},
+        operation_id="op.read_file",
+    )
+    result = _run_tool(
+        workspace=workspace,
+        sandbox_root=sandbox_root,
+        tool_name="search_text",
+        tool_args={"query": "needle", "paths": ["docs/plan.md"], "max_results": 10},
+        operation_id="op.search_text",
+    )
+    misuse = _run_tool(
+        workspace=workspace,
+        sandbox_root=sandbox_root,
+        tool_name="search_text",
+        tool_args={"query": "needle", "roots": ["docs/plan.md"], "max_results": 10},
+        operation_id="op.search_text",
+    )
+
+    assert read_result["error"] == ""
+    assert result["error"] == ""
+    assert result["observation"].payload["result"].splitlines() == [
+        "docs/plan.md:2:1:needle here",
+        "docs/plan.md:3:1:needle later",
+    ]
+    assert "docs/other.md" not in result["observation"].payload["result"]
+    assert misuse["observation"].payload["result_envelope"]["status"] == "error"
+    assert "roots accepts directories only" in misuse["observation"].payload["result"]
+    assert "paths" in misuse["observation"].payload["result"]
 
 
 def test_sandbox_terminal_materializes_contract_directory_before_command(tmp_path: Path) -> None:

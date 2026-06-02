@@ -19,6 +19,7 @@ class ExecutionStateProjector:
             "active_failures": _bounded_dicts(system_projection.get("active_failures"), limit=8),
             "historical_failures": _bounded_dicts(system_projection.get("historical_failures"), limit=8),
             "repair_focus": _bounded_dicts(system_projection.get("repair_focus"), limit=8),
+            "file_state": _bounded_dicts(system_projection.get("file_state"), limit=20),
             "last_action_receipts": _bounded_dicts(system_projection.get("last_action_receipts"), limit=12),
             "pending_user_steers": _bounded_dicts(system_projection.get("pending_user_steers"), limit=8),
             "active_contract_revisions": _bounded_dicts(system_projection.get("active_contract_revisions"), limit=8),
@@ -28,7 +29,7 @@ class ExecutionStateProjector:
         }
         unknown_keys = sorted(
             key for key in state.keys()
-            if key not in {"system_projection", "runtime_status", "status", "step", "current_step", "recoverable_error", "validation_status", "memory_summary", "context_summary", "authority"}
+            if key not in {"system_projection", "runtime_status", "status", "step", "current_step", "recoverable_error", "validation_status", "memory_summary", "context_summary", "file_state", "authority"}
         )
         if unknown_keys:
             projected["omitted_unknown_key_count"] = len(unknown_keys)

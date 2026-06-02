@@ -9,7 +9,7 @@ if str(BACKEND_DIR) not in sys.path:
 
 from capability_system.tools.tool_units.read_file_tool import ReadFileTool
 from capability_system.tools.tool_units.file_system_tools import GlobPathsTool
-from capability_system.tools.tool_units.search_files_tool import SearchFilesTool
+from capability_system.tools.tool_units.search_files_tool import SearchFilesTool, SearchTextTool
 from capability_system.tools.tool_units.write_file_tool import EditFileTool, WriteFileTool
 
 
@@ -28,13 +28,13 @@ def test_workspace_file_tools_use_external_knowledge_root_when_initialized_from_
     writer = WriteFileTool(root_dir=backend_dir)
     editor = EditFileTool(root_dir=backend_dir)
 
-    assert reader.invoke({"path": "knowledge/note.md"}) == "root knowledge"
+    assert reader.invoke({"path": "knowledge/note.md"}) == "1 | root knowledge"
 
     write_result = writer.invoke({"path": "knowledge/note.md", "content": "updated from workspace"})
     assert write_result == "Write succeeded: knowledge/note.md"
     assert (root_knowledge / "note.md").read_text(encoding="utf-8") == "updated from workspace"
     assert (backend_knowledge / "note.md").read_text(encoding="utf-8") == "backend knowledge"
-    assert reader.invoke({"path": "knowledge/note.md"}) == "updated from workspace"
+    assert reader.invoke({"path": "knowledge/note.md"}) == "1 | updated from workspace"
 
     edit_result = editor.invoke(
         {
@@ -44,7 +44,7 @@ def test_workspace_file_tools_use_external_knowledge_root_when_initialized_from_
         }
     )
     assert edit_result == "Edit succeeded: knowledge/note.md"
-    assert reader.invoke({"path": "knowledge/note.md"}) == "edited from workspace"
+    assert reader.invoke({"path": "knowledge/note.md"}) == "1 | edited from workspace"
 
 
 def test_workspace_file_tools_reject_path_traversal_from_project_root(tmp_path: Path) -> None:
@@ -78,6 +78,29 @@ def test_workspace_search_defaults_do_not_duplicate_backend_knowledge_root(tmp_p
 
     assert "knowledge/shared-note.md" in result
     assert "backend/knowledge/shared-note.md" not in result
+
+
+def test_workspace_search_text_accepts_concrete_paths_and_rejects_files_in_roots(tmp_path: Path) -> None:
+    workspace = tmp_path / "project"
+    backend_dir = workspace / "backend"
+    docs_dir = workspace / "docs"
+    docs_dir.mkdir(parents=True)
+    backend_dir.mkdir(parents=True)
+    (docs_dir / "plan.md").write_text("alpha\nneedle here\nneedle later\nomega", encoding="utf-8")
+    (docs_dir / "other.md").write_text("needle elsewhere", encoding="utf-8")
+
+    search = SearchTextTool(root_dir=backend_dir)
+
+    result = search.invoke({"query": "needle", "paths": ["docs/plan.md"], "max_results": 10})
+    misuse = search.invoke({"query": "needle", "roots": ["docs/plan.md"], "max_results": 10})
+
+    assert result.splitlines() == [
+        "docs/plan.md:2:1:needle here",
+        "docs/plan.md:3:1:needle later",
+    ]
+    assert "docs/other.md" not in result
+    assert "roots accepts directories only" in misuse
+    assert "paths" in misuse
 
 
 def test_workspace_glob_uses_single_project_root(tmp_path: Path) -> None:

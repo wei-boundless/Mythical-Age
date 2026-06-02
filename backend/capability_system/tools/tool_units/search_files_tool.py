@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import fnmatch
 import re
 import subprocess
 from pathlib import Path
@@ -31,6 +32,10 @@ class SearchTextInput(BaseModel):
     roots: list[str] = Field(
         default_factory=list,
         description="可选搜索根目录，默认搜索 docs/backend/frontend；路径必须在项目根目录内",
+    )
+    paths: list[str] = Field(
+        default_factory=list,
+        description="可选具体文件路径；当只想在一个或多个已知文件里搜索时使用，不要放入 roots",
     )
     glob: str = Field(default="", description="可选 glob，例如 **/*.md 或 backend/**/*.py")
     max_results: int = Field(default=20, ge=1, le=100, description="最大返回条数")
@@ -162,6 +167,7 @@ class SearchTextTool(BaseTool):
         self,
         query: str,
         roots: list[str] | None = None,
+        paths: list[str] | None = None,
         glob: str = "",
         max_results: int = 20,
         run_manager: CallbackManagerForToolRun | None = None,
@@ -170,12 +176,30 @@ class SearchTextTool(BaseTool):
         normalized_query = str(query or "").strip()
         if not normalized_query:
             return "Search failed: query is required."
+        limit = max(1, min(int(max_results or 20), 100))
+        requested_paths = _nonempty_path_args(paths)
+        if requested_paths:
+            target_paths, path_error = _resolve_search_paths(self._files, requested_paths)
+            if path_error:
+                return f"Search failed: {path_error}"
+            return _format_search_matches(
+                _search_specific_paths(
+                    self._files,
+                    normalized_query,
+                    target_paths,
+                    glob=str(glob or ""),
+                    limit=limit,
+                ),
+                query=normalized_query,
+            )
+        roots_error = _roots_file_misuse_error(self._files, roots)
+        if roots_error:
+            return f"Search failed: {roots_error}"
         using_default_roots = not [str(item or "").strip() for item in list(roots or [])]
         safe_roots = self._files.safe_roots(roots)
         if not safe_roots:
             return "Search failed: no safe search roots."
 
-        limit = max(1, min(int(max_results or 20), 100))
         args = [
             "--line-number",
             "--column",
@@ -248,11 +272,81 @@ class SearchTextTool(BaseTool):
         self,
         query: str,
         roots: list[str] | None = None,
+        paths: list[str] | None = None,
         glob: str = "",
         max_results: int = 20,
         run_manager: AsyncCallbackManagerForToolRun | None = None,
     ) -> str:
-        return await asyncio.to_thread(self._run, query, roots, glob, max_results, None)
+        return await asyncio.to_thread(self._run, query, roots, paths, glob, max_results, None)
+
+
+def _nonempty_path_args(paths: list[str] | str | None) -> list[str]:
+    values = [paths] if isinstance(paths, str) else list(paths or [])
+    return [str(item or "").strip() for item in values if str(item or "").strip()]
+
+
+def _roots_file_misuse_error(files: WorkspaceFileService, roots: list[str] | None) -> str:
+    for item in _nonempty_path_args(roots):
+        try:
+            target = files.resolve(item, require_path=True)
+        except ValueError:
+            continue
+        if target.exists() and target.is_file():
+            rel = files.relative_path(target)
+            return f"roots accepts directories only. Put file paths in paths instead, for example paths=[\"{rel}\"]."
+    return ""
+
+
+def _resolve_search_paths(files: WorkspaceFileService, paths: list[str]) -> tuple[list[Path], str]:
+    resolved: list[Path] = []
+    seen: set[Path] = set()
+    for item in paths:
+        try:
+            target = files.resolve(item, require_path=True)
+        except ValueError as exc:
+            return [], str(exc)
+        if not target.exists():
+            return [], f"path does not exist: {item}"
+        if target.is_dir():
+            return [], f"paths accepts files only. Put directory roots in roots instead: {item}"
+        if target not in seen:
+            seen.add(target)
+            resolved.append(target)
+    return resolved, ""
+
+
+def _search_specific_paths(
+    files: WorkspaceFileService,
+    query: str,
+    paths: list[Path],
+    *,
+    glob: str,
+    limit: int,
+) -> list[str]:
+    matches: list[str] = []
+    pattern = str(glob or "").strip()
+    for path in paths:
+        if len(matches) >= limit:
+            break
+        rel = files.relative_path(path)
+        if pattern and not fnmatch.fnmatch(rel, pattern):
+            continue
+        try:
+            text = path.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            continue
+        for line_number, line in enumerate(text.splitlines(), start=1):
+            column = line.lower().find(query.lower()) + 1
+            if column <= 0:
+                continue
+            matches.append(f"{rel}:{line_number}:{column}:{line[:240]}")
+            if len(matches) >= limit:
+                return matches
+    return matches[:limit]
+
+
+def _format_search_matches(matches: list[str], *, query: str) -> str:
+    return "\n".join(matches) if matches else _format_no_results(query)
 
 
 def _default_search_exclude_args(enabled: bool) -> list[str]:

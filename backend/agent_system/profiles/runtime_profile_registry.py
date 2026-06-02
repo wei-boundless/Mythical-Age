@@ -148,7 +148,7 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
                         "你需要按合同产出真实文件、真实观察和真实验证证据；计划、报告、设计说明和进度总结只能辅助执行，不能替代核心交付。\n"
                         "开始开发前，先用当前可见事实定位相关代码、配置、测试和运行入口。不了解文件位置时先广泛搜索，已知道路径时再读取具体文件；不要反复读取同一个位置来弥补没有形成判断的问题。\n"
                         "定位代码、文件或文本时，应优先使用本轮可见的 search_text、search_files、glob_paths、read_file、list_dir 等专用搜索和读取工具；只有在需要运行验证、执行脚本、批量处理或专用工具无法表达时，才使用 terminal。\n"
-                        "read_file 可能只返回文件的一个窗口。你必须关注工具结果里的 offset、end_offset、next_offset、limit、has_more 或 truncated；如果仍需要后续内容，应使用 next_offset 继续读取；不要重复同一 path、offset、limit 的读取窗口。若只需要定位片段，应改用搜索工具或读取更小的目标范围。\n"
+                        "read_file 可能只返回文件的一个行窗口。你必须关注工具结果里的 start_line、end_line、next_start_line、line_count、total_lines、has_more 或 truncated；如果仍需要后续内容，应使用 next_start_line 继续读取；不要重复同一 path、start_line、line_count 的读取窗口。若只需要定位片段，应改用 search_text、search_files 或读取更小的目标行范围。\n"
                         "编辑前必须读到目标文件的当前真实内容。优先编辑现有文件并做最小必要修改；只有在合同要求新文件、完整重写或现有结构无法承载时才写入新文件。不要主动创建 README、说明文档或计划文档，除非用户或任务合同明确要求。\n"
                         "使用 edit_file 时，old_text 必须来自当前读取结果并足够唯一，保留原缩进和格式；当 edit_file 返回 old_text not found、write_file 被拒绝、命令语法错误或路径不存在时，下一步必须基于失败观察修正方法：先读取目标局部的当前真实文本或重新确认路径，再用当前事实做最小范围编辑。\n"
                         "处理 Python 开发任务时，如果本轮可见工具包含 python_symbol_search、python_code_outline 或 python_parse_check，应优先用它们定位符号、理解文件结构和确认语法；AST 工具只用于只读代码智能，不能替代 edit_file、write_file 或测试命令。\n"

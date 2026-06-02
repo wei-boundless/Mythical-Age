@@ -1502,7 +1502,7 @@ def _task_model_selection(task_run: Any, *, agent_profile: Any | None = None) ->
     resolved: dict[str, Any] = {
         "provider": provider,
         "model": model,
-        "credential_ref": str(profile_payload.get("credential_ref") or "").strip(),
+        "credential_ref": str(requirement.get("credential_ref") or profile_payload.get("credential_ref") or "").strip(),
         "max_output_tokens": requirement.get("max_output_tokens") or requirement.get("preferred_output_tokens") or profile_payload.get("max_output_tokens"),
         "timeout_seconds": profile_payload.get("timeout_seconds"),
         "long_output_timeout_seconds": profile_payload.get("long_output_timeout_seconds"),
@@ -2935,10 +2935,130 @@ def _build_execution_state_projection(records: list[dict[str, Any]]) -> dict[str
         "active_failures": active_failures[-8:],
         "historical_failures": historical_failures[-8:],
         "repair_focus": repair_focus[-8:],
+        "file_state": _build_file_state_projection(records),
         "open_questions": [],
         "last_action_receipts": last_action_receipts[-12:],
         "authority": "harness.task_observation_projection",
     }
+
+
+def _build_file_state_projection(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    by_path: dict[str, dict[str, Any]] = {}
+    for record in records:
+        tool_name = str(record.get("tool_name") or "")
+        if str(record.get("status") or "ok") != "ok" or _record_visibility(record) != "active":
+            continue
+        if tool_name in {"write_file", "edit_file"}:
+            path = _record_target_path(record)
+            if path:
+                by_path[path] = {
+                    "path": path,
+                    "read_ranges": [],
+                    "total_lines": 0,
+                    "content_sha256": "",
+                    "last_observation_ref": str(record.get("observation_ref") or ""),
+                    "has_more": False,
+                    "status": "modified_after_read",
+                }
+            continue
+        if tool_name != "read_file":
+            continue
+        result_metadata = dict(record.get("result_metadata") or {})
+        content_range = dict(result_metadata.get("content_range") or {})
+        path = str(content_range.get("path") or _record_target_path(record) or "").replace("\\", "/").strip().strip("/")
+        if not path:
+            continue
+        start_line = _first_int(content_range.get("start_line"))
+        end_line = _first_int(content_range.get("end_line"))
+        if start_line <= 0 or end_line <= 0:
+            continue
+        state = by_path.setdefault(
+            path,
+            {
+                "path": path,
+                "read_ranges": [],
+                "total_lines": _first_int(content_range.get("total_lines")),
+                "content_sha256": str(content_range.get("content_sha256") or ""),
+                "last_observation_ref": "",
+                "has_more": False,
+                "status": "partial",
+            },
+        )
+        state["read_ranges"].append(
+            {
+                "start_line": start_line,
+                "end_line": end_line,
+                "observation_ref": str(record.get("observation_ref") or ""),
+            }
+        )
+        if _first_int(content_range.get("total_lines")):
+            state["total_lines"] = _first_int(content_range.get("total_lines"))
+        if str(content_range.get("content_sha256") or "").strip():
+            state["content_sha256"] = str(content_range.get("content_sha256") or "").strip()
+        state["last_observation_ref"] = str(record.get("observation_ref") or "")
+        state["has_more"] = bool(content_range.get("has_more") or content_range.get("truncated"))
+    projected: list[dict[str, Any]] = []
+    for state in by_path.values():
+        if str(state.get("status") or "") == "modified_after_read":
+            projected.append(
+                {
+                    "path": state["path"],
+                    "read_ranges": [],
+                    "coverage": {"covered_lines": 0, "total_lines": 0, "complete": False},
+                    "total_lines": 0,
+                    "content_sha256": "",
+                    "last_observation_ref": str(state.get("last_observation_ref") or ""),
+                    "has_more": False,
+                    "status": "modified_after_read",
+                }
+            )
+            continue
+        ranges = _merge_line_ranges([dict(item) for item in list(state.get("read_ranges") or []) if isinstance(item, dict)])
+        total_lines = _first_int(state.get("total_lines"))
+        covered_lines = sum(max(0, int(item.get("end_line") or 0) - int(item.get("start_line") or 0) + 1) for item in ranges)
+        complete = bool(total_lines and ranges and ranges[0].get("start_line") == 1 and covered_lines >= total_lines)
+        projected.append(
+            {
+                "path": state["path"],
+                "read_ranges": ranges[-12:],
+                "coverage": {
+                    "covered_lines": covered_lines,
+                    "total_lines": total_lines,
+                    "complete": complete,
+                },
+                "total_lines": total_lines,
+                "content_sha256": str(state.get("content_sha256") or ""),
+                "last_observation_ref": str(state.get("last_observation_ref") or ""),
+                "has_more": bool(state.get("has_more")) and not complete,
+                "status": "complete" if complete else "partial",
+            }
+        )
+    return projected[-20:]
+
+
+def _merge_line_ranges(ranges: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    normalized = sorted(
+        (
+            {
+                "start_line": _first_int(item.get("start_line")),
+                "end_line": _first_int(item.get("end_line")),
+                "observation_ref": str(item.get("observation_ref") or ""),
+            }
+            for item in ranges
+        ),
+        key=lambda item: (item["start_line"], item["end_line"]),
+    )
+    merged: list[dict[str, Any]] = []
+    for item in normalized:
+        if item["start_line"] <= 0 or item["end_line"] < item["start_line"]:
+            continue
+        if merged and item["start_line"] <= int(merged[-1]["end_line"]) + 1:
+            merged[-1]["end_line"] = max(int(merged[-1]["end_line"]), item["end_line"])
+            if item["observation_ref"]:
+                merged[-1]["observation_ref"] = item["observation_ref"]
+            continue
+        merged.append(item)
+    return merged
 
 
 def _packet_observations_from_records(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -3509,7 +3629,8 @@ _DUPLICATE_GUARDED_READ_ONLY_TOOLS = frozenset(
         "stat_path",
     }
 )
-_READ_FILE_FINGERPRINT_DEFAULT_LIMIT = 10000
+_READ_FILE_FINGERPRINT_DEFAULT_START_LINE = 1
+_READ_FILE_FINGERPRINT_DEFAULT_LINE_COUNT = 240
 
 
 def _duplicate_read_only_tool_call_observation(
@@ -3527,18 +3648,39 @@ def _duplicate_read_only_tool_call_observation(
     tool_args = dict(tool_call.get("args") or tool_call.get("tool_args") or {})
     fingerprint = _tool_call_fingerprint(tool_name, tool_args)
     previous_ok_refs: list[str] = []
+    previous_failed_refs: list[str] = []
     for observation in list(previous_observations or []):
-        if _observation_status(observation) != "ok":
-            continue
         if _tool_call_fingerprint(_observation_tool_name(observation), _observation_tool_args(observation)) != fingerprint:
             continue
-        previous_ok_refs.append(str(observation.get("observation_id") or observation.get("observation_ref") or ""))
+        status = _observation_status(observation)
+        if status == "ok":
+            previous_ok_refs.append(str(observation.get("observation_id") or observation.get("observation_ref") or ""))
+        elif status in {"failed", "denied", "canceled", "error"}:
+            previous_failed_refs.append(str(observation.get("observation_id") or observation.get("observation_ref") or ""))
     if not previous_ok_refs:
-        return None
-    message = (
-        f"重复的只读工具调用不会提供新增信息：{tool_name}。"
-        "请使用已有 observation 作为证据，或改用更有针对性的验证工具/参数；如果合同已满足，应直接 respond。"
-    )
+        if not previous_failed_refs:
+            return None
+        error_code = "duplicate_failed_read_only_tool_call"
+        message = (
+            f"重复失败的只读工具调用不会提供新增信息：{tool_name}。"
+            "请根据上一次失败原因修改参数、换工具、缩小范围，或明确说明阻塞；不要原样重试。"
+        )
+        previous_refs = previous_failed_refs
+        repair_instruction = (
+            "Do not repeat a failed read-only tool call with identical arguments. "
+            "Use the previous failure as evidence, change arguments or tool, or report the blocker."
+        )
+    else:
+        error_code = "duplicate_read_only_tool_call"
+        message = (
+            f"重复的只读工具调用不会提供新增信息：{tool_name}。"
+            "请使用已有 observation 作为证据，或改用更有针对性的验证工具/参数；如果合同已满足，应直接 respond。"
+        )
+        previous_refs = previous_ok_refs
+        repair_instruction = (
+            "Do not repeat the same read-only tool call with identical arguments. "
+            "Use the existing observation, change the verification method or arguments, or finish if completion evidence is sufficient."
+        )
     return {
         "observation_id": f"rtobs:{task_run_id}:{uuid.uuid4().hex[:8]}",
         "task_run_id": task_run_id,
@@ -3552,27 +3694,24 @@ def _duplicate_read_only_tool_call_observation(
             "tool_name": "duplicate_tool_call_guard",
             "tool_args": {"tool_name": tool_name, "args": tool_args},
             "error": message,
-            "error_code": "duplicate_read_only_tool_call",
-            "previous_observation_refs": [ref for ref in previous_ok_refs if ref],
+            "error_code": error_code,
+            "previous_observation_refs": [ref for ref in previous_refs if ref],
             "structured_error": {
-                "code": "duplicate_read_only_tool_call",
+                "code": error_code,
                 "message": message,
                 "retryable": True,
                 "origin": "runtime_guard",
                 "tool_name": tool_name,
                 "tool_args": tool_args,
-                "previous_observation_refs": [ref for ref in previous_ok_refs if ref],
-                "repair_instruction": (
-                    "Do not repeat the same read-only tool call with identical arguments. "
-                    "Use the existing observation, change the verification method or arguments, or finish if completion evidence is sufficient."
-                ),
+                "previous_observation_refs": [ref for ref in previous_refs if ref],
+                "repair_instruction": repair_instruction,
             },
             "runtime_fingerprint": dict(runtime_fingerprint or {}),
         },
         "needs_model_followup": True,
         "created_at": time.time(),
         "authority": "orchestration.runtime_observation",
-        "error": "duplicate_read_only_tool_call",
+        "error": error_code,
     }
 
 
@@ -3591,12 +3730,13 @@ def _normalize_tool_call_args_for_fingerprint(tool_name: str, tool_args: dict[st
     if str(tool_name or "").strip() != "read_file" or not isinstance(normalized, dict):
         return normalized
     # The runtime supplies these defaults during validation. Include them in the
-    # duplicate fingerprint so read_file(path) and read_file(path, offset=0)
-    # are treated as the same window, while unsupported args remain visible.
-    if "offset" not in normalized:
-        normalized["offset"] = 0
-    if "limit" not in normalized:
-        normalized["limit"] = _READ_FILE_FINGERPRINT_DEFAULT_LIMIT
+    # duplicate fingerprint so read_file(path) and read_file(path, start_line=1)
+    # are treated as the same line window, while unsupported args remain visible
+    # to the validator instead of being accepted as compatibility shims.
+    if "start_line" not in normalized and not any(key in normalized for key in ("offset", "limit")):
+        normalized["start_line"] = _READ_FILE_FINGERPRINT_DEFAULT_START_LINE
+    if "line_count" not in normalized and not any(key in normalized for key in ("offset", "limit")):
+        normalized["line_count"] = _READ_FILE_FINGERPRINT_DEFAULT_LINE_COUNT
     return normalized
 
 
@@ -3605,7 +3745,7 @@ def _normalize_tool_call_args(tool_args: dict[str, Any]) -> Any:
         normalized: dict[str, Any] = {}
         for key in sorted(tool_args):
             value = tool_args[key]
-            if isinstance(value, str) and key in {"path", "target_path", "artifact_path", "output_path", "root", "roots"}:
+            if isinstance(value, str) and key in {"path", "target_path", "artifact_path", "output_path", "root", "roots", "paths"}:
                 normalized[str(key)] = value.replace("\\", "/").strip().strip("/")
             else:
                 normalized[str(key)] = _normalize_tool_call_args(value) if isinstance(value, dict) else value

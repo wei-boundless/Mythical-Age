@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from runtime.shared.models import AgentRun, AgentRunResult, TaskRun
+from runtime.shared.models import AgentRun, AgentRunResult, ProjectRuntimeStatus, TaskRun
 from runtime.memory.state_index import RuntimeStateIndex
 
 
@@ -74,6 +74,16 @@ def test_state_index_prunes_task_run_records_and_rebuilds_indexes(tmp_path) -> N
     state_index.upsert_task_run(TaskRun(task_run_id="taskrun:delete", session_id="session", task_id="task.delete", updated_at=30))
     state_index.upsert_agent_run(AgentRun(agent_run_id="agentrun:delete", task_run_id="taskrun:delete", agent_id="agent:0", agent_profile_id="main"))
     state_index.upsert_agent_run_result(AgentRunResult(agent_run_result_id="agresult:delete", agent_run_id="agentrun:delete", task_run_id="taskrun:delete", agent_id="agent:0", status="completed"))
+    state_index.upsert_project_runtime_status(
+        ProjectRuntimeStatus(
+            project_id="project:delete",
+            session_id="session",
+            graph_id="graph:delete",
+            active_task_run_id="taskrun:delete",
+            active_run_status="running",
+            project_runtime_status="watching",
+        )
+    )
 
     result = state_index.prune_task_runs({"taskrun:delete"})
     snapshot = state_index.read_snapshot()
@@ -85,5 +95,13 @@ def test_state_index_prunes_task_run_records_and_rebuilds_indexes(tmp_path) -> N
     assert snapshot["session_latest_task_runs"]["session"] == "taskrun:keep"
     assert snapshot["agent_runs"] == {}
     assert snapshot["agent_run_results"] == {}
+    assert snapshot["project_runtime_statuses"]["project:delete"]["active_task_run_id"] == ""
+    assert "taskrun:delete" not in snapshot["task_project_status"]
+    state_index.upsert_task_run(TaskRun(task_run_id="taskrun:delete", session_id="session", task_id="task.delete", updated_at=40))
+    state_index.upsert_agent_run(AgentRun(agent_run_id="agentrun:late", task_run_id="taskrun:delete", agent_id="agent:0", agent_profile_id="main"))
+    state_index.upsert_agent_run_result(AgentRunResult(agent_run_result_id="agresult:late", agent_run_id="agentrun:late", task_run_id="taskrun:delete", agent_id="agent:0", status="completed"))
+    assert state_index.get_task_run("taskrun:delete") is None
+    assert state_index.list_task_agent_runs("taskrun:delete") == []
+    assert state_index.list_task_agent_run_results("taskrun:delete") == []
 
 

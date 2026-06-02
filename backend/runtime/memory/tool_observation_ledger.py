@@ -268,37 +268,38 @@ def _result_metadata_for_tool(
         return {}
     tool_result = dict(structured_payload.get("tool_result") or {})
     path = str(tool_result.get("path") or (observed_paths[0] if observed_paths else "") or args.get("path") or "").strip()
-    offset = _int_or_none(tool_result.get("offset"))
-    end_offset = _int_or_none(tool_result.get("end_offset"))
-    returned_chars = _int_or_none(tool_result.get("returned_chars"))
-    size_chars = _int_or_none(tool_result.get("size_chars"))
-    limit = _int_or_none(tool_result.get("limit"))
-    next_offset = _int_or_none(tool_result.get("next_offset"))
-    if offset is None and end_offset is None and returned_chars is None and size_chars is None:
+    start_line = _int_or_none(tool_result.get("start_line"))
+    end_line = _int_or_none(tool_result.get("end_line"))
+    returned_lines = _int_or_none(tool_result.get("returned_lines"))
+    total_lines = _int_or_none(tool_result.get("total_lines"))
+    line_count = _int_or_none(tool_result.get("line_count"))
+    next_start_line = _int_or_none(tool_result.get("next_start_line"))
+    if start_line is None and end_line is None and returned_lines is None and total_lines is None:
         return {}
     has_more = bool(tool_result.get("has_more") or tool_result.get("truncated"))
     content_range = _drop_empty_dict(
         {
             "path": path,
-            "offset": offset,
-            "end_offset": end_offset,
-            "returned_chars": returned_chars if returned_chars is not None else len(str(result_text or "")),
-            "size_chars": size_chars,
-            "limit": limit,
-            "next_offset": next_offset,
+            "start_line": start_line,
+            "end_line": end_line,
+            "returned_lines": returned_lines,
+            "total_lines": total_lines,
+            "line_count": line_count,
+            "next_start_line": next_start_line,
             "has_more": has_more,
             "truncated": bool(tool_result.get("truncated") or has_more),
+            "content_sha256": str(tool_result.get("content_sha256") or "").strip(),
         }
     )
     if not content_range:
         return {}
-    if has_more and next_offset is not None:
+    if has_more and next_start_line is not None:
         guidance = (
-            f"read_file 已返回 {path} 的 offset={offset} 到 end_offset={end_offset}。"
-            f"如仍需要后续内容，下一次应使用 offset={next_offset} 和 limit={limit or ''}；不要重复读取相同窗口。"
+            f"read_file 已返回 {path} 的第 {start_line} 行到第 {end_line} 行。"
+            f"如仍需要后续内容，下一次应使用 start_line={next_start_line} 和 line_count={line_count or ''}；不要重复读取相同行窗口。"
         )
     else:
-        guidance = f"read_file 已读到 {path} 的当前可用结尾；不要重复读取相同窗口。"
+        guidance = f"read_file 已读到 {path} 的当前可用结尾；不要重复读取相同行窗口。"
     return {
         "content_range": content_range,
         "tool_guidance": guidance,

@@ -356,7 +356,7 @@ def test_single_agent_turn_read_only_tool_executes_through_control_plane_and_fol
                     {
                         "id": "call-read-requirements",
                         "name": "read_file",
-                        "args": {"path": "requirements.txt", "limit": 120},
+                        "args": {"path": "requirements.txt", "line_count": 120},
                     }
                 ]
             },
@@ -589,6 +589,17 @@ def test_task_executor_guards_duplicate_read_only_tool_call_without_rerunning_to
             request_id="model-action:same-default-read-window",
             turn_id="taskrun:duplicate-read",
             action_type="tool_call",
+            tool_call={"tool_name": "read_file", "args": {"path": "artifacts/demo.html", "start_line": 1}},
+        ),
+        previous_observations=previous,
+    )
+    old_window_args = _duplicate_read_only_tool_call_observation(
+        task_run_id="taskrun:duplicate-read",
+        packet_ref="packet:duplicate-read",
+        action_request=ModelActionRequest(
+            request_id="model-action:old-read-window-args",
+            turn_id="taskrun:duplicate-read",
+            action_type="tool_call",
             tool_call={"tool_name": "read_file", "args": {"path": "artifacts/demo.html", "offset": 0}},
         ),
         previous_observations=previous,
@@ -615,13 +626,39 @@ def test_task_executor_guards_duplicate_read_only_tool_call_without_rerunning_to
         ),
         previous_observations=previous,
     )
+    repeated_failed_search = _duplicate_read_only_tool_call_observation(
+        task_run_id="taskrun:duplicate-read",
+        packet_ref="packet:duplicate-read",
+        action_request=ModelActionRequest(
+            request_id="model-action:repeated-failed-search",
+            turn_id="taskrun:duplicate-read",
+            action_type="tool_call",
+            tool_call={"tool_name": "search_text", "args": {"query": "needle", "roots": ["docs/plan.md"]}},
+        ),
+        previous_observations=[
+            {
+                "observation_id": "toolobs:search:failed:1",
+                "source": "tool:search_text",
+                "payload": {
+                    "tool_name": "search_text",
+                    "tool_args": {"query": "needle", "roots": ["docs/plan.md"]},
+                    "error": "Search failed: roots accepts directories only.",
+                },
+                "error": "Search failed: roots accepts directories only.",
+            }
+        ],
+    )
 
     assert duplicate is not None
     assert same_default_window is not None
+    assert repeated_failed_search is not None
     assert duplicate["source"] == "system:duplicate_tool_call_guard"
     assert duplicate["payload"]["error_code"] == "duplicate_read_only_tool_call"
     assert duplicate["payload"]["previous_observation_refs"] == ["toolobs:read:1"]
+    assert repeated_failed_search["payload"]["error_code"] == "duplicate_failed_read_only_tool_call"
+    assert repeated_failed_search["payload"]["previous_observation_refs"] == ["toolobs:search:failed:1"]
     assert changed_args is None
+    assert old_window_args is None
     assert unsupported_arg is None
 
 

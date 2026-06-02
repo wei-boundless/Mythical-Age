@@ -410,6 +410,7 @@ class RuntimeCompiler:
         )
         agent_instruction = _agent_prompt_instruction(agent_prompt_assembly, invocation_kind="task_execution")
         action_schema_payload = {"schema": schema}
+        graph_task_shared_payload = _graph_task_shared_stable_payload(contract)
         task_contract_payload = {"task_contract": _task_contract_stable_payload(contract)}
         artifact_execution_scope_payload = {"artifact_execution_scope": sandbox_execution_scope.to_model_visible_payload()}
         environment_stable_payload = {"task_environment": _environment_model_visible_payload(environment_payload)}
@@ -479,24 +480,6 @@ class RuntimeCompiler:
                 ),
                 _message_spec(
                     role="system",
-                    content=agent_instruction,
-                    kind="agent_stable",
-                    source_ref=",".join(agent_prompt_assembly.manifest.get("stable_prompt_refs") or ()),
-                    cache_scope="session",
-                    cache_role="session_stable",
-                    compression_role="preserve",
-                ),
-                _message_spec(
-                    role="system",
-                    content=_packet_payload_content("Task execution task contract", task_contract_payload),
-                    kind="task_contract_stable",
-                    source_ref=str(contract.get("contract_id") or "task_execution_contract"),
-                    cache_scope="task",
-                    cache_role="session_stable",
-                    compression_role="preserve",
-                ),
-                _message_spec(
-                    role="system",
                     content=_packet_payload_content("Task execution artifact write scope", artifact_execution_scope_payload),
                     kind="artifact_scope_stable",
                     source_ref="task_execution_artifact_write_scope",
@@ -506,9 +489,38 @@ class RuntimeCompiler:
                 ),
                 _message_spec(
                     role="system",
-                    content=_prompt_contract_instruction(task_prompt_assembly),
-                    kind="task_prompt_contract",
-                    source_ref=",".join(task_prompt_assembly.manifest.get("stable_contract_refs") or ()),
+                    content=_packet_payload_content("Task execution tool index", tool_index_payload),
+                    kind="tool_index_stable",
+                    source_ref=_short_hash(_stable_json_hash([dict(item) for item in tool_payloads])),
+                    cache_scope="task",
+                    cache_role="session_stable",
+                    compression_role="preserve",
+                ),
+                _message_spec(
+                    role="system",
+                    content=agent_instruction,
+                    kind="agent_stable",
+                    source_ref=",".join(agent_prompt_assembly.manifest.get("stable_prompt_refs") or ()),
+                    cache_scope="session",
+                    cache_role="session_stable",
+                    compression_role="preserve",
+                ),
+                _message_spec(
+                    role="system",
+                    content=_packet_payload_content("Task execution graph shared context", graph_task_shared_payload),
+                    kind="graph_task_shared_stable",
+                    source_ref=str(graph_task_shared_payload.get("graph_shared_context", {}).get("shared_context_hash") or ""),
+                    cache_scope="task",
+                    cache_role="session_stable",
+                    compression_role="preserve",
+                )
+                if graph_task_shared_payload
+                else None,
+                _message_spec(
+                    role="system",
+                    content=_packet_payload_content("Task execution task contract", task_contract_payload),
+                    kind="task_contract_stable",
+                    source_ref=str(contract.get("contract_id") or "task_execution_contract"),
                     cache_scope="task",
                     cache_role="session_stable",
                     compression_role="preserve",
@@ -524,9 +536,9 @@ class RuntimeCompiler:
                 ),
                 _message_spec(
                     role="system",
-                    content=_packet_payload_content("Task execution tool index", tool_index_payload),
-                    kind="tool_index_stable",
-                    source_ref=_short_hash(_stable_json_hash([dict(item) for item in tool_payloads])),
+                    content=_prompt_contract_instruction(task_prompt_assembly),
+                    kind="task_prompt_contract",
+                    source_ref=",".join(task_prompt_assembly.manifest.get("stable_contract_refs") or ()),
                     cache_scope="task",
                     cache_role="session_stable",
                     compression_role="preserve",
@@ -2125,6 +2137,46 @@ def _graph_node_model_context_projection(graph_slot: dict[str, Any]) -> dict[str
     )
 
 
+def _graph_task_shared_stable_payload(contract: dict[str, Any]) -> dict[str, Any]:
+    payload = dict(contract or {})
+    graph_slot = _graph_slot_from_contract(payload)
+    if not graph_slot:
+        return {}
+    slot = dict(graph_slot or {})
+    shared_context = _drop_empty_payload(
+        {
+            "contract_id": "graph_node_shared_context",
+            "contract_source": str(payload.get("contract_source") or "graph_node_work_order"),
+            "task_environment_id": str(payload.get("task_environment_id") or ""),
+            "graph_task": _graph_task_shared_identity(slot),
+            "execution_contract_boundary": {
+                "node_local_contract_follows": True,
+                "authorized_inputs_are_node_local": True,
+                "memory_snapshots_are_node_local": True,
+                "loop_variables_are_node_local": True,
+                "output_targets_are_node_local": True,
+                "authority": "harness.runtime.graph_task_shared.boundary",
+            },
+            "authority": "harness.runtime.graph_task_shared_context.model_visible",
+        }
+    )
+    if not shared_context:
+        return {}
+    shared_context["shared_context_hash"] = _short_hash(_stable_json_hash(shared_context))
+    return {"graph_shared_context": shared_context}
+
+
+def _graph_task_shared_identity(graph_slot: dict[str, Any]) -> dict[str, Any]:
+    identity = dict(graph_slot.get("graph_identity") or {})
+    return _drop_empty_payload(
+        {
+            "graph_id": str(identity.get("graph_id") or ""),
+            "config_id": str(identity.get("config_id") or ""),
+            "authority": "harness.runtime.graph_task_shared.identity",
+        }
+    )
+
+
 def _graph_node_prompt_context(*, node_contract: dict[str, Any], node_identity: dict[str, Any]) -> dict[str, Any]:
     prompt = dict(node_contract.get("prompt_contract") or {})
     normalized = _normalize_prompt_contract(
@@ -2175,10 +2227,6 @@ def _authorized_input_payload(payload: dict[str, Any]) -> dict[str, Any]:
     for key in (
         "initial_inputs",
         "artifact_payloads",
-        "handoff_summary",
-        "summary",
-        "content",
-        "text",
         "title",
         "project_id",
         "graph_id",

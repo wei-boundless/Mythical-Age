@@ -307,6 +307,7 @@ def _packet_report(
     task_run_id = str(packet.get("task_run_id") or "")
     provider_rows = provider_usage_by_task.get(task_run_id, [])
     issues = _packet_issues(segments=segments, provider_rows=provider_rows)
+    cache_layer_summary = _cache_layer_summary(segments)
     return {
         "packet_id": str(packet.get("packet_id") or ""),
         "task_run_id": task_run_id,
@@ -315,10 +316,12 @@ def _packet_report(
         "model_chars": candidate.chars,
         "predicted_prompt_tokens": sum(int(item.get("predicted_tokens") or 0) for item in segments),
         "diagnostics": _packet_diagnostics(segments),
+        "cache_layer_summary": cache_layer_summary,
         "prefix_token_summary": dict(sorted(prefix_tokens.items())),
         "segments": segments,
         "provider_usage": provider_rows[-8:],
         "issues": issues,
+        "recommendations": _packet_recommendations(segments=segments, cache_layer_summary=cache_layer_summary),
     }
 
 
@@ -340,6 +343,88 @@ def _packet_diagnostics(segments: list[dict[str, Any]]) -> dict[str, Any]:
         "provider_global_tokens": provider_global_tokens,
         "stable_tokens": stable_tokens,
     }
+
+
+def _cache_layer_summary(segments: list[dict[str, Any]]) -> dict[str, Any]:
+    by_tier: dict[str, int] = defaultdict(int)
+    by_kind: dict[str, int] = defaultdict(int)
+    stable_prefix_kinds: list[str] = []
+    first_nonstable: dict[str, Any] | None = None
+    stable_prefix_open = True
+    for item in segments:
+        tokens = int(item.get("predicted_tokens") or 0)
+        tier = str(item.get("prefix_tier") or "none")
+        kind = str(item.get("kind") or "")
+        by_tier[tier] += tokens
+        by_kind[kind] += tokens
+        if stable_prefix_open and str(item.get("cache_role") or "") in {"cacheable_prefix", "session_stable"}:
+            stable_prefix_kinds.append(kind)
+            continue
+        if stable_prefix_open:
+            first_nonstable = {"kind": kind, "prefix_tier": tier, "predicted_tokens": tokens}
+        stable_prefix_open = False
+    return {
+        "by_prefix_tier_tokens": dict(sorted(by_tier.items())),
+        "by_kind_tokens": dict(sorted(by_kind.items(), key=lambda pair: pair[1], reverse=True)),
+        "stable_prefix_kinds": stable_prefix_kinds,
+        "first_nonstable_segment": first_nonstable or {},
+    }
+
+
+def _packet_recommendations(
+    *,
+    segments: list[dict[str, Any]],
+    cache_layer_summary: dict[str, Any],
+) -> list[dict[str, Any]]:
+    recommendations: list[dict[str, Any]] = []
+    stable_tokens = sum(
+        int(item.get("predicted_tokens") or 0)
+        for item in segments
+        if str(item.get("cache_role") or "") in {"cacheable_prefix", "session_stable"}
+    )
+    kind_tokens = dict(cache_layer_summary.get("by_kind_tokens") or {})
+    node_local_tokens = int(kind_tokens.get("task_contract_stable") or 0)
+    graph_shared_tokens = int(kind_tokens.get("graph_task_shared_stable") or 0)
+    volatile_tokens = sum(
+        int(item.get("predicted_tokens") or 0)
+        for item in segments
+        if str(item.get("prefix_tier") or "") == "volatile"
+    )
+    if node_local_tokens and stable_tokens and node_local_tokens / stable_tokens >= 0.5:
+        recommendations.append(
+            {
+                "code": "split_or_summarize_node_local_contract",
+                "detail": "节点本地契约占稳定前缀过半。优先压缩 authorized_inputs、memory、loop、output 中只供当前节点使用的大段文本；共享规则应放在 graph_task_shared_stable。",
+                "task_contract_tokens": node_local_tokens,
+                "stable_tokens": stable_tokens,
+            }
+        )
+    if not graph_shared_tokens:
+        recommendations.append(
+            {
+                "code": "missing_graph_shared_stable_layer",
+                "detail": "未发现 graph_task_shared_stable。图任务应把跨节点不变的图级说明放在节点本地契约之前，以便同一图内复用前缀缓存。",
+            }
+        )
+    if volatile_tokens > stable_tokens:
+        recommendations.append(
+            {
+                "code": "reduce_volatile_tail",
+                "detail": "动态尾部大于稳定前缀。检查 runtime projection、current state、观察记录是否携带了可摘要或可引用的大段内容。",
+                "volatile_tokens": volatile_tokens,
+                "stable_tokens": stable_tokens,
+            }
+        )
+    top_kinds = list(dict(cache_layer_summary.get("by_kind_tokens") or {}).items())[:3]
+    if top_kinds:
+        recommendations.append(
+            {
+                "code": "largest_cache_layers",
+                "detail": "优先优化 token 最大的 prompt 层；不要先动很小的静态层。",
+                "top_kinds": [{"kind": str(kind), "predicted_tokens": int(tokens)} for kind, tokens in top_kinds],
+            }
+        )
+    return recommendations
 
 
 def _packet_issues(*, segments: list[dict[str, Any]], provider_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:

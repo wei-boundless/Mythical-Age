@@ -153,6 +153,145 @@ def test_graph_node_task_packet_does_not_embed_full_graph_policy() -> None:
     assert "memory" not in graph_context
 
 
+def test_graph_node_task_packet_places_shared_stable_segments_before_node_contract() -> None:
+    work_order = GraphNodeWorkOrder(
+        work_order_id="gwork:test:cacheable-node:1",
+        work_kind="agent",
+        graph_run_id="grun:test",
+        task_run_id="taskrun:test",
+        node_id="cacheable_node",
+        config_id="ghcfg:test",
+        config_hash="hash",
+        task_ref="task.test.cacheable_node",
+        message="完成目标节点。",
+        input_package={"initial_inputs": {"goal": "cache prompt"}},
+        graph_slot={
+            "authority": "harness.graph.node_execution_slot",
+            "slot_id": "gslot:test:cacheable_node",
+            "node_contract": {
+                "node_identity": {"node_id": "cacheable_node", "title": "可缓存节点"},
+                "prompt_contract": {"role_prompt": "你是一名测试执行员。"},
+            },
+            "edge_contracts": {},
+            "memory_contract": {},
+            "output_contract": {"expected_result_contract": {"output_contract_id": "contract.test.output"}},
+        },
+        expected_result_contract={"output_contract_id": "contract.test.output"},
+    )
+    contract = _graph_node_contract_from_work_order(work_order).to_dict()
+    packet = RuntimeCompiler().compile_task_execution_packet(
+        session_id="session-test",
+        task_run={
+            "task_run_id": "gtask:test-cache",
+            "session_id": "session-test",
+            "task_id": "task.test.cacheable_node",
+            "task_contract_ref": "gcontract:test-cache",
+            "diagnostics": {"contract": contract, "graph_run_id": "grun:test", "graph_node_id": "cacheable_node"},
+        },
+        contract=contract,
+        observations=[],
+        runtime_assembly={
+            "assembly_id": "rtasm:test-cache",
+            "profile": {
+                "profile_ref": "main_interactive_agent",
+                "context_policy": {"task_run_context": "disabled"},
+                "prompt_pack_refs_by_invocation": {"task_execution": ["runtime.pack.graph_node_execution.v1"]},
+            },
+            "task_environment": {"environment_id": "env.test"},
+            "operation_authorization": {"allowed_operations": []},
+        },
+    ).packet
+
+    stable_kinds = [
+        segment["kind"]
+        for segment in packet.segment_plan["segments"]
+        if segment.get("cache_role") in {"cacheable_prefix", "session_stable"}
+    ]
+
+    assert stable_kinds.index("artifact_scope_stable") < stable_kinds.index("graph_task_shared_stable")
+    assert stable_kinds.index("tool_index_stable") < stable_kinds.index("graph_task_shared_stable")
+    assert stable_kinds.index("graph_task_shared_stable") < stable_kinds.index("task_contract_stable")
+    all_content = "".join(message["content"] for message in packet.model_messages)
+    assert "Task execution graph shared context" in all_content
+    assert "Task execution task contract" in all_content
+    assert "graph_node_context" in all_content
+
+
+def test_graph_node_authorized_input_payload_does_not_duplicate_content_body() -> None:
+    body = "上游交接正文" * 200
+    work_order = GraphNodeWorkOrder(
+        work_order_id="gwork:test:dedupe-input:1",
+        work_kind="agent",
+        graph_run_id="grun:test",
+        task_run_id="taskrun:test",
+        node_id="review",
+        config_id="ghcfg:test",
+        config_hash="hash",
+        task_ref="task.test.review",
+        message="审核上游交接。",
+        graph_slot={
+            "authority": "harness.graph.node_execution_slot",
+            "slot_id": "gslot:test:review",
+            "node_contract": {
+                "node_identity": {"node_id": "review", "title": "审核"},
+                "prompt_contract": {"role_prompt": "你是一名审核员。"},
+            },
+            "edge_contracts": {
+                "inbound_edge_contexts": [
+                    {
+                        "target_input_slot": "上游交接包",
+                        "packet_type": "handoff",
+                        "payload": {
+                            "handoff_summary": body,
+                            "content": body,
+                            "summary": body,
+                            "title": "交接包",
+                        },
+                    }
+                ]
+            },
+            "memory_contract": {},
+            "output_contract": {"expected_result_contract": {"output_contract_id": "contract.test.review"}},
+        },
+        expected_result_contract={"output_contract_id": "contract.test.review"},
+    )
+    contract = _graph_node_contract_from_work_order(work_order).to_dict()
+    payload = RuntimeCompiler().compile_task_execution_packet(
+        session_id="session-test",
+        task_run={
+            "task_run_id": "gtask:test-dedupe",
+            "session_id": "session-test",
+            "task_id": "task.test.review",
+            "task_contract_ref": "gcontract:test-dedupe",
+            "diagnostics": {"contract": contract},
+        },
+        contract=contract,
+        observations=[],
+        runtime_assembly={
+            "assembly_id": "rtasm:test-dedupe",
+            "profile": {
+                "profile_ref": "main_interactive_agent",
+                "context_policy": {"task_run_context": "disabled"},
+                "prompt_pack_refs_by_invocation": {"task_execution": ["runtime.pack.graph_node_execution.v1"]},
+            },
+            "task_environment": {"environment_id": "env.test"},
+            "operation_authorization": {"allowed_operations": []},
+        },
+    ).packet
+    task_contract_content = next(
+        message["content"]
+        for message in payload.model_messages
+        if message["content"].startswith("Task execution task contract")
+    )
+    stable_payload = json.loads(task_contract_content.split("\n", 1)[1])
+    inbound = stable_payload["task_contract"]["graph_node_context"]["authorized_inputs"][0]
+
+    assert inbound["content"] == body[:30000]
+    assert "payload" not in inbound or len(json.dumps(inbound["payload"], ensure_ascii=False)) < 200
+    assert "handoff_summary" not in json.dumps(inbound.get("payload") or {}, ensure_ascii=False)
+    assert "content" not in (inbound.get("payload") or {})
+
+
 def test_task_execution_packet_ignores_engagement_shared_prompt_contract() -> None:
     packet = RuntimeCompiler().compile_task_execution_packet(
         session_id="session-shared-prompt",

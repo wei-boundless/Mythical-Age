@@ -74,7 +74,7 @@ def test_runtime_compiler_emits_dynamic_context_report_and_projected_task_state(
 
 
 def test_read_file_content_windows_survive_task_state_projection() -> None:
-    def _read_observation(ref: str, text: str, offset: int, end_offset: int, next_offset: int | None) -> dict[str, object]:
+    def _read_observation(ref: str, text: str, start_line: int, end_line: int, next_start_line: int | None) -> dict[str, object]:
         return {
             "observation_id": ref,
             "payload": {
@@ -89,14 +89,15 @@ def test_read_file_content_windows_survive_task_state_projection() -> None:
                         "tool_result": {
                             "kind": "text_file",
                             "path": "docs/long.md",
-                            "size_chars": 30,
-                            "offset": offset,
-                            "limit": 10,
-                            "returned_chars": len(text),
-                            "end_offset": end_offset,
-                            "next_offset": next_offset,
-                            "has_more": next_offset is not None,
-                            "truncated": next_offset is not None,
+                            "total_lines": 30,
+                            "start_line": start_line,
+                            "line_count": 10,
+                            "returned_lines": end_line - start_line + 1,
+                            "end_line": end_line,
+                            "next_start_line": next_start_line,
+                            "has_more": next_start_line is not None,
+                            "truncated": next_start_line is not None,
+                            "content_sha256": "sha256:test",
                         },
                     },
                 }
@@ -108,9 +109,28 @@ def test_read_file_content_windows_survive_task_state_projection() -> None:
         task_run={"task_run_id": "taskrun:read-windows", "diagnostics": {"executor_status": "running"}},
         contract={"task_run_goal": "连续读取长文件", "completion_criteria": ["读取窗口可见"]},
         observations=[
-            _read_observation("obs:window:0", "0123456789", 0, 10, 10),
-            _read_observation("obs:window:10", "abcdefghij", 10, 20, 20),
+            _read_observation("obs:window:1", "1 | first", 1, 10, 11),
+            _read_observation("obs:window:11", "11 | next", 11, 20, 21),
         ],
+        execution_state={
+            "system_projection": {
+                "file_state": [
+                    {
+                        "path": "docs/long.md",
+                        "read_ranges": [
+                            {"start_line": 1, "end_line": 10, "observation_ref": "obs:window:1"},
+                            {"start_line": 11, "end_line": 20, "observation_ref": "obs:window:11"},
+                        ],
+                        "coverage": {"covered_lines": 20, "total_lines": 30, "complete": False},
+                        "total_lines": 30,
+                        "content_sha256": "sha256:test",
+                        "last_observation_ref": "obs:window:11",
+                        "has_more": True,
+                        "status": "partial",
+                    }
+                ]
+            }
+        },
         runtime_assembly={
             "profile": {"mode": "professional"},
             "task_environment": {"environment_id": "env.development.sandbox"},
@@ -125,9 +145,13 @@ def test_read_file_content_windows_survive_task_state_projection() -> None:
         if item.get("tool_name") == "read_file"
     ]
 
-    assert [item["content_range"]["offset"] for item in windows] == [0, 10]
-    assert windows[0]["content_range"]["next_offset"] == 10
-    assert "不要重复读取相同窗口" in windows[0]["tool_guidance"]
+    assert [item["content_range"]["start_line"] for item in windows] == [1, 11]
+    assert windows[0]["content_range"]["next_start_line"] == 11
+    assert "不要重复读取相同行窗口" in windows[0]["tool_guidance"]
+    assert volatile_payload["task_state"]["file_state"][0]["read_ranges"] == [
+        {"start_line": 1, "end_line": 10, "observation_ref": "obs:window:1"},
+        {"start_line": 11, "end_line": 20, "observation_ref": "obs:window:11"},
+    ]
 
 
 def test_task_execution_prompt_uses_canonical_artifact_scope_only() -> None:

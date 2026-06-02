@@ -159,12 +159,12 @@ def _allocation_tokens(*, invocation_kind: str, available_context_tokens: int) -
 def _allocation_weights(invocation_kind: str) -> dict[str, float]:
     if invocation_kind == "task_execution":
         return {
-            "stable_prefix": 0.22,
+            "stable_prefix": 0.28,
             "tool_schema": 0.10,
             "deferred_index": 0.05,
-            "volatile_state": 0.38,
+            "volatile_state": 0.34,
             "recent_history": 0.05,
-            "observation": 0.20,
+            "observation": 0.12,
         }
     if invocation_kind == "tool_observation_followup":
         return {
@@ -200,7 +200,7 @@ def _projection_limits(*, allocation_tokens: dict[str, int], long_term_token_cap
     recent_history_tokens = int(allocation_tokens.get("recent_history") or 0)
     observation_tokens = int(allocation_tokens.get("observation") or 0)
     volatile_tokens = int(allocation_tokens.get("volatile_state") or 0)
-    latest_observation_limit = _clamp_int(observation_tokens // 900, low=12, high=80)
+    latest_observation_limit = _clamp_int(observation_tokens // 1200, low=8, high=48)
     recent_work_step_limit = _clamp_int(volatile_tokens // 1500, low=8, high=80)
     recent_history_message_limit = _clamp_int(recent_history_tokens // 600, low=6, high=240)
     history_message_chars = _clamp_int(
@@ -211,7 +211,7 @@ def _projection_limits(*, allocation_tokens: dict[str, int], long_term_token_cap
     tool_result_preview_chars = _clamp_int(
         (observation_tokens * CHARS_PER_TOKEN_ESTIMATE) // max(8, latest_observation_limit),
         low=4000,
-        high=64000,
+        high=24000,
     )
     observation_summary_chars = _clamp_int(tool_result_preview_chars // 3, low=600, high=4000)
     return {

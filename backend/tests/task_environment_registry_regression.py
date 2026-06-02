@@ -292,8 +292,8 @@ def test_development_environment_prompt_is_in_task_execution_packet() -> None:
     assert assembly.environment_prompt_refs == tuple(expected_environment_refs)
     assert "处理 Python 开发任务" in model_input
     assert "old_text not found" in model_input
-    assert "next_offset" in model_input
-    assert "不要重复同一 path、offset、limit" in model_input
+    assert "next_start_line" in model_input
+    assert "不要重复同一 path、start_line、line_count" in model_input
     assert "todo 不是事实来源" in model_input
     assert "验证必须真实" in model_input
     assert "Windows PowerShell 5.1" in model_input

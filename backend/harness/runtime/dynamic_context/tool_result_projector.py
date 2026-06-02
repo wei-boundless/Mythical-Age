@@ -263,32 +263,33 @@ def _read_file_metadata_from_structured(
     if tool_name and tool_name != "read_file":
         return {}
     source = dict(tool_result or {})
-    if str(source.get("kind") or "") != "text_file" and not {"offset", "end_offset", "size_chars"} & set(source):
+    if str(source.get("kind") or "") != "text_file" and not {"start_line", "end_line", "total_lines"} & set(source):
         return {}
     path = str(source.get("path") or _first_string(envelope.get("observed_paths"), structured.get("observed_paths"), item.get("observed_paths")) or "").strip()
     content_range = drop_empty(
         {
             "path": path,
-            "offset": _int_or_none(source.get("offset")),
-            "end_offset": _int_or_none(source.get("end_offset")),
-            "returned_chars": _int_or_none(source.get("returned_chars")),
-            "size_chars": _int_or_none(source.get("size_chars")),
-            "limit": _int_or_none(source.get("limit")),
-            "next_offset": _int_or_none(source.get("next_offset")),
+            "start_line": _int_or_none(source.get("start_line")),
+            "end_line": _int_or_none(source.get("end_line")),
+            "returned_lines": _int_or_none(source.get("returned_lines")),
+            "total_lines": _int_or_none(source.get("total_lines")),
+            "line_count": _int_or_none(source.get("line_count")),
+            "next_start_line": _int_or_none(source.get("next_start_line")),
             "has_more": bool(source.get("has_more") or source.get("truncated")),
             "truncated": bool(source.get("truncated") or source.get("has_more")),
+            "content_sha256": str(source.get("content_sha256") or "").strip(),
         }
     )
     if not content_range:
         return {}
-    next_offset = content_range.get("next_offset")
-    if content_range.get("has_more") and next_offset is not None:
+    next_start_line = content_range.get("next_start_line")
+    if content_range.get("has_more") and next_start_line is not None:
         guidance = (
-            f"read_file 已返回 {path} 的 offset={content_range.get('offset')} 到 end_offset={content_range.get('end_offset')}。"
-            f"如仍需要后续内容，下一次应使用 offset={next_offset} 和 limit={content_range.get('limit') or ''}；不要重复读取相同窗口。"
+            f"read_file 已返回 {path} 的第 {content_range.get('start_line')} 行到第 {content_range.get('end_line')} 行。"
+            f"如仍需要后续内容，下一次应使用 start_line={next_start_line} 和 line_count={content_range.get('line_count') or ''}；不要重复读取相同行窗口。"
         )
     else:
-        guidance = f"read_file 已读到 {path} 的当前可用结尾；不要重复读取相同窗口。"
+        guidance = f"read_file 已读到 {path} 的当前可用结尾；不要重复读取相同行窗口。"
     return {"content_range": content_range, "tool_guidance": guidance}
 
 

@@ -85,23 +85,23 @@ def test_runtime_read_file_uses_file_gateway_sandbox_overlay(tmp_path: Path) -> 
     tool_result = envelope["structured_payload"]["tool_result"]
 
     assert result["error"] == ""
-    assert result["observation"].payload["result"] == "copy through gateway"
+    assert result["observation"].payload["result"] == "1 | copy through gateway"
     assert (sandbox / "docs" / "source.md").read_text(encoding="utf-8") == "copy through gateway"
     assert tool_result["repository_id"] == "repo.coding.sandbox_workspace"
     assert envelope["structured_payload"]["file_gateway"]["access_decision"] == "allow"
 
 
-def test_runtime_read_file_gateway_respects_offset_limit(tmp_path: Path) -> None:
+def test_runtime_read_file_gateway_respects_line_window(tmp_path: Path) -> None:
     project = tmp_path / "project"
     sandbox = tmp_path / "sandbox" / "workspace"
     (project / "docs").mkdir(parents=True)
-    (project / "docs" / "source.md").write_text("0123456789abcdef", encoding="utf-8")
+    (project / "docs" / "source.md").write_text("line1\nline2\nline3\nline4", encoding="utf-8")
 
     result = _run_tool(
         workspace=project,
         sandbox_root=sandbox,
         tool_name="read_file",
-        tool_args={"path": "docs/source.md", "offset": 4, "limit": 5},
+        tool_args={"path": "docs/source.md", "start_line": 2, "line_count": 2},
         operation_id="op.read_file",
     )
 
@@ -109,10 +109,13 @@ def test_runtime_read_file_gateway_respects_offset_limit(tmp_path: Path) -> None
     tool_result = envelope["structured_payload"]["tool_result"]
 
     assert result["error"] == ""
-    assert result["observation"].payload["result"] == "45678"
-    assert tool_result["offset"] == 4
-    assert tool_result["end_offset"] == 9
-    assert tool_result["next_offset"] == 9
+    assert result["observation"].payload["result"] == "2 | line2\n3 | line3"
+    assert tool_result["start_line"] == 2
+    assert tool_result["end_line"] == 3
+    assert tool_result["next_start_line"] == 4
+    assert tool_result["line_count"] == 2
+    assert tool_result["returned_lines"] == 2
+    assert tool_result["total_lines"] == 4
     assert tool_result["has_more"] is True
 
 

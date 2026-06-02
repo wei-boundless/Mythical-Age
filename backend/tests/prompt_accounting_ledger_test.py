@@ -299,13 +299,15 @@ def test_task_execution_packet_places_stable_contract_before_volatile_state() ->
         "global_static",
         "action_schema_static",
         "environment_stable",
-        "task_contract_stable",
+        "artifact_scope_stable",
         "tool_index_stable",
+        "task_contract_stable",
         "dynamic_projection",
         "volatile_task_state",
     ]
     assert [segment.cache_role for segment in segment_map.segments] == [
         "cacheable_prefix",
+        "session_stable",
         "session_stable",
         "session_stable",
         "session_stable",
@@ -329,9 +331,9 @@ def test_task_execution_packet_places_stable_contract_before_volatile_state() ->
     assert model_request.task_prefix_hash == cache_record.prefix_hash
     assert cache_record.diagnostics["prefix_key_tier"] == "task"
     assert model_request.provider_global_prefix_hash != cache_record.prefix_hash
-    assert cache_record.diagnostics["stable_prefix_segment_count"] == 5
+    assert cache_record.diagnostics["stable_prefix_segment_count"] == 6
     assert cache_record.diagnostics["provider_global_prefix_segment_count"] == 1
-    assert cache_record.diagnostics["task_prefix_segment_count"] == 5
+    assert cache_record.diagnostics["task_prefix_segment_count"] == 6
     assert manifest["token_estimate"]["assembly_prompt_chars"] == manifest["token_estimate"]["prompt_chars"]
     assert manifest["token_estimate"]["model_visible_chars"] == sum(len(message["content"]) for message in messages)
     assert manifest["token_estimate"]["cacheable_prefix_chars"] > manifest["token_estimate"]["assembly_prompt_chars"]

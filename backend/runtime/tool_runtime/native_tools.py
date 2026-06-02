@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import fnmatch
 import hashlib
 import json
 import subprocess
@@ -53,8 +54,8 @@ NATIVE_RUNTIME_TOOL_NAMES = {
     "python_repl",
 }
 
-READ_FILE_DEFAULT_LIMIT = 10000
-READ_FILE_MAX_LIMIT = 120000
+READ_FILE_DEFAULT_LINE_COUNT = 240
+READ_FILE_MAX_LINE_COUNT = 2000
 
 
 def build_native_runtime_tool(
@@ -211,49 +212,56 @@ class NativeReadFileTool(_NativeToolBase):
         if not base.allowed:
             return base
         payload = dict(args or {})
-        allowed = {"path", "offset", "limit"}
+        allowed = {"path", "start_line", "line_count"}
         unexpected = sorted(str(key) for key in payload if str(key) not in allowed)
         if unexpected:
             return ToolValidationResult(
                 allowed=False,
                 reason="unexpected_tool_inputs",
                 repair_instruction=(
-                    "read_file accepts only path, offset, and limit. "
+                    "read_file accepts only path, start_line, and line_count. "
+                    "start_line is a one-based line number and line_count is the number of lines to return. "
                     "Remove unsupported argument(s): " + ", ".join(unexpected) + "."
                 ),
                 normalized_args=payload,
                 diagnostics={"unexpected_inputs": unexpected, "allowed_inputs": sorted(allowed)},
             )
-        offset, offset_error = _coerce_read_window_int(payload.get("offset"), default=0, minimum=0, maximum=None, field_name="offset")
-        if offset_error:
-            return ToolValidationResult(
-                allowed=False,
-                reason="invalid_tool_input",
-                repair_instruction=offset_error,
-                normalized_args=payload,
-                diagnostics={"field": "offset"},
-            )
-        limit, limit_error = _coerce_read_window_int(
-            payload.get("limit"),
-            default=READ_FILE_DEFAULT_LIMIT,
+        start_line, start_line_error = _coerce_read_window_int(
+            payload.get("start_line"),
+            default=1,
             minimum=1,
-            maximum=READ_FILE_MAX_LIMIT,
-            field_name="limit",
+            maximum=None,
+            field_name="start_line",
         )
-        if limit_error:
+        if start_line_error:
             return ToolValidationResult(
                 allowed=False,
                 reason="invalid_tool_input",
-                repair_instruction=limit_error,
+                repair_instruction=start_line_error,
                 normalized_args=payload,
-                diagnostics={"field": "limit"},
+                diagnostics={"field": "start_line"},
+            )
+        line_count, line_count_error = _coerce_read_window_int(
+            payload.get("line_count"),
+            default=READ_FILE_DEFAULT_LINE_COUNT,
+            minimum=1,
+            maximum=READ_FILE_MAX_LINE_COUNT,
+            field_name="line_count",
+        )
+        if line_count_error:
+            return ToolValidationResult(
+                allowed=False,
+                reason="invalid_tool_input",
+                repair_instruction=line_count_error,
+                normalized_args=payload,
+                diagnostics={"field": "line_count"},
             )
         return ToolValidationResult(
             allowed=True,
             normalized_args={
                 "path": str(payload.get("path") or "").strip(),
-                "offset": offset,
-                "limit": limit,
+                "start_line": start_line,
+                "line_count": line_count,
             },
         )
 
@@ -262,8 +270,8 @@ class NativeReadFileTool(_NativeToolBase):
 
     def _call_sync(self, args: dict[str, Any], context: ToolUseContext) -> ToolResultEnvelope:
         path = str(args.get("path") or "").strip()
-        offset = int(args.get("offset") or 0)
-        limit = int(args.get("limit") or READ_FILE_DEFAULT_LIMIT)
+        start_line = int(args.get("start_line") or 1)
+        line_count = int(args.get("line_count") or READ_FILE_DEFAULT_LINE_COUNT)
         gateway = self._file_gateway(context)
         if gateway is not None:
             return self._call_gateway_read(args=args, context=context, gateway=gateway, path=path)
@@ -275,7 +283,7 @@ class NativeReadFileTool(_NativeToolBase):
             if file_path.is_dir():
                 raise IsADirectoryError("path is a directory")
             content = files.read_text(file_path, limit=None)
-            text = content[offset : offset + limit]
+            window = _read_line_window(content, start_line=start_line, line_count=line_count)
             rel = files.relative_path(file_path)
         except Exception as exc:
             return self._envelope(
@@ -288,12 +296,12 @@ class NativeReadFileTool(_NativeToolBase):
         return self._envelope(
             tool_args=args,
             status="ok",
-            text=text,
+            text=window["text"],
             structured_payload={
                 "tool_result": {
                     "kind": "text_file",
                     "path": rel,
-                    **_read_window_payload(content, offset=offset, limit=limit, returned_chars=len(text)),
+                    **window["payload"],
                 }
             },
             observed_paths=(rel,),
@@ -308,8 +316,8 @@ class NativeReadFileTool(_NativeToolBase):
         gateway: FileGateway,
         path: str,
     ) -> ToolResultEnvelope:
-        offset = int(args.get("offset") or 0)
-        limit = int(args.get("limit") or READ_FILE_DEFAULT_LIMIT)
+        start_line = int(args.get("start_line") or 1)
+        line_count = int(args.get("line_count") or READ_FILE_DEFAULT_LINE_COUNT)
         repository_id = _repository_for_action(context, "read")
         try:
             result = gateway.read_text(
@@ -318,7 +326,7 @@ class NativeReadFileTool(_NativeToolBase):
                 self._gateway_context(context),
                 operation_id=self.operation_id,
             )
-            text = result.content[offset : offset + limit]
+            window = _read_line_window(result.content, start_line=start_line, line_count=line_count)
         except Exception as exc:
             return self._envelope(
                 tool_args=args,
@@ -330,14 +338,14 @@ class NativeReadFileTool(_NativeToolBase):
         return self._envelope(
             tool_args=args,
             status="ok",
-            text=text,
+            text=window["text"],
             structured_payload={
                 "tool_result": {
                     "kind": "text_file",
                     "path": result.logical_path,
                     "repository_id": result.repository_id,
                     "managed_file_ref": result.managed_file_ref.to_dict(),
-                    **_read_window_payload(result.content, offset=offset, limit=limit, returned_chars=len(text)),
+                    **window["payload"],
                 },
                 "file_gateway": {
                     "access_decision": result.access_decision,
@@ -370,20 +378,34 @@ def _coerce_read_window_int(
     return number, ""
 
 
-def _read_window_payload(content: str, *, offset: int, limit: int, returned_chars: int) -> dict[str, Any]:
-    size_chars = len(content)
-    end_offset = min(size_chars, max(0, int(offset or 0)) + max(0, int(returned_chars or 0)))
-    has_more = end_offset < size_chars
-    return {
-        "size_chars": size_chars,
-        "offset": max(0, int(offset or 0)),
-        "limit": max(1, int(limit or READ_FILE_DEFAULT_LIMIT)),
-        "returned_chars": max(0, int(returned_chars or 0)),
-        "end_offset": end_offset,
-        "next_offset": end_offset if has_more else None,
+def _read_line_window(content: str, *, start_line: int, line_count: int) -> dict[str, Any]:
+    lines = str(content or "").splitlines()
+    total_lines = len(lines)
+    start = max(1, int(start_line or 1))
+    count = max(1, min(int(line_count or READ_FILE_DEFAULT_LINE_COUNT), READ_FILE_MAX_LINE_COUNT))
+    if total_lines == 0:
+        end_line = 0
+        selected: list[str] = []
+    elif start > total_lines:
+        raise ValueError(f"start_line {start} exceeds total_lines {total_lines}")
+    else:
+        end_line = min(total_lines, start + count - 1)
+        selected = lines[start - 1 : end_line]
+    width = max(1, len(str(max(end_line, start, total_lines))))
+    text = "\n".join(f"{line_no:>{width}} | {line}" for line_no, line in enumerate(selected, start=start))
+    has_more = bool(total_lines and end_line < total_lines)
+    payload = {
+        "total_lines": total_lines,
+        "start_line": start,
+        "line_count": count,
+        "returned_lines": len(selected),
+        "end_line": end_line,
+        "next_start_line": end_line + 1 if has_more else None,
         "has_more": has_more,
         "truncated": has_more,
+        "content_sha256": hashlib.sha256(str(content or "").encode("utf-8", errors="replace")).hexdigest(),
     }
+    return {"text": text, "payload": payload}
 
 
 class NativeWriteFileTool(_NativeToolBase):
@@ -831,12 +853,46 @@ class NativeSearchTextTool(_NativeToolBase):
         if not query:
             return self._envelope(tool_args=args, status="error", text="Search failed: query is required.", execution_receipt=context.execution_receipt)
         files = self._files(context)
+        limit = max(1, min(int(args.get("max_results") or 20), 100))
+        glob = str(args.get("glob") or "").strip()
+        requested_paths = _nonempty_path_args(args.get("paths"))
+        if requested_paths:
+            target_paths, path_error = _resolve_search_paths(files, requested_paths)
+            if path_error:
+                return self._envelope(
+                    tool_args=args,
+                    status="error",
+                    text=f"Search failed: {path_error}",
+                    structured_payload={"tool_result": {"kind": "text_search", "status": "error", "error": path_error}},
+                    execution_receipt=context.execution_receipt,
+                )
+            matches = _search_text_in_paths(files, query=query, paths=target_paths, glob=glob, limit=limit)
+            matched_paths = tuple(dict.fromkeys(str(item.get("path") or "") for item in matches if str(item.get("path") or "").strip()))
+            text = "\n".join(
+                f"{item['path']}:{item['line']}:{item['column']}:{item['text']}"
+                for item in matches
+            ) or f"没有找到匹配项：{query}"
+            return self._envelope(
+                tool_args=args,
+                status="ok",
+                text=text,
+                structured_payload={"tool_result": {"kind": "text_search", "query": query, "paths": requested_paths, "matches": matches}},
+                matched_paths=matched_paths,
+                execution_receipt=context.execution_receipt,
+            )
+        roots_error = _roots_file_misuse_error(files, args.get("roots"))
+        if roots_error:
+            return self._envelope(
+                tool_args=args,
+                status="error",
+                text=f"Search failed: {roots_error}",
+                structured_payload={"tool_result": {"kind": "text_search", "status": "error", "error": roots_error}},
+                execution_receipt=context.execution_receipt,
+            )
         using_default_roots = not [str(item or "").strip() for item in list(args.get("roots") or [])]
         safe_roots = files.safe_roots(args.get("roots"))
         if not safe_roots:
             return self._envelope(tool_args=args, status="error", text="Search failed: no safe search roots.", execution_receipt=context.execution_receipt)
-        limit = max(1, min(int(args.get("max_results") or 20), 100))
-        glob = str(args.get("glob") or "").strip()
         matches = _search_text(files, query=query, safe_roots=safe_roots, glob=glob, limit=limit, using_default_roots=using_default_roots)
         matched_paths = tuple(dict.fromkeys(str(item.get("path") or "") for item in matches if str(item.get("path") or "").strip()))
         text = "\n".join(
@@ -1134,6 +1190,41 @@ def _workspace_files(files: WorkspaceFileService, *, safe_roots: list[Path], usi
     return sorted(dict.fromkeys(paths))
 
 
+def _nonempty_path_args(paths: Any) -> list[str]:
+    values = [paths] if isinstance(paths, str) else list(paths or [])
+    return [str(item or "").strip() for item in values if str(item or "").strip()]
+
+
+def _roots_file_misuse_error(files: WorkspaceFileService, roots: Any) -> str:
+    for item in _nonempty_path_args(roots):
+        try:
+            target = files.resolve(item, require_path=True)
+        except ValueError:
+            continue
+        if target.exists() and target.is_file():
+            rel = files.relative_path(target)
+            return f"roots accepts directories only. Put file paths in paths instead, for example paths=[\"{rel}\"]."
+    return ""
+
+
+def _resolve_search_paths(files: WorkspaceFileService, paths: list[str]) -> tuple[list[Path], str]:
+    resolved: list[Path] = []
+    seen: set[Path] = set()
+    for item in paths:
+        try:
+            target = files.resolve(item, require_path=True)
+        except ValueError as exc:
+            return [], str(exc)
+        if not target.exists():
+            return [], f"path does not exist: {item}"
+        if target.is_dir():
+            return [], f"paths accepts files only. Put directory roots in roots instead: {item}"
+        if target not in seen:
+            seen.add(target)
+            resolved.append(target)
+    return resolved, ""
+
+
 def _query_terms(query: str) -> list[str]:
     import re
 
@@ -1207,6 +1298,36 @@ def _search_text(
             matches.append(item)
             if len(matches) >= limit:
                 break
+    return matches
+
+
+def _search_text_in_paths(
+    files: WorkspaceFileService,
+    *,
+    query: str,
+    paths: list[Path],
+    glob: str,
+    limit: int,
+) -> list[dict[str, Any]]:
+    matches: list[dict[str, Any]] = []
+    pattern = str(glob or "").strip()
+    for path in paths:
+        if len(matches) >= limit:
+            return matches
+        rel = files.relative_path(path)
+        if pattern and not fnmatch.fnmatch(rel, pattern):
+            continue
+        try:
+            text = path.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            continue
+        for line_number, line in enumerate(text.splitlines(), start=1):
+            column = line.lower().find(query.lower()) + 1
+            if column <= 0:
+                continue
+            matches.append({"path": rel, "line": line_number, "column": column, "text": line[:240]})
+            if len(matches) >= limit:
+                return matches
     return matches
 
 

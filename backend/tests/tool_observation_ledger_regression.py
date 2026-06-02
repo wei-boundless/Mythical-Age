@@ -19,7 +19,11 @@ def test_tool_observation_ledger_classifies_core_tool_side_effects() -> None:
                 "tool_result": {
                     "kind": "text_file",
                     "path": "backend/app.py",
-                    "size_chars": 7,
+                    "total_lines": 1,
+                    "start_line": 1,
+                    "line_count": 240,
+                    "returned_lines": 1,
+                    "end_line": 1,
                     "truncated": False,
                 },
             },
@@ -90,22 +94,23 @@ def test_tool_observation_ledger_classifies_core_tool_side_effects() -> None:
 def test_read_file_observation_records_content_window_metadata() -> None:
     envelope = build_tool_result_envelope(
         tool_name="read_file",
-        tool_args={"path": "docs/long.md", "offset": 10, "limit": 5},
+        tool_args={"path": "docs/long.md", "start_line": 11, "line_count": 5},
         result={
-            "text": "abcde",
+            "text": "11 | abcde",
             "structured_payload": {
                 "observed_paths": ["docs/long.md"],
                 "tool_result": {
                     "kind": "text_file",
                     "path": "docs/long.md",
-                    "size_chars": 30,
-                    "offset": 10,
-                    "limit": 5,
-                    "returned_chars": 5,
-                    "end_offset": 15,
-                    "next_offset": 15,
+                    "total_lines": 30,
+                    "start_line": 11,
+                    "line_count": 5,
+                    "returned_lines": 5,
+                    "end_line": 15,
+                    "next_start_line": 16,
                     "has_more": True,
                     "truncated": True,
+                    "content_sha256": "sha256:test",
                 },
             },
         },
@@ -117,9 +122,9 @@ def test_read_file_observation_records_content_window_metadata() -> None:
         result={"result_envelope": envelope.to_dict()},
     ).to_dict()
 
-    assert record["result_metadata"]["content_range"]["offset"] == 10
-    assert record["result_metadata"]["content_range"]["next_offset"] == 15
-    assert "不要重复读取相同窗口" in record["result_metadata"]["tool_guidance"]
+    assert record["result_metadata"]["content_range"]["start_line"] == 11
+    assert record["result_metadata"]["content_range"]["next_start_line"] == 16
+    assert "不要重复读取相同行窗口" in record["result_metadata"]["tool_guidance"]
 
 
 def test_tool_observation_ledger_hashes_real_side_effect_observations_stably() -> None:

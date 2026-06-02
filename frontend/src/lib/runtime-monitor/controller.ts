@@ -23,11 +23,10 @@ type RuntimeMonitorHost = {
   hasActiveChatStream: () => boolean;
   patchRuntimeAttachmentFromRuntimeEvent: (prev: StoreState, event: NonNullable<RuntimeMonitorEventPayload["runtime_event"]>) => StoreState;
   applySelectedSessionShell: (sessionId: string) => boolean;
-  activateTaskEnvironmentSessionScope: (
+  bindTaskEnvironmentContext: (
     taskEnvironmentId: string,
     options?: {
       environmentLabel?: string;
-      preferredSessionId?: string;
       source?: ChatTaskEnvironmentBinding["source"];
     },
   ) => void;
@@ -190,9 +189,8 @@ export class RuntimeMonitorController {
       : "chat";
     if (navigation.target_kind === "session" || (work.workKind === "agent_runtime_run" && sessionId)) {
       if (navigationWorkspaceView === "task_environment" && navigationTaskEnvironmentId) {
-        this.host.activateTaskEnvironmentSessionScope(navigationTaskEnvironmentId, {
+        this.host.bindTaskEnvironmentContext(navigationTaskEnvironmentId, {
           environmentLabel: navigationEnvironmentLabel,
-          preferredSessionId: sessionId,
           source: "workspace-mode",
         });
       }
@@ -229,9 +227,8 @@ export class RuntimeMonitorController {
       : null;
     const openGraphWorkspace = navigation.target_kind === "graph_task" || work.workKind === "task_graph_run";
     if (openGraphWorkspace && navigationWorkspaceView === "task_environment" && navigationTaskEnvironmentId) {
-      this.host.activateTaskEnvironmentSessionScope(navigationTaskEnvironmentId, {
+      this.host.bindTaskEnvironmentContext(navigationTaskEnvironmentId, {
         environmentLabel: navigationEnvironmentLabel,
-        preferredSessionId: sessionId,
         source: "workspace-mode",
       });
     }

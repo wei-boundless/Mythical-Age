@@ -112,3 +112,44 @@ def test_chapter_review_and_commit_prompts_guard_semantic_continuity_and_self_re
     assert "自修处理记录（非正史）" in commit_guard["noncanonical_source_sections"]
     assert memory_write["source_candidate_node_id"] == "chapter_draft_self_repair"
     assert "chapter_draft_self_repair_ref" in memory_write["commit_identity_policy"]["artifact_ref_input_keys"]
+
+
+def test_writing_prompts_define_outline_hierarchy_and_node_handoffs() -> None:
+    module = load_writing_modular_config_module()
+    node_by_id = {node.node_id: node for node in module.CHAPTER_NODES}
+    design_by_id = {node.node_id: node for node in module.DESIGN_NODES}
+
+    outline_design_prompt = design_by_id["outline_design"].prompt
+    outline_review_prompt = design_by_id["outline_review"].prompt
+    volume_plan_prompt = node_by_id["volume_plan"].prompt
+    chapter_outline_prompt = node_by_id["chapter_outline"].prompt
+    chapter_draft_prompt = node_by_id["chapter_draft"].prompt
+    chapter_review_prompt = node_by_id["chapter_review"].prompt
+    memory_commit_prompt = node_by_id["memory_commit_chapter"].prompt
+    chapter_outline_repair_prompt = node_by_id["chapter_outline_self_repair"].prompt
+
+    assert "全书细纲拥有全书结构权" in outline_design_prompt
+    assert "每卷必须承接的目标、允许细化的空白、禁止提前或延后的关键节点" in outline_design_prompt
+    assert "会导致分纲写手越过大纲" in outline_review_prompt
+
+    assert "分卷计划只能把已通过全书细纲投影到当前卷" in volume_plan_prompt
+    assert "全书细纲继承表" in volume_plan_prompt
+    assert "不能直接重排全书节奏" in volume_plan_prompt
+
+    assert "分纲写手不得越过大纲" in chapter_outline_prompt
+    assert "输入继承证据表" in chapter_outline_prompt
+    assert "不能把选拔、筑基、卷末战争等后续阶段压入第1-10章" in chapter_outline_prompt
+
+    assert "正文写手只执行已通过当前批次细纲" in chapter_draft_prompt
+    assert "层级来源链" in chapter_draft_prompt
+    assert "不能擅自重排剧情" in chapter_draft_prompt
+
+    assert "大纲层级一致性检查" in chapter_review_prompt
+    assert "正文越过章节细纲" in chapter_review_prompt
+    assert "把层级越界或上游冲突当成带备注通过" in chapter_review_prompt
+
+    assert "上游层级冲突" in memory_commit_prompt
+    assert "不能用提交摘要把错误节奏固化成后续权威" in memory_commit_prompt
+
+    assert "上游层级冲突/返修请求" in chapter_outline_repair_prompt
+    assert "节点对接协议" in chapter_outline_repair_prompt

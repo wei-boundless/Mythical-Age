@@ -15,8 +15,8 @@ class ReadFileInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     path: str = Field(..., description="Relative path inside the project root")
-    offset: int = Field(default=0, ge=0, description="Zero-based character offset to start reading from.")
-    limit: int = Field(default=10000, ge=1, le=120000, description="Maximum characters to return from the offset.")
+    start_line: int = Field(default=1, ge=1, description="One-based line number to start reading from.")
+    line_count: int = Field(default=240, ge=1, le=2000, description="Maximum number of lines to return.")
 
 
 class ReadFileTool(BaseTool):
@@ -33,8 +33,8 @@ class ReadFileTool(BaseTool):
     def _run(
         self,
         path: str,
-        offset: int = 0,
-        limit: int = 10000,
+        start_line: int = 1,
+        line_count: int = 240,
         run_manager: CallbackManagerForToolRun | None = None,
     ) -> str:
         try:
@@ -46,17 +46,29 @@ class ReadFileTool(BaseTool):
         if file_path.is_dir():
             return "Read failed: path is a directory."
         text = self._files.read_text(file_path, limit=None)
-        start = max(0, int(offset or 0))
-        size = max(1, min(int(limit or 10000), 120000))
-        return text[start : start + size]
+        return _line_window_text(text, start_line=start_line, line_count=line_count)
 
     async def _arun(
         self,
         path: str,
-        offset: int = 0,
-        limit: int = 10000,
+        start_line: int = 1,
+        line_count: int = 240,
         run_manager: AsyncCallbackManagerForToolRun | None = None,
     ) -> str:
-        return await asyncio.to_thread(self._run, path, offset, limit, None)
+        return await asyncio.to_thread(self._run, path, start_line, line_count, None)
+
+
+def _line_window_text(content: str, *, start_line: int, line_count: int) -> str:
+    lines = str(content or "").splitlines()
+    total_lines = len(lines)
+    start = max(1, int(start_line or 1))
+    count = max(1, min(int(line_count or 240), 2000))
+    if total_lines == 0:
+        return ""
+    if start > total_lines:
+        return f"Read failed: start_line {start} exceeds total_lines {total_lines}."
+    end = min(total_lines, start + count - 1)
+    width = max(1, len(str(max(end, start, total_lines))))
+    return "\n".join(f"{line_no:>{width}} | {lines[line_no - 1]}" for line_no in range(start, end + 1))
 
 

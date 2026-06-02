@@ -36,17 +36,19 @@ class RuntimeStateIndex:
         self.index_dir = self.root_dir / "state_index"
         self.meta_path = self.index_dir / "meta.json"
         self.deleted_sessions_dir = self.index_dir / "deleted_sessions"
+        self.deleted_task_runs_dir = self.index_dir / "deleted_task_runs"
         self.views_dir = self.root_dir / "runtime_views" / "session_live"
         self.runtime_objects = RuntimeObjectStore(self.root_dir)
         self.root_dir.mkdir(parents=True, exist_ok=True)
         self.index_dir.mkdir(parents=True, exist_ok=True)
         self.deleted_sessions_dir.mkdir(parents=True, exist_ok=True)
+        self.deleted_task_runs_dir.mkdir(parents=True, exist_ok=True)
         self.views_dir.mkdir(parents=True, exist_ok=True)
         self._ensure_storage_ready()
 
     def upsert_task_run(self, task_run: TaskRun) -> None:
         with _STATE_INDEX_WRITE_LOCK:
-            if self._session_deleted_unlocked(task_run.session_id):
+            if self._session_deleted_unlocked(task_run.session_id) or self._task_run_deleted_unlocked(task_run.task_run_id):
                 return
             payload = self._compact_task_run_payload(task_run.to_dict())
             self._write_record("task_runs", task_run.task_run_id, payload)
@@ -85,18 +87,24 @@ class RuntimeStateIndex:
 
     def upsert_agent_run(self, agent_run: AgentRun) -> None:
         with _STATE_INDEX_WRITE_LOCK:
+            if self._task_run_deleted_unlocked(agent_run.task_run_id):
+                return
             self._write_record("agent_runs", agent_run.agent_run_id, agent_run.to_dict())
             self._append_index_id("task_agent_runs", agent_run.task_run_id, agent_run.agent_run_id)
             self._touch_meta()
 
     def upsert_agent_run_result(self, result: AgentRunResult) -> None:
         with _STATE_INDEX_WRITE_LOCK:
+            if self._task_run_deleted_unlocked(result.task_run_id):
+                return
             self._write_record("agent_run_results", result.agent_run_result_id, result.to_dict())
             self._append_index_id("task_agent_run_results", result.task_run_id, result.agent_run_result_id)
             self._touch_meta()
 
     def upsert_subagent_message(self, message: SubagentMessage) -> None:
         with _STATE_INDEX_WRITE_LOCK:
+            if self._task_run_deleted_unlocked(message.task_run_id):
+                return
             self._write_record("subagent_messages", message.message_id, message.to_dict())
             self._append_index_id("task_subagent_messages", message.task_run_id, message.message_id)
             self._append_index_id("subagent_run_messages", message.subagent_run_ref, message.message_id)
@@ -104,12 +112,16 @@ class RuntimeStateIndex:
 
     def upsert_worker_spawn_request(self, request: WorkerAgentSpawnRequest) -> None:
         with _STATE_INDEX_WRITE_LOCK:
+            if self._task_run_deleted_unlocked(request.task_run_id):
+                return
             self._write_record("worker_spawn_requests", request.spawn_request_id, request.to_dict())
             self._append_index_id("task_worker_spawn_requests", request.task_run_id, request.spawn_request_id)
             self._touch_meta()
 
     def upsert_worker_spawn_result(self, result: WorkerAgentSpawnResult) -> None:
         with _STATE_INDEX_WRITE_LOCK:
+            if self._task_run_deleted_unlocked(result.task_run_id):
+                return
             self._write_record("worker_spawn_results", result.spawn_result_id, result.to_dict())
             self._append_index_id("task_worker_spawn_results", result.task_run_id, result.spawn_result_id)
             self._touch_meta()
@@ -125,6 +137,8 @@ class RuntimeStateIndex:
 
     def upsert_supervision_record(self, record: SupervisionRecord) -> None:
         with _STATE_INDEX_WRITE_LOCK:
+            if record.observed_task_run_id and self._task_run_deleted_unlocked(record.observed_task_run_id):
+                return
             self._write_record("supervision_records", record.supervision_record_id, record.to_dict())
             self._append_index_id("project_supervision_records", record.project_id, record.supervision_record_id)
             if record.observed_task_run_id:
@@ -134,6 +148,8 @@ class RuntimeStateIndex:
     def upsert_project_runtime_status(self, status: ProjectRuntimeStatus) -> None:
         with _STATE_INDEX_WRITE_LOCK:
             if self._session_deleted_unlocked(status.session_id):
+                return
+            if status.active_task_run_id and self._task_run_deleted_unlocked(status.active_task_run_id):
                 return
             self._write_record("project_runtime_statuses", status.project_id, status.to_dict())
             self._write_index_value("session_active_project_status", status.session_id, status.project_id)
@@ -350,6 +366,33 @@ class RuntimeStateIndex:
         with _STATE_INDEX_WRITE_LOCK:
             return self._session_deleted_unlocked(session_id)
 
+    def mark_task_run_deleted(self, task_run_id: str) -> dict[str, Any]:
+        normalized = str(task_run_id or "").strip()
+        if not normalized:
+            return {
+                "authority": "orchestration.runtime_state_index.task_run_deletion_tombstone",
+                "task_run_id": "",
+                "recorded": False,
+                "reason": "missing_task_run_id",
+            }
+        now = time.time()
+        with _STATE_INDEX_WRITE_LOCK:
+            existing = self._read_json(self._deleted_task_run_path(normalized), {})
+            payload = {
+                "task_run_id": normalized,
+                "deleted_at": float(existing.get("deleted_at") or now),
+                "updated_at": now,
+                "authority": "orchestration.runtime_state_index.task_run_deletion_tombstone",
+            }
+            self._atomic_write_path(self._deleted_task_run_path(normalized), payload)
+            self._touch_meta(updated_at=now)
+        return {
+            "authority": "orchestration.runtime_state_index.task_run_deletion_tombstone",
+            "task_run_id": normalized,
+            "recorded": True,
+            "deleted_at": float(payload["deleted_at"]),
+        }
+
     def prune_task_runs(self, task_run_ids: set[str]) -> dict[str, Any]:
         targets = {str(item).strip() for item in task_run_ids if str(item).strip()}
         if not targets:
@@ -360,6 +403,8 @@ class RuntimeStateIndex:
                 "deleted_counts": {},
             }
         with _STATE_INDEX_WRITE_LOCK:
+            for task_run_id in sorted(targets):
+                self.mark_task_run_deleted(task_run_id)
             snapshot = self._read()
             existing = targets.intersection(set(dict(snapshot.get("task_runs") or {}).keys()))
             if not existing:
@@ -450,6 +495,18 @@ class RuntimeStateIndex:
                 if not isinstance(value, dict):
                     continue
                 task_run_id = str(value.get("task_run_id") or value.get("observed_task_run_id") or "")
+                if bucket == "project_runtime_statuses":
+                    active_task_run_id = str(value.get("active_task_run_id") or "")
+                    if active_task_run_id in task_run_ids:
+                        value = {
+                            **value,
+                            "active_task_run_id": "",
+                            "active_run_status": "",
+                            "project_runtime_status": "watching",
+                            "active_blocker": {},
+                            "recovery_state": {},
+                        }
+                        counts["project_runtime_status_task_refs"] = counts.get("project_runtime_status_task_refs", 0) + 1
                 should_delete = bucket in task_record_buckets and task_run_id in task_run_ids
                 if should_delete:
                     counts[bucket] = counts.get(bucket, 0) + 1
@@ -764,9 +821,16 @@ class RuntimeStateIndex:
     def _deleted_session_path(self, session_id: str) -> Path:
         return self.deleted_sessions_dir / f"{_safe_index_key(session_id)}.json"
 
+    def _deleted_task_run_path(self, task_run_id: str) -> Path:
+        return self.deleted_task_runs_dir / f"{_safe_index_key(task_run_id)}.json"
+
     def _session_deleted_unlocked(self, session_id: str) -> bool:
         normalized = str(session_id or "").strip()
         return bool(normalized) and self._deleted_session_path(normalized).exists()
+
+    def _task_run_deleted_unlocked(self, task_run_id: str) -> bool:
+        normalized = str(task_run_id or "").strip()
+        return bool(normalized) and self._deleted_task_run_path(normalized).exists()
 
     def _clear_bucket_layout(self) -> None:
         for bucket in self._all_bucket_names():

@@ -437,7 +437,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     );
   });
 
-  it("opens workspace files as a center workspace file tab target", () => {
+  it("opens workspace files inside the current shared center workspace", () => {
     const store = createStore<StoreState>({
       ...getDefaultState(),
       activeWorkspaceView: "code-environment",
@@ -446,10 +446,27 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
 
     runtime.actions.openWorkspaceFile(" AGENTS.md ");
 
-    expect(store.getState().activeWorkspaceView).toBe("chat");
+    expect(store.getState().activeWorkspaceView).toBe("code-environment");
     expect(store.getState().centerWorkspaceTarget).toMatchObject({
       layer: "file",
       file_path: "AGENTS.md",
+    });
+  });
+
+  it("opens graph tasks inside the current shared development workspace", () => {
+    const store = createStore<StoreState>({
+      ...getDefaultState(),
+      activeWorkspaceView: "code-environment",
+    });
+    const runtime = new WorkspaceRuntime(store);
+
+    runtime.actions.openTaskGraphWorkspace({ graph_id: "graph.dev.review" });
+
+    expect(store.getState().activeWorkspaceView).toBe("code-environment");
+    expect(store.getState().centerWorkspaceTarget).toMatchObject({
+      layer: "task-graph",
+      mode: "editor",
+      graph_id: "graph.dev.review",
     });
   });
 
@@ -539,20 +556,8 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(store.getState().centerWorkspaceTarget).toBeNull();
   });
 
-  it("opens a global monitor agent runtime run in its owning task environment session layer", async () => {
+  it("opens a global monitor agent runtime run without switching the visible session list scope", async () => {
     vi.useRealTimers();
-    api.listSessions.mockResolvedValueOnce([{
-      id: "session-dev",
-      title: "Development Task",
-      created_at: 2,
-      updated_at: 2,
-      message_count: 2,
-      scope: {
-        workspace_view: "task_environment",
-        task_environment_id: "env.development.sandbox",
-        project_id: "",
-      },
-    }]);
     api.getSessionTimeline.mockResolvedValue({
       messages: [{ role: "user", content: "开发任务" }],
       runtime_attachments: [],
@@ -621,21 +626,12 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
 
     expect(store.getState().activeWorkspaceView).toBe("code-environment");
     expect(store.getState().currentSessionId).toBe("session-dev");
-    expect(store.getState().activeSessionScope).toEqual({
-      workspace_view: "task_environment",
+    expect(store.getState().chatTaskEnvironmentBinding).toMatchObject({
       task_environment_id: "env.development.sandbox",
-      project_id: "",
+      source: "workspace-mode",
     });
-    expect(api.listSessions.mock.calls[0]?.[0]).toEqual({
-      workspace_view: "task_environment",
-      task_environment_id: "env.development.sandbox",
-      project_id: "",
-    });
-    expect(api.getSessionTimeline).toHaveBeenCalledWith("session-dev", {
-      workspace_view: "task_environment",
-      task_environment_id: "env.development.sandbox",
-      project_id: "",
-    });
+    expect(api.listSessions).not.toHaveBeenCalled();
+    expect(api.getSessionTimeline).toHaveBeenCalledWith("session-dev", undefined);
   });
 
   it("ignores stale global monitor snapshots after a newer revision has landed", () => {
@@ -1316,23 +1312,15 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(api.streamChat.mock.calls[0]?.[0]?.session_id).toBe("session:fresh");
   });
 
-  it("loads ordinary chat sessions in the general task environment scope", async () => {
+  it("loads ordinary chat sessions without task-environment session scope", async () => {
     vi.useRealTimers();
     const store = createStore(getDefaultState());
     const runtime = new WorkspaceRuntime(store);
 
     await runtime.initialize();
 
-    expect(api.listSessions.mock.calls[0]?.[0]).toEqual({
-      workspace_view: "task_environment",
-      task_environment_id: "env.general.workspace",
-      project_id: "",
-    });
-    expect(api.createSession.mock.calls[0]?.[1]).toEqual({
-      workspace_view: "task_environment",
-      task_environment_id: "env.general.workspace",
-      project_id: "",
-    });
+    expect(api.listSessions.mock.calls[0]?.[0]).toBeUndefined();
+    expect(api.createSession.mock.calls[0]?.[1]).toBeUndefined();
   });
 
   it("keeps stopped activity scoped to the session that was stopped", async () => {
@@ -1569,11 +1557,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     await Promise.resolve();
 
     expect(api.streamChat).not.toHaveBeenCalled();
-    expect(api.getLatestChatRunForSession).toHaveBeenCalledWith("session:latest", true, {
-      workspace_view: "task_environment",
-      task_environment_id: "env.general.workspace",
-      project_id: "",
-    });
+    expect(api.getLatestChatRunForSession).toHaveBeenCalledWith("session:latest", true, undefined);
     expect(api.streamExistingChatRun).toHaveBeenCalledWith(
       "session:latest",
       "strun:latest",
@@ -2134,7 +2118,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(store.getState().sessionActivity.level).toBe("error");
   });
 
-  it("does not leak a selected task into ordinary main-chat turns", async () => {
+  it("does not leak a selected task or implicit task environment into ordinary main-chat turns", async () => {
     vi.useRealTimers();
     const store = createStore<StoreState>({
       ...getDefaultState(),
@@ -2150,13 +2134,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     await runtime.actions.sendMessage("你好");
 
     expect(api.streamChat).toHaveBeenCalledTimes(1);
-    expect(api.streamChat.mock.calls[0]?.[0]?.task_selection).toMatchObject({
-      task_environment_id: "env.general.workspace",
-      environment_id: "env.general.workspace",
-      binding_kind: "chat_task_environment",
-      binding_source: "session_scope",
-    });
-    expect(api.streamChat.mock.calls[0]?.[0]?.task_selection).not.toHaveProperty("selected_task_id");
+    expect(api.streamChat.mock.calls[0]?.[0]?.task_selection).toBeUndefined();
   });
 
   it("sends an explicitly bound task environment to main-chat turns", async () => {
@@ -2186,27 +2164,8 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     });
   });
 
-  it("switches the visible chat session list when binding a different task environment", async () => {
+  it("keeps the visible chat session when binding a different task environment", async () => {
     vi.useRealTimers();
-    api.listSessions.mockResolvedValueOnce([{
-      id: "session:env-b",
-      title: "Env B",
-      created_at: 2,
-      updated_at: 2,
-      message_count: 2,
-      scope: {
-        workspace_view: "task_environment",
-        task_environment_id: "env.b",
-        project_id: "",
-      },
-    }]);
-    api.getSessionTimeline.mockResolvedValueOnce({
-      messages: [
-        { role: "user", content: "B 环境问题" },
-        { role: "assistant", content: "B 环境回答" },
-      ],
-      runtime_attachments: [],
-    });
     const store = createStore<StoreState>({
       ...getDefaultState(),
       currentSessionId: "session:env-a",
@@ -2247,46 +2206,19 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       bound_at: 2,
     });
 
-    expect(store.getState().currentSessionId).toBeNull();
-    expect(store.getState().messages).toEqual([]);
-    expect(api.listSessions.mock.calls[0]?.[0]).toEqual({
-      workspace_view: "task_environment",
+    expect(store.getState().currentSessionId).toBe("session:env-a");
+    expect(store.getState().messages.map((message) => message.content)).toEqual(["A 环境问题", "A 环境回答"]);
+    expect(store.getState().chatTaskEnvironmentBinding).toMatchObject({
       task_environment_id: "env.b",
-      project_id: "",
+      environment_label: "Env B",
+      source: "task-system",
     });
-
-    await flushPromises(12);
-
-    expect(store.getState().currentSessionId).toBe("session:env-b");
-    expect(store.getState().messages.map((message) => message.content)).toEqual(["B 环境问题", "B 环境回答"]);
-    expect(api.getSessionTimeline.mock.calls[0]?.[1]).toEqual({
-      workspace_view: "task_environment",
-      task_environment_id: "env.b",
-      project_id: "",
-    });
+    expect(api.listSessions).not.toHaveBeenCalled();
+    expect(api.getSessionTimeline).not.toHaveBeenCalled();
   });
 
-  it("switches the visible chat session list when changing the outer task environment mode", async () => {
+  it("keeps the visible chat session when changing the outer task environment mode", async () => {
     vi.useRealTimers();
-    api.listSessions.mockResolvedValueOnce([{
-      id: "session:dev",
-      title: "Development",
-      created_at: 2,
-      updated_at: 2,
-      message_count: 2,
-      scope: {
-        workspace_view: "task_environment",
-        task_environment_id: "env.development.sandbox",
-        project_id: "",
-      },
-    }]);
-    api.getSessionTimeline.mockResolvedValueOnce({
-      messages: [
-        { role: "user", content: "开发环境问题" },
-        { role: "assistant", content: "开发环境回答" },
-      ],
-      runtime_attachments: [],
-    });
     const store = createStore<StoreState>({
       ...getDefaultState(),
       activeWorkspaceView: "chat",
@@ -2318,28 +2250,15 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     runtime.actions.setTaskEnvironmentWorkspaceView("code-environment");
 
     expect(store.getState().activeWorkspaceView).toBe("code-environment");
-    expect(store.getState().currentSessionId).toBeNull();
-    expect(store.getState().messages).toEqual([]);
+    expect(store.getState().currentSessionId).toBe("session:general");
+    expect(store.getState().messages.map((message) => message.content)).toEqual(["通用环境问题", "通用环境回答"]);
     expect(store.getState().chatTaskEnvironmentBinding).toMatchObject({
       task_environment_id: "env.development.sandbox",
       environment_label: "Development Sandbox",
       source: "workspace-mode",
     });
-    expect(api.listSessions.mock.calls[0]?.[0]).toEqual({
-      workspace_view: "task_environment",
-      task_environment_id: "env.development.sandbox",
-      project_id: "",
-    });
-
-    await flushPromises(12);
-
-    expect(store.getState().currentSessionId).toBe("session:dev");
-    expect(store.getState().messages.map((message) => message.content)).toEqual(["开发环境问题", "开发环境回答"]);
-    expect(api.getSessionTimeline.mock.calls[0]?.[1]).toEqual({
-      workspace_view: "task_environment",
-      task_environment_id: "env.development.sandbox",
-      project_id: "",
-    });
+    expect(api.listSessions).not.toHaveBeenCalled();
+    expect(api.getSessionTimeline).not.toHaveBeenCalled();
   });
 
   it("returns to the general task environment after clearing an explicit binding", async () => {
@@ -2360,12 +2279,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     await runtime.actions.sendMessage("普通聊天。");
 
     expect(api.streamChat).toHaveBeenCalledTimes(1);
-    expect(api.streamChat.mock.calls[0]?.[0]?.task_selection).toMatchObject({
-      task_environment_id: "env.general.workspace",
-      environment_id: "env.general.workspace",
-      binding_kind: "chat_task_environment",
-      binding_source: "session_scope",
-    });
+    expect(api.streamChat.mock.calls[0]?.[0]?.task_selection).toBeUndefined();
   });
 
   it("keeps task selection after chat stream start events", async () => {
@@ -2397,16 +2311,8 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     await runtime.actions.sendMessage("普通后续聊天。");
 
     expect(api.streamChat).toHaveBeenCalledTimes(2);
-    expect(api.streamChat.mock.calls[0]?.[0]?.task_selection).toMatchObject({
-      task_environment_id: "env.general.workspace",
-      binding_source: "session_scope",
-    });
-    expect(api.streamChat.mock.calls[1]?.[0]?.task_selection).toMatchObject({
-      task_environment_id: "env.general.workspace",
-      binding_source: "session_scope",
-    });
-    expect(api.streamChat.mock.calls[0]?.[0]?.task_selection).not.toHaveProperty("selected_task_id");
-    expect(api.streamChat.mock.calls[1]?.[0]?.task_selection).not.toHaveProperty("selected_task_id");
+    expect(api.streamChat.mock.calls[0]?.[0]?.task_selection).toBeUndefined();
+    expect(api.streamChat.mock.calls[1]?.[0]?.task_selection).toBeUndefined();
     expect(store.getState().taskSelection).toMatchObject({
       selected_task_id: "task.dev.frontend_ui",
     });

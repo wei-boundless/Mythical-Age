@@ -11,6 +11,11 @@ from harness.loop.task_executor import (
     resume_paused_task_run,
     stop_task_run,
 )
+from harness.runtime.task_record_lifecycle import (
+    TaskRecordLifecycleConflict,
+    TaskRecordLifecycleManager,
+    TaskRecordLifecycleNotFound,
+)
 
 router = APIRouter()
 
@@ -178,6 +183,24 @@ async def stop_harness_task_run(
     if not result.get("ok"):
         raise HTTPException(status_code=409, detail=str(result.get("error") or "task_run_stop_rejected"))
     return result
+
+
+@router.delete("/orchestration/harness/task-runs/{task_run_id}")
+async def delete_harness_task_run(task_run_id: str) -> dict[str, Any]:
+    runtime = require_runtime()
+    try:
+        return await TaskRecordLifecycleManager(runtime).delete_task_record(task_run_id)
+    except TaskRecordLifecycleNotFound as exc:
+        raise HTTPException(status_code=404, detail="TaskRun not found") from exc
+    except TaskRecordLifecycleConflict as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "reason": exc.reason,
+                "task_run_id": exc.task_run_id,
+                "graph_run_id": exc.graph_run_id,
+            },
+        ) from exc
 
 
 def _assert_expected_active_turn(runtime_host: Any, task_run_id: str, expected_active_turn_id: str) -> None:

@@ -3,22 +3,17 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
-  Cpu,
-  FileCode2,
   GitBranch,
   GitCommitHorizontal,
   Github,
   Globe2,
   HardDrive,
   Settings,
-  Sparkles,
   SquarePlus,
-  Workflow,
 } from "lucide-react";
 
-import { ChatPanel } from "@/components/chat/ChatPanel";
+import { CenterWorkspaceView } from "@/components/workspace/views/center/CenterWorkspaceView";
 import { WorkbenchShell } from "@/components/layout/WorkbenchShell";
-import { GraphTaskWorkspace } from "@/components/workspace/views/task-graph-workbench/GraphTaskWorkspace";
 import {
   getCodeEnvironment,
   getCodeEnvironmentGitStatus,
@@ -28,8 +23,6 @@ import {
 
 const DEVELOPMENT_TASK_ENVIRONMENT_ID = "env.development.sandbox";
 
-type DevelopmentLayer = "chat" | "task-graph";
-
 function hostConfig() {
   const config = globalThis.__MYTHICAL_AGENT_HOST__ || (typeof window !== "undefined" ? window.mythicalAgentHost?.getConfig() : undefined);
   return {
@@ -37,16 +30,6 @@ function hostConfig() {
     localRuntimeAvailable: Boolean(config?.localRuntimeAvailable),
     codeEnvironmentHostAvailable: Boolean(config?.codeEnvironmentHostAvailable),
   } as const;
-}
-
-function environmentStatusLabel(environment: CodeEnvironmentStatus | null) {
-  if (!environment) return "检测中";
-  if (!environment.pi.enabled) return "未启用";
-  if (environment.pi.mode === "sidecar_running") return "运行中";
-  if (environment.pi.mode === "sidecar_ready") return "就绪";
-  if (environment.pi.mode === "error") return "异常";
-  if (environment.pi.cli_built) return "可连接";
-  return "诊断";
 }
 
 function gitChangedCount(gitStatus: CodeEnvironmentGitStatus | null) {
@@ -166,8 +149,6 @@ function DevelopmentGitFloatingPanel({
 export function CodeEnvironmentView({ embedded = false }: { embedded?: boolean }) {
   const [environment, setEnvironment] = useState<CodeEnvironmentStatus | null>(null);
   const [gitStatus, setGitStatus] = useState<CodeEnvironmentGitStatus | null>(null);
-  const [layer, setLayer] = useState<DevelopmentLayer>("chat");
-  const [selectedGraphId, setSelectedGraphId] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const host = useMemo(() => hostConfig(), []);
@@ -193,71 +174,32 @@ export function CodeEnvironmentView({ embedded = false }: { embedded?: boolean }
     void loadEnvironment();
   }, [loadEnvironment]);
 
-  const branchLabel = gitStatus?.branch || "未读取";
-  const statusText = environmentStatusLabel(environment);
-  const diagnosticsCount = environment?.pi.diagnostics.length ?? 0;
+  const diagnostics = environment?.pi.diagnostics ?? [];
+  const diagnosticsError = diagnostics.length ? diagnostics.join("；") : "";
+  const visibleError = error || diagnosticsError;
 
   return (
     <WorkbenchShell
       className={embedded ? "development-environment-shell development-environment-shell--embedded" : "development-environment-shell"}
+      hideMainToolbar
       rightPanelLabel="辅助栏"
     >
       <section className="workbench-view-host development-center-host" aria-label="开发任务工作台">
-        <header className="development-center-banner">
-          <div className="development-center-title">
-            <span>开发环境</span>
-            <strong>专业 Coding Agent</strong>
-          </div>
-
-          <nav className="development-layer-tabs" aria-label="开发环境层级切换">
-            <button className={layer === "chat" ? "development-layer-tab development-layer-tab--active" : "development-layer-tab"} onClick={() => setLayer("chat")} type="button">
-              <Sparkles size={14} />
-              <span>会话层</span>
-            </button>
-            <button className={layer === "task-graph" ? "development-layer-tab development-layer-tab--active" : "development-layer-tab"} onClick={() => setLayer("task-graph")} type="button">
-              <Workflow size={14} />
-              <span>图任务层</span>
-            </button>
-          </nav>
-
-          <div className="development-center-meta" aria-label="开发状态摘要">
-            <span title={branchLabel}>
-              <FileCode2 size={15} />
-              {branchLabel}
-            </span>
-            <span title={diagnosticsCount ? `${diagnosticsCount} 个诊断项` : statusText}>
-              <Cpu size={15} />
-              {diagnosticsCount ? `${diagnosticsCount} 个诊断` : statusText}
-            </span>
-          </div>
-        </header>
-
-        <div className={error ? "development-layer-body development-layer-body--with-alert" : "development-layer-body"}>
-          {error ? (
+        <div className={visibleError ? "development-layer-body development-layer-body--with-alert" : "development-layer-body"}>
+          {visibleError ? (
             <div className="development-alert development-alert--inline">
               <AlertTriangle size={15} />
-              <span>{error}</span>
+              <span>{visibleError}</span>
             </div>
           ) : null}
-
-          {layer === "chat" ? (
-            <ChatPanel />
-          ) : (
-            <div className="development-graph-layer">
-              <GraphTaskWorkspace
-                onSelectedGraphChange={setSelectedGraphId}
-                requestedGraphId={selectedGraphId}
-                taskEnvironmentId={DEVELOPMENT_TASK_ENVIRONMENT_ID}
-              />
-            </div>
-          )}
+          <CenterWorkspaceView taskEnvironmentId={DEVELOPMENT_TASK_ENVIRONMENT_ID} />
         </div>
 
         <DevelopmentGitFloatingPanel
           gitStatus={gitStatus}
           loading={loading}
           onRefresh={() => void loadEnvironment()}
-          scopeKey={layer}
+          scopeKey={DEVELOPMENT_TASK_ENVIRONMENT_ID}
         />
       </section>
     </WorkbenchShell>

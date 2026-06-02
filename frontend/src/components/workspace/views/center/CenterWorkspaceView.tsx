@@ -1,13 +1,14 @@
 "use client";
 
 import { Edit3, FileText, RefreshCw, Save, Sparkles, Workflow, X } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { ChatPanel } from "@/components/chat/ChatPanel";
 import { GraphTaskWorkspace } from "@/components/workspace/views/task-graph-workbench/GraphTaskWorkspace";
 import { useAppStore } from "@/lib/store";
 
 type CenterWorkspaceLayer = "chat" | "task-graph" | "file";
+const GENERAL_TASK_ENVIRONMENT_ID = "env.general.workspace";
 
 function compactFileName(path: string) {
   const normalized = path.replace(/\\/g, "/");
@@ -132,14 +133,58 @@ function CenterWorkspaceFileLayer({
   );
 }
 
-export function CenterWorkspaceView() {
+export function CenterWorkspaceView({
+  taskEnvironmentId = GENERAL_TASK_ENVIRONMENT_ID,
+}: {
+  taskEnvironmentId?: string;
+}) {
   const {
     centerWorkspaceTarget,
     clearCenterWorkspaceTarget,
+    inspectorDirty,
   } = useAppStore();
   const [layer, setLayer] = useState<CenterWorkspaceLayer>("chat");
   const [selectedGraphId, setSelectedGraphId] = useState("");
-  const [openFilePath, setOpenFilePath] = useState("");
+  const [activeFilePath, setActiveFilePath] = useState("");
+  const [openFilePaths, setOpenFilePaths] = useState<string[]>([]);
+  const graphTaskEnvironmentId = taskEnvironmentId.trim() || GENERAL_TASK_ENVIRONMENT_ID;
+
+  const canSwitchActiveFile = useCallback((nextPath: string) => {
+    if (!inspectorDirty || !activeFilePath || activeFilePath === nextPath) {
+      return true;
+    }
+    return window.confirm("当前文件有未保存修改，切换文件会丢弃这些修改。继续切换吗？");
+  }, [activeFilePath, inspectorDirty]);
+
+  const openFilePage = useCallback((path: string) => {
+    const nextPath = path.trim();
+    if (!nextPath || !canSwitchActiveFile(nextPath)) {
+      return;
+    }
+    setOpenFilePaths((current) => current.includes(nextPath) ? current : [...current, nextPath]);
+    setActiveFilePath(nextPath);
+    setLayer("file");
+  }, [canSwitchActiveFile]);
+
+  const closeFilePage = useCallback((path: string) => {
+    const targetPath = path.trim();
+    if (!targetPath) {
+      return;
+    }
+    if (targetPath === activeFilePath && inspectorDirty && !window.confirm("当前文件有未保存修改，关闭文件页会丢弃这些修改。继续关闭吗？")) {
+      return;
+    }
+    setOpenFilePaths((current) => {
+      const targetIndex = current.indexOf(targetPath);
+      const next = current.filter((item) => item !== targetPath);
+      if (targetPath === activeFilePath) {
+        const nextActive = next[Math.min(Math.max(targetIndex, 0), next.length - 1)] || "";
+        setActiveFilePath(nextActive);
+        setLayer(nextActive ? "file" : "chat");
+      }
+      return next;
+    });
+  }, [activeFilePath, inspectorDirty]);
 
   useEffect(() => {
     if (!centerWorkspaceTarget) {
@@ -152,15 +197,13 @@ export function CenterWorkspaceView() {
       }
     }
     if (centerWorkspaceTarget.layer === "file") {
-      setOpenFilePath(centerWorkspaceTarget.file_path);
-      setLayer("file");
+      openFilePage(centerWorkspaceTarget.file_path);
     }
     clearCenterWorkspaceTarget();
-  }, [centerWorkspaceTarget, clearCenterWorkspaceTarget]);
+  }, [centerWorkspaceTarget, clearCenterWorkspaceTarget, openFilePage]);
 
   function closeFileLayer() {
-    setOpenFilePath("");
-    setLayer("chat");
+    closeFilePage(activeFilePath);
   }
 
   return (
@@ -182,17 +225,39 @@ export function CenterWorkspaceView() {
           <Workflow size={14} />
           <span>图任务层</span>
         </button>
-        {openFilePath ? (
-          <button
-            className={layer === "file" ? "chat-page-tabs__item chat-page-tabs__item--active" : "chat-page-tabs__item"}
-            onClick={() => setLayer("file")}
-            title={openFilePath}
-            type="button"
-          >
-            <FileText size={14} />
-            <span>{compactFileName(openFilePath)}</span>
-          </button>
-        ) : null}
+        {openFilePaths.map((path) => {
+          const active = layer === "file" && path === activeFilePath;
+          return (
+            <div
+              className={active ? "chat-page-tabs__item chat-page-tabs__item--active center-workspace-file-tab" : "chat-page-tabs__item center-workspace-file-tab"}
+              key={path}
+              title={path}
+            >
+              <button
+                aria-current={active ? "page" : undefined}
+                className="center-workspace-file-tab__main"
+                onClick={() => {
+                  if (!canSwitchActiveFile(path)) return;
+                  setActiveFilePath(path);
+                  setLayer("file");
+                }}
+                type="button"
+              >
+                <FileText size={14} />
+                <span>{compactFileName(path)}</span>
+              </button>
+              <button
+                aria-label={`关闭文件页 ${compactFileName(path)}`}
+                className="center-workspace-file-tab__close"
+                onClick={() => closeFilePage(path)}
+                title="关闭文件页"
+                type="button"
+              >
+                <X size={13} />
+              </button>
+            </div>
+          );
+        })}
       </header>
 
       {layer === "chat" ? (
@@ -204,11 +269,11 @@ export function CenterWorkspaceView() {
           <GraphTaskWorkspace
             onSelectedGraphChange={setSelectedGraphId}
             requestedGraphId={selectedGraphId}
-            taskEnvironmentId="env.general.workspace"
+            taskEnvironmentId={graphTaskEnvironmentId}
           />
         </div>
       ) : (
-        <CenterWorkspaceFileLayer onClose={closeFileLayer} path={openFilePath} />
+        <CenterWorkspaceFileLayer onClose={closeFileLayer} path={activeFilePath} />
       )}
     </section>
   );

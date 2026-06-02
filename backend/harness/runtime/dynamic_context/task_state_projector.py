@@ -40,6 +40,7 @@ class TaskStateProjector:
             "runtime_status": str(execution_projection.get("runtime_status") or task_run_state.get("status") or ""),
             "current_step": dict(execution_projection.get("current_step") or {}),
             "current_facts": current_facts,
+            "file_state": _file_state_projection(execution_projection.get("file_state")),
             "latest_tool_results": latest_results[-8:],
             "active_failures": _dedupe_failures(
                 [
@@ -264,11 +265,43 @@ def _content_range_key(item: dict[str, Any]) -> str:
     content_range = dict(item.get("content_range") or {})
     if not content_range:
         return ""
-    offset = content_range.get("offset")
-    end_offset = content_range.get("end_offset")
-    if offset in (None, "") and end_offset in (None, ""):
+    start_line = content_range.get("start_line")
+    end_line = content_range.get("end_line")
+    if start_line in (None, "") and end_line in (None, ""):
         return ""
-    return f"{offset}:{end_offset}"
+    return f"{start_line}:{end_line}"
+
+
+def _file_state_projection(value: Any) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    for item in dict_tuple(value):
+        path = _projection_path(item) or str(item.get("path") or "").replace("\\", "/").strip().strip("/")
+        if not path:
+            continue
+        ranges = [
+            {
+                "start_line": segment.get("start_line"),
+                "end_line": segment.get("end_line"),
+                "observation_ref": str(segment.get("observation_ref") or ""),
+            }
+            for segment in dict_tuple(item.get("read_ranges"))
+            if segment.get("start_line") not in (None, "") and segment.get("end_line") not in (None, "")
+        ]
+        projected = drop_empty(
+            {
+                "path": path,
+                "read_ranges": ranges[-12:],
+                "coverage": dict(item.get("coverage") or {}),
+                "total_lines": item.get("total_lines"),
+                "content_sha256": str(item.get("content_sha256") or ""),
+                "last_observation_ref": str(item.get("last_observation_ref") or ""),
+                "has_more": item.get("has_more") if isinstance(item.get("has_more"), bool) else None,
+                "status": str(item.get("status") or ""),
+            }
+        )
+        if projected:
+            result.append(projected)
+    return result[-20:]
 
 
 def _projection_path(item: dict[str, Any]) -> str:

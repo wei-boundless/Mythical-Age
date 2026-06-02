@@ -8,7 +8,9 @@ param(
     [string]$GraphId = "graph.writing.modular_novel.master",
     [string]$TaskId = "task.writing.modular_novel.master",
     [string]$SessionId = "",
-    [string]$ProjectId = "project:honghuang-times",
+    [string]$WorkspaceView = "task_environment",
+    [string]$TaskEnvironmentId = "env.creation.writing",
+    [string]$ProjectId = "project.creation.writing.honghuang",
     [string]$ProjectTitle = "洪荒时代",
     [string]$ProjectBriefFile = "output/novel_artifacts/modular_novel/runs/project-honghuang-times-memoryscope-20260523-001/project_brief.md",
     [int]$TargetGroupCount = 5,
@@ -220,6 +222,8 @@ if (-not $SkipRunStart) {
         -GraphId $GraphId `
         -TaskId $TaskId `
         -SessionId $SessionId `
+        -WorkspaceView $WorkspaceView `
+        -TaskEnvironmentId $TaskEnvironmentId `
         -ProjectId $ProjectId `
         -ProjectTitle $ProjectTitle `
         -ProjectBriefFile $ProjectBriefFile `
