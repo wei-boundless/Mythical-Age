@@ -396,6 +396,7 @@ async def start_task_lifecycle_from_action_request(
             turn_id=turn_id,
             content=content,
             answer_source=f"{answer_source}.invalid_contract",
+            api_protocol_prefix_messages=_api_protocol_prefix_from_action_request(action_request),
         )
         yield error_event(
             content=content,
@@ -448,6 +449,7 @@ async def start_task_lifecycle_from_contract(
     initialize_task_todo: InitializeTaskTodo,
     schedule_task_run_executor: ScheduleTaskRunExecutor,
 ) -> AsyncIterator[dict[str, Any]]:
+    api_protocol_prefix_messages = _api_protocol_prefix_from_action_request(action_request)
     agent_profile_ref = str(getattr(agent_runtime_profile, "agent_profile_id", "") or "main_interactive_agent")
     task_run, _agent_run, lifecycle, lifecycle_events = start_task_lifecycle(
         runtime_host,
@@ -504,6 +506,7 @@ async def start_task_lifecycle_from_contract(
             turn_id=turn_id,
             content=content,
             answer_source=f"{answer_source}.supervision",
+            api_protocol_prefix_messages=api_protocol_prefix_messages,
         )
         yield final_answer_event(
             content=content,
@@ -539,6 +542,7 @@ async def start_task_lifecycle_from_contract(
             turn_id=turn_id,
             content=content,
             answer_source=f"{answer_source}.schedule_failed",
+            api_protocol_prefix_messages=api_protocol_prefix_messages,
         )
         yield error_event(
             content=content,
@@ -575,6 +579,7 @@ async def start_task_lifecycle_from_contract(
         turn_id=turn_id,
         content=content,
         answer_source=answer_source,
+        api_protocol_prefix_messages=api_protocol_prefix_messages,
     )
     yield final_answer_event(
         content=content,
@@ -604,7 +609,11 @@ async def commit_task_control_message(
     turn_id: str,
     content: str,
     answer_source: str,
+    api_protocol_prefix_messages: list[dict[str, Any]] | None = None,
 ) -> None:
+    protocol_messages = [dict(item) for item in list(api_protocol_prefix_messages or []) if isinstance(item, dict)]
+    if protocol_messages:
+        protocol_messages.append({"role": "assistant", "content": content, "turn_id": turn_id})
     await commit_assistant_message(
         session_id,
         {
@@ -616,8 +625,18 @@ async def commit_task_control_message(
             "answer_canonical_state": "final",
             "answer_persist_policy": "persist_canonical",
             "answer_finalization_policy": "assistant_final",
+            "api_protocol_messages": protocol_messages,
         },
     )
+
+
+def _api_protocol_prefix_from_action_request(action_request: ModelActionRequest) -> list[dict[str, Any]]:
+    diagnostics = dict(action_request.diagnostics or {})
+    return [
+        dict(item)
+        for item in list(diagnostics.get("api_protocol_prefix_messages") or [])
+        if isinstance(item, dict)
+    ]
 
 
 def task_run_handoff_content(*, contract: dict[str, Any], status_text: str, control_text: str) -> str:

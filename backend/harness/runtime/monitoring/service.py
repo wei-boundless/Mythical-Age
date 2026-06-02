@@ -19,6 +19,7 @@ class RuntimeMonitorService:
             runtime_host.event_log,
             freshness_seconds=freshness_seconds,
             resource_resolver=self.resource_resolver,
+            session_scope_resolver=getattr(runtime_host, "session_scope_resolver", None),
         )
 
     def attach_graph_harness(self, graph_harness: Any | None) -> None:
@@ -40,6 +41,61 @@ class RuntimeMonitorService:
             reverse=True,
         )
         return self.projector.build_session_monitor(session_id, task_runs, now=time.time(), limit=limit)
+
+    def get_session_task_summary(self, session_id: str) -> dict[str, Any]:
+        task_runs = sorted(
+            [
+                item
+                for item in self.runtime_host.state_index.list_session_task_runs(session_id)
+                if self.projector.is_top_level_task_run(item)
+            ],
+            key=lambda item: float(getattr(item, "updated_at", 0.0) or getattr(item, "created_at", 0.0) or 0.0),
+            reverse=True,
+        )
+        if not task_runs:
+            return {
+                "authority": "runtime_monitor.v1.session_task_summary",
+                "available": False,
+                "task_run_count": 0,
+                "latest_task_run_id": "",
+            }
+
+        now = time.time()
+        items = [
+            self.projector.project_task_run(item, now=now, include_runtime_details=False)
+            for item in task_runs
+        ]
+        active = next(
+            (
+                item for item in items
+                if item.get("bucket") in {"running", "diagnostics"} or item.get("action_required") is True
+            ),
+            None,
+        )
+        selected = active or items[0]
+        return {
+            "authority": "runtime_monitor.v1.session_task_summary",
+            "available": True,
+            "selection": "active" if active else "latest",
+            "task_run_count": len(items),
+            "latest_task_run_id": str(items[0].get("task_run_id") or ""),
+            "task_run_id": str(selected.get("task_run_id") or ""),
+            "task_instance_id": str(selected.get("task_instance_id") or ""),
+            "task_id": str(selected.get("task_id") or ""),
+            "kind": str(selected.get("kind") or ""),
+            "title": str(selected.get("title") or ""),
+            "summary": str(selected.get("summary") or ""),
+            "status": str(selected.get("status") or ""),
+            "lifecycle": str(selected.get("lifecycle") or ""),
+            "bucket": str(selected.get("bucket") or ""),
+            "terminal": bool(selected.get("terminal")),
+            "action_required": bool(selected.get("action_required")),
+            "graph_run_id": str(selected.get("graph_run_id") or ""),
+            "graph_id": str(selected.get("graph_id") or ""),
+            "graph_harness_config_id": str(selected.get("graph_harness_config_id") or ""),
+            "created_at": float(selected.get("created_at") or 0.0),
+            "updated_at": float(selected.get("updated_at") or 0.0),
+        }
 
     def get_task_run_live_monitor(self, task_run_id: str) -> dict[str, Any] | None:
         task_run = self.runtime_host.state_index.get_task_run(task_run_id)

@@ -91,6 +91,7 @@ async def run_single_agent_turn(
             tool_definitions_by_name=getattr(getattr(runtime_host, "tool_authorization_index", None), "definitions_by_name", {}),
         )
         model_messages = list(compilation.packet.model_messages)
+        api_protocol_messages: list[dict[str, Any]] = []
         response = await _invoke_single_turn_model(
             model_runtime=model_runtime,
             model_messages=model_messages,
@@ -259,6 +260,12 @@ async def run_single_agent_turn(
                     content=content,
                     answer_channel="blocked",
                     answer_source="harness.single_agent_turn.tool_observation",
+                    api_protocol_messages=[
+                        *api_protocol_messages,
+                        _with_turn_id(_assistant_tool_call_message(response, [tool_call]), turn_id),
+                        _with_turn_id(_tool_observation_message(observation, tool_call_id=str(tool_call.get("id") or "")), turn_id),
+                        _assistant_protocol_message_from_content(content, turn_id=turn_id),
+                    ],
                 )
                 yield final_answer_event(
                     content=content,
@@ -277,10 +284,16 @@ async def run_single_agent_turn(
                     terminal_recorded = True
                     yield {"type": "agent_turn_terminal", "event": terminal}
                 return
+            assistant_protocol_message = _with_turn_id(_assistant_tool_call_message(response, [tool_call]), turn_id)
+            tool_protocol_message = _with_turn_id(
+                _tool_observation_message(observation, tool_call_id=str(tool_call.get("id") or "")),
+                turn_id,
+            )
+            api_protocol_messages.extend([assistant_protocol_message, tool_protocol_message])
             model_messages = [
                 *model_messages,
-                _assistant_tool_call_message(response, [tool_call]),
-                _tool_observation_message(observation, tool_call_id=str(tool_call.get("id") or "")),
+                assistant_protocol_message,
+                tool_protocol_message,
             ]
             followup_segment_plan = _single_agent_turn_followup_segment_plan(
                 base_segment_plan=dict(compilation.packet.segment_plan or {}),
@@ -369,6 +382,17 @@ async def run_single_agent_turn(
                     content=content,
                     answer_channel="blocked",
                     answer_source="harness.single_agent_turn.admission",
+                    api_protocol_messages=[
+                        *_native_action_protocol_messages(
+                            response,
+                            tool_calls,
+                            turn_id=turn_id,
+                            tool_result_content=content,
+                        ),
+                        _assistant_protocol_message_from_content(content, turn_id=turn_id),
+                    ]
+                    if tool_calls
+                    else None,
                 )
                 yield final_answer_event(
                     content=content,
@@ -388,6 +412,15 @@ async def run_single_agent_turn(
                     yield {"type": "agent_turn_terminal", "event": terminal}
                 return
             if action_request.action_type == "request_task_run":
+                action_request = _action_request_with_api_protocol_prefix(
+                    action_request,
+                    _native_action_protocol_messages(
+                        response,
+                        tool_calls,
+                        turn_id=turn_id,
+                        tool_result_content="Runtime accepted request_task_run and started task lifecycle scheduling.",
+                    ),
+                )
                 async for event in start_task_from_action_request(action_request):
                     yield event
                 if runtime_host is not None and turn_run is not None:
@@ -411,6 +444,17 @@ async def run_single_agent_turn(
                     content=content,
                     answer_channel="blocked",
                     answer_source="harness.single_agent_turn.block",
+                    api_protocol_messages=[
+                        *_native_action_protocol_messages(
+                            response,
+                            tool_calls,
+                            turn_id=turn_id,
+                            tool_result_content="Runtime accepted block action.",
+                        ),
+                        _assistant_protocol_message_from_content(content, turn_id=turn_id),
+                    ]
+                    if tool_calls
+                    else None,
                 )
                 yield final_answer_event(
                     content=content,
@@ -438,6 +482,17 @@ async def run_single_agent_turn(
                     content=content,
                     answer_channel="conversation",
                     answer_source="harness.single_agent_turn.ask_user",
+                    api_protocol_messages=[
+                        *_native_action_protocol_messages(
+                            response,
+                            tool_calls,
+                            turn_id=turn_id,
+                            tool_result_content="Runtime accepted ask_user action.",
+                        ),
+                        _assistant_protocol_message_from_content(content, turn_id=turn_id),
+                    ]
+                    if tool_calls
+                    else None,
                 )
                 yield final_answer_event(
                     content=content,
@@ -470,15 +525,25 @@ async def run_single_agent_turn(
                         "runtime_branch": dict(runtime_branch or {}),
                         "active_work": dict(active_control),
                     }
-                else:
-                    await _commit_final_message(
-                        commit_assistant_message,
-                        session_id=session_id,
-                        turn_id=turn_id,
-                        content=content,
-                        answer_channel="active_work_control",
-                        answer_source="harness.single_agent_turn.active_work_control",
-                    )
+                await _commit_final_message(
+                    commit_assistant_message,
+                    session_id=session_id,
+                    turn_id=turn_id,
+                    content=content,
+                    answer_channel="active_work_control",
+                    answer_source="harness.single_agent_turn.active_work_control",
+                    api_protocol_messages=[
+                        *_native_action_protocol_messages(
+                            response,
+                            tool_calls,
+                            turn_id=turn_id,
+                            tool_result_content="Runtime accepted active_work_control action.",
+                        ),
+                        _assistant_protocol_message_from_content(content, turn_id=turn_id),
+                    ]
+                    if tool_calls
+                    else None,
+                )
                 yield final_answer_event(
                     content=content,
                     answer_source="harness.single_agent_turn.active_work_control",
@@ -527,6 +592,12 @@ async def run_single_agent_turn(
             content=content,
             answer_channel="conversation",
             answer_source="harness.single_agent_turn",
+            api_protocol_messages=[
+                *api_protocol_messages,
+                _assistant_final_protocol_message(response, turn_id=turn_id, include_reasoning=True),
+            ]
+            if api_protocol_messages
+            else None,
         )
         yield {
             "type": "assistant_message_committed",
@@ -1029,6 +1100,70 @@ def _tool_observation_message(observation: Any, *, tool_call_id: str) -> dict[st
     }
 
 
+def _assistant_final_protocol_message(response: Any, *, turn_id: str, include_reasoning: bool) -> dict[str, Any]:
+    message: dict[str, Any] = {
+        "role": "assistant",
+        "content": stringify_content(getattr(response, "content", response)),
+        "turn_id": turn_id,
+    }
+    if include_reasoning:
+        reasoning_content = _reasoning_content_from_response(response)
+        if reasoning_content:
+            message["reasoning_content"] = reasoning_content
+    return message
+
+
+def _assistant_protocol_message_from_content(content: str, *, turn_id: str) -> dict[str, Any]:
+    return {
+        "role": "assistant",
+        "content": str(content or ""),
+        "turn_id": turn_id,
+    }
+
+
+def _native_action_protocol_messages(
+    response: Any,
+    tool_calls: list[dict[str, Any]],
+    *,
+    turn_id: str,
+    tool_result_content: str,
+) -> list[dict[str, Any]]:
+    calls = tool_calls_for_langchain_messages(tool_calls)
+    if not calls:
+        return []
+    messages = [_with_turn_id(_assistant_tool_call_message(response, calls), turn_id)]
+    for call in calls:
+        messages.append(
+            {
+                "role": "tool",
+                "name": str(call.get("name") or ""),
+                "tool_call_id": str(call.get("id") or ""),
+                "content": str(tool_result_content or ""),
+                "turn_id": turn_id,
+            }
+        )
+    return messages
+
+
+def _action_request_with_api_protocol_prefix(
+    action_request: ModelActionRequest,
+    messages: list[dict[str, Any]],
+) -> ModelActionRequest:
+    if not messages:
+        return action_request
+    return replace(
+        action_request,
+        diagnostics={
+            **dict(action_request.diagnostics or {}),
+            "api_protocol_prefix_messages": [dict(item) for item in messages],
+        },
+    )
+
+
+def _with_turn_id(message: dict[str, Any], turn_id: str) -> dict[str, Any]:
+    return {**dict(message or {}), "turn_id": turn_id}
+
+
 def _single_agent_turn_followup_segment_plan(
     *,
     base_segment_plan: dict[str, Any],
@@ -1117,6 +1252,7 @@ async def _commit_final_message(
     content: str,
     answer_channel: str,
     answer_source: str,
+    api_protocol_messages: list[dict[str, Any]] | None = None,
 ) -> None:
     await commit_assistant_message(
         session_id,
@@ -1129,6 +1265,7 @@ async def _commit_final_message(
             "answer_canonical_state": "final",
             "answer_persist_policy": "persist_canonical",
             "answer_finalization_policy": "assistant_final",
+            "api_protocol_messages": [dict(item) for item in list(api_protocol_messages or []) if isinstance(item, dict)],
         },
     )
 

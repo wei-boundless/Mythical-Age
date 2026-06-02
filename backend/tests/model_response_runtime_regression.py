@@ -337,6 +337,8 @@ def test_tool_action_request_does_not_surface_hidden_reasoning_preview() -> None
 
     assert request.payload["assistant_content_preview"] == ""
     assert "assistant_reasoning_preview" not in request.payload
+    assert request.payload["assistant_additional_kwargs"] == {"reasoning_content": "hidden chain"}
+    assert request.payload["assistant_protocol_message"]["reasoning_content"] == "hidden chain"
 
 
 def test_model_response_policy_caps_underlying_model_spec_timeout() -> None:

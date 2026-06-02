@@ -62,7 +62,8 @@ describe("RuntimeRunSummary", () => {
     expect(html).toContain("确认 artifact 路径");
     expect(html).toContain("需要先确认 artifact 路径状态");
     expect(html).toContain("目标文件尚未存在，路径检查成功");
-    expect(html).toContain("执行轨迹");
+    expect(html).toContain("我正在处理");
+    expect(html).toContain("查看执行细节");
     expect(html).not.toContain("Tool Call");
     expect(html).not.toContain("Observation");
     expect(html).not.toContain("Agent 判断");
@@ -99,7 +100,7 @@ describe("RuntimeRunSummary", () => {
       }),
     );
 
-    expect(html).toContain("技术日志");
+    expect(html).toContain("查看技术细节");
     expect(html).toContain("write_file");
     expect(html).toContain("<details class=\"runtime-technical-trace\">");
     expect(html).not.toContain("<details open");
@@ -165,9 +166,34 @@ describe("RuntimeRunSummary", () => {
     );
 
     expect(html).toContain("我先核对当前文件状态");
-    expect(html).toContain("技术日志");
+    expect(html).toContain("查看技术细节");
     expect(html).not.toContain("Tool Call");
     expect(html).not.toContain("Observation");
     expect(html).not.toContain("Agent 判断");
+  });
+
+  it("renders tool failure as an assistant-style progress sentence", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(RuntimeRunSummary, {
+        entries: [
+          {
+            id: "image-generate-failed",
+            kind: "observation",
+            level: "error",
+            title: "观察结果",
+            body: "工具返回失败：Image generation is not configured",
+            publicNote: "工具返回失败：Image generation is not configured",
+            eventType: "step_summary_recorded",
+            statusText: "failed",
+            toolName: "image_generate",
+          },
+        ],
+      }),
+    );
+
+    expect(html).toContain("我这一步卡住了");
+    expect(html).toContain("Image generation is not configured");
+    expect(html).toContain("查看执行细节");
+    expect(html).not.toContain("Running");
   });
 });

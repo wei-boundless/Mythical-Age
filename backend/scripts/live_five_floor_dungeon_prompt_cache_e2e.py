@@ -35,6 +35,7 @@ def main() -> int:
     parser.add_argument("--min-provider-calls", type=int, default=4)
     parser.add_argument("--stop-after-provider-calls", type=int, default=0)
     parser.add_argument("--timeout-seconds", type=float, default=300.0)
+    parser.add_argument("--scenario", default="basic", choices=("basic", "complex"))
     parser.add_argument(
         "--output-root",
         default=str(PROJECT_ROOT / "storage" / "runtime_state" / "prompt_cache_live_tests"),
@@ -78,7 +79,9 @@ async def _run(args: argparse.Namespace) -> dict[str, Any]:
     run_id = f"five_floor_dungeon_e2e_{time.strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
     report_dir = Path(args.output_root).resolve() / run_id
     report_dir.mkdir(parents=True, exist_ok=True)
-    artifact_path = f"artifacts/prompt_cache_live_e2e/{run_id}/five_floor_dungeon/index.html"
+    scenario = str(getattr(args, "scenario", "basic") or "basic")
+    artifact_dir = "five_floor_dungeon_complex" if scenario == "complex" else "five_floor_dungeon"
+    artifact_path = f"artifacts/prompt_cache_live_e2e/{run_id}/{artifact_dir}/index.html"
 
     runtime = AppRuntime()
     runtime.initialize(BACKEND_DIR)
@@ -86,7 +89,7 @@ async def _run(args: argparse.Namespace) -> dict[str, Any]:
     settings = app.settings.static
     session = app.session_manager.create_session(
         title=f"Prompt cache live E2E {run_id}",
-        scope={"workspace_view": "task", "task_environment_id": "env.development.sandbox"},
+        scope={"workspace_view": "task_environment", "task_environment_id": "env.development.sandbox"},
     )
     session_id = str(session["id"])
     model_selection = {
@@ -101,11 +104,15 @@ async def _run(args: argparse.Namespace) -> dict[str, Any]:
         "thinking_mode": str(args.thinking_mode or "disabled"),
         "reasoning_effort": str(args.reasoning_effort or "auto"),
     }
-    task_selection = _task_selection(run_id=run_id, artifact_path=artifact_path, model_selection=model_selection)
+    task_selection = _task_selection(run_id=run_id, artifact_path=artifact_path, model_selection=model_selection, scenario=scenario)
     request = HarnessRuntimeRequest(
         session_id=session_id,
         message=(
-            "启动真实长任务缓存测试：请按系统给出的显式合同完成五层地下塔网页小游戏。"
+            "启动真实长任务缓存测试：请按系统给出的显式合同完成复杂版五层地下塔网页小游戏。"
+            if scenario == "complex"
+            else "启动真实长任务缓存测试：请按系统给出的显式合同完成五层地下塔网页小游戏。"
+        )
+        + (
             "必须真实写入文件并验证，不要只写计划。"
         ),
         task_selection=task_selection,
@@ -152,6 +159,7 @@ async def _run(args: argparse.Namespace) -> dict[str, Any]:
         "task_run_id": task_run_id,
         "task_status": task_status,
         "task_terminal_reason": str(getattr(task, "terminal_reason", "") or ""),
+        "scenario": scenario,
         "model_selection": {key: value for key, value in model_selection.items() if key != "api_key"},
         "artifact_path": artifact_path,
         "wait_report": wait_report,
@@ -178,7 +186,8 @@ async def _run(args: argparse.Namespace) -> dict[str, Any]:
     return report
 
 
-def _task_selection(*, run_id: str, artifact_path: str, model_selection: dict[str, Any]) -> dict[str, Any]:
+def _task_selection(*, run_id: str, artifact_path: str, model_selection: dict[str, Any], scenario: str = "basic") -> dict[str, Any]:
+    complex_scenario = str(scenario or "basic") == "complex"
     allowed_operations = [
         "op.model_response",
         "op.read_file",
@@ -193,36 +202,116 @@ def _task_selection(*, run_id: str, artifact_path: str, model_selection: dict[st
         "op.shell",
         "op.agent_todo",
     ]
-    contract = {
-        "system_issued": True,
-        "contract_id": f"prompt-cache-live-five-floor-dungeon:{run_id}",
-        "task_environment_id": "env.development.sandbox",
-        "title": "五层地下塔网页小游戏",
-        "user_visible_goal": "完成一个可打开的五层地下塔网页小游戏，并真实验证产物存在。",
-        "task_run_goal": (
+    image_artifacts: list[dict[str, str]] = []
+    if complex_scenario:
+        allowed_operations.append("op.image_generate")
+        image_targets = [
+            {
+                "target_id": f"five-floor-dungeon-pixel-tower-{run_id}",
+                "asset_kind": "scene",
+                "path": f"frontend/public/generated/images/scene-five-floor-dungeon-pixel-tower-{run_id}.png",
+                "user_visible_name": "五层地下塔像素主视觉",
+            },
+            {
+                "target_id": f"five-floor-dungeon-pixel-boss-{run_id}",
+                "asset_kind": "character",
+                "path": f"frontend/public/generated/images/character-five-floor-dungeon-pixel-boss-{run_id}.png",
+                "user_visible_name": "五层地下塔像素 Boss 图",
+            },
+        ]
+        image_artifacts = [{"path": item["path"], "kind": "image", "user_visible_name": item["user_visible_name"]} for item in image_targets]
+    else:
+        image_targets = []
+    task_run_goal = (
+        f"在 `{artifact_path}` 创建一个复杂版 2D 像素风五层地下塔剧情肉鸽游戏，并生成真实图片资产。"
+        "图片服务不稳定，所以必须使用最低配置生图：只生成两张 PNG，image_generate 参数使用 size=`1024x1024`、quality=`low`、output_size=`512x512`、request_timeout_seconds=120、overwrite=false。"
+        "你必须先调用 image_generate 生成这两张图，并在 HTML 中引用返回的图片 src："
+        f"1) 像素风五层塔主视觉，target_id=`five-floor-dungeon-pixel-tower-{run_id}`，asset_kind=`scene`；"
+        f"2) 像素风最终 Boss 图，target_id=`five-floor-dungeon-pixel-boss-{run_id}`，asset_kind=`character`。"
+        "两张图都必须是 2D pixel art / 16-bit dark fantasy 风格，轮廓清晰，不能包含图片内文字。"
+        "不允许用 emoji、纯 CSS、占位图片或外链图片替代真实 image_generate 产物；如果图片生成失败，必须报告阻塞和结构化错误，不能假装完成。"
+        "必须包含：1) 五层地下塔推进，每层有不同主题、房间/事件/敌人配置和层末 Boss；"
+        "2) 可操作地图或房间选择，支持键盘或按钮操作；"
+        "3) 战斗系统包含生命、攻击、防御、暴击或闪避、敌人行动和战斗日志；"
+        "4) 至少三类普通敌人、五个 Boss、药水/金币/装备/遗物掉落；"
+        "5) 角色成长包含经验升级、属性提升、技能或遗物选择；"
+        "6) 剧情必须可见：开场设定、每层章节文本、至少三个事件叙事、Boss 台词、胜利/失败结局；"
+        "7) 至少一种非战斗事件，例如商店、陷阱、宝箱或休息点；"
+        "8) 失败、胜利、重新开始和基础存档/读档或本地进度保存；"
+        "9) UI 需要有 2D 像素风游戏视图、状态面板、日志、背包/装备/技能展示和清晰操作按钮。"
+        "任务必须真实写入文件，并通过 read_file、search_text 或 terminal 检查关键实现；最终回答必须引用真实 artifact。"
+    )
+    if not complex_scenario:
+        task_run_goal = (
             f"在 `{artifact_path}` 创建一个单文件 HTML 游戏。游戏必须包含五层地下塔推进、"
             "房间探索、基础战斗、掉落成长、失败/胜利状态和基础可操作 UI。"
             "任务必须通过 read_file、path_exists 或 terminal 做真实验证；最终回答必须引用真实 artifact。"
+        )
+    completion_criteria = [
+        "产物必须是真实写入的 HTML 文件，不允许用计划或说明替代。",
+        "游戏必须有五层推进、房间探索、基础战斗、掉落成长、失败和胜利状态。",
+        "最终收口前必须读取文件或运行命令验证关键内容。",
+        "最终 action 的 diagnostics.artifacts 必须包含 artifact 路径。",
+    ]
+    if complex_scenario:
+        completion_criteria = [
+            "产物必须包含真实写入的 HTML 文件和真实生成的图片资产，不允许用计划或说明替代。",
+            "必须实现五层地下塔，每层有独立主题、敌人配置和层末 Boss。",
+            "必须实现可操作地图/房间选择、战斗日志、背包/装备/技能或遗物展示。",
+            "必须实现至少三类普通敌人、五个 Boss、掉落装备/金币/药水/遗物、经验升级或成长选择。",
+            "必须包含可见剧情：开场设定、每层章节文本、事件叙事、Boss 台词、胜利/失败结局。",
+            "必须包含至少一种非战斗事件，例如商店、陷阱、宝箱或休息点。",
+            "必须包含失败、胜利、重新开始，以及本地保存/读档或进度保存能力。",
+            "必须真实调用 image_generate 生成两张低配置 2D 像素风 PNG 图片，并在 HTML 中引用生成结果的 /generated/images/ 路径。",
+            "image_generate 必须使用最低配置：size=1024x1024、quality=low、output_size=512x512、request_timeout_seconds=120、overwrite=false。",
+            "不得用 emoji、纯 CSS、占位图或外链图替代真实生成图片；如果 image_generate 失败，必须按阻塞任务处理。",
+            "最终收口前必须读取文件或运行命令验证关键关键词和核心逻辑存在。",
+            "最终收口前必须验证生成图片文件存在，并验证 HTML 引用了这些图片路径。",
+            "最终 action 的 diagnostics.artifacts 必须包含 artifact 路径。",
+        ]
+    contract = {
+        "system_issued": True,
+        "contract_id": f"prompt-cache-live-five-floor-dungeon:{scenario}:{run_id}",
+        "task_environment_id": "env.development.sandbox",
+        "title": "复杂版五层地下塔网页肉鸽" if complex_scenario else "五层地下塔网页小游戏",
+        "user_visible_goal": (
+            "完成一个复杂版可打开的五层地下塔网页肉鸽，并真实验证产物存在。"
+            if complex_scenario
+            else "完成一个可打开的五层地下塔网页小游戏，并真实验证产物存在。"
         ),
+        "task_run_goal": task_run_goal,
         "required_artifacts": [
             {
                 "path": artifact_path,
                 "kind": "html_document",
                 "user_visible_name": "五层地下塔 HTML 游戏",
             }
-        ],
+        ]
+        + image_artifacts,
         "required_verifications": [
             {
                 "kind": "file_readback_or_terminal_check",
-                "description": "验证 HTML 文件真实存在，并检查关键文本/逻辑包含五层推进、战斗、掉落、胜败状态。",
+                "description": (
+                    "验证 HTML 文件真实存在，检查关键文本/逻辑包含五层、Boss、装备/背包、技能/遗物、事件、存档、战斗、掉落、胜败状态，并验证 HTML 引用了 image_generate 返回的图片路径。"
+                    if complex_scenario
+                    else "验证 HTML 文件真实存在，并检查关键文本/逻辑包含五层推进、战斗、掉落、胜败状态。"
+                ),
             }
-        ],
-        "completion_criteria": [
-            "产物必须是真实写入的 HTML 文件，不允许用计划或说明替代。",
-            "游戏必须有五层推进、房间探索、基础战斗、掉落成长、失败和胜利状态。",
-            "最终收口前必须读取文件或运行命令验证关键内容。",
-            "最终 action 的 diagnostics.artifacts 必须包含 artifact 路径。",
-        ],
+        ]
+        + (
+            [
+                {
+                    "kind": "image_asset_check",
+                    "description": (
+                        "验证 image_generate 生成的场景图和 Boss 图文件真实存在；"
+                        f"预期 target_id 包括 `{image_targets[0]['target_id']}` 和 `{image_targets[1]['target_id']}`。"
+                    ),
+                }
+            ]
+            if complex_scenario
+            else []
+        ),
+        "completion_criteria": completion_criteria,
         "acceptance_policy": {
             "fail_closed": True,
             "artifact_evidence_required": True,

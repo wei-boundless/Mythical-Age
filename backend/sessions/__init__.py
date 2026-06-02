@@ -47,6 +47,7 @@ class SessionManager:
             "created_at": now,
             "updated_at": now,
             "messages": [],
+            "api_transcript": [],
             "compressed_context": "",
             "scope": _normalize_scope(scope),
         }
@@ -84,6 +85,18 @@ class SessionManager:
         ]
         return [item for item in messages if item is not None]
 
+    def load_session_for_api(self, session_id: str) -> list[dict[str, Any]]:
+        payload = self._read_payload(session_id)
+        transcript = [
+            _api_message(item)
+            for item in list(payload.get("api_transcript") or [])
+            if isinstance(item, dict)
+        ]
+        transcript = [item for item in transcript if item is not None]
+        if transcript:
+            return transcript
+        return self.load_session_for_agent(session_id)
+
     def get_history(self, session_id: str) -> dict[str, Any]:
         payload = self._read_payload(session_id)
         return {
@@ -110,12 +123,31 @@ class SessionManager:
         self._write_payload(session_id, payload)
         return existing
 
+    def append_api_messages(self, session_id: str, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        payload = self._read_payload(session_id)
+        existing = list(payload.get("api_transcript") or [])
+        for item in messages:
+            if not isinstance(item, dict):
+                continue
+            message = _api_message(item)
+            if message is not None:
+                existing.append(message)
+        payload["api_transcript"] = existing
+        payload["updated_at"] = time.time()
+        self._write_payload(session_id, payload)
+        return existing
+
     def truncate_messages_from(self, session_id: str, message_index: int) -> dict[str, Any]:
         payload = self._read_payload(session_id)
         messages = list(payload.get("messages") or [])
         if message_index < 0 or message_index > len(messages):
             raise ValueError("message_index out of range")
-        payload["messages"] = messages[:message_index]
+        kept_messages = messages[:message_index]
+        payload["messages"] = kept_messages
+        payload["api_transcript"] = _truncated_api_transcript(
+            list(payload.get("api_transcript") or []),
+            kept_messages=kept_messages,
+        )
         payload["updated_at"] = time.time()
         self._write_payload(session_id, payload)
         return self.get_history(session_id)
@@ -208,6 +240,61 @@ def _agent_message(payload: dict[str, Any]) -> dict[str, str] | None:
     if not content:
         return None
     return {"role": role, "content": content}
+
+
+def _api_message(payload: dict[str, Any]) -> dict[str, Any] | None:
+    role = str(payload.get("role") or payload.get("type") or "").strip()
+    if role not in {"user", "assistant", "tool"}:
+        return None
+    content = str(payload.get("content") or "")
+    message: dict[str, Any] = {"role": role, "content": content}
+    for key in ("turn_id", "name", "tool_call_id"):
+        value = str(payload.get(key) or "").strip()
+        if value:
+            message[key] = value
+    if role == "assistant":
+        reasoning_content = str(payload.get("reasoning_content") or "").strip()
+        if reasoning_content:
+            message["reasoning_content"] = reasoning_content
+        tool_calls = payload.get("tool_calls")
+        if isinstance(tool_calls, list) and tool_calls:
+            message["tool_calls"] = [dict(item) for item in tool_calls if isinstance(item, dict)]
+    if role == "tool" and not message.get("tool_call_id"):
+        return None
+    if role != "assistant" and not content and role != "tool":
+        return None
+    if role == "assistant" and not content and not message.get("tool_calls") and not message.get("reasoning_content"):
+        return None
+    return message
+
+
+def _truncated_api_transcript(
+    transcript: list[Any],
+    *,
+    kept_messages: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    kept_turn_ids = {
+        str(item.get("turn_id") or "").strip()
+        for item in kept_messages
+        if isinstance(item, dict) and str(item.get("turn_id") or "").strip()
+    }
+    if not kept_turn_ids:
+        return [
+            item
+            for item in (_api_message(message) for message in kept_messages if isinstance(message, dict))
+            if item is not None
+        ]
+    result: list[dict[str, Any]] = []
+    for item in transcript:
+        if not isinstance(item, dict):
+            continue
+        message = _api_message(item)
+        if message is None:
+            continue
+        turn_id = str(message.get("turn_id") or "").strip()
+        if turn_id and turn_id in kept_turn_ids:
+            result.append(message)
+    return result
 
 
 def validate_session_id(value: str) -> str:

@@ -80,14 +80,16 @@ def build_navigation_target(
     task_instance_id: str,
     task_run_id: str,
     session_id: str = "",
+    session_scope: dict[str, Any] | None = None,
     graph_run_id: str = "",
     graph_id: str = "",
     focus_node_id: str = "",
 ) -> dict[str, Any]:
+    scope = _navigation_scope(session_scope)
     if kind == "task_graph":
         return {
             "target_kind": "graph_task",
-            "workspace_view": "chat",
+            **scope,
             "session_id": session_id,
             "task_instance_id": task_instance_id,
             "task_run_id": task_run_id,
@@ -99,7 +101,7 @@ def build_navigation_target(
     if kind == "agent_run":
         return {
             "target_kind": "session",
-            "workspace_view": "chat",
+            **scope,
             "session_id": session_id,
             "task_instance_id": task_instance_id,
             "task_run_id": task_run_id,
@@ -110,7 +112,7 @@ def build_navigation_target(
         }
     return {
         "target_kind": "session",
-        "workspace_view": "chat",
+        **scope,
         "session_id": session_id,
         "task_instance_id": task_instance_id,
         "task_run_id": task_run_id,
@@ -125,3 +127,16 @@ def _bucket_sort_key(bucket: str):
     if bucket in {"completed", "failed"}:
         return lambda item: float(item.get("ended_at") or item.get("last_activity_at") or 0.0)
     return lambda item: float(item.get("last_activity_at") or 0.0)
+
+
+def _navigation_scope(session_scope: dict[str, Any] | None) -> dict[str, str]:
+    scope = dict(session_scope or {})
+    workspace_view = str(scope.get("workspace_view") or "chat").strip() or "chat"
+    task_environment_id = str(scope.get("task_environment_id") or "").strip()
+    project_id = str(scope.get("project_id") or "").strip()
+    payload = {"workspace_view": workspace_view}
+    if task_environment_id:
+        payload["task_environment_id"] = task_environment_id
+    if project_id:
+        payload["project_id"] = project_id
+    return payload

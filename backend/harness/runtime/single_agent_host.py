@@ -38,6 +38,7 @@ class SingleAgentRuntimeHost:
         backend_dir: Path | None = None,
         operation_gate: OperationGate | None = None,
         permission_mode_provider: Callable[[], str] | None = None,
+        session_scope_resolver: Callable[[str], dict[str, Any] | None] | None = None,
         tool_authorization_index: ToolAuthorizationIndex | None = None,
         tool_definitions: list[Any] | tuple[Any, ...] | None = None,
         tool_runtime_executor: Any | None = None,
@@ -57,6 +58,7 @@ class SingleAgentRuntimeHost:
         self.active_turn_registry = ActiveTurnRegistry(self)
         self.graph_checkpoint_store = LangGraphCheckpointStore(_build_graph_checkpoint_saver(self.root_dir))
         self.operation_gate = operation_gate or OperationGate(build_default_operation_registry())
+        self.session_scope_resolver = session_scope_resolver
         self.tool_control_plane = RuntimeToolControlPlane(
             tool_runtime_executor=tool_runtime_executor,
             operation_gate=self.operation_gate,

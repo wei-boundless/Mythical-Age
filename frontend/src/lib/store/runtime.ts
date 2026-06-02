@@ -36,15 +36,32 @@ import type { ChatStreamCursor, GlobalRuntimeMonitor, RuntimeMonitorEventPayload
 import { createIdleSessionActivity, type Store } from "./core";
 import { reduceStreamEvent, startStreamingTurn, type StreamSession } from "./events";
 import { RuntimeMonitorController } from "../runtime-monitor/controller";
-import type { ChatMode, ChatModelSelection, ChatTaskEnvironmentBinding, ChatThinkingMode, Message, RuntimeProgressEntry, SearchPolicySource, StoreActions, StoreState, TaskGraphCenterWorkspaceTarget, TaskGraphMonitorBinding, TaskSelectionState, WorkspaceView } from "./types";
+import type { ChatMode, ChatModelSelection, ChatTaskEnvironmentBinding, ChatThinkingMode, Message, RuntimeProgressEntry, SearchPolicySource, StoreActions, StoreState, TaskEnvironmentWorkspaceView, TaskGraphCenterWorkspaceTarget, TaskGraphMonitorBinding, TaskSelectionState, WorkspaceView } from "./types";
 import { makeId, toUiMessages } from "./utils";
 
 type HarnessSessionMonitor = NonNullable<Awaited<ReturnType<typeof getOrchestrationHarnessSessionLiveMonitor>>["monitor"]>;
 type RuntimeMonitorEvent = NonNullable<RuntimeMonitorEventPayload["runtime_event"]>;
 const MAX_LIVE_RUNTIME_PROGRESS_ENTRIES = 24;
+const TASK_ENVIRONMENT_WORKSPACE_MODES: Record<TaskEnvironmentWorkspaceView, { environmentLabel: string; taskEnvironmentId: string }> = {
+  chat: {
+    environmentLabel: "General Workspace",
+    taskEnvironmentId: "env.general.workspace",
+  },
+  "code-environment": {
+    environmentLabel: "Development Sandbox",
+    taskEnvironmentId: "env.development.sandbox",
+  },
+  creative: {
+    environmentLabel: "Creative Writing",
+    taskEnvironmentId: "env.creation.writing",
+  },
+};
+const TASK_ENVIRONMENT_VIEW_BY_ID = Object.fromEntries(
+  Object.entries(TASK_ENVIRONMENT_WORKSPACE_MODES).map(([view, item]) => [item.taskEnvironmentId, view])
+) as Record<string, TaskEnvironmentWorkspaceView | undefined>;
 const DEFAULT_CHAT_SESSION_SCOPE: Required<Pick<SessionScope, "workspace_view" | "task_environment_id" | "project_id">> = {
-  workspace_view: "chat",
-  task_environment_id: "",
+  workspace_view: "task_environment",
+  task_environment_id: TASK_ENVIRONMENT_WORKSPACE_MODES.chat.taskEnvironmentId,
   project_id: "",
 };
 
@@ -70,6 +87,8 @@ export class WorkspaceRuntime {
       hasActiveChatStream: () => this.hasActiveChatStream(),
       patchRuntimeAttachmentFromRuntimeEvent: (prev, event) => this.patchRuntimeAttachmentFromRuntimeEvent(prev, event as RuntimeMonitorEvent),
       applySelectedSessionShell: (sessionId) => this.applySelectedSessionShell(sessionId),
+      activateTaskEnvironmentSessionScope: (taskEnvironmentId, options) => this.activateTaskEnvironmentSessionScope(taskEnvironmentId, options),
+      workspaceViewForTaskEnvironment: (taskEnvironmentId) => this.workspaceViewForTaskEnvironment(taskEnvironmentId),
       refreshSessionDetails: (sessionId) => this.refreshSessionDetails(sessionId),
       hydrateLatestOrchestrationSnapshot: (sessionId) => this.hydrateLatestOrchestrationSnapshot(sessionId),
       syncWorkspaceViewUrl: (view) => this.syncWorkspaceViewUrl(view),
@@ -77,6 +96,9 @@ export class WorkspaceRuntime {
     this.actions = {
       setWorkspaceView: (view) => {
         this.setWorkspaceView(view);
+      },
+      setTaskEnvironmentWorkspaceView: (view) => {
+        this.setTaskEnvironmentWorkspaceView(view);
       },
       refreshWorkspaceTree: async () => {
         await this.refreshWorkspaceTree();
@@ -704,8 +726,8 @@ export class WorkspaceRuntime {
     }));
   }
 
-  private beginActivateSessionsForScope(scope: Partial<SessionScope>) {
-    const pending = this.activateSessionsForScope(scope);
+  private beginActivateSessionsForScope(scope: Partial<SessionScope>, preferredSessionId = "") {
+    const pending = this.activateSessionsForScope(scope, preferredSessionId);
     this.sessionScopeActivationPromise = pending;
     void pending.finally(() => {
       if (this.sessionScopeActivationPromise === pending) {
@@ -714,7 +736,7 @@ export class WorkspaceRuntime {
     });
   }
 
-  private async activateSessionsForScope(scope: Partial<SessionScope>) {
+  private async activateSessionsForScope(scope: Partial<SessionScope>, preferredSessionId = "") {
     try {
       const sessions = await listSessions(scope);
       if (!this.scopeMatches(this.currentSessionScope(), scope)) {
@@ -722,7 +744,12 @@ export class WorkspaceRuntime {
       }
       this.sessionListFailureNotifiedAt = 0;
       this.store.setState((prev) => ({ ...prev, sessions }));
-      const nextSession = sessions[0];
+      const normalizedPreferredSessionId = String(preferredSessionId || "").trim();
+      const nextSession = (
+        normalizedPreferredSessionId
+          ? sessions.find((session) => session.id === normalizedPreferredSessionId)
+          : null
+      ) ?? sessions[0];
       if (nextSession) {
         await this.selectSession(nextSession.id);
         return;
@@ -1463,16 +1490,27 @@ export class WorkspaceRuntime {
   private chatTaskSelectionPayload(state: StoreState): Record<string, unknown> | undefined {
     const binding = state.chatTaskEnvironmentBinding;
     const taskEnvironmentId = String(binding?.task_environment_id ?? "").trim();
-    if (!binding || !taskEnvironmentId) {
+    if (binding && taskEnvironmentId) {
+      return {
+        task_environment_id: taskEnvironmentId,
+        environment_id: taskEnvironmentId,
+        environment_label: String(binding.environment_label || taskEnvironmentId),
+        binding_kind: "chat_task_environment",
+        binding_source: binding.source,
+        bound_at: binding.bound_at,
+      };
+    }
+    const scope = state.activeSessionScope ?? DEFAULT_CHAT_SESSION_SCOPE;
+    const scopeEnvironmentId = String(scope.task_environment_id ?? "").trim();
+    if (String(scope.workspace_view || "").trim() !== "task_environment" || !scopeEnvironmentId) {
       return undefined;
     }
     return {
-      task_environment_id: taskEnvironmentId,
-      environment_id: taskEnvironmentId,
-      environment_label: String(binding.environment_label || taskEnvironmentId),
+      task_environment_id: scopeEnvironmentId,
+      environment_id: scopeEnvironmentId,
+      environment_label: this.taskEnvironmentLabel(scopeEnvironmentId),
       binding_kind: "chat_task_environment",
-      binding_source: binding.source,
-      bound_at: binding.bound_at,
+      binding_source: "session_scope",
     };
   }
 
@@ -1758,8 +1796,85 @@ export class WorkspaceRuntime {
   }
 
   private setWorkspaceView(view: WorkspaceView) {
+    if (this.isTaskEnvironmentWorkspaceView(view)) {
+      this.setTaskEnvironmentWorkspaceView(view);
+      return;
+    }
     this.store.setState((prev) => ({ ...prev, activeWorkspaceView: view }));
     this.syncWorkspaceViewUrl(view);
+  }
+
+  private isTaskEnvironmentWorkspaceView(view: WorkspaceView): view is TaskEnvironmentWorkspaceView {
+    return view === "chat" || view === "code-environment" || view === "creative";
+  }
+
+  private setTaskEnvironmentWorkspaceView(view: TaskEnvironmentWorkspaceView) {
+    const mode = TASK_ENVIRONMENT_WORKSPACE_MODES[view];
+    const binding: Omit<ChatTaskEnvironmentBinding, "bound_at"> = {
+      task_environment_id: mode.taskEnvironmentId,
+      environment_label: mode.environmentLabel,
+      source: "workspace-mode",
+    };
+    const scope = this.taskEnvironmentSessionScope(binding.task_environment_id);
+    const state = this.store.getState();
+    const alreadyActive = state.activeWorkspaceView === view
+      && this.scopeMatches(this.currentSessionScope(), scope)
+      && state.chatTaskEnvironmentBinding?.task_environment_id === binding.task_environment_id
+      && state.chatTaskEnvironmentBinding?.source === binding.source;
+
+    this.store.setState((prev) => ({ ...prev, activeWorkspaceView: view }));
+    this.syncWorkspaceViewUrl(view);
+    if (alreadyActive) {
+      return;
+    }
+    this.setChatTaskEnvironmentBinding(binding);
+  }
+
+  private taskEnvironmentLabel(taskEnvironmentId: string) {
+    return Object.values(TASK_ENVIRONMENT_WORKSPACE_MODES).find((item) => item.taskEnvironmentId === taskEnvironmentId)?.environmentLabel
+      ?? taskEnvironmentId;
+  }
+
+  private workspaceViewForTaskEnvironment(taskEnvironmentId: string): TaskEnvironmentWorkspaceView {
+    return TASK_ENVIRONMENT_VIEW_BY_ID[String(taskEnvironmentId || "").trim()] ?? "chat";
+  }
+
+  private activateTaskEnvironmentSessionScope(
+    taskEnvironmentId: string,
+    options: {
+      environmentLabel?: string;
+      preferredSessionId?: string;
+      source?: ChatTaskEnvironmentBinding["source"];
+    } = {},
+  ) {
+    const normalized = String(taskEnvironmentId || "").trim();
+    if (!normalized) {
+      return;
+    }
+    const binding = {
+      task_environment_id: normalized,
+      environment_label: String(options.environmentLabel || this.taskEnvironmentLabel(normalized)).trim() || normalized,
+      source: options.source ?? "workspace-mode",
+      bound_at: Date.now(),
+    } satisfies ChatTaskEnvironmentBinding;
+    const scope = this.taskEnvironmentSessionScope(normalized);
+    const state = this.store.getState();
+    const alreadyActive = this.scopeMatches(this.currentSessionScope(), scope)
+      && state.chatTaskEnvironmentBinding?.task_environment_id === normalized;
+    this.store.setState((prev) => ({
+      ...prev,
+      activeWorkspaceView: this.workspaceViewForTaskEnvironment(normalized),
+    }));
+    if (!alreadyActive) {
+      this.resetVisibleSessionForScope(scope, binding);
+    } else {
+      this.store.setState((prev) => ({
+        ...prev,
+        chatTaskEnvironmentBinding: binding,
+        activeSessionScope: scope,
+      }));
+    }
+    this.beginActivateSessionsForScope(scope, options.preferredSessionId);
   }
 
   private openTaskGraphWorkspace(target: Omit<TaskGraphCenterWorkspaceTarget, "layer" | "requested_at"> = {}) {
@@ -2405,6 +2520,8 @@ export class WorkspaceRuntime {
   }
 
   private clearChatTaskEnvironmentBinding() {
+    this.store.setState((prev) => ({ ...prev, activeWorkspaceView: "chat" }));
+    this.syncWorkspaceViewUrl("chat");
     this.resetVisibleSessionForScope(DEFAULT_CHAT_SESSION_SCOPE, null);
     this.beginActivateSessionsForScope(DEFAULT_CHAT_SESSION_SCOPE);
   }

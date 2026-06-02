@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from api.deps import require_runtime
+from api.session_summary import enrich_session_summaries
 from harness.runtime.session_timeline import build_session_runtime_timeline
 from task_system.session_scope import assert_optional_session_scope, request_scope_from_query
 
@@ -38,10 +39,13 @@ async def list_sessions(
     project_id: str | None = Query(default=None, max_length=240),
 ) -> list[dict[str, Any]]:
     runtime = require_runtime()
-    return runtime.session_manager.list_sessions(
-        workspace_view=workspace_view,
-        task_environment_id=task_environment_id,
-        project_id=project_id,
+    return enrich_session_summaries(
+        runtime.session_manager.list_sessions(
+            workspace_view=workspace_view,
+            task_environment_id=task_environment_id,
+            project_id=project_id,
+        ),
+        runtime,
     )
 
 

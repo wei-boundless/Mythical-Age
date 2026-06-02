@@ -336,6 +336,15 @@ def build_tool_action_request(task_run_id: str, event: dict[str, Any], *, step_i
     payload = dict(event.get("tool_call") or event.get("payload") or {})
     tool_name = str(payload.get("tool_name") or payload.get("name") or event.get("tool_name") or "")
     assistant_content_preview = str(event.get("assistant_content") or "").strip()
+    assistant_additional_kwargs = dict(event.get("assistant_additional_kwargs") or {})
+    assistant_protocol_message = {
+        "role": "assistant",
+        "content": assistant_content_preview,
+        "tool_calls": [payload] if payload else [],
+    }
+    reasoning_content = str(assistant_additional_kwargs.get("reasoning_content") or "").strip()
+    if reasoning_content:
+        assistant_protocol_message["reasoning_content"] = reasoning_content
     return RuntimeActionRequest(
         request_id=f"rtact:{task_run_id}:{uuid.uuid4().hex[:8]}",
         task_run_id=task_run_id,
@@ -348,6 +357,8 @@ def build_tool_action_request(task_run_id: str, event: dict[str, Any], *, step_i
             "tool_call": payload,
             "execution_state": "requested_not_dispatched",
             "assistant_content_preview": assistant_content_preview,
+            "assistant_additional_kwargs": assistant_additional_kwargs,
+            "assistant_protocol_message": assistant_protocol_message,
         },
         created_at=time.time(),
     )

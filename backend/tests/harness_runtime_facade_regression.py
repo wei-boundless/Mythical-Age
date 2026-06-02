@@ -255,6 +255,7 @@ def test_single_agent_turn_read_only_tool_executes_through_control_plane_and_fol
     model = NativeToolCallSequenceModelRuntimeStub(
         [
             {
+                "additional_kwargs": {"reasoning_content": "I should read requirements before answering."},
                 "tool_calls": [
                     {
                         "id": "call-read-requirements",
@@ -263,7 +264,11 @@ def test_single_agent_turn_read_only_tool_executes_through_control_plane_and_fol
                     }
                 ]
             },
-            {"content": "已经读取 requirements.txt。"},
+            {
+                "content": "已经读取 requirements.txt。",
+                "additional_kwargs": {"reasoning_content": "The file result is enough to answer."},
+            },
+            {"content": "第二轮继续回答。"},
         ]
     )
     base_dir = Path(__file__).resolve().parents[1]
@@ -321,6 +326,19 @@ def test_single_agent_turn_read_only_tool_executes_through_control_plane_and_fol
     assert any(event.get("type") == "turn_tool_observation_recorded" for event in events)
     assert any(event.get("type") == "done" and str(event.get("content") or "") == "已经读取 requirements.txt。" for event in events)
     assert runtime.single_agent_runtime_host.list_session_traces("session-single-turn-read-tool")["task_run_count"] == 0
+
+    async def _collect_second_turn() -> None:
+        async for _event in runtime.astream(HarnessRuntimeRequest(session_id="session-single-turn-read-tool", message="继续说明。")):
+            pass
+
+    asyncio.run(_collect_second_turn())
+    second_turn_messages = [dict(item) for item in list(model.seen_messages[-1] or []) if isinstance(item, dict)]
+    replayed_tool_call = next(item for item in second_turn_messages if item.get("role") == "assistant" and item.get("tool_calls"))
+    replayed_tool_result = next(item for item in second_turn_messages if item.get("role") == "tool")
+
+    assert replayed_tool_call["reasoning_content"] == "I should read requirements before answering."
+    assert dict(list(replayed_tool_call["tool_calls"])[0]).get("id") == "call-read-requirements"
+    assert replayed_tool_result["tool_call_id"] == "call-read-requirements"
 
 
 def test_single_agent_turn_side_effect_tool_is_blocked_before_runtime_dispatch() -> None:

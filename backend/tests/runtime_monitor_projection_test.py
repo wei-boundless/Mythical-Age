@@ -1,6 +1,8 @@
+import time
+from pathlib import Path
 from types import SimpleNamespace
 
-from harness.runtime.monitoring import RuntimeMonitorProjector
+from harness.runtime.monitoring import RuntimeMonitorProjector, RuntimeMonitorService
 
 
 class EventLogStub:
@@ -39,6 +41,14 @@ class EventStub:
         }
 
 
+class StateIndexStub:
+    def __init__(self, task_runs=None):
+        self._task_runs = list(task_runs or [])
+
+    def list_session_task_runs(self, session_id):
+        return [item for item in self._task_runs if getattr(item, "session_id", "") == session_id]
+
+
 def task_run(**patch):
     data = {
         "task_run_id": "taskrun:turn:session-a:1:abc",
@@ -53,6 +63,66 @@ def task_run(**patch):
     }
     data.update(patch)
     return SimpleNamespace(**data)
+
+
+def test_session_task_summary_uses_top_level_session_task_not_child_runs():
+    now = time.time()
+    top_level = task_run(
+        task_run_id="taskrun:turn:session-dev:1:root",
+        session_id="session-dev",
+        task_id="task:turn:session-dev:1",
+        status="running",
+        updated_at=now,
+        diagnostics={"title": "开发计算器"},
+    )
+    child_run = task_run(
+        task_run_id="taskrun:child:newer",
+        session_id="session-dev",
+        task_id="task.graph.node",
+        status="running",
+        updated_at=now + 10,
+        diagnostics={"graph_node_id": "node.compile"},
+    )
+    runtime_host = SimpleNamespace(
+        state_index=StateIndexStub([child_run, top_level]),
+        event_log=EventLogStub(),
+        backend_dir=Path.cwd(),
+    )
+    service = RuntimeMonitorService(runtime_host=runtime_host, freshness_seconds=300.0)
+
+    summary = service.get_session_task_summary("session-dev")
+
+    assert summary["available"] is True
+    assert summary["task_run_id"] == "taskrun:turn:session-dev:1:root"
+    assert summary["title"] == "开发计算器"
+    assert summary["task_run_count"] == 1
+
+
+def test_global_monitor_keeps_completed_and_failed_recent_tasks():
+    projector = RuntimeMonitorProjector(EventLogStub())
+    monitor = projector.build_global_monitor(
+        [
+            task_run(
+                task_run_id="taskrun:completed",
+                status="completed",
+                terminal_reason="completed",
+                updated_at=140.0,
+            ),
+            task_run(
+                task_run_id="taskrun:failed",
+                status="failed",
+                terminal_reason="executor_failed",
+                updated_at=150.0,
+            ),
+        ],
+        now=160.0,
+        limit=20,
+    )
+
+    assert [item["task_run_id"] for item in monitor["buckets"]["completed"]] == ["taskrun:completed"]
+    assert [item["task_run_id"] for item in monitor["buckets"]["failed"]] == ["taskrun:failed"]
+    assert monitor["summary"]["completed"] == 1
+    assert monitor["summary"]["failed"] == 1
 
 
 def test_running_monitor_items_are_dynamic_and_tick_with_now():
@@ -297,7 +367,7 @@ def test_unknown_status_enters_diagnostics():
     assert "unknown_task_status" in item["diagnostic_reasons"]
 
 
-def test_global_monitor_filters_internal_static_history_and_child_runs_and_applies_per_bucket_limit():
+def test_global_monitor_filters_child_runs_and_applies_per_bucket_limit():
     projector = RuntimeMonitorProjector(EventLogStub())
     runs = [
         task_run(task_run_id="taskrun:running-1", updated_at=140.0),
@@ -319,9 +389,9 @@ def test_global_monitor_filters_internal_static_history_and_child_runs_and_appli
     monitor = projector.build_global_monitor(runs, now=160.0, limit=1)
 
     assert [item["task_run_id"] for item in monitor["buckets"]["running"]] == ["taskrun:running-1"]
-    assert monitor["buckets"]["completed"] == []
+    assert [item["task_run_id"] for item in monitor["buckets"]["completed"]] == ["taskrun:completed-1"]
     assert "taskrun:child" not in {item["task_run_id"] for item in monitor["task_runs"]}
-    assert "taskrun:completed-1" not in {item["task_run_id"] for item in monitor["task_runs"]}
+    assert "taskrun:completed-2" not in {item["task_run_id"] for item in monitor["task_runs"]}
 
 
 def test_main_chat_taskinst_task_run_remains_monitorable():
@@ -350,6 +420,45 @@ def test_main_chat_taskinst_task_run_remains_monitorable():
         "target_kind": "session",
         "workspace_view": "chat",
         "session_id": "session-a",
+        "task_instance_id": run.task_run_id,
+        "task_run_id": run.task_run_id,
+        "graph_run_id": "",
+        "graph_id": "",
+        "mode": "conversation",
+        "focus_node_id": "",
+    }
+
+
+def test_monitor_navigation_uses_owning_task_environment_session_scope():
+    projector = RuntimeMonitorProjector(
+        EventLogStub(),
+        session_scope_resolver=lambda session_id: {
+            "workspace_view": "task_environment",
+            "task_environment_id": "env.development.sandbox",
+            "project_id": "",
+        } if session_id == "session-dev" else None,
+    )
+    run = task_run(
+        task_run_id="taskrun:turn:session-dev:1:abc",
+        session_id="session-dev",
+        task_id="task.dev.calculator",
+        execution_runtime_kind="single_agent_task",
+        diagnostics={},
+    )
+
+    item = projector.project_task_run(run, now=150.0)
+
+    assert item["title"] == "task.dev.calculator"
+    assert item["session_scope"] == {
+        "workspace_view": "task_environment",
+        "task_environment_id": "env.development.sandbox",
+        "project_id": "",
+    }
+    assert item["navigation_target"] == {
+        "target_kind": "session",
+        "workspace_view": "task_environment",
+        "task_environment_id": "env.development.sandbox",
+        "session_id": "session-dev",
         "task_instance_id": run.task_run_id,
         "task_run_id": run.task_run_id,
         "graph_run_id": "",

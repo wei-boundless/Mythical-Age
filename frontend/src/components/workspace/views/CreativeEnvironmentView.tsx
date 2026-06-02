@@ -153,6 +153,31 @@ function formatProjectState(project: ProjectInstance | null) {
   return "待开始";
 }
 
+function creativeSessionTaskTitle(session: SessionSummary) {
+  const task = session.active_task?.available ? session.active_task : null;
+  const title = String(task?.title || "").trim();
+  if (title && !/^(session|taskrun|task|turn|turnrun|grun|coordrun|rtobj|rtpacket)[:-]/i.test(title)) {
+    return title;
+  }
+  return session.title || "未命名沟通记录";
+}
+
+function creativeSessionTaskMeta(session: SessionSummary) {
+  const task = session.active_task?.available ? session.active_task : null;
+  if (!task) {
+    return `${session.message_count} 条`;
+  }
+  const status = String(task.status || task.lifecycle || "").trim();
+  const label = task.action_required
+    ? "需要处理"
+    : status === "running" || task.bucket === "running"
+      ? "运行中"
+      : status === "completed" || task.terminal
+        ? "已完成"
+        : status || "任务";
+  return `${label} · ${task.task_run_count > 1 ? `${task.task_run_count} 个任务记录` : "当前任务"}`;
+}
+
 function getRepositoryFiles(trees: Record<string, ProjectFileTreePayload>, repositoryId: string) {
   return collectFiles(trees[repositoryId]?.tree ?? null);
 }
@@ -304,8 +329,8 @@ function CreativeProjectRail({
                 type="button"
               >
                 <MessageSquare size={13} />
-                <span>{session.title || "未命名沟通记录"}</span>
-                <small>{new Date(session.updated_at * 1000).toLocaleDateString("zh-CN")}</small>
+                <span>{creativeSessionTaskTitle(session)}</span>
+                <small>{creativeSessionTaskMeta(session)}</small>
               </button>
             )) : <div className="creative-inline-state">暂无沟通记录。</div>}
           </div>
@@ -596,8 +621,8 @@ function CreativeCommandDesk({
                     type="button"
                   >
                     <MessageSquare size={14} />
-                    <span>{session.title || "未命名沟通记录"}</span>
-                    <em>{session.message_count} 条</em>
+                    <span>{creativeSessionTaskTitle(session)}</span>
+                    <em>{creativeSessionTaskMeta(session)}</em>
                   </button>
                 )) : <div className="creative-inline-state">新建或开始创作后，沟通记录会归入当前作品。</div>}
               </div>

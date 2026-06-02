@@ -66,7 +66,7 @@ export function RuntimeEvidencePanel({ toolCalls }: { toolCalls: ToolCall[] }) {
       <summary className="runtime-evidence-panel__summary">
         <ChevronRight size={13} className="runtime-evidence-panel__chevron" />
         <TerminalSquare size={13} />
-        <span>Running</span>
+        <span>工具细节</span>
         <code>{traceLabel}</code>
         {toolCalls.length > 1 ? <strong>{toolCalls.length} calls</strong> : null}
       </summary>

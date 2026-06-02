@@ -111,6 +111,7 @@ class HarnessRuntimeFacade:
                 permission_service=permission_service,
                 settings_service=settings_service,
             ),
+            session_scope_resolver=self._session_scope_for_monitor,
             tool_authorization_index=build_tool_authorization_index(
                 list(getattr(tool_runtime, "definitions", []) or [])
             ),
@@ -146,9 +147,32 @@ class HarnessRuntimeFacade:
             "task_executor_recovery": self.task_executor_recovery,
         }
 
+    def _session_scope_for_monitor(self, session_id: str) -> dict[str, Any] | None:
+        normalized = str(session_id or "").strip()
+        if not normalized:
+            return None
+        try:
+            history = self.session_manager.load_session_record(normalized)
+        except Exception:
+            return None
+        scope = dict(history.get("scope") or {})
+        if not scope:
+            return None
+        return {
+            "workspace_view": str(scope.get("workspace_view") or "chat").strip() or "chat",
+            "task_environment_id": str(scope.get("task_environment_id") or "").strip(),
+            "project_id": str(scope.get("project_id") or "").strip(),
+        }
+
     async def astream(self, request: HarnessRuntimeRequest):
         history_record = self.session_manager.load_session_record(request.session_id)
         raw_history = request.history or self.session_manager.load_session_for_agent(request.session_id)
+        api_transcript_loader = getattr(self.session_manager, "load_session_for_api", None)
+        api_transcript = (
+            api_transcript_loader(request.session_id)
+            if callable(api_transcript_loader) and not request.history
+            else list(raw_history or [])
+        )
         history_assembly = assemble_runtime_history(
             history=raw_history,
             compressed_context=str(history_record.get("compressed_context") or ""),
@@ -156,6 +180,7 @@ class HarnessRuntimeFacade:
         history = [dict(item) for item in history_assembly.model_history]
         session_context = {
             "compressed_context": history_assembly.compressed_context,
+            "api_transcript": [dict(item) for item in list(api_transcript or []) if isinstance(item, dict)],
         }
         turn_index = len(history_record.get("messages", [])) + 1
         turn_id = f"turn:{request.session_id}:{turn_index}"
@@ -993,9 +1018,22 @@ class HarnessRuntimeFacade:
                     {
                         "role": payload.get("role"),
                         "content": payload.get("content"),
+                        "turn_id": turn_id,
                     }
                 ],
             )
+            append_api = getattr(self.session_manager, "append_api_messages", None)
+            if callable(append_api):
+                append_api(
+                    session_id,
+                    [
+                        {
+                            "role": payload.get("role"),
+                            "content": payload.get("content"),
+                            "turn_id": turn_id,
+                        }
+                    ],
+                )
         return decision
 
     def _apply_assistant_message_commit(self, session_id: str, payload: dict[str, Any]):
@@ -1005,6 +1043,7 @@ class HarnessRuntimeFacade:
                 {
                     "role": payload.get("role"),
                     "content": payload.get("content"),
+                    "turn_id": payload.get("turn_id"),
                     "image": payload.get("image"),
                     "answer_channel": payload.get("answer_channel"),
                     "answer_source": payload.get("answer_source"),
@@ -1015,6 +1054,30 @@ class HarnessRuntimeFacade:
                 }
             ],
         )
+        append_api = getattr(self.session_manager, "append_api_messages", None)
+        if callable(append_api):
+            protocol_messages = [
+                dict(item)
+                for item in list(payload.get("api_protocol_messages") or [])
+                if isinstance(item, dict)
+            ]
+            if protocol_messages:
+                append_api(session_id, protocol_messages)
+            else:
+                append_api(
+                    session_id,
+                    [
+                        {
+                            "role": payload.get("role"),
+                            "content": payload.get("content"),
+                            "turn_id": payload.get("turn_id"),
+                            "reasoning_content": payload.get("reasoning_content"),
+                            "tool_calls": payload.get("tool_calls"),
+                            "tool_call_id": payload.get("tool_call_id"),
+                            "name": payload.get("name"),
+                        }
+                    ],
+                )
         history = self.session_manager.load_session(session_id)
         main_context = dict(payload.get("main_context") or {})
         task_summary_refs = [

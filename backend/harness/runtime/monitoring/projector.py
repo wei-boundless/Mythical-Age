@@ -23,10 +23,18 @@ from .lifecycle import (
 
 
 class RuntimeMonitorProjector:
-    def __init__(self, event_log: Any, *, freshness_seconds: float = 5 * 60.0, resource_resolver: Any | None = None) -> None:
+    def __init__(
+        self,
+        event_log: Any,
+        *,
+        freshness_seconds: float = 5 * 60.0,
+        resource_resolver: Any | None = None,
+        session_scope_resolver: Any | None = None,
+    ) -> None:
         self.event_log = event_log
         self.freshness_seconds = float(freshness_seconds)
         self.resource_resolver = resource_resolver
+        self.session_scope_resolver = session_scope_resolver
 
     def project_task_run(self, task_run: Any, *, now: float, include_runtime_details: bool = True) -> dict[str, Any]:
         current_time = float(now)
@@ -51,6 +59,7 @@ class RuntimeMonitorProjector:
         )
         action_required = status in {"waiting_approval"} | BLOCKED_TASK_RUN_STATUSES or control_state == "paused"
         route = self._route(task_run, diagnostics)
+        session_scope = self._session_scope(task_run, diagnostics)
         diagnostic_reasons = self._diagnostic_reasons(
             task_run=task_run,
             status=status,
@@ -127,6 +136,7 @@ class RuntimeMonitorProjector:
             task_instance_id=task_instance_id,
             task_run_id=task_run_id,
             session_id=str(getattr(task_run, "session_id", "") or ""),
+            session_scope=session_scope,
             graph_run_id=graph_run_id,
             graph_id=graph_id,
             focus_node_id=str((graph_status or {}).get("active_node_id") or diagnostics.get("active_node_id") or diagnostics.get("node_id") or ""),
@@ -189,6 +199,7 @@ class RuntimeMonitorProjector:
             "executor_epoch": int(diagnostics.get("executor_epoch") or 0),
             "next_invocation_index": int(diagnostics.get("next_invocation_index") or 0),
             "route": route,
+            "session_scope": session_scope,
             "graph_run_id": graph_run_id,
             "graph_harness_config_id": graph_harness_config_id,
             "graph_id": graph_id,
@@ -208,7 +219,7 @@ class RuntimeMonitorProjector:
             for task_run in sorted(task_runs, key=lambda item: float(getattr(item, "updated_at", 0.0) or 0.0), reverse=True)
             if not self._is_internal_child_run(task_run)
         ]
-        items = [item for item in projected if self._is_global_live_item(item)]
+        items = projected
         return build_envelope(scope="global", items=items, now=now, limit=limit)
 
     def build_session_monitor(self, session_id: str, task_runs: list[Any], *, now: float, limit: int = 20) -> dict[str, Any]:
@@ -284,6 +295,51 @@ class RuntimeMonitorProjector:
             "graph_harness_config_id": graph_harness_config_id,
         }
 
+    def _session_scope(self, task_run: Any, diagnostics: dict[str, Any]) -> dict[str, str]:
+        session_id = str(getattr(task_run, "session_id", "") or "").strip()
+        runtime_scope = dict(diagnostics.get("runtime_scope") or {})
+        task_selection = dict(diagnostics.get("runtime_task_selection") or diagnostics.get("task_selection") or {})
+        resolved = {
+            "workspace_view": str(
+                diagnostics.get("workspace_view")
+                or runtime_scope.get("workspace_view")
+                or task_selection.get("workspace_view")
+                or ""
+            ).strip(),
+            "task_environment_id": str(
+                diagnostics.get("task_environment_id")
+                or runtime_scope.get("task_environment_id")
+                or task_selection.get("task_environment_id")
+                or task_selection.get("environment_id")
+                or ""
+            ).strip(),
+            "project_id": str(
+                diagnostics.get("project_id")
+                or runtime_scope.get("project_id")
+                or task_selection.get("project_id")
+                or ""
+            ).strip(),
+        }
+        if not resolved["workspace_view"] and resolved["task_environment_id"]:
+            resolved["workspace_view"] = "task_environment"
+        resolver = getattr(self, "session_scope_resolver", None)
+        if callable(resolver) and session_id:
+            try:
+                session_scope = dict(resolver(session_id) or {})
+            except Exception:
+                session_scope = {}
+            if session_scope:
+                resolved = {
+                    "workspace_view": str(session_scope.get("workspace_view") or resolved["workspace_view"] or "chat").strip() or "chat",
+                    "task_environment_id": str(session_scope.get("task_environment_id") or resolved["task_environment_id"]).strip(),
+                    "project_id": str(session_scope.get("project_id") or resolved["project_id"]).strip(),
+                }
+        return {
+            "workspace_view": resolved["workspace_view"] or "chat",
+            "task_environment_id": resolved["task_environment_id"],
+            "project_id": resolved["project_id"],
+        }
+
     def _kind_from_route(self, route: dict[str, str]) -> str:
         route_kind = str(route.get("kind") or "")
         if route_kind == "task_graph_run":
@@ -340,6 +396,9 @@ class RuntimeMonitorProjector:
             or diagnostics.get("graph_work_order_id")
         )
 
+    def is_top_level_task_run(self, task_run: Any) -> bool:
+        return not self._is_internal_child_run(task_run)
+
     def _is_global_live_item(self, item: dict[str, Any]) -> bool:
         bucket = str(item.get("bucket") or "").strip()
         if bucket in {"running", "diagnostics"}:
@@ -351,6 +410,14 @@ class RuntimeMonitorProjector:
             value = self._public_text(diagnostics.get(key))
             if value:
                 return value
+        contract = dict(diagnostics.get("contract") or {})
+        for key in ("user_visible_goal", "task_run_goal", "goal", "title"):
+            value = self._public_text(contract.get(key))
+            if value:
+                return value
+        task_id = self._public_task_id(getattr(task_run, "task_id", ""))
+        if task_id:
+            return task_id
         if str(getattr(task_run, "execution_runtime_kind", "") or "") == "single_agent_task":
             return "Agent 运行"
         if lifecycle == "completed":
@@ -368,6 +435,14 @@ class RuntimeMonitorProjector:
     def _public_text(self, value: Any) -> str:
         candidate = str(value or "").strip()
         if not candidate or _looks_internal_identifier(candidate):
+            return ""
+        return candidate
+
+    def _public_task_id(self, value: Any) -> str:
+        candidate = str(value or "").strip()
+        if not candidate:
+            return ""
+        if candidate.startswith("task:turn:") or candidate.startswith("taskrun:") or candidate.startswith("turn:"):
             return ""
         return candidate
 

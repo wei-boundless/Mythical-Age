@@ -35,6 +35,7 @@ export function ChatPanel() {
   } = useAppStore();
   const endRef = useRef<HTMLDivElement | null>(null);
   const currentSessionStreaming = Boolean(currentSessionId && activeStreamSessionIds.includes(currentSessionId));
+  const canClearTaskEnvironmentBinding = Boolean(chatTaskEnvironmentBinding && chatTaskEnvironmentBinding.source !== "workspace-mode");
   const monitorRecord = taskGraphLiveMonitor as Record<string, unknown> | null;
   const monitorTaskRun = taskGraphLiveMonitor?.task_run ?? {};
   const monitorRuntimeControl = taskGraphLiveMonitor?.runtime_control ?? {};
@@ -150,9 +151,11 @@ export function ChatPanel() {
             <div className="chat-task-environment-binding" title={chatTaskEnvironmentBinding.task_environment_id}>
               <span>环境</span>
               <strong>{chatTaskEnvironmentBinding.environment_label || chatTaskEnvironmentBinding.task_environment_id}</strong>
-              <button aria-label="解除任务环境绑定" onClick={clearChatTaskEnvironmentBinding} type="button">
-                <X size={13} />
-              </button>
+              {canClearTaskEnvironmentBinding ? (
+                <button aria-label="解除任务环境绑定" onClick={clearChatTaskEnvironmentBinding} type="button">
+                  <X size={13} />
+                </button>
+              ) : null}
             </div>
           ) : null}
           <ChatSearchPolicyControls

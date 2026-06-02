@@ -605,6 +605,54 @@ def test_single_agent_turn_projects_compressed_context_as_session_context() -> N
     assert str(context_window["compressed_summary_hash"]).startswith("sha256:")
 
 
+def test_single_agent_turn_replays_api_transcript_as_real_chat_messages() -> None:
+    result = RuntimeCompiler().compile_single_agent_turn_packet(
+        session_id="session:deepseek-protocol",
+        turn_id="turn:deepseek-protocol:2",
+        agent_invocation_id="aginvoke:deepseek-protocol",
+        user_message="继续查广州。",
+        history=[
+            {"role": "user", "content": "查杭州天气。"},
+            {"role": "assistant", "content": "杭州天气结果。"},
+        ],
+        session_context={
+            "api_transcript": [
+                {"role": "user", "content": "查杭州天气。"},
+                {
+                    "role": "assistant",
+                    "content": "",
+                    "reasoning_content": "I need the date first.",
+                    "tool_calls": [{"id": "call_1", "name": "get_date", "args": {}, "type": "tool_call"}],
+                },
+                {"role": "tool", "tool_call_id": "call_1", "content": "2026-04-20"},
+                {"role": "assistant", "content": "杭州天气结果。", "reasoning_content": "Now I can answer."},
+            ]
+        },
+        runtime_assembly={
+            "profile": {"mode": "conversation"},
+            "task_environment": {"environment_id": "env.general.workspace"},
+        },
+    )
+
+    messages = result.packet.model_messages
+    assistant_tool_message = next(item for item in messages if item.get("tool_calls"))
+    tool_message = next(item for item in messages if item.get("role") == "tool")
+    current_request_text = str(messages[-1].get("content") or "")
+
+    assert assistant_tool_message["role"] == "assistant"
+    assert assistant_tool_message["content"] == ""
+    assert assistant_tool_message["reasoning_content"] == "I need the date first."
+    assert assistant_tool_message["tool_calls"][0]["id"] == "call_1"
+    assert tool_message["tool_call_id"] == "call_1"
+    assert sum(1 for item in messages if item.get("reasoning_content") == "I need the date first.") == 1
+    assert "I need the date first." not in current_request_text
+    assert "Now I can answer." not in current_request_text
+    assert any(
+        segment["kind"] == "provider_protocol_history" and segment["cache_role"] == "never_cache"
+        for segment in result.packet.segment_plan["segments"]
+    )
+
+
 def test_model_aware_context_budget_uses_deepseek_1m_for_v4_models() -> None:
     policy = build_model_aware_context_budget_policy(
         invocation_kind="single_agent_turn",

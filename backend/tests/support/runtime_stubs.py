@@ -72,6 +72,7 @@ class DefaultPermissionStub:
 class InMemorySessionManagerStub:
     def __init__(self) -> None:
         self.messages: list[dict[str, object]] = []
+        self.api_transcript: list[dict[str, object]] = []
         self.compressed_context = ""
 
     def load_session_record(self, _session_id):
@@ -83,9 +84,16 @@ class InMemorySessionManagerStub:
     def load_session(self, _session_id):
         return list(self.messages)
 
+    def load_session_for_api(self, _session_id):
+        return list(self.api_transcript or self.messages)
+
     def append_messages(self, _session_id, messages):
         self.messages.extend(messages)
         return list(messages)
+
+    def append_api_messages(self, _session_id, messages):
+        self.api_transcript.extend(messages)
+        return list(self.api_transcript)
 
 
 class EmptyToolRuntimeStub:
@@ -172,6 +180,7 @@ class NativeToolCallSequenceModelRuntimeStub(SingleMessageModelRuntimeStub):
         return SimpleNamespace(
             content=str(response.get("content") or ""),
             tool_calls=[dict(item) for item in list(response.get("tool_calls") or []) if isinstance(item, dict)],
+            additional_kwargs=dict(response.get("additional_kwargs") or {}),
         )
 
 

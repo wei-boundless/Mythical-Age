@@ -21,12 +21,36 @@ export type SessionSummary = {
   updated_at: number;
   message_count: number;
   scope?: SessionScope;
+  active_task?: SessionTaskSummary;
 };
 
 export type SessionScope = {
   workspace_view: string;
   task_environment_id?: string;
   project_id?: string;
+};
+
+export type SessionTaskSummary = {
+  available: boolean;
+  selection?: "active" | "latest" | string;
+  task_run_count: number;
+  latest_task_run_id?: string;
+  task_run_id?: string;
+  task_instance_id?: string;
+  task_id?: string;
+  kind?: string;
+  title?: string;
+  summary?: string;
+  status?: string;
+  lifecycle?: string;
+  bucket?: string;
+  terminal?: boolean;
+  action_required?: boolean;
+  graph_run_id?: string;
+  graph_id?: string;
+  graph_harness_config_id?: string;
+  created_at?: number;
+  updated_at?: number;
 };
 
 function sessionScopeQuery(scope?: Partial<SessionScope>) {

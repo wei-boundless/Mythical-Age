@@ -138,6 +138,8 @@ export type WorkspaceView =
   | "code-environment"
   | "system-config";
 
+export type TaskEnvironmentWorkspaceView = Extract<WorkspaceView, "chat" | "code-environment" | "creative">;
+
 export type SearchPolicySource = "rag" | "local_files" | "web";
 
 export type SearchPolicyState = Record<SearchPolicySource, boolean>;
@@ -196,7 +198,7 @@ export type TaskSelectionState = {
 export type ChatTaskEnvironmentBinding = {
   task_environment_id: string;
   environment_label: string;
-  source: "task-system" | "task-graph-workbench" | "center-workspace";
+  source: "task-system" | "task-graph-workbench" | "center-workspace" | "workspace-mode";
   bound_at: number;
 };
 
@@ -300,6 +302,7 @@ export type StoreState = {
 
 export type StoreActions = {
   setWorkspaceView: (view: WorkspaceView) => void;
+  setTaskEnvironmentWorkspaceView: (view: TaskEnvironmentWorkspaceView) => void;
   refreshWorkspaceTree: () => Promise<void>;
   createNewSession: () => Promise<void>;
   selectSession: (sessionId: string) => Promise<void>;

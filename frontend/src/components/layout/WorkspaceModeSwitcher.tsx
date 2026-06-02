@@ -3,12 +3,10 @@
 import { ChevronDown } from "lucide-react";
 
 import { useAppStore } from "@/lib/store";
-import type { WorkspaceView } from "@/lib/store/types";
-
-type SwitchableWorkspaceView = Extract<WorkspaceView, "chat" | "code-environment" | "creative">;
+import type { TaskEnvironmentWorkspaceView } from "@/lib/store/types";
 
 type WorkspaceModeItem = {
-  view: SwitchableWorkspaceView;
+  view: TaskEnvironmentWorkspaceView;
   optionLabel: string;
 };
 
@@ -25,16 +23,16 @@ export function WorkspaceModeSwitcher({
   ariaLabel?: string;
   className?: string;
 }) {
-  const { activeWorkspaceView, setWorkspaceView } = useAppStore();
+  const { activeWorkspaceView, setTaskEnvironmentWorkspaceView } = useAppStore();
   const switchableView = WORKSPACE_MODE_ITEMS.some((item) => item.view === activeWorkspaceView)
-    ? activeWorkspaceView as SwitchableWorkspaceView
+    ? activeWorkspaceView as TaskEnvironmentWorkspaceView
     : "chat";
 
   return (
     <label className={["workbench-mode-select", className].filter(Boolean).join(" ")} aria-label={ariaLabel}>
       <select
         value={switchableView}
-        onChange={(event) => setWorkspaceView(event.target.value as SwitchableWorkspaceView)}
+        onChange={(event) => setTaskEnvironmentWorkspaceView(event.target.value as TaskEnvironmentWorkspaceView)}
       >
         {WORKSPACE_MODE_ITEMS.map((item) => (
           <option key={item.view} value={item.view}>{item.optionLabel}</option>

@@ -7750,13 +7750,13 @@ button:hover {
   --runtime-muted: #64748b;
   --runtime-soft: #94a3b8;
   --runtime-line: rgba(148, 163, 184, 0.24);
-  gap: 5px;
+  gap: 4px;
   width: min(100%, 78ch);
-  margin: 0 0 9px;
+  margin: 0 0 8px;
   padding-left: 0;
   border: 0;
   color: var(--runtime-muted);
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .runtime-run-summary--running {
@@ -7777,8 +7777,8 @@ button:hover {
 
 .runtime-mission-strip {
   display: grid;
-  grid-template-columns: 18px minmax(0, 1fr);
-  gap: 10px;
+  grid-template-columns: 20px minmax(0, 1fr);
+  gap: 9px;
   min-width: 0;
   padding: 0;
 }
@@ -7786,8 +7786,8 @@ button:hover {
 .runtime-mission-strip__mark {
   position: relative;
   display: inline-flex;
-  width: 18px;
-  height: 22px;
+  width: 20px;
+  height: 24px;
   align-items: center;
   justify-content: center;
   color: var(--runtime-accent);
@@ -7795,8 +7795,8 @@ button:hover {
 
 .runtime-mission-strip__mark::after {
   position: absolute;
-  top: 22px;
-  bottom: -42px;
+  top: 25px;
+  bottom: -38px;
   left: 50%;
   width: 1px;
   background: var(--runtime-line);
@@ -7806,43 +7806,8 @@ button:hover {
 
 .runtime-mission-strip__copy {
   display: grid;
-  gap: 4px;
+  gap: 3px;
   min-width: 0;
-}
-
-.runtime-mission-strip__topline {
-  display: flex;
-  min-width: 0;
-  align-items: baseline;
-  justify-content: flex-start;
-  gap: 7px;
-  flex-wrap: wrap;
-}
-
-.runtime-mission-strip__topline strong {
-  min-width: 0;
-  overflow: hidden;
-  color: var(--runtime-ink);
-  font-size: 12.8px;
-  font-weight: 760;
-  line-height: 1.25;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.runtime-mission-strip__topline span,
-.runtime-mission-strip__topline em {
-  flex: 0 0 auto;
-  color: var(--runtime-muted);
-  font-size: 11.2px;
-  font-style: normal;
-  font-weight: 650;
-  line-height: 1.35;
-  white-space: nowrap;
-}
-
-.runtime-mission-strip__topline em {
-  color: color-mix(in srgb, var(--runtime-accent) 72%, #64748b);
 }
 
 .runtime-mission-strip p,
@@ -7853,23 +7818,39 @@ button:hover {
   line-height: 1.58;
 }
 
-.runtime-mission-strip p {
+.runtime-mission-strip__sentence {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.runtime-mission-strip__sentence strong {
+  color: var(--runtime-ink);
+  font-size: 13.5px;
+  font-weight: 720;
+  line-height: 1.35;
+}
+
+.runtime-mission-strip__sentence span {
+  color: color-mix(in srgb, var(--runtime-accent) 70%, #64748b);
+  font-size: 12px;
+  font-weight: 620;
+  line-height: 1.4;
+}
+
+.runtime-mission-strip__body {
   color: #334155;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 500;
+  max-width: 72ch;
 }
 
 .runtime-mission-strip small {
-  display: grid;
-  grid-template-columns: max-content minmax(0, 1fr);
-  gap: 7px;
   color: #64748b;
-  font-size: 12px;
-}
-
-.runtime-mission-strip__next > span {
-  color: color-mix(in srgb, var(--runtime-accent) 78%, #64748b);
-  font-weight: 720;
+  font-size: 12.5px;
+  font-weight: 470;
 }
 
 .workbench-collapsed-rail {
@@ -9017,12 +8998,9 @@ button:hover {
     width: 100%;
   }
 
-  .runtime-mission-strip__topline {
-    align-items: start;
-  }
-
-  .runtime-mission-strip__topline {
-    gap: 4px 7px;
+  .runtime-mission-strip__sentence {
+    align-items: flex-start;
+    gap: 3px 7px;
   }
 
   .runtime-progress-detail {
@@ -25572,19 +25550,23 @@ html[data-workspace-tone] .agent-workbench {
 
 .workbench-file-row strong,
 .workbench-session-row strong {
+  min-width: 0;
   overflow: hidden;
   color: var(--workbench-text);
   font-size: 0.76rem;
   font-weight: 720;
+  line-height: 1.2;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .workbench-file-row small,
 .workbench-session-row small {
+  min-width: 0;
   overflow: hidden;
   color: var(--workbench-muted);
   font-size: 0.64rem;
+  line-height: 1.25;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -25779,9 +25761,9 @@ html[data-workspace-tone] .agent-workbench {
 }
 
 .workbench-session-row button:first-child {
-  display: flex;
-  align-items: baseline;
-  gap: 0.42rem;
+  display: grid;
+  align-items: center;
+  gap: 0.14rem;
   min-width: 0;
   padding: 0.48rem 0.36rem;
   text-align: left;
@@ -26718,9 +26700,14 @@ html[data-workspace-tone] .agent-workbench {
 }
 
 .workbench-right-body {
+  height: 100%;
   min-width: 0;
   min-height: 0;
   overflow: hidden;
+}
+
+.workbench-right-panel > .workbench-right-body:first-child {
+  grid-row: 1 / -1;
 }
 
 .task-monitor-dock--embedded {
@@ -27839,6 +27826,8 @@ html[data-workspace-tone] .agent-workbench {
 }
 
 .runtime-monitor-list {
+  position: relative;
+  z-index: 1;
   display: grid;
   align-content: start;
   gap: 0.28rem;
@@ -27849,6 +27838,8 @@ html[data-workspace-tone] .agent-workbench {
 }
 
 .runtime-monitor-row {
+  position: relative;
+  z-index: 1;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
@@ -32255,15 +32246,32 @@ html[data-workspace-tone] .agent-workbench {
   background: transparent;
 }
 
-.agent-workbench .runtime-mission-strip p {
+.agent-workbench .runtime-mission-strip__sentence strong {
+  color: #0f172a;
+  font-size: 14px;
+  font-weight: 680;
+}
+
+.agent-workbench .runtime-mission-strip__sentence span {
+  font-size: 12.5px;
+}
+
+.agent-workbench .runtime-mission-strip__body {
   color: #334155;
-  font-size: 13px;
-  line-height: 1.6;
+  font-size: 14px;
+  line-height: 1.62;
+}
+
+.agent-workbench .runtime-mission-strip__next {
+  color: #6b7280;
+  font-size: 12.5px;
+  line-height: 1.55;
 }
 
 .agent-workbench .runtime-progress-detail > summary,
 .agent-workbench .runtime-technical-trace summary {
   font-size: 12px;
+  color: #9aa3b2;
 }
 
 .agent-workbench .runtime-evidence-panel__summary {

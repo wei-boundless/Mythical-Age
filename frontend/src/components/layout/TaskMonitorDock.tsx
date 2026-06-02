@@ -17,6 +17,8 @@ import {
 } from "@/components/layout/runtimeMonitorFormat";
 import { useRuntimeNowTicker } from "@/components/layout/runtimeNowTicker";
 
+type RuntimeMonitorBucket = "running" | "completed" | "failed" | "diagnostics";
+
 function statusIcon(status: string) {
   if (isWaitingStatus(status)) return <PauseCircle size={14} />;
   if (status === "completed" || status === "success") return <CheckCircle2 size={14} />;
@@ -35,11 +37,17 @@ export function TaskMonitorDock({ embedded = false }: { embedded?: boolean }) {
     refreshGlobalRuntimeMonitor,
   } = useAppStore();
   const [collapsed, setCollapsed] = useState(false);
-  const [activeBucket, setActiveBucket] = useState<"running" | "completed" | "failed" | "diagnostics">("running");
+  const [activeBucket, setActiveBucket] = useState<RuntimeMonitorBucket>("running");
   const runningRuns = useMemo(() => monitorBucketItems(globalRuntimeMonitor, "running"), [globalRuntimeMonitor]);
   const completedRuns = useMemo(() => monitorBucketItems(globalRuntimeMonitor, "completed"), [globalRuntimeMonitor]);
   const failedRuns = useMemo(() => monitorBucketItems(globalRuntimeMonitor, "failed"), [globalRuntimeMonitor]);
   const diagnosticsRuns = useMemo(() => monitorBucketItems(globalRuntimeMonitor, "diagnostics"), [globalRuntimeMonitor]);
+  const bucketCounts = useMemo<Record<RuntimeMonitorBucket, number>>(() => ({
+    running: runningRuns.length,
+    completed: completedRuns.length,
+    failed: failedRuns.length,
+    diagnostics: diagnosticsRuns.length,
+  }), [completedRuns.length, diagnosticsRuns.length, failedRuns.length, runningRuns.length]);
   const runs = activeBucket === "running" ? runningRuns : activeBucket === "completed" ? completedRuns : activeBucket === "failed" ? failedRuns : diagnosticsRuns;
   const allRuns = useMemo(() => [...runningRuns, ...completedRuns, ...failedRuns, ...diagnosticsRuns], [completedRuns, diagnosticsRuns, failedRuns, runningRuns]);
   const summary = globalRuntimeMonitor?.summary;
@@ -71,6 +79,15 @@ export function TaskMonitorDock({ embedded = false }: { embedded?: boolean }) {
     collapseQuery.addEventListener("change", collapseOnNarrow);
     return () => collapseQuery.removeEventListener("change", collapseOnNarrow);
   }, []);
+
+  useEffect(() => {
+    if (bucketCounts[activeBucket] > 0) return;
+    const nextBucket = (["running", "completed", "failed", "diagnostics"] as RuntimeMonitorBucket[])
+      .find((bucket) => bucketCounts[bucket] > 0);
+    if (nextBucket && nextBucket !== activeBucket) {
+      setActiveBucket(nextBucket);
+    }
+  }, [activeBucket, bucketCounts]);
 
   const statusText = useMemo(() => {
     if (globalRuntimeMonitorLoading && !globalRuntimeMonitor) return "同步中";

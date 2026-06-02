@@ -21,6 +21,7 @@ import { useEffect, useState, type CSSProperties, type PointerEvent as ReactPoin
 import { TaskMonitorDock } from "@/components/layout/TaskMonitorDock";
 import { WorkspaceModeSwitcher } from "@/components/layout/WorkspaceModeSwitcher";
 import { openCodeEnvironmentWorkspaceRoot, type CodeEnvironmentTreeNode } from "@/lib/api";
+import type { SessionSummary, SessionTaskSummary } from "@/lib/api";
 import { useAppStore } from "@/lib/store";
 
 const LEFT_WIDTH_KEY = "agentWorkbench.leftWidth";
@@ -133,6 +134,50 @@ function formatSessionTime(timestamp: number) {
     minute: "2-digit",
     hour12: false,
   }).format(date);
+}
+
+function taskStatusLabel(task: SessionTaskSummary | undefined) {
+  const status = String(task?.status || task?.lifecycle || "").trim();
+  if (task?.action_required) return "需要处理";
+  if (status === "running" || task?.bucket === "running") return "运行中";
+  if (status === "waiting_executor") return "等待继续";
+  if (status === "waiting_approval") return "等待确认";
+  if (status === "completed" || task?.terminal) return "已完成";
+  if (status === "failed" || status === "error") return "失败";
+  if (status === "aborted" || status === "stopped") return "已停止";
+  return status || "任务";
+}
+
+function sessionTask(session: SessionSummary) {
+  return session.active_task?.available ? session.active_task : undefined;
+}
+
+function sessionDisplayTitle(session: SessionSummary) {
+  const task = sessionTask(session);
+  const taskTitle = String(task?.title || "").trim();
+  if (taskTitle && taskTitle !== "Agent 运行" && !looksRuntimeIdentifier(taskTitle, session.id)) {
+    return taskTitle;
+  }
+  const taskId = String(task?.task_id || "").trim();
+  if (taskId && !looksRuntimeIdentifier(taskId, session.id)) {
+    return taskId;
+  }
+  const summary = String(task?.summary || "").replace(/\s+/g, " ").trim();
+  if (summary && !looksRuntimeIdentifier(summary, session.id)) {
+    return summary.length > 28 ? `${summary.slice(0, 28)}...` : summary;
+  }
+  return friendlySessionTitle(session.title, session.id);
+}
+
+function sessionMetaLine(session: SessionSummary) {
+  const task = sessionTask(session);
+  if (!task) {
+    return `${session.message_count} 条消息 · ${formatSessionTime(session.updated_at)}`;
+  }
+  const updatedAt = Number(task.updated_at || session.updated_at || 0);
+  const taskCount = Number(task.task_run_count || 0);
+  const countLabel = taskCount > 1 ? `${taskCount} 个任务记录` : "当前任务";
+  return `${taskStatusLabel(task)} · ${countLabel} · ${formatSessionTime(updatedAt)}`;
 }
 
 function usePersistedWorkbenchWidths() {
@@ -361,8 +406,8 @@ function WorkspaceManagerPanel({ onOpenFile }: { onOpenFile: (path: string) => v
             {visibleSessions.length ? visibleSessions.map((session) => (
               <div className={session.id === currentSessionId ? "workbench-session-row workbench-session-row--active" : "workbench-session-row"} key={session.id}>
                 <button aria-current={session.id === currentSessionId ? "page" : undefined} onClick={() => void selectSession(session.id)} type="button">
-                  <strong>{session.title || "未命名会话"}</strong>
-                  <small>{session.message_count} · {formatSessionTime(session.updated_at)}</small>
+                  <strong>{sessionDisplayTitle(session)}</strong>
+                  <small>{sessionMetaLine(session)}</small>
                 </button>
                 <button aria-label={`删除 ${session.title}`} onClick={() => void removeSession(session.id)} type="button">
                   <Trash2 size={13} />

@@ -45,7 +45,15 @@ function looksInternalIdentifier(value: string) {
 
 function publicText(value: unknown) {
   const candidate = text(value);
+  if (candidate === "Agent 运行") return "";
   return candidate && !looksInternalIdentifier(candidate) ? candidate : "";
+}
+
+function publicTaskId(value: unknown) {
+  const candidate = text(value);
+  if (!candidate) return "";
+  if (candidate.startsWith("task:turn:") || candidate.startsWith("taskrun:") || candidate.startsWith("turn:")) return "";
+  return candidate;
 }
 
 function statusFromMonitor(item: RuntimeMonitorItem) {
@@ -84,7 +92,7 @@ function agentRuntimeProjection(item: RuntimeMonitorItem): RuntimeWorkProjection
     workId: monitorItemInstanceId(item) || text(item.task_run_id),
     workKind: "agent_runtime_run",
     primaryRunId: text(item.task_run_id),
-    title: publicText(item.title) || "持续处理",
+    title: publicText(item.title) || publicTaskId(item.task_id) || "持续处理",
     status: statusFromMonitor(item),
     displayTypeLabel: "持续处理",
     latestStepSummary: text(item.latest_step_summary),

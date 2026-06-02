@@ -210,6 +210,10 @@ class RuntimeCompiler:
                     cache_role="session_stable",
                     compression_role="preserve",
                 ),
+                *_provider_protocol_message_specs(
+                    session_context,
+                    source_ref="single_agent_turn_api_transcript",
+                ),
                 _message_spec(
                     role="system",
                     content=_join_prompt_sections(
@@ -766,6 +770,10 @@ class RuntimeCompiler:
                     cache_role="session_stable",
                     compression_role="preserve",
                 ),
+                *_provider_protocol_message_specs(
+                    session_context,
+                    source_ref="observation_followup_api_transcript",
+                ),
                 _message_spec(
                     role="system",
                     content=_join_prompt_sections(
@@ -1217,31 +1225,91 @@ def _message_spec(
     }
 
 
+def _provider_protocol_message_specs(
+    session_context: dict[str, Any] | None,
+    *,
+    source_ref: str,
+) -> list[dict[str, Any]]:
+    payload = dict(session_context or {})
+    transcript = [
+        _provider_protocol_message(item)
+        for item in list(payload.get("api_transcript") or payload.get("provider_protocol_history") or [])
+        if isinstance(item, dict)
+    ]
+    result: list[dict[str, Any]] = []
+    for index, message in enumerate([item for item in transcript if item is not None], start=1):
+        result.append(
+            {
+                "role": str(message.get("role") or "user"),
+                "content": str(message.get("content") or ""),
+                "kind": "provider_protocol_history",
+                "source_ref": f"{source_ref}:{index}",
+                "cache_scope": "none",
+                "cache_role": "never_cache",
+                "prefix_tier": "none",
+                "compression_role": "preserve",
+                "metadata": {
+                    "protocol_history_index": index,
+                    "provider_protocol_replay": True,
+                    "reasoning_content_present": bool(message.get("reasoning_content")),
+                    "tool_calls_present": bool(message.get("tool_calls")),
+                },
+                "model_message": message,
+            }
+        )
+    return result
+
+
+def _provider_protocol_message(item: dict[str, Any]) -> dict[str, Any] | None:
+    role = str(item.get("role") or item.get("type") or "").strip()
+    if role not in {"user", "assistant", "tool"}:
+        return None
+    message: dict[str, Any] = {
+        "role": role,
+        "content": str(item.get("content") or ""),
+    }
+    for key in ("name", "tool_call_id"):
+        value = str(item.get(key) or "").strip()
+        if value:
+            message[key] = value
+    if role == "assistant":
+        reasoning_content = str(item.get("reasoning_content") or "").strip()
+        if reasoning_content:
+            message["reasoning_content"] = reasoning_content
+        tool_calls = item.get("tool_calls")
+        if isinstance(tool_calls, list) and tool_calls:
+            message["tool_calls"] = [dict(call) for call in tool_calls if isinstance(call, dict)]
+    if role == "tool" and not message.get("tool_call_id"):
+        return None
+    if role == "assistant" and not message.get("content") and not message.get("tool_calls") and not message.get("reasoning_content"):
+        return None
+    if role == "user" and not message.get("content"):
+        return None
+    return message
+
+
 def _model_messages_and_segment_plan(
     *,
     packet_id: str,
     invocation_kind: str,
     specs: list[dict[str, Any]] | tuple[dict[str, Any], ...],
     enforce_dynamic_context_reports: bool = False,
-) -> tuple[list[dict[str, str]], Any]:
-    clean_specs = [
-        {
-            **dict(spec),
-            "role": str(dict(spec).get("role") or "user"),
-            "content": str(dict(spec).get("content") or "").strip(),
-        }
-        for spec in list(specs or [])
-        if str(dict(spec).get("content") or "").strip()
-    ]
+) -> tuple[list[dict[str, Any]], Any]:
+    clean_specs: list[dict[str, Any]] = []
+    for raw_spec in list(specs or []):
+        if not isinstance(raw_spec, dict):
+            continue
+        spec = dict(raw_spec)
+        model_message = _model_message_from_spec(spec)
+        if not _has_model_message_payload(model_message):
+            continue
+        spec["role"] = str(model_message.get("role") or spec.get("role") or "user")
+        spec["content"] = str(model_message.get("content") or spec.get("content") or "")
+        spec["model_message"] = model_message
+        clean_specs.append(spec)
     if enforce_dynamic_context_reports:
         _validate_dynamic_context_metadata(clean_specs)
-    model_messages = [
-        {
-            "role": str(spec.get("role") or "user"),
-            "content": str(spec.get("content") or "").strip(),
-        }
-        for spec in clean_specs
-    ]
+    model_messages = [dict(spec.get("model_message") or {}) for spec in clean_specs]
     segment_plan = build_prompt_segment_plan(
         packet_id=packet_id,
         invocation_kind=invocation_kind,
@@ -1249,6 +1317,40 @@ def _model_messages_and_segment_plan(
         enforce_dynamic_context_reports=enforce_dynamic_context_reports,
     )
     return model_messages, segment_plan
+
+
+def _model_message_from_spec(spec: dict[str, Any]) -> dict[str, Any]:
+    raw_message = spec.get("model_message") if isinstance(spec.get("model_message"), dict) else spec
+    role = str(raw_message.get("role") or spec.get("role") or "user").strip() or "user"
+    message: dict[str, Any] = {
+        "role": role,
+        "content": str(raw_message.get("content") if raw_message.get("content") is not None else spec.get("content") or ""),
+    }
+    for key in ("name", "tool_call_id"):
+        value = str(raw_message.get(key) or spec.get(key) or "").strip()
+        if value:
+            message[key] = value
+    tool_calls = raw_message.get("tool_calls") if raw_message.get("tool_calls") is not None else spec.get("tool_calls")
+    if isinstance(tool_calls, list) and tool_calls:
+        message["tool_calls"] = [dict(item) for item in tool_calls if isinstance(item, dict)]
+    reasoning_content = str(
+        raw_message.get("reasoning_content")
+        if raw_message.get("reasoning_content") is not None
+        else spec.get("reasoning_content")
+        or ""
+    ).strip()
+    if reasoning_content:
+        message["reasoning_content"] = reasoning_content
+    return message
+
+
+def _has_model_message_payload(message: dict[str, Any]) -> bool:
+    role = str(message.get("role") or "")
+    if role == "assistant" and (message.get("tool_calls") or message.get("reasoning_content")):
+        return True
+    if role == "tool" and message.get("tool_call_id"):
+        return True
+    return bool(str(message.get("content") or "").strip())
 
 
 def _validate_dynamic_context_metadata(specs: list[dict[str, Any]]) -> None:

@@ -17,11 +17,21 @@ import {
   visibleRuntimeMonitorItemsFromEnvelope,
 } from "./reducer";
 import { runtimeWorkProjectionFromMonitorItem, visibleRuntimeMonitorItems } from "./selectors";
+import type { ChatTaskEnvironmentBinding, TaskEnvironmentWorkspaceView } from "@/lib/store/types";
 
 type RuntimeMonitorHost = {
   hasActiveChatStream: () => boolean;
   patchRuntimeAttachmentFromRuntimeEvent: (prev: StoreState, event: NonNullable<RuntimeMonitorEventPayload["runtime_event"]>) => StoreState;
   applySelectedSessionShell: (sessionId: string) => boolean;
+  activateTaskEnvironmentSessionScope: (
+    taskEnvironmentId: string,
+    options?: {
+      environmentLabel?: string;
+      preferredSessionId?: string;
+      source?: ChatTaskEnvironmentBinding["source"];
+    },
+  ) => void;
+  workspaceViewForTaskEnvironment: (taskEnvironmentId: string) => TaskEnvironmentWorkspaceView;
   refreshSessionDetails: (sessionId: string) => Promise<void>;
   hydrateLatestOrchestrationSnapshot: (sessionId: string) => Promise<boolean>;
   syncWorkspaceViewUrl: (view: StoreState["activeWorkspaceView"]) => void;
@@ -172,7 +182,20 @@ export class RuntimeMonitorController {
     const work = runtimeWorkProjectionFromMonitorItem(selected);
     const taskInstanceIdForState = monitorItemInstanceId(selected);
     const sessionId = String(navigation.session_id || selected.route?.session_id || selected.session_id || "").trim();
+    const navigationWorkspaceView = String(navigation.workspace_view || "").trim();
+    const navigationTaskEnvironmentId = String(navigation.task_environment_id || "").trim();
+    const navigationEnvironmentLabel = String(navigation.environment_label || navigationTaskEnvironmentId).trim();
+    const owningTaskEnvironmentView = navigationWorkspaceView === "task_environment" && navigationTaskEnvironmentId
+      ? this.host.workspaceViewForTaskEnvironment(navigationTaskEnvironmentId)
+      : "chat";
     if (navigation.target_kind === "session" || (work.workKind === "agent_runtime_run" && sessionId)) {
+      if (navigationWorkspaceView === "task_environment" && navigationTaskEnvironmentId) {
+        this.host.activateTaskEnvironmentSessionScope(navigationTaskEnvironmentId, {
+          environmentLabel: navigationEnvironmentLabel,
+          preferredSessionId: sessionId,
+          source: "workspace-mode",
+        });
+      }
       if (sessionId) {
         this.host.applySelectedSessionShell(sessionId);
         void this.host.refreshSessionDetails(sessionId).catch(() => undefined);
@@ -180,13 +203,13 @@ export class RuntimeMonitorController {
       }
       this.store.setState((prev) => ({
         ...prev,
-        activeWorkspaceView: "chat",
+        activeWorkspaceView: owningTaskEnvironmentView,
         globalRuntimeMonitorSelectedTaskInstanceId: taskInstanceIdForState,
         globalRuntimeMonitorSelectedTaskRunId: selected.task_run_id,
         globalRuntimeMonitorSelectedLiveMonitor: null,
         globalRuntimeMonitorSelectedGraphMonitor: null,
       }));
-      this.host.syncWorkspaceViewUrl("chat");
+      this.host.syncWorkspaceViewUrl(owningTaskEnvironmentView);
       this.queueDetailRefresh(selected.task_run_id, this.store.getState().globalRuntimeMonitorRevision);
       return;
     }
@@ -203,9 +226,16 @@ export class RuntimeMonitorController {
         })
       : null;
     const openGraphWorkspace = navigation.target_kind === "graph_task" || work.workKind === "task_graph_run";
+    if (openGraphWorkspace && navigationWorkspaceView === "task_environment" && navigationTaskEnvironmentId) {
+      this.host.activateTaskEnvironmentSessionScope(navigationTaskEnvironmentId, {
+        environmentLabel: navigationEnvironmentLabel,
+        preferredSessionId: sessionId,
+        source: "workspace-mode",
+      });
+    }
     this.store.setState((prev) => ({
       ...prev,
-      activeWorkspaceView: openGraphWorkspace ? "chat" : "orchestration",
+      activeWorkspaceView: openGraphWorkspace ? owningTaskEnvironmentView : "orchestration",
       globalRuntimeMonitorSelectedTaskInstanceId: taskInstanceIdForState,
       globalRuntimeMonitorSelectedTaskRunId: selected.task_run_id,
       globalRuntimeMonitorSelectedLiveMonitor: null,
@@ -223,7 +253,7 @@ export class RuntimeMonitorController {
         requested_at: Date.now(),
       } : prev.centerWorkspaceTarget,
     }));
-    this.host.syncWorkspaceViewUrl(openGraphWorkspace ? "chat" : "orchestration");
+    this.host.syncWorkspaceViewUrl(openGraphWorkspace ? owningTaskEnvironmentView : "orchestration");
     this.queueDetailRefresh(selected.task_run_id, this.store.getState().globalRuntimeMonitorRevision);
   }
 

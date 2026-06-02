@@ -208,11 +208,11 @@ function unitSummary(unit: RuntimeProgressWorkUnit | null, limit = 220) {
 }
 
 function runStateActionLabel(state: RuntimeRunState) {
-  if (state === "success") return "处理完成";
-  if (state === "error") return "执行受阻";
-  if (state === "waiting") return "等待继续";
-  if (state === "stopped") return "已停止";
-  return "正在推进";
+  if (state === "success") return "我已经完成这步";
+  if (state === "error") return "我这一步卡住了";
+  if (state === "waiting") return "我在等下一步确认";
+  if (state === "stopped") return "我已停止处理";
+  return "我正在处理";
 }
 
 function progressMeta(units: RuntimeProgressWorkUnit[], mission: RuntimeProgressMission) {
@@ -230,6 +230,18 @@ function closeoutHeadline(value: unknown) {
   if (!text) return "";
   const sentence = text.match(/^(.+?[。！？!?])/)?.[1];
   return visibleText(sentence || text, 96);
+}
+
+function progressContext(phase: string, meta: string) {
+  return [phase, meta].filter(Boolean).join(" · ");
+}
+
+function nextActionSentence(value: string) {
+  if (!value) return "";
+  if (/^(接下来|下一步|然后|我会|继续|等待)/.test(value)) {
+    return value;
+  }
+  return `接下来我会${value.replace(/^[，,。\s]+/, "")}`;
 }
 
 function RuntimeMissionStrip({
@@ -250,21 +262,18 @@ function RuntimeMissionStrip({
     ? visibleText(current?.next_action || mission.next_action, 160)
     : "";
   const meta = progressMeta(units, mission);
+  const context = progressContext(phase, meta);
   return (
     <header className="runtime-mission-strip">
       <span className="runtime-mission-strip__mark" aria-hidden="true">{statusIcon(runState, 15)}</span>
       <div className="runtime-mission-strip__copy">
-        <div className="runtime-mission-strip__topline">
+        <p className="runtime-mission-strip__sentence">
           <strong>{runStateActionLabel(runState)}</strong>
-          {phase ? <span>{phase}</span> : null}
-          {meta ? <em>{meta}</em> : null}
-        </div>
-        <p>{currentAction}</p>
+          {context ? <span>{context}</span> : null}
+        </p>
+        {currentAction ? <p className="runtime-mission-strip__body">{currentAction}</p> : null}
         {nextAction ? (
-          <small className="runtime-mission-strip__next">
-            <span>下一步</span>
-            {nextAction}
-          </small>
+          <small className="runtime-mission-strip__next">{nextActionSentence(nextAction)}</small>
         ) : null}
       </div>
     </header>
@@ -278,7 +287,7 @@ function RuntimeTechnicalTraceDrawer({ trace }: { trace: RuntimeProgressTechnica
     <details className="runtime-technical-trace">
       <summary>
         <ChevronRight size={13} aria-hidden="true" />
-        <span>技术日志</span>
+        <span>查看技术细节</span>
         <em>{rows.length}</em>
       </summary>
       <div className="runtime-technical-trace__rows">
@@ -311,7 +320,7 @@ function RuntimeProgressDetailDrawer({
     <details className="runtime-progress-detail">
       <summary>
         <ChevronRight size={13} aria-hidden="true" />
-        <span>查看执行轨迹</span>
+        <span>查看执行细节</span>
         {hasUnits ? <em>{units.length}</em> : null}
       </summary>
       {hasUnits ? (

@@ -4,6 +4,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
 from api.deps import require_runtime
+from api.session_summary import enrich_session_summaries, enrich_session_summary
 from agent_system.registry.agent_registry import AgentRegistry
 from agent_system.profiles.runtime_profile_registry import AgentRuntimeRegistry
 from harness.graph.scheduler_view import build_scheduler_view
@@ -1501,7 +1502,7 @@ async def list_task_environment_sessions(
             "project_id": project_id,
         }
     )
-    sessions = runtime.session_manager.list_sessions(**scope.to_dict())
+    sessions = enrich_session_summaries(runtime.session_manager.list_sessions(**scope.to_dict()), runtime)
     return {
         "authority": "task_environment.session_list",
         "scope": scope.to_dict(),
@@ -1549,7 +1550,7 @@ async def resolve_task_environment_session(
         return {
             "authority": "task_environment.session_resolver",
             "scope": scope.to_dict(),
-            "session": runtime.session_manager._summary_from_payload(history),
+            "session": enrich_session_summary(runtime.session_manager._summary_from_payload(history), runtime),
             "created": False,
             "reason": "resume_graph_session",
         }
@@ -1562,7 +1563,7 @@ async def resolve_task_environment_session(
         return {
             "authority": "task_environment.session_resolver",
             "scope": scope.to_dict(),
-            "session": runtime.session_manager._summary_from_payload(history),
+            "session": enrich_session_summary(runtime.session_manager._summary_from_payload(history), runtime),
             "created": False,
             "reason": "preferred_session_valid",
         }
@@ -1577,13 +1578,13 @@ async def resolve_task_environment_session(
         return {
             "authority": "task_environment.session_resolver",
             "scope": scope.to_dict(),
-            "session": created,
+            "session": enrich_session_summary(created, runtime),
             "created": True,
             "reason": "new_conversation_created",
         }
 
     if intent == "continue_conversation":
-        sessions = runtime.session_manager.list_sessions(**scope.to_dict())
+        sessions = enrich_session_summaries(runtime.session_manager.list_sessions(**scope.to_dict()), runtime)
         if sessions:
             return {
                 "authority": "task_environment.session_resolver",
@@ -1601,7 +1602,7 @@ async def resolve_task_environment_session(
         return {
             "authority": "task_environment.session_resolver",
             "scope": scope.to_dict(),
-            "session": created,
+            "session": enrich_session_summary(created, runtime),
             "created": True,
             "reason": f"{intent}_created",
         }

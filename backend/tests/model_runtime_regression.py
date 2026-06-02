@@ -898,6 +898,46 @@ def test_deepseek_payload_replays_reasoning_content_from_dict_tool_roundtrip() -
     assert payload["messages"][1]["reasoning_content"] == "I should call get_date first."
 
 
+def test_deepseek_payload_replays_reasoning_content_across_user_turns() -> None:
+    runtime = _runtime(retries=0)
+    model = runtime._build_chat_model_for_spec(
+        ModelSpec(
+            provider="deepseek",
+            model="deepseek-v4-flash",
+            api_key="deepseek-key",
+            base_url="https://api.deepseek.com",
+        )
+    )
+
+    payload = model._get_request_payload(
+        [
+            {"role": "user", "content": "查杭州明天天气。"},
+            {
+                "role": "assistant",
+                "content": "",
+                "reasoning_content": "I need tomorrow's date first.",
+                "tool_calls": [
+                    {
+                        "id": "call_123",
+                        "name": "get_date",
+                        "args": {},
+                        "type": "tool_call",
+                    }
+                ],
+            },
+            {"role": "tool", "tool_call_id": "call_123", "content": "2026-04-20"},
+            {"role": "assistant", "content": "杭州明天多云。", "reasoning_content": "Now answer the user."},
+            {"role": "user", "content": "再查广州。"},
+        ]
+    )
+
+    assert payload["messages"][1]["role"] == "assistant"
+    assert payload["messages"][1]["reasoning_content"] == "I need tomorrow's date first."
+    assert payload["messages"][3]["role"] == "assistant"
+    assert payload["messages"][3]["reasoning_content"] == "Now answer the user."
+    assert payload["messages"][4]["role"] == "user"
+
+
 def test_single_agent_turn_preserves_deepseek_reasoning_content_for_tool_followup() -> None:
     message = _assistant_tool_call_message(
         SimpleNamespace(
