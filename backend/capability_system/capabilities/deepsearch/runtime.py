@@ -8,7 +8,7 @@ from capability_system.capabilities.search_policy import normalize_search_policy
 from .distiller import ModelBackedSearchEvidenceDistiller, SearchEvidenceDistiller
 from .evidence_builder import build_deepsearch_evidence_packet
 from .models import SearchRuntimeConfig, required_operations_for_search_config
-from .providers import FetchUrlProvider, LocalFilesSearchProvider, MemorySearchProvider, RAGSearchProvider, TavilySearchProvider
+from .providers import FetchUrlProvider, TavilySearchProvider
 from .result_storage import SearchToolResultStore
 from .strategy import DefaultDeepSearchStrategy, ResearchState, enqueue_queries
 from .web_text import normalize_web_result_item
@@ -21,9 +21,6 @@ class DeepSearchCapability:
         *,
         search_provider: Any | None = None,
         fetch_provider: Any | None = None,
-        local_files_provider: Any | None = None,
-        rag_provider: Any | None = None,
-        memory_provider: Any | None = None,
         strategy: Any | None = None,
         distiller: Any | None = None,
         model_runtime: Any | None = None,
@@ -32,9 +29,6 @@ class DeepSearchCapability:
         self.root_dir = Path(root_dir)
         self.search_provider = search_provider or TavilySearchProvider(self.root_dir)
         self.fetch_provider = fetch_provider or FetchUrlProvider()
-        self.local_files_provider = local_files_provider or LocalFilesSearchProvider(self.root_dir)
-        self.rag_provider = rag_provider or RAGSearchProvider(self.root_dir)
-        self.memory_provider = memory_provider or MemorySearchProvider(self.root_dir)
         self.strategy = strategy or DefaultDeepSearchStrategy()
         self.distiller = distiller or (
             ModelBackedSearchEvidenceDistiller(model_runtime)
@@ -51,6 +45,18 @@ class DeepSearchCapability:
         profile: Any,
         config: SearchRuntimeConfig,
     ) -> dict[str, Any]:
+        unsupported_sources = _unsupported_search_sources(config)
+        if unsupported_sources:
+            return _failed_result(
+                summary="DeepSearch 只负责外部 Web 研究，不能接管本地文件、RAG 或 memory 检索。",
+                limitations=["deepsearch_unsupported_source", *unsupported_sources],
+                diagnostics={
+                    "child_execution_mode": "profile_authorized_deepsearch_capability",
+                    "capability_id": "capability.deepsearch",
+                    "unsupported_search_sources": unsupported_sources,
+                    "supported_search_sources": ["web"],
+                },
+            )
         available_ops = _available_operations(profile)
         required_ops = set(required_operations_for_search_config(config))
         missing_ops = sorted(required_ops - available_ops)
@@ -134,6 +140,8 @@ class DeepSearchCapability:
             state.reviews.append(review)
             if review.next_queries:
                 enqueue_queries(state, review.next_queries, max_queries=config.max_queries, front=True)
+                if not review.should_stop:
+                    state.stop_reason = ""
             if review.should_stop or not state.query_queue or len(state.executed_queries) >= config.max_queries:
                 state.stop_reason = review.stop_reason
                 break
@@ -179,7 +187,14 @@ class DeepSearchCapability:
             task_goal=request.instruction,
         )
         ok = bool(combined_payload.get("ok", True)) and bool(packet.evidence)
-        limitations = [*state.unknowns, *state.limits]
+        limitations = _dedupe_strings(
+            [
+                *state.unknowns,
+                *state.limits,
+                *([*state.reviews[-1].gaps] if state.reviews else []),
+                *(list(state.final_synthesis.unresolved_gaps) if state.final_synthesis else []),
+            ]
+        )
         if not ok and not limitations:
             limitations.append("deepsearch_no_sources")
         answer = _deepsearch_summary(web_payload=combined_payload, packet=packet)
@@ -266,30 +281,22 @@ class DeepSearchCapability:
         config: SearchRuntimeConfig,
     ) -> list[dict[str, Any]]:
         sources = _configured_sources(config)
-        providers: list[tuple[str, Any]] = []
-        if "web" in sources:
-            providers.append(("web", self.search_provider))
-        if "local_files" in sources:
-            providers.append(("local_files", self.local_files_provider))
-        if "rag" in sources:
-            providers.append(("rag", self.rag_provider))
-        if "memory" in sources:
-            providers.append(("memory", self.memory_provider))
         payloads: list[dict[str, Any]] = []
-        for source_id, provider in providers:
-            try:
-                payload = await provider.search(
-                    query=query,
-                    topic=topic,
-                    time_range=time_range,
-                    max_results=max_results,
-                    config=config,
-                )
-            except Exception as exc:
-                payload = {"ok": False, "query": query, "topic": topic, "source": source_id, "results": [], "error": str(exc)}
-            payload = dict(payload)
-            payload.setdefault("source", source_id)
-            payloads.append(payload)
+        if "web" not in sources:
+            return payloads
+        try:
+            payload = await self.search_provider.search(
+                query=query,
+                topic=topic,
+                time_range=time_range,
+                max_results=max_results,
+                config=config,
+            )
+        except Exception as exc:
+            payload = {"ok": False, "query": query, "topic": topic, "source": "web", "results": [], "error": str(exc)}
+        payload = dict(payload)
+        payload.setdefault("source", "web")
+        payloads.append(payload)
         return payloads
 
     async def _fetch_sources(self, *, state: ResearchState, config: SearchRuntimeConfig, total_tool_calls: int) -> int:
@@ -297,7 +304,8 @@ class DeepSearchCapability:
         if fetch_budget <= 0:
             return total_tool_calls
         fetched_urls = {str(item.get("url") or "").strip() for item in state.fetched_sources}
-        for item in state.candidate_sources:
+        candidates = sorted(state.candidate_sources, key=_fetch_priority, reverse=True)
+        for item in candidates:
             if fetch_budget <= 0:
                 break
             url = str(item.get("url") or "").strip()
@@ -364,15 +372,29 @@ def _unique_result_items(value: Any) -> list[dict[str, Any]]:
     return results
 
 
+def _fetch_priority(item: dict[str, Any]) -> float:
+    haystack = " ".join(str(item.get(key) or "").lower() for key in ("title", "url", "content", "raw_content", "source"))
+    score = 0.0
+    if any(token in haystack for token in ("official", "documentation", "docs.", "developer.", "developers.", "press release", "announcement")):
+        score += 1.0
+    if any(token in haystack for token in (".gov", ".edu", "github.com", "learn.microsoft.com")):
+        score += 0.4
+    try:
+        score += max(0.0, min(float(item.get("score") or 0.0), 1.0)) * 0.2
+    except (TypeError, ValueError):
+        pass
+    return score
+
+
 def _configured_sources(config: SearchRuntimeConfig) -> set[str]:
     sources = {str(item).strip() for item in tuple(config.search_sources or ("web",)) if str(item).strip()}
     if not sources:
         sources.add("web")
-    if config.allow_local_files:
-        sources.add("local_files")
-    if config.allow_memory_read:
-        sources.add("memory")
     return sources
+
+
+def _unsupported_search_sources(config: SearchRuntimeConfig) -> list[str]:
+    return sorted(source for source in _configured_sources(config) if source != "web")
 
 
 def _merge_source_payloads(*, query: str, topic: str, time_range: str, payloads: list[dict[str, Any]]) -> dict[str, Any]:
@@ -469,6 +491,18 @@ def _artifact_refs_from_distillation(distillation: Any) -> list[str]:
         if ref and ref not in refs:
             refs.append(ref)
     return refs
+
+
+def _dedupe_strings(values: list[str]) -> list[str]:
+    result: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        item = str(value or "").strip()
+        if not item or item in seen:
+            continue
+        seen.add(item)
+        result.append(item)
+    return result
 
 
 async def _distill(distiller: Any, *, query: str, sources: list[dict[str, Any]]) -> Any:

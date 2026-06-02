@@ -65,9 +65,13 @@ class _SubagentLifecycleTool(BaseTool):
 class SpawnSubagentTool(_SubagentLifecycleTool):
     name: str = "spawn_subagent"
     description: str = (
-        "Start a real child agent run when the current task benefits from a specialist worker. "
-        "Provide a concrete goal, clear instructions, explicit context refs, expected outputs, and boundaries. "
-        "The tool returns a subagent_run_ref; use wait_subagent or list_subagents to observe progress."
+        "Start a real child agent run when the task benefits from an independent specialist. "
+        "Use this for open-ended codebase tracing, web research, PDF/table analysis, verification, or parallel independent questions. "
+        "Do not use it to read one known file, search one simple string, or duplicate work you can do directly with a dedicated read/search tool. "
+        "A fresh specialist does not inherit the full parent conversation: write a complete brief with the goal, known facts, files/refs, scope, exclusions, output format, and failure handling. "
+        "For independent searches, spawn multiple specialists in separate tool calls in the same action batch when allowed by policy. "
+        "Never predict a child result before wait_subagent returns it. "
+        "The tool returns a subagent_run_ref; use wait_subagent or list_subagents to observe progress and then synthesize the returned result_refs/evidence/limitations yourself."
     )
     args_schema: type[BaseModel] = SpawnSubagentInput
 
@@ -83,7 +87,8 @@ class WaitSubagentTool(_SubagentLifecycleTool):
     description: str = (
         "Check a child agent mailbox once and return new status/messages without blocking the main loop. "
         "When the child is completed, the result field contains the subagent final_answer and artifact refs; "
-        "use that result directly instead of searching memory or artifact folders for the child output."
+        "use that result directly instead of searching memory or artifact folders for the child output. "
+        "If the child is still running, report status or continue other independent work; do not invent findings."
     )
     args_schema: type[BaseModel] = WaitSubagentInput
 

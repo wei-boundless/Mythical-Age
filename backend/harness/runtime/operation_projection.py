@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from .tool_scheduling import evaluate_environment_operation
+
 
 @dataclass(frozen=True, slots=True)
 class OperationAuthorizationDecision:
@@ -70,19 +72,25 @@ def project_operation_authorization(
             continue
         allowed_by_agent = operation_id in agent_allowed
         blocked_by_agent = operation_id in agent_blocked
-        constraint_channel, environment_constraint = _environment_constraint(
+        environment_decision = evaluate_environment_operation(
             operation_id,
             environment_payload=environment_payload,
+            task_requested_operations=task_requested,
         )
+        constraint_channel = environment_decision.constraint_channel
+        environment_constraint = environment_decision.environment_constraint
         if not allowed_by_agent:
             final_decision = "deny"
             reason = "agent_permission_missing"
         elif blocked_by_agent:
             final_decision = "deny"
             reason = "agent_blocked_operation"
+        elif not environment_decision.allowed:
+            final_decision = "deny"
+            reason = environment_decision.reason
         else:
             final_decision = "allow"
-            reason = "agent_allowed"
+            reason = environment_decision.reason if environment_decision.reason else "agent_allowed"
         decisions.append(
             OperationAuthorizationDecision(
                 operation_id=operation_id,
@@ -102,42 +110,6 @@ def project_operation_authorization(
         allowed_operations=allowed,
         denied_operations=denied,
     )
-
-
-def _environment_constraint(
-    operation_id: str,
-    *,
-    environment_payload: dict[str, Any],
-) -> tuple[str, str]:
-    execution_policy = dict(environment_payload.get("execution_policy") or {})
-    sandbox_policy = dict(environment_payload.get("sandbox_policy") or {})
-    channel = _operation_channel(operation_id)
-    if channel == "shell":
-        policy = str(execution_policy.get("shell_execution_policy") or sandbox_policy.get("shell_policy") or "denied")
-        return channel, policy
-    if channel == "browser":
-        policy = str(execution_policy.get("browser_execution_policy") or sandbox_policy.get("browser_policy") or "denied")
-        return channel, policy
-    if channel == "network":
-        policy = str(execution_policy.get("network_execution_policy") or sandbox_policy.get("network_policy") or "denied")
-        return channel, policy
-    if channel == "file_write":
-        write_scope = str(execution_policy.get("write_scope_policy") or sandbox_policy.get("write_policy") or "none")
-        return channel, write_scope
-    return channel, "not_restricted"
-
-
-def _operation_channel(operation_id: str) -> str:
-    item = str(operation_id or "").strip()
-    if item in {"op.shell", "op.python_repl"}:
-        return "shell"
-    if item == "op.browser_control":
-        return "browser"
-    if item in {"op.web_search", "op.fetch_url"}:
-        return "network"
-    if item in {"op.write_file", "op.edit_file"}:
-        return "file_write"
-    return "other"
 
 
 def _operation_set(value: tuple[str, ...] | list[str]) -> set[str]:

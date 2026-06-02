@@ -151,3 +151,46 @@ def test_graph_node_task_packet_does_not_embed_full_graph_policy() -> None:
     graph_context = task_contract["graph_node_context"]
     assert graph_context["node"]["role_prompt"] == "你是一名测试执行员。"
     assert "memory" not in graph_context
+
+
+def test_task_execution_packet_ignores_engagement_shared_prompt_contract() -> None:
+    packet = RuntimeCompiler().compile_task_execution_packet(
+        session_id="session-shared-prompt",
+        task_run={
+            "task_run_id": "taskrun:shared-prompt",
+            "session_id": "session-shared-prompt",
+            "task_id": "task.shared_prompt",
+            "agent_profile_id": "main_interactive_agent",
+        },
+        contract={
+            "contract_id": "contract.shared_prompt",
+            "user_visible_goal": "验证 engagement 级共享 prompt 不会进入运行包",
+            "completion_criteria": ["只保留任务自身合同和环节约束"],
+        },
+        observations=[],
+        runtime_assembly={
+            "assembly_id": "rtasm:shared-prompt",
+            "profile": {
+                "profile_ref": "main_interactive_agent",
+                "interaction_policy": {"style": "task_execution"},
+                "context_policy": {"task_run_context": "enabled"},
+                "operation_authorization_projection": {"model_visible": "summary_without_denials"},
+            },
+            "task_environment": {"environment_id": "env.general.workspace"},
+            "operation_authorization": {"allowed_operations": [], "denied_operations": []},
+            "engagement_contract": {
+                "contract_id": "engagement.shared_prompt",
+                "prompt_contract": {
+                    "role_prompt": "共同契约残留：所有环节都必须遵守这段话。",
+                    "task_instruction": "这段共同约束不应该进入任何执行包。",
+                },
+            },
+        },
+    ).packet
+
+    all_message_content = "".join(str(message.get("content") or "") for message in packet.model_messages)
+    manifest = packet.diagnostics["prompt_manifest"]
+
+    assert "共同契约残留" not in all_message_content
+    assert "这段共同约束不应该进入任何执行包" not in all_message_content
+    assert not any(str(ref).startswith("task_prompt_contract:") for ref in manifest["stable_contract_refs"])

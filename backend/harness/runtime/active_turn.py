@@ -101,7 +101,7 @@ class ActiveTurnRegistry:
         return record
 
     def resolve_current(self, session_id: str) -> ActiveTurnRecord | None:
-        record = self.resolve_current(session_id)
+        record = self.snapshot(session_id)
         if record is None or not record.bound_task_run_id:
             return record
         task_run = getattr(getattr(self.runtime_host, "state_index", None), "get_task_run", lambda _task_run_id: None)(

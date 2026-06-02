@@ -83,7 +83,8 @@ def build_prompt_segment_plan(
             if not (metadata.get("dynamic_context_report_ref") or metadata.get("volatility_reason")):
                 raise ValueError(f"dynamic/volatile segment requires dynamic context metadata: {kind}")
         content_hash = stable_text_hash(content)
-        model_message_hash = stable_text_hash(_canonical_json({"role": role, "content": content}))
+        model_message_payload = spec.get("model_message") if isinstance(spec.get("model_message"), dict) else {"role": role, "content": content}
+        model_message_hash = stable_text_hash(_canonical_json(model_message_payload))
         segment = PromptSegmentPlanSegment(
             segment_id=_segment_id(packet_id=packet_id, ordinal=index + 1, kind=kind, content_hash=content_hash),
             kind=kind,

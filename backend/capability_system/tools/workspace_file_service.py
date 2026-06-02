@@ -18,7 +18,10 @@ DEFAULT_EXCLUDED_DIRS: tuple[str, ...] = (
     "node_modules",
     "output",
 )
-DEFAULT_SEARCH_EXCLUDED_PATHS: tuple[str, ...] = ("backend/knowledge",)
+DEFAULT_SEARCH_EXCLUDED_PATHS: tuple[str, ...] = (
+    "backend/knowledge",
+    "storage/runtime_state/sandboxes",
+)
 TEXT_ENCODINGS: tuple[str, ...] = ("utf-8", "utf-8-sig", "gb18030", "gbk")
 
 
@@ -177,7 +180,7 @@ class WorkspaceFileService:
                 dirnames[:] = [
                     dirname
                     for dirname in dirnames
-                    if not self.is_excluded(Path(directory) / dirname)
+                    if not self.is_excluded(Path(directory) / dirname, include_default_search_excludes=True)
                 ]
                 candidates = [
                     Path(directory) / dirname

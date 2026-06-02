@@ -112,6 +112,8 @@ class ToolResultProjector:
                 "observed_paths": list(string_tuple(normalized.get("observed_paths"))),
                 "matched_paths": list(string_tuple(normalized.get("matched_paths"))),
                 "command_receipt": dict(normalized.get("command_receipt") or {}),
+                "content_range": dict(normalized.get("content_range") or {}),
+                "tool_guidance": compact_text(normalized.get("tool_guidance") or "", limit=500),
                 "content_replacements": content_replacements,
                 "authority": "harness.runtime.dynamic_context.tool_result_projection",
             }
@@ -131,8 +133,9 @@ def _tool_payload_from_observation(observation: dict[str, Any]) -> dict[str, Any
     result = {
         "tool_result_ref": str(source.get("observation_id") or item.get("observation_id") or ""),
         "tool_name": str(payload.get("tool_name") or source.get("tool_name") or source.get("source") or ""),
-        "text": payload.get("result") or source.get("content") or source.get("text") or source.get("summary") or "",
+        "text": payload.get("result") or source.get("content") or source.get("text") or source.get("summary") or source.get("result_preview") or "",
         "structured_payload": structured_payload or {},
+        "result_metadata": source.get("result_metadata") or payload.get("result_metadata") or {},
         "structured_error": source.get("structured_error") or payload.get("structured_error") or {},
         "error": source.get("error") or payload.get("error") or "",
     }
@@ -157,6 +160,7 @@ def _normalize_tool_result(tool_result: dict[str, Any]) -> dict[str, Any]:
     parsed_structured_payload = dict(parsed_text.get("structured_payload") or {})
     structured = _merge_dicts(parsed_structured_payload, envelope.get("structured_payload"), item.get("structured_payload"))
     nested_tool_result = _merge_dicts(parsed_tool_result, structured.get("tool_result"))
+    result_metadata = _merge_dicts(item.get("result_metadata"), _read_file_metadata_from_structured(nested_tool_result, structured, item, envelope))
     artifact_refs = (
         item.get("artifact_refs")
         or envelope.get("artifact_refs")
@@ -221,6 +225,8 @@ def _normalize_tool_result(tool_result: dict[str, Any]) -> dict[str, Any]:
                 envelope.get("command_receipt") or structured.get("command_receipt") or item.get("command_receipt") or parsed_text.get("command_receipt") or {}
             ),
             "result_ref": str(envelope.get("result_ref") or item.get("result_ref") or parsed_text.get("result_ref") or ""),
+            "content_range": dict(result_metadata.get("content_range") or {}),
+            "tool_guidance": str(result_metadata.get("tool_guidance") or ""),
             "error": error,
         }
     )
@@ -245,6 +251,63 @@ def _merge_dicts(*values: Any) -> dict[str, Any]:
         if isinstance(value, dict):
             merged.update(value)
     return drop_empty(merged)
+
+
+def _read_file_metadata_from_structured(
+    tool_result: dict[str, Any],
+    structured: dict[str, Any],
+    item: dict[str, Any],
+    envelope: dict[str, Any],
+) -> dict[str, Any]:
+    tool_name = str(envelope.get("tool_name") or item.get("tool_name") or "").strip()
+    if tool_name and tool_name != "read_file":
+        return {}
+    source = dict(tool_result or {})
+    if str(source.get("kind") or "") != "text_file" and not {"offset", "end_offset", "size_chars"} & set(source):
+        return {}
+    path = str(source.get("path") or _first_string(envelope.get("observed_paths"), structured.get("observed_paths"), item.get("observed_paths")) or "").strip()
+    content_range = drop_empty(
+        {
+            "path": path,
+            "offset": _int_or_none(source.get("offset")),
+            "end_offset": _int_or_none(source.get("end_offset")),
+            "returned_chars": _int_or_none(source.get("returned_chars")),
+            "size_chars": _int_or_none(source.get("size_chars")),
+            "limit": _int_or_none(source.get("limit")),
+            "next_offset": _int_or_none(source.get("next_offset")),
+            "has_more": bool(source.get("has_more") or source.get("truncated")),
+            "truncated": bool(source.get("truncated") or source.get("has_more")),
+        }
+    )
+    if not content_range:
+        return {}
+    next_offset = content_range.get("next_offset")
+    if content_range.get("has_more") and next_offset is not None:
+        guidance = (
+            f"read_file 已返回 {path} 的 offset={content_range.get('offset')} 到 end_offset={content_range.get('end_offset')}。"
+            f"如仍需要后续内容，下一次应使用 offset={next_offset} 和 limit={content_range.get('limit') or ''}；不要重复读取相同窗口。"
+        )
+    else:
+        guidance = f"read_file 已读到 {path} 的当前可用结尾；不要重复读取相同窗口。"
+    return {"content_range": content_range, "tool_guidance": guidance}
+
+
+def _first_string(*values: Any) -> str:
+    for value in values:
+        for item in list(value or []):
+            text = str(item or "").strip()
+            if text:
+                return text
+    return ""
+
+
+def _int_or_none(value: Any) -> int | None:
+    if value in (None, ""):
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _first_text(*values: Any) -> str:

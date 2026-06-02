@@ -87,6 +87,41 @@ def test_tool_observation_ledger_classifies_core_tool_side_effects() -> None:
     ]
 
 
+def test_read_file_observation_records_content_window_metadata() -> None:
+    envelope = build_tool_result_envelope(
+        tool_name="read_file",
+        tool_args={"path": "docs/long.md", "offset": 10, "limit": 5},
+        result={
+            "text": "abcde",
+            "structured_payload": {
+                "observed_paths": ["docs/long.md"],
+                "tool_result": {
+                    "kind": "text_file",
+                    "path": "docs/long.md",
+                    "size_chars": 30,
+                    "offset": 10,
+                    "limit": 5,
+                    "returned_chars": 5,
+                    "end_offset": 15,
+                    "next_offset": 15,
+                    "has_more": True,
+                    "truncated": True,
+                },
+            },
+        },
+    )
+
+    record = build_tool_observation_record(
+        observation_ref="obs:window",
+        tool_name="read_file",
+        result={"result_envelope": envelope.to_dict()},
+    ).to_dict()
+
+    assert record["result_metadata"]["content_range"]["offset"] == 10
+    assert record["result_metadata"]["content_range"]["next_offset"] == 15
+    assert "不要重复读取相同窗口" in record["result_metadata"]["tool_guidance"]
+
+
 def test_tool_observation_ledger_hashes_real_side_effect_observations_stably() -> None:
     envelope = build_tool_result_envelope(
         tool_name="write_file",

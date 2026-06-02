@@ -13,13 +13,13 @@ from capability_system.tools.workspace_file_service import WorkspaceFileService
 
 class WriteFileInput(BaseModel):
     path: str = Field(..., description="Relative path inside the project root. Use the argument name `path`, not `filepath` or `file_path`.")
-    content: str = Field(..., description="Complete file content to write")
+    content: str = Field(..., description="Complete file content to write. Do not pass placeholders or partial fragments.")
 
 
 class EditFileInput(BaseModel):
-    path: str = Field(..., description="Relative path inside the project root")
-    old_text: str = Field(..., description="Exact text to replace")
-    new_text: str = Field(..., description="Replacement text")
+    path: str = Field(..., description="Relative path inside the project root.")
+    old_text: str = Field(..., description="Exact current text to replace. Read the file first and pass a unique verbatim span, including whitespace and line breaks.")
+    new_text: str = Field(..., description="Replacement text. Keep unchanged surrounding content out of this value unless it is part of the exact replacement span.")
 
 
 class _WorkspacePathMixin:
@@ -34,7 +34,11 @@ class _WorkspacePathMixin:
 
 class WriteFileTool(_WorkspacePathMixin, BaseTool):
     name: str = "write_file"
-    description: str = "Create or overwrite a local workspace file after runtime authorization."
+    description: str = (
+        "Create a new local workspace file or intentionally overwrite an entire file after runtime authorization. "
+        "For existing files, prefer edit_file unless the task explicitly requires replacing the whole file. "
+        "Before overwriting an existing file, read the current file and make sure the new content is complete, not a patch, placeholder, or partial fragment."
+    )
     args_schema: Type[BaseModel] = WriteFileInput
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -65,7 +69,11 @@ class WriteFileTool(_WorkspacePathMixin, BaseTool):
 
 class EditFileTool(_WorkspacePathMixin, BaseTool):
     name: str = "edit_file"
-    description: str = "Replace exact text in a local workspace file after runtime authorization."
+    description: str = (
+        "Replace exact text in an existing local workspace file after runtime authorization. "
+        "Read the file first in the current task before editing, then provide a unique verbatim old_text span with exact whitespace and line breaks. "
+        "If old_text is not found, read or search the current file again and retry with the actual current text instead of guessing."
+    )
     args_schema: Type[BaseModel] = EditFileInput
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -87,7 +95,7 @@ class EditFileTool(_WorkspacePathMixin, BaseTool):
         except IsADirectoryError:
             return "Edit failed: path is a directory."
         except LookupError:
-            return "Edit failed: old_text not found."
+            return "Edit failed: old_text not found. Read the current file content and retry with exact current text."
         except ValueError as exc:
             return f"Edit failed: {exc}"
         except Exception as exc:

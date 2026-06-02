@@ -112,6 +112,35 @@ def test_query_planner_splits_symbols_roots_and_history_terms() -> None:
     assert not {"fallback", "legacy", "compat", "intent", "classifier"} & set(plan.text_queries)
 
 
+def test_query_planner_extracts_symbols_from_natural_language_without_command_noise() -> None:
+    plan = build_codebase_search_plan(
+        "Find where SpecialistRuntimeRouter routes to CodebaseSearchCapability and where execute_task_run records the result.",
+        max_queries=12,
+        include_tests=True,
+    )
+
+    assert {"SpecialistRuntimeRouter", "CodebaseSearchCapability", "execute_task_run"} <= set(plan.symbol_queries)
+    assert not {"Find", "where", "routes", "records", "result"} & set(plan.text_queries)
+    assert "SpecialistRuntimeRouter" in plan.required_terms
+
+
+def test_codebase_search_natural_language_query_prioritizes_relevant_runtime_files() -> None:
+    query = "Find where SpecialistRuntimeRouter routes to CodebaseSearchCapability and where execute_task_run records the result."
+
+    payload = asyncio.run(
+        CodebaseSearchCapability(Path(".")).run(
+            request=_request(query),
+            agent=_agent(),
+            profile=_profile(include_git_history=False),
+            config=normalize_codebase_search_config({"max_queries": 10, "max_text_results": 60, "max_file_slices": 8, "include_git_history": False}),
+        )
+    )
+
+    top_files = [item["file"] for item in payload["findings"][:8]]
+    assert "backend/harness/loop/specialist_runtime_router.py" in top_files
+    assert "backend/harness/loop/task_executor.py" in top_files
+
+
 def test_file_slicer_reads_bounded_context() -> None:
     slicer = FileSlicer(Path("."))
 

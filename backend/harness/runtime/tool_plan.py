@@ -5,7 +5,14 @@ import json
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
-from runtime.tooling import ToolCapability, ToolCapabilitySourceTrace, ToolCapabilityTable
+from capability_system.mcp.local_registry import default_local_mcp_units
+from runtime.tooling import ToolCapability, ToolCapabilityFilterIssue, ToolCapabilitySourceTrace, ToolCapabilityTable
+
+from .tool_scheduling import (
+    evaluate_environment_operation,
+    operation_requests_from_authorization,
+    operation_requests_from_runtime_selection,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,16 +55,32 @@ def build_runtime_tool_plan(
 ) -> RuntimeToolPlan:
     assembly = runtime_assembly.to_dict() if hasattr(runtime_assembly, "to_dict") else dict(runtime_assembly or {})
     definition_by_name = dict(tool_definitions_by_name or {})
+    environment_payload = dict(assembly.get("task_environment") or {})
+    operation_authorization = dict(assembly.get("operation_authorization") or {})
+    operation_decisions = _operation_decisions_by_id(operation_authorization)
+    task_requested_operations = tuple(
+        dict.fromkeys(
+            [
+                *operation_requests_from_authorization(operation_authorization),
+                *operation_requests_from_runtime_selection(dict(assembly.get("task_selection") or {})),
+            ]
+        )
+    )
+    filtered_issues: list[ToolCapabilityFilterIssue] = []
     visible_tools = tuple(
         sorted(
             (
                 dict(item)
                 for item in list(assembly.get("available_tools") or [])
                 if isinstance(item, dict)
-                and _visible_in_invocation(
+                and _tool_allowed_for_runtime_plan(
                     dict(item),
                     invocation_kind=invocation_kind,
-                    definition=definition_by_name.get(_tool_name(dict(item))),
+                    definition_by_name=definition_by_name,
+                    operation_decisions=operation_decisions,
+                    environment_payload=environment_payload,
+                    task_requested_operations=task_requested_operations,
+                    filtered_issues=filtered_issues,
                 )
             ),
             key=lambda item: _tool_name(item),
@@ -77,7 +100,10 @@ def build_runtime_tool_plan(
                 visible=True,
                 dispatchable=True,
                 requires_approval=False,
-                source_trace=(ToolCapabilitySourceTrace(source="runtime_assembly", detail=name),),
+                source_trace=(
+                    ToolCapabilitySourceTrace(source="runtime_assembly", detail=name),
+                    ToolCapabilitySourceTrace(source="tool_scheduling", detail=operation_id),
+                ),
                 metadata={
                     "read_only": bool(getattr(definition, "is_read_only", False)),
                     "destructive": bool(getattr(definition, "is_destructive", False)),
@@ -85,11 +111,23 @@ def build_runtime_tool_plan(
                 },
             )
         )
+    capabilities.extend(
+        _local_mcp_route_capabilities(
+            operation_authorization=operation_authorization,
+            environment_payload=environment_payload,
+            task_requested_operations=task_requested_operations,
+            filtered_issues=filtered_issues,
+        )
+    )
     table = ToolCapabilityTable(
         table_id=f"tool-capability:{assembly.get('turn_id') or 'turn'}:{invocation_kind}",
         environment_id=str(dict(assembly.get("task_environment") or {}).get("environment_id") or ""),
         capabilities=tuple(sorted(capabilities, key=lambda item: (item.operation_id, item.tool_name))),
-        source_trace=(ToolCapabilitySourceTrace(source="runtime_tool_plan", detail=invocation_kind),),
+        filtered=tuple(filtered_issues),
+        source_trace=(
+            ToolCapabilitySourceTrace(source="runtime_tool_plan", detail=invocation_kind),
+            ToolCapabilitySourceTrace(source="tool_scheduling", detail="environment_hard_filter"),
+        ),
     )
     schema_hash = _stable_hash(visible_tools)
     registry_hash = _stable_hash(table.to_dict())
@@ -108,7 +146,9 @@ def build_runtime_tool_plan(
         diagnostics={
             "visible_tool_count": len(visible_tools),
             "dispatchable_tool_count": len(table.dispatchable_tools),
-            "source": "runtime_assembly.available_tools",
+            "filtered_tool_count": len(filtered_issues),
+            "local_mcp_route_count": sum(1 for item in table.capabilities if dict(item.metadata).get("runtime_exposure") == "local_mcp_runtime"),
+            "source": "runtime_assembly.available_tools+tool_scheduling",
         },
     )
 
@@ -154,3 +194,153 @@ def _visible_in_invocation(tool: dict[str, Any], *, invocation_kind: str, defini
     if definition is not None:
         return bool(getattr(definition, "is_read_only", False))
     return bool(tool.get("read_only") is True)
+
+
+def _tool_allowed_for_runtime_plan(
+    tool: dict[str, Any],
+    *,
+    invocation_kind: str,
+    definition_by_name: dict[str, Any],
+    operation_decisions: dict[str, dict[str, Any]],
+    environment_payload: dict[str, Any],
+    task_requested_operations: tuple[str, ...],
+    filtered_issues: list[ToolCapabilityFilterIssue],
+) -> bool:
+    tool_name = _tool_name(tool)
+    definition = definition_by_name.get(tool_name)
+    operation_id = str(tool.get("operation_id") or getattr(definition, "operation_id", "") or tool_name)
+    authorization_decision = operation_decisions.get(operation_id)
+    if operation_decisions and authorization_decision is None:
+        filtered_issues.append(
+            ToolCapabilityFilterIssue(
+                operation_id=operation_id,
+                tool_name=tool_name,
+                reason="operation_missing_from_authorization_projection",
+                source="operation_authorization",
+            )
+        )
+        return False
+    if authorization_decision is not None and str(authorization_decision.get("final_decision") or "") != "allow":
+        filtered_issues.append(
+            ToolCapabilityFilterIssue(
+                operation_id=operation_id,
+                tool_name=tool_name,
+                reason=str(authorization_decision.get("reason") or "operation_denied"),
+                source="operation_authorization",
+                metadata=dict(authorization_decision),
+            )
+        )
+        return False
+    environment_decision = evaluate_environment_operation(
+        operation_id,
+        environment_payload=environment_payload,
+        task_requested_operations=task_requested_operations,
+    )
+    if not environment_decision.allowed:
+        filtered_issues.append(
+            ToolCapabilityFilterIssue(
+                operation_id=operation_id,
+                tool_name=tool_name,
+                reason=environment_decision.reason,
+                source="task_environment",
+                metadata=environment_decision.to_dict(),
+            )
+        )
+        return False
+    if not _visible_in_invocation(tool, invocation_kind=invocation_kind, definition=definition):
+        filtered_issues.append(
+            ToolCapabilityFilterIssue(
+                operation_id=operation_id,
+                tool_name=tool_name,
+                reason="single_agent_turn_requires_read_only_tool",
+                source="invocation_kind",
+            )
+        )
+        return False
+    return True
+
+
+def _local_mcp_route_capabilities(
+    *,
+    operation_authorization: dict[str, Any],
+    environment_payload: dict[str, Any],
+    task_requested_operations: tuple[str, ...],
+    filtered_issues: list[ToolCapabilityFilterIssue],
+) -> list[ToolCapability]:
+    allowed_operations = {
+        str(item or "").strip()
+        for item in list(operation_authorization.get("allowed_operations") or [])
+        if str(item or "").strip()
+    }
+    denied_reasons = {
+        str(item.get("operation_id") or ""): str(item.get("reason") or "operation_denied")
+        for item in list(operation_authorization.get("decisions") or [])
+        if isinstance(item, dict) and str(item.get("final_decision") or "") != "allow"
+    }
+    capabilities: list[ToolCapability] = []
+    for unit in default_local_mcp_units():
+        operation_id = str(unit.operation_id or "").strip()
+        tool_name = f"mcp__langchain_agent__{unit.route}"
+        if not operation_id:
+            continue
+        environment_decision = evaluate_environment_operation(
+            operation_id,
+            environment_payload=environment_payload,
+            task_requested_operations=task_requested_operations,
+        )
+        if operation_id in allowed_operations and environment_decision.allowed:
+            capabilities.append(
+                ToolCapability(
+                    operation_id=operation_id,
+                    tool_name=tool_name,
+                    visible=False,
+                    dispatchable=False,
+                    requires_approval=False,
+                    source_trace=(
+                        ToolCapabilitySourceTrace(source="operation_authorization", detail=operation_id),
+                        ToolCapabilitySourceTrace(source="local_mcp_registry", detail=unit.unit_id),
+                        ToolCapabilitySourceTrace(source="tool_scheduling", detail="deferred_capability_route"),
+                    ),
+                    metadata={
+                        "runtime_exposure": "local_mcp_runtime",
+                        "route": unit.route,
+                        "unit_id": unit.unit_id,
+                        "title": unit.title,
+                        "category": unit.category,
+                        "deferred_tool": True,
+                        "model_visibility": "runtime_bound_only",
+                    },
+                )
+            )
+            continue
+        if operation_id in allowed_operations and not environment_decision.allowed:
+            filtered_issues.append(
+                ToolCapabilityFilterIssue(
+                    operation_id=operation_id,
+                    tool_name=tool_name,
+                    reason=environment_decision.reason,
+                    source="task_environment",
+                    metadata=environment_decision.to_dict(),
+                )
+            )
+            continue
+        reason = denied_reasons.get(operation_id)
+        if reason:
+            filtered_issues.append(
+                ToolCapabilityFilterIssue(
+                    operation_id=operation_id,
+                    tool_name=tool_name,
+                    reason=reason,
+                    source="operation_authorization",
+                    metadata=environment_decision.to_dict(),
+                )
+            )
+    return capabilities
+
+
+def _operation_decisions_by_id(operation_authorization: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    return {
+        str(item.get("operation_id") or ""): dict(item)
+        for item in list(operation_authorization.get("decisions") or [])
+        if isinstance(item, dict) and str(item.get("operation_id") or "").strip()
+    }

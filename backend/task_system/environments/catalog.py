@@ -172,8 +172,7 @@ def _environment_management_scope(*, definition: TaskEnvironmentDefinition, defi
     if (
         record.owner == "system"
         or record.default_visibility == "system"
-        or managed_by.startswith("codex_system_eval")
-        or record.group_id == "environment_group.system_eval"
+        or managed_by.startswith("codex_system")
     ):
         return "system_internal"
     return "workspace"

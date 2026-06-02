@@ -53,6 +53,9 @@ NATIVE_RUNTIME_TOOL_NAMES = {
     "python_repl",
 }
 
+READ_FILE_DEFAULT_LIMIT = 10000
+READ_FILE_MAX_LIMIT = 120000
+
 
 def build_native_runtime_tool(
     *,
@@ -203,11 +206,64 @@ class _NativeToolBase:
 
 
 class NativeReadFileTool(_NativeToolBase):
+    def validate_input(self, args: dict[str, Any], context: ToolUseContext) -> ToolValidationResult:
+        base = super().validate_input(args, context)
+        if not base.allowed:
+            return base
+        payload = dict(args or {})
+        allowed = {"path", "offset", "limit"}
+        unexpected = sorted(str(key) for key in payload if str(key) not in allowed)
+        if unexpected:
+            return ToolValidationResult(
+                allowed=False,
+                reason="unexpected_tool_inputs",
+                repair_instruction=(
+                    "read_file accepts only path, offset, and limit. "
+                    "Remove unsupported argument(s): " + ", ".join(unexpected) + "."
+                ),
+                normalized_args=payload,
+                diagnostics={"unexpected_inputs": unexpected, "allowed_inputs": sorted(allowed)},
+            )
+        offset, offset_error = _coerce_read_window_int(payload.get("offset"), default=0, minimum=0, maximum=None, field_name="offset")
+        if offset_error:
+            return ToolValidationResult(
+                allowed=False,
+                reason="invalid_tool_input",
+                repair_instruction=offset_error,
+                normalized_args=payload,
+                diagnostics={"field": "offset"},
+            )
+        limit, limit_error = _coerce_read_window_int(
+            payload.get("limit"),
+            default=READ_FILE_DEFAULT_LIMIT,
+            minimum=1,
+            maximum=READ_FILE_MAX_LIMIT,
+            field_name="limit",
+        )
+        if limit_error:
+            return ToolValidationResult(
+                allowed=False,
+                reason="invalid_tool_input",
+                repair_instruction=limit_error,
+                normalized_args=payload,
+                diagnostics={"field": "limit"},
+            )
+        return ToolValidationResult(
+            allowed=True,
+            normalized_args={
+                "path": str(payload.get("path") or "").strip(),
+                "offset": offset,
+                "limit": limit,
+            },
+        )
+
     async def call(self, args: dict[str, Any], context: ToolUseContext) -> ToolResultEnvelope:
         return await asyncio.to_thread(self._call_sync, dict(args or {}), context)
 
     def _call_sync(self, args: dict[str, Any], context: ToolUseContext) -> ToolResultEnvelope:
         path = str(args.get("path") or "").strip()
+        offset = int(args.get("offset") or 0)
+        limit = int(args.get("limit") or READ_FILE_DEFAULT_LIMIT)
         gateway = self._file_gateway(context)
         if gateway is not None:
             return self._call_gateway_read(args=args, context=context, gateway=gateway, path=path)
@@ -218,7 +274,8 @@ class NativeReadFileTool(_NativeToolBase):
                 raise FileNotFoundError("file does not exist")
             if file_path.is_dir():
                 raise IsADirectoryError("path is a directory")
-            text = files.read_text(file_path, limit=int(args.get("limit") or 10000))
+            content = files.read_text(file_path, limit=None)
+            text = content[offset : offset + limit]
             rel = files.relative_path(file_path)
         except Exception as exc:
             return self._envelope(
@@ -236,8 +293,7 @@ class NativeReadFileTool(_NativeToolBase):
                 "tool_result": {
                     "kind": "text_file",
                     "path": rel,
-                    "size_chars": len(text),
-                    "truncated": len(text) >= int(args.get("limit") or 10000),
+                    **_read_window_payload(content, offset=offset, limit=limit, returned_chars=len(text)),
                 }
             },
             observed_paths=(rel,),
@@ -252,7 +308,8 @@ class NativeReadFileTool(_NativeToolBase):
         gateway: FileGateway,
         path: str,
     ) -> ToolResultEnvelope:
-        limit = int(args.get("limit") or 10000)
+        offset = int(args.get("offset") or 0)
+        limit = int(args.get("limit") or READ_FILE_DEFAULT_LIMIT)
         repository_id = _repository_for_action(context, "read")
         try:
             result = gateway.read_text(
@@ -261,7 +318,7 @@ class NativeReadFileTool(_NativeToolBase):
                 self._gateway_context(context),
                 operation_id=self.operation_id,
             )
-            text = result.content[: max(0, limit)]
+            text = result.content[offset : offset + limit]
         except Exception as exc:
             return self._envelope(
                 tool_args=args,
@@ -280,8 +337,7 @@ class NativeReadFileTool(_NativeToolBase):
                     "path": result.logical_path,
                     "repository_id": result.repository_id,
                     "managed_file_ref": result.managed_file_ref.to_dict(),
-                    "size_chars": len(result.content),
-                    "truncated": len(result.content) > len(text),
+                    **_read_window_payload(result.content, offset=offset, limit=limit, returned_chars=len(text)),
                 },
                 "file_gateway": {
                     "access_decision": result.access_decision,
@@ -291,6 +347,43 @@ class NativeReadFileTool(_NativeToolBase):
             observed_paths=(result.logical_path,),
             execution_receipt=context.execution_receipt,
         )
+
+
+def _coerce_read_window_int(
+    value: Any,
+    *,
+    default: int,
+    minimum: int,
+    maximum: int | None,
+    field_name: str,
+) -> tuple[int, str]:
+    if value in (None, ""):
+        return default, ""
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        return default, f"{field_name} must be an integer."
+    if number < minimum:
+        return default, f"{field_name} must be >= {minimum}."
+    if maximum is not None and number > maximum:
+        return default, f"{field_name} must be <= {maximum}."
+    return number, ""
+
+
+def _read_window_payload(content: str, *, offset: int, limit: int, returned_chars: int) -> dict[str, Any]:
+    size_chars = len(content)
+    end_offset = min(size_chars, max(0, int(offset or 0)) + max(0, int(returned_chars or 0)))
+    has_more = end_offset < size_chars
+    return {
+        "size_chars": size_chars,
+        "offset": max(0, int(offset or 0)),
+        "limit": max(1, int(limit or READ_FILE_DEFAULT_LIMIT)),
+        "returned_chars": max(0, int(returned_chars or 0)),
+        "end_offset": end_offset,
+        "next_offset": end_offset if has_more else None,
+        "has_more": has_more,
+        "truncated": has_more,
+    }
 
 
 class NativeWriteFileTool(_NativeToolBase):

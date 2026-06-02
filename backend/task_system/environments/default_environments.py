@@ -21,17 +21,17 @@ def default_task_environment_groups() -> tuple[TaskEnvironmentGroup, ...]:
         TaskEnvironmentGroup(
             group_id="environment_group.development",
             title="Development",
-            description="Project workspace resource boundaries with sandbox overlay, verification channels, and artifact publication constraints.",
+            description="Coding work environment for project inspection, implementation, verification, and delivery.",
         ),
         TaskEnvironmentGroup(
             group_id="environment_group.creation",
             title="Creation",
-            description="Creative work resource boundaries with official work, draft space, memory repositories, artifacts, and review gates.",
+            description="Creative work environment for writing, research, draft management, and review-ready outputs.",
         ),
         TaskEnvironmentGroup(
             group_id="environment_group.general",
             title="General",
-            description="General resource boundaries for conversation materials, external evidence, document materials, lightweight artifacts, and constrained channels.",
+            description="General-purpose work environment for broad tasks that should not narrow the agent profile.",
         ),
     )
 
@@ -39,10 +39,7 @@ def default_task_environment_groups() -> tuple[TaskEnvironmentGroup, ...]:
 def default_task_environments() -> tuple[TaskEnvironmentDefinition, ...]:
     return (
         development_sandbox_environment(),
-        development_readonly_environment(),
         creation_writing_environment(),
-        research_web_environment(),
-        document_processing_environment(),
         general_workspace_environment(),
     )
 
@@ -51,7 +48,7 @@ def development_sandbox_environment() -> TaskEnvironmentDefinition:
     record = TaskEnvironmentRecord(
         environment_id="env.development.sandbox",
         title="Development Sandbox",
-        description="Project workspace boundary with read access to real project materials, sandbox overlay writes, verification channels, and artifact publication.",
+        description="Coding work environment for real project files, implementation, command-based verification, and delivery evidence.",
         group_id="environment_group.development",
         environment_kind="development",
     )
@@ -62,13 +59,18 @@ def development_sandbox_environment() -> TaskEnvironmentDefinition:
             EnvironmentPrompt(
                 prompt_id="environment.development.sandbox.v1",
                 content=(
-                    "你处在开发沙盒资源边界中。这个环境把真实项目工作区作为主要读取来源，"
-                    "把任务写入、命令验证、浏览器验证和交付物发布约束在 sandbox overlay 与任务授权范围内。"
-                    "你只能使用本轮上下文中实际可见且被授权的工具；环境本身不授予工具，只声明资源边界和运行约束。"
-                    "\n当前环境使用 sandbox overlay：你看到和修改的是任务沙盒工作副本；真实项目通常作为只读来源被材料化进沙盒。"
-                    "不要因为沙盒中某个目录暂时不可见就断定真实项目缺失；应使用搜索/读取工具或检查已材料化的合同目录确认。"
-                    "写入默认进入沙盒或环境 artifact/storage 范围；真实工作区写入只有在任务合同或权限上下文明确授权时才允许。"
-                    "是否需要最终交付以及如何验收，由任务合同和 runtime 协议决定，而不是由环境提示直接裁决。"
+                    "你处在开发工作环境中。你是一名在真实项目里工作的 coding agent，任务对象通常是代码、配置、测试、脚本、前端页面、运行链路或工程结构。"
+                    "动手前先读相关文件、调用链、测试、项目约定和已有改动；让现有架构教你怎么改，不要凭空新建风格。"
+                    "实现以用户目标为边界，做最小充分的真实修改；不要添加未要求的功能、装饰性重构、无法发生场景的兜底，或只使用一次的抽象。"
+                    "如果用户明确要求重构，要以目标架构为主，删除旧壳、重复决策源、无用兼容层和保护旧路径的测试，不要在旧结构上堆新壳。"
+                    "任何时候都要保护用户已有改动；遇到脏工作区、冲突或不属于本任务的变更时，先识别并避让，不能擅自回滚或覆盖。"
+                    "修改文件时保持代码可维护：命名清晰，边界清楚，注释只解释不明显的原因，不用注释复述代码正在做什么。"
+                    "验证必须真实执行；测试、命令输出、运行观察、文件 diff、日志或可复核 artifact 才能作为完成证据。"
+                    "如果没有运行某项验证，直接说明没有运行；如果测试失败，报告失败和关键输出，不能暗示通过。"
+                    "必须区分已确认事实、基于事实的判断和仍未知的部分；不要伪造文件内容、执行结果、测试通过、检索命中、历史记忆或外部依据。"
+                    "不要把计划、分类、prompt、状态字段、todo 或自我说明当成完成证据；完成必须落到真实代码、真实运行或明确限制上。"
+                    "发现计划假设错误、权限不足、测试暴露结构性问题或需要扩大改动范围时，停止伪装完成，说明阻塞、风险和下一步。"
+                    "交付时优先给出结果、关键文件、验证证据和剩余风险；不要把过程堆成日志，也不要掩盖未完成的部分。"
                 ),
             ),
         ),
@@ -81,7 +83,20 @@ def development_sandbox_environment() -> TaskEnvironmentDefinition:
             browser_policy="sandboxed",
             network_policy="task_decided",
             side_effect_policy="sandbox_boundary",
-            side_effect_operations=("op.write_file", "op.edit_file", "op.shell", "op.browser_control", "op.image_generate"),
+            side_effect_operations=(
+                "op.write_file",
+                "op.edit_file",
+                "op.shell",
+                "op.python_repl",
+                "op.browser_control",
+                "op.image_generate",
+                "op.git_branch_create",
+                "op.git_stage",
+                "op.git_unstage",
+                "op.git_commit",
+                "op.git_restore",
+                "op.git_push",
+            ),
         ),
         file_management=FileManagementBinding(
             file_profile_refs=("file_profile.vibe_coding_project",),
@@ -105,7 +120,7 @@ def development_sandbox_environment() -> TaskEnvironmentDefinition:
         ),
         memory_space=MemorySpace(
             environment_memory_refs=("project_architecture_notes", "prior_runtime_findings"),
-            project_knowledge_refs=("AGENTS.md", "project_docs"),
+            project_knowledge_refs=("project_docs",),
             retrieval_index_refs=("code_search_index",),
         ),
         execution_policy=ExecutionPolicy(
@@ -131,67 +146,11 @@ def development_sandbox_environment() -> TaskEnvironmentDefinition:
     return TaskEnvironmentDefinition(record=record, spec=spec)
 
 
-def development_readonly_environment() -> TaskEnvironmentDefinition:
-    record = TaskEnvironmentRecord(
-        environment_id="env.development.readonly",
-        title="Development Readonly",
-        description="Read-only project workspace boundary for inspection, search, review, and planning without workspace side effects.",
-        group_id="environment_group.development",
-        environment_kind="development",
-    )
-    spec = TaskEnvironmentSpec(
-        spec_id="envspec.development.readonly.default",
-        environment_id=record.environment_id,
-        environment_prompts=(
-            EnvironmentPrompt(
-                prompt_id="environment.development.readonly.v1",
-                content=(
-                    "你处在开发只读资源边界中。这个环境允许围绕项目工作区、git/worktree 视图和相关材料做读取、搜索、审查和方案评估。"
-                    "约束是不能写入项目、不能执行 shell、不能控制浏览器；实际可用工具仍以本轮上下文为准。"
-                    "在只读边界内只能产出诊断、证据和修改建议，不能声称已经完成代码修改。"
-                    "如果任务需要修改、运行命令或生成正式 artifact，应请求进入具备相应资源边界的任务生命周期，而不是在只读边界内伪造执行。"
-                ),
-            ),
-        ),
-        sandbox_policy=SandboxPolicy(
-            enabled=False,
-            sandbox_mode="none",
-            workspace_access="project_read_only",
-            write_policy="none",
-            shell_policy="denied",
-            browser_policy="denied",
-            network_policy="task_decided",
-        ),
-        file_management=FileManagementBinding(
-            file_profile_refs=("file_profile.vibe_coding_project",),
-            required_repository_kinds=("project_workspace", "git_worktree_view"),
-            canonical_write_policy="none",
-            constraints={"project_workspace_read": "allowed", "project_workspace_write": "denied"},
-        ),
-        resource_space=ResourceSpace(
-            workspace_policy="project_workspace",
-            storage_namespace="development/readonly",
-            project_file_policy="read_only",
-            managed_file_environment_policy="file_profile.vibe_coding_project",
-            artifact_root_policy="conversation_artifacts",
-        ),
-        execution_policy=ExecutionPolicy(
-            sandbox_required=False,
-            real_workspace_access="read_only",
-            write_scope_policy="none",
-            shell_execution_policy="denied",
-            browser_execution_policy="denied",
-            network_execution_policy="task_decided",
-        ),
-    )
-    return TaskEnvironmentDefinition(record=record, spec=spec)
-
-
 def creation_writing_environment() -> TaskEnvironmentDefinition:
     record = TaskEnvironmentRecord(
         environment_id="env.creation.writing",
         title="Creative Writing",
-        description="Creative work boundary with official work, draft workspace, memory material, review receipts, and artifact repositories.",
+        description="Creative work environment for writing projects, source material, drafts, and reviewable creative outputs.",
         group_id="environment_group.creation",
         environment_kind="creation",
     )
@@ -202,10 +161,14 @@ def creation_writing_environment() -> TaskEnvironmentDefinition:
             EnvironmentPrompt(
                 prompt_id="environment.creation.writing.v1",
                 content=(
-                    "你处在创作资源边界中。这个环境区分正式作品库、草稿工作区、创作 artifact、记忆材料和审查记录。"
-                    "正式作品写入受 review receipt 和 commit gate 约束；草稿和任务 artifact 可以在环境允许范围内生成。"
-                    "环境不替你选择写作工具或技能；实际可用能力由 agent 配置和本轮上下文决定。"
-                    "如果需要改动正式作品，应明确产出审查依据和提交意图，不能把草稿写入冒充正式发布。"
+                    "你处在创作工作环境中，任务对象通常是作品设定、章节草稿、素材整理、风格审查、改稿和可交付文本。"
+                    "处理创作任务时要区分正式作品、草稿、参考材料和审查记录；不要把草稿当成已发布成果。"
+                    "需要研究时保留来源依据，需要改稿时说明修改意图、影响范围和仍需作者裁决的问题。"
+                    "输出应服务于作品质量：保持设定一致、情绪和节奏可读、商业表达清晰，同时避免无依据扩写、空泛夸奖和模板化建议。"
+                    "创作判断要面向可读性、连续性、角色动机、冲突推进和目标读者；发现设定矛盾时先指出问题，再给可执行修正方向。"
+                    "必须区分原文事实、参考资料、创作推断和新增草稿；不要伪造来源、记忆、审查结论或已提交状态。"
+                    "不要把设定分类、流程状态或写作计划当成完成证据；可交付结果必须能回溯到文本、来源或明确的作者裁决。"
+                    "如果材料不足、设定矛盾或任务目标不明确，应指出缺口并给出可执行的下一步。"
                 ),
             ),
         ),
@@ -216,7 +179,7 @@ def creation_writing_environment() -> TaskEnvironmentDefinition:
             write_policy="draft_artifacts_allowed",
             shell_policy="denied",
             browser_policy="denied",
-            network_policy="denied",
+            network_policy="allowed",
         ),
         file_management=FileManagementBinding(
             file_profile_refs=("file_profile.writing_manuscript",),
@@ -247,7 +210,7 @@ def creation_writing_environment() -> TaskEnvironmentDefinition:
             write_scope_policy="managed_writing_files_only",
             shell_execution_policy="denied",
             browser_execution_policy="denied",
-            network_execution_policy="denied",
+            network_execution_policy="allowed",
         ),
         artifact_policy=ArtifactPolicy(
             artifact_root="repo.writing.artifact_repository",
@@ -257,121 +220,11 @@ def creation_writing_environment() -> TaskEnvironmentDefinition:
     return TaskEnvironmentDefinition(record=record, spec=spec)
 
 
-def research_web_environment() -> TaskEnvironmentDefinition:
-    record = TaskEnvironmentRecord(
-        environment_id="env.research.web",
-        title="Web Research",
-        description="General evidence boundary with network access, evidence archive, download cache, and citation snapshot repositories.",
-        group_id="environment_group.general",
-        environment_kind="general",
-    )
-    spec = TaskEnvironmentSpec(
-        spec_id="envspec.research.web.default",
-        environment_id=record.environment_id,
-        environment_prompts=(
-            EnvironmentPrompt(
-                prompt_id="environment.research.web.v1",
-                content=(
-                    "你处在通用环境下的网络证据资源边界中。这个环境提供外部来源访问边界、证据归档、引用快照和下载缓存。"
-                    "网络通道可以按任务需要使用，但写入应落在 evidence archive、download cache 或 citation snapshot repository。"
-                    "环境不直接授予搜索或浏览器工具；实际可用工具由 agent 配置和本轮上下文决定。"
-                    "研究结论必须能回溯到证据记录，不能把未保存来源或不可复核内容当作已归档事实。"
-                ),
-            ),
-        ),
-        sandbox_policy=SandboxPolicy(
-            enabled=False,
-            sandbox_mode="evidence_archive",
-            workspace_access="none",
-            write_policy="evidence_archive_only",
-            shell_policy="denied",
-            browser_policy="task_decided",
-            network_policy="allowed",
-        ),
-        file_management=FileManagementBinding(
-            file_profile_refs=("file_profile.web_research_evidence",),
-            required_repository_kinds=("evidence_archive", "download_cache", "citation_snapshot_repository"),
-            canonical_write_policy="evidence_snapshot_versioned",
-        ),
-        resource_space=ResourceSpace(
-            storage_namespace="research/web",
-            material_mount_policy="download_cache",
-            managed_file_environment_policy="file_profile.web_research_evidence",
-            browser_environment_policy="local_browser",
-            artifact_root_policy="evidence_archive",
-        ),
-        execution_policy=ExecutionPolicy(
-            sandbox_required=False,
-            real_workspace_access="none",
-            write_scope_policy="evidence_archive_only",
-            shell_execution_policy="denied",
-            browser_execution_policy="task_decided",
-            network_execution_policy="allowed",
-        ),
-    )
-    return TaskEnvironmentDefinition(record=record, spec=spec)
-
-
-def document_processing_environment() -> TaskEnvironmentDefinition:
-    record = TaskEnvironmentRecord(
-        environment_id="env.document.processing",
-        title="Document Processing",
-        description="General document boundary with input document repositories, extraction workspace, and versioned document artifacts.",
-        group_id="environment_group.general",
-        environment_kind="general",
-    )
-    spec = TaskEnvironmentSpec(
-        spec_id="envspec.document.processing.default",
-        environment_id=record.environment_id,
-        environment_prompts=(
-            EnvironmentPrompt(
-                prompt_id="environment.document.processing.v1",
-                content=(
-                    "你处在通用环境下的文档处理资源边界中。这个环境区分输入文档库、抽取工作区和生成文档 artifact。"
-                    "写入只能落在文档 artifact 或抽取工作区允许范围内；不能改写原始文档库，除非任务合同和权限上下文明确授权。"
-                    "环境不直接选择文档技能或工具；实际能力由 agent 装配。"
-                    "处理结果需要保留来源路径、抽取依据和版本化输出，不能用未验证的中间内容替代最终 artifact。"
-                ),
-            ),
-        ),
-        sandbox_policy=SandboxPolicy(
-            enabled=False,
-            sandbox_mode="document_workspace",
-            workspace_access="document_workspace",
-            write_policy="document_artifacts_only",
-            shell_policy="denied",
-            browser_policy="denied",
-            network_policy="denied",
-        ),
-        file_management=FileManagementBinding(
-            file_profile_refs=("file_profile.document_processing",),
-            required_repository_kinds=("document_repository", "extraction_workspace", "artifact_repository"),
-            canonical_write_policy="versioned_document_artifacts",
-        ),
-        resource_space=ResourceSpace(
-            workspace_policy="document_workspace",
-            storage_namespace="document/processing",
-            material_mount_policy="document_mounts",
-            managed_file_environment_policy="file_profile.document_processing",
-            artifact_root_policy="document_artifact_repository",
-        ),
-        execution_policy=ExecutionPolicy(
-            sandbox_required=False,
-            real_workspace_access="none",
-            write_scope_policy="document_artifacts_only",
-            shell_execution_policy="denied",
-            browser_execution_policy="denied",
-            network_execution_policy="denied",
-        ),
-    )
-    return TaskEnvironmentDefinition(record=record, spec=spec)
-
-
 def general_workspace_environment() -> TaskEnvironmentDefinition:
     record = TaskEnvironmentRecord(
         environment_id="env.general.workspace",
         title="General Workspace",
-        description="Read-mostly general boundary for conversation materials, lightweight context, and bounded artifacts.",
+        description="General-purpose work environment for broad tasks and mixed workflows.",
         group_id="environment_group.general",
         environment_kind="general",
     )
@@ -382,32 +235,36 @@ def general_workspace_environment() -> TaskEnvironmentDefinition:
             EnvironmentPrompt(
                 prompt_id="environment.general.workspace.v1",
                 content=(
-                    "你处在通用资源边界中。这个环境适合对话材料、轻量只读上下文和 bounded artifacts。"
-                    "默认约束是 read-mostly、artifact-only 写入、无 shell、无浏览器、无网络。"
-                    "环境不授予工具；实际可用工具以本轮上下文为准。"
-                    "如果任务需要项目写入、正式作品库、外部网络、文档处理或沙盒执行，应由系统切换到相应资源边界或在任务合同中显式声明。"
+                    "你处在通用工作环境中，任务可能跨越问答、资料整理、分析、文件处理、研究、检查和多步骤执行。"
+                    "先明确用户目标、约束和可验证结果，再选择最小充分的执行路径。"
+                    "需要事实依据时优先收集证据，需要修改或生成交付物时保持边界清晰并留下可复核结果。"
+                    "不要过度设计任务流程；简单问题直接回答，复杂问题先拆出关键判断、风险和可验证步骤。"
+                    "必须区分已确认事实、合理判断和未知事项；不要伪造工具观察、检索来源、执行记录、文件内容或历史记忆。"
+                    "不要把计划、流程、分类、prompt 或状态字段当成完成证据；交付前应说明真实完成内容和验证依据。"
+                    "遇到不确定、信息不足或风险较高的动作，应把问题具体化，不要用猜测填补关键事实。"
                 ),
             ),
         ),
         sandbox_policy=SandboxPolicy(
             enabled=False,
-            sandbox_mode="none",
-            workspace_access="read_mostly",
-            write_policy="artifact_only",
-            shell_policy="denied",
-            browser_policy="denied",
-            network_policy="denied",
+            sandbox_mode="task_decided",
+            workspace_access="task_decided",
+            write_policy="task_decided",
+            shell_policy="task_decided",
+            browser_policy="task_decided",
+            network_policy="task_decided",
+            side_effect_policy="permission_context",
         ),
         file_management=FileManagementBinding(
             file_profile_refs=("file_profile.general_workspace",),
             required_repository_kinds=("conversation_artifacts",),
-            canonical_write_policy="read_mostly",
+            canonical_write_policy="task_decided",
         ),
         resource_space=ResourceSpace(
-            workspace_policy="read_mostly",
+            workspace_policy="task_decided",
             storage_namespace="general/workspace",
             material_mount_policy="task_decided",
-            project_file_policy="read_only",
+            project_file_policy="task_decided",
             managed_file_environment_policy="file_profile.general_workspace",
             artifact_root_policy="conversation_artifacts",
         ),
@@ -417,11 +274,12 @@ def general_workspace_environment() -> TaskEnvironmentDefinition:
         ),
         execution_policy=ExecutionPolicy(
             sandbox_required=False,
-            real_workspace_access="read_only",
-            write_scope_policy="artifact_only",
-            shell_execution_policy="denied",
-            browser_execution_policy="denied",
-            network_execution_policy="denied",
+            real_workspace_access="task_decided",
+            write_scope_policy="task_decided",
+            shell_execution_policy="task_decided",
+            browser_execution_policy="task_decided",
+            network_execution_policy="task_decided",
+            side_effect_policy="permission_context",
         ),
     )
     return TaskEnvironmentDefinition(record=record, spec=spec)

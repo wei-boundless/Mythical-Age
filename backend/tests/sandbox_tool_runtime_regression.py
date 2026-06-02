@@ -45,6 +45,54 @@ def test_sandbox_read_file_copies_workspace_file_into_overlay(tmp_path: Path) ->
     assert result["sandbox"]["backend"] == "local_overlay"
 
 
+def test_sandbox_read_file_respects_offset_limit_and_reports_window(tmp_path: Path) -> None:
+    workspace = tmp_path / "project"
+    sandbox_root = tmp_path / "sandbox" / "workspace"
+    (workspace / "docs").mkdir(parents=True)
+    (workspace / "docs" / "note.md").write_text("0123456789abcdef", encoding="utf-8")
+
+    result = _run_tool(
+        workspace=workspace,
+        sandbox_root=sandbox_root,
+        tool_name="read_file",
+        tool_args={"path": "docs/note.md", "offset": 4, "limit": 5},
+        operation_id="op.read_file",
+    )
+
+    envelope = result["observation"].payload["result_envelope"]
+    tool_result = envelope["structured_payload"]["tool_result"]
+
+    assert result["error"] == ""
+    assert result["observation"].payload["result"] == "45678"
+    assert tool_result["offset"] == 4
+    assert tool_result["end_offset"] == 9
+    assert tool_result["next_offset"] == 9
+    assert tool_result["has_more"] is True
+
+
+def test_sandbox_read_file_rejects_unknown_window_arguments(tmp_path: Path) -> None:
+    workspace = tmp_path / "project"
+    sandbox_root = tmp_path / "sandbox" / "workspace"
+    (workspace / "docs").mkdir(parents=True)
+    (workspace / "docs" / "note.md").write_text("0123456789abcdef", encoding="utf-8")
+
+    result = _run_tool(
+        workspace=workspace,
+        sandbox_root=sandbox_root,
+        tool_name="read_file",
+        tool_args={"path": "docs/note.md", "max_chars": 5},
+        operation_id="op.read_file",
+    )
+
+    observation = result["observation"]
+
+    assert result["execution_record"].status == "failed"
+    assert result["recoverable_error"] == "unexpected_tool_inputs"
+    assert "max_chars" in observation.payload["result"]
+    assert observation.payload["recoverable"] is True
+    assert observation.payload["repair_kind"] == "tool_invocation_validation"
+
+
 def test_sandbox_edit_file_copies_then_edits_overlay_without_touching_workspace(tmp_path: Path) -> None:
     workspace = tmp_path / "project"
     sandbox_root = tmp_path / "sandbox" / "workspace"

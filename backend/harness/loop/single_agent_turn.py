@@ -12,7 +12,9 @@ from harness.loop.model_action_protocol import ModelActionRequest
 from harness.loop.model_action_runtime import call_model_invoker
 from harness.loop.presentation import error_event, final_answer_event
 from harness.runtime import RuntimeCompiler, build_runtime_tool_plan
+from harness.runtime.prompt_segment_plan import build_prompt_segment_plan
 from harness.runtime.public_progress import public_runtime_progress_summary
+from runtime.prompt_accounting.serializer import normalize_messages
 from runtime.model_gateway.model_runtime import stringify_content
 from runtime.shared.models import TurnRun
 from runtime.tool_runtime import ToolInvocationRequest, build_tool_invocation_id
@@ -280,6 +282,18 @@ async def run_single_agent_turn(
                 _assistant_tool_call_message(response, [tool_call]),
                 _tool_observation_message(observation, tool_call_id=str(tool_call.get("id") or "")),
             ]
+            followup_segment_plan = _single_agent_turn_followup_segment_plan(
+                base_segment_plan=dict(compilation.packet.segment_plan or {}),
+                model_messages=model_messages,
+                packet_id=compilation.packet.packet_id,
+                tool_iteration=tool_iteration,
+            )
+            followup_prompt_manifest = {
+                **dict(compilation.packet.diagnostics.get("prompt_manifest") or {}),
+                "invocation_kind": "single_agent_turn_tool_followup",
+                "segment_plan_ref": str(followup_segment_plan.get("segment_plan_id") or ""),
+                "followup_iteration": tool_iteration,
+            }
             response = await _invoke_single_turn_model(
                 model_runtime=model_runtime,
                 model_messages=model_messages,
@@ -291,8 +305,8 @@ async def run_single_agent_turn(
                     "turn_id": turn_id,
                     "packet_ref": compilation.packet.packet_id,
                     "source": "harness.single_agent_turn.tool_followup",
-                    "segment_plan": dict(compilation.packet.segment_plan or {}),
-                    "prompt_manifest": dict(compilation.packet.diagnostics.get("prompt_manifest") or {}),
+                    "segment_plan": followup_segment_plan,
+                    "prompt_manifest": followup_prompt_manifest,
                 },
                 native_tools=_native_tools_for_packet(compilation.packet.allowed_action_types, available_tools=compilation.packet.available_tools),
             )
@@ -993,6 +1007,86 @@ def _tool_observation_message(observation: Any, *, tool_call_id: str) -> dict[st
         "tool_call_id": str(tool_call_id or observation.invocation_id),
         "content": observation.text,
     }
+
+
+def _single_agent_turn_followup_segment_plan(
+    *,
+    base_segment_plan: dict[str, Any],
+    model_messages: list[dict[str, Any]],
+    packet_id: str,
+    tool_iteration: int,
+) -> dict[str, Any]:
+    base_segments: dict[int, dict[str, Any]] = {}
+    for segment in list(base_segment_plan.get("segments") or []):
+        if not isinstance(segment, dict):
+            continue
+        index = _segment_model_message_index(segment)
+        if index >= 0:
+            base_segments[index] = dict(segment)
+    normalized_messages = normalize_messages(model_messages)
+    specs: list[dict[str, Any]] = []
+    for index, message in enumerate(normalized_messages):
+        base = dict(base_segments.get(index) or {})
+        if base:
+            specs.append(
+                {
+                    "role": str(message.get("role") or "user"),
+                    "content": str(message.get("content") or ""),
+                    "kind": str(base.get("kind") or "single_agent_turn_base"),
+                    "source_ref": str(base.get("source_ref") or "single_agent_turn_base"),
+                    "cache_scope": str(base.get("cache_scope") or "none"),
+                    "cache_role": str(base.get("cache_role") or "volatile"),
+                    "prefix_tier": str(base.get("prefix_tier") or "volatile"),
+                    "compression_role": str(base.get("compression_role") or "summarize"),
+                    "metadata": dict(base.get("metadata") or {}),
+                    "model_message": dict(message),
+                }
+            )
+            continue
+        specs.append(_single_agent_turn_followup_message_spec(message, tool_iteration=tool_iteration))
+    return build_prompt_segment_plan(
+        packet_id=f"{packet_id}:tool-followup:{max(1, int(tool_iteration or 1))}",
+        invocation_kind="single_agent_turn_tool_followup",
+        message_specs=specs,
+    ).to_dict()
+
+
+def _single_agent_turn_followup_message_spec(message: dict[str, Any], *, tool_iteration: int) -> dict[str, Any]:
+    role = str(message.get("role") or "user")
+    if role == "assistant" and message.get("tool_calls"):
+        kind = "single_agent_turn_tool_call"
+        source_ref = f"single_agent_turn.tool_call:{tool_iteration}"
+        compression_role = "preserve"
+    elif role == "tool":
+        kind = "single_agent_turn_tool_observation"
+        source_ref = f"single_agent_turn.tool_observation:{tool_iteration}"
+        compression_role = "summarize"
+    else:
+        kind = "single_agent_turn_followup_message"
+        source_ref = f"single_agent_turn.followup:{tool_iteration}"
+        compression_role = "summarize"
+    return {
+        "role": role,
+        "content": str(message.get("content") or ""),
+        "kind": kind,
+        "source_ref": source_ref,
+        "cache_scope": "none",
+        "cache_role": "volatile",
+        "prefix_tier": "volatile",
+        "compression_role": compression_role,
+        "metadata": {
+            "followup_iteration": max(1, int(tool_iteration or 1)),
+            "volatility_reason": "single agent turn tool follow-up messages change after each tool observation",
+        },
+        "model_message": dict(message),
+    }
+
+
+def _segment_model_message_index(segment: dict[str, Any]) -> int:
+    try:
+        return int(segment.get("model_message_index"))
+    except (TypeError, ValueError):
+        return -1
 
 
 async def _commit_final_message(

@@ -1108,6 +1108,27 @@ def test_model_runtime_per_call_override_controls_deepseek_parameters() -> None:
     assert model.extra_body == {"thinking": {"type": "disabled"}}
 
 
+def test_model_runtime_rejects_deepseek_max_when_thinking_disabled() -> None:
+    runtime = _runtime(
+        retries=0,
+        thinking_mode="disabled",
+        reasoning_effort="max",
+    )
+
+    with pytest.raises(ModelRuntimeError) as exc_info:
+        runtime._build_chat_model_for_spec(
+            ModelSpec(
+                provider="deepseek",
+                model="deepseek-v4-pro",
+                api_key="deepseek-key",
+                base_url="https://api.deepseek.com/v1",
+            )
+        )
+
+    assert exc_info.value.code == "configuration"
+    assert "thinking_mode=enabled" in exc_info.value.detail
+
+
 def test_model_runtime_per_call_override_bypasses_fallback_candidates() -> None:
     runtime = _runtime(
         fallback_provider="bailian",

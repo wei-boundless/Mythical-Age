@@ -91,6 +91,31 @@ def test_runtime_read_file_uses_file_gateway_sandbox_overlay(tmp_path: Path) -> 
     assert envelope["structured_payload"]["file_gateway"]["access_decision"] == "allow"
 
 
+def test_runtime_read_file_gateway_respects_offset_limit(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    sandbox = tmp_path / "sandbox" / "workspace"
+    (project / "docs").mkdir(parents=True)
+    (project / "docs" / "source.md").write_text("0123456789abcdef", encoding="utf-8")
+
+    result = _run_tool(
+        workspace=project,
+        sandbox_root=sandbox,
+        tool_name="read_file",
+        tool_args={"path": "docs/source.md", "offset": 4, "limit": 5},
+        operation_id="op.read_file",
+    )
+
+    envelope = result["observation"].payload["result_envelope"]
+    tool_result = envelope["structured_payload"]["tool_result"]
+
+    assert result["error"] == ""
+    assert result["observation"].payload["result"] == "45678"
+    assert tool_result["offset"] == 4
+    assert tool_result["end_offset"] == 9
+    assert tool_result["next_offset"] == 9
+    assert tool_result["has_more"] is True
+
+
 def test_runtime_project_workspace_write_is_rejected_without_file_approval(tmp_path: Path) -> None:
     project = tmp_path / "project"
     sandbox = tmp_path / "sandbox" / "workspace"

@@ -10,6 +10,7 @@ from task_system.contracts.runtime_contracts import SkillRuntimeView, skill_runt
 from task_system.environments import build_task_environment_catalog, task_environment_registry_from_backend_dir
 
 from .operation_projection import project_operation_authorization
+from .tool_scheduling import operation_requests_from_runtime_selection
 
 
 _SUBAGENT_TOOL_NAMES = {
@@ -157,11 +158,12 @@ def assemble_runtime(
         backend_dir=backend_dir,
         selection=selection,
     )
+    task_requested_operations = operation_requests_from_runtime_selection(selection)
     operation_projection = project_operation_authorization(
         agent_allowed_operations=profile.allowed_operations,
         agent_blocked_operations=tuple(getattr(agent_runtime_profile, "blocked_operations", ()) or ()),
         environment_payload=task_environment,
-        task_requested_operations=_string_tuple(selection.get("allowed_operations")),
+        task_requested_operations=task_requested_operations,
         definitions_by_name=definitions_by_name,
     )
     allowed_operations = set(operation_projection.allowed_operations)

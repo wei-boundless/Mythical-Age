@@ -114,7 +114,6 @@ def _anchor_turn_id(*, task_run_id: str, diagnostics: dict[str, Any], events: li
     return (
         _latest_interaction_turn_id(events)
         or _valid_turn_ref(diagnostics.get("latest_interaction_turn_id"))
-        or _lineage_turn_id(diagnostics)
         or _valid_turn_ref(diagnostics.get("turn_id"))
         or _turn_id_from_task_run(task_run_id)
         or ""

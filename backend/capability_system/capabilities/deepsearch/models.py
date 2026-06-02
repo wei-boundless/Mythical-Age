@@ -17,8 +17,6 @@ class SearchRuntimeConfig:
     search_sources: tuple[str, ...] = ("web",)
     web_provider: str = "tavily"
     allow_fetch_url: bool = True
-    allow_local_files: bool = False
-    allow_memory_read: bool = False
     max_iterations: int = 4
     max_queries: int = 6
     max_fetches: int = 8
@@ -40,8 +38,6 @@ class SearchRuntimeConfig:
             "search_sources": list(self.search_sources),
             "web_provider": self.web_provider,
             "allow_fetch_url": self.allow_fetch_url,
-            "allow_local_files": self.allow_local_files,
-            "allow_memory_read": self.allow_memory_read,
             "max_iterations": self.max_iterations,
             "max_queries": self.max_queries,
             "max_fetches": self.max_fetches,
@@ -127,8 +123,6 @@ def normalize_search_runtime_config(value: Any) -> SearchRuntimeConfig:
         search_sources=_dedupe([str(item) for item in list(raw.get("search_sources") or ["web"])]),
         web_provider=str(raw.get("web_provider") or "tavily").strip() or "tavily",
         allow_fetch_url=bool(raw.get("allow_fetch_url", True)),
-        allow_local_files=bool(raw.get("allow_local_files", False)),
-        allow_memory_read=bool(raw.get("allow_memory_read", False)),
         max_iterations=_clamp_int(raw.get("max_iterations"), 1, 12, 4),
         max_queries=_clamp_int(raw.get("max_queries"), 1, 30, 6),
         max_fetches=_clamp_int(raw.get("max_fetches"), 0, 40, 8),
@@ -153,12 +147,6 @@ def required_operations_for_search_config(config: SearchRuntimeConfig) -> tuple[
         operations.append("op.web_search")
     if "web" in sources and config.allow_fetch_url and config.max_fetches > 0:
         operations.append("op.fetch_url")
-    if "local_files" in sources or config.allow_local_files:
-        operations.extend(["op.search_files", "op.search_text", "op.read_file"])
-    if "rag" in sources:
-        operations.append("op.mcp_retrieval")
-    if "memory" in sources or config.allow_memory_read:
-        operations.append("op.memory_read")
     return _dedupe(operations)
 
 

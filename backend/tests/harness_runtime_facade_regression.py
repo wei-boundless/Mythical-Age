@@ -15,7 +15,7 @@ from harness.entrypoint.models import HarnessRuntimeRequest
 from api.chat import _project_public_stream_event, _runtime_run_refs_from_event
 from runtime.shared.models import AgentRunResult, TaskRun
 from harness.loop.model_action_protocol import ModelActionRequest
-from harness.loop.task_executor import _tool_call_progress_summary
+from harness.loop.task_executor import _duplicate_read_only_tool_call_observation, _tool_call_progress_summary
 from harness.loop.task_lifecycle import TaskLifecycleRecord, TaskRunContract
 from capability_system.tools.native_tool_catalog import build_tool_instances, get_tool_definitions
 from tests.support.runtime_stubs import (
@@ -31,6 +31,7 @@ from runtime.prompt_accounting import (
     PromptCachePlanner,
     extract_provider_usage,
 )
+from runtime.model_gateway.model_request import ModelRequestBuilder
 
 
 _VISIBLE_RUNTIME_INTERNAL_MARKERS = (
@@ -291,6 +292,17 @@ def test_single_agent_turn_read_only_tool_executes_through_control_plane_and_fol
     followup_messages = [dict(item) for item in list(model.seen_messages[-1] or []) if isinstance(item, dict)]
     assistant_tool_message = next(item for item in followup_messages if item.get("role") == "assistant" and item.get("tool_calls"))
     tool_message = next(item for item in followup_messages if item.get("role") == "tool")
+    followup_context = dict(model.seen_accounting_contexts[-1])
+    followup_segment_plan = dict(followup_context.get("segment_plan") or {})
+    followup_request = ModelRequestBuilder().build(
+        request_id="modelreq:single-agent-followup-test",
+        messages=followup_messages,
+        tools=list(model.seen_tools[-1] or []),
+        provider="deepseek",
+        model="deepseek-v4-pro",
+        segment_plan=followup_segment_plan,
+    )
+    followup_kinds = [str(item.get("kind") or "") for item in list(followup_segment_plan.get("segments") or [])]
 
     assert model.calls == 2
     assert tool_observations and tool_observations[0]["status"] == "ok"
@@ -301,6 +313,11 @@ def test_single_agent_turn_read_only_tool_executes_through_control_plane_and_fol
     assert "task_run_id" not in dict(tool_observations[0].get("result_envelope") or {})
     assert dict(list(assistant_tool_message["tool_calls"])[0]).get("id") == "call-read-requirements"
     assert tool_message["tool_call_id"] == "call-read-requirements"
+    assert followup_context["source"] == "harness.single_agent_turn.tool_followup"
+    assert followup_request.diagnostics["unplanned_message_count"] == 0
+    assert followup_request.diagnostics["segment_bindings_match_planned_messages"] is True
+    assert "single_agent_turn_tool_call" in followup_kinds
+    assert "single_agent_turn_tool_observation" in followup_kinds
     assert any(event.get("type") == "turn_tool_observation_recorded" for event in events)
     assert any(event.get("type") == "done" and str(event.get("content") or "") == "已经读取 requirements.txt。" for event in events)
     assert runtime.single_agent_runtime_host.list_session_traces("session-single-turn-read-tool")["task_run_count"] == 0
@@ -409,6 +426,76 @@ def test_single_agent_turn_tool_loop_blocks_before_fourth_tool_call() -> None:
         and dict(event).get("terminal_reason") == "single_turn_tool_iteration_limit"
         for event in events
     )
+
+
+def test_task_executor_guards_duplicate_read_only_tool_call_without_rerunning_tool() -> None:
+    action = ModelActionRequest(
+        request_id="model-action:duplicate-read",
+        turn_id="taskrun:duplicate-read",
+        action_type="tool_call",
+        tool_call={"tool_name": "read_file", "args": {"path": "artifacts/demo.html"}},
+    )
+    previous = [
+        {
+            "observation_id": "toolobs:read:1",
+            "payload": {
+                "result_envelope": {
+                    "tool_name": "read_file",
+                    "tool_args": {"path": "artifacts/demo.html"},
+                    "status": "ok",
+                    "text": "<html></html>",
+                }
+            },
+        }
+    ]
+
+    duplicate = _duplicate_read_only_tool_call_observation(
+        task_run_id="taskrun:duplicate-read",
+        packet_ref="packet:duplicate-read",
+        action_request=action,
+        previous_observations=previous,
+    )
+    same_default_window = _duplicate_read_only_tool_call_observation(
+        task_run_id="taskrun:duplicate-read",
+        packet_ref="packet:duplicate-read",
+        action_request=ModelActionRequest(
+            request_id="model-action:same-default-read-window",
+            turn_id="taskrun:duplicate-read",
+            action_type="tool_call",
+            tool_call={"tool_name": "read_file", "args": {"path": "artifacts/demo.html", "offset": 0}},
+        ),
+        previous_observations=previous,
+    )
+    changed_args = _duplicate_read_only_tool_call_observation(
+        task_run_id="taskrun:duplicate-read",
+        packet_ref="packet:duplicate-read",
+        action_request=ModelActionRequest(
+            request_id="model-action:changed-read",
+            turn_id="taskrun:duplicate-read",
+            action_type="tool_call",
+            tool_call={"tool_name": "read_file", "args": {"path": "artifacts/other.html"}},
+        ),
+        previous_observations=previous,
+    )
+    unsupported_arg = _duplicate_read_only_tool_call_observation(
+        task_run_id="taskrun:duplicate-read",
+        packet_ref="packet:duplicate-read",
+        action_request=ModelActionRequest(
+            request_id="model-action:unsupported-read-arg",
+            turn_id="taskrun:duplicate-read",
+            action_type="tool_call",
+            tool_call={"tool_name": "read_file", "args": {"path": "artifacts/demo.html", "max_chars": 200}},
+        ),
+        previous_observations=previous,
+    )
+
+    assert duplicate is not None
+    assert same_default_window is not None
+    assert duplicate["source"] == "system:duplicate_tool_call_guard"
+    assert duplicate["payload"]["error_code"] == "duplicate_read_only_tool_call"
+    assert duplicate["payload"]["previous_observation_refs"] == ["toolobs:read:1"]
+    assert changed_args is None
+    assert unsupported_arg is None
 
 
 def test_explicit_contract_task_starts_lifecycle_without_model_action_loop() -> None:
@@ -1526,35 +1613,35 @@ def test_session_runtime_timeline_derives_turn_anchor_from_structural_task_run_i
     assert attachment["anchor_turn_id"] == "turn:session-anchor:3"
 
 
-def test_session_runtime_timeline_ignores_legacy_checkout_event_as_control_anchor() -> None:
+def test_session_runtime_timeline_ignores_legacy_child_event_as_control_anchor() -> None:
     from harness.runtime.session_timeline import build_session_runtime_timeline
 
     runtime = build_harness_runtime()
     host = runtime.single_agent_runtime_host
-    task_run_id = "taskrun:turn:session-checkout-anchor:8:abc"
+    task_run_id = "taskrun:turn:session-child-anchor:8:abc"
     host.state_index.upsert_task_run(
         TaskRun(
             task_run_id=task_run_id,
-            session_id="session-checkout-anchor",
-            task_id="task:turn:session-checkout-anchor:8",
+            session_id="session-child-anchor",
+            task_id="task:turn:session-child-anchor:8",
             agent_profile_id="main_interactive_agent",
             execution_runtime_kind="single_agent_task",
             status="aborted",
             terminal_reason="user_aborted",
             created_at=1.0,
             updated_at=2.0,
-            diagnostics={"turn_id": "turn:session-checkout-anchor:8"},
+            diagnostics={"turn_id": "turn:session-child-anchor:8"},
         )
     )
     host.event_log.append(
         task_run_id,
-        "task_run_checkout_created",
-        payload={"lineage": {"turn_id": "turn:session-checkout-anchor:16"}},
-        refs={"turn_ref": "turn:session-checkout-anchor:16"},
+        "legacy_task_run_child_created",
+        payload={"lineage": {"turn_id": "turn:session-child-anchor:16"}},
+        refs={"turn_ref": "turn:session-child-anchor:16"},
     )
 
     timeline = build_session_runtime_timeline(
-        session_id="session-checkout-anchor",
+        session_id="session-child-anchor",
         history={
             "messages": [
                 {"role": "user", "content": "开始任务"},
@@ -1573,8 +1660,8 @@ def test_session_runtime_timeline_ignores_legacy_checkout_event_as_control_ancho
         if item["task_run_id"] == task_run_id
     )
     assert attachment["run_id"] == task_run_id
-    assert attachment["anchor_turn_id"] == "turn:session-checkout-anchor:8"
-    assert not any(item.get("eventType") == "task_run_checkout_created" for item in attachment["progress_entries"])
+    assert attachment["anchor_turn_id"] == "turn:session-child-anchor:8"
+    assert not any(item.get("eventType") == "legacy_task_run_child_created" for item in attachment["progress_entries"])
 
 
 def test_running_task_run_is_not_externally_executable_unless_executor_claimed() -> None:
@@ -1699,10 +1786,9 @@ def test_terminal_bound_active_turn_is_cleared_and_continue_starts_new_task_run(
     assert len(new_task_runs) == 1
     new_task = new_task_runs[0]
     diagnostics = dict(new_task.diagnostics or {})
-    assert diagnostics.get("origin_kind") != "checkout_resume"
+    assert diagnostics.get("origin_kind") == "single_agent_turn_native_action"
     assert diagnostics.get("parent_task_run_id") in {None, ""}
     assert "lineage" not in diagnostics
-    assert "task_run_checkout_created" not in old_event_types
     assert "task_run_resume_requested" not in old_event_types
 
 
@@ -3550,7 +3636,7 @@ def test_runtime_profile_uses_explicit_runtime_policy_and_environment() -> None:
             HarnessRuntimeRequest(
                 session_id="session-custom-mode-policy",
                 message="按显式运行策略执行。",
-                task_selection={"task_environment_id": "env.development.readonly"},
+                task_selection={"task_environment_id": "env.development.sandbox"},
                 runtime_profile={
                     "runtime_policy": {
                         "interaction_policy": {"style": "custom_review"},
@@ -3576,7 +3662,7 @@ def test_runtime_profile_uses_explicit_runtime_policy_and_environment() -> None:
     assert dict(profile.get("interaction_policy") or {}).get("style") == "custom_review"
     assert dict(profile.get("task_lifecycle_policy") or {}).get("request_task_run") is False
     assert dict(profile.get("self_review_policy") or {}).get("before_final") == "strict_review"
-    assert dict(assembly.get("task_environment") or {}).get("environment_id") == "env.development.readonly"
+    assert dict(assembly.get("task_environment") or {}).get("environment_id") == "env.development.sandbox"
 
 
 def test_turn_packet_does_not_expose_legacy_task_goal_type_from_selection() -> None:

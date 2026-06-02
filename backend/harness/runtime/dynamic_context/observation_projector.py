@@ -154,6 +154,8 @@ def _compact_tool_result(tool_projection: dict[str, Any]) -> dict[str, Any]:
             "structured_error": dict(tool_projection.get("structured_error") or {}),
             "artifact_refs": list(dict_tuple(tool_projection.get("artifact_refs"))),
             "replacement_ref": str(tool_projection.get("replacement_ref") or ""),
+            "content_range": dict(tool_projection.get("content_range") or {}),
+            "tool_guidance": str(tool_projection.get("tool_guidance") or ""),
         }
     )
 

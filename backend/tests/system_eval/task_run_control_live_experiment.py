@@ -31,13 +31,21 @@ def _action_request(
     *,
     action_type: str,
     final_answer: str = "",
+    public_progress_note: str = "正在处理 TaskRun 控制实验。",
     blocking_reason: str = "",
     diagnostics: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     return {
         "authority": "harness.loop.model_action_request",
+        "request_id": f"model-action:task-run-control:{uuid.uuid4().hex[:8]}",
         "turn_id": "",
         "action_type": action_type,
+        "public_progress_note": public_progress_note,
+        "public_action_state": {
+            "current_judgment": "TaskRun 控制实验可以继续。",
+            "next_action": public_progress_note,
+            "completion_status": "completed" if action_type == "respond" else "in_progress",
+        },
         "final_answer": final_answer,
         "blocking_reason": blocking_reason,
         "task_contract_seed": {},

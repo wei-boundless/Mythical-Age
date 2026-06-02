@@ -36,18 +36,26 @@ class CodebaseSearchPlan:
     path_queries: tuple[str, ...] = ()
     text_queries: tuple[str, ...] = ()
     symbol_queries: tuple[str, ...] = ()
+    query_terms: tuple[str, ...] = ()
+    required_terms: tuple[str, ...] = ()
     git_history_queries: tuple[str, ...] = ()
     preferred_roots: tuple[str, ...] = ()
     file_globs: tuple[str, ...] = ()
+    test_intent: bool = False
+    doc_intent: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "path_queries": list(self.path_queries),
             "text_queries": list(self.text_queries),
             "symbol_queries": list(self.symbol_queries),
+            "query_terms": list(self.query_terms),
+            "required_terms": list(self.required_terms),
             "git_history_queries": list(self.git_history_queries),
             "preferred_roots": list(self.preferred_roots),
             "file_globs": list(self.file_globs),
+            "test_intent": self.test_intent,
+            "doc_intent": self.doc_intent,
         }
 
 

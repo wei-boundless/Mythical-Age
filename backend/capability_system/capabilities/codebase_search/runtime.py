@@ -73,7 +73,7 @@ class CodebaseSearchCapability:
             max_slices=config.max_file_slices,
             max_slice_lines=config.max_slice_lines,
         )
-        findings = rank_codebase_evidence(text_hits, slices, limit=config.max_file_slices)
+        findings = rank_codebase_evidence(text_hits, slices, limit=config.max_file_slices, plan=plan, query=query)
         files_read = tuple(dict.fromkeys(item.file for item in slices))
         limitations: list[str] = []
         git_history = []

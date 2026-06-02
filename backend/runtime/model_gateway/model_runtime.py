@@ -727,6 +727,7 @@ class ModelRuntime:
         max_output_tokens = self._max_output_tokens_for_spec(spec)
         temperature = self._temperature_for_spec(spec)
         if spec.provider == "deepseek":
+            self._validate_deepseek_mode_for_spec(spec)
             if ChatDeepSeek is None:
                 raise RuntimeError("langchain-deepseek is not installed")
             if not spec.api_key:
@@ -1287,6 +1288,25 @@ class ModelRuntime:
 
     def _reasoning_effort_for_spec(self, spec: ModelSpec) -> str:
         return str(spec.reasoning_effort or self.reasoning_effort or "high").strip().lower()
+
+    def _validate_deepseek_mode_for_spec(self, spec: ModelSpec) -> None:
+        if str(spec.provider or "").strip().lower() != "deepseek":
+            return
+        thinking_mode = self._thinking_mode_for_spec(spec)
+        reasoning_effort = self._reasoning_effort_for_spec(spec)
+        if reasoning_effort != "max" or thinking_mode == "enabled":
+            return
+        raise ModelRuntimeError(
+            code="configuration",
+            provider=spec.provider,
+            model=spec.model,
+            detail=(
+                "DeepSeek reasoning_effort=max requires thinking_mode=enabled; "
+                "thinking_mode=disabled would run a non-thinking call."
+            ),
+            retryable=False,
+            user_message="DeepSeek max 模式必须同时开启 thinking，不能在 thinking disabled 下运行。",
+        )
 
     def _chat_openai_reasoning_effort_for_spec(self, spec: ModelSpec) -> str | None:
         if not self._thinking_enabled_for_spec(spec):

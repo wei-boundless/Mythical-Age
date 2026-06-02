@@ -29,9 +29,9 @@ def main() -> int:
     )
     parser.add_argument("--provider", default="deepseek")
     parser.add_argument("--model", default="deepseek-v4-pro")
-    parser.add_argument("--thinking-mode", default="disabled", choices=("disabled", "enabled"))
+    parser.add_argument("--thinking-mode", default="enabled", choices=("disabled", "enabled"))
     parser.add_argument("--reasoning-effort", default="high", choices=("high", "max"))
-    parser.add_argument("--max-output-tokens", type=int, default=16384)
+    parser.add_argument("--max-output-tokens", type=int, default=32768)
     parser.add_argument("--min-provider-calls", type=int, default=4)
     parser.add_argument("--stop-after-provider-calls", type=int, default=0)
     parser.add_argument("--timeout-seconds", type=float, default=300.0)
@@ -40,6 +40,7 @@ def main() -> int:
         default=str(PROJECT_ROOT / "storage" / "runtime_state" / "prompt_cache_live_tests"),
     )
     args = parser.parse_args()
+    _validate_model_mode_args(args, parser)
     try:
         report = asyncio.run(_run(args))
     except Exception as exc:
@@ -65,6 +66,14 @@ def main() -> int:
     return 0 if report.get("ok") else 2
 
 
+def _validate_model_mode_args(args: argparse.Namespace, parser: argparse.ArgumentParser) -> None:
+    provider = str(args.provider or "").strip().lower()
+    thinking_mode = str(args.thinking_mode or "disabled").strip().lower()
+    reasoning_effort = str(args.reasoning_effort or "high").strip().lower()
+    if provider == "deepseek" and reasoning_effort == "max" and thinking_mode != "enabled":
+        parser.error("--reasoning-effort max requires --thinking-mode enabled for DeepSeek max mode.")
+
+
 async def _run(args: argparse.Namespace) -> dict[str, Any]:
     run_id = f"five_floor_dungeon_e2e_{time.strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
     report_dir = Path(args.output_root).resolve() / run_id
@@ -84,7 +93,7 @@ async def _run(args: argparse.Namespace) -> dict[str, Any]:
         "provider": str(args.provider or "deepseek"),
         "model": str(args.model or "deepseek-v4-pro"),
         "credential_ref": f"provider:{str(args.provider or 'deepseek')}:primary",
-        "max_output_tokens": max(1, int(args.max_output_tokens or 16384)),
+        "max_output_tokens": max(1, int(args.max_output_tokens or 32768)),
         "timeout_seconds": float(getattr(settings, "llm_timeout_seconds", 45.0) or 45.0),
         "long_output_timeout_seconds": float(getattr(settings, "llm_long_output_timeout_seconds", 180.0) or 180.0),
         "max_retries": 0,

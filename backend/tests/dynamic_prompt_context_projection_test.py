@@ -73,6 +73,63 @@ def test_runtime_compiler_emits_dynamic_context_report_and_projected_task_state(
     assert packet.artifact_refs == ("artifacts/file.txt",)
 
 
+def test_read_file_content_windows_survive_task_state_projection() -> None:
+    def _read_observation(ref: str, text: str, offset: int, end_offset: int, next_offset: int | None) -> dict[str, object]:
+        return {
+            "observation_id": ref,
+            "payload": {
+                "result_envelope": {
+                    "envelope_id": f"tool-result:{ref}",
+                    "tool_name": "read_file",
+                    "status": "ok",
+                    "text": text,
+                    "observed_paths": ["docs/long.md"],
+                    "structured_payload": {
+                        "observed_paths": ["docs/long.md"],
+                        "tool_result": {
+                            "kind": "text_file",
+                            "path": "docs/long.md",
+                            "size_chars": 30,
+                            "offset": offset,
+                            "limit": 10,
+                            "returned_chars": len(text),
+                            "end_offset": end_offset,
+                            "next_offset": next_offset,
+                            "has_more": next_offset is not None,
+                            "truncated": next_offset is not None,
+                        },
+                    },
+                }
+            },
+        }
+
+    result = RuntimeCompiler().compile_task_execution_packet(
+        session_id="session:read-windows",
+        task_run={"task_run_id": "taskrun:read-windows", "diagnostics": {"executor_status": "running"}},
+        contract={"task_run_goal": "连续读取长文件", "completion_criteria": ["读取窗口可见"]},
+        observations=[
+            _read_observation("obs:window:0", "0123456789", 0, 10, 10),
+            _read_observation("obs:window:10", "abcdefghij", 10, 20, 20),
+        ],
+        runtime_assembly={
+            "profile": {"mode": "professional"},
+            "task_environment": {"environment_id": "env.development.sandbox"},
+            "operation_authorization": {"allowed_operations": ["op.read_file"]},
+        },
+    )
+
+    volatile_payload = _payload_after_title(result.packet.model_messages[-1]["content"], "Task execution current state")
+    windows = [
+        item
+        for item in volatile_payload["task_state"]["latest_tool_results"]
+        if item.get("tool_name") == "read_file"
+    ]
+
+    assert [item["content_range"]["offset"] for item in windows] == [0, 10]
+    assert windows[0]["content_range"]["next_offset"] == 10
+    assert "不要重复读取相同窗口" in windows[0]["tool_guidance"]
+
+
 def test_task_execution_prompt_uses_canonical_artifact_scope_only() -> None:
     artifact_root = "storage/task_environments/development/sandbox/artifacts"
     requested_path = "artifacts/prompt_cache_live_e2e/run/index.html"
@@ -147,11 +204,16 @@ def test_task_work_rollout_only_enters_model_through_dynamic_context_projection(
             "latest_progress": "完成初始化",
             "latest_step_title": "初始化",
             "agent_brief_output": "ROOT_AGENT_BRIEF_SHOULD_NOT_BYPASS_PROJECTOR",
+            "latest_checkpoint_ref": "rtchk:old-control-point",
+            "lineage": {"parent_task_run_id": "taskrun:old"},
             "model_visible_history": [
                 {
                     "title": "初始化",
                     "status": "completed",
                     "summary": "已创建基础文件",
+                    "event_offset": 12,
+                    "refs": {"checkpoint_ref": "rtchk:old-step"},
+                    "checkpoint": {"ref": "rtchk:old-step"},
                 }
             ],
         },
@@ -166,7 +228,13 @@ def test_task_work_rollout_only_enters_model_through_dynamic_context_projection(
     volatile_payload = _payload_after_title(result.packet.model_messages[-1]["content"], "Task execution current state")
 
     assert "ROOT_AGENT_BRIEF_SHOULD_NOT_BYPASS_PROJECTOR" not in model_input
-    assert volatile_payload["task_state"]["work_progress"]["recent_steps"][0]["summary"] == "已创建基础文件"
+    work_progress = volatile_payload["task_state"]["work_progress"]
+    assert work_progress["recent_steps"][0]["summary"] == "已创建基础文件"
+    assert work_progress["historical_work_summary"]["non_control_context"] is True
+    assert "checkpoint" not in json.dumps(work_progress, ensure_ascii=False)
+    assert "lineage" not in json.dumps(work_progress, ensure_ascii=False)
+    assert "event_offset" not in json.dumps(work_progress, ensure_ascii=False)
+    assert "refs" not in work_progress["recent_steps"][0]
 
 
 def test_task_execution_state_deduplicates_observation_failures_and_preserves_retry_fields() -> None:
@@ -286,6 +354,83 @@ def test_task_execution_state_semantically_deduplicates_repeated_tool_facts() ->
     assert [item["observation_ref"] for item in task_state["current_facts"]] == ["obs:path:1"]
     assert "latest_tool_results" not in task_state
     assert "task_run_id" not in json.dumps(volatile_payload, ensure_ascii=False)
+
+
+def test_task_execution_state_hides_sandbox_artifact_paths_and_supersedes_missing_probe() -> None:
+    artifact_path = "storage/task_environments/general/workspace/artifacts/five_floor_dungeon.html"
+    result = RuntimeCompiler().compile_task_execution_packet(
+        session_id="session:artifact-path-clean",
+        task_run={
+            "task_run_id": "taskrun:artifact-path-clean",
+            "status": "running",
+            "diagnostics": {"executor_status": "running"},
+        },
+        contract={"task_run_goal": "写入并验证 HTML", "completion_criteria": ["文件存在"]},
+        observations=[],
+        execution_state={
+            "system_projection": {
+                "runtime_status": "running",
+                "current_facts": [
+                    {
+                        "observation_ref": "obs:missing",
+                        "tool_name": "path_exists",
+                        "path": artifact_path,
+                        "status": "ok",
+                        "summary": "false",
+                    },
+                    {
+                        "observation_ref": "obs:write",
+                        "tool_name": "write_file",
+                        "path": artifact_path,
+                        "status": "ok",
+                        "summary": "Write succeeded",
+                    },
+                ],
+                "last_action_receipts": [
+                    {
+                        "observation_ref": "obs:missing",
+                        "tool_name": "path_exists",
+                        "path": artifact_path,
+                        "status": "ok",
+                        "summary": "false",
+                    },
+                    {
+                        "observation_ref": "obs:write",
+                        "tool_name": "write_file",
+                        "path": artifact_path,
+                        "status": "ok",
+                        "summary": "Write succeeded",
+                    },
+                ],
+                "artifact_evidence": [
+                    {
+                        "path": artifact_path,
+                        "absolute_path": "D:/AI应用/langchain-agent/storage/runtime_state/sandboxes/taskrun_x/storage/task_environments/general/workspace/artifacts/five_floor_dungeon.html",
+                        "sandbox_path": artifact_path,
+                        "kind": "file",
+                        "source": "write_file",
+                    }
+                ],
+            }
+        },
+        runtime_assembly={
+            "profile": {"mode": "professional"},
+            "task_environment": {"environment_id": "env.general.workspace"},
+            "operation_authorization": {"allowed_operations": ["op.path_exists", "op.write_file"]},
+        },
+    )
+
+    volatile_payload = _payload_after_title(result.packet.model_messages[-1]["content"], "Task execution current state")
+    task_state = volatile_payload["task_state"]
+    serialized = json.dumps(task_state, ensure_ascii=False)
+
+    assert "absolute_path" not in serialized
+    assert "sandbox_path" not in serialized
+    assert "storage/runtime_state/sandboxes" not in serialized
+    assert task_state["artifact_evidence"] == [{"path": artifact_path, "kind": "file", "source": "write_file"}]
+    assert all(item.get("observation_ref") != "obs:missing" for item in task_state.get("current_facts", []))
+    assert all(item.get("observation_ref") != "obs:missing" for item in task_state.get("latest_tool_results", []))
+    assert any(item.get("observation_ref") == "obs:write" for item in task_state["current_facts"])
 
 
 def test_task_execution_uses_invocation_scoped_agent_prompt_refs() -> None:

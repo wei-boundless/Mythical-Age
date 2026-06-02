@@ -7,6 +7,7 @@ from types import SimpleNamespace
 from agent_system.profiles.runtime_profile_registry import default_agent_runtime_profiles
 from agent_system.registry.agent_registry import default_agent_descriptors
 from capability_system.capabilities.deepsearch import DeepSearchCapability, normalize_runtime_config, required_operations_for_search_config
+from capability_system.tools.tool_units.subagent_control_tool import SpawnSubagentTool
 
 
 class _StaticProvider:
@@ -55,13 +56,15 @@ def test_search_specialists_are_registered_with_separate_authority() -> None:
     web = profiles["agent:web_researcher"]
     assert web.allowed_operations == ("op.model_response", "op.search_agent", "op.web_search", "op.fetch_url")
     assert set(web.metadata["runtime_config"]["search"]["search_sources"]) == {"web"}
-    assert web.metadata["runtime_config"]["search"]["allow_local_files"] is False
-    assert web.metadata["runtime_config"]["search"]["allow_memory_read"] is False
+    assert "Web" in web.metadata["when_to_use"]
+    assert web.metadata["output_contract"]["source_policy"]
 
     code = profiles["agent:codebase_searcher"]
     assert {"op.search_files", "op.search_text", "op.read_file", "op.git_log", "op.git_show"} <= set(code.allowed_operations)
     assert "op.web_search" in code.blocked_operations
     assert "op.memory_read" in code.blocked_operations
+    assert "本地代码库" in code.metadata["when_to_use"]
+    assert "evidence_refs" in code.metadata["output_contract"]["required_fields"]
 
     knowledge = profiles["agent:knowledge_searcher"]
     assert knowledge.allowed_operations == ("op.model_response", "op.mcp_retrieval")
@@ -71,6 +74,15 @@ def test_search_specialists_are_registered_with_separate_authority() -> None:
     memory = profiles["agent:memory_searcher"]
     assert memory.allowed_operations == ("op.model_response", "op.memory_read")
     assert "op.mcp_retrieval" in memory.blocked_operations
+
+
+def test_spawn_subagent_tool_description_teaches_fresh_specialist_contract() -> None:
+    description = SpawnSubagentTool(Path(".")).description
+
+    assert "fresh specialist" in description
+    assert "complete brief" in description
+    assert "Never predict a child result" in description
+    assert "read/search tool" in description
 
 
 def test_web_search_config_requires_only_web_operations() -> None:
@@ -89,17 +101,7 @@ def test_web_search_config_requires_only_web_operations() -> None:
 
 def test_deepsearch_capability_runs_web_only_sources() -> None:
     web_provider = _StaticProvider("web")
-    local_provider = _StaticProvider("local_files")
-    rag_provider = _StaticProvider("rag")
-    memory_provider = _StaticProvider("memory")
-
-    capability = DeepSearchCapability(
-        Path("."),
-        search_provider=web_provider,
-        local_files_provider=local_provider,
-        rag_provider=rag_provider,
-        memory_provider=memory_provider,
-    )
+    capability = DeepSearchCapability(Path("."), search_provider=web_provider)
     request = SimpleNamespace(
         request_id="subagent:req:web-only",
         task_run_id="taskrun:test",
@@ -124,8 +126,6 @@ def test_deepsearch_capability_runs_web_only_sources() -> None:
                     "search": {
                         "search_sources": ["web"],
                         "allow_fetch_url": False,
-                        "allow_local_files": False,
-                        "allow_memory_read": False,
                         "max_queries": 1,
                         "max_fetches": 0,
                         "prefer_primary_sources": False,
@@ -143,19 +143,104 @@ def test_deepsearch_capability_runs_web_only_sources() -> None:
     assert payload["diagnostics"]["capability_id"] == "capability.deepsearch"
     assert payload["diagnostics"]["web_payload"]["usage"]["search_sources"] == ["web"]
     assert web_provider.queries == ["official release notes"]
-    assert local_provider.queries == []
-    assert rag_provider.queries == []
-    assert memory_provider.queries == []
+
+
+def test_deepsearch_stops_after_core_query_when_initial_evidence_is_sufficient() -> None:
+    web_provider = _StaticProvider("web")
+    capability = DeepSearchCapability(Path("."), search_provider=web_provider)
+    request = SimpleNamespace(
+        request_id="subagent:req:web-adaptive-stop",
+        task_run_id="taskrun:test",
+        session_id="session:test",
+        parent_agent_run_ref="agrun:main",
+        source_agent_id="agent:0",
+        target_agent_id="agent:web_researcher",
+        subagent_task_kind="web_research",
+        instruction="Find official release notes.",
+        input_payload={"query": "official release notes"},
+    )
+    agent = type("Agent", (), {"agent_id": "agent:web_researcher"})()
+    profile = type(
+        "Profile",
+        (),
+        {
+            "allowed_operations": ("op.model_response", "op.search_agent", "op.web_search"),
+            "blocked_operations": (),
+            "metadata": {},
+        },
+    )()
+    config = normalize_runtime_config(
+        {
+            "template_id": "runtime.template.deepsearch",
+            "search": {
+                "search_sources": ["web"],
+                "allow_fetch_url": False,
+                "max_queries": 3,
+                "max_fetches": 0,
+                "max_sources": 1,
+                "prefer_primary_sources": True,
+            },
+        }
+    ).search
+
+    payload = asyncio.run(capability.run(request=request, agent=agent, profile=profile, config=config))
+
+    assert payload["status"] == "completed"
+    assert web_provider.queries == ["official release notes"]
+    assert payload["diagnostics"]["research_state"]["stop_reason"] in {"enough_initial_evidence", "enough_evidence", "enough_sources"}
+
+
+def test_deepsearch_adds_official_followup_only_when_primary_source_is_missing() -> None:
+    web_provider = _StaticProvider("web")
+    capability = DeepSearchCapability(Path("."), search_provider=web_provider)
+    request = SimpleNamespace(
+        request_id="subagent:req:web-adaptive-followup",
+        task_run_id="taskrun:test",
+        session_id="session:test",
+        parent_agent_run_ref="agrun:main",
+        source_agent_id="agent:0",
+        target_agent_id="agent:web_researcher",
+        subagent_task_kind="web_research",
+        instruction="Find release notes.",
+        input_payload={"query": "release notes"},
+    )
+    agent = type("Agent", (), {"agent_id": "agent:web_researcher"})()
+    profile = type(
+        "Profile",
+        (),
+        {
+            "allowed_operations": ("op.model_response", "op.search_agent", "op.web_search"),
+            "blocked_operations": (),
+            "metadata": {},
+        },
+    )()
+    config = normalize_runtime_config(
+        {
+            "template_id": "runtime.template.deepsearch",
+            "search": {
+                "search_sources": ["web"],
+                "allow_fetch_url": False,
+                "max_queries": 3,
+                "max_fetches": 0,
+                "max_sources": 2,
+                "prefer_primary_sources": True,
+            },
+        }
+    ).search
+
+    payload = asyncio.run(capability.run(request=request, agent=agent, profile=profile, config=config))
+
+    assert payload["status"] == "completed"
+    assert web_provider.queries == ["release notes", "release notes official announcement"]
 
 
 def test_web_research_agent_blocks_non_web_source_by_permission() -> None:
-    runtime = DeepSearchCapability(Path("."), local_files_provider=_StaticProvider("local_files"))
+    runtime = DeepSearchCapability(Path("."))
     config = normalize_runtime_config(
         {
             "template_id": "runtime.template.deepsearch",
             "search": {
                 "search_sources": ["local_files"],
-                "allow_local_files": True,
                 "allow_fetch_url": False,
                 "max_queries": 1,
                 "max_fetches": 0,
@@ -179,7 +264,8 @@ def test_web_research_agent_blocks_non_web_source_by_permission() -> None:
     payload = asyncio.run(runtime.run(request=request, agent=agent, profile=profile, config=config))
 
     assert payload["status"] == "failed"
-    assert "deepsearch_required_operation_missing" in payload["limitations"]
-    assert "op.search_files" in payload["limitations"]
+    assert "deepsearch_unsupported_source" in payload["limitations"]
+    assert "local_files" in payload["limitations"]
+    assert payload["diagnostics"]["supported_search_sources"] == ["web"]
 
 

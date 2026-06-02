@@ -445,10 +445,6 @@ def build_system_prompt_with_manifest(
 
 
 def _static_context_source(heading: str) -> str:
-    if heading in {"系统 AGENTS 规则", "系统规则"}:
-        return "backend/agent_context/AGENTS.md"
-    if heading in {"项目 AGENTS 规则", "项目规则"}:
-        return "AGENTS.md"
     return "memory.static_loader"
 
 

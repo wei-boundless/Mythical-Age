@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Any
+from urllib.parse import urlparse
 
 from .models import SearchRuntimeConfig
 
@@ -116,6 +118,7 @@ class DefaultDeepSearchStrategy:
             for item in list(raw_queries or [])
             if str(item or "").strip()
         ] if isinstance(raw_queries, (list, tuple)) else []
+        core_query = _core_query(goal, config=config, payload=payload)
         questions = [
             ResearchQuestion(
                 question_id="rq:core",
@@ -124,7 +127,7 @@ class DefaultDeepSearchStrategy:
                 reason="Verify the subagent research goal.",
             )
         ]
-        queries = [*provided_queries, goal]
+        queries = [*provided_queries, core_query]
         if config.search_strategy == "deepsearch" and config.prefer_primary_sources:
             questions.append(
                 ResearchQuestion(
@@ -134,8 +137,6 @@ class DefaultDeepSearchStrategy:
                     reason="DeepSearch requires source quality checks.",
                 )
             )
-            queries.append(f"{goal} official source")
-            queries.append(f"{goal} official announcement")
         if config.search_strategy == "deepsearch" and config.freshness_required_by_default:
             questions.append(
                 ResearchQuestion(
@@ -145,16 +146,14 @@ class DefaultDeepSearchStrategy:
                     reason="Freshness is required by runtime_config.search.",
                 )
             )
-            queries.append(f"{goal} latest update")
-            queries.append(f"{goal} release notes date")
         return SearchPlanningStep(
             research_questions=tuple(questions),
             initial_queries=_dedupe(queries)[: config.max_queries],
-            rationale="Initial plan derived from subagent query, runtime budget, source quality policy, and freshness policy.",
+            rationale="Initial plan starts with the core query; follow-up queries are added only after evidence-gap review.",
         )
 
     def review(self, *, state: ResearchState, config: SearchRuntimeConfig, phase: str = "search") -> EvidenceReviewStep:
-        accepted_sources = _unique_sources(state.candidate_sources)
+        accepted_sources = _diverse_sources(_unique_sources(state.candidate_sources))
         accepted_count = len(accepted_sources)
         primary_count = sum(1 for item in accepted_sources if _looks_primary_source(item))
         distilled_claim_count = len(state.distilled_claims)
@@ -184,6 +183,20 @@ class DefaultDeepSearchStrategy:
                 stop_reason="single_search_complete",
                 gaps=tuple(gaps),
                 next_queries=(),
+                accepted_source_count=accepted_count,
+                primary_source_count=primary_count,
+                distilled_claim_count=distilled_claim_count,
+            )
+        enough_sources = accepted_count >= _enough_source_threshold(config)
+        source_quality_satisfied = (
+            enough_sources
+            and (not config.prefer_primary_sources or primary_count > 0)
+            and (not config.freshness_required_by_default or _has_dated_source(accepted_sources))
+        )
+        if source_quality_satisfied and phase != "distilled":
+            return EvidenceReviewStep(
+                should_stop=True,
+                stop_reason="enough_initial_evidence",
                 accepted_source_count=accepted_count,
                 primary_source_count=primary_count,
                 distilled_claim_count=distilled_claim_count,
@@ -219,7 +232,7 @@ class DefaultDeepSearchStrategy:
                 primary_source_count=primary_count,
                 distilled_claim_count=distilled_claim_count,
             )
-        if not gaps and accepted_count >= 2 and (phase != "distilled" or distilled_claim_count >= 1):
+        if not gaps and accepted_count >= _enough_source_threshold(config) and (phase != "distilled" or distilled_claim_count >= 1):
             return EvidenceReviewStep(
                 should_stop=True,
                 stop_reason="enough_evidence",
@@ -302,6 +315,27 @@ def _unique_sources(values: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return result
 
 
+def _diverse_sources(values: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    seen_domains: set[str] = set()
+    for item in values:
+        domain = _domain(item)
+        if domain and domain in seen_domains:
+            continue
+        if domain:
+            seen_domains.add(domain)
+        result.append(item)
+    return result
+
+
+def _domain(item: dict[str, Any]) -> str:
+    url = str(item.get("url") or item.get("source") or "").strip()
+    if not url:
+        return ""
+    parsed = urlparse(url if "://" in url else f"https://{url}")
+    return str(parsed.netloc or "").lower().removeprefix("www.")
+
+
 def _looks_primary_source(item: dict[str, Any]) -> bool:
     haystack = " ".join(
         str(item.get(key) or "").lower()
@@ -312,6 +346,28 @@ def _looks_primary_source(item: dict[str, Any]) -> bool:
 
 def _has_dated_source(items: list[dict[str, Any]]) -> bool:
     return any(str(item.get("published_date") or "").strip() for item in items)
+
+
+def _core_query(goal: str, *, config: SearchRuntimeConfig, payload: dict[str, Any]) -> str:
+    text = str(goal or "").strip()
+    if not text:
+        return text
+    if config.freshness_required_by_default or _looks_current_query(text) or str(payload.get("freshness") or "").strip():
+        current_year = str(datetime.now().year)
+        if current_year not in text:
+            return f"{text} {current_year}"
+    return text
+
+
+def _looks_current_query(value: str) -> bool:
+    lowered = str(value or "").lower()
+    return any(token in lowered for token in ("latest", "current", "recent", "today", "newest", "最新", "当前", "最近", "今天"))
+
+
+def _enough_source_threshold(config: SearchRuntimeConfig) -> int:
+    if config.max_sources <= 2:
+        return 1
+    return 2
 
 
 def _queries_for_unknown(goal: str, unknown: str) -> list[str]:

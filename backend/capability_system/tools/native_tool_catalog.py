@@ -414,6 +414,7 @@ def _tool_definitions() -> list[ToolDefinition]:
             factory=lambda base_dir: ReadFileTool(root_dir=base_dir),
             contract=ToolExecutionContract(
                 required_inputs=["path"],
+                optional_inputs=["offset", "limit"],
                 owner_scope="explicit_path",
                 missing_binding_behavior="clarify",
                 context_policy="inline",

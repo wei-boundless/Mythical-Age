@@ -175,7 +175,7 @@ def _rule(rule_id: str, title_zh: str, target_field: str, criteria: str, rule_ty
     )
 
 
-def _common_contract(
+def _writing_stage_contract(
     family: WritingContractFamily,
     *,
     contract_id: str,
@@ -219,7 +219,7 @@ def _draft_artifact_contract(
     overrides: dict[str, Any],
     metadata: dict[str, Any],
 ) -> ContractSpec:
-    return _common_contract(
+    return _writing_stage_contract(
         family,
         contract_id=contract_id,
         artifact_type=artifact_type,
@@ -267,7 +267,7 @@ def _review_verdict_contract(
     metadata: dict[str, Any],
 ) -> ContractSpec:
     verdict_key = _identifier(overrides.get("verdict_key"), "verdict")
-    return _common_contract(
+    return _writing_stage_contract(
         family,
         contract_id=contract_id,
         artifact_type=artifact_type,
@@ -304,7 +304,7 @@ def _revision_request_contract(
     overrides: dict[str, Any],
     metadata: dict[str, Any],
 ) -> ContractSpec:
-    return _common_contract(
+    return _writing_stage_contract(
         family,
         contract_id=contract_id,
         artifact_type=artifact_type,
@@ -338,7 +338,7 @@ def _commit_receipt_contract(
     overrides: dict[str, Any],
     metadata: dict[str, Any],
 ) -> ContractSpec:
-    return _common_contract(
+    return _writing_stage_contract(
         family,
         contract_id=contract_id,
         artifact_type=artifact_type,
@@ -371,7 +371,7 @@ def _memory_update_contract(
     overrides: dict[str, Any],
     metadata: dict[str, Any],
 ) -> ContractSpec:
-    return _common_contract(
+    return _writing_stage_contract(
         family,
         contract_id=contract_id,
         artifact_type=artifact_type,

@@ -17,11 +17,10 @@ from task_system.environments import (
     resolve_task_environment,
     task_environment_registry_from_backend_dir,
 )
-from agent_system.profiles.runtime_profile_registry import AgentRuntimeRegistry
 from agent_system.profiles.runtime_profile_registry import default_agent_runtime_profiles
 from capability_system.tools.authorization import build_tool_authorization_index
 from capability_system.tools.native_tool_catalog import build_tool_instances, get_tool_definitions
-from harness.runtime import RuntimeCompiler, assemble_runtime
+from harness.runtime import RuntimeCompiler, assemble_runtime, build_runtime_tool_plan
 from task_system.tasks.definitions import default_task_definitions
 
 
@@ -47,10 +46,13 @@ def test_default_task_environments_are_grouped_scene_platforms() -> None:
     assert development.sandbox_policy.shell_policy == "sandboxed"
     assert "op.image_generate" in development.sandbox_policy.side_effect_operations
     assert development.resource_space.storage_namespace == "development/sandbox"
+    assert "AGENTS.md" not in development.memory_space.project_knowledge_refs
     assert development.environment_prompts
     assert [item.prompt_id for item in development.environment_prompts] == ["environment.development.sandbox.v1"]
     development_prompt = "\n".join(item.content for item in development.environment_prompts)
-    assert "sandbox overlay" in development_prompt
+    assert "你处在开发工作环境中" in development_prompt
+    assert "验证必须真实执行" in development_prompt
+    assert "保护用户已有改动" in development_prompt
     assert "优先使用 search_text、search_files、glob_paths、read_file、list_dir" not in development_prompt
     assert "old_text not found" not in development_prompt
     assert ("strategy." + "development.execution.v1") not in development_prompt
@@ -61,110 +63,8 @@ def test_default_task_environments_are_grouped_scene_platforms() -> None:
     assert writing.file_management.constraints["official_work_canonical_write"] == "ask"
     assert writing.artifact_policy.artifact_root == "repo.writing.artifact_repository"
 
-    assert general.sandbox_policy.shell_policy == "denied"
-    assert general.execution_policy.shell_execution_policy == "denied"
-
-
-def test_configured_system_eval_dual_node_environment_is_isolated() -> None:
-    registry = task_environment_registry_from_backend_dir(BACKEND_DIR)
-    definition = registry.require("env.system_eval.dual_node")
-    resolved = resolve_task_environment("env.system_eval.dual_node", registry=registry)
-    payload = resolved.to_dict()
-    management = build_task_environment_catalog(registry=registry).management_payload()
-    system_eval_item = next(
-        item
-        for item in management["environments"]
-        if item["record"]["environment_id"] == "env.system_eval.dual_node"
-    )
-
-    assert definition.record.group_id == "environment_group.system_eval"
-    assert definition.record.environment_kind == "custom"
-    assert system_eval_item["definition_source"] == "configured"
-    assert system_eval_item["management_scope"] == "system_internal"
-    assert management["summary"]["system_internal_environment_count"] == 1
-    assert definition.spec.resource_space.storage_namespace == "system_eval/dual_node"
-    assert definition.spec.file_management.file_profile_refs == ()
-    assert definition.spec.file_management.required_repository_kinds == ("system_eval_artifacts",)
-    assert definition.spec.memory_space.environment_memory_refs == ()
-    assert definition.spec.memory_space.write_policy == "none"
-    assert definition.spec.sandbox_policy.enabled is True
-    assert definition.spec.sandbox_policy.workspace_access == "project_read_sandbox_write"
-    assert definition.spec.sandbox_policy.write_policy == "sandbox_or_system_eval_artifacts"
-    assert definition.spec.execution_policy.sandbox_required is True
-    assert definition.spec.execution_policy.real_workspace_access == "read_only"
-    assert definition.spec.execution_policy.write_scope_policy == "sandbox_or_system_eval_artifacts"
-    assert definition.spec.execution_policy.shell_execution_policy == "sandboxed"
-    assert definition.spec.execution_policy.browser_execution_policy == "sandboxed"
-    assert definition.spec.execution_policy.network_execution_policy == "allowed"
-    assert "op.shell" in definition.spec.sandbox_policy.side_effect_operations
-    assert "op.browser_control" in definition.spec.sandbox_policy.side_effect_operations
-    assert "op.web_search" in definition.spec.sandbox_policy.side_effect_operations
-    assert payload["storage_space"]["environment_storage_root"] == "storage/task_environments/system_eval/dual_node"
-    assert payload["file_access_tables"] == []
-    assert "file_profile.writing_manuscript" not in str(payload)
-    assert "creation/writing" not in str(payload)
-    assert "development/sandbox" not in str(payload)
-
-
-def test_system_eval_dual_node_uses_main_and_health_agent_profiles() -> None:
-    registry = task_environment_registry_from_backend_dir(BACKEND_DIR)
-    main_profile = AgentRuntimeRegistry(BACKEND_DIR).get_profile("agent:0")
-    health_profile = AgentRuntimeRegistry(BACKEND_DIR).get_profile("agent:3")
-    definitions = get_tool_definitions()
-    index = build_tool_authorization_index(definitions)
-
-    assert main_profile is not None
-    assert main_profile.agent_profile_id == "main_interactive_agent"
-    assert health_profile is not None
-    assert health_profile.agent_profile_id == "health_management_agent"
-    assert health_profile.runtime_template_id == "builtin.system.health_manager"
-
-    main_assembly = assemble_runtime(
-        backend_dir=BACKEND_DIR,
-        session_id="session-system-eval-main",
-        turn_id="turn-system-eval-main",
-        agent_invocation_id="agent-invocation-system-eval-main",
-        request_task_selection={
-            "task_environment_id": "env.system_eval.dual_node",
-        },
-        model_selection={},
-        agent_runtime_profile=main_profile,
-        tool_instances=build_tool_instances(BACKEND_DIR),
-        definitions_by_name=index.definitions_by_name,
-    ).to_dict()
-    monitor_assembly = assemble_runtime(
-        backend_dir=BACKEND_DIR,
-        session_id="session-system-eval-monitor",
-        turn_id="turn-system-eval-monitor",
-        agent_invocation_id="agent-invocation-system-eval-monitor",
-        request_task_selection={
-            "task_environment_id": "env.system_eval.dual_node",
-        },
-        model_selection={},
-        agent_runtime_profile=health_profile,
-        tool_instances=build_tool_instances(BACKEND_DIR),
-        definitions_by_name=index.definitions_by_name,
-    ).to_dict()
-
-    assert dict(main_assembly.get("task_environment") or {}).get("environment_id") == "env.system_eval.dual_node"
-    assert dict(monitor_assembly.get("task_environment") or {}).get("environment_id") == "env.system_eval.dual_node"
-    assert main_assembly["agent_profile_ref"] == "main_interactive_agent"
-    assert monitor_assembly["agent_profile_ref"] == "health_management_agent"
-
-    main_decisions = {
-        str(item.get("operation_id") or ""): dict(item)
-        for item in list(dict(main_assembly.get("operation_authorization") or {}).get("decisions") or [])
-    }
-    monitor_decisions = {
-        str(item.get("operation_id") or ""): dict(item)
-        for item in list(dict(monitor_assembly.get("operation_authorization") or {}).get("decisions") or [])
-    }
-    assert main_decisions["op.shell"]["final_decision"] == "allow"
-    assert main_decisions["op.web_search"]["final_decision"] == "allow"
-    assert monitor_decisions["op.read_file"]["final_decision"] == "allow"
-    assert monitor_decisions["op.search_text"]["final_decision"] == "allow"
-    assert monitor_decisions["op.write_file"]["final_decision"] == "deny"
-    assert monitor_decisions["op.shell"]["final_decision"] == "deny"
+    assert general.sandbox_policy.shell_policy == "task_decided"
+    assert general.execution_policy.shell_execution_policy == "task_decided"
 
 
 def test_task_definitions_do_not_declare_skill_authority() -> None:
@@ -181,6 +81,10 @@ def test_legacy_environment_ids_are_not_accepted() -> None:
         "env.web_research",
         "env.document_processing",
         "env.general_workspace",
+        "env.development.readonly",
+        "env.research.web",
+        "env.document.processing",
+        "env.system_eval.dual_node",
     ):
         try:
             registry.require(environment_id)
@@ -217,7 +121,7 @@ def test_development_environment_exposes_shell_and_image_generation_tools_for_au
         for item in list(operation_auth.get("decisions") or [])
     }
     assert decisions["op.shell"]["final_decision"] == "allow"
-    assert decisions["op.shell"]["environment_constraint"] == "sandboxed"
+    assert decisions["op.shell"]["environment_constraint"] == "env.development.sandbox"
 
 
 def test_runtime_available_tools_expose_canonical_tool_input_schema() -> None:
@@ -374,7 +278,14 @@ def test_development_environment_prompt_is_in_task_execution_packet() -> None:
     assert stable_payload["task_environment"]["environment_prompt_refs"] == ["environment.development.sandbox.v1"]
     assert "处理 Python 开发任务" in model_input
     assert "old_text not found" in model_input
-    assert "sandbox overlay" in model_input
+    assert "next_offset" in model_input
+    assert "不要重复同一 path、offset、limit" in model_input
+    assert "todo 不是事实来源" in model_input
+    assert "验证必须真实" in model_input
+    assert "Windows PowerShell 5.1" in model_input
+    assert "不要使用 Bash 专属的 &&、||" in model_input
+    assert "你处在开发工作环境中" in model_input
+    assert "保护用户已有改动" in model_input
 
 
 def test_resolved_environment_exports_storage_and_file_boundaries() -> None:
@@ -408,8 +319,8 @@ def test_task_environment_catalog_is_single_normalized_resource_surface() -> Non
     )
 
     assert management["authority"] == "task_system.task_environment_catalog"
-    assert management["summary"]["environment_count"] == 6
-    assert management["summary"]["builtin_template_count"] == 6
+    assert management["summary"]["environment_count"] == 3
+    assert management["summary"]["builtin_template_count"] == 3
     assert management["summary"]["workspace_environment_count"] == 0
     assert management["summary"]["system_internal_environment_count"] == 0
     assert writing_item["definition_source"] == "builtin_default"
@@ -422,7 +333,7 @@ def test_task_environment_catalog_is_single_normalized_resource_surface() -> Non
     assert writing_item["task_library"]["task_ids"] == ["engage.test.writing"]
 
 
-def test_environment_does_not_filter_agent_allowed_tools() -> None:
+def test_creation_environment_filters_development_execution_tools_before_runtime_exposure() -> None:
     definitions = get_tool_definitions()
     index = build_tool_authorization_index(definitions)
     profile = SimpleNamespace(
@@ -437,7 +348,7 @@ def test_environment_does_not_filter_agent_allowed_tools() -> None:
         session_id="session-env-constraint",
         turn_id="turn-env-constraint",
         agent_invocation_id="agent-invocation-env-constraint",
-        request_task_selection={"task_environment_id": "env.development.readonly"},
+        request_task_selection={"task_environment_id": "env.creation.writing"},
         model_selection={},
         agent_runtime_profile=profile,
         tool_instances=build_tool_instances(BACKEND_DIR),
@@ -450,15 +361,55 @@ def test_environment_does_not_filter_agent_allowed_tools() -> None:
         for item in list(dict(assembly.get("operation_authorization") or {}).get("decisions") or [])
     }
 
-    assert "terminal" in tool_names
-    assert "browser_control" in tool_names
+    assert "terminal" not in tool_names
+    assert "browser_control" not in tool_names
     assert "web_search" in tool_names
     assert "write_file" in tool_names
-    assert decisions["op.shell"]["reason"] == "agent_allowed"
-    assert decisions["op.browser_control"]["reason"] == "agent_allowed"
-    assert decisions["op.write_file"]["reason"] == "agent_allowed"
+    assert decisions["op.shell"]["reason"] == "environment_filtered"
+    assert decisions["op.browser_control"]["reason"] == "environment_filtered"
+    assert decisions["op.write_file"]["final_decision"] == "allow"
     assert decisions["op.web_search"]["final_decision"] == "allow"
-    assert decisions["op.shell"]["environment_constraint"] == "denied"
+    assert decisions["op.shell"]["environment_constraint"] == "env.creation.writing"
+
+
+def test_development_environment_keeps_document_capability_routes() -> None:
+    profile = next(item for item in default_agent_runtime_profiles() if item.agent_profile_id == "main_interactive_agent")
+    definitions = get_tool_definitions()
+    index = build_tool_authorization_index(definitions)
+
+    assembly = assemble_runtime(
+        backend_dir=BACKEND_DIR,
+        session_id="session-document-tools",
+        turn_id="turn-document-tools",
+        agent_invocation_id="agent-invocation-document-tools",
+        request_task_selection={"task_environment_id": "env.development.sandbox"},
+        model_selection={},
+        agent_runtime_profile=profile,
+        tool_instances=build_tool_instances(BACKEND_DIR),
+        definitions_by_name=index.definitions_by_name,
+    )
+    plan = build_runtime_tool_plan(
+        runtime_assembly=assembly,
+        invocation_kind="task_execution",
+        tool_definitions_by_name=index.definitions_by_name,
+    )
+    tool_names = {str(item.get("tool_name") or "") for item in list(assembly.available_tools)}
+    decisions = {
+        str(item.get("operation_id") or ""): dict(item)
+        for item in list(dict(assembly.operation_authorization or {}).get("decisions") or [])
+    }
+    pdf_capability = plan.capability_table.capability_for_operation("op.mcp_pdf")
+
+    assert "read_file" in tool_names
+    assert "read_structured_file" in tool_names
+    assert "git_status" in tool_names
+    assert "python_symbol_search" in tool_names
+    assert decisions["op.git_status"]["final_decision"] == "allow"
+    assert decisions["op.python_symbol_search"]["final_decision"] == "allow"
+    assert decisions["op.mcp_pdf"]["final_decision"] == "allow"
+    assert pdf_capability is not None
+    assert pdf_capability.metadata["route"] == "pdf"
+    assert pdf_capability.dispatchable is False
 
 
 def test_runtime_compiler_stable_payload_keeps_environment_and_operation_projection_only() -> None:
@@ -581,9 +532,6 @@ def test_all_default_task_environments_resolve_file_access_tables() -> None:
     for environment_id in (
         "env.creation.writing",
         "env.development.sandbox",
-        "env.development.readonly",
-        "env.research.web",
-        "env.document.processing",
         "env.general.workspace",
     ):
         resolved = resolve_task_environment(environment_id)

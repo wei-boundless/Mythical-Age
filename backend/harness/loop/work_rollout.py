@@ -156,7 +156,12 @@ def append_work_rollout_item(
         created_at=time.time(),
     )
     timeline = [*record.progress_timeline, item.to_dict()][-80:]
-    model_history = [*record.model_visible_history, _model_history_item(item)][-80:]
+    model_visible = item_payload.get("model_visible") is not False
+    model_history = (
+        [*record.model_visible_history, _model_history_item(item)][-80:]
+        if model_visible
+        else list(record.model_visible_history)[-80:]
+    )
     artifact_refs = _dedupe_artifacts(
         [
             *list(record.artifact_refs or ()),

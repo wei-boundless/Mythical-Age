@@ -20,6 +20,7 @@ class ToolObservationRecord:
     matched_paths: tuple[str, ...] = ()
     artifact_refs: tuple[dict[str, Any], ...] = ()
     command_receipt: dict[str, Any] = field(default_factory=dict)
+    result_metadata: dict[str, Any] = field(default_factory=dict)
     side_effect_hash: str = ""
     evidence_source: str = "structured_envelope"
     debug_hints: dict[str, Any] = field(default_factory=dict)
@@ -36,6 +37,7 @@ class ToolObservationRecord:
         payload["debug_hints"] = dict(self.debug_hints)
         payload["runtime_freshness"] = dict(self.runtime_freshness)
         payload["structured_error"] = dict(self.structured_error)
+        payload["result_metadata"] = dict(self.result_metadata)
         return payload
 
 
@@ -190,6 +192,14 @@ def build_tool_observation_record(
         }
     )
     recoverable_repair = bool(result_payload.get("recoverable") is True or result_payload.get("repair_kind"))
+    result_metadata = _result_metadata_for_tool(
+        name=name,
+        args=args,
+        result_text=result_text,
+        status=status,
+        structured_payload=structured_payload,
+        observed_paths=observed_paths,
+    )
     if recoverable_repair:
         side_effect_kind = "repair"
         satisfies = ()
@@ -229,6 +239,7 @@ def build_tool_observation_record(
         matched_paths=tuple(matched_paths),
         artifact_refs=tuple(artifact_refs),
         command_receipt=command_receipt,
+        result_metadata=result_metadata,
         side_effect_hash=(
             _side_effect_hash(name=name, args=args, result_text=result_text)
             if side_effect_kind in {"write", "verification"}
@@ -242,6 +253,69 @@ def build_tool_observation_record(
         },
         structured_error=dict(structured_error or {}),
     )
+
+
+def _result_metadata_for_tool(
+    *,
+    name: str,
+    args: dict[str, Any],
+    result_text: str,
+    status: str,
+    structured_payload: dict[str, Any],
+    observed_paths: tuple[str, ...],
+) -> dict[str, Any]:
+    if name != "read_file" or status != "ok":
+        return {}
+    tool_result = dict(structured_payload.get("tool_result") or {})
+    path = str(tool_result.get("path") or (observed_paths[0] if observed_paths else "") or args.get("path") or "").strip()
+    offset = _int_or_none(tool_result.get("offset"))
+    end_offset = _int_or_none(tool_result.get("end_offset"))
+    returned_chars = _int_or_none(tool_result.get("returned_chars"))
+    size_chars = _int_or_none(tool_result.get("size_chars"))
+    limit = _int_or_none(tool_result.get("limit"))
+    next_offset = _int_or_none(tool_result.get("next_offset"))
+    if offset is None and end_offset is None and returned_chars is None and size_chars is None:
+        return {}
+    has_more = bool(tool_result.get("has_more") or tool_result.get("truncated"))
+    content_range = _drop_empty_dict(
+        {
+            "path": path,
+            "offset": offset,
+            "end_offset": end_offset,
+            "returned_chars": returned_chars if returned_chars is not None else len(str(result_text or "")),
+            "size_chars": size_chars,
+            "limit": limit,
+            "next_offset": next_offset,
+            "has_more": has_more,
+            "truncated": bool(tool_result.get("truncated") or has_more),
+        }
+    )
+    if not content_range:
+        return {}
+    if has_more and next_offset is not None:
+        guidance = (
+            f"read_file 已返回 {path} 的 offset={offset} 到 end_offset={end_offset}。"
+            f"如仍需要后续内容，下一次应使用 offset={next_offset} 和 limit={limit or ''}；不要重复读取相同窗口。"
+        )
+    else:
+        guidance = f"read_file 已读到 {path} 的当前可用结尾；不要重复读取相同窗口。"
+    return {
+        "content_range": content_range,
+        "tool_guidance": guidance,
+    }
+
+
+def _int_or_none(value: Any) -> int | None:
+    if value in (None, ""):
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _drop_empty_dict(payload: dict[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in payload.items() if value not in ("", None, [], {})}
 
 
 def _side_effect_kind(tool_name: str) -> str:

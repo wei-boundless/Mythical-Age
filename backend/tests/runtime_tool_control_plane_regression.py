@@ -68,6 +68,196 @@ def test_runtime_tool_plan_single_turn_filters_side_effect_tools_from_dispatch()
     assert plan.dispatchable_tool_names == ("read_file",)
 
 
+def test_runtime_tool_plan_general_environment_keeps_agent_authorized_tools_dispatchable() -> None:
+    definitions = {
+        "read_file": SimpleNamespace(operation_id="op.read_file", is_read_only=True),
+        "web_search": SimpleNamespace(operation_id="op.web_search", is_read_only=True),
+        "fetch_url": SimpleNamespace(operation_id="op.fetch_url", is_read_only=True),
+        "browser_control": SimpleNamespace(operation_id="op.browser_control", is_read_only=False),
+        "terminal": SimpleNamespace(operation_id="op.shell", is_read_only=False),
+        "write_file": SimpleNamespace(operation_id="op.write_file", is_read_only=False),
+    }
+    plan = build_runtime_tool_plan(
+        runtime_assembly=_assembly(
+            available_tools=[
+                {"name": "read_file", "operation_id": "op.read_file", "read_only": True},
+                {"name": "web_search", "operation_id": "op.web_search", "read_only": True},
+                {"name": "fetch_url", "operation_id": "op.fetch_url", "read_only": True},
+                {"name": "browser_control", "operation_id": "op.browser_control", "read_only": False},
+                {"name": "terminal", "operation_id": "op.shell", "read_only": False},
+                {"name": "write_file", "operation_id": "op.write_file", "read_only": False},
+            ],
+            task_environment={
+                "environment_id": "env.general.workspace",
+                "execution_policy": {
+                    "real_workspace_access": "read_only",
+                    "write_scope_policy": "artifact_only",
+                    "shell_execution_policy": "denied",
+                    "browser_execution_policy": "denied",
+                    "network_execution_policy": "denied",
+                },
+                "resource_space": {"workspace_policy": "read_mostly"},
+                "sandbox_policy": {},
+            },
+        ),
+        invocation_kind="task_execution",
+        tool_definitions_by_name=definitions,
+    )
+    assert [tool["name"] for tool in plan.model_visible_tools] == [
+        "browser_control",
+        "fetch_url",
+        "read_file",
+        "terminal",
+        "web_search",
+        "write_file",
+    ]
+    assert plan.dispatchable_tool_names == (
+        "browser_control",
+        "fetch_url",
+        "read_file",
+        "terminal",
+        "web_search",
+        "write_file",
+    )
+    assert plan.capability_table.to_dict()["filtered"] == []
+
+
+def test_runtime_tool_plan_intersects_available_tools_with_operation_authorization() -> None:
+    definitions = {
+        "read_file": SimpleNamespace(operation_id="op.read_file", is_read_only=True),
+        "write_file": SimpleNamespace(operation_id="op.write_file", is_read_only=False),
+    }
+    plan = build_runtime_tool_plan(
+        runtime_assembly=_assembly(
+            available_tools=[
+                {"name": "read_file", "operation_id": "op.read_file", "read_only": True},
+                {"name": "write_file", "operation_id": "op.write_file", "read_only": False},
+            ],
+            task_environment={
+                "environment_id": "env.development.sandbox",
+                "execution_policy": {
+                    "real_workspace_access": "read_only_or_task_granted",
+                    "write_scope_policy": "sandbox_or_file_access_table",
+                    "shell_execution_policy": "sandboxed",
+                    "browser_execution_policy": "sandboxed",
+                    "network_execution_policy": "task_decided",
+                },
+                "sandbox_policy": {"side_effect_operations": ["op.write_file"]},
+                "resource_space": {"workspace_policy": "project_workspace"},
+            },
+            operation_authorization={
+                "allowed_operations": ["op.read_file"],
+                "denied_operations": ["op.write_file"],
+                "decisions": [
+                    {
+                        "operation_id": "op.read_file",
+                        "final_decision": "allow",
+                        "reason": "environment_allowed",
+                    },
+                    {
+                        "operation_id": "op.write_file",
+                        "final_decision": "deny",
+                        "reason": "agent_permission_missing",
+                    },
+                ],
+            },
+        ),
+        invocation_kind="task_execution",
+        tool_definitions_by_name=definitions,
+    )
+    filtered = {
+        item["tool_name"]: item["reason"]
+        for item in plan.capability_table.to_dict()["filtered"]
+        if item.get("tool_name")
+    }
+
+    assert [tool["name"] for tool in plan.model_visible_tools] == ["read_file"]
+    assert plan.dispatchable_tool_names == ("read_file",)
+    assert filtered["write_file"] == "agent_permission_missing"
+
+
+def test_runtime_tool_plan_records_local_mcp_routes_as_deferred_capabilities() -> None:
+    plan = build_runtime_tool_plan(
+        runtime_assembly=_assembly(
+            available_tools=[],
+            task_environment={
+                "environment_id": "env.development.sandbox",
+                "execution_policy": {
+                    "real_workspace_access": "none",
+                    "write_scope_policy": "document_artifacts_only",
+                    "shell_execution_policy": "denied",
+                    "browser_execution_policy": "denied",
+                    "network_execution_policy": "denied",
+                },
+                "resource_space": {"workspace_policy": "document_workspace"},
+                "sandbox_policy": {},
+            },
+            operation_authorization={
+                "allowed_operations": ["op.mcp_pdf"],
+                "decisions": [
+                    {
+                        "operation_id": "op.mcp_pdf",
+                        "final_decision": "allow",
+                        "reason": "environment_allowed",
+                        "task_requested": True,
+                    }
+                ],
+            },
+        ),
+        invocation_kind="task_execution",
+        tool_definitions_by_name={},
+    )
+
+    capability = plan.capability_table.capability_for_operation("op.mcp_pdf")
+
+    assert capability is not None
+    assert capability.tool_name == "mcp__langchain_agent__pdf"
+    assert capability.visible is False
+    assert capability.dispatchable is False
+    assert capability.metadata["runtime_exposure"] == "local_mcp_runtime"
+    assert plan.dispatchable_tool_names == ()
+
+
+def test_runtime_tool_plan_does_not_create_local_mcp_route_when_environment_lacks_it() -> None:
+    plan = build_runtime_tool_plan(
+        runtime_assembly=_assembly(
+            available_tools=[],
+            task_environment={
+                "environment_id": "env.creation.writing",
+                "execution_policy": {
+                    "real_workspace_access": "read_only",
+                    "write_scope_policy": "artifact_only",
+                    "shell_execution_policy": "denied",
+                    "browser_execution_policy": "denied",
+                    "network_execution_policy": "denied",
+                },
+                "resource_space": {"workspace_policy": "managed_writing_files"},
+                "memory_space": {"retrieval_index_refs": ["conversation_index"]},
+                "sandbox_policy": {},
+            },
+            operation_authorization={
+                "allowed_operations": ["op.mcp_pdf"],
+                "decisions": [
+                    {
+                        "operation_id": "op.mcp_pdf",
+                        "final_decision": "allow",
+                        "reason": "agent_allowed",
+                    }
+                ],
+            },
+        ),
+        invocation_kind="task_execution",
+        tool_definitions_by_name={},
+    )
+    filtered = {
+        item["operation_id"]: item["reason"]
+        for item in plan.capability_table.to_dict()["filtered"]
+    }
+
+    assert plan.capability_table.capability_for_operation("op.mcp_pdf") is None
+    assert filtered["op.mcp_pdf"] == "environment_filtered"
+
+
 def test_tool_invocation_request_agent_turn_does_not_require_task_run() -> None:
     request = ToolInvocationRequest(
         invocation_id="toolinvoke:turn:1",
@@ -234,8 +424,16 @@ def test_runtime_tool_control_plane_dispatches_agent_turn_through_core_without_t
 
 
 class _assembly:
-    def __init__(self, *, available_tools: list[dict[str, object]]) -> None:
+    def __init__(
+        self,
+        *,
+        available_tools: list[dict[str, object]],
+        task_environment: dict[str, object] | None = None,
+        operation_authorization: dict[str, object] | None = None,
+    ) -> None:
         self.available_tools = list(available_tools)
+        self.task_environment = dict(task_environment or {"environment_id": "env.general.workspace"})
+        self.operation_authorization = dict(operation_authorization or {})
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -243,8 +441,8 @@ class _assembly:
             "turn_id": "turn:one:1",
             "agent_invocation_id": "aginvoke:one",
             "available_tools": list(self.available_tools),
-            "task_environment": {"environment_id": "env.test"},
-            "operation_authorization": {},
+            "task_environment": dict(self.task_environment),
+            "operation_authorization": dict(self.operation_authorization),
         }
 
 

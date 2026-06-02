@@ -368,7 +368,7 @@ class RuntimeCompiler:
             contract=contract,
             assembly_payload=assembly_payload,
         )
-        if not task_run_context_enabled:
+        if graph_node_prompt_contract or not task_run_context_enabled:
             task_prompt_contract = {}
         prompt_assembly = self._assemble_prompt_pack(
             invocation_kind="task_execution",
@@ -1440,9 +1440,6 @@ def _task_prompt_contract_from_runtime(
     assembly_payload: dict[str, Any],
 ) -> dict[str, Any]:
     payload = dict(contract.get("prompt_contract") or {})
-    engagement_contract = dict(assembly_payload.get("engagement_contract") or {})
-    if not payload:
-        payload = dict(engagement_contract.get("prompt_contract") or {})
     if not payload:
         return {}
     result = _normalize_prompt_contract(
@@ -1450,7 +1447,6 @@ def _task_prompt_contract_from_runtime(
         contract_id=str(
             payload.get("contract_id")
             or contract.get("contract_id")
-            or engagement_contract.get("contract_id")
             or task_run.get("task_run_id")
             or "task_prompt_contract"
         ),
@@ -1464,12 +1460,9 @@ def _graph_node_prompt_contract_from_runtime(
     contract: dict[str, Any],
     assembly_payload: dict[str, Any],
 ) -> dict[str, Any]:
-    engagement_contract = dict(assembly_payload.get("engagement_contract") or {})
     payload = dict(
         _graph_slot_node_prompt_contract(contract)
         or dict(contract.get("graph_node_prompt_contract") or {})
-        or dict(engagement_contract.get("graph_node_prompt_contract") or {})
-        or dict(dict(engagement_contract.get("execution_strategy") or {}).get("graph_node_prompt_contract") or {})
     )
     if not payload:
         return {}

@@ -831,7 +831,10 @@
           "path"
         ],
         "required_bindings": [],
-        "optional_inputs": [],
+        "optional_inputs": [
+          "offset",
+          "limit"
+        ],
         "owner_scope": "explicit_path",
         "allow_catalog_default": false,
         "allow_history_binding": false,

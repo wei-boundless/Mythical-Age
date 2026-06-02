@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from .models import compact_text, dict_tuple, drop_empty
+from .tool_result_projector import model_visible_artifact_refs
 
 
 class TaskStateProjector:
@@ -23,6 +24,18 @@ class TaskStateProjector:
             observation_projection=observation_projection,
             current_fact_keys=current_fact_keys,
         )
+        artifact_evidence = model_visible_artifact_refs(
+            _dedupe_artifacts(
+                [
+                    *dict_tuple(execution_projection.get("artifact_evidence")),
+                    *dict_tuple(observation_projection.get("artifact_evidence")),
+                    *dict_tuple(work_history_projection.get("active_artifacts")),
+                ]
+            )
+        )
+        positive_paths = _positive_paths(current_facts, latest_results, artifact_evidence)
+        current_facts = _drop_superseded_missing_path_probes(current_facts, positive_paths=positive_paths)
+        latest_results = _drop_superseded_missing_path_probes(latest_results, positive_paths=positive_paths)
         payload = {
             "runtime_status": str(execution_projection.get("runtime_status") or task_run_state.get("status") or ""),
             "current_step": dict(execution_projection.get("current_step") or {}),
@@ -40,13 +53,7 @@ class TaskStateProjector:
                     *dict_tuple(observation_projection.get("historical_failures")),
                 ]
             )[-4:],
-            "artifact_evidence": _dedupe_artifacts(
-                [
-                    *dict_tuple(execution_projection.get("artifact_evidence")),
-                    *dict_tuple(observation_projection.get("artifact_evidence")),
-                    *dict_tuple(work_history_projection.get("active_artifacts")),
-                ]
-            ),
+            "artifact_evidence": artifact_evidence,
             "pending_user_steers": _dedupe_by_ref(dict_tuple(execution_projection.get("pending_user_steers")), ref_keys=("steer_id",)),
             "active_contract_revisions": _dedupe_by_ref(
                 dict_tuple(execution_projection.get("active_contract_revisions")),
@@ -78,6 +85,8 @@ def _latest_results(
                     "path": _projection_path(item),
                     "visibility": str(item.get("visibility") or ""),
                     "summary": compact_text(item.get("summary") or "", limit=300),
+                    "content_range": dict(item.get("content_range") or {}),
+                    "tool_guidance": compact_text(item.get("tool_guidance") or "", limit=500),
                 }
             )
         )
@@ -105,6 +114,8 @@ def _observation_result_projection(item: dict[str, Any]) -> dict[str, Any]:
             "structured_error": structured_error,
             "artifact_refs": list(dict_tuple(item.get("artifact_refs") or tool_result.get("artifact_refs"))),
             "replacement_ref": str(tool_result.get("replacement_ref") or ""),
+            "content_range": dict(item.get("content_range") or tool_result.get("content_range") or {}),
+            "tool_guidance": compact_text(item.get("tool_guidance") or tool_result.get("tool_guidance") or "", limit=500),
         }
     )
     if set(projected).issubset({"observation_ref", "replacement_ref"}):
@@ -234,8 +245,11 @@ def _semantic_projection_key(item: dict[str, Any]) -> str:
     tool_name = _tool_name(str(item.get("tool_name") or item.get("source") or ""))
     status = str(item.get("status") or item.get("result") or "").strip().lower()
     path = _projection_path(item)
+    range_key = _content_range_key(item)
     error = dict(item.get("structured_error") or item.get("error") or {})
     error_code = str(error.get("code") or item.get("reason") or "").strip()
+    if tool_name and path and range_key:
+        return f"tool-path-range:{tool_name}:{path}:{range_key}:{status or error_code}"
     if tool_name and path:
         return f"tool-path:{tool_name}:{path}:{status or error_code}"
     if tool_name and error_code:
@@ -244,6 +258,17 @@ def _semantic_projection_key(item: dict[str, Any]) -> str:
     if tool_name and summary:
         return f"tool-summary:{tool_name}:{status}:{summary}"
     return ""
+
+
+def _content_range_key(item: dict[str, Any]) -> str:
+    content_range = dict(item.get("content_range") or {})
+    if not content_range:
+        return ""
+    offset = content_range.get("offset")
+    end_offset = content_range.get("end_offset")
+    if offset in (None, "") and end_offset in (None, ""):
+        return ""
+    return f"{offset}:{end_offset}"
 
 
 def _projection_path(item: dict[str, Any]) -> str:
@@ -296,6 +321,45 @@ def _dedupe_artifacts(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
         seen.add(path)
         result.append(dict(item))
     return result[-20:]
+
+
+def _positive_paths(*groups: Any) -> set[str]:
+    paths: set[str] = set()
+    for group in groups:
+        for item in dict_tuple(group):
+            path = _projection_path(item)
+            if not path:
+                continue
+            if _is_missing_path_probe(item):
+                continue
+            status = str(item.get("status") or "").strip().lower()
+            tool_name = _tool_name(str(item.get("tool_name") or item.get("source") or ""))
+            if (
+                status == "ok"
+                or tool_name in {"write_file", "edit_file", "read_file", "search_text", "stat_path"}
+                or item.get("kind")
+                or item.get("artifact_ref")
+            ):
+                paths.add(path)
+    return paths
+
+
+def _drop_superseded_missing_path_probes(items: list[dict[str, Any]], *, positive_paths: set[str]) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    for item in items:
+        if _is_missing_path_probe(item) and _projection_path(item) in positive_paths:
+            continue
+        result.append(item)
+    return result
+
+
+def _is_missing_path_probe(item: dict[str, Any]) -> bool:
+    if _tool_name(str(item.get("tool_name") or item.get("source") or "")) != "path_exists":
+        return False
+    summary = str(item.get("summary") or "").strip().lower()
+    if summary in {"false", "0", "no", "not found", "missing"}:
+        return True
+    return any(marker in summary for marker in ("不存在", "not exist", "does not exist", "not_found", "not found"))
 
 
 def _dict_value(value: Any) -> dict[str, Any]:

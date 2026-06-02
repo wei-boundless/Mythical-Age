@@ -865,6 +865,7 @@ async def _execute_claimed_task_run(
                 "public_progress_note": action_request.public_progress_note,
                 "public_action_state": public_action_state,
                 "presentation_source": "model_action.public_progress_note" if action_request.public_progress_note else "model_action.action_type_fallback",
+                "model_visible": False,
             },
         )
         current_task = runtime_host.state_index.get_task_run(current_task.task_run_id) or current_task
@@ -904,6 +905,56 @@ async def _execute_claimed_task_run(
             tool_call_payload = dict(action_request.tool_call or {})
             tool_args = dict(tool_call_payload.get("args") or tool_call_payload.get("tool_args") or {})
             tool_name = str(tool_call_payload.get("tool_name") or tool_call_payload.get("name") or "").strip()
+            duplicate_observation = _duplicate_read_only_tool_call_observation(
+                task_run_id=current_task.task_run_id,
+                packet_ref=compilation.packet.packet_id,
+                action_request=action_request,
+                previous_observations=raw_observations,
+                runtime_fingerprint={"runtime_fingerprint": runtime_fingerprint},
+            )
+            if duplicate_observation:
+                raw_observations.append(duplicate_observation)
+                runtime_host.runtime_objects.put_object("observation", duplicate_observation["observation_id"], duplicate_observation)
+                duplicate_event = runtime_host.event_log.append(
+                    current_task.task_run_id,
+                    "task_duplicate_tool_call_guarded",
+                    payload={"observation": duplicate_observation},
+                    refs={
+                        "task_run_ref": current_task.task_run_id,
+                        "action_request_ref": action_request.request_id,
+                        "observation_ref": duplicate_observation["observation_id"],
+                        "runtime_invocation_packet_ref": compilation.packet.packet_id,
+                    },
+                )
+                _record_task_step_summary(
+                    runtime_host,
+                    task_run_id=current_task.task_run_id,
+                    step=f"task_duplicate_tool_call_guarded:{step_index}",
+                    status="running",
+                    summary="重复工具调用没有提供新增信息，已要求模型改用已有观察、换验证方式或收口。",
+                    refs={"observation_ref": duplicate_observation["observation_id"], "action_request_ref": action_request.request_id},
+                )
+                append_work_rollout_item(
+                    runtime_host,
+                    task_run=current_task,
+                    item_type="progress",
+                    title="调整动作",
+                    status="running",
+                    summary="重复工具调用没有提供新增信息，正在改用已有观察、换验证方式或收口。",
+                    event_offset=duplicate_event.offset,
+                    refs={"observation_ref": duplicate_observation["observation_id"], "action_request_ref": action_request.request_id},
+                )
+                observation_context = _observations_for_packet(
+                    runtime_host,
+                    current_task.task_run_id,
+                    current_fingerprint=runtime_fingerprint,
+                    pending_observations=raw_observations,
+                )
+                raw_observations = list(observation_context["raw_observations"])
+                observations = list(observation_context["packet_observations"])
+                execution_state = dict(observation_context["execution_state"])
+                artifact_refs = _dedupe_artifacts([*list(observation_context["artifact_refs"]), *artifact_refs])
+                continue
             _record_task_step_summary(
                 runtime_host,
                 task_run_id=current_task.task_run_id,
@@ -925,7 +976,10 @@ async def _execute_claimed_task_run(
                 summary=tool_progress,
                 event_offset=action_event.offset,
                 refs={"action_request_ref": action_request.request_id, "runtime_invocation_packet_ref": compilation.packet.packet_id},
-                payload={"tool_name": str(action_request.tool_call.get("tool_name") or action_request.tool_call.get("name") or "")},
+                payload={
+                    "tool_name": str(action_request.tool_call.get("tool_name") or action_request.tool_call.get("name") or ""),
+                    "model_visible": False,
+                },
             )
             try:
                 observation = await _execute_task_tool_call(
@@ -1695,6 +1749,132 @@ def _verify_completion(
             "reason": "required artifacts must resolve to existing files",
         }
     return {"ok": True, "missing": [], "verified_artifacts": verified_artifacts}
+
+
+def _finish_specialist_runtime_execution(
+    services: TaskExecutorServices,
+    runtime_host: Any,
+    *,
+    task_run: Any,
+    agent_run: Any,
+    execution: SpecialistRuntimeExecution,
+) -> dict[str, Any]:
+    result = dict(execution.result or {})
+    status = str(result.get("status") or "").strip().lower()
+    completed = status == "completed"
+    closeout_status = "completed" if completed else "failed"
+    limitations = [str(item) for item in list(result.get("limitations") or []) if str(item)]
+    summary = str(result.get("answer_candidate") or result.get("summary") or "").strip()
+    if not summary:
+        summary = f"{execution.route or execution.runtime_kind or 'specialist'} execution {closeout_status}."
+    artifact_refs = _normal_artifact_refs(result.get("artifact_refs"))
+    evidence_refs = [str(item) for item in list(result.get("evidence_refs") or []) if str(item).strip()]
+    task_runtime_diagnostics = {
+        "authority": "harness.loop.task_executor.specialist_runtime_execution",
+        "runtime_kind": execution.runtime_kind,
+        "specialist_route": execution.route,
+        "capability_result_status": status or closeout_status,
+        "limitations": limitations,
+        **dict(execution.diagnostics or {}),
+    }
+    result_diagnostics = {
+        **task_runtime_diagnostics,
+        "capability_diagnostics": dict(result.get("diagnostics") or {}),
+    }
+    result_payload = {
+        "status": closeout_status,
+        "final_answer": summary,
+        "summary": str(result.get("summary") or summary),
+        "answer_candidate": str(result.get("answer_candidate") or summary),
+        "artifact_refs": artifact_refs,
+        "evidence_refs": evidence_refs,
+        "observation_refs": [],
+        "limitations": limitations,
+        "diagnostics": result_diagnostics,
+        "raw_result": result,
+    }
+    result_ref = runtime_host.runtime_objects.put_object(
+        "agent_run_result",
+        f"{agent_run.agent_run_id}:result",
+        result_payload,
+    )
+    now = time.time()
+    runtime_host.state_index.upsert_agent_run(
+        replace(
+            agent_run,
+            status=closeout_status,
+            updated_at=now,
+            result_ref=result_ref,
+            diagnostics={**dict(agent_run.diagnostics or {}), "specialist_runtime": result_diagnostics},
+        )
+    )
+    runtime_host.state_index.upsert_agent_run_result(
+        AgentRunResult(
+            agent_run_result_id=f"agresult:{agent_run.agent_run_id}",
+            agent_run_id=agent_run.agent_run_id,
+            task_run_id=task_run.task_run_id,
+            agent_id=agent_run.agent_id,
+            status=closeout_status,  # type: ignore[arg-type]
+            output_ref=result_ref,
+            summary=compact_text(summary, limit=500),
+            artifact_refs=tuple(_artifact_ref_to_string(item) for item in artifact_refs),
+            created_at=now,
+            diagnostics=result_diagnostics,
+        )
+    )
+    terminal_reason = "completed" if completed else _specialist_terminal_reason(execution=execution, limitations=limitations)
+    lifecycle = _load_lifecycle(runtime_host, task_run)
+    finished_task, finished_lifecycle, event = finish_task_lifecycle(
+        runtime_host,
+        task_run=replace(
+            task_run,
+            diagnostics={
+                **dict(task_run.diagnostics or {}),
+                "artifact_refs": artifact_refs,
+                "final_answer": summary,
+                "specialist_runtime": task_runtime_diagnostics,
+                "specialist_result_ref": result_ref,
+            },
+        ),
+        lifecycle=lifecycle,
+        status=closeout_status,  # type: ignore[arg-type]
+        terminal_reason=terminal_reason,
+        observation_refs=(),
+    )
+    _record_task_step_summary(
+        runtime_host,
+        task_run_id=finished_task.task_run_id,
+        step=f"specialist_runtime_{closeout_status}",
+        status=closeout_status,
+        summary=summary,
+        evidence_refs=evidence_refs,
+        refs={"agent_run_result_ref": result_ref},
+    )
+    append_work_rollout_item(
+        runtime_host,
+        task_run=finished_task,
+        item_type="final_response" if completed else "interrupted_boundary",
+        title="已完成" if completed else "执行失败",
+        status=closeout_status,
+        summary=summary,
+        agent_brief_output=summary,
+        event_offset=_event_offset(event),
+        refs={"task_run_ref": finished_task.task_run_id, "agent_run_result_ref": result_ref},
+        payload={"artifact_refs": artifact_refs, "evidence_refs": evidence_refs, "limitations": limitations},
+    )
+    if completed and str(getattr(finished_task, "execution_runtime_kind", "") or "") != "subagent_task":
+        _commit_task_run_final_message(services, task_run=finished_task, final_answer=summary)
+    _sync_engagement_closeout(runtime_host, finished_task.task_run_id)
+    return {
+        "ok": completed,
+        "task_run": finished_task.to_dict(),
+        "lifecycle": finished_lifecycle.to_dict(),
+        "event": event,
+        "final_answer": summary,
+        "artifact_refs": artifact_refs,
+        "result_ref": result_ref,
+        **({"error": terminal_reason} if not completed else {}),
+    }
 
 
 def _finish_executor_success(
@@ -2726,13 +2906,18 @@ def _build_execution_state_projection(records: list[dict[str, Any]]) -> dict[str
         visibility = _record_visibility(record)
         status = str(record.get("status") or "ok")
         summary = _record_summary(record)
+        result_metadata = dict(record.get("result_metadata") or {})
         receipt = {
             "observation_ref": str(record.get("observation_ref") or ""),
             "tool_name": str(record.get("tool_name") or ""),
             "status": status,
             "visibility": visibility,
+            "path": _record_target_path(record),
             "summary": summary,
+            "content_range": dict(result_metadata.get("content_range") or {}),
+            "tool_guidance": str(result_metadata.get("tool_guidance") or ""),
         }
+        receipt = {key: value for key, value in receipt.items() if value not in ("", None, [], {})}
         last_action_receipts.append(receipt)
         if status == "ok":
             if visibility == "active":
@@ -3043,6 +3228,25 @@ def _record_summary(record: dict[str, Any]) -> str:
     return compact_text(str(record.get("result_preview") or ""), limit=400)
 
 
+def _record_target_path(record: dict[str, Any]) -> str:
+    args = dict(record.get("tool_args") or {})
+    for key in ("path", "target_path", "artifact_path", "output_path"):
+        value = str(args.get(key) or "").replace("\\", "/").strip().strip("/")
+        if value:
+            return value
+    for key in ("observed_paths", "matched_paths"):
+        values = [str(item or "").replace("\\", "/").strip().strip("/") for item in list(record.get(key) or [])]
+        for value in values:
+            if value:
+                return value
+    refs = [dict(item) for item in list(record.get("artifact_refs") or []) if isinstance(item, dict)]
+    for ref in refs:
+        value = str(ref.get("path") or ref.get("artifact_ref") or ref.get("src") or "").replace("\\", "/").strip().strip("/")
+        if value:
+            return value
+    return ""
+
+
 def _observation_brief(observation: dict[str, Any]) -> str:
     payload = dict(observation.get("payload") or {})
     if observation.get("error") or payload.get("error"):
@@ -3295,6 +3499,124 @@ def _executor_error_observation(*, task_run_id: str, request_ref: str, directive
     }
 
 
+_DUPLICATE_GUARDED_READ_ONLY_TOOLS = frozenset(
+    {
+        "glob_paths",
+        "list_dir",
+        "path_exists",
+        "read_file",
+        "read_structured_file",
+        "search_files",
+        "search_text",
+        "stat_path",
+    }
+)
+_READ_FILE_FINGERPRINT_DEFAULT_LIMIT = 10000
+
+
+def _duplicate_read_only_tool_call_observation(
+    *,
+    task_run_id: str,
+    packet_ref: str,
+    action_request: AnyModelActionRequest,
+    previous_observations: list[dict[str, Any]],
+    runtime_fingerprint: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
+    tool_call = dict(action_request.tool_call or {})
+    tool_name = str(tool_call.get("tool_name") or tool_call.get("name") or "").strip()
+    if tool_name not in _DUPLICATE_GUARDED_READ_ONLY_TOOLS:
+        return None
+    tool_args = dict(tool_call.get("args") or tool_call.get("tool_args") or {})
+    fingerprint = _tool_call_fingerprint(tool_name, tool_args)
+    previous_ok_refs: list[str] = []
+    for observation in list(previous_observations or []):
+        if _observation_status(observation) != "ok":
+            continue
+        if _tool_call_fingerprint(_observation_tool_name(observation), _observation_tool_args(observation)) != fingerprint:
+            continue
+        previous_ok_refs.append(str(observation.get("observation_id") or observation.get("observation_ref") or ""))
+    if not previous_ok_refs:
+        return None
+    message = (
+        f"重复的只读工具调用不会提供新增信息：{tool_name}。"
+        "请使用已有 observation 作为证据，或改用更有针对性的验证工具/参数；如果合同已满足，应直接 respond。"
+    )
+    return {
+        "observation_id": f"rtobs:{task_run_id}:{uuid.uuid4().hex[:8]}",
+        "task_run_id": task_run_id,
+        "observation_type": "runtime_guard",
+        "source": "system:duplicate_tool_call_guard",
+        "request_ref": action_request.request_id,
+        "directive_ref": packet_ref,
+        "content_chars": len(message),
+        "summary": message,
+        "payload": {
+            "tool_name": "duplicate_tool_call_guard",
+            "tool_args": {"tool_name": tool_name, "args": tool_args},
+            "error": message,
+            "error_code": "duplicate_read_only_tool_call",
+            "previous_observation_refs": [ref for ref in previous_ok_refs if ref],
+            "structured_error": {
+                "code": "duplicate_read_only_tool_call",
+                "message": message,
+                "retryable": True,
+                "origin": "runtime_guard",
+                "tool_name": tool_name,
+                "tool_args": tool_args,
+                "previous_observation_refs": [ref for ref in previous_ok_refs if ref],
+                "repair_instruction": (
+                    "Do not repeat the same read-only tool call with identical arguments. "
+                    "Use the existing observation, change the verification method or arguments, or finish if completion evidence is sufficient."
+                ),
+            },
+            "runtime_fingerprint": dict(runtime_fingerprint or {}),
+        },
+        "needs_model_followup": True,
+        "created_at": time.time(),
+        "authority": "orchestration.runtime_observation",
+        "error": "duplicate_read_only_tool_call",
+    }
+
+
+def _tool_call_fingerprint(tool_name: str, tool_args: dict[str, Any]) -> str:
+    payload = json.dumps(
+        {"tool_name": str(tool_name or ""), "args": _normalize_tool_call_args_for_fingerprint(tool_name, tool_args)},
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return "sha256:" + hashlib.sha256(payload.encode("utf-8", errors="ignore")).hexdigest()
+
+
+def _normalize_tool_call_args_for_fingerprint(tool_name: str, tool_args: dict[str, Any]) -> Any:
+    normalized = _normalize_tool_call_args(tool_args)
+    if str(tool_name or "").strip() != "read_file" or not isinstance(normalized, dict):
+        return normalized
+    # The runtime supplies these defaults during validation. Include them in the
+    # duplicate fingerprint so read_file(path) and read_file(path, offset=0)
+    # are treated as the same window, while unsupported args remain visible.
+    if "offset" not in normalized:
+        normalized["offset"] = 0
+    if "limit" not in normalized:
+        normalized["limit"] = _READ_FILE_FINGERPRINT_DEFAULT_LIMIT
+    return normalized
+
+
+def _normalize_tool_call_args(tool_args: dict[str, Any]) -> Any:
+    if isinstance(tool_args, dict):
+        normalized: dict[str, Any] = {}
+        for key in sorted(tool_args):
+            value = tool_args[key]
+            if isinstance(value, str) and key in {"path", "target_path", "artifact_path", "output_path", "root", "roots"}:
+                normalized[str(key)] = value.replace("\\", "/").strip().strip("/")
+            else:
+                normalized[str(key)] = _normalize_tool_call_args(value) if isinstance(value, dict) else value
+        return normalized
+    if isinstance(tool_args, list):
+        return [_normalize_tool_call_args(item) if isinstance(item, (dict, list)) else str(item).replace("\\", "/").strip().strip("/") if isinstance(item, str) else item for item in tool_args]
+    return tool_args
+
+
 def _artifact_refs_from_observations(observations: list[dict[str, Any]]) -> list[dict[str, Any]]:
     refs: list[dict[str, Any]] = []
     for observation in observations:
@@ -3323,6 +3645,31 @@ def _artifact_refs_from_observation(observation: dict[str, Any]) -> list[dict[st
 def _artifacts_from_action(action_request: AnyModelActionRequest) -> list[dict[str, Any]]:
     diagnostics = dict(action_request.diagnostics or {})
     return [dict(item) for item in list(diagnostics.get("artifacts") or []) if isinstance(item, dict)]
+
+
+def _normal_artifact_refs(value: Any) -> list[dict[str, Any]]:
+    refs: list[dict[str, Any]] = []
+    for item in list(value or []):
+        if isinstance(item, dict):
+            refs.append(dict(item))
+            continue
+        text = str(item or "").strip()
+        if text:
+            refs.append({"path": text})
+    return _dedupe_artifacts(refs)
+
+
+def _artifact_ref_to_string(ref: Any) -> str:
+    if isinstance(ref, dict):
+        return str(ref.get("path") or ref.get("src") or ref.get("url") or json.dumps(ref, ensure_ascii=False, sort_keys=True))
+    return str(ref or "")
+
+
+def _specialist_terminal_reason(*, execution: SpecialistRuntimeExecution, limitations: list[str]) -> str:
+    if limitations:
+        return limitations[0]
+    route = str(execution.route or execution.runtime_kind or "specialist").strip()
+    return f"{route}_failed" if route else "specialist_runtime_failed"
 
 
 def _dedupe_artifacts(refs: list[dict[str, Any]]) -> list[dict[str, Any]]:

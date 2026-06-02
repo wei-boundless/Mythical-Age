@@ -20,7 +20,7 @@ def default_worker_agent_blueprints() -> tuple[WorkerAgentBlueprint, ...]:
         WorkerAgentBlueprint(
             blueprint_id="worker.dev.prototype",
             agent_name_template="开发工作Agent {n}",
-            description="通用开发工作子 Agent，用于领取局部实现、检查和素材整理类任务。",
+            description="你是一名开发工作子 Agent。你只处理父任务分配给你的局部实现、检查或素材整理工作。你需要先理解边界和已有上下文，再读取必要文件；可以在授权范围内修改文件，但不能扩大任务目标、替主 Agent 做最终答复，或把未经验证的假设当作结论。",
             allowed_operations=(
                 "op.model_response",
                 "op.codebase_search",
@@ -43,7 +43,7 @@ def default_worker_agent_blueprints() -> tuple[WorkerAgentBlueprint, ...]:
         WorkerAgentBlueprint(
             blueprint_id="worker.explorer",
             agent_name_template="探索 Agent {n}",
-            description="只读探索子 Agent，用于代码、资料和上下文摸底，不写入项目文件。",
+            description="你是一名只读探索员。你只负责摸清代码、资料和上下文现状，返回可引用的文件路径、片段、线索和不确定性。你不能写入项目文件，不能执行破坏性操作，也不负责制定最终方案或交付最终答案。",
             allowed_operations=(
                 "op.model_response",
                 "op.read_file",
@@ -66,7 +66,7 @@ def default_worker_agent_blueprints() -> tuple[WorkerAgentBlueprint, ...]:
         WorkerAgentBlueprint(
             blueprint_id="worker.planner",
             agent_name_template="规划 Agent {n}",
-            description="只读规划子 Agent，用于拆解方案、评估风险和形成实施计划。",
+            description="你是一名只读规划员。你负责基于已读取的代码、差异和上下文拆解方案、评估风险、列出实施步骤和验证方式。你不能修改文件或执行实现；如果信息不足，需要明确列出缺口，而不是替事实做假设。",
             allowed_operations=("op.model_response", "op.read_file", "op.search_files", "op.search_text", "op.git_status", "op.git_diff"),
             blocked_operations=("op.write_file", "op.edit_file", "op.shell", "op.python_repl", "op.memory_write_candidate"),
             allowed_memory_scopes=("conversation_readonly", "state_readonly"),
@@ -78,7 +78,7 @@ def default_worker_agent_blueprints() -> tuple[WorkerAgentBlueprint, ...]:
         WorkerAgentBlueprint(
             blueprint_id="worker.verification",
             agent_name_template="验证 Agent {n}",
-            description="验证子 Agent，用于复核实现、运行检查和输出可复现证据。",
+            description="你是一名验证员。你负责复核实现、运行检查并输出可复现证据。你需要优先寻找真实缺陷、回归风险和缺失验证；不能修改文件，不能替实现者修复问题，也不能用跳过、弱化或伪造检查来制造通过。",
             allowed_operations=("op.model_response", "op.read_file", "op.search_text", "op.shell"),
             blocked_operations=("op.write_file", "op.edit_file", "op.python_repl", "op.memory_write_candidate"),
             allowed_memory_scopes=("issue_local_readonly", "state_readonly"),
@@ -90,7 +90,7 @@ def default_worker_agent_blueprints() -> tuple[WorkerAgentBlueprint, ...]:
         WorkerAgentBlueprint(
             blueprint_id="worker.execution",
             agent_name_template="执行 Agent {n}",
-            description="执行子 Agent，用于领取有明确边界的实现、写入或修复任务。",
+            description="你是一名边界执行员。你只执行父任务明确授权的实现、写入或修复工作。你需要先读取相关文件和当前状态，再做最小必要修改；遇到边界不清、旧内容不匹配或验证失败时，要报告阻断点和下一步，而不是扩大范围硬改。",
             allowed_operations=(
                 "op.model_response",
                 "op.read_file",
@@ -110,7 +110,7 @@ def default_worker_agent_blueprints() -> tuple[WorkerAgentBlueprint, ...]:
         WorkerAgentBlueprint(
             blueprint_id="worker.code.executor",
             agent_name_template="代码执行 Agent {n}",
-            description="代码执行子 Agent，用于领取边界清楚的代码修改、测试修复和前端实现任务。",
+            description="你是一名代码执行员。你负责完成边界清楚的代码修改、测试修复或前端实现任务。你需要遵循项目现有架构和样式，先读文件再编辑，保留可追踪的验证结果；不能绕过测试、弱化断言、留下无用旧链路，或替主 Agent 做最终用户答复。",
             allowed_operations=(
                 "op.model_response",
                 "op.agent_todo",
@@ -143,7 +143,7 @@ def default_worker_agent_blueprints() -> tuple[WorkerAgentBlueprint, ...]:
         WorkerAgentBlueprint(
             blueprint_id="worker.review",
             agent_name_template="审查 Agent {n}",
-            description="审查子 Agent，用于代码审查、产物验收和风险汇总。",
+            description="你是一名审查员。你负责审查代码变更、交付产物和验证证据，优先指出真实 bug、行为回归、安全边界和缺失测试。你不能修改文件；输出需要包含问题位置、影响、证据和建议，不要把风格偏好当作缺陷。",
             allowed_operations=("op.model_response", "op.read_file", "op.search_files", "op.search_text", "op.git_diff", "op.git_show"),
             blocked_operations=("op.write_file", "op.edit_file", "op.shell", "op.python_repl", "op.memory_write_candidate"),
             allowed_memory_scopes=("conversation_readonly", "state_readonly"),

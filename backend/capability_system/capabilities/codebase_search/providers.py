@@ -125,10 +125,10 @@ def _dedupe(values: list[str]) -> list[str]:
 
 
 def _dedupe_hits(hits: list[TextHit]) -> list[TextHit]:
-    seen: set[tuple[str, int, str]] = set()
+    seen: set[tuple[str, int]] = set()
     result: list[TextHit] = []
     for hit in hits:
-        key = (hit.file, hit.line, hit.query)
+        key = (hit.file, hit.line)
         if key in seen:
             continue
         seen.add(key)
