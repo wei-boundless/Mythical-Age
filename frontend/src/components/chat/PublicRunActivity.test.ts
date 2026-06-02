@@ -93,7 +93,7 @@ describe("PublicRunActivity", () => {
     expect(hasPublicRunActivity(attachments)).toBe(false);
   });
 
-  it("keeps the active action visible while folding older activity", () => {
+  it("keeps only the active action prominent while folding older activity into context", () => {
     const html = renderToStaticMarkup(
       React.createElement(PublicRunActivity, {
         attachments: [
@@ -114,13 +114,119 @@ describe("PublicRunActivity", () => {
       }),
     );
 
-    expect(html).toContain("已完成 1 个步骤，已折叠。");
+    expect(html).toContain("已核对 3 项上下文，正在基于结果继续。");
     expect(html).not.toContain("处理已开始");
     expect(html).not.toContain("读取项目结构");
-    expect(html).toContain("检查配置文件");
-    expect(html).toContain("搜索入口组件");
-    expect(html).toContain("正在运行测试");
+    expect(html).not.toContain("检查配置文件");
+    expect(html).not.toContain("搜索入口组件");
+    expect(html).toContain("运行命令");
+    expect(html).toContain("npm test");
     expect(html).toContain("public-run-activity__row--current");
+  });
+
+  it("collapses duplicated file reads and presents search as a single current action", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(PublicRunActivity, {
+        attachments: [
+          {
+            attachment_id: "runtime-attachment:search",
+            run_id: "taskrun:search",
+            anchor_turn_id: "turn:session:1",
+            status: "running",
+            public_timeline: [
+              {
+                item_id: "read:1",
+                kind: "tool_activity",
+                title: "正在使用文件读取工具处理",
+                detail: "storage/task_environments/development/sandbox/artifacts/game.html",
+                state: "done",
+              },
+              {
+                item_id: "read:2",
+                kind: "tool_activity",
+                title: "正在使用文件读取工具处理",
+                detail: "storage/task_environments/development/sandbox/artifacts/game.html",
+                state: "done",
+              },
+              {
+                item_id: "search:1",
+                kind: "tool_activity",
+                title: "正在使用search_text处理 function attack|function damage|function kill|monster.*dead|monster.*remove。",
+                state: "running",
+                stream_state: "streaming",
+              },
+            ],
+          },
+        ],
+      }),
+    );
+
+    expect(html).toContain("已核对 1 项上下文，正在基于结果继续。");
+    expect(html).toContain("搜索代码引用");
+    expect(html).toContain("function attack");
+    expect(html.match(/storage/g)?.length ?? 0).toBe(0);
+    expect(html).toContain("public-run-activity__row--current");
+  });
+
+  it("keeps agent feedback separate from the active tool action", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(PublicRunActivity, {
+        attachments: [
+          {
+            attachment_id: "runtime-attachment:agent-feedback",
+            run_id: "taskrun:agent-feedback",
+            anchor_turn_id: "turn:session:1",
+            status: "running",
+            public_timeline: [
+              {
+                item_id: "agent:1",
+                kind: "assistant_text",
+                title: "我先检查文件写入权限和可用路径，然后创建游戏文件。",
+                state: "running",
+              },
+              {
+                item_id: "tool:stat",
+                kind: "tool_activity",
+                title: "检查路径信息",
+                detail: "output",
+                state: "running",
+                stream_state: "streaming",
+              },
+            ],
+          },
+        ],
+      }),
+    );
+
+    expect(html).toContain("public-run-activity__row--agent");
+    expect(html).toContain("我先检查文件写入权限和可用路径");
+    expect(html).toContain("public-run-activity__row--current");
+    expect(html).toContain("检查路径信息");
+  });
+
+  it("suppresses duplicate tool guard system control text", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(PublicRunActivity, {
+        attachments: [
+          {
+            attachment_id: "runtime-attachment:duplicate",
+            run_id: "taskrun:duplicate",
+            anchor_turn_id: "turn:session:1",
+            status: "running",
+            public_timeline: [
+              {
+                item_id: "duplicate",
+                kind: "tool_activity",
+                title: "重复只读工具调用被拦截，已有观察将继续参与上下文。",
+                state: "running",
+              },
+            ],
+          },
+        ],
+      }),
+    );
+
+    expect(html).toBe("");
   });
 
   it("shows a background closeout summary when it is not duplicated by assistant prose", () => {

@@ -16,11 +16,12 @@ from prompt_library import (
 from task_system.contracts.runtime_contracts import expand_selected_skill_bodies, render_skill_candidate_cards
 
 from .context_budget_policy import build_model_aware_context_budget_policy
-from .artifact_scope import canonicalize_task_contract_artifacts, runtime_artifact_scope_from_environment
+from .artifact_scope import runtime_artifact_scope_from_environment
 from .dynamic_context import DynamicContextInput, DynamicContextManager, DynamicContextProjection
 from .envelope import RuntimeEnvelope
 from .invocation_packet import RuntimeInvocationPacket
 from .prompt_segment_plan import build_prompt_segment_plan
+from .sandbox_execution_scope import compile_sandbox_execution_scope, task_safety_envelope_from_assembly
 
 
 @dataclass(frozen=True, slots=True)
@@ -306,12 +307,13 @@ class RuntimeCompiler:
         profile_payload = dict(assembly_payload.get("profile") or {})
         environment_payload = dict(assembly_payload.get("task_environment") or {})
         artifact_scope = runtime_artifact_scope_from_environment(environment_payload)
-        canonical_artifact_contract = canonicalize_task_contract_artifacts(
-            contract,
+        sandbox_execution_scope = compile_sandbox_execution_scope(
             environment_payload=environment_payload,
+            contract=contract,
+            safety_envelope=task_safety_envelope_from_assembly(assembly_payload),
             artifact_root=artifact_scope.artifact_root,
         )
-        contract = canonical_artifact_contract.contract
+        contract = sandbox_execution_scope.canonical_contract
         agent_profile_ref = str(assembly_payload.get("agent_profile_ref") or agent_profile_ref or "main_interactive_agent")
         task_environment_ref = str(environment_payload.get("environment_id") or "env.general.workspace")
         task_run_id = str(task_run.get("task_run_id") or "")
@@ -409,6 +411,7 @@ class RuntimeCompiler:
         agent_instruction = _agent_prompt_instruction(agent_prompt_assembly, invocation_kind="task_execution")
         action_schema_payload = {"schema": schema}
         task_contract_payload = {"task_contract": _task_contract_stable_payload(contract)}
+        artifact_execution_scope_payload = {"artifact_execution_scope": sandbox_execution_scope.to_model_visible_payload()}
         environment_stable_payload = {"task_environment": _environment_model_visible_payload(environment_payload)}
         tool_index_payload = {
             "available_tools": _stable_tool_catalog_payload(tool_payloads),
@@ -488,6 +491,15 @@ class RuntimeCompiler:
                     content=_packet_payload_content("Task execution task contract", task_contract_payload),
                     kind="task_contract_stable",
                     source_ref=str(contract.get("contract_id") or "task_execution_contract"),
+                    cache_scope="task",
+                    cache_role="session_stable",
+                    compression_role="preserve",
+                ),
+                _message_spec(
+                    role="system",
+                    content=_packet_payload_content("Task execution artifact write scope", artifact_execution_scope_payload),
+                    kind="artifact_scope_stable",
+                    source_ref="task_execution_artifact_write_scope",
                     cache_scope="task",
                     cache_role="session_stable",
                     compression_role="preserve",
@@ -596,9 +608,8 @@ class RuntimeCompiler:
                 "segment_plan": segment_plan.to_dict(),
                 "model_input_authority": "runtime_invocation_packet.model_messages",
                 "artifact_scope": {
-                    "artifact_root": artifact_scope.artifact_root,
-                    "normalizations": [dict(item) for item in canonical_artifact_contract.normalizations],
-                    "authority": artifact_scope.authority,
+                    **sandbox_execution_scope.to_diagnostics(),
+                    "artifact_root_authority": artifact_scope.authority,
                 },
             },
         )
@@ -1624,6 +1635,7 @@ def _agent_visible_runtime_projection(
     subagent = dict(profile_payload.get("subagent_policy") or {})
     storage = dict(environment_payload.get("storage_space") or {})
     environment_boundary = dict(environment_payload.get("environment_boundary") or {})
+    artifact_scope = runtime_artifact_scope_from_environment(environment_payload)
     allowed_operations = [
         str(item)
         for item in list(operation_authorization.get("allowed_operations") or [])
@@ -1683,7 +1695,7 @@ def _agent_visible_runtime_projection(
         },
         "environment_boundary": {
             "task_environment_id": str(environment_payload.get("environment_id") or ""),
-            "artifact_root": str(storage.get("artifact_root") or ""),
+            "artifact_root": str(artifact_scope.artifact_root or storage.get("artifact_root") or ""),
             "environment_storage_root": str(storage.get("environment_storage_root") or ""),
             "boundary_authority": str(environment_boundary.get("authority") or ""),
         },

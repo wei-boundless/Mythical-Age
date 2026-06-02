@@ -680,15 +680,23 @@ def _safety_validators(request: ToolInvocationRequest, *, sandbox_policy: dict[s
         return {}
     return build_task_safety_validators(
         root_dir=backend_dir,
-        safety_envelope={"write_mode": "bounded_create", "write_roots": _sandbox_relative_write_roots(sandbox_policy)},
+        safety_envelope={
+            "write_mode": "bounded_create",
+            "write_roots": _sandbox_relative_write_roots(sandbox_policy),
+            "canonical_output_paths": _sandbox_relative_paths(sandbox_policy.get("canonical_output_paths"), sandbox_policy=sandbox_policy),
+        },
         sandbox_policy=sandbox_policy,
     )
 
 
 def _sandbox_relative_write_roots(sandbox_policy: dict[str, Any]) -> list[str]:
+    return _sandbox_relative_paths(sandbox_policy.get("write_scopes"), sandbox_policy=sandbox_policy)
+
+
+def _sandbox_relative_paths(values: Any, *, sandbox_policy: dict[str, Any]) -> list[str]:
     sandbox_root = Path(str(sandbox_policy.get("sandbox_root") or ".")).resolve()
     roots: list[str] = []
-    for raw in list(sandbox_policy.get("write_scopes") or []):
+    for raw in list(values or []):
         text = str(raw or "").replace("\\", "/").strip().strip("/")
         if not text:
             continue

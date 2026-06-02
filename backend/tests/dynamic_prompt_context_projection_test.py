@@ -166,9 +166,18 @@ def test_task_execution_prompt_uses_canonical_artifact_scope_only() -> None:
     assert canonical_path in model_input
     assert f'"path":"{requested_path}"' not in model_input
     assert "runtime_output" not in model_input
+    artifact_scope_segments = [
+        segment
+        for segment in result.packet.segment_plan["segments"]
+        if segment.get("kind") == "artifact_scope_stable"
+    ]
+    assert artifact_scope_segments
+    assert artifact_scope_segments[0]["cache_scope"] == "task"
+    assert artifact_scope_segments[0]["cache_role"] == "session_stable"
     assert volatile_payload["task_state"]["runtime_boundary"]["artifact_root"] == artifact_root
     assert diagnostics["normalizations"][0]["requested_path"] == requested_path
     assert diagnostics["normalizations"][0]["path"] == canonical_path
+    assert diagnostics["canonical_output_paths"] == [canonical_path]
 
 
 def test_artifact_contract_normalization_replaces_path_aliases_with_canonical_path() -> None:

@@ -403,8 +403,12 @@ class NativeWriteFileTool(_NativeToolBase):
                 allowed=False,
                 decision="deny",
                 reason="path_outside_write_scopes",
-                repair_instruction="Retry with a path inside the allowed write scope.",
-                diagnostics={"path": path, "write_scopes": list(context.write_scopes)},
+                repair_instruction=_write_scope_repair_instruction(context),
+                diagnostics={
+                    "path": path,
+                    "write_scopes": list(context.write_scopes),
+                    "canonical_output_paths": _canonical_output_paths(context),
+                },
             )
         existing = _resolve_existing_file(files, path)
         if existing is not None and not _overwrite_intent_is_explicit(args, existing, context):
@@ -521,8 +525,12 @@ class NativeEditFileTool(_NativeToolBase):
                 allowed=False,
                 decision="deny",
                 reason="path_outside_write_scopes",
-                repair_instruction="Retry with a path inside the allowed write scope.",
-                diagnostics={"path": path, "write_scopes": list(context.write_scopes)},
+                repair_instruction=_write_scope_repair_instruction(context),
+                diagnostics={
+                    "path": path,
+                    "write_scopes": list(context.write_scopes),
+                    "canonical_output_paths": _canonical_output_paths(context),
+                },
             )
         return ToolPermissionResult(allowed=True, decision="allow")
 
@@ -1262,6 +1270,28 @@ def _path_within_scopes(files: WorkspaceFileService, path: str, scopes: tuple[st
         for scope in cleaned_scopes
         if scope
     )
+
+
+def _canonical_output_paths(context: ToolUseContext) -> list[str]:
+    return [
+        str(item or "").replace("\\", "/").strip().strip("/")
+        for item in list(dict(context.sandbox_policy or {}).get("canonical_output_paths") or [])
+        if str(item or "").strip()
+    ]
+
+
+def _write_scope_repair_instruction(context: ToolUseContext) -> str:
+    canonical_paths = _canonical_output_paths(context)
+    if canonical_paths:
+        return f"Retry with the canonical output path: {canonical_paths[0]}."
+    scopes = [
+        str(item or "").replace("\\", "/").strip().strip("/")
+        for item in list(context.write_scopes or ())
+        if str(item or "").strip()
+    ]
+    if scopes:
+        return "Retry with a path inside the allowed write scope: " + ", ".join(scopes[:8]) + "."
+    return "Retry with a path inside the allowed write scope."
 
 
 def _resolve_existing_file(files: WorkspaceFileService, path: str) -> Path | None:

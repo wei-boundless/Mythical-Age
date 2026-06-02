@@ -222,6 +222,8 @@ export class RuntimeMonitorController {
           graph_harness_config_id: graphHarnessConfigId,
           graph_id: String(navigation.graph_id || selected.graph_id || ""),
           session_id: String(navigation.session_id || selected.session_id || ""),
+          project_id: String(selected.project_id || ""),
+          session_scope: selected.session_scope,
           title: work.title,
         })
       : null;

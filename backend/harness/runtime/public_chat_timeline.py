@@ -19,6 +19,8 @@ _SUPPRESSED_TEXT = {
     "工具调用已完成，正在根据结果继续。",
     "工具返回成功，正在根据结果继续。",
     "工具返回了结构化结果，正在根据结果继续。",
+    "正在思考。",
+    "等待模型输出。",
 }
 
 _SUPPRESSED_EVENT_TOKENS = {
@@ -48,6 +50,9 @@ def build_public_chat_timeline(
     seen: set[str] = set()
 
     for unit in units:
+        feedback = _agent_feedback_item_from_work_unit(unit)
+        if feedback:
+            _append_item(items, seen, feedback)
         item = _item_from_work_unit(unit)
         if item:
             _append_item(items, seen, item)
@@ -128,6 +133,24 @@ def _item_from_artifact(artifact: Any) -> dict[str, Any]:
             "path": path,
             "href": _visible_text(data.get("href") or data.get("url"), limit=220),
             "state": "ready",
+        }
+    )
+
+
+def _agent_feedback_item_from_work_unit(unit: dict[str, Any]) -> dict[str, Any]:
+    text = _visible_text(unit.get("agent_feedback"), limit=220)
+    if not text or _looks_internal(text):
+        return {}
+    if text in _SUPPRESSED_TEXT:
+        return {}
+    refs = _trace_refs(unit)
+    return _compact(
+        {
+            "item_id": _stable_id("agent-feedback", refs, text, _text(unit.get("unit_id"))),
+            "kind": "assistant_text",
+            "title": text,
+            "state": _public_state(unit.get("state")),
+            "trace_refs": refs,
         }
     )
 

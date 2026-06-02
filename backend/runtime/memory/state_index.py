@@ -35,15 +35,19 @@ class RuntimeStateIndex:
         self.index_path = self.root_dir / "state_index.json"
         self.index_dir = self.root_dir / "state_index"
         self.meta_path = self.index_dir / "meta.json"
+        self.deleted_sessions_dir = self.index_dir / "deleted_sessions"
         self.views_dir = self.root_dir / "runtime_views" / "session_live"
         self.runtime_objects = RuntimeObjectStore(self.root_dir)
         self.root_dir.mkdir(parents=True, exist_ok=True)
         self.index_dir.mkdir(parents=True, exist_ok=True)
+        self.deleted_sessions_dir.mkdir(parents=True, exist_ok=True)
         self.views_dir.mkdir(parents=True, exist_ok=True)
         self._ensure_storage_ready()
 
     def upsert_task_run(self, task_run: TaskRun) -> None:
         with _STATE_INDEX_WRITE_LOCK:
+            if self._session_deleted_unlocked(task_run.session_id):
+                return
             payload = self._compact_task_run_payload(task_run.to_dict())
             self._write_record("task_runs", task_run.task_run_id, payload)
             self._append_index_id("sessions", task_run.session_id, task_run.task_run_id)
@@ -66,6 +70,8 @@ class RuntimeStateIndex:
 
     def upsert_turn_run(self, turn_run: TurnRun) -> None:
         with _STATE_INDEX_WRITE_LOCK:
+            if self._session_deleted_unlocked(turn_run.session_id):
+                return
             payload = turn_run.to_dict()
             self._write_record("turn_runs", turn_run.turn_run_id, payload)
             self._append_index_id("session_turn_runs", turn_run.session_id, turn_run.turn_run_id)
@@ -110,6 +116,8 @@ class RuntimeStateIndex:
 
     def upsert_project_progress_ledger(self, ledger: ProjectProgressLedger) -> None:
         with _STATE_INDEX_WRITE_LOCK:
+            if self._session_deleted_unlocked(ledger.session_id):
+                return
             self._write_record("project_progress_ledgers", ledger.project_id, ledger.to_dict())
             self._append_index_id("session_projects", ledger.session_id, ledger.project_id)
             self._write_index_value("graph_project_index", ledger.graph_id, ledger.project_id)
@@ -125,6 +133,8 @@ class RuntimeStateIndex:
 
     def upsert_project_runtime_status(self, status: ProjectRuntimeStatus) -> None:
         with _STATE_INDEX_WRITE_LOCK:
+            if self._session_deleted_unlocked(status.session_id):
+                return
             self._write_record("project_runtime_statuses", status.project_id, status.to_dict())
             self._write_index_value("session_active_project_status", status.session_id, status.project_id)
             if status.active_task_run_id:
@@ -308,6 +318,37 @@ class RuntimeStateIndex:
             self._clear_bucket_layout()
             self._write_snapshot_payload(payload)
             self._touch_meta(updated_at=float(payload.get("updated_at") or time.time()))
+
+    def mark_session_deleted(self, session_id: str) -> dict[str, Any]:
+        normalized = str(session_id or "").strip()
+        if not normalized:
+            return {
+                "authority": "orchestration.runtime_state_index.session_deletion_tombstone",
+                "session_id": "",
+                "recorded": False,
+                "reason": "missing_session_id",
+            }
+        now = time.time()
+        with _STATE_INDEX_WRITE_LOCK:
+            existing = self._read_json(self._deleted_session_path(normalized), {})
+            payload = {
+                "session_id": normalized,
+                "deleted_at": float(existing.get("deleted_at") or now),
+                "updated_at": now,
+                "authority": "orchestration.runtime_state_index.session_deletion_tombstone",
+            }
+            self._atomic_write_path(self._deleted_session_path(normalized), payload)
+            self._touch_meta(updated_at=now)
+        return {
+            "authority": "orchestration.runtime_state_index.session_deletion_tombstone",
+            "session_id": normalized,
+            "recorded": True,
+            "deleted_at": float(payload["deleted_at"]),
+        }
+
+    def is_session_deleted(self, session_id: str) -> bool:
+        with _STATE_INDEX_WRITE_LOCK:
+            return self._session_deleted_unlocked(session_id)
 
     def prune_task_runs(self, task_run_ids: set[str]) -> dict[str, Any]:
         targets = {str(item).strip() for item in task_run_ids if str(item).strip()}
@@ -719,6 +760,13 @@ class RuntimeStateIndex:
 
     def _write_index_value(self, bucket: str, index_id: str, payload: Any) -> None:
         self._atomic_write_path(self._bucket_record_path(bucket, index_id), payload)
+
+    def _deleted_session_path(self, session_id: str) -> Path:
+        return self.deleted_sessions_dir / f"{_safe_index_key(session_id)}.json"
+
+    def _session_deleted_unlocked(self, session_id: str) -> bool:
+        normalized = str(session_id or "").strip()
+        return bool(normalized) and self._deleted_session_path(normalized).exists()
 
     def _clear_bucket_layout(self) -> None:
         for bucket in self._all_bucket_names():

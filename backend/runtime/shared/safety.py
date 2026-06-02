@@ -52,6 +52,11 @@ def _filesystem_validator(
         for item in write_root_values
         if _normalize_relative_path(item)
     ]
+    canonical_output_paths = [
+        _normalize_relative_path(item)
+        for item in list(sandbox_policy.get("canonical_output_paths") or safety_envelope.get("canonical_output_paths") or [])
+        if _normalize_relative_path(item)
+    ]
     forbidden_paths = [
         _normalize_relative_path(item)
         for item in list(safety_envelope.get("forbidden_paths") or [])
@@ -95,7 +100,11 @@ def _filesystem_validator(
                     normalized_candidate == allowed or normalized_candidate.startswith(f"{allowed}/")
                     for allowed in write_roots
                 ):
-                    return False, f"path outside task write roots: {normalized_candidate}"
+                    return False, _outside_write_roots_message(
+                        normalized_candidate,
+                        write_roots=write_roots,
+                        canonical_output_paths=canonical_output_paths,
+                    )
         return True
 
     return _validate
@@ -121,5 +130,19 @@ def _normalize_relative_path(value: Any) -> str:
     while "//" in text:
         text = text.replace("//", "/")
     return text
+
+
+def _outside_write_roots_message(
+    normalized_candidate: str,
+    *,
+    write_roots: list[str],
+    canonical_output_paths: list[str],
+) -> str:
+    details: list[str] = [f"path outside task write roots: {normalized_candidate}"]
+    if write_roots:
+        details.append("allowed write roots: " + ", ".join(write_roots[:8]))
+    if canonical_output_paths:
+        details.append("suggested output path: " + canonical_output_paths[0])
+    return "; ".join(details)
 
 

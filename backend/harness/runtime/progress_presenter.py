@@ -188,6 +188,7 @@ def build_progress_presentation(
 def _apply_model_action(unit: dict[str, Any], action: dict[str, Any], event: dict[str, Any]) -> None:
     action_type = _text(action.get("action_type"))
     progress_note = action.get("public_progress_note")
+    _set_if_visible(unit, "agent_feedback", progress_note)
     if action_type == "tool_call":
         _apply_tool_action(unit, action, {}, event)
         _set_if_visible(unit, "action", progress_note or unit.get("action"))
@@ -223,6 +224,7 @@ def _apply_model_action_state(unit: dict[str, Any], payload: dict[str, Any], act
     else:
         _set_if_better(unit, "kind", "stage")
         _set_if_better(unit, "title", "正在思考")
+    _set_if_visible(unit, "agent_feedback", payload.get("public_progress_note") or payload.get("summary"))
     _set_if_visible(unit, "action", payload.get("public_progress_note") or payload.get("summary") or "正在思考。")
     _apply_agent_public_action_state(unit, action=action, public_state=public_state)
     if completion_status:
@@ -534,6 +536,7 @@ def _ensure_closeout_unit(*, task_run: Any, monitor: dict[str, Any], work_units:
             "state": "completed",
             "judgment": closeout,
             "action": "",
+            "agent_feedback": "",
             "evidence": [],
             "next_action": "",
             "risk": "",
@@ -570,6 +573,7 @@ def _normalize_work_unit(unit: dict[str, Any]) -> dict[str, Any]:
         "state": _text(unit.get("state") or "running"),
         "judgment": _visible_text(unit.get("judgment")),
         "action": _visible_text(unit.get("action")),
+        "agent_feedback": _visible_text(unit.get("agent_feedback")),
         "evidence": evidence,
         "next_action": _visible_text(unit.get("next_action")),
         "risk": _visible_text(unit.get("risk")),
@@ -579,7 +583,7 @@ def _normalize_work_unit(unit: dict[str, Any]) -> dict[str, Any]:
 
 
 def _work_unit_has_visible_value(unit: dict[str, Any]) -> bool:
-    for key in ("title", "judgment", "action", "next_action", "risk"):
+    for key in ("title", "judgment", "action", "agent_feedback", "next_action", "risk"):
         if _visible_text(unit.get(key)):
             return True
     return bool(unit.get("evidence"))
@@ -593,6 +597,7 @@ def _new_work_unit(key: str, *, kind: str) -> dict[str, Any]:
         "state": "running",
         "judgment": "",
         "action": "",
+        "agent_feedback": "",
         "evidence": [],
         "next_action": "",
         "risk": "",
@@ -772,7 +777,7 @@ def _set_if_better(unit: dict[str, Any], key: str, value: Any) -> None:
         if text and rank.get(text, 1) >= rank.get(current, 1):
             unit[key] = text
         return
-    if text and (not _text(unit.get(key)) or _text(unit.get(key)) in {"stage", "tool_action", "推进任务", "执行操作", "确认下一步"}):
+    if text and (not _text(unit.get(key)) or _text(unit.get(key)) in {"stage", "model_judgment", "tool_action", "推进任务", "执行操作", "确认下一步"}):
         unit[key] = text
 
 

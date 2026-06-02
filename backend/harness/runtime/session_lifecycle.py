@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from harness.loop.task_run_execution_control import request_executor_stop
 from harness.graph.lifecycle_manager import GraphTaskLifecycleManager
 
 
@@ -19,27 +20,52 @@ class SessionRuntimeLifecycleManager:
         normalized = str(session_id or "").strip()
         if not normalized:
             raise ValueError("session_id is required")
-        history = self.runtime.session_manager.get_history(normalized)
+        history = self._session_history(normalized)
         binding = dict(history.get("task_binding") or {})
-        task_run_ids = {
-            str(getattr(item, "task_run_id", "") or "").strip()
-            for item in self.host.state_index.list_session_task_runs(normalized)
-            if str(getattr(item, "task_run_id", "") or "").strip()
-        }
-        turn_run_ids = {
-            str(getattr(item, "turn_run_id", "") or "").strip()
-            for item in self.host.state_index.list_session_turn_runs(normalized)
-            if str(getattr(item, "turn_run_id", "") or "").strip()
-        }
+        task_run_ids = self._session_task_run_ids(normalized)
+        turn_run_ids = self._session_turn_run_ids(normalized)
         runtime_runs = list(self.host.run_registry.list_session_runs(normalized))
+        executor_stop_effect = self._request_executor_stop(task_run_ids=task_run_ids)
+        tombstone_effect = self.host.state_index.mark_session_deleted(normalized)
+        cancel_effect = await self.host.cancel_background_tasks(
+            names=self._background_task_names(task_run_ids=task_run_ids, runtime_runs=runtime_runs),
+            reason="session_deleted",
+        )
+        late_task_run_ids = self._session_task_run_ids(normalized) - task_run_ids
+        late_runtime_runs = [
+            item
+            for item in self.host.run_registry.list_session_runs(normalized)
+            if str(getattr(item, "stream_run_id", "") or "").strip()
+            not in {
+                str(getattr(run, "stream_run_id", "") or "").strip()
+                for run in runtime_runs
+            }
+        ]
+        late_cancel_effect = {
+            "authority": "single_agent_runtime_host.cancel_background_tasks",
+            "requested_names": [],
+            "cancelled_count": 0,
+            "timed_out": False,
+            "reason": "no_late_runtime_tasks",
+        }
+        late_executor_stop_effect = {
+            "authority": "harness.runtime.session_lifecycle.executor_stop",
+            "requested_task_run_ids": [],
+            "accepted_task_run_ids": [],
+        }
+        if late_task_run_ids or late_runtime_runs:
+            late_executor_stop_effect = self._request_executor_stop(task_run_ids=late_task_run_ids)
+            late_cancel_effect = await self.host.cancel_background_tasks(
+                names=self._background_task_names(task_run_ids=late_task_run_ids, runtime_runs=late_runtime_runs),
+                reason="session_deleted",
+            )
+            task_run_ids |= late_task_run_ids
+            runtime_runs.extend(late_runtime_runs)
+        turn_run_ids |= self._session_turn_run_ids(normalized)
         graph_run_ids = self._session_graph_run_ids(
             session_id=normalized,
             binding=binding,
             task_run_ids=task_run_ids,
-        )
-        cancel_effect = await self.host.cancel_background_tasks(
-            names=self._background_task_names(task_run_ids=task_run_ids, runtime_runs=runtime_runs),
-            reason="session_deleted",
         )
         graph_effects: list[dict[str, Any]] = []
         graph_manager = GraphTaskLifecycleManager(
@@ -89,6 +115,10 @@ class SessionRuntimeLifecycleManager:
             "graph_run_ids": sorted(graph_run_ids),
             "effects": {
                 "background_tasks": cancel_effect,
+                "late_background_tasks": late_cancel_effect,
+                "executor_stop": executor_stop_effect,
+                "late_executor_stop": late_executor_stop_effect,
+                "session_deletion_tombstone": tombstone_effect,
                 "graph_runs": graph_effects,
                 "active_turn": active_turn_effect,
                 "runtime_runs": runtime_run_effect,
@@ -98,6 +128,44 @@ class SessionRuntimeLifecycleManager:
                 "state_index": state_effect,
                 "project_maintenance": maintenance_effect,
             },
+        }
+
+    def _session_history(self, session_id: str) -> dict[str, Any]:
+        try:
+            return dict(self.runtime.session_manager.get_history(session_id) or {})
+        except ValueError as exc:
+            if str(exc) == "Unknown session_id":
+                return {}
+            raise
+
+    def _session_task_run_ids(self, session_id: str) -> set[str]:
+        return {
+            str(getattr(item, "task_run_id", "") or "").strip()
+            for item in self.host.state_index.list_session_task_runs(session_id)
+            if str(getattr(item, "task_run_id", "") or "").strip()
+        }
+
+    def _session_turn_run_ids(self, session_id: str) -> set[str]:
+        return {
+            str(getattr(item, "turn_run_id", "") or "").strip()
+            for item in self.host.state_index.list_session_turn_runs(session_id)
+            if str(getattr(item, "turn_run_id", "") or "").strip()
+        }
+
+    def _request_executor_stop(self, *, task_run_ids: set[str]) -> dict[str, Any]:
+        accepted: list[str] = []
+        for task_run_id in sorted(task_run_ids):
+            if request_executor_stop(
+                self.host,
+                task_run_id=task_run_id,
+                reason="session_deleted",
+                requested_by="session_lifecycle",
+            ):
+                accepted.append(task_run_id)
+        return {
+            "authority": "harness.runtime.session_lifecycle.executor_stop",
+            "requested_task_run_ids": sorted(task_run_ids),
+            "accepted_task_run_ids": accepted,
         }
 
     def _session_graph_run_ids(self, *, session_id: str, binding: dict[str, Any], task_run_ids: set[str]) -> set[str]:

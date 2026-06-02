@@ -384,6 +384,92 @@ def test_public_chat_timeline_projects_provider_failure_as_blocked_item() -> Non
     ]
 
 
+def test_duplicate_tool_guard_is_not_public_activity() -> None:
+    events = [
+        {
+            "event_id": "rtevt:duplicate",
+            "run_id": "taskrun:turn:session-progress:1:abc",
+            "event_type": "task_duplicate_tool_call_guarded",
+            "offset": 1,
+            "created_at": 1.0,
+            "payload": {
+                "observation": {
+                    "observation_id": "obs:duplicate",
+                    "source": "system:duplicate_tool_call_guard",
+                    "action_request_ref": "act:stat",
+                    "payload": {
+                        "tool_name": "duplicate_tool_call_guard",
+                        "error_code": "duplicate_read_only_tool_call",
+                    },
+                }
+            },
+            "refs": {"action_request_ref": "act:stat", "observation_ref": "obs:duplicate"},
+        },
+        {
+            "event_id": "rtevt:duplicate-step",
+            "run_id": "taskrun:turn:session-progress:1:abc",
+            "event_type": "step_summary_recorded",
+            "offset": 2,
+            "created_at": 2.0,
+            "payload": {
+                "step": "task_duplicate_tool_call_guarded:2",
+                "status": "running",
+                "summary": "重复工具调用没有提供新增信息，已要求模型改用已有观察、换验证方式或收口。",
+            },
+            "refs": {"action_request_ref": "act:stat", "observation_ref": "obs:duplicate"},
+        },
+    ]
+
+    presentation = build_progress_presentation(events=events, task_run=_task_run(), monitor={})
+    timeline = build_public_chat_timeline(progress_presentation=presentation, status="running")
+
+    visible = json.dumps({"presentation": presentation, "timeline": timeline}, ensure_ascii=False)
+    assert presentation["work_units"] == []
+    assert timeline == []
+    assert "重复工具调用" not in visible
+
+
+def test_agent_feedback_survives_tool_activity_projection() -> None:
+    events = [
+        {
+            "event_id": "rtevt:model-action",
+            "run_id": "taskrun:turn:session-progress:1:abc",
+            "event_type": "model_action_request_received",
+            "offset": 1,
+            "created_at": 1.0,
+            "payload": {
+                "model_action_request": {
+                    "request_id": "act:stat",
+                    "action_type": "tool_call",
+                    "public_progress_note": "我先检查文件写入权限和可用路径，然后创建游戏文件。",
+                    "tool_call": {"name": "stat_path", "args": {"path": "output"}},
+                }
+            },
+            "refs": {"action_request_ref": "act:stat"},
+        },
+        {
+            "event_id": "rtevt:tool-start",
+            "run_id": "taskrun:turn:session-progress:1:abc",
+            "event_type": "step_summary_recorded",
+            "offset": 2,
+            "created_at": 2.0,
+            "payload": {
+                "step": "task_tool_call_started:1",
+                "status": "running",
+                "summary": "正在使用路径信息工具处理 output。",
+            },
+            "refs": {"action_request_ref": "act:stat"},
+        },
+    ]
+
+    presentation = build_progress_presentation(events=events, task_run=_task_run(), monitor={})
+    timeline = build_public_chat_timeline(progress_presentation=presentation, status="running")
+
+    assert [item["kind"] for item in timeline] == ["assistant_text", "tool_activity"]
+    assert timeline[0]["title"] == "我先检查文件写入权限和可用路径，然后创建游戏文件。"
+    assert timeline[1]["title"] == "检查路径信息"
+
+
 def test_public_progress_scrubs_bounded_retry_policy_details() -> None:
     text = public_runtime_progress_summary(
         "当前处理已停止：image_generation_failed，"

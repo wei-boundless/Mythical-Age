@@ -364,7 +364,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(store.getState().globalRuntimeMonitorSelectedTaskRunId).toBe("");
   });
 
-  it("opens a global monitor TaskGraph run in the task-system runtime page", () => {
+  it("opens a global monitor TaskGraph run with its session scope for explicit graph refresh", async () => {
     const store = createStore(getDefaultState());
     const runtime = new WorkspaceRuntime(store);
     const runtimeHarness = runtime as unknown as {
@@ -381,6 +381,11 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
         updated_at: number;
       }) => void;
     };
+    const graphSessionScope = {
+      workspace_view: "task_environment",
+      task_environment_id: "env.creation.writing",
+      project_id: "project",
+    };
 
     runtimeHarness.applyGlobalRuntimeMonitorSnapshot(monitorForTest([
       itemForMonitor({
@@ -395,6 +400,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
         project_id: "project",
         project_title: "长篇小说",
         has_graph_run: true,
+        session_scope: graphSessionScope,
         route: { kind: "task_graph_run", session_id: "session", task_run_id: "taskrun:master", graph_id: "graph.writing.master", graph_run_id: "grun:master", graph_harness_config_id: "ghcfg:master" },
       }),
     ]));
@@ -409,6 +415,8 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       graph_harness_config_id: "ghcfg:master",
       graph_id: "graph.writing.master",
       session_id: "session",
+      project_id: "project",
+      session_scope: graphSessionScope,
       title: "长篇小说",
     });
     expect(store.getState().taskGraphRunInteractionOpen).toBe(false);
@@ -418,6 +426,15 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       mode: "monitor",
       graph_id: "graph.writing.master",
     });
+
+    await runtime.actions.evaluateBoundTaskGraphMonitor();
+
+    expect(api.getGraphRunMonitor).toHaveBeenCalledWith(
+      "grun:master",
+      "ghcfg:master",
+      80,
+      graphSessionScope,
+    );
   });
 
   it("opens workspace files as a center workspace file tab target", () => {

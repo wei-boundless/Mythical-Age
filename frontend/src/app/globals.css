@@ -34062,30 +34062,3 @@ body {
 .agent-workbench .chat-message-shell {
   row-gap: 6px;
 }
-
-.agent-workbench .public-run-activity {
-  width: min(100%, 78ch);
-  margin: 0 0 8px;
-  font-family: "Source Han Sans SC", "Noto Sans CJK SC", "PingFang SC", "Microsoft YaHei", ui-sans-serif, system-ui, sans-serif;
-}
-
-.agent-workbench .public-run-activity__copy strong {
-  color: #1f2937;
-  font-size: 13.5px;
-  font-weight: 620;
-}
-
-.agent-workbench .public-run-activity__copy small {
-  color: #6b7280;
-}
-
-.agent-workbench .public-run-activity__row--current .public-run-activity__copy strong {
-  color: #111827;
-  font-size: 14px;
-  font-weight: 700;
-}
-
-.agent-workbench .public-run-activity__row--history .public-run-activity__copy strong,
-.agent-workbench .public-run-activity__row--collapsed .public-run-activity__copy small {
-  color: #6b7280;
-}

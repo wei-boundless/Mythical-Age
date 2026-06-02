@@ -2323,6 +2323,9 @@ export class WorkspaceRuntime {
       return null;
     }
     const step = String(payload.step ?? "").trim();
+    if (step.startsWith("task_duplicate_tool_call_guarded")) {
+      return null;
+    }
     const status = String(payload.status ?? "").trim();
     const summary = String(payload.summary ?? "").trim();
     const publicNote = String(payload.public_progress_note ?? summary).trim();

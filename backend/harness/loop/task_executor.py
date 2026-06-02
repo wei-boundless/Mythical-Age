@@ -23,6 +23,7 @@ from harness.runtime.artifact_scope import (
     normalize_logical_path,
     runtime_artifact_scope_from_environment,
 )
+from harness.runtime.sandbox_execution_scope import compile_sandbox_execution_scope, task_safety_envelope_from_assembly
 from harness.runtime.public_progress import public_action_progress_summary, public_runtime_progress_summary
 
 from .admission import admit_model_action
@@ -115,6 +116,16 @@ def _is_task_run_resumable_for_user_control(task_run: Any) -> bool:
 
 def _is_single_agent_task_run(task_run: Any) -> bool:
     return str(getattr(task_run, "execution_runtime_kind", "") or "") in {"single_agent_task", "subagent_task"}
+
+
+def _task_run_session_deleted(runtime_host: Any, task_run: Any) -> bool:
+    checker = getattr(getattr(runtime_host, "state_index", None), "is_session_deleted", None)
+    if not callable(checker):
+        return False
+    try:
+        return bool(checker(str(getattr(task_run, "session_id", "") or "")))
+    except Exception:
+        return False
 
 
 def request_task_run_pause(runtime_host: Any, task_run_id: str, *, reason: str = "", requested_by: str = "user") -> dict[str, Any]:
@@ -457,6 +468,8 @@ async def execute_task_run(
     task_run = runtime_host.state_index.get_task_run(task_run_id)
     if task_run is None:
         return _not_found(task_run_id)
+    if _task_run_session_deleted(runtime_host, task_run):
+        return _conflict(task_run_id, "session_deleted")
     runtime_kind = str(getattr(task_run, "execution_runtime_kind", "") or "")
     if runtime_kind not in {"single_agent_task", "subagent_task"}:
         return _conflict(task_run_id, "not_single_agent_task_run")
@@ -641,10 +654,14 @@ async def _execute_claimed_task_run(
 ) -> dict[str, Any]:
     for local_step_index in range(1, max(1, int(max_steps or _MAX_TASK_EXECUTION_STEPS)) + 1):
         step_index = sequence.next_invocation_index + local_step_index - 1
+        if _task_run_session_deleted(runtime_host, current_task):
+            return _conflict(current_task.task_run_id, "session_deleted")
         control_result = _apply_runtime_control_boundary(runtime_host, task_run=current_task, agent_run=agent_run, boundary=f"step_start:{step_index}")
         if control_result is not None:
             return control_result
         current_task = runtime_host.state_index.get_task_run(current_task.task_run_id) or current_task
+        if _task_run_session_deleted(runtime_host, current_task):
+            return _conflict(current_task.task_run_id, "session_deleted")
         compilation = compiler.compile_task_execution_packet(
             session_id=current_task.session_id,
             task_run=current_task.to_dict(),
@@ -938,18 +955,19 @@ async def _execute_claimed_task_run(
                     task_run_id=current_task.task_run_id,
                     step=f"task_duplicate_tool_call_guarded:{step_index}",
                     status="running",
-                    summary="重复工具调用没有提供新增信息，已要求模型改用已有观察、换验证方式或收口。",
+                    summary="重复只读工具调用被拦截，已有观察将继续参与上下文。",
                     refs={"observation_ref": duplicate_observation["observation_id"], "action_request_ref": action_request.request_id},
                 )
                 append_work_rollout_item(
                     runtime_host,
                     task_run=current_task,
                     item_type="progress",
-                    title="调整动作",
+                    title="重复工具调用已拦截",
                     status="running",
-                    summary="重复工具调用没有提供新增信息，正在改用已有观察、换验证方式或收口。",
+                    summary="重复只读工具调用被拦截，已有观察将继续参与上下文。",
                     event_offset=duplicate_event.offset,
                     refs={"observation_ref": duplicate_observation["observation_id"], "action_request_ref": action_request.request_id},
+                    payload={"model_visible": False},
                 )
                 observation_context = _observations_for_packet(
                     runtime_host,
@@ -1585,37 +1603,29 @@ def _recover_stale_graph_node_executor_claim(
 
 def _task_sandbox_policy(runtime_assembly: dict[str, Any], *, runtime_host: Any, task_run_id: str) -> dict[str, Any]:
     environment = dict(runtime_assembly.get("task_environment") or {})
-    storage = dict(environment.get("storage_space") or {})
     sandbox = dict(environment.get("sandbox_policy") or {})
-    artifact_scope = runtime_artifact_scope_from_environment(environment)
-    contract = canonicalize_task_contract_artifacts(
-        _load_contract_for_policy(runtime_host, task_run_id),
+    scope = compile_sandbox_execution_scope(
         environment_payload=environment,
-        artifact_root=artifact_scope.artifact_root,
-    ).contract
+        contract=_load_contract_for_policy(runtime_host, task_run_id),
+        safety_envelope=task_safety_envelope_from_assembly(runtime_assembly),
+    )
     project_root = ProjectLayout.from_backend_dir(runtime_host.backend_dir).project_root.resolve()
     sandbox_root = str(sandbox.get("sandbox_root") or "").strip()
     if not sandbox_root:
         namespace = task_run_id.replace(":", "_")
         sandbox_root = str((Path(runtime_host.root_dir) / "sandboxes" / namespace).resolve())
-    artifact_root = artifact_scope.artifact_root
-    publish_scopes = _dedupe_strings([artifact_root] if artifact_root else [])
-    scratch_scopes = _task_scratch_write_scopes(storage)
-    write_scopes = _dedupe_strings([*publish_scopes, *scratch_scopes])
-    materialized_roots = _dedupe_strings([*_explicit_contract_materialized_roots(contract), *publish_scopes])
     return {
         **sandbox,
-        "enabled": True,
+        "enabled": bool(sandbox.get("enabled") is True),
         "sandbox_root": sandbox_root,
         "workspace_root": str(project_root),
-        "artifact_root": artifact_root,
-        "write_scopes": write_scopes,
-        "publish_scopes": publish_scopes,
-        "scratch_scopes": scratch_scopes,
-        "materialized_roots": materialized_roots,
+        **scope.to_policy_payload(),
         "read_scopes": ["."],
-        "approval_policy": "sandboxed_side_effects",
-        "side_effect_operations": list(sandbox.get("side_effect_operations") or ("op.write_file", "op.edit_file", "op.shell", "op.browser_control", "op.image_generate")),
+        "approval_policy": str(sandbox.get("approval_policy") or "sandboxed_side_effects"),
+        "side_effect_operations": list(
+            sandbox.get("side_effect_operations")
+            or ("op.write_file", "op.edit_file", "op.shell", "op.python_repl", "op.browser_control", "op.image_generate")
+        ),
     }
 
 
@@ -1639,25 +1649,19 @@ def _task_runtime_scope_policy(task_run: Any) -> dict[str, Any]:
 def _task_file_policy(runtime_assembly: dict[str, Any], *, sandbox_policy: dict[str, Any]) -> dict[str, Any]:
     environment = dict(runtime_assembly.get("task_environment") or {})
     storage = dict(environment.get("storage_space") or {})
-    artifact_scope = runtime_artifact_scope_from_environment(environment)
     return {
         "file_management": dict(environment.get("file_management") or {}),
         "storage_space": storage,
-        "artifact_root": str(artifact_scope.artifact_root or sandbox_policy.get("artifact_root") or ""),
+        "artifact_root": str(sandbox_policy.get("artifact_root") or runtime_artifact_scope_from_environment(environment).artifact_root or ""),
+        "sandbox_execution_scope": {
+            "artifact_root": str(sandbox_policy.get("artifact_root") or ""),
+            "write_roots": list(sandbox_policy.get("write_scopes") or []),
+            "publish_roots": list(sandbox_policy.get("publish_scopes") or []),
+            "scratch_roots": list(sandbox_policy.get("scratch_scopes") or []),
+            "canonical_output_paths": list(sandbox_policy.get("canonical_output_paths") or []),
+            "authority": str(sandbox_policy.get("scope_authority") or ""),
+        },
     }
-
-
-def _task_scratch_write_scopes(storage: dict[str, Any]) -> list[str]:
-    roots: list[str] = []
-    for key in ("environment_storage_root", "runtime_state_root", "cache_root"):
-        root = _normalize_contract_path(str(storage.get(key) or ""))
-        if not root:
-            continue
-        if key == "environment_storage_root":
-            roots.append(f"{root}/tmp")
-        else:
-            roots.append(root)
-    return _dedupe_strings(roots)
 
 
 def _load_contract_for_policy(runtime_host: Any, task_run_id: str) -> dict[str, Any]:
@@ -1665,37 +1669,6 @@ def _load_contract_for_policy(runtime_host: Any, task_run_id: str) -> dict[str, 
     if task_run is None:
         return {}
     return _load_contract(runtime_host, task_run)
-
-
-def _explicit_contract_write_roots(contract: dict[str, Any]) -> list[str]:
-    roots: list[str] = []
-    for path in _explicit_contract_paths(contract):
-        normalized = _normalize_contract_path(path)
-        if not normalized:
-            continue
-        if normalized.endswith("/"):
-            roots.append(normalized.strip("/"))
-        else:
-            parent = str(Path(normalized).parent).replace("\\", "/").strip(".")
-            roots.append(parent if parent else normalized)
-    return _dedupe_strings(roots)
-
-
-def _explicit_contract_materialized_roots(contract: dict[str, Any]) -> list[str]:
-    roots: list[str] = []
-    for path in _explicit_contract_paths(contract):
-        normalized = _normalize_contract_path(path)
-        if not normalized:
-            continue
-        candidate = normalized.strip("/") if normalized.endswith("/") else str(Path(normalized).parent).replace("\\", "/").strip(".")
-        if candidate:
-            roots.append(candidate)
-    return _dedupe_strings(roots)
-
-
-def _explicit_contract_paths(contract: dict[str, Any]) -> list[str]:
-    return contract_artifact_paths(contract)
-
 
 def _normalize_contract_path(path: str) -> str:
     return normalize_logical_path(path)
@@ -3792,7 +3765,7 @@ def _discovered_artifact_matches_contract(logical_path: str, contract: dict[str,
         return False
     if _is_graph_node_contract(contract):
         return True
-    explicit_paths = {_normalize_contract_path(item) for item in _explicit_contract_paths(contract)}
+    explicit_paths = {_normalize_contract_path(item) for item in contract_artifact_paths(contract)}
     return normalized in explicit_paths
 
 
@@ -4236,10 +4209,40 @@ def _tool_call_progress_summary(action_request: AnyModelActionRequest) -> str:
     tool_name = str(tool_call.get("tool_name") or tool_call.get("name") or "").strip()
     args = dict(tool_call.get("args") or tool_call.get("tool_args") or {})
     target = _tool_target_preview(args)
-    display = _public_tool_display_name(tool_name)
+    action_label = _public_tool_action_label(tool_name)
     if target:
-        return f"正在使用{display}处理 {target}。"
-    return f"正在使用{display}处理当前步骤。"
+        return f"{action_label}：{target}。"
+    return f"{action_label}。"
+
+
+def _public_tool_action_label(tool_name: str) -> str:
+    normalized = str(tool_name or "").strip().lower()
+    mapping = {
+        "image_generate": "生成图像资源",
+        "image_generation": "生成图像资源",
+        "generate_image": "生成图像资源",
+        "spawn_subagent": "启动子 Agent",
+        "send_subagent_message": "发送子 Agent 消息",
+        "wait_subagent": "等待子 Agent 返回",
+        "list_subagents": "读取子 Agent 状态",
+        "close_subagent": "关闭子 Agent",
+        "write_file": "写入文件",
+        "edit_file": "编辑文件",
+        "apply_patch": "应用补丁",
+        "read_file": "读取文件",
+        "read_path": "读取文件",
+        "stat_path": "检查路径信息",
+        "list_dir": "读取目录",
+        "path_exists": "检查路径是否存在",
+        "search_text": "搜索文本",
+        "search_files": "搜索文件",
+        "glob_paths": "匹配路径",
+        "terminal": "运行命令",
+        "shell": "运行命令",
+        "run_command": "运行命令",
+        "powershell": "运行命令",
+    }
+    return mapping.get(normalized, f"执行 {str(tool_name or '').strip().replace('_', ' ') or '工具'}")
 
 
 def _public_tool_display_name(tool_name: str) -> str:

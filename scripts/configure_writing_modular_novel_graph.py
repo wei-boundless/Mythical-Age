@@ -85,7 +85,7 @@ REPOSITORY_NODES = (
         ),
         "mutable": False,
         "write_owner_node_ids": ("memory_commit_world", "memory_commit_character", "baseline_memory_seed"),
-        "readable_by": ("plot_design", "design_sync", "outline_design", "outline_review", "baseline_memory_seed", "volume_plan", "chapter_outline", "chapter_draft", "chapter_review", "volume_review", "final_assemble", "final_review"),
+        "readable_by": ("plot_design", "design_sync", "outline_design", "outline_review", "baseline_memory_seed", "volume_plan", "volume_plan_self_repair", "chapter_outline", "chapter_outline_self_repair", "chapter_draft", "chapter_draft_self_repair", "chapter_review", "volume_review", "final_assemble", "final_review"),
         "library_role": "read_only_canon_baseline",
     },
     {
@@ -105,7 +105,7 @@ REPOSITORY_NODES = (
         ),
         "mutable": True,
         "write_owner_node_ids": ("memory_commit_chapter", "volume_commit", "extension_commit", "memory_finalize"),
-        "readable_by": ("volume_plan", "chapter_outline", "chapter_draft", "chapter_review", "memory_commit_chapter", "volume_review", "volume_commit", "volume_postmortem", "world_outline_extension_proposal", "extension_review", "final_assemble", "final_review"),
+        "readable_by": ("volume_plan", "volume_plan_self_repair", "chapter_outline", "chapter_outline_self_repair", "chapter_draft", "chapter_draft_self_repair", "chapter_review", "memory_commit_chapter", "volume_review", "volume_commit", "volume_postmortem", "world_outline_extension_proposal", "extension_review", "final_assemble", "final_review"),
         "library_role": "post_batch_and_post_volume_update_layer",
     },
     {
@@ -123,7 +123,7 @@ REPOSITORY_NODES = (
         ),
         "mutable": True,
         "write_owner_node_ids": ("memory_commit_chapter", "memory_finalize"),
-        "readable_by": ("volume_plan", "chapter_outline", "chapter_draft", "chapter_review", "memory_commit_chapter", "volume_review", "volume_commit", "final_assemble", "final_review", "memory_finalize"),
+        "readable_by": ("volume_plan", "volume_plan_self_repair", "chapter_outline", "chapter_outline_self_repair", "chapter_draft", "chapter_draft_self_repair", "chapter_review", "memory_commit_chapter", "volume_review", "volume_commit", "final_assemble", "final_review", "memory_finalize"),
         "library_role": "approved_manuscript_and_summary_layer",
     },
     {
@@ -294,17 +294,29 @@ SOURCE_CANDIDATE_BY_COMMIT_NODE = {
     "memory_commit_world": "world_design",
     "memory_commit_character": "character_design",
     "baseline_memory_seed": "outline_design",
-    "memory_commit_chapter": "chapter_draft",
+    "memory_commit_chapter": "chapter_draft_self_repair",
     "volume_commit": "memory_commit_chapter",
     "extension_commit": "world_outline_extension_proposal",
     "memory_finalize": "final_assemble",
 }
 
+SELF_REPAIR_WRITER_NODE_IDS = ("volume_plan", "chapter_outline", "chapter_draft")
+SELF_REPAIR_SOURCE_BY_NODE_ID = {f"{node_id}_self_repair": node_id for node_id in SELF_REPAIR_WRITER_NODE_IDS}
+SELF_REPAIR_NODE_IDS = tuple(SELF_REPAIR_SOURCE_BY_NODE_ID.keys())
+SELF_REPAIR_ARTIFACT_PATHS_BY_SOURCE = {
+    "volume_plan": ("volume_{volume_index_padded}/volume_plan_self_repair_round_{round_index:03d}.md",),
+    "chapter_outline": ("volume_{volume_index_padded}/chapters/chapter_{batch_chapter_range}/outline_self_repair_round_{round_index:03d}.md",),
+    "chapter_draft": ("volume_{volume_index_padded}/chapters/chapter_{batch_chapter_range}/draft_self_repair_round_{round_index:03d}.md",),
+}
+
 OUTLINE_THREAD_DESIGN_NODE_IDS = {"outline_design", "outline_review", "baseline_memory_seed"}
 OUTLINE_THREAD_INDEX_NODE_IDS = {
     "volume_plan",
+    "volume_plan_self_repair",
     "chapter_outline",
+    "chapter_outline_self_repair",
     "chapter_draft",
+    "chapter_draft_self_repair",
     "chapter_review",
     "memory_commit_chapter",
     "chapter_progress_router",
@@ -592,6 +604,78 @@ def _role_prompt(*sections: str) -> str:
     )
 
 
+def _self_repair_source_node_id(node_id: str) -> str:
+    return SELF_REPAIR_SOURCE_BY_NODE_ID.get(str(node_id or "").strip(), "")
+
+
+def _is_self_repair_node_id(node_id: str) -> bool:
+    return bool(_self_repair_source_node_id(node_id))
+
+
+def _writer_self_repair_node(source: NodeSpec) -> NodeSpec:
+    source_id = source.node_id
+    self_repair_id = f"{source_id}_self_repair"
+    context_keys = tuple(
+        dict.fromkeys(
+            (
+                "待自修候选稿",
+                "上游参照包",
+                *(key for key in source.artifact_context_keys if key != "上游交接包"),
+            )
+        )
+    )
+    max_chars = 60000 if source_id == "chapter_draft" else max(source.artifact_context_max_chars, 30000)
+    return NodeSpec(
+        node_id=self_repair_id,
+        title=f"{source.title}自修",
+        node_type="agent_role",
+        role="creator",
+        agent_id=source.agent_id,
+        phase_id=source.phase_id,
+        sequence_index=source.sequence_index + 5,
+        input_contract_id=source.output_contract_id,
+        output_contract_id=source.output_contract_id,
+        required_inputs=("待自修候选稿",),
+        memory_topics=source.memory_topics,
+        required_memory_topics=source.required_memory_topics,
+        forbidden_topics=source.forbidden_topics,
+        readable_repositories=source.readable_repositories,
+        artifact_context_keys=context_keys,
+        artifact_context_max_chars=max_chars,
+        artifact_paths=SELF_REPAIR_ARTIFACT_PATHS_BY_SOURCE[source_id],
+        loop=dict(source.loop),
+        length_budget=dict(source.length_budget),
+        prompt=_self_repair_prompt(source),
+    )
+
+
+def _self_repair_prompt(source: NodeSpec) -> str:
+    draft_specific = ""
+    if source.node_id == "chapter_draft":
+        draft_specific = (
+            "如果你自修的是章节正文草稿，你必须保留并修正“写前取材判断”和“章节正文候选”两大交付主体，"
+            "逐章核对当前批次允许章号、章节标题与正文内容、上一章结尾到下一章开头、时间跨度、选拔/战争/追逃/修炼等事件状态、人物伤势与位置、资源归属、伏笔状态和章末牵引。"
+            "不得把十章正文改成摘要、差异说明、返修清单或试写片段；不得出现未被任务边界允许的卷终结标记，例如第一批正文误写“第1卷完”。"
+        )
+    return _role_prompt(
+        f"你是一名中文商业网文写手交稿前自修员。你只负责对“{source.title}”刚交出的候选稿做一次交稿前自修，输出修正后的完整候选稿。",
+        "你不是审核员，不能写“审核裁决：通过/返修/拒绝”，不能批准自己的稿件，不能提交记忆，不能把自修判断写成 canon，也不能要求 file_read、file_write、memory 或搜索工具。系统已经把允许你看的候选稿、上游参照和记忆包放进上下文；你必须直接基于这些内容完成自修。",
+        "你的自修重点是找出并修正会导致下游审核或记忆提交出错的问题：与上游计划、细纲、基准设定、动态记忆、已提交正文事实不一致；时间线、因果链、事件起止状态、人物动机、人物状态、场域位置、资源归属、伏笔收放前后矛盾；标题与内容漂移；把未审新增设定写成事实；越出当前卷、当前批次或当前章号边界。",
+        "你只能做一次自修。如果候选稿有问题，你要直接在修正后候选稿里改正，而不是只列问题；如果候选稿基本可用，也要重交完整候选稿，只允许做不改变事实边界的轻微润色。你不得新增无来源硬设定来掩盖矛盾；必须新增但尚未获审的内容，只能标为待审扩展建议，不能写成已成立事实。",
+        draft_specific,
+        "输出时先给一个很短的“自修处理记录（非正史）”，只说明你修了哪些交接风险；随后必须输出修正后的完整候选稿。自修处理记录不是正文事实、不是审核报告、不是记忆来源，下游提交记忆时不得把它写入章节事实或世界事实。",
+    )
+
+
+def _with_writer_self_repair_nodes(nodes: tuple[NodeSpec, ...]) -> tuple[NodeSpec, ...]:
+    expanded: list[NodeSpec] = []
+    for node in nodes:
+        expanded.append(node)
+        if node.node_id in SELF_REPAIR_WRITER_NODE_IDS:
+            expanded.append(_writer_self_repair_node(node))
+    return tuple(expanded)
+
+
 DESIGN_NODES: tuple[NodeSpec, ...] = (
     NodeSpec(
         node_id="project_brief",
@@ -873,7 +957,7 @@ DESIGN_NODES: tuple[NodeSpec, ...] = (
     ),
 )
 
-CHAPTER_NODES: tuple[NodeSpec, ...] = (
+CHAPTER_BASE_NODES: tuple[NodeSpec, ...] = (
     NodeSpec(
         node_id="volume_plan",
         title="分卷计划",
@@ -983,10 +1067,11 @@ CHAPTER_NODES: tuple[NodeSpec, ...] = (
         sequence_index=40,
         output_contract_id="contract.writing.modular_novel.chapter_review",
         required_inputs=("上游交接包",),
-        memory_topics=("chapter_draft_ref", "chapter_outline_ref", "baseline_world", "baseline_outline", "continuity_notes", "previous_chapter_summaries", "manuscript_fact_index"),
-        required_memory_topics=("chapter_draft_ref", "chapter_outline_ref"),
+        memory_topics=("chapter_draft_self_repair_ref", "chapter_outline_ref", "baseline_world", "baseline_outline", "continuity_notes", "previous_chapter_summaries", "manuscript_fact_index"),
+        required_memory_topics=("chapter_draft_self_repair_ref", "chapter_outline_ref"),
         readable_repositories=("memory.writing.baseline", "memory.writing.mutable", "memory.writing.manuscript"),
         artifact_context_keys=("上游交接包", "基准库", "动态记忆库", "正文记忆库"),
+        artifact_context_max_chars=60000,
         artifact_paths=("volume_{volume_index_padded}/chapters/chapter_{batch_chapter_range}/review_round_{round_index:03d}.md",),
         review_revision_stage_id="chapter_draft",
         loop=_chapter_loop_contract("{batch_label}章节批次审核"),
@@ -996,11 +1081,13 @@ CHAPTER_NODES: tuple[NodeSpec, ...] = (
             "你是一名名家级中文商业网文章节总审。你只负责审核当前十章正文是否满足批次细纲、基准设定、连续性、正文量、角色推进、场景完成度、商业节奏和伏笔推进要求。",
             "你需要按头部连载作品的阅读体验做裁决：章节开局是否承接有力，当章目标是否明确，叙事是否像小说而不是说明书，场景是否有画面、行动、阻碍和转折，人物是否有欲望、压力、立场和选择，设定是否通过情境自然释放，爽点是否完成铺垫和兑现，章末是否形成下一章追读牵引。",
             "你还需要像资深责编一样检查世界规则、角色动机、前后文承接、伏笔状态、批次目标、字数规模、语言自然度、情绪回报和商业卖点是否真实达标。问题必须定位到章节、场景和影响范围。",
+            "你必须专门做语义连续性和明显矛盾点检查。这不是格式质量门能替你完成的工作，必须由你阅读正文、细纲、上一批摘要和正文事实索引后裁决：章节标题与正文事件是否对应；同一事件的时间距离、开始/结束状态、参与者、地点和因果是否前后统一；上一章结尾到下一章开头是否自然承接；批次开头是否承接上一批已提交事实；批次结尾是否留下与正文实际状态一致的下一批压力；战争、选拔、追逃、修炼、伤势、资源归属、阵营关系、伏笔到期状态是否被重复触发、提前收束、互相冲突或无因果跳变。",
+            "如果正文中出现明显矛盾点，例如同一选拔既说三个月后又说三天后、同一战争状态既已收束又仍在继续、人物状态或位置无解释突变、第一批十章误写卷终结、章节标题和正文主事件不匹配、下一批承接会被错误记忆误导，你必须判为“审核裁决：返修”或“审核裁决：拒绝”。不能把这类问题写成轻微备注，也不能在报告摘要里替正文制造一个不存在的收束结论。",
             "你必须检查正文中的人物新意是否服务可读性和追读：允许角色有反差、记忆点、独特选择和新鲜互动，但如果新意导致读者难以代入、人物行为不符合欲望链、猎奇压过爽点、情绪回报不足、关系张力无法转化为追读，必须判为返修。写手不能为了显得创新牺牲大众口味、节奏、清晰动机和章节可读性。",
             "你必须检查剧情是否平淡、情绪是否空喊、反差是否缺少铺垫。若章节只是按事件顺序推进，没有期待、压迫、误解、失去、兑现、余波或新悬念；若人物痛苦、深情、仇恨、觉悟没有前史、选择、代价和后果；若主角核心欲望和行动底线在正文中漂移，必须判为返修。",
             "你必须检查写手的写前取材判断是否真实使用了基准库、动态记忆库、正文记忆库和当前批次细纲，是否漏读了会影响本批的角色状态、世界规则、正文事实、活跃伏笔或禁改边界。取材判断缺失、取材依据与正文不一致、正文偏离取材依据，都必须进入返修或拒绝裁决。",
             "你的报告第一行必须单独写成“审核裁决：通过”“审核裁决：带备注通过”“审核裁决：返修”或“审核裁决：拒绝”之一，不得使用其他裁决标题或含糊表述。若报告内存在必须修改项、阻塞问题、继续批次前必须处理事项或不允许写入记忆的描述，第一行必须写“审核裁决：返修”或“审核裁决：拒绝”。",
-            "你不能替写手补写正文。你必须给出通过、带备注通过、返修或拒绝裁决，并把连续性问题、风格目标差距、偏移性质和返修要求登记清楚。若正文偏离世界观或大纲，你必须明确裁决为返修正文、提交动态吸收提案，或要求回到上游设计节点，不能默默当作通过事实。",
+            "你不能替写手补写正文。你必须给出通过、带备注通过、返修或拒绝裁决，并把连续性问题、风格目标差距、偏移性质和返修要求登记清楚。若正文偏离世界观或大纲，你必须明确裁决为返修正文、提交动态吸收提案，或要求回到上游设计节点，不能默默当作通过事实。审核报告中的章节摘要必须忠实于正文实际状态，禁止把未解决事件写成已解决，禁止把待审候选写成已提交事实。",
         ),
     ),
     NodeSpec(
@@ -1013,8 +1100,8 @@ CHAPTER_NODES: tuple[NodeSpec, ...] = (
         sequence_index=50,
         output_contract_id="contract.writing.modular_novel.chapter_batch_commit",
         required_inputs=("上游交接包",),
-        memory_topics=("chapter_draft_ref", "chapter_review_ref", "chapter_outline_ref", "continuity_notes", "chapter_summaries", "manuscript_fact_index", "next_batch_requirements"),
-        required_memory_topics=("chapter_draft_ref", "chapter_review_ref"),
+        memory_topics=("chapter_draft_self_repair_ref", "chapter_review_ref", "chapter_outline_ref", "continuity_notes", "chapter_summaries", "manuscript_fact_index", "next_batch_requirements"),
+        required_memory_topics=("chapter_draft_self_repair_ref", "chapter_review_ref"),
         readable_repositories=("memory.writing.baseline", "memory.writing.mutable", "memory.writing.manuscript"),
         artifact_context_keys=("上游交接包", "基准库", "动态记忆库", "正文记忆库"),
         artifact_paths=("volume_{volume_index_padded}/chapters/chapter_{batch_chapter_range}/chapter_commit_round_{round_index:03d}.md",),
@@ -1024,6 +1111,7 @@ CHAPTER_NODES: tuple[NodeSpec, ...] = (
             "你是一名章节记忆提交员。你只负责在章节审核通过或带备注通过后登记当前批次正文引用、章节摘要、角色状态变化、群体关系变化、伏笔状态、连续性说明和下一批承接事项。",
             "你需要把提交内容分层写清：正文记忆库记录已通过的正文引用、逐章摘要、正文事实索引、场景连续性和章末承接；动态记忆库记录人物状态变化、关系变化、世界细节增量、伏笔状态、下一批必须读取的状态和审核备注。",
             "你必须区分已发生正文事实、待跟踪伏笔、待审设定扩展、下一批取材清单和审核备注。登记内容必须可供后续章节细纲与写手直接引用，但不能把待审扩展写成已冻结设定。",
+            "你的正文事实来源只能是审核通过或带备注通过的自修后章节正文候选，以及审核报告中明确认可的非阻塞备注。写手自修处理记录、自检说明、返修过程、审核问题清单和你自己的概括都不是正史来源。若审核报告的章节摘要与正文实际状态明显矛盾，例如把仍在继续的战争写成已收束，你必须拒绝提交并要求回到章节审核或正文返修，不能把错误摘要写入记忆。",
             "你不能改写正文，不能把未通过审核的草稿写入已提交记忆，也不能把审核员未认可的新设定固化为事实。若审核裁决要求动态吸收或上游重设，你只能登记提案入口和风险，不能替扩展提交节点越权完成。",
         ),
     ),
@@ -1070,6 +1158,7 @@ CHAPTER_NODES: tuple[NodeSpec, ...] = (
         prompt=_role_prompt(
             "你是一名名家级中文商业网文卷级总审。你只负责审核当前卷是否完成约二十万字的阶段目标、人物变化、群体关系变化、伏笔推进、连续性闭环和分卷主题表达。",
             "你需要按明确分卷成品标准检查：章节是否齐全，卷目标是否兑现，关键角色是否发生有效变化，世界规则是否稳定，场域与群体关系推进是否有增量，伏笔是否推进或合理保留，阶段爽点是否有铺垫、爆发和余波，整卷是否形成可继续追读的压力。",
+            "你必须补做跨批次语义连续性检查：每个十章批次的开头是否承接上一批提交结尾，每个批次提交摘要是否忠实于正文，事件开始、推进、收束和余波是否有清晰因果；战争、选拔、资源争夺、人物伤势、位置转移、阵营关系、伏笔状态不能在不同批次之间出现明显矛盾。只要发现会误导下一卷或下一批写作的矛盾点，必须判为返修，不能以卷级备注通过。",
             "你还要判断本卷有没有商业阅读层面的结构问题：长线目标是否被稀释，人物线是否停滞，场景是否空转，转折是否缺少因果，情绪回报是否不足，章末牵引是否只停留在单章技巧而没有卷级悬念。",
             "你的报告第一行必须单独写成“审核裁决：通过”“审核裁决：带备注通过”“审核裁决：返修”或“审核裁决：拒绝”之一，不得使用其他裁决标题或含糊表述。若报告内存在必须修改项、阻塞问题、提交本卷前必须处理事项或不允许进入卷级提交的描述，第一行必须写“审核裁决：返修”或“审核裁决：拒绝”。",
             "你必须指出是否允许提交本卷，或要求回到章节批次返修。你不能替写手补写正文，也不能替规划节点重做整卷计划。",
@@ -1210,6 +1299,8 @@ CHAPTER_NODES: tuple[NodeSpec, ...] = (
     ),
 )
 
+CHAPTER_NODES: tuple[NodeSpec, ...] = _with_writer_self_repair_nodes(CHAPTER_BASE_NODES)
+
 FINALIZE_NODES: tuple[NodeSpec, ...] = (
     NodeSpec(
         node_id="final_assemble",
@@ -1296,9 +1387,14 @@ DESIGN_BUSINESS_EDGES = (
 )
 
 CHAPTER_BUSINESS_EDGES = (
-    ("edge.volume_plan.outline", "volume_plan", "chapter_outline", "contract.writing.modular_novel.volume_plan", "把当前卷计划交给章节批次细纲节点。"),
-    ("edge.outline.draft", "chapter_outline", "chapter_draft", "contract.writing.modular_novel.chapter_outline", "把当前十章细纲交给写手。"),
-    ("edge.draft.review", "chapter_draft", "chapter_review", "contract.writing.modular_novel.chapter_draft", "把当前十章正文草稿交给审核员。"),
+    ("edge.volume_plan.self_repair", "volume_plan", "volume_plan_self_repair", "contract.writing.modular_novel.volume_plan", "把当前卷计划候选交给分卷规划自修节点。", "待自修候选稿"),
+    ("edge.volume_plan_repair.outline", "volume_plan_self_repair", "chapter_outline", "contract.writing.modular_novel.volume_plan", "把自修后的当前卷计划交给章节批次细纲节点。"),
+    ("edge.volume_plan_repair.outline_self_repair_ref", "volume_plan_self_repair", "chapter_outline_self_repair", "contract.writing.modular_novel.volume_plan", "把自修后的当前卷计划作为章节细纲自修参照。", "上游参照包"),
+    ("edge.outline.self_repair", "chapter_outline", "chapter_outline_self_repair", "contract.writing.modular_novel.chapter_outline", "把当前十章细纲候选交给细纲自修节点。", "待自修候选稿"),
+    ("edge.outline_repair.draft", "chapter_outline_self_repair", "chapter_draft", "contract.writing.modular_novel.chapter_outline", "把自修后的当前十章细纲交给写手。"),
+    ("edge.outline_repair.draft_self_repair_ref", "chapter_outline_self_repair", "chapter_draft_self_repair", "contract.writing.modular_novel.chapter_outline", "把自修后的当前十章细纲作为正文自修参照。", "上游参照包"),
+    ("edge.draft.self_repair", "chapter_draft", "chapter_draft_self_repair", "contract.writing.modular_novel.chapter_draft", "把当前十章正文草稿候选交给正文自修节点。", "待自修候选稿"),
+    ("edge.draft_repair.review", "chapter_draft_self_repair", "chapter_review", "contract.writing.modular_novel.chapter_draft", "把自修后的当前十章正文草稿交给审核员。"),
     ("edge.review.commit", "chapter_review", "memory_commit_chapter", "contract.writing.modular_novel.chapter_review", "把章节审核结果交给章节记忆提交员。"),
     ("edge.commit.progress", "memory_commit_chapter", "chapter_progress_router", "contract.writing.modular_novel.chapter_batch_commit", "把章节提交结果交给进度路由。"),
     ("edge.progress.volume_review", "chapter_progress_router", "volume_review", "contract.writing.modular_novel.progress_route", "当本卷目标达到时进入卷级审核。"),
@@ -1598,7 +1694,7 @@ def _contract_specs() -> list[ContractSpec]:
             "contract.writing.modular_novel.chapter_batch_commit",
             "章节批次提交契约",
             "final_output",
-            input_fields=("chapter_draft_ref", "chapter_review_ref", "unit_batch_id"),
+            input_fields=("chapter_draft_self_repair_ref", "chapter_review_ref", "unit_batch_id"),
             output_fields=("chapter_commit_refs", "chapter_summary_refs", "batch_receipt_ref", "artifact_refs"),
         ),
         _contract_spec(
@@ -1610,7 +1706,12 @@ def _contract_specs() -> list[ContractSpec]:
         ),
         _contract_spec("contract.writing.modular_novel.memory_packet", "记忆库读写包契约", "edge_handoff", input_fields=("repository_node_id", "collection", "topics", "operation"), output_fields=("memory_refs", "canonical_text_refs", "artifact_refs", "memory_receipt_ref")),
     ]
+    registered_contract_ids = {spec.contract_id for spec in specs}
     for node in (*DESIGN_NODES, *CHAPTER_NODES, *FINALIZE_NODES):
+        if _is_self_repair_node_id(node.node_id):
+            continue
+        if node.output_contract_id in registered_contract_ids:
+            continue
         specs.append(
             _contract_spec(
                 node.output_contract_id,
@@ -1621,6 +1722,7 @@ def _contract_specs() -> list[ContractSpec]:
                 artifact_paths=node.artifact_paths,
             )
         )
+        registered_contract_ids.add(node.output_contract_id)
     return specs
 
 
@@ -1927,7 +2029,7 @@ def _upsert_imported_module_graph(
     *,
     graph_id: str,
     nodes: tuple[NodeSpec, ...],
-    business_edges: tuple[tuple[str, str, str, str, str], ...],
+    business_edges: tuple[tuple[str, ...], ...],
 ) -> None:
     graph_nodes = [_node_payload(node) for node in nodes]
     graph_nodes.extend(_repository_node_payload(item) for item in REPOSITORY_NODES if _repository_needed(item, nodes))
@@ -2244,15 +2346,28 @@ def _repository_needed(spec: dict[str, Any], nodes: tuple[NodeSpec, ...]) -> boo
     return any(repo_id in node.readable_repositories or repo_id in _allowed_write_targets(node) for node in nodes)
 
 
-def _business_edge(edge_id: str, source: str, target: str, contract_id: str, summary: str) -> dict[str, Any]:
-    target_input_key = "上游交接包"
-    model_visible_label = "上游交接包"
-    if target == "memory_commit_world" and source == "world_design":
+def _business_edge(
+    edge_id: str,
+    source: str,
+    target: str,
+    contract_id: str,
+    summary: str,
+    target_input_key_override: str = "",
+    model_visible_label_override: str = "",
+) -> dict[str, Any]:
+    target_input_key = str(target_input_key_override or "上游交接包").strip()
+    model_visible_label = str(model_visible_label_override or target_input_key).strip()
+    if not target_input_key:
+        target_input_key = "上游交接包"
+    if not model_visible_label:
+        model_visible_label = target_input_key
+    if not target_input_key_override and target == "memory_commit_world" and source == "world_design":
         target_input_key = "通过候选正文"
         model_visible_label = "通过候选正文"
-    elif target == "memory_commit_world" and source == "world_review":
+    elif not target_input_key_override and target == "memory_commit_world" and source == "world_review":
         target_input_key = "审核裁决报告"
         model_visible_label = "审核裁决报告"
+    max_chars = _business_edge_handoff_max_chars(contract_id=contract_id)
     return {
         "edge_id": edge_id,
         "source_node_id": source,
@@ -2271,7 +2386,7 @@ def _business_edge(edge_id: str, source: str, target: str, contract_id: str, sum
             "source_output_key": f"{contract_id}:artifact_refs",
             "target_input_key": target_input_key,
             "usage_instruction": summary,
-            "max_chars": 30000,
+            "max_chars": max_chars,
         },
         "contract_bindings": {
             "schema": {"payload_contract_id": contract_id},
@@ -2288,7 +2403,7 @@ def _business_edge(edge_id: str, source: str, target: str, contract_id: str, sum
                     "required_for_long_outputs": True,
                     "context_mode": "refs_and_authorized_text",
                     "target_input_key": target_input_key,
-                    "max_chars": 30000,
+                    "max_chars": max_chars,
                 }
             },
         },
@@ -2555,6 +2670,12 @@ def _artifact_policy(node: NodeSpec) -> dict[str, Any]:
     }
 
 
+def _business_edge_handoff_max_chars(*, contract_id: str) -> int:
+    if str(contract_id or "").strip() == "contract.writing.modular_novel.chapter_draft":
+        return 60000
+    return 30000
+
+
 def _output_policy(node: NodeSpec, *, artifact_policy: dict[str, Any]) -> dict[str, Any]:
     has_artifacts = bool(node.artifact_paths)
     collection_id = _output_collection_id(node)
@@ -2590,6 +2711,11 @@ def _output_policy(node: NodeSpec, *, artifact_policy: dict[str, Any]) -> dict[s
 
 
 def _output_kind(node: NodeSpec) -> str:
+    source_id = _self_repair_source_node_id(node.node_id)
+    if source_id:
+        source = _node_spec_by_id(source_id)
+        if source is not None:
+            return _output_kind(source)
     if node.node_id == "chapter_draft":
         return "chapter_draft"
     if node.node_id.endswith("review") or node.node_type == "review_gate":
@@ -2604,6 +2730,11 @@ def _output_kind(node: NodeSpec) -> str:
 
 
 def _output_required_sections(node: NodeSpec) -> list[str]:
+    source_id = _self_repair_source_node_id(node.node_id)
+    if source_id:
+        source = _node_spec_by_id(source_id)
+        source_sections = _output_required_sections(source) if source is not None else ["节点交付内容"]
+        return list(dict.fromkeys(["自修处理记录（非正史）", *source_sections]))
     if node.node_id == "chapter_draft":
         return ["写前取材判断", "章节正文候选"]
     if node.node_id.endswith("review") or node.node_type == "review_gate":
@@ -2614,6 +2745,11 @@ def _output_required_sections(node: NodeSpec) -> list[str]:
 
 
 def _output_collection_id(node: NodeSpec) -> str:
+    source_id = _self_repair_source_node_id(node.node_id)
+    if source_id:
+        source = _node_spec_by_id(source_id)
+        if source is not None:
+            return _output_collection_id(source)
     if node.node_id == "chapter_draft":
         return "chapter_drafts"
     if node.node_id.endswith("review") or node.node_type == "review_gate":
@@ -2652,6 +2788,17 @@ def _is_revision_target(node_id: str) -> bool:
 
 
 def _node_unit_batch_contract(node: NodeSpec) -> dict[str, Any]:
+    source_id = _self_repair_source_node_id(node.node_id)
+    if source_id == "chapter_draft":
+        source = _node_spec_by_id(source_id)
+        if source is not None:
+            payload = _node_unit_batch_contract(source)
+            payload["metadata"] = {
+                **dict(payload.get("metadata") or {}),
+                "self_repair_node_id": node.node_id,
+                "source_node_id": source_id,
+            }
+            return payload
     if node.node_id != "chapter_draft":
         return {}
     return {
@@ -2685,15 +2832,41 @@ def _node_governance_policy(node: NodeSpec) -> dict[str, Any]:
         "write_permission_matrix": _write_permission_matrix(node),
         "commit_guard": _commit_guard_policy(node),
         "review_guard": _review_guard_policy(node),
+        "self_repair_policy": _node_self_repair_policy(node),
         "memory_pollution_guard": {
             "authority": "task_graph.contract_bound_memory_governance",
             "raw_conversation_history": "forbidden",
             "candidate_artifacts_are_not_committed_memory": True,
             "review_feedback_is_not_canon": True,
+            "self_repair_report_is_not_canon": True,
+            "self_repair_nodes_cannot_approve_or_commit": True,
+            "self_repair_output_is_candidate_only": _is_self_repair_node_id(node.node_id),
             "commit_nodes_are_the_only_memory_authority": True,
             "unreviewed_supplement_cannot_become_fact": True,
         },
         "outline_thread_policy": _outline_thread_policy(node),
+    }
+
+
+def _node_self_repair_policy(node: NodeSpec) -> dict[str, Any]:
+    source_id = _self_repair_source_node_id(node.node_id)
+    if not source_id:
+        return {"enabled": False}
+    source = _node_spec_by_id(source_id)
+    return {
+        "enabled": True,
+        "mode": "single_pass_pre_review_repair",
+        "source_node_id": source_id,
+        "source_output_contract_id": source.output_contract_id if source is not None else "",
+        "candidate_input_key": "待自修候选稿",
+        "reference_input_key": "上游参照包",
+        "output_is_repaired_candidate": True,
+        "self_check_report_visibility": "not_canonical",
+        "self_check_report_is_not_canonical": True,
+        "forbid_review_verdict": True,
+        "forbid_memory_commit": True,
+        "forbid_file_tools": True,
+        "max_repair_passes": 1,
     }
 
 
@@ -2720,6 +2893,8 @@ def _node_state_kind(node: NodeSpec) -> str:
         return "memory_commit"
     if node.role == "router":
         return "router"
+    if _is_self_repair_node_id(node.node_id):
+        return "candidate_self_repair"
     if node.node_id in OUTLINE_THREAD_INDEX_NODE_IDS:
         return "candidate_with_derived_outline_thread_context"
     return "candidate"
@@ -2786,7 +2961,7 @@ def _commit_guard_policy(node: NodeSpec) -> dict[str, Any]:
         return {"enabled": False}
     source_review_node_id = SOURCE_REVIEW_BY_COMMIT_NODE.get(node.node_id, "")
     source_candidate_node_id = SOURCE_CANDIDATE_BY_COMMIT_NODE.get(node.node_id, "")
-    return {
+    policy = {
         "enabled": True,
         "source_review_required": bool(source_review_node_id),
         "source_review_node_id": source_review_node_id,
@@ -2799,6 +2974,10 @@ def _commit_guard_policy(node: NodeSpec) -> dict[str, Any]:
         "additional_required_refs": ["design_sync_ref"] if node.node_id == "memory_commit_character" else [],
         "barrier_node_id": "design_sync" if node.node_id == "memory_commit_character" else "",
     }
+    if node.node_id == "memory_commit_chapter":
+        policy["source_candidate_must_be_repaired_output"] = True
+        policy["noncanonical_source_sections"] = ["自修处理记录", "自修处理记录（非正史）", "self_check_report", "自检说明"]
+    return policy
 
 
 def _review_guard_policy(node: NodeSpec) -> dict[str, Any]:
@@ -2987,6 +3166,7 @@ def _outline_thread_index_policy(node: NodeSpec) -> dict[str, Any]:
 
 
 def _memory_read_policy(node: NodeSpec) -> dict[str, Any]:
+    high_context_node_ids = {"chapter_draft", "chapter_draft_self_repair", "chapter_review", "volume_review", "final_assemble"}
     return {
         "mode": "memory_pack_required",
         "access_model": "edge_based_repository_read",
@@ -3009,7 +3189,7 @@ def _memory_read_policy(node: NodeSpec) -> dict[str, Any]:
             "read_edge_ids_required": bool(node.readable_repositories),
             "raw_conversation_history": "forbidden",
         },
-        "token_budget": 40000 if node.node_id in {"chapter_draft", "chapter_review", "volume_review", "final_assemble"} else 20000,
+        "token_budget": 40000 if node.node_id in high_context_node_ids else 20000,
     }
 
 
@@ -3064,13 +3244,13 @@ def _memory_write_policy(node: NodeSpec) -> dict[str, Any]:
             "identity_namespace": "chapter_batch_commit",
             "input_keys": ["volume_index", "batch_start_index", "batch_end_index"],
             "artifact_ref_input_keys": [
-                "chapter_draft_ref",
+                "chapter_draft_self_repair_ref",
                 "chapter_review_ref",
                 "previous_candidate_ref",
                 "previous_review_ref",
             ],
             "artifact_ref_input_suffixes": [":artifact_refs"],
-            "artifact_ref_input_contains": ["chapter_draft", "chapter_review"],
+            "artifact_ref_input_contains": ["chapter_draft_self_repair", "chapter_review"],
             "fallback_to_result_artifact_refs": True,
         }
     return policy
@@ -3207,7 +3387,7 @@ def _executor_policy(node: NodeSpec) -> dict[str, Any]:
 def _node_operation_policy(*, node_id: str) -> dict[str, Any]:
     allowed = ["op.model_response"]
     optional: list[str] = []
-    if node_id in {"chapter_draft", "chapter_review", "volume_review", "final_review", "chapter_progress_router"}:
+    if node_id in {"chapter_draft", "chapter_draft_self_repair", "chapter_review", "volume_review", "final_review", "chapter_progress_router"}:
         allowed.append("op.text_metric")
         optional.append("op.text_metric")
     return {
@@ -3545,6 +3725,9 @@ def _model_requirement(node_id: str) -> dict[str, Any]:
 
 def _preferred_output_tokens_for_node(node_id: str) -> int:
     normalized = str(node_id or "").rsplit("::", 1)[-1]
+    source_id = _self_repair_source_node_id(normalized)
+    if source_id:
+        return _preferred_output_tokens_for_node(source_id)
     if normalized == "chapter_draft":
         return WRITING_CHAPTER_DRAFT_OUTPUT_TOKENS
     if normalized in {"final_assemble"}:

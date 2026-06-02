@@ -1717,8 +1717,16 @@ def test_session_runtime_timeline_projects_tool_observation_as_agent_visible_obs
         {"label": "模型说明", "value": "远程生图超时，但可以重试。"},
         {"label": "计划动作", "value": "降低并发后继续生成资源。"},
     ]
-    assert public_timeline[0]["kind"] == "blocked"
-    assert public_timeline[0]["text"] == "工具返回失败：Image API request timed out"
+    assert any(
+        item.get("kind") == "assistant_text"
+        and item.get("title") == "重试生成主角美术图片，调整参数避免超时。"
+        for item in public_timeline
+    )
+    assert any(
+        item.get("kind") == "blocked"
+        and item.get("text") == "工具返回失败：Image API request timed out"
+        for item in public_timeline
+    )
 
 
 def test_session_runtime_timeline_derives_turn_anchor_from_structural_task_run_id() -> None:
@@ -4338,7 +4346,7 @@ def test_tool_call_status_does_not_replace_agent_public_judgment() -> None:
 
     summary = _tool_call_progress_summary(action)
 
-    assert summary == "正在使用文件读取工具处理 index.html。"
+    assert summary == "读取文件：index.html。"
     assert "我看到缺少入口文件" not in summary
 
 

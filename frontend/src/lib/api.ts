@@ -2329,6 +2329,7 @@ export type GlobalRuntimeMonitorItem = {
   graph_status?: Record<string, unknown> | null;
   child_runtime_refs?: Array<Record<string, unknown>>;
   navigation_target?: Record<string, unknown> | null;
+  session_scope?: Partial<SessionScope>;
   latest_event_type: string;
   latest_event_at: number;
   event_count: number;
@@ -4050,7 +4051,7 @@ export async function startTaskGraphHarnessRun(
     dispatch_ready?: boolean;
     run_mode?: "dispatch_only" | "auto_run" | string;
     runner_budget?: Record<string, unknown>;
-  } = {}
+  }
 ) {
   return request<TaskGraphRunStartResult>(
     `/orchestration/harness/task-graphs/${encodeURIComponent(graphId)}/start`,

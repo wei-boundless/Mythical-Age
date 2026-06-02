@@ -81,18 +81,25 @@ async def delete_session(
     project_id: str | None = Query(default=None, max_length=240),
 ) -> dict[str, Any]:
     runtime = require_runtime()
-    assert_optional_session_scope(
-        runtime.session_manager,
-        session_id,
-        request_scope_from_query(workspace_view=workspace_view, task_environment_id=task_environment_id, project_id=project_id),
-    )
+    missing_session = False
+    try:
+        assert_optional_session_scope(
+            runtime.session_manager,
+            session_id,
+            request_scope_from_query(workspace_view=workspace_view, task_environment_id=task_environment_id, project_id=project_id),
+        )
+    except ValueError as exc:
+        if str(exc) != "Unknown session_id":
+            raise
+        missing_session = True
     try:
         cleanup = await SessionRuntimeLifecycleManager(runtime).delete_session_runtime(session_id)
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
-    runtime.session_manager.delete_session(session_id)
+    if not missing_session:
+        runtime.session_manager.delete_session(session_id)
     runtime.memory_facade.delete_session_memory(session_id)
-    return {"ok": True, "cleanup": cleanup}
+    return {"ok": True, "cleanup": cleanup, "session_missing_before_delete": missing_session}
 
 
 @router.get("/sessions/{session_id}/messages")

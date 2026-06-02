@@ -41,6 +41,15 @@ class TaskExecutorController:
                 scheduler=scheduler,
                 recovered_from=recovered_from,
             )
+        if _is_session_deleted(runtime_host, task_run):
+            return _schedule_result(
+                ok=False,
+                scheduled=False,
+                task_run_id=task_run_id,
+                reason="session_deleted",
+                scheduler=scheduler,
+                recovered_from=recovered_from,
+            )
         if _is_task_run_executor_claimed(task_run):
             return _schedule_result(
                 ok=True,
@@ -101,6 +110,15 @@ class TaskExecutorController:
                 scheduler=scheduler,
                 recovered_from=recovered_from,
             )
+        if _is_session_deleted(runtime_host, task_run):
+            return _schedule_result(
+                ok=False,
+                scheduled=False,
+                task_run_id=task_run_id,
+                reason="session_deleted",
+                scheduler=scheduler,
+                recovered_from=recovered_from,
+            )
         if not _is_task_run_executor_claimed(task_run):
             return self.schedule(
                 task_run_id,
@@ -138,6 +156,8 @@ class TaskExecutorController:
         skipped_graph_node_task_run_ids: list[str] = []
         for task_run in self.runtime_host.state_index.list_task_runs():
             task_run_id = str(getattr(task_run, "task_run_id", "") or "")
+            if _is_session_deleted(self.runtime_host, task_run):
+                continue
             if not _is_single_agent_task_run(task_run):
                 continue
             if _origin_kind(task_run) == "graph_node_assigned":
@@ -332,6 +352,16 @@ def _is_task_run_executor_claimed(task_run: Any) -> bool:
 
 def _is_single_agent_task_run(task_run: Any) -> bool:
     return str(getattr(task_run, "execution_runtime_kind", "") or "") in {"single_agent_task", "subagent_task"}
+
+
+def _is_session_deleted(runtime_host: Any, task_run: Any) -> bool:
+    checker = getattr(getattr(runtime_host, "state_index", None), "is_session_deleted", None)
+    if not callable(checker):
+        return False
+    try:
+        return bool(checker(str(getattr(task_run, "session_id", "") or "")))
+    except Exception:
+        return False
 
 
 def _origin_kind(task_run: Any) -> str:
