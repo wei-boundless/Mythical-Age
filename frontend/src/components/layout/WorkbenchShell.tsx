@@ -405,11 +405,22 @@ function WorkspaceManagerPanel({ onOpenFile }: { onOpenFile: (path: string) => v
           <div className="workbench-session-list">
             {visibleSessions.length ? visibleSessions.map((session) => (
               <div className={session.id === currentSessionId ? "workbench-session-row workbench-session-row--active" : "workbench-session-row"} key={session.id}>
-                <button aria-current={session.id === currentSessionId ? "page" : undefined} onClick={() => void selectSession(session.id)} type="button">
+                <button
+                  aria-current={session.id === currentSessionId ? "page" : undefined}
+                  onClick={() => void selectSession({ sessionId: session.id, scope: session.scope, poolKey: "main-chat" })}
+                  type="button"
+                >
                   <strong>{sessionDisplayTitle(session)}</strong>
                   <small>{sessionMetaLine(session)}</small>
                 </button>
-                <button aria-label={`删除 ${session.title}`} onClick={() => void removeSession(session.id)} type="button">
+                <button
+                  aria-label={`删除 ${session.title}`}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    void removeSession({ sessionId: session.id, scope: session.scope, poolKey: "main-chat" });
+                  }}
+                  type="button"
+                >
                   <Trash2 size={13} />
                 </button>
               </div>

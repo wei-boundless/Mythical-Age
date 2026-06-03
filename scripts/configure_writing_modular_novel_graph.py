@@ -103,7 +103,7 @@ REPOSITORY_NODES = (
         ),
         "mutable": False,
         "write_owner_node_ids": ("memory_commit_world", "memory_commit_character", "baseline_memory_seed"),
-        "readable_by": ("plot_design", "design_sync", "outline_design", "outline_review", "baseline_memory_seed", "volume_plan", "volume_plan_self_repair", "chapter_outline", "chapter_outline_self_repair", "chapter_draft", "chapter_draft_self_repair", "chapter_review", "volume_review", "final_assemble", "final_review"),
+        "readable_by": ("plot_design", "design_sync", "outline_design", "outline_review", "baseline_memory_seed", "volume_plan", "volume_plan_self_repair", "chapter_outline", "chapter_outline_self_repair", "chapter_draft", "chapter_draft_self_repair", "chapter_batch_assemble", "chapter_review", "volume_review", "final_assemble", "final_review"),
         "library_role": "read_only_canon_baseline",
     },
     {
@@ -123,7 +123,7 @@ REPOSITORY_NODES = (
         ),
         "mutable": True,
         "write_owner_node_ids": ("memory_commit_chapter", "volume_commit", "extension_commit", "memory_finalize"),
-        "readable_by": ("volume_plan", "volume_plan_self_repair", "chapter_outline", "chapter_outline_self_repair", "chapter_draft", "chapter_draft_self_repair", "chapter_review", "memory_commit_chapter", "volume_review", "volume_commit", "volume_postmortem", "world_outline_extension_proposal", "extension_review", "final_assemble", "final_review"),
+        "readable_by": ("volume_plan", "volume_plan_self_repair", "chapter_outline", "chapter_outline_self_repair", "chapter_draft", "chapter_draft_self_repair", "chapter_batch_assemble", "chapter_review", "memory_commit_chapter", "volume_review", "volume_commit", "volume_postmortem", "world_outline_extension_proposal", "extension_review", "final_assemble", "final_review"),
         "library_role": "post_batch_and_post_volume_update_layer",
     },
     {
@@ -141,7 +141,7 @@ REPOSITORY_NODES = (
         ),
         "mutable": True,
         "write_owner_node_ids": ("memory_commit_chapter", "memory_finalize"),
-        "readable_by": ("volume_plan", "volume_plan_self_repair", "chapter_outline", "chapter_outline_self_repair", "chapter_draft", "chapter_draft_self_repair", "chapter_review", "memory_commit_chapter", "volume_review", "volume_commit", "final_assemble", "final_review", "memory_finalize"),
+        "readable_by": ("volume_plan", "volume_plan_self_repair", "chapter_outline", "chapter_outline_self_repair", "chapter_draft", "chapter_draft_self_repair", "chapter_batch_assemble", "chapter_review", "memory_commit_chapter", "volume_review", "volume_commit", "final_assemble", "final_review", "memory_finalize"),
         "library_role": "approved_manuscript_and_summary_layer",
     },
     {
@@ -312,7 +312,7 @@ SOURCE_CANDIDATE_BY_COMMIT_NODE = {
     "memory_commit_world": "world_design",
     "memory_commit_character": "character_design",
     "baseline_memory_seed": "outline_design",
-    "memory_commit_chapter": "chapter_draft_self_repair",
+    "memory_commit_chapter": "chapter_batch_assemble",
     "volume_commit": "memory_commit_chapter",
     "extension_commit": "world_outline_extension_proposal",
     "memory_finalize": "final_assemble",
@@ -324,7 +324,7 @@ SELF_REPAIR_NODE_IDS = tuple(SELF_REPAIR_SOURCE_BY_NODE_ID.keys())
 SELF_REPAIR_ARTIFACT_PATHS_BY_SOURCE = {
     "volume_plan": ("volume_{volume_index_padded}/volume_plan_self_repair_round_{round_index:03d}.md",),
     "chapter_outline": ("volume_{volume_index_padded}/chapters/chapter_{batch_chapter_range}/outline_self_repair_round_{round_index:03d}.md",),
-    "chapter_draft": ("volume_{volume_index_padded}/chapters/chapter_{batch_chapter_range}/draft_self_repair_round_{round_index:03d}.md",),
+    "chapter_draft": ("volume_{volume_index_padded}/chapters/chapter_{chapter_index_padded}/draft_self_repair_round_{round_index:03d}.md",),
 }
 
 OUTLINE_THREAD_DESIGN_NODE_IDS = {"outline_design", "outline_review", "baseline_memory_seed"}
@@ -335,6 +335,8 @@ OUTLINE_THREAD_INDEX_NODE_IDS = {
     "chapter_outline_self_repair",
     "chapter_draft",
     "chapter_draft_self_repair",
+    "chapter_unit_router",
+    "chapter_batch_assemble",
     "chapter_review",
     "memory_commit_chapter",
     "chapter_progress_router",
@@ -377,6 +379,7 @@ def _repository_label(repo_id: str) -> str:
 
 def _chapter_loop_derived_fields() -> list[dict[str, Any]]:
     return [
+        {"key": "chapter_index_padded", "op": "format", "template": "{chapter_index:03d}"},
         {"key": "volume_index_padded", "op": "format", "template": "{volume_index:03d}"},
         {"key": "volume_label", "op": "format", "template": "第{volume_index}卷"},
         {"key": "chapter_index_padded", "op": "format", "template": "{chapter_index:03d}"},
@@ -397,6 +400,17 @@ def _chapter_loop_derived_fields() -> list[dict[str, Any]]:
     ]
 
 
+def _chapter_unit_derived_fields() -> list[dict[str, Any]]:
+    return [
+        {"key": "chapter_index_padded", "op": "format", "template": "{chapter_index:03d}"},
+        {"key": "volume_index_padded", "op": "format", "template": "{volume_index:03d}"},
+        {"key": "volume_label", "op": "format", "template": "第{volume_index}卷"},
+        {"key": "chapter_label", "op": "format", "template": "第{chapter_index}章"},
+        {"key": "chapter_file_prefix", "op": "format", "template": "chapter_{chapter_index:03d}"},
+        {"key": "graph_loop_summary", "op": "format", "template": "当前卷：{volume_label}；当前章：{chapter_label}；本批允许范围：{batch_chapter_list}；全书累计约 {total_current_measure}/{target_measure_units} 字；本卷累计约 {group_current_measure}/{group_target_measure} 字。"},
+    ]
+
+
 def _chapter_progress_route_policy_static() -> dict[str, Any]:
     return {
         "mode": "metric_target",
@@ -413,6 +427,21 @@ def _chapter_progress_route_policy_static() -> dict[str, Any]:
         "secondary_counters": [{"current_key": "total_current_measure", "target_key": "target_measure_units"}],
         "patch_rules": [],
         "derived_fields": _chapter_loop_derived_fields(),
+    }
+
+
+def _chapter_unit_route_policy_static() -> dict[str, Any]:
+    return {
+        "mode": "metric_target",
+        "scope_id": "loop.chapter_unit",
+        "continue_node_id": "chapter_draft",
+        "exit_node_id": "chapter_batch_assemble",
+        "metric_key": "unit_completed",
+        "default_increment": 1,
+        "current_key": "chapter_unit_completed_count",
+        "target_key": "units_per_batch",
+        "patch_rules": [],
+        "derived_fields": _chapter_unit_derived_fields(),
     }
 
 
@@ -443,8 +472,8 @@ def _length_budget_contract(scope: str, target_units: int, min_units: int, max_u
         "enabled": True,
         "budget_scope": scope,
         "measurement_mode": "text_units",
-        "unit_kind": "chapter" if scope == "batch" else "volume",
-        "unit_label_zh": "章节" if scope == "batch" else "卷",
+        "unit_kind": "volume" if scope == "volume" else "chapter",
+        "unit_label_zh": "卷" if scope == "volume" else "章节",
         "target_units": target_units,
         "min_units": min_units,
         "max_units": max_units,
@@ -524,29 +553,43 @@ def _chapter_batch_quality_retry_policy() -> dict[str, Any]:
 
 
 def _chapter_draft_quality_retry_policy() -> dict[str, Any]:
-    policy = _chapter_batch_quality_retry_policy()
-    policy.update(
-        {
-            "carry_current_output_as": "previous_chapter_draft_ref",
-            "requirements_input_key": "chapter_revision_requirements",
-            "requirements_template": (
-                "章节正文质量门未通过，当前问题：{quality_issues}。\n"
-                "质量门统计：{quality_issue_summary}。\n"
-                "本轮不是补丁说明，也不是局部增补；必须按运行时允许范围完整重交当前批次小说正文。"
-                "上一版正文只能作为连续性参照，不能原样缩写、摘要化或只交差异说明。\n"
-                "硬性生产规格：严格写第{batch_start_index}章至第{batch_end_index}章，共{units_per_batch}章；"
-                "每章目标约{unit_target_measure}字，最低不得少于"
-                f"{CHAPTER_MIN_WORDS}字；整批正文最低不得少于"
-                f"{CHAPTER_MIN_WORDS * CHAPTER_BATCH_SIZE}字。\n"
-                "修复方式：优先扩写质量门指出的短章，同时保持十章连续小说正文完整交付；"
-                "每章都要有场景推进、人物行动、对话或心理变化、冲突升级、代价反馈、余波承接和章末牵引。"
-                "不得用摘要、提纲、自检、设定表、工作说明、等待补充、压缩转述或只列修改点代替正文。\n"
-                "交付主体必须是“章节正文候选”，并在该主体下逐章输出完整小说正文。"
-                "如果需要重交，final_answer 的绝大部分篇幅必须用于正文；写前判断或自修说明不得挤占正文预算。"
-            ),
-        }
-    )
-    return policy
+    return {
+        "acceptance_policies": ["sectioned_text_batch_quality"],
+        "unit_start_key": "chapter_index",
+        "unit_end_key": "chapter_index",
+        "unit_count_key": "unit_count",
+        "target_metric_key": "unit_target_measure",
+        "unit_target_metric_key": "unit_target_measure",
+        "minimum_metric_ratio": 0.9,
+        "minimum_metric_per_unit": CHAPTER_MIN_WORDS,
+        "unit_label": "章",
+        "unit_summary_template": "第{index}章",
+        "metric_summary_label": "字",
+        "required_heading_patterns": [r"第\s*(?P<index>[0-9一二三四五六七八九十百零〇两]+)\s*[章节回]"],
+        "heading_match_scope": "formal_heading",
+        "metric_section_keys": ["章节正文候选"],
+        "metric_stop_section_keys": [
+            "承接说明",
+            "本章目标完成说明",
+            "人物与冲突推进",
+            "商业钩子与爽点兑现",
+            "后续伏笔或待承接事项",
+            "自检风险",
+            "公开摘要",
+        ],
+        "forbid_unexpected_unit_indexes": True,
+        "carry_current_output_as": "previous_chapter_draft_ref",
+        "requirements_input_key": "chapter_revision_requirements",
+        "requirements_template": (
+            "单章正文质量门未通过，当前问题：{quality_issues}。\n"
+            "质量门统计：{quality_issue_summary}。\n"
+            "本轮不是补丁说明，也不是局部增补；必须完整重交当前第{chapter_index}章小说正文。"
+            "上一版正文只能作为连续性参照，不能原样缩写、摘要化或只交差异说明。\n"
+            f"硬性生产规格：当前章最低不得少于{CHAPTER_MIN_WORDS}字，目标约{CHAPTER_TARGET_WORDS}字。"
+            "正文必须有正式章节标题、完整场景、人物行动、对话或心理变化、冲突升级、代价反馈、余波承接和章末牵引。"
+            "不得用摘要、提纲、自检、设定表、工作说明、等待补充、压缩转述或只列修改点代替正文。"
+        ),
+    }
 
 
 @dataclass(frozen=True, slots=True)
@@ -583,15 +626,30 @@ def _node_loop(
     route_policy: dict[str, Any] | None = None,
     kind: str = "bounded_metric_iteration",
 ) -> dict[str, Any]:
+    if scope_id == "loop.chapter_unit":
+        loop_variable = "chapter_index"
+        iteration_size_key = "unit_count"
+        iteration_size = 1
+        exit_decision = "chapter_batch_range_completed"
+    elif scope_id == "loop.chapter_batch":
+        loop_variable = "batch_start_index"
+        iteration_size_key = "units_per_batch"
+        iteration_size = CHAPTER_BATCH_SIZE
+        exit_decision = "group_target_reached"
+    else:
+        loop_variable = "volume_index"
+        iteration_size_key = "target_group_count"
+        iteration_size = TARGET_VOLUMES
+        exit_decision = "target_group_count_reached"
     payload: dict[str, Any] = {
         "scope_id": scope_id,
         "kind": kind,
         "title_template": title_template,
         "policy": {
-            "loop_variable": "batch_start_index" if scope_id == "loop.chapter_batch" else "volume_index",
-            "iteration_size_key": "units_per_batch" if scope_id == "loop.chapter_batch" else "target_group_count",
-            "iteration_size": CHAPTER_BATCH_SIZE if scope_id == "loop.chapter_batch" else TARGET_VOLUMES,
-            "exit_decision": "group_target_reached" if scope_id == "loop.chapter_batch" else "target_group_count_reached",
+            "loop_variable": loop_variable,
+            "iteration_size_key": iteration_size_key,
+            "iteration_size": iteration_size,
+            "exit_decision": exit_decision,
         },
     }
     if route_policy:
@@ -1085,7 +1143,7 @@ CHAPTER_BASE_NODES: tuple[NodeSpec, ...] = (
     ),
     NodeSpec(
         node_id="chapter_draft",
-        title="章节正文草稿",
+        title="单章正文草稿",
         node_type="agent_role",
         role="creator",
         phase_id="phase.modular.chapter_cycle.chapter_loop",
@@ -1096,9 +1154,9 @@ CHAPTER_BASE_NODES: tuple[NodeSpec, ...] = (
         required_memory_topics=("baseline_world", "baseline_outline", "baseline_characters", "chapter_outline_ref"),
         readable_repositories=("memory.writing.baseline", "memory.writing.mutable", "memory.writing.manuscript"),
         artifact_context_keys=("上游交接包", "基准库", "动态记忆库", "正文记忆库"),
-        artifact_paths=("volume_{volume_index_padded}/chapters/chapter_{batch_chapter_range}/draft_round_{round_index:03d}.md",),
-        loop=_chapter_loop_contract("{batch_label}章节正文草稿"),
-        length_budget=_length_budget_contract_static("batch", BATCH_TARGET_WORDS, BATCH_MIN_WORDS, BATCH_MAX_WORDS, CHAPTER_BATCH_SIZE),
+        artifact_paths=("volume_{volume_index_padded}/chapters/chapter_{chapter_index_padded}/draft_round_{round_index:03d}.md",),
+        loop=_node_loop("loop.chapter_unit", title_template="第{chapter_index}章正文草稿"),
+        length_budget=_length_budget_contract_static("unit", CHAPTER_TARGET_WORDS, CHAPTER_MIN_WORDS, CHAPTER_MAX_WORDS, 1),
         extra_runtime={
             "subagent_policy": {
                 "enabled": True,
@@ -1131,16 +1189,16 @@ CHAPTER_BASE_NODES: tuple[NodeSpec, ...] = (
             },
         },
         prompt=_role_prompt(
-            "你是一名名家级中文商业网文长篇写手。你只负责当前任务包允许章号范围内的十章正文创作。",
+            "你是一名名家级中文商业网文单章写手。你只负责当前 loop_context 和 initial_inputs 指定的当前一章正文创作。",
             WRITING_OUTLINE_HIERARCHY_PROMPT,
             _node_handoff_prompt(
                 upstream="自修后的当前批次细纲、当前卷计划、基准库、动态记忆库、正文记忆库和运行时允许章号范围",
-                own_scope="把已通过当前批次细纲写成小说正文，呈现场景、行动、对白、情绪、转折、代价和章末牵引",
+                own_scope="把当前批次细纲中当前 chapter_index 对应的一章写成小说正文，呈现场景、行动、对白、情绪、转折、代价和章末牵引",
                 forbidden="改写章纲事件顺序、越过当前批次章号、提前收束父级大纲给后续批次/后续卷的节点、用正文临时修补上游大纲冲突",
-                downstream="完整章节正文候选、写前取材判断、正文事实可追踪的场景与章末承接，供自修和审核逐项对照",
+                downstream="当前单章正文候选、写前取材判断、正文事实可追踪的场景与章末承接，供单章自修和批次汇总读取",
             ),
-            "当前任务包的章号范围和生产规格是硬性要求，不是建议：如果本批为十章，你必须一次性交付十章连续小说正文；每章目标约两千字，最低不得少于一千八百字；整批正文目标约两万字，最低不得少于一万八千字。不得把十章压缩成剧情摘要、章节梗概、片段式示例或试写稿；未达到正文量和分章完整度时，视为没有完成写手职责。",
-            "输出结构必须清楚区分“写前取材判断”和“章节正文候选”。写前取材判断只能短，不计入正文量；章节正文候选才是交付主体。章节正文候选下必须严格按运行时允许章号逐章书写，每章都要有正式章节标题和完整叙事，不得合并章节、跳章、用省略号略写、用“此处承接”之类占位。",
+            "当前任务包的章号范围和生产规格是硬性要求，不是建议：你本轮只写 initial_inputs.chapter_index 指定的一章；每章目标约两千字，最低不得少于一千八百字。不得把当前章压缩成剧情摘要、章节梗概、片段式示例或试写稿；未达到正文量和分章完整度时，视为没有完成写手职责。",
+            "输出结构必须清楚区分“写前取材判断”和“章节正文候选”。写前取材判断只能短，不计入正文量；章节正文候选才是交付主体。章节正文候选下只能出现当前章的正式章节标题和完整叙事，不得合并其他章、跳到后续章、用省略号略写、用“此处承接”之类占位。",
             "你的正文目标必须可执行，并且要有头部中文商业网文的连载质感：语言自然、有现场感和节奏弹性，叙述像有经验的人类作者在铺陈情势、递进冲突和安放伏笔；人物有清晰欲望、当下情绪、关系立场和选择压力，冲突通过行动、对话、试探、代价和后果推进。",
             "你可以学习成熟商业作品在节奏、场景张力、人物欲望、爽点兑现、情绪回报和章末牵引上的通用做法，但不能复刻任何具体作者的可识别文风、句式、口癖、桥段模板或专属设定。",
             "你写正文时可以让人物在具体场景里呈现新鲜感，但不能把创新置于可读性之上。人物出新要符合大众口味：读者要能快速理解角色想要什么、为什么行动、会付出什么代价、会带来什么期待。新意应体现在欲望选择、关系反差、处境压力、行动逻辑、能力代价和情绪回报里，而不是突然塞入猎奇身份、晦涩设定、过度抽象的心理独白或读者难以代入的行为。每个新的人物细节都要帮助读者更快理解角色、期待角色变强或翻盘、愿意继续追读。",
@@ -1152,11 +1210,67 @@ CHAPTER_BASE_NODES: tuple[NodeSpec, ...] = (
             "写作时不要为了赶进度而概述事件。你要把人物如何看见、如何判断、如何犹豫、如何开口、如何行动、如何承受后果写出来；世界信息必须落到可感知的物象、规则后果、人物利益、村落秩序、场域危险和对话压力里。读者应该读到小说现场，而不是读到剧情说明。",
             "你必须先完成写前取材判断，再进入正文。写前取材判断只允许简短列出本批采用的世界规则、人物当前状态、上一批承接、正文事实索引、活跃伏笔、到期伏笔、禁改边界和本批叙事目标；它必须来自基准库、动态记忆库、正文记忆库、当前卷计划和当前批次细纲，不能凭空补设定。",
             "写前取材判断必须包含“层级来源链”：本批正文继承了哪一段全书细纲、哪一个当前卷计划批次、哪一份当前批次细纲、哪一批已提交正文事实。若当前批次细纲与父级大纲或记忆事实冲突，你不能擅自重排剧情；只能在取材判断中标出冲突，并在正文中严格选择已授权且不冲突的部分执行。",
-            "你必须在 final_answer 内按章顺序完成当前批次，不许把十章混成一坨。你的真实执行方式是：先写第一个允许章号的完整正文，章末在心里检查是否达到最低正文量和连续性要求，再写下一个允许章号；每章都必须独立达到最低正文量，不能让后面的章替前面的章补量，不能等十章写完后才发现前面短缺。系统会在你交稿后用质量门统计每章实际字数；若系统反馈短章，你下一轮必须完整重交当前批次，并优先扩写反馈指出的短章。",
-            "不要在正文中输出冗长的章节任务包、系统反馈表、自检表或工具调用记录。每章只保留正式章节标题和小说正文；如果需要说明生产边界，放在很短的写前取材判断里。不得要求 file、memory、search、delegate 或不存在的单章子任务权限；你当前能做的是在本轮 final_answer 中直接交付完整正文。",
+            "你必须在 final_answer 内完成当前一章，不许把其他章混进来。章末在心里检查是否达到最低正文量和连续性要求；不能让后续章替当前章补量。系统会在你交稿后用质量门统计当前章实际字数；若系统反馈短章，你下一轮必须完整重交当前章。",
+            "不要在正文中输出冗长的章节任务包、系统反馈表、自检表或工具调用记录。当前章只保留正式章节标题和小说正文；如果需要说明生产边界，放在很短的写前取材判断里。不得要求 file、memory、search、delegate 或不存在的单章子任务权限；你当前能做的是在本轮 final_answer 中直接交付完整正文。",
             "本轮输出必须是合法的任务执行 action JSON：action_type 使用 respond；必须填写 public_progress_note；必须填写 public_action_state，至少包含 current_judgment、next_action、completion_status；完整交付物放入 final_answer。不要把正文写在 JSON 外，也不要省略这两个公开进展字段。",
             "如果预装记忆包不足以确认某个规则、人物状态、正文事实、伏笔状态或前后承接，你不能自行搜索、补猜或扩大设定；必须在写前取材判断中标记缺口，并只使用当前任务包、上游交接包和预装记忆包中已经确认的内容完成本批正文。",
             "写前取材判断之后必须输出完整小说正文，正文才是主体。正文要尊重世界规则、角色动机、前后连续性和批次目标；如果旧产物或提示中出现其他章号，以当前任务包允许章号范围为准。你不能跳写未授权章节，也不能为方便剧情临时改世界规则。若发现必须新增设定才能写通，只能在正文后标为待审扩展建议，不能当作已成立事实写进正文核心逻辑。",
+        ),
+    ),
+    NodeSpec(
+        node_id="chapter_unit_router",
+        title="单章循环路由",
+        node_type="agent_role",
+        role="router",
+        phase_id="phase.modular.chapter_cycle.chapter_loop",
+        sequence_index=38,
+        output_contract_id="contract.writing.modular_novel.progress_route",
+        required_inputs=("上游交接包",),
+        memory_topics=("chapter_draft_self_repair_ref", "chapter_outline_ref"),
+        artifact_context_keys=("上游交接包",),
+        artifact_paths=("volume_{volume_index_padded}/chapters/chapter_{chapter_index_padded}/unit_route_round_{round_index:03d}.md",),
+        loop=_node_loop(
+            "loop.chapter_unit",
+            title_template="第{chapter_index}章单章循环路由",
+            route_policy=_chapter_unit_route_policy_static(),
+        ),
+        prompt=_role_prompt(
+            "你是一名单章循环路由员。",
+            "你只负责确认当前 chapter_index 对应的单章自修结果已经产生，并把进度交给图循环控制。",
+            "你不能写正文，不能汇总批次，不能审核正文，也不能提交记忆。",
+            "你需要输出简短路由说明：当前章号、是否已有单章候选、下一步由图循环决定继续下一章还是进入批次汇总。",
+        ),
+    ),
+    NodeSpec(
+        node_id="chapter_batch_assemble",
+        title="章节批次汇总",
+        node_type="agent_role",
+        role="creator",
+        phase_id="phase.modular.chapter_cycle.chapter_loop",
+        sequence_index=39,
+        output_contract_id="contract.writing.modular_novel.chapter_draft",
+        required_inputs=("上游交接包",),
+        memory_topics=("chapter_draft_self_repair_ref", "chapter_outline_ref", "baseline_world", "baseline_outline", "continuity_notes", "previous_chapter_summaries", "manuscript_fact_index"),
+        required_memory_topics=("chapter_outline_ref",),
+        readable_repositories=("memory.writing.baseline", "memory.writing.mutable", "memory.writing.manuscript"),
+        artifact_context_keys=("上游交接包", "基准库", "动态记忆库", "正文记忆库"),
+        artifact_context_max_chars=60000,
+        artifact_paths=("volume_{volume_index_padded}/chapters/chapter_{batch_chapter_range}/draft_batch_assemble_round_{round_index:03d}.md",),
+        loop=_chapter_loop_contract("{batch_label}章节批次汇总"),
+        length_budget=_length_budget_contract_static("batch", BATCH_TARGET_WORDS, BATCH_MIN_WORDS, BATCH_MAX_WORDS, CHAPTER_BATCH_SIZE),
+        prompt=_role_prompt(
+            "你是一名章节批次汇总员。你只负责把当前批次内已经通过单章自修的章节正文按章号顺序汇总成十章候选稿。",
+            WRITING_OUTLINE_HIERARCHY_PROMPT,
+            _node_handoff_prompt(
+                upstream="当前批次细纲、单章循环中每章已自修正文、基准库、动态记忆库和正文记忆库",
+                own_scope="按运行时允许章号范围汇总当前批次正文，检查缺章、乱序、标题不匹配和明显承接断裂",
+                forbidden="新增剧情、改写上游章纲、替审核员裁决通过、把未生成或未自修的章节伪装成已完成",
+                downstream="完整十章正文候选、缺章/乱序/连续性风险说明，供章节审核逐项对照",
+            ),
+            "你必须读取 loop_context.iteration_results 中当前 loop.chapter_unit 的每章结果索引，并结合上游交接包中的单章候选内容或引用，按 batch_start_index 到 batch_end_index 顺序汇总。",
+            "你不能扩写、改写或重排单章正文。若发现缺少某一章、章号不连续、标题与当前章号不符、上一章结尾无法承接下一章开头，必须在写前汇总检查中标出，并输出返修风险，不能用自己补写来掩盖。",
+            "汇总稿必须包含“写前取材判断”和“章节正文候选”。写前取材判断只允许简短说明汇总范围、已接收章号和风险；章节正文候选必须按章号顺序排列当前批次正文。",
+            "本轮输出必须是合法的任务执行 action JSON：action_type 使用 respond；必须填写 public_progress_note；必须填写 public_action_state；完整汇总稿放入 final_answer。",
         ),
     ),
     NodeSpec(
@@ -1168,8 +1282,8 @@ CHAPTER_BASE_NODES: tuple[NodeSpec, ...] = (
         sequence_index=40,
         output_contract_id="contract.writing.modular_novel.chapter_review",
         required_inputs=("上游交接包",),
-        memory_topics=("chapter_draft_self_repair_ref", "chapter_outline_ref", "baseline_world", "baseline_outline", "continuity_notes", "previous_chapter_summaries", "manuscript_fact_index"),
-        required_memory_topics=("chapter_draft_self_repair_ref", "chapter_outline_ref"),
+        memory_topics=("chapter_batch_assemble_ref", "chapter_outline_ref", "baseline_world", "baseline_outline", "continuity_notes", "previous_chapter_summaries", "manuscript_fact_index"),
+        required_memory_topics=("chapter_batch_assemble_ref", "chapter_outline_ref"),
         readable_repositories=("memory.writing.baseline", "memory.writing.mutable", "memory.writing.manuscript"),
         artifact_context_keys=("上游交接包", "基准库", "动态记忆库", "正文记忆库"),
         artifact_context_max_chars=60000,
@@ -1182,7 +1296,7 @@ CHAPTER_BASE_NODES: tuple[NodeSpec, ...] = (
             "你是一名名家级中文商业网文章节总审。你只负责审核当前十章正文是否满足批次细纲、基准设定、连续性、正文量、角色推进、场景完成度、商业节奏和伏笔推进要求。",
             WRITING_OUTLINE_HIERARCHY_PROMPT,
             _node_handoff_prompt(
-                upstream="自修后的正文候选、当前批次细纲、当前卷计划、全书细纲、基准库、上一批提交和正文事实索引",
+                upstream="汇总后的当前批次正文候选、当前批次细纲、当前卷计划、全书细纲、基准库、上一批提交和正文事实索引",
                 own_scope="裁决正文是否忠实执行当前批次细纲、是否符合父级大纲层级、是否允许进入章节记忆提交",
                 forbidden="替写手补写正文、替分纲节点重排剧情、把层级越界或上游冲突当成带备注通过、把审核摘要改造成新的正史",
                 downstream="明确审核裁决、逐章事实核对、层级一致性检查、连续性问题、返修目标或提交许可",
@@ -1209,8 +1323,8 @@ CHAPTER_BASE_NODES: tuple[NodeSpec, ...] = (
         sequence_index=50,
         output_contract_id="contract.writing.modular_novel.chapter_batch_commit",
         required_inputs=("上游交接包",),
-        memory_topics=("chapter_draft_self_repair_ref", "chapter_review_ref", "chapter_outline_ref", "continuity_notes", "chapter_summaries", "manuscript_fact_index", "next_batch_requirements"),
-        required_memory_topics=("chapter_draft_self_repair_ref", "chapter_review_ref"),
+        memory_topics=("chapter_batch_assemble_ref", "chapter_review_ref", "chapter_outline_ref", "continuity_notes", "chapter_summaries", "manuscript_fact_index", "next_batch_requirements"),
+        required_memory_topics=("chapter_batch_assemble_ref", "chapter_review_ref"),
         readable_repositories=("memory.writing.baseline", "memory.writing.mutable", "memory.writing.manuscript"),
         artifact_context_keys=("上游交接包", "基准库", "动态记忆库", "正文记忆库"),
         artifact_paths=("volume_{volume_index_padded}/chapters/chapter_{batch_chapter_range}/chapter_commit_round_{round_index:03d}.md",),
@@ -1220,7 +1334,7 @@ CHAPTER_BASE_NODES: tuple[NodeSpec, ...] = (
             "你是一名章节记忆提交员。你只负责在章节审核通过或带备注通过后登记当前批次正文引用、章节摘要、角色状态变化、群体关系变化、伏笔状态、连续性说明和下一批承接事项。",
             WRITING_OUTLINE_HIERARCHY_PROMPT,
             _node_handoff_prompt(
-                upstream="审核通过或带备注通过的自修后正文候选、章节审核报告、当前批次细纲和正文事实索引",
+                upstream="审核通过或带备注通过的批次汇总正文候选、章节审核报告、当前批次细纲和正文事实索引",
                 own_scope="登记已通过正文事实、章节摘要、动态状态、伏笔状态和下一批承接事项",
                 forbidden="把自修记录、审核过程、上游层级冲突、未通过草稿或你自己的修补概括写成正史记忆",
                 downstream="可供下一批章节细纲和正文写手读取的正文记忆、动态记忆、事实索引和明确禁改边界",
@@ -1508,10 +1622,12 @@ CHAPTER_BUSINESS_EDGES = (
     ("edge.volume_plan_repair.outline", "volume_plan_self_repair", "chapter_outline", "contract.writing.modular_novel.volume_plan", "把自修后的当前卷计划交给章节批次细纲节点。"),
     ("edge.volume_plan_repair.outline_self_repair_ref", "volume_plan_self_repair", "chapter_outline_self_repair", "contract.writing.modular_novel.volume_plan", "把自修后的当前卷计划作为章节细纲自修参照。", "上游参照包"),
     ("edge.outline.self_repair", "chapter_outline", "chapter_outline_self_repair", "contract.writing.modular_novel.chapter_outline", "把当前十章细纲候选交给细纲自修节点。", "待自修候选稿"),
-    ("edge.outline_repair.draft", "chapter_outline_self_repair", "chapter_draft", "contract.writing.modular_novel.chapter_outline", "把自修后的当前十章细纲交给写手。"),
-    ("edge.outline_repair.draft_self_repair_ref", "chapter_outline_self_repair", "chapter_draft_self_repair", "contract.writing.modular_novel.chapter_outline", "把自修后的当前十章细纲作为正文自修参照。", "上游参照包"),
-    ("edge.draft.self_repair", "chapter_draft", "chapter_draft_self_repair", "contract.writing.modular_novel.chapter_draft", "把当前十章正文草稿候选交给正文自修节点。", "待自修候选稿"),
-    ("edge.draft_repair.review", "chapter_draft_self_repair", "chapter_review", "contract.writing.modular_novel.chapter_draft", "把自修后的当前十章正文草稿交给审核员。"),
+    ("edge.outline_repair.draft", "chapter_outline_self_repair", "chapter_draft", "contract.writing.modular_novel.chapter_outline", "把自修后的当前十章细纲交给单章写手。"),
+    ("edge.outline_repair.draft_self_repair_ref", "chapter_outline_self_repair", "chapter_draft_self_repair", "contract.writing.modular_novel.chapter_outline", "把自修后的当前十章细纲作为单章正文自修参照。", "上游参照包"),
+    ("edge.draft.self_repair", "chapter_draft", "chapter_draft_self_repair", "contract.writing.modular_novel.chapter_draft", "把当前单章正文草稿候选交给单章自修节点。", "待自修候选稿"),
+    ("edge.draft_repair.unit_router", "chapter_draft_self_repair", "chapter_unit_router", "contract.writing.modular_novel.chapter_draft", "把自修后的当前单章正文交给单章循环路由。"),
+    ("edge.unit_router.batch_assemble", "chapter_unit_router", "chapter_batch_assemble", "contract.writing.modular_novel.progress_route", "当当前批次单章循环完成后进入十章汇总。"),
+    ("edge.batch_assemble.review", "chapter_batch_assemble", "chapter_review", "contract.writing.modular_novel.chapter_draft", "把汇总后的当前十章正文草稿交给审核员。"),
     ("edge.review.commit", "chapter_review", "memory_commit_chapter", "contract.writing.modular_novel.chapter_review", "把章节审核结果交给章节记忆提交员。"),
     ("edge.commit.progress", "memory_commit_chapter", "chapter_progress_router", "contract.writing.modular_novel.chapter_batch_commit", "把章节提交结果交给进度路由。"),
     ("edge.progress.volume_review", "chapter_progress_router", "volume_review", "contract.writing.modular_novel.progress_route", "当本卷目标达到时进入卷级审核。"),
@@ -1811,7 +1927,7 @@ def _contract_specs() -> list[ContractSpec]:
             "contract.writing.modular_novel.chapter_batch_commit",
             "章节批次提交契约",
             "final_output",
-            input_fields=("chapter_draft_self_repair_ref", "chapter_review_ref", "unit_batch_id"),
+            input_fields=("chapter_batch_assemble_ref", "chapter_review_ref", "unit_batch_id"),
             output_fields=("chapter_commit_refs", "chapter_summary_refs", "batch_receipt_ref", "artifact_refs"),
         ),
         _contract_spec(
@@ -2850,7 +2966,7 @@ def _output_kind(node: NodeSpec) -> str:
         source = _node_spec_by_id(source_id)
         if source is not None:
             return _output_kind(source)
-    if node.node_id == "chapter_draft":
+    if node.node_id in {"chapter_draft", "chapter_batch_assemble"}:
         return "chapter_draft"
     if node.node_id.endswith("review") or node.node_type == "review_gate":
         return "review_report"
@@ -2869,7 +2985,7 @@ def _output_required_sections(node: NodeSpec) -> list[str]:
         source = _node_spec_by_id(source_id)
         source_sections = _output_required_sections(source) if source is not None else ["节点交付内容"]
         return list(dict.fromkeys(["自修处理记录（非正史）", *source_sections]))
-    if node.node_id == "chapter_draft":
+    if node.node_id in {"chapter_draft", "chapter_batch_assemble"}:
         return ["写前取材判断", "章节正文候选"]
     if node.node_id.endswith("review") or node.node_type == "review_gate":
         return ["审核裁决", "问题清单", "是否允许进入下一阶段"]
@@ -2884,7 +3000,7 @@ def _output_collection_id(node: NodeSpec) -> str:
         source = _node_spec_by_id(source_id)
         if source is not None:
             return _output_collection_id(source)
-    if node.node_id == "chapter_draft":
+    if node.node_id in {"chapter_draft", "chapter_batch_assemble"}:
         return "chapter_drafts"
     if node.node_id.endswith("review") or node.node_type == "review_gate":
         return "review_reports"
@@ -2933,7 +3049,7 @@ def _node_unit_batch_contract(node: NodeSpec) -> dict[str, Any]:
                 "source_node_id": source_id,
             }
             return payload
-    if node.node_id != "chapter_draft":
+    if node.node_id not in {"chapter_draft", "chapter_draft_self_repair", "chapter_batch_assemble"}:
         return {}
     return {
         "unit_kind": "chapter",
@@ -2946,6 +3062,7 @@ def _node_unit_batch_contract(node: NodeSpec) -> dict[str, Any]:
         "units_per_group": CHAPTERS_PER_VOLUME,
         "target_unit_count": CHAPTER_REQUESTED_COUNT,
         "units_per_batch": CHAPTER_BATCH_SIZE,
+        "unit_count": 1,
         "unit_target_measure": CHAPTER_TARGET_WORDS,
         "batch_target_measure": BATCH_TARGET_WORDS,
         "group_target_measure": VOLUME_TARGET_WORDS,
@@ -2954,6 +3071,9 @@ def _node_unit_batch_contract(node: NodeSpec) -> dict[str, Any]:
             "source": "node.contract_bindings.unit_batch",
             "review_node_id": "chapter_review",
             "commit_node_id": "memory_commit_chapter",
+            "unit_writer_node_id": "chapter_draft",
+            "unit_repair_node_id": "chapter_draft_self_repair",
+            "batch_assemble_node_id": "chapter_batch_assemble",
         },
     }
 
@@ -3109,7 +3229,7 @@ def _commit_guard_policy(node: NodeSpec) -> dict[str, Any]:
         "barrier_node_id": "design_sync" if node.node_id == "memory_commit_character" else "",
     }
     if node.node_id == "memory_commit_chapter":
-        policy["source_candidate_must_be_repaired_output"] = True
+        policy["source_candidate_must_be_batch_assembled_output"] = True
         policy["noncanonical_source_sections"] = ["自修处理记录", "自修处理记录（非正史）", "self_check_report", "自检说明"]
     return policy
 
@@ -3217,15 +3337,15 @@ def _prewrite_memory_plan_policy(node: NodeSpec) -> dict[str, Any]:
         "max_section_chars": 2500,
         "required_sources": ["memory.writing.baseline", "memory.writing.mutable", "memory.writing.manuscript", "chapter_outline_ref", "volume_plan_ref"],
         "required_fields": [
-            "本批叙事目标",
+            "当前章叙事目标",
             "采用的世界规则",
             "采用的人物当前状态",
-            "上一批承接",
+            "上一章承接",
             "正文事实索引",
             "活跃伏笔",
             "到期伏笔",
             "禁改边界",
-            "本批不得新增为事实的内容",
+            "当前章不得新增为事实的内容",
         ],
         "main_prose_section_required_after_plan": True,
         "plan_is_not_canon": True,
@@ -3300,7 +3420,7 @@ def _outline_thread_index_policy(node: NodeSpec) -> dict[str, Any]:
 
 
 def _memory_read_policy(node: NodeSpec) -> dict[str, Any]:
-    high_context_node_ids = {"chapter_draft", "chapter_draft_self_repair", "chapter_review", "volume_review", "final_assemble"}
+    high_context_node_ids = {"chapter_draft", "chapter_draft_self_repair", "chapter_batch_assemble", "chapter_review", "volume_review", "final_assemble"}
     return {
         "mode": "memory_pack_required",
         "access_model": "edge_based_repository_read",
@@ -3378,20 +3498,38 @@ def _memory_write_policy(node: NodeSpec) -> dict[str, Any]:
             "identity_namespace": "chapter_batch_commit",
             "input_keys": ["volume_index", "batch_start_index", "batch_end_index"],
             "artifact_ref_input_keys": [
-                "chapter_draft_self_repair_ref",
+                "chapter_batch_assemble_ref",
                 "chapter_review_ref",
                 "previous_candidate_ref",
                 "previous_review_ref",
             ],
             "artifact_ref_input_suffixes": [":artifact_refs"],
-            "artifact_ref_input_contains": ["chapter_draft_self_repair", "chapter_review"],
+            "artifact_ref_input_contains": ["chapter_batch_assemble", "chapter_review"],
             "fallback_to_result_artifact_refs": True,
         }
     return policy
 
 
 def _runtime_batch_boundary_policy(node: NodeSpec) -> dict[str, Any]:
-    if str(dict(node.loop).get("scope_id") or "") != "loop.chapter_batch":
+    scope_id = str(dict(node.loop).get("scope_id") or "")
+    if scope_id == "loop.chapter_unit":
+        return {
+            "enabled": True,
+            "start_key": "chapter_index",
+            "end_key": "chapter_index",
+            "count_key": "unit_count",
+            "list_key": "chapter_index",
+            "target_metric_key": "unit_target_measure",
+            "unit_label": "章",
+            "unit_label_prefix": "第",
+            "unit_label_suffix": "章",
+            "range_template": "本节点只允许处理第{start}章。",
+            "list_template": "当前章号：第{unit_list}章。",
+            "size_template": "当前运行时每轮单章大小为 {unit_count} 章。",
+            "metric_template": "当前章目标正文量约 {target_metric} 字。",
+            "conflict_template": "如果项目启动包、上游旧产物或历史摘要出现其他章号范围，以本运行时当前章边界为准。",
+        }
+    if scope_id != "loop.chapter_batch":
         return {}
     return {
         "enabled": True,
@@ -3419,22 +3557,21 @@ def _replay_sanitization_policy(node: NodeSpec) -> dict[str, Any]:
         "unit_label": "章",
         "unit_label_prefix": "第",
         "unit_label_suffix": "章",
-        "unit_start_key": "batch_start_index",
-        "unit_end_key": "batch_end_index",
-        "unit_count_key": "units_per_batch",
+        "unit_start_key": "chapter_index",
+        "unit_end_key": "chapter_index",
+        "unit_count_key": "unit_count",
         "unit_target_metric_key": "unit_target_measure",
-        "unit_list_key": "batch_chapter_list",
+        "unit_list_key": "chapter_index",
         "requirements_key": "chapter_revision_requirements",
         "requirements_template": (
-            "第{start}章至第{end}章上一轮正文未通过质量门。"
-            "本轮不是补丁说明，也不是局部增补；必须按运行时允许范围完整重交当前批次小说正文，共{count}章。"
+            "第{start}章上一轮正文未通过质量门。"
+            "本轮不是补丁说明，也不是局部增补；必须完整重交当前单章小说正文。"
             "上一版正文只能作为连续性参照，不能原样缩写、摘要化或只交差异说明。"
             "每章目标约{unit_target}字，最低不得少于"
-            f"{CHAPTER_MIN_WORDS}字；整批正文最低不得少于{CHAPTER_MIN_WORDS * CHAPTER_BATCH_SIZE}字。"
-            "优先扩写质量门指出的短章，同时保持十章连续小说正文完整交付；"
-            "每章都要有场景推进、人物行动、对话或心理变化、冲突升级、代价反馈、余波承接和章末牵引。"
+            f"{CHAPTER_MIN_WORDS}字。"
+            "必须补足当前章的场景推进、人物行动、对话或心理变化、冲突升级、代价反馈、余波承接和章末牵引。"
             "不得用摘要、提纲、自检、设定表、工作说明、等待补充、压缩转述或只列修改点代替正文。"
-            "交付主体必须是“章节正文候选”，并在该主体下逐章输出完整小说正文。{review_hint}"
+            "交付主体必须是“章节正文候选”，并在该主体下输出当前章完整小说正文。{review_hint}"
         ),
         "review_ref_key": "previous_chapter_review_ref",
         "batch_dir_template": "batch_{batch_index:03d}_chapters_{batch_start_index:03d}_{batch_end_index:03d}",
@@ -3468,7 +3605,7 @@ def _replay_sanitization_policy(node: NodeSpec) -> dict[str, Any]:
 def _quality_retry_policy(node: NodeSpec) -> dict[str, Any]:
     if node.node_id in {"chapter_draft", "chapter_draft_self_repair"}:
         return _chapter_draft_quality_retry_policy()
-    if node.node_id == "chapter_review":
+    if node.node_id in {"chapter_batch_assemble", "chapter_review"}:
         return _chapter_batch_quality_retry_policy()
     return {}
 
@@ -3788,6 +3925,31 @@ def _chapter_loop_frames() -> list[dict[str, Any]]:
     summary = "当前卷：{volume_label}；当前批次：{batch_label}；本批允许范围：{batch_chapter_list}；目标组数 {target_group_count}；全书累计约 {total_current_measure}/{target_measure_units} 字；本卷累计约 {group_current_measure}/{group_target_measure} 字。"
     return [
         {
+            "frame_id": "loop.chapter_unit",
+            "scope_id": "loop.chapter_unit",
+            "parent_scope_id": "loop.chapter_batch",
+            "title": "单章正文循环",
+            "kind": "bounded_cursor_iteration",
+            "entry_node_id": "chapter_draft",
+            "router_node_id": "chapter_unit_router",
+            "continue_node_id": "chapter_draft",
+            "exit_node_id": "chapter_batch_assemble",
+            "scope_node_ids": ["chapter_draft", "chapter_draft_self_repair", "chapter_unit_router"],
+            "cursor_key": "chapter_index",
+            "start_key": "batch_start_index",
+            "end_key": "batch_end_index",
+            "step": 1,
+            "iteration_index_key": "chapter_unit_iteration",
+            "iteration_identity_template": "chapter-{chapter_index}",
+            "reset_scope_on_continue": True,
+            "preserve_iteration_results": True,
+            "unit_kind": "chapter",
+            "iteration_size_key": "unit_count",
+            "initial_inputs": initial_inputs,
+            "derived_fields": derived_fields,
+            "summary": summary,
+        },
+        {
             "frame_id": "loop.chapter_batch",
             "scope_id": "loop.chapter_batch",
             "title": "章节批次循环",
@@ -3796,6 +3958,17 @@ def _chapter_loop_frames() -> list[dict[str, Any]]:
             "router_node_id": "chapter_progress_router",
             "continue_node_id": "chapter_outline",
             "exit_node_id": "volume_review",
+            "scope_node_ids": [
+                "chapter_outline",
+                "chapter_outline_self_repair",
+                "chapter_draft",
+                "chapter_draft_self_repair",
+                "chapter_unit_router",
+                "chapter_batch_assemble",
+                "chapter_review",
+                "memory_commit_chapter",
+                "chapter_progress_router",
+            ],
             "cursor_key": "chapter_index",
             "start_key": "chapter_index",
             "end_key": "target_unit_count",
@@ -3851,6 +4024,7 @@ def _chapter_initial_graph_loop_inputs() -> dict[str, Any]:
         "group_current_measure": 0,
         "chapter_index": 1,
         "unit_index": 1,
+        "chapter_unit_completed_count": 0,
         "metric_label": "words",
         "total_current_measure": 0,
     }

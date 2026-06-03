@@ -119,7 +119,7 @@ class SingleMessageModelRuntimeStub:
         self.agent_turn_action_request = dict(agent_turn_action_request or {})
 
     async def invoke_messages(self, messages, **_kwargs):
-        if _is_model_action_request(messages):
+        if self.agent_turn_action_request and _is_model_action_request(messages):
             request = self.agent_turn_action_request or _default_agent_turn_action_request(messages)
             return SimpleNamespace(content=json.dumps(request, ensure_ascii=False))
         return SimpleNamespace(content=self.content)

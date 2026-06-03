@@ -7,6 +7,7 @@ import type { StoreState } from "./types";
 
 const api = vi.hoisted(() => ({
   createSession: vi.fn(),
+  deleteSession: vi.fn(),
   getCodeEnvironmentWorkspaceTree: vi.fn(),
   getChatRun: vi.fn(),
   getLatestChatRunForSession: vi.fn(),
@@ -36,7 +37,7 @@ const api = vi.hoisted(() => ({
 
 vi.mock("@/lib/api", () => ({
   createSession: api.createSession,
-  deleteSession: vi.fn(),
+  deleteSession: api.deleteSession,
   runGraphRunUntilIdle: vi.fn(),
   evaluateTaskGraphRunMonitor: vi.fn(),
   getCodeEnvironmentWorkspaceTree: api.getCodeEnvironmentWorkspaceTree,
@@ -208,6 +209,8 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       updated_at: 1,
       message_count: 0,
     });
+    api.deleteSession.mockReset();
+    api.deleteSession.mockResolvedValue({ ok: true });
     api.getRagMode.mockReset();
     api.getRagMode.mockResolvedValue({ enabled: false });
     api.getModelProviderConfig.mockReset();
@@ -1365,6 +1368,70 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
 
     expect(store.getState().sessions.map((session) => session.id)).toEqual(["session:general"]);
     expect(store.getState().currentSessionId).toBe("session:general");
+  });
+
+  it("keeps scoped session index when deleting the selected task-environment session", async () => {
+    vi.useRealTimers();
+    const scope = {
+      workspace_view: "task_environment",
+      task_environment_id: "env.development.code",
+      project_id: "project:code",
+    };
+    const nextScopedSession = {
+      id: "session:scoped-b",
+      title: "Scoped B",
+      created_at: 1,
+      updated_at: 4,
+      message_count: 0,
+      scope,
+    };
+    api.listSessions.mockImplementation(async (receivedScope) => {
+      if (receivedScope?.workspace_view === scope.workspace_view
+        && receivedScope?.task_environment_id === scope.task_environment_id
+        && receivedScope?.project_id === scope.project_id) {
+        return [nextScopedSession];
+      }
+      return [{
+        id: "session:main",
+        title: "Main",
+        created_at: 1,
+        updated_at: 9,
+        message_count: 0,
+      }];
+    });
+    const store = createStore<StoreState>({
+      ...getDefaultState(),
+      currentSessionId: "session:scoped-a",
+      activeSessionScope: scope,
+      sessions: [
+        {
+          id: "session:scoped-a",
+          title: "Scoped A",
+          created_at: 1,
+          updated_at: 5,
+          message_count: 1,
+          scope,
+        },
+        nextScopedSession,
+      ],
+      messages: [{
+        id: "old",
+        role: "assistant",
+        content: "旧 scoped 会话",
+        toolCalls: [],
+        retrievals: [],
+      }],
+    });
+    const runtime = new WorkspaceRuntime(store);
+
+    await runtime.actions.removeSession("session:scoped-a");
+
+    expect(api.deleteSession).toHaveBeenCalledWith("session:scoped-a", scope);
+    expect(api.listSessions).toHaveBeenCalledWith(scope);
+    expect(api.listSessions.mock.calls.some((call) => call.length === 0)).toBe(true);
+    expect(store.getState().sessions.map((session) => session.id)).toEqual(["session:main"]);
+    expect(store.getState().currentSessionId).toBe("session:scoped-b");
+    expect(store.getState().activeSessionScope).toEqual(scope);
   });
 
   it("keeps stopped activity scoped to the session that was stopped", async () => {

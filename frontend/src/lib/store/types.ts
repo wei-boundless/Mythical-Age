@@ -212,6 +212,14 @@ export type ChatTaskEnvironmentBinding = {
   bound_at: number;
 };
 
+export type SessionPoolKey = "main-chat" | `task_environment:${string}:${string}`;
+
+export type SessionRef = {
+  sessionId: string;
+  scope?: Partial<SessionScope>;
+  poolKey?: SessionPoolKey;
+};
+
 export type TaskGraphMonitorBinding = {
   task_run_id?: string;
   graph_run_id: string;
@@ -260,6 +268,7 @@ export type StoreState = {
   sessions: SessionSummary[];
   currentSessionId: string | null;
   activeSessionScope: Partial<SessionScope> | null;
+  activeSessionRef: SessionRef | null;
   workspaceInitializing: boolean;
   messages: Message[];
   isStreaming: boolean;
@@ -315,7 +324,7 @@ export type StoreActions = {
   setTaskEnvironmentWorkspaceView: (view: TaskEnvironmentWorkspaceView) => void;
   refreshWorkspaceTree: () => Promise<void>;
   createNewSession: () => Promise<void>;
-  selectSession: (sessionId: string) => Promise<void>;
+  selectSession: (ref: SessionRef) => Promise<void>;
   sendMessage: (value: string) => Promise<void>;
   stopCurrentStream: () => void;
   pauseActiveTaskRun: () => Promise<void>;
@@ -328,7 +337,7 @@ export type StoreActions = {
   setSelectedChatMode: (mode: ChatMode) => void;
   setChatThinkingMode: (mode: ChatThinkingMode) => void;
   renameCurrentSession: (title: string) => Promise<void>;
-  removeSession: (sessionId: string) => Promise<void>;
+  removeSession: (ref: SessionRef) => Promise<void>;
   loadInspectorFile: (path: string) => Promise<void>;
   updateInspectorContent: (value: string) => void;
   saveInspector: () => Promise<void>;

@@ -29,6 +29,7 @@ from api.chat_direct_routes import run_direct_system_route
 from harness.loop.active_work import (
     ActiveWorkContext,
     ActiveWorkTurnDecision,
+    active_work_control_denial_reply,
     active_work_turn_decision_from_payload,
     active_work_status_reply,
     default_reply_for_action,
@@ -379,9 +380,25 @@ class HarnessRuntimeFacade:
             ):
                 yield event
 
-        async def apply_active_work_control(control_payload: dict[str, Any]) -> str:
+        async def apply_active_work_control(control_payload: dict[str, Any]) -> str | dict[str, Any]:
             if active_work_context is None:
                 return "当前没有可控制的进行中工作。"
+            expected_active_turn_id = str(getattr(request, "expected_active_turn_id", "") or "").strip()
+            if str(getattr(active_work_context, "authority", "") or "") == "harness.runtime.active_turn_context":
+                active_turn = self.single_agent_runtime_host.active_turn_registry.snapshot(request.session_id)
+                actual_turn_id = str(getattr(active_turn, "turn_id", "") or "").strip()
+                if not expected_active_turn_id:
+                    return {
+                        "status": "blocked",
+                        "terminal_reason": "expected_active_turn_id_required",
+                        "content": "当前有正在运行的任务，需要刷新会话状态后再控制当前工作。",
+                    }
+                if not active_turn or actual_turn_id != expected_active_turn_id:
+                    return {
+                        "status": "blocked",
+                        "terminal_reason": "expected_active_turn_mismatch",
+                        "content": "当前任务状态已变化，请刷新后重试。",
+                    }
             decision = active_work_turn_decision_from_payload(
                 {
                     "authority": "harness.loop.active_work_turn_decision",
@@ -399,6 +416,13 @@ class HarnessRuntimeFacade:
                 user_message=request.message,
             )
             control_payload["resolved_action"] = decision.action
+            if not decision.accepted:
+                control_payload["decision_error"] = decision.denied_reason or decision.reason
+                return {
+                    "status": "blocked",
+                    "terminal_reason": decision.denied_reason or decision.reason or "active_work_control_denied",
+                    "content": active_work_control_denial_reply(decision),
+                }
             return await self._apply_active_work_turn_decision(
                 decision=decision,
                 context=active_work_context,

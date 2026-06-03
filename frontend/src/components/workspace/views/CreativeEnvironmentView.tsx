@@ -13,6 +13,7 @@ import {
   RefreshCw,
   Search,
   Settings2,
+  Trash2,
   Workflow,
 } from "lucide-react";
 
@@ -46,6 +47,7 @@ import {
   type TaskSystemOverview,
 } from "@/lib/api";
 import { useAppStore } from "@/lib/store";
+import type { SessionPoolKey } from "@/lib/store/types";
 import {
   buildCenterWorkspaceTaskGraphInitialInputs,
   centerWorkspaceTaskEnvironmentId,
@@ -190,6 +192,10 @@ function creativeSessionScope(projectId: string): SessionScope {
   };
 }
 
+function creativeSessionPoolKey(projectId: string): SessionPoolKey {
+  return `task_environment:${WRITING_ENVIRONMENT_ID}:${projectId}` as SessionPoolKey;
+}
+
 function graphMatchesFlow(graph: TaskGraphRecord, flow: WritingFlowKind) {
   const haystack = [
     graph.graph_id,
@@ -244,6 +250,7 @@ function CreativeProjectRail({
   onRefreshSessions,
   onCreateSession,
   onSelectSession,
+  onDeleteSession,
   onSelectProject,
 }: {
   projects: ProjectInstance[];
@@ -255,6 +262,7 @@ function CreativeProjectRail({
   onRefreshSessions: () => void;
   onCreateSession: () => void;
   onSelectSession: (sessionId: string) => void;
+  onDeleteSession: (sessionId: string) => void;
   onSelectProject: (projectId: string) => void;
 }) {
   const [sessionsOpen, setSessionsOpen] = useState(false);
@@ -322,16 +330,24 @@ function CreativeProjectRail({
           </div>
           <div className="creative-session-list">
             {visibleSessions.length ? visibleSessions.map((session) => (
-              <button
+              <div
                 className={session.id === currentSessionId ? "creative-session-row creative-session-row--active" : "creative-session-row"}
                 key={session.id}
-                onClick={() => onSelectSession(session.id)}
-                type="button"
               >
-                <MessageSquare size={13} />
-                <span>{creativeSessionTaskTitle(session)}</span>
-                <small>{creativeSessionTaskMeta(session)}</small>
-              </button>
+                <button onClick={() => onSelectSession(session.id)} type="button">
+                  <MessageSquare size={13} />
+                  <span>{creativeSessionTaskTitle(session)}</span>
+                  <small>{creativeSessionTaskMeta(session)}</small>
+                </button>
+                <button
+                  aria-label={`删除 ${session.title || "沟通记录"}`}
+                  className="creative-session-delete"
+                  onClick={() => onDeleteSession(session.id)}
+                  type="button"
+                >
+                  <Trash2 size={13} />
+                </button>
+              </div>
             )) : <div className="creative-inline-state">暂无沟通记录。</div>}
           </div>
           </>
@@ -363,6 +379,7 @@ function CreativeCommandDesk({
   onSelectFile,
   onCreateSession,
   onSelectSession,
+  onDeleteSession,
   onSelectGraph,
   onSelectFlow,
   onTaskMessageChange,
@@ -389,6 +406,7 @@ function CreativeCommandDesk({
   onSelectFile: (file: SelectedFile) => void;
   onCreateSession: () => void;
   onSelectSession: (sessionId: string) => void;
+  onDeleteSession: (sessionId: string) => void;
   onSelectGraph: (graphId: string) => void;
   onSelectFlow: (flow: WritingFlowKind) => void;
   onTaskMessageChange: (value: string) => void;
@@ -623,16 +641,24 @@ function CreativeCommandDesk({
               </div>
               <div className="creative-session-board">
                 {scopedSessions.length ? scopedSessions.slice(0, 6).map((session) => (
-                  <button
+                  <div
                     className={session.id === currentSessionId ? "creative-session-board-row creative-session-board-row--active" : "creative-session-board-row"}
                     key={session.id}
-                    onClick={() => onSelectSession(session.id)}
-                    type="button"
                   >
-                    <MessageSquare size={14} />
-                    <span>{creativeSessionTaskTitle(session)}</span>
-                    <em>{creativeSessionTaskMeta(session)}</em>
-                  </button>
+                    <button onClick={() => onSelectSession(session.id)} type="button">
+                      <MessageSquare size={14} />
+                      <span>{creativeSessionTaskTitle(session)}</span>
+                      <em>{creativeSessionTaskMeta(session)}</em>
+                    </button>
+                    <button
+                      aria-label={`删除 ${session.title || "沟通记录"}`}
+                      className="creative-session-delete"
+                      onClick={() => onDeleteSession(session.id)}
+                      type="button"
+                    >
+                      <Trash2 size={13} />
+                    </button>
+                  </div>
                 )) : <div className="creative-inline-state">新建或开始创作后，沟通记录会归入当前作品。</div>}
               </div>
             </section>
@@ -784,6 +810,7 @@ export function CreativeEnvironmentView() {
     centerWorkspaceTarget,
     clearCenterWorkspaceTarget,
     currentSessionId,
+    removeSession,
     selectSession,
     setTaskGraphRunInteractionOpen,
   } = useAppStore();
@@ -902,7 +929,12 @@ export function CreativeEnvironmentView() {
       });
       if (!response.session) return "";
       setScopedSessions((current) => [response.session!, ...current.filter((session) => session.id !== response.session!.id)]);
-      await selectSession(response.session.id);
+      const scope = creativeSessionScope(selectedProject.project_id);
+      await selectSession({
+        sessionId: response.session.id,
+        scope,
+        poolKey: creativeSessionPoolKey(selectedProject.project_id),
+      });
       return response.session.id;
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "无法创建项目会话。");
@@ -911,7 +943,29 @@ export function CreativeEnvironmentView() {
   }
 
   async function selectProjectSession(sessionId: string) {
-    await selectSession(sessionId);
+    if (!selectedProject) return;
+    const scope = creativeSessionScope(selectedProject.project_id);
+    await selectSession({
+      sessionId,
+      scope,
+      poolKey: creativeSessionPoolKey(selectedProject.project_id),
+    });
+  }
+
+  async function deleteProjectSession(sessionId: string) {
+    if (!selectedProject) return;
+    const scope = creativeSessionScope(selectedProject.project_id);
+    setError("");
+    try {
+      await removeSession({
+        sessionId,
+        scope,
+        poolKey: creativeSessionPoolKey(selectedProject.project_id),
+      });
+      await loadScopedSessions(selectedProject.project_id);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "无法删除沟通记录。");
+    }
   }
 
   function selectFlow(nextFlow: WritingFlowKind) {
@@ -948,8 +1002,12 @@ export function CreativeEnvironmentView() {
       });
       const sessionId = resolved.session?.id ?? "";
       if (!sessionId) return;
-      await selectSession(sessionId);
       const sessionScope = creativeSessionScope(selectedProject.project_id);
+      await selectSession({
+        sessionId,
+        scope: sessionScope,
+        poolKey: creativeSessionPoolKey(selectedProject.project_id),
+      });
       const result = await startTaskGraphHarnessRun(graph.graph_id, {
         session_id: sessionId,
         session_scope: sessionScope,

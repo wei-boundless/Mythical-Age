@@ -341,6 +341,7 @@ def test_single_agent_turn_projection_only_exposes_executable_native_actions() -
     assert start.get("allowed_action_types") == ["respond", "ask_user", "block", "request_task_run", "tool_call"]
     assert effective_capabilities.get("may_call_tools") is True
     assert effective_capabilities.get("may_use_subagents") is False
+    assert effective_capabilities.get("supports_json_action_protocol") is True
     assert effective_capabilities.get("requires_json_action_protocol") is False
     assert "调用本次可见工具" in model_input
     assert "子 agent 协作" not in model_input
@@ -1303,7 +1304,8 @@ def test_malformed_agent_action_request_fails_closed() -> None:
 
     events = asyncio.run(_collect())
 
-    assert any(event.get("type") == "done" and "authority" in str(event.get("content") or "") for event in events)
+    assert any(event.get("type") == "done" and "JSON 系统动作不符合本轮协议" in str(event.get("content") or "") for event in events)
+    assert not any(event.get("type") == "done" and "authority" in str(event.get("content") or "") for event in events)
     assert any(event.get("type") == "single_agent_turn_started" for event in events)
 
 
@@ -1350,7 +1352,7 @@ def test_turn_stream_cancellation_closes_running_turn() -> None:
     assert turn_run["terminal_reason"] == "stream_cancelled"
 
 
-def test_legacy_json_action_text_is_treated_as_assistant_message() -> None:
+def test_invalid_json_action_text_fails_closed_without_leaking_protocol() -> None:
     runtime = build_harness_runtime(
         model_runtime=_TurnActionSequenceModelRuntime(
             [
@@ -1368,11 +1370,10 @@ def test_legacy_json_action_text_is_treated_as_assistant_message() -> None:
 
     events = asyncio.run(_collect())
     event_types = [str(event.get("type") or "") for event in events]
-    steps = [str(event.get("step") or "") for event in events if event.get("type") == "runtime_step_summary"]
 
     assert "bounded_observation" not in event_types
-    assert "model_turn_output_received" not in steps
-    assert any(event.get("type") == "done" and "harness.loop.model_action_request" in str(event.get("content") or "") for event in events)
+    assert any(event.get("type") == "done" and "JSON 系统动作不符合本轮协议" in str(event.get("content") or "") for event in events)
+    assert not any(event.get("type") == "done" and "harness.loop.model_action_request" in str(event.get("content") or "") for event in events)
 
 
 def test_task_executor_schedule_missing_callback_blocks_task_run() -> None:
@@ -3046,6 +3047,93 @@ def test_active_work_turn_policy_repairs_control_only_to_reply_then_control() ->
     assert decision.continuation_strategy == "same_run_resume"
 
 
+def test_active_work_turn_policy_does_not_rewrite_direct_answer_action() -> None:
+    from harness.loop.active_work import active_work_turn_decision_from_payload
+
+    decision = active_work_turn_decision_from_payload(
+        {
+            "authority": "harness.loop.active_work_turn_decision",
+            "action": "continue_active_work",
+            "answer_obligation": "direct_answer_required",
+            "continuation_strategy": "same_run_resume",
+            "relation_to_current_work": "current_work",
+            "evidence": "用户既问状态又要求继续",
+            "response": "当前工作还在等待继续，我会接着处理。",
+            "confidence": 0.95,
+        },
+        user_message="现在做到哪了？继续",
+    )
+
+    assert decision.accepted is True
+    assert decision.action == "continue_active_work"
+    assert decision.answer_obligation == "direct_answer_required"
+    assert decision.continuation_strategy == "same_run_resume"
+    assert decision.denied_reason == ""
+
+
+def test_active_work_turn_policy_rejects_non_control_subaction() -> None:
+    from harness.loop.active_work import active_work_turn_decision_from_payload
+
+    decision = active_work_turn_decision_from_payload(
+        {
+            "authority": "harness.loop.active_work_turn_decision",
+            "action": "normal_response",
+            "relation_to_current_work": "independent_turn",
+            "response": "这应该作为普通回复，而不是当前工作控制。",
+        },
+        user_message="解释一下 checkpoint",
+    )
+
+    assert decision.accepted is False
+    assert decision.denied_reason == "active_work_control_action_not_allowed"
+
+
+def test_active_work_relation_mismatch_blocks_without_control_side_effects() -> None:
+    model = _ActiveWorkDecisionModelRuntime([
+        {
+            "action": "continue_active_work",
+            "relation_to_current_work": "independent_turn",
+            "evidence": "模型调用当前工作控制但声明独立请求",
+            "response": "这不应该控制当前工作。",
+            "confidence": 0.7,
+        }
+    ])
+    runtime = build_harness_runtime(model_runtime=model)
+    task_run_id = _seed_active_work(runtime, task_run_id="taskrun:active-work-relation-mismatch")
+
+    async def _collect() -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime.astream(
+            HarnessRuntimeRequest(
+                session_id="session-active-work",
+                message="解释一下 checkpoint",
+            )
+        ):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_collect())
+    trace = runtime.single_agent_runtime_host.get_trace(task_run_id, include_payloads=True)
+    event_types = [str(dict(item).get("event_type") or "") for item in list(dict(trace or {}).get("events") or [])]
+
+    assert model.active_work_decision_count == 1
+    assert not any(event.get("type") == "active_task_steer_accepted" for event in events)
+    assert any(
+        event.get("type") == "done"
+        and event.get("answer_channel") == "blocked"
+        and event.get("terminal_reason") == "active_work_relation_declared_independent"
+        and "没有控制当前工作" in str(event.get("content") or "")
+        for event in events
+    )
+    assert any(
+        event.get("type") == "agent_turn_terminal"
+        and dict(dict(event.get("event") or {}).get("payload") or {}).get("terminal_reason") == "active_work_relation_declared_independent"
+        for event in events
+    )
+    assert "active_task_steer_recorded" not in event_types
+    assert "task_run_resume_requested" not in event_types
+
+
 def test_active_turn_input_goes_through_model_turn_instead_of_registry_steer() -> None:
     model = _ActiveWorkDecisionModelRuntime([
         {
@@ -3090,6 +3178,103 @@ def test_active_turn_input_goes_through_model_turn_instead_of_registry_steer() -
     assert updated_task is not None
     assert int(dict(updated_task.diagnostics or {}).get("pending_user_steer_count") or 0) == 0
     assert any(event.get("type") == "done" and "当前工作还在等待继续执行" in str(event.get("content") or "") for event in events)
+
+
+def test_active_work_control_requires_expected_active_turn_id_for_bound_active_turn() -> None:
+    model = _ActiveWorkDecisionModelRuntime([
+        {
+            "action": "continue_active_work",
+            "relation_to_current_work": "current_work",
+            "evidence": "用户说继续当前工作",
+            "response": "不应继续。",
+            "confidence": 0.9,
+        }
+    ])
+    runtime = build_harness_runtime(model_runtime=model)
+    task_run_id = _seed_active_work(runtime, task_run_id="taskrun:active-turn-expected-required")
+
+    host = runtime.single_agent_runtime_host
+    host.active_turn_registry.start(session_id="session-active-work", turn_id="turn:active:current")
+    host.active_turn_registry.bind_task_run(
+        session_id="session-active-work",
+        turn_id="turn:active:current",
+        task_run_id=task_run_id,
+        state="waiting_executor",
+    )
+
+    async def _collect() -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime.astream(
+            HarnessRuntimeRequest(
+                session_id="session-active-work",
+                message="继续当前工作",
+            )
+        ):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_collect())
+    trace = runtime.single_agent_runtime_host.get_trace(task_run_id, include_payloads=True)
+    event_types = [str(dict(item).get("event_type") or "") for item in list(dict(trace or {}).get("events") or [])]
+
+    assert model.active_work_decision_count == 1
+    assert any(event.get("type") == "done" and "需要刷新会话状态" in str(event.get("content") or "") for event in events)
+    assert any(
+        event.get("type") == "agent_turn_terminal"
+        and dict(dict(event.get("event") or {}).get("payload") or {}).get("terminal_reason") == "expected_active_turn_id_required"
+        for event in events
+    )
+    assert "active_task_steer_recorded" not in event_types
+    assert "task_run_resume_requested" not in event_types
+
+
+def test_active_work_control_rejects_stale_expected_active_turn_id() -> None:
+    model = _ActiveWorkDecisionModelRuntime([
+        {
+            "action": "continue_active_work",
+            "relation_to_current_work": "current_work",
+            "evidence": "用户说继续当前工作",
+            "response": "不应继续。",
+            "confidence": 0.9,
+        }
+    ])
+    runtime = build_harness_runtime(model_runtime=model)
+    task_run_id = _seed_active_work(runtime, task_run_id="taskrun:active-turn-expected-stale")
+
+    host = runtime.single_agent_runtime_host
+    host.active_turn_registry.start(session_id="session-active-work", turn_id="turn:active:current")
+    host.active_turn_registry.bind_task_run(
+        session_id="session-active-work",
+        turn_id="turn:active:current",
+        task_run_id=task_run_id,
+        state="waiting_executor",
+    )
+
+    async def _collect() -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime.astream(
+            HarnessRuntimeRequest(
+                session_id="session-active-work",
+                message="继续当前工作",
+                expected_active_turn_id="turn:active:stale",
+            )
+        ):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_collect())
+    trace = runtime.single_agent_runtime_host.get_trace(task_run_id, include_payloads=True)
+    event_types = [str(dict(item).get("event_type") or "") for item in list(dict(trace or {}).get("events") or [])]
+
+    assert model.active_work_decision_count == 1
+    assert any(event.get("type") == "done" and "当前任务状态已变化" in str(event.get("content") or "") for event in events)
+    assert any(
+        event.get("type") == "agent_turn_terminal"
+        and dict(dict(event.get("event") or {}).get("payload") or {}).get("terminal_reason") == "expected_active_turn_mismatch"
+        for event in events
+    )
+    assert "active_task_steer_recorded" not in event_types
+    assert "task_run_resume_requested" not in event_types
 
 
 def test_single_agent_turn_does_not_control_active_work_without_native_action() -> None:
@@ -3800,6 +3985,96 @@ def test_single_agent_turn_request_task_run_tool_starts_real_task_lifecycle() ->
     assert stored_task is not None
     assert dict(getattr(stored_task, "diagnostics", {}) or {}).get("origin_kind") == "single_agent_turn_native_action"
     assert any(event.get("type") == "done" and "交付一个真实页面" in str(event.get("content") or "") for event in events)
+
+
+def test_single_agent_turn_json_request_task_run_starts_real_task_lifecycle() -> None:
+    runtime = build_harness_runtime(
+        model_runtime=_TurnActionSequenceModelRuntime(
+            [
+                _action_request(
+                    action_type="request_task_run",
+                    task_contract_seed={
+                        "user_visible_goal": "交付一个 JSON 协议页面。",
+                        "task_run_goal": "通过 JSON action 创建页面任务。",
+                        "required_artifacts": [{"artifact_kind": "html_app", "user_visible_name": "页面"}],
+                        "required_verifications": [{"verification_kind": "file_exists"}],
+                        "completion_criteria": ["页面文件真实存在"],
+                    },
+                )
+            ]
+        )
+    )
+
+    async def _collect() -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime.astream(
+            HarnessRuntimeRequest(
+                session_id="session-json-taskrun",
+                message="帮我做一个页面。",
+                task_selection={
+                    "allowed_operations": ["op.model_response"],
+                    "control_capabilities": {
+                        "may_request_task_run": True,
+                        "requires_json_action_protocol": True,
+                        "may_use_subagents": False,
+                    },
+                },
+            )
+        ):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_collect())
+    stream_types = [str(event.get("type") or "") for event in events]
+    lifecycle = [event for event in events if event.get("type") == "task_run_lifecycle_started"][0]
+    task_run_event = dict(lifecycle.get("event") or {})
+    payload = dict(task_run_event.get("payload") or {})
+    task_run = dict(payload.get("task_run") or {})
+    task_run_id = str(task_run.get("task_run_id") or "")
+    stored_task = runtime.single_agent_runtime_host.state_index.get_task_run(task_run_id)
+    admissions = _admission_payloads(events)
+
+    assert "task_run_lifecycle_started" in stream_types
+    assert admissions
+    assert dict(admissions[0].get("model_action_request") or {}).get("action_type") == "request_task_run"
+    assert task_run_id.startswith("taskrun:")
+    assert stored_task is not None
+    assert dict(getattr(stored_task, "diagnostics", {}) or {}).get("origin_kind") == "single_agent_turn_json_action"
+    assert not any(event.get("type") == "done" and "harness.loop.model_action_request" in str(event.get("content") or "") for event in events)
+
+
+def test_single_agent_turn_multiple_native_actions_fail_closed() -> None:
+    model = NativeToolCallModelRuntimeStub(
+        tool_calls=[
+            {
+                "id": "call-ask-user",
+                "name": "ask_user",
+                "args": {"question": "请补充目标平台。"},
+            },
+            {
+                "id": "call-block",
+                "name": "block",
+                "args": {"reason": "当前环境缺少必要授权。"},
+            },
+        ]
+    )
+    runtime = build_harness_runtime(model_runtime=model)
+
+    async def _collect() -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime.astream(HarnessRuntimeRequest(session_id="session-multiple-native-actions", message="帮我做适配。")):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_collect())
+
+    assert not _admission_payloads(events)
+    assert any(event.get("type") == "done" and "多个系统动作" in str(event.get("content") or "") for event in events)
+    assert any(
+        event.get("type") == "agent_turn_terminal"
+        and dict(dict(event.get("event") or {}).get("payload") or {}).get("terminal_reason") == "single_agent_turn_multiple_native_actions"
+        for event in events
+    )
 
 
 def test_single_agent_turn_ask_user_tool_goes_through_admission() -> None:

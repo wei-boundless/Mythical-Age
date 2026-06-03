@@ -1164,10 +1164,15 @@ def _single_agent_turn_effective_control_capabilities(
 ) -> dict[str, Any]:
     effective = dict(control_capabilities or {})
     allowed = {str(item) for item in allowed_actions if str(item)}
+    supports_json_action_protocol = bool(
+        effective.get("supports_json_action_protocol")
+        or {"ask_user", "block", "request_task_run", "active_work_control", "tool_call"}.intersection(allowed)
+    )
     effective["authority"] = "harness.runtime.single_agent_turn_control_capabilities"
     effective["may_call_tools"] = "tool_call" in allowed and visible_tool_count > 0
     effective["may_use_subagents"] = False
-    effective["requires_json_action_protocol"] = False
+    effective["supports_json_action_protocol"] = supports_json_action_protocol
+    effective["requires_json_action_protocol"] = bool(effective.get("requires_json_action_protocol") is True)
     effective["visible_tool_count"] = visible_tool_count
     effective["may_request_task_run"] = "request_task_run" in allowed
     effective["may_control_active_work"] = "active_work_control" in allowed
@@ -1180,7 +1185,11 @@ def _single_agent_turn_output_contract(
     allowed_actions: tuple[str, ...],
     control_capabilities: dict[str, Any],
 ) -> dict[str, Any]:
-    forbidden: list[str] = ["json_action_protocol", "delegate_subagent"]
+    json_action_enabled = bool(control_capabilities.get("supports_json_action_protocol") is True)
+    json_action_required = bool(control_capabilities.get("requires_json_action_protocol") is True)
+    forbidden: list[str] = ["delegate_subagent"]
+    if not json_action_enabled:
+        forbidden.append("json_action_protocol")
     if "tool_call" not in allowed_actions:
         forbidden.append("general_tool_call")
     if "request_task_run" not in allowed_actions:
@@ -1188,9 +1197,21 @@ def _single_agent_turn_output_contract(
     if "active_work_control" not in allowed_actions:
         forbidden.append("active_work_control")
     return {
-        "format": "assistant_message_or_native_action",
+        "format": "json_action" if json_action_required else "assistant_message_or_native_or_json_action",
         "allowed_actions": list(allowed_actions),
         "forbidden": list(dict.fromkeys(forbidden)),
+        "action_protocol": {
+            "single_action_per_turn": True,
+            "json_action": {
+                "enabled": json_action_enabled,
+                "required": json_action_required,
+                "authority": "harness.loop.model_action_request",
+            },
+            "native_actions": {
+                "enabled": True,
+                "parallel_tool_calls": False,
+            },
+        },
         "native_actions": {
             "tool_call": {
                 "enabled": "tool_call" in allowed_actions,

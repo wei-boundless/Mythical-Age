@@ -525,10 +525,18 @@ def _control_capabilities_for_runtime(
         else subagent_enabled
     )
     has_explicit_contract = bool(engagement_contract or selection.get("task_contract") or selection.get("task_contract_seed"))
+    requires_json_action_protocol_explicit = "requires_json_action_protocol" in explicit
+    supports_json_action_protocol = bool(
+        may_call_tools
+        or may_request_task_run
+        or may_control_active_work
+        or may_use_subagents
+        or has_explicit_contract
+    )
     requires_json_action_protocol = bool(
         explicit.get("requires_json_action_protocol")
-        if "requires_json_action_protocol" in explicit
-        else (may_call_tools or may_use_subagents or has_explicit_contract)
+        if requires_json_action_protocol_explicit
+        else False
     )
     return {
         "authority": "harness.runtime.control_capabilities",
@@ -537,7 +545,9 @@ def _control_capabilities_for_runtime(
         "may_request_task_run": may_request_task_run,
         "may_control_active_work": may_control_active_work,
         "may_use_subagents": may_use_subagents,
+        "supports_json_action_protocol": supports_json_action_protocol,
         "requires_json_action_protocol": requires_json_action_protocol,
+        "requires_json_action_protocol_explicit": requires_json_action_protocol_explicit,
         "has_explicit_contract": has_explicit_contract,
         "visible_tool_count": len(visible_tool_names),
     }

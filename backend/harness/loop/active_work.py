@@ -13,8 +13,6 @@ ActiveWorkTurnAction = Literal[
     "append_instruction_to_active_work",
     "answer_about_active_work",
     "ask_user",
-    "start_new_work",
-    "normal_response",
     "answer_then_continue_active_work",
 ]
 
@@ -25,8 +23,6 @@ _ALLOWED_ACTIONS: set[str] = {
     "append_instruction_to_active_work",
     "answer_about_active_work",
     "ask_user",
-    "start_new_work",
-    "normal_response",
     "answer_then_continue_active_work",
 }
 _CURRENT_WORK_ACTIONS = {
@@ -81,6 +77,8 @@ class ActiveWorkTurnDecision:
     user_turn_kind: str = "ambiguous"
     answer_obligation: str = "unspecified"
     continuation_strategy: str = ""
+    accepted: bool = True
+    denied_reason: str = ""
     authority: str = "harness.loop.active_work_turn_decision"
 
     def to_dict(self) -> dict[str, Any]:
@@ -91,12 +89,10 @@ def active_work_turn_decision_from_payload(payload: dict[str, Any] | None, *, us
     raw = dict(payload or {})
     authority = str(raw.get("authority") or "harness.loop.active_work_turn_decision").strip()
     action = str(raw.get("action") or raw.get("intent") or "").strip()
-    if authority != "harness.loop.active_work_turn_decision" or action not in _ALLOWED_ACTIONS:
-        return ActiveWorkTurnDecision(
-            action="normal_response",
-            response="",
-            reason="active_work_turn_decision_invalid",
-        )
+    if authority != "harness.loop.active_work_turn_decision":
+        return _denied_active_work_decision("active_work_turn_decision_authority_invalid")
+    if action not in _ALLOWED_ACTIONS:
+        return _denied_active_work_decision("active_work_control_action_not_allowed")
     response = public_active_work_text(str(raw.get("response") or ""))
     appended_instruction = str(raw.get("appended_instruction") or "").strip()
     if action == "append_instruction_to_active_work" and not appended_instruction:
@@ -122,9 +118,8 @@ def active_work_turn_decision_from_payload(payload: dict[str, Any] | None, *, us
         action=action,
     )
     if action in _CURRENT_WORK_ACTIONS and relation_to_current_work == "independent_turn":
-        return ActiveWorkTurnDecision(
-            action="normal_response",
-            response="",
+        return _denied_active_work_decision(
+            "active_work_relation_declared_independent",
             reason="active_work_relation_declared_independent",
             confidence=confidence,
             relation_to_current_work=relation_to_current_work,
@@ -133,22 +128,6 @@ def active_work_turn_decision_from_payload(payload: dict[str, Any] | None, *, us
             user_turn_kind=user_turn_kind,
             answer_obligation=answer_obligation,
             continuation_strategy=continuation_strategy,
-        )
-    if action in {"continue_active_work", "append_instruction_to_active_work"} and answer_obligation == "direct_answer_required":
-        repaired_action = "answer_then_continue_active_work"
-        repaired_strategy = continuation_strategy if continuation_strategy not in {"none", "defer"} else ""
-        return ActiveWorkTurnDecision(
-            action=repaired_action,
-            response=response,
-            appended_instruction=appended_instruction,
-            reason="active_work_direct_answer_then_continue",
-            confidence=confidence,
-            relation_to_current_work=relation_to_current_work,
-            evidence=evidence,
-            turn_response_policy="answer_then_active_work",
-            user_turn_kind=user_turn_kind,
-            answer_obligation=answer_obligation,
-            continuation_strategy=repaired_strategy,
         )
     return ActiveWorkTurnDecision(
         action=action,  # type: ignore[arg-type]
@@ -163,6 +142,43 @@ def active_work_turn_decision_from_payload(payload: dict[str, Any] | None, *, us
         answer_obligation=answer_obligation,
         continuation_strategy=continuation_strategy,
     )
+
+
+def _denied_active_work_decision(
+    denied_reason: str,
+    *,
+    reason: str = "",
+    confidence: float = 0.0,
+    relation_to_current_work: str = "ambiguous",
+    evidence: str = "",
+    turn_response_policy: str = "",
+    user_turn_kind: str = "ambiguous",
+    answer_obligation: str = "unspecified",
+    continuation_strategy: str = "",
+) -> ActiveWorkTurnDecision:
+    return ActiveWorkTurnDecision(
+        action="ask_user",
+        response="",
+        reason=reason or denied_reason,
+        confidence=confidence,
+        relation_to_current_work=relation_to_current_work,
+        evidence=evidence,
+        turn_response_policy=turn_response_policy,
+        user_turn_kind=user_turn_kind,
+        answer_obligation=answer_obligation,
+        continuation_strategy=continuation_strategy,
+        accepted=False,
+        denied_reason=denied_reason,
+    )
+
+
+def active_work_control_denial_reply(decision: ActiveWorkTurnDecision) -> str:
+    reason = str(decision.denied_reason or decision.reason or "").strip()
+    if reason == "active_work_relation_declared_independent":
+        return "我没有控制当前工作，因为这次动作没有明确指向当前工作。请重新提出独立问题，或直接说明要继续、暂停、停止或补充当前工作。"
+    if reason == "active_work_control_action_not_allowed":
+        return "我没有控制当前工作，因为本轮返回的当前工作动作不在允许范围内。请重新提出独立问题，或说明要继续、暂停、停止、补充要求还是询问当前进展。"
+    return "我没有控制当前工作，因为本轮当前工作动作没有通过运行边界校验。请重新说明你要如何处理当前工作。"
 
 
 def _normalize_relation_to_current_work(value: Any) -> str:

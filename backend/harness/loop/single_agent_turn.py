@@ -4,12 +4,12 @@ import asyncio
 import logging
 import time
 import uuid
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from typing import Any, AsyncIterator, Awaitable, Callable
 
 from harness.loop.admission import AdmissionDecision, admit_model_action
 from harness.loop.action_permit import action_permit_from_admission
-from harness.loop.model_action_protocol import ModelActionRequest
+from harness.loop.model_action_protocol import ModelActionRequest, model_action_request_from_payload
 from harness.loop.model_action_runtime import call_model_invoker
 from harness.loop.presentation import error_event, final_answer_event
 from harness.runtime import RuntimeCompiler, build_runtime_tool_plan
@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 
 CommitAssistantMessage = Callable[[str, dict[str, Any]], Awaitable[Any]]
 StartTaskFromActionRequest = Callable[[ModelActionRequest], AsyncIterator[dict[str, Any]]]
-ApplyActiveWorkControl = Callable[[dict[str, Any]], Awaitable[str]]
+ApplyActiveWorkControl = Callable[[dict[str, Any]], Awaitable[str | dict[str, Any]]]
 
 _STEER_ACTIVE_WORK_ACTIONS = {
     "continue_active_work",
@@ -38,6 +38,13 @@ _STEER_ACTIVE_WORK_ACTIONS = {
     "answer_then_continue_active_work",
 }
 _MAX_SINGLE_TURN_TOOL_ITERATIONS = 3
+
+
+@dataclass(frozen=True, slots=True)
+class SingleAgentActionParse:
+    action_request: ModelActionRequest | None
+    native_tool_calls: list[dict[str, Any]]
+    error: dict[str, Any] | None = None
 
 
 async def run_single_agent_turn(
@@ -85,6 +92,9 @@ async def run_single_agent_turn(
             model_selection=dict(model_selection or {}),
             runtime_assembly=runtime_assembly,
         )
+        single_agent_requires_json_action = bool(
+            dict(compilation.packet.diagnostics.get("control_capabilities") or {}).get("requires_json_action_protocol") is True
+        )
         yield {
             "type": "single_agent_turn_started",
             "runtime_branch": dict(runtime_branch or {}),
@@ -122,17 +132,31 @@ async def run_single_agent_turn(
         while True:
             if isinstance(response, dict) and response.get("type") == "error":
                 break
-            tool_calls = _native_tool_calls_from_response(
+            action_parse = _single_agent_action_request_from_response(
                 response,
                 request_id=f"model-response:{compilation.packet.packet_id}:tool:{tool_iteration + 1}",
                 turn_id=turn_id,
-            )
-            tool_action = _tool_action_request_from_native_tool_calls(
-                tool_calls,
-                turn_id=turn_id,
                 packet_ref=compilation.packet.packet_id,
                 iteration=tool_iteration + 1,
+                allowed_action_types=tuple(compilation.packet.allowed_action_types),
+                phase="tool_loop",
+                require_json_action=single_agent_requires_json_action,
             )
+            if action_parse.error:
+                async for event in _emit_single_agent_protocol_error(
+                    action_parse.error,
+                    commit_assistant_message=commit_assistant_message,
+                    runtime_host=runtime_host,
+                    turn_run=turn_run,
+                    session_id=session_id,
+                    turn_id=turn_id,
+                    runtime_branch=runtime_branch,
+                ):
+                    yield event
+                terminal_recorded = True
+                return
+            tool_calls = action_parse.native_tool_calls
+            tool_action = action_parse.action_request if action_parse.action_request is not None and action_parse.action_request.action_type == "tool_call" else None
             if tool_action is None:
                 break
             if tool_iteration >= _MAX_SINGLE_TURN_TOOL_ITERATIONS:
@@ -430,22 +454,31 @@ async def run_single_agent_turn(
                 terminal_recorded = True
                 yield {"type": "agent_turn_terminal", "event": terminal}
             return
-        tool_calls = _native_tool_calls_from_response(
+        action_parse = _single_agent_action_request_from_response(
             response,
             request_id=f"model-response:{compilation.packet.packet_id}:final",
             turn_id=turn_id,
-        )
-        action_request = _action_request_from_native_tool_calls(
-            tool_calls,
-            turn_id=turn_id,
             packet_ref=compilation.packet.packet_id,
+            iteration=tool_iteration + 1,
+            allowed_action_types=tuple(compilation.packet.allowed_action_types),
+            phase="final",
+            require_json_action=single_agent_requires_json_action,
         )
-        if action_request is None:
-            action_request = _active_work_action_request_from_native_tool_calls(
-                tool_calls,
+        if action_parse.error:
+            async for event in _emit_single_agent_protocol_error(
+                action_parse.error,
+                commit_assistant_message=commit_assistant_message,
+                runtime_host=runtime_host,
+                turn_run=turn_run,
+                session_id=session_id,
                 turn_id=turn_id,
-                packet_ref=compilation.packet.packet_id,
-            )
+                runtime_branch=runtime_branch,
+            ):
+                yield event
+            terminal_recorded = True
+            return
+        tool_calls = action_parse.native_tool_calls
+        action_request = action_parse.action_request
         if action_request is not None:
             admission = admit_model_action(
                 action_request,
@@ -506,6 +539,36 @@ async def run_single_agent_turn(
                         turn_id=turn_id,
                         status="blocked",
                         terminal_reason=admission.system_reason or admission.decision,
+                    )
+                    terminal_recorded = True
+                    yield {"type": "agent_turn_terminal", "event": terminal}
+                return
+            if action_request.action_type == "respond":
+                content = action_request.final_answer or stringify_content(getattr(response, "content", response)).strip()
+                if not content:
+                    content = "模型选择直接回答，但没有提供可用回答内容。"
+                await _commit_final_message(
+                    commit_assistant_message,
+                    session_id=session_id,
+                    turn_id=turn_id,
+                    content=content,
+                    answer_channel="conversation",
+                    answer_source="harness.single_agent_turn.respond",
+                )
+                yield final_answer_event(
+                    content=content,
+                    answer_channel="conversation",
+                    answer_source="harness.single_agent_turn.respond",
+                    terminal_reason="respond",
+                    extra={"runtime_branch": dict(runtime_branch or {})},
+                )
+                if runtime_host is not None and turn_run is not None:
+                    terminal = _record_turn_terminal(
+                        runtime_host,
+                        turn_run=turn_run,
+                        turn_id=turn_id,
+                        status="completed",
+                        terminal_reason="respond",
                     )
                     terminal_recorded = True
                     yield {"type": "agent_turn_terminal", "event": terminal}
@@ -614,10 +677,21 @@ async def run_single_agent_turn(
                 return
             if action_request.action_type == "active_work_control":
                 active_control = dict(action_request.active_work_control or {})
-                content = await apply_active_work_control(active_control)
+                active_result = await apply_active_work_control(active_control)
+                if isinstance(active_result, dict):
+                    content = str(active_result.get("content") or active_result.get("message") or "").strip()
+                    active_status = str(active_result.get("status") or "completed").strip()
+                    active_terminal_reason = str(active_result.get("terminal_reason") or active_result.get("reason") or "").strip()
+                else:
+                    content = str(active_result or "").strip()
+                    active_status = "completed"
+                    active_terminal_reason = ""
+                if not content:
+                    content = "当前工作控制请求没有返回可用结果。"
                 resolved_action = str(active_control.get("resolved_action") or active_control.get("action") or "active_work_control")
+                terminal_reason = active_terminal_reason or resolved_action
                 is_task_steer = resolved_action in _STEER_ACTIVE_WORK_ACTIONS
-                if is_task_steer:
+                if is_task_steer and active_status != "blocked":
                     yield {
                         "type": "active_task_steer_accepted",
                         "summary": content,
@@ -626,12 +700,13 @@ async def run_single_agent_turn(
                         "runtime_branch": dict(runtime_branch or {}),
                         "active_work": dict(active_control),
                     }
+                answer_channel = "blocked" if active_status == "blocked" else "active_work_control"
                 await _commit_final_message(
                     commit_assistant_message,
                     session_id=session_id,
                     turn_id=turn_id,
                     content=content,
-                    answer_channel="active_work_control",
+                    answer_channel=answer_channel,
                     answer_source="harness.single_agent_turn.active_work_control",
                     api_protocol_messages=[
                         *_native_action_protocol_messages(
@@ -647,13 +722,13 @@ async def run_single_agent_turn(
                 )
                 yield final_answer_event(
                     content=content,
-                    answer_channel="active_work_control",
+                    answer_channel=answer_channel,
                     answer_source="harness.single_agent_turn.active_work_control",
-                    terminal_reason=resolved_action,
+                    terminal_reason=terminal_reason,
                     extra={
                         "runtime_branch": dict(runtime_branch or {}),
                         "active_work": dict(active_control),
-                        "completion_state": "task_steer_accepted" if is_task_steer else "completed",
+                        "completion_state": "blocked" if active_status == "blocked" else ("task_steer_accepted" if is_task_steer else "completed"),
                         "summary": content if is_task_steer else "",
                     },
                 )
@@ -662,8 +737,8 @@ async def run_single_agent_turn(
                         runtime_host,
                         turn_run=turn_run,
                         turn_id=turn_id,
-                        status="completed",
-                        terminal_reason=resolved_action,
+                        status="blocked" if active_status == "blocked" else "completed",
+                        terminal_reason=terminal_reason,
                     )
                     terminal_recorded = True
                     yield {"type": "agent_turn_terminal", "event": terminal}
@@ -763,6 +838,7 @@ async def _invoke_single_turn_model(
                 model_messages,
                 native_tools,
                 model_spec=model_selection,
+                tool_call_options={"parallel_tool_calls": False},
                 accounting_context=accounting_context,
             )
         except Exception as exc:
@@ -794,14 +870,271 @@ async def _invoke_single_turn_model(
     )
 
 
-def _native_tool_calls_from_response(response: Any, *, request_id: str, turn_id: str) -> list[dict[str, Any]]:
+def _single_agent_action_request_from_response(
+    response: Any,
+    *,
+    request_id: str,
+    turn_id: str,
+    packet_ref: str,
+    iteration: int,
+    allowed_action_types: tuple[str, ...],
+    phase: str,
+    require_json_action: bool = False,
+) -> SingleAgentActionParse:
     protocol = model_response_protocol_from_response(
         response,
         request_id=request_id,
         turn_id=turn_id,
+        require_json_action=require_json_action,
         allow_native_tool_calls=True,
     )
-    return [dict(item) for item in protocol.native_tool_calls]
+    native_tool_calls = [dict(item) for item in protocol.native_tool_calls]
+    json_payload = dict(protocol.json_payload or {})
+    json_action_like = _is_model_action_json_payload(json_payload)
+    if protocol.protocol_errors:
+        return SingleAgentActionParse(
+            action_request=None,
+            native_tool_calls=native_tool_calls,
+            error=_single_agent_protocol_error(
+                code="single_agent_turn_model_protocol_error",
+                reason=";".join(protocol.protocol_errors),
+                diagnostics={
+                    "protocol_errors": list(protocol.protocol_errors),
+                    "parse_diagnostics": dict(protocol.parse_diagnostics or {}),
+                    "phase": phase,
+                },
+            ),
+        )
+    if native_tool_calls and json_action_like:
+        return SingleAgentActionParse(
+            action_request=None,
+            native_tool_calls=native_tool_calls,
+            error=_single_agent_protocol_error(
+                code="single_agent_turn_multiple_action_sources",
+                reason="single_agent_turn_multiple_action_sources",
+                diagnostics={
+                    "native_tool_call_count": len(native_tool_calls),
+                    "json_action_type": str(json_payload.get("action_type") or ""),
+                    "phase": phase,
+                },
+            ),
+        )
+    if json_action_like:
+        action_request, diagnostics = model_action_request_from_payload(
+            json_payload,
+            turn_id=turn_id,
+            allowed_action_types=allowed_action_types,
+        )
+        if action_request is None:
+            return SingleAgentActionParse(
+                action_request=None,
+                native_tool_calls=native_tool_calls,
+                error=_single_agent_protocol_error(
+                    code="single_agent_turn_invalid_json_action",
+                    reason=";".join(str(item) for item in list(dict(diagnostics or {}).get("validation_errors") or []))
+                    or "single_agent_turn_invalid_json_action",
+                    diagnostics={
+                        "model_action_diagnostics": dict(diagnostics or {}),
+                        "parse_diagnostics": dict(protocol.parse_diagnostics or {}),
+                        "phase": phase,
+                    },
+                ),
+            )
+        return SingleAgentActionParse(
+            action_request=replace(
+                action_request,
+                diagnostics={
+                    **dict(action_request.diagnostics or {}),
+                    "origin_kind": "single_agent_turn_json_action",
+                    "origin_authority": "harness.loop.single_agent_turn",
+                    "packet_ref": packet_ref,
+                    "protocol_ref": protocol.protocol_id,
+                    "phase": phase,
+                },
+            ),
+            native_tool_calls=[],
+        )
+    if require_json_action:
+        return SingleAgentActionParse(
+            action_request=None,
+            native_tool_calls=native_tool_calls,
+            error=_single_agent_protocol_error(
+                code="single_agent_turn_json_action_required",
+                reason="json_action_required",
+                diagnostics={
+                    "parse_diagnostics": dict(protocol.parse_diagnostics or {}),
+                    "phase": phase,
+                },
+            ),
+        )
+    if not native_tool_calls:
+        return SingleAgentActionParse(action_request=None, native_tool_calls=[])
+    native_actions = _action_requests_from_native_tool_calls(
+        native_tool_calls,
+        turn_id=turn_id,
+        packet_ref=packet_ref,
+        iteration=iteration,
+    )
+    if len(native_actions) > 1:
+        return SingleAgentActionParse(
+            action_request=None,
+            native_tool_calls=native_tool_calls,
+            error=_single_agent_protocol_error(
+                code="single_agent_turn_multiple_native_actions",
+                reason="single_agent_turn_multiple_native_actions",
+                diagnostics={
+                    "native_tool_call_count": len(native_tool_calls),
+                    "action_types": [item.action_type for item in native_actions],
+                    "tool_names": [str(call.get("name") or "") for call in native_tool_calls],
+                    "phase": phase,
+                },
+            ),
+        )
+    if not native_actions:
+        return SingleAgentActionParse(
+            action_request=None,
+            native_tool_calls=native_tool_calls,
+            error=_single_agent_protocol_error(
+                code="single_agent_turn_invalid_native_action",
+                reason="single_agent_turn_invalid_native_action",
+                diagnostics={
+                    "native_tool_call_count": len(native_tool_calls),
+                    "tool_names": [str(call.get("name") or "") for call in native_tool_calls],
+                    "phase": phase,
+                },
+            ),
+        )
+    return SingleAgentActionParse(action_request=native_actions[0], native_tool_calls=native_tool_calls)
+
+
+def _is_model_action_json_payload(payload: dict[str, Any]) -> bool:
+    if not payload:
+        return False
+    authority = str(payload.get("authority") or "").strip()
+    if authority == "harness.loop.model_action_request":
+        return True
+    if "authority" in payload:
+        return True
+    if "action_type" in payload:
+        return True
+    return authority.startswith("harness.loop.") and "action" in payload
+
+
+def _action_requests_from_native_tool_calls(
+    tool_calls: list[dict[str, Any]],
+    *,
+    turn_id: str,
+    packet_ref: str,
+    iteration: int,
+) -> list[ModelActionRequest]:
+    actions: list[ModelActionRequest] = []
+    reserved = {"request_task_run", "active_work_control", "ask_user", "block"}
+    for call in tool_calls:
+        tool_name = str(call.get("name") or "").strip()
+        if not tool_name:
+            continue
+        if tool_name not in reserved:
+            action = _tool_action_request_from_native_tool_calls(
+                [call],
+                turn_id=turn_id,
+                packet_ref=packet_ref,
+                iteration=iteration,
+            )
+        elif tool_name == "active_work_control":
+            action = _active_work_action_request_from_native_tool_calls(
+                [call],
+                turn_id=turn_id,
+                packet_ref=packet_ref,
+            )
+        else:
+            action = _action_request_from_native_tool_calls(
+                [call],
+                turn_id=turn_id,
+                packet_ref=packet_ref,
+            )
+        if action is not None:
+            actions.append(action)
+    return actions
+
+
+def _single_agent_protocol_error(*, code: str, reason: str, diagnostics: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "code": code,
+        "reason": reason,
+        "diagnostics": {
+            "authority": "harness.loop.single_agent_turn.protocol_error",
+            **dict(diagnostics or {}),
+        },
+    }
+
+
+async def _emit_single_agent_protocol_error(
+    error: dict[str, Any],
+    *,
+    commit_assistant_message: CommitAssistantMessage,
+    runtime_host: Any,
+    turn_run: TurnRun | None,
+    session_id: str,
+    turn_id: str,
+    runtime_branch: dict[str, Any],
+) -> AsyncIterator[dict[str, Any]]:
+    code = str(error.get("code") or "single_agent_turn_model_protocol_error")
+    reason = str(error.get("reason") or code)
+    diagnostics = dict(error.get("diagnostics") or {})
+    content = _single_agent_protocol_error_user_text(code)
+    commit_decision = await _commit_final_message(
+        commit_assistant_message,
+        session_id=session_id,
+        turn_id=turn_id,
+        content=content,
+        answer_channel="blocked",
+        answer_source="harness.single_agent_turn.protocol_error",
+    )
+    yield {
+        "type": "assistant_message_committed",
+        "answer_channel": commit_decision.answer_channel,
+        "answer_source": commit_decision.answer_source,
+        "answer_canonical_state": commit_decision.canonical_state,
+        "answer_persist_policy": commit_decision.persist_policy,
+        "answer_finalization_policy": commit_decision.finalization_policy,
+        "answer_fallback_reason": commit_decision.fallback_reason,
+    }
+    yield final_answer_event(
+        content=content,
+        answer_channel="blocked",
+        answer_source="harness.single_agent_turn.protocol_error",
+        terminal_reason=code,
+        extra={
+            "runtime_branch": dict(runtime_branch or {}),
+            "protocol_error": {
+                "code": code,
+                "reason": reason,
+                "diagnostics": diagnostics,
+            },
+        },
+    )
+    if runtime_host is not None and turn_run is not None:
+        terminal = _record_turn_terminal(
+            runtime_host,
+            turn_run=turn_run,
+            turn_id=turn_id,
+            status="blocked",
+            terminal_reason=code,
+            payload={"protocol_error": {"code": code, "reason": reason, "diagnostics": diagnostics}},
+        )
+        yield {"type": "agent_turn_terminal", "event": terminal}
+
+
+def _single_agent_protocol_error_user_text(code: str) -> str:
+    if code == "single_agent_turn_multiple_native_actions":
+        return "模型一次返回了多个系统动作，运行时已停止执行，避免遗漏或误触发。请重新说明要优先执行的目标。"
+    if code == "single_agent_turn_multiple_action_sources":
+        return "模型同时返回了 JSON 动作和 native 工具动作，运行时已停止执行，避免重复触发。请重新发起当前请求。"
+    if code == "single_agent_turn_json_action_required":
+        return "当前运行边界要求模型使用 JSON 系统动作，但模型没有返回有效动作，运行时已停止执行。"
+    if code == "single_agent_turn_invalid_json_action":
+        return "模型返回的 JSON 系统动作不符合本轮协议，运行时已停止执行。"
+    return "模型返回的系统动作格式无效，运行时已停止执行，避免误触发工具或任务。"
 
 
 def _native_tools_for_packet(allowed_action_types: tuple[str, ...], *, available_tools: tuple[dict[str, Any], ...] = ()) -> list[dict[str, Any]]:

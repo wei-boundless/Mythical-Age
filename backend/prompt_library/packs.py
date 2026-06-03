@@ -25,6 +25,8 @@ RUNTIME_TASK_EXECUTION_PROMPT = """
 只输出一个合法 JSON 对象，不要 Markdown 包裹，不要暴露隐藏推理；输出必须遵守本轮 action schema。
 如果需要执行一步工作，action_type=tool_call，并填写 tool_call.tool_name 与 tool_call.args。
 每一轮只能提交一个 action JSON。不要在 JSON 外继续输出正文、代码块、解释或产物内容；系统只会解析这个 JSON，JSON 外内容不会被当作工具输入。
+当任务需要创建较长文件、网页、脚本或文档时，优先调用 write_file 或 terminal，让完整内容成为工具参数或命令输入；不要把交付物正文作为普通回答或 Markdown 输出。
+如果内容可能超过本轮输出预算，应先写入一个完整可运行的紧凑版本，再通过后续 read_file、edit_file、terminal 或 write_file 增量完善，不要输出半截 JSON 或半截文件。
 如果合同已经满足，action_type=respond；final_answer 必须总结完成情况，并在 diagnostics.artifacts 中列出真实产物路径。
 如果缺少用户决策，action_type=ask_user。
 如果任务无法继续，action_type=block，并说明 blocking_reason。

@@ -1087,11 +1087,11 @@ def _evaluate_loop_route(
         if secondary_key:
             patched_inputs[secondary_key] = _numeric_value(patched_inputs.get(secondary_key), 0) + metric
     patched_inputs = _apply_patch_rules(patched_inputs, list(route_policy.get("patch_rules") or []))
-    patched_inputs = _apply_derived_fields(patched_inputs, list(route_policy.get("derived_fields") or []))
     current_value = _numeric_value(patched_inputs.get(current_key), 0) if current_key else 0
     target_value = _numeric_value(patched_inputs.get(target_key), 0) if target_key else 0
     action = "exit" if target_key and current_value >= target_value else "continue"
     patched_inputs = _apply_frame_cursor_patch(inputs=patched_inputs, frame=frame, action=action)
+    patched_inputs = _apply_derived_fields(patched_inputs, list(route_policy.get("derived_fields") or []))
     continue_node_id = str(route_policy.get("continue_node_id") or frame.get("continue_node_id") or frame.get("entry_node_id") or "").strip()
     exit_node_id = str(route_policy.get("exit_node_id") or frame.get("exit_node_id") or "").strip()
     return {
@@ -1191,7 +1191,6 @@ def _evaluate_progress_receipt_route(
         patched_inputs["batch_end_index"] = int(_numeric_value(receipt.get("batch_end_index"), _numeric_value(patched_inputs.get("batch_end_index"), patched_inputs["active_chapter_end_index"])))
     patched_inputs["active_chapter_range"] = f"{int(patched_inputs['active_chapter_start_index']):03d}-{int(patched_inputs['active_chapter_end_index']):03d}"
     patched_inputs = _apply_patch_rules(patched_inputs, list(route_policy.get("patch_rules") or []))
-    patched_inputs = _apply_derived_fields(patched_inputs, list(route_policy.get("derived_fields") or []))
     patched_inputs.setdefault("active_chapter_range", f"{int(_numeric_value(patched_inputs.get('active_chapter_start_index'), next_chapter_index)):03d}-{int(_numeric_value(patched_inputs.get('active_chapter_end_index'), next_chapter_index)):03d}")
 
     target_key = str(route_policy.get("target_key") or "group_target_measure").strip()
@@ -1200,6 +1199,7 @@ def _evaluate_progress_receipt_route(
     receipt_complete = bool(receipt.get("volume_complete"))
     action = "exit" if receipt_complete or (target_key and current_value >= target_value) else "continue"
     patched_inputs = _apply_frame_cursor_patch(inputs=patched_inputs, frame=frame, action=action)
+    patched_inputs = _apply_derived_fields(patched_inputs, list(route_policy.get("derived_fields") or []))
     continue_node_id = str(route_policy.get("continue_node_id") or frame.get("continue_node_id") or frame.get("entry_node_id") or "").strip()
     exit_node_id = str(route_policy.get("exit_node_id") or frame.get("exit_node_id") or "").strip()
     return {
@@ -1254,7 +1254,6 @@ def _evaluate_generic_progress_receipt_route(
         if source_key in receipt:
             patched_inputs[target_key] = receipt.get(source_key)
     patched_inputs = _apply_patch_rules(patched_inputs, list(route_policy.get("patch_rules") or []))
-    patched_inputs = _apply_derived_fields(patched_inputs, list(route_policy.get("derived_fields") or []))
     complete_key = str(route_policy.get("receipt_complete_key") or route_policy.get("complete_key") or "").strip()
     receipt_complete = bool(receipt.get(complete_key)) if complete_key else False
     target_key = str(route_policy.get("target_key") or "").strip()
@@ -1262,6 +1261,7 @@ def _evaluate_generic_progress_receipt_route(
     target_value = _numeric_value(patched_inputs.get(target_key), 0) if target_key else 0
     action = "exit" if receipt_complete or (target_key and current_value >= target_value) else "continue"
     patched_inputs = _apply_frame_cursor_patch(inputs=patched_inputs, frame=frame, action=action)
+    patched_inputs = _apply_derived_fields(patched_inputs, list(route_policy.get("derived_fields") or []))
     continue_node_id = str(route_policy.get("continue_node_id") or frame.get("continue_node_id") or frame.get("entry_node_id") or "").strip()
     exit_node_id = str(route_policy.get("exit_node_id") or frame.get("exit_node_id") or "").strip()
     return {

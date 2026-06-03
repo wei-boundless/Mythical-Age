@@ -1,6 +1,6 @@
 import type { Store } from "@/lib/store/core";
 import type { StoreState, TaskGraphMonitorBinding } from "@/lib/store/types";
-import type { GraphRunMonitorView, RuntimeMonitorEventPayload } from "@/lib/api";
+import type { GraphRunMonitorView, RuntimeMonitorEventPayload, SessionScope } from "@/lib/api";
 import { isRequestAbortError, runGraphRunUntilIdle } from "@/lib/api";
 
 import {
@@ -22,7 +22,7 @@ import type { ChatTaskEnvironmentBinding, WorkspaceView } from "@/lib/store/type
 type RuntimeMonitorHost = {
   hasActiveChatStream: () => boolean;
   patchRuntimeAttachmentFromRuntimeEvent: (prev: StoreState, event: NonNullable<RuntimeMonitorEventPayload["runtime_event"]>) => StoreState;
-  applySelectedSessionShell: (sessionId: string) => boolean;
+  applySelectedSessionShell: (sessionId: string, scope?: Partial<SessionScope>) => boolean;
   bindTaskEnvironmentContext: (
     taskEnvironmentId: string,
     options?: {
@@ -198,7 +198,7 @@ export class RuntimeMonitorController {
         });
       }
       if (sessionId) {
-        this.host.applySelectedSessionShell(sessionId);
+        this.host.applySelectedSessionShell(sessionId, selectedSessionScope as Partial<SessionScope>);
         void this.host.refreshSessionDetails(sessionId).catch(() => undefined);
         void this.host.hydrateLatestOrchestrationSnapshot(sessionId).catch(() => false);
       }
