@@ -14,6 +14,7 @@ from prompt_library import (
     default_pack_ref_for_invocation,
 )
 from prompt_library.rules import build_rule_diagnostics
+from prompt_library.tool_prompts import tool_guidance_payload_for_visible_tools
 from artifact_system.artifact_authority import artifact_ref_value, dedupe_artifact_refs, model_visible_artifact_refs, normalize_artifact_ref
 from runtime.model_gateway.protocol_sanitizer import sanitize_messages_for_prompt
 from task_system.contracts.runtime_contracts import expand_selected_skill_bodies, render_skill_candidate_cards
@@ -24,6 +25,7 @@ from .dynamic_context import DynamicContextInput, DynamicContextManager, Dynamic
 from .envelope import RuntimeEnvelope
 from .invocation_packet import RuntimeInvocationPacket
 from .prompt_segment_plan import build_prompt_segment_plan
+from .project_instructions import ProjectInstructionBundle, collect_project_instruction_bundle
 from .sandbox_execution_scope import compile_sandbox_execution_scope, task_safety_envelope_from_assembly
 
 
@@ -262,6 +264,7 @@ class RuntimeCompiler:
         control_capabilities = dict(assembly_payload.get("control_capabilities") or {})
         agent_profile_ref = str(assembly_payload.get("agent_profile_ref") or agent_profile_ref or "main_interactive_agent")
         task_environment_ref = str(environment_payload.get("environment_id") or "env.general.workspace")
+        permission_mode = str(assembly_payload.get("permission_mode") or "default")
         prompt_pack_refs = _prompt_pack_refs_for_invocation(profile_payload, invocation_kind="single_agent_turn")
         allowed_actions = _single_agent_turn_allowed_actions(
             control_capabilities=control_capabilities,
@@ -283,9 +286,15 @@ class RuntimeCompiler:
                 if str(item.get("tool_name") or item.get("name") or "")
             ),
         )
+        planning_protocol = _planning_protocol_payload(
+            invocation_kind="single_agent_turn",
+            profile_payload=profile_payload,
+            permission_mode=permission_mode,
+        )
         output_contract = _single_agent_turn_output_contract(
             allowed_actions=allowed_actions,
             control_capabilities=effective_control_capabilities,
+            planning_protocol=planning_protocol,
         )
         agent_visible_runtime_projection = _agent_visible_runtime_projection(
             invocation_kind="single_agent_turn",
@@ -294,7 +303,7 @@ class RuntimeCompiler:
             environment_payload=environment_payload,
             operation_authorization=dict(assembly_payload.get("operation_authorization") or {}),
             available_tools=single_turn_tools,
-            permission_mode=str(assembly_payload.get("permission_mode") or "default"),
+            permission_mode=permission_mode,
         )
         envelope = RuntimeEnvelope(
             envelope_id=f"rtenv:{turn_id}:single_agent_turn",
@@ -342,6 +351,7 @@ class RuntimeCompiler:
             agent_profile_ref=agent_profile_ref,
             task_environment_ref=task_environment_ref,
         )
+        project_instruction_bundle = collect_project_instruction_bundle(base_dir=self.base_dir)
         runtime_instruction = _runtime_projection_instruction(agent_visible_runtime_projection)
         environment_instruction = _environment_instruction(
             environment_payload,
@@ -351,9 +361,12 @@ class RuntimeCompiler:
         skill_candidate_instruction = _skill_candidate_instruction(assembly_payload)
         stable_payload = {
             "control_capabilities": dict(effective_control_capabilities),
+            "planning_protocol": planning_protocol,
             "task_environment": _environment_model_visible_payload(environment_payload),
             "output_contract": output_contract,
             "available_tools": _stable_tool_catalog_payload(single_turn_tools),
+            **tool_guidance_payload_for_visible_tools(single_turn_tools),
+            **_project_instruction_model_payload(project_instruction_bundle),
         }
         packet_id = f"rtpacket:{turn_id}:single_agent_turn:1"
         session_context_payload = dict(session_context or {})
@@ -477,6 +490,7 @@ class RuntimeCompiler:
             history=history,
             dynamic_context=dynamic_context,
         )
+        _attach_project_instruction_manifest(prompt_manifest, project_instruction_bundle)
         _attach_model_message_metrics(prompt_manifest, model_messages=model_messages, segment_plan=segment_plan.to_dict())
         packet = RuntimeInvocationPacket(
             packet_id=packet_id,
@@ -525,6 +539,7 @@ class RuntimeCompiler:
         self._bind_assembly_base_dir(assembly_payload)
         profile_payload = dict(assembly_payload.get("profile") or {})
         environment_payload = dict(assembly_payload.get("task_environment") or {})
+        permission_mode = str(assembly_payload.get("permission_mode") or "default")
         artifact_scope = runtime_artifact_scope_from_environment(environment_payload)
         sandbox_execution_scope = compile_sandbox_execution_scope(
             environment_payload=environment_payload,
@@ -557,7 +572,13 @@ class RuntimeCompiler:
             environment_payload=environment_payload,
             operation_authorization=operation_authorization,
             available_tools=tool_payloads,
-            permission_mode=str(assembly_payload.get("permission_mode") or "default"),
+            permission_mode=permission_mode,
+        )
+        planning_protocol = _planning_protocol_payload(
+            invocation_kind="task_execution",
+            profile_payload=profile_payload,
+            permission_mode=permission_mode,
+            contract=contract,
         )
         envelope = RuntimeEnvelope(
             envelope_id=f"rtenv:{task_run_id}:task_execution:{invocation_index}",
@@ -575,7 +596,7 @@ class RuntimeCompiler:
             artifact_policy=artifact_scope.to_artifact_policy(dict(environment_payload.get("artifact_policy") or {})),
             permission_policy=permission_policy,
             prompt_policy={"invocation_kind": "task_execution"},
-            output_policy={"format": "model_action_request_json"},
+            output_policy={"format": "model_action_request_json", "planning_protocol": planning_protocol},
             graph_slot=graph_slot,
             diagnostics={
                 "task_run_id": task_run_id,
@@ -618,6 +639,11 @@ class RuntimeCompiler:
             agent_profile_ref=agent_profile_ref,
             task_environment_ref=task_environment_ref,
         )
+        project_instruction_bundle = collect_project_instruction_bundle(
+            base_dir=self.base_dir,
+            target_paths=_project_instruction_target_paths(contract=contract, task_run=task_run),
+            cache_scope="task_stable",
+        )
         runtime_instruction = _runtime_projection_instruction(agent_visible_runtime_projection)
         active_skill_instruction, active_skill_meta = _active_skill_instruction(
             base_dir=self.base_dir,
@@ -632,17 +658,24 @@ class RuntimeCompiler:
         action_schema_payload = {"schema": schema}
         agent_function_shared_payload = _graph_agent_function_shared_stable_payload(contract)
         graph_task_shared_payload = _graph_task_shared_stable_payload(contract)
-        task_contract_payload = {"task_contract": _task_contract_stable_payload(contract)}
+        task_contract_payload = {
+            "task_contract": _task_contract_stable_payload(contract),
+            "planning_protocol": planning_protocol,
+        }
         graph_node_runtime_context_payload = (
             {"graph_node_runtime_context": _graph_node_model_context_projection(graph_slot)}
             if graph_slot
             else {}
         )
         artifact_execution_scope_payload = {"artifact_execution_scope": sandbox_execution_scope.to_model_visible_payload()}
-        environment_stable_payload = {"task_environment": _environment_model_visible_payload(environment_payload)}
+        environment_stable_payload = {
+            "task_environment": _environment_model_visible_payload(environment_payload),
+            **_project_instruction_model_payload(project_instruction_bundle),
+        }
         tool_index_payload = {
             "available_tools": _stable_tool_catalog_payload(tool_payloads),
             "tool_catalog_hash": _stable_json_hash([dict(item) for item in tool_payloads]),
+            **tool_guidance_payload_for_visible_tools(tool_payloads),
         }
         packet_id = f"rtpacket:{task_run_id}:task_execution:{executor_epoch}:{invocation_index}"
         dynamic_context = self.dynamic_context_manager.project(
@@ -849,6 +882,7 @@ class RuntimeCompiler:
             history=[],
             dynamic_context=dynamic_context,
         )
+        _attach_project_instruction_manifest(prompt_manifest, project_instruction_bundle)
         _attach_model_message_metrics(prompt_manifest, model_messages=model_messages, segment_plan=segment_plan.to_dict())
         packet = RuntimeInvocationPacket(
             packet_id=packet_id,
@@ -865,7 +899,7 @@ class RuntimeCompiler:
             observation_refs=dynamic_context.observation_refs,
             artifact_refs=dynamic_context.artifact_refs,
             context_refs=dynamic_context.context_refs,
-            output_contract={"schema": schema, "format": "json_object"},
+            output_contract={"schema": schema, "format": "json_object", "planning_protocol": planning_protocol},
             hidden_control_refs={"task_run_id": task_run_id, "runtime_assembly_id": str(assembly_payload.get("assembly_id") or "")},
             diagnostics={
                 "prompt_manifest": prompt_manifest,
@@ -959,6 +993,7 @@ class RuntimeCompiler:
             agent_profile_ref=agent_profile_ref,
             task_environment_ref=task_environment_ref,
         )
+        project_instruction_bundle = collect_project_instruction_bundle(base_dir=self.base_dir)
         runtime_instruction = _runtime_projection_instruction(agent_visible_runtime_projection)
         environment_instruction = _environment_instruction(
             environment_payload,
@@ -971,6 +1006,8 @@ class RuntimeCompiler:
             "task_environment": _environment_model_visible_payload(environment_payload),
             "available_tools": _stable_tool_catalog_payload(tool_payloads),
             "tool_catalog_hash": _stable_json_hash([dict(item) for item in tool_payloads]),
+            **tool_guidance_payload_for_visible_tools(tool_payloads),
+            **_project_instruction_model_payload(project_instruction_bundle),
         }
         packet_id = f"rtpacket:{turn_id}:tool_observation_followup:{len(observations) + 1}"
         dynamic_context = self.dynamic_context_manager.project(
@@ -1095,6 +1132,7 @@ class RuntimeCompiler:
             history=history,
             dynamic_context=dynamic_context,
         )
+        _attach_project_instruction_manifest(prompt_manifest, project_instruction_bundle)
         _attach_model_message_metrics(prompt_manifest, model_messages=model_messages, segment_plan=segment_plan.to_dict())
         packet = RuntimeInvocationPacket(
             packet_id=packet_id,
@@ -1309,6 +1347,18 @@ def model_action_request_schema(turn_id: str) -> dict[str, Any]:
                     "description": "验收或验证要求"
                 }
             ],
+            "plan_ref": "可选；用户已批准或系统已记录的计划引用。没有批准计划时不要伪造。",
+            "plan_requirements": {
+                "requires_plan": False,
+                "reason": "为什么需要先计划；仅在高影响改动、架构重构、协议变更或用户要求计划时填写。",
+                "expected_plan_artifact": "可选；计划书或计划记录的目标位置或引用。"
+            },
+            "implementation_lock": {
+                "plan_ref": "获批计划引用",
+                "status": "approved|locked|implementation_locked",
+                "approved": False,
+                "deviation_policy": "ask_user_or_block_before_changing_approved_plan"
+            },
             "resource_requirements": {},
             "permission_requirements": {},
             "acceptance_policy": {},
@@ -1364,6 +1414,11 @@ def task_execution_action_schema() -> dict[str, Any]:
                     "proposed_acceptance_criteria": [],
                 }
             ],
+            "plan_deviation": {
+                "status": "none|within_plan|needs_user|blocked",
+                "plan_ref": "如果任务合同绑定了计划，填写对应 plan_ref",
+                "reason": "如需偏离计划，说明具体原因；没有偏离时留空"
+            },
         },
     }
 
@@ -1413,6 +1468,7 @@ def _single_agent_turn_output_contract(
     *,
     allowed_actions: tuple[str, ...],
     control_capabilities: dict[str, Any],
+    planning_protocol: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     json_action_enabled = bool(control_capabilities.get("supports_json_action_protocol") is True)
     json_action_required = bool(control_capabilities.get("requires_json_action_protocol") is True)
@@ -1461,6 +1517,7 @@ def _single_agent_turn_output_contract(
                 "control_actions_exposed_as_native_tools": False,
             },
         },
+        "planning_protocol": dict(planning_protocol or {}),
         "native_actions": {
             "tool_call": {
                 "enabled": "tool_call" in allowed_actions,
@@ -1798,6 +1855,99 @@ def _valid_message_index(index: Any, message_chars: list[int]) -> bool:
     return 0 <= value < len(message_chars)
 
 
+def _attach_project_instruction_manifest(prompt_manifest: dict[str, Any], bundle: ProjectInstructionBundle) -> None:
+    if not bundle.has_content:
+        prompt_manifest["project_instruction_refs"] = []
+        return
+    prompt_manifest["project_instruction_refs"] = [bundle.prompt_ref]
+    prompt_manifest["project_instructions"] = bundle.to_manifest_dict()
+
+
+def _project_instruction_model_payload(bundle: ProjectInstructionBundle) -> dict[str, Any]:
+    if not bundle.has_content:
+        return {}
+    return {
+        "project_instructions": {
+            "prompt_ref": bundle.prompt_ref,
+            "content": bundle.content,
+            "source_hash": bundle.source_hash,
+            "sources": [source.to_manifest_dict() for source in bundle.sources],
+            "authority": bundle.authority,
+        }
+    }
+
+
+def _project_instruction_target_paths(*, contract: dict[str, Any], task_run: dict[str, Any]) -> tuple[str, ...]:
+    paths: list[str] = []
+    for payload in (dict(contract or {}), dict(task_run or {})):
+        _collect_path_like_values(payload, paths)
+    return tuple(dict.fromkeys(paths))
+
+
+def _collect_path_like_values(value: Any, paths: list[str], *, key_hint: str = "") -> None:
+    if isinstance(value, dict):
+        for raw_key, item in value.items():
+            key = str(raw_key or "").strip().lower()
+            next_hint = key or key_hint
+            if _is_path_like_key(key):
+                _append_path_values(item, paths)
+                continue
+            if isinstance(item, (dict, list, tuple)):
+                _collect_path_like_values(item, paths, key_hint=next_hint)
+        return
+    if isinstance(value, (list, tuple)):
+        for item in value:
+            _collect_path_like_values(item, paths, key_hint=key_hint)
+
+
+def _is_path_like_key(key: str) -> bool:
+    value = str(key or "").strip().lower()
+    if value in {
+        "path",
+        "paths",
+        "file",
+        "files",
+        "filepath",
+        "file_path",
+        "file_paths",
+        "target_path",
+        "target_paths",
+        "target_file",
+        "target_files",
+        "changed_file",
+        "changed_files",
+        "required_read_files",
+        "required_write_files",
+        "allowed_write_paths",
+        "artifact_path",
+        "artifact_paths",
+    }:
+        return True
+    return value.endswith("_path") or value.endswith("_paths") or value.endswith("_file") or value.endswith("_files")
+
+
+def _append_path_values(value: Any, paths: list[str]) -> None:
+    if isinstance(value, str):
+        if _looks_like_project_path(value):
+            paths.append(value)
+        return
+    if isinstance(value, dict):
+        candidate = value.get("path") or value.get("file_path") or value.get("target_path")
+        if isinstance(candidate, str) and _looks_like_project_path(candidate):
+            paths.append(candidate)
+        return
+    if isinstance(value, (list, tuple)):
+        for item in value:
+            _append_path_values(item, paths)
+
+
+def _looks_like_project_path(value: str) -> bool:
+    text = str(value or "").strip()
+    if not text or "://" in text:
+        return False
+    return any(separator in text for separator in ("/", "\\")) or "." in Path(text).name
+
+
 def _packet_payload_content(title: str, payload: dict[str, Any]) -> str:
     body = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return f"{title}\n{body}"
@@ -1965,6 +2115,76 @@ def _string_list(value: Any) -> list[str]:
     return [str(item).strip() for item in list(value or []) if str(item).strip()]
 
 
+def _planning_protocol_payload(
+    *,
+    invocation_kind: str,
+    profile_payload: dict[str, Any],
+    permission_mode: str,
+    contract: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    planning = dict(profile_payload.get("planning_policy") or {})
+    contract_payload = dict(contract or {})
+    raw_lock = contract_payload.get("implementation_lock")
+    implementation_lock = dict(raw_lock) if isinstance(raw_lock, dict) else {}
+    plan_ref = str(
+        contract_payload.get("plan_ref")
+        or contract_payload.get("approved_plan_ref")
+        or implementation_lock.get("plan_ref")
+        or ""
+    ).strip()
+    plan_mode = str(planning.get("plan_mode") or "").strip().lower()
+    normalized_permission_mode = str(permission_mode or "default").strip().lower()
+    plan_mode_active = normalized_permission_mode == "plan" or plan_mode in {
+        "plan",
+        "active",
+        "required",
+        "plan_only",
+    }
+    plan_required = bool(
+        planning.get("requires_plan") is True
+        or plan_mode_active
+        or implementation_lock
+        or str(contract_payload.get("plan_required") or "").strip().lower() in {"1", "true", "yes", "required"}
+    )
+    lock_status = str(implementation_lock.get("status") or "").strip().lower()
+    plan_approved = bool(
+        implementation_lock.get("approved") is True
+        or lock_status in {"approved", "locked", "implementation_locked"}
+        or contract_payload.get("plan_approved") is True
+    )
+    implementation_allowed = not plan_mode_active and (not plan_required or plan_approved or bool(plan_ref))
+    mode = "plan_only" if plan_mode_active else ("implementation_locked" if plan_ref or implementation_lock else str(planning.get("plan_mode") or "available"))
+    return _drop_empty_payload(
+        {
+            "mode": mode,
+            "invocation_kind": str(invocation_kind or ""),
+            "permission_mode": str(permission_mode or "default"),
+            "plan_required": plan_required,
+            "plan_mode_active": plan_mode_active,
+            "plan_ref": plan_ref,
+            "implementation_lock": implementation_lock,
+            "implementation_allowed": implementation_allowed,
+            "allowed_during_plan": [
+                "respond_with_plan",
+                "ask_user",
+                "read_only_observation",
+                "search",
+                "request_task_run_with_plan_requirement",
+            ],
+            "forbidden_during_plan": [
+                "edit_file",
+                "write_file",
+                "side_effect_terminal",
+                "git_write",
+                "deliverable_write",
+                "claim_completed",
+            ],
+            "deviation_policy": "ask_user_or_block_before_changing_approved_plan",
+            "authority": "harness.runtime.plan_mode_protocol",
+        }
+    )
+
+
 def _agent_visible_runtime_projection(
     *,
     invocation_kind: str,
@@ -1977,6 +2197,11 @@ def _agent_visible_runtime_projection(
 ) -> dict[str, Any]:
     task_lifecycle = dict(profile_payload.get("task_lifecycle_policy") or {})
     planning = dict(profile_payload.get("planning_policy") or {})
+    planning_protocol = _planning_protocol_payload(
+        invocation_kind=invocation_kind,
+        profile_payload=profile_payload,
+        permission_mode=permission_mode,
+    )
     self_review = dict(profile_payload.get("self_review_policy") or {})
     step_summary = dict(profile_payload.get("step_summary_policy") or {})
     permission = dict(profile_payload.get("permission_policy") or {})
@@ -2017,6 +2242,7 @@ def _agent_visible_runtime_projection(
             "artifact_evidence_required": bool(task_lifecycle.get("artifact_evidence_required") is True),
         },
         "planning": {
+            **planning_protocol,
             "specified_plan_allowed": bool(planning.get("specified_plan_allowed") is True),
             "todo_required_when_task_run": bool(planning.get("todo_required_when_task_run") is True),
         },
@@ -2077,6 +2303,16 @@ def _runtime_projection_instruction(projection: dict[str, Any]) -> str:
         action_notes.append("在越界、缺少授权或无法继续时阻止")
     if action_notes:
         lines.append("- 你可以" + "、".join(action_notes) + "。")
+    if bool(planning.get("plan_mode_active") is True):
+        lines.append(
+            "- 当前处于 plan mode：你只能探索、读取、搜索、询问用户、整理计划或请求建立带计划要求的任务合同；"
+            "不能实施代码修改、写交付产物、运行有副作用的命令或宣称完成。"
+        )
+    elif str(planning.get("plan_ref") or "").strip():
+        lines.append(
+            f"- 当前任务绑定已批准计划 {planning.get('plan_ref')}；实施必须按该计划推进。"
+            "如果发现计划假设错误、风险显著扩大或需要改变范围，必须 ask_user 或 block，不能静默偏离。"
+        )
     if projection.get("invocation_kind") == "task_execution":
         lines.append(
             "- 如果当前执行状态里有 pending_user_steers，你必须先判断并处理这些用户补充要求；"
@@ -2336,6 +2572,9 @@ def _stable_tool_catalog_payload(tool_payloads: tuple[dict[str, Any], ...]) -> l
             "tool_name": name,
             "operation_id": str(tool.get("operation_id") or ""),
         }
+        prompt_exposure_policy = str(tool.get("prompt_exposure_policy") or "").strip()
+        if prompt_exposure_policy:
+            payload["prompt_exposure_policy"] = prompt_exposure_policy
         if required_inputs:
             payload["required_inputs"] = required_inputs
         owner_scope = str(tool.get("owner_scope") or "")
@@ -2939,6 +3178,9 @@ def _task_contract_stable_payload(contract: dict[str, Any]) -> dict[str, Any]:
             "user_visible_goal": str(payload.get("user_visible_goal") or "").strip(),
             "task_run_goal": str(payload.get("task_run_goal") or "").strip(),
             "task_environment_id": str(payload.get("task_environment_id") or "").strip(),
+            "plan_ref": str(payload.get("plan_ref") or payload.get("approved_plan_ref") or "").strip(),
+            "plan_requirements": dict(payload.get("plan_requirements") or {}) if isinstance(payload.get("plan_requirements"), dict) else {},
+            "implementation_lock": dict(payload.get("implementation_lock") or {}) if isinstance(payload.get("implementation_lock"), dict) else {},
             "required_artifacts": [
                 dict(item) for item in list(payload.get("required_artifacts") or []) if isinstance(item, dict)
             ],

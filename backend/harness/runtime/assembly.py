@@ -603,6 +603,7 @@ def _tool_view(*, tool_name: str, definition: Any, tool_instance: Any | None = N
         "optional_inputs": list(getattr(contract, "optional_inputs", []) or []),
         "owner_scope": str(getattr(contract, "owner_scope", "") or "none"),
         "read_only": bool(getattr(definition, "is_read_only", False)),
+        "prompt_exposure_policy": str(getattr(definition, "prompt_exposure_policy", "") or "schema_only"),
     }
     description = str(getattr(tool_instance, "description", "") or "").strip()
     if description:

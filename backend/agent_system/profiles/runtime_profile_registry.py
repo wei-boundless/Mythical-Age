@@ -507,8 +507,8 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
         AgentRuntimeProfile(
             agent_profile_id="completion_verifier_agent",
             agent_id="agent:verifier",
-            allowed_operations=("op.model_response", "op.read_file", "op.search_files", "op.search_text", "op.git_diff", "op.git_status"),
-            blocked_operations=("op.write_file", "op.edit_file", "op.shell", "op.python_repl", "op.memory_write_candidate"),
+            allowed_operations=("op.model_response", "op.read_file", "op.search_files", "op.search_text", "op.git_diff", "op.git_status", "op.shell"),
+            blocked_operations=("op.write_file", "op.edit_file", "op.python_repl", "op.memory_write_candidate"),
             allowed_memory_scopes=("conversation_readonly", "state_readonly"),
             allowed_context_sections=("task", "projection", "runtime_trace", "assertions", "runtime_contracts", "artifact_refs"),
             approval_policy="read_only_first",
@@ -527,7 +527,17 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
                 ),
                 "when_to_use": "当主 Agent 已有候选回答、产物或执行证据，但需要独立检查是否满足用户目标、是否缺少证据、是否需要返工时使用。",
                 "runtime_template_id": "builtin.specialist.verifier",
-                "child_execution_mode": "model_only_review",
+                "worker_prompt_ref": "worker.prompt.verification.v1",
+                "agent_prompt_refs_by_invocation": {
+                    "task_execution": ["worker.prompt.verification.v1"],
+                },
+                "output_contract": {
+                    "required_fields": ("verdict", "checks", "risks"),
+                    "verdict_values": ("PASS", "FAIL", "PARTIAL"),
+                    "evidence_required": True,
+                    "forbidden_actions": ("file_write", "edit", "fix_implementation"),
+                },
+                "child_execution_mode": "bounded_verification",
             },
         ),
     )

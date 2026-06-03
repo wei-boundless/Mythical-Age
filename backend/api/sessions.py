@@ -249,6 +249,19 @@ async def truncate_session_messages(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     try:
+        ledger = runtime.harness_runtime.single_agent_runtime_host.prompt_accounting_ledger
+        reset = getattr(ledger, "reset_prompt_cache_baseline", None)
+        if callable(reset):
+            reset(
+                request_id=f"pcachebaseline-reset:session-truncate:{session_id}:{payload.message_index}",
+                session_id=session_id,
+                reason="session_history_truncated",
+                reset_ref=f"session:{session_id}:message_index:{payload.message_index}",
+                diagnostics={"message_index": payload.message_index},
+            )
+    except Exception:
+        pass
+    try:
         await runtime.memory_facade.arun_memory_maintenance_after_commit(
             session_id=session_id,
             messages=list(record.get("messages", []) or []),

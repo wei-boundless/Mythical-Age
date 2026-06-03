@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from .models import PromptPack, PromptResource
 from .rules import rule_metadata
+from .system_prompts import FOUNDATION_PROMPT_REFS
 
 
 RUNTIME_SINGLE_AGENT_TURN_PROMPT = """
@@ -124,6 +125,7 @@ def list_builtin_prompt_packs() -> tuple[PromptPack, ...]:
             pack_id="runtime.pack.single_agent_turn.v1",
             invocation_kind="single_agent_turn",
             ordered_prompt_refs=(
+                *FOUNDATION_PROMPT_REFS,
                 "runtime.single_agent_turn.v1",
                 "runtime.rule.system_call_protocol.v1",
                 "runtime.rule.intent_feedback.v1",
@@ -133,6 +135,8 @@ def list_builtin_prompt_packs() -> tuple[PromptPack, ...]:
                 "runtime.rule.context_memory.v1",
                 "runtime.rule.permission_denial.v1",
                 "runtime.rule.subagent_delegation.v1",
+                "runtime.rule.multi_tool_scheduling.v1",
+                "runtime.rule.plan_mode_boundary.v1",
             ),
             title="Single agent turn runtime pack",
             cache_scope="static",
@@ -141,6 +145,7 @@ def list_builtin_prompt_packs() -> tuple[PromptPack, ...]:
             pack_id="runtime.pack.task_execution.v1",
             invocation_kind="task_execution",
             ordered_prompt_refs=(
+                *FOUNDATION_PROMPT_REFS,
                 "runtime.task_execution.v1",
                 "runtime.rule.system_call_protocol.v1",
                 "runtime.rule.intent_feedback.v1",
@@ -150,6 +155,8 @@ def list_builtin_prompt_packs() -> tuple[PromptPack, ...]:
                 "runtime.rule.context_memory.v1",
                 "runtime.rule.permission_denial.v1",
                 "runtime.rule.subagent_delegation.v1",
+                "runtime.rule.multi_tool_scheduling.v1",
+                "runtime.rule.plan_mode_boundary.v1",
             ),
             title="Task execution runtime pack",
             cache_scope="static",
@@ -158,6 +165,7 @@ def list_builtin_prompt_packs() -> tuple[PromptPack, ...]:
             pack_id="runtime.pack.graph_node_execution.v1",
             invocation_kind="task_execution",
             ordered_prompt_refs=(
+                *FOUNDATION_PROMPT_REFS,
                 "runtime.graph_node_execution.v1",
                 "runtime.rule.system_call_protocol.v1",
                 "runtime.rule.output_boundary.v1",
@@ -171,6 +179,7 @@ def list_builtin_prompt_packs() -> tuple[PromptPack, ...]:
             pack_id="runtime.pack.observation_followup.v1",
             invocation_kind="tool_observation_followup",
             ordered_prompt_refs=(
+                *FOUNDATION_PROMPT_REFS,
                 "runtime.observation_followup.v1",
                 "runtime.rule.system_call_protocol.v1",
                 "runtime.rule.intent_feedback.v1",

@@ -1543,6 +1543,98 @@ def test_model_runtime_records_prompt_stability_report_and_provider_usage(tmp_pa
     assert reports[-1].provider_usage["cache_hit_rate"] == 0.64
 
 
+def test_model_runtime_records_prompt_cache_baseline_and_honors_reset(tmp_path: Path) -> None:
+    runtime = _runtime(retries=0)
+    ledger = PromptAccountingLedger(tmp_path)
+    runtime.attach_prompt_accounting_ledger(ledger)
+    spec = ModelSpec(provider="deepseek", model="deepseek-v4-pro", api_key="key", base_url="https://api.deepseek.com/v1")
+    messages = [
+        {"role": "system", "content": "stable runtime"},
+        {"role": "system", "content": "Session memory\n用户要求保护 prompt cache baseline。"},
+        {"role": "user", "content": "current request"},
+    ]
+    segment_plan = build_prompt_segment_plan(
+        packet_id="packet:cache-baseline",
+        invocation_kind="turn_action",
+        message_specs=[
+            {
+                "role": "system",
+                "content": messages[0]["content"],
+                "kind": "global_static",
+                "source_ref": "runtime.test",
+                "cache_scope": "global",
+                "cache_role": "cacheable_prefix",
+                "prefix_tier": "provider_global",
+                "compression_role": "preserve",
+            },
+            {
+                "role": "system",
+                "content": messages[1]["content"],
+                "kind": "session_memory_stable",
+                "source_ref": "memory.session_emphasis",
+                "cache_scope": "session",
+                "cache_role": "session_stable",
+                "prefix_tier": "session",
+                "compression_role": "preserve",
+            },
+            {
+                "role": "user",
+                "content": messages[2]["content"],
+                "kind": "volatile_user",
+                "source_ref": "turn.test",
+                "cache_scope": "none",
+                "cache_role": "volatile",
+                "prefix_tier": "volatile",
+                "compression_role": "summarize",
+            },
+        ],
+    ).to_dict()
+
+    runtime._begin_prompt_accounting(
+        messages,
+        tools=None,
+        spec=spec,
+        accounting_context={
+            "request_id": "modelreq:cache-baseline:1",
+            "session_id": "session:cache-baseline",
+            "task_run_id": "taskrun:cache-baseline",
+            "source": "turn_action",
+            "segment_plan": segment_plan,
+        },
+        attempt=1,
+        call_kind="turn_action",
+    )
+    reset = ledger.reset_prompt_cache_baseline(
+        request_id="pcachebaseline-reset:runtime-test",
+        session_id="session:cache-baseline",
+        reason="context_compaction:microcompact",
+        reset_ref="compact-receipt:runtime-test",
+    )
+    runtime._begin_prompt_accounting(
+        messages,
+        tools=None,
+        spec=spec,
+        accounting_context={
+            "request_id": "modelreq:cache-baseline:2",
+            "session_id": "session:cache-baseline",
+            "task_run_id": "taskrun:cache-baseline",
+            "source": "turn_action",
+            "segment_plan": segment_plan,
+        },
+        attempt=1,
+        call_kind="turn_action",
+    )
+
+    baselines = ledger.list_prompt_cache_baselines(session_id="session:cache-baseline")
+    active = [record for record in baselines if record.status == "active"]
+
+    assert len(active) == 2
+    assert active[0].diagnostics["baseline_segments"]["memory"]["segment_count"] == 1
+    assert reset.status == "invalidated"
+    assert active[-1].generation == reset.generation
+    assert active[-1].previous_baseline_ref == ""
+
+
 def test_model_runtime_prompt_stability_detects_dynamic_param_change(tmp_path: Path) -> None:
     runtime = _runtime(retries=0)
     ledger = PromptAccountingLedger(tmp_path)

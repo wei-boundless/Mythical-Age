@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from capability_system.tools.contracts import is_prompt_visible_tool_policy
+
 
 @dataclass(frozen=True, slots=True)
 class AuthorizedToolSet:
@@ -80,7 +82,7 @@ def build_authorized_tool_set(
         if operation_id not in allowed_operations:
             filtered_out.append({"tool_name": tool_name, "operation_id": operation_id, "reason": "operation_not_allowed"})
             continue
-        if not include_hidden and definition.prompt_exposure_policy != "schema_only":
+        if not include_hidden and not is_prompt_visible_tool_policy(definition.prompt_exposure_policy):
             filtered_out.append({"tool_name": tool_name, "operation_id": operation_id, "reason": "not_prompt_schema_visible"})
             continue
         instances.append(tool)

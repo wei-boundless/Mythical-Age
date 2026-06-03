@@ -11,6 +11,9 @@ from .models import PromptPack, PromptResource, prompt_pack_from_dict, prompt_re
 from .packs import list_builtin_prompt_packs, list_builtin_runtime_prompt_resources
 from .rules import list_builtin_prompt_rule_resources
 from .rules import prompt_rule_from_resource
+from .system_prompts import list_builtin_system_prompt_resources
+from .tool_prompts import list_builtin_tool_prompt_resources
+from .worker_prompts import list_builtin_worker_prompt_resources
 
 
 def _storage_root(base_dir: Path) -> Path:
@@ -71,9 +74,12 @@ class PromptLibraryRegistry:
         builtin_resources = {
             item.resource_id: item
             for item in (
+                *list_builtin_system_prompt_resources(),
                 *list_builtin_runtime_prompt_resources(),
                 *list_builtin_prompt_rule_resources(),
+                *list_builtin_tool_prompt_resources(),
                 *list_builtin_agent_prompt_resources(),
+                *list_builtin_worker_prompt_resources(),
                 *list_builtin_environment_prompt_resources(),
                 *list_environment_prompt_resources_from_backend_dir(self.base_dir),
             )

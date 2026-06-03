@@ -86,6 +86,20 @@ def admit_model_action(
                 system_reason="tool_not_available",
                 resource_errors=(f"tool_not_available:{tool_name}",),
             )
+        if str(permission_mode or "").strip().lower() == "plan" and not _tool_allowed_in_plan_mode(definition, tool_name):
+            return AdmissionDecision(
+                admission_id=f"admission:{action_request.request_id}",
+                action_request_ref=action_request.request_id,
+                decision="deny",
+                user_visible_reason="当前处于计划模式，只允许只读探索、搜索和询问；实施类工具需要计划获批后再执行。",
+                system_reason="plan_mode_blocks_side_effect_tool",
+                resource_errors=(f"plan_mode_blocks_side_effect_tool:{tool_name}",),
+                permission_delta={
+                    "tool_name": tool_name,
+                    "permission_mode": str(permission_mode or "default"),
+                    "plan_mode_allowed_actions": ["respond", "ask_user", "read_only_tool_call", "request_task_run"],
+                },
+            )
         if not bool(getattr(definition, "is_read_only", False)) and side_effect_policy != "runtime_authorized":
             return AdmissionDecision(
                 admission_id=f"admission:{action_request.request_id}",
@@ -181,3 +195,49 @@ def _invalid(action_request: AnyModelActionRequest, reason: str) -> AdmissionDec
         system_reason=reason,
         resource_errors=(reason,),
     )
+
+
+def _tool_allowed_in_plan_mode(definition: Any, tool_name: str) -> bool:
+    if bool(getattr(definition, "is_read_only", False)):
+        return True
+    operation_id = str(getattr(definition, "operation_id", "") or tool_name).strip()
+    read_only_operations = {
+        "op.model_response",
+        "op.read_file",
+        "op.read_structured_file",
+        "op.list_dir",
+        "op.stat_path",
+        "op.path_exists",
+        "op.glob_paths",
+        "op.search_files",
+        "op.search_text",
+        "op.git_status",
+        "op.git_diff",
+        "op.git_log",
+        "op.git_show",
+        "op.git_branch_list",
+        "op.web_search",
+        "op.fetch_url",
+        "op.codebase_search",
+        "op.memory_read",
+        "op.mcp_retrieval",
+        "op.mcp_pdf",
+        "op.mcp_structured_data",
+    }
+    return operation_id in read_only_operations or str(tool_name or "").strip() in {
+        "read_file",
+        "read_structured_file",
+        "list_dir",
+        "stat_path",
+        "path_exists",
+        "glob_paths",
+        "search_files",
+        "search_text",
+        "git_status",
+        "git_diff",
+        "git_log",
+        "git_show",
+        "git_branch_list",
+        "web_search",
+        "fetch_url",
+    }

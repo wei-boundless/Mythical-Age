@@ -11,6 +11,7 @@ WorkerSpawnStatus = Literal["spawned", "blocked"]
 class WorkerAgentBlueprint:
     blueprint_id: str
     agent_name_template: str
+    prompt_ref: str = ""
     description: str = ""
     allowed_operations: tuple[str, ...] = ()
     blocked_operations: tuple[str, ...] = ()
@@ -26,6 +27,8 @@ class WorkerAgentBlueprint:
             raise ValueError("WorkerAgentBlueprint authority must be orchestration.worker_agent_blueprint")
         if not self.blueprint_id:
             raise ValueError("WorkerAgentBlueprint requires blueprint_id")
+        if self.prompt_ref and not str(self.prompt_ref).startswith("worker.prompt."):
+            raise ValueError("WorkerAgentBlueprint prompt_ref must point to worker.prompt.*")
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)

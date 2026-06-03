@@ -14,6 +14,7 @@ from token_accounting import count_text_tokens
 from .hooks import CompactBoundaryReceipt, CompactHookDecision, PreCompactHookRequest
 from .invariants import validate_compacted_messages
 from .low_authority_text import compress_low_authority_text, is_low_authority_natural_text_message
+from .microcompact import decide_microcompact_cache_policy
 from .semantic_worker import (
     SemanticCompactionWorkerResult,
     normalize_semantic_compaction_worker_result,
@@ -91,6 +92,7 @@ class ContextCompactor:
         prompt_serializer: CanonicalPromptSerializer | None = None,
         compression_budget_planner: CompressionBudgetPlanner | None = None,
         semantic_compactor: Any | None = None,
+        microcompact_cache_state_provider: Any | None = None,
         pre_compact_hook: Any | None = None,
         post_compact_hook: Any | None = None,
     ) -> None:
@@ -117,6 +119,7 @@ class ContextCompactor:
             if semantic_compactor is not None
             else None
         )
+        self.microcompact_cache_state_provider = microcompact_cache_state_provider
         self.pre_compact_hook = pre_compact_hook
         self.post_compact_hook = post_compact_hook
 
@@ -360,6 +363,8 @@ class ContextCompactor:
         reason: str = "",
         reserved_output_tokens: int = 0,
         semantic_summary_content: str | None = None,
+        microcompact_cache_state: dict[str, Any] | None = None,
+        force_full_compact: bool = False,
     ) -> CompactResult:
         working = list(messages)
         tokens_before = self._conversation_tokens(working)
@@ -422,16 +427,33 @@ class ContextCompactor:
                 },
             )
 
-        micro_messages, bulky_replaced, low_authority_replaced = self._apply_microcompact(working)
+        resolved_microcompact_cache_state = self._resolve_microcompact_cache_state(
+            explicit_state=microcompact_cache_state,
+            request_id=request_id,
+            session_id=session_id,
+            turn_id=turn_id,
+            task_run_id=task_run_id,
+            task_environment_id=task_environment_id,
+            trigger=trigger,
+            pressure_level=pressure_level,
+        )
+        microcompact_cache_decision = decide_microcompact_cache_policy(resolved_microcompact_cache_state)
+        if microcompact_cache_decision.local_rewrite_allowed:
+            micro_messages, bulky_replaced, low_authority_replaced = self._apply_microcompact(working)
+        else:
+            micro_messages, bulky_replaced, low_authority_replaced = list(working), 0, 0
         replaced = bulky_replaced + low_authority_replaced
         tokens_after_micro = self._conversation_tokens(micro_messages)
         post_micro_level = self._pressure_level(tokens_after_micro, len(micro_messages))
-        if pressure_level == "microcompact" or post_micro_level in {"normal", "warning", "microcompact"}:
+        if not force_full_compact and (
+            pressure_level == "microcompact" or post_micro_level in {"normal", "warning", "microcompact"}
+        ):
+            strategy = "microcompact" if microcompact_cache_decision.local_rewrite_allowed else "microcompact_skipped_cache_warm"
             result = CompactResult(
                 did_compact=replaced > 0,
                 messages=micro_messages,
                 pressure_level="microcompact",
-                strategy="microcompact",
+                strategy=strategy,
                 estimated_tokens_before=tokens_before,
                 estimated_tokens_after=tokens_after_micro,
                 original_message_count=len(messages),
@@ -445,6 +467,7 @@ class ContextCompactor:
                     "estimated_tokens_after_microcompact": tokens_after_micro,
                     "bulky_message_replaced_count": bulky_replaced,
                     "low_authority_text_compressed_count": low_authority_replaced,
+                    "microcompact_cache_decision": microcompact_cache_decision.to_dict(),
                     "semantic_compactor_required": False,
                 },
             )
@@ -566,6 +589,7 @@ class ContextCompactor:
                 "estimated_tokens_after_microcompact": tokens_after_micro,
                 "bulky_message_replaced_count": bulky_replaced,
                 "low_authority_text_compressed_count": low_authority_replaced,
+                "microcompact_cache_decision": microcompact_cache_decision.to_dict(),
                 "summary_source_tokens": self._count_tokens(summary_source_content or ""),
                 "semantic_compactor_required": semantic_summary_content is None,
                 "semantic_compactor_registered": self.semantic_compactor_registration is not None,
@@ -654,6 +678,38 @@ class ContextCompactor:
         except Exception as exc:
             return semantic_compaction_worker_exception(exc)
         return normalize_semantic_compaction_worker_result(raw_result)
+
+    def _resolve_microcompact_cache_state(
+        self,
+        *,
+        explicit_state: dict[str, Any] | None,
+        request_id: str,
+        session_id: str,
+        turn_id: str,
+        task_run_id: str,
+        task_environment_id: str,
+        trigger: str,
+        pressure_level: str,
+    ) -> dict[str, Any]:
+        if explicit_state is not None:
+            return dict(explicit_state or {})
+        provider = self.microcompact_cache_state_provider
+        if provider is None:
+            return {}
+        payload = {
+            "request_id": request_id,
+            "session_id": session_id,
+            "turn_id": turn_id,
+            "task_run_id": task_run_id,
+            "task_environment_id": task_environment_id,
+            "trigger": trigger,
+            "pressure_level": pressure_level,
+        }
+        try:
+            value = provider(payload)
+        except TypeError:
+            value = provider()
+        return dict(value or {}) if isinstance(value, dict) else {}
 
     def _trim_summary_to_token_target(self, summary: str, target_tokens: int) -> str:
         normalized = str(summary or "").strip()

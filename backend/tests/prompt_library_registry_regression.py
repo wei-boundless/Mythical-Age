@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from prompt_library import PromptLibraryRegistry, PromptResource
+from prompt_library import FOUNDATION_PROMPT_REFS, PromptLibraryRegistry, PromptResource
 
 
 def test_prompt_library_lists_only_runtime_agent_and_environment_resources_by_default(tmp_path: Path) -> None:
@@ -11,6 +11,22 @@ def test_prompt_library_lists_only_runtime_agent_and_environment_resources_by_de
 
     resources = registry.list_resources()
     resource_by_id = {item.resource_id: item for item in resources}
+
+    for prompt_ref in FOUNDATION_PROMPT_REFS:
+        resource = resource_by_id[prompt_ref]
+        assert resource.category == "system"
+        assert resource.owner_layer == "system"
+        assert resource.cache_scope == "static"
+        assert resource.allowed_invocation_kinds == (
+            "single_agent_turn",
+            "task_execution",
+            "tool_observation_followup",
+        )
+        assert resource.source_ref.startswith("prompt_library.system_prompts")
+        assert "AGENTS.md" not in resource.content
+        assert "{cwd}" not in resource.content
+        assert "工具列表" not in resource.content
+        assert "当前日期" not in resource.content
 
     assert resource_by_id["runtime.single_agent_turn.v1"].category == "runtime"
     assert resource_by_id["runtime.task_execution.v1"].category == "runtime"
@@ -32,6 +48,8 @@ def test_prompt_library_lists_only_runtime_agent_and_environment_resources_by_de
 
     rules = registry.list_prompt_rules()
     rule_by_id = {item.rule_id: item for item in rules}
+    assert rule_by_id["system.foundation.vibe_coding_agent.v1"].rule_kind == "system.foundation.vibe_coding_agent"
+    assert rule_by_id["system.foundation.vibe_coding_agent.v1"].cache_tier == "global_static"
     assert rule_by_id["runtime.task_execution.v1"].rule_kind == "runtime.protocol"
     assert rule_by_id["runtime.task_execution.v1"].requires == (
         "runtime.rule.system_call_protocol.v1",
@@ -62,6 +80,7 @@ def test_prompt_library_upsert_does_not_persist_all_default_resources(tmp_path: 
     stored_ids = {str(item.get("resource_id") or "") for item in list(payload.get("resources") or [])}
 
     assert "prompt.user.custom.output" in stored_ids
+    assert "system.foundation.vibe_coding_agent.v1" not in stored_ids
     assert "runtime.single_agent_turn.v1" not in stored_ids
     assert len(stored_ids) == 1
     assert registry.get_resource("runtime.single_agent_turn.v1") is not None

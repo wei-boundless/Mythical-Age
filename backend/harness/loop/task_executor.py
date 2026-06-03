@@ -1267,6 +1267,8 @@ async def _execute_claimed_task_run(
                 task_run_id=current_task.task_run_id,
                 contract=contract,
                 artifact_refs=candidate_artifacts,
+                observations=raw_observations,
+                enforce_verification_gate=True,
             )
             if not verdict["ok"]:
                 repair_observation = _completion_repair_observation(
@@ -1307,7 +1309,10 @@ async def _execute_claimed_task_run(
                 task_run=current_task,
                 agent_run=agent_run,
                 final_answer=action_request.final_answer,
-                final_action_diagnostics=dict(action_request.diagnostics or {}),
+                final_action_diagnostics={
+                    **dict(action_request.diagnostics or {}),
+                    "completion_verdict": verdict,
+                },
                 artifact_refs=list(verdict.get("verified_artifacts") or []),
                 observations=raw_observations,
             )
@@ -1857,6 +1862,14 @@ def _dedupe_strings(values: list[str] | tuple[str, ...]) -> list[str]:
     return result
 
 
+def _first_text(*values: Any) -> str:
+    for value in values:
+        text = str(value or "").strip()
+        if text:
+            return text
+    return ""
+
+
 def _verify_completion(
     *,
     runtime_host: Any,
@@ -1864,6 +1877,8 @@ def _verify_completion(
     task_run_id: str,
     contract: dict[str, Any],
     artifact_refs: list[dict[str, Any]],
+    observations: list[dict[str, Any]] | tuple[dict[str, Any], ...] = (),
+    enforce_verification_gate: bool = False,
 ) -> dict[str, Any]:
     environment = dict(runtime_assembly.get("task_environment") or {})
     artifact_scope = runtime_artifact_scope_from_environment(environment)
@@ -1899,7 +1914,345 @@ def _verify_completion(
             "verified_artifacts": [],
             "reason": "required artifacts must resolve to existing files",
         }
-    return {"ok": True, "missing": [], "verified_artifacts": verified_artifacts}
+    verification_gate: dict[str, Any] = {}
+    if enforce_verification_gate:
+        gate_observations = list(observations or _existing_observations(runtime_host, task_run_id))
+        verification_gate = _verify_completion_worker_gate(
+            runtime_host=runtime_host,
+            task_run_id=task_run_id,
+            contract=contract,
+            artifact_refs=artifact_refs,
+            verified_artifacts=verified_artifacts,
+            observations=gate_observations,
+        )
+        if not verification_gate.get("ok", False):
+            return {
+                "ok": False,
+                "missing": list(verification_gate.get("missing") or ["verification_worker_verdict"]),
+                "required_artifacts": required_artifacts,
+                "artifact_refs": artifact_refs,
+                "verified_artifacts": verified_artifacts,
+                "verification_gate": verification_gate,
+                "repair_instruction": str(verification_gate.get("repair_instruction") or ""),
+                "reason": str(verification_gate.get("reason") or "verification worker PASS verdict required"),
+            }
+    return {
+        "ok": True,
+        "missing": [],
+        "verified_artifacts": verified_artifacts,
+        **({"verification_gate": verification_gate} if verification_gate else {}),
+    }
+
+
+def _verify_completion_worker_gate(
+    *,
+    runtime_host: Any,
+    task_run_id: str,
+    contract: dict[str, Any],
+    artifact_refs: list[dict[str, Any]],
+    verified_artifacts: list[dict[str, Any]],
+    observations: list[dict[str, Any]],
+) -> dict[str, Any]:
+    required_reasons = _verification_gate_required_reasons(
+        contract=contract,
+        artifact_refs=artifact_refs,
+        verified_artifacts=verified_artifacts,
+        observations=observations,
+    )
+    if not required_reasons:
+        return {
+            "ok": True,
+            "required": False,
+            "authority": "harness.loop.task_completion_verification_gate",
+        }
+    verdicts = _completion_verifier_verdicts_from_observations(
+        runtime_host=runtime_host,
+        observations=observations,
+    )
+    if not verdicts:
+        return {
+            "ok": False,
+            "required": True,
+            "required_reasons": required_reasons,
+            "missing": ["verification_worker_verdict"],
+            "reason": "completion verifier PASS verdict is required before finishing this TaskRun",
+            "repair_instruction": _verification_gate_repair_instruction(contract=contract),
+            "recommended_tool_call": {
+                "tool_name": "spawn_subagent",
+                "args": {
+                    "target_agent_id": "agent:verifier",
+                    "goal": "独立验证当前 TaskRun 是否已经满足用户目标和验收标准。",
+                    "expected_outputs": ["verdict", "checks", "evidence_refs", "risks"],
+                },
+            },
+            "authority": "harness.loop.task_completion_verification_gate",
+        }
+    latest = verdicts[-1]
+    verdict_value = str(latest.get("verdict") or "").strip().upper()
+    if verdict_value != "PASS":
+        return {
+            "ok": False,
+            "required": True,
+            "required_reasons": required_reasons,
+            "missing": ["verification_worker_pass"],
+            "latest_verdict": latest,
+            "reason": f"completion verifier returned {verdict_value or 'UNKNOWN'}",
+            "repair_instruction": (
+                "验证员没有给出 PASS。你需要根据 verification worker 的检查结果修复问题；"
+                "修复后再次验证，不能直接宣称完成。"
+            ),
+            "authority": "harness.loop.task_completion_verification_gate",
+        }
+    if not _verification_verdict_has_evidence(latest):
+        return {
+            "ok": False,
+            "required": True,
+            "required_reasons": required_reasons,
+            "missing": ["verification_worker_evidence"],
+            "latest_verdict": latest,
+            "reason": "completion verifier PASS verdict lacks evidence",
+            "repair_instruction": (
+                "验证员给出了 PASS，但缺少命令、请求、浏览器检查或 observation refs 等证据。"
+                "请等待或重新要求 verification worker 返回 evidence_refs/checks 后再完成。"
+            ),
+            "authority": "harness.loop.task_completion_verification_gate",
+        }
+    return {
+        "ok": True,
+        "required": True,
+        "required_reasons": required_reasons,
+        "latest_verdict": latest,
+        "authority": "harness.loop.task_completion_verification_gate",
+    }
+
+
+def _verification_gate_required_reasons(
+    *,
+    contract: dict[str, Any],
+    artifact_refs: list[dict[str, Any]],
+    verified_artifacts: list[dict[str, Any]],
+    observations: list[dict[str, Any]],
+) -> list[str]:
+    reasons: list[str] = []
+    if [dict(item) for item in list(contract.get("required_verifications") or []) if isinstance(item, dict)]:
+        reasons.append("required_verifications")
+    if [dict(item) for item in list(contract.get("required_artifacts") or []) if isinstance(item, dict)]:
+        reasons.append("required_artifacts")
+    if artifact_refs or verified_artifacts:
+        reasons.append("artifact_evidence")
+    if any(_observation_is_successful_write(item) for item in observations):
+        reasons.append("write_observation")
+    return _dedupe_strings(reasons)
+
+
+def _observation_is_successful_write(observation: dict[str, Any]) -> bool:
+    return _observation_tool_name(observation) in {"write_file", "edit_file"} and _observation_status(observation) == "ok"
+
+
+def _completion_verifier_verdicts_from_observations(*, runtime_host: Any, observations: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    verdicts: list[dict[str, Any]] = []
+    for observation in observations:
+        if _observation_tool_name(observation) != "wait_subagent" or _observation_status(observation) != "ok":
+            continue
+        control = _subagent_control_payload_from_observation(observation)
+        subagent_run_ref = str(control.get("subagent_run_ref") or "").strip()
+        agent_run_payload = _agent_run_payload_for_ref(runtime_host, subagent_run_ref)
+        if not _is_completion_verifier_agent_run(agent_run_payload):
+            continue
+        payloads = _verification_payload_candidates(
+            runtime_host=runtime_host,
+            control=control,
+            agent_run_payload=agent_run_payload,
+        )
+        verdict = _extract_verification_verdict(payloads)
+        if not verdict:
+            continue
+        evidence_refs, evidence_text_present = _verification_evidence(payloads)
+        verdicts.append(
+            {
+                "verdict": verdict,
+                "source": "wait_subagent",
+                "subagent_run_ref": subagent_run_ref,
+                "agent_id": str(agent_run_payload.get("agent_id") or ""),
+                "agent_profile_id": str(agent_run_payload.get("agent_profile_id") or ""),
+                "result_ref": _first_text(*(payload.get("result_ref") for payload in payloads if isinstance(payload, dict))),
+                "evidence_refs": evidence_refs,
+                "evidence_text_present": evidence_text_present,
+                "observation_ref": str(observation.get("observation_id") or observation.get("observation_ref") or ""),
+                "authority": "harness.loop.task_completion_verifier_verdict",
+            }
+        )
+    return verdicts
+
+
+def _subagent_control_payload_from_observation(observation: dict[str, Any]) -> dict[str, Any]:
+    payload = dict(observation.get("payload") or {})
+    envelope = dict(payload.get("result_envelope") or {})
+    structured = dict(envelope.get("structured_payload") or {})
+    control = structured.get("subagent_control")
+    if isinstance(control, dict):
+        return dict(control)
+    for raw in (payload.get("text"), envelope.get("text"), payload.get("result")):
+        parsed = _json_payload(raw)
+        if parsed.get("subagent_run_ref") or parsed.get("result_available"):
+            return parsed
+    return {}
+
+
+def _agent_run_payload_for_ref(runtime_host: Any, agent_run_ref: str) -> dict[str, Any]:
+    ref = str(agent_run_ref or "").strip()
+    if not ref:
+        return {}
+    state_index = getattr(runtime_host, "state_index", None)
+    snapshot_reader = getattr(state_index, "read_snapshot", None)
+    if callable(snapshot_reader):
+        try:
+            snapshot = dict(snapshot_reader() or {})
+        except Exception:
+            snapshot = {}
+        agent_runs = dict(snapshot.get("agent_runs") or {})
+        if isinstance(agent_runs.get(ref), dict):
+            return dict(agent_runs[ref])
+    return {}
+
+
+def _is_completion_verifier_agent_run(agent_run_payload: dict[str, Any]) -> bool:
+    agent_id = str(agent_run_payload.get("agent_id") or "").strip()
+    profile_id = str(agent_run_payload.get("agent_profile_id") or "").strip()
+    return agent_id == "agent:verifier" or profile_id == "completion_verifier_agent"
+
+
+def _verification_payload_candidates(
+    *,
+    runtime_host: Any,
+    control: dict[str, Any],
+    agent_run_payload: dict[str, Any],
+) -> list[dict[str, Any]]:
+    payloads: list[dict[str, Any]] = [dict(control or {})]
+    result = control.get("result")
+    if isinstance(result, dict):
+        payloads.append(dict(result))
+    result_ref = _first_text(
+        dict(result or {}).get("result_ref") if isinstance(result, dict) else "",
+        control.get("result_ref"),
+    )
+    runtime_objects = getattr(runtime_host, "runtime_objects", None)
+    get_object = getattr(runtime_objects, "get_object", None)
+    if callable(get_object) and result_ref:
+        try:
+            stored_result = get_object(result_ref)
+        except Exception:
+            stored_result = {}
+        if isinstance(stored_result, dict):
+            payloads.append(dict(stored_result))
+            raw_result = stored_result.get("raw_result")
+            if isinstance(raw_result, dict):
+                payloads.append(dict(raw_result))
+            diagnostics = stored_result.get("diagnostics")
+            if isinstance(diagnostics, dict):
+                payloads.append(dict(diagnostics))
+    task_run_id = str(agent_run_payload.get("task_run_id") or "").strip()
+    state_index = getattr(runtime_host, "state_index", None)
+    get_task_run = getattr(state_index, "get_task_run", None)
+    if callable(get_task_run) and task_run_id:
+        try:
+            child_task = get_task_run(task_run_id)
+        except Exception:
+            child_task = None
+        diagnostics = dict(getattr(child_task, "diagnostics", {}) or {}) if child_task is not None else {}
+        if diagnostics:
+            payloads.append(diagnostics)
+            final_diagnostics = diagnostics.get("final_action_diagnostics")
+            if isinstance(final_diagnostics, dict):
+                payloads.append(dict(final_diagnostics))
+    return [payload for payload in payloads if isinstance(payload, dict) and payload]
+
+
+def _extract_verification_verdict(payloads: list[dict[str, Any]]) -> str:
+    for payload in payloads:
+        verdict = _normalize_verification_verdict(payload.get("verdict"))
+        if verdict:
+            return verdict
+        for key in ("verification_gate", "verification", "completion_verification", "verifier_result", "raw_result"):
+            nested = payload.get(key)
+            if isinstance(nested, dict):
+                verdict = _normalize_verification_verdict(nested.get("verdict"))
+                if verdict:
+                    return verdict
+        for key in ("final_answer", "summary", "answer_candidate", "text", "result", "content"):
+            verdict = _normalize_verification_verdict(payload.get(key))
+            if verdict:
+                return verdict
+    return ""
+
+
+def _normalize_verification_verdict(value: Any) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    upper = text.upper().replace("：", ":")
+    if upper in {"PASS", "FAIL", "PARTIAL"}:
+        return upper
+    for marker in ("VERDICT", "裁决", "结论"):
+        index = upper.find(marker)
+        if index < 0:
+            continue
+        tail = upper[index : index + 96]
+        positions = {
+            verdict: tail.find(verdict)
+            for verdict in ("PASS", "FAIL", "PARTIAL")
+            if tail.find(verdict) >= 0
+        }
+        if positions:
+            return sorted(positions.items(), key=lambda item: item[1])[0][0]
+    stripped = upper.lstrip()
+    for verdict in ("PASS", "FAIL", "PARTIAL"):
+        if stripped.startswith(verdict):
+            return verdict
+    parsed = _json_payload(text)
+    if parsed:
+        return _normalize_verification_verdict(parsed.get("verdict"))
+    return ""
+
+
+def _verification_evidence(payloads: list[dict[str, Any]]) -> tuple[list[str], bool]:
+    refs: list[str] = []
+    text_parts: list[str] = []
+    for payload in payloads:
+        for key in ("evidence_refs", "observation_refs", "source_observation_refs"):
+            refs.extend(str(item).strip() for item in list(payload.get(key) or []) if str(item).strip())
+        for item in list(payload.get("artifact_refs") or []):
+            if isinstance(item, dict):
+                refs.append(str(item.get("path") or item.get("ref") or item.get("artifact_ref") or "").strip())
+            elif str(item).strip():
+                refs.append(str(item).strip())
+        checks = payload.get("checks")
+        if isinstance(checks, (list, tuple)) and checks:
+            refs.append("checks")
+        for key in ("final_answer", "summary", "answer_candidate", "text", "result", "content"):
+            if str(payload.get(key) or "").strip():
+                text_parts.append(str(payload.get(key) or ""))
+    evidence_text = "\n".join(text_parts).lower()
+    evidence_text_present = any(
+        marker in evidence_text
+        for marker in ("evidence", "command", "pytest", "browser", "request", "probe", "证据", "命令", "检查", "对抗")
+    )
+    return _dedupe_strings([ref for ref in refs if ref]), evidence_text_present
+
+
+def _verification_verdict_has_evidence(verdict: dict[str, Any]) -> bool:
+    return bool(list(verdict.get("evidence_refs") or []) or verdict.get("evidence_text_present") is True)
+
+
+def _verification_gate_repair_instruction(*, contract: dict[str, Any]) -> str:
+    goal = _first_text(contract.get("task_run_goal"), contract.get("user_visible_goal"), "当前 TaskRun")
+    return (
+        "完成前需要独立 verification worker 的 PASS 裁决。"
+        "下一步不要直接 respond 完成；如果还没有验证员，请调用 spawn_subagent，target_agent_id 使用 agent:verifier，"
+        f"goal 写成：独立验证“{goal}”是否已经满足用户目标、required_artifacts、required_verifications 和 completion_criteria。"
+        "instructions 需要包含原始任务、已改动/产物、验证命令或证据、开放风险，并要求输出 verdict=PASS/FAIL/PARTIAL、checks、evidence_refs、risks。"
+        "如果验证员已经启动，请调用 wait_subagent 等待结果。只有 verification worker 返回 PASS 且有证据时才允许完成。"
+    )
 
 
 def _finish_specialist_runtime_execution(

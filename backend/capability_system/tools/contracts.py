@@ -17,8 +17,13 @@ def _is_blank(value: Any) -> bool:
 
 
 ToolRuntimeVisibility = Literal["main_runtime", "agent_internal"]
-ToolPromptExposurePolicy = Literal["schema_only", "hidden", "debug_only"]
+ToolPromptExposurePolicy = Literal["schema_only", "schema_plus_guidance", "hidden", "debug_only"]
 ToolResourceExposurePolicy = Literal["none", "handle_only", "explicit_resource"]
+PROMPT_VISIBLE_TOOL_POLICIES = frozenset({"schema_only", "schema_plus_guidance"})
+
+
+def is_prompt_visible_tool_policy(policy: str | None) -> bool:
+    return str(policy or "").strip() in PROMPT_VISIBLE_TOOL_POLICIES
 
 
 @dataclass(frozen=True, slots=True)

@@ -262,6 +262,36 @@ class SessionManager:
         self._write_payload(session_id, payload)
         return existing
 
+    def replace_runtime_context(
+        self,
+        session_id: str,
+        *,
+        messages: list[dict[str, Any]],
+        compressed_context: str | None = None,
+    ) -> dict[str, Any]:
+        payload = self._read_payload(session_id)
+        if not list(payload.get("api_transcript") or []):
+            payload["api_transcript"] = [
+                item
+                for item in (_api_message(message) for message in list(payload.get("messages") or []) if isinstance(message, dict))
+                if item is not None
+            ]
+        normalized_messages: list[dict[str, Any]] = []
+        for item in list(messages or []):
+            if not isinstance(item, dict):
+                continue
+            role = str(item.get("role") or "").strip() or "assistant"
+            content = str(item.get("content") or "")
+            if not content:
+                continue
+            normalized_messages.append({**item, "role": role, "content": content})
+        payload["messages"] = normalized_messages
+        if compressed_context is not None:
+            payload["compressed_context"] = str(compressed_context or "")
+        payload["updated_at"] = time.time()
+        self._write_payload(session_id, payload)
+        return self.get_history(session_id)
+
     def truncate_messages_from(self, session_id: str, message_index: int) -> dict[str, Any]:
         payload = self._read_payload(session_id)
         messages = list(payload.get("messages") or [])

@@ -74,7 +74,7 @@ def test_agent_todo_registered_as_non_destructive_tool() -> None:
     assert todo.operation_id == "op.agent_todo"
     assert todo.safe_for_auto_route is False
     assert todo.is_destructive is False
-    assert todo.prompt_exposure_policy == "schema_only"
+    assert todo.prompt_exposure_policy == "schema_plus_guidance"
     assert "progress_tracking" in todo.capability_tags
 
 

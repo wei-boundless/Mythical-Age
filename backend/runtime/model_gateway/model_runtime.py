@@ -26,6 +26,7 @@ from runtime.prompt_accounting import (
     CanonicalPromptSerializer,
     ModelTokenUsageRecord,
     PromptAccountingLedger,
+    PromptCacheBaselineTracker,
     PromptCacheBreakRecord,
     PromptCacheBreakDetector,
     PromptCachePlanner,
@@ -191,6 +192,7 @@ class ModelRuntime:
         self.prompt_accounting_ledger = prompt_accounting_ledger
         self._prompt_serializer = CanonicalPromptSerializer()
         self._prompt_cache_planner = PromptCachePlanner()
+        self._prompt_cache_baseline_tracker = PromptCacheBaselineTracker()
         self._prompt_cache_break_detector = PromptCacheBreakDetector()
         self._prompt_stability_reporter = PromptStabilityReporter()
         self._model_request_builder = ModelRequestBuilder()
@@ -1165,6 +1167,19 @@ class ModelRuntime:
                 created_at=created_at,
             )
             ledger.record_prompt_stability(stability_report)
+            previous_baselines = _previous_prompt_cache_baselines(
+                ledger,
+                run_id=run_id,
+                task_run_id=task_run_id,
+                session_id=session_id,
+            )
+            baseline_record = self._prompt_cache_baseline_tracker.build_active_record(
+                segment_map=segment_map,
+                model_request=model_request,
+                previous_records=previous_baselines,
+                created_at=created_at,
+            )
+            ledger.record_prompt_cache_baseline(baseline_record)
             return {
                 "request_id": request_id,
                 "run_id": run_id,
@@ -1176,6 +1191,7 @@ class ModelRuntime:
                 "model_request": model_request,
                 "segment_map": segment_map,
                 "stability_report": stability_report,
+                "cache_baseline_record": baseline_record,
                 "started_at": created_at,
             }
         except Exception:
@@ -1619,6 +1635,22 @@ def _previous_stability_report_filter(*, run_id: str, task_run_id: str, session_
     if session_id:
         return {"session_id": session_id}
     return {}
+
+
+def _previous_prompt_cache_baselines(ledger: Any, *, run_id: str, task_run_id: str, session_id: str) -> list[Any]:
+    filters = _previous_stability_report_filter(run_id=run_id, task_run_id=task_run_id, session_id=session_id)
+    records = list(ledger.list_prompt_cache_baselines(**filters))
+    if session_id and filters.get("task_run_id"):
+        records.extend(ledger.list_prompt_cache_baselines(session_id=session_id))
+    if session_id and filters.get("run_id"):
+        records.extend(ledger.list_prompt_cache_baselines(session_id=session_id))
+    deduped: dict[str, Any] = {}
+    for record in records:
+        key = str(getattr(record, "baseline_id", "") or f"{getattr(record, 'request_id', '')}:{getattr(record, 'created_at', '')}")
+        previous = deduped.get(key)
+        if previous is None or float(getattr(record, "created_at", 0.0) or 0.0) >= float(getattr(previous, "created_at", 0.0) or 0.0):
+            deduped[key] = record
+    return sorted(deduped.values(), key=lambda item: float(getattr(item, "created_at", 0.0) or 0.0))
 
 
 def _previous_stability_report(

@@ -6,6 +6,7 @@ from json import JSONDecodeError
 from pathlib import Path
 from typing import Any
 
+from .cache_baseline import PromptCacheBaselineRecord, PromptCacheBaselineTracker
 from .cache_break_detector import PromptCacheBreakRecord
 from .models import ModelTokenUsageRecord, PromptCacheRecord, PromptSegment, PromptSegmentMap
 from .stability_models import PromptStabilityReport
@@ -33,6 +34,9 @@ class PromptAccountingLedger:
 
     def record_prompt_cache(self, record: PromptCacheRecord) -> None:
         self._append_jsonl("prompt_cache.jsonl", record.to_dict())
+
+    def record_prompt_cache_baseline(self, record: PromptCacheBaselineRecord) -> None:
+        self._append_jsonl("prompt_cache_baselines.jsonl", record.to_dict())
 
     def record_prompt_cache_break(self, record: PromptCacheBreakRecord) -> None:
         self._append_jsonl("prompt_cache_breaks.jsonl", record.to_dict())
@@ -97,6 +101,68 @@ class PromptAccountingLedger:
             if previous is None or record.created_at >= previous.created_at:
                 records[key] = record
         return sorted(records.values(), key=lambda item: item.created_at)
+
+    def list_prompt_cache_baselines(
+        self,
+        *,
+        run_id: str = "",
+        task_run_id: str = "",
+        session_id: str = "",
+        status: str = "",
+    ) -> list[PromptCacheBaselineRecord]:
+        records: dict[str, PromptCacheBaselineRecord] = {}
+        for row in self._read_jsonl("prompt_cache_baselines.jsonl"):
+            if run_id and str(row.get("run_id") or row.get("task_run_id") or "") != run_id:
+                continue
+            if task_run_id and str(row.get("task_run_id") or "") != task_run_id:
+                continue
+            if session_id and str(row.get("session_id") or "") != session_id:
+                continue
+            if status and str(row.get("status") or "") != status:
+                continue
+            record = PromptCacheBaselineRecord.from_dict(row)
+            key = record.baseline_id or f"{record.request_id}:{record.status}:{record.created_at}"
+            previous = records.get(key)
+            if previous is None or record.created_at >= previous.created_at:
+                records[key] = record
+        return sorted(records.values(), key=lambda item: item.created_at)
+
+    def reset_prompt_cache_baseline(
+        self,
+        *,
+        request_id: str = "",
+        run_id: str = "",
+        task_run_id: str = "",
+        session_id: str = "",
+        invocation_kind: str = "",
+        provider: str = "",
+        model: str = "",
+        reason: str,
+        reset_ref: str = "",
+        diagnostics: dict[str, Any] | None = None,
+        created_at: float | None = None,
+    ) -> PromptCacheBaselineRecord:
+        previous = self.list_prompt_cache_baselines(
+            run_id=run_id,
+            task_run_id=task_run_id,
+            session_id=session_id,
+        )
+        record = PromptCacheBaselineTracker().build_invalidation_record(
+            previous_records=previous,
+            request_id=request_id,
+            run_id=run_id,
+            task_run_id=task_run_id,
+            session_id=session_id,
+            invocation_kind=invocation_kind,
+            provider=provider,
+            model=model,
+            reason=reason,
+            reset_ref=reset_ref,
+            diagnostics=diagnostics,
+            created_at=created_at,
+        )
+        self.record_prompt_cache_baseline(record)
+        return record
 
     def list_prompt_cache_breaks(self, *, run_id: str = "", task_run_id: str = "", session_id: str = "") -> list[PromptCacheBreakRecord]:
         records: dict[str, PromptCacheBreakRecord] = {}
@@ -205,6 +271,7 @@ class PromptAccountingLedger:
             "segments": self._rewrite_without_tasks("segments.jsonl", targets),
             "token_usage": self._rewrite_without_tasks("token_usage.jsonl", targets),
             "prompt_cache": self._rewrite_without_tasks("prompt_cache.jsonl", targets),
+            "prompt_cache_baselines": self._rewrite_without_tasks("prompt_cache_baselines.jsonl", targets),
             "prompt_cache_breaks": self._rewrite_without_tasks("prompt_cache_breaks.jsonl", targets),
             "prompt_stability": self._rewrite_without_tasks("prompt_stability.jsonl", targets),
         }
@@ -229,6 +296,7 @@ class PromptAccountingLedger:
             "segments": self._rewrite_without_session_or_tasks("segments.jsonl", normalized, targets),
             "token_usage": self._rewrite_without_session_or_tasks("token_usage.jsonl", normalized, targets),
             "prompt_cache": self._rewrite_without_session_or_tasks("prompt_cache.jsonl", normalized, targets),
+            "prompt_cache_baselines": self._rewrite_without_session_or_tasks("prompt_cache_baselines.jsonl", normalized, targets),
             "prompt_cache_breaks": self._rewrite_without_session_or_tasks("prompt_cache_breaks.jsonl", normalized, targets),
             "prompt_stability": self._rewrite_without_session_or_tasks("prompt_stability.jsonl", normalized, targets),
         }

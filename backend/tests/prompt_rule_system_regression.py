@@ -6,7 +6,7 @@ import pytest
 
 from agent_system.profiles.runtime_profile_registry import default_agent_runtime_profiles
 from harness.runtime.compiler import RuntimeCompiler
-from prompt_library import PromptAssemblyRequest, PromptAssemblyService, PromptRuleCompiler, PromptSection
+from prompt_library import FOUNDATION_PROMPT_REFS, PromptAssemblyRequest, PromptAssemblyService, PromptRuleCompiler, PromptSection
 from prompt_library.rules import rule_metadata
 
 
@@ -16,6 +16,8 @@ def test_runtime_pack_manifest_reports_prompt_rule_coverage(tmp_path: Path) -> N
     )
 
     prompt_rules = assembly.manifest["prompt_rules"]
+    assert assembly.manifest["stable_prompt_refs"][: len(FOUNDATION_PROMPT_REFS)] == list(FOUNDATION_PROMPT_REFS)
+    assert prompt_rules["coverage"]["has_system_foundation"] is True
     assert prompt_rules["coverage"]["has_runtime_protocol"] is True
     assert prompt_rules["coverage"]["has_system_call_protocol"] is True
     assert prompt_rules["coverage"]["has_intent_feedback"] is True
@@ -28,6 +30,7 @@ def test_runtime_pack_manifest_reports_prompt_rule_coverage(tmp_path: Path) -> N
 
     compiled = PromptRuleCompiler().compile(assembly.sections, invocation_kind="task_execution")
     assert "runtime.protocol" in compiled.rule_kinds
+    assert "system.foundation.vibe_coding_agent" in compiled.rule_kinds
     assert "runtime.system_call_protocol" in compiled.rule_kinds
     assert "runtime.intent_feedback" in compiled.rule_kinds
     assert "runtime.output_boundary" in compiled.rule_kinds
@@ -48,6 +51,39 @@ def test_runtime_protocol_requires_system_call_protocol_rule(tmp_path: Path) -> 
     assert prompt_rules["rejected_rules"][0]["requires"] == "runtime.rule.system_call_protocol.v1"
     with pytest.raises(ValueError, match="prompt_rule_requirement_missing"):
         PromptRuleCompiler().compile(assembly.sections, invocation_kind="task_execution")
+
+
+def test_foundation_refs_precede_runtime_protocol_in_runtime_packs(tmp_path: Path) -> None:
+    service = PromptAssemblyService(tmp_path)
+
+    pack_cases = (
+        ("single_agent_turn", "runtime.pack.single_agent_turn.v1", "runtime.single_agent_turn.v1"),
+        ("task_execution", "runtime.pack.task_execution.v1", "runtime.task_execution.v1"),
+        ("task_execution", "runtime.pack.graph_node_execution.v1", "runtime.graph_node_execution.v1"),
+        ("tool_observation_followup", "runtime.pack.observation_followup.v1", "runtime.observation_followup.v1"),
+    )
+    for invocation_kind, pack_ref, protocol_ref in pack_cases:
+        assembly = service.assemble(
+            PromptAssemblyRequest(invocation_kind=invocation_kind, prompt_pack_refs=(pack_ref,))
+        )
+        stable_refs = assembly.manifest["stable_prompt_refs"]
+        assert stable_refs[: len(FOUNDATION_PROMPT_REFS)] == list(FOUNDATION_PROMPT_REFS)
+        assert stable_refs[len(FOUNDATION_PROMPT_REFS)] == protocol_ref
+        assert assembly.manifest["prompt_rules"]["coverage"]["has_system_foundation"] is True
+        assert assembly.manifest["prompt_rules"]["rejected_rules"] == []
+        PromptRuleCompiler().compile(assembly.sections, invocation_kind=invocation_kind)
+
+
+def test_foundation_is_not_in_semantic_compaction_pack(tmp_path: Path) -> None:
+    assembly = PromptAssemblyService(tmp_path).assemble(
+        PromptAssemblyRequest(
+            invocation_kind="semantic_compaction",
+            prompt_pack_refs=("runtime.pack.semantic_compaction.v1",),
+        )
+    )
+
+    assert all(prompt_ref not in assembly.manifest["stable_prompt_refs"] for prompt_ref in FOUNDATION_PROMPT_REFS)
+    assert "runtime.semantic_compaction.v1" in assembly.manifest["stable_prompt_refs"]
 
 
 def test_non_graph_runtime_protocol_requires_intent_feedback_rule(tmp_path: Path) -> None:

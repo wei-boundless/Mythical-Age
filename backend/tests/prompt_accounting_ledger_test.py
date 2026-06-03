@@ -7,6 +7,7 @@ from runtime.prompt_accounting import (
     CanonicalPromptSerializer,
     ModelTokenUsageRecord,
     PromptAccountingLedger,
+    PromptCacheBaselineTracker,
     PromptCachePlanner,
     extract_provider_usage,
 )
@@ -676,6 +677,105 @@ def test_task_execution_prompt_directs_long_artifacts_into_tool_actions() -> Non
     assert "先写入一个完整可运行的紧凑版本" in model_input
 
 
+def test_prompt_cache_baseline_tracks_memory_tier_and_reset_generation(tmp_path) -> None:
+    ledger = PromptAccountingLedger(tmp_path)
+    tracker = PromptCacheBaselineTracker()
+    serializer = CanonicalPromptSerializer()
+    first_messages = [
+        {"role": "system", "content": "global runtime"},
+        {"role": "system", "content": "Session memory\n用户强调当前会话要保护 cache。"},
+        {"role": "system", "content": "task contract"},
+        {"role": "user", "content": "current request"},
+    ]
+    second_messages = [
+        first_messages[0],
+        {"role": "system", "content": "Session memory\n用户强调当前会话要保护 cache，并且 compact 后要 reset baseline。"},
+        first_messages[2],
+        first_messages[3],
+    ]
+    first_plan = _baseline_segment_plan("packet:baseline:1", first_messages)
+    second_plan = _baseline_segment_plan("packet:baseline:2", second_messages)
+    first_request = ModelRequestBuilder().build(
+        request_id="modelreq:baseline:1",
+        messages=first_messages,
+        provider="deepseek",
+        model="deepseek-v4-flash",
+        segment_plan=first_plan,
+    )
+    first_map = serializer.build_segment_map(
+        request_id="modelreq:baseline:1",
+        session_id="session:baseline",
+        task_run_id="taskrun:baseline",
+        provider="deepseek",
+        model="deepseek-v4-flash",
+        messages=first_messages,
+        segment_plan=first_plan,
+        model_request=first_request,
+        created_at=1.0,
+        metadata={"source": "turn_action"},
+    )
+    first_baseline = tracker.build_active_record(
+        segment_map=first_map,
+        model_request=first_request,
+        previous_records=[],
+        created_at=1.0,
+    )
+    ledger.record_prompt_cache_baseline(first_baseline)
+
+    second_request = ModelRequestBuilder().build(
+        request_id="modelreq:baseline:2",
+        messages=second_messages,
+        provider="deepseek",
+        model="deepseek-v4-flash",
+        segment_plan=second_plan,
+    )
+    second_map = serializer.build_segment_map(
+        request_id="modelreq:baseline:2",
+        session_id="session:baseline",
+        task_run_id="taskrun:baseline",
+        provider="deepseek",
+        model="deepseek-v4-flash",
+        messages=second_messages,
+        segment_plan=second_plan,
+        model_request=second_request,
+        created_at=2.0,
+        metadata={"source": "turn_action"},
+    )
+    second_baseline = tracker.build_active_record(
+        segment_map=second_map,
+        model_request=second_request,
+        previous_records=ledger.list_prompt_cache_baselines(task_run_id="taskrun:baseline"),
+        created_at=2.0,
+    )
+    ledger.record_prompt_cache_baseline(second_baseline)
+    reset = ledger.reset_prompt_cache_baseline(
+        request_id="pcachebaseline-reset:test",
+        task_run_id="taskrun:baseline",
+        session_id="session:baseline",
+        reason="context_compaction:full_compact",
+        reset_ref="compact-receipt:test",
+        created_at=3.0,
+    )
+    third_baseline = tracker.build_active_record(
+        segment_map=second_map,
+        model_request=second_request,
+        previous_records=ledger.list_prompt_cache_baselines(task_run_id="taskrun:baseline"),
+        created_at=4.0,
+    )
+
+    assert first_baseline.diagnostics["baseline_segments"]["memory"]["segment_count"] == 1
+    assert first_baseline.provider_global_prefix_hash
+    assert first_baseline.session_prefix_hash
+    assert first_baseline.task_prefix_hash
+    assert "memory" in second_baseline.changed_tiers
+    assert second_baseline.previous_baseline_ref == first_baseline.baseline_id
+    assert reset.status == "invalidated"
+    assert reset.previous_baseline_ref == second_baseline.baseline_id
+    assert third_baseline.generation == reset.generation
+    assert third_baseline.previous_baseline_ref == ""
+    assert third_baseline.diagnostics["reset_seen"] is True
+
+
 def _segment_plan(
     packet_id: str,
     invocation_kind: str,
@@ -697,6 +797,56 @@ def _segment_plan(
             }
             for index, message in enumerate(messages)
         ],
+    ).to_dict()
+
+
+def _baseline_segment_plan(packet_id: str, messages: list[dict[str, str]]) -> dict[str, object]:
+    specs = [
+        {
+            "role": messages[0]["role"],
+            "content": messages[0]["content"],
+            "kind": "global_static",
+            "source_ref": "runtime.global",
+            "cache_scope": "global",
+            "cache_role": "cacheable_prefix",
+            "prefix_tier": "provider_global",
+            "compression_role": "preserve",
+        },
+        {
+            "role": messages[1]["role"],
+            "content": messages[1]["content"],
+            "kind": "session_memory_stable",
+            "source_ref": "memory.session_emphasis",
+            "cache_scope": "session",
+            "cache_role": "session_stable",
+            "prefix_tier": "session",
+            "compression_role": "preserve",
+        },
+        {
+            "role": messages[2]["role"],
+            "content": messages[2]["content"],
+            "kind": "task_stable",
+            "source_ref": "contract.task",
+            "cache_scope": "task",
+            "cache_role": "session_stable",
+            "prefix_tier": "task",
+            "compression_role": "preserve",
+        },
+        {
+            "role": messages[3]["role"],
+            "content": messages[3]["content"],
+            "kind": "volatile_user",
+            "source_ref": "turn.current",
+            "cache_scope": "none",
+            "cache_role": "volatile",
+            "prefix_tier": "volatile",
+            "compression_role": "summarize",
+        },
+    ]
+    return build_prompt_segment_plan(
+        packet_id=packet_id,
+        invocation_kind="turn_action",
+        message_specs=specs,
     ).to_dict()
 
 

@@ -775,3 +775,30 @@ Prompt injection：
 - verification 不再是“看起来通过”，而是有命令、输出、probe 和 verdict 的证据链。
 - prompt manifest 能解释每一段内容为什么出现、来自哪里、作用于什么 invocation、是否可缓存。
 - 旧 prompt 残留和重复链路被清理，新体系不靠兼容旧壳维持。
+
+## 14. 实施状态
+
+更新日期：2026-06-04
+
+当前 058 已完成核心升级，状态如下：
+
+- Phase 1 已完成：`system.foundation.*` 系统级 foundation prompt 已进入 prompt library，并通过 runtime pack 装配到 single-turn、TaskRun、graph-node、observation-followup 等 invocation。
+- Phase 2 已完成：`AGENTS.md` 通过 scoped project instruction 通道进入 runtime packet，不进入 static context 或 long-term memory；manifest 记录 path、scope、hash 和 applies_to。
+- Phase 3 已完成：核心工具 guidance 已进入 prompt library，并按可见工具注入；read/edit/write/terminal/git/todo/subagent/browser/web 等工具不再只依赖 schema。
+- Phase 4 已完成本项目等价协议：没有照搬 Claude Code 的 EnterPlan/ExitPlan 工具形态，而是使用 `permission_mode=plan`、`planning_protocol`、`plan_ref`、`implementation_lock` 和 admission gate 表达计划模式与实施锁。plan mode 下副作用工具会被 runtime admission 拒绝。
+- Phase 5 已完成：worker prompt 已纳入 `backend/prompt_library/worker_prompts.py`，worker blueprint/runtime profile 绑定 `worker_prompt_ref`，explorer/planner/review/verification/execution/code_executor 的角色 prompt、工具边界和 profile metadata 可诊断。
+- Phase 6 已完成：TaskRun respond 收口前已接入 verification worker gate。对带 `required_verifications`、`required_artifacts`、artifact evidence 或 write observation 的非 trivial TaskRun，缺少 `agent:verifier` 的 `wait_subagent` PASS verdict 会被 `task_completion_repair_required` 阻止；FAIL/PARTIAL 或缺 evidence 的 PASS 不能放行。
+- Phase 7 已完成主体：prompt segment、cache tier、manifest、prompt accounting 和 microcompact 已有回归覆盖；后续可继续优化 token 成本和更细粒度的 selected skill/MCP delta 诊断。
+
+本轮 verification gate 的关键实现点：
+
+- `backend/harness/loop/task_executor.py`：`_verify_completion(..., enforce_verification_gate=True)` 在真实 TaskRun 完成路径启用 worker gate；artifact 发布/发现基础逻辑保持不变。
+- `backend/tests/verification_agent_regression.py`：覆盖缺 verifier verdict 被拒绝、PASS 放行、PARTIAL 拒绝，以及真实 `execute_task_run` respond 被 gate 拦截或放行。
+- `backend/agent_system/profiles/runtime_profile_registry.py`：`completion_verifier_agent` 绑定 `worker.prompt.verification.v1`，允许 shell 验证，禁止 write/edit/python_repl/memory_write，并要求 verdict 值为 PASS/FAIL/PARTIAL。
+
+已验证命令：
+
+```text
+python -m pytest backend/tests/verification_agent_regression.py backend/tests/worker_prompt_registry_regression.py backend/tests/plan_mode_protocol_regression.py backend/tests/subagent_control_regression.py backend/tests/specialist_runtime_router_regression.py backend/tests/harness_runtime_facade_regression.py
+python -m pytest backend/tests/prompt_library_registry_regression.py backend/tests/prompt_rule_system_regression.py backend/tests/tool_prompt_guidance_regression.py backend/tests/project_instructions_runtime_regression.py
+```

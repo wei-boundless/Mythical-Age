@@ -75,6 +75,23 @@ RUNTIME_SUBAGENT_DELEGATION_RULE = """
 """.strip()
 
 
+RUNTIME_MULTI_TOOL_SCHEDULING_RULE = """
+如果本轮协议和模型接口允许多个普通工具调用，你可以在同一轮提出多个互不依赖的工具调用。
+这只表示请求层允许多个 tool calls；运行时会根据工具元数据、资源冲突、审批状态、文件写入范围和安全策略决定并发执行、串行执行或阻塞等待。
+不要把多工具调用理解为所有工具都会同时执行；有依赖关系、共享写目标、审批等待或高风险副作用的动作必须按运行时调度结果处理。
+持续 TaskRun 的 JSON action 协议每轮仍只能提交一个 action；不要在 task_execution prompt 中承诺批量工具执行。
+""".strip()
+
+
+RUNTIME_PLAN_MODE_BOUNDARY_RULE = """
+当运行边界显示 plan mode、permission_mode=plan、planning_policy.requires_plan 或任务合同带有未批准计划要求时，你处在计划协议内。
+计划协议只允许探索、读取、搜索、询问用户、整理计划、请求建立带计划要求的 TaskRun，或说明阻塞；不能实施代码修改、运行破坏性命令、写交付产物或宣称任务已经完成。
+计划必须包含目标边界、相关文件或系统、实施步骤、风险、验证方式和需要用户确认的事项。
+用户批准计划后，TaskRun 合同应携带 plan_ref 或 implementation_lock；执行时必须按该计划推进。
+如果实施中发现计划假设错误、风险显著扩大或需要改变目标范围，必须 ask_user 或 block，不能静默偏离计划。
+""".strip()
+
+
 FILE_MANAGEMENT_GENERIC_RULE = """
 项目文件事实以工具观察为准，包括路径、读取窗口、搜索命中、写入事件、stale 状态、git 视图和 artifact 证据。
 修改前必须读到目标文件当前真实内容；如果文件被写入或编辑，旧读取内容可能过期，需要按需要重新读取。
@@ -240,6 +257,24 @@ def list_builtin_prompt_rule_resources() -> tuple[PromptResource, ...]:
             rule_kind="runtime.subagent_delegation",
             applies_to=("single_agent_turn", "task_execution"),
             allowed_invocation_kinds=("single_agent_turn", "task_execution"),
+        ),
+        _rule_resource(
+            prompt_id="runtime.rule.multi_tool_scheduling.v1",
+            title="Runtime multi-tool scheduling rule",
+            content=RUNTIME_MULTI_TOOL_SCHEDULING_RULE,
+            rule_kind="runtime.multi_tool_scheduling",
+            applies_to=("single_agent_turn", "task_execution"),
+            allowed_invocation_kinds=("single_agent_turn", "task_execution"),
+            enforcement_mode="compiler_validated",
+        ),
+        _rule_resource(
+            prompt_id="runtime.rule.plan_mode_boundary.v1",
+            title="Runtime plan mode boundary rule",
+            content=RUNTIME_PLAN_MODE_BOUNDARY_RULE,
+            rule_kind="runtime.plan_mode_boundary",
+            applies_to=("single_agent_turn", "task_execution"),
+            allowed_invocation_kinds=("single_agent_turn", "task_execution"),
+            enforcement_mode="compiler_validated",
         ),
         _rule_resource(
             prompt_id="runtime.rule.file_management.generic.v1",
@@ -569,6 +604,9 @@ def build_rule_diagnostics(
         "warnings": warnings,
         "coverage": {
             "rule_count": len(rules),
+            "has_system_foundation": any(
+                str(rule.rule_kind or "").startswith("system.foundation") for rule in rules
+            ),
             "has_runtime_protocol": protocol_count == 1,
             "has_system_call_protocol": "runtime.system_call_protocol" in rule_kind_counts,
             "has_intent_feedback": "runtime.intent_feedback" in rule_kind_counts,

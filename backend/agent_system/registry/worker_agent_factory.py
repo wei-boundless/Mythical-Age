@@ -8,6 +8,11 @@ from ..models.agent_models import AgentDescriptor
 from .agent_registry import AgentRegistry
 from ..profiles.runtime_profile_models import AgentRuntimeProfile
 from ..profiles.runtime_profile_registry import AgentRuntimeRegistry
+from prompt_library.worker_prompts import (
+    worker_agent_description_for_blueprint,
+    worker_prompt_metadata_for_blueprint,
+    worker_prompt_ref_for_blueprint,
+)
 from .worker_agent_blueprints import (
     WorkerAgentBlueprint,
     WorkerAgentSpawnRequest,
@@ -15,12 +20,24 @@ from .worker_agent_blueprints import (
 )
 
 
+def _worker_description(blueprint_id: str) -> str:
+    return worker_agent_description_for_blueprint(blueprint_id)
+
+
+def _worker_metadata(blueprint_id: str, **extra: object) -> dict[str, object]:
+    return {
+        **worker_prompt_metadata_for_blueprint(blueprint_id),
+        **{key: value for key, value in extra.items() if value not in ("", None, [], {})},
+    }
+
+
 def default_worker_agent_blueprints() -> tuple[WorkerAgentBlueprint, ...]:
     return (
         WorkerAgentBlueprint(
             blueprint_id="worker.dev.prototype",
             agent_name_template="开发工作Agent {n}",
-            description="你是一名开发工作子 Agent。你只处理父任务分配给你的局部实现、检查或素材整理工作。你需要先理解边界和已有上下文，再读取必要文件；可以在授权范围内修改文件，但不能扩大任务目标、替主 Agent 做最终答复，或把未经验证的假设当作结论。",
+            prompt_ref=worker_prompt_ref_for_blueprint("worker.dev.prototype"),
+            description=_worker_description("worker.dev.prototype"),
             allowed_operations=(
                 "op.model_response",
                 "op.codebase_search",
@@ -38,12 +55,13 @@ def default_worker_agent_blueprints() -> tuple[WorkerAgentBlueprint, ...]:
             allowed_context_sections=("conversation", "task", "projection", "tool", "runtime_contracts", "artifact_refs"),
             approval_policy="default",
             trace_policy="runtime_event_log",
-            metadata={"worker_kind": "development"},
+            metadata=_worker_metadata("worker.dev.prototype", worker_kind="development"),
         ),
         WorkerAgentBlueprint(
             blueprint_id="worker.explorer",
             agent_name_template="探索 Agent {n}",
-            description="你是一名只读探索员。你只负责摸清代码、资料和上下文现状，返回可引用的文件路径、片段、线索和不确定性。你不能写入项目文件，不能执行破坏性操作，也不负责制定最终方案或交付最终答案。",
+            prompt_ref=worker_prompt_ref_for_blueprint("worker.explorer"),
+            description=_worker_description("worker.explorer"),
             allowed_operations=(
                 "op.model_response",
                 "op.read_file",
@@ -61,36 +79,39 @@ def default_worker_agent_blueprints() -> tuple[WorkerAgentBlueprint, ...]:
             allowed_context_sections=("task", "projection", "tool", "runtime_contracts", "artifact_refs"),
             approval_policy="read_only_first",
             trace_policy="runtime_event_log",
-            metadata={"worker_kind": "explorer", "prompt_role": "read_only_search_specialist"},
+            metadata=_worker_metadata("worker.explorer", worker_kind="explorer", prompt_role="read_only_search_specialist"),
         ),
         WorkerAgentBlueprint(
             blueprint_id="worker.planner",
             agent_name_template="规划 Agent {n}",
-            description="你是一名只读规划员。你负责基于已读取的代码、差异和上下文拆解方案、评估风险、列出实施步骤和验证方式。你不能修改文件或执行实现；如果信息不足，需要明确列出缺口，而不是替事实做假设。",
+            prompt_ref=worker_prompt_ref_for_blueprint("worker.planner"),
+            description=_worker_description("worker.planner"),
             allowed_operations=("op.model_response", "op.read_file", "op.search_files", "op.search_text", "op.git_status", "op.git_diff"),
             blocked_operations=("op.write_file", "op.edit_file", "op.shell", "op.python_repl", "op.memory_write_candidate"),
             allowed_memory_scopes=("conversation_readonly", "state_readonly"),
             allowed_context_sections=("task", "projection", "runtime_contracts", "upstream_outputs", "artifact_refs"),
             approval_policy="read_only_first",
             trace_policy="runtime_event_log",
-            metadata={"worker_kind": "planner", "prompt_role": "software_planning_specialist"},
+            metadata=_worker_metadata("worker.planner", worker_kind="planner", prompt_role="software_planning_specialist"),
         ),
         WorkerAgentBlueprint(
             blueprint_id="worker.verification",
             agent_name_template="验证 Agent {n}",
-            description="你是一名验证员。你负责复核实现、运行检查并输出可复现证据。你需要优先寻找真实缺陷、回归风险和缺失验证；不能修改文件，不能替实现者修复问题，也不能用跳过、弱化或伪造检查来制造通过。",
+            prompt_ref=worker_prompt_ref_for_blueprint("worker.verification"),
+            description=_worker_description("worker.verification"),
             allowed_operations=("op.model_response", "op.read_file", "op.search_text", "op.shell"),
             blocked_operations=("op.write_file", "op.edit_file", "op.python_repl", "op.memory_write_candidate"),
             allowed_memory_scopes=("issue_local_readonly", "state_readonly"),
             allowed_context_sections=("task", "projection", "runtime_trace", "assertions", "runtime_contracts", "artifact_refs"),
             approval_policy="deny_destructive",
             trace_policy="full_trace",
-            metadata={"worker_kind": "verification", "prompt_role": "adversarial_verification_specialist"},
+            metadata=_worker_metadata("worker.verification", worker_kind="verification", prompt_role="adversarial_verification_specialist"),
         ),
         WorkerAgentBlueprint(
             blueprint_id="worker.execution",
             agent_name_template="执行 Agent {n}",
-            description="你是一名边界执行员。你只执行父任务明确授权的实现、写入或修复工作。你需要先读取相关文件和当前状态，再做最小必要修改；遇到边界不清、旧内容不匹配或验证失败时，要报告阻断点和下一步，而不是扩大范围硬改。",
+            prompt_ref=worker_prompt_ref_for_blueprint("worker.execution"),
+            description=_worker_description("worker.execution"),
             allowed_operations=(
                 "op.model_response",
                 "op.read_file",
@@ -105,12 +126,13 @@ def default_worker_agent_blueprints() -> tuple[WorkerAgentBlueprint, ...]:
             allowed_context_sections=("task", "projection", "tool", "runtime_contracts", "upstream_outputs", "artifact_refs"),
             approval_policy="default",
             trace_policy="runtime_event_log",
-            metadata={"worker_kind": "execution", "prompt_role": "bounded_execution_worker"},
+            metadata=_worker_metadata("worker.execution", worker_kind="execution", prompt_role="bounded_execution_worker"),
         ),
         WorkerAgentBlueprint(
             blueprint_id="worker.code.executor",
             agent_name_template="代码执行 Agent {n}",
-            description="你是一名代码执行员。你负责完成边界清楚的代码修改、测试修复或前端实现任务。你需要遵循项目现有架构和样式，先读文件再编辑，保留可追踪的验证结果；不能绕过测试、弱化断言、留下无用旧链路，或替主 Agent 做最终用户答复。",
+            prompt_ref=worker_prompt_ref_for_blueprint("worker.code.executor"),
+            description=_worker_description("worker.code.executor"),
             allowed_operations=(
                 "op.model_response",
                 "op.agent_todo",
@@ -138,19 +160,20 @@ def default_worker_agent_blueprints() -> tuple[WorkerAgentBlueprint, ...]:
             allowed_context_sections=("task", "projection", "tool", "runtime_contracts", "upstream_outputs", "artifact_refs"),
             approval_policy="task_bounded_write",
             trace_policy="full_trace",
-            metadata={"worker_kind": "code_execution", "prompt_role": "bounded_code_executor"},
+            metadata=_worker_metadata("worker.code.executor", worker_kind="code_execution", prompt_role="bounded_code_executor"),
         ),
         WorkerAgentBlueprint(
             blueprint_id="worker.review",
             agent_name_template="审查 Agent {n}",
-            description="你是一名审查员。你负责审查代码变更、交付产物和验证证据，优先指出真实 bug、行为回归、安全边界和缺失测试。你不能修改文件；输出需要包含问题位置、影响、证据和建议，不要把风格偏好当作缺陷。",
+            prompt_ref=worker_prompt_ref_for_blueprint("worker.review"),
+            description=_worker_description("worker.review"),
             allowed_operations=("op.model_response", "op.read_file", "op.search_files", "op.search_text", "op.git_diff", "op.git_show"),
             blocked_operations=("op.write_file", "op.edit_file", "op.shell", "op.python_repl", "op.memory_write_candidate"),
             allowed_memory_scopes=("conversation_readonly", "state_readonly"),
             allowed_context_sections=("task", "projection", "runtime_trace", "assertions", "runtime_contracts", "artifact_refs"),
             approval_policy="read_only_first",
             trace_policy="runtime_event_log",
-            metadata={"worker_kind": "review", "prompt_role": "bug_first_review_specialist"},
+            metadata=_worker_metadata("worker.review", worker_kind="review", prompt_role="bug_first_review_specialist"),
         ),
     )
 

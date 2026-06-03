@@ -58,6 +58,8 @@ class ContextController:
             pressure_level=package.pressure_level,
             summary_source_content=preview_content,
             request_id=f"context_compaction:{rebuild_reason}",
+            trigger="auto",
+            reason=rebuild_reason,
             reserved_output_tokens=package.budget.reserved_output,
         )
         package.compaction_strategy = compact_result.strategy

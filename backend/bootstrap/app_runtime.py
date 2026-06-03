@@ -79,6 +79,12 @@ class AppRuntime:
     def _session_compactor_kwargs(self, session_id: str) -> dict[str, object]:
         if self.base_dir is None or self.model_runtime is None:
             return {}
+        kwargs: dict[str, object] = {
+            "microcompact_cache_state_provider": lambda payload=None: self._microcompact_cache_state(
+                {**dict(payload or {}), "session_id": session_id}
+            ),
+            "post_compact_hook": self._on_context_compact_boundary,
+        }
         from harness.runtime import build_registered_semantic_compaction_worker
 
         resolver = (
@@ -91,9 +97,65 @@ class AppRuntime:
             model_runtime=self.model_runtime,
             agent_runtime_profile_resolver=resolver,
         )
-        if worker is None:
-            return {}
-        return {"semantic_compactor": worker}
+        if worker is not None:
+            kwargs["semantic_compactor"] = worker
+        return kwargs
+
+    def _microcompact_cache_state(self, payload: dict[str, object]) -> dict[str, object]:
+        model_runtime = self.model_runtime
+        ledger = getattr(model_runtime, "prompt_accounting_ledger", None) if model_runtime is not None else None
+        if ledger is None or not hasattr(ledger, "list_prompt_cache"):
+            return {"cache_temperature": "unknown", "source": "app_runtime.no_prompt_accounting_ledger"}
+        session_id = str(dict(payload or {}).get("session_id") or "")
+        task_run_id = str(dict(payload or {}).get("task_run_id") or "")
+        run_id = str(dict(payload or {}).get("run_id") or "")
+        records = ledger.list_prompt_cache(run_id=run_id, task_run_id=task_run_id, session_id=session_id)
+        if not records:
+            return {"cache_temperature": "unknown", "source": "app_runtime.prompt_cache_empty"}
+        latest = records[-1]
+        cached_tokens = max(int(getattr(latest, "cached_tokens", 0) or 0), int(getattr(latest, "cache_read_tokens", 0) or 0))
+        return {
+            "cache_temperature": "warm" if str(getattr(latest, "status", "") or "") == "hit" or cached_tokens > 0 else "cold",
+            "cache_record_id": str(getattr(latest, "cache_record_id", "") or ""),
+            "cache_key": str(getattr(latest, "cache_key", "") or ""),
+            "prefix_hash": str(getattr(latest, "prefix_hash", "") or ""),
+            "status": str(getattr(latest, "status", "") or ""),
+            "cached_tokens": cached_tokens,
+            "provider_cache_editing_supported": False,
+            "source": "app_runtime.latest_prompt_cache_record",
+        }
+
+    def _on_context_compact_boundary(self, receipt: object) -> dict[str, object]:
+        payload = receipt.to_dict() if hasattr(receipt, "to_dict") else dict(receipt or {}) if isinstance(receipt, dict) else {}
+        if bool(payload.get("blocked")):
+            return {"allowed": True, "reason": "compact_blocked_no_baseline_reset"}
+        if str(payload.get("trigger") or "") == "preview":
+            return {"allowed": True, "reason": "compact_preview_no_baseline_reset"}
+        applied_strategy = str(payload.get("applied_strategy") or "")
+        replaced_count = int(payload.get("replaced_message_count") or 0)
+        if applied_strategy != "full_compact" and replaced_count <= 0:
+            return {"allowed": True, "reason": "compact_no_prompt_rewrite"}
+        model_runtime = self.model_runtime
+        ledger = getattr(model_runtime, "prompt_accounting_ledger", None) if model_runtime is not None else None
+        if ledger is None or not hasattr(ledger, "reset_prompt_cache_baseline"):
+            return {"allowed": True, "reason": "prompt_accounting_ledger_unavailable"}
+        reset = ledger.reset_prompt_cache_baseline(
+            request_id=f"pcachebaseline-reset:{payload.get('request_id') or 'context_compact'}",
+            session_id=str(payload.get("session_id") or ""),
+            task_run_id=str(payload.get("task_run_id") or ""),
+            reason=f"context_compaction:{applied_strategy or 'unknown'}",
+            reset_ref=str(payload.get("receipt_id") or ""),
+            diagnostics={
+                "trigger": str(payload.get("trigger") or ""),
+                "pressure_level": str(payload.get("pressure_level") or ""),
+                "replaced_message_count": replaced_count,
+            },
+        )
+        return {
+            "allowed": True,
+            "reason": "prompt_cache_baseline_reset_after_compact",
+            "diagnostics": {"baseline_reset_id": reset.baseline_id},
+        }
 
     def require_ready(self) -> "AppRuntime":
         if (

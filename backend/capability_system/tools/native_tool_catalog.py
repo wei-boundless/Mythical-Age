@@ -122,7 +122,7 @@ def _tool_definitions() -> list[ToolDefinition]:
             route_hints=["tool", "agent_todo", "task_progress"],
             safe_for_auto_route=False,
             schema_identity="local.tools/agent_todo",
-            prompt_exposure_policy="schema_only",
+            prompt_exposure_policy="schema_plus_guidance",
             resource_exposure_policy="none",
         ),
         ToolDefinition(
@@ -146,7 +146,7 @@ def _tool_definitions() -> list[ToolDefinition]:
             route_hints=["tool", "subagent", "spawn"],
             safe_for_auto_route=False,
             schema_identity="local.tools/spawn_subagent",
-            prompt_exposure_policy="schema_only",
+            prompt_exposure_policy="schema_plus_guidance",
             resource_exposure_policy="none",
         ),
         ToolDefinition(
@@ -170,7 +170,7 @@ def _tool_definitions() -> list[ToolDefinition]:
             route_hints=["tool", "subagent", "message"],
             safe_for_auto_route=False,
             schema_identity="local.tools/send_subagent_message",
-            prompt_exposure_policy="schema_only",
+            prompt_exposure_policy="schema_plus_guidance",
             resource_exposure_policy="none",
         ),
         ToolDefinition(
@@ -194,7 +194,7 @@ def _tool_definitions() -> list[ToolDefinition]:
             route_hints=["tool", "subagent", "wait"],
             safe_for_auto_route=False,
             schema_identity="local.tools/wait_subagent",
-            prompt_exposure_policy="schema_only",
+            prompt_exposure_policy="schema_plus_guidance",
             resource_exposure_policy="none",
         ),
         ToolDefinition(
@@ -217,7 +217,7 @@ def _tool_definitions() -> list[ToolDefinition]:
             route_hints=["tool", "subagent", "list"],
             safe_for_auto_route=False,
             schema_identity="local.tools/list_subagents",
-            prompt_exposure_policy="schema_only",
+            prompt_exposure_policy="schema_plus_guidance",
             resource_exposure_policy="none",
         ),
         ToolDefinition(
@@ -241,7 +241,7 @@ def _tool_definitions() -> list[ToolDefinition]:
             route_hints=["tool", "subagent", "close"],
             safe_for_auto_route=False,
             schema_identity="local.tools/close_subagent",
-            prompt_exposure_policy="schema_only",
+            prompt_exposure_policy="schema_plus_guidance",
             resource_exposure_policy="none",
         ),
         ToolDefinition(
@@ -264,6 +264,7 @@ def _tool_definitions() -> list[ToolDefinition]:
             route_hints=["tool", "latest_information"],
             safe_for_auto_route=True,
             schema_identity="local.tools/web_search",
+            prompt_exposure_policy="schema_plus_guidance",
         ),
         ToolDefinition(
             name="list_dir",
@@ -432,7 +433,7 @@ def _tool_definitions() -> list[ToolDefinition]:
             route_hints=["tool", "workspace_read"],
             safe_for_auto_route=False,
             schema_identity="local.tools/read_file",
-            prompt_exposure_policy="schema_only",
+            prompt_exposure_policy="schema_plus_guidance",
             resource_exposure_policy="explicit_resource",
         ),
         ToolDefinition(
@@ -601,6 +602,7 @@ def _tool_definitions() -> list[ToolDefinition]:
             route_hints=["tool", "verification"],
             safe_for_auto_route=False,
             schema_identity="local.tools/fetch_url",
+            prompt_exposure_policy="schema_plus_guidance",
         ),
         ToolDefinition(
             name="browser_control",
@@ -623,7 +625,7 @@ def _tool_definitions() -> list[ToolDefinition]:
             route_hints=["tool", "browser", "web_automation", "page_operation"],
             safe_for_auto_route=False,
             schema_identity="local.tools/browser_control",
-            prompt_exposure_policy="schema_only",
+            prompt_exposure_policy="schema_plus_guidance",
             resource_exposure_policy="explicit_resource",
         ),
         ToolDefinition(
@@ -670,7 +672,7 @@ def _tool_definitions() -> list[ToolDefinition]:
             route_hints=["tool", "git_read"],
             safe_for_auto_route=False,
             schema_identity="local.tools/git_status",
-            prompt_exposure_policy="schema_only",
+            prompt_exposure_policy="schema_plus_guidance",
             resource_exposure_policy="explicit_resource",
         ),
         ToolDefinition(
@@ -693,7 +695,7 @@ def _tool_definitions() -> list[ToolDefinition]:
             route_hints=["tool", "git_read"],
             safe_for_auto_route=False,
             schema_identity="local.tools/git_diff",
-            prompt_exposure_policy="schema_only",
+            prompt_exposure_policy="schema_plus_guidance",
             resource_exposure_policy="explicit_resource",
         ),
         ToolDefinition(
@@ -716,7 +718,7 @@ def _tool_definitions() -> list[ToolDefinition]:
             route_hints=["tool", "git_read"],
             safe_for_auto_route=False,
             schema_identity="local.tools/git_log",
-            prompt_exposure_policy="schema_only",
+            prompt_exposure_policy="schema_plus_guidance",
             resource_exposure_policy="explicit_resource",
         ),
         ToolDefinition(
@@ -739,7 +741,7 @@ def _tool_definitions() -> list[ToolDefinition]:
             route_hints=["tool", "git_read"],
             safe_for_auto_route=False,
             schema_identity="local.tools/git_show",
-            prompt_exposure_policy="schema_only",
+            prompt_exposure_policy="schema_plus_guidance",
             resource_exposure_policy="explicit_resource",
         ),
         ToolDefinition(
@@ -756,7 +758,7 @@ def _tool_definitions() -> list[ToolDefinition]:
             route_hints=["tool", "git_read"],
             safe_for_auto_route=False,
             schema_identity="local.tools/git_branch_list",
-            prompt_exposure_policy="schema_only",
+            prompt_exposure_policy="schema_plus_guidance",
             resource_exposure_policy="explicit_resource",
         ),
         ToolDefinition(
@@ -773,7 +775,7 @@ def _tool_definitions() -> list[ToolDefinition]:
             route_hints=["tool", "git_write"],
             safe_for_auto_route=False,
             schema_identity="local.tools/git_branch_create",
-            prompt_exposure_policy="schema_only",
+            prompt_exposure_policy="schema_plus_guidance",
             resource_exposure_policy="explicit_resource",
         ),
         ToolDefinition(
@@ -790,7 +792,7 @@ def _tool_definitions() -> list[ToolDefinition]:
             route_hints=["tool", "git_write"],
             safe_for_auto_route=False,
             schema_identity="local.tools/git_stage",
-            prompt_exposure_policy="schema_only",
+            prompt_exposure_policy="schema_plus_guidance",
             resource_exposure_policy="explicit_resource",
         ),
         ToolDefinition(
@@ -807,7 +809,7 @@ def _tool_definitions() -> list[ToolDefinition]:
             route_hints=["tool", "git_write"],
             safe_for_auto_route=False,
             schema_identity="local.tools/git_unstage",
-            prompt_exposure_policy="schema_only",
+            prompt_exposure_policy="schema_plus_guidance",
             resource_exposure_policy="explicit_resource",
         ),
         ToolDefinition(
@@ -824,7 +826,7 @@ def _tool_definitions() -> list[ToolDefinition]:
             route_hints=["tool", "git_write"],
             safe_for_auto_route=False,
             schema_identity="local.tools/git_commit",
-            prompt_exposure_policy="schema_only",
+            prompt_exposure_policy="schema_plus_guidance",
             resource_exposure_policy="explicit_resource",
         ),
         ToolDefinition(
@@ -841,7 +843,7 @@ def _tool_definitions() -> list[ToolDefinition]:
             route_hints=["tool", "git_write"],
             safe_for_auto_route=False,
             schema_identity="local.tools/git_restore",
-            prompt_exposure_policy="schema_only",
+            prompt_exposure_policy="schema_plus_guidance",
             resource_exposure_policy="explicit_resource",
         ),
         ToolDefinition(
@@ -858,7 +860,7 @@ def _tool_definitions() -> list[ToolDefinition]:
             route_hints=["tool", "git_remote"],
             safe_for_auto_route=False,
             schema_identity="local.tools/git_push",
-            prompt_exposure_policy="schema_only",
+            prompt_exposure_policy="schema_plus_guidance",
             resource_exposure_policy="explicit_resource",
         ),
         ToolDefinition(
@@ -881,7 +883,7 @@ def _tool_definitions() -> list[ToolDefinition]:
             route_hints=["tool", "workspace_write"],
             safe_for_auto_route=False,
             schema_identity="local.tools/write_file",
-            prompt_exposure_policy="schema_only",
+            prompt_exposure_policy="schema_plus_guidance",
             resource_exposure_policy="explicit_resource",
         ),
         ToolDefinition(
@@ -904,7 +906,7 @@ def _tool_definitions() -> list[ToolDefinition]:
             route_hints=["tool", "workspace_edit"],
             safe_for_auto_route=False,
             schema_identity="local.tools/edit_file",
-            prompt_exposure_policy="schema_only",
+            prompt_exposure_policy="schema_plus_guidance",
             resource_exposure_policy="explicit_resource",
         ),
         ToolDefinition(
@@ -928,7 +930,7 @@ def _tool_definitions() -> list[ToolDefinition]:
             safe_for_auto_route=False,
             schema_identity="local.tools/terminal",
             runtime_visibility="main_runtime",
-            prompt_exposure_policy="schema_only",
+            prompt_exposure_policy="schema_plus_guidance",
             resource_exposure_policy="none",
         ),
         ToolDefinition(

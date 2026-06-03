@@ -72,6 +72,8 @@ CAPABILITY_VALUE_LABELS = {
     "main_runtime": "主运行时",
     "model_visible": "模型可见",
     "not_direct_model_tool": "不直接暴露给模型",
+    "schema_plus_guidance": "模型可见结构和工具协议",
+    "schema_only": "模型可见结构",
     "debug_only": "仅调试可见",
 }
 
@@ -202,6 +204,8 @@ def tool_visibility_label(tool: dict[str, Any]) -> str:
         return "对模型隐藏"
     if prompt_policy == "debug_only":
         return "仅调试可见"
+    if prompt_policy == "schema_plus_guidance":
+        return "模型可见结构和工具协议"
     return "模型可见结构"
 
 
