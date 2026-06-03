@@ -8,7 +8,7 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 from harness.graph.loop import GraphLoop
-from harness.graph.models import GraphNodeWorkOrder
+from harness.graph.models import GraphHarnessConfig, GraphNodeWorkOrder
 from harness.graph.work_order_executor import GraphNodeWorkOrderExecutor
 from task_system.compiler.graph_harness_config_publisher import build_graph_harness_config_from_graph
 from task_system.graphs.task_graph_models import TaskGraphDefinition, TaskGraphEdgeDefinition, TaskGraphNodeDefinition
@@ -331,6 +331,92 @@ def test_memory_commit_node_requires_structured_chapter_progress_receipt(tmp_pat
 
     assert result.status == "failed"
     assert result.error["reason"] == "chapter_progress_receipt_missing"
+
+
+def test_chapter_draft_self_repair_result_fails_when_quality_gate_under_length(tmp_path: Path) -> None:
+    runtime = _runtime_with_graph_harness(base_dir=tmp_path / "backend", runtime_root=tmp_path / "runtime_state")
+    graph_config = GraphHarnessConfig(
+        config_id="config:quality-gate",
+        graph_id="graph:test.quality_gate",
+        graph_title="Quality Gate",
+        publish_version="test",
+        content_hash="hash:test",
+        nodes=(
+            {
+                "node_id": "chapter_draft_self_repair",
+                "node_type": "agent_role",
+                "contracts": {
+                    "contract_bindings": {
+                        "runtime": {
+                            "length_budget": {
+                                "enabled": True,
+                                "budget_scope": "batch",
+                                "measurement_mode": "text_units",
+                                "target_units": 20000,
+                                "min_units": 18000,
+                                "max_units": 26000,
+                                "batch_unit_count": 10,
+                                "metric_section_keys": ["章节正文候选"],
+                            }
+                        }
+                    }
+                },
+                "retry": {
+                    "acceptance_policies": ["sectioned_text_batch_quality"],
+                    "unit_start_key": "batch_start_index",
+                    "unit_end_key": "batch_end_index",
+                    "unit_count_key": "units_per_batch",
+                    "target_metric_key": "batch_target_measure",
+                    "unit_target_metric_key": "unit_target_measure",
+                    "minimum_metric_ratio": 0.9,
+                    "minimum_metric_per_unit": 1800,
+                    "required_heading_patterns": [r"第\s*(?P<index>[0-9一二三四五六七八九十百零〇两]+)\s*[章节回]"],
+                    "heading_match_scope": "formal_heading",
+                    "metric_section_keys": ["章节正文候选"],
+                },
+            },
+        ),
+        edges=(),
+    )
+    body = "# 【章节正文候选】\n\n" + "\n\n".join(
+        f"### 第{index}章\n" + ("泽" * 700)
+        for index in range(1, 11)
+    )
+    work_order = GraphNodeWorkOrder(
+        work_order_id="gwork:quality-gate",
+        work_kind="agent",
+        graph_run_id="grun:quality-gate",
+        task_run_id="taskrun:quality-gate",
+        node_id="chapter_draft_self_repair",
+        config_id=graph_config.config_id,
+        config_hash=graph_config.content_hash,
+        task_ref="task.test.chapter.draft.repair",
+        input_package={
+            "initial_inputs": {
+                "batch_start_index": 1,
+                "batch_end_index": 10,
+                "units_per_batch": 10,
+                "unit_target_measure": 2000,
+                "batch_target_measure": 20000,
+            }
+        },
+    )
+
+    result = GraphNodeWorkOrderExecutor(services=runtime.harness_runtime)._node_result_from_agent_execution(
+        graph_config=graph_config,
+        work_order=work_order,
+        task_run_id="node-taskrun",
+        executor_result={
+            "ok": True,
+            "final_answer": body,
+            "task_run": {"task_run_id": "node-taskrun", "status": "completed", "diagnostics": {"final_answer": body}},
+        },
+    )
+
+    assert result.status == "failed"
+    assert result.error["reason"] == "quality_gate_failed"
+    assert any(str(issue).startswith("insufficient_unit_metric:1:") for issue in result.error["issues"])
+    assert result.diagnostics["quality_acceptance"]["business_accepted"] is False
 
 
 def _accept(loop: GraphLoop, graph_config, state, order, outputs: dict):

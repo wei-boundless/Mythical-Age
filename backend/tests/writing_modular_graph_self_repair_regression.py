@@ -61,10 +61,15 @@ def test_chapter_draft_self_repair_keeps_long_output_and_full_handoff_budget() -
     draft_repair = node_by_id["chapter_draft_self_repair"]
     draft_payload = module._node_payload(draft_repair)
     draft_runtime = dict(dict(draft_payload.get("contract_bindings") or {}).get("runtime") or {})
+    draft_retry = dict(draft_payload.get("quality_retry_policy") or {})
     artifact_context = dict(draft_payload.get("artifact_context_policy") or {})
     operation_policy = dict(dict(draft_payload.get("executor_policy") or {}).get("operation_policy") or {})
 
     assert draft_runtime["model_requirement"]["preferred_output_tokens"] == module.WRITING_CHAPTER_DRAFT_OUTPUT_TOKENS
+    assert draft_retry["acceptance_policies"] == ["sectioned_text_batch_quality"]
+    assert draft_retry["minimum_metric_per_unit"] == module.CHAPTER_MIN_WORDS
+    assert draft_retry["minimum_metric_ratio"] == 0.9
+    assert draft_retry["requirements_input_key"] == "chapter_revision_requirements"
     assert dict(draft_payload["memory_read_policy"])["token_budget"] == 40000
     assert artifact_context["default_max_chars"] == 60000
     assert "op.text_metric" in operation_policy["allowed_operations"]

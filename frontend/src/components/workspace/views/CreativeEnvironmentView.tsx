@@ -781,6 +781,8 @@ function CreativeInspector({
 export function CreativeEnvironmentView() {
   const {
     bindTaskGraphMonitorRun,
+    centerWorkspaceTarget,
+    clearCenterWorkspaceTarget,
     currentSessionId,
     selectSession,
     setTaskGraphRunInteractionOpen,
@@ -1067,6 +1069,17 @@ export function CreativeEnvironmentView() {
   useEffect(() => {
     if (selectedProjectId) void loadScopedSessions(selectedProjectId);
   }, [selectedProjectId]);
+
+  useEffect(() => {
+    if (!centerWorkspaceTarget || centerWorkspaceTarget.layer !== "task-graph") {
+      return;
+    }
+    setActiveSection("graph");
+    if (centerWorkspaceTarget.graph_id) {
+      setSelectedGraphId(centerWorkspaceTarget.graph_id);
+    }
+    clearCenterWorkspaceTarget();
+  }, [centerWorkspaceTarget, clearCenterWorkspaceTarget]);
 
   useEffect(() => {
     const graph = chooseFlowGraph(taskGraphs, flow, selectedGraphId);

@@ -407,8 +407,9 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
 
     runtime.actions.openGlobalRuntimeMonitorTaskRun("taskrun:master");
 
-    expect(store.getState().activeWorkspaceView).toBe("chat");
+    expect(store.getState().activeWorkspaceView).toBe("creative");
     expect(store.getState().globalRuntimeMonitorSelectedTaskRunId).toBe("taskrun:master");
+    expect(store.getState().chatTaskEnvironmentBinding).toBeNull();
     expect(store.getState().taskGraphMonitorBinding).toMatchObject({
       task_run_id: "taskrun:master",
       graph_run_id: "grun:master",
@@ -1323,6 +1324,38 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(api.createSession.mock.calls[0]?.[1]).toBeUndefined();
   });
 
+  it("keeps writing graph sessions out of the ordinary main-chat session list", async () => {
+    vi.useRealTimers();
+    api.listSessions.mockResolvedValue([
+      {
+        id: "session:general",
+        title: "General",
+        created_at: 1,
+        updated_at: 2,
+        message_count: 1,
+      },
+      {
+        id: "session:writing",
+        title: "Writing",
+        created_at: 1,
+        updated_at: 3,
+        message_count: 1,
+        scope: {
+          workspace_view: "task_environment",
+          task_environment_id: "env.creation.writing",
+          project_id: "project.creation.writing.honghuang",
+        },
+      },
+    ]);
+    const store = createStore(getDefaultState());
+    const runtime = new WorkspaceRuntime(store);
+
+    await runtime.initialize();
+
+    expect(store.getState().sessions.map((session) => session.id)).toEqual(["session:general"]);
+    expect(store.getState().currentSessionId).toBe("session:general");
+  });
+
   it("keeps stopped activity scoped to the session that was stopped", async () => {
     vi.useRealTimers();
     api.listSessions.mockResolvedValue([
@@ -2215,6 +2248,30 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     });
     expect(api.listSessions).not.toHaveBeenCalled();
     expect(api.getSessionTimeline).not.toHaveBeenCalled();
+  });
+
+  it("does not bind writing environment to the ordinary main chat", () => {
+    const store = createStore<StoreState>({
+      ...getDefaultState(),
+      activeWorkspaceView: "chat",
+      chatTaskEnvironmentBinding: {
+        task_environment_id: "env.general.workspace",
+        environment_label: "General Workspace",
+        source: "workspace-mode",
+        bound_at: 1,
+      },
+    });
+    const runtime = new WorkspaceRuntime(store);
+
+    runtime.actions.setChatTaskEnvironmentBinding({
+      task_environment_id: "env.creation.writing",
+      environment_label: "写作环境",
+      source: "task-system",
+      bound_at: 2,
+    });
+
+    expect(store.getState().activeWorkspaceView).toBe("creative");
+    expect(store.getState().chatTaskEnvironmentBinding).toBeNull();
   });
 
   it("keeps the visible chat session when changing the outer task environment mode", async () => {

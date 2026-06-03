@@ -3423,7 +3423,7 @@ def _replay_sanitization_policy(node: NodeSpec) -> dict[str, Any]:
 
 
 def _quality_retry_policy(node: NodeSpec) -> dict[str, Any]:
-    if node.node_id == "chapter_draft":
+    if node.node_id in {"chapter_draft", "chapter_draft_self_repair"}:
         return _chapter_draft_quality_retry_policy()
     if node.node_id == "chapter_review":
         return _chapter_batch_quality_retry_policy()

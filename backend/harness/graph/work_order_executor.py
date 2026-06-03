@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from task_system.runtime_semantics.quality_gates import stage_business_acceptance
 from task_system.runtime_semantics.chapter_progress import (
     ChapterProgressReceiptError,
     normalize_chapter_progress_receipt,
@@ -165,6 +166,15 @@ class GraphNodeWorkOrderExecutor:
         )
         postprocess_errors = [*contract_artifact_errors, *artifact_errors, *memory_errors, *progress_errors]
         result_status = "completed" if ok and not postprocess_errors else "failed"
+        quality_acceptance = _node_quality_acceptance(
+            graph_config=graph_config,
+            work_order=work_order,
+            final_answer=final_answer,
+            artifact_refs=artifact_refs,
+            result_status=result_status,
+        )
+        if result_status == "completed" and quality_acceptance and not bool(quality_acceptance.get("accepted")):
+            result_status = "failed"
         return NodeResultEnvelope(
             result_id=f"nresult:{stable_safe_id(work_order.graph_run_id)}:{stable_safe_id(work_order.node_id)}:{stable_safe_id(work_order.work_order_id)}",
             graph_run_id=work_order.graph_run_id,
@@ -185,21 +195,19 @@ class GraphNodeWorkOrderExecutor:
             artifact_materialization_receipts=tuple(artifact_receipts),
             memory_commit_receipts=tuple(memory_receipts),
             handoff_summary=final_answer[:1200],
-            error={} if result_status == "completed" else {
-                "reason": str(
-                    executor_result.get("error")
-                    or task_run_payload.get("terminal_reason")
-                    or (postprocess_errors[0].get("reason") if postprocess_errors else "")
-                    or "node_executor_failed"
-                ),
-                **({"postprocess_errors": postprocess_errors} if postprocess_errors else {}),
-            },
+            error={} if result_status == "completed" else _node_result_error(
+                executor_result=executor_result,
+                task_run_payload=task_run_payload,
+                postprocess_errors=postprocess_errors,
+                quality_acceptance=quality_acceptance,
+            ),
             diagnostics={
                 "authority": "harness.graph.work_order_executor.agent_result",
                 "graph_harness_config_id": graph_config.config_id,
                 "node_executor_task_run_id": task_run_id,
                 "executor_result": _public_executor_result(executor_result),
                 "formal_postprocess_errors": postprocess_errors,
+                **({"quality_acceptance": quality_acceptance} if quality_acceptance else {}),
             },
             created_at=time.time(),
         )
@@ -1424,3 +1432,92 @@ def _dedupe_candidates(candidates: list[dict[str, Any]]) -> list[dict[str, Any]]
         seen.add(key)
         result.append(dict(candidate))
     return result
+
+
+def _node_quality_acceptance(
+    *,
+    graph_config: GraphHarnessConfig,
+    work_order: GraphNodeWorkOrder,
+    final_answer: str,
+    artifact_refs: list[dict[str, Any]],
+    result_status: str,
+) -> dict[str, Any]:
+    node = _graph_node_by_id(graph_config, work_order.node_id)
+    if not node:
+        return {}
+    if str(node.get("node_type") or "").strip() == "review_gate":
+        return {}
+    retry_policy = dict(node.get("retry") or work_order.retry_policy or {})
+    accepted_policies = [
+        str(item).strip()
+        for item in list(retry_policy.get("acceptance_policies") or [])
+        if str(item).strip()
+    ]
+    runtime_contract = dict(dict(node.get("contracts") or {}).get("contract_bindings") or {}).get("runtime") or {}
+    length_budget = dict(runtime_contract.get("length_budget") or {})
+    has_length_budget = bool(length_budget.get("enabled") is True or length_budget.get("configured") is True)
+    if not has_length_budget and not accepted_policies:
+        return {}
+    if not str(final_answer or "").strip():
+        return {}
+    if has_length_budget:
+        length_budget = {**length_budget, "configured": True}
+    explicit_inputs = {
+        **dict(dict(work_order.input_package or {}).get("initial_inputs") or {}),
+        **dict(work_order.explicit_inputs or {}),
+    }
+    return stage_business_acceptance(
+        stage_id=work_order.node_id,
+        contract={
+            "node_type": str(node.get("node_type") or ""),
+            "length_budget": length_budget,
+            "quality_retry_policy": retry_policy,
+        },
+        explicit_inputs=explicit_inputs,
+        final_content=final_answer,
+        output_refs=[
+            str(item.get("path") or item.get("src") or item.get("absolute_path") or "")
+            for item in list(artifact_refs or [])
+            if isinstance(item, dict)
+        ],
+        terminal_status=result_status,
+        requires_file_artifact_refs=False,
+    )
+
+
+def _node_result_error(
+    *,
+    executor_result: dict[str, Any],
+    task_run_payload: dict[str, Any],
+    postprocess_errors: list[dict[str, Any]],
+    quality_acceptance: dict[str, Any],
+) -> dict[str, Any]:
+    if quality_acceptance and not bool(quality_acceptance.get("accepted")):
+        return {
+            "reason": "quality_gate_failed",
+            "quality_issue_summary": str(quality_acceptance.get("quality_issue_summary") or ""),
+            "issues": [str(item) for item in list(quality_acceptance.get("issues") or []) if str(item)],
+            "policy": str(quality_acceptance.get("policy") or ""),
+            "authority": "harness.graph.work_order_executor.quality_gate",
+            **({"postprocess_errors": postprocess_errors} if postprocess_errors else {}),
+        }
+    return {
+        "reason": str(
+            executor_result.get("error")
+            or task_run_payload.get("terminal_reason")
+            or (postprocess_errors[0].get("reason") if postprocess_errors else "")
+            or "node_executor_failed"
+        ),
+        **({"postprocess_errors": postprocess_errors} if postprocess_errors else {}),
+    }
+
+
+def _graph_node_by_id(graph_config: GraphHarnessConfig, node_id: str) -> dict[str, Any]:
+    target = str(node_id or "").strip()
+    if not target:
+        return {}
+    for node in graph_config.nodes:
+        current = str(dict(node).get("node_id") or "").strip()
+        if current == target:
+            return dict(node)
+    return {}

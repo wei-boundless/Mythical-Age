@@ -51,16 +51,28 @@ const TASK_ENVIRONMENT_WORKSPACE_MODES: Record<TaskEnvironmentWorkspaceView, { e
     environmentLabel: "Vibe Coding Workspace",
     taskEnvironmentId: "env.coding.vibe_workspace",
   },
-  creative: {
-    environmentLabel: "写作环境",
-    taskEnvironmentId: "env.creation.writing",
-  },
 };
+const GRAPH_ONLY_TASK_ENVIRONMENT_IDS = new Set(["env.creation.writing"]);
 const TASK_ENVIRONMENT_VIEW_BY_ID = Object.fromEntries(
   Object.entries(TASK_ENVIRONMENT_WORKSPACE_MODES).map(([view, item]) => [item.taskEnvironmentId, view])
 ) as Record<string, TaskEnvironmentWorkspaceView | undefined>;
+
+function sessionTaskEnvironmentId(session: SessionSummary) {
+  return String(
+    session.scope?.task_environment_id
+    || session.task_binding?.task_environment_id
+    || session.task_binding?.session_scope?.task_environment_id
+    || "",
+  ).trim();
+}
+
 function visibleMainChatSessions(sessions: SessionSummary[]) {
-  return sessions.filter((session) => String(session.task_binding?.kind || "").trim() !== "task_graph");
+  return sessions.filter((session) => {
+    if (String(session.task_binding?.kind || "").trim() === "task_graph") {
+      return false;
+    }
+    return !GRAPH_ONLY_TASK_ENVIRONMENT_IDS.has(sessionTaskEnvironmentId(session));
+  });
 }
 
 export class WorkspaceRuntime {
@@ -1646,12 +1658,12 @@ export class WorkspaceRuntime {
       this.setTaskEnvironmentWorkspaceView(view);
       return;
     }
-    this.store.setState((prev) => ({ ...prev, activeWorkspaceView: view }));
     this.syncWorkspaceViewUrl(view);
+    this.store.setState((prev) => ({ ...prev, activeWorkspaceView: view }));
   }
 
   private isTaskEnvironmentWorkspaceView(view: WorkspaceView): view is TaskEnvironmentWorkspaceView {
-    return view === "chat" || view === "code-environment" || view === "creative";
+    return view === "chat" || view === "code-environment";
   }
 
   private setTaskEnvironmentWorkspaceView(view: TaskEnvironmentWorkspaceView) {
@@ -1666,8 +1678,8 @@ export class WorkspaceRuntime {
       && state.chatTaskEnvironmentBinding?.task_environment_id === binding.task_environment_id
       && state.chatTaskEnvironmentBinding?.source === binding.source;
 
-    this.store.setState((prev) => ({ ...prev, activeWorkspaceView: view }));
     this.syncWorkspaceViewUrl(view);
+    this.store.setState((prev) => ({ ...prev, activeWorkspaceView: view }));
     if (alreadyActive) {
       return;
     }
@@ -1679,8 +1691,12 @@ export class WorkspaceRuntime {
       ?? taskEnvironmentId;
   }
 
-  private workspaceViewForTaskEnvironment(taskEnvironmentId: string): TaskEnvironmentWorkspaceView {
-    return TASK_ENVIRONMENT_VIEW_BY_ID[String(taskEnvironmentId || "").trim()] ?? "chat";
+  private workspaceViewForTaskEnvironment(taskEnvironmentId: string): WorkspaceView {
+    const normalized = String(taskEnvironmentId || "").trim();
+    if (GRAPH_ONLY_TASK_ENVIRONMENT_IDS.has(normalized)) {
+      return "creative";
+    }
+    return TASK_ENVIRONMENT_VIEW_BY_ID[normalized] ?? "chat";
   }
 
   private bindTaskEnvironmentContext(
@@ -1694,15 +1710,26 @@ export class WorkspaceRuntime {
     if (!normalized) {
       return;
     }
+    if (GRAPH_ONLY_TASK_ENVIRONMENT_IDS.has(normalized)) {
+      this.syncWorkspaceViewUrl("creative");
+      this.store.setState((prev) => ({
+        ...prev,
+        activeWorkspaceView: "creative",
+        chatTaskEnvironmentBinding: null,
+      }));
+      return;
+    }
     const binding = {
       task_environment_id: normalized,
       environment_label: String(options.environmentLabel || this.taskEnvironmentLabel(normalized)).trim() || normalized,
       source: options.source ?? "workspace-mode",
       bound_at: Date.now(),
     } satisfies ChatTaskEnvironmentBinding;
+    const view = this.workspaceViewForTaskEnvironment(normalized);
+    this.syncWorkspaceViewUrl(view);
     this.store.setState((prev) => ({
       ...prev,
-      activeWorkspaceView: this.workspaceViewForTaskEnvironment(normalized),
+      activeWorkspaceView: view,
       chatTaskEnvironmentBinding: binding,
     }));
   }
@@ -1713,6 +1740,7 @@ export class WorkspaceRuntime {
 
   private openTaskGraphWorkspace(target: Omit<TaskGraphCenterWorkspaceTarget, "layer" | "requested_at"> = {}) {
     const view = this.centerWorkspaceHostView(this.store.getState().activeWorkspaceView);
+    this.syncWorkspaceViewUrl(view);
     this.store.setState((prev) => ({
       ...prev,
       activeWorkspaceView: view,
@@ -1724,7 +1752,6 @@ export class WorkspaceRuntime {
         requested_at: Date.now(),
       },
     }));
-    this.syncWorkspaceViewUrl(view);
   }
 
   private openWorkspaceFile(path: string) {
@@ -1733,6 +1760,7 @@ export class WorkspaceRuntime {
       return;
     }
     const view = this.centerWorkspaceHostView(this.store.getState().activeWorkspaceView);
+    this.syncWorkspaceViewUrl(view);
     this.store.setState((prev) => ({
       ...prev,
       activeWorkspaceView: view,
@@ -1742,7 +1770,6 @@ export class WorkspaceRuntime {
         requested_at: Date.now(),
       },
     }));
-    this.syncWorkspaceViewUrl(view);
   }
 
   private clearCenterWorkspaceTarget() {
@@ -2530,6 +2557,15 @@ export class WorkspaceRuntime {
       this.clearChatTaskEnvironmentBinding();
       return;
     }
+    if (GRAPH_ONLY_TASK_ENVIRONMENT_IDS.has(taskEnvironmentId)) {
+      this.syncWorkspaceViewUrl("creative");
+      this.store.setState((prev) => ({
+        ...prev,
+        activeWorkspaceView: "creative",
+        chatTaskEnvironmentBinding: null,
+      }));
+      return;
+    }
     const nextBinding = {
       task_environment_id: taskEnvironmentId,
       environment_label: String(binding.environment_label || taskEnvironmentId).trim() || taskEnvironmentId,
@@ -2543,12 +2579,12 @@ export class WorkspaceRuntime {
   }
 
   private clearChatTaskEnvironmentBinding() {
+    this.syncWorkspaceViewUrl("chat");
     this.store.setState((prev) => ({
       ...prev,
       activeWorkspaceView: "chat",
       chatTaskEnvironmentBinding: null,
     }));
-    this.syncWorkspaceViewUrl("chat");
   }
 
   private hasActiveChatStream() {

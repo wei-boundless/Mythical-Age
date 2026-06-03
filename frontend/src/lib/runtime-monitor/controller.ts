@@ -17,7 +17,7 @@ import {
   visibleRuntimeMonitorItemsFromEnvelope,
 } from "./reducer";
 import { runtimeWorkProjectionFromMonitorItem, visibleRuntimeMonitorItems } from "./selectors";
-import type { ChatTaskEnvironmentBinding, TaskEnvironmentWorkspaceView } from "@/lib/store/types";
+import type { ChatTaskEnvironmentBinding, WorkspaceView } from "@/lib/store/types";
 
 type RuntimeMonitorHost = {
   hasActiveChatStream: () => boolean;
@@ -30,7 +30,7 @@ type RuntimeMonitorHost = {
       source?: ChatTaskEnvironmentBinding["source"];
     },
   ) => void;
-  workspaceViewForTaskEnvironment: (taskEnvironmentId: string) => TaskEnvironmentWorkspaceView;
+  workspaceViewForTaskEnvironment: (taskEnvironmentId: string) => WorkspaceView;
   refreshSessionDetails: (sessionId: string) => Promise<void>;
   hydrateLatestOrchestrationSnapshot: (sessionId: string) => Promise<boolean>;
   syncWorkspaceViewUrl: (view: StoreState["activeWorkspaceView"]) => void;
@@ -178,11 +178,14 @@ export class RuntimeMonitorController {
     const navigation = selected.navigation_target && typeof selected.navigation_target === "object" && !Array.isArray(selected.navigation_target)
       ? selected.navigation_target as Record<string, unknown>
       : {};
+    const selectedSessionScope = selected.session_scope && typeof selected.session_scope === "object" && !Array.isArray(selected.session_scope)
+      ? selected.session_scope as Record<string, unknown>
+      : {};
     const work = runtimeWorkProjectionFromMonitorItem(selected);
     const taskInstanceIdForState = monitorItemInstanceId(selected);
     const sessionId = String(navigation.session_id || selected.route?.session_id || selected.session_id || "").trim();
-    const navigationWorkspaceView = String(navigation.workspace_view || "").trim();
-    const navigationTaskEnvironmentId = String(navigation.task_environment_id || "").trim();
+    const navigationWorkspaceView = String(navigation.workspace_view || selectedSessionScope.workspace_view || "").trim();
+    const navigationTaskEnvironmentId = String(navigation.task_environment_id || selectedSessionScope.task_environment_id || "").trim();
     const navigationEnvironmentLabel = String(navigation.environment_label || navigationTaskEnvironmentId).trim();
     const owningTaskEnvironmentView = navigationWorkspaceView === "task_environment" && navigationTaskEnvironmentId
       ? this.host.workspaceViewForTaskEnvironment(navigationTaskEnvironmentId)
@@ -199,6 +202,7 @@ export class RuntimeMonitorController {
         void this.host.refreshSessionDetails(sessionId).catch(() => undefined);
         void this.host.hydrateLatestOrchestrationSnapshot(sessionId).catch(() => false);
       }
+      this.host.syncWorkspaceViewUrl(owningTaskEnvironmentView);
       this.store.setState((prev) => ({
         ...prev,
         activeWorkspaceView: owningTaskEnvironmentView,
@@ -207,7 +211,6 @@ export class RuntimeMonitorController {
         globalRuntimeMonitorSelectedLiveMonitor: null,
         globalRuntimeMonitorSelectedGraphMonitor: null,
       }));
-      this.host.syncWorkspaceViewUrl(owningTaskEnvironmentView);
       this.queueDetailRefresh(selected.task_run_id, this.store.getState().globalRuntimeMonitorRevision);
       return;
     }
@@ -232,6 +235,7 @@ export class RuntimeMonitorController {
         source: "workspace-mode",
       });
     }
+    this.host.syncWorkspaceViewUrl(openGraphWorkspace ? owningTaskEnvironmentView : "orchestration");
     this.store.setState((prev) => ({
       ...prev,
       activeWorkspaceView: openGraphWorkspace ? owningTaskEnvironmentView : "orchestration",
@@ -252,7 +256,6 @@ export class RuntimeMonitorController {
         requested_at: Date.now(),
       } : prev.centerWorkspaceTarget,
     }));
-    this.host.syncWorkspaceViewUrl(openGraphWorkspace ? owningTaskEnvironmentView : "orchestration");
     this.queueDetailRefresh(selected.task_run_id, this.store.getState().globalRuntimeMonitorRevision);
   }
 

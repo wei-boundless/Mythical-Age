@@ -141,7 +141,7 @@ export type WorkspaceView =
   | "code-environment"
   | "system-config";
 
-export type TaskEnvironmentWorkspaceView = Extract<WorkspaceView, "chat" | "code-environment" | "creative">;
+export type TaskEnvironmentWorkspaceView = Extract<WorkspaceView, "chat" | "code-environment">;
 
 export type SearchPolicySource = "rag" | "local_files" | "web";
 

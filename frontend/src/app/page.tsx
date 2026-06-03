@@ -41,7 +41,7 @@ const WORKSPACE_QUERY_VIEWS = new Set<WorkspaceView>([
 ]);
 
 const WORKSPACE_TONES = new Set(["water", "leaf", "gold", "ember", "lumen"]);
-const TASK_ENVIRONMENT_VIEWS = new Set<WorkspaceView>(["chat", "creative", "code-environment"]);
+const TASK_ENVIRONMENT_VIEWS = new Set<WorkspaceView>(["chat", "code-environment"]);
 const GENERAL_TASK_ENVIRONMENT_ID = "env.general.workspace";
 const CODING_TASK_ENVIRONMENT_ID = "env.coding.vibe_workspace";
 

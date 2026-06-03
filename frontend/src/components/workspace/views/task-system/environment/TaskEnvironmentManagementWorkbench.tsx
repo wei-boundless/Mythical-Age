@@ -358,6 +358,7 @@ export function TaskEnvironmentManagementWorkbench({
   const boundToSelected = Boolean(selectedEnvironmentId && chatTaskEnvironmentBinding?.task_environment_id === selectedEnvironmentId);
   const selectedScope: EnvironmentScope = taskEnvironmentScope(selectedItem);
   const selectedProtected = Boolean(selectedItem && selectedScope !== "workspace" && draft.environment_id === selectedEnvironmentId);
+  const graphOnlyEnvironment = selectedEnvironmentId === "env.creation.writing";
 
   return (
     <main className="task-management-workbench task-system-management-workbench">
@@ -376,11 +377,11 @@ export function TaskEnvironmentManagementWorkbench({
         <div className="boundary-actions">
           <TaskSystemToolbarButton onClick={onCreate}><Plus size={15} />新环境</TaskSystemToolbarButton>
           <TaskSystemToolbarButton
-            disabled={!selectedEnvironmentId}
+            disabled={!selectedEnvironmentId || graphOnlyEnvironment}
             onClick={() => onBindEnvironment(selectedEnvironmentId, selectedEnvironmentLabel)}
             variant={boundToSelected ? "primary" : "ghost"}
           >
-            <Link2 size={15} />{boundToSelected ? "已绑定主会话" : "绑定主会话"}
+            <Link2 size={15} />{graphOnlyEnvironment ? "仅图任务会话" : boundToSelected ? "已绑定主会话" : "绑定主会话"}
           </TaskSystemToolbarButton>
           {chatTaskEnvironmentBinding ? (
             <TaskSystemToolbarButton onClick={onClearEnvironmentBinding}><Unlink2 size={15} />解除绑定</TaskSystemToolbarButton>
