@@ -845,6 +845,7 @@ function applyVisibilitySessionActivity(
   if (!title) {
     return state;
   }
+  const progressEntry = visibility.progressEntry;
   return {
     ...state,
     sessionActivity: {
@@ -852,10 +853,12 @@ function applyVisibilitySessionActivity(
       title,
       detail: visibility.activityDetail || "",
       event,
+      toolName: progressEntry?.toolName,
       receipt: {
         level: visibility.level || "running",
         title,
         body: visibility.activityDetail || undefined,
+        artifacts: progressEntry?.artifacts,
         debug: { event },
       },
       updatedAt: Date.now(),

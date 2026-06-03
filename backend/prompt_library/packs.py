@@ -65,6 +65,15 @@ RUNTIME_OBSERVATION_FOLLOWUP_PROMPT = """
 """.strip()
 
 
+RUNTIME_SEMANTIC_COMPACTION_PROMPT = """
+你正在执行一次系统授权的上下文语义压缩。
+本轮不是普通对话，也不是工具执行。你的唯一任务是根据输入的 semantic_compaction_request 生成恢复点摘要。
+输出必须是一个合法 JSON 对象，格式为 {"summary_content":"...","diagnostics":{...}}。
+summary_content 必须忠实来自输入，保留可继续工作的事实和约束，不得加入新事实、建议未验证结论或隐藏推理。
+如果输入不足、互相矛盾或无法可靠压缩，summary_content 留空，并在 diagnostics.reason 中写明原因。
+""".strip()
+
+
 def list_builtin_runtime_prompt_resources() -> tuple[PromptResource, ...]:
     return (
         _runtime_resource(
@@ -97,6 +106,14 @@ def list_builtin_runtime_prompt_resources() -> tuple[PromptResource, ...]:
             content=RUNTIME_OBSERVATION_FOLLOWUP_PROMPT,
             invocation_kind="tool_observation_followup",
             requires=("runtime.rule.system_call_protocol.v1", "runtime.rule.intent_feedback.v1"),
+        ),
+        _runtime_resource(
+            prompt_id="runtime.semantic_compaction.v1",
+            subtype="semantic_compaction",
+            title="Semantic compaction protocol",
+            content=RUNTIME_SEMANTIC_COMPACTION_PROMPT,
+            invocation_kind="semantic_compaction",
+            requires=(),
         ),
     )
 
@@ -166,6 +183,16 @@ def list_builtin_prompt_packs() -> tuple[PromptPack, ...]:
             title="Observation followup runtime pack",
             cache_scope="static",
         ),
+        PromptPack(
+            pack_id="runtime.pack.semantic_compaction.v1",
+            invocation_kind="semantic_compaction",
+            ordered_prompt_refs=(
+                "runtime.semantic_compaction.v1",
+            ),
+            title="Semantic compaction runtime pack",
+            cache_scope="static",
+            allowed_agent_refs=("context_compactor_agent",),
+        ),
     )
 
 
@@ -174,6 +201,7 @@ def default_pack_ref_for_invocation(invocation_kind: str) -> str:
         "single_agent_turn": "runtime.pack.single_agent_turn.v1",
         "task_execution": "runtime.pack.task_execution.v1",
         "tool_observation_followup": "runtime.pack.observation_followup.v1",
+        "semantic_compaction": "runtime.pack.semantic_compaction.v1",
     }
     return mapping.get(str(invocation_kind or "").strip(), "")
 

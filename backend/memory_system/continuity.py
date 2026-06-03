@@ -158,11 +158,20 @@ class MemoryMessageAdapter:
 
 
 class SessionMemoryLayer:
-    def __init__(self, base_dir: Path, context_budget_provider: Callable[[], dict[str, Any]] | None = None) -> None:
+    def __init__(
+        self,
+        base_dir: Path,
+        context_budget_provider: Callable[[], dict[str, Any]] | None = None,
+        compactor_kwargs_provider: Callable[[str], dict[str, Any]] | None = None,
+    ) -> None:
         self.base_dir = base_dir
         self._context_budget_provider = context_budget_provider
+        self._compactor_kwargs_provider = compactor_kwargs_provider
         self.session_root = ProjectLayout.from_backend_dir(base_dir).session_memory_dir
         self.session_root.mkdir(parents=True, exist_ok=True)
+
+    def set_compactor_kwargs_provider(self, provider: Callable[[str], dict[str, Any]] | None) -> None:
+        self._compactor_kwargs_provider = provider
 
     def session_dir(self, session_id: str) -> Path:
         return safe_session_dir(self.session_root, session_id)
@@ -190,6 +199,7 @@ class SessionMemoryLayer:
         return ContextCompactor(
             self.manager(session_id),
             effective_history_token_budget=int(budget["available_context_tokens"]),
+            **self._compactor_kwargs(session_id),
         )
 
     def context_controller(self, session_id: str) -> ContextController:
@@ -198,6 +208,7 @@ class SessionMemoryLayer:
             self.manager(session_id),
             reserved_output_tokens=int(budget["reserved_output_tokens"]),
             effective_history_token_budget=int(budget["available_context_tokens"]),
+            **self._compactor_kwargs(session_id),
         )
 
     def refresh(self, session_id: str, messages: list[Message]) -> str:
@@ -244,6 +255,12 @@ class SessionMemoryLayer:
                 raise ValueError("context budget provider returned an empty payload")
             return payload
         return get_context_budget_preset("deepseek_1m").to_dict()
+
+    def _compactor_kwargs(self, session_id: str) -> dict[str, Any]:
+        if self._compactor_kwargs_provider is None:
+            return {}
+        payload = self._compactor_kwargs_provider(str(session_id or ""))
+        return dict(payload or {}) if isinstance(payload, dict) else {}
 
 
 @dataclass(frozen=True, slots=True)

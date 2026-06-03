@@ -190,6 +190,83 @@ def test_read_file_content_windows_survive_task_state_projection() -> None:
     ]
 
 
+def test_code_structure_map_survives_task_state_projection() -> None:
+    code_structure = {
+        "authority": "capability.codebase_search.code_structure_map",
+        "source_kind": "codebase_search",
+        "candidate_only": True,
+        "source_authority": "locator_only",
+        "instruction": "Use read_file next; do not treat snippets as complete source.",
+        "files": [
+            {
+                "path": "backend/harness/runtime/dynamic_context/manager.py",
+                "candidate_only": True,
+                "must_read_source_before_edit": True,
+                "evidence_refs": ["backend/harness/runtime/dynamic_context/manager.py:20"],
+                "slices": [
+                    {
+                        "evidence_ref": "backend/harness/runtime/dynamic_context/manager.py:20",
+                        "matched_line": 20,
+                        "start_line": 18,
+                        "end_line": 36,
+                        "symbol": "DynamicContextManager",
+                        "evidence_kind": "definition",
+                        "score": 0.96,
+                        "read_request": {
+                            "tool_name": "read_file",
+                            "args": {
+                                "path": "backend/harness/runtime/dynamic_context/manager.py",
+                                "start_line": 18,
+                                "line_count": 19,
+                            },
+                        },
+                        "snippet": "class DynamicContextManager:",
+                    }
+                ],
+            }
+        ],
+        "limitations": ["not_full_source"],
+    }
+    result = RuntimeCompiler().compile_task_execution_packet(
+        session_id="session:code-structure",
+        task_run={"task_run_id": "taskrun:code-structure", "diagnostics": {"executor_status": "running"}},
+        contract={"task_run_goal": "定位动态上下文结构", "completion_criteria": ["结构图可见"]},
+        observations=[
+            {
+                "observation_id": "obs:code-structure",
+                "payload": {
+                    "result_envelope": {
+                        "envelope_id": "tool-result:code-structure",
+                        "tool_name": "codebase_search",
+                        "status": "ok",
+                        "text": json.dumps(
+                            {
+                                "status": "completed",
+                                "answer_candidate": "Found DynamicContextManager",
+                                "code_structure": code_structure,
+                            }
+                        ),
+                    }
+                },
+            }
+        ],
+        runtime_assembly={
+            "profile": {"mode": "professional"},
+            "task_environment": {"environment_id": "env.coding.vibe_workspace"},
+            "operation_authorization": {"allowed_operations": ["op.codebase_search", "op.read_file"]},
+        },
+    )
+
+    volatile_payload = _payload_after_title(result.packet.model_messages[-1]["content"], "Task execution current state")
+    latest = volatile_payload["task_state"]["latest_tool_results"][0]
+    structure = latest["code_structure"]
+
+    assert structure["candidate_only"] is True
+    assert structure["source_authority"] == "locator_only"
+    assert structure["files"][0]["slices"][0]["read_request"]["tool_name"] == "read_file"
+    assert "snippet" not in structure["files"][0]["slices"][0]
+
+
 def test_task_execution_derives_file_state_from_tool_observations() -> None:
     read_envelope = build_tool_result_envelope(
         tool_name="read_file",

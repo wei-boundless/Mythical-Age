@@ -15,7 +15,7 @@ from harness.loop.action_permit import action_permit_from_admission
 from harness.loop.model_action_protocol import ModelActionRequest, model_action_request_from_payload
 from harness.loop.model_action_runtime import call_model_invoker
 from harness.loop.presentation import error_event, final_answer_event
-from harness.runtime import RuntimeCompiler, build_runtime_tool_plan
+from harness.runtime import RuntimeCompiler, ToolBatchGroup, build_runtime_tool_plan, build_tool_batch_plan
 from harness.runtime.file_management_policy import compile_tool_file_management_policy
 from harness.runtime.prompt_segment_plan import build_prompt_segment_plan
 from harness.runtime.public_progress import public_runtime_progress_summary
@@ -26,7 +26,7 @@ from runtime.model_gateway.protocol_sanitizer import sanitize_messages_for_promp
 from runtime.model_gateway.model_runtime import stringify_content
 from runtime.output_boundary import CanonicalFinalTextDecision, canonical_output_decision_for_final_text
 from runtime.shared.models import TurnRun
-from runtime.tool_runtime import ToolInvocationRequest, ToolObservation, build_tool_invocation_id
+from runtime.tool_runtime import ToolInvocationRequest, ToolObservation, build_round_tool_call_options, build_tool_invocation_id
 from runtime.tool_runtime.provider_tool_call_adapter import tool_calls_for_langchain_messages
 from permissions.policy import normalize_permission_mode
 
@@ -116,10 +116,11 @@ async def run_single_agent_turn(
             "packet_ref": compilation.packet.packet_id,
             "allowed_action_types": list(compilation.packet.allowed_action_types),
         }
+        tool_definitions_by_name = dict(getattr(getattr(runtime_host, "tool_authorization_index", None), "definitions_by_name", {}) or {})
         runtime_tool_plan = build_runtime_tool_plan(
             runtime_assembly=runtime_assembly,
             invocation_kind="single_agent_turn",
-            tool_definitions_by_name=getattr(getattr(runtime_host, "tool_authorization_index", None), "definitions_by_name", {}),
+            tool_definitions_by_name=tool_definitions_by_name,
         )
         runtime_permission_mode = _turn_runtime_permission_mode(runtime_assembly, runtime_host=runtime_host)
         model_messages = _sanitize_model_messages(
@@ -298,13 +299,12 @@ async def run_single_agent_turn(
                 return
             tool_iteration += 1
             invocation_rows: list[dict[str, Any]] = []
-            pending_tool_invocations: list[tuple[int, Awaitable[ToolObservation]]] = []
             for tool_action in tool_actions:
                 admission = admit_model_action(
                     tool_action,
                     packet_allowed_action_types=tuple(compilation.packet.allowed_action_types),
                     invocation_kind="single_agent_turn",
-                    definitions_by_name=getattr(getattr(runtime_host, "tool_authorization_index", None), "definitions_by_name", {}),
+                    definitions_by_name=tool_definitions_by_name,
                     allowed_tool_names=set(runtime_tool_plan.dispatchable_tool_names),
                     runtime_profile=_runtime_profile_payload(runtime_assembly),
                     permission_mode=runtime_permission_mode,
@@ -348,48 +348,112 @@ async def run_single_agent_turn(
                         packet_ref=compilation.packet.packet_id,
                         tool_plan=runtime_tool_plan,
                     )
-                    continue
-                pending_tool_invocations.append(
-                    (
-                        len(invocation_rows) - 1,
-                        _invoke_turn_tool(
-                            runtime_host=runtime_host,
-                            runtime_assembly=runtime_assembly,
-                            turn_run=turn_run,
-                            session_id=session_id,
-                            turn_id=turn_id,
-                            action_request=tool_action,
-                            admission=admission,
-                            action_permit=action_permit.to_dict(),
-                            packet_ref=compilation.packet.packet_id,
-                            tool_plan=runtime_tool_plan,
-                        ),
-                    )
-                )
 
-            if pending_tool_invocations:
-                invocation_results = await asyncio.gather(
-                    *(invocation for _row_index, invocation in pending_tool_invocations),
-                    return_exceptions=True,
+            batch_plan = build_tool_batch_plan(
+                turn_id=turn_id,
+                packet_ref=compilation.packet.packet_id,
+                invocation_rows=invocation_rows,
+                tool_plan=runtime_tool_plan,
+                definitions_by_name=tool_definitions_by_name,
+                workspace_root=_single_turn_workspace_root(runtime_assembly, runtime_host=runtime_host),
+            )
+            batch_plan_payload = batch_plan.to_dict()
+            planned_event: dict[str, Any] = {}
+            if runtime_host is not None and turn_run is not None:
+                planned_event = _record_turn_tool_batch_event(
+                    runtime_host,
+                    turn_run=turn_run,
+                    turn_id=turn_id,
+                    event_type="tool_batch_planned",
+                    payload={
+                        "turn_id": turn_id,
+                        "packet_ref": compilation.packet.packet_id,
+                        "tool_batch_plan": batch_plan_payload,
+                    },
+                    refs={
+                        "turn_ref": turn_id,
+                        "turn_run_ref": turn_run.turn_run_id,
+                        "runtime_invocation_packet_ref": compilation.packet.packet_id,
+                        "tool_batch_ref": batch_plan.batch_id,
+                    },
                 )
-                for (row_index, _invocation), result in zip(pending_tool_invocations, invocation_results, strict=False):
-                    row = invocation_rows[row_index]
-                    if isinstance(result, asyncio.CancelledError):
-                        raise result
-                    if isinstance(result, BaseException):
-                        row["observation"] = _tool_observation_from_runtime_exception(
-                            runtime_host=runtime_host,
-                            turn_run=turn_run,
-                            turn_id=turn_id,
-                            action_request=row["action_request"],
-                            admission=row["admission"],
-                            action_permit=row["action_permit"],
-                            packet_ref=compilation.packet.packet_id,
-                            tool_plan=runtime_tool_plan,
-                            error=result,
-                        )
-                    else:
-                        row["observation"] = result
+            yield {
+                "type": "tool_batch_planned",
+                "tool_batch_plan": batch_plan_payload,
+                **({"event": planned_event} if planned_event else {}),
+            }
+            for group in batch_plan.groups:
+                group_payload = group.to_dict()
+                started_event: dict[str, Any] = {}
+                if runtime_host is not None and turn_run is not None:
+                    started_event = _record_turn_tool_batch_event(
+                        runtime_host,
+                        turn_run=turn_run,
+                        turn_id=turn_id,
+                        event_type="tool_batch_group_started",
+                        payload={
+                            "turn_id": turn_id,
+                            "packet_ref": compilation.packet.packet_id,
+                            "tool_batch_ref": batch_plan.batch_id,
+                            "tool_batch_group": group_payload,
+                        },
+                        refs={
+                            "turn_ref": turn_id,
+                            "turn_run_ref": turn_run.turn_run_id,
+                            "runtime_invocation_packet_ref": compilation.packet.packet_id,
+                            "tool_batch_ref": batch_plan.batch_id,
+                        },
+                    )
+                yield {
+                    "type": "tool_batch_group_started",
+                    "tool_batch_ref": batch_plan.batch_id,
+                    "tool_batch_group": group_payload,
+                    **({"event": started_event} if started_event else {}),
+                }
+                group_observations = await _execute_tool_batch_group(
+                    group,
+                    invocation_rows=invocation_rows,
+                    runtime_host=runtime_host,
+                    runtime_assembly=runtime_assembly,
+                    turn_run=turn_run,
+                    session_id=session_id,
+                    turn_id=turn_id,
+                    packet_ref=compilation.packet.packet_id,
+                    tool_plan=runtime_tool_plan,
+                )
+                completed_payload = {
+                    "turn_id": turn_id,
+                    "packet_ref": compilation.packet.packet_id,
+                    "tool_batch_ref": batch_plan.batch_id,
+                    "tool_batch_group": group_payload,
+                    "observation_refs": [item.observation_id for item in group_observations],
+                    "statuses": [item.status for item in group_observations],
+                    "error_count": sum(1 for item in group_observations if item.status in {"error", "aborted", "canceled"}),
+                }
+                completed_event: dict[str, Any] = {}
+                if runtime_host is not None and turn_run is not None:
+                    completed_event = _record_turn_tool_batch_event(
+                        runtime_host,
+                        turn_run=turn_run,
+                        turn_id=turn_id,
+                        event_type="tool_batch_group_completed",
+                        payload=completed_payload,
+                        refs={
+                            "turn_ref": turn_id,
+                            "turn_run_ref": turn_run.turn_run_id,
+                            "runtime_invocation_packet_ref": compilation.packet.packet_id,
+                            "tool_batch_ref": batch_plan.batch_id,
+                            "tool_observation_refs": [item.observation_id for item in group_observations],
+                        },
+                    )
+                yield {
+                    "type": "tool_batch_group_completed",
+                    "tool_batch_ref": batch_plan.batch_id,
+                    "tool_batch_group": group_payload,
+                    "observation_refs": completed_payload["observation_refs"],
+                    "statuses": completed_payload["statuses"],
+                    **({"event": completed_event} if completed_event else {}),
+                }
 
             tool_protocol_messages: list[dict[str, Any]] = []
             assistant_tool_calls: list[dict[str, Any]] = []
@@ -436,7 +500,32 @@ async def run_single_agent_turn(
                         turn_id,
                     )
                 )
+            if assistant_tool_calls:
+                assistant_protocol_message = _with_turn_id(_assistant_tool_call_message(response, assistant_tool_calls), turn_id)
+                api_protocol_messages.extend([assistant_protocol_message, *tool_protocol_messages])
+            else:
+                assistant_protocol_message = {}
             if approval_observations:
+                if assistant_protocol_message or tool_protocol_messages:
+                    commit_decision = await _commit_final_message(
+                        commit_assistant_message,
+                        session_id=session_id,
+                        turn_id=turn_id,
+                        content="部分工具调用已完成，另有工具调用正在等待审批。",
+                        answer_channel="blocked",
+                        answer_source="harness.single_agent_turn.approval_waiting",
+                        api_protocol_messages=list(api_protocol_messages),
+                    )
+                    yield {
+                        "type": "assistant_message_committed",
+                        "answer_channel": commit_decision.answer_channel,
+                        "answer_source": commit_decision.answer_source,
+                        "answer_canonical_state": commit_decision.canonical_state,
+                        "answer_persist_policy": commit_decision.persist_policy,
+                        "answer_finalization_policy": commit_decision.finalization_policy,
+                        "answer_fallback_reason": commit_decision.fallback_reason,
+                        "terminal_reason": "waiting_approval",
+                    }
                 approval_event = _record_turn_approval_waiting(
                     runtime_host,
                     turn_run=turn_run,
@@ -456,8 +545,6 @@ async def run_single_agent_turn(
                     terminal_recorded = True
                     yield {"type": "agent_turn_terminal", "event": terminal}
                 return
-            assistant_protocol_message = _with_turn_id(_assistant_tool_call_message(response, assistant_tool_calls), turn_id)
-            api_protocol_messages.extend([assistant_protocol_message, *tool_protocol_messages])
             model_messages = _sanitize_model_messages(
                 [
                     *model_messages,
@@ -972,11 +1059,12 @@ async def _invoke_single_turn_model(
     plain_invoker = getattr(model_runtime, "invoke_messages", None)
     if native_tools and callable(tool_invoker):
         try:
+            tool_call_options = build_round_tool_call_options(max_tool_calls=len(native_tools))
             return await tool_invoker(
                 model_messages,
                 native_tools,
                 model_spec=model_selection,
-                tool_call_options={"parallel_tool_calls": True},
+                tool_call_options=tool_call_options,
                 accounting_context=accounting_context,
             )
         except Exception as exc:
@@ -1996,6 +2084,191 @@ def _tool_operation_id(runtime_host: Any, *, tool_name: str) -> str:
     return str(getattr(definition, "operation_id", "") or tool_name)
 
 
+async def _execute_tool_batch_group(
+    group: ToolBatchGroup,
+    *,
+    invocation_rows: list[dict[str, Any]],
+    runtime_host: Any,
+    runtime_assembly: Any,
+    turn_run: TurnRun | None,
+    session_id: str,
+    turn_id: str,
+    packet_ref: str,
+    tool_plan: Any,
+) -> list[ToolObservation]:
+    row_indexes: list[int] = []
+    for raw_index in list(group.item_indexes or ()):
+        try:
+            index = int(raw_index)
+        except (TypeError, ValueError):
+            continue
+        if 0 <= index < len(invocation_rows):
+            row_indexes.append(index)
+    if not row_indexes:
+        return []
+    timeout_seconds = _tool_batch_group_timeout_seconds(runtime_assembly)
+    if group.parallel and len(row_indexes) > 1:
+        tasks = {
+            asyncio.create_task(
+                _invoke_turn_tool_for_batch_row(
+                    invocation_rows[index],
+                    runtime_host=runtime_host,
+                    runtime_assembly=runtime_assembly,
+                    turn_run=turn_run,
+                    session_id=session_id,
+                    turn_id=turn_id,
+                    packet_ref=packet_ref,
+                    tool_plan=tool_plan,
+                )
+            ): index
+            for index in row_indexes
+        }
+        done, pending = await asyncio.wait(tasks, timeout=timeout_seconds if timeout_seconds > 0 else None)
+        if pending:
+            for task in pending:
+                task.cancel()
+            await asyncio.gather(*pending, return_exceptions=True)
+        results_by_index: dict[int, Any] = {}
+        for task in done:
+            row_index = tasks[task]
+            try:
+                results_by_index[row_index] = task.result()
+            except asyncio.CancelledError as exc:
+                raise exc
+            except BaseException as exc:
+                results_by_index[row_index] = exc
+        for task in pending:
+            results_by_index[tasks[task]] = TimeoutError(f"tool_batch_group_timeout_after_{timeout_seconds:g}s")
+        observations: list[ToolObservation] = []
+        for row_index in row_indexes:
+            row = invocation_rows[row_index]
+            result = results_by_index.get(row_index, RuntimeError("tool_batch_group_missing_result"))
+            if isinstance(result, asyncio.CancelledError):
+                raise result
+            observation = _observation_from_batch_result(
+                result,
+                row=row,
+                runtime_host=runtime_host,
+                turn_run=turn_run,
+                turn_id=turn_id,
+                packet_ref=packet_ref,
+                tool_plan=tool_plan,
+            )
+            row["observation"] = observation
+            observations.append(observation)
+        return observations
+
+    observations = []
+    for row_index in row_indexes:
+        row = invocation_rows[row_index]
+        try:
+            invocation = _invoke_turn_tool_for_batch_row(
+                row,
+                runtime_host=runtime_host,
+                runtime_assembly=runtime_assembly,
+                turn_run=turn_run,
+                session_id=session_id,
+                turn_id=turn_id,
+                packet_ref=packet_ref,
+                tool_plan=tool_plan,
+            )
+            if timeout_seconds > 0:
+                result = await asyncio.wait_for(invocation, timeout=timeout_seconds)
+            else:
+                result = await invocation
+        except asyncio.CancelledError:
+            raise
+        except asyncio.TimeoutError:
+            result = TimeoutError(f"tool_batch_group_timeout_after_{timeout_seconds:g}s")
+        except BaseException as exc:
+            result = exc
+        observation = _observation_from_batch_result(
+            result,
+            row=row,
+            runtime_host=runtime_host,
+            turn_run=turn_run,
+            turn_id=turn_id,
+            packet_ref=packet_ref,
+            tool_plan=tool_plan,
+        )
+        row["observation"] = observation
+        observations.append(observation)
+    return observations
+
+
+def _tool_batch_group_timeout_seconds(runtime_assembly: Any) -> float:
+    assembly_payload = runtime_assembly.to_dict() if hasattr(runtime_assembly, "to_dict") else dict(runtime_assembly or {})
+    environment = dict(assembly_payload.get("task_environment") or {})
+    execution_policy = dict(environment.get("execution_policy") or {})
+    for candidate in (
+        execution_policy.get("tool_batch_timeout_seconds"),
+        environment.get("tool_batch_timeout_seconds"),
+        dict(assembly_payload.get("diagnostics") or {}).get("tool_batch_timeout_seconds"),
+    ):
+        try:
+            value = float(candidate)
+        except (TypeError, ValueError):
+            continue
+        if value > 0:
+            return max(1.0, value)
+    return 300.0
+
+
+async def _invoke_turn_tool_for_batch_row(
+    row: dict[str, Any],
+    *,
+    runtime_host: Any,
+    runtime_assembly: Any,
+    turn_run: TurnRun | None,
+    session_id: str,
+    turn_id: str,
+    packet_ref: str,
+    tool_plan: Any,
+) -> ToolObservation:
+    return await _invoke_turn_tool(
+        runtime_host=runtime_host,
+        runtime_assembly=runtime_assembly,
+        turn_run=turn_run,
+        session_id=session_id,
+        turn_id=turn_id,
+        action_request=row["action_request"],
+        admission=row["admission"],
+        action_permit=dict(row.get("action_permit") or {}),
+        packet_ref=packet_ref,
+        tool_plan=tool_plan,
+    )
+
+
+def _observation_from_batch_result(
+    result: Any,
+    *,
+    row: dict[str, Any],
+    runtime_host: Any,
+    turn_run: TurnRun | None,
+    turn_id: str,
+    packet_ref: str,
+    tool_plan: Any,
+) -> ToolObservation:
+    if isinstance(result, ToolObservation):
+        return result
+    error: BaseException
+    if isinstance(result, BaseException):
+        error = result
+    else:
+        error = RuntimeError("tool_invocation_invalid_observation")
+    return _tool_observation_from_runtime_exception(
+        runtime_host=runtime_host,
+        turn_run=turn_run,
+        turn_id=turn_id,
+        action_request=row["action_request"],
+        admission=row["admission"],
+        action_permit=dict(row.get("action_permit") or {}),
+        packet_ref=packet_ref,
+        tool_plan=tool_plan,
+        error=error,
+    )
+
+
 async def _invoke_turn_tool(
     *,
     runtime_host: Any,
@@ -2103,6 +2376,23 @@ def _single_turn_sandbox_scope(assembly_payload: dict[str, Any], *, runtime_host
             or ("op.write_file", "op.edit_file", "op.shell", "op.python_repl", "op.browser_control", "op.image_generate")
         ),
     }
+
+
+def _single_turn_workspace_root(runtime_assembly: Any, *, runtime_host: Any) -> str:
+    assembly_payload = runtime_assembly.to_dict() if hasattr(runtime_assembly, "to_dict") else dict(runtime_assembly or {})
+    storage = dict(dict(assembly_payload.get("task_environment") or {}).get("storage_space") or {})
+    for candidate in (
+        storage.get("workspace_root"),
+        dict(dict(assembly_payload.get("task_environment") or {}).get("sandbox_policy") or {}).get("workspace_root"),
+    ):
+        text = str(candidate or "").strip()
+        if text:
+            return text
+    backend_dir = Path(str(getattr(runtime_host, "backend_dir", "") or assembly_payload.get("backend_dir") or ".")).resolve()
+    try:
+        return str(ProjectLayout.from_backend_dir(backend_dir).project_root.resolve())
+    except Exception:
+        return str(backend_dir.parent.resolve())
 
 
 def _assistant_tool_call_message(response: Any, tool_calls: list[dict[str, Any]]) -> dict[str, Any]:
@@ -2529,6 +2819,37 @@ def _record_model_action_admission(
                 **dict(current.diagnostics or {}),
                 "latest_admission_decision": admission.decision,
                 "latest_action_type": action_request.action_type,
+            },
+        )
+    )
+    return event.to_dict()
+
+
+def _record_turn_tool_batch_event(
+    runtime_host: Any,
+    *,
+    turn_run: TurnRun,
+    turn_id: str,
+    event_type: str,
+    payload: dict[str, Any],
+    refs: dict[str, Any],
+) -> dict[str, Any]:
+    event = runtime_host.event_log.append(
+        turn_run.turn_run_id,
+        event_type,
+        payload=dict(payload or {}),
+        refs=dict(refs or {}),
+    )
+    current = runtime_host.state_index.get_turn_run(turn_run.turn_run_id) or turn_run
+    runtime_host.state_index.upsert_turn_run(
+        replace(
+            current,
+            updated_at=event.created_at,
+            latest_event_offset=event.offset,
+            diagnostics={
+                **dict(current.diagnostics or {}),
+                "latest_tool_batch_event": event_type,
+                "latest_tool_batch_ref": str(dict(payload or {}).get("tool_batch_ref") or dict(dict(payload or {}).get("tool_batch_plan") or {}).get("batch_id") or ""),
             },
         )
     )

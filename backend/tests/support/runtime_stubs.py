@@ -136,9 +136,11 @@ class NativeToolCallModelRuntimeStub(SingleMessageModelRuntimeStub):
         super().__init__(content=content, agent_turn_action_request=agent_turn_action_request)
         self.tool_calls = list(tool_calls or [])
         self.seen_tools: list[object] = []
+        self.seen_tool_call_options: list[object] = []
 
     async def invoke_messages_with_tools(self, messages, tools, **_kwargs):
         self.seen_tools.append(list(tools or []))
+        self.seen_tool_call_options.append(_kwargs.get("tool_call_options"))
         if self.tool_calls:
             return SimpleNamespace(content=self.content, tool_calls=list(self.tool_calls))
         if self.agent_turn_action_request and _is_model_action_request(messages):
@@ -154,12 +156,14 @@ class NativeToolCallSequenceModelRuntimeStub(SingleMessageModelRuntimeStub):
         self.seen_tools: list[object] = []
         self.seen_messages: list[list[object]] = []
         self.seen_accounting_contexts: list[dict[str, object]] = []
+        self.seen_tool_call_options: list[object] = []
 
     async def invoke_messages_with_tools(self, messages, tools, **_kwargs):
         self.calls += 1
         self.seen_tools.append(list(tools or []))
         self.seen_messages.append(list(messages or []))
         self.seen_accounting_contexts.append(dict(_kwargs.get("accounting_context") or {}))
+        self.seen_tool_call_options.append(_kwargs.get("tool_call_options"))
         response = self.responses[min(self.calls - 1, max(0, len(self.responses) - 1))] if self.responses else {}
         return SimpleNamespace(
             content=str(response.get("content") or ""),

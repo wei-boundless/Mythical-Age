@@ -3274,6 +3274,85 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     });
   });
 
+  it("shows single-agent turn tool events in session activity and assistant progress", () => {
+    let transition = startStreamingTurn(getDefaultState(), "写一个文件");
+    transition = reduceStreamEvent(transition.state, transition.session, "model_action_admission", {
+      event: {
+        event_id: "rtevt:turn-tool-request",
+        run_id: "turnrun:turn:session:77",
+        event_type: "model_action_admission_checked",
+        created_at: 2,
+        payload: {
+          model_action_request: {
+            action_type: "tool_call",
+            public_progress_note: "已发起工具调用，正在等待工具返回：write_file。",
+            tool_call: {
+              name: "write_file",
+              args: { path: "docs/turn.md" },
+            },
+          },
+          admission: {
+            decision: "allow",
+          },
+        },
+      },
+    });
+
+    expect(transition.state.sessionActivity).toMatchObject({
+      level: "running",
+      title: "正在写入",
+      detail: "docs/turn.md",
+      toolName: "write_file",
+    });
+
+    transition = reduceStreamEvent(transition.state, transition.session, "turn_tool_observation_recorded", {
+      event: {
+        event_id: "rtevt:turn-tool-result",
+        run_id: "turnrun:turn:session:77",
+        event_type: "turn_tool_observation_recorded",
+        created_at: 3,
+        payload: {
+          preview: {
+            tool_observation: {
+              observation_id: "toolobs:turn",
+              caller_ref: "turnrun:turn:session:77",
+              tool_name: "write_file",
+              status: "ok",
+              text: "Write succeeded: docs/turn.md",
+              result_envelope: {
+                tool_args: { path: "docs/turn.md" },
+              },
+              structured_payload: {
+                artifact_refs: [{ path: "docs/turn.md", kind: "file" }],
+              },
+            },
+          },
+        },
+      },
+    });
+
+    const assistant = transition.state.messages.at(-1);
+    expect(transition.state.sessionActivity).toMatchObject({
+      level: "running",
+      title: "写入完成",
+      detail: "docs/turn.md",
+      toolName: "write_file",
+      receipt: {
+        artifacts: [{ label: "产物", path: "docs/turn.md" }],
+      },
+    });
+    expect(assistant?.runtimeProgress?.map((entry) => entry.title)).toEqual([
+      "正在写入 docs/turn.md",
+      "写入完成 docs/turn.md",
+    ]);
+    expect(assistant?.runtimeProgress?.[1]).toMatchObject({
+      kind: "tool",
+      statusText: "已完成",
+      toolName: "write_file",
+      artifacts: [{ label: "产物", path: "docs/turn.md" }],
+    });
+  });
+
   it("does not attach permission gate checks to the assistant task flow", () => {
     let transition = startStreamingTurn(getDefaultState(), "继续");
     transition = reduceStreamEvent(transition.state, transition.session, "harness_loop_event", {

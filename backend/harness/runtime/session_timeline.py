@@ -17,7 +17,7 @@ def build_session_runtime_timeline(
 ) -> dict[str, Any]:
     history_record = dict(history or {})
     history_messages = list(history_record.get("messages") or [])
-    attachments = [
+    task_attachments = [
         _runtime_attachment(runtime_host, task_run, history_messages=history_messages, max_progress_entries=max_progress_entries)
         for task_run in sorted(
             runtime_host.state_index.list_session_task_runs(session_id),
@@ -25,10 +25,21 @@ def build_session_runtime_timeline(
         )
         if _is_formal_chat_task_run(task_run)
     ]
+    turn_attachments = [
+        _turn_runtime_attachment(runtime_host, turn_run, history_messages=history_messages, max_progress_entries=max_progress_entries)
+        for turn_run in sorted(
+            runtime_host.state_index.list_session_turn_runs(session_id),
+            key=lambda item: float(getattr(item, "updated_at", 0.0) or 0.0),
+        )
+    ]
+    attachments = sorted(
+        [item for item in [*task_attachments, *turn_attachments] if item],
+        key=lambda item: float(item.get("updated_at") or item.get("created_at") or 0.0),
+    )
     return {
         **history_record,
         "session_id": session_id,
-        "runtime_attachments": [item for item in attachments if item],
+        "runtime_attachments": attachments,
         "authority": "session_runtime_timeline",
     }
 
@@ -89,6 +100,60 @@ def _runtime_attachment(runtime_host: Any, task_run: Any, *, history_messages: l
         "created_at": float(getattr(task_run, "created_at", 0.0) or 0.0),
         "updated_at": float(getattr(task_run, "updated_at", 0.0) or 0.0),
         "authority": "session_runtime_timeline.attachment",
+    }
+
+
+def _turn_runtime_attachment(runtime_host: Any, turn_run: Any, *, history_messages: list[Any], max_progress_entries: int) -> dict[str, Any]:
+    turn_run_id = str(getattr(turn_run, "turn_run_id", "") or "")
+    if not turn_run_id:
+        return {}
+    events = [item.to_dict() for item in _recent_events(runtime_host, turn_run_id, limit=max_progress_entries * 8)]
+    progress_entries = _progress_entries(events)[-max(1, int(max_progress_entries or 24)) :]
+    if not progress_entries:
+        return {}
+    anchor_turn_id = _valid_turn_ref(getattr(turn_run, "turn_id", "")) or _turn_id_from_turn_run_id(turn_run_id)
+    anchor_message = _anchor_assistant_message(anchor_turn_id=anchor_turn_id, history_messages=history_messages)
+    latest = progress_entries[-1]
+    status = str(getattr(turn_run, "status", "") or "")
+    return {
+        "attachment_id": f"runtime-attachment:{turn_run_id}",
+        "run_id": turn_run_id,
+        "turn_run_id": turn_run_id,
+        "anchor_turn_id": anchor_turn_id,
+        "anchor_message_id": _history_message_id(anchor_message) if anchor_message else "",
+        "anchor_role": "assistant",
+        "task_run_id": "",
+        "task_id": "",
+        "status": status,
+        "terminal_reason": public_runtime_progress_summary(getattr(turn_run, "terminal_reason", "") or ""),
+        "lifecycle": status,
+        "bucket": "turn",
+        "title": "会话运行",
+        "summary": str(latest.get("publicNote") or latest.get("body") or latest.get("title") or ""),
+        "latest_step": {
+            "step": str(latest.get("eventType") or ""),
+            "status": str(latest.get("statusText") or status),
+            "summary": str(latest.get("body") or ""),
+            "public_progress_note": str(latest.get("publicNote") or latest.get("body") or ""),
+            "agent_brief_output": str(latest.get("agentBrief") or ""),
+            "event_id": str(latest.get("id") or ""),
+            "created_at": float(latest.get("createdAt") or 0.0),
+        },
+        "latest_step_summary": str(latest.get("body") or ""),
+        "latest_public_progress_note": str(latest.get("publicNote") or latest.get("body") or ""),
+        "agent_brief_output": str(latest.get("agentBrief") or ""),
+        "latest_event_type": str(latest.get("eventType") or ""),
+        "event_count": _event_count(runtime_host, turn_run_id, fallback=len(events)),
+        "progress_presentation": {},
+        "progress_entries": progress_entries,
+        "public_timeline": _public_timeline_from_progress_entries(progress_entries),
+        "artifact_refs": _artifact_refs_from_progress_entries(progress_entries),
+        "final_answer": "",
+        "trace_available": True,
+        "debug_trace_ref": turn_run_id,
+        "created_at": float(getattr(turn_run, "created_at", 0.0) or 0.0),
+        "updated_at": max(_latest_now(events, turn_run), float(getattr(turn_run, "updated_at", 0.0) or 0.0)),
+        "authority": "session_runtime_timeline.turn_attachment",
     }
 
 
@@ -247,6 +312,14 @@ def _turn_id_from_task_run(task_run_id: str) -> str:
     return ""
 
 
+def _turn_id_from_turn_run_id(turn_run_id: str) -> str:
+    prefix = "turnrun:"
+    candidate = str(turn_run_id or "").strip()
+    if candidate.startswith(prefix):
+        candidate = candidate[len(prefix) :]
+    return candidate if candidate.startswith("turn:") else ""
+
+
 def _progress_entries(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
     entries: list[dict[str, Any]] = []
     observations_by_ref = _observations_by_ref(events)
@@ -254,6 +327,16 @@ def _progress_entries(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
     for event in events:
         event_type = str(event.get("event_type") or "")
         payload = dict(event.get("payload") or {})
+        if event_type == "model_action_admission_checked":
+            entry = _turn_model_action_entry(event, payload=payload)
+            if entry:
+                entries.append(entry)
+            continue
+        if event_type == "turn_tool_observation_recorded":
+            entry = _turn_tool_observation_entry(event, payload=payload)
+            if entry:
+                entries.append(entry)
+            continue
         if event_type == "step_summary_recorded":
             summary = public_runtime_progress_summary(payload.get("summary") or "").strip()
             public_note = public_runtime_progress_summary(payload.get("public_progress_note") or summary).strip()
@@ -458,6 +541,204 @@ def _progress_entries(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return entries
 
 
+def _turn_model_action_entry(event: dict[str, Any], *, payload: dict[str, Any]) -> dict[str, Any]:
+    action_request = dict(payload.get("model_action_request") or {})
+    action_type = str(action_request.get("action_type") or "").strip()
+    public_note = public_runtime_progress_summary(action_request.get("public_progress_note") or "").strip()
+    if action_type != "tool_call":
+        body = public_note or "正在判断下一步动作。"
+        return _entry(
+            event,
+            title="正在思考",
+            body=body,
+            kind="model",
+            level="running",
+            status="running",
+            public_note=body,
+            evidence_type="model_action",
+        )
+    tool_call = dict(action_request.get("tool_call") or {})
+    tool_name = str(tool_call.get("tool_name") or tool_call.get("name") or action_request.get("tool_name") or "").strip()
+    preview = _tool_call_preview(tool_call)
+    title = _tool_activity_title(tool_name=tool_name, preview=preview, phase="started")
+    return _entry(
+        event,
+        title=title,
+        body=public_note or preview or "已发起工具请求。",
+        kind="tool",
+        level="running",
+        status=_tool_activity_status(tool_name=tool_name, phase="started"),
+        tool_name=tool_name,
+        public_note=public_note or preview,
+        evidence_type="tool_request",
+        meta=_compact_meta(
+            [
+                {"label": "工具", "value": tool_name},
+                {"label": "目标", "value": preview},
+            ]
+        ),
+    )
+
+
+def _turn_tool_observation_entry(event: dict[str, Any], *, payload: dict[str, Any]) -> dict[str, Any]:
+    preview = dict(payload.get("preview") or {})
+    observation = dict(preview.get("tool_observation") or payload.get("tool_observation") or {})
+    if not observation:
+        return {}
+    envelope = dict(observation.get("result_envelope") or {})
+    receipt = dict(observation.get("execution_receipt") or {})
+    tool_name = str(observation.get("tool_name") or envelope.get("tool_name") or receipt.get("tool_name") or "").strip()
+    tool_args = dict(observation.get("tool_args") or envelope.get("tool_args") or {})
+    target = _tool_args_preview(tool_args)
+    status = str(observation.get("status") or receipt.get("status") or "").strip()
+    error = str(observation.get("error") or receipt.get("error") or "").strip()
+    failed = bool(error or (status and status.lower() not in {"ok", "completed", "success"}))
+    result_text = public_runtime_progress_summary(
+        error
+        or observation.get("text")
+        or envelope.get("text")
+        or (f"工具状态：{status}" if status else "工具结果已返回。")
+    ).strip()
+    return _entry(
+        event,
+        title=_tool_activity_title(tool_name=tool_name, preview=target, phase="failed" if failed else "completed"),
+        body=result_text,
+        kind="tool",
+        level="error" if failed else "success",
+        status=_tool_activity_status(tool_name=tool_name, phase="failed" if failed else "completed"),
+        tool_name=tool_name,
+        public_note=result_text,
+        agent_brief=result_text,
+        evidence_type="tool_observation",
+        meta=_compact_meta(
+            [
+                {"label": "工具", "value": tool_name},
+                {"label": "目标", "value": target},
+            ]
+        ),
+        artifacts=_turn_tool_observation_artifacts(observation),
+    )
+
+
+def _tool_call_preview(tool_call: dict[str, Any]) -> str:
+    return _tool_args_preview(dict(tool_call.get("args") or tool_call.get("input") or {}))
+
+
+def _tool_args_preview(args: dict[str, Any]) -> str:
+    for key in ("command", "shell_command", "cmd", "script", "path", "file_path", "relative_path", "target_path", "query", "pattern", "url"):
+        value = public_runtime_progress_summary(args.get(key) or "").strip()
+        if value:
+            return value[:240]
+    return ""
+
+
+def _tool_activity_title(*, tool_name: str, preview: str, phase: str) -> str:
+    family = _tool_family(tool_name)
+    target = preview or tool_name or "工具"
+    labels = {
+        "write": {"started": "正在写入", "completed": "写入完成", "failed": "写入失败"},
+        "read": {"started": "正在读取", "completed": "读取完成", "failed": "读取失败"},
+        "run": {"started": "正在运行", "completed": "命令已完成", "failed": "命令失败"},
+        "search": {"started": "正在搜索", "completed": "搜索完成", "failed": "搜索失败"},
+        "tool": {"started": "正在调用", "completed": "工具已完成", "failed": "工具失败"},
+    }
+    title = labels.get(family, labels["tool"]).get(phase, labels["tool"]["started"])
+    return f"{title} {target}".strip()
+
+
+def _tool_activity_status(*, tool_name: str, phase: str) -> str:
+    family = _tool_family(tool_name)
+    if phase == "failed":
+        return "失败"
+    if phase == "completed":
+        return "已完成"
+    if family == "write":
+        return "写入中"
+    if family == "read":
+        return "读取中"
+    if family == "run":
+        return "运行中"
+    if family == "search":
+        return "搜索中"
+    return "调用中"
+
+
+def _tool_family(tool_name: str) -> str:
+    normalized = str(tool_name or "").strip().lower()
+    if any(item in normalized for item in ("write", "edit", "patch")):
+        return "write"
+    if "read" in normalized:
+        return "read"
+    if any(item in normalized for item in ("terminal", "shell", "command")):
+        return "run"
+    if "search" in normalized:
+        return "search"
+    return "tool"
+
+
+def _turn_tool_observation_artifacts(observation: dict[str, Any]) -> list[dict[str, str]]:
+    envelope = dict(observation.get("result_envelope") or {})
+    structured = dict(observation.get("structured_payload") or {})
+    envelope_structured = dict(envelope.get("structured_payload") or {})
+    artifacts: list[dict[str, str]] = []
+    for source in (observation, structured, envelope_structured):
+        for path in [
+            *list(source.get("observed_paths") or []),
+            *list(source.get("written_paths") or []),
+            *list(source.get("matched_paths") or []),
+        ]:
+            normalized = str(path or "").strip()
+            if normalized:
+                artifacts.append({"label": "产物", "path": normalized})
+        for item in list(source.get("artifact_refs") or []):
+            if isinstance(item, str):
+                normalized = item.strip()
+            elif isinstance(item, dict):
+                normalized = str(item.get("path") or item.get("file") or item.get("absolute_path") or item.get("ref") or "").strip()
+            else:
+                normalized = ""
+            if normalized:
+                artifacts.append({"label": "产物", "path": normalized})
+    seen: set[str] = set()
+    deduped: list[dict[str, str]] = []
+    for item in artifacts:
+        key = f"{item.get('label')}:{item.get('path')}"
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(item)
+    return deduped[:6]
+
+
+def _compact_meta(items: list[dict[str, str]]) -> list[dict[str, str]]:
+    return [item for item in items if str(item.get("label") or "").strip() and str(item.get("value") or "").strip()][:6]
+
+
+def _public_timeline_from_progress_entries(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    timeline: list[dict[str, Any]] = []
+    for entry in entries:
+        kind = str(entry.get("kind") or "")
+        level = str(entry.get("level") or "")
+        timeline.append(
+            {
+                "item_id": f"turn-progress:{entry.get('id')}",
+                "kind": "tool_activity" if kind == "tool" else "assistant_text" if kind == "model" else kind or "runtime_progress",
+                "title": str(entry.get("title") or ""),
+                "detail": str(entry.get("body") or ""),
+                "state": "error" if level == "error" else "done" if level == "success" else "running",
+                "trace_refs": [str(entry.get("id") or "")],
+            }
+        )
+    return timeline
+
+
+def _artifact_refs_from_progress_entries(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    artifacts: list[dict[str, Any]] = []
+    for entry in entries:
+        artifacts.extend([dict(item) for item in list(entry.get("artifacts") or []) if isinstance(item, dict)])
+    return artifacts[:12]
+
+
 def _entry(
     event: dict[str, Any],
     *,
@@ -471,6 +752,7 @@ def _entry(
     agent_brief: str = "",
     evidence_type: str = "",
     meta: list[dict[str, str]] | None = None,
+    artifacts: list[dict[str, str]] | None = None,
 ) -> dict[str, Any]:
     item = {
         "id": str(event.get("event_id") or f"{event.get('run_id') or event.get('task_run_id')}:{event.get('offset')}"),
@@ -493,6 +775,8 @@ def _entry(
         item["evidenceType"] = evidence_type
     if meta:
         item["meta"] = list(meta)
+    if artifacts:
+        item["artifacts"] = list(artifacts)
     return item
 
 

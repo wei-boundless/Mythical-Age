@@ -13,6 +13,13 @@ from token_accounting import count_text_tokens
 
 from .hooks import CompactBoundaryReceipt, CompactHookDecision, PreCompactHookRequest
 from .invariants import validate_compacted_messages
+from .low_authority_text import compress_low_authority_text, is_low_authority_natural_text_message
+from .semantic_worker import (
+    SemanticCompactionWorkerResult,
+    normalize_semantic_compaction_worker_result,
+    semantic_compaction_worker_exception,
+    semantic_compactor_registration_from_worker,
+)
 
 
 @dataclass(slots=True)
@@ -78,6 +85,8 @@ class ContextCompactor:
         microcompact_ratio: float = 0.82,
         full_compact_ratio: float = 0.94,
         bulky_message_token_threshold: int = 220,
+        low_authority_text_token_threshold: int = 260,
+        low_authority_text_target_chars: int = 520,
         full_compact_recent_messages: int = 6,
         prompt_serializer: CanonicalPromptSerializer | None = None,
         compression_budget_planner: CompressionBudgetPlanner | None = None,
@@ -98,9 +107,16 @@ class ContextCompactor:
         self.microcompact_tokens = max(self.warning_tokens + 1, int(effective_history_token_budget * microcompact_ratio))
         self.full_compact_tokens = max(self.microcompact_tokens + 1, int(effective_history_token_budget * full_compact_ratio))
         self.bulky_message_token_threshold = bulky_message_token_threshold
+        self.low_authority_text_token_threshold = max(1, int(low_authority_text_token_threshold or 1))
+        self.low_authority_text_target_chars = max(120, int(low_authority_text_target_chars or 120))
         self.prompt_serializer = prompt_serializer or CanonicalPromptSerializer()
         self.compression_budget_planner = compression_budget_planner or CompressionBudgetPlanner()
         self.semantic_compactor = semantic_compactor
+        self.semantic_compactor_registration = (
+            semantic_compactor_registration_from_worker(semantic_compactor)
+            if semantic_compactor is not None
+            else None
+        )
         self.pre_compact_hook = pre_compact_hook
         self.post_compact_hook = post_compact_hook
 
@@ -196,20 +212,55 @@ class ContextCompactor:
             meta={**message.meta, "kind": "microcompact_stub"},
         )
 
-    def _apply_microcompact(self, messages: list[Message]) -> tuple[list[Message], int]:
+    def _low_authority_text_stub(self, message: Message) -> Message | None:
+        compression = compress_low_authority_text(
+            message.content,
+            target_chars=self.low_authority_text_target_chars,
+        )
+        if not compression.applied:
+            return None
+        digest = hashlib.sha256(str(message.content or "").encode("utf-8", errors="ignore")).hexdigest()[:16]
+        return Message(
+            role=message.role,
+            content=(
+                "[Earlier low-authority assistant prose was compressed to reduce context pressure. "
+                "This checkpoint is not source evidence and must not replace current user intent. "
+                f"Preview: {compression.content}]"
+            ),
+            meta={
+                **message.meta,
+                "kind": "low_authority_text_compressed",
+                "original_content_hash": digest,
+                "compression": compression.to_dict(),
+            },
+        )
+
+    def _apply_microcompact(self, messages: list[Message]) -> tuple[list[Message], int, int]:
         if len(messages) <= self.keep_recent_messages:
-            return list(messages), 0
+            return list(messages), 0, 0
 
         boundary = len(messages) - self.keep_recent_messages
         compacted: list[Message] = []
-        replaced = 0
+        bulky_replaced = 0
+        low_authority_replaced = 0
         for index, message in enumerate(messages):
             if index < boundary and self._looks_like_bulk_output(message):
                 compacted.append(self._microcompact_stub(message))
-                replaced += 1
+                bulky_replaced += 1
+            elif index < boundary and is_low_authority_natural_text_message(
+                message,
+                token_count=self._message_tokens(message),
+                threshold_tokens=self.low_authority_text_token_threshold,
+            ):
+                stub = self._low_authority_text_stub(message)
+                if stub is not None:
+                    compacted.append(stub)
+                    low_authority_replaced += 1
+                else:
+                    compacted.append(message)
             else:
                 compacted.append(message)
-        return compacted, replaced
+        return compacted, bulky_replaced, low_authority_replaced
 
     def build_semantic_compaction_request(
         self,
@@ -217,6 +268,12 @@ class ContextCompactor:
         *,
         pressure_level: Literal["microcompact", "full_compact"],
         request_id: str = "context_compaction:preview",
+        session_id: str = "",
+        turn_id: str = "",
+        task_run_id: str = "",
+        task_environment_id: str = "",
+        trigger: str = "",
+        reason: str = "",
         reserved_output_tokens: int = 0,
     ) -> SemanticCompactionRequest:
         diagnostics = self._prompt_accounting_diagnostics(
@@ -226,6 +283,15 @@ class ContextCompactor:
             task_run_id="",
             reserved_output_tokens=reserved_output_tokens,
         )
+        diagnostics = {
+            **diagnostics,
+            "session_id": str(session_id or ""),
+            "turn_id": str(turn_id or ""),
+            "task_run_id": str(task_run_id or ""),
+            "task_environment_id": str(task_environment_id or ""),
+            "trigger": str(trigger or ""),
+            "reason": str(reason or ""),
+        }
         decision = dict(diagnostics.get("compression_budget_decision") or {})
         recent = tuple(self._select_recent_core_messages(list(messages), self.full_compact_recent_messages))
         protected_recent_ids = {id(message) for message in recent}
@@ -356,7 +422,8 @@ class ContextCompactor:
                 },
             )
 
-        micro_messages, replaced = self._apply_microcompact(working)
+        micro_messages, bulky_replaced, low_authority_replaced = self._apply_microcompact(working)
+        replaced = bulky_replaced + low_authority_replaced
         tokens_after_micro = self._conversation_tokens(micro_messages)
         post_micro_level = self._pressure_level(tokens_after_micro, len(micro_messages))
         if pressure_level == "microcompact" or post_micro_level in {"normal", "warning", "microcompact"}:
@@ -376,6 +443,8 @@ class ContextCompactor:
                 diagnostics={
                     **prompt_diagnostics,
                     "estimated_tokens_after_microcompact": tokens_after_micro,
+                    "bulky_message_replaced_count": bulky_replaced,
+                    "low_authority_text_compressed_count": low_authority_replaced,
                     "semantic_compactor_required": False,
                 },
             )
@@ -400,10 +469,37 @@ class ContextCompactor:
         recent_count = self.full_compact_recent_messages
         max_chars_per_section = 420
         summary_target_tokens = int(budget_decision.get("summary_target_tokens") or 0)
-        resolved_summary_content = semantic_summary_content or summary_content
-        compaction_source = "semantic_compactor" if semantic_summary_content else "deterministic_session_memory"
+        semantic_request = self.build_semantic_compaction_request(
+            working,
+            pressure_level="full_compact",
+            request_id=request_id,
+            session_id=session_id,
+            turn_id=turn_id,
+            task_run_id=task_run_id,
+            task_environment_id=task_environment_id,
+            trigger=trigger,
+            reason=reason,
+            reserved_output_tokens=reserved_output_tokens,
+        )
+        semantic_worker_result = (
+            self._run_registered_semantic_compactor(semantic_request)
+            if semantic_summary_content is None and self.semantic_compactor is not None
+            else None
+        )
+        resolved_summary_content = (
+            semantic_summary_content
+            or (semantic_worker_result.summary_content if semantic_worker_result and semantic_worker_result.ok else "")
+            or summary_content
+        )
+        compaction_source = (
+            "semantic_compactor"
+            if semantic_summary_content
+            else str(semantic_worker_result.source)
+            if semantic_worker_result and semantic_worker_result.ok
+            else "deterministic_session_memory"
+        )
         while True:
-            if semantic_summary_content is None and summary_source_content is not None:
+            if resolved_summary_content is None and summary_source_content is not None:
                 resolved_summary_content = self.session_memory_manager.compact_view(
                     content=summary_source_content,
                     max_chars_per_section=max_chars_per_section,
@@ -424,7 +520,7 @@ class ContextCompactor:
                 continue
             if max_chars_per_section > 240:
                 max_chars_per_section = 240
-                if semantic_summary_content is None and summary_source_content is None and summary_content is None:
+                if resolved_summary_content is None and summary_source_content is None and summary_content is None:
                     resolved_summary_content = self.session_memory_manager.compact_view(
                         max_chars_per_section=max_chars_per_section,
                     ).strip()
@@ -468,14 +564,18 @@ class ContextCompactor:
             diagnostics={
                 **prompt_diagnostics,
                 "estimated_tokens_after_microcompact": tokens_after_micro,
+                "bulky_message_replaced_count": bulky_replaced,
+                "low_authority_text_compressed_count": low_authority_replaced,
                 "summary_source_tokens": self._count_tokens(summary_source_content or ""),
                 "semantic_compactor_required": semantic_summary_content is None,
-                "semantic_compaction_request": self.build_semantic_compaction_request(
-                    working,
-                    pressure_level="full_compact",
-                    request_id=request_id,
-                    reserved_output_tokens=reserved_output_tokens,
-                ).to_dict(),
+                "semantic_compactor_registered": self.semantic_compactor_registration is not None,
+                "semantic_compactor_binding": (
+                    self.semantic_compactor_registration.to_dict()
+                    if self.semantic_compactor_registration is not None
+                    else {}
+                ),
+                "semantic_compactor_result": semantic_worker_result.to_dict() if semantic_worker_result is not None else {},
+                "semantic_compaction_request": semantic_request.to_dict(),
                 "compaction_source": compaction_source,
             },
         )
@@ -516,7 +616,7 @@ class ContextCompactor:
 
     def _is_compaction_noise(self, message: Message) -> bool:
         meta = dict(message.meta or {})
-        if str(meta.get("kind") or "") in {"compact_summary", "microcompact_stub"}:
+        if str(meta.get("kind") or "") in {"compact_summary", "microcompact_stub", "low_authority_text_compressed"}:
             return True
         content = str(message.content or "").strip()
         lowered = content.lower()
@@ -542,6 +642,18 @@ class ContextCompactor:
                 "输出必须是可直接放入 system checkpoint 的中文摘要，不要暴露内部字段名或运行 id。",
             ]
         )
+
+    def _run_registered_semantic_compactor(self, request: SemanticCompactionRequest) -> SemanticCompactionWorkerResult:
+        if self.semantic_compactor is None:
+            return SemanticCompactionWorkerResult(ok=False, diagnostics={"reason": "semantic_compactor_not_configured"})
+        try:
+            if hasattr(self.semantic_compactor, "compact"):
+                raw_result = self.semantic_compactor.compact(request)
+            else:
+                raw_result = self.semantic_compactor(request)
+        except Exception as exc:
+            return semantic_compaction_worker_exception(exc)
+        return normalize_semantic_compaction_worker_result(raw_result)
 
     def _trim_summary_to_token_target(self, summary: str, target_tokens: int) -> str:
         normalized = str(summary or "").strip()

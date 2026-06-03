@@ -70,6 +70,9 @@ class MemoryFacade:
     def set_durable_memory_saved_callback(self, callback: Callable[[dict[str, int]], None] | None) -> None:
         self._external_durable_memory_saved_callback = callback
 
+    def set_session_compactor_kwargs_provider(self, provider: Callable[[str], dict[str, Any]] | None) -> None:
+        self.session_memory.set_compactor_kwargs_provider(provider)
+
     def mark_durable_memory_namespaces_dirty(
         self,
         saved_namespaces: dict[str, int] | None = None,

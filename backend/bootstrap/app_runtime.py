@@ -54,6 +54,7 @@ class AppRuntime:
             prompt_accounting_ledger=PromptAccountingLedger(ProjectLayout.from_backend_dir(base_dir).runtime_state_dir),
         )
         self.memory_facade.set_model_invoker(self.model_runtime.invoke_messages)
+        self.memory_facade.set_session_compactor_kwargs_provider(self._session_compactor_kwargs)
         self.memory_facade.set_durable_memory_saved_callback(self._on_durable_memory_saved)
         self.memory_facade.background_task_manager.register_handler(
             "durable_memory_index_rebuild",
@@ -74,6 +75,25 @@ class AppRuntime:
             permission_service=self.permission_service,
             model_runtime=self.model_runtime,
         )
+
+    def _session_compactor_kwargs(self, session_id: str) -> dict[str, object]:
+        if self.base_dir is None or self.model_runtime is None:
+            return {}
+        from harness.runtime import build_registered_semantic_compaction_worker
+
+        resolver = (
+            self.harness_runtime.agent_runtime_registry.get_profile
+            if self.harness_runtime is not None
+            else None
+        )
+        worker = build_registered_semantic_compaction_worker(
+            base_dir=self.base_dir,
+            model_runtime=self.model_runtime,
+            agent_runtime_profile_resolver=resolver,
+        )
+        if worker is None:
+            return {}
+        return {"semantic_compactor": worker}
 
     def require_ready(self) -> "AppRuntime":
         if (

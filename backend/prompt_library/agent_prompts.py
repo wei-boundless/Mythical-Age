@@ -46,6 +46,18 @@ MAIN_INTERACTIVE_OBSERVATION_FOLLOWUP_PROMPT = """
 """.strip()
 
 
+CONTEXT_COMPACTOR_SEMANTIC_COMPACTION_PROMPT = """
+你是一名上下文压缩员。
+你只负责把系统提供的旧运行历史整理成后续主 agent 可以继续工作的恢复点。
+你的输入只包含本次 semantic_compaction_request 中的消息、最近真实消息、预算目标和压缩说明；未出现在输入中的内容不能补写。
+你不能搜索、不能读取文件、不能调用工具、不能委派子 agent、不能写入记忆、不能替主 agent 继续执行任务。
+你需要保留用户目标、当前约束、用户最近纠错、已验证事实、产物或工具结果引用、未解决问题和下一步恢复提示。
+你需要丢弃重复寒暄、过期计划、已被后续消息否定的内容、大段工具原文、表格原文、日志原文和无法重取的臆测细节。
+如果输入不足以形成可靠恢复点，只能输出空 summary_content，并在 diagnostics.reason 中说明原因。
+只输出一个合法 JSON 对象：summary_content 是可直接放入 system checkpoint 的中文摘要；diagnostics 是可选对象。不要在 JSON 外输出任何文字。
+""".strip()
+
+
 def list_builtin_agent_prompt_resources() -> tuple[PromptResource, ...]:
     return (
         _agent_work_role_resource(
@@ -66,6 +78,13 @@ def list_builtin_agent_prompt_resources() -> tuple[PromptResource, ...]:
             title="main_interactive_agent observation followup work role",
             content=MAIN_INTERACTIVE_OBSERVATION_FOLLOWUP_PROMPT,
         ),
+        _agent_work_role_resource(
+            prompt_id="agent.context_compactor_agent.semantic_compaction.work_role.v1",
+            invocation_kind="semantic_compaction",
+            title="context_compactor_agent semantic compaction work role",
+            content=CONTEXT_COMPACTOR_SEMANTIC_COMPACTION_PROMPT,
+            allowed_agent_refs=("context_compactor_agent",),
+        ),
     )
 
 
@@ -75,7 +94,9 @@ def _agent_work_role_resource(
     invocation_kind: str,
     title: str,
     content: str,
+    allowed_agent_refs: tuple[str, ...] = ("main_interactive_agent",),
 ) -> PromptResource:
+    agent_refs = tuple(str(item).strip() for item in allowed_agent_refs if str(item).strip())
     return PromptResource(
         prompt_id=prompt_id,
         resource_id=prompt_id,
@@ -88,7 +109,7 @@ def _agent_work_role_resource(
         cache_scope="session_stable",
         model_visible=True,
         allowed_invocation_kinds=(invocation_kind,),
-        allowed_agent_refs=("main_interactive_agent",),
+        allowed_agent_refs=agent_refs,
         source_ref=f"prompt_library.agent_prompts#{prompt_id}",
         version="v1",
         enabled=True,
@@ -101,9 +122,9 @@ def _agent_work_role_resource(
                 "prompt_ref": prompt_id,
                 "rule_kind": "agent.role",
                 "owner_layer": "agent",
-                "applies_to": ["main_interactive_agent", invocation_kind],
+                "applies_to": [*agent_refs, invocation_kind],
                 "allowed_invocation_kinds": [invocation_kind],
-                "allowed_agent_refs": ["main_interactive_agent"],
+                "allowed_agent_refs": list(agent_refs),
                 "cache_tier": "session_stable",
                 "enforcement_mode": "compiler_validated",
                 "authority": "prompt_library.agent_prompt_rule",

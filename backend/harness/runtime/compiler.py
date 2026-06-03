@@ -53,6 +53,194 @@ class RuntimeCompiler:
         self.base_dir = Path(base_dir) if base_dir is not None else Path(__file__).resolve().parents[2]
         self.dynamic_context_manager = DynamicContextManager(base_dir=self.base_dir)
 
+    def compile_semantic_compaction_packet(
+        self,
+        *,
+        semantic_request: Any,
+        runtime_assembly: Any,
+        agent_runtime_profile: Any | None = None,
+        session_id: str = "",
+        turn_id: str = "",
+        task_run_id: str = "",
+        model_selection: dict[str, Any] | None = None,
+    ) -> RuntimeCompilationResult:
+        invocation_kind = "semantic_compaction"
+        request_payload = semantic_request.to_dict() if hasattr(semantic_request, "to_dict") else dict(semantic_request or {})
+        request_diagnostics = dict(request_payload.get("diagnostics") or {})
+        request_id = str(request_payload.get("request_id") or "context_compaction:semantic").strip()
+        resolved_session_id = (
+            str(session_id or "").strip()
+            or str(request_diagnostics.get("session_id") or "").strip()
+            or "semantic_compaction"
+        )
+        resolved_turn_id = str(turn_id or request_diagnostics.get("turn_id") or "").strip()
+        resolved_task_run_id = str(task_run_id or request_diagnostics.get("task_run_id") or "").strip()
+        assembly_payload = runtime_assembly.to_dict() if hasattr(runtime_assembly, "to_dict") else dict(runtime_assembly or {})
+        self._bind_assembly_base_dir(assembly_payload)
+        profile_payload = dict(assembly_payload.get("profile") or {})
+        environment_payload = dict(assembly_payload.get("task_environment") or {})
+        profile_metadata = dict(getattr(agent_runtime_profile, "metadata", {}) or {})
+        agent_profile_ref = str(
+            assembly_payload.get("agent_profile_ref")
+            or profile_payload.get("profile_ref")
+            or getattr(agent_runtime_profile, "agent_profile_id", "")
+            or "context_compactor_agent"
+        )
+        task_environment_ref = str(
+            environment_payload.get("environment_id")
+            or request_diagnostics.get("task_environment_id")
+            or "env.general.workspace"
+        )
+        prompt_assembly = self._assemble_prompt_pack(
+            invocation_kind=invocation_kind,
+            prompt_pack_refs=_prompt_pack_refs_for_invocation(profile_payload, invocation_kind=invocation_kind),
+            agent_profile_ref=agent_profile_ref,
+            task_environment_ref=task_environment_ref,
+        )
+        agent_prompt_assembly = self._assemble_prompt_refs(
+            invocation_kind=invocation_kind,
+            prompt_refs=_agent_prompt_refs_for_invocation(assembly_payload, invocation_kind=invocation_kind),
+            agent_profile_ref=agent_profile_ref,
+            task_environment_ref=task_environment_ref,
+        )
+        output_contract = {
+            "required_json_object": True,
+            "required_fields": ["summary_content"],
+            "forbidden_actions": ["tool_call", "file_write", "memory_write", "delegation"],
+            **dict(profile_metadata.get("output_contract") or {}),
+            "authority": "harness.runtime.semantic_compaction.output_contract",
+        }
+        stable_boundary = {
+            "agent_id": str(getattr(agent_runtime_profile, "agent_id", "") or "agent:context_compactor"),
+            "agent_profile_ref": agent_profile_ref,
+            "runtime_template_id": str(profile_metadata.get("runtime_template_id") or ""),
+            "runtime_config": dict(profile_metadata.get("runtime_config") or {}),
+            "input_contract": dict(profile_metadata.get("input_contract") or {}),
+            "output_contract": output_contract,
+            "allowed_operations": list(profile_payload.get("allowed_operations") or []),
+            "blocked_operations": list(getattr(agent_runtime_profile, "blocked_operations", ()) or ()),
+            "subagent_policy": dict(profile_payload.get("subagent_policy") or {}),
+            "task_environment_id": task_environment_ref,
+            "authority": "harness.runtime.semantic_compaction.stable_boundary",
+        }
+        packet_id = f"rtpacket:{request_id}:semantic_compaction:1"
+        model_messages, segment_plan = _model_messages_and_segment_plan(
+            packet_id=packet_id,
+            invocation_kind=invocation_kind,
+            specs=[
+                _message_spec(
+                    role="system",
+                    content=prompt_assembly.content,
+                    kind="global_static",
+                    source_ref=",".join(prompt_assembly.prompt_pack_refs),
+                    cache_scope="global",
+                    cache_role="cacheable_prefix",
+                    compression_role="preserve",
+                ),
+                _message_spec(
+                    role="system",
+                    content=agent_prompt_assembly.content,
+                    kind="semantic_compaction_role",
+                    source_ref=",".join(_agent_prompt_refs_for_invocation(assembly_payload, invocation_kind=invocation_kind)),
+                    cache_scope="session",
+                    cache_role="session_stable",
+                    compression_role="preserve",
+                ),
+                _message_spec(
+                    role="system",
+                    content=_packet_payload_content("Semantic compaction stable boundary", stable_boundary),
+                    kind="semantic_compaction_stable_boundary",
+                    source_ref="semantic_compaction_stable_boundary",
+                    cache_scope="session",
+                    cache_role="session_stable",
+                    compression_role="preserve",
+                ),
+                _message_spec(
+                    role="user",
+                    content=_packet_payload_content("Semantic compaction request", request_payload),
+                    kind="semantic_compaction_request",
+                    source_ref=str(request_payload.get("request_id") or "semantic_compaction_request"),
+                    cache_scope="none",
+                    cache_role="volatile",
+                    compression_role="summarize",
+                    metadata={
+                        "semantic_compaction_request_ref": str(request_payload.get("request_id") or ""),
+                        "pressure_level": str(request_payload.get("pressure_level") or ""),
+                        "summary_target_tokens": int(request_payload.get("summary_target_tokens") or 0),
+                    },
+                ),
+            ],
+        )
+        protocol_sanitizer = sanitize_messages_for_prompt(
+            model_messages,
+            turn_id=resolved_turn_id,
+            source="harness.runtime.compiler.semantic_compaction",
+        )
+        model_messages = [dict(item) for item in protocol_sanitizer.messages]
+        prompt_manifest = build_runtime_prompt_manifest(
+            invocation_kind=invocation_kind,
+            assembly=_merge_prompt_assemblies(
+                prompt_assembly,
+                agent_prompt_assembly,
+                invocation_kind=invocation_kind,
+            ),
+            packet_id=packet_id,
+            dynamic_projection_refs=("semantic_compaction_request",),
+            volatile_state_refs=("messages", "recent_messages"),
+        ).to_dict()
+        prompt_manifest["segment_plan_ref"] = segment_plan.segment_plan_id
+        prompt_manifest["protocol_sanitizer"] = dict(protocol_sanitizer.diagnostics)
+        _attach_model_message_metrics(prompt_manifest, model_messages=model_messages, segment_plan=segment_plan.to_dict())
+        envelope = RuntimeEnvelope(
+            envelope_id=f"rtenv:{request_id}:semantic_compaction",
+            scope_kind="recovery",
+            session_id=resolved_session_id,
+            turn_id=resolved_turn_id,
+            task_run_id=resolved_task_run_id,
+            agent_profile_ref=agent_profile_ref,
+            task_environment_ref=task_environment_ref,
+            runtime_policy={
+                "context_policy": dict(profile_payload.get("context_policy") or {}),
+                "memory_policy": dict(profile_payload.get("memory_policy") or {}),
+            },
+            permission_policy=dict(profile_payload.get("permission_policy") or {}),
+            prompt_policy={"invocation_kind": invocation_kind},
+            output_policy=output_contract,
+            diagnostics={
+                "request_id": request_id,
+                "model_selection": dict(model_selection or {}),
+                "runtime_assembly_id": str(assembly_payload.get("assembly_id") or ""),
+                "worker_kind": str(profile_metadata.get("worker_kind") or ""),
+            },
+        )
+        packet = RuntimeInvocationPacket(
+            packet_id=packet_id,
+            envelope_ref=envelope.envelope_id,
+            invocation_kind=invocation_kind,
+            invocation_index=1,
+            session_id=resolved_session_id,
+            turn_id=resolved_turn_id,
+            task_run_id=resolved_task_run_id,
+            model_messages=model_messages,
+            segment_plan=segment_plan.to_dict(),
+            prompt_pack_refs=prompt_assembly.prompt_pack_refs,
+            available_tools=(),
+            allowed_action_types=("model_response",),
+            output_contract=output_contract,
+            hidden_control_refs={
+                "request_id": request_id,
+                "runtime_assembly_id": str(assembly_payload.get("assembly_id") or ""),
+            },
+            diagnostics={
+                "prompt_manifest": prompt_manifest,
+                "segment_plan": segment_plan.to_dict(),
+                "model_input_authority": "runtime_invocation_packet.model_messages",
+                "protocol_sanitizer": dict(protocol_sanitizer.diagnostics),
+                "semantic_compaction_request_ref": str(request_payload.get("request_id") or ""),
+            },
+        )
+        return RuntimeCompilationResult(envelope=envelope, packet=packet)
+
     def compile_single_agent_turn_packet(
         self,
         *,
@@ -1250,7 +1438,8 @@ def _single_agent_turn_output_contract(
             },
             "ordinary_tool_calls": {
                 "enabled": "tool_call" in allowed_actions,
-                "parallel_allowed": True,
+                "multi_tool_calls_allowed": True,
+                "runtime_execution_policy": "tool_batch_plan_scheduled_by_safety_and_resource_locks",
                 "boundary": "runtime_visible_tools_only",
                 "denied_or_failed_tool_calls_return_observations": True,
             },
@@ -1267,7 +1456,8 @@ def _single_agent_turn_output_contract(
             },
             "native_tool_calls": {
                 "enabled": "tool_call" in allowed_actions,
-                "parallel_tool_calls": True,
+                "provider_multi_tool_calls_allowed": True,
+                "runtime_execution_policy": "tool_batch_plan_scheduled_by_safety_and_resource_locks",
                 "control_actions_exposed_as_native_tools": False,
             },
         },
@@ -1275,7 +1465,8 @@ def _single_agent_turn_output_contract(
             "tool_call": {
                 "enabled": "tool_call" in allowed_actions,
                 "boundary": "runtime_visible_tools_only",
-                "parallel_allowed": True,
+                "multi_tool_calls_allowed": True,
+                "runtime_execution_policy": "tool_batch_plan_scheduled_by_safety_and_resource_locks",
                 "denied_or_failed_calls_return_observations": True,
             },
         },
@@ -1914,7 +2105,7 @@ def _runtime_projection_instruction(projection: dict[str, Any]) -> str:
             )
         else:
             lines.append(
-                "- 普通工具调用可以在同一轮提出多个；运行时会分别准入和执行，并把成功、失败或拒绝结果作为工具观察返回。"
+                "- 普通工具调用可以在同一轮提出多个；运行时会按工具安全声明、资源冲突和审批状态决定并发或串行，并把成功、失败或拒绝结果作为工具观察返回。"
                 "显式人工审批属于 runtime/UI 控制状态，不要在聊天里要求用户批准系统权限。看到工具观察后，你需要基于观察继续判断，不要把权限拒绝理解为用户已经授权，也不要原样重复同一个未获准动作。"
             )
     if projection.get("invocation_kind") == "single_agent_turn":

@@ -225,6 +225,7 @@ export type SessionRuntimeAttachment = {
   anchor_turn_id: string;
   anchor_message_id?: string;
   anchor_role?: "assistant" | string;
+  turn_run_id?: string;
   task_run_id?: string;
   task_id?: string;
   status: string;

@@ -6,6 +6,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any
 
 from capability_system.mcp.local_registry import default_local_mcp_units
+from permissions.operations import build_default_operation_registry
 from runtime.tooling import ToolCapability, ToolCapabilityFilterIssue, ToolCapabilitySourceTrace, ToolCapabilityTable
 
 from .tool_scheduling import (
@@ -13,6 +14,8 @@ from .tool_scheduling import (
     operation_requests_from_authorization,
     operation_requests_from_runtime_selection,
 )
+
+_OPERATION_REGISTRY = build_default_operation_registry()
 
 
 @dataclass(frozen=True, slots=True)
@@ -93,6 +96,17 @@ def build_runtime_tool_plan(
             continue
         definition = definition_by_name.get(name)
         operation_id = str(tool.get("operation_id") or getattr(definition, "operation_id", "") or name)
+        operation = _operation_descriptor(operation_id)
+        if operation is not None:
+            read_only = bool(operation.read_only)
+            destructive = bool(operation.destructive)
+            concurrency_safe = bool(operation.concurrency_safe)
+            operation_type = str(operation.operation_type or "")
+        else:
+            read_only = bool(getattr(definition, "is_read_only", False))
+            destructive = bool(getattr(definition, "is_destructive", False))
+            concurrency_safe = bool(getattr(definition, "is_concurrency_safe", False))
+            operation_type = ""
         capabilities.append(
             ToolCapability(
                 operation_id=operation_id,
@@ -105,8 +119,10 @@ def build_runtime_tool_plan(
                     ToolCapabilitySourceTrace(source="tool_scheduling", detail=operation_id),
                 ),
                 metadata={
-                    "read_only": bool(getattr(definition, "is_read_only", False)),
-                    "destructive": bool(getattr(definition, "is_destructive", False)),
+                    "read_only": read_only,
+                    "destructive": destructive,
+                    "concurrency_safe": concurrency_safe,
+                    "operation_type": operation_type,
                     "tool_view": dict(tool),
                 },
             )
@@ -326,3 +342,7 @@ def _operation_decisions_by_id(operation_authorization: dict[str, Any]) -> dict[
         for item in list(operation_authorization.get("decisions") or [])
         if isinstance(item, dict) and str(item.get("operation_id") or "").strip()
     }
+
+
+def _operation_descriptor(operation_id: str) -> Any | None:
+    return _OPERATION_REGISTRY.get_operation(str(operation_id or "").strip())

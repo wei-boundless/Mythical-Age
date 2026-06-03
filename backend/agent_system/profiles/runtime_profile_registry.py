@@ -245,6 +245,19 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
                 "system_key": "context_management",
                 "manager_kind": "context_compaction",
                 "runtime_template_id": "builtin.system.context_compactor",
+                "agent_prompt_refs_by_invocation": {
+                    "semantic_compaction": ["agent.context_compactor_agent.semantic_compaction.work_role.v1"],
+                },
+                "worker_kind": "semantic_compaction",
+                "subagent_task_kind": "semantic_compaction",
+                "input_contract": {
+                    "request": "context_system.semantic_compaction_request",
+                    "forbidden_inputs": ("external_web", "cross_namespace_memory", "raw_filesystem_scan"),
+                },
+                "output_contract": {
+                    "required_fields": ("summary_content",),
+                    "forbidden_actions": ("tool_call", "file_write", "memory_write", "delegation"),
+                },
                 "runtime_config": {
                     "template_id": "runtime.template.context_compactor",
                     "runtime_kind": "context_compactor",
@@ -860,6 +873,10 @@ def _enforce_system_builtin_profile_payload(
                 "manager_kind",
                 "runtime_template_id",
                 "agent_prompt_refs_by_invocation",
+                "worker_kind",
+                "subagent_task_kind",
+                "input_contract",
+                "output_contract",
             }
         )
     payload_metadata = dict(payload.get("metadata") or {})

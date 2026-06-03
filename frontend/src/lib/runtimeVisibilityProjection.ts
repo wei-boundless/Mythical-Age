@@ -161,6 +161,16 @@ function artifactsFromMixed(value: unknown): UserReceiptArtifact[] {
     .slice(0, 6);
 }
 
+function dedupeArtifacts(items: UserReceiptArtifact[]) {
+  const seen = new Set<string>();
+  return items.filter((item) => {
+    const key = `${item.label}:${item.path ?? item.value ?? ""}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  }).slice(0, 6);
+}
+
 function metaItem(label: string, value: unknown, options: { shorten?: boolean } = {}) {
   const normalized = options.shorten ? shortId(value) : text(value);
   return normalized ? { label, value: normalized } : null;
@@ -410,6 +420,37 @@ function toolResultArtifacts(payload: Record<string, unknown>) {
   ].slice(0, 6);
 }
 
+function turnToolObservationFromData(data: Record<string, unknown>) {
+  const direct = record(data.tool_observation);
+  if (Object.keys(direct).length) return direct;
+  const payload = runtimeEvent(data).payload;
+  const payloadObservation = record(payload.tool_observation);
+  if (Object.keys(payloadObservation).length) return payloadObservation;
+  return record(record(payload.preview).tool_observation);
+}
+
+function turnToolObservationArtifacts(observation: Record<string, unknown>) {
+  const envelope = record(observation.result_envelope);
+  const structured = record(observation.structured_payload);
+  const envelopeStructured = record(envelope.structured_payload);
+  return dedupeArtifacts([
+    ...artifactsFromPaths([
+      ...arrayText(observation.observed_paths, 6),
+      ...arrayText(observation.written_paths, 6),
+      ...arrayText(observation.matched_paths, 6),
+      ...arrayText(structured.observed_paths, 6),
+      ...arrayText(structured.written_paths, 6),
+      ...arrayText(structured.matched_paths, 6),
+      ...arrayText(envelopeStructured.observed_paths, 6),
+      ...arrayText(envelopeStructured.written_paths, 6),
+      ...arrayText(envelopeStructured.matched_paths, 6),
+    ]),
+    ...artifactsFromMixed(observation.artifact_refs),
+    ...artifactsFromMixed(structured.artifact_refs),
+    ...artifactsFromMixed(envelopeStructured.artifact_refs),
+  ]);
+}
+
 function toolRequestProjection(eventType: string, payload: Record<string, unknown>, eventMeta: ReturnType<typeof runtimeEvent>): RuntimeVisibilityProjection {
   const actionRequest = record(payload.action_request);
   const requestPayload = record(actionRequest.payload);
@@ -440,6 +481,61 @@ function toolRequestProjection(eventType: string, payload: Record<string, unknow
       eventId: eventMeta.eventId,
       createdAt: eventMeta.createdAt,
       startedAt: eventMeta.createdAt,
+      meta: compactMeta([
+        metaItem("工具", toolName),
+        preview ? metaItem("目标", preview) : null,
+      ]),
+    }),
+  };
+}
+
+function turnModelActionAdmissionProjection(eventType: string, data: Record<string, unknown>): RuntimeVisibilityProjection {
+  const meta = runtimeEvent(data);
+  const payload = meta.payload;
+  const actionRequest = record(payload.model_action_request);
+  const actionType = text(actionRequest.action_type);
+  if (actionType !== "tool_call") {
+    const note = publicRuntimeText(actionRequest.public_progress_note) || "正在判断下一步动作。";
+    return {
+      stageStatus: note,
+      activityTitle: "正在思考",
+      activityDetail: note,
+      level: "running",
+      progressEntry: entry(eventType, "正在思考", {
+        body: note,
+        publicNote: note,
+        kind: "model",
+        statusText: "思考中",
+        runId: meta.runId,
+        eventId: meta.eventId,
+        createdAt: meta.createdAt,
+      }),
+    };
+  }
+  const toolCall = record(actionRequest.tool_call);
+  const toolName = text(toolCall.tool_name ?? toolCall.name ?? actionRequest.tool_name) || "工具";
+  const preview = commandPreviewFromToolCall(toolCall, actionRequest.command ?? actionRequest.path ?? actionRequest.query);
+  const activity = toolActivityText(toolName, preview);
+  const admission = record(payload.admission);
+  const allowed = text(admission.decision) !== "deny";
+  const title = allowed ? activity.startedTitle : "工具请求受限";
+  const detail = allowed ? activity.display : publicRuntimeText(admission.user_visible_reason ?? admission.system_reason) || activity.display;
+  const publicNote = publicRuntimeText(actionRequest.public_progress_note);
+  return {
+    stageStatus: `${title} ${detail}`.trim(),
+    activityTitle: title,
+    activityDetail: detail,
+    level: allowed ? "running" : "warning",
+    progressEntry: entry(eventType, `${title} ${detail}`.trim(), {
+      body: publicNote || preview || "已发起工具请求",
+      publicNote,
+      kind: "tool",
+      statusText: allowed ? activity.statusRunning : "受限",
+      toolName,
+      runId: meta.runId,
+      eventId: meta.eventId,
+      createdAt: meta.createdAt,
+      startedAt: meta.createdAt,
       meta: compactMeta([
         metaItem("工具", toolName),
         preview ? metaItem("目标", preview) : null,
@@ -486,6 +582,55 @@ function toolResultProjection(eventType: string, payload: Record<string, unknown
         metaItem("结果字符", resultChars),
       ]),
       artifacts: toolResultArtifacts(payload),
+    }),
+  };
+}
+
+function turnToolObservationProjection(eventType: string, data: Record<string, unknown>): RuntimeVisibilityProjection {
+  const meta = runtimeEvent(data);
+  const observation = turnToolObservationFromData(data);
+  if (!Object.keys(observation).length) return {};
+  const envelope = record(observation.result_envelope);
+  const receipt = record(observation.execution_receipt);
+  const toolArgs = record(observation.tool_args ?? envelope.tool_args);
+  const toolName = text(observation.tool_name ?? envelope.tool_name ?? receipt.tool_name) || "工具";
+  const preview = commandPreviewFromArgs(toolArgs);
+  const activity = toolActivityText(toolName, preview);
+  const status = text(observation.status ?? receipt.status);
+  const failed = Boolean(
+    text(observation.error)
+    || text(receipt.error)
+    || (status && !["ok", "completed", "success"].includes(status.toLowerCase()))
+  );
+  const resultText = short(
+    observation.text
+    ?? envelope.text
+    ?? (status ? `工具状态：${status}` : "工具结果已返回"),
+  );
+  const artifacts = turnToolObservationArtifacts(observation);
+  const runId = meta.runId || text(observation.caller_ref);
+  const eventId = meta.eventId || text(observation.observation_id);
+  const createdAt = meta.createdAt ?? Date.now();
+  return {
+    stageStatus: "整理工具结果",
+    activityTitle: failed ? activity.failedTitle : activity.completedTitle,
+    activityDetail: preview || resultText,
+    level: failed ? "error" : "running",
+    progressEntry: entry(eventType, failed ? `${activity.failedTitle} ${activity.display}` : `${activity.completedTitle} ${activity.display}`, {
+      body: resultText,
+      kind: "tool",
+      level: failed ? "error" : "running",
+      statusText: failed ? activity.statusFailed : activity.statusDone,
+      toolName,
+      runId,
+      eventId,
+      createdAt,
+      completedAt: createdAt,
+      meta: compactMeta([
+        metaItem("工具", toolName),
+        preview ? metaItem("目标", preview) : null,
+      ]),
+      artifacts,
     }),
   };
 }
@@ -851,6 +996,12 @@ export function projectRuntimeStreamEvent(event: string, data: Record<string, un
         ]),
       }),
     };
+  }
+  if (event === "model_action_admission") {
+    return turnModelActionAdmissionProjection(event, data);
+  }
+  if (event === "tool_observation" || event === "turn_tool_observation_recorded") {
+    return turnToolObservationProjection(event, data);
   }
   if (event === "harness_loop_event") {
     return projectHarnessLoopEvent(data);

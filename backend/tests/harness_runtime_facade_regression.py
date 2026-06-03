@@ -17,7 +17,8 @@ from api.chat import (
     _runtime_run_refs_for_public_event,
     _runtime_run_refs_from_event,
 )
-from runtime.shared.models import AgentRunResult, TaskRun
+from runtime.shared.models import AgentRunResult, TaskRun, TurnRun
+from runtime.tool_runtime import ToolObservation
 from harness.loop.model_action_protocol import ModelActionRequest
 from harness.loop.task_executor import (
     _duplicate_read_only_tool_call_observation,
@@ -370,6 +371,8 @@ def test_single_agent_turn_projection_only_exposes_executable_native_actions(tmp
     model_input = "\n".join(str(message.get("content") or "") for message in model.last_messages)
     output_contract = dict(stable_payload.get("output_contract") or {})
     action_protocol = dict(output_contract.get("action_protocol") or {})
+    ordinary_tool_contract = dict(action_protocol.get("ordinary_tool_calls") or {})
+    native_tool_contract = dict(action_protocol.get("native_tool_calls") or {})
 
     assert dict(assembly.get("control_capabilities") or {}).get("may_call_tools") is True
     assert packet_tools == ["read_file"]
@@ -378,13 +381,18 @@ def test_single_agent_turn_projection_only_exposes_executable_native_actions(tmp
     assert effective_capabilities.get("may_use_subagents") is False
     assert effective_capabilities.get("supports_json_action_protocol") is True
     assert effective_capabilities.get("requires_json_action_protocol") is False
-    assert dict(action_protocol.get("ordinary_tool_calls") or {}).get("parallel_allowed") is True
+    assert ordinary_tool_contract.get("multi_tool_calls_allowed") is True
+    assert ordinary_tool_contract.get("runtime_execution_policy") == "tool_batch_plan_scheduled_by_safety_and_resource_locks"
+    assert "parallel_allowed" not in ordinary_tool_contract
+    assert native_tool_contract.get("provider_multi_tool_calls_allowed") is True
+    assert native_tool_contract.get("runtime_execution_policy") == "tool_batch_plan_scheduled_by_safety_and_resource_locks"
     assert dict(action_protocol.get("control_actions") or {}).get("native_tool_transport_enabled") is False
     assert "single_action_per_turn" not in json.dumps(output_contract, ensure_ascii=False)
     assert "调用本次可见工具" in model_input
-    assert "普通工具调用可以在同一轮提出多个" in model_input
+    assert "运行时会按工具安全声明、资源冲突和审批状态决定并发或串行" in model_input
     assert "控制裁决，不是普通 native 工具" in model_input
     assert "子 agent 协作" not in model_input
+    assert getattr(model.seen_tool_call_options[0], "parallel_tool_calls", None) is False
     assert any(event.get("type") == "done" and str(event.get("content") or "") == "直接回答。" for event in events)
 
 
@@ -501,8 +509,15 @@ def test_single_agent_turn_batches_multiple_read_only_tools_before_followup_answ
     assistant_tool_message = next(item for item in followup_messages if item.get("role") == "assistant" and item.get("tool_calls"))
     tool_messages = [item for item in followup_messages if item.get("role") == "tool"]
     admitted_actions = [dict(payload.get("model_action_request") or {}) for payload in _admission_payloads(events)]
+    batch_plan_event = next(event for event in events if event.get("type") == "tool_batch_planned")
+    batch_plan = dict(batch_plan_event.get("tool_batch_plan") or {})
+    batch_groups = [dict(item) for item in list(batch_plan.get("groups") or [])]
 
     assert model.calls == 2
+    assert getattr(model.seen_tool_call_options[0], "parallel_tool_calls", None) is True
+    assert batch_groups and batch_groups[0]["parallel"] is True
+    assert batch_groups[0]["execution_class"] == "parallel_read"
+    assert batch_groups[0]["item_indexes"] == [0, 1]
     assert [item["tool_name"] for item in tool_observations] == ["read_file", "path_exists"]
     assert all(item["status"] == "ok" for item in tool_observations)
     assert [dict(item).get("action_type") for item in admitted_actions] == ["tool_call", "tool_call"]
@@ -551,8 +566,13 @@ def test_single_agent_turn_side_effect_tool_runs_inside_development_sandbox(tmp_
     tool_observations = [dict(event.get("tool_observation") or {}) for event in events if event.get("type") == "tool_observation"]
     followup_messages = [dict(item) for item in list(model.seen_messages[-1] or []) if isinstance(item, dict)]
     tool_message = next(item for item in followup_messages if item.get("role") == "tool")
+    batch_plan_event = next(event for event in events if event.get("type") == "tool_batch_planned")
+    batch_plan = dict(batch_plan_event.get("tool_batch_plan") or {})
+    batch_groups = [dict(item) for item in list(batch_plan.get("groups") or [])]
 
     assert model.calls == 2
+    assert batch_groups and batch_groups[0]["execution_class"] == "exclusive"
+    assert batch_groups[0]["parallel"] is False
     assert admissions
     assert dict(admissions[0].get("admission") or {}).get("decision") == "allow"
     assert tool_observations and tool_observations[0]["status"] == "ok"
@@ -563,6 +583,78 @@ def test_single_agent_turn_side_effect_tool_runs_inside_development_sandbox(tmp_
     assert not any(
         event.get("type") == "done" and dict(event).get("terminal_reason") == "tool_denied"
         for event in events
+    )
+
+
+def test_single_agent_turn_commits_completed_tool_protocol_before_waiting_approval(tmp_path: Path) -> None:
+    class ApprovalMixControlPlane:
+        async def invoke(self, request, *, tool_plan):
+            tool_name = str(getattr(request, "tool_name", "") or "")
+            status = "needs_approval" if tool_name == "write_file" else "ok"
+            text = "write_file waiting approval" if status == "needs_approval" else "read_file ok"
+            return ToolObservation(
+                observation_id=f"toolobs:{getattr(request, 'invocation_id', 'fake')}:test",
+                invocation_id=str(getattr(request, "invocation_id", "") or ""),
+                caller_kind=str(getattr(request, "caller_kind", "") or "agent_turn"),
+                caller_ref=str(getattr(request, "caller_ref", "") or ""),
+                tool_name=tool_name,
+                operation_id=str(getattr(request, "operation_id", "") or tool_name),
+                status=status,
+                text=text,
+                result_envelope={"status": status, "text": text},
+                operation_gate={"decision": "requires_approval" if status == "needs_approval" else "allow"},
+                diagnostics={"stage": "test_control_plane"},
+            )
+
+    model = NativeToolCallSequenceModelRuntimeStub(
+        [
+            {
+                "tool_calls": [
+                    {"id": "call-read", "name": "read_file", "args": {"path": "requirements.txt"}},
+                    {"id": "call-write", "name": "write_file", "args": {"path": ".tmp/approval.txt", "content": "pending"}},
+                ]
+            },
+            {"content": "不应进入 followup。"},
+        ]
+    )
+    tool_base_dir = _project_backend_dir()
+    runtime = build_harness_runtime(
+        base_dir=_runtime_test_root(tmp_path),
+        model_runtime=model,
+        tool_runtime=_tool_runtime_for_names(tool_base_dir, {"read_file", "write_file"}),
+    )
+    runtime.single_agent_runtime_host.tool_control_plane = ApprovalMixControlPlane()
+
+    async def _collect() -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime.astream(HarnessRuntimeRequest(session_id="session-single-turn-approval-mix", message="先读再写。")):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_collect())
+    stream_types = [str(event.get("type") or "") for event in events]
+    observations = [dict(event.get("tool_observation") or {}) for event in events if event.get("type") == "tool_observation"]
+    api_messages = [dict(item) for item in runtime.session_manager.api_transcript if isinstance(item, dict)]
+    assistant_tool_messages = [item for item in api_messages if item.get("role") == "assistant" and item.get("tool_calls")]
+    tool_messages = [item for item in api_messages if item.get("role") == "tool"]
+    batch_plan = dict(next(event for event in events if event.get("type") == "tool_batch_planned").get("tool_batch_plan") or {})
+    batch_groups = [dict(item) for item in list(batch_plan.get("groups") or [])]
+
+    assert model.calls == 1
+    assert "approval_waiting" in stream_types
+    assert any(event.get("type") == "agent_turn_terminal" for event in events)
+    assert not any(event.get("type") == "done" for event in events)
+    assert [item["status"] for item in observations] == ["ok", "needs_approval"]
+    assert [item["tool_name"] for item in observations] == ["read_file", "write_file"]
+    assert [group["execution_class"] for group in batch_groups] == ["parallel_read", "exclusive"]
+    assert assistant_tool_messages
+    assert [dict(item).get("id") for item in list(assistant_tool_messages[-1].get("tool_calls") or [])] == ["call-read"]
+    assert [item.get("tool_call_id") for item in tool_messages] == ["call-read"]
+    assert all(item.get("tool_call_id") != "call-write" for item in tool_messages)
+    assert any(
+        str(item.get("answer_source") or "") == "harness.single_agent_turn.approval_waiting"
+        and str(item.get("answer_channel") or "") == "blocked"
+        for item in runtime.session_manager.messages
     )
 
 
@@ -2145,6 +2237,91 @@ def test_session_runtime_timeline_projects_tool_observation_as_agent_visible_obs
         and item.get("text") == "工具返回失败：Image API request timed out"
         for item in public_timeline
     )
+
+
+def test_session_runtime_timeline_projects_turn_run_tool_progress() -> None:
+    from harness.runtime.session_timeline import build_session_runtime_timeline
+
+    runtime = build_harness_runtime()
+    host = runtime.single_agent_runtime_host
+    session_id = "session-turn-timeline"
+    turn_id = "turn:session-turn-timeline:7"
+    turn_run_id = f"turnrun:{turn_id}"
+    host.state_index.upsert_turn_run(
+        TurnRun(
+            turn_run_id=turn_run_id,
+            session_id=session_id,
+            turn_id=turn_id,
+            status="completed",
+            created_at=1.0,
+            updated_at=3.0,
+        )
+    )
+    host.event_log.append(
+        turn_run_id,
+        "model_action_admission_checked",
+        payload={
+            "turn_id": turn_id,
+            "model_action_request": {
+                "request_id": "model-action:turn-timeline:write",
+                "turn_id": turn_id,
+                "action_type": "tool_call",
+                "public_progress_note": "已发起工具调用，正在等待工具返回：write_file。",
+                "tool_call": {"tool_name": "write_file", "args": {"path": "docs/turn.md"}},
+            },
+            "admission": {"decision": "allow"},
+        },
+        refs={"turn_ref": turn_id, "turn_run_ref": turn_run_id},
+    )
+    host.event_log.append(
+        turn_run_id,
+        "turn_tool_observation_recorded",
+        payload={
+            "turn_id": turn_id,
+            "tool_observation": {
+                "observation_id": "toolobs:turn",
+                "invocation_id": "toolinv:turn",
+                "caller_kind": "turn_run",
+                "caller_ref": turn_run_id,
+                "tool_name": "write_file",
+                "operation_id": "op:write",
+                "status": "ok",
+                "text": "Write succeeded: docs/turn.md",
+                "result_envelope": {"tool_args": {"path": "docs/turn.md"}},
+                "artifact_refs": [{"path": "docs/turn.md", "kind": "file"}],
+            },
+        },
+        refs={"turn_ref": turn_id, "turn_run_ref": turn_run_id},
+    )
+
+    timeline = build_session_runtime_timeline(
+        session_id=session_id,
+        history={
+            "messages": [
+                {"role": "user", "content": "写文件", "turn_id": turn_id},
+                {"role": "assistant", "content": "完成", "turn_id": turn_id, "id": "message:assistant"},
+            ]
+        },
+        runtime_host=host,
+    )
+
+    attachment = timeline["runtime_attachments"][0]
+    entries = attachment["progress_entries"]
+    assert attachment["run_id"] == turn_run_id
+    assert attachment["turn_run_id"] == turn_run_id
+    assert attachment["task_run_id"] == ""
+    assert attachment["anchor_turn_id"] == turn_id
+    assert attachment["anchor_message_id"] == "message:assistant"
+    assert attachment["debug_trace_ref"] == turn_run_id
+    assert [item["title"] for item in entries] == [
+        "正在写入 docs/turn.md",
+        "写入完成 docs/turn.md",
+    ]
+    assert entries[1]["kind"] == "tool"
+    assert entries[1]["toolName"] == "write_file"
+    assert entries[1]["statusText"] == "已完成"
+    assert entries[1]["artifacts"] == [{"label": "产物", "path": "docs/turn.md"}]
+    assert any(item.get("kind") == "tool_activity" and item.get("title") == "写入完成 docs/turn.md" for item in attachment["public_timeline"])
 
 
 def test_session_runtime_timeline_derives_turn_anchor_from_structural_task_run_id() -> None:

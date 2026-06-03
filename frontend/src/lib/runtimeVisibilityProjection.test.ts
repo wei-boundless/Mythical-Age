@@ -121,6 +121,110 @@ describe("runtimeVisibilityProjection", () => {
     expect(returned.progressEntry?.artifacts?.[0]?.path).toBe("docs/plan.md");
   });
 
+  it("projects single-agent turn tool admission and observation as visible tool flow entries", () => {
+    const requested = projectRuntimeStreamEvent("model_action_admission", {
+      event: {
+        event_id: "rtevt:turn-tool-request",
+        run_id: "turnrun:turn:session-a:7",
+        event_type: "model_action_admission_checked",
+        created_at: 20,
+        payload: {
+          model_action_request: {
+            action_type: "tool_call",
+            public_progress_note: "已发起工具调用，正在等待工具返回：write_file。",
+            tool_call: {
+              name: "write_file",
+              args: { path: "storage/task_environments/general/workspace/artifacts/wuxia_rpg/templates/index.html" },
+            },
+          },
+          admission: {
+            decision: "allow",
+          },
+        },
+      },
+    });
+    const returned = projectRuntimeStreamEvent("turn_tool_observation_recorded", {
+      event: {
+        event_id: "rtevt:turn-tool-result",
+        run_id: "turnrun:turn:session-a:7",
+        event_type: "turn_tool_observation_recorded",
+        created_at: 21,
+        payload: {
+          preview: {
+            tool_observation: {
+              observation_id: "toolobs:1",
+              caller_ref: "turnrun:turn:session-a:7",
+              tool_name: "write_file",
+              status: "ok",
+              text: "Write succeeded: storage/task_environments/general/workspace/artifacts/wuxia_rpg/templates/index.html",
+              result_envelope: {
+                tool_args: { path: "storage/task_environments/general/workspace/artifacts/wuxia_rpg/templates/index.html" },
+              },
+              structured_payload: {
+                artifact_refs: [{
+                  path: "storage/task_environments/general/workspace/artifacts/wuxia_rpg/templates/index.html",
+                  kind: "file",
+                }],
+              },
+            },
+          },
+        },
+      },
+    });
+
+    expect(requested).toMatchObject({
+      stageStatus: "正在写入 storage/task_environments/general/workspace/artifacts/wuxia_rpg/templates/index.html",
+      activityTitle: "正在写入",
+      activityDetail: "storage/task_environments/general/workspace/artifacts/wuxia_rpg/templates/index.html",
+    });
+    expect(requested.progressEntry).toMatchObject({
+      kind: "tool",
+      toolName: "write_file",
+      runId: "turnrun:turn:session-a:7",
+      statusText: "写入中",
+    });
+    expect(returned).toMatchObject({
+      activityTitle: "写入完成",
+      activityDetail: "storage/task_environments/general/workspace/artifacts/wuxia_rpg/templates/index.html",
+    });
+    expect(returned.progressEntry).toMatchObject({
+      kind: "tool",
+      toolName: "write_file",
+      runId: "turnrun:turn:session-a:7",
+      statusText: "已完成",
+      artifacts: [{ label: "产物", path: "storage/task_environments/general/workspace/artifacts/wuxia_rpg/templates/index.html" }],
+    });
+  });
+
+  it("projects direct public tool observation events from single-agent turns", () => {
+    const projection = projectRuntimeStreamEvent("tool_observation", {
+      tool_observation: {
+        observation_id: "toolobs:direct",
+        caller_ref: "turnrun:turn:session-a:8",
+        tool_name: "read_file",
+        status: "ok",
+        text: "Read succeeded",
+        result_envelope: {
+          tool_args: { path: "docs/plan.md" },
+        },
+        structured_payload: {
+          observed_paths: ["docs/plan.md"],
+        },
+      },
+    });
+
+    expect(projection).toMatchObject({
+      activityTitle: "读取完成",
+      activityDetail: "docs/plan.md",
+    });
+    expect(projection.progressEntry).toMatchObject({
+      kind: "tool",
+      toolName: "read_file",
+      runId: "turnrun:turn:session-a:8",
+      artifacts: [{ label: "产物", path: "docs/plan.md" }],
+    });
+  });
+
   it("projects terminal commands as Codex-style running activity", () => {
     const projection = projectRuntimeStreamEvent("harness_loop_event", {
       event: {
