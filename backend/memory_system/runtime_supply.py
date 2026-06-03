@@ -4,6 +4,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any
 
 from .contracts import MemoryContextCandidate, StateMemoryRestoreCandidate
+from .layout import durable_memory_namespace_id_for_task_environment
 from .runtime_view import MemoryRuntimeView, normalize_memory_layer, normalize_memory_layers
 
 
@@ -20,6 +21,10 @@ class MemoryRequest:
     owner_node_id: str = ""
     node_run_id: str = ""
     run_attempt_id: str = ""
+    task_environment_id: str = ""
+    turn_environment_snapshot: dict[str, Any] = field(default_factory=dict)
+    memory_read_mode: str = "none"
+    global_common_allowed: bool = True
     memory_priority: str = "normal"
     allow_long_term_memory: bool = False
     reason: str = ""
@@ -29,6 +34,7 @@ class MemoryRequest:
         payload = asdict(self)
         payload["requested_memory_layers"] = list(self.requested_memory_layers)
         payload["requested_topics"] = list(self.requested_topics)
+        payload["turn_environment_snapshot"] = dict(self.turn_environment_snapshot)
         return payload
 
 
@@ -88,6 +94,10 @@ class MemoryReadPlan:
     working_scope: dict[str, str] = field(default_factory=dict)
     working_limit: int = 20
     note_limit: int = 5
+    memory_read_mode: str = "none"
+    turn_environment_snapshot: dict[str, Any] = field(default_factory=dict)
+    environment_scope: dict[str, Any] = field(default_factory=dict)
+    global_common_allowed: bool = True
     authority: str = "memory_orchestrator.read_plan"
 
     def wants(self, layer: str) -> bool:
@@ -95,10 +105,17 @@ class MemoryReadPlan:
 
     def diagnostics(self) -> dict[str, Any]:
         working_scope = dict(self.working_scope)
+        environment_scope = dict(self.environment_scope)
         return {
             "read_plan_authority": self.authority,
             "requested_memory_layers": list(self.requested_layers),
             "allow_long_term": self.allow_long_term,
+            "memory_read_mode": self.memory_read_mode,
+            "turn_environment_snapshot": dict(self.turn_environment_snapshot),
+            "effective_task_environment_id": environment_scope.get("task_environment_id", ""),
+            "read_namespaces": list(environment_scope.get("read_namespaces", ())),
+            "environment_scope": environment_scope,
+            "global_common_allowed": self.global_common_allowed,
             "state_read_requested": self.state_read_requested,
             "state_read_mode": self.state_read_mode,
             "requested_topics": list(self.requested_topics),
@@ -157,6 +174,15 @@ class MemoryOrchestrator:
         if requested_topics:
             effective_note_limit = max(effective_note_limit, min(len(requested_topics) + 2, 8))
         state_read_requested = "state" in requested_layers
+        turn_environment_snapshot = _turn_environment_snapshot(profile)
+        effective_task_environment_id = _effective_task_environment_id(profile, turn_environment_snapshot)
+        global_common_allowed = bool(profile.get("global_common_allowed", True))
+        read_namespaces = []
+        if global_common_allowed:
+            read_namespaces.append("global_common")
+        if effective_task_environment_id:
+            read_namespaces.append(durable_memory_namespace_id_for_task_environment(effective_task_environment_id))
+        memory_read_mode = str(profile.get("memory_read_mode") or ("task_relevant" if "long_term" in requested_layers else "none")).strip()
         return MemoryReadPlan(
             requested_layers=tuple(requested_layers),
             allow_long_term=bool(profile.get("allow_long_term_memory", False)),
@@ -175,6 +201,15 @@ class MemoryOrchestrator:
             },
             working_limit=_safe_limit(profile.get("working_memory_limit"), default=20),
             note_limit=effective_note_limit,
+            memory_read_mode=memory_read_mode,
+            turn_environment_snapshot=turn_environment_snapshot,
+            environment_scope={
+                "task_environment_id": effective_task_environment_id,
+                "environment_kind": str(turn_environment_snapshot.get("environment_kind") or profile.get("environment_kind") or ""),
+                "project_id": str(turn_environment_snapshot.get("project_id") or profile.get("project_id") or ""),
+                "read_namespaces": tuple(read_namespaces),
+            },
+            global_common_allowed=global_common_allowed,
         )
 
 
@@ -233,6 +268,8 @@ class MemorySupplier:
                     memory_intent=memory_intent,
                     relevant_notes=relevant_notes,
                     note_limit=plan.note_limit,
+                    environment_scope=plan.environment_scope,
+                    global_common_allowed=plan.global_common_allowed,
                 )
             )
             if plan.allow_long_term and plan.wants("long_term")
@@ -302,6 +339,8 @@ def build_memory_request(
     profile = dict(memory_request_profile or {})
     requested_layers = normalize_memory_layers(profile.get("requested_memory_layers"))
     requested_topics = _normalize_strings(profile.get("requested_topics"))
+    turn_environment_snapshot = _turn_environment_snapshot(profile)
+    task_environment_id = _effective_task_environment_id(profile, turn_environment_snapshot)
     return MemoryRequest(
         request_id=f"memreq:{task_id}:{session_id}:{agent_id}",
         task_id=task_id,
@@ -314,6 +353,10 @@ def build_memory_request(
         owner_node_id=str(profile.get("owner_node_id") or ""),
         node_run_id=str(profile.get("node_run_id") or ""),
         run_attempt_id=str(profile.get("run_attempt_id") or ""),
+        task_environment_id=task_environment_id,
+        turn_environment_snapshot=turn_environment_snapshot,
+        memory_read_mode=str(profile.get("memory_read_mode") or ("task_relevant" if "long_term" in requested_layers else "none")),
+        global_common_allowed=bool(profile.get("global_common_allowed", True)),
         memory_priority=str(profile.get("memory_priority") or "normal"),
         allow_long_term_memory=bool(profile.get("allow_long_term_memory", False)),
         reason=reason or str(profile.get("memory_scope_hint") or ""),
@@ -361,6 +404,10 @@ def apply_memory_scope_policy(request: MemoryRequest, scope_policy: MemoryScopeP
         owner_node_id=request.owner_node_id,
         node_run_id=request.node_run_id,
         run_attempt_id=request.run_attempt_id,
+        task_environment_id=request.task_environment_id,
+        turn_environment_snapshot=dict(request.turn_environment_snapshot),
+        memory_read_mode=request.memory_read_mode,
+        global_common_allowed=request.global_common_allowed,
         memory_priority=request.memory_priority,
         allow_long_term_memory=allow_long_term,
         reason=request.reason,
@@ -406,6 +453,33 @@ def build_memory_read_plan(
     note_limit: int = 5,
 ) -> MemoryReadPlan:
     return MemoryOrchestrator().build_read_plan(memory_request_profile, note_limit=note_limit)
+
+
+def _turn_environment_snapshot(profile: dict[str, Any]) -> dict[str, Any]:
+    snapshot = profile.get("turn_environment_snapshot")
+    payload = dict(snapshot) if isinstance(snapshot, dict) else {}
+    task_environment = profile.get("task_environment")
+    if isinstance(task_environment, dict):
+        payload.setdefault(
+            "task_environment_id",
+            task_environment.get("task_environment_id") or task_environment.get("environment_id") or "",
+        )
+        payload.setdefault("environment_kind", task_environment.get("environment_kind") or task_environment.get("kind") or "")
+        payload.setdefault("project_id", task_environment.get("project_id") or "")
+    payload.setdefault("task_environment_id", profile.get("task_environment_id") or profile.get("environment_id") or "")
+    payload.setdefault("environment_kind", profile.get("environment_kind") or "")
+    payload.setdefault("project_id", profile.get("project_id") or "")
+    return {str(key): str(value or "") for key, value in payload.items() if str(value or "").strip()}
+
+
+def _effective_task_environment_id(profile: dict[str, Any], snapshot: dict[str, Any]) -> str:
+    return str(
+        snapshot.get("task_environment_id")
+        or snapshot.get("environment_id")
+        or profile.get("task_environment_id")
+        or profile.get("environment_id")
+        or ""
+    ).strip()
 
 
 def _normalize_strings(values: Any) -> list[str]:

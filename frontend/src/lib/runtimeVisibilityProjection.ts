@@ -630,14 +630,13 @@ export function projectRuntimeStreamEvent(event: string, data: Record<string, un
   }
   if (event === "harness_run_started") {
     const taskRun = record(data.task_run);
-    const turnRun = record(data.turn_run);
     const runtimeEvent = record(data.event);
     const payload = record(runtimeEvent.payload);
     const contract = record(payload.contract);
     const goal = text(contract.user_visible_goal ?? contract.task_run_goal ?? taskRun.goal ?? taskRun.title);
     const runtimeRunId = text(runtimeEvent.run_id) || text(runtimeEvent.task_run_id);
     const taskRunId = formalTaskRunId(taskRun.task_run_id, runtimeRunId);
-    if (!taskRunId || isChatTurnRunId(taskRunId) || text(turnRun.execution_runtime_kind) === "single_agent_turn" || text(taskRun.execution_runtime_kind) === "single_agent_turn") {
+    if (!taskRunId || isChatTurnRunId(taskRunId)) {
       return {};
     }
     return {

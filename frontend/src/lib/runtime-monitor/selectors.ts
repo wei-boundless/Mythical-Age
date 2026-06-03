@@ -146,14 +146,14 @@ export function runtimeWorkProjectionFromLiveMonitor(monitor: Record<string, unk
 
 export function isVisibleRuntimeMonitorItem(item: RuntimeMonitorItem) {
   if (!text(item.task_run_id)) return false;
-  if (!["running", "completed", "failed", "diagnostics"].includes(text(item.bucket))) return false;
+  if (!["running", "waiting", "completed", "failed", "diagnostics"].includes(text(item.bucket))) return false;
   const work = runtimeWorkProjectionFromMonitorItem(item);
   return Boolean(work.workId && work.primaryRunId);
 }
 
 export function monitorBucketItems(
   monitor: RuntimeMonitorEnvelope | null | undefined,
-  bucket: "running" | "completed" | "failed" | "diagnostics",
+  bucket: "running" | "waiting" | "completed" | "failed" | "diagnostics",
 ) {
   const bucketItems = monitor?.buckets?.[bucket];
   const source = Array.isArray(bucketItems) ? bucketItems : [];

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from harness.graph.lifecycle_manager import GraphTaskLifecycleManager
 from harness.loop.task_run_execution_control import request_executor_stop
 
 
@@ -62,6 +63,7 @@ class SessionRuntimeLifecycleManager:
         turn_run_ids |= self._session_turn_run_ids(normalized)
         active_turn_effect = self.host.active_turn_registry.clear_session(normalized, reason="session_deleted")
         runtime_run_effect = self.host.run_registry.delete_session_runs(normalized)
+        graph_task_effect = self._delete_bound_graph_task(binding)
         state_effect = {
             "task_runs": self.host.state_index.prune_task_runs(task_run_ids),
             "turn_runs": self.host.state_index.prune_turn_runs(turn_run_ids),
@@ -81,6 +83,7 @@ class SessionRuntimeLifecycleManager:
                 "session_deletion_tombstone": tombstone_effect,
                 "active_turn": active_turn_effect,
                 "runtime_runs": runtime_run_effect,
+                "graph_task": graph_task_effect,
                 "state_index": state_effect,
                 "project_maintenance": maintenance_effect,
             },
@@ -135,6 +138,47 @@ class SessionRuntimeLifecycleManager:
             if stream_run_id:
                 names.add(f"chat-run-{stream_run_id}")
         return names
+
+    def _delete_bound_graph_task(self, binding: dict[str, Any]) -> dict[str, Any]:
+        graph_run_id = str(dict(binding or {}).get("graph_run_id") or "").strip()
+        if not graph_run_id:
+            return {
+                "authority": "harness.runtime.session_lifecycle.graph_task",
+                "deleted": False,
+                "reason": "no_bound_graph_run",
+            }
+        graph_harness = getattr(self.runtime.harness_runtime, "graph_harness", None)
+        if graph_harness is None:
+            return {
+                "authority": "harness.runtime.session_lifecycle.graph_task",
+                "deleted": False,
+                "reason": "graph_harness_unavailable",
+                "graph_run_id": graph_run_id,
+            }
+        manager = GraphTaskLifecycleManager(base_dir=self.runtime.base_dir, graph_harness=graph_harness)
+        try:
+            preview = manager.preview_delete_graph_run(graph_run_id)
+            if not str(preview.get("root_task_run_id") or "").strip():
+                return {
+                    "authority": "harness.runtime.session_lifecycle.graph_task",
+                    "deleted": False,
+                    "reason": "graph_root_already_missing",
+                    "graph_run_id": graph_run_id,
+                }
+            result = manager.delete_graph_run(graph_run_id)
+        except ValueError as exc:
+            return {
+                "authority": "harness.runtime.session_lifecycle.graph_task",
+                "deleted": False,
+                "reason": str(exc),
+                "graph_run_id": graph_run_id,
+            }
+        return {
+            "authority": "harness.runtime.session_lifecycle.graph_task",
+            "deleted": True,
+            "graph_run_id": graph_run_id,
+            "task_run_ids": list(result.get("task_run_ids") or []),
+        }
 
     @staticmethod
     def _mark_project_maintenance_ended(*, binding: dict[str, Any]) -> dict[str, Any]:

@@ -23,6 +23,7 @@ class CompressionBudgetDecision:
     cache_impact: str
     cache_impact_tiers: dict[str, str]
     summary_target_tokens: int
+    strategy: str = "none"
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -41,6 +42,7 @@ class CompressionBudgetDecision:
             "cache_impact": self.cache_impact,
             "cache_impact_tiers": dict(self.cache_impact_tiers),
             "summary_target_tokens": self.summary_target_tokens,
+            "strategy": self.strategy,
         }
 
 
@@ -78,6 +80,12 @@ class CompressionBudgetPlanner:
             decision = "microcompact"
         else:
             decision = "fail_closed"
+        strategy = self._strategy(
+            decision=decision,
+            dropped=dropped,
+            summarized=summarized,
+            required_reduction_tokens=required_reduction_tokens,
+        )
         cache_impact_tiers = self._cache_impact_tiers(compressible)
         cache_impact = cache_impact_tiers.get("provider_global") or "preserved"
         summary_target_tokens = self._summary_target_tokens(
@@ -101,9 +109,19 @@ class CompressionBudgetPlanner:
             cache_impact=cache_impact,
             cache_impact_tiers=cache_impact_tiers,
             summary_target_tokens=summary_target_tokens,
+            strategy=strategy,
         )
 
     def _is_hard_required(self, segment: PromptSegment) -> bool:
+        authority_class = str(getattr(segment, "authority_class", "") or dict(getattr(segment, "metadata", {}) or {}).get("authority_class") or "")
+        if authority_class in {
+            "contract",
+            "permission",
+            "current_user_intent",
+            "runtime_state",
+            "evidence_ref",
+        }:
+            return True
         if segment.compression_role == "preserve":
             return True
         if str(getattr(segment, "prefix_tier", "") or "") in {"provider_global", "session", "task"}:
@@ -111,6 +129,24 @@ class CompressionBudgetPlanner:
         if segment.cache_role in {"cacheable_prefix", "session_stable"}:
             return True
         return False
+
+    def _strategy(
+        self,
+        *,
+        decision: str,
+        dropped: list[PromptSegment],
+        summarized: list[PromptSegment],
+        required_reduction_tokens: int,
+    ) -> str:
+        if decision == "no_compaction":
+            return "none"
+        if decision == "fail_closed":
+            return "blocking_required"
+        if dropped:
+            return "ref_projection"
+        if summarized and required_reduction_tokens > 0:
+            return "session_memory_compact"
+        return "microcompact"
 
     def _cache_impact(self, compressible: list[PromptSegment]) -> str:
         return self._cache_impact_tiers(compressible).get("provider_global", "preserved")

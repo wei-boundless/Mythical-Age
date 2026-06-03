@@ -15,7 +15,7 @@
   },
   "model_provider": {
     "provider": "deepseek",
-    "model": "deepseek-v4-flash",
+    "model": "deepseek-v4-pro",
     "base_url": "https://api.deepseek.com"
   },
   "system_config": {

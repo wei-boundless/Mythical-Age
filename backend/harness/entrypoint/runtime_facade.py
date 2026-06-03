@@ -192,8 +192,6 @@ class HarnessRuntimeFacade:
         turn_id = f"turn:{request.session_id}:{turn_index}"
         started_active_turn_id = ""
         request_permission_mode = _request_permission_mode(request)
-        permission_scope = self.single_agent_runtime_host.permission_mode_scope(request_permission_mode)
-        permission_scope.__enter__()
         try:
             active_turn = self.single_agent_runtime_host.active_turn_registry.resolve_current(request.session_id)
             input_commit_gate = self._commit_user_message(
@@ -269,7 +267,7 @@ class HarnessRuntimeFacade:
                     agent_runtime_profile=agent_runtime_profile,
                     tool_instances=tool_instances,
                     definitions_by_name=dict(self.single_agent_runtime_host.tool_authorization_index.definitions_by_name or {}),
-                    permission_mode=self.single_agent_runtime_host._current_permission_mode(),
+                    permission_mode=request_permission_mode,
                 )
                 self._record_turn_environment_snapshot(
                     session_id=request.session_id,
@@ -376,7 +374,6 @@ class HarnessRuntimeFacade:
                     turn_id=started_active_turn_id,
                     terminal_reason="turn_stream_closed",
                 )
-            permission_scope.__exit__(None, None, None)
 
     async def _run_single_agent_turn(
         self,

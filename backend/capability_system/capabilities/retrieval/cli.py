@@ -4,8 +4,8 @@ import argparse
 import json
 from pathlib import Path
 
+from memory_system.governance_service import DurableMemoryGovernanceService
 from memory_system.layout import durable_memory_layout_from_backend_dir
-from memory_system.storage.consolidation import DurableMemoryConsolidator
 from memory_system.storage.memory_manager import MemoryManager
 from project_layout import ProjectLayout
 from capability_system.capabilities.retrieval.service import RetrievalService
@@ -134,7 +134,15 @@ def main() -> int:
 
     if args.command in {"durable-memory-maintain", "memory-maintain"}:
         manager = MemoryManager(durable_layout.root_dir)
-        governance_payload = manager.govern_note_store()
+        governance_service = DurableMemoryGovernanceService(base_dir, memory_manager=manager)
+        governance_service.mark_namespaces_dirty({"global_common": 1}, reason="retrieval_cli_manual_maintain")
+        governance_payload = governance_service.run_governance_tick(
+            namespace_ids=["global_common"],
+            force=True,
+            min_interval_seconds=0,
+            reason="retrieval_cli_manual_maintain",
+            source="capability_system.retrieval.cli",
+        )
         index_payload = manager.ensure_index_consistent()
         rag_payload = retrieval_service.rebuild_collection("durable_memory")
         print(
@@ -154,14 +162,22 @@ def main() -> int:
         return 0
 
     if args.command == "durable-memory-consolidate":
-        consolidator = DurableMemoryConsolidator(durable_layout.root_dir)
-        report = consolidator.run()
+        manager = MemoryManager(durable_layout.root_dir)
+        governance_service = DurableMemoryGovernanceService(base_dir, memory_manager=manager)
+        governance_service.mark_namespaces_dirty({"global_common": 1}, reason="retrieval_cli_manual_consolidate")
+        report = governance_service.run_governance_tick(
+            namespace_ids=["global_common"],
+            force=True,
+            min_interval_seconds=0,
+            reason="retrieval_cli_manual_consolidate",
+            source="capability_system.retrieval.cli",
+        )
         rag_payload = retrieval_service.rebuild_collection("durable_memory")
         print(
             json.dumps(
                 {
                     "status": "ok",
-                    "durable_memory_consolidation": report.to_dict(),
+                    "durable_memory_consolidation": report,
                     "durable_memory_collection": rag_payload,
                 },
                 ensure_ascii=False,

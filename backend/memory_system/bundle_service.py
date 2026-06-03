@@ -56,6 +56,7 @@ class MemoryBundleService:
         state_memory: StateMemoryStoreAdapter,
         working_memory: WorkingMemoryService,
         durable_memory: Any,
+        durable_memory_resolver: Callable[[dict[str, Any] | None], Any] | None = None,
         context_budget_provider: Callable[[], dict[str, Any]] | None = None,
     ) -> None:
         self.session_memory = session_memory
@@ -63,6 +64,7 @@ class MemoryBundleService:
         self.state_memory = state_memory
         self.working_memory = working_memory
         self.durable_memory = durable_memory
+        self.durable_memory_resolver = durable_memory_resolver
         self._context_budget_provider = context_budget_provider
         self.orchestrator = MemoryOrchestrator()
         self.supplier = MemorySupplier()
@@ -120,23 +122,54 @@ class MemoryBundleService:
         recently_surfaced_note_ids: list[str] | None = None,
         recent_tools: list[str] | None = None,
         relevant_notes: list[Any] | None = None,
+        environment_scope: dict[str, Any] | None = None,
+        global_common_allowed: bool = True,
     ):
-        recall_result = self.durable_memory.recall_memories(
-            query=query,
-            memory_intent=memory_intent,
-            note_limit=note_limit,
-            main_context=main_context,
-            task_summaries=task_summaries,
-            session_summary=session_summary,
-            recently_surfaced_note_ids=recently_surfaced_note_ids,
-            recent_tools=recent_tools,
-            selected_notes=relevant_notes,
-        )
-        return _long_term_context_candidates_from_recall_result(
-            recall_result,
-            session_id=session_id,
-            query=str(query or ""),
-        )
+        results = []
+        if global_common_allowed:
+            results.append(
+                self.durable_memory.recall_memories(
+                    query=query,
+                    memory_intent=memory_intent,
+                    note_limit=note_limit,
+                    main_context=main_context,
+                    task_summaries=task_summaries,
+                    session_summary=session_summary,
+                    recently_surfaced_note_ids=recently_surfaced_note_ids,
+                    recent_tools=recent_tools,
+                    selected_notes=relevant_notes,
+                )
+            )
+        scoped_layer = self._durable_layer_for_scope(environment_scope)
+        if scoped_layer is not self.durable_memory:
+            results.append(
+                scoped_layer.recall_memories(
+                    query=query,
+                    memory_intent=memory_intent,
+                    note_limit=note_limit,
+                    main_context=main_context,
+                    task_summaries=task_summaries,
+                    session_summary=session_summary,
+                    recently_surfaced_note_ids=recently_surfaced_note_ids,
+                    recent_tools=recent_tools,
+                    selected_notes=relevant_notes,
+                )
+            )
+        candidates: list[MemoryContextCandidate] = []
+        for result in results:
+            candidates.extend(
+                _long_term_context_candidates_from_recall_result(
+                    result,
+                    session_id=session_id,
+                    query=str(query or ""),
+                )
+            )
+        return tuple(candidates[: max(1, int(note_limit or 5))])
+
+    def _durable_layer_for_scope(self, environment_scope: dict[str, Any] | None):
+        if self.durable_memory_resolver is None:
+            return self.durable_memory
+        return self.durable_memory_resolver(environment_scope or {})
 
     def build_memory_runtime_view(
         self,
@@ -312,8 +345,10 @@ class MemoryBundleService:
         recently_surfaced_note_ids: list[str] | None = None,
         recent_tools: list[str] | None = None,
         selected_notes: list[Any] | None = None,
+        environment_scope: dict[str, Any] | None = None,
     ):
-        return self.durable_memory.recall_memories(
+        layer = self._durable_layer_for_scope(environment_scope)
+        return layer.recall_memories(
             query=query,
             memory_intent=memory_intent,
             note_limit=note_limit,
@@ -353,12 +388,13 @@ def _long_term_context_candidates_from_recall_result(
         canonical = str(payload.get("canonical_statement", "") or "").strip()
         summary = str(payload.get("summary", "") or "").strip()
         content = str(payload.get("content", "") or "").strip()
+        namespace_id = str(payload.get("namespace_id", "") or "global_common")
         preview = _render_long_term_preview(title=title, canonical=canonical, summary=summary, content=content)
         if not preview:
             continue
         candidates.append(
             MemoryContextCandidate(
-                candidate_id=f"memory-context:{session_id or 'session'}:long-term:{note_id}",
+                candidate_id=f"memory-context:{session_id or 'session'}:long-term:{namespace_id}:{note_id}",
                 memory_layer="long_term",
                 source="durable_memory.recall",
                 content_ref=str(payload.get("filename", "") or note_id),
@@ -374,6 +410,7 @@ def _long_term_context_candidates_from_recall_result(
                     "memory_type": str(payload.get("memory_type", "") or ""),
                     "memory_class": str(payload.get("memory_class", "") or ""),
                     "status": str(payload.get("status", "") or ""),
+                    "namespace_id": namespace_id,
                     "verification_policy": "verify_file_function_flag_claims_against_current_state",
                 },
             )
@@ -395,6 +432,7 @@ def _note_to_dict(note: Any) -> dict[str, object]:
         "memory_class": str(getattr(note, "memory_class", "") or ""),
         "confidence": str(getattr(note, "confidence", "") or ""),
         "status": str(getattr(note, "status", "") or ""),
+        "namespace_id": str(getattr(note, "namespace_id", "") or ""),
     }
 
 

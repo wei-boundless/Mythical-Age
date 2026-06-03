@@ -356,10 +356,13 @@ class HealthGovernanceBuilder:
         visible: list[Any] = []
         for task_run in task_runs:
             status = str(getattr(task_run, "status", "") or "")
+            scope_key = self._task_scope_key(task_run)
+            if active_scope_keys and scope_key not in active_scope_keys:
+                continue
             if self._is_active_or_waiting_task(task_run):
                 visible.append(task_run)
                 continue
-            if status in {"failed", "aborted", "cancelled", "error"} and self._task_scope_key(task_run) in active_scope_keys:
+            if status in {"failed", "aborted", "cancelled", "error"} and scope_key in active_scope_keys:
                 visible.append(task_run)
         if visible:
             return visible

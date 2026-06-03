@@ -10,6 +10,8 @@ from capability_system.tools.native_tool_runtime import ToolRuntime
 from capability_system.mcp.paths import CapabilityMCPPaths
 from capability_system.tools.paths import CapabilityToolPaths
 from memory_system import MemoryFacade
+from memory_system.governance_service import DEFAULT_GOVERNANCE_MIN_INTERVAL_SECONDS
+from memory_system.layout import durable_memory_namespace_id_for_task_environment
 from permissions import PermissionService
 from harness.entrypoint import HarnessRuntimeFacade
 from bootstrap.settings import AppSettingsService
@@ -56,6 +58,10 @@ class AppRuntime:
         self.memory_facade.background_task_manager.register_handler(
             "durable_memory_index_rebuild",
             self._run_durable_memory_index_rebuild,
+        )
+        self.memory_facade.background_task_manager.register_handler(
+            "durable_memory_governance_tick",
+            self._run_durable_memory_governance_tick,
         )
         self.harness_runtime = HarnessRuntimeFacade(
             base_dir=base_dir,
@@ -106,11 +112,25 @@ class AppRuntime:
             self.refresh_catalogs()
             return
         if normalized.startswith("durable_memory/"):
+            namespace_id = self._namespace_from_durable_relative_path(normalized)
+            runtime.memory_facade.mark_durable_memory_namespaces_dirty(
+                {namespace_id: 1},
+                reason="durable_memory_path_refresh",
+            )
             runtime.memory_facade.background_task_manager.enqueue(
                 "durable_memory_index_rebuild",
                 payload={"collection": "durable_memory", "source_path": normalized},
                 source="bootstrap.app_runtime",
                 coalesce_key="durable_memory",
+            )
+            runtime.memory_facade.background_task_manager.enqueue(
+                "durable_memory_governance_tick",
+                payload={
+                    "reason": "durable_memory_path_refresh",
+                    "source_path": normalized,
+                },
+                source="bootstrap.app_runtime",
+                coalesce_key="durable_memory_governance",
             )
             return
         if normalized.startswith("session-memory/"):
@@ -119,16 +139,35 @@ class AppRuntime:
         if normalized.startswith("knowledge/"):
             runtime.retrieval_service.rebuild_knowledge()
 
-    def _on_durable_memory_saved(self, saved_count: int) -> None:
+    def _on_durable_memory_saved(self, saved_namespaces: dict[str, int]) -> None:
         runtime = self.require_ready()
+        normalized = {
+            str(namespace_id or "").strip() or "global_common": max(0, int(count or 0))
+            for namespace_id, count in dict(saved_namespaces or {}).items()
+        }
+        normalized = {namespace_id: count for namespace_id, count in normalized.items() if count > 0}
+        saved_count = sum(normalized.values())
         if saved_count <= 0:
             return
         if runtime.memory_facade is not None:
             runtime.memory_facade.background_task_manager.enqueue(
                 "durable_memory_index_rebuild",
-                payload={"collection": "durable_memory", "saved_count": saved_count},
+                payload={
+                    "collection": "durable_memory",
+                    "saved_count": saved_count,
+                    "saved_namespaces": normalized,
+                },
                 source="bootstrap.app_runtime",
                 coalesce_key="durable_memory",
+            )
+            runtime.memory_facade.background_task_manager.enqueue(
+                "durable_memory_governance_tick",
+                payload={
+                    "reason": "durable_memory_saved",
+                    "saved_namespaces": normalized,
+                },
+                source="bootstrap.app_runtime",
+                coalesce_key="durable_memory_governance",
             )
 
     async def _run_durable_memory_index_rebuild(self, payload: dict[str, object]) -> dict[str, object]:
@@ -138,6 +177,31 @@ class AppRuntime:
             return {"collection": collection, "status": "skipped"}
         result = runtime.retrieval_service.rebuild_durable_memory()
         return {"collection": collection, "status": "queued_or_completed", "result": result}
+
+    async def _run_durable_memory_governance_tick(self, payload: dict[str, object]) -> dict[str, object]:
+        runtime = self.require_ready()
+        namespace_ids = [
+            str(item or "").strip()
+            for item in list(payload.get("namespace_ids") or [])
+            if str(item or "").strip()
+        ] or None
+        result = runtime.memory_facade.run_durable_memory_governance_tick(
+            namespace_ids=namespace_ids,
+            force=bool(payload.get("force", False)),
+            min_interval_seconds=int(payload.get("min_interval_seconds") or DEFAULT_GOVERNANCE_MIN_INTERVAL_SECONDS),
+            reason=str(payload.get("reason") or "background_tick"),
+            source="bootstrap.app_runtime",
+        )
+        ran = [dict(item or {}) for item in list(result.get("ran") or [])]
+        if any(str(item.get("namespace_id") or "") == "global_common" and int(item.get("updated") or 0) > 0 for item in ran):
+            runtime.retrieval_service.rebuild_durable_memory()
+        return dict(result)
+
+    def _namespace_from_durable_relative_path(self, normalized_path: str) -> str:
+        parts = str(normalized_path or "").replace("\\", "/").split("/")
+        if len(parts) >= 3 and parts[0] == "durable_memory" and parts[1] == "environments":
+            return durable_memory_namespace_id_for_task_environment(parts[2])
+        return "global_common"
 
 
 app_runtime = AppRuntime()

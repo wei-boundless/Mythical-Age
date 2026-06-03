@@ -4,16 +4,23 @@ import hashlib
 import json
 from pathlib import Path
 import re
+import threading
+import time
 from typing import Any
 
 from fastapi import HTTPException
 
-from memory_system.layout import durable_memory_layout_from_backend_dir
+from project_layout import ProjectLayout
+from memory_system.layout import durable_memory_layout_from_backend_dir, safe_memory_namespace_id
+from memory_system.storage.consolidation import DurableMemoryConsolidator
 from memory_system.storage.frontmatter import format_frontmatter, parse_frontmatter
 
 from .contracts import MemoryCommitAction, MemoryCommitLayer, MemoryCommitRecord
 from .manifest_scan import MemoryHeader, load_memory_header, scan_memory_headers
 from .storage.models import MemoryNote, utc_now_iso
+
+
+DEFAULT_GOVERNANCE_MIN_INTERVAL_SECONDS = 6 * 60 * 60
 
 
 class MemoryGovernance:
@@ -71,6 +78,144 @@ class DurableMemoryGovernanceService:
         self.memory_manager = memory_manager
         self.layout = durable_memory_layout_from_backend_dir(self.base_dir)
         self.governance = MemoryGovernance(base_dir)
+        project_layout = ProjectLayout.from_backend_dir(self.base_dir)
+        self.runtime_dir = project_layout.runtime_state_dir / "durable_memory_governance"
+        self.report_dir = self.runtime_dir / "reports"
+        self.state_path = self.runtime_dir / "state.json"
+        self.runtime_dir.mkdir(parents=True, exist_ok=True)
+        self.report_dir.mkdir(parents=True, exist_ok=True)
+        self._lock = threading.RLock()
+
+    def describe_runtime_state(self) -> dict[str, Any]:
+        with self._lock:
+            state = self._load_state()
+        return {
+            "authority": "memory_system.durable_memory_governance_service",
+            "state_path": str(self.state_path),
+            "report_root": str(self.report_dir),
+            "default_min_interval_seconds": DEFAULT_GOVERNANCE_MIN_INTERVAL_SECONDS,
+            "namespaces": dict(state.get("namespaces") or {}),
+        }
+
+    def mark_namespaces_dirty(
+        self,
+        saved_namespaces: dict[str, int] | None = None,
+        *,
+        reason: str = "durable_memory_saved",
+    ) -> dict[str, Any]:
+        normalized = {
+            self._normalize_namespace_id(namespace_id): max(0, int(count or 0))
+            for namespace_id, count in dict(saved_namespaces or {"global_common": 1}).items()
+        }
+        normalized = {namespace_id: count for namespace_id, count in normalized.items() if count > 0}
+        if not normalized:
+            normalized = {"global_common": 1}
+        with self._lock:
+            state = self._load_state()
+            namespaces = self._state_namespaces(state)
+            now = utc_now_iso()
+            now_epoch = int(time.time())
+            touched: dict[str, Any] = {}
+            for namespace_id, count in normalized.items():
+                entry = self._namespace_state_entry(namespaces, namespace_id)
+                entry["dirty"] = True
+                if not entry.get("dirty_since"):
+                    entry["dirty_since"] = now
+                entry["last_dirty_at"] = now
+                entry["last_dirty_epoch"] = now_epoch
+                entry["pending_save_count"] = int(entry.get("pending_save_count") or 0) + count
+                entry["dirty_reason"] = str(reason or "durable_memory_saved")
+                entry["root_dir"] = str(self._namespace_root(namespace_id))
+                touched[namespace_id] = dict(entry)
+            state["updated_at"] = now
+            self._save_state(state)
+        return {
+            "status": "ok",
+            "authority": "memory_system.durable_memory_governance_service",
+            "dirty_namespaces": touched,
+        }
+
+    def run_governance_tick(
+        self,
+        *,
+        namespace_ids: list[str] | tuple[str, ...] | None = None,
+        force: bool = False,
+        min_interval_seconds: int = DEFAULT_GOVERNANCE_MIN_INTERVAL_SECONDS,
+        reason: str = "background_tick",
+        source: str = "memory_system.durable_memory_governance_tick",
+    ) -> dict[str, Any]:
+        with self._lock:
+            state = self._load_state()
+            namespaces = self._state_namespaces(state)
+            target_namespace_ids = self._target_namespace_ids(
+                namespaces,
+                namespace_ids=namespace_ids,
+                force=force,
+            )
+            now = utc_now_iso()
+            now_epoch = int(time.time())
+            ran: list[dict[str, Any]] = []
+            skipped: list[dict[str, Any]] = []
+            for namespace_id in target_namespace_ids:
+                entry = self._namespace_state_entry(namespaces, namespace_id)
+                decision = self._tick_decision(
+                    entry,
+                    force=force,
+                    min_interval_seconds=max(0, int(min_interval_seconds or 0)),
+                    now_epoch=now_epoch,
+                )
+                if not decision["should_run"]:
+                    entry["last_skip_reason"] = decision["reason"]
+                    entry["last_skip_at"] = now
+                    skipped.append(
+                        {
+                            "namespace_id": namespace_id,
+                            "reason": decision["reason"],
+                            "seconds_until_eligible": decision.get("seconds_until_eligible", 0),
+                        }
+                    )
+                    continue
+                report_payload = self._run_namespace_governance(
+                    namespace_id,
+                    entry=entry,
+                    force=force,
+                    reason=reason,
+                    source=source,
+                    started_at=now,
+                )
+                entry["dirty"] = False
+                entry["dirty_since"] = ""
+                entry["pending_save_count"] = 0
+                entry["last_governed_at"] = report_payload["completed_at"]
+                entry["last_governed_epoch"] = int(time.time())
+                entry["last_report_id"] = report_payload["report_id"]
+                entry["last_report_path"] = report_payload["report_path"]
+                entry["last_run_status"] = report_payload["status"]
+                entry["last_skip_reason"] = ""
+                entry["run_count"] = int(entry.get("run_count") or 0) + 1
+                entry["root_dir"] = str(self._namespace_root(namespace_id))
+                consolidation = dict(report_payload.get("consolidation") or {})
+                governance_payload = dict(consolidation.get("governance_payload") or {})
+                ran.append(
+                    {
+                        "namespace_id": namespace_id,
+                        "status": report_payload["status"],
+                        "report_id": report_payload["report_id"],
+                        "report_path": report_payload["report_path"],
+                        "updated": int(governance_payload.get("updated") or 0),
+                    }
+                )
+            state["updated_at"] = utc_now_iso()
+            self._save_state(state)
+        return {
+            "status": "ok",
+            "authority": "memory_system.durable_memory_governance_tick",
+            "force": bool(force),
+            "min_interval_seconds": max(0, int(min_interval_seconds or 0)),
+            "target_namespace_count": len(target_namespace_ids),
+            "ran": ran,
+            "skipped": skipped,
+        }
 
     def scan_durable_memory_headers(self, *, limit: int = 200) -> list[MemoryHeader]:
         return scan_memory_headers(self.layout.root_dir, limit=limit)
@@ -261,7 +406,14 @@ class DurableMemoryGovernanceService:
         return self.memory_manager.sync_index()
 
     def govern_durable_notes(self) -> dict[str, object]:
-        return self.memory_manager.govern_note_store()
+        tick = self.run_governance_tick(
+            namespace_ids=["global_common"],
+            force=True,
+            min_interval_seconds=0,
+            reason="manual_govern_durable_notes",
+            source="memory_system.durable_memory_governance_service.manual",
+        )
+        return tick
 
     def _safe_note_path(self, filename: str) -> Path:
         safe_name = filename.strip()
@@ -356,6 +508,170 @@ class DurableMemoryGovernanceService:
             allowed=True,
             metadata={"source_action": action},
         )
+
+    def _target_namespace_ids(
+        self,
+        namespaces: dict[str, Any],
+        *,
+        namespace_ids: list[str] | tuple[str, ...] | None,
+        force: bool,
+    ) -> list[str]:
+        if namespace_ids:
+            return self._dedupe_namespace_ids(namespace_ids)
+        dirty = [
+            namespace_id
+            for namespace_id, entry in sorted(namespaces.items())
+            if bool(dict(entry or {}).get("dirty"))
+        ]
+        if dirty:
+            return dirty
+        if force:
+            known = sorted(namespaces)
+            return known or ["global_common"]
+        return []
+
+    def _tick_decision(
+        self,
+        entry: dict[str, Any],
+        *,
+        force: bool,
+        min_interval_seconds: int,
+        now_epoch: int,
+    ) -> dict[str, Any]:
+        if force:
+            return {"should_run": True, "reason": "forced"}
+        if not bool(entry.get("dirty")):
+            return {"should_run": False, "reason": "namespace_clean"}
+        last_epoch = int(entry.get("last_governed_epoch") or 0)
+        if last_epoch and min_interval_seconds > 0:
+            elapsed = max(0, now_epoch - last_epoch)
+            if elapsed < min_interval_seconds:
+                return {
+                    "should_run": False,
+                    "reason": "minimum_interval_not_elapsed",
+                    "seconds_until_eligible": min_interval_seconds - elapsed,
+                }
+        return {"should_run": True, "reason": "dirty_namespace"}
+
+    def _run_namespace_governance(
+        self,
+        namespace_id: str,
+        *,
+        entry: dict[str, Any],
+        force: bool,
+        reason: str,
+        source: str,
+        started_at: str,
+    ) -> dict[str, Any]:
+        root_dir = self._namespace_root(namespace_id)
+        report = DurableMemoryConsolidator(root_dir).run()
+        completed_at = utc_now_iso()
+        report_id = f"{_safe_stamp(completed_at)}-{time.time_ns() % 1_000_000:06d}-{report.report_id or 'empty'}"
+        payload = {
+            "authority": "memory_system.durable_memory_governance_report",
+            "status": "ok",
+            "namespace_id": namespace_id,
+            "root_dir": str(root_dir),
+            "started_at": started_at,
+            "completed_at": completed_at,
+            "force": bool(force),
+            "reason": str(reason or ""),
+            "source": str(source or ""),
+            "pending_save_count": int(entry.get("pending_save_count") or 0),
+            "report_id": report_id,
+            "consolidation": report.to_dict(),
+        }
+        report_path = self._persist_report(namespace_id, report_id, payload)
+        payload["report_path"] = str(report_path)
+        return payload
+
+    def _persist_report(self, namespace_id: str, report_id: str, payload: dict[str, Any]) -> Path:
+        namespace_dir = self.report_dir / self._safe_report_namespace(namespace_id)
+        namespace_dir.mkdir(parents=True, exist_ok=True)
+        report_path = namespace_dir / f"{report_id}.json"
+        report_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8", newline="\n")
+        latest_path = namespace_dir / "latest.json"
+        latest_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8", newline="\n")
+        return report_path
+
+    def _load_state(self) -> dict[str, Any]:
+        if not self.state_path.exists():
+            return {
+                "authority": "memory_system.durable_memory_governance_state",
+                "version": 1,
+                "namespaces": {},
+                "updated_at": "",
+            }
+        payload = json.loads(self.state_path.read_text(encoding="utf-8"))
+        if not isinstance(payload, dict):
+            raise ValueError("Durable memory governance state must be a JSON object")
+        payload.setdefault("authority", "memory_system.durable_memory_governance_state")
+        payload.setdefault("version", 1)
+        payload.setdefault("namespaces", {})
+        return payload
+
+    def _save_state(self, state: dict[str, Any]) -> None:
+        self.runtime_dir.mkdir(parents=True, exist_ok=True)
+        tmp_path = self.state_path.with_suffix(".tmp")
+        tmp_path.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8", newline="\n")
+        tmp_path.replace(self.state_path)
+
+    def _state_namespaces(self, state: dict[str, Any]) -> dict[str, Any]:
+        namespaces = state.get("namespaces")
+        if not isinstance(namespaces, dict):
+            namespaces = {}
+            state["namespaces"] = namespaces
+        return namespaces
+
+    def _namespace_state_entry(self, namespaces: dict[str, Any], namespace_id: str) -> dict[str, Any]:
+        normalized = self._normalize_namespace_id(namespace_id)
+        entry = namespaces.get(normalized)
+        if not isinstance(entry, dict):
+            entry = {
+                "namespace_id": normalized,
+                "dirty": False,
+                "dirty_since": "",
+                "pending_save_count": 0,
+                "last_governed_at": "",
+                "last_governed_epoch": 0,
+                "last_report_id": "",
+                "last_report_path": "",
+                "run_count": 0,
+                "root_dir": str(self._namespace_root(normalized)),
+            }
+            namespaces[normalized] = entry
+        return entry
+
+    def _namespace_root(self, namespace_id: str) -> Path:
+        normalized = self._normalize_namespace_id(namespace_id)
+        if normalized == "global_common":
+            return self.layout.root_dir
+        if normalized.startswith("env:"):
+            safe_id = safe_memory_namespace_id(normalized.removeprefix("env:"))
+            return self.layout.root_dir / "environments" / safe_id
+        raise ValueError(f"Unsupported durable memory namespace: {namespace_id}")
+
+    def _normalize_namespace_id(self, namespace_id: str) -> str:
+        normalized = str(namespace_id or "").strip()
+        if not normalized or normalized in {"global", "global_common"}:
+            return "global_common"
+        if normalized.startswith("env:"):
+            return f"env:{safe_memory_namespace_id(normalized.removeprefix('env:'))}"
+        return f"env:{safe_memory_namespace_id(normalized)}"
+
+    def _dedupe_namespace_ids(self, namespace_ids: list[str] | tuple[str, ...]) -> list[str]:
+        result: list[str] = []
+        for namespace_id in namespace_ids:
+            normalized = self._normalize_namespace_id(namespace_id)
+            if normalized not in result:
+                result.append(normalized)
+        return result
+
+    def _safe_report_namespace(self, namespace_id: str) -> str:
+        normalized = self._normalize_namespace_id(namespace_id)
+        if normalized == "global_common":
+            return "global_common"
+        return f"env-{safe_memory_namespace_id(normalized.removeprefix('env:'))}"
 
 
 def _safe_stamp(value: str) -> str:

@@ -10,6 +10,16 @@ PromptCacheScope = Literal["global", "org", "session", "task", "none"]
 PromptCacheRole = Literal["cacheable_prefix", "session_stable", "volatile", "never_cache"]
 PromptPrefixTier = Literal["provider_global", "session", "task", "volatile", "none"]
 CompressionRole = Literal["preserve", "summarize", "drop_if_cold", "ref_only"]
+PromptAuthorityClass = Literal[
+    "contract",
+    "permission",
+    "current_user_intent",
+    "runtime_state",
+    "evidence_ref",
+    "natural_history",
+    "bulk_output",
+    "unknown",
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -28,6 +38,7 @@ class PromptSegment:
     cache_role: PromptCacheRole = "volatile"
     prefix_tier: PromptPrefixTier = "volatile"
     compression_role: CompressionRole = "summarize"
+    authority_class: PromptAuthorityClass = "unknown"
     source: str = ""
     created_at: float = 0.0
     metadata: dict[str, Any] = field(default_factory=dict)

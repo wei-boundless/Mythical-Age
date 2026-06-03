@@ -10,6 +10,8 @@ from pydantic import BaseModel, Field
 from api.deps import require_runtime
 from artifact_system import ArtifactRepositoryService
 from memory_system import MemoryHeader
+from memory_system.governance_service import DEFAULT_GOVERNANCE_MIN_INTERVAL_SECONDS
+from memory_system.layout import durable_memory_namespace_id_for_task_environment
 from memory_system.runtime_services import MemoryRuntimeServices
 from project_layout import ProjectLayout
 from request_intent.memory_intent import analyze_memory_intent
@@ -38,6 +40,18 @@ class DurableMemoryCreateRequest(BaseModel):
 
 class DurableMemoryGovernRequest(BaseModel):
     reason: str = Field(default="", max_length=600)
+
+
+class DurableMemoryGovernanceTickRequest(BaseModel):
+    reason: str = Field(default="", max_length=600)
+    force: bool = False
+    namespace_id: str = Field(default="", max_length=200)
+    task_environment_id: str = Field(default="", max_length=200)
+    min_interval_seconds: int = Field(
+        default=DEFAULT_GOVERNANCE_MIN_INTERVAL_SECONDS,
+        ge=0,
+        le=7 * 24 * 60 * 60,
+    )
 
 
 class DurableMemoryMergeRequest(BaseModel):
@@ -350,6 +364,37 @@ async def merge_durable_memory_notes(payload: DurableMemoryMergeRequest) -> dict
         "merged": list(result["merged"]),
         "header": _header_payload(result["header"]) if result.get("header") else None,
     }
+
+
+@router.get("/memory/durable/governance/runtime")
+async def get_durable_memory_governance_runtime() -> dict[str, Any]:
+    runtime = require_runtime()
+    assert runtime.memory_facade is not None
+    return runtime.memory_facade.governance_service.describe_runtime_state()
+
+
+@router.post("/memory/durable/governance/tick")
+async def run_durable_memory_governance_tick(payload: DurableMemoryGovernanceTickRequest) -> dict[str, Any]:
+    runtime = require_runtime()
+    assert runtime.memory_facade is not None
+
+    namespace_ids: list[str] = []
+    if payload.namespace_id.strip():
+        namespace_ids.append(payload.namespace_id.strip())
+    elif payload.task_environment_id.strip():
+        namespace_ids.append(durable_memory_namespace_id_for_task_environment(payload.task_environment_id.strip()))
+
+    result = runtime.memory_facade.run_durable_memory_governance_tick(
+        namespace_ids=namespace_ids or None,
+        force=payload.force,
+        min_interval_seconds=payload.min_interval_seconds,
+        reason=payload.reason or "manual_api",
+        source="api.memory.durable_governance_tick",
+    )
+    ran = [dict(item or {}) for item in list(result.get("ran") or [])]
+    if any(str(item.get("namespace_id") or "") == "global_common" and int(item.get("updated") or 0) > 0 for item in ran):
+        runtime.retrieval_service.rebuild_durable_memory()
+    return result
 
 
 @router.post("/memory/recall-preview")

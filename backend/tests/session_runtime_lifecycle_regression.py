@@ -13,7 +13,7 @@ from tests.graph_harness_api_regression import GRAPH_TEST_SCOPE, _graph, _harnes
 from task_system.compiler.graph_harness_config_publisher import build_graph_harness_config_from_graph
 
 
-def test_session_runtime_lifecycle_detaches_session_without_deleting_graph_or_logs(tmp_path: Path) -> None:
+def test_session_runtime_lifecycle_deletes_bound_graph_task_runtime(tmp_path: Path) -> None:
     backend_dir = tmp_path / "backend"
     runtime = _harness_runtime_with_graph_executor(base_dir=backend_dir)
     session = runtime.session_manager.create_session(title="Delete graph session", scope=GRAPH_TEST_SCOPE)
@@ -44,10 +44,12 @@ def test_session_runtime_lifecycle_detaches_session_without_deleting_graph_or_lo
     result = asyncio.run(SessionRuntimeLifecycleManager(runtime).detach_session_runtime(session_id))
 
     assert "graph_run_ids" not in result
-    assert runtime.harness_runtime.graph_harness.get_graph_run(graph_run_id) is not None
+    assert dict(result["effects"]["graph_task"])["deleted"] is True
+    assert dict(result["effects"]["graph_task"])["graph_run_id"] == graph_run_id
+    assert runtime.harness_runtime.graph_harness.get_graph_run(graph_run_id) is None
     assert host.state_index.get_task_run(task_run_id) is None
     assert host.run_registry.list_session_runs(session_id) == []
-    assert host.event_log.list_events(task_run_id) != []
+    assert host.event_log.list_events(task_run_id) == []
     assert host.event_log.list_events(chat_run.event_log_id) != []
     assert runtime.session_manager.get_history(session_id)["task_binding"]["graph_run_id"] == graph_run_id
 

@@ -207,12 +207,15 @@ class MemoryReadAgent:
 
 
 class DurableMemoryLayer:
-    def __init__(self, base_dir: Path) -> None:
+    def __init__(self, base_dir: Path, *, root_dir: Path | None = None, namespace_id: str = "global_common") -> None:
         self.base_dir = base_dir
         layout = durable_memory_layout_from_backend_dir(base_dir)
+        if root_dir is not None:
+            layout = type(layout)(Path(root_dir))
         self.memory_manager = MemoryManager(layout.root_dir)
+        self.namespace_id = namespace_id
         self.read_agent = MemoryReadAgent()
-        self._runtime_governed = False
+        self._runtime_index_checked = False
 
     def set_message_invoker(self, callback: Callable[[list[dict[str, str]]], Any] | None) -> None:
         self.read_agent.set_message_invoker(callback)
@@ -222,11 +225,11 @@ class DurableMemoryLayer:
             "authority": "memory_system.maintenance_coordinator",
             "durable_memory_maintained_by": "agent:1",
             "runtime_contract_required": True,
+            "namespace_id": self.namespace_id,
         }
 
     def build_manifest_block(self, *, note_limit: int = 5) -> str:
-        self._ensure_runtime_governance()
-        self.memory_manager.ensure_index_consistent()
+        self._ensure_runtime_index()
         manifest = format_memory_manifest(self._scan_headers(limit=max(note_limit, 5), runtime_visible_only=True))
         if not manifest:
             return ""
@@ -275,7 +278,7 @@ class DurableMemoryLayer:
         recent_tools: list[str] | None = None,
         selected_notes: list[Any] | None = None,
     ) -> MemoryRecallResult:
-        self._ensure_runtime_governance()
+        self._ensure_runtime_index()
         if selected_notes:
             return self._result_from_preselected_notes(selected_notes)
 
@@ -315,7 +318,7 @@ class DurableMemoryLayer:
         recent_tools: list[str] | None = None,
         selected_notes: list[Any] | None = None,
     ) -> MemoryRecallResult:
-        self._ensure_runtime_governance()
+        self._ensure_runtime_index()
         if selected_notes:
             return self._result_from_preselected_notes(selected_notes)
 
@@ -354,11 +357,11 @@ class DurableMemoryLayer:
         excerpt = " ".join(useful_lines)
         return excerpt[:280].strip()
 
-    def _ensure_runtime_governance(self) -> None:
-        if self._runtime_governed:
+    def _ensure_runtime_index(self) -> None:
+        if self._runtime_index_checked:
             return
-        self.memory_manager.govern_note_store()
-        self._runtime_governed = True
+        self.memory_manager.ensure_index_consistent()
+        self._runtime_index_checked = True
 
     def _has_running_loop(self) -> bool:
         try:
@@ -479,6 +482,7 @@ class DurableMemoryLayer:
             "retrieval_hints": list(getattr(note, "retrieval_hints", []) or []),
             "eligible_for_injection": str(getattr(note, "eligible_for_injection", "true") or "true").lower()
             not in {"false", "0", "no"},
+            "namespace_id": self.namespace_id,
         }
 
     def _header_dict_from_note_dict(self, note: dict[str, object]) -> dict[str, object]:
@@ -494,6 +498,7 @@ class DurableMemoryLayer:
             "eligible_for_injection": bool(note.get("eligible_for_injection", True)),
             "canonical_statement": str(note.get("canonical_statement", "") or ""),
             "retrieval_hints": list(note.get("retrieval_hints", []) or []),
+            "namespace_id": str(note.get("namespace_id", "") or self.namespace_id),
         }
 
     def _header_to_dict(self, header: MemoryHeader) -> dict[str, object]:
@@ -512,6 +517,7 @@ class DurableMemoryLayer:
             "eligible_for_injection": header.eligible_for_injection,
             "canonical_statement": header.canonical_statement,
             "summary": header.summary,
+            "namespace_id": self.namespace_id,
         }
 
 

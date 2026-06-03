@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import json
+from types import SimpleNamespace
+
 from memory_system.storage.models import MemoryNote
 from memory_system.storage.process_state import ContextSlots, FlowState, ProcessState, TaskState
 from memory_system.storage.session_memory import SessionMemoryManager
@@ -14,6 +17,32 @@ from memory_system.runtime_supply import (
     build_memory_request,
     build_memory_scope_policy,
 )
+
+
+def _agent_payload(*, durable_actions=None):
+    return {
+        "session_memory": {
+            "session_title": "环境记忆隔离",
+            "active_goal": "验证环境级长期记忆",
+            "flow_state": ["正在验证环境 scope"],
+            "current_task_state": ["环境记忆写入候选已生成"],
+            "key_user_requests": ["长期记忆按环境隔离"],
+            "key_results": ["提交层负责路由"],
+        },
+        "session_emphasis_actions": [],
+        "durable_memory": {
+            "actions": durable_actions or [],
+            "skipped_reason": "" if durable_actions else "no_cross_session_memory",
+            "reasoning_summary": "环境记忆只在当前环境生效",
+        },
+    }
+
+
+def _fake_invoker(payload):
+    async def invoke(_messages, *, accounting_context=None):
+        return SimpleNamespace(content=json.dumps(payload, ensure_ascii=False))
+
+    return invoke
 
 
 def test_state_memory_restore_candidates_remain_candidate_only(tmp_path) -> None:
@@ -312,6 +341,155 @@ def test_long_term_memory_context_candidate_carries_verification_policy(tmp_path
     assert candidate.metadata["memory_class"] == "preference"
     assert candidate.metadata["verification_policy"] == "verify_file_function_flag_claims_against_current_state"
     assert candidate.confidence == 0.82
+
+
+def test_durable_memory_write_uses_current_environment_scope(tmp_path) -> None:
+    facade = MemoryFacade(tmp_path)
+    facade.set_model_invoker(
+        _fake_invoker(
+            _agent_payload(
+                durable_actions=[
+                    {
+                        "action": "create",
+                        "note_id": "coding-quality-standard",
+                        "memory_type": "user",
+                        "memory_class": "preference",
+                        "title": "Coding 质量标准",
+                        "canonical_statement": "coding 环境中要优先做结构化修复和真实测试。",
+                        "summary": "coding 环境偏好结构化修复和真实测试。",
+                        "confidence": "high",
+                        "reason": "用户明确要求 coding 环境的工作方式。",
+                        "how_to_apply": "coding 任务执行前检查测试闭环。",
+                        "evidence_excerpt": "coding 环境里以后优先做结构化修复和真实测试。",
+                        "source_message_refs": ["message:0"],
+                        "memory_origin": "explicit_user_preference",
+                        "evidence_source_kind": "user_message",
+                        "preference_scope": "environment",
+                        "preference_horizon": "durable_active",
+                        "proposed_target_layer": "environment_durable",
+                        "task_environment_id": "env.coding.test",
+                    }
+                ]
+            )
+        )
+    )
+
+    receipt = facade.run_memory_maintenance_after_commit(
+        session_id="session-env-write",
+        messages=[
+            {"role": "user", "content": "coding 环境里以后优先做结构化修复和真实测试。"},
+            {"role": "assistant", "content": "收到。"},
+        ],
+        main_context={"task_environment": {"environment_id": "env.coding.test"}},
+    )
+
+    env_manager = facade.resolve_durable_memory_manager({"task_environment_id": "env.coding.test"})
+    assert receipt.status == "succeeded"
+    assert receipt.durable_write_count == 1
+    assert env_manager.note_path("coding-quality-standard").exists()
+    assert not facade.memory_manager.note_path("coding-quality-standard").exists()
+
+
+def test_long_term_memory_read_is_scoped_to_current_environment(tmp_path) -> None:
+    facade = MemoryFacade(tmp_path)
+    coding_manager = facade.resolve_durable_memory_manager({"task_environment_id": "env.coding.test"})
+    writing_manager = facade.resolve_durable_memory_manager({"task_environment_id": "env.writing.test"})
+    coding_manager.save_note(
+        MemoryNote(
+            slug="coding-style",
+            title="Coding 风格",
+            summary="coding 环境要优先真实测试。",
+            canonical_statement="coding 环境要优先真实测试。",
+            body="coding 环境要优先真实测试。",
+            memory_type="user",
+            memory_class="preference",
+            confidence="high",
+        )
+    )
+    writing_manager.save_note(
+        MemoryNote(
+            slug="writing-style",
+            title="Writing 风格",
+            summary="writing 环境要优先叙事连贯。",
+            canonical_statement="writing 环境要优先叙事连贯。",
+            body="writing 环境要优先叙事连贯。",
+            memory_type="user",
+            memory_class="preference",
+            confidence="high",
+        )
+    )
+
+    async def selector(messages, *, accounting_context=None):
+        rendered = "\n".join(str(message.get("content") or "") for message in messages)
+        selected = "coding-style" if "coding-style" in rendered else "writing-style" if "writing-style" in rendered else ""
+        return SimpleNamespace(
+            content=json.dumps(
+                {
+                    "should_recall": bool(selected),
+                    "selected_note_ids": [selected] if selected else [],
+                    "reason": "selected scoped note",
+                    "confidence": 1.0,
+                    "needs_verification": False,
+                    "manifest_only": False,
+                    "ignore_memory": False,
+                },
+                ensure_ascii=False,
+            )
+        )
+
+    facade.set_model_invoker(selector)
+
+    coding_view = facade.bundle_service.build_memory_runtime_view(
+        session_id="session-env-read",
+        query="当前环境偏好是什么？",
+        memory_request_profile={
+            "requested_memory_layers": ["long_term"],
+            "allow_long_term_memory": True,
+            "task_environment_id": "env.coding.test",
+        },
+    )
+    writing_view = facade.bundle_service.build_memory_runtime_view(
+        session_id="session-env-read",
+        query="当前环境偏好是什么？",
+        memory_request_profile={
+            "requested_memory_layers": ["long_term"],
+            "allow_long_term_memory": True,
+            "task_environment_id": "env.writing.test",
+        },
+    )
+
+    coding_preview = "\n".join(candidate.rendered_preview for candidate in coding_view.context_candidates)
+    writing_preview = "\n".join(candidate.rendered_preview for candidate in writing_view.context_candidates)
+    assert "coding 环境要优先真实测试" in coding_preview
+    assert "writing 环境要优先叙事连贯" not in coding_preview
+    assert "writing 环境要优先叙事连贯" in writing_preview
+    assert "coding 环境要优先真实测试" not in writing_preview
+    assert coding_view.context_candidates[0].metadata["namespace_id"] == "env:env.coding.test"
+    assert writing_view.context_candidates[0].metadata["namespace_id"] == "env:env.writing.test"
+
+
+def test_memory_read_plan_records_environment_scope_diagnostics(tmp_path) -> None:
+    facade = MemoryFacade(tmp_path)
+
+    view = facade.bundle_service.build_memory_runtime_view(
+        session_id="session-env-diagnostics",
+        memory_request_profile={
+            "requested_memory_layers": ["long_term"],
+            "allow_long_term_memory": True,
+            "turn_environment_snapshot": {
+                "task_environment_id": "env.coding.test",
+                "environment_kind": "coding",
+                "project_id": "project-alpha",
+            },
+            "memory_read_mode": "task_relevant",
+        },
+    )
+
+    read_plan = view.diagnostics["read_plan"]
+    assert read_plan["effective_task_environment_id"] == "env.coding.test"
+    assert read_plan["memory_read_mode"] == "task_relevant"
+    assert read_plan["environment_scope"]["project_id"] == "project-alpha"
+    assert read_plan["read_namespaces"] == ["global_common", "env:env.coding.test"]
 
 
 def test_long_term_memory_context_candidates_are_optional_and_do_not_override(tmp_path) -> None:

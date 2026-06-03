@@ -15,6 +15,7 @@ from memory_system.storage.models import MemoryNote
 from memory_system.storage.text_utils import normalize_storage_text
 from runtime.model_gateway.model_runtime import utility_accounting_context
 
+from .layout import durable_memory_namespace_id_for_task_environment
 from .manifest_scan import scan_memory_headers
 from .paths import normalize_session_id, safe_runtime_session_key
 from .session_emphasis import SessionEmphasisCaptureGate, SessionEmphasisStore
@@ -577,14 +578,16 @@ class MemoryCommitter:
         session_memory_layer: Any,
         session_emphasis_store: SessionEmphasisStore | None = None,
         memory_manager: Any,
-        on_durable_saved: Callable[[int], None] | None = None,
+        memory_manager_resolver: Callable[[dict[str, Any] | None], Any] | None = None,
+        on_durable_saved: Callable[[dict[str, int]], None] | None = None,
     ) -> None:
         self.session_memory_layer = session_memory_layer
         self.session_emphasis_store = session_emphasis_store
         self.memory_manager = memory_manager
+        self.memory_manager_resolver = memory_manager_resolver
         self.on_durable_saved = on_durable_saved
 
-    def set_durable_saved_callback(self, callback: Callable[[int], None] | None) -> None:
+    def set_durable_saved_callback(self, callback: Callable[[dict[str, int]], None] | None) -> None:
         self.on_durable_saved = callback
 
     def commit(
@@ -686,6 +689,7 @@ class MemoryCommitter:
         durable_skip_reason = ""
         durable_error = ""
         durable_actions = {"created": [], "updated": [], "merged": [], "deprecated": [], "routed": [], "rejected": []}
+        saved_namespaces: dict[str, int] = {}
         if not request.durable_lane_enabled:
             durable_skip_reason = "durable_lane_disabled"
         else:
@@ -702,14 +706,18 @@ class MemoryCommitter:
                         for key, values in applied.items():
                             durable_actions.setdefault(key, []).extend(values)
                         durable_count += 1
+                        namespace_id = self._namespace_for_policy(policy, request=request)
+                        saved_namespaces[namespace_id] = saved_namespaces.get(namespace_id, 0) + 1
+                    if saved_namespaces:
+                        durable_actions["namespaces"] = sorted(saved_namespaces)
                     if durable_count == 0:
                         durable_skipped = True
                         if durable_actions["routed"]:
                             durable_skip_reason = "durable_actions_routed_to_non_durable_layer"
                         elif durable_actions["rejected"]:
                             durable_skip_reason = "durable_actions_rejected_by_policy"
-                    if self.on_durable_saved is not None and durable_count > 0:
-                        self.on_durable_saved(durable_count)
+                    if self.on_durable_saved is not None and saved_namespaces:
+                        self.on_durable_saved(saved_namespaces)
                 else:
                     durable_skip_reason = plan.skipped_reason or "agent_returned_no_durable_actions"
             except Exception as exc:
@@ -733,37 +741,38 @@ class MemoryCommitter:
         request: MemoryMaintenanceRequest,
         policy: dict[str, Any],
     ) -> dict[str, list[str]]:
+        memory_manager = self._memory_manager_for_policy(policy, request=request)
         note = self._note_from_action(action, request=request, policy=policy)
-        self._assert_note_path_in_memory_dir(note.slug)
+        self._assert_note_path_in_memory_dir(note.slug, memory_manager=memory_manager)
         if action.action == "create":
             if action.target_note_id:
                 raise ValueError("durable create action must not include target_note_id")
-            self.memory_manager.save_note(note)
+            memory_manager.save_note(note)
             return {"created": [note.slug]}
         if action.action == "update":
             target = str(action.target_note_id or action.note_id or "").strip()
             if not target:
                 raise ValueError("durable update action requires target_note_id")
-            target_slug = self.memory_manager.slugify(target)
-            if not self.memory_manager.note_exists(target_slug):
+            target_slug = memory_manager.slugify(target)
+            if not memory_manager.note_exists(target_slug):
                 raise KeyError(f"Unknown durable memory update target: {target_slug}")
-            self.memory_manager.update_note(target_slug, patch=note)
+            memory_manager.update_note(target_slug, patch=note)
             return {"updated": [target_slug]}
         if action.action == "merge":
             merge_ids = [
-                self.memory_manager.slugify(item)
+                memory_manager.slugify(item)
                 for item in list(action.merge_note_ids or [])
                 if str(item or "").strip()
             ]
             if len(merge_ids) < 2:
                 raise ValueError("durable merge action requires at least two merge_note_ids")
             for slug in merge_ids:
-                if not self.memory_manager.note_exists(slug):
+                if not memory_manager.note_exists(slug):
                     raise KeyError(f"Unknown durable memory merge source: {slug}")
-            target = self.memory_manager.slugify(action.target_note_id or action.note_id or note.slug)
+            target = memory_manager.slugify(action.target_note_id or action.note_id or note.slug)
             note.slug = target
-            self.memory_manager.save_note(note)
-            deprecated = self.memory_manager.deprecate_notes(
+            memory_manager.save_note(note)
+            deprecated = memory_manager.deprecate_notes(
                 [slug for slug in merge_ids if slug != target],
                 replacement_slug=target,
                 reason=action.reason or "durable_memory_merge",
@@ -777,6 +786,25 @@ class MemoryCommitter:
             )
             return {"merged": [target], "deprecated": deprecated}
         raise ValueError(f"unsupported durable memory action: {action.action}")
+
+    def _memory_manager_for_policy(self, policy: dict[str, Any], *, request: MemoryMaintenanceRequest):
+        if self.memory_manager_resolver is None:
+            return self.memory_manager
+        scope = {
+            "task_environment_id": normalize_text(request.decision_context.get("task_environment_id")),
+            "namespace_id": normalize_text(policy.get("namespace_id")),
+            "scope": normalize_text(policy.get("scope")),
+        }
+        if not scope["task_environment_id"] or scope["scope"] == "global_common":
+            return self.memory_manager
+        return self.memory_manager_resolver(scope)
+
+    def _namespace_for_policy(self, policy: dict[str, Any], *, request: MemoryMaintenanceRequest) -> str:
+        scope = normalize_text(policy.get("scope"))
+        task_environment_id = normalize_text(request.decision_context.get("task_environment_id"))
+        if not task_environment_id or scope == "global_common":
+            return "global_common"
+        return durable_memory_namespace_id_for_task_environment(task_environment_id)
 
     def _durable_policy_decision(self, action: DurableMemoryWriteAction, *, request: MemoryMaintenanceRequest) -> dict[str, Any]:
         if action.memory_type == "reference":
@@ -938,9 +966,9 @@ class MemoryCommitter:
         )
         return "\n".join(lines).strip()
 
-    def _assert_note_path_in_memory_dir(self, slug: str) -> None:
-        notes_dir = (Path(self.memory_manager.root_dir) / "notes").resolve()
-        target = self.memory_manager.note_path(slug).resolve()
+    def _assert_note_path_in_memory_dir(self, slug: str, *, memory_manager: Any) -> None:
+        notes_dir = (Path(memory_manager.root_dir) / "notes").resolve()
+        target = memory_manager.note_path(slug).resolve()
         if target == notes_dir or notes_dir not in target.parents:
             raise ValueError("durable memory write target escapes notes directory")
 
@@ -963,8 +991,9 @@ class MemoryMaintenanceCoordinator:
         session_memory_layer: Any,
         session_emphasis_store: SessionEmphasisStore | None = None,
         memory_manager: Any,
+        memory_manager_resolver: Callable[[dict[str, Any] | None], Any] | None = None,
         maintenance_agent: MemoryMaintenanceAgent,
-        on_durable_saved: Callable[[int], None] | None = None,
+        on_durable_saved: Callable[[dict[str, int]], None] | None = None,
     ) -> None:
         layout = ProjectLayout.from_backend_dir(base_dir)
         self.runtime_dir = layout.runtime_state_dir / "memory_maintenance"
@@ -978,13 +1007,14 @@ class MemoryMaintenanceCoordinator:
             session_memory_layer=session_memory_layer,
             session_emphasis_store=session_emphasis_store,
             memory_manager=memory_manager,
+            memory_manager_resolver=memory_manager_resolver,
             on_durable_saved=on_durable_saved,
         )
         self._lock = threading.RLock()
         self._in_progress: set[str] = set()
         self._pending: dict[str, dict[str, Any]] = {}
 
-    def set_durable_saved_callback(self, callback: Callable[[int], None] | None) -> None:
+    def set_durable_saved_callback(self, callback: Callable[[dict[str, int]], None] | None) -> None:
         self.committer.set_durable_saved_callback(callback)
 
     def describe_runtime_state(self) -> dict[str, Any]:

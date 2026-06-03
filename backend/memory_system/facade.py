@@ -10,6 +10,7 @@ from .continuity import ForegroundContinuityStateStore, MemoryMessageAdapter, Se
 from .conversation_memory import ConversationMemoryStoreAdapter
 from .durable import DurableMemoryLayer
 from .governance_service import DurableMemoryGovernanceService
+from .layout import environment_durable_memory_scope_from_backend_dir
 from .maintenance import MemoryMaintenanceAgent, MemoryMaintenanceCoordinator
 from .runtime_services import MemoryRuntimeServices
 from .session_emphasis import SessionEmphasisStore
@@ -20,11 +21,14 @@ class MemoryFacade:
     def __init__(self, base_dir: Path, context_budget_provider: Callable[[], dict[str, Any]] | None = None) -> None:
         self.base_dir = base_dir
         self._context_budget_provider = context_budget_provider
+        self._model_invoker: Callable[[list[dict[str, str]]], Any] | None = None
+        self._external_durable_memory_saved_callback: Callable[[dict[str, int]], None] | None = None
         self.adapter = MemoryMessageAdapter()
         self.session_memory = SessionMemoryLayer(base_dir, context_budget_provider=context_budget_provider)
         self.foreground_state = ForegroundContinuityStateStore(self.session_memory.session_root)
         self.session_emphasis = SessionEmphasisStore(self.session_memory.session_root)
         self.durable_memory = DurableMemoryLayer(base_dir)
+        self._environment_durable_layers: dict[str, DurableMemoryLayer] = {}
         self.memory_manager = self.durable_memory.memory_manager
         self.maintenance_agent = MemoryMaintenanceAgent()
         self.maintenance_coordinator = MemoryMaintenanceCoordinator(
@@ -32,6 +36,7 @@ class MemoryFacade:
             session_memory_layer=self.session_memory,
             session_emphasis_store=self.session_emphasis,
             memory_manager=self.memory_manager,
+            memory_manager_resolver=self.resolve_durable_memory_manager,
             maintenance_agent=self.maintenance_agent,
         )
         self.background_task_manager = BackgroundTaskManager(base_dir)
@@ -53,15 +58,56 @@ class MemoryFacade:
             state_memory=self.state_memory,
             working_memory=self.working_memory,
             durable_memory=self.durable_memory,
+            durable_memory_resolver=self.resolve_durable_memory_layer,
             context_budget_provider=context_budget_provider,
         )
         self.governance_service = DurableMemoryGovernanceService(
             base_dir,
             memory_manager=self.memory_manager,
         )
+        self.maintenance_coordinator.set_durable_saved_callback(self._on_durable_memory_saved)
 
-    def set_durable_memory_saved_callback(self, callback: Callable[[int], None]) -> None:
-        self.maintenance_coordinator.set_durable_saved_callback(callback)
+    def set_durable_memory_saved_callback(self, callback: Callable[[dict[str, int]], None] | None) -> None:
+        self._external_durable_memory_saved_callback = callback
+
+    def mark_durable_memory_namespaces_dirty(
+        self,
+        saved_namespaces: dict[str, int] | None = None,
+        *,
+        reason: str = "durable_memory_saved",
+    ) -> dict[str, Any]:
+        return self.governance_service.mark_namespaces_dirty(saved_namespaces, reason=reason)
+
+    def run_durable_memory_governance_tick(
+        self,
+        *,
+        namespace_ids: list[str] | tuple[str, ...] | None = None,
+        force: bool = False,
+        min_interval_seconds: int | None = None,
+        reason: str = "runtime_tick",
+        source: str = "memory_system.facade",
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "namespace_ids": namespace_ids,
+            "force": force,
+            "reason": reason,
+            "source": source,
+        }
+        if min_interval_seconds is not None:
+            payload["min_interval_seconds"] = min_interval_seconds
+        return self.governance_service.run_governance_tick(**payload)
+
+    def _on_durable_memory_saved(self, saved_namespaces: dict[str, int]) -> None:
+        normalized = {
+            str(namespace_id or "").strip() or "global_common": max(0, int(count or 0))
+            for namespace_id, count in dict(saved_namespaces or {}).items()
+        }
+        normalized = {namespace_id: count for namespace_id, count in normalized.items() if count > 0}
+        if not normalized:
+            return
+        self.mark_durable_memory_namespaces_dirty(normalized, reason="durable_memory_saved")
+        if self._external_durable_memory_saved_callback is not None:
+            self._external_durable_memory_saved_callback(normalized)
 
     def enqueue_memory_maintenance_after_commit(
         self,
@@ -129,8 +175,26 @@ class MemoryFacade:
             },
         )
 
+    def resolve_durable_memory_layer(self, environment_scope: dict[str, Any] | None = None) -> DurableMemoryLayer:
+        task_environment_id = str(dict(environment_scope or {}).get("task_environment_id") or "").strip()
+        if not task_environment_id:
+            return self.durable_memory
+        scope = environment_durable_memory_scope_from_backend_dir(self.base_dir, task_environment_id)
+        layer = self._environment_durable_layers.get(scope.namespace_id)
+        if layer is None:
+            layer = DurableMemoryLayer(self.base_dir, root_dir=scope.storage_root, namespace_id=scope.namespace_id)
+            layer.set_message_invoker(self._model_invoker)
+            self._environment_durable_layers[scope.namespace_id] = layer
+        return layer
+
+    def resolve_durable_memory_manager(self, environment_scope: dict[str, Any] | None = None):
+        return self.resolve_durable_memory_layer(environment_scope).memory_manager
+
     def set_model_invoker(self, callback: Callable[[list[dict[str, str]]], Any] | None) -> None:
+        self._model_invoker = callback
         self.durable_memory.set_message_invoker(callback)
+        for layer in self._environment_durable_layers.values():
+            layer.set_message_invoker(callback)
         self.maintenance_agent.set_message_invoker(callback)
 
     def run_memory_maintenance_after_commit(

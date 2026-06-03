@@ -66,6 +66,12 @@ class CanonicalPromptSerializer:
             cache_role = _cache_role(planned.get("cache_role")) if planned else "never_cache"
             prefix_tier = _prefix_tier(planned.get("prefix_tier"), cache_scope=str(planned.get("cache_scope") or "none"), cache_role=cache_role) if planned else "none"
             compression_role = _compression_role(planned.get("compression_role")) if planned else "summarize"
+            authority_class = _authority_class(
+                planned,
+                message=message,
+                kind=kind,
+                compression_role=compression_role,
+            )
             token_count = self.token_counter.count_text(segment_payload, provider=provider, model=model)
             reasoning_token_supplement = _reasoning_content_token_supplement(message)
             segments.append(
@@ -84,6 +90,7 @@ class CanonicalPromptSerializer:
                     cache_role=cache_role,
                     prefix_tier=prefix_tier,
                     compression_role=compression_role,
+                    authority_class=authority_class,
                     source=str(planned.get("source_ref") or "model_request.message") if planned else "model_request.unplanned_message",
                     created_at=timestamp,
                     metadata={
@@ -116,6 +123,7 @@ class CanonicalPromptSerializer:
                     predicted_tokens=token_count.tokens,
                     cache_role="never_cache",
                     compression_role="preserve",
+                    authority_class="contract",
                     source="model_request.tools",
                     created_at=timestamp,
                     metadata={
@@ -390,6 +398,45 @@ def _compression_role(value: Any) -> str:
     if normalized in {"preserve", "summarize", "drop_if_cold", "ref_only"}:
         return normalized
     return "summarize"
+
+
+def _authority_class(
+    planned: dict[str, Any] | None,
+    *,
+    message: dict[str, Any],
+    kind: str,
+    compression_role: str,
+) -> str:
+    raw = ""
+    if planned:
+        raw = str(planned.get("authority_class") or dict(planned.get("metadata") or {}).get("authority_class") or "")
+    if raw in {
+        "contract",
+        "permission",
+        "current_user_intent",
+        "runtime_state",
+        "evidence_ref",
+        "natural_history",
+        "bulk_output",
+        "unknown",
+    }:
+        return raw
+    normalized_kind = str(kind or "").lower()
+    if compression_role == "preserve":
+        if "permission" in normalized_kind:
+            return "permission"
+        if "runtime" in normalized_kind or "state" in normalized_kind:
+            return "runtime_state"
+        return "contract"
+    if str(message.get("role") or "") == "user":
+        return "current_user_intent"
+    if "tool" in normalized_kind or compression_role in {"drop_if_cold", "ref_only"}:
+        return "bulk_output"
+    if "retrieval" in normalized_kind or "evidence" in normalized_kind:
+        return "evidence_ref"
+    if "runtime" in normalized_kind or "state" in normalized_kind:
+        return "runtime_state"
+    return "natural_history"
 
 
 def _int(value: Any, *, default: int = 0) -> int:

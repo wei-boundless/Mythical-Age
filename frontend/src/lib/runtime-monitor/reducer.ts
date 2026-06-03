@@ -47,6 +47,7 @@ export function visibleRuntimeMonitorItemsFromEnvelope(monitor: RuntimeMonitorEn
   const source = buckets
     ? [
         ...(Array.isArray(buckets.running) ? buckets.running : []),
+        ...(Array.isArray(buckets.waiting) ? buckets.waiting : []),
         ...(Array.isArray(buckets.completed) ? buckets.completed : []),
         ...(Array.isArray(buckets.failed) ? buckets.failed : []),
         ...(Array.isArray(buckets.diagnostics) ? buckets.diagnostics : []),

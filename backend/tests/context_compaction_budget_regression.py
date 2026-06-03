@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from context_system.compaction.compactor import ContextCompactor
+from context_system.compaction.hooks import CompactHookDecision
 from memory_system.storage.models import Message
 from memory_system.storage.session_memory import SessionMemoryManager
 from runtime.prompt_accounting import CompressionBudgetPlanner, PromptSegment
@@ -61,6 +62,40 @@ def test_compression_budget_planner_reports_required_reduction_and_summary_targe
     assert decision.cache_impact_tiers["provider_global"] == "preserved"
     assert decision.cache_impact_tiers["task"] == "preserved"
     assert decision.cache_impact_tiers["volatile"] == "volatile_preserved"
+    assert decision.strategy == "ref_projection"
+
+
+def test_compression_budget_planner_preserves_authority_class_current_user_intent() -> None:
+    segments = [
+        PromptSegment(
+            segment_id="seg:current-user",
+            request_id="modelreq:test",
+            kind="recent_history",
+            predicted_tokens=400,
+            cache_role="volatile",
+            compression_role="summarize",
+            authority_class="current_user_intent",
+        ),
+        PromptSegment(
+            segment_id="seg:old-history",
+            request_id="modelreq:test",
+            kind="recent_history",
+            predicted_tokens=900,
+            cache_role="volatile",
+            compression_role="summarize",
+            authority_class="natural_history",
+        ),
+    ]
+
+    decision = CompressionBudgetPlanner().plan(
+        segments,
+        context_window_tokens=900,
+        reserved_output_tokens=200,
+    )
+
+    assert "seg:current-user" in decision.preserved_segments
+    assert "seg:old-history" in decision.compressible_segments
+    assert decision.strategy == "session_memory_compact"
 
 
 def test_context_compactor_builds_semantic_request_for_context_compactor_agent(tmp_path) -> None:
@@ -135,3 +170,76 @@ def test_context_compactor_uses_semantic_summary_as_checkpoint_and_keeps_recent_
     assert [message.content for message in result.messages[-2:]] == ["已确认回复正文要深色", "继续修复压缩算法"]
     assert result.diagnostics["compaction_source"] == "semantic_compactor"
     assert result.diagnostics["compression_budget_decision"]["summary_target_tokens"] > 0
+    receipt = result.diagnostics["compact_boundary_receipt"]
+    assert receipt["authority"] == "context_system.compaction.boundary_receipt"
+    assert receipt["planned_strategy"] in {"session_memory_compact", "ref_projection", "microcompact"}
+    assert receipt["applied_strategy"] == "full_compact"
+    assert receipt["invariant_status"] == "ok"
+    assert result.diagnostics["compaction_invariants"]["current_user_message_preserved"] is True
+
+
+def test_pre_compact_hook_can_block_with_boundary_receipt(tmp_path) -> None:
+    manager = SessionMemoryManager(tmp_path)
+    compactor = ContextCompactor(
+        manager,
+        max_messages=4,
+        keep_recent_messages=2,
+        effective_history_token_budget=120,
+        pre_compact_hook=lambda request: CompactHookDecision(
+            allowed=False,
+            reason=f"blocked:{request.trigger}",
+        ),
+    )
+    messages = [
+        Message(role="user", content="请继续"),
+        Message(role="assistant", content="旧输出 " + ("证据 " * 200)),
+        Message(role="user", content="当前请求必须保留"),
+    ]
+
+    result = compactor.apply_strategy(
+        messages,
+        pressure_level="full_compact",
+        request_id="ctxcompact:blocked",
+        trigger="manual",
+        reason="test hook",
+    )
+
+    assert result.did_compact is False
+    assert result.messages == messages
+    assert result.strategy == "blocked_by_pre_compact_hook"
+    receipt = result.diagnostics["compact_boundary_receipt"]
+    assert receipt["blocked"] is True
+    assert receipt["block_reason"] == "blocked:manual"
+
+
+def test_compactor_blocks_replacement_that_would_orphan_tool_result(tmp_path) -> None:
+    manager = SessionMemoryManager(tmp_path)
+    manager.overwrite("# Active Goal\n- 保留工具协议\n")
+    compactor = ContextCompactor(
+        manager,
+        max_messages=4,
+        keep_recent_messages=2,
+        effective_history_token_budget=120,
+        full_compact_recent_messages=2,
+    )
+    messages = [
+        Message(role="user", content="先准备"),
+        Message(role="assistant", content="准备完成"),
+        Message(role="user", content="读取文件"),
+        Message(role="assistant", content='<tool_call id="call_1">read_file</tool_call>'),
+        Message(role="tool", content='<tool_result tool_call_id="call_1">文件内容</tool_result>'),
+        Message(role="user", content="继续，且不要切断工具结果"),
+    ]
+
+    result = compactor.apply_strategy(
+        messages,
+        pressure_level="full_compact",
+        request_id="ctxcompact:tool-pair",
+        reason="tool invariant test",
+    )
+
+    assert result.did_compact is False
+    assert result.messages == messages
+    assert result.strategy == "blocked_by_compaction_invariants"
+    assert result.diagnostics["compaction_invariants"]["orphan_tool_result_ids"] == ["call_1"]
+    assert result.diagnostics["compact_boundary_receipt"]["blocked"] is True

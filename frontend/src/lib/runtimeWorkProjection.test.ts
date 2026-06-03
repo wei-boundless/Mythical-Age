@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { GlobalRuntimeMonitorItem } from "./api";
-import { runtimeWorkProjectionFromLiveMonitor, runtimeWorkProjectionFromMonitorItem, visibleRuntimeMonitorItems } from "./runtimeWorkProjection";
+import { monitorBucketItems, runtimeWorkProjectionFromLiveMonitor, runtimeWorkProjectionFromMonitorItem, visibleRuntimeMonitorItems } from "./runtimeWorkProjection";
 
 function item(patch: Partial<GlobalRuntimeMonitorItem>): GlobalRuntimeMonitorItem {
   return {
@@ -91,6 +91,9 @@ describe("runtimeWorkProjection", () => {
     const liveWaiting = item({
       task_run_id: "taskrun:waiting",
       status: "waiting_executor",
+      lifecycle: "waiting",
+      bucket: "waiting",
+      resource_class: "static",
     });
     const failedHistory = item({
       task_run_id: "taskrun:failed",
@@ -109,9 +112,10 @@ describe("runtimeWorkProjection", () => {
 
     const visible = visibleRuntimeMonitorItems({
       authority: "test",
-      summary: { total: 3, running: 1, waiting: 1, completed: 1, failed: 1 },
+      summary: { total: 3, running: 0, waiting: 1, completed: 1, failed: 1 },
       buckets: {
-        running: [liveWaiting],
+        running: [],
+        waiting: [liveWaiting],
         completed: [completedHistory],
         failed: [failedHistory],
         diagnostics: [],
@@ -121,6 +125,19 @@ describe("runtimeWorkProjection", () => {
     });
 
     expect(visible.map((entry) => entry.task_run_id)).toEqual(["taskrun:waiting", "taskrun:completed", "taskrun:failed"]);
+    expect(monitorBucketItems({
+      authority: "test",
+      summary: { total: 1, running: 0, waiting: 1, completed: 0, failed: 0 },
+      buckets: {
+        running: [],
+        waiting: [liveWaiting],
+        completed: [],
+        failed: [],
+        diagnostics: [],
+      },
+      task_runs: [liveWaiting],
+      updated_at: 1,
+    }, "waiting").map((entry) => entry.task_run_id)).toEqual(["taskrun:waiting"]);
   });
 
   it("keeps bucketed blocked, completed, and failed task runs visible by monitor page order", () => {

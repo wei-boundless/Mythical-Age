@@ -2398,6 +2398,7 @@ export type GlobalRuntimeMonitor = {
   };
   buckets: {
     running: GlobalRuntimeMonitorItem[];
+    waiting?: GlobalRuntimeMonitorItem[];
     completed: GlobalRuntimeMonitorItem[];
     failed: GlobalRuntimeMonitorItem[];
     diagnostics: GlobalRuntimeMonitorItem[];

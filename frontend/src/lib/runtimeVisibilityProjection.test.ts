@@ -211,6 +211,37 @@ describe("runtimeVisibilityProjection", () => {
     });
   });
 
+  it("keeps formal task run starts visible even when runtime metadata is present", () => {
+    const projection = projectRuntimeStreamEvent("harness_run_started", {
+      task_run: {
+        task_run_id: "taskrun:visible-formal-task",
+        execution_runtime_kind: "single_agent_turn",
+        status: "running",
+      },
+      event: {
+        event_id: "rtevt:formal-task-start",
+        run_id: "taskrun:visible-formal-task",
+        created_at: 32,
+        payload: {
+          contract: {
+            user_visible_goal: "执行正式后台任务",
+          },
+        },
+      },
+    });
+
+    expect(projection).toMatchObject({
+      stageStatus: "处理已开始",
+      activityTitle: "处理已开始",
+      activityDetail: "执行正式后台任务",
+      level: "running",
+    });
+    expect(projection.progressEntry).toMatchObject({
+      kind: "task_order",
+      taskRunId: "taskrun:visible-formal-task",
+    });
+  });
+
   it("ignores chat turn runtime start because it is an internal trace", () => {
     const projection = projectRuntimeStreamEvent("harness_run_started", {
       turn_run: {

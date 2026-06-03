@@ -17,7 +17,7 @@ import {
 } from "@/components/layout/runtimeMonitorFormat";
 import { useRuntimeNowTicker } from "@/components/layout/runtimeNowTicker";
 
-type RuntimeMonitorBucket = "running" | "completed" | "failed" | "diagnostics";
+type RuntimeMonitorBucket = "running" | "waiting" | "completed" | "failed" | "diagnostics";
 
 function statusIcon(status: string) {
   if (isWaitingStatus(status)) return <PauseCircle size={14} />;
@@ -39,23 +39,33 @@ export function TaskMonitorDock({ embedded = false }: { embedded?: boolean }) {
   const [collapsed, setCollapsed] = useState(false);
   const [activeBucket, setActiveBucket] = useState<RuntimeMonitorBucket>("running");
   const runningRuns = useMemo(() => monitorBucketItems(globalRuntimeMonitor, "running"), [globalRuntimeMonitor]);
+  const waitingRuns = useMemo(() => monitorBucketItems(globalRuntimeMonitor, "waiting"), [globalRuntimeMonitor]);
   const completedRuns = useMemo(() => monitorBucketItems(globalRuntimeMonitor, "completed"), [globalRuntimeMonitor]);
   const failedRuns = useMemo(() => monitorBucketItems(globalRuntimeMonitor, "failed"), [globalRuntimeMonitor]);
   const diagnosticsRuns = useMemo(() => monitorBucketItems(globalRuntimeMonitor, "diagnostics"), [globalRuntimeMonitor]);
   const bucketCounts = useMemo<Record<RuntimeMonitorBucket, number>>(() => ({
     running: runningRuns.length,
+    waiting: waitingRuns.length,
     completed: completedRuns.length,
     failed: failedRuns.length,
     diagnostics: diagnosticsRuns.length,
-  }), [completedRuns.length, diagnosticsRuns.length, failedRuns.length, runningRuns.length]);
-  const runs = activeBucket === "running" ? runningRuns : activeBucket === "completed" ? completedRuns : activeBucket === "failed" ? failedRuns : diagnosticsRuns;
-  const allRuns = useMemo(() => [...runningRuns, ...completedRuns, ...failedRuns, ...diagnosticsRuns], [completedRuns, diagnosticsRuns, failedRuns, runningRuns]);
+  }), [completedRuns.length, diagnosticsRuns.length, failedRuns.length, runningRuns.length, waitingRuns.length]);
+  const runs = activeBucket === "running"
+    ? runningRuns
+    : activeBucket === "waiting"
+      ? waitingRuns
+      : activeBucket === "completed"
+        ? completedRuns
+        : activeBucket === "failed"
+          ? failedRuns
+          : diagnosticsRuns;
+  const allRuns = useMemo(() => [...runningRuns, ...waitingRuns, ...completedRuns, ...failedRuns, ...diagnosticsRuns], [completedRuns, diagnosticsRuns, failedRuns, runningRuns, waitingRuns]);
   const summary = globalRuntimeMonitor?.summary;
   const selectedRun = useMemo(
     () => allRuns.find((item) => item.task_run_id === globalRuntimeMonitorSelectedTaskRunId || monitorItemInstanceId(item) === globalRuntimeMonitorSelectedTaskRunId) ?? runs[0] ?? null,
     [allRuns, globalRuntimeMonitorSelectedTaskRunId, runs]
   );
-  const hasActiveSignal = runningRuns.some((item) => item.resource_class === "dynamic" || item.action_required);
+  const hasActiveSignal = [...runningRuns, ...waitingRuns].some((item) => item.resource_class === "dynamic" || item.action_required || isWaitingStatus(item.status));
   const hasSignal = allRuns.length > 0;
   const nowSeconds = useRuntimeNowTicker(hasActiveSignal);
   const streamLabel = globalRuntimeMonitorStreamStatus === "connected"
@@ -82,7 +92,7 @@ export function TaskMonitorDock({ embedded = false }: { embedded?: boolean }) {
 
   useEffect(() => {
     if (bucketCounts[activeBucket] > 0) return;
-    const nextBucket = (["running", "completed", "failed", "diagnostics"] as RuntimeMonitorBucket[])
+    const nextBucket = (["running", "waiting", "completed", "failed", "diagnostics"] as RuntimeMonitorBucket[])
       .find((bucket) => bucketCounts[bucket] > 0);
     if (nextBucket && nextBucket !== activeBucket) {
       setActiveBucket(nextBucket);
@@ -93,11 +103,12 @@ export function TaskMonitorDock({ embedded = false }: { embedded?: boolean }) {
     if (globalRuntimeMonitorLoading && !globalRuntimeMonitor) return "同步中";
     if (summary?.action_required) return "等待处理";
     if (summary?.running) return `${summary.running} 运行中`;
+    if (summary?.waiting) return `${summary.waiting} 等待继续`;
     if (summary?.failed) return `${summary.failed} 失败`;
     if (summary?.diagnostics) return `${summary.diagnostics} 需诊断`;
     if (summary?.completed) return `${summary.completed} 完成`;
     return "待命";
-  }, [globalRuntimeMonitor, globalRuntimeMonitorLoading, summary?.action_required, summary?.completed, summary?.diagnostics, summary?.failed, summary?.running]);
+  }, [globalRuntimeMonitor, globalRuntimeMonitorLoading, summary?.action_required, summary?.completed, summary?.diagnostics, summary?.failed, summary?.running, summary?.waiting]);
 
   return (
     <aside
@@ -160,6 +171,9 @@ export function TaskMonitorDock({ embedded = false }: { embedded?: boolean }) {
             <button className={activeBucket === "running" ? "is-active" : ""} onClick={() => setActiveBucket("running")} type="button">
               <strong>{runningRuns.length}</strong><span>运行中</span>
             </button>
+            <button className={activeBucket === "waiting" ? "is-active" : ""} onClick={() => setActiveBucket("waiting")} type="button">
+              <strong>{waitingRuns.length}</strong><span>等待</span>
+            </button>
             <button className={activeBucket === "completed" ? "is-active" : ""} onClick={() => setActiveBucket("completed")} type="button">
               <strong>{completedRuns.length}</strong><span>已完成</span>
             </button>
@@ -206,7 +220,7 @@ export function TaskMonitorDock({ embedded = false }: { embedded?: boolean }) {
             }) : (
               <div className="runtime-monitor-empty">
                 <Clock3 size={18} />
-                <strong>{activeBucket === "running" ? "当前没有运行任务" : activeBucket === "completed" ? "暂无完成任务" : activeBucket === "failed" ? "暂无失败任务" : "暂无诊断任务"}</strong>
+                <strong>{activeBucket === "running" ? "当前没有运行任务" : activeBucket === "waiting" ? "暂无等待任务" : activeBucket === "completed" ? "暂无完成任务" : activeBucket === "failed" ? "暂无失败任务" : "暂无诊断任务"}</strong>
                 <span>任务会按状态自动归入这里。</span>
               </div>
             )}

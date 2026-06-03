@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import hashlib
+import json
 import re
 from typing import Any, Literal
 
@@ -8,6 +10,9 @@ from memory_system.storage.models import Message
 from memory_system.storage.session_memory import SessionMemoryManager
 from runtime.prompt_accounting import CanonicalPromptSerializer, CompressionBudgetPlanner
 from token_accounting import count_text_tokens
+
+from .hooks import CompactBoundaryReceipt, CompactHookDecision, PreCompactHookRequest
+from .invariants import validate_compacted_messages
 
 
 @dataclass(slots=True)
@@ -77,6 +82,8 @@ class ContextCompactor:
         prompt_serializer: CanonicalPromptSerializer | None = None,
         compression_budget_planner: CompressionBudgetPlanner | None = None,
         semantic_compactor: Any | None = None,
+        pre_compact_hook: Any | None = None,
+        post_compact_hook: Any | None = None,
     ) -> None:
         if keep_recent_messages >= max_messages:
             raise ValueError("keep_recent_messages must be smaller than max_messages")
@@ -94,6 +101,8 @@ class ContextCompactor:
         self.prompt_serializer = prompt_serializer or CanonicalPromptSerializer()
         self.compression_budget_planner = compression_budget_planner or CompressionBudgetPlanner()
         self.semantic_compactor = semantic_compactor
+        self.pre_compact_hook = pre_compact_hook
+        self.post_compact_hook = post_compact_hook
 
     def count_tokens(self, text: str) -> int:
         return self._count_tokens(text)
@@ -278,7 +287,11 @@ class ContextCompactor:
         summary_source_content: str | None = None,
         request_id: str = "context_compaction:preview",
         session_id: str = "",
+        turn_id: str = "",
         task_run_id: str = "",
+        task_environment_id: str = "",
+        trigger: Literal["auto", "manual", "context_overflow", "preview"] = "preview",
+        reason: str = "",
         reserved_output_tokens: int = 0,
         semantic_summary_content: str | None = None,
     ) -> CompactResult:
@@ -291,6 +304,8 @@ class ContextCompactor:
             task_run_id=task_run_id,
             reserved_output_tokens=reserved_output_tokens,
         )
+        budget_decision = dict(prompt_diagnostics.get("compression_budget_decision") or {})
+        planned_strategy = str(budget_decision.get("strategy") or budget_decision.get("decision") or "none")
 
         if pressure_level in {"normal", "warning"}:
             return CompactResult(
@@ -306,12 +321,46 @@ class ContextCompactor:
                 diagnostics=prompt_diagnostics,
             )
 
+        pre_hook_request = PreCompactHookRequest(
+            request_id=request_id,
+            session_id=session_id,
+            turn_id=turn_id,
+            task_run_id=task_run_id,
+            task_environment_id=task_environment_id,
+            trigger=trigger,
+            reason=reason,
+            token_before=tokens_before,
+            planned_strategy=planned_strategy,
+            pressure_level=pressure_level,
+            diagnostics={"compression_budget_decision": budget_decision},
+        )
+        pre_hook_decision = self._run_pre_compact_hook(pre_hook_request)
+        if not pre_hook_decision.allowed:
+            return self._blocked_result(
+                working,
+                pressure_level=pressure_level,
+                strategy="blocked_by_pre_compact_hook",
+                tokens_before=tokens_before,
+                request_id=request_id,
+                session_id=session_id,
+                turn_id=turn_id,
+                task_run_id=task_run_id,
+                task_environment_id=task_environment_id,
+                trigger=trigger,
+                reason=reason,
+                planned_strategy=planned_strategy,
+                block_reason=pre_hook_decision.reason or "pre_compact_hook_blocked",
+                prompt_diagnostics={
+                    **prompt_diagnostics,
+                    "pre_compact_hook": pre_hook_decision.to_dict(),
+                },
+            )
+
         micro_messages, replaced = self._apply_microcompact(working)
         tokens_after_micro = self._conversation_tokens(micro_messages)
         post_micro_level = self._pressure_level(tokens_after_micro, len(micro_messages))
-        budget_decision = dict(prompt_diagnostics.get("compression_budget_decision") or {})
         if pressure_level == "microcompact" or post_micro_level in {"normal", "warning", "microcompact"}:
-            return CompactResult(
+            result = CompactResult(
                 did_compact=replaced > 0,
                 messages=micro_messages,
                 pressure_level="microcompact",
@@ -329,6 +378,20 @@ class ContextCompactor:
                     "estimated_tokens_after_microcompact": tokens_after_micro,
                     "semantic_compactor_required": False,
                 },
+            )
+            return self._finalize_compact_result(
+                result,
+                before_messages=working,
+                request_id=request_id,
+                session_id=session_id,
+                turn_id=turn_id,
+                task_run_id=task_run_id,
+                task_environment_id=task_environment_id,
+                trigger=trigger,
+                reason=reason,
+                planned_strategy=planned_strategy,
+                summary_source="",
+                pre_hook_decision=pre_hook_decision,
             )
 
         summary_message: Message | None = None
@@ -388,7 +451,7 @@ class ContextCompactor:
             )
             tokens_after = self._conversation_tokens(compacted)
 
-        return CompactResult(
+        result = CompactResult(
             did_compact=True,
             messages=compacted,
             summary_message=summary_message,
@@ -415,6 +478,20 @@ class ContextCompactor:
                 ).to_dict(),
                 "compaction_source": compaction_source,
             },
+        )
+        return self._finalize_compact_result(
+            result,
+            before_messages=working,
+            request_id=request_id,
+            session_id=session_id,
+            turn_id=turn_id,
+            task_run_id=task_run_id,
+            task_environment_id=task_environment_id,
+            trigger=trigger,
+            reason=reason,
+            planned_strategy=planned_strategy,
+            summary_source=compaction_source,
+            pre_hook_decision=pre_hook_decision,
         )
 
     def _select_recent_core_messages(self, messages: list[Message], recent_count: int) -> list[Message]:
@@ -484,6 +561,203 @@ class ContextCompactor:
             return trimmed
         char_limit = max(200, target_tokens * 4)
         return normalized[:char_limit].rstrip()
+
+    def _run_pre_compact_hook(self, request: PreCompactHookRequest) -> CompactHookDecision:
+        if self.pre_compact_hook is None:
+            return CompactHookDecision(allowed=True, reason="no_pre_compact_hook")
+        return self._normalize_hook_decision(self.pre_compact_hook(request))
+
+    def _run_post_compact_hook(self, receipt: CompactBoundaryReceipt) -> CompactHookDecision:
+        if self.post_compact_hook is None:
+            return CompactHookDecision(allowed=True, reason="no_post_compact_hook")
+        return self._normalize_hook_decision(self.post_compact_hook(receipt))
+
+    def _normalize_hook_decision(self, value: Any) -> CompactHookDecision:
+        if isinstance(value, CompactHookDecision):
+            return value
+        if hasattr(value, "to_dict"):
+            value = value.to_dict()
+        if isinstance(value, dict):
+            return CompactHookDecision(
+                allowed=bool(value.get("allowed", True)),
+                reason=str(value.get("reason") or ""),
+                diagnostics=dict(value.get("diagnostics") or {}),
+            )
+        return CompactHookDecision(allowed=True, reason="hook_returned_no_decision")
+
+    def _finalize_compact_result(
+        self,
+        result: CompactResult,
+        *,
+        before_messages: list[Message],
+        request_id: str,
+        session_id: str,
+        turn_id: str,
+        task_run_id: str,
+        task_environment_id: str,
+        trigger: Literal["auto", "manual", "context_overflow", "preview"],
+        reason: str,
+        planned_strategy: str,
+        summary_source: str,
+        pre_hook_decision: CompactHookDecision,
+    ) -> CompactResult:
+        invariant_report = validate_compacted_messages(before_messages, result.messages)
+        if not invariant_report.ok:
+            return self._blocked_result(
+                before_messages,
+                pressure_level=result.pressure_level,
+                strategy="blocked_by_compaction_invariants",
+                tokens_before=result.estimated_tokens_before,
+                request_id=request_id,
+                session_id=session_id,
+                turn_id=turn_id,
+                task_run_id=task_run_id,
+                task_environment_id=task_environment_id,
+                trigger=trigger,
+                reason=reason,
+                planned_strategy=planned_strategy,
+                block_reason=";".join(invariant_report.reasons) or "compaction_invariant_failed",
+                prompt_diagnostics={
+                    **dict(result.diagnostics or {}),
+                    "pre_compact_hook": pre_hook_decision.to_dict(),
+                    "compaction_invariants": invariant_report.to_dict(),
+                },
+            )
+        receipt = self._build_boundary_receipt(
+            result,
+            request_id=request_id,
+            session_id=session_id,
+            turn_id=turn_id,
+            task_run_id=task_run_id,
+            task_environment_id=task_environment_id,
+            trigger=trigger,
+            reason=reason,
+            planned_strategy=planned_strategy,
+            summary_source=summary_source,
+            invariant_status="ok",
+            blocked=False,
+            block_reason="",
+            extra_diagnostics={"pre_compact_hook": pre_hook_decision.to_dict(), "compaction_invariants": invariant_report.to_dict()},
+        )
+        post_hook_decision = self._run_post_compact_hook(receipt)
+        result.diagnostics = {
+            **dict(result.diagnostics or {}),
+            "pre_compact_hook": pre_hook_decision.to_dict(),
+            "post_compact_hook": post_hook_decision.to_dict(),
+            "compaction_invariants": invariant_report.to_dict(),
+            "compact_boundary_receipt": receipt.to_dict(),
+        }
+        return result
+
+    def _blocked_result(
+        self,
+        messages: list[Message],
+        *,
+        pressure_level: Literal["normal", "warning", "microcompact", "full_compact"],
+        strategy: str,
+        tokens_before: int,
+        request_id: str,
+        session_id: str,
+        turn_id: str,
+        task_run_id: str,
+        task_environment_id: str,
+        trigger: Literal["auto", "manual", "context_overflow", "preview"],
+        reason: str,
+        planned_strategy: str,
+        block_reason: str,
+        prompt_diagnostics: dict[str, Any],
+    ) -> CompactResult:
+        result = CompactResult(
+            did_compact=False,
+            messages=list(messages),
+            pressure_level=pressure_level,
+            strategy=strategy,
+            estimated_tokens_before=tokens_before,
+            estimated_tokens_after=tokens_before,
+            original_message_count=len(messages),
+            compacted_message_count=len(messages),
+            preserved_recent_count=min(len(messages), self.keep_recent_messages),
+            diagnostics=dict(prompt_diagnostics or {}),
+        )
+        receipt = self._build_boundary_receipt(
+            result,
+            request_id=request_id,
+            session_id=session_id,
+            turn_id=turn_id,
+            task_run_id=task_run_id,
+            task_environment_id=task_environment_id,
+            trigger=trigger,
+            reason=reason,
+            planned_strategy=planned_strategy,
+            summary_source="",
+            invariant_status=str(dict(prompt_diagnostics.get("compaction_invariants") or {}).get("ok") or "blocked"),
+            blocked=True,
+            block_reason=block_reason,
+            extra_diagnostics={},
+        )
+        result.diagnostics = {
+            **result.diagnostics,
+            "compact_boundary_receipt": receipt.to_dict(),
+        }
+        return result
+
+    def _build_boundary_receipt(
+        self,
+        result: CompactResult,
+        *,
+        request_id: str,
+        session_id: str,
+        turn_id: str,
+        task_run_id: str,
+        task_environment_id: str,
+        trigger: Literal["auto", "manual", "context_overflow", "preview"],
+        reason: str,
+        planned_strategy: str,
+        summary_source: str,
+        invariant_status: str,
+        blocked: bool,
+        block_reason: str,
+        extra_diagnostics: dict[str, Any],
+    ) -> CompactBoundaryReceipt:
+        budget_decision = dict(dict(result.diagnostics or {}).get("compression_budget_decision") or {})
+        seed = json.dumps(
+            {
+                "request_id": request_id,
+                "strategy": result.strategy,
+                "before": result.estimated_tokens_before,
+                "after": result.estimated_tokens_after,
+                "blocked": blocked,
+                "block_reason": block_reason,
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+        receipt_id = f"compact-receipt:{request_id}:{hashlib.sha256(seed.encode('utf-8')).hexdigest()[:12]}"
+        return CompactBoundaryReceipt(
+            receipt_id=receipt_id,
+            request_id=request_id,
+            session_id=session_id,
+            turn_id=turn_id,
+            task_run_id=task_run_id,
+            task_environment_id=task_environment_id,
+            trigger=trigger,
+            reason=reason,
+            token_before=int(result.estimated_tokens_before or 0),
+            token_after=int(result.estimated_tokens_after or 0),
+            planned_strategy=planned_strategy,
+            applied_strategy=result.strategy,
+            pressure_level=result.pressure_level,
+            preserved_segments=tuple(str(item) for item in list(budget_decision.get("preserved_segments") or [])),
+            dropped_segments=tuple(str(item) for item in list(budget_decision.get("dropped_segments") or [])),
+            summarized_segments=tuple(str(item) for item in list(budget_decision.get("summarized_segments") or [])),
+            replaced_message_count=int(result.replaced_message_count or 0),
+            preserved_recent_count=int(result.preserved_recent_count or 0),
+            summary_source=summary_source,
+            invariant_status=invariant_status,
+            blocked=blocked,
+            block_reason=block_reason,
+            diagnostics=dict(extra_diagnostics or {}),
+        )
 
     def maybe_compact(self, messages: list[Message]) -> CompactResult:
         working = list(messages)

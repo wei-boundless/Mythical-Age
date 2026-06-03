@@ -28,6 +28,7 @@ from runtime.output_boundary import CanonicalFinalTextDecision, canonical_output
 from runtime.shared.models import TurnRun
 from runtime.tool_runtime import ToolInvocationRequest, ToolObservation, build_tool_invocation_id
 from runtime.tool_runtime.provider_tool_call_adapter import tool_calls_for_langchain_messages
+from permissions.policy import normalize_permission_mode
 
 
 logger = logging.getLogger(__name__)
@@ -120,6 +121,7 @@ async def run_single_agent_turn(
             invocation_kind="single_agent_turn",
             tool_definitions_by_name=getattr(getattr(runtime_host, "tool_authorization_index", None), "definitions_by_name", {}),
         )
+        runtime_permission_mode = _turn_runtime_permission_mode(runtime_assembly, runtime_host=runtime_host)
         model_messages = _sanitize_model_messages(
             list(compilation.packet.model_messages),
             turn_id=turn_id,
@@ -305,7 +307,7 @@ async def run_single_agent_turn(
                     definitions_by_name=getattr(getattr(runtime_host, "tool_authorization_index", None), "definitions_by_name", {}),
                     allowed_tool_names=set(runtime_tool_plan.dispatchable_tool_names),
                     runtime_profile=_runtime_profile_payload(runtime_assembly),
-                    permission_mode=runtime_host._current_permission_mode() if runtime_host is not None and hasattr(runtime_host, "_current_permission_mode") else "default",
+                    permission_mode=runtime_permission_mode,
                     side_effect_policy="runtime_authorized",
                 )
                 action_permit = action_permit_from_admission(
@@ -314,7 +316,7 @@ async def run_single_agent_turn(
                     invocation_kind="agent_turn",
                     packet_allowed_action_types=tuple(compilation.packet.allowed_action_types),
                     allowed_tool_names=set(runtime_tool_plan.dispatchable_tool_names),
-                    permission_mode=runtime_host._current_permission_mode() if runtime_host is not None and hasattr(runtime_host, "_current_permission_mode") else "default",
+                    permission_mode=runtime_permission_mode,
                     side_effect_policy="runtime_authorized",
                 )
                 if runtime_host is not None and turn_run is not None:
@@ -570,7 +572,7 @@ async def run_single_agent_turn(
                     if isinstance(item, dict)
                 ),
                 runtime_profile=_runtime_profile_payload(runtime_assembly),
-                permission_mode=runtime_host._current_permission_mode() if runtime_host is not None and hasattr(runtime_host, "_current_permission_mode") else "default",
+                permission_mode=runtime_permission_mode,
                 side_effect_policy="runtime_authorized",
             )
             if runtime_host is not None and turn_run is not None:
@@ -622,7 +624,7 @@ async def run_single_agent_turn(
                             if isinstance(item, dict)
                         ),
                         runtime_profile=_runtime_profile_payload(runtime_assembly),
-                        permission_mode=runtime_host._current_permission_mode() if runtime_host is not None and hasattr(runtime_host, "_current_permission_mode") else "default",
+                        permission_mode=runtime_permission_mode,
                         side_effect_policy="runtime_authorized",
                     )
                     if runtime_host is not None and turn_run is not None:
@@ -1834,6 +1836,20 @@ def _runtime_profile_payload(runtime_assembly: Any) -> dict[str, Any]:
     return dict(payload.get("profile") or {})
 
 
+def _turn_runtime_permission_mode(runtime_assembly: Any, *, runtime_host: Any | None = None) -> str:
+    assembly_payload = runtime_assembly.to_dict() if hasattr(runtime_assembly, "to_dict") else dict(runtime_assembly or {})
+    for candidate in (
+        assembly_payload.get("permission_mode"),
+        dict(assembly_payload.get("diagnostics") or {}).get("permission_mode"),
+    ):
+        text = str(candidate or "").strip()
+        if text:
+            return normalize_permission_mode(text)
+    if runtime_host is not None and hasattr(runtime_host, "_current_permission_mode"):
+        return normalize_permission_mode(runtime_host._current_permission_mode())
+    return "default"
+
+
 def _tool_call_from_action_request(action_request: ModelActionRequest) -> dict[str, Any]:
     tool_call = dict(action_request.tool_call or {})
     tool_name = str(tool_call.get("tool_name") or tool_call.get("name") or "").strip()
@@ -2023,7 +2039,7 @@ async def _invoke_turn_tool(
         tool_plan_ref=str(getattr(tool_plan, "plan_id", "") or ""),
         admission_ref=admission.admission_id,
         action_permit=dict(action_permit or {}),
-        permission_mode=runtime_host._current_permission_mode() if runtime_host is not None and hasattr(runtime_host, "_current_permission_mode") else "default",
+        permission_mode=_turn_runtime_permission_mode(runtime_assembly, runtime_host=runtime_host),
         sandbox_scope=sandbox_scope,
         file_scope=compile_tool_file_management_policy(
             dict(assembly_payload.get("task_environment") or {}),

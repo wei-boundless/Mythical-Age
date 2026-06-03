@@ -37,6 +37,7 @@ function item(patch: Record<string, unknown>) {
 function monitor(items: Array<ReturnType<typeof item>>, revision = "rtmon:10:test") {
   const buckets = {
     running: items.filter((candidate) => candidate.bucket === "running"),
+    waiting: items.filter((candidate) => candidate.bucket === "waiting"),
     completed: items.filter((candidate) => candidate.bucket === "completed"),
     failed: items.filter((candidate) => candidate.bucket === "failed"),
     diagnostics: items.filter((candidate) => candidate.bucket === "diagnostics"),
@@ -48,6 +49,7 @@ function monitor(items: Array<ReturnType<typeof item>>, revision = "rtmon:10:tes
     summary: {
       total: items.length,
       running: buckets.running.length,
+      waiting: buckets.waiting.length,
       completed: buckets.completed.length,
       failed: buckets.failed.length,
       diagnostics: buckets.diagnostics.length,
@@ -108,5 +110,21 @@ describe("runtime monitor reducer", () => {
 
     expect(selected.selectedTaskInstanceId).toBe("grun:graph");
     expect(selected.selectedTaskRunId).toBe("taskrun:graph-root");
+  });
+
+  it("keeps waiting executor runs visible in the monitor", () => {
+    const waitingItem = item({
+      task_run_id: "taskrun:waiting",
+      task_instance_id: "taskrun:waiting",
+      status: "waiting_executor",
+      lifecycle: "waiting",
+      bucket: "waiting",
+      resource_class: "static",
+    });
+
+    const state = applyRuntimeMonitorSnapshot(createRuntimeMonitorState(), monitor([waitingItem]));
+
+    expect(state.selectedTaskInstanceId).toBe("taskrun:waiting");
+    expect(state.instancesById["taskrun:waiting"]?.monitorItem?.status).toBe("waiting_executor");
   });
 });

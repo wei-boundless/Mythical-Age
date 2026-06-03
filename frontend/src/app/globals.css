@@ -27693,6 +27693,8 @@ html[data-workspace-tone] .agent-workbench {
   color: #b91c1c;
 }
 
+.runtime-monitor-row__status--waiting,
+.runtime-monitor-row__status--waiting_executor,
 .runtime-monitor-row__status--waiting_approval,
 .runtime-monitor-row__status--blocked {
   color: #b7791f;
@@ -28719,6 +28721,8 @@ html[data-workspace-tone] .agent-workbench {
   background: var(--console-danger);
 }
 
+.agent-workbench .runtime-monitor-row__status--waiting,
+.agent-workbench .runtime-monitor-row__status--waiting_executor,
 .agent-workbench .runtime-monitor-row__status--waiting_approval,
 .agent-workbench .runtime-monitor-row__status--blocked {
   background: var(--console-warn);

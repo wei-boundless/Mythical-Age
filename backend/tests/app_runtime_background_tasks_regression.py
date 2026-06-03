@@ -36,27 +36,52 @@ def test_durable_memory_saved_uses_current_background_task_enqueue_contract() ->
     app = AppRuntime()
     app.require_ready = lambda: runtime  # type: ignore[method-assign]
 
-    app._on_durable_memory_saved(1)
+    app._on_durable_memory_saved({"global_common": 1})
 
     assert manager.calls == [
         {
             "task_kind": "durable_memory_index_rebuild",
-            "payload": {"collection": "durable_memory", "saved_count": 1},
+            "payload": {
+                "collection": "durable_memory",
+                "saved_count": 1,
+                "saved_namespaces": {"global_common": 1},
+            },
             "source": "bootstrap.app_runtime",
             "session_id": "",
             "coalesce_key": "durable_memory",
-        }
+        },
+        {
+            "task_kind": "durable_memory_governance_tick",
+            "payload": {
+                "reason": "durable_memory_saved",
+                "saved_namespaces": {"global_common": 1},
+            },
+            "source": "bootstrap.app_runtime",
+            "session_id": "",
+            "coalesce_key": "durable_memory_governance",
+        },
     ]
 
 
 def test_durable_memory_refresh_uses_current_background_task_enqueue_contract() -> None:
     manager = _BackgroundTaskManagerSpy()
-    runtime = SimpleNamespace(memory_facade=SimpleNamespace(background_task_manager=manager))
+    dirty_calls: list[dict[str, object]] = []
+    runtime = SimpleNamespace(
+        memory_facade=SimpleNamespace(
+            background_task_manager=manager,
+            mark_durable_memory_namespaces_dirty=lambda namespaces, reason: dirty_calls.append(
+                {"namespaces": dict(namespaces), "reason": reason}
+            ),
+        )
+    )
     app = AppRuntime()
     app.require_ready = lambda: runtime  # type: ignore[method-assign]
 
     app.refresh_indexes_for_path("durable_memory/notes/project.md")
 
+    assert dirty_calls == [
+        {"namespaces": {"global_common": 1}, "reason": "durable_memory_path_refresh"}
+    ]
     assert manager.calls == [
         {
             "task_kind": "durable_memory_index_rebuild",
@@ -64,5 +89,15 @@ def test_durable_memory_refresh_uses_current_background_task_enqueue_contract() 
             "source": "bootstrap.app_runtime",
             "session_id": "",
             "coalesce_key": "durable_memory",
-        }
+        },
+        {
+            "task_kind": "durable_memory_governance_tick",
+            "payload": {
+                "reason": "durable_memory_path_refresh",
+                "source_path": "durable_memory/notes/project.md",
+            },
+            "source": "bootstrap.app_runtime",
+            "session_id": "",
+            "coalesce_key": "durable_memory_governance",
+        },
     ]
