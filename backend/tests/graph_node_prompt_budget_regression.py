@@ -169,7 +169,7 @@ def test_graph_node_task_packet_places_shared_stable_segments_before_node_contra
             "authority": "harness.graph.node_execution_slot",
             "slot_id": "gslot:test:cacheable_node",
             "node_contract": {
-                "node_identity": {"node_id": "cacheable_node", "title": "可缓存节点"},
+                "node_identity": {"node_id": "cacheable_node", "title": "可缓存节点", "node_type": "review_gate"},
                 "prompt_contract": {"role_prompt": "你是一名测试执行员。"},
             },
             "edge_contracts": {},
@@ -208,10 +208,21 @@ def test_graph_node_task_packet_places_shared_stable_segments_before_node_contra
         if segment.get("cache_role") in {"cacheable_prefix", "session_stable"}
     ]
 
-    assert stable_kinds.index("artifact_scope_stable") < stable_kinds.index("graph_task_shared_stable")
-    assert stable_kinds.index("tool_index_stable") < stable_kinds.index("graph_task_shared_stable")
+    assert stable_kinds.index("artifact_scope_stable") < stable_kinds.index("agent_function_shared_stable")
+    assert stable_kinds.index("tool_index_stable") < stable_kinds.index("agent_function_shared_stable")
+    assert stable_kinds.index("agent_function_shared_stable") < stable_kinds.index("graph_task_shared_stable")
+    if "active_skills" in stable_kinds:
+        assert stable_kinds.index("active_skills") < stable_kinds.index("task_contract_stable")
     assert stable_kinds.index("graph_task_shared_stable") < stable_kinds.index("task_contract_stable")
     all_content = "".join(message["content"] for message in packet.model_messages)
+    assert "Task execution agent function contract" in all_content
+    function_content = next(
+        message["content"]
+        for message in packet.model_messages
+        if message["content"].startswith("Task execution agent function contract")
+    )
+    function_payload = json.loads(function_content.split("\n", 1)[1])
+    assert function_payload["agent_function_shared_context"]["role_family"] == "reviewer"
     assert "Task execution graph shared context" in all_content
     assert "Task execution task contract" in all_content
     assert "graph_node_context" in all_content
@@ -290,6 +301,86 @@ def test_graph_node_authorized_input_payload_does_not_duplicate_content_body() -
     assert "payload" not in inbound or len(json.dumps(inbound["payload"], ensure_ascii=False)) < 200
     assert "handoff_summary" not in json.dumps(inbound.get("payload") or {}, ensure_ascii=False)
     assert "content" not in (inbound.get("payload") or {})
+
+
+def test_graph_node_authorized_input_payload_omits_duplicate_artifact_body() -> None:
+    body = "重复正文" * 500
+    work_order = GraphNodeWorkOrder(
+        work_order_id="gwork:test:dedupe-artifact-input:1",
+        work_kind="agent",
+        graph_run_id="grun:test",
+        task_run_id="taskrun:test",
+        node_id="review",
+        config_id="ghcfg:test",
+        config_hash="hash",
+        task_ref="task.test.review",
+        message="审核上游交接。",
+        graph_slot={
+            "authority": "harness.graph.node_execution_slot",
+            "slot_id": "gslot:test:review",
+            "node_contract": {
+                "node_identity": {"node_id": "review", "title": "审核"},
+                "prompt_contract": {"role_prompt": "你是一名审核员。"},
+            },
+            "edge_contracts": {
+                "inbound_edge_contexts": [
+                    {
+                        "target_input_slot": "上游交接包",
+                        "packet_type": "handoff",
+                        "payload": {
+                            "content": body,
+                            "artifact_payloads": [
+                                {
+                                    "artifact_ref": "artifact://draft.md",
+                                    "content": body,
+                                    "truncated": False,
+                                }
+                            ],
+                        },
+                    }
+                ]
+            },
+            "memory_contract": {},
+            "output_contract": {"expected_result_contract": {"output_contract_id": "contract.test.review"}},
+        },
+        expected_result_contract={"output_contract_id": "contract.test.review"},
+    )
+    contract = _graph_node_contract_from_work_order(work_order).to_dict()
+    packet = RuntimeCompiler().compile_task_execution_packet(
+        session_id="session-test",
+        task_run={
+            "task_run_id": "gtask:test-dedupe-artifact",
+            "session_id": "session-test",
+            "task_id": "task.test.review",
+            "task_contract_ref": "gcontract:test-dedupe-artifact",
+            "diagnostics": {"contract": contract},
+        },
+        contract=contract,
+        observations=[],
+        runtime_assembly={
+            "assembly_id": "rtasm:test-dedupe-artifact",
+            "profile": {
+                "profile_ref": "main_interactive_agent",
+                "context_policy": {"task_run_context": "disabled"},
+                "prompt_pack_refs_by_invocation": {"task_execution": ["runtime.pack.graph_node_execution.v1"]},
+            },
+            "task_environment": {"environment_id": "env.test"},
+            "operation_authorization": {"allowed_operations": []},
+        },
+    ).packet
+    task_contract_content = next(
+        message["content"]
+        for message in packet.model_messages
+        if message["content"].startswith("Task execution task contract")
+    )
+    stable_payload = json.loads(task_contract_content.split("\n", 1)[1])
+    inbound = stable_payload["task_contract"]["graph_node_context"]["authorized_inputs"][0]
+    artifact_payload = inbound["payload"]["artifact_payloads"][0]
+
+    assert inbound["content"] == body[:30000]
+    assert artifact_payload["artifact_ref"] == "artifact://draft.md"
+    assert "content" not in artifact_payload
+    assert artifact_payload["content_omitted_reason"] == "duplicate_of_authorized_input_content"
 
 
 def test_task_execution_packet_ignores_engagement_shared_prompt_contract() -> None:

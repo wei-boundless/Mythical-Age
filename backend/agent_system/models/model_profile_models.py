@@ -45,6 +45,7 @@ class ModelRequirement:
     profile_ref: str = ""
     provider_family: str = ""
     model_family: str = ""
+    credential_ref: str = ""
     capability_tags: tuple[str, ...] = ()
     min_context_tokens: int | None = None
     min_output_tokens: int | None = None
@@ -127,6 +128,7 @@ def parse_model_requirement(value: Any) -> ModelRequirement:
         profile_ref=str(payload.get("profile_ref") or "").strip(),
         provider_family=str(payload.get("provider_family") or "").strip().lower(),
         model_family=str(payload.get("model_family") or "").strip(),
+        credential_ref=str(payload.get("credential_ref") or "").strip(),
         capability_tags=tuple(_unique_texts(payload.get("capability_tags"))),
         min_context_tokens=_optional_int(payload.get("min_context_tokens")),
         min_output_tokens=_optional_int(payload.get("min_output_tokens")),

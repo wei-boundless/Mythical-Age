@@ -76,7 +76,7 @@ def test_file_operation_receipt_contains_identity_and_dulwich_version_id() -> No
 
 def test_file_operation_receipt_can_be_persisted_in_metadata_store(tmp_path: Path) -> None:
     ref = ManagedFileRef.create(
-        repository_id="repo.coding.sandbox_workspace",
+        repository_id="repo.managed_project.sandbox_workspace",
         repository_kind="sandbox_workspace",
         logical_path="src/app.py",
         content="print('ok')",
@@ -95,7 +95,7 @@ def test_file_operation_receipt_can_be_persisted_in_metadata_store(tmp_path: Pat
 
     rows = store.list_operation_receipts()
     assert rows[0]["receipt_id"] == receipt.receipt_id
-    assert rows[0]["repository_id"] == "repo.coding.sandbox_workspace"
+    assert rows[0]["repository_id"] == "repo.managed_project.sandbox_workspace"
     assert rows[0]["logical_path"] == "src/app.py"
     assert "toolcall:persist" in rows[0]["access_decision"]
 

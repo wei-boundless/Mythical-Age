@@ -19,9 +19,14 @@ from .models import (
 def default_task_environment_groups() -> tuple[TaskEnvironmentGroup, ...]:
     return (
         TaskEnvironmentGroup(
+            group_id="environment_group.coding",
+            title="Coding",
+            description="Dedicated coding task environments with project file state, sandbox execution, git visibility, and verification artifacts.",
+        ),
+        TaskEnvironmentGroup(
             group_id="environment_group.development",
             title="Development",
-            description="Coding work environment for project inspection, implementation, verification, and delivery.",
+            description="General development environment for implementation and command-based verification without binding to a specific coding workspace profile.",
         ),
         TaskEnvironmentGroup(
             group_id="environment_group.creation",
@@ -38,17 +43,124 @@ def default_task_environment_groups() -> tuple[TaskEnvironmentGroup, ...]:
 
 def default_task_environments() -> tuple[TaskEnvironmentDefinition, ...]:
     return (
+        coding_vibe_workspace_environment(),
         development_sandbox_environment(),
         creation_writing_environment(),
         general_workspace_environment(),
     )
 
 
+def coding_vibe_workspace_environment() -> TaskEnvironmentDefinition:
+    record = TaskEnvironmentRecord(
+        environment_id="env.coding.vibe_workspace",
+        title="Vibe Coding Workspace",
+        description="Dedicated coding task environment for project inspection, implementation, file-state-aware iteration, command verification, and delivery evidence.",
+        group_id="environment_group.coding",
+        environment_kind="coding",
+    )
+    spec = TaskEnvironmentSpec(
+        spec_id="envspec.coding.vibe_workspace.default",
+        environment_id=record.environment_id,
+        environment_prompts=(
+            EnvironmentPrompt(
+                prompt_id="environment.coding.vibe_workspace.orientation.v1",
+            ),
+        ),
+        sandbox_policy=SandboxPolicy(
+            enabled=True,
+            sandbox_mode="workspace_overlay",
+            workspace_access="project_read_sandbox_write",
+            write_policy="sandbox_or_task_granted",
+            shell_policy="sandboxed",
+            browser_policy="sandboxed",
+            network_policy="task_decided",
+            side_effect_policy="sandbox_boundary",
+            side_effect_operations=(
+                "op.write_file",
+                "op.edit_file",
+                "op.shell",
+                "op.python_repl",
+                "op.browser_control",
+                "op.image_generate",
+                "op.git_branch_create",
+                "op.git_stage",
+                "op.git_unstage",
+                "op.git_commit",
+                "op.git_restore",
+                "op.git_push",
+            ),
+        ),
+        file_management=FileManagementBinding(
+            file_profile_refs=("file_profile.managed_project_workspace",),
+            required_repository_kinds=("project_workspace", "sandbox_workspace", "git_worktree_view", "test_artifacts"),
+            canonical_write_policy="sandbox_write_real_workspace_requires_task_grant",
+            constraints={
+                "project_workspace_read": "allowed",
+                "project_workspace_write": "task_granted",
+                "sandbox_workspace_write": "allowed",
+                "git_worktree_view": "read_only",
+                "default_read_repository": "repo.managed_project.sandbox_workspace",
+                "default_search_repository": "repo.managed_project.sandbox_workspace",
+                "default_write_repository": "repo.managed_project.sandbox_workspace",
+                "default_edit_repository": "repo.managed_project.sandbox_workspace",
+            },
+        ),
+        resource_space=ResourceSpace(
+            workspace_policy="project_workspace",
+            storage_namespace="coding/vibe-workspace",
+            material_mount_policy="sandbox_material_mounts",
+            project_file_policy="file_profile.managed_project_workspace",
+            managed_file_environment_policy="file_profile.managed_project_workspace",
+            browser_environment_policy="local_browser",
+            artifact_root_policy="environment_scoped_artifacts",
+        ),
+        memory_space=MemorySpace(
+            environment_memory_refs=("project_architecture_notes", "prior_runtime_findings"),
+            project_knowledge_refs=("project_docs",),
+            retrieval_index_refs=("code_search_index",),
+        ),
+        execution_policy=ExecutionPolicy(
+            sandbox_required=True,
+            sandbox_mode="workspace_overlay",
+            real_workspace_access="read_only_or_task_granted",
+            write_scope_policy="sandbox_or_file_access_table",
+            shell_execution_policy="sandboxed",
+            browser_execution_policy="sandboxed",
+            network_execution_policy="task_decided",
+            side_effect_policy="sandbox_boundary",
+        ),
+        risk_policy=RiskPolicy(
+            default_permission_mode="environment_boundary",
+            approval_required_risk_levels=("real_workspace_write", "external_write"),
+            auto_denied_risk_levels=("destructive_unbounded",),
+        ),
+        artifact_policy=ArtifactPolicy(
+            artifact_root="environment_scoped_artifacts",
+            publish_policy="verification_required",
+        ),
+        observability_policy={
+            "file_state_authority": "runtime.memory.file_state_authority",
+            "file_state_projection": "enabled",
+            "tool_result_envelope_events": "enabled",
+        },
+        lifecycle_policy={
+            "coding_task_environment": True,
+            "graph_entry_policy": "fixed_entry_not_scheduled_by_environment",
+        },
+        metadata={
+            "dedicated_task_environment": "coding",
+            "managed_project_workspace_profile": "file_profile.managed_project_workspace",
+            "file_management_scope": "generic_runtime_authority",
+        },
+    )
+    return TaskEnvironmentDefinition(record=record, spec=spec)
+
+
 def development_sandbox_environment() -> TaskEnvironmentDefinition:
     record = TaskEnvironmentRecord(
         environment_id="env.development.sandbox",
         title="Development Sandbox",
-        description="Coding work environment for real project files, implementation, command-based verification, and delivery evidence.",
+        description="General development sandbox for implementation, command-based verification, and delivery evidence.",
         group_id="environment_group.development",
         environment_kind="development",
     )
@@ -85,22 +197,22 @@ def development_sandbox_environment() -> TaskEnvironmentDefinition:
             ),
         ),
         file_management=FileManagementBinding(
-            file_profile_refs=("file_profile.vibe_coding_project",),
-            required_repository_kinds=("project_workspace", "sandbox_workspace", "git_worktree_view", "test_artifacts"),
+            file_profile_refs=("file_profile.base_workspace",),
+            required_repository_kinds=("project_workspace",),
             canonical_write_policy="sandbox_write_real_workspace_requires_task_grant",
             constraints={
                 "project_workspace_read": "allowed",
                 "project_workspace_write": "task_granted",
-                "sandbox_workspace_write": "allowed",
-                "git_worktree_view": "read_only",
+                "default_read_repository": "repo.base.project_workspace",
+                "default_search_repository": "repo.base.project_workspace",
             },
         ),
         resource_space=ResourceSpace(
             workspace_policy="project_workspace",
             storage_namespace="development/sandbox",
             material_mount_policy="sandbox_material_mounts",
-            project_file_policy="file_profile.vibe_coding_project",
-            managed_file_environment_policy="file_profile.vibe_coding_project",
+            project_file_policy="file_profile.base_workspace",
+            managed_file_environment_policy="file_profile.base_workspace",
             browser_environment_policy="local_browser",
             artifact_root_policy="environment_scoped_artifacts",
         ),

@@ -25,6 +25,7 @@ from runtime.tool_runtime.tool_invocation_control import (
 )
 from runtime.tool_runtime.tool_invocation_request import ToolInvocationRequest
 from runtime.tool_runtime.tool_observation import ToolObservation
+from runtime.tool_runtime.tool_result_envelope import build_tool_result_envelope
 from runtime.tooling import ToolSupervisor
 
 _AGENT_TURN_SANDBOX_AUTO_ALLOW_OPERATIONS = {
@@ -321,6 +322,21 @@ def _observation(
     execution_receipt: dict[str, Any] | None = None,
     artifact_refs: tuple[dict[str, Any], ...] = (),
 ) -> ToolObservation:
+    envelope = dict(result_envelope or {})
+    if not envelope:
+        envelope = build_tool_result_envelope(
+            tool_name=request.tool_name,
+            tool_args=dict(request.tool_args or {}),
+            result={"ok": status == "ok", "error": "" if status == "ok" else str(text or status), "text": str(text or "")},
+            status=status,
+            execution_receipt=dict(execution_receipt or {}),
+            result_ref=str(result_ref or ""),
+            tool_call_id=request.tool_call_id,
+            action_request_id=request.action_request_ref,
+            caller_kind=request.caller_kind,
+            caller_ref=request.caller_ref,
+            diagnostics=dict(diagnostics or {}),
+        ).to_dict()
     return ToolObservation(
         observation_id=f"toolobs:{request.invocation_id}:{uuid.uuid4().hex[:8]}",
         invocation_id=request.invocation_id,
@@ -330,8 +346,8 @@ def _observation(
         operation_id=request.operation_id,
         status=status,  # type: ignore[arg-type]
         text=text,
-        result_ref=str(result_ref or ""),
-        result_envelope=dict(result_envelope or {}),
+        result_ref=str(result_ref or envelope.get("result_ref") or ""),
+        result_envelope=envelope,
         operation_gate=dict(operation_gate or {}),
         execution_receipt=dict(execution_receipt or {}),
         artifact_refs=tuple(dict(item) for item in tuple(artifact_refs or ())),
@@ -585,20 +601,29 @@ async def _invoke_subagent_control(
     )
     ok = bool(dict(payload or {}).get("ok") is True)
     text = json.dumps(payload, ensure_ascii=False, sort_keys=True)
+    envelope = build_tool_result_envelope(
+        tool_name=request.tool_name,
+        tool_args=dict(normalized_args or {}),
+        result={
+            "text": text,
+            "structured_payload": {
+                "subagent_control": dict(payload or {}),
+                "artifact_refs": list(_artifact_refs_from_subagent_payload(payload)),
+            },
+        },
+        execution_receipt=_execution_receipt(execution_record),
+        tool_call_id=request.tool_call_id,
+        action_request_id=request.action_request_ref,
+        caller_kind=request.caller_kind,
+        caller_ref=request.caller_ref,
+    )
     return _observation(
         request,
         status="ok" if ok else "error",
         text=text,
         operation_gate=operation_gate,
         execution_receipt=_execution_receipt(execution_record),
-        result_envelope={
-            "tool_name": request.tool_name,
-            "tool_args": dict(normalized_args or {}),
-            "status": "ok" if ok else "error",
-            "text": text,
-            "structured_payload": {"subagent_control": dict(payload or {})},
-            "artifact_refs": list(_artifact_refs_from_subagent_payload(payload)),
-        },
+        result_envelope=envelope.to_dict(),
         artifact_refs=tuple(_artifact_refs_from_subagent_payload(payload)),
         diagnostics={"stage": "subagent_control_handler", "payload": dict(payload or {})},
     )

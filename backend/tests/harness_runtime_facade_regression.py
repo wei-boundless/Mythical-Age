@@ -1108,9 +1108,9 @@ def test_task_run_detail_monitor_exposes_step_summary_and_recent_terminal_status
     assert item["resource_class"] == "static"
     assert item["ended_at"] == 990.0
     assert item["duration_seconds"] == 390.0
-    assert global_monitor["summary"]["completed"] == 1
-    assert [entry["task_run_id"] for entry in global_monitor["buckets"]["completed"]] == [task_run.task_run_id]
-    assert task_run.task_run_id in {entry["task_run_id"] for entry in global_monitor["task_runs"]}
+    assert global_monitor["summary"]["completed"] == 0
+    assert task_run.task_run_id not in {item["task_run_id"] for item in global_monitor["task_runs"]}
+    assert global_monitor["buckets"]["completed"] == []
 
 
 def test_invalid_single_agent_task_request_reports_error_without_task_run() -> None:

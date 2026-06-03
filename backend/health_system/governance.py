@@ -4,6 +4,7 @@ import time
 from typing import Any
 
 from harness.loop.work_rollout import work_rollout_ref
+from harness.runtime.monitoring import RuntimeMonitorProjector
 from runtime.environment import RuntimeEnvironment, check_runtime_connection_health
 from runtime.prompt_accounting import TokenCounterRegistry
 
@@ -19,6 +20,7 @@ class HealthGovernanceBuilder:
         self.state_index = self.runtime_host.state_index
         self.prompt_accounting_ledger = getattr(self.runtime_host, "prompt_accounting_ledger", None)
         self.token_counter = TokenCounterRegistry()
+        self.monitor_projector = getattr(self.runtime_host, "monitor_projector", None) or RuntimeMonitorProjector(self.runtime_host.event_log)
         self.now = time.time()
         self.store = self._build_store()
 
@@ -307,8 +309,10 @@ class HealthGovernanceBuilder:
     def _task_monitor(self, task_run: Any, *, monitor_index: dict[str, dict[str, Any]] | None = None) -> dict[str, Any]:
         task_run_id = str(getattr(task_run, "task_run_id", "") or "")
         if task_run_id and monitor_index is not None:
-            return dict(monitor_index.get(task_run_id) or {})
-        projector = getattr(self.runtime_host, "monitor_projector", None)
+            indexed = monitor_index.get(task_run_id)
+            if indexed is not None:
+                return dict(indexed)
+        projector = self.monitor_projector
         project = getattr(projector, "project_task_run", None)
         if callable(project):
             try:

@@ -44,18 +44,18 @@ def test_writing_profile_exposes_managed_manuscript_repositories() -> None:
     assert memory is not None and memory.metadata["projection_owner"] == "memory_space"
 
 
-def test_vibe_coding_profile_uses_project_and_sandbox_repositories() -> None:
-    profile = default_file_environment_registry().require_profile("file_profile.vibe_coding_project")
+def test_managed_project_workspace_profile_uses_project_and_sandbox_repositories() -> None:
+    profile = default_file_environment_registry().require_profile("file_profile.managed_project_workspace")
     repo_ids = {repo.repository_id for repo in profile.repository_specs}
 
     assert {
-        "repo.coding.project_workspace",
-        "repo.coding.sandbox_workspace",
-        "repo.coding.git_worktree_view",
-        "repo.coding.test_artifacts",
+        "repo.managed_project.project_workspace",
+        "repo.managed_project.sandbox_workspace",
+        "repo.managed_project.git_worktree_view",
+        "repo.managed_project.test_artifacts",
     } <= repo_ids
-    project = profile.repository("repo.coding.project_workspace")
-    sandbox = profile.repository("repo.coding.sandbox_workspace")
+    project = profile.repository("repo.managed_project.project_workspace")
+    sandbox = profile.repository("repo.managed_project.sandbox_workspace")
     assert project is not None and project.readable is True and project.searchable is True
     assert any(rule.action == "write" and rule.behavior == "ask" for rule in project.access_rules)
     assert sandbox is not None and sandbox.writable is True

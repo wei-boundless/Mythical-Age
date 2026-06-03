@@ -37,7 +37,7 @@ def test_runtime_write_file_uses_file_gateway_sandbox_repository(tmp_path: Path)
     assert (project / "docs" / "note.md").read_text(encoding="utf-8") == "real"
     assert (sandbox / "docs" / "note.md").read_text(encoding="utf-8") == "sandbox"
     assert gateway_payload["access_decision"] == "allow"
-    assert receipt["repository_id"] == "repo.coding.sandbox_workspace"
+    assert receipt["repository_id"] == "repo.managed_project.sandbox_workspace"
     assert receipt["operation_id"] == "op.write_file"
     assert receipt["tool_call_id"] == "call-write_file"
 
@@ -87,7 +87,7 @@ def test_runtime_read_file_uses_file_gateway_sandbox_overlay(tmp_path: Path) -> 
     assert result["error"] == ""
     assert result["observation"].payload["result"] == "1 | copy through gateway"
     assert (sandbox / "docs" / "source.md").read_text(encoding="utf-8") == "copy through gateway"
-    assert tool_result["repository_id"] == "repo.coding.sandbox_workspace"
+    assert tool_result["repository_id"] == "repo.managed_project.sandbox_workspace"
     assert envelope["structured_payload"]["file_gateway"]["access_decision"] == "allow"
 
 
@@ -129,7 +129,7 @@ def test_runtime_project_workspace_write_is_rejected_without_file_approval(tmp_p
         tool_name="write_file",
         tool_args={"path": "docs/direct.md", "content": "blocked"},
         operation_id="op.write_file",
-        file_repositories={"write": "repo.coding.project_workspace"},
+        file_repositories={"write": "repo.managed_project.project_workspace"},
     )
 
     observation = result["observation"]
@@ -171,7 +171,7 @@ def _run_tool(
     tool_args: dict[str, str],
     operation_id: str,
     sandbox_enabled: bool = True,
-    file_profile_id: str = "file_profile.vibe_coding_project",
+    file_profile_id: str = "file_profile.managed_project_workspace",
     file_repositories: dict[str, str] | None = None,
 ) -> dict:
     workspace.mkdir(parents=True, exist_ok=True)
@@ -238,9 +238,9 @@ def _run_tool(
                 "enabled": True,
                 "profile_id": file_profile_id,
                 "repositories": {
-                    "read": "repo.coding.sandbox_workspace",
-                    "write": "repo.coding.sandbox_workspace",
-                    "edit": "repo.coding.sandbox_workspace",
+                    "read": "repo.managed_project.sandbox_workspace",
+                    "write": "repo.managed_project.sandbox_workspace",
+                    "edit": "repo.managed_project.sandbox_workspace",
                     **dict(file_repositories or {}),
                 },
                 "managed_storage_root": str(workspace / ".managed-files"),

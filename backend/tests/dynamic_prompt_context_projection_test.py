@@ -10,6 +10,7 @@ from harness.runtime.context_budget_policy import build_model_aware_context_budg
 from harness.runtime.artifact_scope import canonicalize_task_contract_artifacts
 from harness.runtime.dynamic_context import DynamicContextProjection, VolatileSectionReport
 from harness.runtime.prompt_segment_plan import build_prompt_segment_plan
+from runtime.tool_runtime.tool_result_envelope import build_tool_result_envelope
 
 
 def _payload_after_title(content: str, title: str) -> dict[str, object]:
@@ -152,6 +153,65 @@ def test_read_file_content_windows_survive_task_state_projection() -> None:
         {"start_line": 1, "end_line": 10, "observation_ref": "obs:window:1"},
         {"start_line": 11, "end_line": 20, "observation_ref": "obs:window:11"},
     ]
+
+
+def test_task_execution_derives_file_state_from_tool_observations() -> None:
+    read_envelope = build_tool_result_envelope(
+        tool_name="read_file",
+        tool_args={"path": "backend/runtime/tool_runtime/native_tools.py", "start_line": 11, "line_count": 5},
+        result={
+            "text": "11 | import json",
+            "structured_payload": {
+                "observed_paths": ["backend/runtime/tool_runtime/native_tools.py"],
+                "tool_result": {
+                    "kind": "text_file",
+                    "path": "backend/runtime/tool_runtime/native_tools.py",
+                    "start_line": 11,
+                    "end_line": 15,
+                    "returned_lines": 5,
+                    "line_count": 5,
+                    "total_lines": 30,
+                    "next_start_line": 16,
+                    "has_more": True,
+                    "content_sha256": "sha256:native-tools",
+                },
+            },
+        },
+        tool_call_id="call:read-native",
+        action_request_id="rtact:read-native",
+        caller_kind="task_run",
+        caller_ref="taskrun:derived-file-state",
+    )
+
+    result = RuntimeCompiler().compile_task_execution_packet(
+        session_id="session:derived-file-state",
+        task_run={"task_run_id": "taskrun:derived-file-state", "diagnostics": {"executor_status": "running"}},
+        contract={"task_run_goal": "验证文件状态派生", "completion_criteria": ["file_state 来自 observation"]},
+        observations=[
+            {
+                "observation_id": "obs:read-native",
+                "payload": {
+                    "tool_name": "read_file",
+                    "tool_call_id": "call:read-native",
+                    "result_envelope": read_envelope.to_dict(),
+                },
+            }
+        ],
+        execution_state={"system_projection": {"runtime_status": "running"}},
+        runtime_assembly={
+            "profile": {"mode": "professional"},
+            "task_environment": {"environment_id": "env.coding.vibe_workspace"},
+            "operation_authorization": {"allowed_operations": ["op.read_file"]},
+        },
+    )
+
+    volatile_payload = _payload_after_title(result.packet.model_messages[-1]["content"], "Task execution current state")
+    file_state = volatile_payload["task_state"]["file_state"]
+
+    assert file_state[0]["path"] == "backend/runtime/tool_runtime/native_tools.py"
+    assert file_state[0]["status"] == "partial"
+    assert file_state[0]["next_suggested_read"]["start_line"] == 16
+    assert file_state[0]["evidence_refs"] == ["obs:read-native", "obs:read-native"]
 
 
 def test_task_execution_prompt_uses_canonical_artifact_scope_only() -> None:

@@ -27,7 +27,7 @@ def test_project_library_manifest_rejects_repository_outside_file_profile(tmp_pa
         schema_version="writing_library.v1",
         repositories=(
             ProjectRepositoryBinding("repo.writing.draft_workspace", "draft_workspace", "project://drafts"),
-            ProjectRepositoryBinding("repo.coding.project_workspace", "bad", "workspace://project"),
+            ProjectRepositoryBinding("repo.managed_project.project_workspace", "bad", "workspace://project"),
         ),
     )
 

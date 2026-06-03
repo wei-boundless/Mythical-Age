@@ -24,6 +24,7 @@ from harness.runtime.artifact_scope import (
     runtime_artifact_scope_from_environment,
 )
 from harness.runtime.sandbox_execution_scope import compile_sandbox_execution_scope, task_safety_envelope_from_assembly
+from harness.runtime.file_management_policy import compile_tool_file_management_policy
 from harness.runtime.public_progress import public_action_progress_summary, public_runtime_progress_summary
 
 from .admission import admit_model_action
@@ -1649,19 +1650,12 @@ def _task_runtime_scope_policy(task_run: Any) -> dict[str, Any]:
 def _task_file_policy(runtime_assembly: dict[str, Any], *, sandbox_policy: dict[str, Any]) -> dict[str, Any]:
     environment = dict(runtime_assembly.get("task_environment") or {})
     storage = dict(environment.get("storage_space") or {})
-    return {
-        "file_management": dict(environment.get("file_management") or {}),
-        "storage_space": storage,
-        "artifact_root": str(sandbox_policy.get("artifact_root") or runtime_artifact_scope_from_environment(environment).artifact_root or ""),
-        "sandbox_execution_scope": {
-            "artifact_root": str(sandbox_policy.get("artifact_root") or ""),
-            "write_roots": list(sandbox_policy.get("write_scopes") or []),
-            "publish_roots": list(sandbox_policy.get("publish_scopes") or []),
-            "scratch_roots": list(sandbox_policy.get("scratch_scopes") or []),
-            "canonical_output_paths": list(sandbox_policy.get("canonical_output_paths") or []),
-            "authority": str(sandbox_policy.get("scope_authority") or ""),
-        },
-    }
+    artifact_root = str(sandbox_policy.get("artifact_root") or runtime_artifact_scope_from_environment(environment).artifact_root or "")
+    return compile_tool_file_management_policy(
+        environment,
+        storage_space=storage,
+        artifact_root=artifact_root,
+    )
 
 
 def _load_contract_for_policy(runtime_host: Any, task_run_id: str) -> dict[str, Any]:

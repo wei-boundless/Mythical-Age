@@ -99,7 +99,7 @@ def test_tool_supervisor_returns_ask_from_operation_gate_with_parameter_fingerpr
         ),
         operation_gate=OperationGate(build_default_operation_registry()),
         sandbox_policy={"enabled": True, "mode": "workspace_overlay"},
-        file_management_policy={"enabled": True, "profile_id": "file_profile.vibe_coding_project"},
+        file_management_policy={"enabled": True, "profile_id": "file_profile.managed_project_workspace"},
     )
 
     assert result.decision.behavior == "ask"

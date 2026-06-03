@@ -2,7 +2,7 @@
 
 日期：2026-06-03
 
-状态：计划书，待用户审阅确认后实施。
+状态：已确认并进入实施；首批通用文件管理、编码任务环境分离、文件状态权威和监控冲突修复已落地。
 
 ## 0. 结论先行
 
@@ -24,6 +24,14 @@ ModelTurnDecision
 ```
 
 这条链条必须成为后续所有 read/search/edit/write/shell/artifact/verification 行为的统一运行路径。任何旧的旁路、重复抽取、临时兜底、只靠 prompt 警告的逻辑都应删除或收敛。
+
+### 0.1 已确认实施边界
+
+- 文件管理是通用能力，不是 vibe coding 专属能力。当前落地命名使用 `file_profile.managed_project_workspace` 和 `repo.managed_project.*`，后续其他项目型任务环境也可以复用。
+- `env.coding.vibe_workspace` 是编码任务的专用运行环境，用来承载更强的读写、测试和文件状态要求；它消费通用文件管理 profile，但不拥有文件管理模型。
+- `env.development.sandbox` 继续作为通用开发/实验沙箱，不与编码项目 workspace 混用。
+- graph 是固定入口，本计划不改 graph 调度、work order 或 graph loop；图产物只作为固定入口已产生的外部 refs 被展示/解析层读取。
+- 全局 live monitor 只展示 running、diagnostics、action_required 等当前可行动项；completed/failed terminal history 由 task detail 和 health task projection 读取，不再伪装成 live item。
 
 ## 1. 成熟 Agent 对照结论
 
@@ -105,6 +113,8 @@ Claude Code 的关键不是“目录里有 CLAUDE.md”，而是：
 - 让 `ToolControlPlane`、`ToolExecutor`、`native_tools`、subagent control 都输出同一个 `ToolResultEnvelope` contract。
 
 如果另建 `ToolProtocolEnvelope`，会形成新的双主链，违反本计划的权威收敛目标。
+
+文件管理命名同样遵守这个约束：不新增按单一任务玩法命名的专属 profile。通用项目文件管理主 profile 固定为 `file_profile.managed_project_workspace`，repository 命名统一落在 `repo.managed_project.*`，由任务环境决定如何绑定和限制读写能力。
 
 ### 2.3 当前断点
 
@@ -847,13 +857,17 @@ python -m pytest backend/tests/runtime_progress_presenter_regression.py -q
 python -m pytest backend/tests/deepseek_prompt_cache_diagnostics_test.py -q
 ```
 
-新增测试：
+本轮已新增或更新覆盖：
 
 ```text
 backend/tests/file_state_authority_regression.py
-backend/tests/artifact_authority_regression.py
-backend/tests/tool_protocol_sanitizer_regression.py
-backend/tests/vibe_coding_runtime_context_regression.py
+backend/tests/file_management_profile_regression.py
+backend/tests/file_access_table_regression.py
+backend/tests/file_gateway_regression.py
+backend/tests/file_gateway_tool_runtime_regression.py
+backend/tests/tool_result_projection_regression.py
+backend/tests/tool_result_storage_regression.py
+backend/tests/runtime_monitor_projection_test.py
 ```
 
 ### 7.2 集成验证
@@ -1006,10 +1020,13 @@ backend/api/orchestration_harness.py
 - 前端用户看到的是清晰进展，不是内部事件噪声。
 - 旧旁路和重复逻辑被删除，不以兼容为理由长期保留。
 
-## 11. 实施前必须确认的问题
+## 11. 当前实施状态
 
-实施范围较大，触及 runtime、tool calling、state、artifact、dynamic context、前端监控。按项目规则，实施前需要用户确认：
+用户已确认开始执行，并追加确认“文件管理可以通用”。当前实施状态如下：
 
-1. 是否同意将 `FileStateAuthority` 和 `ArtifactAuthority` 作为新主链权威，而不是继续在现有 projector 中做局部补丁。
-2. 是否同意切换后删除旧 artifact refs 多头抽取和旧 observation 推断文件状态逻辑。
-3. 是否同意实施时按 Phase 1 到 Phase 8 一次性推进，不只停在某一个局部修复阶段。
+1. 已落地通用 `file_profile.managed_project_workspace`，删除 vibe 专属文件 profile 命名，repository 统一为 `repo.managed_project.*`。
+2. 已建立 `env.coding.vibe_workspace`，并让编码项目绑定到该环境；`env.development.sandbox` 保持通用开发沙箱职责。
+3. 已建立 `FileStateAuthority` 首批实现，并通过 read/write 后 stale、投影稳定性和 dynamic context 回归测试。
+4. 已把 single-agent turn 的 read-only 工具暴露和 dispatch 边界收窄，避免模型看到不可执行的 side-effect 工具。
+5. 已修复 global live monitor 与 terminal history 的权威冲突：global live 排除 completed/failed 历史，health/task detail 仍能投影 terminal 状态。
+6. 仍需后续继续推进完整 ArtifactAuthority cutover、前端 file/artifact state 展示，以及删除重复 artifact refs 抽取主链。

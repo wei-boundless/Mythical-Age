@@ -13,7 +13,7 @@ def default_file_environment_profiles() -> tuple[ManagedFileEnvironmentProfile, 
     return (
         base_workspace_profile(),
         writing_manuscript_profile(),
-        vibe_coding_project_profile(),
+        managed_project_workspace_profile(),
         web_research_evidence_profile(),
         data_analysis_workspace_profile(),
         document_processing_profile(),
@@ -212,14 +212,14 @@ def writing_manuscript_profile() -> ManagedFileEnvironmentProfile:
     )
 
 
-def vibe_coding_project_profile() -> ManagedFileEnvironmentProfile:
+def managed_project_workspace_profile() -> ManagedFileEnvironmentProfile:
     return ManagedFileEnvironmentProfile(
-        profile_id="file_profile.vibe_coding_project",
-        title="Vibe Coding Project File Environment",
-        description="Managed project workspace, sandbox, git view, materials, and test artifacts.",
+        profile_id="file_profile.managed_project_workspace",
+        title="Managed Project Workspace File Environment",
+        description="Generic managed project workspace with sandbox overlay, git view, material mounts, and runtime artifacts.",
         repository_specs=(
             ManagedFileRepositorySpec(
-                repository_id="repo.coding.project_workspace",
+                repository_id="repo.managed_project.project_workspace",
                 repository_kind="project_workspace",
                 storage_adapter="fsspec_local",
                 scope_kind="project_scoped",
@@ -235,7 +235,7 @@ def vibe_coding_project_profile() -> ManagedFileEnvironmentProfile:
                 ),
             ),
             ManagedFileRepositorySpec(
-                repository_id="repo.coding.sandbox_workspace",
+                repository_id="repo.managed_project.sandbox_workspace",
                 repository_kind="sandbox_workspace",
                 storage_adapter="sandbox_overlay",
                 scope_kind="run_scoped",
@@ -253,7 +253,7 @@ def vibe_coding_project_profile() -> ManagedFileEnvironmentProfile:
                 ),
             ),
             ManagedFileRepositorySpec(
-                repository_id="repo.coding.git_worktree_view",
+                repository_id="repo.managed_project.git_worktree_view",
                 repository_kind="git_worktree_view",
                 storage_adapter="git_worktree",
                 scope_kind="project_scoped",
@@ -269,7 +269,7 @@ def vibe_coding_project_profile() -> ManagedFileEnvironmentProfile:
                 ),
             ),
             ManagedFileRepositorySpec(
-                repository_id="repo.coding.material_mounts",
+                repository_id="repo.managed_project.material_mounts",
                 repository_kind="material_mount",
                 storage_adapter="fsspec_local",
                 scope_kind="run_scoped",
@@ -284,7 +284,7 @@ def vibe_coding_project_profile() -> ManagedFileEnvironmentProfile:
                 ),
             ),
             ManagedFileRepositorySpec(
-                repository_id="repo.coding.test_artifacts",
+                repository_id="repo.managed_project.test_artifacts",
                 repository_kind="test_artifacts",
                 storage_adapter="fsspec_local",
                 scope_kind="run_scoped",

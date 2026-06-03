@@ -12,6 +12,7 @@ from harness.loop.model_action_protocol import ModelActionRequest
 from harness.loop.model_action_runtime import call_model_invoker
 from harness.loop.presentation import error_event, final_answer_event
 from harness.runtime import RuntimeCompiler, build_runtime_tool_plan
+from harness.runtime.file_management_policy import compile_tool_file_management_policy
 from harness.runtime.prompt_segment_plan import build_prompt_segment_plan
 from harness.runtime.public_progress import public_runtime_progress_summary
 from runtime.prompt_accounting.serializer import normalize_messages
@@ -67,6 +68,11 @@ async def run_single_agent_turn(
             yield {"type": "harness_run_started", "turn_run": turn_run.to_dict(), "event": start_event}
         compiler = RuntimeCompiler()
         active_work_payload = _active_work_payload(active_work_context)
+        active_work_for_turn = (
+            active_work_payload
+            if _user_message_targets_active_work(user_message) or _task_selection_allows_active_work_control(session_context)
+            else {}
+        )
         compilation = compiler.compile_single_agent_turn_packet(
             session_id=session_id,
             turn_id=turn_id,
@@ -74,7 +80,7 @@ async def run_single_agent_turn(
             user_message=user_message,
             history=history,
             session_context=session_context,
-            active_work_context=active_work_payload,
+            active_work_context=active_work_for_turn,
             agent_profile_ref=str(getattr(agent_runtime_profile, "agent_profile_id", "") or "main_interactive_agent"),
             model_selection=dict(model_selection or {}),
             runtime_assembly=runtime_assembly,
@@ -1085,7 +1091,7 @@ async def _invoke_turn_tool(
         admission_ref=admission.admission_id,
         permission_mode=runtime_host._current_permission_mode() if runtime_host is not None and hasattr(runtime_host, "_current_permission_mode") else "default",
         sandbox_scope=_single_turn_sandbox_scope(assembly_payload),
-        file_scope=dict(dict(assembly_payload.get("task_environment") or {}).get("file_management") or {}),
+        file_scope=compile_tool_file_management_policy(dict(assembly_payload.get("task_environment") or {})),
         requested_constraints={
             "runtime_host": runtime_host,
             "runtime_assembly": assembly_payload,
@@ -1332,6 +1338,51 @@ def _active_work_payload(active_work_context: Any | None) -> dict[str, Any]:
     if hasattr(active_work_context, "to_dict"):
         return dict(active_work_context.to_dict())
     return dict(active_work_context or {})
+
+
+def _task_selection_allows_active_work_control(session_context: dict[str, Any] | None) -> bool:
+    payload = dict(session_context or {})
+    task_selection = dict(payload.get("task_selection") or {})
+    capabilities = dict(task_selection.get("control_capabilities") or {})
+    return bool(capabilities.get("may_control_active_work") is True)
+
+
+def _user_message_targets_active_work(message: str) -> bool:
+    text = str(message or "").strip().lower()
+    if not text:
+        return False
+    keywords = (
+        "继续",
+        "接着",
+        "恢复",
+        "续上",
+        "暂停",
+        "停止",
+        "终止",
+        "取消",
+        "先停",
+        "进展",
+        "状态",
+        "做到哪",
+        "做到哪里",
+        "卡住",
+        "为什么停",
+        "补充",
+        "改成",
+        "按这个方向",
+        "当前工作",
+        "上个任务",
+        "继续当前",
+        "resume",
+        "continue",
+        "pause",
+        "stop",
+        "cancel",
+        "status",
+        "progress",
+        "current work",
+    )
+    return any(keyword in text for keyword in keywords)
 
 
 def _start_turn_runtime(

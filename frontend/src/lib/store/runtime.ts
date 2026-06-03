@@ -48,8 +48,8 @@ const TASK_ENVIRONMENT_WORKSPACE_MODES: Record<TaskEnvironmentWorkspaceView, { e
     taskEnvironmentId: "env.general.workspace",
   },
   "code-environment": {
-    environmentLabel: "Development Sandbox",
-    taskEnvironmentId: "env.development.sandbox",
+    environmentLabel: "Vibe Coding Workspace",
+    taskEnvironmentId: "env.coding.vibe_workspace",
   },
   creative: {
     environmentLabel: "写作环境",

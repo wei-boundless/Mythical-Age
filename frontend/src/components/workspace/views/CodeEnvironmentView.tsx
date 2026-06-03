@@ -12,8 +12,6 @@ import {
   SquarePlus,
 } from "lucide-react";
 
-import { CenterWorkspaceView } from "@/components/workspace/views/center/CenterWorkspaceView";
-import { WorkbenchShell } from "@/components/layout/WorkbenchShell";
 import {
   getCodeEnvironment,
   getCodeEnvironmentGitStatus,
@@ -21,7 +19,7 @@ import {
   type CodeEnvironmentStatus,
 } from "@/lib/api";
 
-const DEVELOPMENT_TASK_ENVIRONMENT_ID = "env.development.sandbox";
+const CODING_TASK_ENVIRONMENT_ID = "env.coding.vibe_workspace";
 
 function hostConfig() {
   const config = globalThis.__MYTHICAL_AGENT_HOST__ || (typeof window !== "undefined" ? window.mythicalAgentHost?.getConfig() : undefined);
@@ -146,7 +144,7 @@ function DevelopmentGitFloatingPanel({
   );
 }
 
-export function CodeEnvironmentView({ embedded = false }: { embedded?: boolean }) {
+export function CodeEnvironmentView() {
   const [environment, setEnvironment] = useState<CodeEnvironmentStatus | null>(null);
   const [gitStatus, setGitStatus] = useState<CodeEnvironmentGitStatus | null>(null);
   const [loading, setLoading] = useState(true);
@@ -179,29 +177,21 @@ export function CodeEnvironmentView({ embedded = false }: { embedded?: boolean }
   const visibleError = error || diagnosticsError;
 
   return (
-    <WorkbenchShell
-      className={embedded ? "development-environment-shell development-environment-shell--embedded" : "development-environment-shell"}
-      hideMainToolbar
-      rightPanelLabel="辅助栏"
-    >
-      <section className="workbench-view-host development-center-host" aria-label="开发任务工作台">
-        <div className={visibleError ? "development-layer-body development-layer-body--with-alert" : "development-layer-body"}>
-          {visibleError ? (
-            <div className="development-alert development-alert--inline">
-              <AlertTriangle size={15} />
-              <span>{visibleError}</span>
-            </div>
-          ) : null}
-          <CenterWorkspaceView taskEnvironmentId={DEVELOPMENT_TASK_ENVIRONMENT_ID} />
-        </div>
-
-        <DevelopmentGitFloatingPanel
-          gitStatus={gitStatus}
-          loading={loading}
-          onRefresh={() => void loadEnvironment()}
-          scopeKey={DEVELOPMENT_TASK_ENVIRONMENT_ID}
-        />
-      </section>
-    </WorkbenchShell>
+    <>
+      <div className="development-status-slot">
+        {visibleError ? (
+          <div className="development-alert development-alert--inline">
+            <AlertTriangle size={15} />
+            <span>{visibleError}</span>
+          </div>
+        ) : null}
+      </div>
+      <DevelopmentGitFloatingPanel
+        gitStatus={gitStatus}
+        loading={loading}
+        onRefresh={() => void loadEnvironment()}
+        scopeKey={CODING_TASK_ENVIRONMENT_ID}
+      />
+    </>
   );
 }

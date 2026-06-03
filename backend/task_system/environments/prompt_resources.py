@@ -14,9 +14,17 @@ class EnvironmentPromptResourceSpec:
     cache_scope: str = "static_environment"
 
 
-PROJECT_WORKSPACE_RESOURCE_ORIENTATION = """
-当前环境包含项目工作区资源。项目工作区是理解代码、配置、文档、测试和现有结构的主要事实来源；优先读取用户指定或当前任务相关的文件、项目说明、AGENTS.md、测试入口和已有工作区改动。
-不要把旧记忆、文件名猜测、任务标题或 todo 当成项目事实。需要判断架构、调用链、依赖或运行方式时，应回到真实项目文件、命令输出和可复核日志。
+MANAGED_PROJECT_WORKSPACE_RESOURCE_ORIENTATION = """
+受管项目工作区是通用文件管理资源，负责项目文件、沙盒覆盖层、git 视图、材料挂载和验证产物的路径、权限、读写状态与证据。
+开始行动前应先定位相关文件、调用链和验证入口；不要只凭文件名、记忆、todo 或旧观察判断当前文件事实。
+读取、搜索、写入和编辑后的状态应以工具返回的文件状态为准。文件管理不拥有某个任务类型的循环控制；具体编码、写作或验证策略由任务环境和 agent 决策负责。
+如果项目工作区已有用户改动，应把它们视为用户资产。除非用户明确要求，不能回滚、覆盖或清理不属于本任务的变更。
+""".strip()
+
+
+BASE_WORKSPACE_RESOURCE_ORIENTATION = """
+当前环境包含通用项目工作区资源。项目工作区可以用于读取代码、配置、文档和测试入口，但它本身不声明专属 coding 工作流，也不自动授权真实工作区写入。
+需要修改或验证时，应以当前任务环境、权限和工具返回的文件状态为准；不要用文件名猜测、旧观察或 todo 代替真实文件事实。
 如果项目工作区已有用户改动，应把它们视为用户资产。除非用户明确要求，不能回滚、覆盖或清理不属于本任务的变更。
 """.strip()
 
@@ -41,11 +49,19 @@ GENERAL_WORKSPACE_RESOURCE_ORIENTATION = """
 
 
 DEVELOPMENT_SANDBOX_ORIENTATION = """
-你处在开发沙盒任务环境中。这个任务环境是当前工作的外层容器；你需要先理解它提供的工作空间、文件边界、沙盒语义、artifact、验证方式和当前项目上下文，再决定下一步行动。
+你处在通用开发沙盒任务环境中。这个任务环境是当前开发工作的外层容器；你需要先理解它提供的工作空间、文件边界、沙盒语义、artifact、验证方式和当前项目上下文，再决定下一步行动。
 开始修改前，先定位相关代码、调用链、配置、测试入口和已有改动。让现有架构教你怎么改；不要凭空新建风格，不要做装饰性重构，不要引入只服务一次的抽象。
 如果用户要求重构，应以目标架构为主，清理旧壳、重复决策源、无用兼容层和保护旧路径的测试；不要用兼容兜底把旧链路继续留在主路径里。
 发现预期能力不可见、写入边界不允许或验证条件缺失时，应说明环境不匹配、限制或需要用户决策。
 交付时说明真实完成内容、关键文件、验证证据和剩余风险。没有运行的验证必须明确说没有运行；测试失败或环境受限时不能暗示成功。
+""".strip()
+
+
+CODING_VIBE_WORKSPACE_ORIENTATION = """
+你处在专用 coding 工作区任务环境中。你的职责是理解真实项目文件、规划必要改动、执行受控文件操作、运行真实验证，并用可复核证据收口。
+你需要以工具返回的文件状态为准：已读取的路径、行窗口、搜索命中、写入事件和 stale 状态都是下一步行动的事实依据。不要反复读取同一文件窗口；文件被写入或编辑后，需要把旧读取内容视为可能过期，再按需要重新读取。
+开始编码前，先找到相关调用链、测试入口和已有工作区改动。修改时保持范围清晰，通用文件管理能力只负责路径、权限、读写状态和证据，不把某个任务类型的循环控制写进工具或文件状态里。
+如果需要子任务、验证或产物，请让每一步留下工具结果、文件状态或 artifact 证据。遇到权限、沙盒、端口、依赖或测试阻塞时，应说明具体阻塞和下一步修复路径，不要用猜测或自然语言承诺替代真实执行结果。
 """.strip()
 
 
@@ -72,10 +88,16 @@ GENERAL_WORKSPACE_ORIENTATION = """
 def default_environment_prompt_resource_specs() -> tuple[EnvironmentPromptResourceSpec, ...]:
     return (
         EnvironmentPromptResourceSpec(
-            prompt_id="environment.resource.project_workspace.orientation.v1",
-            environment_id="resource.file_profile.vibe_coding_project",
-            title="项目工作区资源",
-            content=PROJECT_WORKSPACE_RESOURCE_ORIENTATION,
+            prompt_id="environment.resource.base_workspace.orientation.v1",
+            environment_id="resource.file_profile.base_workspace",
+            title="通用项目工作区资源",
+            content=BASE_WORKSPACE_RESOURCE_ORIENTATION,
+        ),
+        EnvironmentPromptResourceSpec(
+            prompt_id="environment.resource.managed_project_workspace.orientation.v1",
+            environment_id="resource.file_profile.managed_project_workspace",
+            title="受管项目工作区资源",
+            content=MANAGED_PROJECT_WORKSPACE_RESOURCE_ORIENTATION,
         ),
         EnvironmentPromptResourceSpec(
             prompt_id="environment.resource.sandbox_overlay.orientation.v1",
@@ -94,6 +116,12 @@ def default_environment_prompt_resource_specs() -> tuple[EnvironmentPromptResour
             environment_id="resource.file_profile.general_workspace",
             title="通用工作区资源",
             content=GENERAL_WORKSPACE_RESOURCE_ORIENTATION,
+        ),
+        EnvironmentPromptResourceSpec(
+            prompt_id="environment.coding.vibe_workspace.orientation.v1",
+            environment_id="env.coding.vibe_workspace",
+            title="专用 coding 工作区任务环境",
+            content=CODING_VIBE_WORKSPACE_ORIENTATION,
         ),
         EnvironmentPromptResourceSpec(
             prompt_id="environment.development.sandbox.orientation.v1",
@@ -121,8 +149,10 @@ def environment_resource_prompt_refs(spec: object) -> tuple[str, ...]:
     file_management = getattr(spec, "file_management", None)
     sandbox_policy = getattr(spec, "sandbox_policy", None)
     for profile_ref in tuple(getattr(file_management, "file_profile_refs", ()) or ()):
-        if profile_ref == "file_profile.vibe_coding_project":
-            refs.append("environment.resource.project_workspace.orientation.v1")
+        if profile_ref == "file_profile.base_workspace":
+            refs.append("environment.resource.base_workspace.orientation.v1")
+        elif profile_ref == "file_profile.managed_project_workspace":
+            refs.append("environment.resource.managed_project_workspace.orientation.v1")
         elif profile_ref == "file_profile.writing_manuscript":
             refs.append("environment.resource.writing_manuscript.orientation.v1")
         elif profile_ref == "file_profile.general_workspace":

@@ -4,7 +4,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any, Literal
 
 
-ToolObservationStatus = Literal["ok", "error", "denied", "needs_approval", "needs_contract"]
+ToolObservationStatus = Literal["ok", "error", "denied", "needs_approval", "needs_contract", "aborted", "canceled"]
 
 
 @dataclass(frozen=True, slots=True)

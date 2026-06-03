@@ -49,6 +49,14 @@ MEMORY_AGENT_ID = "agent:writing_modular_memory_steward"
 MONITOR_AGENT_ID = "agent:writing_modular_runtime_monitor"
 AGENT_GROUP_ID = "group.writing.modular_novel"
 
+AGENT_CREDENTIAL_REFS = {
+    WORKER_AGENT_ID: WRITING_GROUP_CREDENTIAL_REF,
+    CREATOR_AGENT_ID: WRITING_GROUP_CREDENTIAL_REF,
+    REVIEWER_AGENT_ID: REVIEW_GROUP_CREDENTIAL_REF,
+    MONITOR_AGENT_ID: REVIEW_GROUP_CREDENTIAL_REF,
+    MEMORY_AGENT_ID: MEMORY_GROUP_CREDENTIAL_REF,
+}
+
 TARGET_VOLUMES = 5
 CHAPTERS_PER_VOLUME = 100
 CHAPTER_BATCH_SIZE = 10
@@ -1654,7 +1662,7 @@ def _upsert_agents(backend_dir: Path) -> None:
             display_name=writing_model_profile.display_name or "DeepSeek V4 Flash long-output writing profile",
             provider=WRITING_MODEL_PROVIDER,
             model=WRITING_MODEL_NAME,
-            credential_ref=writing_model_profile.credential_ref,
+            credential_ref=AGENT_CREDENTIAL_REFS.get(agent_id, writing_model_profile.credential_ref),
             max_output_tokens=max(int(writing_model_profile.max_output_tokens or 0), WRITING_LONG_OUTPUT_TOKENS),
             timeout_seconds=max(float(writing_model_profile.timeout_seconds or 0), 180.0),
             long_output_timeout_seconds=max(float(writing_model_profile.long_output_timeout_seconds or 0), 600.0),

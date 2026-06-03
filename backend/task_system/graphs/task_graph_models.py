@@ -811,6 +811,7 @@ def _normalize_model_requirement_payload(value: Any) -> dict[str, Any]:
         "profile_ref",
         "provider_family",
         "model_family",
+        "credential_ref",
         "capability_tags",
         "min_context_tokens",
         "min_output_tokens",

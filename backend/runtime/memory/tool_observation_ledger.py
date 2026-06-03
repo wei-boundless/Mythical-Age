@@ -169,6 +169,8 @@ def build_tool_observation_record(
         structured_payload = dict(envelope.structured_payload or {})
         observed_paths = envelope.observed_paths
         matched_paths = envelope.matched_paths
+        if envelope.written_paths:
+            observed_paths = tuple(_dedupe([*observed_paths, *envelope.written_paths]))
         artifact_refs = envelope.artifact_refs
         command_receipt = dict(envelope.command_receipt or {})
         status = envelope.status

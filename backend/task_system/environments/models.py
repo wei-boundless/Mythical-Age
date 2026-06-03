@@ -5,6 +5,7 @@ from typing import Any, Literal
 
 
 EnvironmentKind = Literal[
+    "coding",
     "development",
     "creation",
     "general",

@@ -25690,7 +25690,12 @@ html[data-workspace-tone] .agent-workbench {
 }
 
 .workbench-view-host--chat {
+  --development-accent: var(--console-accent, #1f5fbf);
+  --development-success: var(--console-success, #16735c);
+  --development-warning: var(--console-warning, #986300);
+  --development-danger: var(--console-danger, #b42318);
   display: grid;
+  position: relative;
 }
 
 .system-page-shell {
@@ -26550,35 +26555,13 @@ html[data-workspace-tone] .agent-workbench {
   padding: 0.55rem;
 }
 
-.development-environment-shell {
-  --development-accent: var(--console-accent, #1f5fbf);
-  --development-success: var(--console-success, #16735c);
-  --development-warning: var(--console-warning, #986300);
-  --development-danger: var(--console-danger, #b42318);
-}
-
-.development-center-host {
-  position: relative;
-  display: grid;
-  grid-template-rows: minmax(0, 1fr);
-  gap: 0;
-  overflow: hidden;
-  padding: 0;
-}
-
-.development-layer-body {
-  min-height: 0;
-}
-
-.development-layer-body {
-  display: grid;
-  grid-template-rows: minmax(0, 1fr);
-  min-width: 0;
-  overflow: hidden;
-}
-
-.development-layer-body--with-alert {
-  grid-template-rows: auto minmax(0, 1fr);
+.development-status-slot {
+  position: absolute;
+  top: 0.75rem;
+  left: 0.75rem;
+  right: 0.75rem;
+  z-index: 25;
+  pointer-events: none;
 }
 
 .development-git-trigger svg,
@@ -26609,12 +26592,17 @@ html[data-workspace-tone] .agent-workbench {
   display: flex;
   align-items: center;
   gap: 0.42rem;
-  border-bottom: 1px solid color-mix(in srgb, var(--development-danger) 20%, var(--workbench-line));
-  background: color-mix(in srgb, var(--development-danger) 7%, var(--workbench-surface));
+  width: fit-content;
+  max-width: min(760px, 100%);
+  border: 1px solid color-mix(in srgb, var(--development-danger) 20%, var(--workbench-line));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--workbench-surface) 94%, #fff);
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.12);
   color: var(--development-danger);
   font-size: 0.74rem;
   line-height: 1.4;
   padding: 0.46rem 0.62rem;
+  pointer-events: auto;
 }
 
 .development-git-float {
@@ -32389,31 +32377,31 @@ html[data-workspace-tone] .agent-workbench {
   grid-template-areas: "tools canvas inspector";
 }
 
-:is(.center-workspace__graph-layer, .development-graph-layer) .task-graph-editor-page .task-graph-studio-shell {
+.center-workspace__graph-layer .task-graph-editor-page .task-graph-studio-shell {
   border-top: 0;
   background: var(--console-surface);
 }
 
-:is(.center-workspace__graph-layer, .development-graph-layer) .task-graph-editor-page .task-graph-studio-topbar {
+.center-workspace__graph-layer .task-graph-editor-page .task-graph-studio-topbar {
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 0.45rem;
   min-height: 44px;
   padding: 0.38rem 0.5rem;
 }
 
-:is(.center-workspace__graph-layer, .development-graph-layer) .task-graph-editor-page .task-graph-studio-topbar__actions {
+.center-workspace__graph-layer .task-graph-editor-page .task-graph-studio-topbar__actions {
   flex-wrap: nowrap;
 }
 
-:is(.center-workspace__graph-layer, .development-graph-layer) .task-graph-editor-page .task-graph-editor-chrome__controls {
+.center-workspace__graph-layer .task-graph-editor-page .task-graph-editor-chrome__controls {
   grid-template-columns: minmax(0, 1fr);
 }
 
-:is(.center-workspace__graph-layer, .development-graph-layer) .task-graph-editor-page .task-graph-studio-shell__body {
+.center-workspace__graph-layer .task-graph-editor-page .task-graph-studio-shell__body {
   grid-template-columns: 44px minmax(0, 1fr);
 }
 
-:is(.center-workspace__graph-layer, .development-graph-layer) .task-graph-editor-page .task-graph-layer-nav {
+.center-workspace__graph-layer .task-graph-editor-page .task-graph-layer-nav {
   display: grid;
   align-content: start;
   gap: 0.32rem;
@@ -32422,34 +32410,34 @@ html[data-workspace-tone] .agent-workbench {
   padding: 0.32rem;
 }
 
-:is(.center-workspace__graph-layer, .development-graph-layer) .task-graph-editor-page .task-graph-layer-group {
+.center-workspace__graph-layer .task-graph-editor-page .task-graph-layer-group {
   gap: 0.18rem;
 }
 
-:is(.center-workspace__graph-layer, .development-graph-layer) .task-graph-editor-page .task-graph-layer-group > header span,
-:is(.center-workspace__graph-layer, .development-graph-layer) .task-graph-editor-page .task-graph-layer-card small,
-:is(.center-workspace__graph-layer, .development-graph-layer) .task-graph-editor-page .task-graph-layer-card span,
-:is(.center-workspace__graph-layer, .development-graph-layer) .task-graph-editor-page .task-graph-layer-card__state {
+.center-workspace__graph-layer .task-graph-editor-page .task-graph-layer-group > header span,
+.center-workspace__graph-layer .task-graph-editor-page .task-graph-layer-card small,
+.center-workspace__graph-layer .task-graph-editor-page .task-graph-layer-card span,
+.center-workspace__graph-layer .task-graph-editor-page .task-graph-layer-card__state {
   display: none;
 }
 
-:is(.center-workspace__graph-layer, .development-graph-layer) .task-graph-editor-page .task-graph-layer-card {
+.center-workspace__graph-layer .task-graph-editor-page .task-graph-layer-card {
   grid-template-columns: 1fr;
   justify-items: center;
   min-height: 2.2rem;
   padding: 0.34rem;
 }
 
-:is(.center-workspace__graph-layer, .development-graph-layer) .task-graph-editor-page .task-graph-editor-context small {
+.center-workspace__graph-layer .task-graph-editor-page .task-graph-editor-context small {
   display: none;
 }
 
-:is(.center-workspace__graph-layer, .development-graph-layer) .task-graph-editor-page .task-graph-editor-context {
+.center-workspace__graph-layer .task-graph-editor-page .task-graph-editor-context {
   min-height: 34px;
   padding: 0.25rem 0.46rem;
 }
 
-:is(.center-workspace__graph-layer, .development-graph-layer) .task-graph-editor-page .task-graph-topology-page {
+.center-workspace__graph-layer .task-graph-editor-page .task-graph-topology-page {
   grid-template-columns: minmax(0, 1fr) minmax(260px, 0.42fr);
   grid-template-areas:
     "tools tools"
@@ -32462,7 +32450,7 @@ html[data-workspace-tone] .agent-workbench {
   padding: 0;
 }
 
-:is(.center-workspace__graph-layer, .development-graph-layer) .task-graph-editor-page .task-graph-topology-rail {
+.center-workspace__graph-layer .task-graph-editor-page .task-graph-topology-rail {
   grid-area: tools;
   display: flex;
   align-items: stretch;
@@ -32476,7 +32464,7 @@ html[data-workspace-tone] .agent-workbench {
   padding: 0.38rem 0.46rem;
 }
 
-:is(.center-workspace__graph-layer, .development-graph-layer) .task-graph-editor-page .task-graph-topology-rail .task-graph-topology-panel {
+.center-workspace__graph-layer .task-graph-editor-page .task-graph-topology-rail .task-graph-topology-panel {
   align-content: center;
   gap: 0.28rem;
   min-width: max-content;
@@ -32485,33 +32473,33 @@ html[data-workspace-tone] .agent-workbench {
   padding: 0;
 }
 
-:is(.center-workspace__graph-layer, .development-graph-layer) .task-graph-editor-page .task-graph-topology-rail .task-graph-topology-panel__head,
-:is(.center-workspace__graph-layer, .development-graph-layer) .task-graph-editor-page .task-graph-topology-action-label {
+.center-workspace__graph-layer .task-graph-editor-page .task-graph-topology-rail .task-graph-topology-panel__head,
+.center-workspace__graph-layer .task-graph-editor-page .task-graph-topology-action-label {
   display: none;
 }
 
-:is(.center-workspace__graph-layer, .development-graph-layer) .task-graph-editor-page .task-graph-topology-rail .task-graph-topology-actions,
-:is(.center-workspace__graph-layer, .development-graph-layer) .task-graph-editor-page .task-graph-topology-rail .task-graph-topology-task-list {
+.center-workspace__graph-layer .task-graph-editor-page .task-graph-topology-rail .task-graph-topology-actions,
+.center-workspace__graph-layer .task-graph-editor-page .task-graph-topology-rail .task-graph-topology-task-list {
   display: flex;
   gap: 0.28rem;
   max-height: none;
   overflow: visible;
 }
 
-:is(.center-workspace__graph-layer, .development-graph-layer) .task-graph-editor-page .task-graph-topology-rail .task-graph-topology-actions button,
-:is(.center-workspace__graph-layer, .development-graph-layer) .task-graph-editor-page .task-graph-topology-rail .task-graph-topology-task-list button {
+.center-workspace__graph-layer .task-graph-editor-page .task-graph-topology-rail .task-graph-topology-actions button,
+.center-workspace__graph-layer .task-graph-editor-page .task-graph-topology-rail .task-graph-topology-task-list button {
   min-height: 2rem;
   white-space: nowrap;
 }
 
-:is(.center-workspace__graph-layer, .development-graph-layer) .task-graph-editor-page .task-graph-topology-canvas-shell {
+.center-workspace__graph-layer .task-graph-editor-page .task-graph-topology-canvas-shell {
   grid-area: canvas;
   min-height: 0;
   border: 0;
   border-radius: 0;
 }
 
-:is(.center-workspace__graph-layer, .development-graph-layer) .task-graph-editor-page .task-graph-topology-inspector {
+.center-workspace__graph-layer .task-graph-editor-page .task-graph-topology-inspector {
   grid-area: inspector;
   height: 100%;
   border-left: 1px solid var(--console-line);
@@ -32519,7 +32507,7 @@ html[data-workspace-tone] .agent-workbench {
   padding: 0.46rem;
 }
 
-:is(.center-workspace__graph-layer, .development-graph-layer) .task-graph-editor-page .task-graph-topology-inspector,
+.center-workspace__graph-layer .task-graph-editor-page .task-graph-topology-inspector,
 .system-page-content .task-graph-editor-page .task-graph-topology-inspector {
   align-content: start;
   gap: 0.5rem;
@@ -32568,13 +32556,13 @@ html[data-workspace-tone] .agent-workbench {
 }
 
 @container (min-width: 900px) {
-  :is(.center-workspace__graph-layer, .development-graph-layer) .task-graph-editor-page .task-graph-topology-page {
+  .center-workspace__graph-layer .task-graph-editor-page .task-graph-topology-page {
     grid-template-columns: 136px minmax(0, 1fr) minmax(320px, 0.38fr);
     grid-template-areas: "tools canvas inspector";
     grid-template-rows: minmax(0, 1fr);
   }
 
-  :is(.center-workspace__graph-layer, .development-graph-layer) .task-graph-editor-page .task-graph-topology-rail {
+  .center-workspace__graph-layer .task-graph-editor-page .task-graph-topology-rail {
     display: grid;
     align-content: start;
     max-height: none;
@@ -32584,31 +32572,31 @@ html[data-workspace-tone] .agent-workbench {
     overflow: auto;
   }
 
-  :is(.center-workspace__graph-layer, .development-graph-layer) .task-graph-editor-page .task-graph-topology-rail .task-graph-topology-panel {
+  .center-workspace__graph-layer .task-graph-editor-page .task-graph-topology-rail .task-graph-topology-panel {
     min-width: 0;
   }
 
-  :is(.center-workspace__graph-layer, .development-graph-layer) .task-graph-editor-page .task-graph-topology-rail .task-graph-topology-actions,
-  :is(.center-workspace__graph-layer, .development-graph-layer) .task-graph-editor-page .task-graph-topology-rail .task-graph-topology-task-list {
+  .center-workspace__graph-layer .task-graph-editor-page .task-graph-topology-rail .task-graph-topology-actions,
+  .center-workspace__graph-layer .task-graph-editor-page .task-graph-topology-rail .task-graph-topology-task-list {
     display: grid;
     grid-template-columns: 1fr;
   }
 }
 
 @container (max-width: 540px) {
-  :is(.center-workspace__graph-layer, .development-graph-layer) .task-graph-editor-page .task-graph-studio-topbar {
+  .center-workspace__graph-layer .task-graph-editor-page .task-graph-studio-topbar {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  :is(.center-workspace__graph-layer, .development-graph-layer) .task-graph-editor-page .task-graph-studio-topbar__actions {
+  .center-workspace__graph-layer .task-graph-editor-page .task-graph-studio-topbar__actions {
     justify-content: start;
   }
 
-  :is(.center-workspace__graph-layer, .development-graph-layer) .task-graph-editor-page .task-graph-editor-chrome__controls {
+  .center-workspace__graph-layer .task-graph-editor-page .task-graph-editor-chrome__controls {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  :is(.center-workspace__graph-layer, .development-graph-layer) .task-graph-editor-page .task-graph-topology-page {
+  .center-workspace__graph-layer .task-graph-editor-page .task-graph-topology-page {
     grid-template-columns: minmax(0, 1fr);
     grid-template-areas:
       "tools"
@@ -32617,7 +32605,7 @@ html[data-workspace-tone] .agent-workbench {
     grid-template-rows: auto minmax(0, 1fr) minmax(170px, 0.62fr);
   }
 
-  :is(.center-workspace__graph-layer, .development-graph-layer) .task-graph-editor-page .task-graph-topology-inspector {
+  .center-workspace__graph-layer .task-graph-editor-page .task-graph-topology-inspector {
     border-top: 1px solid var(--console-line);
     border-left: 0;
   }
@@ -33622,7 +33610,7 @@ body {
   padding: 0;
 }
 
-:is(.center-workspace__graph-layer, .development-graph-layer) .task-graph-editor-page .task-graph-topology-page--semantic {
+.center-workspace__graph-layer .task-graph-editor-page .task-graph-topology-page--semantic {
   grid-template-columns: 190px minmax(0, 1fr);
   grid-template-areas: none;
 }

@@ -5,6 +5,10 @@ export type TaskEnvironmentItem = TaskEnvironmentManagement["environments"][numb
 export type EnvironmentScope = "workspace" | "builtin_template" | "system_internal" | "other";
 
 const KNOWN_ENVIRONMENT_COPY: Record<string, { title: string; purpose: string }> = {
+  "env.coding.vibe_workspace": {
+    title: "代码环境",
+    purpose: "加载受管项目工作区、沙盒、文件状态、Git 视图和验证产物",
+  },
   "env.creation.writing": {
     title: "写作环境",
     purpose: "加载作品资料、草稿、记忆和创作产物空间",

@@ -3,6 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from runtime.memory.file_state_authority import build_file_state_projection_from_observations
+
 from .compaction import replacement_history_ref
 from .execution_state_projector import ExecutionStateProjector
 from .history_projector import HistoryProjector
@@ -52,6 +54,11 @@ class DynamicContextManager:
         execution_projection = self.execution_state_projector.project(
             request.execution_state,
             task_run=request.task_run,
+        )
+        execution_projection = self._with_file_state_authority_projection(
+            execution_projection,
+            observations=request.observations,
+            task_run_id=request.task_run_id,
         )
         history_projection = self.history_projector.project(
             request.history,
@@ -145,6 +152,29 @@ class DynamicContextManager:
         if request.invocation_kind == "tool_observation_followup":
             payload["observations"] = observation_projection
         return drop_empty(payload)
+
+    def _with_file_state_authority_projection(
+        self,
+        execution_projection: dict[str, Any],
+        *,
+        observations: tuple[dict[str, Any], ...],
+        task_run_id: str,
+    ) -> dict[str, Any]:
+        projection = dict(execution_projection or {})
+        if projection.get("file_state"):
+            return projection
+        file_state = build_file_state_projection_from_observations(
+            observations,
+            task_run_id=task_run_id,
+            limit=20,
+        )
+        if not file_state:
+            return projection
+        return {
+            **projection,
+            "file_state": file_state,
+            "file_state_source": "runtime.memory.file_state_authority",
+        }
 
     def _volatile_state_projection(
         self,

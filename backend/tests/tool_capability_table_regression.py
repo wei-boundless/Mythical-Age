@@ -13,8 +13,8 @@ from task_system.registry.flow_models import SpecificTaskRecord, TaskExecutionPo
 from task_system.tasks import resolve_specific_task_assembly_policy
 
 
-def test_development_tool_table_intersects_environment_task_agent_and_file_access() -> None:
-    resolved = resolve_task_environment("env.development.sandbox")
+def test_coding_tool_table_intersects_environment_task_agent_and_file_access() -> None:
+    resolved = resolve_task_environment("env.coding.vibe_workspace")
     table = build_tool_capability_table(
         ToolCapabilityBuildRequest(
             environment=resolved.spec,
@@ -31,7 +31,24 @@ def test_development_tool_table_intersects_environment_task_agent_and_file_acces
     assert any(issue.operation_id == "op.shell" and issue.source == "agent_profile" for issue in table.filtered)
     edit_capability = table.capability_for_operation("op.edit_file")
     assert edit_capability is not None
-    assert any(grant.startswith("repo.coding.sandbox_workspace:edit") for grant in edit_capability.file_repository_grants)
+    assert any(grant.startswith("repo.managed_project.sandbox_workspace:edit") for grant in edit_capability.file_repository_grants)
+
+
+def test_development_tool_table_keeps_base_workspace_read_only() -> None:
+    resolved = resolve_task_environment("env.development.sandbox")
+    table = build_tool_capability_table(
+        ToolCapabilityBuildRequest(
+            environment=resolved.spec,
+            file_access_tables=resolved.file_access_tables,
+            task_required_operations=("op.read_file", "op.search_text", "op.edit_file"),
+            agent_profile_allowed_operations=("op.model_response", "op.read_file", "op.search_text", "op.edit_file"),
+        )
+    )
+
+    assert "read_file" in table.dispatchable_tools
+    assert "search_text" in table.dispatchable_tools
+    assert "edit_file" not in table.dispatchable_tools
+    assert any(issue.operation_id == "op.edit_file" and issue.source == "file_access_table" for issue in table.filtered)
 
 
 def test_writing_tool_table_keeps_agent_allowed_shell_visible_and_gates_official_write() -> None:
@@ -72,12 +89,12 @@ def test_file_operation_without_file_access_table_is_filtered() -> None:
 
 
 def test_tool_table_consumes_specific_task_assembly_policy() -> None:
-    resolved = resolve_task_environment("env.development.sandbox")
+    resolved = resolve_task_environment("env.coding.vibe_workspace")
     assembly_policy = resolve_specific_task_assembly_policy(
         task_record=SpecificTaskRecord(
             task_id="task.frontend.fix",
             task_title="Frontend Fix",
-            metadata={"environment_id": "env.development.sandbox"},
+            metadata={"environment_id": "env.coding.vibe_workspace"},
             task_policy={
                 "tool_capability_requirements": {
                     "required_operations": ["op.read_file", "op.edit_file"],

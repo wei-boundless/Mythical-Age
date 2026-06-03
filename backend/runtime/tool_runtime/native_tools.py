@@ -32,7 +32,7 @@ from file_management import (
 from runtime_encoding import build_windows_powershell_command, is_windows, utf8_subprocess_text_kwargs
 from runtime.tool_runtime.docker_sandbox_backend import DockerSandboxBackend
 from runtime.tool_runtime.tool_definition import ToolPermissionResult, ToolValidationResult
-from runtime.tool_runtime.tool_result_envelope import ToolResultEnvelope
+from runtime.tool_runtime.tool_result_envelope import ToolResultEnvelope, infer_file_state_events
 from runtime.tool_runtime.tool_use_context import ToolUseContext
 
 if TYPE_CHECKING:
@@ -179,6 +179,8 @@ class _NativeToolBase:
         artifact_refs: tuple[dict[str, Any], ...] = (),
         command_receipt: dict[str, Any] | None = None,
         matched_paths: tuple[str, ...] = (),
+        written_paths: tuple[str, ...] = (),
+        file_state_events: tuple[dict[str, Any], ...] = (),
         execution_receipt: dict[str, Any] | None = None,
     ) -> ToolResultEnvelope:
         payload = dict(structured_payload or {})
@@ -186,8 +188,21 @@ class _NativeToolBase:
             payload["observed_paths"] = list(observed_paths)
         if matched_paths:
             payload["matched_paths"] = list(matched_paths)
+        if written_paths:
+            payload["written_paths"] = list(written_paths)
         if artifact_refs:
             payload["artifact_refs"] = [dict(item) for item in artifact_refs]
+        inferred_file_state_events = tuple(file_state_events) or infer_file_state_events(
+            tool_name=self.name,
+            tool_args=dict(tool_args or {}),
+            status=status,
+            structured_payload=payload,
+            observed_paths=tuple(observed_paths),
+            matched_paths=tuple(matched_paths),
+            written_paths=tuple(written_paths),
+        )
+        if inferred_file_state_events:
+            payload["file_state_events"] = [dict(item) for item in inferred_file_state_events]
         if command_receipt:
             payload["command_receipt"] = dict(command_receipt)
         return ToolResultEnvelope(
@@ -195,11 +210,17 @@ class _NativeToolBase:
             tool_name=self.name,
             tool_args=dict(tool_args or {}),
             status=status,
+            tool_call_id=str(context_tool_call_id(execution_receipt) or ""),
+            action_request_id=str(context_action_request_id(execution_receipt) or ""),
+            caller_kind=str(context_caller_kind(execution_receipt) or ""),
+            caller_ref=str(context_caller_ref(execution_receipt) or ""),
             text=str(text or ""),
             structured_payload=payload,
             observed_paths=tuple(observed_paths),
             matched_paths=tuple(matched_paths),
+            written_paths=tuple(written_paths),
             artifact_refs=tuple(dict(item) for item in artifact_refs),
+            file_state_events=tuple(dict(item) for item in inferred_file_state_events),
             command_receipt=dict(command_receipt or {}),
             execution_receipt=dict(execution_receipt or {}),
             error=str(text or "") if status == "error" else "",
@@ -1070,6 +1091,22 @@ def _file_management_config(context: ToolUseContext) -> dict[str, Any]:
     return payload
 
 
+def context_tool_call_id(execution_receipt: dict[str, Any] | None) -> str:
+    return str(dict(execution_receipt or {}).get("tool_call_id") or "").strip()
+
+
+def context_action_request_id(execution_receipt: dict[str, Any] | None) -> str:
+    return str(dict(execution_receipt or {}).get("action_request_id") or dict(execution_receipt or {}).get("request_ref") or "").strip()
+
+
+def context_caller_kind(execution_receipt: dict[str, Any] | None) -> str:
+    return str(dict(execution_receipt or {}).get("caller_kind") or "").strip()
+
+
+def context_caller_ref(execution_receipt: dict[str, Any] | None) -> str:
+    return str(dict(execution_receipt or {}).get("caller_ref") or "").strip()
+
+
 def _repository_for_action(context: ToolUseContext, action: str) -> str:
     config = _file_management_config(context)
     repositories = dict(config.get("repositories") or {})
@@ -1078,19 +1115,84 @@ def _repository_for_action(context: ToolUseContext, action: str) -> str:
     if explicit:
         return explicit
     profile_id = str(config.get("profile_id") or "").strip()
-    if profile_id == "file_profile.vibe_coding_project":
-        if action_name in {"write", "edit"}:
-            return "repo.coding.sandbox_workspace"
-        return "repo.coding.sandbox_workspace" if context.sandbox_root is not None else "repo.coding.project_workspace"
-    if profile_id == "file_profile.writing_manuscript":
-        if action_name in {"write", "edit"}:
-            return "repo.writing.draft_workspace"
-        return "repo.writing.official_work"
-    if profile_id == "file_profile.web_research_evidence":
-        if action_name in {"write", "edit"}:
-            return "repo.research.evidence_archive"
-        return "repo.research.evidence_archive"
-    return str(config.get("default_repository_id") or "").strip()
+    selected = _repository_for_profile_action(
+        profile_id,
+        action_name,
+        sandbox_available=context.sandbox_root is not None,
+        repository_requirements=dict(config.get("repository_requirements") or {}),
+    )
+    return selected or str(config.get("default_repository_id") or "").strip()
+
+
+def _repository_for_profile_action(
+    profile_id: str,
+    action: str,
+    *,
+    sandbox_available: bool,
+    repository_requirements: dict[str, dict[str, Any]],
+) -> str:
+    if not str(profile_id or "").strip():
+        return ""
+    try:
+        environment = resolve_file_environment(
+            profile_id,
+            repository_requirements=repository_requirements,
+        )
+    except Exception:
+        return ""
+    action_name = str(action or "").strip()
+    priorities = _repository_kind_priorities(action_name, sandbox_available=sandbox_available)
+    repositories = list(environment.repositories)
+    for kind in priorities:
+        for repository in repositories:
+            if repository.repository_kind == kind and _repository_supports_action(repository, action_name):
+                return repository.repository_id
+    for repository in repositories:
+        if _repository_supports_action(repository, action_name):
+            return repository.repository_id
+    return ""
+
+
+def _repository_kind_priorities(action: str, *, sandbox_available: bool) -> tuple[str, ...]:
+    if action in {"write", "edit"}:
+        return (
+            *((("sandbox_workspace",) if sandbox_available else ())),
+            "draft_workspace",
+            "review_workspace",
+            "artifact_repository",
+            "evidence_archive",
+            "download_cache",
+            "citation_snapshot_repository",
+            "runtime_output",
+            "test_artifacts",
+            "project_workspace",
+        )
+    return (
+        *((("sandbox_workspace",) if sandbox_available else ())),
+        "project_workspace",
+        "official_work",
+        "artifact_repository",
+        "evidence_archive",
+        "download_cache",
+        "citation_snapshot_repository",
+        "material_mount",
+        "draft_workspace",
+        "review_workspace",
+    )
+
+
+def _repository_supports_action(repository: Any, action: str) -> bool:
+    action_name = str(action or "").strip()
+    rules = tuple(repository.rules_for_action(action_name))
+    if rules:
+        return any(str(rule.behavior or "") != "deny" for rule in rules)
+    if action_name in {"open", "read"}:
+        return bool(getattr(repository, "readable", False))
+    if action_name == "search":
+        return bool(getattr(repository, "searchable", False))
+    if action_name in {"write", "edit"}:
+        return bool(getattr(repository, "writable", False))
+    return False
 
 
 def _check_gateway_file_permission(

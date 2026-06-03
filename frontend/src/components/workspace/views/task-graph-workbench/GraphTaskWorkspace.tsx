@@ -155,6 +155,7 @@ function environmentRecordTitle(environmentId: string, overview?: TaskSystemOver
   const record = overview?.task_environment_management?.records?.find((item) => item.environment_id === environmentId);
   if (record?.title) return record.title;
   const labels: Record<string, string> = {
+    "env.coding.vibe_workspace": "Vibe Coding Workspace",
     "env.creation.writing": "写作环境",
     "env.development.sandbox": "Development Sandbox",
     "env.development.readonly": "Development Readonly",

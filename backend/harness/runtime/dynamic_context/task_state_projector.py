@@ -297,6 +297,21 @@ def _file_state_projection(value: Any) -> list[dict[str, Any]]:
                 "last_observation_ref": str(item.get("last_observation_ref") or ""),
                 "has_more": item.get("has_more") if isinstance(item.get("has_more"), bool) else None,
                 "status": str(item.get("status") or ""),
+                "search_hit_count": len(dict_tuple(item.get("search_hits"))),
+                "write_event_count": len(dict_tuple(item.get("write_events"))),
+                "next_suggested_read": dict(item.get("next_suggested_read") or {}),
+                "evidence_refs": [
+                    ref
+                    for ref in [
+                        str(item.get("last_observation_ref") or ""),
+                        *[
+                            str(segment.get("observation_ref") or "")
+                            for segment in dict_tuple(item.get("read_ranges"))
+                            if str(segment.get("observation_ref") or "")
+                        ][-4:],
+                    ]
+                    if ref
+                ][-5:],
             }
         )
         if projected:

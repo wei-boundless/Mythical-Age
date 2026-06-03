@@ -100,6 +100,9 @@ class ModelProfileResolver:
             if requirement.profile_ref != agent_model_profile.profile_id:
                 warnings.append("model_requirement_profile_ref_not_matched")
             source_chain.append("node.contract_bindings.runtime.model_requirement.profile_ref")
+        if requirement.credential_ref:
+            credential_ref = requirement.credential_ref
+            source_chain.append("node.contract_bindings.runtime.model_requirement.credential_ref")
         if requirement.provider_family and requirement.provider_family not in {provider, "openai-compatible", "openai_compatible"}:
             warnings.append("model_requirement_provider_family_differs")
         if requirement.capability_tags:

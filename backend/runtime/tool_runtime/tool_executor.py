@@ -558,6 +558,10 @@ class ToolRuntimeExecutor:
             result_ref=result_ref,
             truncated=truncated,
             sandbox=sandbox_context.to_dict() if sandbox_context else None,
+            tool_call_id=tool_call_id,
+            action_request_id=action_request.request_id,
+            caller_kind=invocation_context.caller_kind,
+            caller_ref=invocation_context.caller_ref,
         )
         registry = registry_for(getattr(self.tool_runtime, "runtime_host", None))
         if registry is not None:
@@ -896,6 +900,10 @@ class ToolRuntimeExecutor:
             result_ref=result_ref,
             truncated=truncated,
             sandbox=sandbox_context.to_dict() if sandbox_context else None,
+            tool_call_id=tool_call_id,
+            action_request_id=tool_invocation_id,
+            caller_kind=invocation_context.caller_kind,
+            caller_ref=invocation_context.caller_ref,
         )
         registry = registry_for(getattr(self.tool_runtime, "runtime_host", None))
         if registry is not None:
@@ -1096,6 +1104,10 @@ def _core_error_result(
         result={"ok": False, "error": str(text or final_error)},
         execution_receipt=execution_receipt,
         result_ref=result_ref,
+        tool_call_id=invocation_context.tool_call_id,
+        action_request_id=invocation_context.tool_invocation_id,
+        caller_kind=invocation_context.caller_kind,
+        caller_ref=invocation_context.caller_ref,
         sandbox=dict(sandbox or {}),
     )
     payload = {
@@ -1122,6 +1134,10 @@ def _finalize_runtime_tool_envelope(
     result_ref: str,
     truncated: bool,
     sandbox: dict[str, Any] | None,
+    tool_call_id: str = "",
+    action_request_id: str = "",
+    caller_kind: str = "",
+    caller_ref: str = "",
 ):
     structured_payload = {
         **dict(envelope.structured_payload or {}),
@@ -1132,8 +1148,12 @@ def _finalize_runtime_tool_envelope(
         structured_payload["observed_paths"] = list(envelope.observed_paths)
     if envelope.matched_paths:
         structured_payload["matched_paths"] = list(envelope.matched_paths)
+    if getattr(envelope, "written_paths", ()):
+        structured_payload["written_paths"] = list(getattr(envelope, "written_paths", ()) or ())
     if envelope.artifact_refs:
         structured_payload["artifact_refs"] = [dict(item) for item in envelope.artifact_refs]
+    if getattr(envelope, "file_state_events", ()):
+        structured_payload["file_state_events"] = [dict(item) for item in getattr(envelope, "file_state_events", ()) or ()]
     if envelope.command_receipt:
         structured_payload["command_receipt"] = dict(envelope.command_receipt)
     return type(envelope)(
@@ -1141,15 +1161,24 @@ def _finalize_runtime_tool_envelope(
         tool_name=str(tool_name or envelope.tool_name or ""),
         tool_args=dict(tool_args or envelope.tool_args or {}),
         status=str(envelope.status or "ok"),
+        tool_call_id=str(tool_call_id or getattr(envelope, "tool_call_id", "") or execution_receipt.get("tool_call_id") or ""),
+        action_request_id=str(action_request_id or getattr(envelope, "action_request_id", "") or execution_receipt.get("request_ref") or ""),
+        caller_kind=str(caller_kind or getattr(envelope, "caller_kind", "") or execution_receipt.get("caller_kind") or ""),
+        caller_ref=str(caller_ref or getattr(envelope, "caller_ref", "") or execution_receipt.get("caller_ref") or ""),
         text=str(text or ""),
         structured_payload=structured_payload,
         observed_paths=tuple(envelope.observed_paths or ()),
         matched_paths=tuple(envelope.matched_paths or ()),
+        written_paths=tuple(getattr(envelope, "written_paths", ()) or ()),
         artifact_refs=tuple(dict(item) for item in tuple(envelope.artifact_refs or ())),
+        file_state_events=tuple(dict(item) for item in tuple(getattr(envelope, "file_state_events", ()) or ())),
+        artifact_state_events=tuple(dict(item) for item in tuple(getattr(envelope, "artifact_state_events", ()) or ())),
+        verification_events=tuple(dict(item) for item in tuple(getattr(envelope, "verification_events", ()) or ())),
         command_receipt=dict(envelope.command_receipt or {}),
         execution_receipt=dict(execution_receipt or {}),
         result_ref=str(result_ref or ""),
         error=str(envelope.error or "") if envelope.status == "error" else "",
+        diagnostics=dict(getattr(envelope, "diagnostics", {}) or {}),
     )
 
 

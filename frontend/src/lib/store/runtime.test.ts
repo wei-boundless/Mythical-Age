@@ -611,7 +611,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
         navigation_target: {
           target_kind: "session",
           workspace_view: "task_environment",
-          task_environment_id: "env.development.sandbox",
+          task_environment_id: "env.coding.vibe_workspace",
           session_id: "session-dev",
           task_run_id: "taskrun:turn:session-dev:1:abc",
           task_instance_id: "taskrun:turn:session-dev:1:abc",
@@ -627,7 +627,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(store.getState().activeWorkspaceView).toBe("code-environment");
     expect(store.getState().currentSessionId).toBe("session-dev");
     expect(store.getState().chatTaskEnvironmentBinding).toMatchObject({
-      task_environment_id: "env.development.sandbox",
+      task_environment_id: "env.coding.vibe_workspace",
       source: "workspace-mode",
     });
     expect(api.listSessions).not.toHaveBeenCalled();
@@ -2253,8 +2253,8 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(store.getState().currentSessionId).toBe("session:general");
     expect(store.getState().messages.map((message) => message.content)).toEqual(["通用环境问题", "通用环境回答"]);
     expect(store.getState().chatTaskEnvironmentBinding).toMatchObject({
-      task_environment_id: "env.development.sandbox",
-      environment_label: "Development Sandbox",
+      task_environment_id: "env.coding.vibe_workspace",
+      environment_label: "Vibe Coding Workspace",
       source: "workspace-mode",
     });
     expect(api.listSessions).not.toHaveBeenCalled();

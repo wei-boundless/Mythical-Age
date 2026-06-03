@@ -10,7 +10,7 @@ def test_default_project_instances_are_scoped_to_task_environments(tmp_path: Pat
     repository = ProjectInstanceRepository(tmp_path)
 
     writing_projects = repository.list_for_environment("env.creation.writing")
-    code_projects = repository.list_for_environment("env.development.sandbox")
+    code_projects = repository.list_for_environment("env.coding.vibe_workspace")
 
     assert [item.project_id for item in writing_projects] == ["project.creation.writing.honghuang"]
     assert writing_projects[0].library_id == "library.project.creation.writing.honghuang"

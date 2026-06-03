@@ -31,7 +31,7 @@ def test_project_file_service_rejects_traversal_and_project_external_repository(
         raise AssertionError("project file read must reject traversal")
 
     try:
-        service.tree("project.creation.writing.honghuang", "repo.coding.project_workspace")
+        service.tree("project.creation.writing.honghuang", "repo.managed_project.project_workspace")
     except PermissionError as exc:
         assert "not part of the project library" in str(exc)
     else:

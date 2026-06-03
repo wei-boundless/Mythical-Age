@@ -7,6 +7,7 @@ import { AppProvider, useAppStore } from "@/lib/store";
 import { lazy, Suspense } from "react";
 import { CenterWorkspaceView } from "@/components/workspace/views/center/CenterWorkspaceView";
 import { ConfirmDialogProvider } from "@/components/layout/ConfirmDialogProvider";
+import { CodeEnvironmentView } from "@/components/workspace/views/CodeEnvironmentView";
 import { WorkbenchShell } from "@/components/layout/WorkbenchShell";
 import { TaskGraphRunInteractionDock } from "@/components/workspace/views/task-system/TaskGraphRunInteractionDock";
 import type { WorkspaceView } from "@/lib/store/types";
@@ -17,7 +18,6 @@ const MemoryView = lazy(() => import("@/components/workspace/views/MemoryView").
 const OrchestrationView = lazy(() => import("@/components/workspace/views/OrchestrationView").then((module) => ({ default: module.OrchestrationView })));
 const SystemConfigView = lazy(() => import("@/components/workspace/views/SystemConfigView").then((module) => ({ default: module.SystemConfigView })));
 const TaskSystemView = lazy(() => import("@/components/workspace/views/TaskSystemView").then((module) => ({ default: module.TaskSystemView })));
-const CodeEnvironmentView = lazy(() => import("@/components/workspace/views/CodeEnvironmentView").then((module) => ({ default: module.CodeEnvironmentView })));
 const CreativeEnvironmentView = lazy(() => import("@/components/workspace/views/CreativeEnvironmentView").then((module) => ({ default: module.CreativeEnvironmentView })));
 
 function LazyView({ children }: { children: ReactNode }) {
@@ -42,6 +42,8 @@ const WORKSPACE_QUERY_VIEWS = new Set<WorkspaceView>([
 
 const WORKSPACE_TONES = new Set(["water", "leaf", "gold", "ember", "lumen"]);
 const TASK_ENVIRONMENT_VIEWS = new Set<WorkspaceView>(["chat", "creative", "code-environment"]);
+const GENERAL_TASK_ENVIRONMENT_ID = "env.general.workspace";
+const CODING_TASK_ENVIRONMENT_ID = "env.coding.vibe_workspace";
 
 const SYSTEM_NAV_ITEMS: Array<{ view: WorkspaceView; label: string; icon: typeof MessageSquare }> = [
   { view: "chat", label: "工作台", icon: MessageSquare },
@@ -205,12 +207,6 @@ function Workspace() {
         <LazyView><TaskSystemView /></LazyView>
       </SystemPageShell>
     );
-  } else if (activeWorkspaceView === "code-environment") {
-    content = (
-      <SystemPageShell label="代码环境" view="code-environment">
-        <LazyView><CodeEnvironmentView /></LazyView>
-      </SystemPageShell>
-    );
   } else if (activeWorkspaceView === "health-system") {
     content = (
       <SystemPageShell label="健康系统" view="health-system">
@@ -235,16 +231,22 @@ function Workspace() {
         <LazyView><SystemConfigView /></LazyView>
       </SystemPageShell>
     );
-  } else {
+  } else if (activeWorkspaceView === "code-environment" || activeWorkspaceView === "chat") {
+    const centerTaskEnvironmentId = activeWorkspaceView === "code-environment"
+      ? CODING_TASK_ENVIRONMENT_ID
+      : GENERAL_TASK_ENVIRONMENT_ID;
     content = (
-      <SystemPageShell label="主会话" view="chat">
+      <SystemPageShell label={activeWorkspaceView === "code-environment" ? "代码环境" : "主会话"} view={activeWorkspaceView}>
         <WorkbenchShell hideMainToolbar>
           <section className="workbench-view-host workbench-view-host--chat" aria-label="主会话">
-            <CenterWorkspaceView />
+            <CenterWorkspaceView taskEnvironmentId={centerTaskEnvironmentId} />
+            {activeWorkspaceView === "code-environment" ? <CodeEnvironmentView /> : null}
           </section>
         </WorkbenchShell>
       </SystemPageShell>
     );
+  } else {
+    content = null;
   }
 
   return (

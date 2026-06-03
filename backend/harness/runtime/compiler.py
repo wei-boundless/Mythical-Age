@@ -410,6 +410,7 @@ class RuntimeCompiler:
         )
         agent_instruction = _agent_prompt_instruction(agent_prompt_assembly, invocation_kind="task_execution")
         action_schema_payload = {"schema": schema}
+        agent_function_shared_payload = _graph_agent_function_shared_stable_payload(contract)
         graph_task_shared_payload = _graph_task_shared_stable_payload(contract)
         task_contract_payload = {"task_contract": _task_contract_stable_payload(contract)}
         artifact_execution_scope_payload = {"artifact_execution_scope": sandbox_execution_scope.to_model_visible_payload()}
@@ -507,6 +508,17 @@ class RuntimeCompiler:
                 ),
                 _message_spec(
                     role="system",
+                    content=_packet_payload_content("Task execution agent function contract", agent_function_shared_payload),
+                    kind="agent_function_shared_stable",
+                    source_ref=str(agent_function_shared_payload.get("agent_function_shared_context", {}).get("role_family") or ""),
+                    cache_scope="session",
+                    cache_role="session_stable",
+                    compression_role="preserve",
+                )
+                if agent_function_shared_payload
+                else None,
+                _message_spec(
+                    role="system",
                     content=_packet_payload_content("Task execution graph shared context", graph_task_shared_payload),
                     kind="graph_task_shared_stable",
                     source_ref=str(graph_task_shared_payload.get("graph_shared_context", {}).get("shared_context_hash") or ""),
@@ -518,18 +530,18 @@ class RuntimeCompiler:
                 else None,
                 _message_spec(
                     role="system",
-                    content=_packet_payload_content("Task execution task contract", task_contract_payload),
-                    kind="task_contract_stable",
-                    source_ref=str(contract.get("contract_id") or "task_execution_contract"),
+                    content=active_skill_instruction,
+                    kind="active_skills",
+                    source_ref=",".join(active_skill_meta.get("source_refs") or ()),
                     cache_scope="task",
                     cache_role="session_stable",
                     compression_role="preserve",
                 ),
                 _message_spec(
                     role="system",
-                    content=active_skill_instruction,
-                    kind="active_skills",
-                    source_ref=",".join(active_skill_meta.get("source_refs") or ()),
+                    content=_packet_payload_content("Task execution task contract", task_contract_payload),
+                    kind="task_contract_stable",
+                    source_ref=str(contract.get("contract_id") or "task_execution_contract"),
                     cache_scope="task",
                     cache_role="session_stable",
                     compression_role="preserve",
@@ -1186,6 +1198,8 @@ def _single_agent_turn_tools(
         tool = dict(item)
         name = str(tool.get("tool_name") or tool.get("name") or "").strip()
         if not name:
+            continue
+        if not bool(tool.get("read_only") is True):
             continue
         tools.append(tool)
     return tuple(sorted(tools, key=lambda item: str(item.get("tool_name") or item.get("name") or "")))
@@ -2137,6 +2151,97 @@ def _graph_node_model_context_projection(graph_slot: dict[str, Any]) -> dict[str
     )
 
 
+def _graph_agent_function_shared_stable_payload(contract: dict[str, Any]) -> dict[str, Any]:
+    graph_slot = _graph_slot_from_contract(dict(contract or {}))
+    if not graph_slot:
+        return {}
+    node_contract = dict(dict(graph_slot or {}).get("node_contract") or {})
+    node_identity = dict(node_contract.get("node_identity") or {})
+    family = _graph_agent_role_family(node_identity=node_identity)
+    if not family:
+        return {}
+    payload = _drop_empty_payload(
+        {
+            "role_family": family,
+            "function_contract": _graph_agent_function_contract(family),
+            "handoff_boundary": {
+                "read_authorized_inputs_only": True,
+                "do_not_invent_missing_upstream_content": True,
+                "do_not_request_tools_for_hidden_graph_state": True,
+                "write_complete_final_answer_for_runtime_materialization": True,
+                "authority": "harness.runtime.agent_function_shared.handoff_boundary",
+            },
+            "authority": "harness.runtime.agent_function_shared_context.model_visible",
+        }
+    )
+    if not payload:
+        return {}
+    payload["shared_context_hash"] = _short_hash(_stable_json_hash(payload))
+    return {"agent_function_shared_context": payload}
+
+
+def _graph_agent_role_family(*, node_identity: dict[str, Any]) -> str:
+    node_type = str(node_identity.get("node_type") or "").strip().lower()
+    node_id = str(node_identity.get("node_id") or "").strip().lower()
+    haystack = f"{node_type} {node_id}"
+    if "memory_commit" in haystack or "memory_finalize" in haystack or "memory_steward" in haystack:
+        return "memory_steward"
+    if "review" in haystack or "review_gate" in haystack or "monitor" in haystack:
+        return "reviewer"
+    if "self_repair" in haystack or "repair" in haystack:
+        return "self_repair_writer"
+    return "creator"
+
+
+def _graph_agent_function_contract(role_family: str) -> dict[str, Any]:
+    contracts = {
+        "creator": {
+            "identity": "你是一名创作型写作节点执行者。",
+            "primary_duty": "根据上游交接、项目约束和当前节点目标产出新的设计、大纲或正文候选。",
+            "boundaries": [
+                "不得替审核节点下通过、返修或拒绝裁决。",
+                "不得把未审核候选写成最终 canon。",
+                "不得越过当前节点目标扩写其它阶段内容。",
+            ],
+            "quality_bar": "商业长篇网文标准：设定清晰、冲突明确、可连续扩展、避免空泛说明。",
+        },
+        "self_repair_writer": {
+            "identity": "你是一名单节点自修写手。",
+            "primary_duty": "只基于候选稿、审核意见和授权参照完成一次自修，交付可继续流转的修订稿。",
+            "boundaries": [
+                "不得推翻上游大纲层级和已审核事实。",
+                "不得新增与审核意见无关的大范围重构。",
+                "不得替审核节点做最终通过裁决。",
+            ],
+            "quality_bar": "优先修复明确问题，保持原任务目标、语义连续性和交付格式稳定。",
+        },
+        "reviewer": {
+            "identity": "你是一名质量审核员。",
+            "primary_duty": "评审当前候选是否满足合同、上游设定和连贯性要求，并给出明确裁决。",
+            "boundaries": [
+                "不得替创作者扩写正文或重写候选稿。",
+                "不得越过当前审核对象审查无关节点。",
+                "发现明显矛盾、缺漏或层级越权时必须指出并要求返修。",
+            ],
+            "quality_bar": "以商业可读性、设定一致性、层级服从、语义连续性和可执行返修意见为标准。",
+        },
+        "memory_steward": {
+            "identity": "你是一名写作记忆管家。",
+            "primary_duty": "只把已审核通过或明确允许提交的内容整理成稳定记忆、索引和可追踪引用。",
+            "boundaries": [
+                "不得把候选稿、未通过裁决或推测内容写成 canon。",
+                "不得创作新剧情、新设定或替审核节点裁决。",
+                "必须保留来源、适用范围和不可覆盖边界。",
+            ],
+            "quality_bar": "记忆条目要准确、可检索、可追溯、避免重复和互相矛盾。",
+        },
+    }
+    return {
+        **dict(contracts.get(role_family) or contracts["creator"]),
+        "authority": "harness.runtime.agent_function_shared.contract",
+    }
+
+
 def _graph_task_shared_stable_payload(contract: dict[str, Any]) -> dict[str, Any]:
     payload = dict(contract or {})
     graph_slot = _graph_slot_from_contract(payload)
@@ -2203,6 +2308,7 @@ def _graph_authorized_inputs(value: Any) -> list[dict[str, Any]]:
         slot = str(item.get("target_input_slot") or item.get("target_context_key") or "").strip()
         label = slot or str(item.get("target_context_key") or "").strip()
         payload = dict(item.get("payload") or {})
+        primary_content = _authorized_input_content(payload)
         artifact_refs = _model_visible_artifact_refs(item.get("artifact_refs"))
         memory_refs = _model_visible_ref_summaries(item.get("memory_refs"), limit=8)
         inputs.append(
@@ -2211,8 +2317,8 @@ def _graph_authorized_inputs(value: Any) -> list[dict[str, Any]]:
                     "slot": slot,
                     "label": label,
                     "packet_type": str(item.get("packet_type") or ""),
-                    "content": _authorized_input_content(payload),
-                    "payload": _authorized_input_payload(payload),
+                    "content": primary_content,
+                    "payload": _authorized_input_payload(payload, primary_content=primary_content),
                     "artifact_refs": artifact_refs,
                     "memory_refs": memory_refs,
                     "authority": "harness.runtime.graph_node_context.authorized_input",
@@ -2222,18 +2328,33 @@ def _graph_authorized_inputs(value: Any) -> list[dict[str, Any]]:
     return inputs
 
 
-def _authorized_input_payload(payload: dict[str, Any]) -> dict[str, Any]:
+def _authorized_input_payload(payload: dict[str, Any], *, primary_content: str = "") -> dict[str, Any]:
     allowed: dict[str, Any] = {}
     for key in (
         "initial_inputs",
-        "artifact_payloads",
         "title",
         "project_id",
         "graph_id",
     ):
         if key in payload:
             allowed[key] = payload.get(key)
+    if isinstance(payload.get("artifact_payloads"), list):
+        allowed["artifact_payloads"] = [
+            _bounded_artifact_payload_for_authorized_input(dict(item), primary_content=primary_content)
+            for item in list(payload.get("artifact_payloads") or [])[:8]
+            if isinstance(item, dict)
+        ]
     return _truncate_value(allowed, max_chars=30000) if allowed else {}
+
+
+def _bounded_artifact_payload_for_authorized_input(item: dict[str, Any], *, primary_content: str) -> dict[str, Any]:
+    bounded = _bounded_artifact_payload(item)
+    content = str(bounded.get("content") or "").strip()
+    visible = str(primary_content or "").strip()
+    if content and visible and (content == visible or content in visible):
+        bounded.pop("content", None)
+        bounded["content_omitted_reason"] = "duplicate_of_authorized_input_content"
+    return bounded
 
 
 def _authorized_input_content(payload: dict[str, Any]) -> str:

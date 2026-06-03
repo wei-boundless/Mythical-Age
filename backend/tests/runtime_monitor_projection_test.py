@@ -98,7 +98,7 @@ def test_session_task_summary_uses_top_level_session_task_not_child_runs():
     assert summary["task_run_count"] == 1
 
 
-def test_global_monitor_keeps_completed_and_failed_recent_tasks():
+def test_global_monitor_excludes_terminal_history_from_live_items():
     projector = RuntimeMonitorProjector(EventLogStub())
     monitor = projector.build_global_monitor(
         [
@@ -119,10 +119,10 @@ def test_global_monitor_keeps_completed_and_failed_recent_tasks():
         limit=20,
     )
 
-    assert [item["task_run_id"] for item in monitor["buckets"]["completed"]] == ["taskrun:completed"]
-    assert [item["task_run_id"] for item in monitor["buckets"]["failed"]] == ["taskrun:failed"]
-    assert monitor["summary"]["completed"] == 1
-    assert monitor["summary"]["failed"] == 1
+    assert monitor["task_runs"] == []
+    assert monitor["buckets"]["completed"] == []
+    assert monitor["buckets"]["failed"] == []
+    assert monitor["summary"]["total"] == 0
 
 
 def test_running_monitor_items_are_dynamic_and_tick_with_now():
@@ -389,8 +389,8 @@ def test_global_monitor_filters_child_runs_and_applies_per_bucket_limit():
     monitor = projector.build_global_monitor(runs, now=160.0, limit=1)
 
     assert [item["task_run_id"] for item in monitor["buckets"]["running"]] == ["taskrun:running-1"]
-    assert [item["task_run_id"] for item in monitor["buckets"]["completed"]] == ["taskrun:completed-1"]
     assert "taskrun:child" not in {item["task_run_id"] for item in monitor["task_runs"]}
+    assert "taskrun:completed-1" not in {item["task_run_id"] for item in monitor["task_runs"]}
     assert "taskrun:completed-2" not in {item["task_run_id"] for item in monitor["task_runs"]}
 
 

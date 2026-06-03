@@ -34,19 +34,28 @@ def test_default_task_environments_are_grouped_scene_platforms() -> None:
     groups = {item.group_id for item in registry.list_groups()}
 
     assert {
+        "environment_group.coding",
         "environment_group.development",
         "environment_group.creation",
         "environment_group.general",
     } == groups
 
+    coding = registry.require("env.coding.vibe_workspace").spec
     development = registry.require("env.development.sandbox").spec
     writing = registry.require("env.creation.writing").spec
     general = registry.require("env.general.workspace").spec
+
+    assert coding.sandbox_policy.enabled is True
+    assert coding.resource_space.storage_namespace == "coding/vibe-workspace"
+    assert coding.file_management.file_profile_refs == ("file_profile.managed_project_workspace",)
+    assert coding.file_management.constraints["default_read_repository"] == "repo.managed_project.sandbox_workspace"
+    assert coding.observability_policy["file_state_authority"] == "runtime.memory.file_state_authority"
 
     assert development.sandbox_policy.enabled is True
     assert development.sandbox_policy.shell_policy == "sandboxed"
     assert "op.image_generate" in development.sandbox_policy.side_effect_operations
     assert development.resource_space.storage_namespace == "development/sandbox"
+    assert development.file_management.file_profile_refs == ("file_profile.base_workspace",)
     assert "AGENTS.md" not in development.memory_space.project_knowledge_refs
     assert development.environment_prompts
     assert [item.prompt_id for item in development.environment_prompts] == [
@@ -283,7 +292,7 @@ def test_development_environment_prompt_is_in_task_execution_packet() -> None:
     stable_message = _message_content_with_title(packet, "Task execution environment boundary")
     stable_payload = _payload_after_title(stable_message, "Task execution environment boundary")
     expected_environment_refs = [
-        "environment.resource.project_workspace.orientation.v1",
+        "environment.resource.base_workspace.orientation.v1",
         "environment.resource.sandbox_overlay.orientation.v1",
         "environment.development.sandbox.orientation.v1",
     ]
@@ -298,23 +307,72 @@ def test_development_environment_prompt_is_in_task_execution_packet() -> None:
     assert "验证必须真实" in model_input
     assert "Windows PowerShell 5.1" in model_input
     assert "不要使用 Bash 专属的 &&、||" in model_input
-    assert "你处在开发沙盒任务环境中" in model_input
-    assert "项目工作区是理解代码" in model_input
+    assert "你处在通用开发沙盒任务环境中" in model_input
+    assert "通用项目工作区资源" in model_input
     assert "当前环境包含沙盒工作资源" in model_input
     assert "不属于本任务的变更" in model_input
 
 
+def test_coding_environment_prompt_is_isolated_from_development_prompt() -> None:
+    profile = next(item for item in default_agent_runtime_profiles() if item.agent_profile_id == "main_interactive_agent")
+    definitions = get_tool_definitions()
+    index = build_tool_authorization_index(definitions)
+    assembly = assemble_runtime(
+        backend_dir=BACKEND_DIR,
+        session_id="session-coding-env-prompt",
+        turn_id="turn-coding-env-prompt",
+        agent_invocation_id="agent-invocation-coding-env-prompt",
+        request_task_selection={"task_environment_id": "env.coding.vibe_workspace"},
+        model_selection={},
+        agent_runtime_profile=profile,
+        tool_instances=build_tool_instances(BACKEND_DIR),
+        definitions_by_name=index.definitions_by_name,
+    )
+
+    packet = RuntimeCompiler().compile_task_execution_packet(
+        session_id="session-coding-env-prompt",
+        task_run={
+            "task_run_id": "taskrun:coding-env-prompt",
+            "session_id": "session-coding-env-prompt",
+            "task_id": "task:coding-env-prompt",
+            "agent_profile_id": "main_interactive_agent",
+        },
+        contract={"user_visible_goal": "修复代码 bug", "completion_criteria": ["bug 修复并验证"]},
+        observations=[],
+        execution_state={},
+        agent_profile_ref="main_interactive_agent",
+        available_tools=assembly.available_tools,
+        runtime_assembly=assembly,
+        invocation_index=1,
+    ).packet
+
+    model_input = _model_input_text(packet)
+    stable_message = _message_content_with_title(packet, "Task execution environment boundary")
+    stable_payload = _payload_after_title(stable_message, "Task execution environment boundary")
+    expected_environment_refs = [
+        "environment.resource.managed_project_workspace.orientation.v1",
+        "environment.resource.sandbox_overlay.orientation.v1",
+        "environment.coding.vibe_workspace.orientation.v1",
+    ]
+
+    assert stable_payload["task_environment"]["environment_prompt_refs"] == expected_environment_refs
+    assert assembly.environment_prompt_refs == tuple(expected_environment_refs)
+    assert "你处在专用 coding 工作区任务环境中" in model_input
+    assert "不要反复读取同一文件窗口" in model_input
+    assert "不把某个任务类型的循环控制写进工具或文件状态里" in model_input
+
+
 def test_resolved_environment_exports_storage_and_file_boundaries() -> None:
-    resolved = resolve_task_environment("env.development.sandbox")
+    resolved = resolve_task_environment("env.coding.vibe_workspace")
     payload = resolved.to_dict()
 
     assert resolved.group is not None
-    assert resolved.group.group_id == "environment_group.development"
-    assert payload["storage_space"]["storage_namespace"] == "development/sandbox"
-    assert payload["storage_space"]["artifact_root"] == "storage/task_environments/development/sandbox/artifacts"
+    assert resolved.group.group_id == "environment_group.coding"
+    assert payload["storage_space"]["storage_namespace"] == "coding/vibe-workspace"
+    assert payload["storage_space"]["artifact_root"] == "storage/task_environments/coding/vibe-workspace/artifacts"
     assert payload["sandbox_policy"]["enabled"] is True
     assert len(resolved.file_access_tables) == 1
-    assert resolved.file_access_tables[0].profile_id == "file_profile.vibe_coding_project"
+    assert resolved.file_access_tables[0].profile_id == "file_profile.managed_project_workspace"
 
 
 def test_task_environment_catalog_is_single_normalized_resource_surface() -> None:
@@ -335,8 +393,8 @@ def test_task_environment_catalog_is_single_normalized_resource_surface() -> Non
     )
 
     assert management["authority"] == "task_system.task_environment_catalog"
-    assert management["summary"]["environment_count"] == 3
-    assert management["summary"]["builtin_template_count"] == 3
+    assert management["summary"]["environment_count"] == 4
+    assert management["summary"]["builtin_template_count"] == 4
     assert management["summary"]["workspace_environment_count"] == 0
     assert management["summary"]["system_internal_environment_count"] == 0
     assert writing_item["definition_source"] == "builtin_default"
@@ -494,7 +552,7 @@ def test_development_environment_keeps_document_capability_routes() -> None:
     assert pdf_capability.dispatchable is False
 
 
-def test_single_agent_turn_packet_keeps_development_environment_side_effect_tools_visible() -> None:
+def test_single_agent_turn_packet_filters_development_environment_side_effect_tools() -> None:
     profile = next(item for item in default_agent_runtime_profiles() if item.agent_profile_id == "main_interactive_agent")
     definitions = get_tool_definitions()
     index = build_tool_authorization_index(definitions)
@@ -520,7 +578,9 @@ def test_single_agent_turn_packet_keeps_development_environment_side_effect_tool
     ).packet
     tool_names = {str(item.get("tool_name") or item.get("name") or "") for item in packet.available_tools}
 
-    assert "image_generate" in tool_names
+    assert "image_generate" not in tool_names
+    assert "terminal" not in tool_names
+    assert all(dict(item).get("read_only") is True for item in packet.available_tools)
     assert "tool_call" in packet.allowed_action_types
     assert packet.output_contract["native_actions"]["tool_call"]["boundary"] == "runtime_visible_tools_only"
 
@@ -633,16 +693,17 @@ def test_resolved_writing_environment_builds_file_access_table() -> None:
 
 
 def test_resolved_environment_can_apply_agent_file_action_ceiling() -> None:
-    resolved = resolve_task_environment("env.development.sandbox", agent_allowed_file_actions=("read", "search"))
+    resolved = resolve_task_environment("env.coding.vibe_workspace", agent_allowed_file_actions=("read", "search"))
     table = resolved.file_access_tables[0]
 
-    assert table.is_allowed(repository_id="repo.coding.project_workspace", action="read") is True
-    assert table.is_allowed(repository_id="repo.coding.sandbox_workspace", action="write") is False
+    assert table.is_allowed(repository_id="repo.managed_project.project_workspace", action="read") is True
+    assert table.is_allowed(repository_id="repo.managed_project.sandbox_workspace", action="write") is False
     assert any(denial.source == "agent_profile" and denial.action == "write" for denial in table.denials)
 
 
 def test_all_default_task_environments_resolve_file_access_tables() -> None:
     for environment_id in (
+        "env.coding.vibe_workspace",
         "env.creation.writing",
         "env.development.sandbox",
         "env.general.workspace",

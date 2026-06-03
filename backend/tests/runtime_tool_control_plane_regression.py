@@ -51,7 +51,7 @@ def test_runtime_tool_plan_stably_orders_visible_tools_and_hashes_schema() -> No
     assert plan_a.registry_hash == plan_b.registry_hash
 
 
-def test_runtime_tool_plan_single_turn_keeps_environment_visible_side_effect_tools_dispatchable() -> None:
+def test_runtime_tool_plan_single_turn_filters_side_effect_tools_from_model_and_dispatch() -> None:
     plan = build_runtime_tool_plan(
         runtime_assembly=_assembly(
             available_tools=[
@@ -66,8 +66,15 @@ def test_runtime_tool_plan_single_turn_keeps_environment_visible_side_effect_too
         },
     )
 
-    assert [tool["name"] for tool in plan.model_visible_tools] == ["read_file", "write_file"]
-    assert plan.dispatchable_tool_names == ("read_file", "write_file")
+    filtered = {
+        item["tool_name"]: item["reason"]
+        for item in plan.capability_table.to_dict()["filtered"]
+        if item.get("tool_name")
+    }
+
+    assert [tool["name"] for tool in plan.model_visible_tools] == ["read_file"]
+    assert plan.dispatchable_tool_names == ("read_file",)
+    assert filtered["write_file"] == "single_agent_turn_requires_read_only_tool"
 
 
 def test_runtime_tool_plan_general_environment_keeps_agent_authorized_tools_dispatchable() -> None:
@@ -425,7 +432,7 @@ def test_runtime_tool_control_plane_dispatches_agent_turn_through_core_without_t
     assert "task_run_id" not in executor.last_core
 
 
-def test_runtime_tool_control_plane_agent_turn_side_effect_requires_approval_outside_sandbox() -> None:
+def test_runtime_tool_control_plane_agent_turn_side_effect_is_denied_outside_sandbox() -> None:
     executor = _RecordingCoreToolExecutor()
     plan = build_runtime_tool_plan(
         runtime_assembly=_assembly(available_tools=[{"tool_name": "image_generate", "operation_id": "op.image_generate"}]),
@@ -462,13 +469,14 @@ def test_runtime_tool_control_plane_agent_turn_side_effect_requires_approval_out
         ).invoke(request, tool_plan=plan)
     )
 
-    assert observation.status == "needs_approval"
-    assert observation.operation_gate["decision"] == "requires_approval"
-    assert observation.diagnostics["supervision"]["gate"]["pipeline_stage"] == "requires_approval_rule"
+    assert observation.status == "denied"
+    assert observation.diagnostics["stage"] == "capability_membership"
+    assert "operation not present" in observation.text
+    assert observation.operation_gate == {}
     assert executor.core_calls == 0
 
 
-def test_runtime_tool_control_plane_agent_turn_side_effect_requires_approval_without_concrete_sandbox_boundary() -> None:
+def test_runtime_tool_control_plane_agent_turn_side_effect_is_denied_before_sandbox_boundary() -> None:
     executor = _RecordingCoreToolExecutor()
     plan = build_runtime_tool_plan(
         runtime_assembly=_assembly(
@@ -515,12 +523,14 @@ def test_runtime_tool_control_plane_agent_turn_side_effect_requires_approval_wit
         ).invoke(request, tool_plan=plan)
     )
 
-    assert observation.status == "needs_approval"
-    assert observation.operation_gate["decision"] == "requires_approval"
+    assert observation.status == "denied"
+    assert observation.diagnostics["stage"] == "capability_membership"
+    assert "operation not present" in observation.text
+    assert observation.operation_gate == {}
     assert executor.core_calls == 0
 
 
-def test_runtime_tool_control_plane_agent_turn_native_side_effect_runs_with_concrete_sandbox_boundary(tmp_path: Path) -> None:
+def test_runtime_tool_control_plane_agent_turn_native_side_effect_is_denied_even_with_concrete_sandbox_boundary(tmp_path: Path) -> None:
     executor = _RecordingCoreToolExecutor()
     plan = build_runtime_tool_plan(
         runtime_assembly=_assembly(
@@ -569,13 +579,14 @@ def test_runtime_tool_control_plane_agent_turn_native_side_effect_runs_with_conc
         ).invoke(request, tool_plan=plan)
     )
 
-    assert observation.status == "ok"
-    assert observation.operation_gate["decision"] == "allow"
-    assert executor.core_calls == 1
-    assert executor.last_core["tool_name"] == "write_file"
+    assert observation.status == "denied"
+    assert observation.diagnostics["stage"] == "capability_membership"
+    assert "operation not present" in observation.text
+    assert observation.operation_gate == {}
+    assert executor.core_calls == 0
 
 
-def test_runtime_tool_control_plane_agent_turn_browser_requires_approval_even_with_sandbox_root(tmp_path: Path) -> None:
+def test_runtime_tool_control_plane_agent_turn_browser_side_effect_is_denied_even_with_sandbox_root(tmp_path: Path) -> None:
     executor = _RecordingCoreToolExecutor()
     plan = build_runtime_tool_plan(
         runtime_assembly=_assembly(
@@ -623,8 +634,10 @@ def test_runtime_tool_control_plane_agent_turn_browser_requires_approval_even_wi
         ).invoke(request, tool_plan=plan)
     )
 
-    assert observation.status == "needs_approval"
-    assert observation.operation_gate["decision"] == "requires_approval"
+    assert observation.status == "denied"
+    assert observation.diagnostics["stage"] == "capability_membership"
+    assert "operation not present" in observation.text
+    assert observation.operation_gate == {}
     assert executor.core_calls == 0
 
 

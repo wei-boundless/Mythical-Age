@@ -68,7 +68,7 @@ class ProjectInstanceRepository:
             ),
             ProjectInstance(
                 project_id="project.development.codebase.langchain_agent",
-                environment_id="env.development.sandbox",
+                environment_id="env.coding.vibe_workspace",
                 title="langchain-agent",
                 project_kind="code_project",
                 template_id="development.template.codebase",

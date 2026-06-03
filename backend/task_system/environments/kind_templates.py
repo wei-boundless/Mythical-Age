@@ -90,6 +90,15 @@ class TaskEnvironmentKindTemplateRepository:
 def default_task_environment_kind_templates() -> tuple[TaskEnvironmentKindTemplate, ...]:
     return (
         TaskEnvironmentKindTemplate(
+            kind_id="coding",
+            title="Coding",
+            description="Dedicated coding environments with project file state, sandbox execution, git visibility, and verification artifacts.",
+            group_id="environment_group.coding",
+            allowed_resource_refs=("file_profile.managed_project_workspace", "code_search_index"),
+            allowed_task_graph_kinds=("single_agent", "coordination", "multi_agent"),
+            metadata={"file_state_authority": "runtime.memory.file_state_authority"},
+        ),
+        TaskEnvironmentKindTemplate(
             kind_id="creation",
             title="Creation",
             description="Creative task environments with manuscript, memory, artifact, and review-gated write boundaries.",

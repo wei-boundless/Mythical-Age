@@ -217,7 +217,7 @@ class RuntimeMonitorProjector:
             for task_run in sorted(task_runs, key=lambda item: float(getattr(item, "updated_at", 0.0) or 0.0), reverse=True)
             if not self._is_internal_child_run(task_run)
         ]
-        items = projected
+        items = [item for item in projected if self._is_global_live_item(item)]
         return build_envelope(scope="global", items=items, now=now, limit=limit)
 
     def build_session_monitor(self, session_id: str, task_runs: list[Any], *, now: float, limit: int = 20) -> dict[str, Any]:
