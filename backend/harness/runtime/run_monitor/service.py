@@ -6,7 +6,7 @@ from typing import Any
 from .contract import build_envelope
 from .projector import RuntimeMonitorProjector
 from .resource_resolver import MonitorResourceResolver
-from .signals import build_console_envelope
+from .signals import build_runtime_monitor_envelope
 
 
 class RuntimeMonitorService:
@@ -33,11 +33,14 @@ class RuntimeMonitorService:
         items = self._global_live_items(requested_limit=requested_limit, now=now)
         return build_envelope(scope="global", items=items, now=now, limit=requested_limit)
 
-    def list_global_console_monitor(self, limit: int = 30) -> dict[str, Any]:
+    def collect_global_runtime_monitor(self, limit: int = 30) -> dict[str, Any]:
         requested_limit = max(1, min(int(limit or 30), 100))
         now = time.time()
         items = self._global_live_items(requested_limit=requested_limit, now=now)
-        return build_console_envelope(items=items, now=now, limit=requested_limit)
+        return build_runtime_monitor_envelope(items=items, now=now, limit=requested_limit)
+
+    def list_global_console_monitor(self, limit: int = 30) -> dict[str, Any]:
+        return self.collect_global_runtime_monitor(limit=limit)
 
     def _global_live_items(self, *, requested_limit: int, now: float) -> list[dict[str, Any]]:
         task_runs = self.runtime_host.state_index.list_recent_task_runs(limit=max(requested_limit * 4, 80))

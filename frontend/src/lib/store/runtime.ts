@@ -37,13 +37,14 @@ import {
   streamExistingChatRun,
   truncateSessionMessages
 } from "@/lib/api";
-import type { ChatStreamCursor, GlobalRuntimeMonitor, PublicChatTimelineItem, RuntimeMonitorEventPayload, SessionRuntimeAttachment, SessionScope, SessionSummary } from "@/lib/api";
+import type { ChatStreamCursor, GlobalRuntimeMonitor, PublicChatTimelineItem, RunMonitorEventPayload, RuntimeMonitorEventPayload, SessionRuntimeAttachment, SessionScope, SessionSummary } from "@/lib/api";
 import { taskEnvironmentDisplayName } from "@/lib/taskEnvironmentDisplay";
 
 import { createIdleSessionActivity, type Store } from "./core";
 import { reduceStreamEvent, startQueuedActiveTurn, startStreamingTurn, type StreamSession } from "./events";
 import { mergePublicTimelineItems, publicTimelineTerminalStateFromAnswer } from "./publicTimeline";
 import { RuntimeMonitorController } from "../runtime-monitor/controller";
+import { RunMonitorController } from "../run-monitor/controller";
 import type { ActiveTurnSnapshot, ChatMode, ChatModelSelection, ChatTaskEnvironmentBinding, ChatThinkingMode, Message, PermissionMode, RuntimeProgressEntry, SearchPolicySource, SessionEditorContext, SessionEditorPageStatePatch, SessionPoolKey, SessionRef, StoreActions, StoreState, TaskEnvironmentWorkspaceView, TaskGraphCenterWorkspaceTarget, TaskGraphMonitorBinding, TaskSelectionState, WorkspaceView } from "./types";
 import { makeId, toUiMessages } from "./utils";
 
@@ -114,6 +115,7 @@ export class WorkspaceRuntime {
   private sessionDetailsRequest = 0;
   private orchestrationHydrateRequest = 0;
   private runtimeMonitorController: RuntimeMonitorController;
+  private runMonitorController: RunMonitorController;
   private sessionRefreshTimers: number[] = [];
   private sessionListFailureNotifiedAt = 0;
   private streamingSessionCache = new Map<string, Pick<StoreState, "messages" | "orchestrationSnapshot" | "activeTurnSnapshot">>();
@@ -128,6 +130,16 @@ export class WorkspaceRuntime {
 
   constructor(private readonly store: Store<StoreState>) {
     this.runtimeMonitorController = new RuntimeMonitorController(this.store, {
+      hasActiveChatStream: () => this.hasActiveChatStream(),
+      patchRuntimeAttachmentFromRuntimeEvent: (prev, event) => this.patchRuntimeAttachmentFromRuntimeEvent(prev, event as RuntimeMonitorEvent),
+      applySelectedSessionShell: (sessionId, scope) => this.applySelectedSessionShell(sessionId, scope ? { scope, poolKey: sessionPoolKeyForScope(scope) } : undefined),
+      bindTaskEnvironmentContext: (taskEnvironmentId, options) => this.bindTaskEnvironmentContext(taskEnvironmentId, options),
+      workspaceViewForTaskEnvironment: (taskEnvironmentId) => this.workspaceViewForTaskEnvironment(taskEnvironmentId),
+      refreshSessionDetails: (sessionId) => this.refreshSessionDetails(sessionId),
+      hydrateLatestOrchestrationSnapshot: (sessionId) => this.hydrateLatestOrchestrationSnapshot(sessionId),
+      syncWorkspaceViewUrl: (view) => this.syncWorkspaceViewUrl(view),
+    });
+    this.runMonitorController = new RunMonitorController(this.store, {
       hasActiveChatStream: () => this.hasActiveChatStream(),
       patchRuntimeAttachmentFromRuntimeEvent: (prev, event) => this.patchRuntimeAttachmentFromRuntimeEvent(prev, event as RuntimeMonitorEvent),
       applySelectedSessionShell: (sessionId, scope) => this.applySelectedSessionShell(sessionId, scope ? { scope, poolKey: sessionPoolKeyForScope(scope) } : undefined),
@@ -261,6 +273,12 @@ export class WorkspaceRuntime {
       clearChatTaskEnvironmentBinding: () => {
         this.clearChatTaskEnvironmentBinding();
       },
+      openRunMonitorSignal: (signalId) => {
+        this.openRunMonitorSignal(signalId);
+      },
+      refreshRunMonitor: async () => {
+        await this.refreshRunMonitor();
+      },
       selectGlobalRuntimeMonitorTaskRun: (taskRunId) => {
         this.selectGlobalRuntimeMonitorTaskRun(taskRunId);
       },
@@ -283,7 +301,7 @@ export class WorkspaceRuntime {
   }
 
   startGlobalRuntimeMonitor() {
-    this.runtimeMonitorController.start();
+    this.runMonitorController.start();
   }
 
   async initialize() {
@@ -414,6 +432,7 @@ export class WorkspaceRuntime {
       window.clearTimeout(timer);
     }
     this.sessionRefreshTimers = [];
+    this.runMonitorController.stop();
     this.runtimeMonitorController.stop();
   }
 
@@ -3535,11 +3554,15 @@ export class WorkspaceRuntime {
     if (typeof window === "undefined" || !this.hasActiveChatStream()) {
       return;
     }
-    this.runtimeMonitorController.deferForActiveStream();
+    void this.runMonitorController.refresh({ schedule: false });
+  }
+
+  private async refreshRunMonitor() {
+    await this.runMonitorController.refresh();
   }
 
   private async refreshGlobalRuntimeMonitor() {
-    await this.runtimeMonitorController.refresh();
+    await this.runMonitorController.refresh();
   }
 
   applyGlobalRuntimeMonitorSnapshot(
@@ -3563,6 +3586,10 @@ export class WorkspaceRuntime {
 
   private openGlobalRuntimeMonitorTaskRun(taskRunId: string) {
     this.runtimeMonitorController.openTaskInstance(taskRunId);
+  }
+
+  private openRunMonitorSignal(signalId: string) {
+    this.runMonitorController.openSignal(signalId);
   }
 
   private updateSessionActivityFromLiveMonitor(liveStatus: string, taskRunId: string, graphRunId: string, controlState = "") {

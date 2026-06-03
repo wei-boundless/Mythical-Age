@@ -5,7 +5,9 @@ import type {
   ModelProviderConfig,
   PublicChatTimelineItem,
   RetrievalResult,
+  RunMonitorEventPayload,
   RuntimeMonitorEventPayload,
+  RuntimeMonitorEnvelope,
   ImageAssetConfig,
   HarnessTaskRunLiveMonitor,
   SessionRuntimeAttachment,
@@ -323,6 +325,16 @@ export type StoreState = {
   taskGraphMonitorBinding: TaskGraphMonitorBinding | null;
   activeTurnSnapshot: ActiveTurnSnapshot | null;
   taskGraphLiveMonitor: HarnessTaskRunLiveMonitor | null;
+  runMonitor: RuntimeMonitorEnvelope | null;
+  runMonitorRevision: string;
+  runMonitorSelectedSignalId: string;
+  runMonitorSelectedTaskRunId: string;
+  runMonitorSelectedDetail: HarnessTaskRunLiveMonitor | null;
+  runMonitorSelectedGraphMonitor: GraphRunMonitorView | null;
+  runMonitorLoading: boolean;
+  runMonitorError: string;
+  runMonitorStreamStatus: RuntimeMonitorStreamStatus;
+  runMonitorLastEvent: RunMonitorEventPayload["runtime_event"] | null;
   globalRuntimeMonitor: GlobalRuntimeMonitor | null;
   globalRuntimeMonitorRevision: string;
   globalRuntimeMonitorSelectedTaskInstanceId: string;
@@ -391,6 +403,8 @@ export type StoreActions = {
     binding: Omit<ChatTaskEnvironmentBinding, "bound_at"> & { bound_at?: number }
   ) => void;
   clearChatTaskEnvironmentBinding: () => void;
+  openRunMonitorSignal: (signalId: string) => void;
+  refreshRunMonitor: () => Promise<void>;
   selectGlobalRuntimeMonitorTaskRun: (taskRunId: string) => void;
   openGlobalRuntimeMonitorTaskRun: (taskRunId: string) => void;
   openTaskGraphWorkspace: (target?: Omit<TaskGraphCenterWorkspaceTarget, "layer" | "requested_at">) => void;

@@ -4,7 +4,7 @@ import time
 from typing import Any
 
 from harness.loop.work_rollout import work_rollout_ref
-from harness.runtime.monitoring import RuntimeMonitorProjector
+from harness.runtime.run_monitor import RuntimeMonitorProjector
 from runtime.environment import RuntimeEnvironment, check_runtime_connection_health
 from runtime.prompt_accounting import TokenCounterRegistry
 from runtime.prompt_accounting.ledger import summarize_usage_records

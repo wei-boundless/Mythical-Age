@@ -4,10 +4,11 @@ import hashlib
 from typing import Any
 
 
-SIGNAL_AUTHORITY = "runtime_monitor.console.v2"
+MONITOR_AUTHORITY = "runtime_monitor"
+SIGNAL_AUTHORITY = "runtime_monitor.signal"
 
 
-def build_console_envelope(*, items: list[dict[str, Any]], now: float, limit: int = 30) -> dict[str, Any]:
+def build_runtime_monitor_envelope(*, items: list[dict[str, Any]], now: float, limit: int = 30) -> dict[str, Any]:
     requested_limit = max(1, min(int(limit or 30), 100))
     signals = sorted(
         [project_monitor_signal(item, now=now) for item in items if isinstance(item, dict)],
@@ -16,10 +17,11 @@ def build_console_envelope(*, items: list[dict[str, Any]], now: float, limit: in
     )[:requested_limit]
     primary = [item for item in signals if item.get("state") == "active"]
     attention = [item for item in signals if item.get("state") in {"waiting", "attention", "stale", "failed"}]
-    recent = [item for item in signals if item.get("state") in {"completed", "failed"}]
+    recent = [item for item in signals if item.get("state") == "completed"]
+    projects = [item for item in signals if item.get("work_kind") == "graph_task"]
     return {
-        "authority": SIGNAL_AUTHORITY,
-        "revision": _console_revision(signals, now=now),
+        "authority": MONITOR_AUTHORITY,
+        "revision": _monitor_revision(signals, now=now),
         "updated_at": float(now),
         "summary": {
             "active": len(primary),
@@ -27,11 +29,13 @@ def build_console_envelope(*, items: list[dict[str, Any]], now: float, limit: in
             "waiting": sum(1 for item in signals if item.get("state") == "waiting"),
             "failed": sum(1 for item in signals if item.get("state") == "failed"),
             "recent": len(recent),
+            "projects": len(projects),
             "total": len(signals),
         },
         "primary": primary,
         "attention": attention,
         "recent": recent,
+        "projects": projects,
         "signals": signals,
     }
 
@@ -63,6 +67,8 @@ def project_monitor_signal(item: dict[str, Any], *, now: float) -> dict[str, Any
         "graph_run_id": str(item.get("graph_run_id") or ""),
         "graph_id": str(item.get("graph_id") or ""),
         "navigation_target": dict(item.get("navigation_target") or {}),
+        "detail_ref": _detail_ref(item),
+        "graph_ref": _graph_ref(item),
         "timestamps": {
             "started_at": started_at,
             "updated_at": updated_at,
@@ -73,7 +79,7 @@ def project_monitor_signal(item: dict[str, Any], *, now: float) -> dict[str, Any
             "task_id": str(item.get("task_id") or ""),
             "route": dict(item.get("route") or {}),
         },
-        "authority": "runtime_monitor.console_signal.v2",
+        "authority": SIGNAL_AUTHORITY,
     }
 
 
@@ -129,6 +135,40 @@ def _signal_priority(item: dict[str, Any], *, state: str, source_kind: str) -> i
 def _signal_last_activity(signal: dict[str, Any]) -> float:
     timestamps = dict(signal.get("timestamps") or {})
     return float(timestamps.get("last_activity_at") or 0.0)
+
+
+def _detail_ref(item: dict[str, Any]) -> dict[str, str]:
+    task_run_id = str(item.get("task_run_id") or "").strip()
+    graph_run_id = str(item.get("graph_run_id") or "").strip()
+    graph_harness_config_id = str(item.get("graph_harness_config_id") or "").strip()
+    if graph_run_id:
+        return {
+            "kind": "graph_run",
+            "task_run_id": task_run_id,
+            "turn_run_id": "",
+            "graph_run_id": graph_run_id,
+            "graph_harness_config_id": graph_harness_config_id,
+            "resource_ref": "",
+        }
+    if task_run_id:
+        kind = "turn_run" if task_run_id.startswith("turnrun:") else "task_run"
+        return {
+            "kind": kind,
+            "task_run_id": task_run_id,
+            "turn_run_id": task_run_id if kind == "turn_run" else "",
+            "graph_run_id": "",
+            "graph_harness_config_id": "",
+            "resource_ref": "",
+        }
+    return {"kind": "none", "task_run_id": "", "turn_run_id": "", "graph_run_id": "", "graph_harness_config_id": "", "resource_ref": ""}
+
+
+def _graph_ref(item: dict[str, Any]) -> dict[str, str]:
+    return {
+        "graph_id": str(item.get("graph_id") or ""),
+        "graph_run_id": str(item.get("graph_run_id") or ""),
+        "graph_harness_config_id": str(item.get("graph_harness_config_id") or ""),
+    }
 
 
 def _public_title(item: dict[str, Any], *, work_kind: str, state: str) -> str:
@@ -219,11 +259,11 @@ def _human_duration(seconds: float) -> str:
     return f"{secs}s"
 
 
-def _console_revision(signals: list[dict[str, Any]], *, now: float) -> str:
+def _monitor_revision(signals: list[dict[str, Any]], *, now: float) -> str:
     latest = max((float(dict(item.get("timestamps") or {}).get("last_activity_at") or 0.0) for item in signals), default=0.0)
     identity = "|".join(
         f"{item.get('signal_id')}:{item.get('state')}:{dict(item.get('timestamps') or {}).get('last_activity_at')}"
         for item in signals
     )
     digest = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:12]
-    return f"rtmon2:{int(latest or now)}:{digest}"
+    return f"rtmon:{int(latest or now)}:{digest}"

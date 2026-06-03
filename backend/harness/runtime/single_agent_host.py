@@ -13,7 +13,7 @@ from permissions.operations import build_default_operation_registry
 from capability_system.tools.authorization import ToolAuthorizationIndex, build_tool_authorization_index
 from permissions import OperationGate
 from project_layout import ProjectLayout
-from harness.runtime.monitoring import RuntimeMonitorService
+from harness.runtime.run_monitor import RuntimeMonitorService
 from harness.graph.langgraph_checkpoint_store import LangGraphCheckpointStore
 from runtime.memory.state_index import RuntimeStateIndex
 from runtime.prompt_accounting import PromptAccountingLedger

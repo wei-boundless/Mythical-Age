@@ -4,7 +4,7 @@ import time
 from types import SimpleNamespace
 
 from health_system.governance import HealthGovernanceBuilder
-from harness.runtime.monitoring import RuntimeMonitorProjector
+from harness.runtime.run_monitor import RuntimeMonitorProjector
 from runtime.prompt_accounting import ModelTokenUsageRecord, PromptAccountingLedger
 from runtime.shared.models import TaskRun
 

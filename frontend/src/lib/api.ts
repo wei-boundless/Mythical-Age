@@ -2436,6 +2436,19 @@ export type RuntimeMonitorConsoleSignal = {
   graph_run_id: string;
   graph_id: string;
   navigation_target: Record<string, unknown>;
+  detail_ref?: {
+    kind?: "task_run" | "turn_run" | "graph_run" | "resource" | "none" | string;
+    task_run_id?: string;
+    turn_run_id?: string;
+    graph_run_id?: string;
+    graph_harness_config_id?: string;
+    resource_ref?: string;
+  };
+  graph_ref?: {
+    graph_id?: string;
+    graph_run_id?: string;
+    graph_harness_config_id?: string;
+  };
   timestamps: {
     started_at?: number;
     updated_at?: number;
@@ -2444,6 +2457,8 @@ export type RuntimeMonitorConsoleSignal = {
   };
   raw_refs?: Record<string, unknown>;
 };
+
+export type RuntimeMonitorSignal = RuntimeMonitorConsoleSignal;
 
 export type RuntimeMonitorConsole = {
   authority: string;
@@ -2460,7 +2475,34 @@ export type RuntimeMonitorConsole = {
   primary: RuntimeMonitorConsoleSignal[];
   attention: RuntimeMonitorConsoleSignal[];
   recent: RuntimeMonitorConsoleSignal[];
+  projects?: RuntimeMonitorConsoleSignal[];
   signals: RuntimeMonitorConsoleSignal[];
+};
+
+export type RuntimeMonitorEnvelope = Omit<RuntimeMonitorConsole, "primary" | "attention" | "recent" | "projects" | "signals"> & {
+  primary: RuntimeMonitorSignal[];
+  attention: RuntimeMonitorSignal[];
+  recent: RuntimeMonitorSignal[];
+  projects: RuntimeMonitorSignal[];
+  signals: RuntimeMonitorSignal[];
+};
+
+export type RunMonitorEventPayload = {
+  source?: string;
+  monitor?: RuntimeMonitorEnvelope;
+  legacy_monitor?: GlobalRuntimeMonitor;
+  runtime_event?: {
+    event_id: string;
+    run_id: string;
+    task_run_id?: string;
+    event_type: string;
+    offset: number;
+    created_at: number;
+    payload: Record<string, unknown>;
+    refs: Record<string, unknown>;
+    authority: string;
+  };
+  updated_at?: number;
 };
 
 export type RuntimeMonitorEventPayload = {
@@ -4034,6 +4076,12 @@ export async function listOrchestrationHarnessTaskRuns(sessionId: string) {
 export async function getGlobalRuntimeMonitor(limit = 30) {
   return request<GlobalRuntimeMonitor>(
     `/orchestration/runtime-monitor/live?limit=${encodeURIComponent(String(limit))}`
+  );
+}
+
+export async function getRunMonitor(limit = 30) {
+  return request<RuntimeMonitorEnvelope>(
+    `/orchestration/runtime-monitor?limit=${encodeURIComponent(String(limit))}`
   );
 }
 

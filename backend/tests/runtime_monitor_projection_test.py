@@ -2,8 +2,8 @@ import time
 from pathlib import Path
 from types import SimpleNamespace
 
-from harness.runtime.monitoring import RuntimeMonitorProjector, RuntimeMonitorService
-from harness.runtime.monitoring.signals import build_console_envelope
+from harness.runtime.run_monitor import RuntimeMonitorProjector, RuntimeMonitorService
+from harness.runtime.run_monitor.signals import build_runtime_monitor_envelope
 
 
 class EventLogStub:
@@ -269,7 +269,7 @@ def test_console_monitor_projects_active_turn_as_primary_signal():
 
     monitor = service.list_global_console_monitor(limit=20)
 
-    assert monitor["authority"] == "runtime_monitor.console.v2"
+    assert monitor["authority"] == "runtime_monitor"
     assert monitor["summary"]["active"] == 1
     assert monitor["primary"][0]["signal_id"] == "turnrun:session-dev:1"
     assert monitor["primary"][0]["source_kind"] == "turn_run"
@@ -277,7 +277,7 @@ def test_console_monitor_projects_active_turn_as_primary_signal():
 
 
 def test_console_monitor_orders_same_priority_by_last_activity():
-    monitor = build_console_envelope(
+    monitor = build_runtime_monitor_envelope(
         items=[
             {
                 "task_run_id": "taskrun:old",
