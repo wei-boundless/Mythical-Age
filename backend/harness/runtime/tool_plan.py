@@ -223,16 +223,6 @@ def _tool_allowed_for_runtime_plan(
             )
         )
         return False
-    if invocation_kind == "single_agent_turn" and not bool(getattr(definition, "is_read_only", False)):
-        filtered_issues.append(
-            ToolCapabilityFilterIssue(
-                operation_id=operation_id,
-                tool_name=tool_name,
-                reason="single_agent_turn_requires_read_only_tool",
-                source="runtime_tool_plan",
-            )
-        )
-        return False
     environment_decision = evaluate_environment_operation(
         operation_id,
         environment_payload=environment_payload,

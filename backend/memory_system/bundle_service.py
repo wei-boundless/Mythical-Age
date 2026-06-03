@@ -20,7 +20,6 @@ from .runtime_supply import (
     build_memory_scope_policy,
 )
 from .state_memory import StateMemoryStoreAdapter
-from .task_durable_memory import TaskDurableMemoryService
 from .working_memory_service import WorkingMemoryService
 
 
@@ -56,7 +55,6 @@ class MemoryBundleService:
         conversation_memory: ConversationMemoryStoreAdapter,
         state_memory: StateMemoryStoreAdapter,
         working_memory: WorkingMemoryService,
-        task_durable_memory: TaskDurableMemoryService | None = None,
         durable_memory: Any,
         context_budget_provider: Callable[[], dict[str, Any]] | None = None,
     ) -> None:
@@ -64,7 +62,6 @@ class MemoryBundleService:
         self.conversation_memory = conversation_memory
         self.state_memory = state_memory
         self.working_memory = working_memory
-        self.task_durable_memory = task_durable_memory
         self.durable_memory = durable_memory
         self._context_budget_provider = context_budget_provider
         self.orchestrator = MemoryOrchestrator()
@@ -105,33 +102,6 @@ class MemoryBundleService:
             owner_node_id=owner_node_id,
             node_run_id=node_run_id,
             run_attempt_id=run_attempt_id,
-            requested_kinds=requested_kinds,
-            requested_semantics=requested_semantics,
-            limit=limit,
-        )
-
-    def build_task_durable_memory_context_candidates(
-        self,
-        *,
-        namespace_id: str = "",
-        domain_id: str = "",
-        task_id: str = "",
-        graph_id: str = "",
-        project_id: str = "",
-        artifact_namespace: str = "",
-        requested_kinds: list[str] | tuple[str, ...] = (),
-        requested_semantics: list[str] | tuple[str, ...] = (),
-        limit: int = 20,
-    ):
-        if self.task_durable_memory is None:
-            return ()
-        return self.task_durable_memory.context_candidates(
-            namespace_id=namespace_id,
-            domain_id=domain_id,
-            task_id=task_id,
-            graph_id=graph_id,
-            project_id=project_id,
-            artifact_namespace=artifact_namespace,
             requested_kinds=requested_kinds,
             requested_semantics=requested_semantics,
             limit=limit,

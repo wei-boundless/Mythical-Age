@@ -12,6 +12,14 @@ from harness.loop.model_action_protocol import ModelActionRequest
 from runtime.shared.models import TaskRun
 
 
+class RuntimeAssemblyStub:
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "permission_mode": "plan",
+            "task_environment": {"environment_id": "env.general.workspace"},
+        }
+
+
 def test_active_turn_does_not_derive_from_historical_task_run(tmp_path: Path) -> None:
     host = SingleAgentRuntimeHost(tmp_path, backend_dir=Path.cwd())
     historical = TaskRun(
@@ -52,11 +60,13 @@ def test_active_turn_binds_task_and_steer_only_queues_pending_input(tmp_path: Pa
         action_request=action_request,
         contract=contract,
         agent_profile_ref="main_interactive_agent",
+        runtime_assembly=RuntimeAssemblyStub(),
     )
 
     active = host.active_turn_registry.snapshot("session:test")
     assert active is not None
     assert active.bound_task_run_id == task_run.task_run_id
+    assert task_run.diagnostics["runtime_permission_mode"] == "plan"
 
     result = host.active_turn_registry.steer(
         session_id="session:test",

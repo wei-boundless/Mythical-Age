@@ -8,6 +8,7 @@ def compile_tool_file_management_policy(
     *,
     storage_space: dict[str, Any] | None = None,
     artifact_root: str = "",
+    sandbox_policy: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     environment = dict(environment_payload or {})
     file_management = dict(environment.get("file_management") or {})
@@ -16,6 +17,8 @@ def compile_tool_file_management_policy(
     if not profile_id:
         return {}
     if profile_id == "file_profile.general_workspace":
+        return {}
+    if profile_id == "file_profile.base_workspace" and _sandbox_overlay_active(sandbox_policy):
         return {}
     repositories = _repository_map_for_constraints(constraints)
     if not repositories:
@@ -100,6 +103,16 @@ def _agent_allowed_file_actions(constraints: dict[str, Any]) -> list[str]:
         if str(value or "").strip() in {"allowed", "allow"}:
             actions.append(key_text.rsplit("_", 1)[-1])
     return sorted(set(actions))
+
+
+def _sandbox_overlay_active(sandbox_policy: dict[str, Any] | None) -> bool:
+    policy = dict(sandbox_policy or {})
+    if policy.get("enabled") is not True:
+        return False
+    if not str(policy.get("sandbox_root") or "").strip():
+        return False
+    mode = str(policy.get("mode") or policy.get("sandbox_mode") or "").strip()
+    return mode in {"workspace_overlay", "local_overlay", ""}
 
 
 def _first_profile_ref(file_management: dict[str, Any]) -> str:

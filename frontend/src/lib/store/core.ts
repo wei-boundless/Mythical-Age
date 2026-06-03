@@ -68,6 +68,8 @@ export function getDefaultState(): StoreState {
       local_files: true,
       web: false
     },
+    permissionMode: "full_access",
+    supportedPermissionModes: ["default", "plan", "accept_edits", "bypass", "full_access"],
     modelProviderConfig: null,
     imageAssetConfig: null,
     selectedChatModelId: "system-default",

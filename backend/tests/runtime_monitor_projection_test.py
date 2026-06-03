@@ -49,6 +49,24 @@ class StateIndexStub:
         return [item for item in self._task_runs if getattr(item, "session_id", "") == session_id]
 
 
+class ActiveTurnRecordStub:
+    def __init__(self, **payload):
+        self.payload = dict(payload)
+
+    def to_dict(self):
+        return dict(self.payload)
+
+
+class ActiveTurnRegistryStub:
+    def __init__(self, record=None):
+        self.record = record
+
+    def resolve_current(self, session_id):
+        if self.record is None or self.record.payload.get("session_id") != session_id:
+            return None
+        return self.record
+
+
 def task_run(**patch):
     data = {
         "task_run_id": "taskrun:turn:session-a:1:abc",
@@ -96,6 +114,39 @@ def test_session_task_summary_uses_top_level_session_task_not_child_runs():
     assert summary["task_run_id"] == "taskrun:turn:session-dev:1:root"
     assert summary["title"] == "开发计算器"
     assert summary["task_run_count"] == 1
+
+
+def test_session_live_monitor_exposes_active_turn_snapshot():
+    task = task_run(
+        task_run_id="taskrun:turn:session-dev:1:root",
+        session_id="session-dev",
+        task_id="task:turn:session-dev:1",
+        status="running",
+    )
+    runtime_host = SimpleNamespace(
+        state_index=StateIndexStub([task]),
+        event_log=EventLogStub(),
+        backend_dir=Path.cwd(),
+        active_turn_registry=ActiveTurnRegistryStub(
+            ActiveTurnRecordStub(
+                session_id="session-dev",
+                turn_id="turn:session-dev:1",
+                bound_task_run_id="taskrun:turn:session-dev:1:root",
+                state="running_task",
+            )
+        ),
+    )
+    service = RuntimeMonitorService(runtime_host=runtime_host, freshness_seconds=300.0)
+
+    monitor = service.get_session_live_monitor("session-dev")
+
+    assert monitor["active_task_run_id"] == "taskrun:turn:session-dev:1:root"
+    assert monitor["active_turn_snapshot"] == {
+        "session_id": "session-dev",
+        "turn_id": "turn:session-dev:1",
+        "bound_task_run_id": "taskrun:turn:session-dev:1:root",
+        "state": "running_task",
+    }
 
 
 def test_global_monitor_excludes_terminal_history_from_live_items():
@@ -425,6 +476,60 @@ def test_global_monitor_keeps_one_current_task_per_session():
     assert "taskrun:turn:session-b:1:current" in visible_ids
 
 
+def test_global_monitor_keeps_one_current_graph_task_per_project_scope():
+    projector = RuntimeMonitorProjector(EventLogStub())
+    stale_graph_run = task_run(
+        task_run_id="taskrun:graph:old",
+        session_id="session-old",
+        task_id="task.writing.modular_novel.master",
+        execution_runtime_kind="",
+        status="running",
+        created_at=100.0,
+        updated_at=120.0,
+        diagnostics={
+            "graph_id": "graph.writing.modular_novel.master",
+            "graph_run_id": "grun:old",
+            "graph_harness_config_id": "ghcfg:old",
+            "workspace_view": "task_environment",
+            "task_environment_id": "env.creation.writing",
+            "project_id": "project.creation.writing.honghuang",
+            "session_scope": {
+                "workspace_view": "task_environment",
+                "task_environment_id": "env.creation.writing",
+                "project_id": "project.creation.writing.honghuang",
+            },
+        },
+    )
+    current_graph_run = task_run(
+        task_run_id="taskrun:graph:current",
+        session_id="session-new",
+        task_id="contract.writing.modular_novel.graph",
+        execution_runtime_kind="",
+        status="running",
+        created_at=180.0,
+        updated_at=220.0,
+        diagnostics={
+            "graph_id": "graph.writing.modular_novel.master",
+            "graph_run_id": "grun:current",
+            "graph_harness_config_id": "ghcfg:current",
+            "workspace_view": "task_environment",
+            "task_environment_id": "env.creation.writing",
+            "project_id": "project.creation.writing.honghuang",
+            "session_scope": {
+                "workspace_view": "task_environment",
+                "task_environment_id": "env.creation.writing",
+                "project_id": "project.creation.writing.honghuang",
+            },
+        },
+    )
+
+    monitor = projector.build_global_monitor([stale_graph_run, current_graph_run], now=230.0, limit=20)
+    visible_ids = {item["task_run_id"] for item in monitor["task_runs"]}
+
+    assert "taskrun:graph:current" in visible_ids
+    assert "taskrun:graph:old" not in visible_ids
+
+
 def test_main_chat_taskinst_task_run_remains_monitorable():
     projector = RuntimeMonitorProjector(EventLogStub())
     run = task_run(
@@ -525,7 +630,7 @@ class ResourceResolverStub:
         return self.graph_monitor_payload
 
 
-def test_global_monitor_uses_summary_projection_without_graph_detail_fetch():
+def test_global_monitor_uses_summary_projection_without_event_or_child_detail_fetch():
     event_log = EventLogStub({
         "taskrun:graph-root": [
             EventStub(
@@ -537,7 +642,7 @@ def test_global_monitor_uses_summary_projection_without_graph_detail_fetch():
     })
     resolver = ResourceResolverStub({
         "graph_loop_state": {"status": "running", "ready_node_ids": [], "node_states": {"draft": {"status": "running"}}},
-        "node_runtime_views": [{"node_id": "draft", "node_executor_task_run_id": "gtask:draft"}],
+        "node_runtime_views": [{"node_id": "draft", "status": "running", "node_executor_task_run_id": "gtask:draft"}],
     })
     projector = RuntimeMonitorProjector(event_log, resource_resolver=resolver)
     run = task_run(
@@ -555,9 +660,39 @@ def test_global_monitor_uses_summary_projection_without_graph_detail_fetch():
 
     assert item["latest_step_summary"] == "静态任务摘要"
     assert item["child_runtime_refs"] == []
+    assert item["graph_status"]["active_node_id"] == ""
     assert event_log.list_recent_event_calls == []
     assert event_log.event_count_calls == []
     assert resolver.graph_monitor_calls == []
+
+
+def test_global_graph_monitor_uses_active_graph_loop_to_avoid_false_stale_diagnostic():
+    graph_monitor = {
+        "graph_loop_state": {"status": "running", "ready_node_ids": [], "node_states": {"world_design": {"status": "running"}}},
+        "active_node_work_orders": [{"node_id": "world_design"}],
+        "node_runtime_views": [{"node_id": "world_design", "status": "running"}],
+    }
+    projector = RuntimeMonitorProjector(EventLogStub(), resource_resolver=ResourceResolverStub(graph_monitor), freshness_seconds=60.0)
+    run = task_run(
+        task_run_id="taskrun:graph-root",
+        execution_runtime_kind="",
+        status="running",
+        updated_at=100.0,
+        diagnostics={
+            "graph_id": "graph:main",
+            "graph_run_id": "grun:main",
+            "graph_harness_config_id": "ghcfg:existing",
+        },
+    )
+
+    monitor = projector.build_global_monitor([run], now=300.0, limit=20)
+    item = monitor["task_runs"][0]
+
+    assert item["bucket"] == "running"
+    assert item["lifecycle"] == "running"
+    assert item["stale"] is False
+    assert item["graph_status"]["active_node_id"] == ""
+    assert projector.resource_resolver.graph_monitor_calls == []
 
 
 def test_task_graph_monitor_item_uses_graph_run_as_task_instance_and_navigation_target():

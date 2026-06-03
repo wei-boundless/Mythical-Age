@@ -198,7 +198,7 @@ describe("PublicRunActivity", () => {
       }),
     );
 
-    expect(html).toContain("public-run-activity__row--agent");
+    expect(html).toContain("public-run-activity__agent-message");
     expect(html).toContain("我先检查文件写入权限和可用路径");
     expect(html).toContain("public-run-activity__row--current");
     expect(html).toContain("检查路径信息");

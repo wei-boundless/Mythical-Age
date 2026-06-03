@@ -7088,15 +7088,17 @@ button:hover {
 
 .chat-stop-button {
   display: inline-flex;
+  width: 2.3rem;
+  height: 2.3rem;
+  min-width: 2.3rem;
   min-height: 2.3rem;
   align-items: center;
   justify-content: center;
-  gap: 0.42rem;
   border: 1px solid #f1b8b8;
-  border-radius: 7px;
+  border-radius: 999px;
   background: #fff7f7;
   color: #b42318;
-  padding: 0 0.78rem;
+  padding: 0;
   font-size: 0.78rem;
   font-weight: 700;
   transition: border-color 160ms ease, background 160ms ease, color 160ms ease;
@@ -7130,6 +7132,30 @@ button:hover {
 
 .chat-send-button:disabled {
   opacity: 0.45;
+}
+
+.chat-send-button--stop {
+  border-color: #f1b8b8;
+  background: #fff7f7;
+  color: #b42318;
+}
+
+.chat-send-button--stop:hover:not(:disabled) {
+  border-color: #e58b8b;
+  background: #fff0f0;
+  color: #8f1d15;
+}
+
+.chat-send-button--resume {
+  border-color: rgba(20, 122, 92, 0.2);
+  background: #147a5c;
+  color: #fff;
+}
+
+.chat-send-button--resume:hover:not(:disabled) {
+  border-color: #0f6d53;
+  background: #0f6d53;
+  color: #fff;
 }
 
 .chat-message-shell {
@@ -7758,6 +7784,19 @@ button:hover {
   gap: 8px;
   min-width: 0;
   align-items: start;
+}
+
+.public-run-activity__agent-message {
+  width: min(100%, 68ch);
+  color: #0f172a;
+  font-size: 14.5px;
+  font-weight: 470;
+  line-height: 1.72;
+}
+
+.public-run-activity__agent-message p {
+  margin: 0;
+  overflow-wrap: anywhere;
 }
 
 .public-run-activity__icon {
@@ -27315,10 +27354,6 @@ html[data-workspace-tone] .agent-workbench {
   .agent-workbench .chat-input-panel__actions {
     width: 100%;
   }
-
-  .agent-workbench .chat-stop-button {
-    flex: 1 1 auto;
-  }
 }
 
 .agent-workbench .chat-send-button:hover:not(:disabled) {
@@ -32027,45 +32062,6 @@ html[data-workspace-tone] .agent-workbench {
   color: #7b8798;
 }
 
-.agent-workbench .chat-runtime-action {
-  display: inline-flex;
-  min-height: 24px;
-  align-items: center;
-  justify-content: center;
-  gap: 5px;
-  border: 1px solid transparent;
-  border-radius: 6px;
-  background: transparent;
-  color: #40618f;
-  cursor: pointer;
-  font-size: 11.5px;
-  font-weight: 650;
-  line-height: 1;
-  padding: 0 8px;
-}
-
-.agent-workbench .chat-runtime-action:hover {
-  border-color: rgba(40, 95, 198, 0.14);
-  background: rgba(40, 95, 198, 0.07);
-  color: #1d5fd3;
-  transform: none;
-}
-
-.agent-workbench .chat-runtime-action--stop {
-  border-color: transparent;
-  background: transparent;
-  color: #b42318;
-}
-
-.agent-workbench .chat-runtime-action--stop:hover {
-  border-color: rgba(180, 35, 24, 0.14);
-  background: rgba(180, 35, 24, 0.07);
-}
-
-.agent-workbench .chat-runtime-action svg {
-  flex: 0 0 auto;
-}
-
 .agent-workbench .chat-task-environment-binding {
   display: inline-flex;
   min-width: 0;
@@ -32402,8 +32398,12 @@ html[data-workspace-tone] .agent-workbench {
 
 .agent-workbench .chat-send-button,
 .agent-workbench .chat-stop-button {
+  width: 32px;
+  min-width: 32px;
   height: 32px;
+  min-height: 32px;
   border-radius: 8px;
+  padding: 0;
 }
 
 .agent-workbench .chat-send-button {
@@ -32417,7 +32417,23 @@ html[data-workspace-tone] .agent-workbench {
   border-color: transparent;
   background: rgba(180, 35, 24, 0.07);
   color: #b42318;
-  font-size: 11.5px;
+}
+
+.agent-workbench .chat-send-button--stop:hover:not(:disabled) {
+  border-color: rgba(180, 35, 24, 0.18);
+  background: rgba(180, 35, 24, 0.1);
+  color: #8f1d15;
+}
+
+.agent-workbench .chat-send-button--resume {
+  border-color: #147a5c;
+  background: #147a5c;
+  color: #fff;
+}
+
+.agent-workbench .chat-send-button--resume:hover:not(:disabled) {
+  border-color: #0f6d53;
+  background: #0f6d53;
 }
 
 @media (max-width: 860px) {
@@ -33812,6 +33828,31 @@ body {
 .agent-workbench .chat-send-button:hover:not(:disabled) {
   border-color: #1d5fd3;
   background: #1d5fd3;
+}
+
+.agent-workbench .chat-send-button--stop {
+  border-color: transparent;
+  background: rgba(180, 35, 24, 0.07);
+  color: #b42318;
+  box-shadow: none;
+}
+
+.agent-workbench .chat-send-button--stop:hover:not(:disabled) {
+  border-color: rgba(180, 35, 24, 0.18);
+  background: rgba(180, 35, 24, 0.1);
+  color: #8f1d15;
+}
+
+.agent-workbench .chat-send-button--resume {
+  border-color: #147a5c;
+  background: #147a5c;
+  color: #fff;
+  box-shadow: 0 6px 14px rgba(20, 122, 92, 0.16);
+}
+
+.agent-workbench .chat-send-button--resume:hover:not(:disabled) {
+  border-color: #0f6d53;
+  background: #0f6d53;
 }
 
 .task-monitor-dock {

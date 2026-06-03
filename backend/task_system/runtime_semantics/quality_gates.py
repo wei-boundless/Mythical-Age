@@ -321,6 +321,8 @@ def length_budget_quality_gate(
     min_units = safe_int(length_budget.get("min_units"))
     max_units = safe_int(length_budget.get("max_units"))
     batch_unit_count = safe_int(length_budget.get("batch_unit_count"))
+    target_enforcement = str(length_budget.get("target_enforcement") or "required").strip().lower()
+    target_is_advisory = target_enforcement in {"advisory", "soft", "suggested"}
     if target_units <= 0 and min_units > 0:
         target_units = min_units
     if max_units > 0 and target_units > max_units:
@@ -332,7 +334,8 @@ def length_budget_quality_gate(
         issues.append(f"insufficient_metric:{content_metric_total}<{min_units}")
     if max_units > 0 and content_metric_total > max_units:
         issues.append(f"exceeds_metric:{content_metric_total}>{max_units}")
-    if target_units > 0 and content_metric_total < target_units:
+    below_target = bool(target_units > 0 and content_metric_total < target_units)
+    if below_target and not target_is_advisory:
         issues.append(f"below_target:{content_metric_total}<{target_units}")
     accepted = not issues
     return {
@@ -344,6 +347,8 @@ def length_budget_quality_gate(
         "max_allowed_metric_total": max_units,
         "batch_unit_count": batch_unit_count,
         "issues": issues,
+        "target_enforcement": "advisory" if target_is_advisory else "required",
+        "below_target_advisory": below_target if target_is_advisory else False,
         **measurement_diagnostics,
         **metric_text_diagnostics,
     }

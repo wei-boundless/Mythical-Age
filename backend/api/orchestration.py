@@ -626,7 +626,19 @@ def _assert_graph_run_scope(
     session_id = str(graph_run.get("session_id") or "")
     if not session_id:
         raise HTTPException(status_code=409, detail="GraphRun is not bound to a session")
-    assert_session_scope(runtime.session_manager, session_id, expected, allow_missing_scope=False)
+    try:
+        assert_session_scope(runtime.session_manager, session_id, expected, allow_missing_scope=False)
+    except ValueError as exc:
+        if str(exc) == "Unknown session_id":
+            raise HTTPException(
+                status_code=404,
+                detail={
+                    "message": "GraphRun session is missing",
+                    "session_id": session_id,
+                    "graph_run_id": graph_run_id,
+                },
+            ) from exc
+        raise
     try:
         runtime.session_manager.assert_session_graph_instance(session_id, graph_run_id)
     except (SessionTaskBindingConflict, SessionTaskBindingMissing, ValueError) as exc:

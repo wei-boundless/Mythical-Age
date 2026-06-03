@@ -155,7 +155,6 @@ OPTION_LABELS: dict[str, str] = {
     "artifact_refs": "产物引用",
     "upstream_outputs": "上游交接",
     "working_memory": "工作记忆包",
-    "task_durable_memory": "任务持久记忆",
     "assertions": "验收断言",
     "conversation_readonly": "会话记忆只读",
     "state_readonly": "状态记忆只读",
@@ -268,7 +267,6 @@ DEFAULT_ORCHESTRATION_CONTEXT_SECTIONS = (
     "artifact_refs",
     "upstream_outputs",
     "working_memory",
-    "task_durable_memory",
     "health_issue",
     "runtime_trace",
     "prompt_manifest",
@@ -289,6 +287,8 @@ DEFAULT_ORCHESTRATION_MEMORY_SCOPES = (
     "health_trace_readonly",
 )
 
+DISCONNECTED_ORCHESTRATION_CONTEXT_SECTIONS = frozenset({"task_durable_memory"})
+
 
 def _build_runtime_profile_option_values(
     profiles: list[Any],
@@ -304,6 +304,7 @@ def _build_runtime_profile_option_values(
     }
     values.update(defaults)
     values.discard("")
+    values.difference_update(DISCONNECTED_ORCHESTRATION_CONTEXT_SECTIONS)
     values.discard("conversation_read_write")
     values.discard("state_read_write")
     return sorted(values)
@@ -595,6 +596,7 @@ def _preview_runtime_assembly(runtime: Any, payload: OrchestrationPreviewRequest
         agent_runtime_profile=agent_profile,
         tool_instances=tool_instances,
         definitions_by_name=dict(harness_runtime.single_agent_runtime_host.tool_authorization_index.definitions_by_name or {}),
+        permission_mode=runtime.permission_service.current_mode(),
     )
 
 

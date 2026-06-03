@@ -132,3 +132,27 @@ def test_session_active_task_environment_api_validates_registry(tmp_path: Path) 
 
     assert state["active_task_environment"]["task_environment_id"] == "env.coding.vibe_workspace"
     assert exc_info.value.status_code == 404
+
+
+def test_session_permission_mode_api_updates_conversation_state(tmp_path: Path) -> None:
+    runtime = RuntimeBaseDirStub(tmp_path)
+    runtime.session_manager = SessionManager(tmp_path)  # type: ignore[attr-defined]
+    session = runtime.session_manager.create_session(title="Permission session")  # type: ignore[attr-defined]
+    session_id = session["id"]
+    original = sessions_api.require_runtime
+    sessions_api.require_runtime = lambda: runtime  # type: ignore[assignment]
+    try:
+        state = asyncio.run(
+            sessions_api.set_session_permission_mode(
+                session_id,
+                sessions_api.SessionPermissionModeRequest(mode="plan"),
+                workspace_view=None,
+                task_environment_id=None,
+                project_id=None,
+            )
+        )
+    finally:
+        sessions_api.require_runtime = original  # type: ignore[assignment]
+
+    assert state["permission_mode"] == "plan"
+    assert runtime.session_manager.get_history(session_id)["conversation_state"]["permission_mode"] == "plan"  # type: ignore[attr-defined]

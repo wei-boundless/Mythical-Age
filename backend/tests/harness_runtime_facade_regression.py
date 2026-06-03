@@ -12,10 +12,19 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 from harness.entrypoint.models import HarnessRuntimeRequest
-from api.chat import _project_public_stream_event, _runtime_run_refs_from_event
+from api.chat import (
+    _project_public_stream_event,
+    _runtime_run_refs_for_public_event,
+    _runtime_run_refs_from_event,
+)
 from runtime.shared.models import AgentRunResult, TaskRun
 from harness.loop.model_action_protocol import ModelActionRequest
-from harness.loop.task_executor import _duplicate_read_only_tool_call_observation, _tool_call_progress_summary
+from harness.loop.task_executor import (
+    _duplicate_read_only_tool_call_observation,
+    _matching_model_action_admission_denial_observations,
+    _model_action_admission_observation,
+    _tool_call_progress_summary,
+)
 from harness.loop.task_lifecycle import TaskLifecycleRecord, TaskRunContract
 from capability_system.tools.native_tool_catalog import build_tool_instances, get_tool_definitions
 from tests.support.runtime_stubs import (
@@ -73,8 +82,12 @@ def _action_request(
     *,
     action_type: str,
     final_answer: str = "",
+    user_question: str = "",
+    blocking_reason: str = "",
     public_progress_note: str = "正在处理当前请求。",
     task_contract_seed: dict[str, object] | None = None,
+    tool_call: dict[str, object] | None = None,
+    active_work_control: dict[str, object] | None = None,
     diagnostics: dict[str, object] | None = None,
 ) -> dict[str, object]:
     return {
@@ -88,11 +101,38 @@ def _action_request(
             "next_action": public_progress_note,
         },
         "final_answer": final_answer,
+        "user_question": user_question,
+        "blocking_reason": blocking_reason,
+        "tool_call": dict(tool_call or {}),
         "task_contract_seed": dict(task_contract_seed or {}),
         "completion_contract": {},
         "permission_request": {},
+        "active_work_control": dict(active_work_control or {}),
         "diagnostics": {"test_action_request": True, **dict(diagnostics or {})},
     }
+
+
+def _project_backend_dir() -> Path:
+    return Path(__file__).resolve().parents[1]
+
+
+def _runtime_test_root(tmp_path: Path) -> Path:
+    root = tmp_path / "runtime-root"
+    root.mkdir(parents=True, exist_ok=True)
+    return root
+
+
+def _tool_runtime_for_names(tool_base_dir: Path, names: set[str]) -> SimpleNamespace:
+    selected = {str(name) for name in names if str(name)}
+    tool_instances = [tool for tool in build_tool_instances(tool_base_dir) if getattr(tool, "name", "") in selected]
+    definitions = [definition for definition in get_tool_definitions() if definition.name in selected]
+    return SimpleNamespace(
+        base_dir=tool_base_dir,
+        definitions=definitions,
+        instances=tool_instances,
+        get_definition=lambda name: next((definition for definition in definitions if definition.name == name), None),
+        get_instance=lambda name: next((tool for tool in tool_instances if getattr(tool, "name", "") == name), None),
+    )
 
 
 def test_explicit_capability_boundary_uses_single_agent_turn_without_task_run() -> None:
@@ -294,7 +334,7 @@ def test_default_runtime_branches_to_single_agent_turn_without_task_run() -> Non
     assert traces["task_run_count"] == 0
 
 
-def test_single_agent_turn_projection_only_exposes_executable_native_actions() -> None:
+def test_single_agent_turn_projection_only_exposes_executable_native_actions(tmp_path: Path) -> None:
     class RecordingNativeTurnModelRuntime(NativeToolCallModelRuntimeStub):
         def __init__(self) -> None:
             super().__init__(content="直接回答。")
@@ -305,18 +345,11 @@ def test_single_agent_turn_projection_only_exposes_executable_native_actions() -
             return await super().invoke_messages_with_tools(messages, tools, **kwargs)
 
     model = RecordingNativeTurnModelRuntime()
-    base_dir = Path(__file__).resolve().parents[1]
-    tool_instances = [tool for tool in build_tool_instances(base_dir) if getattr(tool, "name", "") == "read_file"]
-    definitions = [definition for definition in get_tool_definitions() if definition.name == "read_file"]
+    tool_base_dir = _project_backend_dir()
     runtime = build_harness_runtime(
-        base_dir=base_dir,
+        base_dir=_runtime_test_root(tmp_path),
         model_runtime=model,
-        tool_runtime=SimpleNamespace(
-            definitions=definitions,
-            instances=tool_instances,
-            get_definition=lambda name: next((definition for definition in definitions if definition.name == name), None),
-            get_instance=lambda name: next((tool for tool in tool_instances if getattr(tool, "name", "") == name), None),
-        ),
+        tool_runtime=_tool_runtime_for_names(tool_base_dir, {"read_file"}),
     )
 
     async def _collect() -> list[dict[str, object]]:
@@ -335,20 +368,27 @@ def test_single_agent_turn_projection_only_exposes_executable_native_actions() -
     )
     effective_capabilities = dict(stable_payload.get("control_capabilities") or {})
     model_input = "\n".join(str(message.get("content") or "") for message in model.last_messages)
+    output_contract = dict(stable_payload.get("output_contract") or {})
+    action_protocol = dict(output_contract.get("action_protocol") or {})
 
     assert dict(assembly.get("control_capabilities") or {}).get("may_call_tools") is True
-    assert packet_tools == ["read_file", "request_task_run", "ask_user", "block"]
+    assert packet_tools == ["read_file"]
     assert start.get("allowed_action_types") == ["respond", "ask_user", "block", "request_task_run", "tool_call"]
     assert effective_capabilities.get("may_call_tools") is True
     assert effective_capabilities.get("may_use_subagents") is False
     assert effective_capabilities.get("supports_json_action_protocol") is True
     assert effective_capabilities.get("requires_json_action_protocol") is False
+    assert dict(action_protocol.get("ordinary_tool_calls") or {}).get("parallel_allowed") is True
+    assert dict(action_protocol.get("control_actions") or {}).get("native_tool_transport_enabled") is False
+    assert "single_action_per_turn" not in json.dumps(output_contract, ensure_ascii=False)
     assert "调用本次可见工具" in model_input
+    assert "普通工具调用可以在同一轮提出多个" in model_input
+    assert "控制裁决，不是普通 native 工具" in model_input
     assert "子 agent 协作" not in model_input
     assert any(event.get("type") == "done" and str(event.get("content") or "") == "直接回答。" for event in events)
 
 
-def test_single_agent_turn_read_only_tool_executes_through_control_plane_and_followup_answers() -> None:
+def test_single_agent_turn_read_only_tool_executes_through_control_plane_and_followup_answers(tmp_path: Path) -> None:
     model = NativeToolCallSequenceModelRuntimeStub(
         [
             {
@@ -368,19 +408,11 @@ def test_single_agent_turn_read_only_tool_executes_through_control_plane_and_fol
             {"content": "第二轮继续回答。"},
         ]
     )
-    base_dir = Path(__file__).resolve().parents[1]
-    tool_instances = [tool for tool in build_tool_instances(base_dir) if getattr(tool, "name", "") == "read_file"]
-    definitions = [definition for definition in get_tool_definitions() if definition.name == "read_file"]
+    tool_base_dir = _project_backend_dir()
     runtime = build_harness_runtime(
-        base_dir=base_dir,
+        base_dir=_runtime_test_root(tmp_path),
         model_runtime=model,
-        tool_runtime=SimpleNamespace(
-            base_dir=base_dir,
-            definitions=definitions,
-            instances=tool_instances,
-            get_definition=lambda name: next((definition for definition in definitions if definition.name == name), None),
-            get_instance=lambda name: next((tool for tool in tool_instances if getattr(tool, "name", "") == name), None),
-        ),
+        tool_runtime=_tool_runtime_for_names(tool_base_dir, {"read_file"}),
     )
 
     async def _collect() -> list[dict[str, object]]:
@@ -438,7 +470,49 @@ def test_single_agent_turn_read_only_tool_executes_through_control_plane_and_fol
     assert replayed_tool_result["tool_call_id"] == "call-read-requirements"
 
 
-def test_single_agent_turn_side_effect_tool_is_blocked_before_runtime_dispatch() -> None:
+def test_single_agent_turn_batches_multiple_read_only_tools_before_followup_answers(tmp_path: Path) -> None:
+    model = NativeToolCallSequenceModelRuntimeStub(
+        [
+            {
+                "tool_calls": [
+                    {"id": "call-read-requirements", "name": "read_file", "args": {"path": "requirements.txt", "line_count": 20}},
+                    {"id": "call-path-exists", "name": "path_exists", "args": {"path": "requirements.txt"}},
+                ]
+            },
+            {"content": "已经完成两个检查。"},
+        ]
+    )
+    tool_base_dir = _project_backend_dir()
+    runtime = build_harness_runtime(
+        base_dir=_runtime_test_root(tmp_path),
+        model_runtime=model,
+        tool_runtime=_tool_runtime_for_names(tool_base_dir, {"read_file", "path_exists"}),
+    )
+
+    async def _collect() -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime.astream(HarnessRuntimeRequest(session_id="session-single-turn-multi-tool", message="检查依赖文件。")):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_collect())
+    tool_observations = [dict(event.get("tool_observation") or {}) for event in events if event.get("type") == "tool_observation"]
+    followup_messages = [dict(item) for item in list(model.seen_messages[-1] or []) if isinstance(item, dict)]
+    assistant_tool_message = next(item for item in followup_messages if item.get("role") == "assistant" and item.get("tool_calls"))
+    tool_messages = [item for item in followup_messages if item.get("role") == "tool"]
+    admitted_actions = [dict(payload.get("model_action_request") or {}) for payload in _admission_payloads(events)]
+
+    assert model.calls == 2
+    assert [item["tool_name"] for item in tool_observations] == ["read_file", "path_exists"]
+    assert all(item["status"] == "ok" for item in tool_observations)
+    assert [dict(item).get("action_type") for item in admitted_actions] == ["tool_call", "tool_call"]
+    assert len(list(assistant_tool_message["tool_calls"])) == 2
+    assert [item["tool_call_id"] for item in tool_messages] == ["call-read-requirements", "call-path-exists"]
+    assert any(event.get("type") == "done" and str(event.get("content") or "") == "已经完成两个检查。" for event in events)
+
+
+def test_single_agent_turn_side_effect_tool_runs_inside_development_sandbox(tmp_path: Path) -> None:
+    sandbox_path = ".tmp/single_turn_write_tool_ok.txt"
     model = NativeToolCallSequenceModelRuntimeStub(
         [
             {
@@ -446,46 +520,53 @@ def test_single_agent_turn_side_effect_tool_is_blocked_before_runtime_dispatch()
                     {
                         "id": "call-write",
                         "name": "write_file",
-                        "args": {"path": "tmp/blocked.txt", "content": "no"},
+                        "args": {"path": sandbox_path, "content": "ok"},
                     }
                 ]
-            }
+            },
+            {"content": "已在开发沙箱内写入文件，真实工作区没有被直接改写。"},
         ]
     )
-    base_dir = Path(__file__).resolve().parents[1]
-    names = {"write_file", "read_file"}
-    tool_instances = [tool for tool in build_tool_instances(base_dir) if getattr(tool, "name", "") in names]
-    definitions = [definition for definition in get_tool_definitions() if definition.name in names]
+    tool_base_dir = _project_backend_dir()
     runtime = build_harness_runtime(
-        base_dir=base_dir,
+        base_dir=_runtime_test_root(tmp_path),
         model_runtime=model,
-        tool_runtime=SimpleNamespace(
-            base_dir=base_dir,
-            definitions=definitions,
-            instances=tool_instances,
-            get_definition=lambda name: next((definition for definition in definitions if definition.name == name), None),
-            get_instance=lambda name: next((tool for tool in tool_instances if getattr(tool, "name", "") == name), None),
-        ),
+        tool_runtime=_tool_runtime_for_names(tool_base_dir, {"write_file", "read_file"}),
     )
 
     async def _collect() -> list[dict[str, object]]:
         events: list[dict[str, object]] = []
-        async for event in runtime.astream(HarnessRuntimeRequest(session_id="session-single-turn-write-tool", message="写一个文件。")):
+        async for event in runtime.astream(
+            HarnessRuntimeRequest(
+                session_id="session-single-turn-write-tool",
+                message="写一个文件。",
+                task_selection={"task_environment_id": "env.development.sandbox"},
+            )
+        ):
             events.append(event)
         return events
 
     events = asyncio.run(_collect())
     admissions = _admission_payloads(events)
+    tool_observations = [dict(event.get("tool_observation") or {}) for event in events if event.get("type") == "tool_observation"]
+    followup_messages = [dict(item) for item in list(model.seen_messages[-1] or []) if isinstance(item, dict)]
+    tool_message = next(item for item in followup_messages if item.get("role") == "tool")
 
-    assert model.calls == 1
+    assert model.calls == 2
     assert admissions
-    assert dict(admissions[0].get("admission") or {}).get("decision") == "deny"
-    assert dict(admissions[0].get("admission") or {}).get("system_reason") == "tool_not_in_runtime_assembly"
-    assert not any(event.get("type") == "tool_observation" for event in events)
-    assert any(event.get("type") == "done" and "请求的工具没有在本次运行时中开放" in str(event.get("content") or "") for event in events)
+    assert dict(admissions[0].get("admission") or {}).get("decision") == "allow"
+    assert tool_observations and tool_observations[0]["status"] == "ok"
+    assert dict(tool_observations[0].get("diagnostics") or {}).get("stage") == "tool_runtime_executor_dispatch"
+    assert tool_message.get("name") == "write_file"
+    assert not (tool_base_dir / sandbox_path).exists()
+    assert any(event.get("type") == "done" and "开发沙箱" in str(event.get("content") or "") for event in events)
+    assert not any(
+        event.get("type") == "done" and dict(event).get("terminal_reason") == "tool_denied"
+        for event in events
+    )
 
 
-def test_single_agent_turn_tool_loop_synthesizes_answer_without_fourth_tool_call() -> None:
+def test_single_agent_turn_tool_loop_synthesizes_answer_without_fourth_tool_call(tmp_path: Path) -> None:
     class SynthesizingLoopModel(NativeToolCallSequenceModelRuntimeStub):
         def __init__(self) -> None:
             super().__init__(
@@ -519,19 +600,11 @@ def test_single_agent_turn_tool_loop_synthesizes_answer_without_fourth_tool_call
             return SimpleNamespace(content="我已经连续核查 requirements.txt，当前应停止重复检查并基于已有结果回答。")
 
     model = SynthesizingLoopModel()
-    base_dir = Path(__file__).resolve().parents[1]
-    tool_instances = [tool for tool in build_tool_instances(base_dir) if getattr(tool, "name", "") == "path_exists"]
-    definitions = [definition for definition in get_tool_definitions() if definition.name == "path_exists"]
+    tool_base_dir = _project_backend_dir()
     runtime = build_harness_runtime(
-        base_dir=base_dir,
+        base_dir=_runtime_test_root(tmp_path),
         model_runtime=model,
-        tool_runtime=SimpleNamespace(
-            base_dir=base_dir,
-            definitions=definitions,
-            instances=tool_instances,
-            get_definition=lambda name: next((definition for definition in definitions if definition.name == name), None),
-            get_instance=lambda name: next((tool for tool in tool_instances if getattr(tool, "name", "") == name), None),
-        ),
+        tool_runtime=_tool_runtime_for_names(tool_base_dir, {"path_exists"}),
     )
 
     async def _collect() -> list[dict[str, object]]:
@@ -661,6 +734,70 @@ def test_task_executor_guards_duplicate_read_only_tool_call_without_rerunning_to
     assert changed_args is None
     assert old_window_args is None
     assert unsupported_arg is None
+
+
+def test_task_executor_repeated_admission_denial_fingerprint_is_runtime_scoped() -> None:
+    action = ModelActionRequest(
+        request_id="model-action:admission-repeat",
+        turn_id="taskrun:admission-repeat",
+        action_type="tool_call",
+        tool_call={"tool_name": "missing_tool", "args": {"path": "tmp/demo.txt"}},
+    )
+    admission = {
+        "decision": "deny",
+        "system_reason": "tool_not_in_runtime_assembly",
+        "user_visible_reason": "工具不在当前运行边界内。",
+    }
+    runtime_fingerprint = {
+        "runtime_assembly_id": "rtasm:taskrun:admission-repeat",
+        "agent_profile_id": "main_interactive_agent",
+        "runtime_profile_ref": "runtime:default",
+        "task_environment_id": "coding",
+        "tool_registry_hash": "tools-a",
+        "tool_config_hash": "config-a",
+        "sandbox_policy_hash": "sandbox-a",
+        "permission_policy_hash": "permission-a",
+        "backend_config_hash": "backend-a",
+        "permission_mode": "default",
+    }
+    previous = _model_action_admission_observation(
+        task_run_id="taskrun:admission-repeat",
+        packet_ref="packet:admission-repeat",
+        action_request=action,
+        admission=admission,
+        runtime_fingerprint=runtime_fingerprint,
+        step_index=1,
+    )
+    changed_args = ModelActionRequest(
+        request_id="model-action:admission-repeat-args",
+        turn_id="taskrun:admission-repeat",
+        action_type="tool_call",
+        tool_call={"tool_name": "missing_tool", "args": {"path": "tmp/other.txt"}},
+    )
+    changed_environment = {**runtime_fingerprint, "task_environment_id": "writing"}
+
+    same = _matching_model_action_admission_denial_observations(
+        [previous],
+        action_request=action,
+        admission=admission,
+        runtime_fingerprint=runtime_fingerprint,
+    )
+    different_args = _matching_model_action_admission_denial_observations(
+        [previous],
+        action_request=changed_args,
+        admission=admission,
+        runtime_fingerprint=runtime_fingerprint,
+    )
+    different_environment = _matching_model_action_admission_denial_observations(
+        [previous],
+        action_request=action,
+        admission=admission,
+        runtime_fingerprint=changed_environment,
+    )
+
+    assert len(same) == 1
+    assert different_args == []
+    assert different_environment == []
 
 
 def test_explicit_contract_task_starts_lifecycle_without_model_action_loop() -> None:
@@ -862,6 +999,88 @@ def test_chat_stream_runtime_refs_separate_turn_run_from_task_run() -> None:
     }
 
 
+def test_chat_stream_runtime_refs_expose_active_turn_from_task_lifecycle_refs() -> None:
+    refs = _runtime_run_refs_from_event(
+        {
+            "type": "task_run_lifecycle_started",
+            "event": {
+                "run_id": "taskrun:turn:session-a:1:formal",
+                "refs": {
+                    "turn_ref": "turn:session-a:1",
+                },
+                "payload": {
+                    "task_run": {"task_run_id": "taskrun:turn:session-a:1:formal"},
+                },
+            },
+        }
+    )
+
+    assert refs == {
+        "turn_run_id": "",
+        "task_run_id": "taskrun:turn:session-a:1:formal",
+        "active_turn_id": "turn:session-a:1",
+    }
+
+
+def test_chat_stream_runtime_refs_do_not_treat_bare_turn_ref_as_active_task_turn() -> None:
+    refs = _runtime_run_refs_from_event(
+        {
+            "type": "agent_turn_terminal",
+            "event": {
+                "run_id": "turnrun:session-a:2",
+                "refs": {
+                    "turn_ref": "turn:session-a:2",
+                },
+                "payload": {
+                    "turn_run": {"turn_run_id": "turnrun:session-a:2"},
+                },
+            },
+        }
+    )
+
+    assert refs == {
+        "turn_run_id": "turnrun:session-a:2",
+        "task_run_id": "",
+    }
+
+
+def test_chat_stream_runtime_refs_supplement_bound_active_task_for_control_done() -> None:
+    runtime = build_harness_runtime()
+    task_run_id = _seed_active_work(
+        runtime,
+        task_run_id="taskrun:active-control-public-ref",
+        session_id="session-active-control-public-ref",
+    )
+    host = runtime.single_agent_runtime_host
+    host.active_turn_registry.start(
+        session_id="session-active-control-public-ref",
+        turn_id="turn:active-control-public-ref:1",
+        turn_run_id="turnrun:active-control-public-ref:1",
+    )
+    host.active_turn_registry.bind_task_run(
+        session_id="session-active-control-public-ref",
+        turn_id="turn:active-control-public-ref:1",
+        task_run_id=task_run_id,
+        state="waiting_executor",
+    )
+
+    refs = _runtime_run_refs_for_public_event(
+        SimpleNamespace(harness_runtime=runtime),
+        "session-active-control-public-ref",
+        {
+            "type": "done",
+            "answer_channel": "active_work_control",
+            "completion_state": "task_steer_accepted",
+        },
+    )
+
+    assert refs == {
+        "turn_run_id": "turnrun:active-control-public-ref:1",
+        "task_run_id": "taskrun:active-control-public-ref",
+        "active_turn_id": "turn:active-control-public-ref:1",
+    }
+
+
 def test_chat_public_projection_hides_turn_trace_only_harness_start() -> None:
     assert _project_public_stream_event(
         "harness_run_started",
@@ -966,18 +1185,24 @@ def test_agent_action_request_launches_task_run_and_initializes_todo() -> None:
         for event in events
         if event.get("type") == "runtime_step_summary"
     )
-    assert any("我会按这个目标继续推进" in content for content in done_contents)
+    assert any("我会开始处理：交付一个真实可验证产物。" in content for content in done_contents)
+    assert any(
+        event.get("type") == "assistant_text"
+        and "我会开始处理：交付一个真实可验证产物。" in str(event.get("content") or "")
+        for event in events
+    )
+    assert not any("我会按这个目标推进" in content for content in done_contents)
     assert not any("执行器" in content or "TaskRun" in content or "正式任务" in content for content in done_contents)
     _assert_no_visible_runtime_internals("\n".join(done_contents))
     _assert_no_visible_runtime_internals(visible_progress)
     task_run = runtime.single_agent_runtime_host.state_index.get_task_run(task_run_id)
     assert task_run is not None
-    assert dict(task_run.diagnostics or {}).get("origin_kind") == "single_agent_turn_native_action"
+    assert dict(task_run.diagnostics or {}).get("origin_kind") == "single_agent_turn_json_action"
     assert dict(dict(task_run.diagnostics or {}).get("origin") or {}).get("origin_authority") == "harness.loop.single_agent_turn"
     assert dict(task_run.diagnostics or {}).get("model_selection") == model_selection
     assert dict(dict(task_run.diagnostics or {}).get("model_selection_binding") or {}).get("scope") == "task_run"
     contract = runtime.single_agent_runtime_host.runtime_objects.get_object(task_run.task_contract_ref)
-    assert dict(contract or {}).get("origin", {}).get("origin_kind") == "single_agent_turn_native_action"
+    assert dict(contract or {}).get("origin", {}).get("origin_kind") == "single_agent_turn_json_action"
 
 
 def test_global_live_monitor_groups_running_completed_and_failed_runs(monkeypatch) -> None:
@@ -1173,13 +1398,32 @@ class _TurnActionSequenceModelRuntime:
         return SimpleNamespace(content=json.dumps(action, ensure_ascii=False))
 
 
+class _UnexpectedNativeToolCallModelRuntime:
+    def __init__(self, tool_calls: list[dict[str, object]], *, repair_action: dict[str, object] | None = None) -> None:
+        self.tool_calls = [dict(item) for item in tool_calls]
+        self.repair_action = dict(repair_action or {})
+        self.invocation_count = 0
+
+    async def invoke_messages(self, _messages, **_kwargs):
+        self.invocation_count += 1
+        if self.invocation_count == 1:
+            return SimpleNamespace(content="", tool_calls=[dict(item) for item in self.tool_calls])
+        if self.repair_action:
+            return SimpleNamespace(content=json.dumps(self.repair_action, ensure_ascii=False))
+        return SimpleNamespace(content="")
+
+
 class _ActiveWorkDecisionModelRuntime:
     def __init__(self, decisions: list[dict[str, object]]) -> None:
         self.decisions = list(decisions)
         self.active_work_decision_count = 0
 
     async def invoke_messages_with_tools(self, _messages, tools, **_kwargs):
-        if any(dict(tool).get("name") == "active_work_control" for tool in list(tools or [])):
+        del tools
+        return await self._active_work_response(_messages)
+
+    async def _active_work_response(self, messages):
+        if self._allows_active_work_control(messages):
             self.active_work_decision_count += 1
             decision = dict(self.decisions.pop(0) if self.decisions else {
                 "action": "answer_about_active_work",
@@ -1192,22 +1436,40 @@ class _ActiveWorkDecisionModelRuntime:
             if str(decision.get("action") or "") in {"normal_response", "start_new_work"}:
                 return SimpleNamespace(content="普通回复。", tool_calls=[])
             return SimpleNamespace(
-                content="",
-                tool_calls=[
-                    {
-                        "id": f"active-work-control-{self.active_work_decision_count}",
-                        "name": "active_work_control",
-                        "args": decision,
-                    }
-                ],
+                content=json.dumps(
+                    _action_request(
+                        action_type="active_work_control",
+                        public_progress_note="正在处理当前工作控制请求。",
+                        active_work_control=decision,
+                    ),
+                    ensure_ascii=False,
+                ),
+                tool_calls=[],
             )
         return SimpleNamespace(content="普通回复。", tool_calls=[])
 
+    def _allows_active_work_control(self, messages) -> bool:
+        marker = "Single agent turn stable boundary\n"
+        for message in list(messages or []):
+            if not isinstance(message, dict):
+                continue
+            content = str(message.get("content") or "")
+            if not content.startswith(marker):
+                continue
+            try:
+                payload = json.loads(content[len(marker):])
+            except Exception:
+                return False
+            output_contract = dict(payload.get("output_contract") or {})
+            allowed = {str(item) for item in list(output_contract.get("allowed_actions") or []) if str(item)}
+            return "active_work_control" in allowed
+        return False
+
     async def invoke_messages(self, messages, **_kwargs):
-        content = str(messages or "")
-        if "single_agent_turn" in content or "Single agent turn" in content:
-            return SimpleNamespace(content="普通回复。")
-        return SimpleNamespace(content=json.dumps(_action_request(action_type="respond", final_answer="普通回复。"), ensure_ascii=False))
+        response = await self._active_work_response(messages)
+        if str(getattr(response, "content", "") or "") == "普通回复。":
+            return SimpleNamespace(content=json.dumps(_action_request(action_type="respond", final_answer="普通回复。"), ensure_ascii=False))
+        return response
 
 
 class _TaskExecutorSequenceModelRuntime:
@@ -1294,7 +1556,13 @@ def test_malformed_agent_action_request_fails_closed() -> None:
 
     events = asyncio.run(_collect())
 
-    assert any(event.get("type") == "done" and "JSON 系统动作不符合本轮协议" in str(event.get("content") or "") for event in events)
+    assert any(event.get("type") == "done" and "系统动作格式无效" in str(event.get("content") or "") for event in events)
+    assert any(
+        event.get("type") == "done"
+        and dict(event).get("terminal_reason") == "single_agent_turn_protocol_repair_failed"
+        and dict(event).get("answer_channel") == "blocked"
+        for event in events
+    )
     assert not any(event.get("type") == "done" and "authority" in str(event.get("content") or "") for event in events)
     assert any(event.get("type") == "single_agent_turn_started" for event in events)
 
@@ -1342,7 +1610,7 @@ def test_turn_stream_cancellation_closes_running_turn() -> None:
     assert turn_run["terminal_reason"] == "stream_cancelled"
 
 
-def test_invalid_json_action_text_fails_closed_without_leaking_protocol() -> None:
+def test_invalid_json_action_text_repairs_without_leaking_protocol() -> None:
     runtime = build_harness_runtime(
         model_runtime=_TurnActionSequenceModelRuntime(
             [
@@ -1360,9 +1628,12 @@ def test_invalid_json_action_text_fails_closed_without_leaking_protocol() -> Non
 
     events = asyncio.run(_collect())
     event_types = [str(event.get("type") or "") for event in events]
+    admissions = _admission_payloads(events)
 
     assert "bounded_observation" not in event_types
-    assert any(event.get("type") == "done" and "JSON 系统动作不符合本轮协议" in str(event.get("content") or "") for event in events)
+    assert admissions
+    assert dict(dict(admissions[0].get("model_action_request") or {}).get("diagnostics") or {}).get("protocol_repair", {}).get("original_error_code") == "single_agent_turn_invalid_json_action"
+    assert any(event.get("type") == "done" and "协议修复后完成" in str(event.get("content") or "") for event in events)
     assert not any(event.get("type") == "done" and "harness.loop.model_action_request" in str(event.get("content") or "") for event in events)
 
 
@@ -1486,6 +1757,124 @@ def test_task_executor_commits_final_answer_to_session_history() -> None:
         for item in messages
     )
     assert "task_run_final_message_commit_checked" in event_types
+
+
+def test_task_executor_admission_denial_becomes_model_visible_observation_and_continues() -> None:
+    runtime = build_harness_runtime(
+        model_runtime=_TaskExecutorSequenceModelRuntime(
+            [
+                _tool_action_request(
+                    tool_name="missing_tool_for_admission",
+                    args={"path": "tmp/not-allowed.txt"},
+                    public_progress_note="尝试调用未开放工具。",
+                ),
+                _action_request(action_type="respond", final_answer="已根据运行边界改为直接收口。"),
+            ],
+            agent_turn_action_request=_action_request(action_type="respond", final_answer="unused"),
+        )
+    )
+    host = runtime.single_agent_runtime_host
+    contract = TaskRunContract(
+        contract_id="task-contract:executor-admission-observation",
+        contract_source="test",
+        user_visible_goal="验证 admission deny 不会阻塞 executor。",
+        task_run_goal="executor 应把 admission deny 作为观察回灌给模型。",
+        completion_criteria=("模型收到 admission observation 后可以继续收口",),
+    )
+    contract_ref = host.runtime_objects.put_object("task_run_contract", contract.contract_id, contract.to_dict())
+    lifecycle = TaskLifecycleRecord(
+        task_run_id="taskrun:executor-admission-observation",
+        contract_ref=contract_ref,
+        status="waiting_executor",
+        created_at=1.0,
+        updated_at=1.0,
+    )
+    host.runtime_objects.put_object("task_lifecycle", lifecycle.task_run_id, lifecycle.to_dict())
+    host.state_index.upsert_task_run(
+        TaskRun(
+            task_run_id=lifecycle.task_run_id,
+            session_id="session-executor-admission-observation",
+            task_id="task:executor-admission-observation",
+            task_contract_ref=contract_ref,
+            agent_profile_id="main_interactive_agent",
+            execution_runtime_kind="single_agent_task",
+            status="waiting_executor",
+            created_at=1.0,
+            updated_at=1.0,
+            diagnostics={"contract": contract.to_dict()},
+        )
+    )
+
+    result = asyncio.run(runtime.execute_task_run(lifecycle.task_run_id, max_steps=3))
+
+    trace = host.get_trace(lifecycle.task_run_id, include_payloads=True)
+    events = [dict(item) for item in list(dict(trace or {}).get("events") or [])]
+    event_types = [str(item.get("event_type") or "") for item in events]
+    admission_observation_events = [
+        dict(item.get("payload") or {})
+        for item in events
+        if str(item.get("event_type") or "") == "task_model_action_admission_observation_recorded"
+    ]
+
+    assert result["ok"] is True
+    assert runtime.model_runtime.task_invocation_count == 2
+    assert "task_model_action_admission_observation_recorded" in event_types
+    assert "task_run_blocked" not in event_types
+    observation = dict(admission_observation_events[0].get("observation") or {})
+    assert observation["source"] == "system:model_action_admission"
+    assert observation["needs_model_followup"] is True
+    assert dict(observation.get("payload") or {}).get("error_code") == "tool_not_in_runtime_assembly"
+
+
+def test_task_executor_repeated_admission_denial_pauses_before_step_budget() -> None:
+    denied_action = _tool_action_request(
+        tool_name="missing_tool_for_repeated_admission",
+        args={"path": "tmp/not-allowed.txt"},
+        public_progress_note="尝试调用未开放工具。",
+    )
+    runtime = build_harness_runtime(
+        model_runtime=_TaskExecutorSequenceModelRuntime(
+            [denied_action, denied_action, denied_action],
+            agent_turn_action_request=_action_request(action_type="respond", final_answer="unused"),
+        )
+    )
+    task_run_id = _seed_active_work(
+        runtime,
+        task_run_id="taskrun:repeated-admission-denial",
+        session_id="session-repeated-admission-denial",
+    )
+
+    result = asyncio.run(runtime.execute_task_run(task_run_id, max_steps=8))
+
+    host = runtime.single_agent_runtime_host
+    task_run = host.state_index.get_task_run(task_run_id)
+    trace = host.get_trace(task_run_id, include_payloads=True)
+    events = [dict(item) for item in list(dict(trace or {}).get("events") or [])]
+    event_types = [str(item.get("event_type") or "") for item in events]
+    normal_admission_events = [
+        dict(item.get("payload") or {})
+        for item in events
+        if str(item.get("event_type") or "") == "task_model_action_admission_observation_recorded"
+    ]
+    guard_events = [
+        dict(item.get("payload") or {})
+        for item in events
+        if str(item.get("event_type") or "") == "task_repeated_model_action_admission_guarded"
+    ]
+
+    assert result["error"] == "repeated_admission_denial"
+    assert result["retryable"] is True
+    assert runtime.model_runtime.task_invocation_count == 3
+    assert task_run is not None
+    assert task_run.status == "waiting_executor"
+    recoverable = dict(dict(task_run.diagnostics or {}).get("recoverable_error") or {})
+    assert recoverable.get("error_code") == "repeated_admission_denial"
+    assert recoverable.get("repeat_count") == 3
+    assert len(normal_admission_events) == 1
+    assert [payload.get("repeat_count") for payload in guard_events] == [2, 3]
+    assert dict(dict(guard_events[-1].get("observation") or {}).get("payload") or {}).get("pause_after_observation") is True
+    assert "task_executor_repeated_admission_denial_paused" in event_types
+    assert "task_executor_step_budget_exhausted" not in event_types
 
 
 def test_task_executor_wait_heartbeat_does_not_repeat_visible_step_summary(monkeypatch) -> None:
@@ -2166,7 +2555,7 @@ def test_terminal_bound_active_turn_is_cleared_and_continue_starts_new_task_run(
     assert len(new_task_runs) == 1
     new_task = new_task_runs[0]
     diagnostics = dict(new_task.diagnostics or {})
-    assert diagnostics.get("origin_kind") == "single_agent_turn_native_action"
+    assert diagnostics.get("origin_kind") == "single_agent_turn_json_action"
     assert diagnostics.get("parent_task_run_id") in {None, ""}
     assert "lineage" not in diagnostics
     assert "task_run_resume_requested" not in old_event_types
@@ -3301,6 +3690,134 @@ def test_active_turn_input_goes_through_model_turn_instead_of_registry_steer() -
     assert any(event.get("type") == "done" and "当前工作还在等待继续执行" in str(event.get("content") or "") for event in events)
 
 
+def test_running_active_turn_input_is_queued_without_model_turn() -> None:
+    model = _ActiveWorkDecisionModelRuntime([
+        {
+            "action": "answer_about_active_work",
+            "relation_to_current_work": "current_work",
+            "evidence": "不应调用模型",
+            "response": "不应出现。",
+            "confidence": 0.9,
+        }
+    ])
+    runtime = build_harness_runtime(model_runtime=model)
+    task_run_id = _seed_active_work(
+        runtime,
+        task_run_id="taskrun:active-turn-running-queue",
+        status="running",
+    )
+
+    host = runtime.single_agent_runtime_host
+    host.active_turn_registry.start(session_id="session-active-work", turn_id="turn:active:current")
+    host.active_turn_registry.bind_task_run(
+        session_id="session-active-work",
+        turn_id="turn:active:current",
+        task_run_id=task_run_id,
+        state="running_task",
+    )
+
+    async def _collect() -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime.astream(
+            HarnessRuntimeRequest(
+                session_id="session-active-work",
+                message="新增一个限制：不要生成临时假数据。",
+                expected_active_turn_id="turn:active:current",
+                active_turn_input_policy="steer",
+            )
+        ):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_collect())
+    event_types = [str(event.get("type") or "") for event in events]
+    updated_task = host.state_index.get_task_run(task_run_id)
+    trace = host.get_trace(task_run_id, include_payloads=True)
+    trace_event_types = [str(dict(item).get("event_type") or "") for item in list(dict(trace or {}).get("events") or [])]
+    session_messages = runtime.session_manager.load_session("session-active-work")
+
+    assert "single_agent_turn_started" not in event_types
+    assert "active_task_steer_accepted" in event_types
+    assert model.active_work_decision_count == 0
+    assert updated_task is not None
+    assert int(dict(updated_task.diagnostics or {}).get("pending_user_steer_count") or 0) == 1
+    assert "active_task_steer_recorded" in trace_event_types
+    assert any(
+        event.get("type") == "done"
+        and event.get("completion_state") == "task_steer_accepted"
+        and "已加入当前任务队列" in str(event.get("content") or "")
+        for event in events
+    )
+    assert [str(item.get("role") or "") for item in session_messages] == ["user"]
+
+
+def test_active_turn_preserves_user_granted_new_turn_capabilities(tmp_path: Path) -> None:
+    class RecordingCapabilityModelRuntime(NativeToolCallModelRuntimeStub):
+        def __init__(self) -> None:
+            super().__init__(content="普通回复。")
+            self.last_messages: list[dict[str, object]] = []
+
+        async def invoke_messages_with_tools(self, messages, tools, **kwargs):
+            self.last_messages = [dict(item) for item in list(messages or []) if isinstance(item, dict)]
+            return await super().invoke_messages_with_tools(messages, tools, **kwargs)
+
+    model = RecordingCapabilityModelRuntime()
+    tool_base_dir = _project_backend_dir()
+    runtime = build_harness_runtime(
+        base_dir=_runtime_test_root(tmp_path),
+        model_runtime=model,
+        tool_runtime=_tool_runtime_for_names(tool_base_dir, {"read_file", "write_file", "terminal"}),
+    )
+    task_run_id = _seed_active_work(runtime, task_run_id="taskrun:active-turn-preserve-capabilities", session_id="session-active-preserve")
+    host = runtime.single_agent_runtime_host
+    host.active_turn_registry.start(session_id="session-active-preserve", turn_id="turn:active-preserve:current")
+    host.active_turn_registry.bind_task_run(
+        session_id="session-active-preserve",
+        turn_id="turn:active-preserve:current",
+        task_run_id=task_run_id,
+        state="waiting_executor",
+    )
+
+    async def _collect() -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime.astream(
+            HarnessRuntimeRequest(
+                session_id="session-active-preserve",
+                message="这个先放着，检查一下项目文件。",
+                task_selection={
+                    "task_environment_id": "env.development.sandbox",
+                    "control_capabilities": {
+                        "may_call_tools": True,
+                        "may_request_task_run": True,
+                        "may_control_active_work": True,
+                    },
+                },
+            )
+        ):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_collect())
+    assembly = dict(next(event for event in events if event.get("type") == "runtime_assembly_compiled").get("runtime_assembly") or {})
+    start = dict(next(event for event in events if event.get("type") == "single_agent_turn_started"))
+    stable_payload = _packet_payload_after_title(
+        str(model.last_messages[1].get("content") or ""),
+        "Single agent turn stable boundary",
+    )
+    packet_tools = {str(dict(tool).get("name") or "") for tool in list(model.seen_tools[0] or [])}
+    capabilities = dict(assembly.get("control_capabilities") or {})
+    effective_capabilities = dict(stable_payload.get("control_capabilities") or {})
+
+    assert capabilities.get("may_call_tools") is True
+    assert capabilities.get("may_request_task_run") is True
+    assert "tool_call" in start.get("allowed_action_types")
+    assert "request_task_run" in start.get("allowed_action_types")
+    assert {"read_file", "write_file", "terminal"} <= packet_tools
+    assert effective_capabilities.get("may_call_tools") is True
+    assert effective_capabilities.get("may_request_task_run") is True
+    assert dict(dict(assembly.get("task_selection") or {}).get("runtime_facts") or {}).get("active_turn_capability_policy") == "preserve_user_granted_capabilities"
+
+
 def test_active_work_control_requires_expected_active_turn_id_for_bound_active_turn() -> None:
     model = _ActiveWorkDecisionModelRuntime([
         {
@@ -4051,7 +4568,7 @@ def test_task_run_permission_without_tools_uses_single_agent_turn_for_direct_ans
 
 
 def test_single_agent_turn_request_task_run_tool_starts_real_task_lifecycle() -> None:
-    model = NativeToolCallModelRuntimeStub(
+    model = _UnexpectedNativeToolCallModelRuntime(
         tool_calls=[
             {
                 "id": "call-request-task-run",
@@ -4062,6 +4579,7 @@ def test_single_agent_turn_request_task_run_tool_starts_real_task_lifecycle() ->
                     "required_artifacts": [{"artifact_kind": "html_app", "user_visible_name": "页面"}],
                     "required_verifications": [{"verification_kind": "file_exists"}],
                     "completion_criteria": ["页面文件真实存在"],
+                    "public_progress_note": "我先把页面目标转成可执行任务，然后推进实现和文件验证。",
                 },
             }
         ]
@@ -4094,7 +4612,6 @@ def test_single_agent_turn_request_task_run_tool_starts_real_task_lifecycle() ->
     stored_task = runtime.single_agent_runtime_host.state_index.get_task_run(task_run_id)
 
     assert branch.get("branch_kind") == "single_agent_turn"
-    assert model.seen_tools and any(dict(tool).get("name") == "request_task_run" for tool in list(model.seen_tools[0] or []))
     admissions = _admission_payloads(events)
     assert admissions
     assert dict(admissions[0].get("admission") or {}).get("decision") == "allow"
@@ -4105,7 +4622,9 @@ def test_single_agent_turn_request_task_run_tool_starts_real_task_lifecycle() ->
     assert task_run_id.startswith("taskrun:")
     assert stored_task is not None
     assert dict(getattr(stored_task, "diagnostics", {}) or {}).get("origin_kind") == "single_agent_turn_native_action"
-    assert any(event.get("type") == "done" and "交付一个真实页面" in str(event.get("content") or "") for event in events)
+    assert any(event.get("type") == "assistant_text" and "页面目标转成可执行任务" in str(event.get("content") or "") for event in events)
+    assert any(event.get("type") == "done" and "页面目标转成可执行任务" in str(event.get("content") or "") for event in events)
+    assert not any(event.get("type") == "done" and "我会按这个目标推进" in str(event.get("content") or "") for event in events)
 
 
 def test_single_agent_turn_json_request_task_run_starts_real_task_lifecycle() -> None:
@@ -4114,6 +4633,7 @@ def test_single_agent_turn_json_request_task_run_starts_real_task_lifecycle() ->
             [
                 _action_request(
                     action_type="request_task_run",
+                    public_progress_note="我先把 JSON 页面目标转成持续任务，然后推进实现和验证。",
                     task_contract_seed={
                         "user_visible_goal": "交付一个 JSON 协议页面。",
                         "task_run_goal": "通过 JSON action 创建页面任务。",
@@ -4161,11 +4681,60 @@ def test_single_agent_turn_json_request_task_run_starts_real_task_lifecycle() ->
     assert task_run_id.startswith("taskrun:")
     assert stored_task is not None
     assert dict(getattr(stored_task, "diagnostics", {}) or {}).get("origin_kind") == "single_agent_turn_json_action"
+    messages = runtime.session_manager.load_session("session-json-taskrun")
+    assert any(
+        item.get("role") == "assistant"
+        and item.get("content") == "我先把 JSON 页面目标转成持续任务，然后推进实现和验证。"
+        for item in messages
+    )
+    assert any(event.get("type") == "assistant_text" and "JSON 页面目标转成持续任务" in str(event.get("content") or "") for event in events)
+    assert any(event.get("type") == "done" and "JSON 页面目标转成持续任务" in str(event.get("content") or "") for event in events)
     assert not any(event.get("type") == "done" and "harness.loop.model_action_request" in str(event.get("content") or "") for event in events)
+    assert not any(event.get("type") == "done" and "我会按这个目标推进" in str(event.get("content") or "") for event in events)
 
 
-def test_single_agent_turn_multiple_native_actions_fail_closed() -> None:
-    model = NativeToolCallModelRuntimeStub(
+def test_single_agent_turn_multiple_native_control_actions_repair_to_single_control_action() -> None:
+    model = _UnexpectedNativeToolCallModelRuntime(
+        tool_calls=[
+            {
+                "id": "call-ask-user",
+                "name": "ask_user",
+                "args": {"question": "请补充目标平台。"},
+            },
+            {
+                "id": "call-block",
+                "name": "block",
+                "args": {"reason": "当前环境缺少必要授权。"},
+            },
+        ],
+        repair_action=_action_request(
+            action_type="ask_user",
+            user_question="请补充目标平台。",
+            public_progress_note="需要用户补充目标平台后才能继续。",
+        ),
+    )
+    runtime = build_harness_runtime(model_runtime=model)
+
+    async def _collect() -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime.astream(HarnessRuntimeRequest(session_id="session-multiple-native-actions", message="帮我做适配。")):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_collect())
+    admissions = _admission_payloads(events)
+
+    assert len(admissions) == 1
+    assert dict(admissions[0].get("admission") or {}).get("decision") == "allow"
+    admitted_action = dict(admissions[0].get("model_action_request") or {})
+    assert admitted_action.get("action_type") == "ask_user"
+    assert dict(admitted_action.get("diagnostics") or {}).get("protocol_repair", {}).get("original_error_code") == "single_agent_turn_multiple_native_actions"
+    assert not any(dict(payload.get("model_action_request") or {}).get("action_type") == "block" for payload in admissions)
+    assert any(event.get("type") == "done" and "请补充目标平台" in str(event.get("content") or "") for event in events)
+
+
+def test_single_agent_turn_multiple_native_control_actions_do_not_execute_original_when_repair_fails() -> None:
+    model = _UnexpectedNativeToolCallModelRuntime(
         tool_calls=[
             {
                 "id": "call-ask-user",
@@ -4183,29 +4752,29 @@ def test_single_agent_turn_multiple_native_actions_fail_closed() -> None:
 
     async def _collect() -> list[dict[str, object]]:
         events: list[dict[str, object]] = []
-        async for event in runtime.astream(HarnessRuntimeRequest(session_id="session-multiple-native-actions", message="帮我做适配。")):
+        async for event in runtime.astream(HarnessRuntimeRequest(session_id="session-multiple-native-actions-repair-fails", message="帮我做适配。")):
             events.append(event)
         return events
 
     events = asyncio.run(_collect())
 
     assert not _admission_payloads(events)
-    assert any(event.get("type") == "done" and "多个系统动作" in str(event.get("content") or "") for event in events)
+    assert not any(event.get("type") == "done" and "当前环境缺少必要授权" in str(event.get("content") or "") for event in events)
     assert any(
         event.get("type") == "agent_turn_terminal"
-        and dict(dict(event.get("event") or {}).get("payload") or {}).get("terminal_reason") == "single_agent_turn_multiple_native_actions"
+        and dict(dict(event.get("event") or {}).get("payload") or {}).get("terminal_reason") == "single_agent_turn_protocol_repair_failed"
         for event in events
     )
 
 
-def test_single_agent_turn_ask_user_tool_goes_through_admission() -> None:
-    model = NativeToolCallModelRuntimeStub(
-        tool_calls=[
-            {
-                "id": "call-ask-user",
-                "name": "ask_user",
-                "args": {"question": "请补充目标平台。"},
-            }
+def test_single_agent_turn_json_ask_user_goes_through_admission() -> None:
+    model = _TurnActionSequenceModelRuntime(
+        [
+            _action_request(
+                action_type="ask_user",
+                user_question="请补充目标平台。",
+                public_progress_note="需要用户补充目标平台后才能继续。",
+            )
         ]
     )
     runtime = build_harness_runtime(model_runtime=model)
@@ -4225,14 +4794,14 @@ def test_single_agent_turn_ask_user_tool_goes_through_admission() -> None:
     assert any(event.get("type") == "done" and "请补充目标平台" in str(event.get("content") or "") for event in events)
 
 
-def test_single_agent_turn_block_tool_goes_through_admission() -> None:
-    model = NativeToolCallModelRuntimeStub(
-        tool_calls=[
-            {
-                "id": "call-block",
-                "name": "block",
-                "args": {"reason": "当前环境缺少必要授权。"},
-            }
+def test_single_agent_turn_json_block_goes_through_admission() -> None:
+    model = _TurnActionSequenceModelRuntime(
+        [
+            _action_request(
+                action_type="block",
+                blocking_reason="当前环境缺少必要授权。",
+                public_progress_note="当前请求无法继续执行。",
+            )
         ]
     )
     runtime = build_harness_runtime(model_runtime=model)

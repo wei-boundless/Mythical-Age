@@ -8,12 +8,21 @@ from permissions.model_visible_operations import (
     is_model_visible_agent_operation,
     is_model_visible_state_operation,
 )
+from permissions.policy import normalize_permission_mode
 from permissions.resource_policy import ResourceDecision, ResourcePolicy
 from permissions.resource_policy_builder import RuntimeApprovalContext
 from permissions.resource_scope_mapping import map_operations_to_resource_scopes
 from orchestration.runtime_directive import RuntimeDirective
 
 SANDBOX_SIDE_EFFECT_OPERATIONS = {"op.write_file", "op.edit_file", "op.shell", "op.python_repl"}
+EXPLICIT_HUMAN_APPROVAL_POLICIES = {
+    "manual_approval_required",
+    "requires_human_approval",
+    "human_approval_required",
+    "runtime_approval_required",
+    "always_ask",
+}
+DENY_DESTRUCTIVE_APPROVAL_POLICIES = {"deny_destructive"}
 
 
 def build_model_response_runtime_admission(
@@ -23,6 +32,7 @@ def build_model_response_runtime_admission(
     agent_runtime_profile: AgentRuntimeProfile | None = None,
     approval_context: RuntimeApprovalContext | None = None,
     sandbox_policy: dict[str, Any] | None = None,
+    permission_mode: str = "default",
 ) -> tuple[RuntimeDirective, ResourcePolicy]:
     """Admit the current single-agent model lane into an executable directive.
 
@@ -33,6 +43,7 @@ def build_model_response_runtime_admission(
 
     registry = operation_registry
     context = approval_context or RuntimeApprovalContext()
+    mode = normalize_permission_mode(permission_mode)
     task_contract = dict(task_operation.get("task_contract") or {})
     task_execution_assembly = dict(task_operation.get("task_execution_assembly") or {})
     task_body_orchestration = dict(task_operation.get("task_body_orchestration") or {})
@@ -45,6 +56,7 @@ def build_model_response_runtime_admission(
         agent_runtime_profile=agent_runtime_profile,
         approval_context=context,
         sandbox_policy=dict(sandbox_policy or {}),
+        permission_mode=mode,
     )
     allowed_operations = tuple(decision.operation_id for decision in decisions if decision.decision == "allow")
     denied_operations = tuple(decision.operation_id for decision in decisions if decision.decision == "deny")
@@ -100,6 +112,7 @@ def build_model_response_runtime_admission(
                 operation in {"op.write_file", "op.edit_file"} for operation in allowed_operations
             ),
             "sandbox_policy": _public_sandbox_policy(sandbox_policy),
+            "permission_mode": mode,
             "admission_owner": "harness.runtime_admission",
             "authorization_inputs": {
                 "task_operation_requirement": True,
@@ -202,6 +215,7 @@ def _build_runtime_decisions(
     agent_runtime_profile: AgentRuntimeProfile | None,
     approval_context: RuntimeApprovalContext,
     sandbox_policy: dict[str, Any],
+    permission_mode: str,
 ) -> list[ResourceDecision]:
     requested = _requested_operations(task_operation)
     agent_allowed = _agent_allowed_operations(agent_runtime_profile)
@@ -220,6 +234,7 @@ def _build_runtime_decisions(
                 approval_context=approval_context,
                 approval_policy=approval_policy,
                 sandbox_policy=sandbox_policy,
+                permission_mode=permission_mode,
             )
         )
     if not any(decision.operation_id == "op.model_response" for decision in decisions):
@@ -271,6 +286,7 @@ def _decide_runtime_operation(
     approval_context: RuntimeApprovalContext,
     approval_policy: str,
     sandbox_policy: dict[str, Any],
+    permission_mode: str,
 ) -> ResourceDecision:
     if operation_id in agent_blocked:
         return ResourceDecision(
@@ -314,6 +330,19 @@ def _decide_runtime_operation(
             reason="mcp and agent operations are not exposed to the model as direct tools",
             risk_tags=descriptor.risk_tags,
         )
+    if normalize_permission_mode(permission_mode) in {"full_access", "bypass"}:
+        return ResourceDecision(
+            operation_id=descriptor.operation_id,
+            decision="allow",
+            reason=f"operation allowed by runtime permission mode {normalize_permission_mode(permission_mode)}",
+            risk_tags=descriptor.risk_tags,
+            diagnostics={
+                "permission_mode": normalize_permission_mode(permission_mode),
+                "approval_policy": approval_policy,
+                "requires_approval_by_default": bool(descriptor.requires_approval_by_default),
+                "destructive": bool(descriptor.destructive),
+            },
+        )
     if approval_policy == "task_bounded_write" and descriptor.operation_id in {"op.write_file", "op.edit_file"}:
         return ResourceDecision(
             operation_id=descriptor.operation_id,
@@ -333,7 +362,7 @@ def _decide_runtime_operation(
                 "sandbox": _public_sandbox_policy(sandbox_policy),
             },
         )
-    if descriptor.requires_approval_by_default or descriptor.destructive:
+    if _approval_policy_requires_human_gate(approval_policy):
         approval_available = bool(
             approval_context.approval_hook_available
             or approval_context.bubble_to_parent_allowed
@@ -343,23 +372,36 @@ def _decide_runtime_operation(
             return ResourceDecision(
                 operation_id=descriptor.operation_id,
                 decision="deny",
-                reason="approval unavailable for operation",
+                reason="explicit approval policy unavailable for operation",
                 risk_tags=descriptor.risk_tags,
                 diagnostics={"headless_mode": approval_context.headless_mode},
             )
         return ResourceDecision(
             operation_id=descriptor.operation_id,
             decision="requires_approval",
-            reason="operation requires approval before execution",
+            reason="operation is held by explicit human approval policy",
             risk_tags=descriptor.risk_tags,
             requires_user_approval=True,
             approval_channel="runtime_approval",
         )
+    if _approval_policy_denies_destructive(approval_policy) and descriptor.destructive:
+        return ResourceDecision(
+            operation_id=descriptor.operation_id,
+            decision="deny",
+            reason="destructive operation denied by explicit approval policy",
+            risk_tags=descriptor.risk_tags,
+            diagnostics={"approval_policy": approval_policy},
+        )
     return ResourceDecision(
         operation_id=descriptor.operation_id,
         decision="allow",
-        reason="operation allowed by task requirement and agent capability profile",
+        reason="operation allowed by task requirement, agent capability profile, and runtime boundary",
         risk_tags=descriptor.risk_tags,
+        diagnostics={
+            "requires_approval_by_default": bool(descriptor.requires_approval_by_default),
+            "destructive": bool(descriptor.destructive),
+            "approval_policy": approval_policy,
+        },
     )
 
 
@@ -372,6 +414,14 @@ def _approval_policy(task_operation: dict[str, Any], profile: AgentRuntimeProfil
     if profile is not None and profile.approval_policy:
         return str(profile.approval_policy)
     return explicit_policy or "default"
+
+
+def _approval_policy_requires_human_gate(approval_policy: str) -> bool:
+    return str(approval_policy or "").strip().lower() in EXPLICIT_HUMAN_APPROVAL_POLICIES
+
+
+def _approval_policy_denies_destructive(approval_policy: str) -> bool:
+    return str(approval_policy or "").strip().lower() in DENY_DESTRUCTIVE_APPROVAL_POLICIES
 
 
 def _sandbox_allows_side_effect(operation_id: str, *, sandbox_policy: dict[str, Any]) -> bool:

@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useRef } from "react";
-import { Play, Square } from "lucide-react";
 
 import { ChatInput } from "@/components/chat/ChatInput";
 import { ChatMessage } from "@/components/chat/ChatMessage";
@@ -19,12 +18,15 @@ export function ChatPanel() {
     sessionActivity,
     currentSessionId,
     taskGraphLiveMonitor,
-    stopActiveTaskRun,
+    pauseActiveTaskRun,
     resumeActiveTaskRun,
     conversationActiveEnvironment,
     workspaceInitializing,
     modelProviderConfig,
     imageAssetConfig,
+    permissionMode,
+    supportedPermissionModes,
+    setPermissionMode,
     chatThinkingMode,
     setChatThinkingMode,
     selectedChatModelId,
@@ -55,7 +57,7 @@ export function ChatPanel() {
   );
   const terminalTaskStatuses = new Set(["completed", "done", "failed", "error", "cancelled", "canceled", "stopped", "aborted", "user_aborted"]);
   const terminalControlStates = new Set(["stopped", "aborted", "user_aborted"]);
-  const canStopSingleAgentTask = Boolean(
+  const canControlSingleAgentTask = Boolean(
     isSingleAgentTaskMonitor
     && singleAgentTaskRunId
     && !terminalTaskStatuses.has(monitorStatus)
@@ -67,10 +69,29 @@ export function ChatPanel() {
     && !currentSessionStreaming
     && (
       monitorStatus === "waiting_executor"
+      || monitorStatus === "blocked"
       || monitorControlState === "paused"
       || monitorControlState === "pause_requested"
     ),
   );
+  const canInterruptSingleAgentTask = Boolean(
+    canControlSingleAgentTask
+    && !currentSessionStreaming
+    && monitorStatus !== "waiting_executor"
+    && monitorControlState !== "paused"
+    && monitorControlState !== "pause_requested"
+  );
+  const chatPrimaryTaskAction = canResumeSingleAgentTask
+    ? {
+        kind: "resume" as const,
+        onAction: resumeActiveTaskRun,
+      }
+    : canInterruptSingleAgentTask
+      ? {
+          kind: "interrupt" as const,
+          onAction: pauseActiveTaskRun,
+        }
+      : null;
   const lastEditableUserMessageId = useMemo(() => {
     for (let index = messages.length - 1; index >= 0; index -= 1) {
       const message = messages[index];
@@ -130,30 +151,6 @@ export function ChatPanel() {
       <div className="chat-panel-footer min-w-0">
         <div className="chat-panel-status-row">
           <SessionActivityBar activity={sessionActivity} active={currentSessionStreaming} />
-          {canStopSingleAgentTask ? (
-            <button
-              className="chat-runtime-action chat-runtime-action--stop"
-              onClick={() => {
-                void stopActiveTaskRun();
-              }}
-              type="button"
-            >
-              <Square size={13} />
-              停止任务
-            </button>
-          ) : null}
-          {canResumeSingleAgentTask ? (
-            <button
-              className="chat-runtime-action"
-              onClick={() => {
-                void resumeActiveTaskRun();
-              }}
-              type="button"
-            >
-              <Play size={13} />
-              继续
-            </button>
-          ) : null}
           {conversationActiveEnvironment ? (
             <div className="chat-task-environment-binding" title={conversationActiveEnvironment.task_environment_id}>
               <span>环境</span>
@@ -168,10 +165,14 @@ export function ChatPanel() {
         <ChatInput
           disabled={workspaceInitializing}
           streaming={currentSessionStreaming}
+          taskPrimaryAction={chatPrimaryTaskAction}
           onSend={sendMessage}
           onStop={stopCurrentStream}
           modelProviderConfig={modelProviderConfig}
           imageAssetConfig={imageAssetConfig}
+          permissionMode={permissionMode}
+          supportedPermissionModes={supportedPermissionModes}
+          onSelectPermissionMode={setPermissionMode}
           onSelectChatModel={setSelectedChatModel}
           selectedChatModelId={selectedChatModelId}
           chatThinkingMode={chatThinkingMode}

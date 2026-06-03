@@ -11,6 +11,8 @@ from permissions.resource_policy import ResourcePolicy
 PERMISSION_MODE_DEFAULT = "default"
 PERMISSION_MODE_DONT_ASK = "dont_ask"
 PERMISSION_MODE_HEADLESS = "headless"
+PERMISSION_MODE_FULL_ACCESS = "full_access"
+PERMISSION_MODE_BYPASS = "bypass"
 DANGEROUS_ALLOW_RISK_TAGS = {
     "shell_execution",
     "python_execution",
@@ -244,6 +246,8 @@ class OperationGate:
         directive_ref: str,
         context: OperationGatePipelineContext,
     ) -> OperationGateResult | None:
+        if context.permission_mode in {PERMISSION_MODE_FULL_ACCESS, PERMISSION_MODE_BYPASS}:
+            return None
         approval_token = self._resolve_approval_token(
             descriptor.operation_id,
             directive_ref=directive_ref,

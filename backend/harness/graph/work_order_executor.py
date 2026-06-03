@@ -197,10 +197,19 @@ class GraphNodeWorkOrderExecutor:
             result_status=result_status,
         )
         quality_gate_failed = bool(result_status == "completed" and quality_acceptance and not bool(quality_acceptance.get("accepted")))
+        has_quality_repair_route = bool(
+            result_status == "completed" and quality_gate_failed and _has_quality_repair_route(graph_config, work_order.node_id)
+        )
+        recoverable_quality_failure = bool(
+            result_status == "completed"
+            and quality_gate_failed
+            and not has_quality_repair_route
+            and _quality_failure_requeues_same_node(graph_config=graph_config, work_order=work_order)
+        )
         effective_result_status = (
             "completed"
-            if result_status == "completed" and quality_gate_failed and _has_quality_repair_route(graph_config, work_order.node_id)
-            else ("failed" if quality_gate_failed else result_status)
+            if has_quality_repair_route
+            else ("blocked" if recoverable_quality_failure else ("failed" if quality_gate_failed else result_status))
         )
         result_error = (
             _node_result_error(
@@ -208,6 +217,7 @@ class GraphNodeWorkOrderExecutor:
                 task_run_payload=task_run_payload,
                 postprocess_errors=postprocess_errors,
                 quality_acceptance=quality_acceptance,
+                recoverable=bool(recoverable_quality_failure),
             )
             if result_status != "completed" or quality_gate_failed
             else {}
@@ -1499,6 +1509,7 @@ def _node_result_error(
     task_run_payload: dict[str, Any],
     postprocess_errors: list[dict[str, Any]],
     quality_acceptance: dict[str, Any],
+    recoverable: bool = False,
 ) -> dict[str, Any]:
     if quality_acceptance and not bool(quality_acceptance.get("accepted")):
         return {
@@ -1507,6 +1518,18 @@ def _node_result_error(
             "issues": [str(item) for item in list(quality_acceptance.get("issues") or []) if str(item)],
             "policy": str(quality_acceptance.get("policy") or ""),
             "authority": "harness.graph.work_order_executor.quality_gate",
+            **(
+                {
+                    "recoverable_error": {
+                        "error_code": "quality_gate_failed",
+                        "retryable": True,
+                        "recovery_action": "requeue_same_graph_node_with_quality_feedback",
+                        "user_message": "质量门未通过，系统会把字数统计和原文回灌给同一节点重修。",
+                    }
+                }
+                if recoverable
+                else {}
+            ),
             **({"postprocess_errors": postprocess_errors} if postprocess_errors else {}),
         }
     return {
@@ -1528,12 +1551,24 @@ def _has_quality_repair_route(graph_config: GraphHarnessConfig, node_id: str) ->
         payload = dict(edge or {})
         if str(payload.get("source_node_id") or "").strip() != source:
             continue
-        target = str(payload.get("target_node_id") or "").strip().lower()
         edge_type = str(payload.get("edge_type") or "").strip().lower()
         semantic_role = str(payload.get("semantic_role") or "").strip().lower()
-        if "self_repair" in target or edge_type in {"revision_request", "repair_feedback", "repair_route"} or semantic_role in {"revision", "repair"}:
+        metadata = dict(payload.get("metadata") or {})
+        dependency_role = str(metadata.get("dependency_role") or payload.get("dependency_role") or "").strip().lower()
+        if (
+            edge_type in {"revision_request", "repair_feedback", "repair_route"}
+            or semantic_role in {"revision", "repair"}
+            or dependency_role in {"repair_feedback", "repair_route"}
+        ):
             return True
     return False
+
+
+def _quality_failure_requeues_same_node(*, graph_config: GraphHarnessConfig, work_order: GraphNodeWorkOrder) -> bool:
+    node = _graph_node_by_id(graph_config, work_order.node_id)
+    retry_policy = dict(node.get("retry") or work_order.retry_policy or {})
+    mode = str(retry_policy.get("quality_failure_mode") or retry_policy.get("failure_mode") or "").strip().lower()
+    return mode in {"retry_same_node", "requeue_same_node"}
 
 
 def _graph_node_by_id(graph_config: GraphHarnessConfig, node_id: str) -> dict[str, Any]:

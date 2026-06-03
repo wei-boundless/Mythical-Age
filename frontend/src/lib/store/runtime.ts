@@ -14,9 +14,12 @@ import {
   getWorkspaceContext,
   getOrchestrationHarnessSessionLiveMonitor,
   pauseOrchestrationHarnessTaskRun,
+  getPermissionMode,
   getRagMode,
   resumeOrchestrationHarnessTaskRun,
+  setPermissionMode as setRuntimePermissionMode,
   setSessionActiveTaskEnvironment,
+  setSessionPermissionMode,
   getSessionHistory,
   getSessionTimeline,
   getSessionTokens,
@@ -36,9 +39,9 @@ import {
 import type { ChatStreamCursor, GlobalRuntimeMonitor, PublicChatTimelineItem, RuntimeMonitorEventPayload, SessionRuntimeAttachment, SessionScope, SessionSummary } from "@/lib/api";
 
 import { createIdleSessionActivity, type Store } from "./core";
-import { reduceStreamEvent, startStreamingTurn, type StreamSession } from "./events";
+import { reduceStreamEvent, startQueuedActiveTurn, startStreamingTurn, type StreamSession } from "./events";
 import { RuntimeMonitorController } from "../runtime-monitor/controller";
-import type { ChatMode, ChatModelSelection, ChatTaskEnvironmentBinding, ChatThinkingMode, Message, RuntimeProgressEntry, SearchPolicySource, SessionPoolKey, SessionRef, StoreActions, StoreState, TaskEnvironmentWorkspaceView, TaskGraphCenterWorkspaceTarget, TaskGraphMonitorBinding, TaskSelectionState, WorkspaceView } from "./types";
+import type { ActiveTurnSnapshot, ChatMode, ChatModelSelection, ChatTaskEnvironmentBinding, ChatThinkingMode, Message, PermissionMode, RuntimeProgressEntry, SearchPolicySource, SessionPoolKey, SessionRef, StoreActions, StoreState, TaskEnvironmentWorkspaceView, TaskGraphCenterWorkspaceTarget, TaskGraphMonitorBinding, TaskSelectionState, WorkspaceView } from "./types";
 import { makeId, toUiMessages } from "./utils";
 
 type HarnessSessionMonitor = NonNullable<Awaited<ReturnType<typeof getOrchestrationHarnessSessionLiveMonitor>>["monitor"]>;
@@ -47,6 +50,7 @@ const MAX_LIVE_RUNTIME_PROGRESS_ENTRIES = 24;
 const MAIN_CHAT_POOL_KEY: SessionPoolKey = "main-chat";
 const GENERAL_TASK_ENVIRONMENT_ID = "env.general.workspace";
 const CODING_TASK_ENVIRONMENT_ID = "env.coding.vibe_workspace";
+const DEFAULT_PERMISSION_MODE: PermissionMode = "full_access";
 const GRAPH_ONLY_TASK_ENVIRONMENT_IDS = new Set(["env.creation.writing"]);
 const CODE_TASK_ENVIRONMENT_IDS = new Set([CODING_TASK_ENVIRONMENT_ID, "env.development.sandbox"]);
 
@@ -81,17 +85,18 @@ function sessionPoolKeyForScope(scope: Partial<SessionScope> | undefined): Sessi
 type TaskEnvironmentCatalogItem = NonNullable<StoreState["taskEnvironmentCatalog"]>["environments"][number];
 
 function taskEnvironmentIdOf(item: TaskEnvironmentCatalogItem | null | undefined) {
-  return String(item?.record?.environment_id || "").trim();
+  const record = (item?.record ?? {}) as Record<string, unknown>;
+  return String(record.environment_id || "").trim();
 }
 
 function taskEnvironmentLabelOf(item: TaskEnvironmentCatalogItem | null | undefined) {
-  const record = item?.record ?? {};
+  const record = (item?.record ?? {}) as Record<string, unknown>;
   const environmentId = String(record.environment_id || "").trim();
   return String(record.title || environmentId).trim() || environmentId;
 }
 
 function isCatalogEnvironmentVisible(item: TaskEnvironmentCatalogItem) {
-  const record = item.record ?? {};
+  const record = (item.record ?? {}) as Record<string, unknown>;
   if (record.enabled === false) {
     return false;
   }
@@ -106,11 +111,13 @@ export class WorkspaceRuntime {
   private runtimeMonitorController: RuntimeMonitorController;
   private sessionRefreshTimers: number[] = [];
   private sessionListFailureNotifiedAt = 0;
-  private streamingSessionCache = new Map<string, Pick<StoreState, "messages" | "orchestrationSnapshot">>();
+  private streamingSessionCache = new Map<string, Pick<StoreState, "messages" | "orchestrationSnapshot" | "activeTurnSnapshot">>();
   private removedStreamingSessionIds = new Set<string>();
   private streamAbortControllers = new Map<string, AbortController>();
   private stoppedStreamingSessionIds = new Set<string>();
   private recoveringStreamSessionIds = new Set<string>();
+  private queuedUserInputsBySession = new Map<string, Array<{ content: string; messageId: string }>>();
+  private flushingQueuedUserInputs = new Set<string>();
 
   readonly actions: StoreActions;
 
@@ -170,6 +177,9 @@ export class WorkspaceRuntime {
       },
       toggleSearchPolicySource: (source) => {
         this.toggleSearchPolicySource(source);
+      },
+      setPermissionMode: async (mode) => {
+        await this.setPermissionMode(mode);
       },
       setSelectedChatModel: (selectionId) => {
         this.setSelectedChatModel(selectionId);
@@ -340,27 +350,39 @@ export class WorkspaceRuntime {
   }
 
   private async loadWorkspaceMetadata() {
-    const [rag, skills, modelProviderConfig, imageAssetConfig, workspaceContext] = await Promise.all([
+    const [rag, permissionMode, skills, modelProviderConfig, imageAssetConfig, workspaceContext] = await Promise.all([
       getRagMode().catch(() => null),
+      getPermissionMode().catch(() => null),
       listSkills().catch(() => []),
       getModelProviderConfig().catch(() => null),
       getImageAssetConfig().catch(() => null),
       getWorkspaceContext().catch(() => null),
     ]);
-    this.store.setState((prev) => ({
-      ...prev,
-      ragMode: Boolean(rag?.enabled),
-      searchPolicy: {
-        ...prev.searchPolicy,
-        rag: Boolean(rag?.enabled)
-      },
-      modelProviderConfig,
-      imageAssetConfig,
-      workspaceContext,
-      skills,
-      selectedChatMode: this.resolveSelectedChatMode(prev.selectedChatModelId, modelProviderConfig),
-      chatThinkingMode: chatThinkingModeFromProviderConfig(modelProviderConfig),
-    }));
+    this.store.setState((prev) => {
+      const supportedPermissionModes = Array.isArray(permissionMode?.supported_modes) && permissionMode.supported_modes.length
+        ? permissionMode.supported_modes.map(String)
+        : prev.supportedPermissionModes;
+      return {
+        ...prev,
+        ragMode: Boolean(rag?.enabled),
+        searchPolicy: {
+          ...prev.searchPolicy,
+          rag: Boolean(rag?.enabled)
+        },
+        permissionMode: this.permissionModeForSession(
+          prev.currentSessionId,
+          prev,
+          String(permissionMode?.mode || DEFAULT_PERMISSION_MODE),
+        ),
+        supportedPermissionModes,
+        modelProviderConfig,
+        imageAssetConfig,
+        workspaceContext,
+        skills,
+        selectedChatMode: this.resolveSelectedChatMode(prev.selectedChatModelId, modelProviderConfig),
+        chatThinkingMode: chatThinkingModeFromProviderConfig(modelProviderConfig),
+      };
+    });
   }
 
   private async loadInspectorMemoryFile() {
@@ -406,7 +428,13 @@ export class WorkspaceRuntime {
   private async refreshMainSessionPool() {
     const sessions = visibleMainChatSessions(await listSessions());
     this.sessionListFailureNotifiedAt = 0;
-    this.store.setState((prev) => ({ ...prev, sessions }));
+    this.store.setState((prev) => {
+      const nextState = { ...prev, sessions };
+      return {
+        ...nextState,
+        permissionMode: this.permissionModeForSession(prev.currentSessionId, nextState, prev.permissionMode),
+      };
+    });
     return sessions;
   }
 
@@ -476,6 +504,9 @@ export class WorkspaceRuntime {
         const conversationActiveEnvironment = this.shouldUseConversationEnvironment(prev.activeSessionRef ?? undefined)
           ? this.activeEnvironmentFromConversationState(history.conversation_state) ?? prev.conversationActiveEnvironment ?? this.defaultActiveTaskEnvironment()
           : prev.conversationActiveEnvironment;
+        const permissionMode = history.conversation_state
+          ? this.permissionModeFromConversationState(history.conversation_state)
+          : this.permissionModeForSession(sessionId, prev);
         const refreshedMessages = this.mergeVolatileMessageProgress(
           toUiMessages(
             history.messages,
@@ -488,8 +519,14 @@ export class WorkspaceRuntime {
           messages: refreshedMessages,
           tokenStats: tokens,
           conversationActiveEnvironment,
+          permissionMode,
           sessions: prev.sessions.map((session) => session.id === sessionId
-            ? { ...session, conversation_state: history.conversation_state }
+            ? {
+                ...session,
+                conversation_state: history.conversation_state
+                  ? history.conversation_state
+                  : this.conversationStateWithPermissionMode(session.conversation_state, permissionMode),
+              }
             : session
           ),
         };
@@ -594,6 +631,88 @@ export class WorkspaceRuntime {
     });
   }
 
+  private enqueueUserInputForSession(sessionId: string, content: string) {
+    const messageId = makeId();
+    const queued = this.queuedUserInputsBySession.get(sessionId) ?? [];
+    this.queuedUserInputsBySession.set(sessionId, [...queued, { content, messageId }]);
+    this.store.setState((prev) => {
+      const shouldPatchVisibleMessages = prev.currentSessionId === sessionId;
+      const nextMessages = shouldPatchVisibleMessages
+        ? [
+            ...prev.messages,
+            {
+              id: messageId,
+              role: "user" as const,
+              content,
+              toolCalls: [],
+              retrievals: [],
+            },
+          ]
+        : prev.messages;
+      return {
+        ...prev,
+        messages: nextMessages,
+        sessionActivity: prev.currentSessionId === sessionId
+          ? {
+              level: "running",
+              title: "已加入发送队列",
+              detail: "当前回合结束后会按顺序提交这条消息。",
+              event: "user_input_queued",
+              receipt: {
+                level: "running",
+                title: "已加入发送队列",
+                body: "当前回合结束后会按顺序提交这条消息。",
+                debug: { event: "user_input_queued" },
+              },
+              updatedAt: Date.now(),
+            }
+          : prev.sessionActivity,
+        sessionActivitiesById: {
+          ...prev.sessionActivitiesById,
+          [sessionId]: {
+            level: "running",
+            title: "已加入发送队列",
+            detail: "当前回合结束后会按顺序提交这条消息。",
+            event: "user_input_queued",
+            receipt: {
+              level: "running",
+              title: "已加入发送队列",
+              body: "当前回合结束后会按顺序提交这条消息。",
+              debug: { event: "user_input_queued" },
+            },
+            updatedAt: Date.now(),
+          },
+        },
+      };
+    });
+  }
+
+  private async flushQueuedUserInputsForSession(sessionId: string) {
+    if (this.flushingQueuedUserInputs.has(sessionId) || this.store.getState().activeStreamSessionIds.includes(sessionId)) {
+      return;
+    }
+    const queue = this.queuedUserInputsBySession.get(sessionId) ?? [];
+    const next = queue.shift();
+    if (!next) {
+      this.queuedUserInputsBySession.delete(sessionId);
+      return;
+    }
+    if (queue.length) {
+      this.queuedUserInputsBySession.set(sessionId, queue);
+    } else {
+      this.queuedUserInputsBySession.delete(sessionId);
+    }
+    this.flushingQueuedUserInputs.add(sessionId);
+    try {
+      await this.sendMessage(next.content, { queuedUserMessageId: next.messageId });
+    } finally {
+      this.flushingQueuedUserInputs.delete(sessionId);
+      if ((this.queuedUserInputsBySession.get(sessionId) ?? []).length) {
+        void this.flushQueuedUserInputsForSession(sessionId);
+      }
+    }
+  }
+
   private removeActiveStreamSession(prev: StoreState, sessionId: string): StoreState {
     const activeStreamSessionIds = prev.activeStreamSessionIds.filter((id) => id !== sessionId);
     return {
@@ -644,6 +763,7 @@ export class WorkspaceRuntime {
       ...prev,
       messages: streamState.messages,
       orchestrationSnapshot: streamState.orchestrationSnapshot,
+      activeTurnSnapshot: streamState.activeTurnSnapshot,
       taskGraphLiveMonitor: null,
       activeStreamSessionIds,
       isStreaming: activeStreamSessionIds.length > 0,
@@ -666,9 +786,16 @@ export class WorkspaceRuntime {
         this.activeEnvironmentForSession(created)
         ?? this.store.getState().conversationActiveEnvironment
         ?? this.defaultActiveTaskEnvironment();
+      const permissionMode = this.permissionModeForSession(created.id, { ...this.store.getState(), sessions: [created] }, DEFAULT_PERMISSION_MODE);
       this.store.setState((prev) => ({
         ...prev,
-        sessions: [created, ...prev.sessions.filter((session) => session.id !== created.id)],
+        sessions: [
+          {
+            ...created,
+            conversation_state: this.conversationStateWithPermissionMode(created.conversation_state, permissionMode),
+          },
+          ...prev.sessions.filter((session) => session.id !== created.id),
+        ],
         currentSessionId: created.id,
         activeSessionScope: null,
         activeSessionRef: {
@@ -676,10 +803,18 @@ export class WorkspaceRuntime {
           poolKey: MAIN_CHAT_POOL_KEY,
         },
         conversationActiveEnvironment,
+        permissionMode,
         messages: [],
         tokenStats: null
       }));
       this.store.setState((prev) => this.clearSessionActivityFor(prev, created.id));
+      await setSessionPermissionMode(created.id, permissionMode).catch((error) => {
+        console.debug("[workspace-runtime] default permission mode persist skipped", {
+          event: "conversation_permission_mode_default_persist_failed",
+          error: this.errorMessage(error, "默认权限模式写入失败。"),
+        });
+      });
+      this.projectPermissionModeToRuntime(permissionMode);
       await this.persistActiveTaskEnvironment(created.id, conversationActiveEnvironment).catch((error) => {
         console.debug("[workspace-runtime] default active task environment persist skipped", {
           event: "conversation_active_environment_default_persist_failed",
@@ -802,6 +937,65 @@ export class WorkspaceRuntime {
     return poolKey === MAIN_CHAT_POOL_KEY;
   }
 
+  private normalizePermissionMode(mode: string | null | undefined): PermissionMode {
+    const normalized = String(mode || "").trim();
+    return normalized || DEFAULT_PERMISSION_MODE;
+  }
+
+  private permissionModeFromConversationState(conversationState: SessionSummary["conversation_state"] | null | undefined) {
+    return this.normalizePermissionMode(conversationState?.permission_mode || DEFAULT_PERMISSION_MODE);
+  }
+
+  private permissionModeForSession(
+    sessionId: string | null | undefined,
+    state: StoreState,
+    fallback: string | null | undefined = DEFAULT_PERMISSION_MODE,
+  ) {
+    const normalizedSessionId = String(sessionId || "").trim();
+    if (!normalizedSessionId) {
+      return this.normalizePermissionMode(fallback);
+    }
+    const selectedSession = state.sessions.find((session) => session.id === normalizedSessionId);
+    if (selectedSession?.conversation_state) {
+      return this.permissionModeFromConversationState(selectedSession.conversation_state);
+    }
+    if (state.currentSessionId === normalizedSessionId && state.permissionMode) {
+      return this.normalizePermissionMode(state.permissionMode);
+    }
+    return this.normalizePermissionMode(fallback);
+  }
+
+  private conversationStateWithPermissionMode(
+    conversationState: SessionSummary["conversation_state"] | null | undefined,
+    permissionMode: PermissionMode,
+  ): NonNullable<SessionSummary["conversation_state"]> {
+    return {
+      ...(conversationState ?? {}),
+      permission_mode: this.normalizePermissionMode(permissionMode),
+      authority: conversationState?.authority || "sessions.conversation_state",
+    };
+  }
+
+  private projectPermissionModeToRuntime(permissionMode: PermissionMode) {
+    const mode = this.normalizePermissionMode(permissionMode);
+    void setRuntimePermissionMode(mode)
+      .then((result) => {
+        this.store.setState((prev) => ({
+          ...prev,
+          supportedPermissionModes: Array.isArray(result.supported_modes) && result.supported_modes.length
+            ? result.supported_modes.map(String)
+            : prev.supportedPermissionModes,
+        }));
+      })
+      .catch((error) => {
+        console.debug("[workspace-runtime] permission mode projection skipped", {
+          event: "permission_mode_projection_failed",
+          mode,
+          error: this.errorMessage(error, "权限模式投影失败。"),
+        });
+      });
+  }
+
   private taskEnvironmentCatalogItem(taskEnvironmentId: string) {
     const normalized = String(taskEnvironmentId || "").trim();
     if (!normalized) {
@@ -886,7 +1080,12 @@ export class WorkspaceRuntime {
       ...prev,
       conversationActiveEnvironment: prev.currentSessionId === sessionId ? nextActive : prev.conversationActiveEnvironment,
       sessions: prev.sessions.map((session) => session.id === sessionId
-        ? { ...session, conversation_state: conversationState }
+        ? {
+            ...session,
+            conversation_state: conversationState.permission_mode
+              ? conversationState
+              : this.conversationStateWithPermissionMode(conversationState, this.permissionModeForSession(sessionId, prev)),
+          }
         : session
       ),
     }));
@@ -903,36 +1102,44 @@ export class WorkspaceRuntime {
       const conversationActiveEnvironment = this.shouldUseConversationEnvironment(normalized)
         ? this.activeEnvironmentForSession(selectedSession) ?? this.store.getState().conversationActiveEnvironment ?? this.defaultActiveTaskEnvironment()
         : this.store.getState().conversationActiveEnvironment;
+      const permissionMode = this.permissionModeForSession(normalized.sessionId, this.store.getState());
       this.store.setState((prev) => ({
         ...prev,
         currentSessionId: normalized.sessionId,
         activeSessionScope: normalized.scope ?? null,
         activeSessionRef: normalized,
         conversationActiveEnvironment,
+        permissionMode,
         messages: streamingCache.messages,
         orchestrationSnapshot: streamingCache.orchestrationSnapshot,
+        activeTurnSnapshot: streamingCache.activeTurnSnapshot,
         taskGraphLiveMonitor: null,
         tokenStats: null
       }));
       this.store.setState((prev) => this.projectSelectedSessionActivity(prev, normalized.sessionId));
+      this.projectPermissionModeToRuntime(permissionMode);
       return true;
     }
     const selectedSession = this.store.getState().sessions.find((session) => session.id === normalized.sessionId);
     const conversationActiveEnvironment = this.shouldUseConversationEnvironment(normalized)
       ? this.activeEnvironmentForSession(selectedSession) ?? this.store.getState().conversationActiveEnvironment ?? this.defaultActiveTaskEnvironment()
       : this.store.getState().conversationActiveEnvironment;
+    const permissionMode = this.permissionModeForSession(normalized.sessionId, this.store.getState());
     this.store.setState((prev) => ({
       ...prev,
       currentSessionId: normalized.sessionId,
       activeSessionScope: normalized.scope ?? null,
       activeSessionRef: normalized,
       conversationActiveEnvironment,
+      permissionMode,
       messages: [],
       orchestrationSnapshot: null,
+      activeTurnSnapshot: null,
       taskGraphLiveMonitor: null,
       tokenStats: null
     }));
     this.store.setState((prev) => this.projectSelectedSessionActivity(prev, normalized.sessionId));
+    this.projectPermissionModeToRuntime(permissionMode);
     return false;
   }
 
@@ -990,22 +1197,32 @@ export class WorkspaceRuntime {
   }
 
   private applyActiveTurnSnapshotFromChatRun(run: { active_turn_snapshot?: Record<string, unknown> | null } | null | undefined) {
-    const snapshot = run?.active_turn_snapshot;
-    if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot)) {
-      return;
-    }
-    const turnId = String(snapshot.turn_id ?? "").trim();
-    if (!turnId) {
+    const activeTurnSnapshot = this.activeTurnSnapshotFromPayload(run?.active_turn_snapshot);
+    if (!activeTurnSnapshot) {
       return;
     }
     this.store.setState((prev) => ({
       ...prev,
-      activeTurnSnapshot: {
-        turn_id: turnId,
-        task_run_id: String(snapshot.bound_task_run_id ?? snapshot.task_run_id ?? "").trim(),
-        state: String(snapshot.state ?? "").trim(),
-      },
+      activeTurnSnapshot,
     }));
+  }
+
+  private activeTurnSnapshotFromPayload(value: unknown): ActiveTurnSnapshot | null {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      return null;
+    }
+    const payload = value as Record<string, unknown>;
+    const turnId = String(payload.turn_id ?? "").trim();
+    if (!turnId) {
+      return null;
+    }
+    return {
+      turn_id: turnId,
+      turn_run_id: String(payload.turn_run_id ?? "").trim() || undefined,
+      task_run_id: String(payload.bound_task_run_id ?? payload.task_run_id ?? "").trim() || undefined,
+      state: String(payload.state ?? "").trim() || undefined,
+      updated_at: Number(payload.updated_at ?? 0) || undefined,
+    };
   }
 
   private startRecoveredChatRunStream(sessionId: string, streamRunId: string, cursor: ChatStreamCursor | null) {
@@ -1059,6 +1276,7 @@ export class WorkspaceRuntime {
     this.streamingSessionCache.set(sessionId, {
       messages: streamState.messages,
       orchestrationSnapshot: streamState.orchestrationSnapshot,
+      activeTurnSnapshot: streamState.activeTurnSnapshot,
     });
     this.addActiveStreamSession(sessionId);
     this.deferMonitorPollingForActiveStream();
@@ -1093,6 +1311,7 @@ export class WorkspaceRuntime {
               this.streamingSessionCache.set(sessionId, {
                 messages: streamState.messages,
                 orchestrationSnapshot: streamState.orchestrationSnapshot,
+                activeTurnSnapshot: streamState.activeTurnSnapshot,
               });
               if (isCurrentStreamSession) {
                 this.applyVisibleStreamState(streamState, currentActiveStreamSessionIds);
@@ -1135,6 +1354,7 @@ export class WorkspaceRuntime {
         this.streamingSessionCache.set(sessionId, {
           messages: streamState.messages,
           orchestrationSnapshot: streamState.orchestrationSnapshot,
+          activeTurnSnapshot: streamState.activeTurnSnapshot,
         });
         if (this.store.getState().currentSessionId === sessionId) {
           this.applyVisibleStreamState(streamState, currentActiveStreamSessionIds);
@@ -1171,11 +1391,12 @@ export class WorkspaceRuntime {
         }
         this.refreshMainSessionPoolInBackground();
         this.scheduleSessionRefreshes();
+        void this.flushQueuedUserInputsForSession(sessionId);
       }
     })();
   }
 
-  private async sendMessage(value: string) {
+  private async sendMessage(value: string, options: { queuedUserMessageId?: string } = {}) {
     const trimmed = value.trim();
     const state = this.store.getState();
     if (!trimmed) {
@@ -1207,18 +1428,16 @@ export class WorkspaceRuntime {
       throw error;
     }
     if (this.store.getState().activeStreamSessionIds.includes(sessionId)) {
-      const error = new Error("当前会话仍在生成回答，请等待收口后再发送。");
-      this.store.setState((prev) => ({
-        ...prev,
-        sessionActivity: {
-          level: "running",
-          title: "正在生成回答",
-          detail: error.message,
-          event: "session_stream_already_active",
-          updatedAt: Date.now(),
-        },
-      }));
-      throw error;
+      if (options.queuedUserMessageId) {
+        const queued = this.queuedUserInputsBySession.get(sessionId) ?? [];
+        this.queuedUserInputsBySession.set(sessionId, [
+          { content: trimmed, messageId: options.queuedUserMessageId },
+          ...queued,
+        ]);
+        return;
+      }
+      this.enqueueUserInputForSession(sessionId, trimmed);
+      return;
     }
     this.removedStreamingSessionIds.delete(sessionId);
     this.stoppedStreamingSessionIds.delete(sessionId);
@@ -1230,30 +1449,39 @@ export class WorkspaceRuntime {
     const isImageGenerationTurn = Boolean(imageGeneration);
     let consumedEphemeralSystemMessages = false;
     let streamEndedWithError = false;
+    const preflightState = this.store.getState();
+    const activeTurnSnapshotForTransition = preflightState.currentSessionId === sessionId
+      ? preflightState.activeTurnSnapshot
+      : null;
+    const queueActiveTurnInput = this.shouldQueueActiveTurnInput(preflightState, sessionId);
     this.store.setState((prev) => ({
       ...prev,
       orchestrationSnapshot: null,
-      taskGraphLiveMonitor: null,
+      taskGraphLiveMonitor: queueActiveTurnInput ? prev.taskGraphLiveMonitor : null,
       orchestrationInspectorTarget: prev.orchestrationInspectorTarget?.source === "live-session"
         ? null
         : prev.orchestrationInspectorTarget,
     }));
-    let transition = startStreamingTurn(this.store.getState(), trimmed);
+    let transition = queueActiveTurnInput
+      ? startQueuedActiveTurn(this.store.getState(), trimmed, { existingUserMessageId: options.queuedUserMessageId })
+      : startStreamingTurn(this.store.getState(), trimmed, { existingUserMessageId: options.queuedUserMessageId });
     const nextSourceIndex = this.nextMessageSourceIndex(this.store.getState().messages);
     transition = {
       ...transition,
       state: {
         ...transition.state,
-        messages: transition.state.messages.map((message, index, list) =>
-          index === list.length - 2 && message.role === "user"
+        messages: transition.state.messages.map((message) =>
+          transition.session.userId && message.id === transition.session.userId
             ? { ...message, sourceIndex: nextSourceIndex }
-            : index === list.length - 1 && message.role === "assistant"
+            : !transition.session.queueOnly && transition.session.assistantId && message.id === transition.session.assistantId
               ? { ...message, sourceIndex: nextSourceIndex + 1 }
             : message
         )
       }
     };
-    const activeStreamSessionIds = this.store.getState().activeStreamSessionIds.includes(sessionId)
+    const activeStreamSessionIds = queueActiveTurnInput
+      ? this.store.getState().activeStreamSessionIds
+      : this.store.getState().activeStreamSessionIds.includes(sessionId)
       ? this.store.getState().activeStreamSessionIds
       : [...this.store.getState().activeStreamSessionIds, sessionId];
     let streamState: StoreState = {
@@ -1269,9 +1497,12 @@ export class WorkspaceRuntime {
     this.streamingSessionCache.set(sessionId, {
       messages: streamState.messages,
       orchestrationSnapshot: streamState.orchestrationSnapshot,
+      activeTurnSnapshot: streamState.activeTurnSnapshot,
     });
-    this.addActiveStreamSession(sessionId);
-    this.deferMonitorPollingForActiveStream();
+    if (!queueActiveTurnInput) {
+      this.addActiveStreamSession(sessionId);
+      this.deferMonitorPollingForActiveStream();
+    }
     if (isImageGenerationTurn) {
       this.store.setState((prev) => ({
         ...prev,
@@ -1283,6 +1514,11 @@ export class WorkspaceRuntime {
     }
 
     try {
+      const requestState = this.store.getState();
+      const activeTurnForRequest = activeTurnSnapshotForTransition ?? (
+        requestState.currentSessionId === sessionId ? requestState.activeTurnSnapshot : null
+      );
+      const permissionMode = this.permissionModeForSession(sessionId, requestState);
       const streamResult = await streamChat(
         {
           message: trimmed,
@@ -1290,10 +1526,11 @@ export class WorkspaceRuntime {
           session_scope: this.sessionScopeForSession(sessionId),
           ephemeral_system_messages: ephemeralSystemMessages,
           search_policy: searchPolicy,
-          task_selection: this.chatTaskSelectionPayload(state),
-          model_selection: this.chatModelSelectionPayload(state),
-          expected_active_turn_id: String(state.activeTurnSnapshot?.turn_id ?? ""),
-          active_turn_input_policy: state.activeTurnSnapshot?.turn_id ? "steer" : "auto",
+          task_selection: this.chatTaskSelectionPayload(requestState),
+          model_selection: this.chatModelSelectionPayload(requestState),
+          permission_mode: permissionMode,
+          expected_active_turn_id: String(activeTurnForRequest?.turn_id ?? ""),
+          active_turn_input_policy: activeTurnForRequest?.turn_id ? "steer" : "auto",
           image_generation: imageGeneration
             ? {
                 ...imageGeneration,
@@ -1310,7 +1547,9 @@ export class WorkspaceRuntime {
             const isCurrentStreamSession = this.store.getState().currentSessionId === sessionId;
             const baseState = isCurrentStreamSession ? this.store.getState() : streamState;
             transition = reduceStreamEvent(baseState, transition.session, event, data);
-            const currentActiveStreamSessionIds = this.store.getState().activeStreamSessionIds.includes(sessionId)
+            const currentActiveStreamSessionIds = queueActiveTurnInput
+              ? this.store.getState().activeStreamSessionIds
+              : this.store.getState().activeStreamSessionIds.includes(sessionId)
               ? this.store.getState().activeStreamSessionIds
               : [...this.store.getState().activeStreamSessionIds, sessionId];
             streamState = {
@@ -1327,6 +1566,7 @@ export class WorkspaceRuntime {
             this.streamingSessionCache.set(sessionId, {
               messages: streamState.messages,
               orchestrationSnapshot: streamState.orchestrationSnapshot,
+              activeTurnSnapshot: streamState.activeTurnSnapshot,
             });
             if (isCurrentStreamSession) {
               this.applyVisibleStreamState(streamState, currentActiveStreamSessionIds);
@@ -1354,7 +1594,9 @@ export class WorkspaceRuntime {
           ? { reason: "user_stopped" }
           : { error: error instanceof Error ? error.message : "unknown error" }
       );
-      const currentActiveStreamSessionIds = this.store.getState().activeStreamSessionIds.includes(sessionId)
+      const currentActiveStreamSessionIds = queueActiveTurnInput
+        ? this.store.getState().activeStreamSessionIds
+        : this.store.getState().activeStreamSessionIds.includes(sessionId)
         ? this.store.getState().activeStreamSessionIds
         : [...this.store.getState().activeStreamSessionIds, sessionId];
       streamState = {
@@ -1367,6 +1609,7 @@ export class WorkspaceRuntime {
       this.streamingSessionCache.set(sessionId, {
         messages: streamState.messages,
         orchestrationSnapshot: streamState.orchestrationSnapshot,
+        activeTurnSnapshot: streamState.activeTurnSnapshot,
       });
       if (this.store.getState().currentSessionId === sessionId) {
         this.applyVisibleStreamState(streamState, currentActiveStreamSessionIds);
@@ -1422,6 +1665,7 @@ export class WorkspaceRuntime {
       }
       this.refreshMainSessionPoolInBackground();
       this.scheduleSessionRefreshes();
+      void this.flushQueuedUserInputsForSession(sessionId);
     }
   }
 
@@ -1483,6 +1727,40 @@ export class WorkspaceRuntime {
       return "";
     }
     return String(snapshot?.turn_id ?? "").trim();
+  }
+
+  private shouldQueueActiveTurnInput(state: StoreState, sessionId: string) {
+    if (state.currentSessionId !== sessionId) {
+      return false;
+    }
+    const snapshot = state.activeTurnSnapshot;
+    const activeTurnId = String(snapshot?.turn_id ?? "").trim();
+    if (!activeTurnId) {
+      return false;
+    }
+    const activeTaskRunId = String(snapshot?.task_run_id ?? "").trim();
+    const monitor = state.taskGraphLiveMonitor;
+    if (monitor && activeTaskRunId) {
+      const taskRun = this.harnessMonitorTaskRun(monitor);
+      const monitorTaskRunId = String(taskRun.task_run_id ?? monitor.task_run_id ?? "").trim();
+      if (monitorTaskRunId === activeTaskRunId) {
+        const monitorRecord = monitor as Record<string, unknown>;
+        const route = monitorRecord.route && typeof monitorRecord.route === "object" && !Array.isArray(monitorRecord.route)
+          ? monitorRecord.route as Record<string, unknown>
+          : {};
+        const executionRuntimeKind = String(monitor.execution_runtime_kind ?? taskRun.execution_runtime_kind ?? "").trim();
+        const status = String(monitor.status ?? taskRun.status ?? "").trim();
+        const runtimeControl = monitor.runtime_control ?? {};
+        const controlState = String(monitor.control_state ?? runtimeControl.state ?? "").trim();
+        return (
+          executionRuntimeKind === "single_agent_task"
+          && String(route.kind ?? "").trim() !== "task_graph_run"
+          && ["created", "running"].includes(status)
+          && !["paused", "pause_requested", "stopped", "stop_requested"].includes(controlState)
+        );
+      }
+    }
+    return String(snapshot?.state ?? "").trim() === "running_task";
   }
 
   private async refreshActiveSessionMonitor() {
@@ -1579,6 +1857,70 @@ export class WorkspaceRuntime {
           }
         }));
       });
+    }
+  }
+
+  private async setPermissionMode(mode: PermissionMode) {
+    const requestedMode = this.normalizePermissionMode(mode);
+    const state = this.store.getState();
+    const sessionId = state.currentSessionId;
+    const sessionScope = sessionId ? this.sessionScopeForSession(sessionId) : undefined;
+    const previousMode = state.permissionMode;
+    const previousSessions = state.sessions;
+    this.store.setState((prev) => ({
+      ...prev,
+      permissionMode: requestedMode,
+      sessions: sessionId
+        ? prev.sessions.map((session) => session.id === sessionId
+          ? {
+              ...session,
+              conversation_state: this.conversationStateWithPermissionMode(session.conversation_state, requestedMode),
+            }
+          : session
+        )
+        : prev.sessions,
+    }));
+    try {
+      const [conversationState, result] = await Promise.all([
+        sessionId ? setSessionPermissionMode(sessionId, requestedMode, sessionScope) : Promise.resolve(null),
+        setRuntimePermissionMode(requestedMode),
+      ]);
+      this.store.setState((prev) => ({
+        ...prev,
+        permissionMode: String(result.mode || requestedMode),
+        sessions: sessionId && conversationState
+          ? prev.sessions.map((session) => session.id === sessionId
+            ? { ...session, conversation_state: conversationState }
+            : session
+          )
+          : prev.sessions,
+        supportedPermissionModes: Array.isArray(result.supported_modes) && result.supported_modes.length
+          ? result.supported_modes.map(String)
+          : prev.supportedPermissionModes,
+      }));
+    } catch (error) {
+      this.store.setState((prev) => ({
+        ...prev,
+        permissionMode: previousMode,
+        sessions: previousSessions,
+        sessionActivity: {
+          level: "error",
+          title: "权限模式切换失败",
+          detail: this.errorMessage(error, "无法更新运行权限模式。"),
+          event: "permission_mode_update_failed",
+          receipt: {
+            level: "error",
+            title: "权限模式切换失败",
+            body: this.errorMessage(error, "无法更新运行权限模式。"),
+            debug: {
+              event: "permission_mode_update_failed",
+              requestedMode,
+            },
+          },
+          updatedAt: Date.now(),
+        },
+      }));
+      throw error;
     }
   }
 
@@ -2243,10 +2585,23 @@ export class WorkspaceRuntime {
     }
     try {
       const liveMonitor = await getOrchestrationHarnessSessionLiveMonitor(targetSessionId);
+      const liveMonitorRecord = liveMonitor && typeof liveMonitor === "object" && !Array.isArray(liveMonitor)
+        ? liveMonitor as Record<string, unknown>
+        : {};
+      const activeTurnSnapshotFieldPresent = Object.prototype.hasOwnProperty.call(liveMonitorRecord, "active_turn_snapshot");
+      const activeTurnSnapshot = this.activeTurnSnapshotFromPayload(liveMonitorRecord.active_turn_snapshot);
       const activeMonitor = this.activeHarnessSessionMonitor(liveMonitor);
       if (!activeMonitor) {
         if (this.store.getState().currentSessionId === targetSessionId && this.orchestrationHydrateRequest === requestId) {
-          this.store.setState((prev) => ({ ...prev, taskGraphLiveMonitor: null }));
+          this.store.setState((prev) => ({
+            ...prev,
+            activeTurnSnapshot: activeTurnSnapshot ?? (
+              activeTurnSnapshotFieldPresent && !prev.activeStreamSessionIds.includes(targetSessionId)
+                ? null
+                : prev.activeTurnSnapshot
+            ),
+            taskGraphLiveMonitor: null,
+          }));
         }
         return false;
       }
@@ -2263,18 +2618,13 @@ export class WorkspaceRuntime {
       const graphRunId = String(activeMonitor.graph_run_id ?? activeTaskRun.graph_run_id ?? "").trim();
       this.updateSessionActivityFromLiveMonitor(liveStatus, taskRunId, graphRunId, controlState);
       if (this.store.getState().currentSessionId === targetSessionId && this.orchestrationHydrateRequest === requestId) {
-        const activeTurnTaskRunId = String(this.store.getState().activeTurnSnapshot?.task_run_id ?? "").trim();
-        if (activeTurnTaskRunId && activeTurnTaskRunId === taskRunId) {
         this.store.setState((prev) => ({
-          ...this.patchRuntimeAttachmentFromMonitor(prev, activeMonitor),
+          ...this.patchRuntimeAttachmentFromMonitor(
+            activeTurnSnapshot ? { ...prev, activeTurnSnapshot } : prev,
+            activeMonitor
+          ),
           taskGraphLiveMonitor: activeMonitor,
         }));
-        } else {
-          this.store.setState((prev) => ({
-            ...prev,
-            taskGraphLiveMonitor: null,
-          }));
-        }
       }
       return hasActiveHarnessRun || hasPendingApproval;
     } catch {
@@ -2284,6 +2634,9 @@ export class WorkspaceRuntime {
   }
 
   private activeHarnessSessionMonitor(liveMonitor: Awaited<ReturnType<typeof getOrchestrationHarnessSessionLiveMonitor>>) {
+    if (!liveMonitor) {
+      return null;
+    }
     const direct = liveMonitor.monitor ?? null;
     if (direct) {
       return direct;

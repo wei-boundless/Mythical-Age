@@ -41,7 +41,6 @@ class MemoryScopePolicy:
     allow_long_term_write: bool = False
     allow_state_restore: bool = True
     allow_working_memory_read: bool = True
-    allow_task_durable_memory_read: bool = False
     allow_cross_task_memory: bool = False
     writeback_policy: str = "task_default"
     authority: str = "orchestration.memory_scope_policy"
@@ -86,12 +85,8 @@ class MemoryReadPlan:
     requested_topics: tuple[str, ...] = ()
     working_memory_kinds: tuple[str, ...] = ()
     working_memory_semantics: tuple[str, ...] = ()
-    task_durable_kinds: tuple[str, ...] = ()
-    task_durable_semantics: tuple[str, ...] = ()
     working_scope: dict[str, str] = field(default_factory=dict)
-    task_durable_scope: dict[str, str] = field(default_factory=dict)
     working_limit: int = 20
-    task_durable_limit: int = 20
     note_limit: int = 5
     authority: str = "memory_orchestrator.read_plan"
 
@@ -100,7 +95,6 @@ class MemoryReadPlan:
 
     def diagnostics(self) -> dict[str, Any]:
         working_scope = dict(self.working_scope)
-        task_durable_scope = dict(self.task_durable_scope)
         return {
             "read_plan_authority": self.authority,
             "requested_memory_layers": list(self.requested_layers),
@@ -115,7 +109,6 @@ class MemoryReadPlan:
                 "node_run_id": working_scope.get("node_run_id", ""),
                 "run_attempt_id": working_scope.get("run_attempt_id", ""),
             },
-            "task_durable_memory_scope": task_durable_scope,
         }
 
 
@@ -124,7 +117,6 @@ class MemoryCandidatePool:
     conversation_candidates: tuple[MemoryContextCandidate, ...] = ()
     state_candidates: tuple[MemoryContextCandidate, ...] = ()
     working_candidates: tuple[MemoryContextCandidate, ...] = ()
-    task_durable_candidates: tuple[MemoryContextCandidate, ...] = ()
     long_term_candidates: tuple[MemoryContextCandidate, ...] = ()
     restore_candidates: tuple[StateMemoryRestoreCandidate, ...] = ()
     conversation_snapshot: Any | None = None
@@ -136,7 +128,6 @@ class MemoryCandidatePool:
             *self.conversation_candidates,
             *self.state_candidates,
             *self.working_candidates,
-            *self.task_durable_candidates,
             *self.long_term_candidates,
         )
 
@@ -145,7 +136,6 @@ class MemoryCandidatePool:
             "conversation_candidate_count": len(self.conversation_candidates),
             "state_candidate_count": len(self.state_candidates),
             "working_candidate_count": len(self.working_candidates),
-            "task_durable_candidate_count": len(self.task_durable_candidates),
             "long_term_candidate_count": len(self.long_term_candidates),
             "restore_candidate_count": len(self.restore_candidates),
         }
@@ -175,12 +165,6 @@ class MemoryOrchestrator:
             requested_topics=requested_topics,
             working_memory_kinds=tuple(_normalize_strings(profile.get("working_memory_kinds"))),
             working_memory_semantics=tuple(_normalize_strings(profile.get("working_memory_semantics"))),
-            task_durable_kinds=tuple(
-                _normalize_strings(profile.get("task_durable_memory_kinds") or profile.get("task_durable_kinds"))
-            ),
-            task_durable_semantics=tuple(
-                _normalize_strings(profile.get("task_durable_memory_semantics") or profile.get("task_durable_semantics"))
-            ),
             working_scope={
                 "task_run_id": str(profile.get("task_run_id") or ""),
                 "task_id": str(profile.get("task_id") or ""),
@@ -189,16 +173,7 @@ class MemoryOrchestrator:
                 "node_run_id": str(profile.get("node_run_id") or ""),
                 "run_attempt_id": str(profile.get("run_attempt_id") or ""),
             },
-            task_durable_scope={
-                "namespace_id": str(profile.get("task_durable_namespace_id") or profile.get("namespace_id") or ""),
-                "domain_id": str(profile.get("domain_id") or ""),
-                "task_id": str(profile.get("task_id") or ""),
-                "graph_id": str(profile.get("graph_id") or ""),
-                "project_id": str(profile.get("project_id") or ""),
-                "artifact_namespace": str(profile.get("artifact_namespace") or ""),
-            },
             working_limit=_safe_limit(profile.get("working_memory_limit"), default=20),
-            task_durable_limit=_safe_limit(profile.get("task_durable_memory_limit") or profile.get("task_durable_limit"), default=20),
             note_limit=effective_note_limit,
         )
 
@@ -245,23 +220,6 @@ class MemorySupplier:
             if plan.wants("working")
             else ()
         )
-        task_durable_candidates = (
-            tuple(
-                memory_service.task_durable_memory.context_candidates(
-                    namespace_id=plan.task_durable_scope["namespace_id"],
-                    domain_id=plan.task_durable_scope["domain_id"],
-                    task_id=plan.task_durable_scope["task_id"],
-                    graph_id=plan.task_durable_scope["graph_id"],
-                    project_id=plan.task_durable_scope["project_id"],
-                    artifact_namespace=plan.task_durable_scope["artifact_namespace"],
-                    requested_kinds=plan.task_durable_kinds,
-                    requested_semantics=plan.task_durable_semantics,
-                    limit=plan.task_durable_limit,
-                )
-            )
-            if plan.wants("task_durable") and memory_service.task_durable_memory is not None
-            else ()
-        )
         restore_candidates = (
             tuple(memory_service.state_memory.restore_candidates(session_id))
             if plan.state_read_requested
@@ -286,7 +244,6 @@ class MemorySupplier:
             conversation_candidates=conversation_candidates,
             state_candidates=state_candidates,
             working_candidates=working_candidates,
-            task_durable_candidates=task_durable_candidates,
             long_term_candidates=long_term_candidates,
             restore_candidates=restore_candidates,
         )
@@ -371,7 +328,6 @@ def build_memory_scope_policy(
     profile = dict(memory_request_profile or {})
     allowed_layers = normalize_memory_layers(profile.get("requested_memory_layers"))
     allow_long_term = bool(profile.get("allow_long_term_memory", False)) or "long_term" in allowed_layers
-    allow_task_durable = "task_durable" in allowed_layers
     return MemoryScopePolicy(
         policy_id=f"memscope:{agent_id}",
         agent_id=agent_id,
@@ -380,7 +336,6 @@ def build_memory_scope_policy(
         allow_long_term_write=False,
         allow_state_restore="state" in allowed_layers,
         allow_working_memory_read="working" in allowed_layers,
-        allow_task_durable_memory_read=allow_task_durable,
         allow_cross_task_memory=False,
         writeback_policy=str(profile.get("writeback_policy") or "task_default"),
     )
@@ -394,8 +349,6 @@ def apply_memory_scope_policy(request: MemoryRequest, scope_policy: MemoryScopeP
         requested_layers = [layer for layer in requested_layers if layer != "long_term"]
     if not scope_policy.allow_working_memory_read:
         requested_layers = [layer for layer in requested_layers if layer != "working"]
-    if not scope_policy.allow_task_durable_memory_read:
-        requested_layers = [layer for layer in requested_layers if layer != "task_durable"]
     return MemoryRequest(
         request_id=request.request_id,
         task_id=request.task_id,

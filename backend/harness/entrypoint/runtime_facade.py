@@ -17,6 +17,7 @@ from harness.runtime.public_progress import public_runtime_progress_summary
 from runtime import ModelResponseRuntimeExecutor, ModelRuntimeError, ToolRuntimeExecutor
 from runtime.output_boundary import canonical_output_decision_for_final_text
 from runtime.shared.history_assembler import assemble_runtime_history
+from permissions.policy import normalize_permission_mode
 from agent_system.profiles.runtime_profile_registry import AgentRuntimeRegistry
 from agent_system.identity import normalize_agent_id
 from orchestration import (
@@ -190,6 +191,9 @@ class HarnessRuntimeFacade:
         turn_index = len(history_record.get("messages", [])) + 1
         turn_id = f"turn:{request.session_id}:{turn_index}"
         started_active_turn_id = ""
+        request_permission_mode = _request_permission_mode(request)
+        permission_scope = self.single_agent_runtime_host.permission_mode_scope(request_permission_mode)
+        permission_scope.__enter__()
         try:
             active_turn = self.single_agent_runtime_host.active_turn_registry.resolve_current(request.session_id)
             input_commit_gate = self._commit_user_message(
@@ -213,6 +217,7 @@ class HarnessRuntimeFacade:
                     "request_kind": "chat",
                     "harness.entrypoint_role": "application_runtime_facade",
                     "history_assembly": dict(history_assembly.diagnostics),
+                    "permission_mode": request_permission_mode,
                 },
                 tags=["harness-entrypoint", "agent-runtime-chain"],
             ) as trace:
@@ -223,6 +228,15 @@ class HarnessRuntimeFacade:
                     "type": "input_commit_gate",
                     "commit_gate": input_commit_gate.to_dict(),
                 }
+                queued_active_turn_events = await self._queue_active_turn_input_if_requested(
+                    request=request,
+                    turn_id=turn_id,
+                    active_turn=active_turn,
+                )
+                if queued_active_turn_events is not None:
+                    for event in queued_active_turn_events:
+                        yield event
+                    return
                 direct_system_route_event = await run_direct_system_route(
                     base_dir=self.base_dir,
                     request=request,
@@ -255,6 +269,7 @@ class HarnessRuntimeFacade:
                     agent_runtime_profile=agent_runtime_profile,
                     tool_instances=tool_instances,
                     definitions_by_name=dict(self.single_agent_runtime_host.tool_authorization_index.definitions_by_name or {}),
+                    permission_mode=self.single_agent_runtime_host._current_permission_mode(),
                 )
                 self._record_turn_environment_snapshot(
                     session_id=request.session_id,
@@ -352,6 +367,7 @@ class HarnessRuntimeFacade:
                     turn_id=started_active_turn_id,
                     terminal_reason="turn_stream_closed",
                 )
+            permission_scope.__exit__(None, None, None)
 
     async def _run_single_agent_turn(
         self,
@@ -474,7 +490,99 @@ class HarnessRuntimeFacade:
             start_task_from_action_request=start_task,
             apply_active_work_control=apply_active_work_control,
         ):
-            yield event
+                yield event
+
+    async def _queue_active_turn_input_if_requested(
+        self,
+        *,
+        request: HarnessRuntimeRequest,
+        turn_id: str,
+        active_turn: Any | None,
+    ) -> list[dict[str, Any]] | None:
+        if str(getattr(request, "active_turn_input_policy", "") or "").strip() != "steer":
+            return None
+        expected_turn_id = str(getattr(request, "expected_active_turn_id", "") or "").strip()
+        if not expected_turn_id:
+            return None
+        host = self.single_agent_runtime_host
+        active_record = host.active_turn_registry.snapshot(request.session_id)
+        if active_record is None:
+            return None
+        if str(getattr(active_record, "turn_id", "") or "").strip() != expected_turn_id:
+            content = "当前任务状态已变化，请刷新后重试。"
+            return [
+                error_event(
+                    content=content,
+                    code="active_turn_mismatch",
+                    reason="active_turn_mismatch",
+                    extra={"active_turn": active_record.to_dict() if hasattr(active_record, "to_dict") else {}},
+                )
+            ]
+        task_run_id = str(getattr(active_record, "bound_task_run_id", "") or "").strip()
+        if not task_run_id:
+            return None
+        task_run = host.state_index.get_task_run(task_run_id)
+        if task_run is None:
+            return None
+        status = str(getattr(task_run, "status", "") or "").strip()
+        diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
+        control = diagnostics.get("runtime_control") if isinstance(diagnostics.get("runtime_control"), dict) else {}
+        control_state = str(dict(control or {}).get("state") or "").strip()
+        if status not in {"created", "running"} or control_state in {"paused", "pause_requested", "stopped", "stop_requested"}:
+            return None
+        if str(getattr(task_run, "execution_runtime_kind", "") or "") != "single_agent_task":
+            return None
+        result = append_user_work_instruction(
+            host,
+            task_run_id,
+            content=request.message,
+            turn_id=turn_id,
+            intent="conversation_queued_while_running",
+        )
+        if not result.get("ok"):
+            content = active_work_status_reply(self._active_work_context_from_active_turn(request.session_id))
+            return [
+                error_event(
+                    content=content,
+                    code=str(result.get("error") or "active_turn_queue_failed"),
+                    reason=str(result.get("error") or "active_turn_queue_failed"),
+                    extra={"active_turn": active_record.to_dict() if hasattr(active_record, "to_dict") else {}},
+                )
+            ]
+        latest = host.state_index.get_task_run(task_run_id) or task_run
+        active_record = host.active_turn_registry.snapshot(request.session_id) or active_record
+        content = "已加入当前任务队列，会在当前执行中优先纳入。"
+        active_turn_payload = active_record.to_dict() if hasattr(active_record, "to_dict") else {}
+        task_payload = latest.to_dict() if hasattr(latest, "to_dict") else {}
+        steer_payload = dict(result.get("steer") or {})
+        return [
+            {
+                "type": "active_task_steer_accepted",
+                "summary": content,
+                "status": "queued",
+                "terminal_reason": "conversation_queued_while_running",
+                "active_turn": active_turn_payload,
+                "task_run": task_payload,
+                "steer": steer_payload,
+                "authority": "harness.entrypoint.active_turn_input_queue",
+            },
+            final_answer_event(
+                content=content,
+                answer_channel="active_work_control",
+                answer_source="harness.active_turn_input_queue",
+                terminal_reason="conversation_queued_while_running",
+                extra={
+                    "completion_state": "task_steer_accepted",
+                    "summary": content,
+                    "active_turn": active_turn_payload,
+                    "task_run": {
+                        "task_run_id": str(getattr(latest, "task_run_id", "") or ""),
+                        "status": str(getattr(latest, "status", "") or ""),
+                    },
+                    "steer": steer_payload,
+                },
+            ),
+        ]
 
     async def _run_explicit_contract_task_turn(
         self,
@@ -545,8 +653,6 @@ class HarnessRuntimeFacade:
             answer_source="harness.explicit_contract_task",
             scheduler="explicit_contract_task",
             task_id=str(contract.source_contract_ref or contract.contract_id or f"task:{turn_id}"),
-            scheduled_status_text="我会按这个合同继续推进。",
-            scheduled_control_text="后续进展会汇总在当前会话里。",
             max_steps=_CONVERSATION_TASK_EXECUTION_STEPS,
             commit_assistant_message=self._apply_assistant_message_commit_async,
             initialize_task_todo=self._initialize_task_todo_for_contract,
@@ -1557,6 +1663,10 @@ def _permission_mode_provider(*, permission_service: Any | None, settings_servic
     return _current_mode
 
 
+def _request_permission_mode(request: HarnessRuntimeRequest) -> str:
+    return normalize_permission_mode(str(getattr(request, "permission_mode", "") or "full_access"))
+
+
 def _graph_node_contract_from_work_order(work_order: Any) -> TaskRunContract:
     contracts = dict(getattr(work_order, "expected_result_contract", {}) or {})
     graph_slot = dict(getattr(work_order, "graph_slot", {}) or {})
@@ -1828,20 +1938,10 @@ def _task_selection_for_runtime(
     }
     selection_payload = dict(request_task_selection or {})
     if active_turn_present:
-        selection_payload.pop("task_contract", None)
-        selection_payload.pop("task_contract_seed", None)
-        selection_payload.pop("engagement_contract", None)
-        selection_payload.pop("system_issued_contract", None)
-        explicit_control = dict(selection_payload.get("control_capabilities") or {})
-        control_capabilities = {
-            **explicit_control,
-            "may_call_tools": False,
-            "may_request_task_run": False,
-            "may_control_active_work": explicit_control.get("may_control_active_work") is not False,
-            "may_use_subagents": False,
-            "requires_json_action_protocol": False,
-        }
-        selection_payload["control_capabilities"] = control_capabilities
+        runtime_facts = dict(selection_payload.get("runtime_facts") or {})
+        runtime_facts["active_turn_present"] = True
+        runtime_facts["active_turn_capability_policy"] = "preserve_user_granted_capabilities"
+        selection_payload["runtime_facts"] = runtime_facts
     return {
         **selection_payload,
         "turn_id": turn_id,
@@ -2150,7 +2250,8 @@ def _explicit_allowed_operations_for_contract(
     selection_runtime_execution_permit = dict(selection_runtime_profile.get("execution_permit") or {})
     permission_requirements = dict(source.get("permission_requirements") or source.get("tool_scope") or {})
     operation_requirement = dict(source.get("operation_requirement") or {})
-    scopes: list[tuple[str, ...]] = []
+    operations: list[str] = []
+    seen: set[str] = set()
     for value in (
         selection.get("allowed_operations"),
         selection_execution_permit.get("allowed_operations"),
@@ -2160,16 +2261,15 @@ def _explicit_allowed_operations_for_contract(
         source_execution_permit.get("allowed_operations"),
         permission_requirements.get("allowed_operations"),
         operation_requirement.get("allowed_operations"),
+        operation_requirement.get("required_operations"),
+        operation_requirement.get("optional_operations"),
     ):
-        operations = _contract_string_tuple(value)
-        if operations:
-            scopes.append(operations)
-    if not scopes:
-        return None
-    allowed = set(scopes[0])
-    for scope in scopes[1:]:
-        allowed.intersection_update(scope)
-    return tuple(operation for operation in scopes[0] if operation in allowed)
+        for operation in _contract_string_tuple(value):
+            if operation in seen:
+                continue
+            seen.add(operation)
+            operations.append(operation)
+    return tuple(operations) if operations else None
 
 
 def _runtime_profile_with_execution_permit_allowed_operations(

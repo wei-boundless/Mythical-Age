@@ -787,8 +787,59 @@ def test_graph_run_monitor_returns_recoverable_active_work_orders(tmp_path: Path
     assert monitor["active_node_work_orders"][0]["work_order_id"] == started["node_work_orders"][0]["work_order_id"]
     assert monitor["active_node_work_orders"][0]["node_id"] == "produce"
     assert "input_package" not in monitor["active_node_work_orders"][0]
+    assert "events" not in monitor
+    assert "node_runtime_views" not in monitor
+    assert "work_order_index" not in monitor["graph_loop_state"]
+    assert "result_index" not in monitor["graph_loop_state"]
+    assert "result_history" not in monitor["graph_loop_state"]
+    assert "initial_inputs" not in monitor["graph_loop_state"]
     assert monitor["graph_harness_config"]["authority"] == "harness.graph_harness_config.summary"
     assert "nodes" not in monitor["graph_harness_config"]
+
+
+def test_graph_run_monitor_missing_session_returns_not_found(tmp_path: Path) -> None:
+    backend_dir = tmp_path / "backend"
+    graph = _graph()
+    registry = TaskFlowRegistry(backend_dir)
+    registry.upsert_task_graph(
+        graph_id=graph.graph_id,
+        title=graph.title,
+        graph_kind=graph.graph_kind,
+        entry_node_id=graph.entry_node_id,
+        output_node_id=graph.output_node_id,
+        nodes=tuple(node.to_dict() for node in graph.nodes),
+        runtime_policy=graph.runtime_policy,
+        publish_state="published",
+        enabled=True,
+    )
+    graph_config = publish_graph_harness_config_for_graph(base_dir=backend_dir, graph_id=graph.graph_id)
+    runtime = _runtime_with_graph_harness(base_dir=backend_dir, runtime_root=tmp_path / "runtime_state")
+
+    original = orchestration_api.require_runtime
+    orchestration_api.require_runtime = lambda: runtime  # type: ignore[assignment]
+    try:
+        started = asyncio.run(
+            orchestration_api.start_task_graph_harness_run(
+                graph.graph_id,
+                _graph_start_request(runtime, dispatch_ready=True),
+            )
+        )
+        runtime.session_manager.delete_session(str(dict(started["graph_run"]).get("session_id") or ""))
+        with pytest.raises(HTTPException) as raised:
+            asyncio.run(
+                orchestration_api.get_graph_run_monitor(
+                    str(started["graph_run_id"]),
+                    graph_harness_config_id=graph_config.config_id,
+                    workspace_view=GRAPH_TEST_SCOPE["workspace_view"],
+                    task_environment_id=GRAPH_TEST_SCOPE["task_environment_id"],
+                    project_id=GRAPH_TEST_SCOPE["project_id"],
+                )
+            )
+    finally:
+        orchestration_api.require_runtime = original  # type: ignore[assignment]
+
+    assert raised.value.status_code == 404
+    assert dict(raised.value.detail)["message"] == "GraphRun session is missing"
 
 
 def test_graph_run_until_idle_result_includes_active_work_orders_when_budget_stops(tmp_path: Path) -> None:

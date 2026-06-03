@@ -40,21 +40,26 @@ class ActiveTaskEnvironmentRequest(BaseModel):
     source: str = Field(default="conversation", max_length=80)
 
 
+class SessionPermissionModeRequest(BaseModel):
+    mode: str = Field(..., min_length=1, max_length=80)
+
+
 @router.get("/sessions")
 async def list_sessions(
     workspace_view: str | None = Query(default=None, max_length=80),
     task_environment_id: str | None = Query(default=None, max_length=200),
     project_id: str | None = Query(default=None, max_length=240),
+    include_active_task: bool = Query(default=False),
 ) -> list[dict[str, Any]]:
     runtime = require_runtime()
-    return enrich_session_summaries(
-        runtime.session_manager.list_sessions(
-            workspace_view=workspace_view,
-            task_environment_id=task_environment_id,
-            project_id=project_id,
-        ),
-        runtime,
+    sessions = runtime.session_manager.list_sessions(
+        workspace_view=workspace_view,
+        task_environment_id=task_environment_id,
+        project_id=project_id,
     )
+    if not include_active_task:
+        return sessions
+    return enrich_session_summaries(sessions, runtime)
 
 
 @router.post("/sessions")
@@ -185,6 +190,23 @@ async def set_session_active_task_environment(
             "source": payload.source or "conversation",
         },
     )
+
+
+@router.put("/sessions/{session_id}/permission-mode")
+async def set_session_permission_mode(
+    session_id: str,
+    payload: SessionPermissionModeRequest,
+    workspace_view: str | None = Query(default=None, max_length=80),
+    task_environment_id: str | None = Query(default=None, max_length=200),
+    project_id: str | None = Query(default=None, max_length=240),
+) -> dict[str, Any]:
+    runtime = require_runtime()
+    assert_optional_session_scope(
+        runtime.session_manager,
+        session_id,
+        request_scope_from_query(workspace_view=workspace_view, task_environment_id=task_environment_id, project_id=project_id),
+    )
+    return runtime.session_manager.set_permission_mode(session_id, payload.mode)
 
 
 @router.get("/sessions/{session_id}/timeline")

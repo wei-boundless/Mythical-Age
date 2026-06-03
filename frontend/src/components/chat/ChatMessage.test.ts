@@ -58,6 +58,42 @@ describe("ChatMessage", () => {
     expect(html).toContain("基于已有事实收口说明");
   });
 
+  it("keeps task opening prose visible before runtime activity", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(ChatMessage, {
+        answerChannel: "task_control",
+        answerSource: "harness.single_agent_turn.request_task_run",
+        content: "我先把目标转成可执行任务，然后持续推进页面实现和验证。",
+        id: "message:task-opening",
+        retrievals: [],
+        role: "assistant",
+        runtimeAttachments: [
+          {
+            attachment_id: "runtime-attachment:taskrun:turn:session:2",
+            run_id: "taskrun:turn:session:2",
+            anchor_turn_id: "turn:session:2",
+            status: "running",
+            public_timeline: [
+              {
+                item_id: "tool:test",
+                kind: "tool_activity",
+                title: "正在运行测试",
+                detail: "npm test",
+                state: "running",
+                stream_state: "streaming",
+              },
+            ],
+          },
+        ],
+        toolCalls: [],
+      }),
+    );
+
+    expect(html).toContain("我先把目标转成可执行任务");
+    expect(html).toContain("运行命令");
+    expect(html.indexOf("我先把目标转成可执行任务")).toBeLessThan(html.indexOf("运行命令"));
+  });
+
   it("shows debug-only canonical output state without hiding the assistant message", () => {
     const html = renderToStaticMarkup(
       React.createElement(ChatMessage, {

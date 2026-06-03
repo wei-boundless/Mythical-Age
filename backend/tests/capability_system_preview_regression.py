@@ -64,7 +64,7 @@ def test_resource_policy_candidate_denies_unknown_and_denied_aliases() -> None:
     assert not any(item.startswith("op.") for item in policy.denied_tools)
 
 
-def test_high_risk_operations_require_approval_but_do_not_become_executable() -> None:
+def test_high_risk_operations_are_authorized_candidates_without_default_approval_gate() -> None:
     registry = build_default_operation_registry()
     requirement = build_operation_requirement(
         task_id="task-3",
@@ -76,24 +76,25 @@ def test_high_risk_operations_require_approval_but_do_not_become_executable() ->
     decisions = {decision.operation_id: decision for decision in policy.decisions}
     views = {view.resource_id: view for view in build_resource_runtime_views(policy, registry)}
 
-    assert decisions["op.edit_file"].decision == "requires_approval"
-    assert decisions["op.python_repl"].decision == "requires_approval"
+    assert decisions["op.edit_file"].decision == "allow"
+    assert decisions["op.python_repl"].decision == "allow"
     assert views["op.read_file"].authorized is True
     assert views["op.read_file"].available_to_model is True
     assert views["op.read_file"].runtime_executable is False
-    assert views["op.edit_file"].authorized is False
-    assert views["op.edit_file"].requires_approval is True
+    assert views["op.edit_file"].authorized is True
+    assert views["op.edit_file"].requires_approval is False
     assert views["op.edit_file"].runtime_executable is False
     assert views["op.edit_file"].input_contract_ref == "op.edit_file.input"
     assert views["op.edit_file"].authorization_owner == "ResourcePolicy"
 
 
-def test_headless_requires_approval_fails_closed_without_approval_channel() -> None:
+def test_explicit_human_approval_policy_fails_closed_without_approval_channel() -> None:
     registry = build_default_operation_registry()
     requirement = build_operation_requirement(
         task_id="task-4",
         source="task_binding_preview",
         required_task_operations=("op.edit_file",),
+        approval_policy="manual_approval_required",
     )
 
     policy = build_resource_policy_candidate(
@@ -110,16 +111,17 @@ def test_headless_requires_approval_fails_closed_without_approval_channel() -> N
 
     assert decision.operation_id == "op.edit_file"
     assert decision.decision == "deny"
-    assert decision.reason == "approval unavailable in headless context"
+    assert decision.reason == "explicit approval policy unavailable in headless context"
     assert "op.edit_file" in policy.denied_operations
 
 
-def test_headless_requires_approval_can_route_to_hook_without_allowing_execution() -> None:
+def test_explicit_human_approval_policy_can_route_to_hook_without_allowing_execution() -> None:
     registry = build_default_operation_registry()
     requirement = build_operation_requirement(
         task_id="task-5",
         source="task_binding_preview",
         required_task_operations=("op.edit_file",),
+        approval_policy="manual_approval_required",
     )
 
     policy = build_resource_policy_candidate(
@@ -304,6 +306,31 @@ def test_operation_gate_full_access_modes_do_not_restrip_adopted_allow_policy() 
         assert result.allowed is True
         assert result.reason == "operation allowed by adopted resource policy"
         assert result.pipeline_stage == "allow_rule"
+
+
+def test_operation_gate_full_access_modes_satisfy_adopted_approval_policy() -> None:
+    registry = build_default_operation_registry()
+    policy = _runtime_policy(
+        requires_approval=("op.edit_file",),
+        task_id="task-full-access-approval",
+    )
+    gate = OperationGate(registry)
+
+    for mode in ("bypass", "full_access"):
+        result = gate.check(
+            "op.edit_file",
+            resource_policy=policy,
+            directive_ref=f"directive-approval-{mode}",
+            context=OperationGatePipelineContext(
+                permission_mode=mode,
+                operation_input={"operation_id": "op.edit_file", "path": "backend/permissions/operation_gate.py"},
+                validators={"filesystem_path": validate_filesystem_path},
+            ),
+        )
+
+        assert result.allowed is True
+        assert result.requires_approval is False
+        assert result.reason == "operation allowed by adopted resource policy"
 
 
 def test_operation_gate_headless_approval_requires_matching_token() -> None:

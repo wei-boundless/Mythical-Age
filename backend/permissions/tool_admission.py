@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from permissions.operations import OperationDescriptor
+from permissions.policy import normalize_permission_mode
 from permissions.resource_policy import ResourceDecision, ResourcePolicy
 
 from orchestration.runtime_directive import RuntimeDirective
@@ -17,6 +18,7 @@ def build_tool_request_runtime_admission(
     operation_id: str,
     operation_descriptor: OperationDescriptor | None,
     adopted_resource_policy: ResourcePolicy | None,
+    permission_mode: str = "default",
 ) -> tuple[RuntimeDirective, ResourcePolicy]:
     """Admit a tool request for supervised runtime dispatch."""
 
@@ -25,6 +27,7 @@ def build_tool_request_runtime_admission(
         operation_id=operation_id,
         operation_descriptor=operation_descriptor,
         adopted_resource_policy=adopted_resource_policy,
+        permission_mode=permission_mode,
     )
     tool_allowed = decision_kind == "allow"
     requires_approval = decision_kind == "requires_approval"
@@ -60,6 +63,7 @@ def build_tool_request_runtime_admission(
             "tool_dispatch_enabled": tool_allowed,
             "tool_allowed": tool_allowed,
             "tool_requires_approval": requires_approval,
+            "permission_mode": normalize_permission_mode(permission_mode),
             "read_only": bool(operation_descriptor.read_only) if operation_descriptor is not None else False,
             "destructive": bool(operation_descriptor.destructive) if operation_descriptor is not None else False,
             "memory_write_allowed": False,
@@ -87,6 +91,7 @@ def build_tool_request_runtime_admission(
             "tool_preflight_only": False,
             "tool_dispatch_enabled": tool_allowed,
             "tool_requires_approval": requires_approval,
+            "permission_mode": normalize_permission_mode(permission_mode),
             "directive_only_executor": True,
             "admission_owner": "harness.runtime_admission",
         },
@@ -99,6 +104,7 @@ def _tool_request_decision(
     operation_id: str,
     operation_descriptor: OperationDescriptor | None,
     adopted_resource_policy: ResourcePolicy | None,
+    permission_mode: str = "default",
 ) -> tuple[str, str]:
     if operation_descriptor is None:
         return "deny", "tool request denied because operation descriptor is missing"
@@ -112,6 +118,9 @@ def _tool_request_decision(
         return "deny", "tool request denied because resource policy is not executable"
     if operation_id in adopted_resource_policy.denied_operations:
         return "deny", "tool request denied by adopted resource policy"
+    mode = normalize_permission_mode(permission_mode)
+    if mode in {"full_access", "bypass"} and operation_id in adopted_resource_policy.requires_approval_operations:
+        return "allow", f"tool request approval satisfied by permission mode {mode}"
     if operation_id in adopted_resource_policy.requires_approval_operations:
         return "requires_approval", "tool request requires approval by adopted resource policy"
     if operation_id in adopted_resource_policy.allowed_operations:

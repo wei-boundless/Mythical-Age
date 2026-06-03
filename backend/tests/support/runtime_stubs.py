@@ -141,24 +141,8 @@ class NativeToolCallModelRuntimeStub(SingleMessageModelRuntimeStub):
         self.seen_tools.append(list(tools or []))
         if self.tool_calls:
             return SimpleNamespace(content=self.content, tool_calls=list(self.tool_calls))
-        if any(dict(tool).get("name") == "request_task_run" for tool in list(tools or [])) and self.agent_turn_action_request.get("action_type") == "request_task_run":
-            seed = dict(self.agent_turn_action_request.get("task_contract_seed") or {})
-            return SimpleNamespace(
-                content=self.content,
-                tool_calls=[
-                    {
-                        "id": "stub-request-task-run",
-                        "name": "request_task_run",
-                        "args": {
-                            "user_visible_goal": str(seed.get("user_visible_goal") or ""),
-                            "task_run_goal": str(seed.get("task_run_goal") or ""),
-                            "required_artifacts": list(seed.get("required_artifacts") or []),
-                            "required_verifications": list(seed.get("required_verifications") or []),
-                            "completion_criteria": list(seed.get("completion_criteria") or []),
-                        },
-                    }
-                ],
-            )
+        if self.agent_turn_action_request and _is_model_action_request(messages):
+            return SimpleNamespace(content=json.dumps(self.agent_turn_action_request, ensure_ascii=False), tool_calls=[])
         return SimpleNamespace(content=self.content, tool_calls=[])
 
 

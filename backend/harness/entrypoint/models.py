@@ -24,6 +24,7 @@ class HarnessRuntimeRequest:
     task_selection: dict[str, Any] = field(default_factory=dict)
     model_selection: dict[str, Any] = field(default_factory=dict)
     image_generation: dict[str, Any] = field(default_factory=dict)
+    permission_mode: str = "default"
     expected_active_turn_id: str = ""
     active_turn_input_policy: str = "auto"
 

@@ -13,13 +13,14 @@ from permissions.model_visible_operations import (
 from permissions.resource_scope_mapping import map_operations_to_resource_scopes
 
 
-APPROVAL_RISK_TAGS = {
-    "local_write",
-    "destructive",
-    "shell_execution",
-    "python_execution",
+EXPLICIT_HUMAN_APPROVAL_POLICIES = {
+    "manual_approval_required",
     "requires_human_approval",
+    "human_approval_required",
+    "runtime_approval_required",
+    "always_ask",
 }
+DENY_DESTRUCTIVE_APPROVAL_POLICIES = {"deny_destructive"}
 DANGEROUS_AUTO_RISK_TAGS = {
     "local_write",
     "destructive",
@@ -194,30 +195,51 @@ def _decide_operation(
             reason="mcp and agent operations are not exposed to the model as direct tools",
             risk_tags=descriptor.risk_tags,
         )
-    if descriptor.requires_approval_by_default or descriptor.destructive or set(descriptor.risk_tags) & APPROVAL_RISK_TAGS:
+    if _approval_policy_requires_human_gate(approval_policy):
         approval_channel = _approval_channel(context)
         if approval_channel == "deny":
             return ResourceDecision(
                 operation_id=descriptor.operation_id,
                 decision="deny",
-                reason="approval unavailable in headless context",
+                reason="explicit approval policy unavailable in headless context",
                 risk_tags=descriptor.risk_tags,
                 diagnostics={"headless_mode": context.headless_mode},
             )
         return ResourceDecision(
             operation_id=descriptor.operation_id,
             decision="requires_approval",
-            reason="operation requires approval before real execution",
+            reason="operation is held by explicit human approval policy",
             risk_tags=descriptor.risk_tags,
             requires_user_approval=True,
             approval_channel=approval_channel,
         )
+    if _approval_policy_denies_destructive(approval_policy) and descriptor.destructive:
+        return ResourceDecision(
+            operation_id=descriptor.operation_id,
+            decision="deny",
+            reason="destructive operation denied by explicit approval policy",
+            risk_tags=descriptor.risk_tags,
+            diagnostics={"approval_policy": approval_policy},
+        )
     return ResourceDecision(
         operation_id=descriptor.operation_id,
         decision="allow",
-        reason="allowed by candidate policy",
+        reason="allowed by candidate policy; risk is handled by adopted runtime boundaries",
         risk_tags=descriptor.risk_tags,
+        diagnostics={
+            "requires_approval_by_default": bool(descriptor.requires_approval_by_default),
+            "destructive": bool(descriptor.destructive),
+            "approval_policy": approval_policy,
+        },
     )
+
+
+def _approval_policy_requires_human_gate(approval_policy: str) -> bool:
+    return str(approval_policy or "").strip().lower() in EXPLICIT_HUMAN_APPROVAL_POLICIES
+
+
+def _approval_policy_denies_destructive(approval_policy: str) -> bool:
+    return str(approval_policy or "").strip().lower() in DENY_DESTRUCTIVE_APPROVAL_POLICIES
 
 
 def _approval_channel(context: RuntimeApprovalContext) -> str:

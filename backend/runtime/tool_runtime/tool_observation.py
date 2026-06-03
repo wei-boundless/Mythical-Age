@@ -43,16 +43,22 @@ class ToolObservation:
         return payload
 
     def to_task_observation(self, *, task_run_id: str, request_ref: str = "", directive_ref: str = "") -> dict[str, Any]:
+        if self.status == "needs_approval":
+            observation_type = "approval_request"
+            needs_model_followup = False
+        else:
+            observation_type = "tool_result" if self.status == "ok" else "executor_error"
+            needs_model_followup = self.status != "ok"
         return {
             "observation_id": self.observation_id,
             "task_run_id": task_run_id,
-            "observation_type": "tool_result" if self.status == "ok" else "executor_error",
+            "observation_type": observation_type,
             "source": f"tool:{self.tool_name}",
             "request_ref": request_ref,
             "directive_ref": directive_ref,
             "content_chars": len(self.text),
             "payload": self.to_dict(),
-            "needs_model_followup": self.status != "ok",
+            "needs_model_followup": needs_model_followup,
             "authority": "orchestration.runtime_observation",
         }
 

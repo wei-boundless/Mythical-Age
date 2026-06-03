@@ -70,13 +70,22 @@ class GraphStateMachine:
             return "resource"
         return "ready" if node_id in start_ids else "pending"
 
-    def ready_nodes(self, *, graph_config: GraphHarnessConfig, node_states: dict[str, dict[str, Any]]) -> tuple[str, ...]:
+    def ready_nodes(
+        self,
+        *,
+        graph_config: GraphHarnessConfig,
+        node_states: dict[str, dict[str, Any]],
+        loop_state: dict[str, Any] | None = None,
+    ) -> tuple[str, ...]:
         ready: list[str] = []
         scheduler_view = build_scheduler_view(graph_config)
         executable_ids = set(scheduler_view.executable_node_ids)
+        gated_exit_ids = _active_loop_exit_node_ids(graph_config=graph_config, loop_state=loop_state)
         for node in graph_config.nodes:
             node_id = str(node.get("node_id") or "")
             if node_id not in executable_ids:
+                continue
+            if node_id in gated_exit_ids:
                 continue
             status = str(dict(node_states.get(node_id) or {}).get("status") or "")
             if status == "ready":
@@ -89,8 +98,14 @@ class GraphStateMachine:
                 ready.append(node_id)
         return tuple(dict.fromkeys(item for item in ready if item))
 
-    def blocked_nodes(self, *, graph_config: GraphHarnessConfig, node_states: dict[str, dict[str, Any]]) -> tuple[str, ...]:
-        ready = set(self.ready_nodes(graph_config=graph_config, node_states=node_states))
+    def blocked_nodes(
+        self,
+        *,
+        graph_config: GraphHarnessConfig,
+        node_states: dict[str, dict[str, Any]],
+        loop_state: dict[str, Any] | None = None,
+    ) -> tuple[str, ...]:
+        ready = set(self.ready_nodes(graph_config=graph_config, node_states=node_states, loop_state=loop_state))
         return tuple(
             node_id
             for node_id, payload in node_states.items()
@@ -103,9 +118,10 @@ class GraphStateMachine:
         graph_config: GraphHarnessConfig,
         node_states: dict[str, dict[str, Any]],
         active_work_orders: dict[str, str] | None = None,
+        loop_state: dict[str, Any] | None = None,
         graph_result_already_terminal: bool = False,
     ) -> GraphStatusSnapshot:
-        ready = () if graph_result_already_terminal else self.ready_nodes(graph_config=graph_config, node_states=node_states)
+        ready = () if graph_result_already_terminal else self.ready_nodes(graph_config=graph_config, node_states=node_states, loop_state=loop_state)
         running = tuple(
             dict.fromkeys(
                 [
@@ -122,7 +138,7 @@ class GraphStateMachine:
                 [
                     *_nodes_with_status(node_states, "blocked"),
                     *waiting_human,
-                    *self.blocked_nodes(graph_config=graph_config, node_states=node_states),
+                    *self.blocked_nodes(graph_config=graph_config, node_states=node_states, loop_state=loop_state),
                 ]
             )
         )
@@ -172,6 +188,23 @@ class GraphStateMachine:
 
 def _nodes_with_status(node_states: dict[str, dict[str, Any]], status: str) -> tuple[str, ...]:
     return tuple(node_id for node_id, payload in node_states.items() if str(payload.get("status") or "") == status)
+
+
+def _active_loop_exit_node_ids(*, graph_config: GraphHarnessConfig, loop_state: dict[str, Any] | None) -> set[str]:
+    frames = dict(dict(loop_state or {}).get("frames") or {})
+    if not frames:
+        return set()
+    exit_ids: set[str] = set()
+    for raw_frame in graph_config.loop_frames:
+        configured = dict(raw_frame or {})
+        frame_id = str(configured.get("frame_id") or configured.get("scope_id") or "").strip()
+        frame = dict(frames.get(frame_id) or {})
+        if str(frame.get("status") or "") != "active":
+            continue
+        exit_id = str(frame.get("exit_node_id") or configured.get("exit_node_id") or "").strip()
+        if exit_id:
+            exit_ids.add(exit_id)
+    return exit_ids
 
 
 def _drop_empty(payload: dict[str, Any]) -> dict[str, Any]:

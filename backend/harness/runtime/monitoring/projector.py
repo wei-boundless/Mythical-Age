@@ -37,7 +37,14 @@ class RuntimeMonitorProjector:
         self.resource_resolver = resource_resolver
         self.session_scope_resolver = session_scope_resolver
 
-    def project_task_run(self, task_run: Any, *, now: float, include_runtime_details: bool = True) -> dict[str, Any]:
+    def project_task_run(
+        self,
+        task_run: Any,
+        *,
+        now: float,
+        include_runtime_details: bool = True,
+        include_graph_runtime: bool = True,
+    ) -> dict[str, Any]:
         current_time = float(now)
         task_run_id = str(getattr(task_run, "task_run_id", "") or "")
         diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
@@ -55,12 +62,21 @@ class RuntimeMonitorProjector:
         control = runtime_control(diagnostics)
         control_state = str(control.get("state") or "")
         terminal = is_terminal_status(status)
+        route = self._route(task_run, diagnostics)
+        session_scope = self._session_scope(task_run, diagnostics)
+        graph_id = str(route.get("graph_id") or "")
+        graph_run_id = str(diagnostics.get("graph_run_id") or "")
+        graph_harness_config_id = str(diagnostics.get("graph_harness_config_id") or "")
+        kind = self._kind_from_route(route)
+        graph_monitor = self._graph_monitor(graph_run_id, graph_harness_config_id) if kind == "task_graph" and include_graph_runtime else None
+        graph_status = self._graph_status(graph_monitor, graph_id=graph_id, graph_run_id=graph_run_id) if kind == "task_graph" else None
+        graph_runtime_active = _graph_monitor_has_active_runtime(graph_monitor) if include_graph_runtime else kind == "task_graph"
         stale = control_state != "paused" and status in RUNNING_TASK_RUN_STATUSES | {"waiting_executor"} and (
             not last_activity_at or last_activity_age_seconds > self.freshness_seconds
         )
+        if stale and graph_runtime_active:
+            stale = False
         action_required = status in {"waiting_approval"} | BLOCKED_TASK_RUN_STATUSES or control_state == "paused"
-        route = self._route(task_run, diagnostics)
-        session_scope = self._session_scope(task_run, diagnostics)
         diagnostic_reasons = self._diagnostic_reasons(
             task_run=task_run,
             status=status,
@@ -103,10 +119,6 @@ class RuntimeMonitorProjector:
                 *(_artifact_refs_from_event_log(self.event_log, task_run_id) if include_runtime_details else []),
             ]
         )
-        graph_id = str(route.get("graph_id") or "")
-        graph_run_id = str(diagnostics.get("graph_run_id") or "")
-        graph_harness_config_id = str(diagnostics.get("graph_harness_config_id") or "")
-        kind = self._kind_from_route(route)
         task_instance_id = graph_run_id if kind == "task_graph" and graph_run_id else task_run_id
         resource_refs = self._resource_refs(
             task_run_id=task_run_id,
@@ -116,8 +128,6 @@ class RuntimeMonitorProjector:
             artifact_refs=artifact_refs,
             resolve_availability=include_runtime_details,
         )
-        graph_monitor = self._graph_monitor(graph_run_id, graph_harness_config_id) if include_runtime_details and kind == "task_graph" else None
-        graph_status = self._graph_status(graph_monitor, graph_id=graph_id, graph_run_id=graph_run_id) if kind == "task_graph" else None
         child_runtime_refs = self._child_runtime_refs(graph_monitor) if include_runtime_details and kind == "task_graph" else []
         latest_progress = {
             "tool_status": str(latest_step.get("tool_status") or diagnostics.get("latest_tool_status") or ""),
@@ -214,16 +224,18 @@ class RuntimeMonitorProjector:
 
     def build_global_monitor(self, task_runs: list[Any], *, now: float, limit: int) -> dict[str, Any]:
         projected = [
-            self.project_task_run(task_run, now=now, include_runtime_details=False)
+            self.project_task_run(task_run, now=now, include_runtime_details=False, include_graph_runtime=False)
             for task_run in sorted(task_runs, key=lambda item: float(getattr(item, "updated_at", 0.0) or 0.0), reverse=True)
             if not self._is_internal_child_run(task_run)
         ]
-        items = self._current_items_by_session([item for item in projected if self._is_global_live_item(item)])
+        items = self._current_graph_items_by_scope(
+            self._current_items_by_session([item for item in projected if self._is_global_live_item(item)])
+        )
         return build_envelope(scope="global", items=items, now=now, limit=limit)
 
     def build_session_monitor(self, session_id: str, task_runs: list[Any], *, now: float, limit: int = 20) -> dict[str, Any]:
         items = [
-            self.project_task_run(item, now=now, include_runtime_details=False)
+            self.project_task_run(item, now=now, include_runtime_details=False, include_graph_runtime=False)
             for item in sorted(task_runs, key=lambda item: float(getattr(item, "updated_at", 0.0) or 0.0), reverse=True)
             if not self._is_internal_child_run(item)
         ]
@@ -261,6 +273,19 @@ class RuntimeMonitorProjector:
             if current is None or _session_current_item_key(item) > _session_current_item_key(current):
                 selected_by_session[session_id] = item
         return [*unscoped, *selected_by_session.values()]
+
+    def _current_graph_items_by_scope(self, items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        selected_by_graph_scope: dict[str, dict[str, Any]] = {}
+        passthrough: list[dict[str, Any]] = []
+        for item in items:
+            key = _graph_scope_key(item)
+            if not key:
+                passthrough.append(item)
+                continue
+            current = selected_by_graph_scope.get(key)
+            if current is None or _session_current_item_key(item) > _session_current_item_key(current):
+                selected_by_graph_scope[key] = item
+        return [*passthrough, *selected_by_graph_scope.values()]
 
     def _recent_events(self, task_run_id: str, *, limit: int) -> list[Any]:
         reader = getattr(self.event_log, "list_recent_events", None)
@@ -594,7 +619,10 @@ class RuntimeMonitorProjector:
     def _child_runtime_refs(self, monitor: dict[str, Any] | None) -> list[dict[str, Any]]:
         payload = dict(monitor or {})
         refs: list[dict[str, Any]] = []
-        for item in list(payload.get("node_runtime_views") or []):
+        for item in [
+            *list(payload.get("active_node_runtime_views") or []),
+            *list(payload.get("node_runtime_views") or []),
+        ]:
             view = dict(item or {})
             task_run_id = str(view.get("node_executor_task_run_id") or "")
             if not task_run_id:
@@ -737,6 +765,44 @@ def _session_current_item_key(item: dict[str, Any]) -> tuple[int, int, int, floa
     )
 
 
+def _graph_scope_key(item: dict[str, Any]) -> str:
+    if str(item.get("kind") or "").strip() != "task_graph":
+        return ""
+    graph_id = str(item.get("graph_id") or dict(item.get("route") or {}).get("graph_id") or "").strip()
+    if not graph_id:
+        return ""
+    scope = dict(item.get("session_scope") or {})
+    workspace_view = str(scope.get("workspace_view") or "").strip()
+    task_environment_id = str(scope.get("task_environment_id") or "").strip()
+    project_id = str(scope.get("project_id") or item.get("project_id") or "").strip()
+    if not (workspace_view or task_environment_id or project_id):
+        return ""
+    return "|".join([workspace_view, task_environment_id, project_id, graph_id])
+
+
+def _graph_monitor_has_active_runtime(monitor: dict[str, Any] | None) -> bool:
+    payload = dict(monitor or {})
+    if list(payload.get("active_node_work_orders") or []):
+        return True
+    loop_state = dict(payload.get("graph_loop_state") or {})
+    if list(loop_state.get("running_node_ids") or []) or list(loop_state.get("active_node_ids") or []):
+        return True
+    if list(loop_state.get("ready_node_ids") or []):
+        return True
+    for node_state in dict(loop_state.get("node_states") or {}).values():
+        status = str(dict(node_state or {}).get("status") or "").strip()
+        if status in {"running", "waiting_executor", "waiting_approval", "blocked"}:
+            return True
+    for view in [
+        *list(payload.get("active_node_runtime_views") or []),
+        *list(payload.get("node_runtime_views") or []),
+    ]:
+        status = str(dict(view or {}).get("status") or "").strip()
+        if status in {"running", "waiting_executor", "waiting_approval", "blocked"}:
+            return True
+    return False
+
+
 def _node_statuses_from_monitor(monitor: dict[str, Any]) -> list[dict[str, Any]]:
     config_nodes = {
         str(dict(node).get("node_id") or ""): dict(node)
@@ -744,7 +810,10 @@ def _node_statuses_from_monitor(monitor: dict[str, Any]) -> list[dict[str, Any]]
         if isinstance(node, dict)
     }
     result: list[dict[str, Any]] = []
-    for view in list(monitor.get("node_runtime_views") or []):
+    for view in [
+        *list(monitor.get("active_node_runtime_views") or []),
+        *list(monitor.get("node_runtime_views") or []),
+    ]:
         payload = dict(view or {})
         node_id = str(payload.get("node_id") or "")
         node_config = config_nodes.get(node_id, {})

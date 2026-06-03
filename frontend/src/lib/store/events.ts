@@ -18,6 +18,8 @@ import {
 
 export type StreamSession = {
   assistantId: string;
+  userId?: string;
+  queueOnly?: boolean;
 };
 
 type StreamTransition = {
@@ -112,13 +114,16 @@ function stageStatusForEvent(event: string, data: Record<string, unknown>) {
   if (event === "retrieval" || event.startsWith("worker")) {
     return "检索证据";
   }
-  if (event === "token" || event === "content_delta" || event === "answer_candidate") {
+  if (event === "token" || event === "content_delta" || event === "answer_candidate" || event === "assistant_text") {
     return "生成回答";
   }
   if (event === "output_boundary") {
     return "整理输出";
   }
   if (event === "done") {
+    if (isTaskRunHandoffEvent(data)) {
+      return "后台任务已接管";
+    }
     if (stringValue(data.completion_state) === "partial_timeout") {
       return "部分完成";
     }
@@ -132,6 +137,9 @@ function stageStatusForEvent(event: string, data: Record<string, unknown>) {
 
 function activityLevelForEvent(event: string, data: Record<string, unknown>) {
   if (event === "done") {
+    if (isTaskRunHandoffEvent(data)) {
+      return "waiting" as const;
+    }
     if (stringValue(data.completion_state) === "partial_timeout") {
       return "warning" as const;
     }
@@ -173,6 +181,9 @@ function activityDetailForEvent(event: string, data: Record<string, unknown>) {
     return stringValue(data.summary) || "已收到你的补充要求。";
   }
   if (event === "done") {
+    if (isTaskRunHandoffEvent(data)) {
+      return "当前会话已有后台任务在执行，后续输入会进入当前任务控制。";
+    }
     if (stringValue(data.completion_state) === "task_steer_accepted") {
       return stringValue(data.summary) || "当前任务已继续接收这次输入。";
     }
@@ -199,6 +210,21 @@ function stringArrayValue(value: unknown) {
   if (!Array.isArray(value)) return undefined;
   const values = value.map((item) => String(item ?? "").trim()).filter(Boolean);
   return values.length ? values : undefined;
+}
+
+function isTaskRunHandoffEvent(data: Record<string, unknown>) {
+  const taskRunId = stringValue(
+    data.runtime_task_run_id
+    ?? recordValue(data.task_run).task_run_id,
+  );
+  if (!taskRunId) {
+    return false;
+  }
+  const reason = stringValue(data.terminal_reason);
+  const channel = stringValue(data.answer_channel);
+  return reason === "task_executor_scheduled"
+    || reason === "session_active_task_exists"
+    || channel === "task_control";
 }
 
 function answerMetadataFromEvent(data: Record<string, unknown>): Partial<Message> {
@@ -259,10 +285,13 @@ function userReceiptForEvent(event: string, data: Record<string, unknown>): User
     const body = stringValue(data.receipt_summary ?? data.summary ?? data.message);
     const partialTimeout = stringValue(data.completion_state) === "partial_timeout";
     const taskSteerAccepted = stringValue(data.completion_state) === "task_steer_accepted";
+    const taskRunHandoff = isTaskRunHandoffEvent(data);
     return {
-      level: partialTimeout ? "warning" : "success",
-      title: taskSteerAccepted ? "已收到补充要求" : partialTimeout ? "已生成部分内容" : paths.length ? `已更新 ${paths.length} 个文件` : "已处理 1 个命令",
-      body: taskSteerAccepted
+      level: taskRunHandoff ? "waiting" : partialTimeout ? "warning" : "success",
+      title: taskRunHandoff ? "后台任务已接管" : taskSteerAccepted ? "已收到补充要求" : partialTimeout ? "已生成部分内容" : paths.length ? `已更新 ${paths.length} 个文件` : "已处理 1 个命令",
+      body: taskRunHandoff
+        ? "当前会话已有后台任务在执行，后续输入会进入当前任务控制。"
+        : taskSteerAccepted
         ? body && !isMachineReference(body) ? body : "当前任务会在后续步骤中处理这次输入。"
         : partialTimeout ? "模型结束信号超时，当前内容已保留。" : body && !isMachineReference(body) ? body : "结果已写回会话。",
       artifacts: paths.map((path) => ({ label: "文件已更新", path })),
@@ -433,7 +462,7 @@ function eventNodeId(event: string) {
   if (event.startsWith("tool")) {
     return "tool";
   }
-  if (event === "token" || event === "content_delta" || event === "answer_candidate" || event === "debug") {
+  if (event === "token" || event === "content_delta" || event === "answer_candidate" || event === "assistant_text" || event === "debug") {
     return "model";
   }
   if (event === "done" || event === "error") {
@@ -528,6 +557,7 @@ function eventSummary(event: string, data: Record<string, unknown>) {
 function publicStreamEventLabel(event: string) {
   const map: Record<string, string> = {
     answer_candidate: "正在整理回答",
+    assistant_text: "正在整理回答",
     active_task_steer_accepted: "已收到补充要求",
     behavior_trace: "处理路径已检查",
     content_delta: "正在生成回答",
@@ -696,7 +726,7 @@ function updateOrchestrationSnapshot(
     }
   ];
   const autoVisited = new Set<string>(["runtime", "agent-turn"]);
-  if (["context_management", "memory_context", "prompt_manifest", "worker_start", "token", "content_delta", "answer_candidate", "done"].includes(event)) {
+  if (["context_management", "memory_context", "prompt_manifest", "worker_start", "token", "content_delta", "answer_candidate", "assistant_text", "done"].includes(event)) {
     autoVisited.add("runtime");
     autoVisited.add("agent-turn");
   }
@@ -747,6 +777,9 @@ function patchAssistant(
   assistantId: string,
   updater: (message: Message) => Message
 ): StoreState {
+  if (!assistantId) {
+    return state;
+  }
   return {
     ...state,
     messages: state.messages.map((message) =>
@@ -830,9 +863,14 @@ function applyVisibilitySessionActivity(
   };
 }
 
-export function startStreamingTurn(state: StoreState, userContent: string): StreamTransition {
+export function startStreamingTurn(
+  state: StoreState,
+  userContent: string,
+  options: { existingUserMessageId?: string } = {},
+): StreamTransition {
+  const userId = options.existingUserMessageId || makeId();
   const userMessage: Message = {
-    id: makeId(),
+    id: userId,
     role: "user",
     content: userContent.trim(),
     toolCalls: [],
@@ -852,7 +890,16 @@ export function startStreamingTurn(state: StoreState, userContent: string): Stre
     state: {
       ...state,
       isStreaming: true,
-      messages: [...state.messages, userMessage, assistantMessage],
+      messages: [
+        ...(options.existingUserMessageId
+          ? state.messages.map((message) =>
+              message.id === options.existingUserMessageId
+                ? { ...message, content: userContent.trim() }
+                : message
+            )
+          : [...state.messages, userMessage]),
+        assistantMessage
+      ],
       sessionActivity: {
         level: "running",
         title: "正在整理上下文",
@@ -869,7 +916,54 @@ export function startStreamingTurn(state: StoreState, userContent: string): Stre
       orchestrationSnapshot: makeOrchestrationSnapshot(state, userContent)
     },
     session: {
-      assistantId: assistantMessage.id
+      assistantId: assistantMessage.id,
+      userId,
+    }
+  };
+}
+
+export function startQueuedActiveTurn(
+  state: StoreState,
+  userContent: string,
+  options: { existingUserMessageId?: string } = {},
+): StreamTransition {
+  const userId = options.existingUserMessageId || makeId();
+  const userMessage: Message = {
+    id: userId,
+    role: "user",
+    content: userContent.trim(),
+    toolCalls: [],
+    retrievals: []
+  };
+
+  return {
+    state: {
+      ...state,
+      messages: options.existingUserMessageId
+        ? state.messages.map((message) =>
+            message.id === options.existingUserMessageId
+              ? { ...message, content: userContent.trim() }
+              : message
+          )
+        : [...state.messages, userMessage],
+      sessionActivity: {
+        level: "running",
+        title: "正在排队",
+        detail: "这条补充输入会进入当前任务队列。",
+        event: "active_turn_input_queued_locally",
+        receipt: {
+          level: "running",
+          title: "正在排队",
+          body: "这条补充输入会进入当前任务队列。",
+          debug: { event: "active_turn_input_queued_locally" },
+        },
+        updatedAt: Date.now()
+      }
+    },
+    session: {
+      assistantId: "",
+      userId,
+      queueOnly: true,
     }
   };
 }
@@ -899,8 +993,21 @@ export function reduceStreamEvent(
         updated_at: Number(activeTurn.updated_at ?? 0) || undefined,
       }
     : null;
+  const taskRunHandoffId = isTaskRunHandoffEvent(data)
+    ? String(data.runtime_task_run_id ?? recordValue(data.task_run).task_run_id ?? "").trim()
+    : "";
+  const taskRunHandoffSnapshot = taskRunHandoffId
+    ? {
+        turn_id: state.activeTurnSnapshot?.turn_id || "",
+        task_run_id: taskRunHandoffId,
+        state: "waiting_executor",
+        updated_at: Date.now() / 1000,
+      }
+    : null;
   const stateWithActiveTurn = activeTurnSnapshot
     ? { ...state, activeTurnSnapshot }
+    : taskRunHandoffSnapshot
+      ? { ...state, activeTurnSnapshot: taskRunHandoffSnapshot }
     : event === "done" || event === "error" || event === "stopped"
       ? { ...state, activeTurnSnapshot: null }
       : state;
@@ -963,7 +1070,9 @@ export function reduceStreamEvent(
           : {
               ...message,
               ...answerMetadata,
-              content: taskSteerAccepted ? "" : String(data.content ?? ""),
+              content: taskSteerAccepted
+                ? String(data.content ?? data.summary ?? "已加入当前任务队列。")
+                : String(data.content ?? ""),
               stageStatus: taskSteerAccepted ? "已收到补充要求" : partialTimeout ? "部分完成" : "完成",
               image: (data.image as Message["image"]) ?? message.image ?? null
             }
@@ -972,7 +1081,7 @@ export function reduceStreamEvent(
     };
   }
 
-  if (event === "answer_candidate") {
+  if (event === "answer_candidate" || event === "assistant_text") {
     return {
       state: patchAssistant(stateWithOrchestration, session.assistantId, (message) => {
         if (message.content.trim()) {

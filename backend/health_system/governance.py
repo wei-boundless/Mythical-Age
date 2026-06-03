@@ -24,7 +24,7 @@ class HealthGovernanceBuilder:
         self.now = time.time()
         self.store = self._build_store()
 
-    def build_overview(self, *, limit: int = 80) -> dict[str, Any]:
+    def build_overview(self, *, limit: int = 40) -> dict[str, Any]:
         tasks = self.build_tasks(limit=limit)["tasks"]
         monitor = self._global_monitor(limit=limit)
         risks = self._risk_events(tasks=tasks, monitor=monitor)
@@ -61,16 +61,22 @@ class HealthGovernanceBuilder:
             "updated_at": self.now,
         }
 
-    def build_tasks(self, *, limit: int = 100) -> dict[str, Any]:
+    def build_tasks(self, *, limit: int = 40) -> dict[str, Any]:
         task_runs = sorted(
             self.state_index.list_task_runs(),
             key=lambda item: float(item.updated_at or item.created_at or 0.0),
             reverse=True,
-        )[: max(1, min(int(limit or 100), 300))]
-        monitor_index = self._monitor_index(limit=max(100, len(task_runs)))
+        )[: max(1, min(int(limit or 40), 80))]
+        monitor_index = self._monitor_index(limit=max(40, len(task_runs)))
         token_summary_index = self._token_summary_index(task_runs)
         tasks = [
-            self._task_record(task_run, monitor_index=monitor_index, token_summary_index=token_summary_index)
+            self._task_record(
+                task_run,
+                monitor_index=monitor_index,
+                token_summary_index=token_summary_index,
+                event_limit=40,
+                include_trace_token_estimate=False,
+            )
             for task_run in task_runs
         ]
         return {
@@ -89,7 +95,13 @@ class HealthGovernanceBuilder:
         if task_run is None:
             raise KeyError(task_run_id)
         monitor_index = self._monitor_index(limit=120)
-        record = self._task_record(task_run, monitor_index=monitor_index, token_summary_index=self._token_summary_index([task_run]))
+        record = self._task_record(
+            task_run,
+            monitor_index=monitor_index,
+            token_summary_index=self._token_summary_index([task_run]),
+            event_limit=160,
+            include_trace_token_estimate=True,
+        )
         monitor = self.runtime_host.get_task_run_live_monitor(task_run_id) or {}
         graph_monitor: dict[str, Any] = {}
         events = [item.to_dict() for item in self._recent_events(task_run_id, limit=160)]
@@ -206,9 +218,11 @@ class HealthGovernanceBuilder:
         *,
         monitor_index: dict[str, dict[str, Any]] | None = None,
         token_summary_index: dict[str, dict[str, Any]] | None = None,
+        event_limit: int = 40,
+        include_trace_token_estimate: bool = False,
     ) -> dict[str, Any]:
         task_run_id = str(task_run.task_run_id or "")
-        events = self._recent_events(task_run_id, limit=240)
+        events = self._recent_events(task_run_id, limit=max(1, min(int(event_limit or 40), 160)))
         event_dicts = [item.to_dict() for item in events]
         event_count = self._event_count(task_run_id, fallback=len(events))
         agent_runs = self.state_index.list_task_agent_runs(task_run_id)
@@ -225,7 +239,12 @@ class HealthGovernanceBuilder:
             if "error" in str(item.get("event_type") or "").lower()
             or str(item.get("payload") or "").lower().find("error") >= 0
         )
-        token_summary = self._task_token_summary(task_run, event_dicts, token_summary_index=token_summary_index)
+        token_summary = self._task_token_summary(
+            task_run,
+            event_dicts,
+            token_summary_index=token_summary_index,
+            include_trace_token_estimate=include_trace_token_estimate,
+        )
         token_total = int(token_summary.get("effective_total_tokens") or token_summary.get("total_tokens") or 0)
         risk_level = self._risk_level(monitor=monitor, duration_seconds=duration, error_count=error_count)
         latest_risk = self._latest_task_risk_title(monitor=monitor, duration_seconds=duration, error_count=error_count)
@@ -706,6 +725,7 @@ class HealthGovernanceBuilder:
         events: list[dict[str, Any]],
         *,
         token_summary_index: dict[str, dict[str, Any]] | None = None,
+        include_trace_token_estimate: bool = False,
     ) -> dict[str, Any]:
         task_run_id = str(getattr(task_run, "task_run_id", "") or "")
         ledger_summary = dict(dict(token_summary_index or {}).get(task_run_id) or {})
@@ -717,7 +737,7 @@ class HealthGovernanceBuilder:
                 ledger_summary = {}
         if int(ledger_summary.get("record_count") or 0) > 0:
             return ledger_summary
-        trace_tokens = self._task_trace_token_total(task_run, events)
+        trace_tokens = self._task_trace_token_total(task_run, events) if include_trace_token_estimate else 0
         return {
             "exact_total_tokens": 0,
             "predicted_total_tokens": 0,

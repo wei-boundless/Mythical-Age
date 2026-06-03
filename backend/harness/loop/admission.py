@@ -177,7 +177,7 @@ def _invalid(action_request: AnyModelActionRequest, reason: str) -> AdmissionDec
         admission_id=f"admission:{action_request.request_id}",
         action_request_ref=action_request.request_id,
         decision="invalid",
-        user_visible_reason="本轮处理格式不完整，已停止执行。",
+        user_visible_reason="本轮处理格式不完整，运行时未执行该动作；请修正动作格式后继续。",
         system_reason=reason,
         resource_errors=(reason,),
     )

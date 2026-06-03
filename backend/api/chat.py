@@ -79,6 +79,11 @@ PUBLIC_EVENT_DATA_ALLOWLIST = {
     "retrieval": {"results"},
     "output_boundary": {"boundary", "summary", "artifacts"},
     "answer_candidate": {"content"},
+    "assistant_text": {
+        "content",
+        "answer_channel",
+        "answer_source",
+    },
     "token": {"content"},
     "content_delta": {"content"},
     "done": {
@@ -91,7 +96,15 @@ PUBLIC_EVENT_DATA_ALLOWLIST = {
         "receipt_summary",
         "summary",
         "message",
+        "answer_channel",
         "answer_source",
+        "answer_canonical_state",
+        "answer_persist_policy",
+        "answer_finalization_policy",
+        "answer_fallback_reason",
+        "answer_selected_channel",
+        "answer_selected_source",
+        "answer_leak_flags",
         "terminal_reason",
     },
     "error": {"content", "error", "code", "reason"},
@@ -109,6 +122,7 @@ class ChatRequest(BaseModel):
     task_selection: dict[str, Any] = Field(default_factory=dict)
     model_selection: dict[str, Any] = Field(default_factory=dict)
     image_generation: dict[str, Any] = Field(default_factory=dict)
+    permission_mode: str = "full_access"
     session_scope: dict[str, Any] | None = None
     expected_active_turn_id: str = ""
     active_turn_input_policy: str = "auto"
@@ -241,6 +255,7 @@ def _query_request_from_payload(payload: ChatRequest, *, session_id: str) -> Har
         task_selection=dict(payload.task_selection or {}),
         model_selection=dict(payload.model_selection or {}),
         image_generation=dict(payload.image_generation or {}),
+        permission_mode=str(payload.permission_mode or "full_access"),
         expected_active_turn_id=str(payload.expected_active_turn_id or ""),
         active_turn_input_policy=str(payload.active_turn_input_policy or "auto"),
     )
@@ -288,7 +303,7 @@ async def _run_chat_to_event_log(runtime: Any, run: RuntimeRun, request: Harness
         current = registry.mark_event(current, latest_event_offset=start_event.offset, status="running")
         async for event in runtime.harness_runtime.astream(request):
             event_type = str(event.get("type", "message") or "message")
-            runtime_refs = _runtime_run_refs_from_event(event)
+            runtime_refs = _runtime_run_refs_for_public_event(runtime, request.session_id, event)
             runtime_task_run_id = runtime_refs.get("task_run_id", "")
             runtime_turn_run_id = runtime_refs.get("turn_run_id", "")
             runtime_active_turn_id = runtime_refs.get("active_turn_id", "")
@@ -517,12 +532,53 @@ def _redact_public_stream_data(value: Any) -> Any:
     return value
 
 
+def _runtime_run_refs_for_public_event(runtime: Any, session_id: str, event: dict[str, Any]) -> dict[str, str]:
+    refs = _runtime_run_refs_from_event(event)
+    active_refs = _bound_active_task_refs_for_session(runtime, session_id)
+    if not active_refs:
+        return refs
+    event_task_run_id = refs.get("task_run_id", "")
+    active_task_run_id = active_refs.get("task_run_id", "")
+    if event_task_run_id and event_task_run_id != active_task_run_id:
+        return refs
+    if not event_task_run_id:
+        refs["task_run_id"] = active_task_run_id
+        refs["active_turn_id"] = active_refs.get("active_turn_id", "")
+        if active_refs.get("turn_run_id"):
+            refs["turn_run_id"] = active_refs.get("turn_run_id", "")
+        return refs
+    if not refs.get("active_turn_id"):
+        refs["active_turn_id"] = active_refs.get("active_turn_id", "")
+    if not refs.get("turn_run_id") and active_refs.get("turn_run_id"):
+        refs["turn_run_id"] = active_refs.get("turn_run_id", "")
+    return refs
+
+
+def _bound_active_task_refs_for_session(runtime: Any, session_id: str) -> dict[str, str]:
+    try:
+        active_turn = runtime.harness_runtime.single_agent_runtime_host.active_turn_registry.snapshot(session_id)
+    except Exception:
+        return {}
+    if active_turn is None:
+        return {}
+    task_run_id = str(getattr(active_turn, "bound_task_run_id", "") or "").strip()
+    active_turn_id = str(getattr(active_turn, "turn_id", "") or "").strip()
+    if not task_run_id or not active_turn_id:
+        return {}
+    return {
+        "task_run_id": task_run_id,
+        "active_turn_id": active_turn_id,
+        "turn_run_id": str(getattr(active_turn, "turn_run_id", "") or "").strip(),
+    }
+
+
 def _runtime_run_refs_from_event(event: dict[str, Any]) -> dict[str, str]:
     task_run_id = ""
     turn_run_id = ""
     active_turn_id = str(event.get("active_turn_id") or "").strip()
     runtime_event = dict(event.get("event") or {}) if isinstance(event.get("event"), dict) else {}
     runtime_payload = dict(runtime_event.get("payload") or {}) if isinstance(runtime_event.get("payload"), dict) else {}
+    runtime_refs = dict(runtime_event.get("refs") or {}) if isinstance(runtime_event.get("refs"), dict) else {}
     for value in (
         dict(event.get("task_run") or {}).get("task_run_id") if isinstance(event.get("task_run"), dict) else "",
         dict(runtime_payload.get("task_run") or {}).get("task_run_id") if isinstance(runtime_payload.get("task_run"), dict) else "",
@@ -549,6 +605,8 @@ def _runtime_run_refs_from_event(event: dict[str, Any]) -> dict[str, str]:
         active_turn = event.get("active_turn")
         if isinstance(active_turn, dict):
             active_turn_id = str(active_turn.get("turn_id") or "").strip()
+    if not active_turn_id and task_run_id:
+        active_turn_id = str(runtime_refs.get("turn_ref") or "").strip()
     refs = {"task_run_id": task_run_id, "turn_run_id": turn_run_id}
     if active_turn_id:
         refs["active_turn_id"] = active_turn_id

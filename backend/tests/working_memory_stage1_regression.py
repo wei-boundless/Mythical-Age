@@ -403,15 +403,8 @@ def test_memory_runtime_view_includes_working_memory_candidates_when_requested(t
     assert view.context_candidates[0].metadata["node_run_id"] == "planner.run.001"
 
 
-def test_memory_runtime_view_includes_task_durable_only_when_requested(tmp_path) -> None:
+def test_memory_runtime_view_rejects_task_durable_layer_after_disconnection(tmp_path) -> None:
     facade = MemoryFacade(tmp_path)
-    item = facade.task_durable_memory.create_item(
-        task_id="task.view",
-        graph_id="graph:view",
-        kind="project_rule",
-        title="任务规则",
-        canonical_statement="任务内读取任务长期记忆，不默认读取全局长期记忆。",
-    )
 
     default_view = facade.bundle_service.build_memory_runtime_view(
         session_id="session-task-durable-view",
@@ -421,20 +414,23 @@ def test_memory_runtime_view_includes_task_durable_only_when_requested(tmp_path)
             "graph_id": "graph:view",
         },
     )
-    task_durable_view = facade.bundle_service.build_memory_runtime_view(
-        session_id="session-task-durable-view",
-        memory_request_profile={
-            "requested_memory_layers": ["task_durable"],
-            "task_id": "task.view",
-            "graph_id": "graph:view",
-        },
-    )
+    try:
+        facade.bundle_service.build_memory_runtime_view(
+            session_id="session-task-durable-view",
+            memory_request_profile={
+                "requested_memory_layers": ["task_durable"],
+                "task_id": "task.view",
+                "graph_id": "graph:view",
+            },
+        )
+    except ValueError as exc:
+        error = str(exc)
+    else:
+        error = ""
 
     assert default_view.context_candidates == ()
-    assert len(task_durable_view.context_candidates) == 1
-    assert task_durable_view.context_candidates[0].memory_layer == "task_durable"
-    assert task_durable_view.context_candidates[0].content_ref == item.task_memory_id
-    assert task_durable_view.diagnostics["task_durable_candidate_count"] == 1
+    assert "task_durable_candidate_count" not in default_view.diagnostics
+    assert "disconnected from runtime" in error
 
 
 def test_memory_bundle_carries_working_memory_candidates_without_write_authority(tmp_path) -> None:

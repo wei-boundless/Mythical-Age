@@ -131,6 +131,23 @@ def test_session_manager_records_conversation_environment_state_without_pollutin
     assert agent_history == [{"role": "user", "content": "写一个测试"}]
 
 
+def test_session_manager_records_permission_mode_as_conversation_state(tmp_path: Path) -> None:
+    backend_dir = tmp_path / "backend"
+    backend_dir.mkdir()
+    manager = SessionManager(backend_dir)
+    session = manager.create_session(title="Permission state")
+    session_id = session["id"]
+
+    assert session["conversation_state"]["permission_mode"] == "full_access"
+
+    state = manager.set_permission_mode(session_id, "plan")
+    history = manager.get_history(session_id)
+
+    assert state["permission_mode"] == "plan"
+    assert history["conversation_state"]["permission_mode"] == "plan"
+    assert manager.load_session_for_agent(session_id) == []
+
+
 def test_session_manager_agent_history_never_injects_compressed_context_as_message(tmp_path: Path) -> None:
     backend_dir = tmp_path / "backend"
     backend_dir.mkdir()

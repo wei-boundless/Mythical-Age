@@ -212,6 +212,7 @@ def _current_session_task_sort_key(task_run: Any) -> tuple[int, float, float]:
 
 async def _emit_current_session_task_handoff(
     *,
+    runtime_host: Any,
     current_task: Any,
     session_id: str,
     turn_id: str,
@@ -249,6 +250,7 @@ async def _emit_current_session_task_handoff(
                 "task_run_id": str(task_payload.get("task_run_id") or ""),
                 "status": str(task_payload.get("status") or ""),
             },
+            **_active_turn_event_payload(runtime_host=runtime_host, session_id=session_id),
         },
     )
 
@@ -299,6 +301,7 @@ def start_task_lifecycle(
     contract: TaskRunContract,
     agent_profile_ref: str,
     model_selection: dict[str, Any] | None = None,
+    runtime_assembly: Any | None = None,
 ) -> tuple[TaskRun, AgentRun, TaskLifecycleRecord, list[dict[str, Any]]]:
     now = time.time()
     task_run_id = f"taskrun:{turn_id}:{uuid.uuid4().hex[:8]}"
@@ -306,6 +309,7 @@ def start_task_lifecycle(
     origin = _task_lifecycle_origin(action_request=action_request, turn_id=turn_id)
     contract = _contract_with_origin(contract, origin)
     model_selection_snapshot = _model_selection_snapshot(model_selection)
+    runtime_permission_mode = runtime_task_permission_mode(runtime_assembly)
     contract_ref = runtime_host.runtime_objects.put_object(
         "task_run_contract",
         contract.contract_id,
@@ -333,6 +337,13 @@ def start_task_lifecycle(
             ),
             "selected_skill_ids": list(action_request.selected_skill_ids),
             "model_selection": model_selection_snapshot,
+            "runtime_permission_mode": runtime_permission_mode,
+            "runtime_permission_binding": {
+                "scope": "task_run",
+                "source": "turn_runtime_assembly",
+                "turn_id": turn_id,
+                "authority": "harness.loop.single_agent_task_permission_snapshot",
+            },
             "model_selection_binding": {
                 "scope": "task_run",
                 "source": "agent_turn",
@@ -538,6 +549,7 @@ async def start_task_lifecycle_from_action_request(
     current_task = current_session_task_run(runtime_host, session_id=session_id)
     if current_task is not None:
         async for event in _emit_current_session_task_handoff(
+            runtime_host=runtime_host,
             current_task=current_task,
             session_id=session_id,
             turn_id=turn_id,
@@ -583,8 +595,6 @@ async def start_task_lifecycle_from_action_request(
         answer_source=answer_source,
         scheduler=scheduler,
         task_id=task_selection.get("selected_task_id") or task_selection.get("task_id") or f"task:{turn_id}",
-        scheduled_status_text="我会按这个目标继续推进。",
-        scheduled_control_text="你可以直接说暂停、继续或停止；进展会汇总在当前会话里。",
         max_steps=max_steps,
         commit_assistant_message=commit_assistant_message,
         initialize_task_todo=initialize_task_todo,
@@ -607,8 +617,6 @@ async def start_task_lifecycle_from_contract(
     answer_source: str,
     scheduler: str,
     task_id: str,
-    scheduled_status_text: str,
-    scheduled_control_text: str,
     max_steps: int,
     commit_assistant_message: CommitAssistantMessage,
     initialize_task_todo: InitializeTaskTodo,
@@ -618,6 +626,7 @@ async def start_task_lifecycle_from_contract(
     current_task = current_session_task_run(runtime_host, session_id=session_id)
     if current_task is not None:
         async for event in _emit_current_session_task_handoff(
+            runtime_host=runtime_host,
             current_task=current_task,
             session_id=session_id,
             turn_id=turn_id,
@@ -638,6 +647,7 @@ async def start_task_lifecycle_from_contract(
         contract=contract,
         agent_profile_ref=agent_profile_ref,
         model_selection=dict(model_selection or {}),
+        runtime_assembly=runtime_assembly,
     )
     for event in lifecycle_events:
         yield event
@@ -673,10 +683,15 @@ async def start_task_lifecycle_from_contract(
             gate_policy=launch_gate_policy,
         )
         yield {"type": "task_run_lifecycle_event", "event": gate_event}
-        content = task_run_handoff_content(
+        content = task_run_opening_message(
+            action_request=action_request,
             contract=contract.to_dict(),
-            status_text=str(launch_gate_policy.get("user_prompt") or "任务合同已就绪，正在等待确认后继续。"),
-            control_text="确认前，我会先停在这里。",
+            fallback=_task_opening_fallback(contract.to_dict()),
+        )
+        yield assistant_text_event(
+            content=content,
+            answer_channel="task_control",
+            answer_source=f"{answer_source}.supervision",
         )
         await commit_task_control_message(
             commit_assistant_message,
@@ -694,6 +709,7 @@ async def start_task_lifecycle_from_contract(
             extra={
                 "runtime_branch": dict(runtime_branch or {}),
                 "task_run": {"task_run_id": gated_task.task_run_id, "status": gated_task.status},
+                **_active_turn_event_payload(runtime_host=runtime_host, session_id=session_id),
             },
         )
         return
@@ -747,10 +763,15 @@ async def start_task_lifecycle_from_contract(
         refs={"task_run_ref": task_run.task_run_id, "turn_ref": turn_id},
     )
     yield {"type": "task_run_lifecycle_event", "event": scheduled_summary_event.to_dict()}
-    content = task_run_handoff_content(
+    content = task_run_opening_message(
+        action_request=action_request,
         contract=contract.to_dict(),
-        status_text=scheduled_status_text,
-        control_text=scheduled_control_text,
+        fallback=_task_opening_fallback(contract.to_dict()),
+    )
+    yield assistant_text_event(
+        content=content,
+        answer_channel="task_control",
+        answer_source=answer_source,
     )
     await commit_task_control_message(
         commit_assistant_message,
@@ -768,6 +789,7 @@ async def start_task_lifecycle_from_contract(
         extra={
             "runtime_branch": dict(runtime_branch or {}),
             "task_run": {"task_run_id": task_run.task_run_id, "status": "running"},
+            **_active_turn_event_payload(runtime_host=runtime_host, session_id=session_id),
         },
     )
 
@@ -780,6 +802,11 @@ def runtime_task_environment_id(runtime_assembly: Any) -> str:
         or environment.get("task_environment_id")
         or ""
     ).strip()
+
+
+def runtime_task_permission_mode(runtime_assembly: Any) -> str:
+    payload = runtime_assembly.to_dict() if hasattr(runtime_assembly, "to_dict") else dict(runtime_assembly or {})
+    return str(payload.get("permission_mode") or "full_access").strip() or "full_access"
 
 
 async def commit_task_control_message(
@@ -812,6 +839,28 @@ async def commit_task_control_message(
     )
 
 
+def assistant_text_event(*, content: str, answer_channel: str, answer_source: str) -> dict[str, Any]:
+    return {
+        "type": "assistant_text",
+        "content": str(content or "").strip(),
+        "answer_channel": answer_channel,
+        "answer_source": answer_source,
+    }
+
+
+def _active_turn_event_payload(*, runtime_host: Any | None, session_id: str) -> dict[str, Any]:
+    active_registry = getattr(runtime_host, "active_turn_registry", None) if runtime_host is not None else None
+    if active_registry is None:
+        return {}
+    try:
+        active_turn = active_registry.snapshot(session_id)
+    except Exception:
+        active_turn = None
+    if active_turn is None:
+        return {}
+    return {"active_turn": active_turn.to_dict() if hasattr(active_turn, "to_dict") else dict(active_turn)}
+
+
 def _api_protocol_prefix_from_action_request(action_request: ModelActionRequest) -> list[dict[str, Any]]:
     diagnostics = dict(action_request.diagnostics or {})
     return [
@@ -821,37 +870,32 @@ def _api_protocol_prefix_from_action_request(action_request: ModelActionRequest)
     ]
 
 
-def task_run_handoff_content(*, contract: dict[str, Any], status_text: str, control_text: str) -> str:
-    goal = _first_text(
-        contract.get("user_visible_goal"),
-        contract.get("task_run_goal"),
-        "我会把这件事继续推进。",
-    )
-    criteria = list(_string_tuple(contract.get("completion_criteria")))[:2]
-    artifacts = [
-        str(item.get("user_visible_name") or item.get("artifact_kind") or item).strip()
-        for item in list(contract.get("required_artifacts") or [])[:2]
-        if isinstance(item, dict)
-    ]
-    verifications = [
-        str(item.get("user_visible_name") or item.get("verification_kind") or item).strip()
-        for item in list(contract.get("required_verifications") or [])[:2]
-        if isinstance(item, dict)
-    ]
-    lines = [f"我会按这个目标推进：{goal}"]
-    scope_parts: list[str] = []
-    if criteria:
-        scope_parts.append("完成标准：" + "；".join(criteria))
-    if artifacts:
-        scope_parts.append("产物：" + "、".join(item for item in artifacts if item))
-    if verifications:
-        scope_parts.append("验证：" + "、".join(item for item in verifications if item))
-    if scope_parts:
-        lines.append("；".join(scope_parts) + "。")
-    lines.append(status_text.strip())
-    if control_text.strip():
-        lines.append(control_text.strip())
-    return "\n".join(line for line in lines if line.strip())
+def task_run_opening_message(*, action_request: ModelActionRequest, contract: dict[str, Any], fallback: str) -> str:
+    """Return the user-visible assistant prose for a task handoff."""
+
+    note = _first_text(getattr(action_request, "public_progress_note", ""))
+    if note and not _is_generic_task_opening(note):
+        return note
+    goal = _first_text(contract.get("user_visible_goal"), contract.get("task_run_goal"))
+    if goal:
+        return f"我会开始处理：{goal}"
+    return str(fallback or "").strip()
+
+
+def _task_opening_fallback(contract: dict[str, Any]) -> str:
+    goal = _first_text(contract.get("user_visible_goal"), contract.get("task_run_goal"))
+    if goal:
+        return f"我会开始处理：{goal}"
+    return "我会开始处理这个任务，并把关键进展更新在这里。"
+
+
+def _is_generic_task_opening(value: str) -> bool:
+    normalized = " ".join(str(value or "").split()).strip()
+    return normalized in {
+        "正在建立任务运行。",
+        "正在处理当前请求。",
+        "已接收明确任务合同，正在启动任务。",
+    }
 
 
 def _normalize_task_launch_supervision_policy(policy: dict[str, Any], *, default_enabled: bool) -> dict[str, Any]:
@@ -954,43 +998,47 @@ def _explicit_allowed_operations_from_contract(contract: TaskRunContract) -> tup
     runtime_profile = dict(contract.runtime_profile or {})
     execution_permit = dict(runtime_profile.get("execution_permit") or {})
     permission_requirements = dict(contract.permission_requirements or {})
-    scopes: list[tuple[str, ...]] = []
+    operations: list[str] = []
+    seen: set[str] = set()
     for value in (
         runtime_profile.get("allowed_operations"),
         execution_permit.get("allowed_operations"),
         permission_requirements.get("allowed_operations"),
+        permission_requirements.get("required_operations"),
+        permission_requirements.get("optional_operations"),
     ):
-        operations = _string_tuple(value)
-        if operations:
-            scopes.append(operations)
-    if not scopes:
-        return None
-    allowed = set(scopes[0])
-    for scope in scopes[1:]:
-        allowed.intersection_update(scope)
-    return tuple(operation for operation in scopes[0] if operation in allowed)
+        for operation in _string_tuple(value):
+            if operation in seen:
+                continue
+            seen.add(operation)
+            operations.append(operation)
+    return tuple(operations) if operations else None
 
 
 def _explicit_allowed_operations_from_contract_seed(seed: dict[str, Any]) -> tuple[str, ...] | None:
     runtime_profile = dict(seed.get("runtime_profile") or {})
     execution_permit = dict(runtime_profile.get("execution_permit") or {})
     permission_requirements = dict(seed.get("permission_requirements") or seed.get("permission_request") or {})
-    scopes: list[tuple[str, ...]] = []
+    operation_requirement = dict(seed.get("operation_requirement") or {})
+    operations: list[str] = []
+    seen: set[str] = set()
     for value in (
         seed.get("allowed_operations"),
         runtime_profile.get("allowed_operations"),
         execution_permit.get("allowed_operations"),
         permission_requirements.get("allowed_operations"),
+        permission_requirements.get("required_operations"),
+        permission_requirements.get("optional_operations"),
+        operation_requirement.get("allowed_operations"),
+        operation_requirement.get("required_operations"),
+        operation_requirement.get("optional_operations"),
     ):
-        operations = _string_tuple(value)
-        if operations:
-            scopes.append(operations)
-    if not scopes:
-        return None
-    allowed = set(scopes[0])
-    for scope in scopes[1:]:
-        allowed.intersection_update(scope)
-    return tuple(operation for operation in scopes[0] if operation in allowed)
+        for operation in _string_tuple(value):
+            if operation in seen:
+                continue
+            seen.add(operation)
+            operations.append(operation)
+    return tuple(operations) if operations else None
 
 
 def _runtime_profile_with_execution_permit_allowed_operations(

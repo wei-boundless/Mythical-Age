@@ -7,7 +7,6 @@ import {
   fetchRuntimeMonitorGraphDetail,
   fetchRuntimeMonitorSnapshot,
   fetchRuntimeMonitorTaskDetail,
-  getRuntimeMonitorEventStreamUrl,
 } from "./api";
 import { monitorItemInstanceId } from "./resourceRefs";
 import {
@@ -41,8 +40,6 @@ export class RuntimeMonitorController {
   private inFlight = false;
   private polling = false;
   private request = 0;
-  private eventSource: EventSource | null = null;
-  private reconnectTimer: number | null = null;
   private detailRefreshTimer: number | null = null;
   private detailInFlightTaskRunId: string | null = null;
   private detailInFlightRevision = "";
@@ -62,7 +59,7 @@ export class RuntimeMonitorController {
     if (typeof window === "undefined") return;
     this.polling = true;
     this.startVisibilityBackoff();
-    this.startEventStream();
+    this.store.setState((prev) => ({ ...prev, globalRuntimeMonitorStreamStatus: "fallback" }));
     if (this.inFlight) return;
     if (this.timer !== null) {
       window.clearTimeout(this.timer);
@@ -75,15 +72,11 @@ export class RuntimeMonitorController {
     if (typeof window === "undefined") return;
     this.polling = false;
     this.stopVisibilityBackoff();
-    this.stopEventStream();
+    this.stopDetailRefresh();
     this.stopGraphAutoAdvance();
     if (this.timer !== null) {
       window.clearTimeout(this.timer);
       this.timer = null;
-    }
-    if (this.reconnectTimer !== null) {
-      window.clearTimeout(this.reconnectTimer);
-      this.reconnectTimer = null;
     }
     this.inFlight = false;
   }
@@ -361,59 +354,7 @@ export class RuntimeMonitorController {
     }
   }
 
-  private startEventStream() {
-    if (typeof window === "undefined") return;
-    if (typeof EventSource !== "function") {
-      this.store.setState((prev) => ({ ...prev, globalRuntimeMonitorStreamStatus: "fallback" }));
-      this.schedulePoll(1200);
-      return;
-    }
-    if (this.eventSource) return;
-    if (this.reconnectTimer !== null) {
-      window.clearTimeout(this.reconnectTimer);
-      this.reconnectTimer = null;
-    }
-    this.store.setState((prev) => ({ ...prev, globalRuntimeMonitorStreamStatus: "connecting" }));
-    const eventSource = new EventSource(getRuntimeMonitorEventStreamUrl(40));
-    this.eventSource = eventSource;
-    eventSource.onopen = () => {
-      if (this.timer !== null) {
-        window.clearTimeout(this.timer);
-        this.timer = null;
-      }
-      this.store.setState((prev) => ({
-        ...prev,
-        globalRuntimeMonitorError: "",
-        globalRuntimeMonitorStreamStatus: "connected",
-      }));
-      this.schedulePoll(60000);
-    };
-    eventSource.onerror = () => {
-      if (this.eventSource === eventSource) {
-        eventSource.close();
-        this.eventSource = null;
-      }
-      this.store.setState((prev) => ({ ...prev, globalRuntimeMonitorStreamStatus: "fallback" }));
-      this.schedulePoll(5000);
-      this.scheduleReconnect();
-    };
-    eventSource.addEventListener("runtime_monitor_snapshot", (event) => {
-      this.applyStreamPayload(this.parsePayload(event));
-    });
-    eventSource.addEventListener("runtime_monitor_event", (event) => {
-      this.applyStreamPayload(this.parsePayload(event));
-    });
-  }
-
-  private stopEventStream() {
-    if (this.eventSource) {
-      this.eventSource.close();
-      this.eventSource = null;
-    }
-    if (this.reconnectTimer !== null && typeof window !== "undefined") {
-      window.clearTimeout(this.reconnectTimer);
-      this.reconnectTimer = null;
-    }
+  private stopDetailRefresh() {
     if (this.detailRefreshTimer !== null && typeof window !== "undefined") {
       window.clearTimeout(this.detailRefreshTimer);
       this.detailRefreshTimer = null;
@@ -423,26 +364,6 @@ export class RuntimeMonitorController {
     this.queuedDetailTaskRunId = null;
     this.queuedDetailRevision = "";
     this.store.setState((prev) => ({ ...prev, globalRuntimeMonitorStreamStatus: "closed" }));
-  }
-
-  private scheduleReconnect(delayMs = 5000) {
-    if (typeof window === "undefined" || !this.polling) return;
-    if (this.reconnectTimer !== null || this.eventSource) return;
-    const pageHidden = typeof document !== "undefined" && document.visibilityState === "hidden";
-    const effectiveDelay = pageHidden ? Math.max(delayMs, 60000) : delayMs;
-    this.reconnectTimer = window.setTimeout(() => {
-      this.reconnectTimer = null;
-      if (this.polling) this.startEventStream();
-    }, effectiveDelay);
-  }
-
-  private parsePayload(event: Event): RuntimeMonitorEventPayload | null {
-    const message = event as MessageEvent<string>;
-    try {
-      return JSON.parse(message.data) as RuntimeMonitorEventPayload;
-    } catch {
-      return null;
-    }
   }
 
   applyStreamPayload(payload: RuntimeMonitorEventPayload | null) {

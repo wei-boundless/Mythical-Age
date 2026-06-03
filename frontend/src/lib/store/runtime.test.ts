@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createStore, getDefaultState } from "./core";
-import { reduceStreamEvent, startStreamingTurn } from "./events";
+import { reduceStreamEvent, startQueuedActiveTurn, startStreamingTurn } from "./events";
 import { WorkspaceRuntime } from "./runtime";
 import type { StoreState } from "./types";
 
@@ -19,10 +19,13 @@ const api = vi.hoisted(() => ({
   getOrchestrationRuntimeOptions: vi.fn(),
   pauseOrchestrationHarnessTaskRun: vi.fn(),
   clearChatStreamCursor: vi.fn(),
+  getPermissionMode: vi.fn(),
   getRagMode: vi.fn(),
   readChatStreamCursor: vi.fn(),
   resumeOrchestrationHarnessTaskRun: vi.fn(),
   setSessionActiveTaskEnvironment: vi.fn(),
+  setSessionPermissionMode: vi.fn(),
+  setPermissionMode: vi.fn(),
   getSessionHistory: vi.fn(),
   getSessionTimeline: vi.fn(),
   getSessionTokens: vi.fn(),
@@ -58,10 +61,13 @@ vi.mock("@/lib/api", () => ({
   getOrchestrationRuntimeOptions: api.getOrchestrationRuntimeOptions,
   pauseOrchestrationHarnessTaskRun: api.pauseOrchestrationHarnessTaskRun,
   clearChatStreamCursor: api.clearChatStreamCursor,
+  getPermissionMode: api.getPermissionMode,
   getRagMode: api.getRagMode,
   readChatStreamCursor: api.readChatStreamCursor,
   resumeOrchestrationHarnessTaskRun: api.resumeOrchestrationHarnessTaskRun,
   setSessionActiveTaskEnvironment: api.setSessionActiveTaskEnvironment,
+  setSessionPermissionMode: api.setSessionPermissionMode,
+  setPermissionMode: api.setPermissionMode,
   getSessionHistory: api.getSessionHistory,
   getSessionTimeline: api.getSessionTimeline,
   getSessionTokens: api.getSessionTokens,
@@ -195,9 +201,10 @@ const TASK_ENVIRONMENT_CATALOG = {
   summary: { environment_count: 4 },
 };
 
-function conversationState(environmentId: string, label = environmentId, source = "conversation") {
+function conversationState(environmentId: string, label = environmentId, source = "conversation", permissionMode = "full_access") {
   return {
     authority: "sessions.conversation_state",
+    permission_mode: permissionMode,
     active_task_environment: {
       task_environment_id: environmentId,
       environment_label: label,
@@ -281,6 +288,11 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     });
     api.deleteSession.mockReset();
     api.deleteSession.mockResolvedValue({ ok: true });
+    api.getPermissionMode.mockReset();
+    api.getPermissionMode.mockResolvedValue({
+      mode: "default",
+      supported_modes: ["default", "plan", "accept_edits", "bypass", "full_access"],
+    });
     api.getRagMode.mockReset();
     api.getRagMode.mockResolvedValue({ enabled: false });
     api.getModelProviderConfig.mockReset();
@@ -308,6 +320,17 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     api.setSessionActiveTaskEnvironment.mockImplementation(async (_sessionId, payload) =>
       conversationState(String(payload.task_environment_id || ""), String(payload.environment_label || payload.task_environment_id), String(payload.source || "conversation"))
     );
+    api.setSessionPermissionMode.mockReset();
+    api.setSessionPermissionMode.mockImplementation(async (_sessionId, mode) => ({
+      active_task_environment: {},
+      permission_mode: String(mode || "full_access"),
+      authority: "sessions.conversation_state",
+    }));
+    api.setPermissionMode.mockReset();
+    api.setPermissionMode.mockImplementation(async (mode) => ({
+      mode: String(mode || "default"),
+      supported_modes: ["default", "plan", "accept_edits", "bypass", "full_access"],
+    }));
     api.streamExistingChatRun.mockReset();
     api.streamExistingChatRun.mockImplementation(async (_sessionId, _streamRunId, handlers) => {
       handlers.onEvent("done", { content: "done" });
@@ -531,6 +554,101 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(store.getState().centerWorkspaceTarget).toMatchObject({
       layer: "file",
       file_path: "AGENTS.md",
+    });
+  });
+
+  it("loads and updates the runtime permission mode selector state", async () => {
+    vi.useRealTimers();
+    api.getPermissionMode.mockResolvedValueOnce({
+      mode: "full_access",
+      supported_modes: ["default", "plan", "accept_edits", "bypass", "full_access"],
+    });
+    const store = createStore(getDefaultState());
+    const runtime = new WorkspaceRuntime(store);
+
+    await runtime.initialize();
+    await flushPromises();
+
+    expect(store.getState().permissionMode).toBe("full_access");
+
+    await runtime.actions.setPermissionMode("default");
+
+    expect(api.setSessionPermissionMode).toHaveBeenLastCalledWith("session:fresh", "default", undefined);
+    expect(api.setPermissionMode).toHaveBeenLastCalledWith("default");
+    expect(store.getState().permissionMode).toBe("default");
+  });
+
+  it("restores permission mode from the selected conversation session", async () => {
+    vi.useRealTimers();
+    api.listSessions.mockResolvedValue([
+      {
+        id: "session:default",
+        title: "Default Session",
+        created_at: 1,
+        updated_at: 2,
+        message_count: 0,
+        conversation_state: { authority: "sessions.conversation_state", permission_mode: "default" },
+      },
+      {
+        id: "session:full",
+        title: "Full Session",
+        created_at: 1,
+        updated_at: 1,
+        message_count: 0,
+        conversation_state: { authority: "sessions.conversation_state", permission_mode: "full_access" },
+      },
+    ]);
+    api.getSessionTimeline.mockImplementation(async (sessionId) => ({
+      id: String(sessionId),
+      title: "Session",
+      created_at: 1,
+      updated_at: 1,
+      compressed_context: "",
+      conversation_state: String(sessionId) === "session:full"
+        ? { authority: "sessions.conversation_state", permission_mode: "full_access" }
+        : { authority: "sessions.conversation_state", permission_mode: "default" },
+      messages: [],
+      runtime_attachments: [],
+    }));
+    const store = createStore(getDefaultState());
+    const runtime = new WorkspaceRuntime(store);
+
+    await runtime.initialize();
+    await flushPromises();
+
+    expect(store.getState().currentSessionId).toBe("session:default");
+    expect(store.getState().permissionMode).toBe("default");
+
+    await runtime.actions.selectSession({ sessionId: "session:full" });
+    await flushPromises();
+
+    expect(store.getState().currentSessionId).toBe("session:full");
+    expect(store.getState().permissionMode).toBe("full_access");
+  });
+
+  it("sends the selected session permission mode with new chat runs", async () => {
+    vi.useRealTimers();
+    api.listSessions.mockResolvedValue([
+      {
+        id: "session:plan",
+        title: "Plan Session",
+        created_at: 1,
+        updated_at: 1,
+        message_count: 0,
+        conversation_state: { authority: "sessions.conversation_state", permission_mode: "plan" },
+      },
+    ]);
+    const store = createStore(getDefaultState());
+    const runtime = new WorkspaceRuntime(store);
+
+    await runtime.initialize();
+    await flushPromises();
+    await runtime.actions.sendMessage("检查当前项目。");
+
+    expect(api.streamChat).toHaveBeenCalledTimes(1);
+    expect(api.streamChat.mock.calls[0]?.[0]).toMatchObject({
+      session_id: "session:plan",
+      permission_mode: "plan",
     });
   });
 
@@ -846,11 +964,9 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(store.getState().globalRuntimeMonitorSelectedLiveMonitor).toBeNull();
   });
 
-  it("closes a broken global monitor stream and reconnects after fallback polling", async () => {
-    const instances: Array<{ close: ReturnType<typeof vi.fn>; onerror: (() => void) | null; onopen: (() => void) | null }> = [];
+  it("starts the global monitor in polling mode without opening an SSE stream", async () => {
+    const instances: Array<{ close: ReturnType<typeof vi.fn> }> = [];
     class MockEventSource {
-      onerror: (() => void) | null = null;
-      onopen: (() => void) | null = null;
       close = vi.fn();
 
       constructor(_url: string) {
@@ -870,19 +986,14 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     const runtime = new WorkspaceRuntime(store);
 
     runtime.startGlobalRuntimeMonitor();
-    expect(instances).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(0);
 
-    instances[0].onerror?.();
-    expect(instances[0].close).toHaveBeenCalledTimes(1);
+    expect(instances).toHaveLength(0);
+    expect(api.getGlobalRuntimeMonitor).toHaveBeenCalledTimes(1);
     expect(store.getState().globalRuntimeMonitorStreamStatus).toBe("fallback");
-
-    await vi.advanceTimersByTimeAsync(5000);
-
-    expect(instances).toHaveLength(2);
-    expect(store.getState().globalRuntimeMonitorStreamStatus).toBe("connecting");
   });
 
-  it("backs off global monitor polling after the SSE monitor connects", async () => {
+  it("polls the global monitor on a steady interval without relying on SSE", async () => {
     const instances: Array<{ close: ReturnType<typeof vi.fn>; onerror: (() => void) | null; onopen: (() => void) | null }> = [];
     class MockEventSource {
       onerror: (() => void) | null = null;
@@ -906,14 +1017,11 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     const runtime = new WorkspaceRuntime(store);
 
     runtime.startGlobalRuntimeMonitor();
-    instances[0].onopen?.();
     await vi.advanceTimersByTimeAsync(0);
+    expect(instances).toHaveLength(0);
     expect(api.getGlobalRuntimeMonitor).toHaveBeenCalledTimes(1);
 
-    await vi.advanceTimersByTimeAsync(59000);
-    expect(api.getGlobalRuntimeMonitor).toHaveBeenCalledTimes(1);
-
-    await vi.advanceTimersByTimeAsync(1000);
+    await vi.advanceTimersByTimeAsync(2500);
     expect(api.getGlobalRuntimeMonitor).toHaveBeenCalledTimes(2);
   });
 
@@ -1138,6 +1246,8 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
   it("refreshes session task monitor once after chat stream hands off to a background task", async () => {
     api.streamChat.mockImplementation(async (_payload, handlers) => {
       handlers.onEvent("agent_turn_terminal", {
+        active_turn_id: "turn:session:background:1",
+        runtime_task_run_id: "taskrun:background",
         event: {
           event_id: "rtevt:handoff",
           run_id: "turnrun:test",
@@ -1152,7 +1262,13 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
           },
         },
       });
-      handlers.onEvent("done", { content: "任务已进入后台执行。" });
+      handlers.onEvent("done", {
+        content: "任务已进入后台执行。",
+        answer_channel: "task_control",
+        terminal_reason: "task_executor_scheduled",
+        runtime_task_run_id: "taskrun:background",
+        active_turn_id: "turn:session:background:1",
+      });
       return { terminalEvent: "done" };
     });
     api.getOrchestrationHarnessSessionLiveMonitor.mockResolvedValue({
@@ -1180,6 +1296,321 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     await vi.advanceTimersByTimeAsync(1500);
     expect(api.getOrchestrationHarnessSessionLiveMonitor).toHaveBeenCalledTimes(1);
     expect(store.getState().sessionActivity.title).toBe("正在处理");
+    expect(store.getState().activeTurnSnapshot).toMatchObject({
+      turn_id: "turn:session:background:1",
+      task_run_id: "taskrun:background",
+    });
+    expect(store.getState().taskGraphLiveMonitor?.task_run_id).toBe("taskrun:background");
+  });
+
+  it("sends later main-chat input with the active task turn gate after task handoff", async () => {
+    api.streamChat.mockImplementation(async (_payload, handlers) => {
+      handlers.onEvent("done", {
+        content: "任务已进入后台执行。",
+        answer_channel: "task_control",
+        terminal_reason: "task_executor_scheduled",
+        runtime_task_run_id: "taskrun:background",
+        active_turn_id: "turn:session:background:1",
+      });
+      return { terminalEvent: "done" };
+    });
+    const store = createStore<StoreState>({
+      ...getDefaultState(),
+      currentSessionId: "session:background",
+    });
+    const runtime = new WorkspaceRuntime(store);
+
+    await runtime.actions.sendMessage("开始后台任务");
+    await runtime.actions.sendMessage("暂停一下");
+
+    expect(api.streamChat).toHaveBeenCalledTimes(2);
+    expect(api.streamChat.mock.calls[1]?.[0]).toMatchObject({
+      expected_active_turn_id: "turn:session:background:1",
+      active_turn_input_policy: "steer",
+    });
+    expect(store.getState().sessionActivity).toMatchObject({
+      level: "waiting",
+      title: "后台任务已接管",
+    });
+  });
+
+  it("keeps the active task turn gate after an active-work control turn completes", async () => {
+    let callIndex = 0;
+    api.streamChat.mockImplementation(async (_payload, handlers) => {
+      callIndex += 1;
+      if (callIndex === 1) {
+        handlers.onEvent("done", {
+          content: "任务已进入后台执行。",
+          answer_channel: "task_control",
+          terminal_reason: "task_executor_scheduled",
+          runtime_task_run_id: "taskrun:background",
+          active_turn_id: "turn:session:background:1",
+        });
+      } else {
+        handlers.onEvent("done", {
+          content: "已收到，会纳入当前处理。",
+          answer_channel: "active_work_control",
+          terminal_reason: "append_instruction_to_active_work",
+          completion_state: "task_steer_accepted",
+          runtime_task_run_id: "taskrun:background",
+          active_turn_id: "turn:session:background:1",
+        });
+      }
+      return { terminalEvent: "done" };
+    });
+    const store = createStore<StoreState>({
+      ...getDefaultState(),
+      currentSessionId: "session:background",
+    });
+    const runtime = new WorkspaceRuntime(store);
+
+    await runtime.actions.sendMessage("开始后台任务");
+    await runtime.actions.sendMessage("暂停一下");
+
+    expect(store.getState().activeTurnSnapshot).toMatchObject({
+      turn_id: "turn:session:background:1",
+      task_run_id: "taskrun:background",
+    });
+
+    await runtime.actions.sendMessage("继续");
+
+    expect(api.streamChat).toHaveBeenCalledTimes(3);
+    expect(api.streamChat.mock.calls[2]?.[0]).toMatchObject({
+      expected_active_turn_id: "turn:session:background:1",
+      active_turn_input_policy: "steer",
+    });
+  });
+
+  it("recovers the active task turn gate from the session live monitor before later input", async () => {
+    const taskRunId = "taskrun:turn:session-monitor-recover:1:abc";
+    api.getOrchestrationHarnessSessionLiveMonitor.mockResolvedValue({
+      active_task_run_id: taskRunId,
+      active_turn_snapshot: {
+        turn_id: "turn:session-monitor-recover:1",
+        bound_task_run_id: taskRunId,
+        state: "running_task",
+      },
+      monitor: {
+        task_run_id: taskRunId,
+        session_id: "session-monitor-recover",
+        status: "running",
+        execution_runtime_kind: "single_agent_task",
+        event_count: 2,
+        latest_interaction_turn_id: "turn:session-monitor-recover:1",
+        latest_step: {
+          event_id: "step:recover",
+          step: "task_model_action_invocation_started:1",
+          status: "running",
+          created_at: 2,
+        },
+        latest_step_summary: "正在推进当前任务。",
+        latest_event: { event_type: "step_summary_recorded" },
+        task_run: {
+          task_run_id: taskRunId,
+          task_id: "task:turn:session-monitor-recover:1",
+          status: "running",
+          execution_runtime_kind: "single_agent_task",
+        },
+      },
+      task_runs: [],
+    });
+    const store = createStore<StoreState>({
+      ...getDefaultState(),
+      currentSessionId: "session-monitor-recover",
+      messages: [
+        { id: "user:1", role: "user", content: "开始任务", toolCalls: [], retrievals: [], sourceIndex: 0 },
+        { id: "assistant:1", role: "assistant", content: "我会开始处理。", toolCalls: [], retrievals: [], sourceIndex: 1 },
+      ],
+      activeTurnSnapshot: null,
+    });
+    const runtime = new WorkspaceRuntime(store) as unknown as {
+      actions: WorkspaceRuntime["actions"];
+      hydrateLatestOrchestrationSnapshot: (sessionId: string) => Promise<boolean>;
+    };
+
+    await runtime.hydrateLatestOrchestrationSnapshot("session-monitor-recover");
+    await runtime.actions.sendMessage("补充一个限制条件");
+
+    expect(store.getState().activeTurnSnapshot).toMatchObject({
+      turn_id: "turn:session-monitor-recover:1",
+      task_run_id: taskRunId,
+    });
+    expect(store.getState().taskGraphLiveMonitor?.task_run_id).toBe(taskRunId);
+    expect(api.streamChat).toHaveBeenCalledWith(
+      expect.objectContaining({
+        expected_active_turn_id: "turn:session-monitor-recover:1",
+        active_turn_input_policy: "steer",
+      }),
+      expect.anything(),
+      expect.anything(),
+    );
+  });
+
+  it("sends running active task input as a queued steer request without adding an assistant placeholder", async () => {
+    const taskRunId = "taskrun:turn:session-queue-only:1:abc";
+    api.streamChat.mockImplementation(async (_payload, handlers) => {
+      handlers.onEvent("active_task_steer_accepted", {
+        summary: "已加入当前任务队列，会在当前执行中优先纳入。",
+        active_turn: {
+          turn_id: "turn:session-queue-only:1",
+          bound_task_run_id: taskRunId,
+          state: "running_task",
+        },
+        task_run: {
+          task_run_id: taskRunId,
+          status: "running",
+          execution_runtime_kind: "single_agent_task",
+        },
+      });
+      handlers.onEvent("done", {
+        content: "已加入当前任务队列，会在当前执行中优先纳入。",
+        answer_channel: "active_work_control",
+        completion_state: "task_steer_accepted",
+        runtime_task_run_id: taskRunId,
+        active_turn_id: "turn:session-queue-only:1",
+      });
+      return { terminalEvent: "done" };
+    });
+    api.getSessionTimeline.mockResolvedValue({
+      messages: [
+        { role: "user", content: "开始任务" },
+        { role: "assistant", content: "我会开始处理。" },
+        { role: "user", content: "补充一个限制条件" },
+      ],
+      runtime_attachments: [],
+    });
+    const store = createStore<StoreState>({
+      ...getDefaultState(),
+      currentSessionId: "session-queue-only",
+      activeTurnSnapshot: {
+        turn_id: "turn:session-queue-only:1",
+        task_run_id: taskRunId,
+        state: "running_task",
+      },
+      taskGraphLiveMonitor: ({
+        task_run_id: taskRunId,
+        session_id: "session-queue-only",
+        status: "running",
+        execution_runtime_kind: "single_agent_task",
+        route: { kind: "agent_runtime_run", session_id: "session-queue-only", task_run_id: taskRunId },
+        runtime_control: { state: "running" },
+        task_run: {
+          task_run_id: taskRunId,
+          status: "running",
+          execution_runtime_kind: "single_agent_task",
+        },
+      } as unknown) as StoreState["taskGraphLiveMonitor"],
+      messages: [
+        { id: "user:1", role: "user", content: "开始任务", toolCalls: [], retrievals: [], sourceIndex: 0 },
+        { id: "assistant:1", role: "assistant", content: "我会开始处理。", toolCalls: [], retrievals: [], sourceIndex: 1 },
+      ],
+    });
+    const runtime = new WorkspaceRuntime(store);
+
+    await runtime.actions.sendMessage("补充一个限制条件");
+
+    expect(api.streamChat).toHaveBeenCalledWith(
+      expect.objectContaining({
+        expected_active_turn_id: "turn:session-queue-only:1",
+        active_turn_input_policy: "steer",
+      }),
+      expect.anything(),
+      expect.anything(),
+    );
+    expect(store.getState().messages.map((message) => message.role)).toEqual(["user", "assistant", "user"]);
+    expect(store.getState().messages.at(-1)).toMatchObject({
+      role: "user",
+      content: "补充一个限制条件",
+    });
+    expect(store.getState().messages.some((message) => message.role === "assistant" && !message.content.trim())).toBe(false);
+  });
+
+  it("queues user input locally while the current stream is active and flushes it after handoff", async () => {
+    const taskRunId = "taskrun:turn:session-stream-queue:1:abc";
+    let finishFirstStream: (() => void) | null = null;
+    api.streamChat
+      .mockImplementationOnce(async (_payload, handlers) => {
+        await new Promise<void>((resolve) => {
+          finishFirstStream = () => {
+            handlers.onEvent("done", {
+              content: "任务已进入后台执行。",
+              answer_channel: "task_control",
+              terminal_reason: "task_executor_scheduled",
+              runtime_task_run_id: taskRunId,
+              active_turn_id: "turn:session-stream-queue:1",
+            });
+            resolve();
+          };
+        });
+        return { terminalEvent: "done" };
+      })
+      .mockImplementationOnce(async (_payload, handlers) => {
+        handlers.onEvent("done", {
+          content: "已加入当前任务队列，会在当前执行中优先纳入。",
+          answer_channel: "active_work_control",
+          completion_state: "task_steer_accepted",
+          runtime_task_run_id: taskRunId,
+          active_turn_id: "turn:session-stream-queue:1",
+        });
+        return { terminalEvent: "done" };
+      });
+    api.getSessionTimeline.mockResolvedValue({
+      messages: [
+        { role: "user", content: "开始任务" },
+        { role: "assistant", content: "任务已进入后台执行。" },
+        { role: "user", content: "补充一个限制条件" },
+      ],
+      runtime_attachments: [],
+    });
+    api.getOrchestrationHarnessSessionLiveMonitor.mockResolvedValue({
+      active_task_run_id: taskRunId,
+      active_turn_snapshot: {
+        turn_id: "turn:session-stream-queue:1",
+        bound_task_run_id: taskRunId,
+        state: "running_task",
+      },
+      monitor: {
+        task_run_id: taskRunId,
+        session_id: "session-stream-queue",
+        status: "running",
+        execution_runtime_kind: "single_agent_task",
+        route: { kind: "agent_runtime_run", session_id: "session-stream-queue", task_run_id: taskRunId },
+        runtime_control: { state: "running" },
+        task_run: {
+          task_run_id: taskRunId,
+          status: "running",
+          execution_runtime_kind: "single_agent_task",
+        },
+      },
+    });
+    const store = createStore<StoreState>({
+      ...getDefaultState(),
+      currentSessionId: "session-stream-queue",
+    });
+    const runtime = new WorkspaceRuntime(store);
+
+    const firstSend = runtime.actions.sendMessage("开始任务");
+    await flushPromises();
+    await runtime.actions.sendMessage("补充一个限制条件");
+
+    expect(api.streamChat).toHaveBeenCalledTimes(1);
+    expect(store.getState().messages.map((message) => message.role)).toEqual(["user", "assistant", "user"]);
+    expect(store.getState().sessionActivity).toMatchObject({
+      title: "已加入发送队列",
+    });
+
+    const finish = finishFirstStream as (() => void) | null;
+    expect(finish).not.toBeNull();
+    finish?.();
+    await firstSend;
+    await flushPromises(10);
+
+    expect(api.streamChat).toHaveBeenCalledTimes(2);
+    expect(api.streamChat.mock.calls[1]?.[0]).toMatchObject({
+      expected_active_turn_id: "turn:session-stream-queue:1",
+      active_turn_input_policy: "steer",
+    });
+    expect(store.getState().messages.map((message) => message.role)).toEqual(["user", "assistant", "user"]);
   });
 
   it("accumulates live TaskRun progress entries instead of replacing them with the latest step", async () => {
@@ -1410,6 +1841,49 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(assistant?.answerPersistPolicy).toBe("persist_canonical");
     expect(assistant?.answerSelectedChannel).toBe("answer_candidate");
     expect(assistant?.answerLeakFlags).toEqual(["internal_protocol_final_text"]);
+  });
+
+  it("uses assistant_text as visible prose before task handoff done", () => {
+    let transition = startStreamingTurn(getDefaultState(), "开始任务");
+    transition = reduceStreamEvent(transition.state, transition.session, "assistant_text", {
+      content: "我先把目标转成可执行任务，然后持续推进实现和验证。",
+      answer_channel: "task_control",
+      answer_source: "harness.single_agent_turn.request_task_run",
+    });
+    transition = reduceStreamEvent(transition.state, transition.session, "done", {
+      content: "done 不应覆盖已经显示的 agent 正文。",
+      answer_channel: "task_control",
+      answer_source: "harness.single_agent_turn.request_task_run",
+      answer_canonical_state: "progress_only",
+      answer_persist_policy: "persist_debug_only",
+    });
+
+    const assistant = transition.state.messages.at(-1);
+    expect(assistant?.role).toBe("assistant");
+    expect(assistant?.content).toBe("我先把目标转成可执行任务，然后持续推进实现和验证。");
+    expect(assistant?.answerChannel).toBe("task_control");
+    expect(assistant?.answerPersistPolicy).toBe("persist_debug_only");
+  });
+
+  it("keeps task steer acknowledgements out of assistant prose for queued active work", () => {
+    let transition = startQueuedActiveTurn(getDefaultState(), "补充限制条件");
+    transition = reduceStreamEvent(transition.state, transition.session, "done", {
+      content: "已加入当前任务队列，会在当前执行中优先纳入。",
+      answer_channel: "active_work_control",
+      completion_state: "task_steer_accepted",
+      runtime_task_run_id: "taskrun:background",
+      active_turn_id: "turn:session:background:1",
+    });
+
+    expect(transition.state.messages).toHaveLength(1);
+    expect(transition.state.messages[0]).toMatchObject({
+      role: "user",
+      content: "补充限制条件",
+    });
+    expect(transition.state.sessionActivity).toMatchObject({
+      level: "success",
+      title: "已收到补充要求",
+    });
   });
 
   it("keeps chat usable when noncritical workspace metadata is still loading", async () => {

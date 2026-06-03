@@ -6,6 +6,7 @@ from typing import Any
 
 from capability_system.skills.registry import SkillRegistry
 from capability_system.tools.authorization import build_authorized_tool_set
+from permissions.policy import normalize_permission_mode
 from task_system.contracts.runtime_contracts import SkillRuntimeView, skill_runtime_view_from_skill_definition
 from task_system.environments import build_task_environment_catalog, task_environment_registry_from_backend_dir
 
@@ -99,6 +100,7 @@ class RuntimeAssembly:
     execution_strategy: dict[str, Any] = field(default_factory=dict)
     engagement_run_ref: str = ""
     task_environment: dict[str, Any] = field(default_factory=dict)
+    permission_mode: str = "default"
     agent_prompt_refs: tuple[str, ...] = ()
     agent_prompt_refs_by_invocation: dict[str, Any] = field(default_factory=dict)
     environment_prompt_refs: tuple[str, ...] = ()
@@ -146,13 +148,16 @@ def assemble_runtime(
     agent_runtime_profile: Any | None,
     tool_instances: list[Any] | tuple[Any, ...] | None,
     definitions_by_name: dict[str, Any],
+    permission_mode: str = "default",
 ) -> RuntimeAssembly:
     selection = dict(request_task_selection or {})
+    normalized_permission_mode = normalize_permission_mode(permission_mode)
     engagement_contract = dict(selection.get("engagement_contract") or {})
+    explicit_operation_ceiling = _explicit_operation_ceiling_from_runtime_selection(selection)
     profile = build_runtime_assembly_profile(
         agent_runtime_profile=agent_runtime_profile,
         selection=selection,
-        explicit_allowed_operations=_explicit_allowed_operations_from_runtime_selection(selection),
+        explicit_operation_ceiling=explicit_operation_ceiling,
     )
     task_environment, environment_diagnostics = _resolve_runtime_task_environment(
         backend_dir=backend_dir,
@@ -165,6 +170,8 @@ def assemble_runtime(
         environment_payload=task_environment,
         task_requested_operations=task_requested_operations,
         definitions_by_name=definitions_by_name,
+        permission_mode=normalized_permission_mode,
+        operation_ceiling=explicit_operation_ceiling,
     )
     allowed_operations = set(operation_projection.allowed_operations)
     tool_set = build_authorized_tool_set(
@@ -220,6 +227,7 @@ def assemble_runtime(
         execution_strategy=dict(engagement_contract.get("execution_strategy") or selection.get("execution_strategy") or {}),
         engagement_run_ref=str(selection.get("engagement_run_ref") or ""),
         task_environment=task_environment,
+        permission_mode=normalized_permission_mode,
         agent_prompt_refs=_agent_prompt_refs(agent_runtime_profile),
         agent_prompt_refs_by_invocation=_agent_prompt_refs_by_invocation(agent_runtime_profile),
         environment_prompt_refs=_environment_prompt_refs(task_environment),
@@ -240,6 +248,7 @@ def assemble_runtime(
         diagnostics={
             "agent_profile_ref": str(getattr(agent_runtime_profile, "agent_profile_id", "") or ""),
             "task_environment": environment_diagnostics,
+            "permission_mode": normalized_permission_mode,
             "engagement_contract_ref": str(engagement_contract.get("contract_id") or selection.get("engagement_contract_ref") or ""),
             "engagement_plan_ref": str(engagement_contract.get("plan_id") or selection.get("engagement_plan_ref") or ""),
             "operation_authorization": {
@@ -259,7 +268,7 @@ def build_runtime_assembly_profile(
     *,
     agent_runtime_profile: Any | None = None,
     selection: dict[str, Any] | None = None,
-    explicit_allowed_operations: tuple[str, ...] | None = None,
+    explicit_operation_ceiling: tuple[str, ...] | None = None,
 ) -> RuntimeAssemblyProfile:
     selection = dict(selection or {})
     runtime_policy = _resolved_runtime_policy(
@@ -282,8 +291,8 @@ def build_runtime_assembly_profile(
     blocked_operations = set(_string_tuple(explicit_tool_policy.get("blocked_operations")))
     if blocked_operations:
         base_operations = tuple(item for item in base_operations if item not in blocked_operations)
-    if explicit_allowed_operations is not None:
-        base_operations = tuple(item for item in base_operations if item in set(explicit_allowed_operations))
+    if explicit_operation_ceiling is not None:
+        base_operations = tuple(item for item in base_operations if item in set(explicit_operation_ceiling))
     return RuntimeAssemblyProfile(
         profile_ref=str(getattr(agent_runtime_profile, "agent_profile_id", "") or "main_interactive_agent"),
         prompt_pack_refs=_string_tuple(runtime_policy.get("prompt_pack_refs")),
@@ -308,15 +317,25 @@ def build_runtime_assembly_profile(
     )
 
 
-def _explicit_allowed_operations_from_runtime_selection(selection: dict[str, Any]) -> tuple[str, ...] | None:
+def _explicit_operation_ceiling_from_runtime_selection(selection: dict[str, Any]) -> tuple[str, ...] | None:
     payload = dict(selection or {})
     scopes: list[tuple[str, ...]] = []
+    runtime_profile = dict(payload.get("runtime_profile") or {})
+    execution_permit = dict(payload.get("execution_permit") or {})
+    runtime_execution_permit = dict(runtime_profile.get("execution_permit") or {})
+    tool_policy = _merge_dicts(
+        payload.get("tool_exposure_policy"),
+        payload.get("tool_policy"),
+        runtime_profile.get("tool_exposure_policy"),
+        runtime_profile.get("tool_policy"),
+    )
 
     for value in (
-        payload.get("allowed_operations"),
-        dict(payload.get("execution_permit") or {}).get("allowed_operations"),
-        dict(payload.get("runtime_profile") or {}).get("allowed_operations"),
-        dict(dict(payload.get("runtime_profile") or {}).get("execution_permit") or {}).get("allowed_operations"),
+        payload.get("operation_ceiling"),
+        execution_permit.get("operation_ceiling"),
+        runtime_profile.get("operation_ceiling"),
+        runtime_execution_permit.get("operation_ceiling"),
+        tool_policy.get("operation_ceiling"),
     ):
         operations = _string_tuple(value)
         if operations:

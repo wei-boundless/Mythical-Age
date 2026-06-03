@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import contextmanager
+import contextvars
 import os
 from pathlib import Path
 import sqlite3
@@ -65,6 +67,10 @@ class SingleAgentRuntimeHost:
             operation_gate=self.operation_gate,
         )
         self.permission_mode_provider = permission_mode_provider
+        self._permission_mode_override: contextvars.ContextVar[str] = contextvars.ContextVar(
+            "single_agent_runtime_permission_mode_override",
+            default="",
+        )
         self.tool_authorization_index = tool_authorization_index or build_tool_authorization_index(
             tuple(tool_definitions or ())
         )
@@ -150,6 +156,9 @@ class SingleAgentRuntimeHost:
             )
 
     def _current_permission_mode(self) -> str:
+        override = str(self._permission_mode_override.get() or "").strip()
+        if override:
+            return override
         provider = self.permission_mode_provider
         if callable(provider):
             try:
@@ -159,6 +168,14 @@ class SingleAgentRuntimeHost:
             if mode:
                 return mode
         return "default"
+
+    @contextmanager
+    def permission_mode_scope(self, permission_mode: str):
+        token = self._permission_mode_override.set(str(permission_mode or "").strip())
+        try:
+            yield
+        finally:
+            self._permission_mode_override.reset(token)
 
     def list_session_traces(self, session_id: str) -> dict[str, Any]:
         task_runs = sorted(

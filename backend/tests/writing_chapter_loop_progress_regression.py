@@ -115,7 +115,7 @@ def _chapter_loop_config():
 
 def test_chapter_progress_receipt_partial_commit_continues_from_next_missing_chapter(tmp_path: Path) -> None:
     runtime = _runtime_with_graph_harness(base_dir=tmp_path / "backend", runtime_root=tmp_path / "runtime_state")
-    graph_config = _chapter_loop_config()
+    graph_config = replace(_chapter_loop_config(), control={"max_active_nodes": 2}, content_hash="")
     loop = runtime.harness_runtime.graph_harness.graph_loop
     started = runtime.harness_runtime.graph_harness.start_run(
         session_id="session",
@@ -179,7 +179,9 @@ def test_chapter_progress_receipt_partial_commit_continues_from_next_missing_cha
     assert state.initial_inputs["active_chapter_range"] == "004-010"
     assert state.initial_inputs["group_current_measure"] == 6600
     assert state.initial_inputs["total_current_measure"] == 6600
+    assert "volume_review" not in state.ready_node_ids
     assert advance.node_work_orders[0].node_id == "chapter_outline"
+    assert [order.node_id for order in advance.node_work_orders] == ["chapter_outline"]
 
 
 def test_progress_receipt_route_policy_preserves_explicit_receipt_source() -> None:
@@ -335,7 +337,7 @@ def test_memory_commit_node_requires_structured_chapter_progress_receipt(tmp_pat
     assert result.error["reason"] == "chapter_progress_receipt_missing"
 
 
-def test_chapter_draft_self_repair_result_fails_closed_when_quality_gate_under_length(tmp_path: Path) -> None:
+def test_chapter_draft_result_fails_closed_when_quality_gate_under_length(tmp_path: Path) -> None:
     runtime = _runtime_with_graph_harness(base_dir=tmp_path / "backend", runtime_root=tmp_path / "runtime_state")
     graph_config = GraphHarnessConfig(
         config_id="config:quality-gate",
@@ -345,7 +347,7 @@ def test_chapter_draft_self_repair_result_fails_closed_when_quality_gate_under_l
         content_hash="hash:test",
         nodes=(
             {
-                "node_id": "chapter_draft_self_repair",
+                "node_id": "chapter_draft",
                 "node_type": "agent_role",
                 "contracts": {
                     "contract_bindings": {
@@ -356,7 +358,7 @@ def test_chapter_draft_self_repair_result_fails_closed_when_quality_gate_under_l
                                 "measurement_mode": "text_units",
                                 "target_units": 20000,
                                 "min_units": 18000,
-                                "max_units": 26000,
+                                "max_units": 40000,
                                 "batch_unit_count": 10,
                                 "metric_section_keys": ["章节正文候选"],
                             }
@@ -389,10 +391,10 @@ def test_chapter_draft_self_repair_result_fails_closed_when_quality_gate_under_l
         work_kind="agent",
         graph_run_id="grun:quality-gate",
         task_run_id="taskrun:quality-gate",
-        node_id="chapter_draft_self_repair",
+        node_id="chapter_draft",
         config_id=graph_config.config_id,
         config_hash=graph_config.content_hash,
-        task_ref="task.test.chapter.draft.repair",
+        task_ref="task.test.chapter.draft",
         input_package={
             "initial_inputs": {
                 "batch_start_index": 1,
@@ -421,7 +423,84 @@ def test_chapter_draft_self_repair_result_fails_closed_when_quality_gate_under_l
     assert result.diagnostics["quality_acceptance"]["business_accepted"] is False
 
 
-def test_quality_failed_draft_with_self_repair_route_passes_metric_feedback_to_repair(tmp_path: Path) -> None:
+def test_chapter_draft_quality_gate_can_requeue_same_node(tmp_path: Path) -> None:
+    runtime = _runtime_with_graph_harness(base_dir=tmp_path / "backend", runtime_root=tmp_path / "runtime_state")
+    graph_config = GraphHarnessConfig(
+        config_id="config:quality-gate-retry-same-node",
+        graph_id="graph:test.quality_gate.retry_same_node",
+        graph_title="Quality Gate Retry Same Node",
+        publish_version="test",
+        content_hash="hash:test",
+        nodes=(
+            {
+                "node_id": "chapter_draft",
+                "node_type": "agent_role",
+                "contracts": {
+                    "contract_bindings": {
+                        "runtime": {
+                            "length_budget": {
+                                "enabled": True,
+                                "budget_scope": "unit",
+                                "measurement_mode": "text_units",
+                                "target_units": 2000,
+                                "min_units": 1800,
+                                "max_units": 4000,
+                                "target_enforcement": "advisory",
+                                "batch_unit_count": 1,
+                                "metric_section_keys": ["章节正文候选"],
+                            }
+                        }
+                    }
+                },
+                "retry": {
+                    "acceptance_policies": ["sectioned_text_batch_quality"],
+                    "quality_failure_mode": "retry_same_node",
+                    "unit_start_key": "chapter_index",
+                    "unit_end_key": "chapter_index",
+                    "unit_count_key": "unit_count",
+                    "target_metric_key": "unit_target_measure",
+                    "unit_target_metric_key": "unit_target_measure",
+                    "minimum_metric_ratio": 0.9,
+                    "minimum_metric_per_unit": 1800,
+                    "required_heading_patterns": [r"第\s*(?P<index>[0-9一二三四五六七八九十百零〇两]+)\s*[章节回]"],
+                    "heading_match_scope": "formal_heading",
+                    "metric_section_keys": ["章节正文候选"],
+                },
+            },
+        ),
+        edges=(),
+    )
+    body = "# 【章节正文候选】\n\n### 第2章\n" + ("泽" * 1200)
+    work_order = GraphNodeWorkOrder(
+        work_order_id="gwork:quality-gate-retry-same-node",
+        work_kind="agent",
+        graph_run_id="grun:quality-gate-retry-same-node",
+        task_run_id="taskrun:quality-gate-retry-same-node",
+        node_id="chapter_draft",
+        config_id=graph_config.config_id,
+        config_hash=graph_config.content_hash,
+        task_ref="task.test.chapter.draft",
+        input_package={"initial_inputs": {"chapter_index": 2, "unit_count": 1, "unit_target_measure": 2000}},
+    )
+
+    result = GraphNodeWorkOrderExecutor(services=runtime.harness_runtime)._node_result_from_agent_execution(
+        graph_config=graph_config,
+        work_order=work_order,
+        task_run_id="node-taskrun",
+        executor_result={
+            "ok": True,
+            "final_answer": body,
+            "task_run": {"task_run_id": "node-taskrun", "status": "completed", "diagnostics": {"final_answer": body}},
+        },
+    )
+
+    assert result.status == "blocked"
+    assert result.error["reason"] == "quality_gate_failed"
+    assert result.error["recoverable_error"]["retryable"] is True
+    assert result.diagnostics["quality_acceptance"]["below_target_advisory"] is True
+
+
+def test_quality_failed_draft_with_explicit_repair_route_passes_metric_feedback_to_repair(tmp_path: Path) -> None:
     runtime = _runtime_with_graph_harness(base_dir=tmp_path / "backend", runtime_root=tmp_path / "runtime_state")
     retry = {
         "acceptance_policies": ["sectioned_text_batch_quality"],
@@ -456,7 +535,7 @@ def test_quality_failed_draft_with_self_repair_route_passes_metric_feedback_to_r
                 "retry": retry,
             },
             {
-                "node_id": "chapter_draft_self_repair",
+                "node_id": "chapter_draft_repair",
                 "node_type": "agent",
                 "task_ref": "task.test.chapter.draft.repair",
                 "agent_id": "agent:0",
@@ -466,12 +545,13 @@ def test_quality_failed_draft_with_self_repair_route_passes_metric_feedback_to_r
         ),
         edges=(
             {
-                "edge_id": "edge.draft.self_repair",
+                "edge_id": "edge.draft.repair",
                 "source_node_id": "chapter_draft",
-                "target_node_id": "chapter_draft_self_repair",
-                "edge_type": "structured_handoff",
+                "target_node_id": "chapter_draft_repair",
+                "edge_type": "repair_route",
                 "scheduler_role": "dependency",
                 "semantic_role": "control",
+                "metadata": {"dependency_role": "repair_route"},
                 "result_delivery_policy": "contract_payload_and_refs",
             },
         ),
@@ -510,12 +590,93 @@ def test_quality_failed_draft_with_self_repair_route_passes_metric_feedback_to_r
         result=draft_result,
     )
 
-    assert advance.node_work_orders[0].node_id == "chapter_draft_self_repair"
+    assert advance.node_work_orders[0].node_id == "chapter_draft_repair"
     repair_inputs = advance.node_work_orders[0].input_package["initial_inputs"]
     assert "chapter_revision_requirements" in repair_inputs
     assert "质量门统计" in repair_inputs["chapter_revision_requirements"]
     assert "第1章约" in repair_inputs["chapter_revision_requirements"]
     assert repair_inputs["quality_gate_feedback"]["source_error"]["reason"] == "quality_gate_failed"
+
+
+def test_quality_repair_route_requires_explicit_repair_semantics(tmp_path: Path) -> None:
+    runtime = _runtime_with_graph_harness(base_dir=tmp_path / "backend", runtime_root=tmp_path / "runtime_state")
+    retry = {
+        "acceptance_policies": ["sectioned_text_batch_quality"],
+        "unit_start_key": "batch_start_index",
+        "unit_end_key": "batch_end_index",
+        "unit_count_key": "units_per_batch",
+        "target_metric_key": "batch_target_measure",
+        "unit_target_metric_key": "unit_target_measure",
+        "minimum_metric_ratio": 0.9,
+        "minimum_metric_per_unit": 1800,
+        "required_heading_patterns": [r"第\s*(?P<index>[0-9一二三四五六七八九十百零〇两]+)\s*[章节回]"],
+        "heading_match_scope": "formal_heading",
+        "metric_section_keys": ["章节正文候选"],
+    }
+    graph_config = GraphHarnessConfig(
+        config_id="ghcfg:test.quality.no_implicit_repair",
+        graph_id="graph.test.quality.no_implicit_repair",
+        graph_title="Quality No Implicit Repair",
+        publish_version="v1",
+        control={"start_node_ids": ["chapter_draft"]},
+        nodes=(
+            {
+                "node_id": "chapter_draft",
+                "node_type": "agent",
+                "task_ref": "task.test.chapter.draft",
+                "agent_id": "agent:0",
+                "executor": {"executor_type": "agent"},
+                "contracts": {"contract_bindings": {"runtime": {"length_budget": {"configured": True, "min_units": 18000, "target_units": 20000}}}},
+                "retry": retry,
+            },
+            {
+                "node_id": "chapter_draft_self_repair",
+                "node_type": "agent",
+                "task_ref": "task.test.chapter.draft.repair",
+                "agent_id": "agent:0",
+                "executor": {"executor_type": "agent"},
+                "retry": retry,
+            },
+        ),
+        edges=(
+            {
+                "edge_id": "edge.draft.named_like_repair",
+                "source_node_id": "chapter_draft",
+                "target_node_id": "chapter_draft_self_repair",
+                "edge_type": "structured_handoff",
+                "scheduler_role": "dependency",
+                "semantic_role": "control",
+                "result_delivery_policy": "contract_payload_and_refs",
+            },
+        ),
+    )
+    started = runtime.harness_runtime.graph_harness.start_run(
+        session_id="session",
+        task_id="task.test",
+        graph_config=graph_config,
+        initial_inputs={
+            "batch_start_index": 1,
+            "batch_end_index": 10,
+            "units_per_batch": 10,
+            "unit_target_measure": 2000,
+            "batch_target_measure": 20000,
+        },
+        dispatch_ready=True,
+    )
+    body = "# 【章节正文候选】\n\n" + "\n\n".join(f"### 第{index}章\n" + ("泽" * 700) for index in range(1, 11))
+    draft_result = GraphNodeWorkOrderExecutor(services=runtime.harness_runtime)._node_result_from_agent_execution(
+        graph_config=graph_config,
+        work_order=started.node_work_orders[0],
+        task_run_id="node-taskrun",
+        executor_result={
+            "ok": True,
+            "final_answer": body,
+            "task_run": {"task_run_id": "node-taskrun", "status": "completed", "diagnostics": {"final_answer": body}},
+        },
+    )
+
+    assert draft_result.status == "failed"
+    assert draft_result.error["reason"] == "quality_gate_failed"
 
 
 def _accept(loop: GraphLoop, graph_config, state, order, outputs: dict):

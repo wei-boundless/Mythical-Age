@@ -208,6 +208,39 @@ def test_agent_todo_reaches_current_turn_capability_plan_and_tool_instances() ->
     assert "agent_todo" in plan.dispatchable_tool_names
     assert "agent_todo" in final_tool_names
 
+
+def test_full_access_runtime_mode_does_not_emit_approval_required_operations() -> None:
+    profile = AgentRuntimeProfile(
+        agent_profile_id="main_interactive_agent",
+        agent_id="agent:0",
+        allowed_operations=("op.model_response", "op.edit_file"),
+        blocked_operations=(),
+        approval_policy="manual_approval_required",
+    )
+    task_operation = {
+        "task_contract": {"task_id": "task:test:full-access-approval"},
+        "operation_requirement": {
+            "required_operations": ["op.model_response", "op.edit_file"],
+            "optional_operations": [],
+            "denied_operations": [],
+            "metadata": {"approval_policy": "manual_approval_required"},
+        },
+    }
+
+    _, resource_policy = build_model_response_runtime_admission(
+        task_operation,
+        operation_registry=build_default_operation_registry(),
+        agent_runtime_profile=profile,
+        permission_mode="full_access",
+    )
+
+    assert "op.edit_file" in resource_policy.allowed_operations
+    assert "op.edit_file" not in resource_policy.requires_approval_operations
+    decisions = {item.operation_id: item for item in resource_policy.decisions}
+    assert decisions["op.edit_file"].decision == "allow"
+    assert decisions["op.edit_file"].diagnostics["permission_mode"] == "full_access"
+
+
 class _runtime_assembly_for_tools:
     def __init__(self, turn_id: str, *, tool_names: tuple[str, ...], definitions_by_name: dict[str, object]) -> None:
         self.turn_id = turn_id

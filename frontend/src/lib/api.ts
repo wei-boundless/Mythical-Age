@@ -36,6 +36,7 @@ export type ConversationActiveEnvironment = {
 
 export type ConversationState = {
   active_task_environment?: ConversationActiveEnvironment;
+  permission_mode?: string;
   authority?: string;
 };
 
@@ -2568,6 +2569,14 @@ export type HarnessSessionLiveMonitor = {
   authority: string;
   session_id: string;
   active_task_run_id?: string;
+  active_turn_snapshot?: {
+    turn_id?: string;
+    turn_run_id?: string;
+    bound_task_run_id?: string;
+    task_run_id?: string;
+    state?: string;
+    updated_at?: number;
+  } | null;
   task_runs?: HarnessTaskRunLiveMonitor[];
   task_run_count: number;
   latest_task_run_id: string;
@@ -2619,7 +2628,8 @@ export type GraphRunMonitorView = {
   graph_loop_state: Record<string, unknown>;
   active_node_work_orders: Array<Record<string, unknown>>;
   active_node_work_order_count: number;
-  events: Array<Record<string, unknown>>;
+  active_node_runtime_views?: Array<Record<string, unknown>>;
+  events?: Array<Record<string, unknown>>;
   event_count: number;
   event_window?: {
     kind?: string;
@@ -3631,6 +3641,13 @@ export async function setSessionActiveTaskEnvironment(
   return request<ConversationState>(withSessionScopeQuery(`/sessions/${sessionId}/active-task-environment`, scope), {
     method: "PUT",
     body: JSON.stringify(payload),
+  });
+}
+
+export async function setSessionPermissionMode(sessionId: string, mode: string, scope?: Partial<SessionScope>) {
+  return request<ConversationState>(withSessionScopeQuery(`/sessions/${sessionId}/permission-mode`, scope), {
+    method: "PUT",
+    body: JSON.stringify({ mode }),
   });
 }
 
@@ -4855,6 +4872,7 @@ export type ChatRunCreatePayload = {
   task_selection?: Record<string, unknown>;
   model_selection?: Record<string, unknown>;
   image_generation?: Record<string, unknown>;
+  permission_mode?: string;
   expected_active_turn_id?: string;
   active_turn_input_policy?: string;
 };

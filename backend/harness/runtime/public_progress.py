@@ -25,6 +25,7 @@ _PUBLIC_ERROR_REWRITES = {
     "image generation is not configured": "生图服务没有配置",
     "task_executor_schedule_failed": "任务调度失败",
     "single_turn_tool_iteration_limit": "工具检查次数达到边界",
+    "repeated_admission_denial": "重复未获准动作",
 }
 
 

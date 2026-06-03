@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import time
 from typing import Any
 
@@ -212,7 +212,7 @@ class GraphHarness:
                 graph_run_id=graph_run_id,
                 runtime_settings_patch=dict(runtime_settings_patch or {}),
             )
-        return await self._runner.run_until_idle(
+        result = await self._runner.run_until_idle(
             graph_config=graph_config,
             graph_run_id=graph_run_id,
             max_node_executions=max_node_executions,
@@ -223,6 +223,60 @@ class GraphHarness:
             max_dispatch_requests=max_dispatch_requests,
             runtime_overrides=dict(runtime_overrides or {}),
         )
+        self._commit_runner_result(graph_run_id=graph_run_id, result=result)
+        return result
+
+    def _commit_runner_result(self, *, graph_run_id: str, result: GraphRunRunnerResult) -> None:
+        graph_run = _graph_run_from_payload(self.get_graph_run(graph_run_id), fallback=None)
+        task_run_id = graph_run.task_run_id if graph_run is not None else ""
+        task_run = self.get_task_run(task_run_id) if task_run_id else None
+        now = time.time()
+        task_status = _task_status_from_runner_result(result)
+        graph_status = _graph_status_from_runner_result(result)
+        terminal_reason = result.terminal_reason or result.status
+        runner_diagnostics = {
+            "runner_status": result.status,
+            "runner_terminal_reason": terminal_reason,
+            "runner_blocked_reason": result.blocked_reason,
+            "runner_budget_exhausted": bool(result.budget_exhausted),
+            "runner_executed_work_order_count": result.executed_work_order_count,
+            "runner_accepted_result_count": result.accepted_result_count,
+            "runner_dispatch_count": result.dispatch_count,
+            "active_node_work_order_count": len(result.active_node_work_orders),
+        }
+        if task_run is not None:
+            diagnostics = {
+                **dict(getattr(task_run, "diagnostics", {}) or {}),
+                **runner_diagnostics,
+                "executor_status": "waiting_executor" if task_status == "waiting_executor" else task_status,
+                "latest_step": "graph_run_runner_stopped",
+                "latest_step_status": task_status,
+            }
+            self.state_index.upsert_task_run(
+                replace(
+                    task_run,
+                    status=task_status,  # type: ignore[arg-type]
+                    updated_at=now,
+                    terminal_reason=terminal_reason,  # type: ignore[arg-type]
+                    diagnostics=diagnostics,
+                )
+            )
+        if graph_run is not None:
+            graph_payload = graph_run.to_dict()
+            self._services.runtime_objects.put_object(
+                "graph_run",
+                _safe_ref_id(graph_run_id),
+                {
+                    **graph_payload,
+                    "status": graph_status,
+                    "updated_at": now,
+                    "terminal_reason": terminal_reason,
+                    "diagnostics": {
+                        **dict(graph_payload.get("diagnostics") or {}),
+                        **runner_diagnostics,
+                    },
+                },
+            )
 
     def apply_runtime_settings_patch(self, *, graph_run_id: str, runtime_settings_patch: dict[str, Any] | None) -> dict[str, Any]:
         patched = self._loop.patch_runtime_settings_and_checkpoint(
@@ -286,7 +340,7 @@ class GraphHarness:
         active_work_orders = _active_work_orders_from_state(state)
         task_run = self.get_task_run(task_run_id) if task_run_id else None
         task_run_monitor = self._task_run_monitor(task_run)
-        node_runtime_views = _node_runtime_views(
+        active_node_runtime_views = _active_node_runtime_views(
             state=state,
             events=events,
             task_run_lookup=self.get_task_run,
@@ -303,13 +357,12 @@ class GraphHarness:
             "graph_loop_state": _loop_state_public_view(state) if state is not None else {},
             "active_node_work_orders": active_work_orders,
             "active_node_work_order_count": len(active_work_orders),
-            "node_runtime_views": node_runtime_views,
-            "events": [item.to_dict() for item in events],
+            "active_node_runtime_views": active_node_runtime_views,
             "event_count": event_count,
             "event_window": {
-                "kind": "tail",
+                "kind": "omitted",
                 "limit": event_limit,
-                "returned": len(events),
+                "returned": 0,
             },
         }
 
@@ -392,12 +445,32 @@ def _task_run_from_payload(payload: Any, *, fallback: TaskRun) -> TaskRun:
     return fallback
 
 
-def _graph_run_from_payload(payload: Any, *, fallback: GraphRun) -> GraphRun:
+def _graph_run_from_payload(payload: Any, *, fallback: GraphRun | None) -> GraphRun | None:
     if isinstance(payload, GraphRun):
         return payload
     if isinstance(payload, dict) and payload:
         return GraphRun.from_dict(payload)
     return fallback
+
+
+def _task_status_from_runner_result(result: GraphRunRunnerResult) -> str:
+    status = str(result.status or "").strip()
+    if status == "completed":
+        return "completed"
+    if status in {"failed"}:
+        return "failed"
+    if status == "cancelled":
+        return "aborted"
+    if status in {"blocked", "waiting_human_gate"}:
+        return "blocked"
+    return "waiting_executor"
+
+
+def _graph_status_from_runner_result(result: GraphRunRunnerResult) -> str:
+    status = str(result.status or "").strip()
+    if status in {"completed", "failed", "blocked", "waiting_human_gate", "cancelled", "budget_exhausted", "idle"}:
+        return status
+    return "waiting_executor"
 
 
 def _result_should_advance_loop(result: NodeResultEnvelope) -> bool:
@@ -424,19 +497,31 @@ def _active_work_orders_from_state(state: Any | None) -> list[dict[str, Any]]:
     return orders
 
 
-def _node_runtime_views(*, state: Any | None, events: list[Any], task_run_lookup: Any, task_run_monitor_lookup: Any | None = None) -> list[dict[str, Any]]:
+def _active_node_runtime_views(*, state: Any | None, events: list[Any], task_run_lookup: Any, task_run_monitor_lookup: Any | None = None) -> list[dict[str, Any]]:
     if state is None:
         return []
     node_states = {key: dict(value) for key, value in dict(getattr(state, "node_states", {}) or {}).items()}
-    result_index = dict(getattr(state, "result_index", {}) or {})
     task_run_refs = _node_executor_refs_by_node(events)
+    active_work_orders = {
+        str(key): str(value)
+        for key, value in dict(getattr(state, "active_work_orders", {}) or {}).items()
+        if str(key) and str(value)
+    }
+    active_node_ids = {
+        str(item)
+        for item in [
+            *list(getattr(state, "running_node_ids", ()) or ()),
+            *list(active_work_orders.keys()),
+        ]
+        if str(item)
+    }
     views: list[dict[str, Any]] = []
     for node_id, node_state in node_states.items():
-        result = dict(result_index.get(node_id) or {})
-        work_order_id = str(node_state.get("work_order_id") or result.get("work_order_id") or "")
+        if node_id not in active_node_ids:
+            continue
+        work_order_id = str(active_work_orders.get(node_id) or node_state.get("work_order_id") or "")
         task_run_id = str(
             task_run_refs.get(node_id)
-            or result.get("node_executor_task_run_id")
             or ""
         )
         task_run = task_run_lookup(task_run_id) if task_run_id else None
@@ -455,11 +540,6 @@ def _node_runtime_views(*, state: Any | None, events: list[Any], task_run_lookup
                 "node_executor_task_run": task_payload or None,
                 "node_executor_task_run_monitor": task_monitor or None,
                 "latest_step": task_payload.get("latest_step") or {},
-                "artifact_refs": list(result.get("artifact_refs") or []),
-                "artifact_materialization_receipt_count": int(result.get("artifact_materialization_receipt_count") or 0),
-                "memory_commit_receipt_count": int(result.get("memory_commit_receipt_count") or 0),
-                "error": dict(result.get("error") or {}),
-                "result": result,
             }
         )
     return views
@@ -488,10 +568,67 @@ def _loop_state_public_view(state: Any | None) -> dict[str, Any]:
     if state is None:
         return {}
     payload = state.to_dict() if hasattr(state, "to_dict") else dict(state or {})
+    node_states = {
+        str(node_id): _node_state_monitor_view(dict(node_state or {}))
+        for node_id, node_state in dict(payload.get("node_states") or {}).items()
+    }
     return {
-        **payload,
-        "work_order_index": {key: dict(value) for key, value in dict(payload.get("work_order_index") or {}).items()},
-        "result_index": {key: dict(value) for key, value in dict(payload.get("result_index") or {}).items()},
+        "authority": str(payload.get("authority") or "harness.graph_loop_state"),
+        "state_id": str(payload.get("state_id") or ""),
+        "graph_run_id": str(payload.get("graph_run_id") or ""),
+        "task_run_id": str(payload.get("task_run_id") or ""),
+        "session_id": str(payload.get("session_id") or ""),
+        "config_id": str(payload.get("config_id") or ""),
+        "config_hash": str(payload.get("config_hash") or ""),
+        "graph_id": str(payload.get("graph_id") or ""),
+        "structure_hash": str(payload.get("structure_hash") or ""),
+        "structure_version": str(payload.get("structure_version") or ""),
+        "config_snapshot_id": str(payload.get("config_snapshot_id") or ""),
+        "config_snapshot_hash": str(payload.get("config_snapshot_hash") or ""),
+        "status": str(payload.get("status") or ""),
+        "ready_node_ids": list(payload.get("ready_node_ids") or []),
+        "running_node_ids": list(payload.get("running_node_ids") or []),
+        "completed_node_ids": list(payload.get("completed_node_ids") or []),
+        "failed_node_ids": list(payload.get("failed_node_ids") or []),
+        "blocked_node_ids": list(payload.get("blocked_node_ids") or []),
+        "active_node_ids": list(payload.get("running_node_ids") or []),
+        "active_work_order_node_ids": list(dict(payload.get("active_work_orders") or {}).keys()),
+        "node_states": node_states,
+        "event_cursor": payload.get("event_cursor", -1),
+        "terminal_reason": str(payload.get("terminal_reason") or ""),
+        "diagnostics": _loop_diagnostics_monitor_view(dict(payload.get("diagnostics") or {})),
+    }
+
+
+def _node_state_monitor_view(node_state: dict[str, Any]) -> dict[str, Any]:
+    allowed_keys = {
+        "node_id",
+        "status",
+        "executor_type",
+        "work_order_id",
+        "result_ref",
+        "updated_at",
+        "created_at",
+        "terminal_reason",
+    }
+    return {
+        key: value
+        for key, value in node_state.items()
+        if key in allowed_keys
+    }
+
+
+def _loop_diagnostics_monitor_view(diagnostics: dict[str, Any]) -> dict[str, Any]:
+    allowed_keys = {
+        "graph_structure_hash",
+        "graph_structure_version",
+        "runtime_settings_revision",
+        "config_runtime_settings_fingerprint",
+    }
+    return {
+        key: value
+        for key, value in diagnostics.items()
+        if key in allowed_keys
     }
 
 

@@ -284,7 +284,12 @@ def test_graph_harness_starts_published_config_and_creates_node_work_order() -> 
     assert monitor["active_node_work_order_count"] == 1
     assert monitor["active_node_work_orders"][0]["work_order_id"] == start.node_work_orders[0].work_order_id
     assert "input_package" not in monitor["active_node_work_orders"][0]
-    assert monitor["event_window"]["kind"] == "tail"
+    assert "work_order_index" not in monitor["graph_loop_state"]
+    assert "result_index" not in monitor["graph_loop_state"]
+    assert "result_history" not in monitor["graph_loop_state"]
+    assert "initial_inputs" not in monitor["graph_loop_state"]
+    assert "events" not in monitor
+    assert monitor["event_window"]["kind"] == "omitted"
     trace = runtime.single_agent_runtime_host.get_trace(start.task_run.task_run_id)
     assert trace is not None
     assert trace["graph_run_count"] == 1
@@ -2241,7 +2246,7 @@ def test_graph_run_runner_executes_linear_graph_to_completion() -> None:
     assert runtime.single_agent_runtime_host.get_task_run_live_monitor(start.task_run.task_run_id)["bucket"] == "completed"
 
 
-def test_graph_run_monitor_exposes_node_runtime_views_after_runner() -> None:
+def test_graph_run_monitor_exposes_only_active_node_runtime_views_after_runner() -> None:
     runtime = _task_execution_runtime("graph-run-monitor-node-views-")
     registry = TaskFlowRegistry(runtime.base_dir)
     graph = registry.upsert_task_graph(
@@ -2273,18 +2278,15 @@ def test_graph_run_monitor_exposes_node_runtime_views_after_runner() -> None:
         )
     )
     monitor = runtime.graph_harness.get_graph_run_monitor(start.graph_run.graph_run_id, graph_config=graph_config)
-    views = {item["node_id"]: item for item in monitor["node_runtime_views"]}
+    views = {item["node_id"]: item for item in monitor["active_node_runtime_views"]}
 
     assert result.status == "completed"
-    assert set(views) == {"draft", "review"}
-    assert views["draft"]["status"] == "completed"
-    assert views["draft"]["node_executor_task_run_id"]
-    assert views["draft"]["node_executor_task_run_monitor"]["authority"] == "runtime_monitor.v1.item"
-    assert views["draft"]["result"]["node_executor_task_run_id"] == views["draft"]["node_executor_task_run_id"]
-    assert "outputs" not in views["draft"]["result"]
-    assert views["draft"]["work_order"] == {}
-    assert "input_package" not in views["draft"]["work_order_summary"]
-    assert views["review"]["status"] == "completed"
+    assert views == {}
+    assert "node_runtime_views" not in monitor
+    assert "events" not in monitor
+    assert "work_order_index" not in monitor["graph_loop_state"]
+    assert "result_index" not in monitor["graph_loop_state"]
+    assert monitor["graph_loop_state"]["completed_node_ids"] == ["draft", "review"]
 
 
 def test_graph_agent_node_records_artifact_repository_receipts(tmp_path: Path) -> None:
@@ -2757,6 +2759,8 @@ def test_graph_run_runner_budget_stops_without_fake_completion() -> None:
         )
     )
     state = runtime.graph_harness.get_checkpoint_state(start.graph_run.graph_run_id)
+    task_run = runtime.graph_harness.get_task_run(start.task_run.task_run_id)
+    graph_run = runtime.graph_harness.get_graph_run(start.graph_run.graph_run_id)
 
     assert result.status == "budget_exhausted"
     assert result.budget_exhausted is True
@@ -2765,6 +2769,13 @@ def test_graph_run_runner_budget_stops_without_fake_completion() -> None:
     assert state["completed_node_ids"] == ["first"]
     assert state["active_work_orders"]
     assert state["active_work_orders"]["second"]
+    assert task_run is not None
+    assert task_run.status == "waiting_executor"
+    assert task_run.terminal_reason == "max_node_executions_exhausted"
+    assert dict(task_run.diagnostics)["runner_status"] == "budget_exhausted"
+    assert graph_run is not None
+    assert graph_run["status"] == "budget_exhausted"
+    assert graph_run["terminal_reason"] == "max_node_executions_exhausted"
 
 
 def test_graph_run_runner_rejects_reused_non_graph_node_task_run() -> None:

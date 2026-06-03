@@ -1,6 +1,6 @@
 {
   "rag_mode": false,
-  "permission_mode": "default",
+  "permission_mode": "full_access",
   "orchestration_plan_mode": "primary",
   "context_budget_preset": "deepseek_1m",
   "code_environment": {

@@ -1,38 +1,52 @@
 "use client";
 
-import { ArrowUp, BrainCircuit, Square } from "lucide-react";
+import { ArrowUp, BrainCircuit, Play, ShieldCheck, Square } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 import type { ModelProviderConfig, ImageAssetConfig } from "@/lib/api";
 import type { ChatThinkingMode } from "@/lib/store/types";
 
+export type ChatPrimaryTaskAction = {
+  kind: "interrupt" | "resume";
+  onAction: () => Promise<void> | void;
+};
+
 export function ChatInput({
   disabled,
   streaming,
+  taskPrimaryAction,
   modelProviderConfig,
   imageAssetConfig,
   onSend,
   onStop,
   onSelectChatModel,
+  onSelectPermissionMode,
   onSelectThinkingMode,
   chatThinkingMode,
+  permissionMode,
+  supportedPermissionModes,
   selectedChatModelId,
 }: {
   disabled: boolean;
   streaming: boolean;
+  taskPrimaryAction?: ChatPrimaryTaskAction | null;
   modelProviderConfig: ModelProviderConfig | null;
   imageAssetConfig: ImageAssetConfig | null;
   onSend: (value: string) => Promise<void>;
   onStop: () => void;
   onSelectChatModel: (selectionId: string) => void;
+  onSelectPermissionMode: (mode: string) => Promise<void> | void;
   onSelectThinkingMode: (mode: ChatThinkingMode) => void;
   chatThinkingMode: ChatThinkingMode;
+  permissionMode: string;
+  supportedPermissionModes: string[];
   selectedChatModelId: string;
 }) {
   const [value, setValue] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const modelOptions = useMemo(() => buildChatModelOptions(modelProviderConfig, imageAssetConfig), [modelProviderConfig, imageAssetConfig]);
-  const inputDisabled = disabled || submitting;
+  const inputDisabled = disabled || (submitting && !streaming);
+  const trimmedValue = value.trim();
   const activeModelId = modelOptions.some((option) => option.id === selectedChatModelId)
     ? selectedChatModelId
     : "system-default";
@@ -43,8 +57,37 @@ export function ChatInput({
     () => buildChatModelModeOptions(modelOptions, modelProviderConfig),
     [modelOptions, modelProviderConfig]
   );
+  const permissionOptions = useMemo(
+    () => buildPermissionModeOptions(supportedPermissionModes),
+    [supportedPermissionModes]
+  );
+  const activePermissionMode = permissionOptions.some((option) => option.value === permissionMode)
+    ? permissionMode
+    : permissionOptions[0]?.value ?? "default";
   const activeModelModeValue = encodeChatModelModeSelection(activeModelId, activeThinkingMode);
   const panelClassName = `chat-input-panel chat-input-panel--inline${streaming ? " chat-input-panel--streaming" : ""}`;
+  const primaryAction = trimmedValue
+    ? "send"
+    : streaming
+      ? "stop_stream"
+      : taskPrimaryAction?.kind ?? "send";
+  const primaryDisabled = primaryAction === "stop_stream"
+    ? false
+    : primaryAction === "send"
+      ? inputDisabled || !trimmedValue
+      : disabled || submitting;
+  const primaryLabel = primaryAction === "stop_stream"
+    ? "停止本轮生成"
+    : primaryAction === "interrupt"
+      ? "中断当前任务"
+      : primaryAction === "resume"
+        ? "继续当前任务"
+        : "发送";
+  const primaryButtonClassName = [
+    "chat-send-button",
+    primaryAction === "stop_stream" || primaryAction === "interrupt" ? "chat-stop-button chat-send-button--stop" : "",
+    primaryAction === "resume" ? "chat-send-button--resume" : "",
+  ].filter(Boolean).join(" ");
 
   useEffect(() => {
     if (!activeModelSupportsReasoning && chatThinkingMode !== "normal") {
@@ -69,6 +112,30 @@ export function ChatInput({
     }
   };
 
+  const runTaskPrimaryAction = async () => {
+    if (!taskPrimaryAction || submitting || disabled) {
+      return;
+    }
+    setSubmitting(true);
+    try {
+      await taskPrimaryAction.onAction();
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const runPrimaryAction = async () => {
+    if (primaryAction === "stop_stream") {
+      onStop();
+      return;
+    }
+    if (primaryAction === "interrupt" || primaryAction === "resume") {
+      await runTaskPrimaryAction();
+      return;
+    }
+    await submit();
+  };
+
   return (
     <div className={panelClassName}>
       <div className="chat-input-panel__composer">
@@ -78,12 +145,9 @@ export function ChatInput({
           disabled={inputDisabled}
           onChange={(event) => setValue(event.target.value)}
           onKeyDown={(event) => {
-            if (inputDisabled) {
-              return;
-            }
             if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
               event.preventDefault();
-              void submit();
+              void runPrimaryAction();
             }
           }}
           placeholder="输入任务、修改或继续说明"
@@ -114,31 +178,89 @@ export function ChatInput({
               </select>
             </label>
           </div>
+          <div className="chat-control-cluster chat-control-cluster--permission">
+            <label className="chat-model-select chat-model-select--permission">
+              <ShieldCheck size={15} />
+              <select
+                aria-label="选择运行权限模式"
+                disabled={disabled || permissionOptions.length <= 1}
+                onChange={(event) => {
+                  void onSelectPermissionMode(event.target.value);
+                }}
+                value={activePermissionMode}
+              >
+                {permissionOptions.map((option) => (
+                  <option key={option.value} title={option.title} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
         </div>
         <div className="chat-input-panel__actions">
-          {streaming ? (
-            <button
-              className="chat-stop-button"
-              onClick={onStop}
-              type="button"
-            >
-              <Square size={15} />
-              停止
-            </button>
-          ) : null}
           <button
-            aria-label="发送"
-            className="chat-send-button disabled:cursor-not-allowed disabled:opacity-50"
-            disabled={inputDisabled || !value.trim()}
-            onClick={() => void submit()}
+            aria-label={primaryLabel}
+            className={`${primaryButtonClassName} disabled:cursor-not-allowed disabled:opacity-50`}
+            disabled={primaryDisabled}
+            onClick={() => void runPrimaryAction()}
+            title={primaryLabel}
             type="button"
           >
-            <ArrowUp size={18} />
+            {primaryAction === "stop_stream" || primaryAction === "interrupt" ? (
+              <Square size={15} />
+            ) : primaryAction === "resume" ? (
+              <Play size={16} />
+            ) : (
+              <ArrowUp size={18} />
+            )}
           </button>
         </div>
       </div>
     </div>
   );
+}
+
+function buildPermissionModeOptions(supportedModes: string[]) {
+  const normalized = supportedModes.map((mode) => mode.trim()).filter(Boolean);
+  const modes = normalized.length ? normalized : ["default", "plan", "accept_edits", "bypass", "full_access"];
+  return modes.map((mode) => ({
+    value: mode,
+    label: permissionModeLabel(mode),
+    title: permissionModeTitle(mode),
+  }));
+}
+
+function permissionModeLabel(mode: string) {
+  switch (mode) {
+    case "default":
+      return "标准";
+    case "plan":
+      return "计划";
+    case "accept_edits":
+      return "自动编辑";
+    case "bypass":
+      return "旁路";
+    case "full_access":
+      return "全权限";
+    default:
+      return mode;
+  }
+}
+
+function permissionModeTitle(mode: string) {
+  switch (mode) {
+    case "full_access":
+      return "使用已授予的完整运行权限";
+    case "accept_edits":
+      return "自动允许文件编辑类操作";
+    case "plan":
+      return "偏只读规划模式";
+    case "bypass":
+      return "旁路默认确认策略";
+    default:
+      return "标准运行权限模式";
+  }
 }
 
 function buildChatModelOptions(config: ModelProviderConfig | null, imageConfig: ImageAssetConfig | null) {

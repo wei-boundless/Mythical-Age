@@ -6,7 +6,6 @@ from typing import Any
 from project_layout import ProjectLayout
 
 from .formal_memory_service import FormalMemoryService
-from .task_durable_memory import TaskDurableMemoryService
 from .working_memory_finalizer import WorkingMemoryFinalizer
 from .working_memory_service import WorkingMemoryService
 
@@ -17,7 +16,6 @@ class MemoryRuntimeServices:
     def __init__(self, storage_root: Path) -> None:
         self.storage_root = Path(storage_root).resolve()
         self.working_memory = WorkingMemoryService(self.storage_root / "working_memory")
-        self.task_durable_memory = TaskDurableMemoryService(self.storage_root / "task_durable_memory")
         self.formal_memory = FormalMemoryService(self.storage_root / "formal_memory")
         self.working_memory_finalizer = WorkingMemoryFinalizer(self.working_memory)
 

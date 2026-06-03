@@ -16,12 +16,11 @@ MEMORY_LAYER_ALIASES: dict[str, str] = {
     "state": "state",
     "working": "working",
     "working_memory": "working",
-    "task_durable": "task_durable",
-    "task_durable_memory": "task_durable",
     "long_term": "long_term",
     "durable": "long_term",
 }
-VALID_MEMORY_LAYERS: tuple[str, ...] = ("conversation", "state", "working", "task_durable", "long_term")
+DISCONNECTED_MEMORY_LAYERS: frozenset[str] = frozenset({"task_durable", "task_durable_memory"})
+VALID_MEMORY_LAYERS: tuple[str, ...] = ("conversation", "state", "working", "long_term")
 
 
 @dataclass(slots=True, frozen=True)
@@ -66,6 +65,8 @@ def normalize_memory_layer(value: Any) -> str:
     raw = str(value or "").strip()
     if not raw:
         return ""
+    if raw in DISCONNECTED_MEMORY_LAYERS:
+        raise ValueError(f"Memory layer is disconnected from runtime: {raw}")
     normalized = MEMORY_LAYER_ALIASES.get(raw)
     if normalized is None:
         raise ValueError(f"Unknown memory layer: {raw}")

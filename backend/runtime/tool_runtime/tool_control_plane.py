@@ -31,7 +31,17 @@ _AGENT_TURN_SANDBOX_AUTO_ALLOW_OPERATIONS = {
     "op.edit_file",
     "op.shell",
     "op.python_repl",
+    "op.browser_control",
+    "op.image_generate",
 }
+_EXPLICIT_HUMAN_APPROVAL_POLICIES = {
+    "manual_approval_required",
+    "requires_human_approval",
+    "human_approval_required",
+    "runtime_approval_required",
+    "always_ask",
+}
+_DENY_DESTRUCTIVE_APPROVAL_POLICIES = {"deny_destructive"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -616,9 +626,12 @@ def _agent_turn_resource_decision(
         return "allow", f"operation allowed by permission mode {mode}"
     if _agent_turn_sandbox_allows_side_effect(operation_id, descriptor=descriptor, sandbox_policy=sandbox_policy):
         return "allow", "operation allowed inside task environment sandbox boundary"
-    if descriptor is not None and (bool(getattr(descriptor, "requires_approval_by_default", False)) or bool(getattr(descriptor, "destructive", False))):
-        return "requires_approval", "operation requires approval by default"
-    return "requires_approval", "non-read-only operation outside sandbox requires approval"
+    approval_policy = str(sandbox_policy.get("approval_policy") or sandbox_policy.get("runtime_approval_policy") or "").strip().lower()
+    if approval_policy in _EXPLICIT_HUMAN_APPROVAL_POLICIES:
+        return "requires_approval", "operation is held by explicit human approval policy"
+    if descriptor is not None and approval_policy in _DENY_DESTRUCTIVE_APPROVAL_POLICIES and bool(getattr(descriptor, "destructive", False)):
+        return "deny", "destructive operation denied by explicit approval policy"
+    return "allow", "operation allowed by visible RuntimeToolPlan and action permit"
 
 
 def _agent_turn_sandbox_allows_side_effect(operation_id: str, *, descriptor: Any | None, sandbox_policy: dict[str, Any]) -> bool:

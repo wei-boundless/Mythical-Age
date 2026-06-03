@@ -329,6 +329,7 @@ class GraphLoop:
             graph_config=graph_config,
             node_states=node_states,
             active_work_orders=active_work_orders,
+            loop_state=next_state.loop_state,
         )
         graph_result: GraphResultEnvelope | None = None
         if status_snapshot.terminal_result_status:
@@ -769,7 +770,7 @@ class GraphLoop:
         )
         if status == "failed":
             graph_result = _graph_result(graph_config=graph_config, state=next_state, status="failed", terminal_reason=terminal_reason, services=self._services)
-        ready = _ready_nodes(graph_config=graph_config, node_states=node_states)
+        ready = _ready_nodes(graph_config=graph_config, node_states=node_states, loop_state=state.loop_state)
         if action in {"request_revision", "reroute_to_node"}:
             target = str(decision.get("route_target_node_id") or decision.get("target_node_id") or "").strip()
             ready = tuple(dict.fromkeys([target, *ready]))
@@ -1323,6 +1324,7 @@ def _state_after_loop_route(
         )
     scope_node_ids = [str(item) for item in list(decision.get("scope_node_ids") or []) if str(item)]
     continue_node_id = str(decision.get("continue_node_id") or "").strip()
+    exit_node_id = str(decision.get("exit_node_id") or "").strip()
     if not continue_node_id:
         node_id = str(decision.get("node_id") or "")
         node_payload = dict(node_states.get(node_id) or {})
@@ -1342,13 +1344,27 @@ def _state_after_loop_route(
         node_states[node_id] = payload
         result_index.pop(node_id, None)
         active_work_orders.pop(node_id, None)
+    if exit_node_id and exit_node_id != continue_node_id:
+        payload = dict(node_states.get(exit_node_id) or {})
+        if payload:
+            payload["status"] = "pending"
+            payload.pop("result_ref", None)
+            payload.pop("work_order_id", None)
+            payload.pop("blocked_reason", None)
+            payload["updated_at"] = time.time()
+            node_states[exit_node_id] = payload
+            result_index.pop(exit_node_id, None)
+            active_work_orders.pop(exit_node_id, None)
+    reset_edge_node_ids = set(scope_node_ids)
+    if exit_node_id:
+        reset_edge_node_ids.add(exit_node_id)
     for edge in graph_config.edges:
         edge_id = str(edge.get("edge_id") or "")
         if not edge_id:
             continue
         source = str(edge.get("source_node_id") or "")
         target = str(edge.get("target_node_id") or "")
-        if source in scope_node_ids or target in scope_node_ids:
+        if source in reset_edge_node_ids or target in reset_edge_node_ids:
             edge_payload = dict(edge_states.get(edge_id) or {})
             edge_payload.update(
                 {
@@ -1802,12 +1818,22 @@ class _SafeFormatDict(dict):
         return "{" + key + "}"
 
 
-def _ready_nodes(*, graph_config: GraphHarnessConfig, node_states: dict[str, dict[str, Any]]) -> tuple[str, ...]:
-    return _STATE_MACHINE.ready_nodes(graph_config=graph_config, node_states=node_states)
+def _ready_nodes(
+    *,
+    graph_config: GraphHarnessConfig,
+    node_states: dict[str, dict[str, Any]],
+    loop_state: dict[str, Any] | None = None,
+) -> tuple[str, ...]:
+    return _STATE_MACHINE.ready_nodes(graph_config=graph_config, node_states=node_states, loop_state=loop_state)
 
 
-def _blocked_nodes(*, graph_config: GraphHarnessConfig, node_states: dict[str, dict[str, Any]]) -> tuple[str, ...]:
-    return _STATE_MACHINE.blocked_nodes(graph_config=graph_config, node_states=node_states)
+def _blocked_nodes(
+    *,
+    graph_config: GraphHarnessConfig,
+    node_states: dict[str, dict[str, Any]],
+    loop_state: dict[str, Any] | None = None,
+) -> tuple[str, ...]:
+    return _STATE_MACHINE.blocked_nodes(graph_config=graph_config, node_states=node_states, loop_state=loop_state)
 
 
 def _node_is_resource(node: dict[str, Any]) -> bool:

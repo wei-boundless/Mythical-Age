@@ -7,7 +7,7 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-from task_system.runtime_semantics.quality_gates import sectioned_text_batch_quality_gate
+from task_system.runtime_semantics.quality_gates import length_budget_quality_gate, sectioned_text_batch_quality_gate
 
 
 def _chapter_quality_policy(**overrides) -> dict:
@@ -52,6 +52,41 @@ def _chapter_quality_policy(**overrides) -> dict:
     }
     policy.update(overrides)
     return policy
+
+
+def test_length_budget_allows_advisory_target_above_minimum() -> None:
+    result = length_budget_quality_gate(
+        "澜" * 1850,
+        explicit_inputs={},
+        length_budget={
+            "measurement_mode": "text_units",
+            "target_units": 2000,
+            "min_units": 1800,
+            "max_units": 4000,
+            "target_enforcement": "advisory",
+        },
+    )
+
+    assert result["accepted"] is True
+    assert result["below_target_advisory"] is True
+    assert result["issues"] == []
+
+
+def test_length_budget_advisory_target_still_rejects_below_minimum() -> None:
+    result = length_budget_quality_gate(
+        "澜" * 1700,
+        explicit_inputs={},
+        length_budget={
+            "measurement_mode": "text_units",
+            "target_units": 2000,
+            "min_units": 1800,
+            "max_units": 4000,
+            "target_enforcement": "advisory",
+        },
+    )
+
+    assert result["accepted"] is False
+    assert result["issues"] == ["insufficient_metric:1700<1800"]
 
 
 def test_chapter_draft_quality_gate_reports_per_chapter_metric_deficits() -> None:

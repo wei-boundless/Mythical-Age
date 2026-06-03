@@ -27,6 +27,15 @@ from .prompt_segment_plan import build_prompt_segment_plan
 from .sandbox_execution_scope import compile_sandbox_execution_scope, task_safety_envelope_from_assembly
 
 
+_SUBAGENT_TOOL_NAMES = {
+    "spawn_subagent",
+    "send_subagent_message",
+    "wait_subagent",
+    "list_subagents",
+    "close_subagent",
+}
+
+
 @dataclass(frozen=True, slots=True)
 class RuntimeCompilationResult:
     envelope: RuntimeEnvelope
@@ -80,6 +89,11 @@ class RuntimeCompiler:
             control_capabilities=control_capabilities,
             allowed_actions=allowed_actions,
             visible_tool_count=len(single_turn_tools),
+            visible_tool_names=tuple(
+                str(item.get("tool_name") or item.get("name") or "")
+                for item in single_turn_tools
+                if str(item.get("tool_name") or item.get("name") or "")
+            ),
         )
         output_contract = _single_agent_turn_output_contract(
             allowed_actions=allowed_actions,
@@ -92,6 +106,7 @@ class RuntimeCompiler:
             environment_payload=environment_payload,
             operation_authorization=dict(assembly_payload.get("operation_authorization") or {}),
             available_tools=single_turn_tools,
+            permission_mode=str(assembly_payload.get("permission_mode") or "default"),
         )
         envelope = RuntimeEnvelope(
             envelope_id=f"rtenv:{turn_id}:single_agent_turn",
@@ -354,6 +369,7 @@ class RuntimeCompiler:
             environment_payload=environment_payload,
             operation_authorization=operation_authorization,
             available_tools=tool_payloads,
+            permission_mode=str(assembly_payload.get("permission_mode") or "default"),
         )
         envelope = RuntimeEnvelope(
             envelope_id=f"rtenv:{task_run_id}:task_execution:{invocation_index}",
@@ -711,6 +727,7 @@ class RuntimeCompiler:
             environment_payload=environment_payload,
             operation_authorization=dict(assembly_payload.get("operation_authorization") or {}),
             available_tools=tool_payloads,
+            permission_mode=str(assembly_payload.get("permission_mode") or "default"),
         )
         envelope = RuntimeEnvelope(
             envelope_id=f"rtenv:{turn_id}:observation_followup",
@@ -1071,7 +1088,7 @@ def model_action_request_schema(turn_id: str) -> dict[str, Any]:
     return {
         "authority": "harness.loop.model_action_request",
         "action_type": "respond|ask_user|tool_call|request_task_run|request_registered_engagement|block",
-        "public_progress_note": "一句用户可理解的公开进展；可以说明你正在做什么或下一步准备做什么，但必须与本轮 action_type 和实际 tool_call/回复/提问/阻塞完全一致。不得预测工具结果，不得把尚未完成的工具动作说成已经完成，不得写与实际 action_type 不一致的计划；不包含内部编号、系统结构、协议字段或隐藏推理。",
+        "public_progress_note": "一句用户可理解的公开正文反馈；request_task_run 时它会作为本轮对用户的开局回复，task/tool 反馈中它会作为用户看到的公开进展。必须与本轮 action_type 和实际 tool_call/回复/提问/阻塞完全一致。不得预测工具结果，不得把尚未完成的工具动作说成已经完成，不得写与实际 action_type 不一致的计划；不包含内部编号、系统结构、协议字段或隐藏推理。",
         "public_action_state": {
             "visible_status": "可选；thinking|waiting_for_tool|tool_returned|responding|blocked",
             "current_judgment": "可选；你对当前公开状态的简短说明。只能写本轮已经确定的事实或边界，不写隐藏推理。",
@@ -1127,7 +1144,7 @@ def task_execution_action_schema() -> dict[str, Any]:
     return {
         "authority": "harness.loop.model_action_request",
         "action_type": "respond|ask_user|tool_call|block",
-        "public_progress_note": "一句用户可理解的公开进展；可以说明你正在做什么或下一步准备做什么，但必须与本轮 action_type 和实际 tool_call/回复/提问/阻塞完全一致。不得预测工具结果，不得把尚未完成的工具动作说成已经完成，不得写与实际 action_type 不一致的计划；不包含内部编号、系统结构、协议字段或隐藏推理。",
+        "public_progress_note": "一句用户可理解的公开正文反馈；它会作为任务执行过程中用户看到的 agent 反馈。必须与本轮 action_type 和实际 tool_call/回复/提问/阻塞完全一致。不得预测工具结果，不得把尚未完成的工具动作说成已经完成，不得写与实际 action_type 不一致的计划；不包含内部编号、系统结构、协议字段或隐藏推理。",
         "public_action_state": {
             "visible_status": "thinking|waiting_for_tool|tool_returned|responding|blocked",
             "current_judgment": "可选；你对当前公开状态的简短说明。只能写本轮已经确定的事实或边界，不写隐藏推理。",
@@ -1181,6 +1198,7 @@ def _single_agent_turn_effective_control_capabilities(
     control_capabilities: dict[str, Any],
     allowed_actions: tuple[str, ...],
     visible_tool_count: int = 0,
+    visible_tool_names: tuple[str, ...] = (),
 ) -> dict[str, Any]:
     effective = dict(control_capabilities or {})
     allowed = {str(item) for item in allowed_actions if str(item)}
@@ -1190,7 +1208,10 @@ def _single_agent_turn_effective_control_capabilities(
     )
     effective["authority"] = "harness.runtime.single_agent_turn_control_capabilities"
     effective["may_call_tools"] = "tool_call" in allowed and visible_tool_count > 0
-    effective["may_use_subagents"] = False
+    effective["may_use_subagents"] = bool(
+        effective.get("may_use_subagents") is True
+        and set(visible_tool_names).intersection(_SUBAGENT_TOOL_NAMES)
+    )
     effective["supports_json_action_protocol"] = supports_json_action_protocol
     effective["requires_json_action_protocol"] = bool(effective.get("requires_json_action_protocol") is True)
     effective["visible_tool_count"] = visible_tool_count
@@ -1221,22 +1242,44 @@ def _single_agent_turn_output_contract(
         "allowed_actions": list(allowed_actions),
         "forbidden": list(dict.fromkeys(forbidden)),
         "action_protocol": {
-            "single_action_per_turn": True,
+            "single_control_action_per_turn": True,
             "json_action": {
                 "enabled": json_action_enabled,
                 "required": json_action_required,
                 "authority": "harness.loop.model_action_request",
             },
-            "native_actions": {
-                "enabled": True,
-                "parallel_tool_calls": False,
+            "ordinary_tool_calls": {
+                "enabled": "tool_call" in allowed_actions,
+                "parallel_allowed": True,
+                "boundary": "runtime_visible_tools_only",
+                "denied_or_failed_tool_calls_return_observations": True,
+            },
+            "control_actions": {
+                "enabled": json_action_enabled,
+                "transport": "json_action",
+                "allowed_action_types": [
+                    item
+                    for item in ("respond", "ask_user", "block", "request_task_run", "active_work_control")
+                    if item in allowed_actions
+                ],
+                "parallel_allowed": False,
+                "native_tool_transport_enabled": False,
+            },
+            "native_tool_calls": {
+                "enabled": "tool_call" in allowed_actions,
+                "parallel_tool_calls": True,
+                "control_actions_exposed_as_native_tools": False,
             },
         },
         "native_actions": {
             "tool_call": {
                 "enabled": "tool_call" in allowed_actions,
                 "boundary": "runtime_visible_tools_only",
+                "parallel_allowed": True,
+                "denied_or_failed_calls_return_observations": True,
             },
+        },
+        "control_actions": {
             "request_task_run": {
                 "enabled": "request_task_run" in allowed_actions,
                 "required_fields": ["user_visible_goal", "task_run_goal", "completion_criteria"],
@@ -1271,8 +1314,6 @@ def _single_agent_turn_tools(
         tool = dict(item)
         name = str(tool.get("tool_name") or tool.get("name") or "").strip()
         if not name:
-            continue
-        if not bool(tool.get("read_only") is True):
             continue
         tools.append(tool)
     return tuple(sorted(tools, key=lambda item: str(item.get("tool_name") or item.get("name") or "")))
@@ -1741,6 +1782,7 @@ def _agent_visible_runtime_projection(
     environment_payload: dict[str, Any],
     operation_authorization: dict[str, Any],
     available_tools: tuple[dict[str, Any], ...],
+    permission_mode: str = "default",
 ) -> dict[str, Any]:
     task_lifecycle = dict(profile_payload.get("task_lifecycle_policy") or {})
     planning = dict(profile_payload.get("planning_policy") or {})
@@ -1807,6 +1849,7 @@ def _agent_visible_runtime_projection(
         },
         "permission_boundary": {
             "permission_scope": str(permission.get("permission_scope") or permission.get("scope") or ""),
+            "permission_mode": str(permission_mode or "default"),
         },
         "environment_boundary": {
             "task_environment_id": str(environment_payload.get("environment_id") or ""),
@@ -1863,6 +1906,28 @@ def _runtime_projection_instruction(projection: dict[str, Any]) -> str:
     if "tool_call" in allowed_actions:
         visible_count = int(tool_boundary.get("visible_tool_count") or 0)
         lines.append(f"- 工具只能从本轮上下文中实际可见的工具选择；当前可见工具数：{visible_count}。")
+        if projection.get("invocation_kind") == "task_execution":
+            lines.append(
+                "- 当前持续任务执行协议每次只能提交一个 action；如需工具，提交一个本轮可见工具调用，收到观察后再决定下一步。"
+                "成功、失败和拒绝会作为工具观察返回。显式人工审批属于 runtime/UI 控制状态，不要在聊天里要求用户批准系统权限。"
+                "看到拒绝观察后，必须换用已开放工具、修改参数、询问用户、说明阻塞或收口；不要原样重复同一个未获准动作。"
+            )
+        else:
+            lines.append(
+                "- 普通工具调用可以在同一轮提出多个；运行时会分别准入和执行，并把成功、失败或拒绝结果作为工具观察返回。"
+                "显式人工审批属于 runtime/UI 控制状态，不要在聊天里要求用户批准系统权限。看到工具观察后，你需要基于观察继续判断，不要把权限拒绝理解为用户已经授权，也不要原样重复同一个未获准动作。"
+            )
+    if projection.get("invocation_kind") == "single_agent_turn":
+        control_actions = [
+            item
+            for item in ("ask_user", "block", "request_task_run", "active_work_control")
+            if item in allowed_actions
+        ]
+        if control_actions:
+            lines.append(
+                "- ask_user、block、request_task_run、active_work_control 是控制裁决，不是普通 native 工具。"
+                "需要控制裁决时只能输出一个 JSON action；不能在同一轮混合多个控制裁决，也不能把控制裁决和普通工具调用混在一起。"
+            )
     if bool(tool_boundary.get("subagent_lifecycle_enabled") is True):
         lines.append("- 如需子 agent 协作，只能通过可见的子 agent 生命周期工具启动、通信、观察和关闭；主 agent 仍负责最终判断和收口。")
     if "active_work_control" in allowed_actions:
@@ -1903,6 +1968,12 @@ def _runtime_projection_instruction(projection: dict[str, Any]) -> str:
     permission_scope = str(permission_boundary.get("permission_scope") or "").strip()
     if permission_scope:
         lines.append(f"- 权限边界由本轮运行上下文决定；当前权限范围：{permission_scope}。")
+    permission_mode = str(permission_boundary.get("permission_mode") or "").strip()
+    if permission_mode:
+        lines.append(
+            f"- 当前运行权限模式：{permission_mode}；这是本轮已经授予的执行模式。"
+            "只能调用本轮可见且可派发的工具；如果预期工具不可见，应说明需要切换任务环境或刷新能力投影，不要在聊天中要求用户重复授权。"
+        )
     return "\n".join(lines) + "\n"
 
 

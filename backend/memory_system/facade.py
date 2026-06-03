@@ -42,7 +42,6 @@ class MemoryFacade:
         layout = ProjectLayout.from_backend_dir(base_dir)
         self.runtime_services = MemoryRuntimeServices(layout.storage_root)
         self.working_memory = self.runtime_services.working_memory
-        self.task_durable_memory = self.runtime_services.task_durable_memory
         self.formal_memory = self.runtime_services.formal_memory
         self.working_memory_finalizer = self.runtime_services.working_memory_finalizer
         self.bundle_service = MemoryBundleService(
@@ -50,7 +49,6 @@ class MemoryFacade:
             conversation_memory=self.conversation_memory,
             state_memory=self.state_memory,
             working_memory=self.working_memory,
-            task_durable_memory=self.task_durable_memory,
             durable_memory=self.durable_memory,
             context_budget_provider=context_budget_provider,
         )
@@ -174,91 +172,6 @@ class MemoryFacade:
             bundle_summary_refs=list(payload.get("bundle_summary_refs") or []),
             durable_lane_enabled=bool(payload.get("durable_lane_enabled", True)),
         )
-
-    def promote_working_memory_item_to_task_durable(self, work_memory_id: str, **payload: Any) -> dict[str, Any]:
-        item = self.working_memory.get_item(work_memory_id)
-        if item is None:
-            raise KeyError(f"Unknown working memory item: {work_memory_id}")
-        task_memory_item = self.task_durable_memory.promote_working_memory_item(item, **payload)
-        updated = self.working_memory.store.update_item_lifecycle(
-            item.work_memory_id,
-            status="promoted",
-            promotion_state="promoted_to_task_durable",
-            authority="human_gate_adopted",
-            actor_id=str(payload.get("actor_id") or "memory_governance_ui"),
-            metadata={
-                "promoted_task_memory_id": task_memory_item.task_memory_id,
-                "promoted_task_memory_namespace_id": task_memory_item.namespace_id,
-                "promoted_task_memory_title": task_memory_item.title,
-                "promotion_reason": str(payload.get("reason") or "manual_working_memory_promotion"),
-                "promotion_target": "task_durable_memory",
-            },
-            event_type="promoted_to_task_durable",
-        )
-        return {
-            "task_memory": task_memory_item,
-            "item": updated,
-        }
-
-    def mark_task_durable_item_global_candidate(self, task_memory_id: str, **payload: Any) -> dict[str, Any]:
-        updated = self.task_durable_memory.store.update_lifecycle(
-            task_memory_id,
-            eligible_for_global_promotion=True,
-            global_promotion_state="candidate",
-            actor_id=str(payload.get("actor_id") or "memory_governance_ui"),
-            metadata={
-                "global_candidate_reason": str(payload.get("reason") or "manual_global_candidate"),
-                "global_candidate_actor_id": str(payload.get("actor_id") or "memory_governance_ui"),
-            },
-            event_type="global_candidate_marked",
-        )
-        return {"task_memory": updated}
-
-    def promote_task_durable_item_to_global_durable(self, task_memory_id: str, **payload: Any) -> dict[str, Any]:
-        item = self.task_durable_memory.get_item(task_memory_id)
-        if item is None:
-            raise KeyError(f"Unknown task durable memory item: {task_memory_id}")
-        if not item.eligible_for_global_promotion and item.global_promotion_state not in {"candidate", "approved"}:
-            raise ValueError("Task durable memory item must be marked as global promotion candidate first")
-        allowed_kinds = {"user_preference", "system_rule", "cross_task_policy", "global_working_convention"}
-        promotion_kind = str(payload.get("global_kind") or item.metadata.get("global_kind") or item.kind or "").strip()
-        if promotion_kind not in allowed_kinds:
-            raise ValueError("Task durable memory item is not an allowed global promotion kind")
-        result = self.governance_service.create_durable_memory_note(
-            title=str(payload.get("title") or item.title or item.task_memory_id),
-            canonical_statement=str(payload.get("canonical_statement") or item.canonical_statement or item.summary),
-            summary=str(payload.get("summary") or item.summary or item.canonical_statement),
-            memory_type=str(payload.get("memory_type") or "project"),
-            memory_class=str(payload.get("memory_class") or "work"),
-            retrieval_hints=list(item.retrieval_hints)[:8],
-            confidence=str(payload.get("confidence") or item.confidence or "medium"),
-            source_kind="task_durable_global_promotion",
-            source_message_excerpt=(
-                f"task_memory_id: {item.task_memory_id}\n"
-                f"namespace_id: {item.namespace_id}\n"
-                f"task_id: {item.task_id}\n"
-                f"graph_id: {item.graph_id}\n"
-                f"canonical_statement: {item.canonical_statement}\n"
-            )[:1600],
-        )
-        updated = self.task_durable_memory.store.update_lifecycle(
-            task_memory_id,
-            eligible_for_global_promotion=True,
-            global_promotion_state="promoted_to_global",
-            actor_id=str(payload.get("actor_id") or "memory_governance_ui"),
-            metadata={
-                "promoted_global_durable_filename": result.get("filename", ""),
-                "promoted_global_durable_title": str(payload.get("title") or item.title or item.task_memory_id),
-                "global_promotion_reason": str(payload.get("reason") or "manual_task_durable_global_promotion"),
-                "global_kind": promotion_kind,
-            },
-            event_type="promoted_to_global_durable",
-        )
-        return {
-            "filename": result["filename"],
-            "header": result.get("header"),
-            "task_memory": updated,
-        }
 
     def build_memory_context_package(
         self,

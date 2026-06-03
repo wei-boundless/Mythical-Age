@@ -168,6 +168,7 @@ export type ChatModelSelection = {
 
 export type ChatMode = "chat" | "image";
 export type ChatThinkingMode = "normal" | "thinking";
+export type PermissionMode = string;
 
 export type MemoryInspectorTarget = {
   source: "manual";
@@ -285,6 +286,8 @@ export type StoreState = {
   sessionActivitiesById: Record<string, SessionActivityState>;
   ragMode: boolean;
   searchPolicy: SearchPolicyState;
+  permissionMode: PermissionMode;
+  supportedPermissionModes: PermissionMode[];
   modelProviderConfig: ModelProviderConfig | null;
   imageAssetConfig: ImageAssetConfig | null;
   selectedChatModelId: string;
@@ -343,6 +346,7 @@ export type StoreActions = {
   resendEditedMessage: (messageId: string, value: string) => Promise<void>;
   toggleRagMode: () => Promise<void>;
   toggleSearchPolicySource: (source: SearchPolicySource) => void;
+  setPermissionMode: (mode: PermissionMode) => Promise<void>;
   setSelectedChatModel: (selectionId: string) => void;
   setSelectedChatMode: (mode: ChatMode) => void;
   setChatThinkingMode: (mode: ChatThinkingMode) => void;

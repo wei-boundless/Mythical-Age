@@ -41,6 +41,31 @@ def test_resource_inventory_api_exposes_authority_layers(tmp_path: Path) -> None
     assert str(items["resource.task_domains"]["path"]).startswith(str(tmp_path))
 
 
+def test_orchestration_runtime_options_hide_disconnected_task_durable_context() -> None:
+    profiles = [
+        SimpleNamespace(
+            allowed_context_sections=(
+                "conversation",
+                "task_durable_memory",
+                "memory_runtime_view",
+            )
+        )
+    ]
+
+    options = orchestration_api._build_runtime_profile_option_values(
+        profiles,
+        field="allowed_context_sections",
+        defaults=(
+            "working_memory",
+            "task_durable_memory",
+        ),
+    )
+
+    assert "task_durable_memory" not in options
+    assert "working_memory" in options
+    assert "memory_runtime_view" in options
+
+
 def test_strategy_prototype_is_soft_profile_not_obligation_source() -> None:
     prototype = strategy_prototype_for_task_goal("test_report_triage")
 

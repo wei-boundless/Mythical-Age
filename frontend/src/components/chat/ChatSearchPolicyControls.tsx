@@ -23,8 +23,8 @@ export function ChatSearchPolicyControls({
 }) {
   return (
     <div className="chat-control-cluster chat-control-cluster--scope chat-control-cluster--topbar">
-      <span className="chat-control-cluster__name">权限</span>
-      <div className="chat-search-policy chat-search-policy--compact" aria-label="本轮能力权限">
+      <span className="chat-control-cluster__name">能力</span>
+      <div className="chat-search-policy chat-search-policy--compact" aria-label="本轮能力来源">
         {SEARCH_POLICY_OPTIONS.map((option) => {
           const enabled = searchPolicy[option.id];
           return (

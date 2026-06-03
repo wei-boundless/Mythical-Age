@@ -6,6 +6,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+from permissions.policy import normalize_permission_mode
 from project_layout import ProjectLayout
 
 
@@ -19,6 +20,9 @@ class SessionTaskBindingConflict(ValueError):
 
 class SessionTaskBindingMissing(ValueError):
     pass
+
+
+DEFAULT_SESSION_PERMISSION_MODE = "full_access"
 
 
 class SessionManager:
@@ -133,6 +137,15 @@ class SessionManager:
         payload = self._read_payload(session_id)
         state = _normalize_conversation_state(dict(payload.get("conversation_state") or {}))
         state["active_task_environment"] = _normalize_active_task_environment(active_environment)
+        payload["conversation_state"] = state
+        payload["updated_at"] = time.time()
+        self._write_payload(session_id, payload)
+        return state
+
+    def set_permission_mode(self, session_id: str, permission_mode: str) -> dict[str, Any]:
+        payload = self._read_payload(session_id)
+        state = _normalize_conversation_state(dict(payload.get("conversation_state") or {}))
+        state["permission_mode"] = _normalize_session_permission_mode(permission_mode)
         payload["conversation_state"] = state
         payload["updated_at"] = time.time()
         self._write_payload(session_id, payload)
@@ -373,8 +386,14 @@ def _normalize_conversation_state(payload: dict[str, Any] | None) -> dict[str, A
     active = _normalize_active_task_environment(dict(raw.get("active_task_environment") or {}))
     return {
         "active_task_environment": active,
+        "permission_mode": _normalize_session_permission_mode(raw.get("permission_mode")),
         "authority": str(raw.get("authority") or "sessions.conversation_state"),
     }
+
+
+def _normalize_session_permission_mode(mode: Any) -> str:
+    normalized = normalize_permission_mode(str(mode or "").strip() or DEFAULT_SESSION_PERMISSION_MODE)
+    return normalized if normalized else DEFAULT_SESSION_PERMISSION_MODE
 
 
 def _normalize_turn_environment_snapshot(payload: dict[str, Any] | None) -> dict[str, Any]:

@@ -40,7 +40,19 @@ class RuntimeMonitorService:
             key=lambda item: item.updated_at,
             reverse=True,
         )
-        return self.projector.build_session_monitor(session_id, task_runs, now=time.time(), limit=limit)
+        monitor = self.projector.build_session_monitor(session_id, task_runs, now=time.time(), limit=limit)
+        active_turn_snapshot = None
+        active_turn_registry = getattr(self.runtime_host, "active_turn_registry", None)
+        if active_turn_registry is not None:
+            try:
+                active_turn = active_turn_registry.resolve_current(session_id)
+                active_turn_snapshot = active_turn.to_dict() if active_turn is not None else None
+            except Exception:
+                active_turn_snapshot = None
+        return {
+            **monitor,
+            "active_turn_snapshot": active_turn_snapshot,
+        }
 
     def get_session_task_summary(self, session_id: str) -> dict[str, Any]:
         task_runs = sorted(

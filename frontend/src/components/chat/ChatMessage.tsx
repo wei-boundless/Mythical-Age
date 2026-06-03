@@ -61,8 +61,8 @@ export function ChatMessage({
   const imageUnavailable = Boolean(image?.src && failedImageSrc === image.src);
   const displayContent = isUser ? content : assistantDisplayContent({ content, answerChannel, answerSource });
   const hasRunActivity = !isUser && hasPublicRunActivity(runtimeAttachments, displayContent);
-  const taskControlReceipt = !isUser && isTaskControlReceipt({ content, answerChannel, answerSource });
-  const hideTaskControlReceipt = taskControlReceipt && hasRunActivity;
+  const legacyTaskContractReceipt = !isUser && isLegacyTaskContractReceipt({ content, answerChannel, answerSource });
+  const hideLegacyTaskContractReceipt = legacyTaskContractReceipt && hasRunActivity;
   const boundary = {
     channel: answerChannel,
     canonicalState: answerCanonicalState,
@@ -77,7 +77,7 @@ export function ChatMessage({
     isUser
     || Boolean(image?.src)
     || imageUnavailable
-    || (!hideTaskControlReceipt && (Boolean(displayContent.trim()) || !hasRunActivity));
+    || (!hideLegacyTaskContractReceipt && (Boolean(displayContent.trim()) || !hasRunActivity));
 
   return (
     <article
@@ -102,10 +102,6 @@ export function ChatMessage({
         </button>
       ) : null}
       {!isUser && <RetrievalCard results={retrievals} />}
-      {hasRunActivity ? (
-        <PublicRunActivity attachments={runtimeAttachments} assistantContent={displayContent} />
-      ) : null}
-      {!isUser ? <OutputBoundaryStatus {...boundary} /> : null}
       {shouldRenderContent ? (
         <div className={isUser ? "chat-message-shell__content whitespace-pre-wrap leading-7" : "chat-message-shell__content markdown"}>
           {isUser && editing ? (
@@ -168,6 +164,10 @@ export function ChatMessage({
           )}
         </div>
       ) : null}
+      {hasRunActivity ? (
+        <PublicRunActivity attachments={runtimeAttachments} assistantContent={displayContent} />
+      ) : null}
+      {!isUser ? <OutputBoundaryStatus {...boundary} /> : null}
     </article>
   );
 }
@@ -193,7 +193,12 @@ function boundaryLabel(state: string, persistPolicy: string, channel: string) {
 
 function shouldShowBoundaryStatus(state: string, persistPolicy: string, leakFlags: string[], fallbackReason: string) {
   if (!state && !persistPolicy && !leakFlags.length && !fallbackReason) return false;
-  return state !== "stable_answer" || persistPolicy !== "persist_canonical" || leakFlags.length > 0 || Boolean(fallbackReason);
+  const routineFallback = fallbackReason.endsWith("_message") || fallbackReason === "task_executor_scheduled";
+  if (leakFlags.length > 0) return true;
+  if (fallbackReason && !routineFallback) return true;
+  if (state === "missing_answer" || persistPolicy === "do_not_persist") return true;
+  if (state === "progress_only" || persistPolicy === "persist_debug_only") return false;
+  return state !== "stable_answer" || persistPolicy !== "persist_canonical";
 }
 
 function OutputBoundaryStatus({
@@ -275,7 +280,7 @@ function assistantDisplayContent({
   return content;
 }
 
-function isTaskControlReceipt({
+function isLegacyTaskContractReceipt({
   content,
   answerChannel,
   answerSource,
@@ -284,14 +289,8 @@ function isTaskControlReceipt({
   answerChannel?: string;
   answerSource?: string;
 }) {
-  const channel = String(answerChannel || "").trim();
-  if (channel === "task_control") {
-    return true;
-  }
-  const source = String(answerSource || "");
-  if (source.includes("task_lifecycle") || source.includes("explicit_contract_task")) {
-    return true;
-  }
+  void answerChannel;
+  void answerSource;
   const normalized = String(content || "").trim();
   return (
     normalized.startsWith("我会按这个目标推进")

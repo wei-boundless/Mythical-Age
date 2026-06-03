@@ -12,7 +12,7 @@ if str(BACKEND_DIR) not in sys.path:
 from harness.runtime import build_runtime_tool_plan
 from permissions import OperationGate
 from permissions.operations import build_default_operation_registry
-from runtime.tool_runtime import RuntimeToolControlPlane, ToolInvocationRequest
+from runtime.tool_runtime import RuntimeToolControlPlane, ToolInvocationRequest, ToolObservation
 from runtime.tool_runtime.tool_invocation_control import ToolInvocationContext
 
 
@@ -52,7 +52,30 @@ def test_runtime_tool_plan_stably_orders_visible_tools_and_hashes_schema() -> No
     assert plan_a.registry_hash == plan_b.registry_hash
 
 
-def test_runtime_tool_plan_single_turn_filters_side_effect_tools_from_model_and_dispatch() -> None:
+def test_needs_approval_tool_observation_is_control_plane_only() -> None:
+    observation = ToolObservation(
+        observation_id="toolobs:approval:one",
+        invocation_id="toolinvoke:approval:one",
+        caller_kind="task_run",
+        caller_ref="taskrun:approval",
+        tool_name="edit_file",
+        operation_id="op.edit_file",
+        status="needs_approval",
+        text="operation requires approval",
+    )
+
+    task_observation = observation.to_task_observation(
+        task_run_id="taskrun:approval",
+        request_ref="action:edit",
+        directive_ref="directive:edit",
+    )
+
+    assert task_observation["observation_type"] == "approval_request"
+    assert task_observation["needs_model_followup"] is False
+    assert task_observation["payload"]["status"] == "needs_approval"
+
+
+def test_runtime_tool_plan_single_turn_keeps_authorized_side_effect_tools_visible_and_dispatchable() -> None:
     plan = build_runtime_tool_plan(
         runtime_assembly=_assembly(
             available_tools=[
@@ -73,9 +96,9 @@ def test_runtime_tool_plan_single_turn_filters_side_effect_tools_from_model_and_
         if item.get("tool_name")
     }
 
-    assert [tool["name"] for tool in plan.model_visible_tools] == ["read_file"]
-    assert plan.dispatchable_tool_names == ("read_file",)
-    assert filtered["write_file"] == "single_agent_turn_requires_read_only_tool"
+    assert [tool["name"] for tool in plan.model_visible_tools] == ["read_file", "write_file"]
+    assert plan.dispatchable_tool_names == ("read_file", "write_file")
+    assert "write_file" not in filtered
 
 
 def test_runtime_tool_plan_general_environment_keeps_agent_authorized_tools_dispatchable() -> None:
@@ -488,7 +511,7 @@ def test_runtime_tool_control_plane_dispatches_agent_turn_through_core_without_t
     assert "task_run_id" not in executor.last_core
 
 
-def test_runtime_tool_control_plane_agent_turn_side_effect_is_denied_outside_sandbox() -> None:
+def test_runtime_tool_control_plane_agent_turn_side_effect_runs_without_default_approval_gate() -> None:
     executor = _RecordingCoreToolExecutor()
     plan = build_runtime_tool_plan(
         runtime_assembly=_assembly(available_tools=[{"tool_name": "image_generate", "operation_id": "op.image_generate"}]),
@@ -496,7 +519,7 @@ def test_runtime_tool_control_plane_agent_turn_side_effect_is_denied_outside_san
         tool_definitions_by_name={"image_generate": SimpleNamespace(operation_id="op.image_generate", is_read_only=False)},
     )
     request = ToolInvocationRequest(
-        invocation_id="toolinvoke:turn:image-approval",
+        invocation_id="toolinvoke:turn:image-direct",
         caller_kind="agent_turn",
         caller_ref="turnrun:one",
         session_id="session:one",
@@ -533,19 +556,20 @@ def test_runtime_tool_control_plane_agent_turn_side_effect_is_denied_outside_san
         ).invoke(request, tool_plan=plan)
     )
 
-    assert observation.status == "denied"
-    assert observation.diagnostics["stage"] == "capability_membership"
-    assert "operation not present" in observation.text
-    assert observation.operation_gate == {}
-    assert executor.core_calls == 0
+    assert observation.status == "ok"
+    assert observation.diagnostics["stage"] == "tool_runtime_executor_dispatch"
+    assert observation.operation_gate["decision"] == "allow"
+    assert observation.operation_gate["reason"] == "operation allowed by adopted resource policy"
+    assert executor.core_calls == 1
+    assert executor.last_core["tool_name"] == "image_generate"
 
 
-def test_runtime_tool_control_plane_agent_turn_side_effect_is_denied_before_sandbox_boundary() -> None:
+def test_runtime_tool_control_plane_agent_turn_side_effect_sandbox_metadata_does_not_create_approval_gate() -> None:
     executor = _RecordingCoreToolExecutor()
     plan = build_runtime_tool_plan(
         runtime_assembly=_assembly(
             available_tools=[{"tool_name": "image_generate", "operation_id": "op.image_generate"}],
-            task_environment={"environment_id": "env.development.sandbox"},
+            task_environment=_sandbox_task_environment("op.image_generate"),
         ),
         invocation_kind="single_agent_turn",
         tool_definitions_by_name={"image_generate": SimpleNamespace(operation_id="op.image_generate", is_read_only=False)},
@@ -583,7 +607,7 @@ def test_runtime_tool_control_plane_agent_turn_side_effect_is_denied_before_sand
             "backend_dir": str(BACKEND_DIR),
             "runtime_assembly": _assembly(
                 available_tools=[{"tool_name": "image_generate", "operation_id": "op.image_generate"}],
-                task_environment={"environment_id": "env.development.sandbox"},
+                task_environment=_sandbox_task_environment("op.image_generate"),
             ).to_dict(),
         },
     )
@@ -595,19 +619,20 @@ def test_runtime_tool_control_plane_agent_turn_side_effect_is_denied_before_sand
         ).invoke(request, tool_plan=plan)
     )
 
-    assert observation.status == "denied"
-    assert observation.diagnostics["stage"] == "capability_membership"
-    assert "operation not present" in observation.text
-    assert observation.operation_gate == {}
-    assert executor.core_calls == 0
+    assert observation.status == "ok"
+    assert observation.diagnostics["stage"] == "tool_runtime_executor_dispatch"
+    assert observation.operation_gate["decision"] == "allow"
+    assert observation.operation_gate["reason"] == "operation allowed by adopted resource policy"
+    assert executor.core_calls == 1
+    assert executor.last_core["tool_name"] == "image_generate"
 
 
-def test_runtime_tool_control_plane_agent_turn_native_side_effect_is_denied_even_with_concrete_sandbox_boundary(tmp_path: Path) -> None:
+def test_runtime_tool_control_plane_agent_turn_native_side_effect_runs_inside_concrete_sandbox_boundary(tmp_path: Path) -> None:
     executor = _RecordingCoreToolExecutor()
     plan = build_runtime_tool_plan(
         runtime_assembly=_assembly(
             available_tools=[{"tool_name": "write_file", "operation_id": "op.write_file"}],
-            task_environment={"environment_id": "env.development.sandbox"},
+            task_environment=_sandbox_task_environment("op.write_file"),
         ),
         invocation_kind="single_agent_turn",
         tool_definitions_by_name={"write_file": SimpleNamespace(operation_id="op.write_file", is_read_only=False)},
@@ -647,7 +672,7 @@ def test_runtime_tool_control_plane_agent_turn_native_side_effect_is_denied_even
             "backend_dir": str(BACKEND_DIR),
             "runtime_assembly": _assembly(
                 available_tools=[{"tool_name": "write_file", "operation_id": "op.write_file"}],
-                task_environment={"environment_id": "env.development.sandbox"},
+                task_environment=_sandbox_task_environment("op.write_file"),
             ).to_dict(),
         },
     )
@@ -659,19 +684,19 @@ def test_runtime_tool_control_plane_agent_turn_native_side_effect_is_denied_even
         ).invoke(request, tool_plan=plan)
     )
 
-    assert observation.status == "denied"
-    assert observation.diagnostics["stage"] == "capability_membership"
-    assert "operation not present" in observation.text
-    assert observation.operation_gate == {}
-    assert executor.core_calls == 0
+    assert observation.status == "ok"
+    assert observation.diagnostics["stage"] == "tool_runtime_executor_dispatch"
+    assert observation.operation_gate["decision"] == "allow"
+    assert executor.core_calls == 1
+    assert executor.last_core["tool_name"] == "write_file"
 
 
-def test_runtime_tool_control_plane_agent_turn_browser_side_effect_is_denied_even_with_sandbox_root(tmp_path: Path) -> None:
+def test_runtime_tool_control_plane_agent_turn_browser_side_effect_runs_inside_sandbox_boundary(tmp_path: Path) -> None:
     executor = _RecordingCoreToolExecutor()
     plan = build_runtime_tool_plan(
         runtime_assembly=_assembly(
             available_tools=[{"tool_name": "browser_control", "operation_id": "op.browser_control"}],
-            task_environment={"environment_id": "env.development.sandbox"},
+            task_environment=_sandbox_task_environment("op.browser_control"),
         ),
         invocation_kind="single_agent_turn",
         tool_definitions_by_name={"browser_control": SimpleNamespace(operation_id="op.browser_control", is_read_only=False)},
@@ -710,7 +735,7 @@ def test_runtime_tool_control_plane_agent_turn_browser_side_effect_is_denied_eve
             "backend_dir": str(BACKEND_DIR),
             "runtime_assembly": _assembly(
                 available_tools=[{"tool_name": "browser_control", "operation_id": "op.browser_control"}],
-                task_environment={"environment_id": "env.development.sandbox"},
+                task_environment=_sandbox_task_environment("op.browser_control"),
             ).to_dict(),
         },
     )
@@ -722,11 +747,11 @@ def test_runtime_tool_control_plane_agent_turn_browser_side_effect_is_denied_eve
         ).invoke(request, tool_plan=plan)
     )
 
-    assert observation.status == "denied"
-    assert observation.diagnostics["stage"] == "capability_membership"
-    assert "operation not present" in observation.text
-    assert observation.operation_gate == {}
-    assert executor.core_calls == 0
+    assert observation.status == "ok"
+    assert observation.diagnostics["stage"] == "tool_runtime_executor_dispatch"
+    assert observation.operation_gate["decision"] == "allow"
+    assert executor.core_calls == 1
+    assert executor.last_core["tool_name"] == "browser_control"
 
 
 class _assembly:
@@ -775,6 +800,37 @@ def _permit(
         "allowed_tool_names": [tool_name],
         "authority": "harness.loop.action_permit",
         "diagnostics": {"test_permit": True},
+    }
+
+
+def _sandbox_task_environment(*side_effect_operations: str) -> dict[str, object]:
+    return {
+        "environment_id": "env.development.sandbox",
+        "environment_kind": "development",
+        "sandbox_policy": {
+            "enabled": True,
+            "sandbox_mode": "workspace_overlay",
+            "write_policy": "sandbox_or_task_granted",
+            "shell_policy": "sandboxed",
+            "browser_policy": "sandboxed",
+            "network_policy": "task_decided",
+            "side_effect_policy": "sandbox_boundary",
+            "side_effect_operations": list(side_effect_operations),
+        },
+        "execution_policy": {
+            "write_scope_policy": "sandbox_or_file_access_table",
+            "shell_execution_policy": "sandboxed",
+            "browser_execution_policy": "sandboxed",
+            "network_execution_policy": "task_decided",
+        },
+        "file_management": {
+            "canonical_write_policy": "sandbox_write_real_workspace_requires_task_grant",
+            "constraints": {
+                "project_workspace_read": "allowed",
+                "project_workspace_write": "task_granted",
+            },
+        },
+        "resource_space": {"workspace_policy": "project_workspace"},
     }
 
 

@@ -285,6 +285,10 @@ function ActivityCopy({ item, variant = "normal" }: { item: PublicChatTimelineIt
   );
 }
 
+function AgentFeedbackCopy({ item }: { item: PublicChatTimelineItem }) {
+  return <p>{short(item.text || item.detail || item.title, 260)}</p>;
+}
+
 function lastOf<T>(items: T[]) {
   return items.length ? items[items.length - 1] : null;
 }
@@ -329,15 +333,10 @@ export function PublicRunActivity({ attachments, assistantContent = "" }: Public
     <div className="public-run-activity" aria-label="处理进展">
       {plan.agentFeedback ? (
         <div
-          className={`public-run-activity__row public-run-activity__row--agent public-run-activity__row--${stateClass(plan.agentFeedback)}`}
+          className={`public-run-activity__agent-message public-run-activity__agent-message--${stateClass(plan.agentFeedback)}`}
           key={itemKey(plan.agentFeedback, -1)}
         >
-          <span className="public-run-activity__icon" aria-hidden="true">
-            <CircleDot size={14} />
-          </span>
-          <span className="public-run-activity__copy">
-            <ActivityCopy item={plan.agentFeedback} />
-          </span>
+          <AgentFeedbackCopy item={plan.agentFeedback} />
         </div>
       ) : null}
       {plan.collapsedCount ? (

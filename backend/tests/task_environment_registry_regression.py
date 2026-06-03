@@ -538,7 +538,7 @@ def test_creation_environment_filters_development_execution_tools_before_runtime
     assert decisions["op.shell"]["environment_constraint"] == "env.creation.writing"
 
 
-def test_runtime_execution_permit_limits_tools_before_prompt_index() -> None:
+def test_runtime_operation_ceiling_limits_tools_before_prompt_index() -> None:
     definitions = get_tool_definitions()
     index = build_tool_authorization_index(definitions)
     profile = next(item for item in default_agent_runtime_profiles() if item.agent_profile_id == "main_interactive_agent")
@@ -552,7 +552,7 @@ def test_runtime_execution_permit_limits_tools_before_prompt_index() -> None:
             "task_environment_id": "env.development.sandbox",
             "runtime_profile": {
                 "execution_permit": {
-                    "allowed_operations": ["op.model_response", "op.read_file"],
+                    "operation_ceiling": ["op.model_response", "op.read_file"],
                 },
             },
         },
@@ -575,7 +575,7 @@ def test_runtime_execution_permit_limits_tools_before_prompt_index() -> None:
     assert decisions["op.shell"]["reason"] == "agent_permission_missing"
 
 
-def test_disjoint_explicit_operation_scopes_do_not_fallback_to_full_tool_pool() -> None:
+def test_allowed_operation_requests_do_not_cut_agent_profile_permissions() -> None:
     definitions = get_tool_definitions()
     index = build_tool_authorization_index(definitions)
     profile = next(item for item in default_agent_runtime_profiles() if item.agent_profile_id == "main_interactive_agent")
@@ -600,8 +600,19 @@ def test_disjoint_explicit_operation_scopes_do_not_fallback_to_full_tool_pool() 
         definitions_by_name=index.definitions_by_name,
     ).to_dict()
 
-    assert assembly["available_tools"] == []
-    assert dict(assembly.get("operation_authorization") or {}).get("allowed_operations") == []
+    tool_names = {str(item.get("tool_name") or "") for item in list(assembly.get("available_tools") or [])}
+    allowed_operations = set(dict(assembly.get("operation_authorization") or {}).get("allowed_operations") or [])
+    decisions = {
+        str(item.get("operation_id") or ""): dict(item)
+        for item in list(dict(assembly.get("operation_authorization") or {}).get("decisions") or [])
+    }
+
+    assert "read_file" in tool_names
+    assert "write_file" in tool_names
+    assert "terminal" in tool_names
+    assert {"op.read_file", "op.write_file", "op.shell"} <= allowed_operations
+    assert decisions["op.write_file"]["final_decision"] == "allow"
+    assert decisions["op.shell"]["final_decision"] == "allow"
 
 
 def test_development_environment_keeps_document_capability_routes() -> None:
@@ -644,7 +655,7 @@ def test_development_environment_keeps_document_capability_routes() -> None:
     assert pdf_capability.dispatchable is False
 
 
-def test_single_agent_turn_packet_filters_development_environment_side_effect_tools() -> None:
+def test_single_agent_turn_packet_keeps_development_environment_authorized_side_effect_tools() -> None:
     profile = next(item for item in default_agent_runtime_profiles() if item.agent_profile_id == "main_interactive_agent")
     definitions = get_tool_definitions()
     index = build_tool_authorization_index(definitions)
@@ -670,9 +681,10 @@ def test_single_agent_turn_packet_filters_development_environment_side_effect_to
     ).packet
     tool_names = {str(item.get("tool_name") or item.get("name") or "") for item in packet.available_tools}
 
-    assert "image_generate" not in tool_names
-    assert "terminal" not in tool_names
-    assert all(dict(item).get("read_only") is True for item in packet.available_tools)
+    assert "image_generate" in tool_names
+    assert "terminal" in tool_names
+    assert "write_file" in tool_names
+    assert any(dict(item).get("read_only") is False for item in packet.available_tools)
     assert "tool_call" in packet.allowed_action_types
     assert packet.output_contract["native_actions"]["tool_call"]["boundary"] == "runtime_visible_tools_only"
 

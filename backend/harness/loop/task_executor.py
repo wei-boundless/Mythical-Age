@@ -23,6 +23,7 @@ from runtime.output_boundary import canonical_output_decision_for_final_text
 from runtime.tool_runtime import ToolInvocationRequest, build_tool_invocation_id
 
 from orchestration.commit_gate import build_assistant_session_message_commit_decision
+from permissions.policy import normalize_permission_mode
 from project_layout import ProjectLayout
 from harness.runtime import RuntimeCompiler, TaskExecutorServices, assemble_runtime, build_runtime_tool_plan
 from harness.runtime.artifact_scope import (
@@ -76,6 +77,8 @@ from .work_rollout import append_work_rollout_item, ensure_work_rollout, work_ro
 
 _MAX_TASK_EXECUTION_STEPS = 12
 _MAX_MODEL_PROTOCOL_REPAIR_ATTEMPTS = 3
+_REPEATED_ADMISSION_GUARD_COUNT = 2
+_REPEATED_ADMISSION_PAUSE_COUNT = 3
 _TASK_MODEL_ACTION_WAIT_STATUS_INTERVAL_SECONDS = 15.0
 _TASK_RUN_CONTROL_KEY = "runtime_control"
 _TASK_RUN_PAUSE_REQUESTED = "pause_requested"
@@ -521,6 +524,7 @@ async def execute_task_run(
     diagnostics = dict(task_run.diagnostics or {})
     turn_id = str(diagnostics.get("turn_id") or task_run.task_id or task_run.task_run_id)
     model_selection = _task_model_selection(task_run, agent_profile=agent_profile)
+    runtime_permission_mode = _task_runtime_permission_mode(task_run, runtime_host=runtime_host)
     runtime_assembly = assemble_runtime(
         backend_dir=services.backend_dir,
         session_id=task_run.session_id,
@@ -531,6 +535,7 @@ async def execute_task_run(
         agent_runtime_profile=agent_profile,
         tool_instances=services.all_tool_instances(),
         definitions_by_name=dict(runtime_host.tool_authorization_index.definitions_by_name or {}),
+        permission_mode=runtime_permission_mode,
     )
     runtime_tool_plan = build_runtime_tool_plan(
         runtime_assembly=runtime_assembly,
@@ -541,7 +546,7 @@ async def execute_task_run(
     allowed_tool_names = set(runtime_tool_plan.dispatchable_tool_names)
     runtime_fingerprint = _current_runtime_fingerprint(
         runtime_assembly.to_dict(),
-        runtime_host=runtime_host,
+        permission_mode=runtime_permission_mode,
         backend_config=services.backend_config,
     )
     runtime_host.event_log.append(
@@ -625,6 +630,7 @@ async def execute_task_run(
             runtime_tool_plan=runtime_tool_plan,
             runtime_available_tools=runtime_available_tools,
             allowed_tool_names=allowed_tool_names,
+            runtime_permission_mode=runtime_permission_mode,
             runtime_fingerprint=runtime_fingerprint,
             raw_observations=raw_observations,
             observations=observations,
@@ -651,6 +657,7 @@ async def _execute_claimed_task_run(
     runtime_tool_plan: Any,
     runtime_available_tools: list[dict[str, Any]],
     allowed_tool_names: set[str],
+    runtime_permission_mode: str,
     runtime_fingerprint: str,
     raw_observations: list[dict[str, Any]],
     observations: list[dict[str, Any]],
@@ -911,7 +918,7 @@ async def _execute_claimed_task_run(
             definitions_by_name=getattr(runtime_host.tool_authorization_index, "definitions_by_name", {}),
             allowed_tool_names=allowed_tool_names,
             runtime_profile=dict(runtime_assembly.profile.to_dict()),
-            permission_mode=runtime_host._current_permission_mode(),
+            permission_mode=runtime_permission_mode,
             side_effect_policy="runtime_authorized",
         )
         runtime_host.event_log.append(
@@ -925,13 +932,100 @@ async def _execute_claimed_task_run(
         if control_result is not None:
             return control_result
         if admission.decision != "allow":
-            return _finish_executor_blocked(
+            previous_admission_denials = _matching_model_action_admission_denial_observations(
+                raw_observations,
+                action_request=action_request,
+                admission=admission,
+                runtime_fingerprint=runtime_fingerprint,
+            )
+            admission_denial_count = len(previous_admission_denials) + 1
+            pause_after_repeated_admission = admission_denial_count >= _REPEATED_ADMISSION_PAUSE_COUNT
+            if admission_denial_count >= _REPEATED_ADMISSION_GUARD_COUNT:
+                admission_observation = _repeated_model_action_admission_observation(
+                    task_run_id=current_task.task_run_id,
+                    packet_ref=compilation.packet.packet_id,
+                    action_request=action_request,
+                    admission=admission,
+                    runtime_fingerprint=runtime_fingerprint,
+                    step_index=step_index,
+                    repeat_count=admission_denial_count,
+                    previous_observations=previous_admission_denials,
+                    pause_after_observation=pause_after_repeated_admission,
+                )
+                admission_event_type = "task_repeated_model_action_admission_guarded"
+                admission_step = f"repeated_model_action_admission_guarded:{step_index}"
+                admission_summary = "模型重复请求同一个未获准动作，已返回恢复观察。"
+                admission_title = "重复运行边界"
+            else:
+                admission_observation = _model_action_admission_observation(
+                    task_run_id=current_task.task_run_id,
+                    packet_ref=compilation.packet.packet_id,
+                    action_request=action_request,
+                    admission=admission,
+                    runtime_fingerprint=runtime_fingerprint,
+                    step_index=step_index,
+                )
+                admission_event_type = "task_model_action_admission_observation_recorded"
+                admission_step = f"model_action_admission_observation:{step_index}"
+                admission_summary = "运行边界拒绝了当前动作，正在根据边界观察继续推进。"
+                admission_title = "运行边界"
+            raw_observations.append(admission_observation)
+            runtime_host.runtime_objects.put_object("observation", admission_observation["observation_id"], admission_observation)
+            runtime_host.event_log.append(
+                current_task.task_run_id,
+                admission_event_type,
+                payload={
+                    "observation": admission_observation,
+                    "admission": admission.to_dict(),
+                    "repeat_count": admission_denial_count,
+                },
+                refs={
+                    "task_run_ref": current_task.task_run_id,
+                    "action_request_ref": action_request.request_id,
+                    "observation_ref": admission_observation["observation_id"],
+                    "runtime_invocation_packet_ref": compilation.packet.packet_id,
+                },
+            )
+            _record_task_step_summary(
+                runtime_host,
+                task_run_id=current_task.task_run_id,
+                step=admission_step,
+                status="running",
+                summary=admission_summary,
+                refs={"observation_ref": admission_observation["observation_id"], "action_request_ref": action_request.request_id},
+            )
+            append_work_rollout_item(
                 runtime_host,
                 task_run=current_task,
-                agent_run=agent_run,
-                terminal_reason=admission.system_reason or admission.decision,
-                payload={"admission": admission.to_dict(), "action_request": action_request.to_dict()},
+                item_type="progress",
+                title=admission_title,
+                status="running",
+                summary=admission_summary,
+                event_offset=action_event.offset,
+                refs={"observation_ref": admission_observation["observation_id"], "action_request_ref": action_request.request_id},
+                payload={"model_visible": False, "admission": admission.to_dict(), "repeat_count": admission_denial_count},
             )
+            observation_context = _observations_for_packet(
+                runtime_host,
+                current_task.task_run_id,
+                current_fingerprint=runtime_fingerprint,
+                pending_observations=raw_observations,
+            )
+            raw_observations = list(observation_context["raw_observations"])
+            observations = list(observation_context["packet_observations"])
+            execution_state = dict(observation_context["execution_state"])
+            artifact_refs = dedupe_artifact_refs([*list(observation_context["artifact_refs"]), *artifact_refs])
+            if pause_after_repeated_admission:
+                return _pause_executor_for_repeated_admission_denial(
+                    runtime_host,
+                    task_run=current_task,
+                    agent_run=agent_run,
+                    action_request=action_request,
+                    admission=admission,
+                    observation=admission_observation,
+                    repeat_count=admission_denial_count,
+                )
+            continue
 
         if action_request.action_type == "tool_call":
             tool_progress = _tool_call_progress_summary(action_request)
@@ -1052,6 +1146,16 @@ async def _execute_claimed_task_run(
                 },
             )
             artifact_refs = dedupe_artifact_refs([*artifact_refs, *_artifact_refs_from_observation(observation)])
+            if _is_approval_request_observation(observation):
+                return _pause_executor_for_tool_approval(
+                    runtime_host,
+                    task_run=current_task,
+                    agent_run=agent_run,
+                    action_request=action_request,
+                    observation=observation,
+                    observation_event=observation_event,
+                    step_index=step_index,
+                )
             _record_task_step_summary(
                 runtime_host,
                 task_run_id=current_task.task_run_id,
@@ -1406,6 +1510,11 @@ async def _execute_task_tool_call(
     operation_id = str(getattr(definition, "operation_id", "") or tool_name)
     sandbox_policy = _task_sandbox_policy(runtime_assembly, runtime_host=runtime_host, task_run_id=task_run.task_run_id)
     file_policy = _task_file_policy(runtime_assembly, sandbox_policy=sandbox_policy)
+    runtime_permission_mode = _task_runtime_permission_mode(
+        task_run,
+        runtime_host=runtime_host,
+        runtime_assembly=runtime_assembly,
+    )
     sandbox_policy = {
         **sandbox_policy,
         "session_id": task_run.session_id,
@@ -1419,7 +1528,7 @@ async def _execute_task_tool_call(
         invocation_kind="task_execution",
         packet_allowed_action_types=("respond", "ask_user", "tool_call", "block"),
         allowed_tool_names=set(getattr(runtime_tool_plan, "dispatchable_tool_names", ()) or ()),
-        permission_mode=runtime_host._current_permission_mode(),
+        permission_mode=runtime_permission_mode,
         side_effect_policy="runtime_authorized",
     )
     invocation_id = build_tool_invocation_id(
@@ -1445,7 +1554,7 @@ async def _execute_task_tool_call(
         tool_plan_ref=str(getattr(runtime_tool_plan, "plan_id", "") or ""),
         admission_ref=str(getattr(admission, "admission_id", "") or "task_executor_admission"),
         action_permit=action_permit.to_dict(),
-        permission_mode=runtime_host._current_permission_mode(),
+        permission_mode=runtime_permission_mode,
         caller_resource_scope={
             "task_id": task_run.task_id,
             "step_id": f"task-step:{action_request.request_id}",
@@ -1487,7 +1596,11 @@ async def _execute_task_tool_call(
         payload = observation["payload"]
         payload["runtime_fingerprint"] = _current_runtime_fingerprint(
             runtime_assembly,
-            runtime_host=runtime_host,
+            permission_mode=_task_runtime_permission_mode(
+                task_run,
+                runtime_host=runtime_host,
+                runtime_assembly=runtime_assembly,
+            ),
             backend_config=services.backend_config,
         )
         payload.setdefault("tool_name", tool_name)
@@ -1507,6 +1620,36 @@ def _load_contract(runtime_host: Any, task_run: Any) -> dict[str, Any]:
     if contract:
         return dict(contract)
     return dict(dict(task_run.diagnostics or {}).get("contract") or {})
+
+
+def _task_runtime_permission_mode(
+    task_run: Any,
+    *,
+    runtime_host: Any | None = None,
+    runtime_assembly: dict[str, Any] | None = None,
+) -> str:
+    diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
+    candidates = [
+        diagnostics.get("runtime_permission_mode"),
+        diagnostics.get("permission_mode"),
+    ]
+    assembly = dict(runtime_assembly or diagnostics.get("runtime_assembly") or {})
+    if assembly:
+        candidates.append(assembly.get("permission_mode"))
+    contract = dict(diagnostics.get("contract") or {})
+    if contract:
+        permission_requirements = dict(contract.get("permission_requirements") or {})
+        candidates.extend([
+            contract.get("runtime_permission_mode"),
+            permission_requirements.get("permission_mode"),
+        ])
+    if runtime_host is not None and hasattr(runtime_host, "_current_permission_mode"):
+        candidates.append(runtime_host._current_permission_mode())
+    for candidate in candidates:
+        text = str(candidate or "").strip()
+        if text:
+            return normalize_permission_mode(text)
+    return "full_access"
 
 
 def _task_selection_from_task_run(task_run: Any) -> dict[str, Any]:
@@ -1688,6 +1831,7 @@ def _task_file_policy(runtime_assembly: dict[str, Any], *, sandbox_policy: dict[
         environment,
         storage_space=storage,
         artifact_root=artifact_root,
+        sandbox_policy=sandbox_policy,
     )
 
 
@@ -2567,6 +2711,200 @@ def _finish_user_stopped_task(runtime_host: Any, *, task_run: Any, reason: str =
     return stopped_task, stopped_lifecycle, event
 
 
+def _pause_executor_for_tool_approval(
+    runtime_host: Any,
+    *,
+    task_run: Any,
+    agent_run: Any,
+    action_request: AnyModelActionRequest,
+    observation: dict[str, Any],
+    observation_event: Any,
+    step_index: int,
+) -> dict[str, Any]:
+    now = time.time()
+    observation_ref = str(observation.get("observation_id") or "")
+    payload = dict(observation.get("payload") or {})
+    tool_name = _observation_tool_name(observation)
+    operation_id = str(payload.get("operation_id") or dict(payload.get("result_envelope") or {}).get("operation_id") or "").strip()
+    pending_approval = {
+        "status": "pending",
+        "mode": "runtime_approval",
+        "task_run_id": task_run.task_run_id,
+        "action_request_ref": action_request.request_id,
+        "observation_ref": observation_ref,
+        "tool_name": tool_name,
+        "operation_id": operation_id,
+        "created_at": now,
+        "authority": "runtime.tool_approval_control",
+        "operation_gate": dict(payload.get("operation_gate") or {}),
+        "execution_receipt": dict(payload.get("execution_receipt") or {}),
+    }
+    lifecycle = _load_lifecycle(runtime_host, task_run)
+    updated_lifecycle = replace(
+        lifecycle,
+        status="waiting_approval",
+        updated_at=now,
+        terminal_reason="waiting_approval",
+        observation_refs=tuple(_dedupe_strings([*list(lifecycle.observation_refs), observation_ref])),
+    )
+    waiting_task = replace(
+        task_run,
+        status="waiting_approval",
+        updated_at=now,
+        terminal_reason="waiting_approval",
+        diagnostics={
+            **dict(task_run.diagnostics or {}),
+            "executor_status": "waiting_approval",
+            "pending_approval": pending_approval,
+            "latest_step": f"task_tool_approval_waiting:{step_index}",
+            "latest_step_status": "waiting_approval",
+            "latest_step_summary": "工具调用需要前端确认，任务已暂停等待确认。",
+        },
+    )
+    runtime_host.state_index.upsert_task_run(waiting_task)
+    runtime_host.state_index.upsert_agent_run(
+        replace(
+            agent_run,
+            updated_at=now,
+            diagnostics={**dict(agent_run.diagnostics or {}), "executor_status": "waiting_approval", "pending_approval": pending_approval},
+        )
+    )
+    lifecycle_ref = runtime_host.runtime_objects.put_object(
+        "task_lifecycle",
+        task_run.task_run_id,
+        updated_lifecycle.to_dict(),
+    )
+    event = runtime_host.event_log.append(
+        task_run.task_run_id,
+        "approval_waiting",
+        payload={
+            "task_run": waiting_task.to_dict(),
+            "lifecycle": updated_lifecycle.to_dict(),
+            "pending_approval": pending_approval,
+            "observation": observation,
+        },
+        refs={
+            "task_run_ref": task_run.task_run_id,
+            "task_lifecycle_ref": lifecycle_ref,
+            "action_request_ref": action_request.request_id,
+            "observation_ref": observation_ref,
+        },
+    )
+    waiting_task = replace(waiting_task, updated_at=event.created_at or now, latest_event_offset=event.offset)
+    runtime_host.state_index.upsert_task_run(waiting_task)
+    _record_task_step_summary(
+        runtime_host,
+        task_run_id=task_run.task_run_id,
+        step=f"task_tool_approval_waiting:{step_index}",
+        status="waiting_approval",
+        summary="工具调用需要前端确认，任务已暂停等待确认。",
+        refs={"observation_ref": observation_ref, "action_request_ref": action_request.request_id},
+    )
+    append_work_rollout_item(
+        runtime_host,
+        task_run=waiting_task,
+        item_type="interrupted_boundary",
+        title="等待确认",
+        status="waiting_approval",
+        summary="工具调用需要前端确认，任务已暂停等待确认。",
+        agent_brief_output=_observation_brief(observation),
+        event_offset=_event_offset(event),
+        refs={"task_run_ref": task_run.task_run_id, "observation_ref": observation_ref, "action_request_ref": action_request.request_id},
+        payload={"pending_approval": pending_approval, "observation_event_offset": _event_offset(observation_event)},
+    )
+    return {
+        "ok": False,
+        "task_run": waiting_task.to_dict(),
+        "lifecycle": updated_lifecycle.to_dict(),
+        "event": event.to_dict() if hasattr(event, "to_dict") else dict(event or {}),
+        "error": "waiting_approval",
+        "retryable": True,
+        "pending_approval": pending_approval,
+    }
+
+
+def _pause_executor_for_repeated_admission_denial(
+    runtime_host: Any,
+    *,
+    task_run: Any,
+    agent_run: Any,
+    action_request: AnyModelActionRequest,
+    admission: Any,
+    observation: dict[str, Any],
+    repeat_count: int,
+) -> dict[str, Any]:
+    now = time.time()
+    observation_payload = dict(observation.get("payload") or {})
+    admission_payload = admission.to_dict() if hasattr(admission, "to_dict") else dict(admission or {})
+    observation_ref = str(observation.get("observation_id") or observation.get("observation_ref") or "")
+    previous_refs = [
+        str(item)
+        for item in list(observation_payload.get("previous_observation_refs") or [])
+        if str(item)
+    ]
+    recoverable_error = {
+        "error_code": "repeated_admission_denial",
+        "retryable": True,
+        "repeat_count": int(repeat_count or 0),
+        "observation_ref": observation_ref,
+        "previous_observation_refs": previous_refs,
+        "admission": admission_payload,
+        "rejected_action_request": action_request.to_dict(),
+        "user_message": "模型连续重复同一个未获准动作，任务保持可恢复状态，等待新的边界、权限或用户补充要求后继续。",
+    }
+    paused_task = replace(
+        task_run,
+        status="waiting_executor",
+        updated_at=now,
+        terminal_reason="waiting_executor",
+        diagnostics={
+            **_strip_terminal_diagnostics(dict(task_run.diagnostics or {})),
+            "executor_status": "waiting_executor",
+            "recoverable_error": recoverable_error,
+            "recovery_action": "resume_task_run",
+            "latest_step": "task_executor_repeated_admission_denial",
+            "latest_step_status": "waiting_executor",
+            "latest_step_summary": "模型连续重复同一个未获准动作，当前工作等待新的边界或补充要求后继续。",
+            "latest_observation_ref": observation_ref,
+        },
+    )
+    runtime_host.state_index.upsert_task_run(paused_task)
+    runtime_host.state_index.upsert_agent_run(
+        replace(
+            agent_run,
+            status="blocked",
+            updated_at=now,
+            diagnostics={**dict(agent_run.diagnostics or {}), "terminal_reason": "repeated_admission_denial", "recoverable_error": recoverable_error},
+        )
+    )
+    event = runtime_host.event_log.append(
+        task_run.task_run_id,
+        "task_executor_repeated_admission_denial_paused",
+        payload={"task_run": paused_task.to_dict(), "observation": observation, "repeat_count": int(repeat_count or 0)},
+        refs={"task_run_ref": task_run.task_run_id, "action_request_ref": action_request.request_id, "observation_ref": observation_ref},
+    )
+    _record_task_step_summary(
+        runtime_host,
+        task_run_id=task_run.task_run_id,
+        step="task_executor_repeated_admission_denial",
+        status="waiting_executor",
+        summary="模型连续重复同一个未获准动作，当前工作等待新的边界或补充要求后继续。",
+        refs={"observation_ref": observation_ref, "action_request_ref": action_request.request_id},
+    )
+    append_work_rollout_item(
+        runtime_host,
+        task_run=replace(paused_task, latest_event_offset=event.offset, updated_at=event.created_at or now),
+        item_type="pause_boundary",
+        title="等待调整",
+        status="waiting_executor",
+        summary="模型连续重复同一个未获准动作，当前工作等待新的边界或补充要求后继续。",
+        event_offset=event.offset,
+        refs={"task_run_ref": task_run.task_run_id, "observation_ref": observation_ref},
+        payload={"terminal_reason": "repeated_admission_denial", "recoverable_error": recoverable_error},
+    )
+    return {"ok": False, "task_run": paused_task.to_dict(), "error": "repeated_admission_denial", "retryable": True}
+
+
 def _pause_executor_for_step_budget(runtime_host: Any, *, task_run: Any, agent_run: Any, max_steps: int) -> dict[str, Any]:
     now = time.time()
     payload = {
@@ -3122,7 +3460,7 @@ def _packet_observations_from_records(records: list[dict[str, Any]]) -> list[dic
     return packet[-24:]
 
 
-def _current_runtime_fingerprint(runtime_assembly: dict[str, Any], *, runtime_host: Any, backend_config: dict[str, Any]) -> dict[str, Any]:
+def _current_runtime_fingerprint(runtime_assembly: dict[str, Any], *, permission_mode: str, backend_config: dict[str, Any]) -> dict[str, Any]:
     profile = dict(runtime_assembly.get("profile") or {})
     environment = dict(runtime_assembly.get("task_environment") or {})
     config = _safe_backend_config(backend_config)
@@ -3136,7 +3474,7 @@ def _current_runtime_fingerprint(runtime_assembly: dict[str, Any], *, runtime_ho
         "sandbox_policy_hash": _stable_hash(environment.get("sandbox_policy") or {}),
         "permission_policy_hash": _stable_hash(profile.get("permission_policy") or {}),
         "backend_config_hash": _stable_hash(config),
-        "permission_mode": str(runtime_host._current_permission_mode()) if hasattr(runtime_host, "_current_permission_mode") else "",
+        "permission_mode": str(permission_mode or "").strip(),
     }
 
 
@@ -3216,12 +3554,24 @@ def _observation_result_payload(observation: dict[str, Any]) -> Any:
     return payload
 
 
+def _is_approval_request_observation(observation: dict[str, Any]) -> bool:
+    payload = dict(observation.get("payload") or {})
+    envelope = dict(payload.get("result_envelope") or {})
+    return (
+        str(observation.get("observation_type") or "") == "approval_request"
+        or str(payload.get("status") or "") == "needs_approval"
+        or str(envelope.get("status") or "") == "needs_approval"
+    )
+
+
 def _observation_status(observation: dict[str, Any]) -> str:
     payload = dict(observation.get("payload") or {})
     envelope = dict(payload.get("result_envelope") or {})
     structured = dict(payload.get("structured_payload") or envelope.get("structured_payload") or {})
     tool_result = dict(structured.get("tool_result") or {}) if isinstance(structured.get("tool_result"), dict) else {}
     operation_gate = dict(payload.get("operation_gate") or {})
+    if _is_approval_request_observation(observation):
+        return "waiting_approval"
     if operation_gate and operation_gate.get("allowed") is False:
         return "denied"
     if str(observation.get("observation_type") or "") == "executor_error":
@@ -3577,6 +3927,307 @@ def _active_steer_completion_repair_observation(
         "authority": "orchestration.runtime_observation",
         "error": "pending_user_steer_unconsumed",
     }
+
+
+def _model_action_admission_observation(
+    *,
+    task_run_id: str,
+    packet_ref: str,
+    action_request: AnyModelActionRequest,
+    admission: Any,
+    runtime_fingerprint: dict[str, Any],
+    step_index: int,
+) -> dict[str, Any]:
+    admission_payload = admission.to_dict() if hasattr(admission, "to_dict") else dict(admission or {})
+    decision = str(admission_payload.get("decision") or "deny")
+    system_reason = str(admission_payload.get("system_reason") or decision)
+    user_reason = str(admission_payload.get("user_visible_reason") or system_reason)
+    tool_call = dict(getattr(action_request, "tool_call", {}) or {})
+    tool_name = str(tool_call.get("tool_name") or tool_call.get("name") or "").strip()
+    admission_fingerprint = _model_action_admission_fingerprint(
+        action_request=action_request,
+        admission_payload=admission_payload,
+        runtime_fingerprint=runtime_fingerprint,
+    )
+    repair_instruction = (
+        f"运行边界没有执行当前动作。准入裁决：{decision}；原因：{system_reason}。"
+        f"边界说明：{user_reason}。你需要基于这条观察继续推进：改用已开放工具、补齐任务合同、询问用户，"
+        "或在无法继续时给出有证据的阻塞裁决；不要重复同一个未获准动作。"
+    )
+    payload = {
+        "tool_name": tool_name or action_request.action_type,
+        "tool_args": dict(tool_call.get("args") or tool_call.get("tool_args") or {}),
+        "error": system_reason,
+        "error_code": system_reason,
+        "admission": admission_payload,
+        "repair_instruction": repair_instruction,
+        "rejected_action_request": action_request.to_dict(),
+        "admission_denial_fingerprint": admission_fingerprint,
+        "admission_denial_repeat_count": 1,
+        "structured_error": {
+            "code": system_reason,
+            "message": repair_instruction,
+            "retryable": True,
+            "origin": "model_action_admission",
+            "repair_instruction": repair_instruction,
+        },
+        "runtime_fingerprint": dict(runtime_fingerprint or {}),
+    }
+    ref_raw = json.dumps(
+        {
+            "task_run_id": task_run_id,
+            "step_index": step_index,
+            "request_ref": action_request.request_id,
+            "decision": decision,
+            "system_reason": system_reason,
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    ref_digest = hashlib.sha256(ref_raw.encode("utf-8")).hexdigest()[:12]
+    return {
+        "observation_id": f"rtobs:{task_run_id}:admission:{uuid.uuid4().hex[:8]}",
+        "task_run_id": task_run_id,
+        "observation_type": "executor_error",
+        "source": "system:model_action_admission",
+        "request_ref": f"model-action-admission:{task_run_id}:invocation:{step_index}:{ref_digest}",
+        "directive_ref": packet_ref,
+        "content_chars": len(repair_instruction),
+        "summary": repair_instruction,
+        "payload": payload,
+        "needs_model_followup": True,
+        "created_at": time.time(),
+        "authority": "orchestration.runtime_observation",
+        "error": system_reason,
+    }
+
+
+def _repeated_model_action_admission_observation(
+    *,
+    task_run_id: str,
+    packet_ref: str,
+    action_request: AnyModelActionRequest,
+    admission: Any,
+    runtime_fingerprint: dict[str, Any],
+    step_index: int,
+    repeat_count: int,
+    previous_observations: list[dict[str, Any]],
+    pause_after_observation: bool,
+) -> dict[str, Any]:
+    admission_payload = admission.to_dict() if hasattr(admission, "to_dict") else dict(admission or {})
+    decision = str(admission_payload.get("decision") or "deny")
+    system_reason = str(admission_payload.get("system_reason") or decision)
+    user_reason = str(admission_payload.get("user_visible_reason") or system_reason)
+    tool_call = dict(getattr(action_request, "tool_call", {}) or {})
+    tool_name = str(tool_call.get("tool_name") or tool_call.get("name") or "").strip()
+    tool_args = dict(tool_call.get("args") or tool_call.get("tool_args") or {})
+    admission_fingerprint = _model_action_admission_fingerprint(
+        action_request=action_request,
+        admission_payload=admission_payload,
+        runtime_fingerprint=runtime_fingerprint,
+    )
+    previous_refs = [
+        str(item.get("observation_id") or item.get("observation_ref") or "")
+        for item in list(previous_observations or [])
+        if str(item.get("observation_id") or item.get("observation_ref") or "")
+    ]
+    message = (
+        f"模型第 {int(repeat_count or 0)} 次请求同一个未获准动作，运行时仍未执行："
+        f"准入裁决 {decision}，原因 {system_reason}。"
+    )
+    repair_instruction = (
+        f"{message} 边界说明：{user_reason}。你必须停止原样重试，改用本轮可见且获准的工具、修改参数、"
+        "询问用户、给出阻塞裁决，或在已有证据满足合同时直接收口。"
+    )
+    payload = {
+        "tool_name": "repeated_admission_guard",
+        "tool_args": {
+            "rejected_action_type": str(getattr(action_request, "action_type", "") or ""),
+            "rejected_tool_name": tool_name,
+            "rejected_tool_args": _normalize_tool_call_args_for_fingerprint(tool_name, tool_args),
+        },
+        "error": message,
+        "error_code": "repeated_admission_denial",
+        "admission": admission_payload,
+        "repair_instruction": repair_instruction,
+        "rejected_action_request": action_request.to_dict(),
+        "admission_denial_fingerprint": admission_fingerprint,
+        "admission_denial_repeat_count": int(repeat_count or 0),
+        "previous_observation_refs": previous_refs,
+        "pause_after_observation": bool(pause_after_observation),
+        "structured_error": {
+            "code": "repeated_admission_denial",
+            "message": repair_instruction,
+            "retryable": True,
+            "origin": "runtime_guard",
+            "tool_name": tool_name,
+            "tool_args": tool_args,
+            "previous_observation_refs": previous_refs,
+            "repair_instruction": repair_instruction,
+        },
+        "runtime_fingerprint": dict(runtime_fingerprint or {}),
+    }
+    ref_raw = json.dumps(
+        {
+            "task_run_id": task_run_id,
+            "step_index": step_index,
+            "request_ref": action_request.request_id,
+            "fingerprint": admission_fingerprint,
+            "repeat_count": int(repeat_count or 0),
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    ref_digest = hashlib.sha256(ref_raw.encode("utf-8")).hexdigest()[:12]
+    return {
+        "observation_id": f"rtobs:{task_run_id}:admission-guard:{uuid.uuid4().hex[:8]}",
+        "task_run_id": task_run_id,
+        "observation_type": "runtime_guard",
+        "source": "system:repeated_admission_guard",
+        "request_ref": f"repeated-model-action-admission:{task_run_id}:invocation:{step_index}:{ref_digest}",
+        "directive_ref": packet_ref,
+        "content_chars": len(repair_instruction),
+        "summary": repair_instruction,
+        "payload": payload,
+        "needs_model_followup": True,
+        "created_at": time.time(),
+        "authority": "orchestration.runtime_observation",
+        "error": "repeated_admission_denial",
+    }
+
+
+def _matching_model_action_admission_denial_observations(
+    observations: list[dict[str, Any]],
+    *,
+    action_request: AnyModelActionRequest,
+    admission: Any,
+    runtime_fingerprint: dict[str, Any],
+) -> list[dict[str, Any]]:
+    admission_payload = admission.to_dict() if hasattr(admission, "to_dict") else dict(admission or {})
+    current_fingerprint = _model_action_admission_fingerprint(
+        action_request=action_request,
+        admission_payload=admission_payload,
+        runtime_fingerprint=runtime_fingerprint,
+    )
+    matches: list[dict[str, Any]] = []
+    for observation in list(observations or []):
+        if not isinstance(observation, dict):
+            continue
+        source = str(observation.get("source") or "")
+        if source not in {"system:model_action_admission", "system:repeated_admission_guard"}:
+            continue
+        payload = dict(observation.get("payload") or {})
+        stored_fingerprint = str(payload.get("admission_denial_fingerprint") or "")
+        if stored_fingerprint:
+            if stored_fingerprint == current_fingerprint:
+                matches.append(dict(observation))
+            continue
+        if _legacy_model_action_admission_observation_matches(
+            observation,
+            action_request=action_request,
+            admission_payload=admission_payload,
+            runtime_fingerprint=runtime_fingerprint,
+        ):
+            matches.append(dict(observation))
+    return matches
+
+
+def _legacy_model_action_admission_observation_matches(
+    observation: dict[str, Any],
+    *,
+    action_request: AnyModelActionRequest,
+    admission_payload: dict[str, Any],
+    runtime_fingerprint: dict[str, Any],
+) -> bool:
+    payload = dict(observation.get("payload") or {})
+    observed_admission = dict(payload.get("admission") or {})
+    if str(observed_admission.get("decision") or "") != str(admission_payload.get("decision") or ""):
+        return False
+    if str(observed_admission.get("system_reason") or "") != str(admission_payload.get("system_reason") or ""):
+        return False
+    observed_runtime = _admission_runtime_fingerprint_identity(_observation_runtime_fingerprint(observation))
+    current_runtime = _admission_runtime_fingerprint_identity(runtime_fingerprint)
+    if observed_runtime != current_runtime:
+        return False
+    rejected_action = dict(payload.get("rejected_action_request") or {})
+    if rejected_action:
+        return _model_action_admission_identity_from_payload(rejected_action) == _model_action_admission_identity(action_request)
+    if str(getattr(action_request, "action_type", "") or "") != "tool_call":
+        return False
+    tool_call = dict(getattr(action_request, "tool_call", {}) or {})
+    tool_name = str(tool_call.get("tool_name") or tool_call.get("name") or "").strip()
+    tool_args = dict(tool_call.get("args") or tool_call.get("tool_args") or {})
+    return (
+        _observation_tool_name(observation) == tool_name
+        and _normalize_tool_call_args_for_fingerprint(tool_name, _observation_tool_args(observation))
+        == _normalize_tool_call_args_for_fingerprint(tool_name, tool_args)
+    )
+
+
+def _model_action_admission_fingerprint(
+    *,
+    action_request: AnyModelActionRequest,
+    admission_payload: dict[str, Any],
+    runtime_fingerprint: dict[str, Any],
+) -> str:
+    payload = {
+        "action": _model_action_admission_identity(action_request),
+        "admission": {
+            "decision": str(admission_payload.get("decision") or ""),
+            "system_reason": str(admission_payload.get("system_reason") or ""),
+        },
+        "runtime": _admission_runtime_fingerprint_identity(runtime_fingerprint),
+    }
+    return "sha256:" + _stable_hash(payload)
+
+
+def _model_action_admission_identity(action_request: AnyModelActionRequest) -> dict[str, Any]:
+    return _model_action_admission_identity_from_payload(action_request.to_dict())
+
+
+def _model_action_admission_identity_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    action_payload = dict(payload or {})
+    action_type = str(action_payload.get("action_type") or "")
+    identity: dict[str, Any] = {"action_type": action_type}
+    if action_type == "tool_call":
+        tool_call = dict(action_payload.get("tool_call") or {})
+        tool_name = str(tool_call.get("tool_name") or tool_call.get("name") or "").strip()
+        tool_args = dict(tool_call.get("args") or tool_call.get("tool_args") or {})
+        identity["tool_name"] = tool_name
+        identity["tool_args"] = _normalize_tool_call_args_for_fingerprint(tool_name, tool_args)
+        return identity
+    if action_type == "respond":
+        identity["final_answer"] = str(action_payload.get("final_answer") or "")
+    elif action_type == "ask_user":
+        identity["user_question"] = str(action_payload.get("user_question") or "")
+    elif action_type == "block":
+        identity["blocking_reason"] = str(action_payload.get("blocking_reason") or "")
+    else:
+        normalized_payload = _normalize_tool_call_args(action_payload)
+        if isinstance(normalized_payload, dict):
+            normalized_payload.pop("request_id", None)
+            normalized_payload.pop("turn_id", None)
+        identity["payload"] = normalized_payload
+    return identity
+
+
+def _admission_runtime_fingerprint_identity(runtime_fingerprint: dict[str, Any]) -> dict[str, str]:
+    fingerprint = dict(runtime_fingerprint or {})
+    keys = (
+        "runtime_assembly_id",
+        "agent_profile_id",
+        "runtime_profile_ref",
+        "task_environment_id",
+        "tool_registry_hash",
+        "tool_config_hash",
+        "sandbox_policy_hash",
+        "permission_policy_hash",
+        "backend_config_hash",
+        "permission_mode",
+    )
+    return {key: str(fingerprint.get(key) or "") for key in keys}
 
 
 def _model_protocol_repair_observation(

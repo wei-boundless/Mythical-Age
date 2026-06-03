@@ -103,6 +103,19 @@ function terminalReasonIndicatesFailure(value: unknown) {
   );
 }
 
+function isTaskRunHandoffEvent(data: Record<string, unknown>) {
+  const taskRun = record(data.task_run);
+  const taskRunId = formalTaskRunId(data.runtime_task_run_id, taskRun.task_run_id);
+  if (!taskRunId) {
+    return false;
+  }
+  const reason = text(data.terminal_reason);
+  const channel = text(data.answer_channel);
+  return reason === "task_executor_scheduled"
+    || reason === "session_active_task_exists"
+    || channel === "task_control";
+}
+
 function shortCommand(value: unknown, limit = 180) {
   const normalized = text(value).replace(/\s+/g, " ");
   return normalized.length > limit ? `${normalized.slice(0, limit - 1)}...` : normalized;
@@ -844,7 +857,27 @@ export function projectRuntimeStreamEvent(event: string, data: Record<string, un
     return projectHarnessLoopEvent(data);
   }
   if (event === "done") {
-    const partialTimeout = text(data.completion_state) === "partial_timeout";
+    if (isTaskRunHandoffEvent(data)) {
+      return {
+        stageStatus: "后台任务已接管",
+        activityTitle: "后台任务已接管",
+        activityDetail: "当前会话已有后台任务在执行，后续输入会进入当前任务控制。",
+        level: "waiting",
+        terminalEvent: "done",
+      };
+    }
+    const completionState = text(data.completion_state);
+    if (completionState === "task_steer_accepted") {
+      const summary = publicRuntimeText(data.summary ?? data.content) || "当前任务会在后续步骤中处理这次输入。";
+      return {
+        stageStatus: "已收到补充要求",
+        activityTitle: "已收到补充要求",
+        activityDetail: summary,
+        level: "success",
+        terminalEvent: "done",
+      };
+    }
+    const partialTimeout = completionState === "partial_timeout";
     return {
       stageStatus: partialTimeout ? "部分完成" : "完成",
       activityTitle: partialTimeout ? "已生成部分内容" : "完成",
