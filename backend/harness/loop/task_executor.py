@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import asyncio
 import hashlib
-import shutil
 import time
 import uuid
 from dataclasses import replace
@@ -20,21 +19,25 @@ from runtime.shared.models import AgentRun, AgentRunResult
 from runtime.memory.tool_observation_ledger import build_tool_observation_record
 from runtime.model_gateway.model_response_protocol import model_response_protocol_from_response
 from runtime.output_boundary import canonical_output_decision_for_final_text
+from runtime.shared.approval_fingerprint import build_approval_risk_fingerprint
 from runtime.tool_runtime import ToolInvocationRequest, build_tool_invocation_id
 
 from orchestration.commit_gate import build_assistant_session_message_commit_decision
 from permissions.policy import normalize_permission_mode
 from project_layout import ProjectLayout
 from harness.runtime import RuntimeCompiler, TaskExecutorServices, assemble_runtime, build_runtime_tool_plan
+from harness.runtime.environment_storage import ensure_environment_storage_dirs
 from harness.runtime.artifact_scope import (
     canonicalize_task_contract_artifacts,
-    contract_artifact_paths,
-    normalize_logical_path,
     runtime_artifact_scope_from_environment,
 )
 from harness.runtime.sandbox_execution_scope import compile_sandbox_execution_scope, task_safety_envelope_from_assembly
 from harness.runtime.file_management_policy import compile_tool_file_management_policy
 from harness.runtime.public_progress import public_action_progress_summary, public_runtime_progress_summary
+from harness.runtime.sandbox_artifacts import (
+    discover_sandbox_artifact_refs,
+    publish_sandbox_artifact_refs,
+)
 
 from .admission import admit_model_action
 from .action_permit import action_permit_from_admission
@@ -71,6 +74,15 @@ from .task_steering import (
     mark_task_steers_included,
 )
 from .task_lifecycle import TaskLifecycleRecord, finish_task_lifecycle
+from .task_tool_approval import (
+    APPROVAL_GRANT_KIND,
+    append_task_tool_approval_grant,
+    approval_state_for_task_run,
+    build_task_tool_approval_grant,
+    matching_approval_grant_for_pending,
+    pending_approval_from_task_run,
+    tool_args_hash,
+)
 from .task_run_recovery_state import recovery_state_for_task_run, should_auto_continue_task_run
 from .work_rollout import append_work_rollout_item, ensure_work_rollout, work_rollout_summary
 
@@ -124,6 +136,106 @@ def task_run_control_state(task_run: Any) -> str:
 
 def _is_task_run_resumable_for_user_control(task_run: Any) -> bool:
     return recovery_state_for_task_run(task_run).same_run_resumable
+
+
+def approve_task_run_tool_call(
+    runtime_host: Any,
+    task_run_id: str,
+    *,
+    reason: str = "",
+    requested_by: str = "user",
+    turn_id: str = "",
+    ttl_seconds: float = 3600.0,
+) -> dict[str, Any]:
+    task_run = runtime_host.state_index.get_task_run(task_run_id)
+    if task_run is None:
+        return _not_found(task_run_id)
+    if not _is_single_agent_task_run(task_run):
+        return _conflict(task_run_id, "not_single_agent_task_run")
+    if _origin_kind(task_run) == "graph_node_assigned":
+        return _conflict(task_run_id, "graph_node_task_run_controlled_by_graph_runtime")
+    status = str(getattr(task_run, "status", "") or "")
+    if status != "waiting_approval":
+        return _conflict(task_run_id, f"task_run_not_waiting_approval:{status}")
+    pending_approval = pending_approval_from_task_run(task_run)
+    if str(pending_approval.get("status") or "") != "pending":
+        return _conflict(task_run_id, "pending_approval_missing")
+    grant = build_task_tool_approval_grant(
+        task_run=task_run,
+        pending_approval=pending_approval,
+        requested_by=requested_by,
+        ttl_seconds=ttl_seconds,
+        reason=reason,
+    )
+    if grant is None:
+        return _conflict(task_run_id, "pending_approval_incomplete")
+    now = time.time()
+    runtime_host.runtime_objects.put_object(APPROVAL_GRANT_KIND, grant.grant_id, grant.to_dict())
+    event = runtime_host.event_log.append(
+        task_run_id,
+        "task_tool_approval_granted",
+        payload={
+            "task_run_id": task_run_id,
+            "grant": grant.to_dict(),
+            "pending_approval": pending_approval,
+            "reason": reason,
+            "requested_by": requested_by,
+            **({"turn_id": turn_id} if turn_id else {}),
+        },
+        refs={
+            "task_run_ref": task_run_id,
+            "approval_grant_ref": grant.grant_id,
+            "action_request_ref": grant.action_request_ref,
+            **({"turn_ref": turn_id} if turn_id else {}),
+        },
+    )
+    approved_pending = {
+        **pending_approval,
+        "status": "approved",
+        "approved_at": event.created_at or now,
+        "approval_grant_id": grant.grant_id,
+    }
+    updated = replace(
+        task_run,
+        updated_at=event.created_at or now,
+        latest_event_offset=event.offset,
+        diagnostics={
+            **append_task_tool_approval_grant(task_run, grant),
+            "pending_approval": approved_pending,
+            "executor_status": "waiting_approval",
+            "latest_step": "task_tool_approval_granted",
+            "latest_step_status": "waiting_approval",
+            "latest_step_summary": "工具调用已获确认，等待继续执行。",
+            **({"latest_interaction_turn_id": turn_id} if turn_id else {}),
+        },
+    )
+    runtime_host.state_index.upsert_task_run(updated)
+    _record_task_step_summary(
+        runtime_host,
+        task_run_id=task_run_id,
+        step="task_tool_approval_granted",
+        status="waiting_approval",
+        summary="工具调用已获确认，等待继续执行。",
+        refs={"approval_grant_ref": grant.grant_id, "action_request_ref": grant.action_request_ref},
+    )
+    append_work_rollout_item(
+        runtime_host,
+        task_run=updated,
+        item_type="progress",
+        title="已确认",
+        status="waiting_approval",
+        summary="工具调用已获确认，等待继续执行。",
+        event_offset=event.offset,
+        refs={"task_run_ref": task_run_id, "approval_grant_ref": grant.grant_id, "action_request_ref": grant.action_request_ref},
+        payload={"pending_approval": approved_pending},
+    )
+    return {
+        "ok": True,
+        "accepted": True,
+        "task_run": updated.to_dict(),
+        "approval_grant": grant.to_dict(),
+        "pending_approval": approved_pending,
+    }
 
 
 def _is_single_agent_task_run(task_run: Any) -> bool:
@@ -250,6 +362,8 @@ def resume_paused_task_run(
     status = str(getattr(task_run, "status", "") or "")
     if status in {"completed", "failed", "aborted"}:
         return _conflict(task_run_id, f"task_run_terminal:{status}")
+    if status == "waiting_approval" and matching_approval_grant_for_pending(task_run) is None:
+        return _conflict(task_run_id, "task_run_waiting_approval_requires_grant")
     if not _is_task_run_resumable_for_user_control(task_run) and status != "blocked":
         return _conflict(task_run_id, f"task_run_not_resumable:{status}")
     now = time.time()
@@ -645,6 +759,154 @@ async def execute_task_run(
         clear_executor_epoch(runtime_host, task_run_id=task_run.task_run_id, executor_epoch=sequence.executor_epoch)
 
 
+async def _replay_approved_pending_tool_call(
+    runtime_host: Any,
+    *,
+    services: TaskExecutorServices,
+    current_task: Any,
+    agent_run: Any,
+    runtime_assembly: Any,
+    runtime_tool_plan: Any,
+    allowed_tool_names: set[str],
+    runtime_permission_mode: str,
+    runtime_fingerprint: dict[str, Any],
+    raw_observations: list[dict[str, Any]],
+    observations: list[dict[str, Any]],
+    execution_state: dict[str, Any],
+    artifact_refs: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    pending = pending_approval_from_task_run(current_task)
+    if str(pending.get("status") or "") != "approved":
+        return None
+    if matching_approval_grant_for_pending(current_task) is None:
+        return None
+    payload = dict(pending.get("action_request") or {})
+    action_request, protocol = task_execution_action_request_from_payload(
+        payload,
+        turn_id=current_task.task_run_id,
+        require_public_progress_note=False,
+        require_public_action_state=False,
+        allowed_action_types=("tool_call",),
+    )
+    if action_request is None:
+        observation = _model_protocol_repair_observation(
+            task_run_id=current_task.task_run_id,
+            packet_ref=str(pending.get("directive_ref") or ""),
+            step_index=int(dict(getattr(current_task, "diagnostics", {}) or {}).get("next_invocation_index") or 0),
+            diagnostics=protocol,
+            runtime_fingerprint=runtime_fingerprint,
+        )
+        raw_observations.append(observation)
+        runtime_host.runtime_objects.put_object("observation", observation["observation_id"], observation)
+        return {
+            "current_task": runtime_host.state_index.get_task_run(current_task.task_run_id) or current_task,
+            "raw_observations": raw_observations,
+            "observations": observations,
+            "execution_state": execution_state,
+            "artifact_refs": artifact_refs,
+        }
+    admission = admit_model_action(
+        action_request,
+        definitions_by_name=getattr(runtime_host.tool_authorization_index, "definitions_by_name", {}),
+        allowed_tool_names=allowed_tool_names,
+        runtime_profile=dict(runtime_assembly.profile.to_dict() if hasattr(runtime_assembly, "profile") else dict(runtime_assembly or {}).get("profile") or {}),
+        permission_mode=runtime_permission_mode,
+        side_effect_policy="runtime_authorized",
+    )
+    if admission.decision != "allow":
+        admission_observation = _model_action_admission_observation(
+            task_run_id=current_task.task_run_id,
+            packet_ref=str(pending.get("directive_ref") or ""),
+            action_request=action_request,
+            admission=admission,
+            runtime_fingerprint=runtime_fingerprint,
+            step_index=int(dict(getattr(current_task, "diagnostics", {}) or {}).get("next_invocation_index") or 0),
+        )
+        raw_observations.append(admission_observation)
+        runtime_host.runtime_objects.put_object("observation", admission_observation["observation_id"], admission_observation)
+        observation_context = _observations_for_packet(
+            runtime_host,
+            current_task.task_run_id,
+            current_fingerprint=runtime_fingerprint,
+            pending_observations=raw_observations,
+        )
+        return {
+            "current_task": runtime_host.state_index.get_task_run(current_task.task_run_id) or current_task,
+            "raw_observations": list(observation_context["raw_observations"]),
+            "observations": list(observation_context["packet_observations"]),
+            "execution_state": dict(observation_context["execution_state"]),
+            "artifact_refs": dedupe_artifact_refs([*list(observation_context["artifact_refs"]), *artifact_refs]),
+        }
+    _record_task_step_summary(
+        runtime_host,
+        task_run_id=current_task.task_run_id,
+        step="approved_tool_call_replay_started",
+        status="running",
+        summary="正在执行已确认的工具调用。",
+        refs={
+            "approval_grant_ref": str(
+                dict(dict(getattr(current_task, "diagnostics", {}) or {}).get("approval_state") or {}).get("latest_grant_id") or ""
+            )
+        },
+    )
+    observation = await _execute_task_tool_call(
+        runtime_host,
+        services=services,
+        task_run=current_task,
+        packet_ref=str(pending.get("directive_ref") or ""),
+        action_request=action_request,
+        admission=admission,
+        runtime_assembly=runtime_assembly.to_dict() if hasattr(runtime_assembly, "to_dict") else dict(runtime_assembly or {}),
+        runtime_tool_plan=runtime_tool_plan,
+    )
+    raw_observations.append(observation)
+    runtime_host.runtime_objects.put_object("observation", observation["observation_id"], observation)
+    observation_event = runtime_host.event_log.append(
+        current_task.task_run_id,
+        "approved_task_tool_observation_recorded",
+        payload={"observation": observation, "pending_approval": pending},
+        refs={
+            "task_run_ref": current_task.task_run_id,
+            "action_request_ref": action_request.request_id,
+            "observation_ref": observation["observation_id"],
+        },
+    )
+    if _is_approval_request_observation(observation):
+        return {
+            "return_result": _pause_executor_for_tool_approval(
+                runtime_host,
+                task_run=current_task,
+                agent_run=agent_run,
+                action_request=action_request,
+                observation=observation,
+                observation_event=observation_event,
+                step_index=int(dict(getattr(current_task, "diagnostics", {}) or {}).get("next_invocation_index") or 0),
+            )
+        }
+    _record_task_step_summary(
+        runtime_host,
+        task_run_id=current_task.task_run_id,
+        step="approved_tool_call_replayed",
+        status=_observation_status(observation),
+        summary="已执行确认后的工具调用。",
+        refs={"observation_ref": observation["observation_id"], "action_request_ref": action_request.request_id},
+    )
+    observation_context = _observations_for_packet(
+        runtime_host,
+        current_task.task_run_id,
+        current_fingerprint=runtime_fingerprint,
+        pending_observations=raw_observations,
+    )
+    latest_task = runtime_host.state_index.get_task_run(current_task.task_run_id) or current_task
+    return {
+        "current_task": latest_task,
+        "raw_observations": list(observation_context["raw_observations"]),
+        "observations": list(observation_context["packet_observations"]),
+        "execution_state": dict(observation_context["execution_state"]),
+        "artifact_refs": dedupe_artifact_refs([*list(observation_context["artifact_refs"]), *artifact_refs, *_artifact_refs_from_observation(observation)]),
+    }
+
+
 async def _execute_claimed_task_run(
     services: TaskExecutorServices,
     *,
@@ -668,6 +930,29 @@ async def _execute_claimed_task_run(
     sequence: Any,
     max_steps: int,
 ) -> dict[str, Any]:
+    replay = await _replay_approved_pending_tool_call(
+        runtime_host,
+        services=services,
+        current_task=current_task,
+        agent_run=agent_run,
+        runtime_assembly=runtime_assembly,
+        runtime_tool_plan=runtime_tool_plan,
+        allowed_tool_names=allowed_tool_names,
+        runtime_permission_mode=runtime_permission_mode,
+        runtime_fingerprint=runtime_fingerprint,
+        raw_observations=raw_observations,
+        observations=observations,
+        execution_state=execution_state,
+        artifact_refs=artifact_refs,
+    )
+    if replay is not None:
+        if replay.get("return_result") is not None:
+            return dict(replay["return_result"])
+        current_task = replay["current_task"]
+        raw_observations = list(replay["raw_observations"])
+        observations = list(replay["observations"])
+        execution_state = dict(replay["execution_state"])
+        artifact_refs = list(replay["artifact_refs"])
     for local_step_index in range(1, max(1, int(max_steps or _MAX_TASK_EXECUTION_STEPS)) + 1):
         step_index = sequence.next_invocation_index + local_step_index - 1
         if _task_run_session_deleted(runtime_host, current_task):
@@ -1268,7 +1553,7 @@ async def _execute_claimed_task_run(
                 contract=contract,
                 artifact_refs=candidate_artifacts,
                 observations=raw_observations,
-                enforce_verification_gate=True,
+                enforce_verification_gate=_should_enforce_completion_verification_gate(current_task, contract=contract),
             )
             if not verdict["ok"]:
                 repair_observation = _completion_repair_observation(
@@ -1526,6 +1811,13 @@ async def _execute_task_tool_call(
         "executor_epoch": int(dict(getattr(task_run, "diagnostics", {}) or {}).get("executor_epoch") or 0),
         **_task_runtime_scope_policy(task_run),
     }
+    approval_risk_fingerprint = build_approval_risk_fingerprint(
+        operation_id=operation_id,
+        tool_name=tool_name,
+        tool_args=tool_args,
+        sandbox_policy=sandbox_policy,
+        file_management_policy=file_policy,
+    )
     agent_run = _ensure_executor_agent_run(runtime_host, task_run=task_run)
     action_permit = action_permit_from_admission(
         action_request,
@@ -1570,6 +1862,8 @@ async def _execute_task_tool_call(
         },
         sandbox_scope=sandbox_policy,
         file_scope=file_policy,
+        approval_state=approval_state_for_task_run(task_run).to_dict(),
+        approval_risk_fingerprint=approval_risk_fingerprint,
         requested_constraints={
             "runtime_host": runtime_host,
             "services": services,
@@ -1786,12 +2080,14 @@ def _recover_stale_graph_node_executor_claim(
 def _task_sandbox_policy(runtime_assembly: dict[str, Any], *, runtime_host: Any, task_run_id: str) -> dict[str, Any]:
     environment = dict(runtime_assembly.get("task_environment") or {})
     sandbox = dict(environment.get("sandbox_policy") or {})
+    storage = dict(environment.get("storage_space") or {})
     scope = compile_sandbox_execution_scope(
         environment_payload=environment,
         contract=_load_contract_for_policy(runtime_host, task_run_id),
         safety_envelope=task_safety_envelope_from_assembly(runtime_assembly),
     )
     project_root = ProjectLayout.from_backend_dir(runtime_host.backend_dir).project_root.resolve()
+    ensure_environment_storage_dirs(project_root=project_root, storage_space=storage)
     sandbox_root = str(sandbox.get("sandbox_root") or "").strip()
     if not sandbox_root:
         namespace = task_run_id.replace(":", "_")
@@ -1845,10 +2141,6 @@ def _load_contract_for_policy(runtime_host: Any, task_run_id: str) -> dict[str, 
     if task_run is None:
         return {}
     return _load_contract(runtime_host, task_run)
-
-def _normalize_contract_path(path: str) -> str:
-    return normalize_logical_path(path)
-
 
 def _dedupe_strings(values: list[str] | tuple[str, ...]) -> list[str]:
     result: list[str] = []
@@ -2043,6 +2335,23 @@ def _verification_gate_required_reasons(
     if any(_observation_is_successful_write(item) for item in observations):
         reasons.append("write_observation")
     return _dedupe_strings(reasons)
+
+
+def _should_enforce_completion_verification_gate(task_run: Any, *, contract: dict[str, Any]) -> bool:
+    if _origin_kind(task_run) != "graph_node_assigned":
+        return True
+    required = [
+        dict(item)
+        for item in list(contract.get("required_verifications") or [])
+        if isinstance(item, dict)
+    ]
+    acceptance = dict(contract.get("acceptance_policy") or {})
+    required.extend(
+        dict(item)
+        for item in list(acceptance.get("required_verifications") or [])
+        if isinstance(item, dict)
+    )
+    return bool(required)
 
 
 def _observation_is_successful_write(observation: dict[str, Any]) -> bool:
@@ -3079,14 +3388,24 @@ def _pause_executor_for_tool_approval(
     payload = dict(observation.get("payload") or {})
     tool_name = _observation_tool_name(observation)
     operation_id = str(payload.get("operation_id") or dict(payload.get("result_envelope") or {}).get("operation_id") or "").strip()
+    tool_call = dict(getattr(action_request, "tool_call", {}) or {})
+    tool_args = dict(tool_call.get("args") or tool_call.get("tool_args") or {})
+    directive_ref = str(observation.get("directive_ref") or f"runtime-directive:{task_run.task_run_id}:tool:{action_request.request_id}")
+    approval_fingerprint = _approval_fingerprint_from_observation(observation)
     pending_approval = {
+        "approval_request_id": f"approval-request:{task_run.task_run_id}:{action_request.request_id}:{uuid.uuid4().hex[:8]}",
         "status": "pending",
         "mode": "runtime_approval",
         "task_run_id": task_run.task_run_id,
         "action_request_ref": action_request.request_id,
+        "tool_call_id": str(tool_call.get("id") or action_request.request_id),
         "observation_ref": observation_ref,
         "tool_name": tool_name,
         "operation_id": operation_id,
+        "directive_ref": directive_ref,
+        "approval_risk_fingerprint": approval_fingerprint,
+        "tool_args_hash": tool_args_hash(tool_args),
+        "action_request": action_request.to_dict(),
         "created_at": now,
         "authority": "runtime.tool_approval_control",
         "operation_gate": dict(payload.get("operation_gate") or {}),
@@ -3917,6 +4236,24 @@ def _is_approval_request_observation(observation: dict[str, Any]) -> bool:
     )
 
 
+def _approval_fingerprint_from_observation(observation: dict[str, Any]) -> str:
+    payload = dict(observation.get("payload") or {})
+    diagnostics = dict(payload.get("diagnostics") or {})
+    supervision = dict(diagnostics.get("supervision") or {})
+    decision = dict(supervision.get("decision") or {})
+    receipt = dict(supervision.get("receipt") or {})
+    for value in (
+        decision.get("approval_fingerprint"),
+        receipt.get("approval_fingerprint"),
+        diagnostics.get("approval_fingerprint"),
+        payload.get("approval_risk_fingerprint"),
+    ):
+        text = str(value or "").strip()
+        if text:
+            return text
+    return ""
+
+
 def _observation_status(observation: dict[str, Any]) -> str:
     payload = dict(observation.get("payload") or {})
     envelope = dict(payload.get("result_envelope") or {})
@@ -4476,47 +4813,8 @@ def _matching_model_action_admission_denial_observations(
         if stored_fingerprint:
             if stored_fingerprint == current_fingerprint:
                 matches.append(dict(observation))
-            continue
-        if _legacy_model_action_admission_observation_matches(
-            observation,
-            action_request=action_request,
-            admission_payload=admission_payload,
-            runtime_fingerprint=runtime_fingerprint,
-        ):
-            matches.append(dict(observation))
+        continue
     return matches
-
-
-def _legacy_model_action_admission_observation_matches(
-    observation: dict[str, Any],
-    *,
-    action_request: AnyModelActionRequest,
-    admission_payload: dict[str, Any],
-    runtime_fingerprint: dict[str, Any],
-) -> bool:
-    payload = dict(observation.get("payload") or {})
-    observed_admission = dict(payload.get("admission") or {})
-    if str(observed_admission.get("decision") or "") != str(admission_payload.get("decision") or ""):
-        return False
-    if str(observed_admission.get("system_reason") or "") != str(admission_payload.get("system_reason") or ""):
-        return False
-    observed_runtime = _admission_runtime_fingerprint_identity(_observation_runtime_fingerprint(observation))
-    current_runtime = _admission_runtime_fingerprint_identity(runtime_fingerprint)
-    if observed_runtime != current_runtime:
-        return False
-    rejected_action = dict(payload.get("rejected_action_request") or {})
-    if rejected_action:
-        return _model_action_admission_identity_from_payload(rejected_action) == _model_action_admission_identity(action_request)
-    if str(getattr(action_request, "action_type", "") or "") != "tool_call":
-        return False
-    tool_call = dict(getattr(action_request, "tool_call", {}) or {})
-    tool_name = str(tool_call.get("tool_name") or tool_call.get("name") or "").strip()
-    tool_args = dict(tool_call.get("args") or tool_call.get("tool_args") or {})
-    return (
-        _observation_tool_name(observation) == tool_name
-        and _normalize_tool_call_args_for_fingerprint(tool_name, _observation_tool_args(observation))
-        == _normalize_tool_call_args_for_fingerprint(tool_name, tool_args)
-    )
 
 
 def _model_action_admission_fingerprint(
@@ -4875,35 +5173,11 @@ def _verified_artifacts(
 ) -> list[dict[str, Any]]:
     project_root = ProjectLayout.from_backend_dir(runtime_host.backend_dir).project_root.resolve()
     sandbox_policy = _task_sandbox_policy(runtime_assembly, runtime_host=runtime_host, task_run_id=task_run_id)
-    sandbox_root = Path(str(sandbox_policy.get("sandbox_root") or "")).resolve()
-    artifact_root = str(sandbox_policy.get("artifact_root") or "").replace("\\", "/").strip().strip("/")
-    publish_roots = tuple(_sandbox_publish_scopes(sandbox_policy))
-    verified: list[dict[str, Any]] = []
-    for ref in dedupe_artifact_refs(artifact_refs):
-        resolved = _publish_or_resolve_artifact_ref(
-            ref,
-            project_root=project_root,
-            sandbox_root=sandbox_root,
-            artifact_root=artifact_root,
-            publish_roots=publish_roots,
-        )
-        if resolved is None or not resolved.exists() or not resolved.is_file():
-            continue
-        try:
-            logical_path = resolved.relative_to(project_root).as_posix()
-        except ValueError:
-            logical_path = str(resolved)
-        verified.append(
-            {
-                **dict(ref),
-                "path": logical_path,
-                "absolute_path": str(resolved),
-                "exists": True,
-                "size_bytes": resolved.stat().st_size,
-                "published": True,
-            }
-        )
-    return dedupe_artifact_refs(verified)
+    return publish_sandbox_artifact_refs(
+        project_root=project_root,
+        sandbox_policy=sandbox_policy,
+        artifact_refs=artifact_refs,
+    )
 
 
 def _discover_sandbox_artifact_refs(
@@ -4914,140 +5188,7 @@ def _discover_sandbox_artifact_refs(
     contract: dict[str, Any],
 ) -> list[dict[str, Any]]:
     sandbox_policy = _task_sandbox_policy(runtime_assembly, runtime_host=runtime_host, task_run_id=task_run_id)
-    sandbox_root = Path(str(sandbox_policy.get("sandbox_root") or "")).resolve()
-    if not sandbox_root.exists() or not sandbox_root.is_dir():
-        return []
-    roots = _publish_scan_roots(sandbox_policy)
-    refs: list[dict[str, Any]] = []
-    for root in roots:
-        scan_root = (sandbox_root / root).resolve()
-        if not _is_inside(scan_root, sandbox_root) or not scan_root.exists():
-            continue
-        candidates = [scan_root] if scan_root.is_file() else [path for path in scan_root.rglob("*") if path.is_file()]
-        for path in candidates:
-            try:
-                logical_path = path.resolve().relative_to(sandbox_root).as_posix()
-            except ValueError:
-                continue
-            if not _discovered_artifact_matches_contract(logical_path, contract):
-                continue
-            refs.append(
-                {
-                    "path": logical_path,
-                    "kind": _artifact_kind_for_path(path),
-                    "source": "sandbox_closeout_discovery",
-                    "absolute_path": str(path.resolve()),
-                    "sandbox_path": logical_path,
-                }
-            )
-    return dedupe_artifact_refs(refs)
-
-
-def _discovered_artifact_matches_contract(logical_path: str, contract: dict[str, Any]) -> bool:
-    normalized = _normalize_contract_path(logical_path)
-    if not normalized:
-        return False
-    if _is_graph_node_contract(contract):
-        return True
-    explicit_paths = {_normalize_contract_path(item) for item in contract_artifact_paths(contract)}
-    return normalized in explicit_paths
-
-
-def _is_graph_node_contract(contract: dict[str, Any]) -> bool:
-    if str(dict(contract or {}).get("contract_source") or "") == "graph_node_work_order":
-        return True
-    origin = dict(dict(contract or {}).get("origin") or {})
-    return str(origin.get("origin_kind") or "") == "graph_node_assigned"
-
-
-def _publish_scan_roots(sandbox_policy: dict[str, Any]) -> tuple[str, ...]:
-    roots = [
-        str(sandbox_policy.get("artifact_root") or ""),
-        *[str(item or "") for item in _sandbox_publish_scopes(sandbox_policy)],
-    ]
-    return tuple(_dedupe_strings([_normalize_contract_path(root) for root in roots]))
-
-
-def _sandbox_publish_scopes(sandbox_policy: dict[str, Any]) -> list[str]:
-    explicit = _dedupe_strings([str(item or "") for item in list(sandbox_policy.get("publish_scopes") or [])])
-    if explicit:
-        return explicit
-    return _dedupe_strings([str(sandbox_policy.get("artifact_root") or "")])
-
-
-def _artifact_kind_for_path(path: Path) -> str:
-    suffix = path.suffix.lower()
-    if suffix in {".png", ".jpg", ".jpeg", ".webp", ".gif"}:
-        return "image"
-    if suffix in {".html", ".htm"}:
-        return "html_document"
-    if suffix in {".md", ".markdown"}:
-        return "markdown_document"
-    return "file"
-
-
-def _publish_or_resolve_artifact_ref(
-    ref: dict[str, Any],
-    *,
-    project_root: Path,
-    sandbox_root: Path,
-    artifact_root: str,
-    publish_roots: tuple[str, ...] = (),
-) -> Path | None:
-    logical_path = str(ref.get("path") or ref.get("published_path") or ref.get("src") or "").replace("\\", "/").strip().strip("/")
-    sandbox_source = _sandbox_artifact_source(ref, sandbox_root=sandbox_root)
-    if sandbox_source is not None and sandbox_source.exists() and sandbox_source.is_file():
-        if not logical_path or not _logical_path_publish_allowed(logical_path, artifact_root, publish_roots):
-            return None
-        publish_target = (project_root / logical_path).resolve()
-        if not _is_inside(publish_target, project_root):
-            return None
-        publish_target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(sandbox_source, publish_target)
-        return publish_target
-    if logical_path:
-        project_candidate = (project_root / logical_path).resolve()
-        if _is_inside(project_candidate, project_root) and project_candidate.exists() and project_candidate.is_file():
-            return project_candidate
-    return None
-
-
-def _sandbox_artifact_source(ref: dict[str, Any], *, sandbox_root: Path) -> Path | None:
-    for key in ("absolute_path", "sandbox_path"):
-        raw = str(ref.get(key) or "").strip()
-        if not raw:
-            continue
-        candidate = Path(raw)
-        if candidate.is_absolute():
-            resolved = candidate.resolve()
-        else:
-            resolved = (sandbox_root / raw).resolve()
-        if _is_inside(resolved, sandbox_root):
-            return resolved
-    return None
-
-
-def _logical_path_within_artifact_root(logical_path: str, artifact_root: str) -> bool:
-    if not artifact_root:
-        return False
-    return logical_path == artifact_root or logical_path.startswith(f"{artifact_root}/")
-
-
-def _logical_path_publish_allowed(logical_path: str, artifact_root: str, publish_roots: tuple[str, ...]) -> bool:
-    normalized = str(logical_path or "").replace("\\", "/").strip().strip("/")
-    if not normalized:
-        return False
-    if _logical_path_within_artifact_root(normalized, artifact_root):
-        return True
-    for root in publish_roots:
-        clean_root = str(root or "").replace("\\", "/").strip().strip("/")
-        if clean_root and (normalized == clean_root or normalized.startswith(f"{clean_root}/")):
-            return True
-    return False
-
-
-def _is_inside(path: Path, root: Path) -> bool:
-    return path == root or root in path.parents
+    return discover_sandbox_artifact_refs(sandbox_policy=sandbox_policy, contract=contract)
 
 
 def _json_payload(value: Any) -> dict[str, Any]:

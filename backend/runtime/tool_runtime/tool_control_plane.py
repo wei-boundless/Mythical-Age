@@ -11,7 +11,7 @@ from artifact_system.artifact_authority import artifact_refs_from_tool_result_pa
 from permissions.operations import build_default_operation_registry
 from harness.agent_control.controller import SubagentControl
 from orchestration.runtime_directive import RuntimeDirective
-from permissions import PermissionContext, ResourceDecision, ResourcePolicy
+from permissions import ApprovalState, ApprovalToken, PermissionContext, ResourceDecision, ResourcePolicy
 from harness.loop.action_permit import validate_tool_invocation_permit
 from runtime.shared.action_request import RuntimeActionRequest
 from runtime.shared.execution_record import (
@@ -218,6 +218,9 @@ class RuntimeToolControlPlane:
             operation_gate=operation_gate,
             tool_runtime_executor=self.tool_runtime_executor,
             action_request=runtime_action,
+            approval_token=_approval_token_from_request(request),
+            approval_state=_approval_state_from_request(request),
+            approval_risk_fingerprint=str(request.approval_risk_fingerprint or "") or None,
             sandbox_policy=sandbox_policy,
             file_management_policy=file_policy,
             safety_validators=_safety_validators(request, sandbox_policy=sandbox_policy),
@@ -289,7 +292,7 @@ class RuntimeToolControlPlane:
             file_management_policy=file_policy,
             normalized_args=normalized_args,
         )
-        return _observation_from_executor_result(
+        observation = _observation_from_executor_result(
             request,
             result=result,
             operation_gate=supervision.gate_result.to_dict() if hasattr(supervision.gate_result, "to_dict") else {},
@@ -300,6 +303,13 @@ class RuntimeToolControlPlane:
                 "supervision": supervision.to_dict(),
             },
         )
+        if _should_consume_approval_grant(observation):
+            _consume_approval_grant_if_present(
+                request,
+                directive_ref=str(getattr(directive, "directive_id", "") or ""),
+                approval_risk_fingerprint=str(supervision.decision.approval_fingerprint or request.approval_risk_fingerprint or ""),
+            )
+        return observation
 
     async def _invoke_agent_turn_or_fail_closed(self, request: ToolInvocationRequest, *, tool_plan: Any) -> ToolObservation:
         if request.caller_kind != "agent_turn":
@@ -359,6 +369,9 @@ class RuntimeToolControlPlane:
             operation_gate=operation_gate,
             tool_runtime_executor=None,
             action_request=None,
+            approval_token=_approval_token_from_request(request),
+            approval_state=_approval_state_from_request(request),
+            approval_risk_fingerprint=str(request.approval_risk_fingerprint or "") or None,
             sandbox_policy=sandbox_policy,
             file_management_policy=file_policy,
             safety_validators=_safety_validators(request, sandbox_policy=sandbox_policy),
@@ -397,7 +410,7 @@ class RuntimeToolControlPlane:
             file_management_policy=file_policy,
             normalized_args=dict(supervision.normalized_args or request.tool_args or {}),
         )
-        return _observation_from_core_result(
+        observation = _observation_from_core_result(
             request,
             result=result,
             operation_gate=supervision.gate_result.to_dict() if hasattr(supervision.gate_result, "to_dict") else {},
@@ -408,6 +421,13 @@ class RuntimeToolControlPlane:
                 "supervision": supervision.to_dict(),
             },
         )
+        if _should_consume_approval_grant(observation):
+            _consume_approval_grant_if_present(
+                request,
+                directive_ref=str(getattr(directive, "directive_id", "") or ""),
+                approval_risk_fingerprint=str(supervision.decision.approval_fingerprint or request.approval_risk_fingerprint or ""),
+            )
+        return observation
 
 
 def _membership_denial(request: ToolInvocationRequest, *, tool_plan: Any) -> str:
@@ -520,19 +540,42 @@ def _execution_contracts(request: ToolInvocationRequest, *, tool_plan: Any) -> t
         "permission_mode": request.permission_mode,
     }
     file_policy = dict(request.file_scope or {})
+    requires_approval = _operation_requires_approval(
+        operation_id,
+        request=request,
+        tool_plan=tool_plan,
+        sandbox_policy=sandbox_policy,
+    )
     resource_policy = ResourcePolicy(
         policy_id=directive.adopted_resource_policy_ref,
         task_id=str(_caller_resource_scope(request).get("task_id") or request.caller_ref or request.turn_id),
-        allowed_operations=(operation_id,),
+        allowed_operations=() if requires_approval else (operation_id,),
+        requires_approval_operations=(operation_id,) if requires_approval else (),
         allowed_tools=(request.tool_name,),
         approval_policy=str(sandbox_policy.get("approval_policy") or "runtime_tool_control_plane"),
         runtime_view_only=False,
         adopted=True,
         runtime_executable=True,
+        decisions=(
+            ResourceDecision(
+                operation_id=operation_id,
+                decision="requires_approval" if requires_approval else "allow",
+                reason="operation requires approval by runtime tool capability policy" if requires_approval else "operation allowed by task runtime contract",
+                risk_tags=tuple(getattr(_operation_descriptor(operation_id), "risk_tags", ()) or ()),
+                requires_user_approval=requires_approval,
+                approval_channel="runtime_approval" if requires_approval else "",
+                diagnostics={
+                    "caller_kind": request.caller_kind,
+                    "tool_plan_ref": getattr(tool_plan, "plan_id", ""),
+                    "sandbox_policy": _public_policy(sandbox_policy),
+                },
+            ),
+        ),
         diagnostics={
             "authority": "runtime.tool_runtime.tool_control_plane",
             "caller_kind": request.caller_kind,
             "sandbox_policy": _public_policy(sandbox_policy),
+            "task_run_resource_decision": "requires_approval" if requires_approval else "allow",
         },
     )
     return directive, runtime_action, sandbox_policy, file_policy, resource_policy
@@ -628,7 +671,7 @@ def _agent_turn_resource_decision(
         return "allow", "operation allowed inside task environment sandbox boundary"
     approval_policy = str(sandbox_policy.get("approval_policy") or sandbox_policy.get("runtime_approval_policy") or "").strip().lower()
     if approval_policy in _EXPLICIT_HUMAN_APPROVAL_POLICIES:
-        return "requires_approval", "operation is held by explicit human approval policy"
+        return "deny", "single agent turn side-effect approval requires a resumable task approval flow"
     if descriptor is not None and approval_policy in _DENY_DESTRUCTIVE_APPROVAL_POLICIES and bool(getattr(descriptor, "destructive", False)):
         return "deny", "destructive operation denied by explicit approval policy"
     return "allow", "operation allowed by visible RuntimeToolPlan and action permit"
@@ -829,6 +872,134 @@ def _execution_receipt(record: Any | None, *, error: str = "") -> dict[str, Any]
         "error": str(error or ""),
         "authority": "orchestration.execution_receipt",
     }
+
+
+def _approval_state_from_request(request: ToolInvocationRequest) -> ApprovalState | None:
+    payload = dict(request.approval_state or {})
+    tokens: list[ApprovalToken] = []
+    for item in list(payload.get("tokens") or []):
+        if not isinstance(item, dict):
+            continue
+        token = _approval_token_from_payload(item)
+        if token is not None:
+            tokens.append(token)
+    return ApprovalState(tokens=tuple(tokens)) if tokens else None
+
+
+def _approval_token_from_request(request: ToolInvocationRequest) -> ApprovalToken | None:
+    return _approval_token_from_payload(dict(request.approval_token or {}))
+
+
+def _approval_token_from_payload(payload: dict[str, Any]) -> ApprovalToken | None:
+    if not payload:
+        return None
+    token_id = str(payload.get("token_id") or "").strip()
+    operation_id = str(payload.get("operation_id") or "").strip()
+    directive_ref = str(payload.get("directive_ref") or "").strip()
+    if not (token_id and operation_id and directive_ref):
+        return None
+    return ApprovalToken(
+        token_id=token_id,
+        operation_id=operation_id,
+        directive_ref=directive_ref,
+        granted=bool(payload.get("granted") is True),
+        source=str(payload.get("source") or ""),
+        risk_fingerprint=str(payload.get("risk_fingerprint") or ""),
+    )
+
+
+def _operation_requires_approval(operation_id: str, *, request: ToolInvocationRequest, tool_plan: Any, sandbox_policy: dict[str, Any]) -> bool:
+    approval_policy = str(
+        sandbox_policy.get("approval_policy")
+        or sandbox_policy.get("runtime_approval_policy")
+        or ""
+    ).strip().lower()
+    if approval_policy in _EXPLICIT_HUMAN_APPROVAL_POLICIES:
+        return True
+    capability_table = getattr(tool_plan, "capability_table", None)
+    capability = capability_table.capability_for_operation(operation_id) if capability_table is not None else None
+    if capability is not None and bool(getattr(capability, "requires_approval", False)):
+        if str(request.permission_mode or "").strip().lower() in {"full_access", "bypass"}:
+            return False
+        if _task_run_sandbox_authorizes_default_approval_operation(operation_id, descriptor=_operation_descriptor(operation_id), sandbox_policy=sandbox_policy):
+            return False
+        return True
+    descriptor = _operation_descriptor(operation_id)
+    if descriptor is None or not bool(getattr(descriptor, "requires_approval_by_default", False)):
+        return False
+    if str(request.permission_mode or "").strip().lower() in {"full_access", "bypass"}:
+        return False
+    if _task_run_sandbox_authorizes_default_approval_operation(operation_id, descriptor=descriptor, sandbox_policy=sandbox_policy):
+        return False
+    return True
+
+
+def _task_run_sandbox_authorizes_default_approval_operation(operation_id: str, *, descriptor: Any, sandbox_policy: dict[str, Any]) -> bool:
+    if bool(getattr(descriptor, "read_only", False)):
+        return True
+    policy = dict(sandbox_policy or {})
+    if policy.get("enabled") is not True:
+        return False
+    if not str(policy.get("sandbox_root") or "").strip():
+        return False
+    side_effect_policy = str(policy.get("side_effect_policy") or policy.get("approval_policy") or "").strip()
+    if side_effect_policy not in {"sandbox_boundary", "sandboxed_side_effects"}:
+        return False
+    operations = {
+        str(item or "").strip()
+        for item in list(policy.get("side_effect_operations") or [])
+        if str(item or "").strip()
+    }
+    operation = str(operation_id or "").strip()
+    return bool(operation and (not operations or operation in operations))
+
+
+def _operation_descriptor(operation_id: str) -> Any | None:
+    return build_default_operation_registry().get_operation(str(operation_id or "").strip())
+
+
+def _consume_approval_grant_if_present(
+    request: ToolInvocationRequest,
+    *,
+    directive_ref: str,
+    approval_risk_fingerprint: str,
+) -> None:
+    runtime_host = _runtime_host(request)
+    if runtime_host is None or not request.task_run_id:
+        return
+    try:
+        from harness.loop.task_tool_approval import consume_matching_task_tool_approval
+    except Exception:
+        return
+    state_index = getattr(runtime_host, "state_index", None)
+    if state_index is None or not hasattr(state_index, "get_task_run"):
+        return
+    task_run = state_index.get_task_run(request.task_run_id)
+    if task_run is None:
+        return
+    updated_diagnostics = consume_matching_task_tool_approval(
+        task_run,
+        operation_id=request.operation_id,
+        directive_ref=directive_ref,
+        approval_risk_fingerprint=approval_risk_fingerprint,
+    )
+    if updated_diagnostics == dict(getattr(task_run, "diagnostics", {}) or {}):
+        return
+    from dataclasses import replace
+
+    if not hasattr(state_index, "upsert_task_run"):
+        return
+    state_index.upsert_task_run(
+        replace(
+            task_run,
+            updated_at=time.time(),
+            diagnostics=updated_diagnostics,
+        )
+    )
+
+
+def _should_consume_approval_grant(observation: ToolObservation) -> bool:
+    return str(getattr(observation, "status", "") or "") not in {"denied", "needs_approval"}
 
 
 def _safety_validators(request: ToolInvocationRequest, *, sandbox_policy: dict[str, Any]) -> dict[str, Any]:

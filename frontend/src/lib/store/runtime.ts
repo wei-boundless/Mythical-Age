@@ -13,6 +13,7 @@ import {
   getTaskEnvironmentCatalog,
   getWorkspaceContext,
   getOrchestrationHarnessSessionLiveMonitor,
+  approveOrchestrationHarnessTaskRunToolCall,
   pauseOrchestrationHarnessTaskRun,
   getPermissionMode,
   getRagMode,
@@ -37,6 +38,7 @@ import {
   truncateSessionMessages
 } from "@/lib/api";
 import type { ChatStreamCursor, GlobalRuntimeMonitor, PublicChatTimelineItem, RuntimeMonitorEventPayload, SessionRuntimeAttachment, SessionScope, SessionSummary } from "@/lib/api";
+import { taskEnvironmentDisplayName } from "@/lib/taskEnvironmentDisplay";
 
 import { createIdleSessionActivity, type Store } from "./core";
 import { reduceStreamEvent, startQueuedActiveTurn, startStreamingTurn, type StreamSession } from "./events";
@@ -92,7 +94,7 @@ function taskEnvironmentIdOf(item: TaskEnvironmentCatalogItem | null | undefined
 function taskEnvironmentLabelOf(item: TaskEnvironmentCatalogItem | null | undefined) {
   const record = (item?.record ?? {}) as Record<string, unknown>;
   const environmentId = String(record.environment_id || "").trim();
-  return String(record.title || environmentId).trim() || environmentId;
+  return taskEnvironmentDisplayName(environmentId, String(record.title || "").trim());
 }
 
 function isCatalogEnvironmentVisible(item: TaskEnvironmentCatalogItem) {
@@ -430,10 +432,14 @@ export class WorkspaceRuntime {
     this.sessionListFailureNotifiedAt = 0;
     this.store.setState((prev) => {
       const nextState = { ...prev, sessions };
-      return {
+      const projected = {
         ...nextState,
         permissionMode: this.permissionModeForSession(prev.currentSessionId, nextState, prev.permissionMode),
       };
+      if (prev.currentSessionId && prev.sessionActivity.event === "workspace_initialize_failed") {
+        return this.clearSessionActivityFor(projected, prev.currentSessionId);
+      }
+      return projected;
     });
     return sessions;
   }
@@ -493,10 +499,20 @@ export class WorkspaceRuntime {
   private async refreshSessionDetails(sessionId: string) {
     const requestId = ++this.sessionDetailsRequest;
     try {
-      const [history, tokens] = await Promise.all([
-        getSessionTimeline(sessionId, this.sessionScopeForSession(sessionId)).catch(() => getSessionHistory(sessionId, this.sessionScopeForSession(sessionId))),
-        getSessionTokens(sessionId, this.sessionScopeForSession(sessionId))
-      ]);
+      const scope = this.sessionScopeForSession(sessionId);
+      const history = await getSessionTimeline(sessionId, scope).catch(() => getSessionHistory(sessionId, scope));
+      let tokens = null;
+      let tokenStatsRefreshed = false;
+      try {
+        tokens = await getSessionTokens(sessionId, scope);
+        tokenStatsRefreshed = true;
+      } catch (tokenError) {
+        console.debug("[workspace-runtime] session token refresh skipped", {
+          event: "session_token_refresh_failed",
+          sessionId,
+          error: this.errorMessage(tokenError, "会话 token 统计暂时读取失败。"),
+        });
+      }
       if (this.store.getState().currentSessionId !== sessionId || this.sessionDetailsRequest !== requestId) {
         return;
       }
@@ -517,7 +533,7 @@ export class WorkspaceRuntime {
         const next: StoreState = {
           ...prev,
           messages: refreshedMessages,
-          tokenStats: tokens,
+          tokenStats: tokenStatsRefreshed ? tokens : prev.tokenStats,
           conversationActiveEnvironment,
           permissionMode,
           sessions: prev.sessions.map((session) => session.id === sessionId
@@ -530,7 +546,7 @@ export class WorkspaceRuntime {
             : session
           ),
         };
-        return prev.sessionActivity.event === "session_history_load_failed"
+        return prev.sessionActivity.event === "session_history_load_failed" || prev.sessionActivity.event === "workspace_initialize_failed"
           ? this.clearSessionActivityFor(next, sessionId)
           : next;
       });
@@ -568,7 +584,7 @@ export class WorkspaceRuntime {
   }
 
   private mergeVolatileMessageProgress(refreshedMessages: Message[], currentMessages: Message[]) {
-    if (!currentMessages.some((message) => message.runtimeProgress?.length)) {
+    if (!currentMessages.some((message) => message.runtimeProgress?.length || message.runtimePublicTimelineDraft?.length)) {
       return refreshedMessages;
     }
     const currentBySourceIndex = new Map<number, Message>();
@@ -582,12 +598,19 @@ export class WorkspaceRuntime {
         return message;
       }
       const current = currentBySourceIndex.get(message.sourceIndex);
-      if (!current?.runtimeProgress?.length) {
+      if (!current?.runtimeProgress?.length && !current?.runtimePublicTimelineDraft?.length) {
         return message;
       }
+      const persistedPublicTimeline = (message.runtimeAttachments ?? []).flatMap((attachment) =>
+        Array.isArray(attachment.public_timeline) ? attachment.public_timeline : [],
+      );
       return {
         ...message,
-        runtimeProgress: this.mergeMessageRuntimeProgress(message.runtimeProgress, current.runtimeProgress),
+        runtimeProgress: this.mergeMessageRuntimeProgress(message.runtimeProgress, current.runtimeProgress ?? []),
+        runtimePublicTimelineDraft: this.mergePublicTimelineItems(
+          persistedPublicTimeline,
+          current.runtimePublicTimelineDraft,
+        ),
         stageStatus: message.stageStatus ?? current.stageStatus,
       };
     });
@@ -1021,7 +1044,10 @@ export class WorkspaceRuntime {
     }
     return {
       task_environment_id: taskEnvironmentId,
-      environment_label: String(activeEnvironment?.environment_label || this.taskEnvironmentLabel(taskEnvironmentId)).trim() || taskEnvironmentId,
+      environment_label: taskEnvironmentDisplayName(
+        taskEnvironmentId,
+        String(activeEnvironment?.environment_label || this.taskEnvironmentLabel(taskEnvironmentId)).trim(),
+      ),
       source: String(activeEnvironment?.source || "conversation").trim() || "conversation",
       updated_at: Number(activeEnvironment?.updated_at || Date.now() / 1000),
       authority: String(activeEnvironment?.authority || "frontend.conversation_active_task_environment"),
@@ -1692,7 +1718,12 @@ export class WorkspaceRuntime {
     if (!taskRunId) {
       return;
     }
-    await resumeOrchestrationHarnessTaskRun(taskRunId, 12, this.activeExpectedTurnIdForTaskRun(taskRunId));
+    const expectedTurnId = this.activeExpectedTurnIdForTaskRun(taskRunId);
+    if (this.activeTaskRunStatus(taskRunId) === "waiting_approval") {
+      await approveOrchestrationHarnessTaskRunToolCall(taskRunId, "user_approve_tool_from_chat", 12, expectedTurnId);
+    } else {
+      await resumeOrchestrationHarnessTaskRun(taskRunId, 12, expectedTurnId);
+    }
     await this.refreshActiveSessionMonitor();
   }
 
@@ -1719,6 +1750,19 @@ export class WorkspaceRuntime {
       return "";
     }
     return String(taskRun.task_run_id ?? monitor?.task_run_id ?? "").trim();
+  }
+
+  private activeTaskRunStatus(taskRunId: string) {
+    const monitor = this.store.getState().taskGraphLiveMonitor;
+    if (!monitor) {
+      return "";
+    }
+    const taskRun = this.harnessMonitorTaskRun(monitor);
+    const currentId = String(taskRun.task_run_id ?? monitor.task_run_id ?? "").trim();
+    if (currentId !== taskRunId) {
+      return "";
+    }
+    return String(monitor.status ?? taskRun.status ?? "").trim();
   }
 
   private activeExpectedTurnIdForTaskRun(taskRunId: string) {
@@ -3495,7 +3539,17 @@ export class WorkspaceRuntime {
   }
 
   private errorMessage(error: unknown, fallback: string) {
-    return error instanceof Error && error.message.trim() ? error.message : fallback;
+    const message = error instanceof Error ? error.message.trim() : String(error ?? "").trim();
+    if (!message) {
+      return fallback;
+    }
+    if (/request timed out after \d+ms/i.test(message)) {
+      return `${fallback}（请求超时）`;
+    }
+    if (/failed to fetch|networkerror|load failed/i.test(message)) {
+      return `${fallback}（连接中断）`;
+    }
+    return message;
   }
 }
 

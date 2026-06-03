@@ -3,13 +3,15 @@
 import { ChevronDown } from "lucide-react";
 
 import { useAppStore } from "@/lib/store";
+import { taskEnvironmentDisplayName } from "@/lib/taskEnvironmentDisplay";
 import type { TaskEnvironmentCatalog } from "@/lib/api";
 import type { WorkspaceView } from "@/lib/store/types";
 
 type TaskEnvironmentOption = TaskEnvironmentCatalog["environments"][number];
 
 function taskEnvironmentTitle(item: TaskEnvironmentOption) {
-  return String(item.record?.title || item.record?.environment_id || "").trim();
+  const environmentId = taskEnvironmentId(item);
+  return taskEnvironmentDisplayName(environmentId, String(item.record?.title || "").trim());
 }
 
 function taskEnvironmentId(item: TaskEnvironmentOption) {
@@ -68,7 +70,10 @@ export function WorkspaceModeSwitcher({
         ) : null}
         {environments.length && !hasSwitchableValue ? (
           <option value={switchableValue}>
-            {conversationActiveEnvironment?.environment_label || switchableValue}
+            {taskEnvironmentDisplayName(
+              switchableValue,
+              conversationActiveEnvironment?.environment_label || switchableValue,
+            )}
           </option>
         ) : null}
         {environments.map((item) => (

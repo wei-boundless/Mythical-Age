@@ -73,7 +73,12 @@ def build_runtime_tool_plan(
     visible_tools = tuple(
         sorted(
             (
-                dict(item)
+                _tool_with_authorization_metadata(
+                    dict(item),
+                    definition_by_name=definition_by_name,
+                    operation_authorization=operation_authorization,
+                    operation_decisions=operation_decisions,
+                )
                 for item in list(assembly.get("available_tools") or [])
                 if isinstance(item, dict)
                 and _tool_allowed_for_runtime_plan(
@@ -102,18 +107,22 @@ def build_runtime_tool_plan(
             destructive = bool(operation.destructive)
             concurrency_safe = bool(operation.concurrency_safe)
             operation_type = str(operation.operation_type or "")
+            requires_approval = bool(tool.get("requires_approval") is True)
+            requires_approval_by_default = bool(operation.requires_approval_by_default)
         else:
             read_only = bool(getattr(definition, "is_read_only", False))
             destructive = bool(getattr(definition, "is_destructive", False))
             concurrency_safe = bool(getattr(definition, "is_concurrency_safe", False))
             operation_type = ""
+            requires_approval = bool(tool.get("requires_approval") is True)
+            requires_approval_by_default = requires_approval
         capabilities.append(
             ToolCapability(
                 operation_id=operation_id,
                 tool_name=name,
                 visible=True,
                 dispatchable=True,
-                requires_approval=False,
+                requires_approval=requires_approval,
                 source_trace=(
                     ToolCapabilitySourceTrace(source="runtime_assembly", detail=name),
                     ToolCapabilitySourceTrace(source="tool_scheduling", detail=operation_id),
@@ -123,6 +132,8 @@ def build_runtime_tool_plan(
                     "destructive": destructive,
                     "concurrency_safe": concurrency_safe,
                     "operation_type": operation_type,
+                    "requires_approval_by_default": requires_approval_by_default,
+                    "authorization_reason": str(tool.get("authorization_reason") or ""),
                     "tool_view": dict(tool),
                 },
             )
@@ -228,7 +239,7 @@ def _tool_allowed_for_runtime_plan(
             )
         )
         return False
-    if authorization_decision is not None and str(authorization_decision.get("final_decision") or "") != "allow":
+    if authorization_decision is not None and str(authorization_decision.get("final_decision") or "") not in {"allow", "requires_approval"}:
         filtered_issues.append(
             ToolCapabilityFilterIssue(
                 operation_id=operation_id,
@@ -256,6 +267,38 @@ def _tool_allowed_for_runtime_plan(
         )
         return False
     return True
+
+
+def _tool_with_authorization_metadata(
+    tool: dict[str, Any],
+    *,
+    definition_by_name: dict[str, Any],
+    operation_authorization: dict[str, Any],
+    operation_decisions: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    payload = dict(tool or {})
+    tool_name = _tool_name(payload)
+    definition = definition_by_name.get(tool_name)
+    operation_id = str(payload.get("operation_id") or getattr(definition, "operation_id", "") or tool_name)
+    operation = _operation_descriptor(operation_id)
+    decision = operation_decisions.get(operation_id)
+    requires_operations = {
+        str(item or "").strip()
+        for item in list(operation_authorization.get("requires_approval_operations") or [])
+        if str(item or "").strip()
+    }
+    decision_kind = str(dict(decision or {}).get("final_decision") or dict(decision or {}).get("decision") or "")
+    requires_approval = (
+        bool(payload.get("requires_approval") is True)
+        or operation_id in requires_operations
+        or decision_kind == "requires_approval"
+        or bool(getattr(operation, "requires_approval_by_default", False))
+    )
+    return {
+        **payload,
+        "requires_approval": requires_approval,
+        "authorization_reason": str(dict(decision or {}).get("reason") or payload.get("authorization_reason") or ""),
+    }
 
 
 def _local_mcp_route_capabilities(

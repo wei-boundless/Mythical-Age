@@ -16,9 +16,15 @@ from harness.loop.model_action_protocol import ModelActionRequest, model_action_
 from harness.loop.model_action_runtime import call_model_invoker
 from harness.loop.presentation import error_event, final_answer_event
 from harness.runtime import RuntimeCompiler, ToolBatchGroup, build_runtime_tool_plan, build_tool_batch_plan
+from harness.runtime.environment_storage import ensure_environment_storage_dirs
 from harness.runtime.file_management_policy import compile_tool_file_management_policy
 from harness.runtime.prompt_segment_plan import build_prompt_segment_plan
 from harness.runtime.public_progress import public_runtime_progress_summary
+from harness.runtime.sandbox_artifacts import (
+    logical_path_publish_allowed,
+    publish_sandbox_artifact_refs,
+    sandbox_publish_scopes,
+)
 from harness.runtime.sandbox_execution_scope import compile_sandbox_execution_scope
 from runtime.prompt_accounting.serializer import normalize_messages
 from runtime.model_gateway.model_response_protocol import model_response_protocol_from_response
@@ -457,7 +463,6 @@ async def run_single_agent_turn(
 
             tool_protocol_messages: list[dict[str, Any]] = []
             assistant_tool_calls: list[dict[str, Any]] = []
-            approval_observations: list[ToolObservation] = []
             for row in invocation_rows:
                 observation = row["observation"]
                 if not isinstance(observation, ToolObservation):
@@ -472,6 +477,9 @@ async def run_single_agent_turn(
                         tool_plan=runtime_tool_plan,
                         error=RuntimeError("tool_invocation_missing_observation"),
                     )
+                    row["observation"] = observation
+                if observation.status == "needs_approval":
+                    observation = _agent_turn_approval_requires_task_run_observation(observation)
                     row["observation"] = observation
                 yield observation.to_turn_observation_event()
                 if runtime_host is not None and turn_run is not None:
@@ -490,9 +498,6 @@ async def run_single_agent_turn(
                     )
                     yield {"type": "turn_tool_observation_recorded", "event": event.to_dict()}
                 tool_call = dict(row["tool_call"] or {})
-                if observation.status == "needs_approval":
-                    approval_observations.append(observation)
-                    continue
                 assistant_tool_calls.append(tool_call)
                 tool_protocol_messages.append(
                     _with_turn_id(
@@ -505,46 +510,6 @@ async def run_single_agent_turn(
                 api_protocol_messages.extend([assistant_protocol_message, *tool_protocol_messages])
             else:
                 assistant_protocol_message = {}
-            if approval_observations:
-                if assistant_protocol_message or tool_protocol_messages:
-                    commit_decision = await _commit_final_message(
-                        commit_assistant_message,
-                        session_id=session_id,
-                        turn_id=turn_id,
-                        content="部分工具调用已完成，另有工具调用正在等待审批。",
-                        answer_channel="blocked",
-                        answer_source="harness.single_agent_turn.approval_waiting",
-                        api_protocol_messages=list(api_protocol_messages),
-                    )
-                    yield {
-                        "type": "assistant_message_committed",
-                        "answer_channel": commit_decision.answer_channel,
-                        "answer_source": commit_decision.answer_source,
-                        "answer_canonical_state": commit_decision.canonical_state,
-                        "answer_persist_policy": commit_decision.persist_policy,
-                        "answer_finalization_policy": commit_decision.finalization_policy,
-                        "answer_fallback_reason": commit_decision.fallback_reason,
-                        "terminal_reason": "waiting_approval",
-                    }
-                approval_event = _record_turn_approval_waiting(
-                    runtime_host,
-                    turn_run=turn_run,
-                    turn_id=turn_id,
-                    observations=approval_observations,
-                ) if runtime_host is not None and turn_run is not None else {}
-                if approval_event:
-                    yield {"type": "approval_waiting", "event": approval_event}
-                    terminal = _record_turn_terminal(
-                        runtime_host,
-                        turn_run=turn_run,
-                        turn_id=turn_id,
-                        status="blocked",
-                        terminal_reason="waiting_approval",
-                        payload={"approval_observation_refs": [item.observation_id for item in approval_observations]},
-                    )
-                    terminal_recorded = True
-                    yield {"type": "agent_turn_terminal", "event": terminal}
-                return
             model_messages = _sanitize_model_messages(
                 [
                     *model_messages,
@@ -2067,6 +2032,39 @@ def _tool_observation_from_runtime_exception(
     )
 
 
+def _agent_turn_approval_requires_task_run_observation(observation: ToolObservation) -> ToolObservation:
+    reason = "single_agent_turn_tool_approval_requires_resumable_task"
+    return replace(
+        observation,
+        status="denied",
+        text=(
+            "该工具调用需要可恢复的人工确认；当前单轮对话没有持久审批恢复入口。"
+            "请改为发起持续任务，或向用户说明需要进入可恢复任务后执行。"
+        ),
+        result_envelope={
+            **dict(observation.result_envelope or {}),
+            "status": "denied",
+            "error": reason,
+            "error_code": reason,
+            "retryable": True,
+            "task_run_required": True,
+        },
+        operation_gate={
+            **dict(observation.operation_gate or {}),
+            "decision": "deny",
+            "reason": reason,
+            "pipeline_stage": "task_run_required_for_tool_approval",
+            "original_decision": dict(observation.operation_gate or {}).get("decision") or "requires_approval",
+        },
+        diagnostics={
+            **dict(observation.diagnostics or {}),
+            "stage": "agent_turn_approval_requires_task_run",
+            "model_visible_recovery_observation": True,
+            "original_status": "needs_approval",
+        },
+    )
+
+
 def _tool_observation_status_from_admission(admission: AdmissionDecision) -> str:
     decision = str(admission.decision or "").strip()
     if decision == "deny":
@@ -2339,7 +2337,153 @@ async def _invoke_turn_tool(
             text="runtime_tool_control_plane_unavailable",
             diagnostics={"stage": "runtime_tool_control_plane_unavailable"},
         )
-    return await control_plane.invoke(request, tool_plan=tool_plan)
+    observation = await control_plane.invoke(request, tool_plan=tool_plan)
+    return _publish_turn_tool_artifacts(
+        observation,
+        runtime_host=runtime_host,
+        sandbox_policy=sandbox_scope,
+    )
+
+
+def _publish_turn_tool_artifacts(
+    observation: ToolObservation,
+    *,
+    runtime_host: Any,
+    sandbox_policy: dict[str, Any],
+) -> ToolObservation:
+    if observation.status != "ok" or not observation.artifact_refs:
+        return observation
+    if dict(sandbox_policy or {}).get("enabled") is not True:
+        return observation
+    publishable_refs = _publishable_observation_artifact_refs(observation, sandbox_policy=sandbox_policy)
+    if not publishable_refs:
+        return observation
+    try:
+        project_root = ProjectLayout.from_backend_dir(Path(str(getattr(runtime_host, "backend_dir", "") or ".")).resolve()).project_root.resolve()
+        published_refs = publish_sandbox_artifact_refs(
+            project_root=project_root,
+            sandbox_policy=sandbox_policy,
+            artifact_refs=publishable_refs,
+        )
+    except Exception as exc:
+        return _turn_tool_artifact_publish_error_observation(observation, error=str(exc), artifact_refs=publishable_refs)
+    if not published_refs:
+        paths = ", ".join(sorted({str(ref.get("path") or "") for ref in publishable_refs if str(ref.get("path") or "").strip()}))
+        return _turn_tool_artifact_publish_error_observation(
+            observation,
+            error=f"sandbox_artifact_publish_failed: {paths or 'artifact path unavailable'}",
+            artifact_refs=publishable_refs,
+        )
+    requested_paths = _artifact_ref_path_set(publishable_refs)
+    published_paths = _artifact_ref_path_set(published_refs)
+    missing_paths = sorted(requested_paths - published_paths)
+    if missing_paths:
+        return _turn_tool_artifact_publish_error_observation(
+            observation,
+            error=f"sandbox_artifact_publish_incomplete: {', '.join(missing_paths)}",
+            artifact_refs=publishable_refs,
+        )
+    return replace(
+        observation,
+        artifact_refs=tuple(dict(item) for item in published_refs),
+        result_envelope=_result_envelope_with_published_artifacts(observation.result_envelope, published_refs=published_refs),
+        diagnostics={
+            **dict(observation.diagnostics or {}),
+            "sandbox_artifact_publish": {
+                "status": "published",
+                "artifact_refs": [dict(item) for item in published_refs],
+                "authority": "harness.loop.single_agent_turn",
+            },
+        },
+    )
+
+
+def _publishable_observation_artifact_refs(
+    observation: ToolObservation,
+    *,
+    sandbox_policy: dict[str, Any],
+) -> list[dict[str, Any]]:
+    artifact_root = str(sandbox_policy.get("artifact_root") or "")
+    publish_roots = tuple(sandbox_publish_scopes(sandbox_policy))
+    result: list[dict[str, Any]] = []
+    for ref in observation.artifact_refs:
+        payload = dict(ref or {})
+        logical_path = str(payload.get("path") or payload.get("published_path") or payload.get("src") or "")
+        if logical_path_publish_allowed(logical_path, artifact_root, publish_roots):
+            result.append(payload)
+    return result
+
+
+def _artifact_ref_path_set(refs: list[dict[str, Any]]) -> set[str]:
+    return {
+        str(ref.get("path") or ref.get("published_path") or ref.get("src") or "").replace("\\", "/").strip().strip("/")
+        for ref in refs
+        if str(ref.get("path") or ref.get("published_path") or ref.get("src") or "").strip()
+    }
+
+
+def _result_envelope_with_published_artifacts(
+    envelope: dict[str, Any],
+    *,
+    published_refs: list[dict[str, Any]],
+) -> dict[str, Any]:
+    updated = dict(envelope or {})
+    structured = dict(updated.get("structured_payload") or {})
+    refs = [dict(item) for item in published_refs]
+    updated["artifact_refs"] = refs
+    structured["artifact_refs"] = refs
+    tool_result = dict(structured.get("tool_result") or {})
+    if len(refs) == 1:
+        ref = refs[0]
+        tool_result.update(
+            {
+                "path": str(ref.get("path") or tool_result.get("path") or ""),
+                "absolute_path": str(ref.get("absolute_path") or ""),
+                "published": True,
+            }
+        )
+        if ref.get("size_bytes") is not None:
+            tool_result["size_bytes"] = ref.get("size_bytes")
+    if tool_result:
+        structured["tool_result"] = tool_result
+    updated["structured_payload"] = structured
+    return updated
+
+
+def _turn_tool_artifact_publish_error_observation(
+    observation: ToolObservation,
+    *,
+    error: str,
+    artifact_refs: list[dict[str, Any]],
+) -> ToolObservation:
+    text = (
+        "Tool execution wrote a sandbox artifact, but it was not published to the real workspace. "
+        f"Do not treat the write as complete. Error: {error}"
+    )
+    envelope = dict(observation.result_envelope or {})
+    envelope["status"] = "error"
+    envelope["error"] = text
+    envelope["text"] = text
+    envelope["artifact_refs"] = []
+    structured = dict(envelope.get("structured_payload") or {})
+    structured["artifact_refs"] = []
+    envelope["structured_payload"] = structured
+    return replace(
+        observation,
+        status="error",
+        text=text,
+        artifact_refs=(),
+        result_envelope=envelope,
+        diagnostics={
+            **dict(observation.diagnostics or {}),
+            "sandbox_artifact_publish": {
+                "status": "error",
+                "error": error,
+                "artifact_refs": [dict(item) for item in artifact_refs],
+                "authority": "harness.loop.single_agent_turn",
+            },
+        },
+    )
 
 
 def _single_turn_sandbox_scope(assembly_payload: dict[str, Any], *, runtime_host: Any, turn_id: str) -> dict[str, Any]:
@@ -2356,6 +2500,7 @@ def _single_turn_sandbox_scope(assembly_payload: dict[str, Any], *, runtime_host
         project_root = ProjectLayout.from_backend_dir(backend_dir).project_root.resolve()
     except Exception:
         project_root = backend_dir.parent.resolve()
+    ensure_environment_storage_dirs(project_root=project_root, storage_space=storage)
     runtime_root = Path(str(getattr(runtime_host, "root_dir", "") or (backend_dir / "storage" / "runtime"))).resolve()
     sandbox_root = str(sandbox.get("sandbox_root") or "").strip()
     if not sandbox_root:
@@ -2494,59 +2639,6 @@ def _action_request_with_api_protocol_prefix(
 
 def _with_turn_id(message: dict[str, Any], turn_id: str) -> dict[str, Any]:
     return {**dict(message or {}), "turn_id": turn_id}
-
-
-def _record_turn_approval_waiting(
-    runtime_host: Any,
-    *,
-    turn_run: TurnRun,
-    turn_id: str,
-    observations: list[ToolObservation],
-) -> dict[str, Any]:
-    pending = [
-        {
-            "observation_ref": item.observation_id,
-            "invocation_ref": item.invocation_id,
-            "tool_name": item.tool_name,
-            "operation_id": item.operation_id,
-            "status": item.status,
-            "operation_gate": dict(item.operation_gate or {}),
-            "execution_receipt": dict(item.execution_receipt or {}),
-            "authority": "runtime.tool_approval_control",
-        }
-        for item in observations
-    ]
-    event = runtime_host.event_log.append(
-        turn_run.turn_run_id,
-        "approval_waiting",
-        payload={
-            "turn_id": turn_id,
-            "turn_run_id": turn_run.turn_run_id,
-            "pending_approvals": pending,
-        },
-        refs={
-            "turn_ref": turn_id,
-            "turn_run_ref": turn_run.turn_run_id,
-            "tool_observation_refs": [item.observation_id for item in observations],
-        },
-    )
-    current = runtime_host.state_index.get_turn_run(turn_run.turn_run_id) or turn_run
-    runtime_host.state_index.upsert_turn_run(
-        replace(
-            current,
-            status="blocked",
-            updated_at=event.created_at,
-            latest_event_offset=event.offset,
-            terminal_reason="waiting_approval",
-            diagnostics={
-                **dict(current.diagnostics or {}),
-                "terminal_status": "blocked",
-                "terminal_reason_detail": "waiting_approval",
-                "pending_approvals": pending,
-            },
-        )
-    )
-    return event.to_dict()
 
 
 def _sanitize_model_messages(

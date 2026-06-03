@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 
 from api.deps import require_runtime
 from harness.entrypoint import HarnessRuntimeRequest
+from harness.runtime.public_timeline_stream import project_public_timeline_delta
 from runtime.shared.events import RuntimeEvent
 from runtime.shared.runtime_run_registry import RuntimeRun
 from runtime.shared.stream_replay import (
@@ -122,7 +123,7 @@ class ChatRequest(BaseModel):
     task_selection: dict[str, Any] = Field(default_factory=dict)
     model_selection: dict[str, Any] = Field(default_factory=dict)
     image_generation: dict[str, Any] = Field(default_factory=dict)
-    permission_mode: str = "full_access"
+    permission_mode: str = ""
     session_scope: dict[str, Any] | None = None
     expected_active_turn_id: str = ""
     active_turn_input_policy: str = "auto"
@@ -255,7 +256,7 @@ def _query_request_from_payload(payload: ChatRequest, *, session_id: str) -> Har
         task_selection=dict(payload.task_selection or {}),
         model_selection=dict(payload.model_selection or {}),
         image_generation=dict(payload.image_generation or {}),
-        permission_mode=str(payload.permission_mode or "full_access"),
+        permission_mode=str(payload.permission_mode or ""),
         expected_active_turn_id=str(payload.expected_active_turn_id or ""),
         active_turn_input_policy=str(payload.active_turn_input_policy or "auto"),
     )
@@ -503,6 +504,9 @@ def _project_public_stream_event(event_type: str, event: dict[str, Any]) -> tupl
             "runtime_branch": _public_runtime_branch(branch),
             "allowed_action_types": list(data.get("allowed_action_types") or []),
         }
+    public_timeline_delta = project_public_timeline_delta(normalized, data)
+    if public_timeline_delta:
+        data["public_timeline_delta"] = public_timeline_delta
     return normalized, data
 
 

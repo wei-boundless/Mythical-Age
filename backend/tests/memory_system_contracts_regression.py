@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from types import SimpleNamespace
 
@@ -10,6 +11,7 @@ from memory_system.storage.session_memory import SessionMemoryManager
 from memory_system import MemoryFacade
 from memory_system.conversation_memory import ConversationMemoryStoreAdapter
 from memory_system.contracts import ConversationMemorySnapshot, MemoryContextCandidate, StateMemoryRestoreCandidate
+from memory_system.environment_context import resolve_memory_environment_context
 from memory_system.runtime_view import MemoryRuntimeView
 from memory_system.state_memory import StateMemoryStoreAdapter
 from memory_system.runtime_supply import (
@@ -390,6 +392,173 @@ def test_durable_memory_write_uses_current_environment_scope(tmp_path) -> None:
     assert not facade.memory_manager.note_path("coding-quality-standard").exists()
 
 
+def test_environment_durable_write_uses_memory_environment_context_without_main_context(tmp_path) -> None:
+    facade = MemoryFacade(tmp_path)
+    facade.set_model_invoker(
+        _fake_invoker(
+            _agent_payload(
+                durable_actions=[
+                    {
+                        "action": "create",
+                        "note_id": "coding-quality-standard",
+                        "memory_type": "user",
+                        "memory_class": "preference",
+                        "title": "Coding 质量标准",
+                        "canonical_statement": "coding 环境中要优先真实测试。",
+                        "summary": "coding 环境偏好真实测试。",
+                        "confidence": "high",
+                        "reason": "用户明确要求 coding 环境的工作方式。",
+                        "how_to_apply": "coding 任务执行前检查测试闭环。",
+                        "evidence_excerpt": "coding 环境里以后优先真实测试。",
+                        "source_message_refs": ["message:0"],
+                        "memory_origin": "explicit_user_preference",
+                        "evidence_source_kind": "user_message",
+                        "preference_scope": "environment",
+                        "preference_horizon": "durable_active",
+                        "proposed_target_layer": "environment_durable",
+                        "task_environment_id": "env.coding.test",
+                    }
+                ]
+            )
+        )
+    )
+
+    receipt = facade.run_memory_maintenance_after_commit(
+        session_id="session-env-context-write",
+        messages=[
+            {"role": "user", "content": "coding 环境里以后优先真实测试。"},
+            {"role": "assistant", "content": "收到。"},
+        ],
+        memory_environment_context={"task_environment_id": "env.coding.test"},
+    )
+
+    env_manager = facade.resolve_durable_memory_manager({"task_environment_id": "env.coding.test"})
+    assert receipt.status == "succeeded"
+    assert receipt.durable_write_count == 1
+    assert env_manager.note_path("coding-quality-standard").exists()
+    assert not facade.memory_manager.note_path("coding-quality-standard").exists()
+    assert receipt.diagnostics["durable_actions"]["namespaces"] == ["env:env.coding.test"]
+
+
+def test_maintenance_manifest_includes_current_environment_namespace(tmp_path) -> None:
+    facade = MemoryFacade(tmp_path)
+    env_manager = facade.resolve_durable_memory_manager({"task_environment_id": "env.coding.test"})
+    env_manager.save_note(
+        MemoryNote(
+            slug="coding-existing-rule",
+            title="Coding 既有规则",
+            summary="coding 环境已经有真实测试规则。",
+            canonical_statement="coding 环境已经有真实测试规则。",
+            body="coding 环境已经有真实测试规则。",
+            memory_type="user",
+            memory_class="preference",
+            confidence="high",
+        )
+    )
+    seen = {}
+
+    async def invoker(messages, *, accounting_context=None):
+        payload = json.loads(messages[-1]["content"])
+        headers = payload["request"]["manifest_headers"]
+        seen["namespaces"] = [item.get("namespace_id") for item in headers]
+        seen["note_ids"] = [item.get("note_id") for item in headers]
+        return SimpleNamespace(content=json.dumps(_agent_payload(), ensure_ascii=False))
+
+    facade.set_model_invoker(invoker)
+    receipt = facade.run_memory_maintenance_after_commit(
+        session_id="session-env-manifest",
+        messages=[
+            {"role": "user", "content": "记住 coding 环境里继续真实测试。"},
+            {"role": "assistant", "content": "收到。"},
+        ],
+        memory_environment_context={"task_environment_id": "env.coding.test"},
+    )
+
+    assert receipt.status == "succeeded"
+    assert "env:env.coding.test" in seen["namespaces"]
+    assert "coding-existing-rule" in seen["note_ids"]
+
+
+def test_session_emphasis_is_filtered_by_task_environment(tmp_path) -> None:
+    facade = MemoryFacade(tmp_path)
+    facade.session_emphasis.upsert(
+        session_id="session-emphasis-env",
+        emphasis_id="coding-rule",
+        turn_id="turn:1",
+        task_environment_id="env.coding.test",
+        scope="environment",
+        content="coding 环境要真实测试。",
+        source_message_ref="message:0",
+        priority="high",
+    )
+    facade.session_emphasis.upsert(
+        session_id="session-emphasis-env",
+        emphasis_id="writing-rule",
+        turn_id="turn:2",
+        task_environment_id="env.writing.test",
+        scope="environment",
+        content="writing 环境要保持叙事连贯。",
+        source_message_ref="message:1",
+        priority="high",
+    )
+
+    coding = facade.session_emphasis.render_pinned_facts(
+        "session-emphasis-env",
+        task_environment_id="env.coding.test",
+    )
+    unknown = facade.session_emphasis.render_pinned_facts("session-emphasis-env")
+
+    assert [item["fact_id"] for item in coding] == ["coding-rule"]
+    assert unknown == []
+
+
+def test_memory_environment_context_resolves_current_turn_before_session_fallback() -> None:
+    session_record = {
+        "conversation_state": {
+            "active_task_environment": {
+                "task_environment_id": "env.general.workspace",
+                "project_id": "project-session",
+            },
+        },
+        "messages": [
+            {
+                "turn_id": "turn:coding",
+                "turn_environment_snapshot": {
+                    "task_environment_id": "env.coding.test",
+                    "environment_kind": "coding",
+                    "project_id": "project-coding",
+                    "task_run_id": "taskrun:coding",
+                },
+            },
+            {
+                "turn_id": "turn:writing",
+                "turn_environment_snapshot": {
+                    "task_environment_id": "env.writing.test",
+                    "environment_kind": "writing",
+                    "project_id": "project-writing",
+                    "task_run_id": "taskrun:writing",
+                },
+            },
+        ],
+    }
+
+    by_turn = resolve_memory_environment_context(
+        session_record=session_record,
+        turn_id="turn:coding",
+    )
+    by_task_run = resolve_memory_environment_context(
+        session_record=session_record,
+        task_run_id="taskrun:writing",
+    )
+    latest = resolve_memory_environment_context(session_record=session_record)
+
+    assert by_turn.task_environment_id == "env.coding.test"
+    assert by_turn.project_id == "project-coding"
+    assert by_turn.source == "session_record.turn_environment_snapshot"
+    assert by_task_run.task_environment_id == "env.writing.test"
+    assert latest.task_environment_id == "env.writing.test"
+
+
 def test_long_term_memory_read_is_scoped_to_current_environment(tmp_path) -> None:
     facade = MemoryFacade(tmp_path)
     coding_manager = facade.resolve_durable_memory_manager({"task_environment_id": "env.coding.test"})
@@ -466,6 +635,55 @@ def test_long_term_memory_read_is_scoped_to_current_environment(tmp_path) -> Non
     assert "coding 环境要优先真实测试" not in writing_preview
     assert coding_view.context_candidates[0].metadata["namespace_id"] == "env:env.coding.test"
     assert writing_view.context_candidates[0].metadata["namespace_id"] == "env:env.writing.test"
+
+
+def test_async_memory_runtime_view_recalls_long_term_inside_event_loop(tmp_path) -> None:
+    facade = MemoryFacade(tmp_path)
+    facade.memory_manager.save_note(
+        MemoryNote(
+            slug="async-note",
+            title="Async 记忆",
+            summary="async recall 应该可用。",
+            canonical_statement="async recall 应该可用。",
+            body="async recall 应该可用。",
+            memory_type="user",
+            memory_class="preference",
+            confidence="high",
+        )
+    )
+
+    async def selector(_messages, *, accounting_context=None):
+        return SimpleNamespace(
+            content=json.dumps(
+                {
+                    "should_recall": True,
+                    "selected_note_ids": ["async-note"],
+                    "reason": "selected",
+                    "confidence": 1.0,
+                    "needs_verification": False,
+                    "manifest_only": False,
+                    "ignore_memory": False,
+                },
+                ensure_ascii=False,
+            )
+        )
+
+    facade.set_model_invoker(selector)
+
+    async def run():
+        return await facade.bundle_service.abuild_memory_runtime_view(
+            session_id="session-async-memory",
+            query="async recall",
+            memory_request_profile={
+                "requested_memory_layers": ["long_term"],
+                "allow_long_term_memory": True,
+            },
+        )
+
+    view = asyncio.run(run())
+
+    assert len(view.context_candidates) == 1
+    assert view.context_candidates[0].content_ref == "async-note.md"
 
 
 def test_memory_read_plan_records_environment_scope_diagnostics(tmp_path) -> None:

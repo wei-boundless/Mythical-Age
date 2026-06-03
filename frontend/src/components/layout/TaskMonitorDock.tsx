@@ -118,33 +118,35 @@ export function TaskMonitorDock({ embedded = false }: { embedded?: boolean }) {
       ].filter(Boolean).join(" ")}
       aria-label="全局运行监控"
     >
-      <header className="task-monitor-dock__head">
-        <button
-          aria-label={collapsed ? "展开运行监控" : "折叠运行监控"}
-          className="task-monitor-dock__collapse"
-          onClick={() => setCollapsed((current) => !current)}
-          type="button"
-        >
-          {collapsed ? <ChevronRight size={17} /> : <Minimize2 size={16} />}
-        </button>
-        <div className="task-monitor-dock__title">
-          <Activity size={16} />
-          {embedded ? null : <span>监控</span>}
-        </div>
-        {!collapsed ? (
+      {embedded ? null : (
+        <header className="task-monitor-dock__head">
           <button
-            aria-label="刷新运行监控"
-            className="task-monitor-dock__open"
-            disabled={globalRuntimeMonitorLoading}
-            onClick={() => void refreshGlobalRuntimeMonitor()}
+            aria-label={collapsed ? "展开运行监控" : "折叠运行监控"}
+            className="task-monitor-dock__collapse"
+            onClick={() => setCollapsed((current) => !current)}
             type="button"
           >
-            <RefreshCw size={15} />
+            {collapsed ? <ChevronRight size={17} /> : <Minimize2 size={16} />}
           </button>
-        ) : null}
-      </header>
+          <div className="task-monitor-dock__title">
+            <Activity size={16} />
+            <span>运行</span>
+          </div>
+          {!collapsed ? (
+            <button
+              aria-label="刷新运行监控"
+              className="task-monitor-dock__open"
+              disabled={globalRuntimeMonitorLoading}
+              onClick={() => void refreshGlobalRuntimeMonitor()}
+              type="button"
+            >
+              <RefreshCw size={15} />
+            </button>
+          ) : null}
+        </header>
+      )}
 
-      {collapsed ? (
+      {!embedded && collapsed ? (
         <button
           className={hasActiveSignal ? "task-monitor-dock__rail task-monitor-dock__rail--active" : "task-monitor-dock__rail"}
           onClick={() => setCollapsed(false)}

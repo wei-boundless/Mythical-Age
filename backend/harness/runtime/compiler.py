@@ -16,6 +16,7 @@ from prompt_library import (
 from prompt_library.rules import build_rule_diagnostics
 from prompt_library.tool_prompts import tool_guidance_payload_for_visible_tools
 from artifact_system.artifact_authority import artifact_ref_value, dedupe_artifact_refs, model_visible_artifact_refs, normalize_artifact_ref
+from project_layout import ProjectLayout
 from runtime.model_gateway.protocol_sanitizer import sanitize_messages_for_prompt
 from task_system.contracts.runtime_contracts import expand_selected_skill_bodies, render_skill_candidate_cards
 
@@ -24,6 +25,7 @@ from .artifact_scope import runtime_artifact_scope_from_environment
 from .dynamic_context import DynamicContextInput, DynamicContextManager, DynamicContextProjection
 from .envelope import RuntimeEnvelope
 from .invocation_packet import RuntimeInvocationPacket
+from .environment_storage import ensure_environment_storage_dirs
 from .prompt_segment_plan import build_prompt_segment_plan
 from .project_instructions import ProjectInstructionBundle, collect_project_instruction_bundle
 from .sandbox_execution_scope import compile_sandbox_execution_scope, task_safety_envelope_from_assembly
@@ -261,6 +263,7 @@ class RuntimeCompiler:
         self._bind_assembly_base_dir(assembly_payload)
         profile_payload = dict(assembly_payload.get("profile") or {})
         environment_payload = dict(assembly_payload.get("task_environment") or {})
+        _ensure_environment_storage_dirs_for_runtime(self.base_dir, environment_payload)
         control_capabilities = dict(assembly_payload.get("control_capabilities") or {})
         agent_profile_ref = str(assembly_payload.get("agent_profile_ref") or agent_profile_ref or "main_interactive_agent")
         task_environment_ref = str(environment_payload.get("environment_id") or "env.general.workspace")
@@ -539,6 +542,7 @@ class RuntimeCompiler:
         self._bind_assembly_base_dir(assembly_payload)
         profile_payload = dict(assembly_payload.get("profile") or {})
         environment_payload = dict(assembly_payload.get("task_environment") or {})
+        _ensure_environment_storage_dirs_for_runtime(self.base_dir, environment_payload)
         permission_mode = str(assembly_payload.get("permission_mode") or "default")
         artifact_scope = runtime_artifact_scope_from_environment(environment_payload)
         sandbox_execution_scope = compile_sandbox_execution_scope(
@@ -3376,3 +3380,11 @@ def _artifact_root(environment_payload: dict[str, Any]) -> str:
         return artifact_root
     artifact_policy = dict(environment_payload.get("artifact_policy") or {})
     return str(artifact_policy.get("artifact_root") or "").strip()
+
+
+def _ensure_environment_storage_dirs_for_runtime(base_dir: Path, environment_payload: dict[str, Any]) -> None:
+    storage = dict(environment_payload.get("storage_space") or {})
+    if not storage:
+        return
+    project_root = ProjectLayout.from_backend_dir(base_dir).project_root.resolve()
+    ensure_environment_storage_dirs(project_root=project_root, storage_space=storage)

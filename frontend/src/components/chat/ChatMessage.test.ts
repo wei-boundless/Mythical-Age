@@ -117,4 +117,37 @@ describe("ChatMessage", () => {
     expect(html).toContain("已清理内部协议");
     expect(html).toContain("我会按这个目标推进");
   });
+
+  it("projects live public timeline into the chat message before runtime attachments arrive", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(ChatMessage, {
+        content: "",
+        id: "message:runtime-progress",
+        retrievals: [],
+        role: "assistant",
+        runtimePublicTimelineDraft: [
+          {
+            item_id: "progress:model",
+            kind: "assistant_text",
+            title: "我先检查当前目录和关键文件，再决定下一步修改范围。",
+            text: "我先检查当前目录和关键文件，再决定下一步修改范围。",
+            state: "running",
+          },
+          {
+            item_id: "progress:tool",
+            kind: "tool_activity",
+            title: "正在运行 npm test -- --run src/components/chat",
+            detail: "npm test -- --run src/components/chat",
+            state: "running",
+          },
+        ],
+        toolCalls: [],
+      }),
+    );
+
+    expect(html).toContain("当前判断");
+    expect(html).toContain("我先检查当前目录和关键文件");
+    expect(html).toContain("运行命令");
+    expect(html).toContain("npm test -- --run src/components/chat");
+  });
 });

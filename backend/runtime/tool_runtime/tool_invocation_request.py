@@ -30,6 +30,9 @@ class ToolInvocationRequest:
     sandbox_scope: dict[str, Any] = field(default_factory=dict)
     file_scope: dict[str, Any] = field(default_factory=dict)
     requested_constraints: dict[str, Any] = field(default_factory=dict)
+    approval_state: dict[str, Any] = field(default_factory=dict)
+    approval_token: dict[str, Any] = field(default_factory=dict)
+    approval_risk_fingerprint: str = ""
     authority: str = "runtime.tool_runtime.tool_invocation_request"
 
     def __post_init__(self) -> None:
@@ -54,4 +57,6 @@ class ToolInvocationRequest:
         payload["sandbox_scope"] = dict(self.sandbox_scope or {})
         payload["file_scope"] = dict(self.file_scope or {})
         payload["requested_constraints"] = dict(self.requested_constraints or {})
+        payload["approval_state"] = dict(self.approval_state or {})
+        payload["approval_token"] = dict(self.approval_token or {})
         return payload

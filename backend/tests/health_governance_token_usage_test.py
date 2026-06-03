@@ -184,6 +184,57 @@ def test_health_token_usage_prefers_prompt_accounting_provider_usage(tmp_path) -
     assert token_usage["summary"]["trace_estimate_total_tokens"] == 0
 
 
+def test_health_token_usage_includes_turn_runs_without_task_run_id(tmp_path) -> None:
+    now = time.time()
+    ledger = PromptAccountingLedger(tmp_path)
+    ledger.record_token_usage(
+        ModelTokenUsageRecord(
+            usage_id="tokuse:modelreq:turn:local_prediction",
+            request_id="modelreq:turn",
+            run_id="turnrun:turn:session-main:3",
+            session_id="session-main",
+            source="local_prediction",
+            prompt_tokens=300,
+            total_tokens=300,
+            created_at=now - 12,
+        )
+    )
+    ledger.record_token_usage(
+        ModelTokenUsageRecord(
+            usage_id="tokuse:modelreq:turn:provider_usage",
+            request_id="modelreq:turn",
+            run_id="turnrun:turn:session-main:3",
+            session_id="session-main",
+            source="provider_usage",
+            prompt_tokens=100,
+            completion_tokens=20,
+            total_tokens=120,
+            created_at=now - 10,
+        )
+    )
+    runtime_host = SimpleNamespace(
+        state_index=StateIndexStub([]),
+        event_log=EventLogStub({}),
+        runtime_objects=RuntimeObjectsStub(),
+        prompt_accounting_ledger=ledger,
+        list_global_live_monitor=lambda limit: {"summary": {}, "task_runs": []},
+    )
+    runtime = SimpleNamespace(harness_runtime=SimpleNamespace(single_agent_runtime_host=runtime_host))
+
+    token_usage = HealthGovernanceBuilder(runtime).build_token_usage(limit=10)
+    record = token_usage["tasks"][0]
+
+    assert token_usage["summary"]["provider_usage_task_count"] == 1
+    assert token_usage["summary"]["exact_total_tokens"] == 120
+    assert token_usage["summary"]["predicted_total_tokens"] == 300
+    assert token_usage["summary"]["trace_estimate_total_tokens"] == 0
+    assert record["task_run_id"] == "turnrun:turn:session-main:3"
+    assert record["run_id"] == "turnrun:turn:session-main:3"
+    assert record["record_kind"] == "turn_run"
+    assert record["token_source"] == "provider_usage"
+    assert record["token_total"] == 120
+
+
 def test_health_task_list_hides_graph_node_child_task_runs() -> None:
     now = time.time()
     root = TaskRun(

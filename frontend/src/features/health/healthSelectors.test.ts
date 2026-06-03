@@ -118,6 +118,7 @@ describe("buildHealthSystemViewModel", () => {
     expect(view.maxActiveTokenBucket).toBe(300);
     expect(view.predictionDelta).toBe(60);
     expect(view.providerCoverage).toBeCloseTo(1 / 3);
+    expect(view.providerCoverageCaption).toBe("1 / 3 个运行记录已有 provider usage");
     expect(view.missingTokenTaskCount).toBe(1);
     expect(view.sourceStructureTotal).toBe(3);
   });

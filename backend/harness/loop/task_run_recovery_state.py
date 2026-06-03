@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from .task_tool_approval import matching_approval_grant_for_pending
+
 
 RECOVERY_ACTIONS = {"resume_task_run", "rerun_task_executor"}
 STOP_CONTROL_STATES = {"stop_requested", "stopped"}
@@ -59,6 +61,9 @@ def recovery_state_for_task_run(task_run: Any) -> TaskRunRecoveryState:
     elif status == "waiting_executor":
         same_run_resumable = True
         reason = "waiting_executor"
+    elif status == "waiting_approval" and matching_approval_grant_for_pending(task_run) is not None:
+        same_run_resumable = True
+        reason = "approval_granted"
     elif status in {"blocked", "failed"} and recoverable:
         same_run_resumable = True
         reason = "recoverable_terminal"

@@ -115,7 +115,7 @@ export class RuntimeMonitorController {
       }
       this.store.setState((prev) => ({
         ...prev,
-        globalRuntimeMonitorError: error instanceof Error ? error.message : "全局运行监控读取失败",
+        globalRuntimeMonitorError: runtimeMonitorErrorMessage(error, "全局运行监控读取失败"),
       }));
     } finally {
       if (requestId === this.request) {
@@ -318,7 +318,7 @@ export class RuntimeMonitorController {
     } catch (error) {
       this.store.setState((prev) => ({
         ...prev,
-        taskGraphMonitorError: error instanceof Error ? error.message : "GraphRun 监控刷新失败",
+        taskGraphMonitorError: runtimeMonitorErrorMessage(error, "GraphRun 监控刷新失败"),
       }));
     } finally {
       this.store.setState((prev) => ({ ...prev, taskGraphMonitorLoading: false }));
@@ -644,7 +644,7 @@ export class RuntimeMonitorController {
       this.store.setState((prev) => ({
         ...prev,
         taskGraphAutoAdvanceEnabled: false,
-        taskGraphMonitorError: error instanceof Error ? error.message : "自动推进失败",
+        taskGraphMonitorError: runtimeMonitorErrorMessage(error, "自动推进失败"),
       }));
     } finally {
       this.graphAutoAdvanceInFlight = false;
@@ -657,6 +657,20 @@ export class RuntimeMonitorController {
     const message = error instanceof Error ? error.message : String(error ?? "");
     return message.includes("Failed to fetch") || message.includes("NetworkError") || message.includes("Load failed");
   }
+}
+
+function runtimeMonitorErrorMessage(error: unknown, fallback: string) {
+  const message = error instanceof Error ? error.message.trim() : String(error ?? "").trim();
+  if (!message) {
+    return fallback;
+  }
+  if (/request timed out after \d+ms/i.test(message)) {
+    return `${fallback}（请求超时）`;
+  }
+  if (/failed to fetch|networkerror|load failed/i.test(message)) {
+    return `${fallback}（连接中断）`;
+  }
+  return message;
 }
 
 function formalTaskRunIdFromRuntimeEvent(event: RuntimeMonitorEventPayload["runtime_event"] | null | undefined) {

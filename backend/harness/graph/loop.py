@@ -2170,7 +2170,7 @@ def assert_graph_config_compatible_with_state(*, graph_config: GraphHarnessConfi
         raise ValueError("Graph operation requires a published GraphHarnessConfig")
     expected_hash = graph_config.expected_content_hash()
     if graph_config.content_hash and graph_config.content_hash != expected_hash:
-        raise ValueError("GraphHarnessConfig content_hash mismatch")
+        raise ValueError("GraphHarnessConfig config_hash mismatch (content_hash mismatch)")
     if state.graph_id != graph_config.graph_id:
         raise ValueError("GraphRun graph_id does not match GraphHarnessConfig")
     expected_structure_hash = graph_config.expected_structural_hash()

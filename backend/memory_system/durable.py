@@ -79,7 +79,7 @@ class MemoryRecallResult(BaseModel):
     rendered_summary: str = ""
 
 
-class MemoryReadAgent:
+class DurableMemoryRecallSelector:
     def __init__(self, *, message_invoker: MessageInvoker | None = None) -> None:
         self._message_invoker = message_invoker
 
@@ -136,7 +136,7 @@ class MemoryReadAgent:
             for header in headers
         )
         system_prompt = (
-            "You are the durable memory recall subagent. "
+            "You are the durable memory recall selector controlled by the memory system. "
             "Given a user query, main working context, and a manifest of available durable memory headers, "
             "select only the memory note ids that are clearly useful for answering the current query. "
             "Be strict. If nothing is clearly useful, return an empty selection. "
@@ -214,16 +214,17 @@ class DurableMemoryLayer:
             layout = type(layout)(Path(root_dir))
         self.memory_manager = MemoryManager(layout.root_dir)
         self.namespace_id = namespace_id
-        self.read_agent = MemoryReadAgent()
+        self.recall_selector = DurableMemoryRecallSelector()
         self._runtime_index_checked = False
 
     def set_message_invoker(self, callback: Callable[[list[dict[str, str]]], Any] | None) -> None:
-        self.read_agent.set_message_invoker(callback)
+        self.recall_selector.set_message_invoker(callback)
 
     def describe_maintenance_runtime(self) -> dict[str, object]:
         return {
             "authority": "memory_system.maintenance_coordinator",
             "durable_memory_maintained_by": "agent:1",
+            "durable_memory_recall_selector": "memory_system.durable_recall_selector",
             "runtime_contract_required": True,
             "namespace_id": self.namespace_id,
         }
@@ -298,7 +299,7 @@ class DurableMemoryLayer:
                 confidence=1.0,
             )
         else:
-            selection = asyncio.run(self.read_agent.select_relevant(request))
+            selection = asyncio.run(self.recall_selector.select_relevant(request))
         return self._result_from_selection(
             selection,
             manifest_headers=request.manifest_headers,
@@ -331,7 +332,7 @@ class DurableMemoryLayer:
             recently_surfaced_note_ids=recently_surfaced_note_ids,
             recent_tools=recent_tools,
         )
-        selection = await self.read_agent.select_relevant(request)
+        selection = await self.recall_selector.select_relevant(request)
         return self._result_from_selection(
             selection,
             manifest_headers=request.manifest_headers,

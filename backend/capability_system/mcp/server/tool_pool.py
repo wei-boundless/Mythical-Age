@@ -7,7 +7,6 @@ from typing import Any
 from permissions.operations import build_default_operation_registry
 from capability_system.mcp.local_registry import default_local_mcp_units
 from capability_system.tools.native_tool_runtime import ToolRuntime
-from permissions import PermissionService
 from capability_system.mcp.client import ExternalMCPManager
 
 
@@ -35,7 +34,7 @@ class ToolPoolEntry:
     concurrency_safe: bool = False
     available_to_model: bool = True
     authorized: bool = True
-    authorization_owner: str = "PermissionService/OperationGate"
+    authorization_owner: str = "RuntimeAssembly/RuntimeToolPlan"
     diagnostics: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -45,18 +44,13 @@ class ToolPoolEntry:
 def build_mcp_tool_pool(
     *,
     backend_dir: Path,
-    permission_service: PermissionService | None = None,
+    permission_service: Any | None = None,
     include_internal_tools: bool = True,
 ) -> dict[str, Any]:
     registry = build_default_operation_registry()
     entries: list[ToolPoolEntry] = []
     if include_internal_tools:
         tool_runtime = getattr(permission_service, "tool_runtime", None) or ToolRuntime(backend_dir)
-        allowed_names = set(
-            permission_service.allowed_tool_names()
-            if permission_service is not None
-            else [definition.name for definition in tool_runtime.definitions if definition.is_read_only]
-        )
         for definition in tool_runtime.definitions:
             if definition.runtime_visibility != "main_runtime":
                 continue
@@ -69,7 +63,7 @@ def build_mcp_tool_pool(
                     display_name=definition.name,
                     route_family=_route_family_for_tool(definition),
                     candidate_visibility="route_scoped",
-                    model_visibility="model_visible_when_authorized" if definition.name in allowed_names else "permission_hidden",
+                    model_visibility="runtime_plan_bound_only",
                     runtime_exposure="direct_builtin_tool",
                     requires_explicit_binding=not definition.safe_for_auto_route,
                     discovery_priority=0,
@@ -81,13 +75,15 @@ def build_mcp_tool_pool(
                     read_only=definition.is_read_only,
                     destructive=definition.is_destructive,
                     concurrency_safe=definition.is_concurrency_safe,
-                    authorized=definition.name in allowed_names,
-                    available_to_model=definition.name in allowed_names,
+                    authorized=True,
+                    available_to_model=False,
+                    authorization_owner="RuntimeAssembly/RuntimeToolPlan",
                     diagnostics={
                         "runtime_visibility": definition.runtime_visibility,
                         "prompt_exposure_policy": definition.prompt_exposure_policy,
                         "safety_tags": list(definition.safety_tags),
                         "source_kind": "builtin_tool",
+                        "tool_pool_role": "catalog_preview_not_execution_authority",
                     },
                 )
             )
@@ -118,6 +114,7 @@ def build_mcp_tool_pool(
                 concurrency_safe=bool(operation.concurrency_safe if operation is not None else False),
                 available_to_model=False,
                 authorized=True,
+                authorization_owner="RuntimeAssembly/RuntimeToolPlan",
                 diagnostics={
                     "local_mcp_unit_id": unit.unit_id,
                     "model_visibility": "deferred_mcp_tool",
@@ -150,7 +147,7 @@ def build_mcp_tool_pool(
                 display_name=str(item.get("name") or ""),
                 route_family="external_mcp",
                 candidate_visibility="external_discovery",
-                model_visibility="permission_gated_external_tool_pool" if item.get("authorized", False) else "permission_hidden",
+                model_visibility="runtime_plan_bound_external_tool" if item.get("authorized", False) else "external_permission_denied_preview",
                 runtime_exposure="external_mcp_client_call",
                 requires_explicit_binding=True,
                 discovery_priority=200,
@@ -165,17 +162,18 @@ def build_mcp_tool_pool(
                 idempotent=bool(operation.get("idempotent", True)),
                 open_world=bool(operation.get("open_world", True)),
                 concurrency_safe=bool(operation.get("concurrency_safe", False)),
-                available_to_model=bool(item.get("authorized", False)),
+                available_to_model=False,
                 authorized=bool(item.get("authorized", False)),
-                authorization_owner="PermissionService/OperationGate",
+                authorization_owner="RuntimeAssembly/RuntimeToolPlan",
                 diagnostics={
                     "server_id": str(item.get("server_id") or ""),
                     "server_title": str(item.get("server_title") or ""),
                     "tool_name": str(item.get("tool_name") or ""),
                     "transport": str(item.get("transport") or ""),
                     "gate": gate,
-                    "model_visibility": "external_mcp_tool_pool",
+                    "model_visibility": "external_mcp_tool_pool_preview",
                     "source_kind": "external_mcp",
+                    "tool_pool_role": "catalog_preview_not_execution_authority",
                 },
             )
         )

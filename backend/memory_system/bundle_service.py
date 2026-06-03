@@ -13,6 +13,7 @@ from .conversation_memory import ConversationMemoryStoreAdapter
 from .runtime_supply import (
     MemoryOrchestrator,
     MemorySupplier,
+    abuild_memory_runtime_view as abuild_runtime_view,
     apply_memory_scope_policy,
     build_memory_bundle,
     build_memory_request,
@@ -125,36 +126,95 @@ class MemoryBundleService:
         environment_scope: dict[str, Any] | None = None,
         global_common_allowed: bool = True,
     ):
+        kwargs = self._durable_recall_kwargs(
+            query=query,
+            memory_intent=memory_intent,
+            note_limit=note_limit,
+            main_context=main_context,
+            task_summaries=task_summaries,
+            session_summary=session_summary,
+            recently_surfaced_note_ids=recently_surfaced_note_ids,
+            recent_tools=recent_tools,
+            relevant_notes=relevant_notes,
+        )
+        results = [
+            layer.recall_memories(**kwargs)
+            for layer in self._durable_layers_for_read(environment_scope, global_common_allowed=global_common_allowed)
+        ]
+        return self._long_term_candidates_from_results(results, session_id=session_id, query=query, note_limit=note_limit)
+
+    async def abuild_long_term_memory_context_candidates(
+        self,
+        *,
+        session_id: str = "",
+        query: str | None = None,
+        memory_intent: Any | None = None,
+        note_limit: int = 5,
+        main_context: dict[str, object] | None = None,
+        task_summaries: list[dict[str, object]] | None = None,
+        session_summary: str = "",
+        recently_surfaced_note_ids: list[str] | None = None,
+        recent_tools: list[str] | None = None,
+        relevant_notes: list[Any] | None = None,
+        environment_scope: dict[str, Any] | None = None,
+        global_common_allowed: bool = True,
+    ):
+        kwargs = self._durable_recall_kwargs(
+            query=query,
+            memory_intent=memory_intent,
+            note_limit=note_limit,
+            main_context=main_context,
+            task_summaries=task_summaries,
+            session_summary=session_summary,
+            recently_surfaced_note_ids=recently_surfaced_note_ids,
+            recent_tools=recent_tools,
+            relevant_notes=relevant_notes,
+        )
         results = []
-        if global_common_allowed:
-            results.append(
-                self.durable_memory.recall_memories(
-                    query=query,
-                    memory_intent=memory_intent,
-                    note_limit=note_limit,
-                    main_context=main_context,
-                    task_summaries=task_summaries,
-                    session_summary=session_summary,
-                    recently_surfaced_note_ids=recently_surfaced_note_ids,
-                    recent_tools=recent_tools,
-                    selected_notes=relevant_notes,
-                )
-            )
+        for layer in self._durable_layers_for_read(environment_scope, global_common_allowed=global_common_allowed):
+            results.append(await layer.arecall_memories(**kwargs))
+        return self._long_term_candidates_from_results(results, session_id=session_id, query=query, note_limit=note_limit)
+
+    def _durable_recall_kwargs(
+        self,
+        *,
+        query: str | None,
+        memory_intent: Any | None,
+        note_limit: int,
+        main_context: dict[str, object] | None,
+        task_summaries: list[dict[str, object]] | None,
+        session_summary: str,
+        recently_surfaced_note_ids: list[str] | None,
+        recent_tools: list[str] | None,
+        relevant_notes: list[Any] | None,
+    ) -> dict[str, Any]:
+        return {
+            "query": query,
+            "memory_intent": memory_intent,
+            "note_limit": note_limit,
+            "main_context": main_context,
+            "task_summaries": task_summaries,
+            "session_summary": session_summary,
+            "recently_surfaced_note_ids": recently_surfaced_note_ids,
+            "recent_tools": recent_tools,
+            "selected_notes": relevant_notes,
+        }
+
+    def _durable_layers_for_read(self, environment_scope: dict[str, Any] | None, *, global_common_allowed: bool) -> tuple[Any, ...]:
+        layers = [self.durable_memory] if global_common_allowed else []
         scoped_layer = self._durable_layer_for_scope(environment_scope)
         if scoped_layer is not self.durable_memory:
-            results.append(
-                scoped_layer.recall_memories(
-                    query=query,
-                    memory_intent=memory_intent,
-                    note_limit=note_limit,
-                    main_context=main_context,
-                    task_summaries=task_summaries,
-                    session_summary=session_summary,
-                    recently_surfaced_note_ids=recently_surfaced_note_ids,
-                    recent_tools=recent_tools,
-                    selected_notes=relevant_notes,
-                )
-            )
+            layers.append(scoped_layer)
+        return tuple(layers)
+
+    def _long_term_candidates_from_results(
+        self,
+        results: list[Any],
+        *,
+        session_id: str,
+        query: str | None,
+        note_limit: int,
+    ) -> tuple[MemoryContextCandidate, ...]:
         candidates: list[MemoryContextCandidate] = []
         for result in results:
             candidates.extend(
@@ -193,6 +253,28 @@ class MemoryBundleService:
             supplier=self.supplier,
         )
 
+    async def abuild_memory_runtime_view(
+        self,
+        *,
+        session_id: str,
+        query: str | None = None,
+        memory_intent: Any | None = None,
+        memory_request_profile: dict[str, Any] | None = None,
+        relevant_notes: list[Any] | None = None,
+        note_limit: int = 5,
+    ):
+        return await abuild_runtime_view(
+            self,
+            session_id=session_id,
+            query=query,
+            memory_intent=memory_intent,
+            memory_request_profile=memory_request_profile,
+            relevant_notes=relevant_notes,
+            note_limit=note_limit,
+            orchestrator=self.orchestrator,
+            supplier=self.supplier,
+        )
+
     def build_memory_context_package_result(
         self,
         *,
@@ -208,7 +290,6 @@ class MemoryBundleService:
         reserved_output_tokens: int | None = None,
         long_term_token_cap: int | None = None,
     ):
-        budget = self._context_budget()
         if memory_view is None:
             memory_view = self.build_memory_runtime_view(
                 session_id=session_id,
@@ -218,6 +299,56 @@ class MemoryBundleService:
                 relevant_notes=relevant_notes,
                 note_limit=note_limit,
             )
+        return self._build_context_package_result_from_view(
+            memory_view,
+            retrieval_results=retrieval_results,
+            available_context_tokens=available_context_tokens,
+            reserved_output_tokens=reserved_output_tokens,
+            long_term_token_cap=long_term_token_cap,
+        )
+
+    async def abuild_memory_context_package_result(
+        self,
+        *,
+        session_id: str,
+        query: str | None = None,
+        memory_intent: Any | None = None,
+        memory_request_profile: dict[str, Any] | None = None,
+        memory_view: Any | None = None,
+        relevant_notes: list[Any] | None = None,
+        retrieval_results: list[dict[str, Any]] | None = None,
+        note_limit: int = 5,
+        available_context_tokens: int | None = None,
+        reserved_output_tokens: int | None = None,
+        long_term_token_cap: int | None = None,
+    ):
+        if memory_view is None:
+            memory_view = await self.abuild_memory_runtime_view(
+                session_id=session_id,
+                query=query,
+                memory_intent=memory_intent,
+                memory_request_profile=memory_request_profile,
+                relevant_notes=relevant_notes,
+                note_limit=note_limit,
+            )
+        return self._build_context_package_result_from_view(
+            memory_view,
+            retrieval_results=retrieval_results,
+            available_context_tokens=available_context_tokens,
+            reserved_output_tokens=reserved_output_tokens,
+            long_term_token_cap=long_term_token_cap,
+        )
+
+    def _build_context_package_result_from_view(
+        self,
+        memory_view: Any,
+        *,
+        retrieval_results: list[dict[str, Any]] | None = None,
+        available_context_tokens: int | None = None,
+        reserved_output_tokens: int | None = None,
+        long_term_token_cap: int | None = None,
+    ):
+        budget = self._context_budget()
         return build_context_package_result(
             memory_view,
             rebuild_reason="memory_bundle_service_context_package_result",
@@ -349,6 +480,33 @@ class MemoryBundleService:
     ):
         layer = self._durable_layer_for_scope(environment_scope)
         return layer.recall_memories(
+            query=query,
+            memory_intent=memory_intent,
+            note_limit=note_limit,
+            main_context=main_context,
+            task_summaries=task_summaries,
+            session_summary=session_summary,
+            recently_surfaced_note_ids=recently_surfaced_note_ids,
+            recent_tools=recent_tools,
+            selected_notes=selected_notes,
+        )
+
+    async def arecall_durable_memories(
+        self,
+        *,
+        query: str | None = None,
+        memory_intent: Any | None = None,
+        note_limit: int = 5,
+        main_context: dict[str, object] | None = None,
+        task_summaries: list[dict[str, object]] | None = None,
+        session_summary: str = "",
+        recently_surfaced_note_ids: list[str] | None = None,
+        recent_tools: list[str] | None = None,
+        selected_notes: list[Any] | None = None,
+        environment_scope: dict[str, Any] | None = None,
+    ):
+        layer = self._durable_layer_for_scope(environment_scope)
+        return await layer.arecall_memories(
             query=query,
             memory_intent=memory_intent,
             note_limit=note_limit,

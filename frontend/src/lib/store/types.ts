@@ -3,6 +3,7 @@ import type {
   GlobalRuntimeMonitor,
   GraphRunMonitorView,
   ModelProviderConfig,
+  PublicChatTimelineItem,
   RetrievalResult,
   RuntimeMonitorEventPayload,
   ImageAssetConfig,
@@ -35,6 +36,7 @@ export type Message = {
   retrievals: RetrievalResult[];
   runtimeProgress?: RuntimeProgressEntry[];
   runtimeAttachments?: SessionRuntimeAttachment[];
+  runtimePublicTimelineDraft?: PublicChatTimelineItem[];
   stageStatus?: string;
   sourceIndex?: number;
   answerChannel?: string;

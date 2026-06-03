@@ -1,8 +1,10 @@
 "use client";
 
 import {
+  Activity,
   Database,
   FileText,
+  Gauge,
   GitBranch,
   ListChecks,
   Loader2,
@@ -28,6 +30,7 @@ import {
 } from "@/lib/api";
 import { useConfirmDialog } from "@/components/layout/ConfirmDialogProvider";
 import { useAppStore } from "@/lib/store";
+import type { TokenStats } from "@/lib/store/types";
 
 function compactText(value: string, limit = 220) {
   const normalized = value.replace(/\s+/g, " ").trim();
@@ -77,11 +80,42 @@ function statusLabel(status: string) {
   return labels[status] ?? status;
 }
 
+function formatTokenCount(value: unknown) {
+  const number = Math.max(0, Math.round(Number(value || 0)));
+  if (number >= 1_000_000) return `${(number / 1_000_000).toFixed(2)}M`;
+  if (number >= 1_000) return `${(number / 1_000).toFixed(1)}K`;
+  return String(number);
+}
+
+function tokenPressureLabel(value: string) {
+  const labels: Record<string, string> = {
+    normal: "正常",
+    warning: "偏高",
+    microcompact: "微压缩",
+    full_compact: "完整压缩"
+  };
+  return labels[value] ?? (value || "正常");
+}
+
+function sessionTokenTitle(tokenStats: TokenStats | null, remainingPercent: number | null) {
+  if (!tokenStats) {
+    return "";
+  }
+  return [
+    `总计 ${formatTokenCount(tokenStats.total_tokens)} tokens`,
+    `消息 ${formatTokenCount(tokenStats.message_tokens)}`,
+    `系统 ${formatTokenCount(tokenStats.system_tokens)}`,
+    `有效历史 ${formatTokenCount(tokenStats.history_tokens)}/${formatTokenCount(tokenStats.history_budget_tokens)}`,
+    remainingPercent !== null ? `余量 ${remainingPercent}%` : "",
+    tokenStats.history_did_compact ? `已压缩，原始历史 ${formatTokenCount(tokenStats.raw_history_tokens)}` : "",
+  ].filter(Boolean).join("；");
+}
+
 type DurableStatusFilter = "all" | "active" | "inactive" | "archived" | "deprecated";
 
 export function MemoryView() {
   const confirm = useConfirmDialog();
-  const { loadInspectorFile } = useAppStore();
+  const { currentSessionId, loadInspectorFile, tokenStats } = useAppStore();
   const [query, setQuery] = useState("");
   const [overview, setOverview] = useState<MemoryOverview | null>(null);
   const [loading, setLoading] = useState(false);
@@ -144,6 +178,10 @@ export function MemoryView() {
       deprecated: headers.filter((note) => note.status === "deprecated").length
     };
   }, [overview?.durable_memory.headers]);
+  const remainingPercent = tokenStats
+    ? Math.max(0, Math.min(100, Math.round(Number(tokenStats.history_remaining_ratio || 0) * 100)))
+    : null;
+  const tokenTitle = sessionTokenTitle(tokenStats, remainingPercent);
   const loadOverview = useCallback(async () => {
     setLoading(true);
     setError("");
@@ -359,6 +397,24 @@ export function MemoryView() {
       </div>
 
       {governanceMessage ? <div className="workspace-alert">{governanceMessage}</div> : null}
+
+      <div className="workspace-metrics-grid">
+        <div className="workspace-stat" title={currentSessionId || ""}>
+          <Activity size={18} />
+          <span>当前会话</span>
+          <strong>{currentSessionId ? currentSessionId : "未绑定会话"}</strong>
+        </div>
+        <div className="workspace-stat" title={tokenTitle}>
+          <Gauge size={18} />
+          <span>上下文余量</span>
+          <strong>{remainingPercent !== null ? `${remainingPercent}%` : "暂无数据"}</strong>
+        </div>
+        <div className="workspace-stat" title={tokenTitle}>
+          <FileText size={18} />
+          <span>会话 Token</span>
+          <strong>{tokenStats ? `${formatTokenCount(tokenStats.total_tokens)} tokens · ${tokenPressureLabel(tokenStats.history_pressure_level)}` : "暂无数据"}</strong>
+        </div>
+      </div>
 
       <section className="workspace-section memory-durable-reader">
         <div className="workspace-section__head">

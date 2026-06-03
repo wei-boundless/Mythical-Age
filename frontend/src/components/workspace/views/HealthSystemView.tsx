@@ -299,7 +299,7 @@ export function HealthSystemView() {
               <span>真值覆盖率</span>
               <strong>{percentLabel(providerCoverage)}</strong>
               <p>{providerCoverageCaption}</p>
-              <div className="health-token-ledger-hero__breakdown" aria-label="Token 口径任务数量">
+              <div className="health-token-ledger-hero__breakdown" aria-label="Token 口径运行记录数量">
                 <span>精确 {providerUsageTaskCount}</span>
                 <span>仅预测 {predictionOnlyTaskCount}</span>
                 <span>旧估算 {traceEstimateTaskCount}</span>
@@ -318,7 +318,7 @@ export function HealthSystemView() {
               accent="predicted"
               label="预测消耗"
               value={tokenLabel(predictedTokenTotal)}
-              detail={exactTokenTotal ? `偏差 ${signedTokenLabel(predictionDelta)} / ${percentLabel(predictionDeltaRatio)} · 仅预测 ${predictionOnlyTaskCount} 个` : `仅预测 ${predictionOnlyTaskCount} 个任务`}
+              detail={exactTokenTotal ? `偏差 ${signedTokenLabel(predictionDelta)} / ${percentLabel(predictionDeltaRatio)} · 仅预测 ${predictionOnlyTaskCount} 个` : `仅预测 ${predictionOnlyTaskCount} 个运行记录`}
             />
             <TokenStatCard
               accent="cache"
@@ -337,7 +337,7 @@ export function HealthSystemView() {
           <section className="health-token-structure">
             <div>
               <span>账本口径覆盖</span>
-              <strong>按任务数量展示精确、预测、旧估算与无记录</strong>
+              <strong>按运行记录展示精确、预测、旧估算与无记录</strong>
             </div>
             <div className="health-token-structure__bar" aria-label="Token 账本口径覆盖">
               <i className="health-token-structure__exact" style={{ width: `${Math.max(0, (providerUsageTaskCount / sourceStructureTotal) * 100)}%` }} />
@@ -351,7 +351,7 @@ export function HealthSystemView() {
               <span><b className="health-token-structure__trace" />旧估算 {traceEstimateTaskCount} 个</span>
               <span><b className="health-token-structure__missing" />无记录 {missingTokenTaskCount} 个</span>
             </div>
-            <p>宽度按任务数量计算，避免把预测、精确账单和缓存节省误加为同一笔成本。</p>
+            <p>宽度按运行记录数量计算，避免把预测、精确账单和缓存节省误加为同一笔成本。</p>
           </section>
 
           <section className="health-cost-grid">
@@ -566,7 +566,7 @@ function TokenTaskLedger({ rows }: { rows: Array<Record<string, unknown>> }) {
   const maxEffectiveTokens = Math.max(1, ...rows.map((row) => numberValue(row.token_total)));
   return (
     <article className="health-list-panel health-token-task-ledger">
-      <PanelHead title="高消耗任务账本" subtitle={`${rows.length} 条`} />
+      <PanelHead title="高消耗运行账本" subtitle={`${rows.length} 条`} />
       <div className="health-token-task-ledger__rows">
         {rows.length ? rows.map((row, index) => {
           const exact = numberValue(row.exact_token_total);

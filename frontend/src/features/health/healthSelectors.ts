@@ -61,8 +61,8 @@ export function buildHealthSystemViewModel(
   );
   const providerCoverage = tokenRecordCount ? providerUsageTaskCount / tokenRecordCount : 0;
   const providerCoverageCaption = tokenRecordCount
-    ? `${providerUsageTaskCount} / ${tokenRecordCount} 个任务已有 provider usage`
-    : "暂无可核算任务";
+    ? `${providerUsageTaskCount} / ${tokenRecordCount} 个运行记录已有 provider usage`
+    : "暂无可核算运行记录";
   const predictionDelta = exactTokenTotal > 0 ? predictedTokenTotal - exactTokenTotal : 0;
   const predictionDeltaRatio = exactTokenTotal > 0 ? Math.abs(predictionDelta) / exactTokenTotal : 0;
   const cacheSavingsRatio = exactTokenTotal + cacheSavingsTotal > 0
@@ -75,7 +75,7 @@ export function buildHealthSystemViewModel(
   const tokenInsight = providerCoverage >= 0.8
     ? "账本真值覆盖充分，可以直接用精确消耗判断成本。"
     : providerCoverage > 0
-      ? "部分任务已有 provider usage，仍有任务只停留在预测或旧轨迹估算。"
+      ? "部分运行记录已有 provider usage，仍有记录只停留在预测或旧轨迹估算。"
       : "当前主要依赖预测或旧轨迹估算，精确账单真值还不足。";
   const maintenanceSummary = maintenance?.summary ?? {};
   const maintenanceCandidates = maintenance?.candidates ?? [];

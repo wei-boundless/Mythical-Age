@@ -67,7 +67,6 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "build_task_run_final_commit_decision": (".commit_gate", "build_task_run_final_commit_decision"),
     "build_tool_action_request": ("runtime", "build_tool_action_request"),
     "build_tool_execution_error_observation": ("runtime", "build_tool_execution_error_observation"),
-    "build_tool_request_runtime_admission": ("runtime", "build_tool_request_runtime_admission"),
     "build_tool_result_observation": ("runtime", "build_tool_result_observation"),
     "build_user_message_commit_decision": (".commit_gate", "build_user_message_commit_decision"),
     "derive_replay_policy": ("runtime", "derive_replay_policy"),

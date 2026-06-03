@@ -247,9 +247,14 @@ def test_mcp_tool_pool_merges_builtin_and_mcp_tools_stably() -> None:
     )
     assert entry_ids == sorted(entry_ids, key=lambda entry_id: next(item["discovery_priority"] for item in entries if item["entry_id"] == entry_id))
     assert "read_file" in names
+    assert "terminal" in names
     assert "mcp__langchain_agent__pdf" in names
     assert pool["merge_policy"] == "stable_priority_then_kind_then_name"
     assert pool["dedupe_key"] == "entry_id"
+    terminal_entry = next(entry for entry in entries if entry["name"] == "terminal")
+    assert terminal_entry["model_visibility"] == "runtime_plan_bound_only"
+    assert terminal_entry["available_to_model"] is False
+    assert terminal_entry["authorized"] is True
     pdf_entry = next(entry for entry in entries if entry["name"] == "mcp__langchain_agent__pdf")
     assert pdf_entry["entry_kind"] == "local_mcp"
     assert pdf_entry["model_visibility"] == "runtime_bound_only"

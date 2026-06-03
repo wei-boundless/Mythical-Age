@@ -17,6 +17,7 @@ const api = vi.hoisted(() => ({
   getOrchestrationHarnessTaskRunLiveMonitor: vi.fn(),
   getOrchestrationHarnessSessionLiveMonitor: vi.fn(),
   getOrchestrationRuntimeOptions: vi.fn(),
+  approveOrchestrationHarnessTaskRunToolCall: vi.fn(),
   pauseOrchestrationHarnessTaskRun: vi.fn(),
   clearChatStreamCursor: vi.fn(),
   getPermissionMode: vi.fn(),
@@ -59,6 +60,7 @@ vi.mock("@/lib/api", () => ({
   getOrchestrationHarnessTaskRunLiveMonitor: api.getOrchestrationHarnessTaskRunLiveMonitor,
   getOrchestrationHarnessSessionLiveMonitor: api.getOrchestrationHarnessSessionLiveMonitor,
   getOrchestrationRuntimeOptions: api.getOrchestrationRuntimeOptions,
+  approveOrchestrationHarnessTaskRunToolCall: api.approveOrchestrationHarnessTaskRunToolCall,
   pauseOrchestrationHarnessTaskRun: api.pauseOrchestrationHarnessTaskRun,
   clearChatStreamCursor: api.clearChatStreamCursor,
   getPermissionMode: api.getPermissionMode,
@@ -75,7 +77,6 @@ vi.mock("@/lib/api", () => ({
   listSkills: api.listSkills,
   loadFile: api.loadFile,
   renameSession: vi.fn(),
-  resolveHarnessTaskRunApproval: vi.fn(),
   saveFile: vi.fn(),
   setRagMode: vi.fn(),
   stopOrchestrationHarnessTaskRun: api.stopOrchestrationHarnessTaskRun,
@@ -155,7 +156,7 @@ const TASK_ENVIRONMENT_CATALOG = {
     {
       record: {
         environment_id: "env.coding.vibe_workspace",
-        title: "Vibe Coding Workspace",
+        title: "Vibe 编码工作区",
         group_id: "environment_group.coding",
         environment_kind: "coding",
         enabled: true,
@@ -166,7 +167,7 @@ const TASK_ENVIRONMENT_CATALOG = {
     {
       record: {
         environment_id: "env.creation.writing",
-        title: "Creative Writing",
+        title: "创意写作",
         group_id: "environment_group.creation",
         environment_kind: "creation",
         enabled: true,
@@ -177,7 +178,7 @@ const TASK_ENVIRONMENT_CATALOG = {
     {
       record: {
         environment_id: "env.development.sandbox",
-        title: "Development Sandbox",
+        title: "开发沙盒",
         group_id: "environment_group.development",
         environment_kind: "development",
         enabled: true,
@@ -188,7 +189,7 @@ const TASK_ENVIRONMENT_CATALOG = {
     {
       record: {
         environment_id: "env.general.workspace",
-        title: "General Workspace",
+        title: "通用工作区",
         group_id: "environment_group.general",
         environment_kind: "general",
         enabled: true,
@@ -253,6 +254,8 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     api.getLatestChatRunForSession.mockRejectedValue(new Error("no active chat run"));
     api.pauseOrchestrationHarnessTaskRun.mockReset();
     api.pauseOrchestrationHarnessTaskRun.mockResolvedValue({ ok: true });
+    api.approveOrchestrationHarnessTaskRunToolCall.mockReset();
+    api.approveOrchestrationHarnessTaskRunToolCall.mockResolvedValue({ ok: true });
     api.clearChatStreamCursor.mockReset();
     api.resumeOrchestrationHarnessTaskRun.mockReset();
     api.resumeOrchestrationHarnessTaskRun.mockResolvedValue({ ok: true });
@@ -1806,6 +1809,47 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(store.getState().sessionActivity.title).toBe("已暂停");
   });
 
+  it("approves a waiting tool approval before resuming the active task run", async () => {
+    const taskRunId = "taskrun:turn:session-approval:1:abc";
+    const store = createStore<StoreState>({
+      ...getDefaultState(),
+      currentSessionId: "session-approval",
+      activeTurnSnapshot: {
+        turn_id: "turn:session-approval:1",
+        task_run_id: taskRunId,
+      },
+      taskGraphLiveMonitor: {
+        authority: "single_agent_runtime_monitor.item",
+        task_run_id: taskRunId,
+        session_id: "session-approval",
+        task_id: "task:turn:session-approval:1",
+        execution_runtime_kind: "single_agent_task",
+        task_run: { task_run_id: taskRunId, status: "waiting_approval" },
+        loop_state: { terminal_reason: "waiting_approval" },
+        has_graph_run: false,
+        status: "waiting_approval",
+        terminal_reason: "waiting_approval",
+        updated_at: 1,
+      },
+    });
+    api.getOrchestrationHarnessSessionLiveMonitor.mockResolvedValue({
+      active_task_run_id: taskRunId,
+      monitor: null,
+      task_runs: [],
+    });
+    const runtime = new WorkspaceRuntime(store);
+
+    await runtime.actions.resumeActiveTaskRun();
+
+    expect(api.approveOrchestrationHarnessTaskRunToolCall).toHaveBeenCalledWith(
+      taskRunId,
+      "user_approve_tool_from_chat",
+      12,
+      "turn:session-approval:1",
+    );
+    expect(api.resumeOrchestrationHarnessTaskRun).not.toHaveBeenCalled();
+  });
+
   it("does not surface transient global monitor aborts as user-visible errors", async () => {
     vi.stubGlobal("EventSource", undefined);
     api.getGlobalRuntimeMonitor.mockRejectedValue(new DOMException("signal is aborted without reason", "AbortError"));
@@ -2229,6 +2273,53 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(store.getState().workspaceInitializing).toBe(false);
   });
 
+  it("keeps session history visible when token statistics refresh fails", async () => {
+    api.getSessionTimeline.mockResolvedValue({
+      messages: [{ role: "user", content: "继续修复 token 统计" }],
+      runtime_attachments: [],
+      conversation_state: { authority: "sessions.conversation_state", permission_mode: "full_access" },
+    });
+    api.getSessionTokens.mockRejectedValue(new Error("token endpoint failed"));
+    const store = createStore<StoreState>({
+      ...getDefaultState(),
+      currentSessionId: "session:tokens",
+      sessions: [{
+        id: "session:tokens",
+        title: "Token Session",
+        created_at: 1,
+        updated_at: 1,
+        message_count: 1,
+      }],
+      tokenStats: {
+        system_tokens: 1,
+        message_tokens: 2,
+        total_tokens: 3,
+        raw_history_tokens: 3,
+        history_tokens: 3,
+        history_budget_tokens: 100,
+        history_remaining_tokens: 97,
+        history_usage_ratio: 0.03,
+        history_remaining_ratio: 0.97,
+        history_pressure_level: "normal",
+        history_compaction_strategy: "none",
+        history_did_compact: false,
+        history_did_microcompact: false,
+        history_did_full_compact: false,
+      },
+    });
+    const runtime = new WorkspaceRuntime(store);
+    const runtimeHarness = runtime as unknown as {
+      refreshSessionDetails: (sessionId: string) => Promise<void>;
+    };
+
+    await runtimeHarness.refreshSessionDetails("session:tokens");
+
+    expect(store.getState().messages).toHaveLength(1);
+    expect(store.getState().messages[0].content).toBe("继续修复 token 统计");
+    expect(store.getState().tokenStats?.total_tokens).toBe(3);
+    expect(store.getState().sessionActivity.event).toBe("");
+  });
+
   it("reattaches a persisted chat run during initialization without starting a new run", async () => {
     vi.useRealTimers();
     const cursor = {
@@ -2510,6 +2601,43 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       title: "会话连接失败",
       event: "workspace_initialize_failed",
     });
+  });
+
+  it("clears the initialization failure state after a session loads successfully", async () => {
+    vi.useRealTimers();
+    api.getSessionTimeline.mockResolvedValue({
+      messages: [{ role: "assistant", content: "恢复成功" }],
+      runtime_attachments: [],
+    });
+    const store = createStore<StoreState>({
+      ...getDefaultState(),
+      currentSessionId: "session:recover",
+      sessions: [
+        {
+          id: "session:recover",
+          title: "Recover",
+          created_at: 1,
+          updated_at: 1,
+          message_count: 1,
+        },
+      ],
+      sessionActivity: {
+        level: "error",
+        title: "会话连接失败",
+        detail: "无法创建或读取会话。",
+        event: "workspace_initialize_failed",
+        updatedAt: 1,
+      },
+    });
+    const runtime = new WorkspaceRuntime(store);
+
+    await runtime.actions.selectSession({ sessionId: "session:recover", poolKey: "main-chat" });
+
+    expect(store.getState().sessionActivity.event).toBe("");
+    expect(store.getState().sessionActivity.level).toBe("idle");
+    expect(store.getState().messages).toMatchObject([
+      { role: "assistant", content: "恢复成功" },
+    ]);
   });
 
   it("throws and leaves no optimistic user message when sending cannot create a session", async () => {
@@ -2927,7 +3055,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       "session:env-bound",
       {
         task_environment_id: "env.development.sandbox",
-        environment_label: "Development Sandbox",
+        environment_label: "开发沙盒",
         source: "task-system",
       },
       undefined,
@@ -2936,7 +3064,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(api.streamChat.mock.calls[0]?.[0]?.task_selection).toMatchObject({
       task_environment_id: "env.development.sandbox",
       environment_id: "env.development.sandbox",
-      environment_label: "Development Sandbox",
+      environment_label: "开发沙盒",
       binding_kind: "conversation_active_task_environment",
       binding_source: "task-system",
     });
@@ -2967,7 +3095,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
 
     expect(store.getState().conversationActiveEnvironment).toMatchObject({
       task_environment_id: "env.coding.vibe_workspace",
-      environment_label: "Vibe Coding Workspace",
+      environment_label: "Vibe 编码工作区",
     });
   });
 
@@ -3027,7 +3155,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       activeWorkspaceView: "chat",
       conversationActiveEnvironment: {
         task_environment_id: "env.general.workspace",
-        environment_label: "General Workspace",
+        environment_label: "通用工作区",
         source: "workspace-mode",
         updated_at: 1,
       },
@@ -3081,7 +3209,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(store.getState().messages.map((message) => message.content)).toEqual(["通用环境问题", "通用环境回答"]);
     expect(store.getState().conversationActiveEnvironment).toMatchObject({
       task_environment_id: "env.coding.vibe_workspace",
-      environment_label: "Vibe Coding Workspace",
+      environment_label: "Vibe 编码工作区",
       source: "workspace-mode",
     });
     expect(api.listSessions).not.toHaveBeenCalled();
@@ -3095,7 +3223,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       currentSessionId: "session:env-clear",
       chatTaskEnvironmentBinding: {
         task_environment_id: "env.development.sandbox",
-        environment_label: "Development Sandbox",
+        environment_label: "开发沙盒",
         source: "task-system",
         bound_at: 123,
       },
@@ -3518,6 +3646,31 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       publicNote: "我正在直接回复这条消息。",
       agentBrief: "已形成一句话回复。",
     });
+  });
+
+  it("writes public timeline delta into the assistant draft during live stream", () => {
+    let transition = startStreamingTurn(getDefaultState(), "继续执行");
+    transition = reduceStreamEvent(transition.state, transition.session, "runtime_step_summary", {
+      step: "task_tool_executed",
+      status: "running",
+      public_timeline_delta: [
+        {
+          item_id: "tool:write",
+          kind: "tool_activity",
+          title: "正在写入 docs/plan.md",
+          state: "running",
+        },
+      ],
+    });
+
+    const assistant = transition.state.messages.at(-1);
+    expect(assistant?.runtimePublicTimelineDraft).toEqual([
+      expect.objectContaining({
+        item_id: "tool:write",
+        kind: "tool_activity",
+        title: "正在写入 docs/plan.md",
+      }),
+    ]);
   });
 
   it("does not block send completion on post-stream session refresh", async () => {

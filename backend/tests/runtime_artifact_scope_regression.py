@@ -106,6 +106,30 @@ def test_sandbox_execution_scope_allows_declared_scratch_without_publishing_it()
     assert ".tmp" not in scope.publish_roots
 
 
+def test_managed_project_workspace_write_scope_is_not_limited_to_artifacts() -> None:
+    artifact_root = "storage/task_environments/coding/vibe-workspace/artifacts"
+    scope = compile_sandbox_execution_scope(
+        environment_payload={
+            "storage_space": {
+                "environment_storage_root": "storage/task_environments/coding/vibe-workspace",
+                "runtime_state_root": "storage/task_environments/coding/vibe-workspace/runtime_state",
+                "artifact_root": artifact_root,
+                "cache_root": "storage/task_environments/coding/vibe-workspace/cache",
+            },
+            "sandbox_policy": {"enabled": True, "write_policy": "sandbox_or_task_granted"},
+            "file_management": {
+                "file_profile_refs": ["file_profile.managed_project_workspace"],
+                "constraints": {"sandbox_workspace_write": "allowed"},
+            },
+        },
+        contract={},
+    )
+
+    assert "." in scope.workspace_write_roots
+    assert "." in scope.write_roots
+    assert scope.publish_roots == (artifact_root,)
+
+
 def test_safety_gate_reports_allowed_roots_and_canonical_output_suggestion(tmp_path: Path) -> None:
     sandbox_root = tmp_path / "sandbox"
     sandbox_root.mkdir()

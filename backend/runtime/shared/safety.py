@@ -97,7 +97,7 @@ def _filesystem_validator(
                 return False, f"path blocked by task safety envelope: {normalized_candidate}"
             if write_mode in {"bounded_create", "scoped_patch"} and write_roots:
                 if not any(
-                    normalized_candidate == allowed or normalized_candidate.startswith(f"{allowed}/")
+                    allowed == "." or normalized_candidate == allowed or normalized_candidate.startswith(f"{allowed}/")
                     for allowed in write_roots
                 ):
                     return False, _outside_write_roots_message(

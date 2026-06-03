@@ -602,3 +602,22 @@ Graph / task_system parallel：
 - 已完成工具结果、审批等待、后续模型上下文保持一致。
 - 并发执行可观测、可恢复、可测试。
 - 项目保留自己的独立任务执行接口，不照搬 Codex/Claude Code 的实现形态。
+
+## 11. 实施状态
+
+更新日期：2026-06-04
+
+当前 057 已完成核心升级：
+
+- single-turn 多工具调用已由 ToolBatchPlan 负责分组，read-only/concurrency_safe 工具可并行，副作用、未知或资源冲突工具保持排他。
+- provider `parallel_tool_calls` 只表达模型可提出多个 tool call；runtime 仍按工具元数据、资源锁、审批状态和安全边界决定并发或串行。
+- TaskRun executor 继续保持 durable lifecycle 语义，每步一个 model action，不与 single-turn tool batch 混用。
+- task_system/graph/engagement 仍是业务任务入口，`execute_task_run` 只调度或恢复已有 executable TaskRun。
+- 审批等待、已完成工具结果、event log、api protocol messages 和后续模型上下文有独立回归保护。
+
+已验证命令：
+
+```text
+python -m pytest backend/tests/tool_batch_planner_regression.py backend/tests/operation_registry_authority_regression.py backend/tests/model_runtime_regression.py
+python -m pytest backend/tests/harness_runtime_facade_regression.py
+```

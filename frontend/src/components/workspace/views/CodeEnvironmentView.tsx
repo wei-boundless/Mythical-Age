@@ -19,6 +19,8 @@ import {
   type CodeEnvironmentStatus,
 } from "@/lib/api";
 
+import { codeEnvironmentDiagnosticsText } from "./codeEnvironmentDiagnostics";
+
 const CODING_TASK_ENVIRONMENT_ID = "env.coding.vibe_workspace";
 
 function hostConfig() {
@@ -172,8 +174,7 @@ export function CodeEnvironmentView() {
     void loadEnvironment();
   }, [loadEnvironment]);
 
-  const diagnostics = environment?.pi.diagnostics ?? [];
-  const diagnosticsError = diagnostics.length ? diagnostics.join("；") : "";
+  const diagnosticsError = codeEnvironmentDiagnosticsText(environment?.pi.diagnostics ?? []);
   const visibleError = error || diagnosticsError;
 
   return (

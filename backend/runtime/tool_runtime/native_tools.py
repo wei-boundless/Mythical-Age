@@ -533,12 +533,7 @@ class NativeWriteFileTool(_NativeToolBase):
             )
         except Exception as exc:
             return self._envelope(tool_args=args, status="error", text=f"Write failed: {exc}", execution_receipt=context.execution_receipt)
-        artifact = {
-            "path": result.logical_path,
-            "kind": "file",
-            "source": self.name,
-            "repository_id": result.repository_id,
-        }
+        artifact = _artifact_ref_for_gateway_file(context=context, result=result, kind="file", source=self.name)
         receipt = result.receipt.to_dict() if result.receipt is not None else {}
         return self._envelope(
             tool_args=args,
@@ -642,12 +637,7 @@ class NativeEditFileTool(_NativeToolBase):
             )
         except Exception as exc:
             return self._envelope(tool_args=args, status="error", text=f"Edit failed: {exc}", execution_receipt=context.execution_receipt)
-        artifact = {
-            "path": result.logical_path,
-            "kind": "file",
-            "source": self.name,
-            "repository_id": result.repository_id,
-        }
+        artifact = _artifact_ref_for_gateway_file(context=context, result=result, kind="file", source=self.name)
         receipt = result.receipt.to_dict() if result.receipt is not None else {}
         return self._envelope(
             tool_args=args,
@@ -1126,17 +1116,38 @@ def _repository_for_action(context: ToolUseContext, action: str) -> str:
     config = _file_management_config(context)
     repositories = dict(config.get("repositories") or {})
     action_name = str(action or "").strip()
+    profile_id = str(config.get("profile_id") or "").strip()
     explicit = str(repositories.get(action_name) or "").strip()
     if explicit:
-        return explicit
-    profile_id = str(config.get("profile_id") or "").strip()
+        return _full_access_project_repository_override(context, profile_id=profile_id, action=action_name, selected=explicit) or explicit
     selected = _repository_for_profile_action(
         profile_id,
         action_name,
         sandbox_available=context.sandbox_root is not None,
         repository_requirements=dict(config.get("repository_requirements") or {}),
     )
+    override = _full_access_project_repository_override(context, profile_id=profile_id, action=action_name, selected=selected)
+    if override:
+        return override
     return selected or str(config.get("default_repository_id") or "").strip()
+
+
+def _full_access_project_repository_override(
+    context: ToolUseContext,
+    *,
+    profile_id: str,
+    action: str,
+    selected: str,
+) -> str:
+    if profile_id != "file_profile.managed_project_workspace":
+        return ""
+    if action not in {"write", "edit"}:
+        return ""
+    if str(context.permission_mode or "").strip().lower() not in {"full_access", "bypass"}:
+        return ""
+    if selected and selected != "repo.managed_project.sandbox_workspace":
+        return ""
+    return "repo.managed_project.project_workspace"
 
 
 def _repository_for_profile_action(
@@ -1521,7 +1532,7 @@ def _path_within_scopes(files: WorkspaceFileService, path: str, scopes: tuple[st
     if not cleaned_scopes:
         return True
     return any(
-        normalized_candidate == scope or normalized_candidate.startswith(f"{scope}/")
+        scope == "." or normalized_candidate == scope or normalized_candidate.startswith(f"{scope}/")
         for scope in cleaned_scopes
         if scope
     )
@@ -1616,6 +1627,35 @@ def _artifact_ref_for_file(
             artifact["sandbox_path"] = Path(path).resolve().relative_to(context.sandbox_root.resolve()).as_posix()
         except ValueError:
             artifact["sandbox_path"] = str(logical_path or "")
+    return artifact
+
+
+def _artifact_ref_for_gateway_file(
+    *,
+    context: ToolUseContext,
+    result: Any,
+    kind: str,
+    source: str,
+) -> dict[str, Any]:
+    logical_path = str(getattr(result, "logical_path", "") or "")
+    physical_path = str(getattr(result, "physical_path", "") or "").strip()
+    if physical_path:
+        artifact = _artifact_ref_for_file(
+            context=context,
+            path=Path(physical_path),
+            logical_path=logical_path,
+            kind=kind,
+            source=source,
+        )
+    else:
+        artifact = {
+            "path": logical_path,
+            "kind": kind,
+            "source": source,
+        }
+    repository_id = str(getattr(result, "repository_id", "") or "").strip()
+    if repository_id:
+        artifact["repository_id"] = repository_id
     return artifact
 
 

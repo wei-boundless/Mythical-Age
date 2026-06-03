@@ -10,8 +10,15 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 from harness.runtime import build_runtime_tool_plan
+from harness.loop.task_tool_approval import (
+    append_task_tool_approval_grant,
+    approval_state_for_task_run,
+    build_task_tool_approval_grant,
+    tool_args_hash,
+)
 from permissions import OperationGate
 from permissions.operations import build_default_operation_registry
+from runtime.shared.models import TaskRun
 from runtime.tool_runtime import RuntimeToolControlPlane, ToolInvocationRequest, ToolObservation
 from runtime.tool_runtime.tool_invocation_control import ToolInvocationContext
 
@@ -415,6 +422,252 @@ def test_runtime_tool_control_plane_dispatches_task_run_through_gate_and_executo
     assert executor.last_run["tool_invocation_context"].caller_kind == "task_run"
 
 
+def test_runtime_tool_control_plane_requires_and_accepts_task_run_approval_state() -> None:
+    executor = _RecordingToolExecutor()
+    plan = build_runtime_tool_plan(
+        runtime_assembly=_assembly(available_tools=[{"tool_name": "browser_control", "operation_id": "op.browser_control"}]),
+        invocation_kind="task_execution",
+        tool_definitions_by_name={"browser_control": SimpleNamespace(operation_id="op.browser_control", is_read_only=False)},
+    )
+    base_request = dict(
+        invocation_id="toolinvoke:task:browser-approval",
+        caller_kind="task_run",
+        caller_ref="taskrun:approval",
+        session_id="session:approval",
+        turn_id="turn:approval:1",
+        task_run_id="taskrun:approval",
+        agent_run_id="agrun:approval",
+        action_request_ref="action:browser",
+        packet_ref="packet:task:approval",
+        tool_name="browser_control",
+        tool_call_id="call:browser",
+        tool_args={"action": "open", "url": "https://example.com"},
+        operation_id="op.browser_control",
+        action_permit=_permit(
+            action_request_ref="action:browser",
+            invocation_kind="task_execution",
+            tool_name="browser_control",
+            operation_id="op.browser_control",
+            read_only=False,
+        ),
+        requested_constraints={
+            "runtime_host": SimpleNamespace(
+                execution_store=None,
+                backend_dir=BACKEND_DIR,
+                tool_authorization_index=SimpleNamespace(
+                    definitions_by_name={"browser_control": SimpleNamespace(operation_id="op.browser_control", is_read_only=False)}
+                ),
+            )
+        },
+    )
+
+    approval = asyncio.run(
+        RuntimeToolControlPlane(
+            tool_runtime_executor=executor,
+            operation_gate=OperationGate(build_default_operation_registry()),
+        ).invoke(ToolInvocationRequest(**base_request), tool_plan=plan)
+    )
+    fingerprint = str(
+        dict(dict(approval.diagnostics.get("supervision") or {}).get("decision") or {}).get("approval_fingerprint")
+        or ""
+    )
+    directive_ref = "runtime-directive:taskrun:approval:tool:action:browser"
+
+    assert approval.status == "needs_approval"
+    assert fingerprint
+    assert executor.run_calls == 0
+
+    approved = asyncio.run(
+        RuntimeToolControlPlane(
+            tool_runtime_executor=executor,
+            operation_gate=OperationGate(build_default_operation_registry()),
+        ).invoke(
+            ToolInvocationRequest(
+                **{
+                    **base_request,
+                    "approval_state": {
+                        "tokens": [
+                            {
+                                "token_id": "approval-token:test",
+                                "operation_id": "op.browser_control",
+                                "directive_ref": directive_ref,
+                                "granted": True,
+                                "source": "test",
+                                "risk_fingerprint": fingerprint,
+                            }
+                        ]
+                    },
+                    "approval_risk_fingerprint": fingerprint,
+                }
+            ),
+            tool_plan=plan,
+        )
+    )
+
+    assert approved.status == "ok"
+    assert approved.operation_gate["decision"] == "allow"
+    assert executor.run_calls == 1
+
+
+def test_runtime_tool_control_plane_rejects_mismatched_approval_token() -> None:
+    executor = _RecordingToolExecutor()
+    plan = build_runtime_tool_plan(
+        runtime_assembly=_assembly(available_tools=[{"tool_name": "browser_control", "operation_id": "op.browser_control"}]),
+        invocation_kind="task_execution",
+        tool_definitions_by_name={"browser_control": SimpleNamespace(operation_id="op.browser_control", is_read_only=False)},
+    )
+    request = ToolInvocationRequest(
+        invocation_id="toolinvoke:task:browser-bad-approval",
+        caller_kind="task_run",
+        caller_ref="taskrun:approval",
+        session_id="session:approval",
+        turn_id="turn:approval:1",
+        task_run_id="taskrun:approval",
+        agent_run_id="agrun:approval",
+        action_request_ref="action:browser",
+        packet_ref="packet:task:approval",
+        tool_name="browser_control",
+        tool_call_id="call:browser",
+        tool_args={"action": "open", "url": "https://example.com"},
+        operation_id="op.browser_control",
+        action_permit=_permit(
+            action_request_ref="action:browser",
+            invocation_kind="task_execution",
+            tool_name="browser_control",
+            operation_id="op.browser_control",
+            read_only=False,
+        ),
+        approval_token={
+            "token_id": "approval-token:wrong",
+            "operation_id": "op.browser_control",
+            "directive_ref": "runtime-directive:taskrun:approval:tool:action:browser",
+            "granted": True,
+            "source": "test",
+            "risk_fingerprint": "wrong-fingerprint",
+        },
+        approval_risk_fingerprint="expected-fingerprint",
+        requested_constraints={
+            "runtime_host": SimpleNamespace(
+                execution_store=None,
+                backend_dir=BACKEND_DIR,
+                tool_authorization_index=SimpleNamespace(
+                    definitions_by_name={"browser_control": SimpleNamespace(operation_id="op.browser_control", is_read_only=False)}
+                ),
+            )
+        },
+    )
+
+    observation = asyncio.run(
+        RuntimeToolControlPlane(
+            tool_runtime_executor=executor,
+            operation_gate=OperationGate(build_default_operation_registry()),
+        ).invoke(request, tool_plan=plan)
+    )
+
+    assert observation.status == "denied"
+    assert observation.operation_gate["pipeline_stage"] == "approval_token"
+    assert executor.run_calls == 0
+
+
+def test_runtime_tool_control_plane_consumes_task_run_approval_after_executor_error() -> None:
+    executor = _FailingToolExecutor()
+    tool_args = {"action": "open", "url": "https://example.com"}
+    action_request_ref = "action:browser-error"
+    task_run_id = "taskrun:approval-error"
+    directive_ref = f"runtime-directive:{task_run_id}:tool:{action_request_ref}"
+    fingerprint = "risk:browser:error"
+    pending = {
+        "status": "approved",
+        "task_run_id": task_run_id,
+        "action_request_ref": action_request_ref,
+        "approval_request_id": "approval-request:browser-error",
+        "tool_call_id": "call:browser",
+        "tool_name": "browser_control",
+        "operation_id": "op.browser_control",
+        "directive_ref": directive_ref,
+        "approval_risk_fingerprint": fingerprint,
+        "tool_args_hash": tool_args_hash(tool_args),
+    }
+    task_run = TaskRun(
+        task_run_id=task_run_id,
+        session_id="session:approval-error",
+        task_id="task:approval-error",
+        execution_runtime_kind="single_agent_task",
+        status="running",
+        diagnostics={"pending_approval": pending},
+    )
+    grant = build_task_tool_approval_grant(
+        task_run=task_run,
+        pending_approval=pending,
+        requested_by="user",
+    )
+    assert grant is not None
+    task_run = TaskRun(
+        task_run_id=task_run.task_run_id,
+        session_id=task_run.session_id,
+        task_id=task_run.task_id,
+        execution_runtime_kind=task_run.execution_runtime_kind,
+        status=task_run.status,
+        diagnostics={**append_task_tool_approval_grant(task_run, grant), "pending_approval": pending},
+    )
+    state_index = _TaskRunStateIndex(task_run)
+    runtime_host = SimpleNamespace(
+        execution_store=None,
+        backend_dir=BACKEND_DIR,
+        state_index=state_index,
+        tool_authorization_index=SimpleNamespace(
+            definitions_by_name={"browser_control": SimpleNamespace(operation_id="op.browser_control", is_read_only=False)}
+        ),
+    )
+    plan = build_runtime_tool_plan(
+        runtime_assembly=_assembly(available_tools=[{"tool_name": "browser_control", "operation_id": "op.browser_control"}]),
+        invocation_kind="task_execution",
+        tool_definitions_by_name={"browser_control": SimpleNamespace(operation_id="op.browser_control", is_read_only=False)},
+    )
+    request = ToolInvocationRequest(
+        invocation_id="toolinvoke:task:browser-error",
+        caller_kind="task_run",
+        caller_ref=task_run_id,
+        session_id="session:approval-error",
+        turn_id="turn:approval-error:1",
+        task_run_id=task_run_id,
+        agent_run_id="agrun:approval-error",
+        action_request_ref=action_request_ref,
+        packet_ref="packet:task:approval-error",
+        tool_name="browser_control",
+        tool_call_id="call:browser",
+        tool_args=tool_args,
+        operation_id="op.browser_control",
+        action_permit=_permit(
+            action_request_ref=action_request_ref,
+            invocation_kind="task_execution",
+            tool_name="browser_control",
+            operation_id="op.browser_control",
+            read_only=False,
+        ),
+        approval_state=approval_state_for_task_run(task_run).to_dict(),
+        approval_risk_fingerprint=fingerprint,
+        requested_constraints={"runtime_host": runtime_host},
+    )
+
+    observation = asyncio.run(
+        RuntimeToolControlPlane(
+            tool_runtime_executor=executor,
+            operation_gate=OperationGate(build_default_operation_registry()),
+        ).invoke(request, tool_plan=plan)
+    )
+
+    updated = state_index.get_task_run(task_run_id)
+    approval_state = dict(dict(updated.diagnostics or {}).get("approval_state") or {}) if updated is not None else {}
+    grants = [dict(item) for item in list(approval_state.get("grants") or [])]
+
+    assert observation.status == "error"
+    assert executor.run_calls == 1
+    assert approval_state["status"] == "consumed"
+    assert grants and grants[0]["consumed"] is True
+    assert dict(dict(updated.diagnostics or {}).get("pending_approval") or {}).get("status") == "consumed"
+
+
 def test_runtime_tool_control_plane_fail_closes_agent_turn_when_control_plane_dispatch_is_missing() -> None:
     executor = _RecordingExecutorWithoutControlPlaneDispatch()
     plan = build_runtime_tool_plan(
@@ -562,6 +815,58 @@ def test_runtime_tool_control_plane_agent_turn_side_effect_runs_without_default_
     assert observation.operation_gate["reason"] == "operation allowed by adopted resource policy"
     assert executor.core_calls == 1
     assert executor.last_core["tool_name"] == "image_generate"
+
+
+def test_runtime_tool_control_plane_agent_turn_explicit_approval_policy_requires_task_run() -> None:
+    executor = _RecordingCoreToolExecutor()
+    plan = build_runtime_tool_plan(
+        runtime_assembly=_assembly(available_tools=[{"tool_name": "image_generate", "operation_id": "op.image_generate"}]),
+        invocation_kind="single_agent_turn",
+        tool_definitions_by_name={"image_generate": SimpleNamespace(operation_id="op.image_generate", is_read_only=False)},
+    )
+    request = ToolInvocationRequest(
+        invocation_id="toolinvoke:turn:image-human-approval",
+        caller_kind="agent_turn",
+        caller_ref="turnrun:one",
+        session_id="session:one",
+        turn_id="turn:one:1",
+        tool_name="image_generate",
+        tool_call_id="call:image",
+        tool_args={"prompt": "pixel tower"},
+        operation_id="op.image_generate",
+        action_request_ref="action:image",
+        action_permit=_permit(
+            action_request_ref="action:image",
+            invocation_kind="agent_turn",
+            tool_name="image_generate",
+            operation_id="op.image_generate",
+            read_only=False,
+        ),
+        sandbox_scope={"enabled": False, "approval_policy": "manual_approval_required"},
+        requested_constraints={
+            "runtime_host": SimpleNamespace(
+                backend_dir=BACKEND_DIR,
+                tool_authorization_index=SimpleNamespace(
+                    definitions_by_name={"image_generate": SimpleNamespace(operation_id="op.image_generate", is_read_only=False)}
+                ),
+            ),
+            "backend_dir": str(BACKEND_DIR),
+            "runtime_assembly": _assembly(available_tools=[{"tool_name": "image_generate", "operation_id": "op.image_generate"}]).to_dict(),
+        },
+    )
+
+    observation = asyncio.run(
+        RuntimeToolControlPlane(
+            tool_runtime_executor=executor,
+            operation_gate=OperationGate(build_default_operation_registry()),
+        ).invoke(request, tool_plan=plan)
+    )
+
+    assert observation.status == "denied"
+    assert observation.operation_gate["decision"] == "deny"
+    assert observation.operation_gate["pipeline_stage"] == "deny_rule"
+    assert "resumable task approval flow" in observation.text
+    assert executor.core_calls == 0
 
 
 def test_runtime_tool_control_plane_agent_turn_side_effect_sandbox_metadata_does_not_create_approval_gate() -> None:
@@ -923,6 +1228,29 @@ class _RecordingToolExecutor:
         )
 
 
+class _FailingToolExecutor(_RecordingToolExecutor):
+    async def execute_control_plane_request(self, **kwargs):
+        self.run_calls += 1
+        self.last_run = dict(kwargs)
+        return {
+            "observation": {
+                "payload": {
+                    "error": "executor failed after approval",
+                    "result_envelope": {
+                        "tool_name": str(getattr(kwargs["request"], "tool_name", "") or ""),
+                        "tool_args": dict(getattr(kwargs["request"], "tool_args", {}) or {}),
+                        "status": "error",
+                        "text": "executor failed after approval",
+                        "structured_payload": {},
+                        "artifact_refs": [],
+                    },
+                    "execution_receipt": {},
+                }
+            },
+            "error": "executor failed after approval",
+        }
+
+
 class _RecordingCoreToolExecutor(_RecordingToolExecutor):
     def __init__(self) -> None:
         super().__init__()
@@ -988,3 +1316,14 @@ def _invocation_context_from_request(request) -> ToolInvocationContext:
         tool_call_id=str(getattr(request, "tool_call_id", "") or ""),
         idempotency_key="test-idempotency-key",
     )
+
+
+class _TaskRunStateIndex:
+    def __init__(self, task_run: TaskRun) -> None:
+        self.task_run = task_run
+
+    def get_task_run(self, task_run_id: str) -> TaskRun | None:
+        return self.task_run if self.task_run.task_run_id == task_run_id else None
+
+    def upsert_task_run(self, task_run: TaskRun) -> None:
+        self.task_run = task_run

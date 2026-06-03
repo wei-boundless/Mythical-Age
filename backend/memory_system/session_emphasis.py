@@ -99,13 +99,33 @@ class SessionEmphasisStore:
             if isinstance(item, dict) and normalize_text(item.get("content"))
         ]
 
-    def list_active(self, session_id: str, *, limit: int = 8) -> list[SessionPinnedUserSteer]:
-        active = [item for item in self.load_all(session_id) if item.status == "active" and item.content]
+    def list_active(
+        self,
+        session_id: str,
+        *,
+        limit: int = 8,
+        task_environment_id: str = "",
+    ) -> list[SessionPinnedUserSteer]:
+        current_environment = normalize_text(task_environment_id)
+        active = [
+            item
+            for item in self.load_all(session_id)
+            if item.status == "active" and item.content and _matches_environment(item, current_environment)
+        ]
         active.sort(key=lambda item: (priority_score(item.priority), item.updated_at), reverse=True)
         return active[: max(1, int(limit or 8))]
 
-    def render_pinned_facts(self, session_id: str, *, limit: int = 8) -> list[dict[str, Any]]:
-        return [item.to_pinned_fact() for item in self.list_active(session_id, limit=limit)]
+    def render_pinned_facts(
+        self,
+        session_id: str,
+        *,
+        limit: int = 8,
+        task_environment_id: str = "",
+    ) -> list[dict[str, Any]]:
+        return [
+            item.to_pinned_fact()
+            for item in self.list_active(session_id, limit=limit, task_environment_id=task_environment_id)
+        ]
 
     def upsert(
         self,
@@ -261,3 +281,12 @@ def _coerce_status(value: Any) -> SessionEmphasisStatus:
     if normalized in {"active", "superseded", "resolved", "archived"}:
         return normalized  # type: ignore[return-value]
     return "active"
+
+
+def _matches_environment(item: SessionPinnedUserSteer, current_environment: str) -> bool:
+    item_environment = normalize_text(item.task_environment_id)
+    if not item_environment:
+        return True
+    if normalize_text(item.scope) == "global_common":
+        return True
+    return bool(current_environment and item_environment == current_environment)

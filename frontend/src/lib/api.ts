@@ -187,7 +187,7 @@ export type RuntimeProgressPresentation = {
 
 export type PublicChatTimelineItem = {
   item_id?: string;
-  kind: "assistant_text" | "tool_activity" | "artifact" | "verification" | "blocked" | "final_summary" | string;
+  kind: "status_update" | "assistant_text" | "tool_activity" | "artifact" | "verification" | "blocked" | "final_summary" | string;
   title?: string;
   detail?: string;
   text?: string;
@@ -198,6 +198,10 @@ export type PublicChatTimelineItem = {
   stream_state?: "streaming" | "done" | string;
   trace_refs?: string[];
   artifacts?: Array<Record<string, unknown>>;
+};
+
+export type PublicChatTimelineDelta = {
+  items: PublicChatTimelineItem[];
 };
 
 export type TaskEnvironmentSessionResolvePayload = {
@@ -4067,6 +4071,16 @@ export async function resumeOrchestrationHarnessTaskRun(taskRunId: string, maxSt
     {
       method: "POST",
       body: JSON.stringify({ max_steps: maxSteps, expected_active_turn_id: expectedActiveTurnId }),
+    }
+  );
+}
+
+export async function approveOrchestrationHarnessTaskRunToolCall(taskRunId: string, reason = "", maxSteps = 12, expectedActiveTurnId = "") {
+  return request<Record<string, unknown>>(
+    `/orchestration/harness/task-runs/${encodeURIComponent(taskRunId)}/approve-tool-call`,
+    {
+      method: "POST",
+      body: JSON.stringify({ reason, max_steps: maxSteps, expected_active_turn_id: expectedActiveTurnId }),
     }
   );
 }

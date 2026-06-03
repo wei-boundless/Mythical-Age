@@ -32,7 +32,6 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "build_default_operation_registry": (".operations", "build_default_operation_registry"),
     "build_resource_policy_candidate": (".resource_policy_builder", "build_resource_policy_candidate"),
     "build_runtime_capability_state": (".runtime_policy_builder", "build_runtime_capability_state"),
-    "build_tool_request_runtime_admission": (".tool_admission", "build_tool_request_runtime_admission"),
     "coerce_tool_scope": (".tool_scope", "coerce_tool_scope"),
     "default_enabled_package_selections": (".operation_packages", "default_enabled_package_selections"),
     "default_operation_descriptors": (".operations", "default_operation_descriptors"),

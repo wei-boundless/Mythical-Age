@@ -5,7 +5,7 @@ from typing import Any
 
 from permissions.operations import OperationDescriptor, OperationRegistry
 
-from permissions.resource_policy import ResourcePolicy
+from permissions.resource_policy import ResourceDecision, ResourcePolicy
 
 
 PERMISSION_MODE_DEFAULT = "default"
@@ -196,11 +196,15 @@ class OperationGate:
                 },
             )
         if descriptor.operation_id in resource_policy.denied_operations:
+            policy_decision = _resource_policy_decision_for_operation(resource_policy, descriptor.operation_id)
             return OperationGateResult(
                 operation_id=descriptor.operation_id,
                 decision="deny",
-                reason="operation denied by resource policy",
+                reason=str(getattr(policy_decision, "reason", "") or "operation denied by resource policy"),
                 pipeline_stage="deny_rule",
+                diagnostics={
+                    "resource_decision": policy_decision.to_dict() if hasattr(policy_decision, "to_dict") else {},
+                } if policy_decision is not None else {},
             )
         approval_satisfied = False
         if descriptor.operation_id in resource_policy.requires_approval_operations:
@@ -376,6 +380,13 @@ class OperationGate:
                 "fail_closed": True,
             },
         )
+
+
+def _resource_policy_decision_for_operation(resource_policy: ResourcePolicy, operation_id: str) -> ResourceDecision | None:
+    for decision in tuple(resource_policy.decisions or ()):
+        if str(getattr(decision, "operation_id", "") or "") == str(operation_id or ""):
+            return decision
+    return None
 
 
 def _approval_fingerprint_matches(token_fingerprint: str, required_fingerprint: str) -> bool:

@@ -313,6 +313,7 @@ function WorkspaceManagerPanel({ onOpenFile }: { onOpenFile: (path: string) => v
   const projectTreeNodes = workspaceTree?.tree.children || [];
   const [openingProjectRoot, setOpeningProjectRoot] = useState(false);
   const [openProjectRootError, setOpenProjectRootError] = useState("");
+  const [filesOpen, setFilesOpen] = useState(false);
 
   async function handleOpenProjectRoot() {
     setOpeningProjectRoot(true);
@@ -330,8 +331,8 @@ function WorkspaceManagerPanel({ onOpenFile }: { onOpenFile: (path: string) => v
     <aside className="workbench-resource-panel" aria-label="任务环境管理">
       <header className="workbench-panel-head">
         <div>
-          <strong>任务环境</strong>
-          <span>环境集合</span>
+          <strong>对话</strong>
+          <span>{projectName}</span>
         </div>
         <WorkspaceModeSwitcher />
       </header>
@@ -351,47 +352,7 @@ function WorkspaceManagerPanel({ onOpenFile }: { onOpenFile: (path: string) => v
       </section>
 
       <div className="workbench-left-body">
-        <section className="workbench-file-tree" aria-label="项目文件">
-          <div className="workbench-file-tree__head">
-            <div>
-              <strong>项目文件</strong>
-              <span>{workspaceTree ? `${workspaceTree.total_entries} 项` : workspaceTreeLoading ? "加载中" : "未加载"}</span>
-            </div>
-            <button
-              aria-label="打开项目目录"
-              className="workbench-file-tree__open-project"
-              disabled={openingProjectRoot}
-              onClick={() => void handleOpenProjectRoot()}
-              title={`打开项目目录：${projectRoot}`}
-              type="button"
-            >
-              <FolderOpen size={15} />
-            </button>
-          </div>
-          <div className="workbench-project-file-list">
-            {openProjectRootError ? <div className="workbench-tree-state workbench-tree-state--error">{openProjectRootError}</div> : null}
-            {workspaceTreeError ? <div className="workbench-tree-state workbench-tree-state--error">{workspaceTreeError}</div> : null}
-            {workspaceTreeLoading && !workspaceTree ? <div className="workbench-tree-state">正在读取项目目录。</div> : null}
-            {!workspaceTreeLoading && !workspaceTreeError && workspaceTree && !projectTreeNodes.length ? (
-              <div className="workbench-tree-state">未发现可显示文件。</div>
-            ) : null}
-            {projectTreeNodes.length ? (
-              <ul className="workbench-project-tree">
-                {projectTreeNodes.map((node) => (
-                  <WorkbenchProjectTreeNode
-                    activePath={inspectorPath}
-                    key={`${node.kind}:${node.path}`}
-                    node={node}
-                    onOpenFile={onOpenFile}
-                  />
-                ))}
-              </ul>
-            ) : null}
-            {workspaceTree?.truncated ? <div className="workbench-tree-state">文件较多，已显示前 {workspaceTree.max_entries} 项。</div> : null}
-          </div>
-        </section>
-
-        <section className="workbench-session-panel" aria-label="对话记录">
+        <section className="workbench-session-panel workbench-session-panel--primary" aria-label="对话记录">
           <div className="workbench-session-toolbar">
             <div>
               <strong>对话</strong>
@@ -432,6 +393,64 @@ function WorkspaceManagerPanel({ onOpenFile }: { onOpenFile: (path: string) => v
               </div>
             )}
           </div>
+        </section>
+
+        <section
+          className={filesOpen ? "workbench-file-tree workbench-file-tree--secondary" : "workbench-file-tree workbench-file-tree--secondary is-collapsed"}
+          aria-label="项目文件"
+        >
+          <div className="workbench-file-tree__head">
+            <button
+              aria-expanded={filesOpen}
+              className="workbench-file-tree__toggle"
+              onClick={() => setFilesOpen((value) => !value)}
+              type="button"
+            >
+              {filesOpen ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+              <div>
+                <strong>项目文件</strong>
+                <span>{workspaceTree ? `${workspaceTree.total_entries} 项` : workspaceTreeLoading ? "加载中" : "未加载"}</span>
+              </div>
+            </button>
+            <div className="workbench-file-tree__actions">
+              <button disabled={workspaceTreeLoading} onClick={() => void refreshWorkspaceTree()} type="button">
+                <RefreshCw size={14} />
+              </button>
+              <button
+                aria-label="打开项目目录"
+                className="workbench-file-tree__open-project"
+                disabled={openingProjectRoot}
+                onClick={() => void handleOpenProjectRoot()}
+                title={`打开项目目录：${projectRoot}`}
+                type="button"
+              >
+                <FolderOpen size={15} />
+              </button>
+            </div>
+          </div>
+          {filesOpen ? (
+            <div className="workbench-project-file-list">
+              {openProjectRootError ? <div className="workbench-tree-state workbench-tree-state--error">{openProjectRootError}</div> : null}
+              {workspaceTreeError ? <div className="workbench-tree-state workbench-tree-state--error">{workspaceTreeError}</div> : null}
+              {workspaceTreeLoading && !workspaceTree ? <div className="workbench-tree-state">正在读取项目目录。</div> : null}
+              {!workspaceTreeLoading && !workspaceTreeError && workspaceTree && !projectTreeNodes.length ? (
+                <div className="workbench-tree-state">未发现可显示文件。</div>
+              ) : null}
+              {projectTreeNodes.length ? (
+                <ul className="workbench-project-tree">
+                  {projectTreeNodes.map((node) => (
+                    <WorkbenchProjectTreeNode
+                      activePath={inspectorPath}
+                      key={`${node.kind}:${node.path}`}
+                      node={node}
+                      onOpenFile={onOpenFile}
+                    />
+                  ))}
+                </ul>
+              ) : null}
+              {workspaceTree?.truncated ? <div className="workbench-tree-state">文件较多，已显示前 {workspaceTree.max_entries} 项。</div> : null}
+            </div>
+          ) : null}
         </section>
       </div>
     </aside>

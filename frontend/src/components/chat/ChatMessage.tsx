@@ -7,7 +7,7 @@ import remarkGfm from "remark-gfm";
 
 import { hasPublicRunActivity, PublicRunActivity } from "@/components/chat/PublicRunActivity";
 import { RetrievalCard } from "@/components/chat/RetrievalCard";
-import type { RetrievalResult, SessionRuntimeAttachment, ToolCall } from "@/lib/api";
+import type { PublicChatTimelineItem, RetrievalResult, SessionRuntimeAttachment, ToolCall } from "@/lib/api";
 import type { RuntimeProgressEntry } from "@/lib/store/types";
 
 export function ChatMessage({
@@ -16,6 +16,7 @@ export function ChatMessage({
   content,
   image,
   runtimeAttachments = [],
+  runtimePublicTimelineDraft,
   answerChannel,
   answerCanonicalState,
   answerPersistPolicy,
@@ -40,6 +41,7 @@ export function ChatMessage({
   stageStatus?: string;
   runtimeProgress?: RuntimeProgressEntry[];
   runtimeAttachments?: SessionRuntimeAttachment[];
+  runtimePublicTimelineDraft?: PublicChatTimelineItem[];
   answerChannel?: string;
   answerCanonicalState?: string;
   answerPersistPolicy?: string;
@@ -60,7 +62,8 @@ export function ChatMessage({
   const [failedImageSrc, setFailedImageSrc] = useState("");
   const imageUnavailable = Boolean(image?.src && failedImageSrc === image.src);
   const displayContent = isUser ? content : assistantDisplayContent({ content, answerChannel, answerSource });
-  const hasRunActivity = !isUser && hasPublicRunActivity(runtimeAttachments, displayContent);
+  const publicTimelineItems = isUser ? [] : mergedPublicTimelineItems(runtimeAttachments, runtimePublicTimelineDraft);
+  const hasRunActivity = !isUser && hasPublicRunActivity(publicTimelineItems, displayContent);
   const legacyTaskContractReceipt = !isUser && isLegacyTaskContractReceipt({ content, answerChannel, answerSource });
   const hideLegacyTaskContractReceipt = legacyTaskContractReceipt && hasRunActivity;
   const boundary = {
@@ -165,11 +168,43 @@ export function ChatMessage({
         </div>
       ) : null}
       {hasRunActivity ? (
-        <PublicRunActivity attachments={runtimeAttachments} assistantContent={displayContent} />
+        <PublicRunActivity items={publicTimelineItems} assistantContent={displayContent} />
       ) : null}
       {!isUser ? <OutputBoundaryStatus {...boundary} /> : null}
     </article>
   );
+}
+
+function mergedPublicTimelineItems(
+  attachments: SessionRuntimeAttachment[],
+  runtimePublicTimelineDraft: PublicChatTimelineItem[] | undefined,
+) {
+  const merged: PublicChatTimelineItem[] = [];
+  const indexByKey = new Map<string, number>();
+  const push = (item: PublicChatTimelineItem, fallbackIndex: number) => {
+    const key = publicTimelineItemKey(item, fallbackIndex);
+    if (!key) return;
+    const existingIndex = indexByKey.get(key);
+    if (existingIndex === undefined) {
+      indexByKey.set(key, merged.length);
+      merged.push(item);
+      return;
+    }
+    merged[existingIndex] = { ...merged[existingIndex], ...item };
+  };
+  attachments.flatMap((attachment) => Array.isArray(attachment.public_timeline) ? attachment.public_timeline : [])
+    .forEach((item, index) => push(item, index));
+  (runtimePublicTimelineDraft ?? []).forEach((item, index) => push(item, attachments.length + index));
+  return merged;
+}
+
+function publicTimelineItemKey(item: PublicChatTimelineItem | undefined, fallbackIndex: number) {
+  if (!item) return "";
+  const itemId = String(item.item_id ?? "").trim();
+  if (itemId) return itemId;
+  const refs = Array.isArray(item.trace_refs) ? item.trace_refs.map((ref) => String(ref ?? "").trim()).filter(Boolean) : [];
+  if (refs.length) return `refs:${refs.join(",")}`;
+  return `${String(item.kind ?? "").trim()}:${String(item.title ?? item.text ?? item.detail ?? item.path ?? "").trim()}:${fallbackIndex}`;
 }
 
 function cleanBoundaryText(value: unknown) {
@@ -197,8 +232,7 @@ function shouldShowBoundaryStatus(state: string, persistPolicy: string, leakFlag
   if (leakFlags.length > 0) return true;
   if (fallbackReason && !routineFallback) return true;
   if (state === "missing_answer" || persistPolicy === "do_not_persist") return true;
-  if (state === "progress_only" || persistPolicy === "persist_debug_only") return false;
-  return state !== "stable_answer" || persistPolicy !== "persist_canonical";
+  return false;
 }
 
 function OutputBoundaryStatus({

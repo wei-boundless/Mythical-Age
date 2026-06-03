@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 
 from api.deps import require_runtime
 from harness.loop.task_executor import (
+    approve_task_run_tool_call,
     request_task_run_pause,
     resume_paused_task_run,
     stop_task_run,
@@ -28,6 +29,10 @@ class TaskRunExecuteRequest(BaseModel):
 class TaskRunControlRequest(BaseModel):
     reason: str = Field(default="", max_length=500)
     expected_active_turn_id: str = Field(default="", max_length=300)
+
+
+class TaskRunApprovalRequest(TaskRunExecuteRequest):
+    reason: str = Field(default="", max_length=500)
 
 
 @router.get("/orchestration/harness/sessions/{session_id}/task-runs")
@@ -156,6 +161,55 @@ async def resume_harness_task_run(
     updated_task_run = runtime_host.state_index.get_task_run(task_run_id) or task_run
     return {
         **result,
+        "background_started": True,
+        "task_run_id": task_run_id,
+        "status": updated_task_run.status,
+        "monitor_url": f"/api/orchestration/runtime-monitor/task-runs/{task_run_id}",
+        "trace_url": f"/api/orchestration/harness/task-runs/{task_run_id}",
+    }
+
+
+@router.post("/orchestration/harness/task-runs/{task_run_id}/approve-tool-call")
+async def approve_harness_task_run_tool_call(
+    task_run_id: str,
+    payload: TaskRunApprovalRequest | None = None,
+) -> dict[str, Any]:
+    runtime = require_runtime()
+    runtime_host = runtime.harness_runtime.single_agent_runtime_host
+    _assert_expected_active_turn(runtime_host, task_run_id, payload.expected_active_turn_id if payload is not None else "")
+    approval_result = approve_task_run_tool_call(
+        runtime_host,
+        task_run_id,
+        reason=payload.reason if payload is not None else "",
+        requested_by="user",
+    )
+    if approval_result.get("error") == "task_run_not_found":
+        raise HTTPException(status_code=404, detail="TaskRun not found")
+    if not approval_result.get("ok"):
+        raise HTTPException(status_code=409, detail=str(approval_result.get("error") or "task_run_approval_rejected"))
+    resume_result = resume_paused_task_run(
+        runtime_host,
+        task_run_id,
+        reason=payload.reason if payload is not None else "approved_tool_call",
+        requested_by="user",
+    )
+    if not resume_result.get("ok"):
+        raise HTTPException(status_code=409, detail=str(resume_result.get("error") or "task_run_resume_rejected"))
+    task_run = runtime_host.state_index.get_task_run(task_run_id)
+    if task_run is None:
+        raise HTTPException(status_code=404, detail="TaskRun not found")
+    max_steps = payload.max_steps if payload is not None else 12
+    schedule_result = runtime.harness_runtime.schedule_task_run_executor(
+        task_run_id,
+        scheduler="task_run_approval_resume_api",
+        max_steps=max_steps,
+    )
+    if not schedule_result.get("ok") or not schedule_result.get("scheduled"):
+        raise HTTPException(status_code=409, detail=_schedule_rejection_detail(schedule_result, fallback_status=str(getattr(task_run, "status", "") or "")))
+    updated_task_run = runtime_host.state_index.get_task_run(task_run_id) or task_run
+    return {
+        **resume_result,
+        "approval": approval_result,
         "background_started": True,
         "task_run_id": task_run_id,
         "status": updated_task_run.status,

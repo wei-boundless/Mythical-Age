@@ -1,4 +1,5 @@
 import type { TaskGraphRecord, TaskSystemOverview } from "@/lib/api";
+import { taskEnvironmentDisplayName } from "@/lib/taskEnvironmentDisplay";
 import { recommendedTaskGraphId, sortTaskGraphsForWorkbench } from "../task-system/taskGraphSelection";
 
 export type CenterWorkspaceLayer = "chat" | "task-graph";
@@ -33,7 +34,7 @@ export function centerWorkspaceTaskEnvironmentId(graph: TaskGraphRecord | null |
 }
 
 export function centerWorkspaceTaskEnvironmentLabel(environmentId: string) {
-  return environmentId;
+  return taskEnvironmentDisplayName(environmentId);
 }
 
 export function centerWorkspaceTaskEnvironmentLabelFromOverview(
@@ -41,7 +42,9 @@ export function centerWorkspaceTaskEnvironmentLabelFromOverview(
   environmentId: string,
 ) {
   const record = overview?.task_environment_management?.records?.find((item) => item.environment_id === environmentId);
-  return record?.title ? `${record.title} · ${environmentId}` : centerWorkspaceTaskEnvironmentLabel(environmentId);
+  return record?.title
+    ? `${taskEnvironmentDisplayName(environmentId, record.title)} · ${environmentId}`
+    : centerWorkspaceTaskEnvironmentLabel(environmentId);
 }
 
 export function listCenterWorkspaceTaskGraphs(overview: TaskSystemOverview | null | undefined) {

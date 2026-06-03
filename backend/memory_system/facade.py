@@ -9,6 +9,7 @@ from .bundle_service import MemoryBundleService
 from .continuity import ForegroundContinuityStateStore, MemoryMessageAdapter, SessionMemoryLayer
 from .conversation_memory import ConversationMemoryStoreAdapter
 from .durable import DurableMemoryLayer
+from .environment_context import resolve_memory_environment_context
 from .governance_service import DurableMemoryGovernanceService
 from .layout import environment_durable_memory_scope_from_backend_dir
 from .maintenance import MemoryMaintenanceAgent, MemoryMaintenanceCoordinator
@@ -121,6 +122,7 @@ class MemoryFacade:
         main_context: dict[str, Any] | None = None,
         task_summary_refs: list[dict[str, Any]] | None = None,
         bundle_summary_refs: list[dict[str, Any]] | None = None,
+        memory_environment_context: dict[str, Any] | None = None,
         durable_lane_enabled: bool = True,
         force: bool = False,
     ):
@@ -153,6 +155,11 @@ class MemoryFacade:
             "main_context": dict(main_context or {}),
             "task_summary_refs": list(task_summary_refs or []),
             "bundle_summary_refs": list(bundle_summary_refs or []),
+            "memory_environment_context": resolve_memory_environment_context(
+                explicit=memory_environment_context,
+                main_context=main_context,
+                turn_id=turn_id,
+            ).to_dict(),
             "durable_lane_enabled": durable_lane_enabled,
             "force": force,
         }
@@ -209,6 +216,7 @@ class MemoryFacade:
         main_context: dict[str, Any] | None = None,
         task_summary_refs: list[dict[str, Any]] | None = None,
         bundle_summary_refs: list[dict[str, Any]] | None = None,
+        memory_environment_context: dict[str, Any] | None = None,
         durable_lane_enabled: bool = True,
         force: bool = True,
     ):
@@ -219,6 +227,7 @@ class MemoryFacade:
             main_context=main_context,
             task_summary_refs=task_summary_refs,
             bundle_summary_refs=bundle_summary_refs,
+            memory_environment_context=memory_environment_context,
             durable_lane_enabled=durable_lane_enabled,
             force=force,
         )
@@ -232,6 +241,7 @@ class MemoryFacade:
         main_context: dict[str, Any] | None = None,
         task_summary_refs: list[dict[str, Any]] | None = None,
         bundle_summary_refs: list[dict[str, Any]] | None = None,
+        memory_environment_context: dict[str, Any] | None = None,
         durable_lane_enabled: bool = True,
         force: bool = True,
     ):
@@ -242,6 +252,7 @@ class MemoryFacade:
             main_context=main_context,
             task_summary_refs=task_summary_refs,
             bundle_summary_refs=bundle_summary_refs,
+            memory_environment_context=memory_environment_context,
             durable_lane_enabled=durable_lane_enabled,
             force=force,
         )
@@ -266,6 +277,7 @@ class MemoryFacade:
             main_context=dict(payload.get("main_context") or {}),
             task_summary_refs=list(payload.get("task_summary_refs") or []),
             bundle_summary_refs=list(payload.get("bundle_summary_refs") or []),
+            memory_environment_context=dict(payload.get("memory_environment_context") or {}),
             durable_lane_enabled=bool(payload.get("durable_lane_enabled", True)),
             force=bool(payload.get("force", False)),
         )

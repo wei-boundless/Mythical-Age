@@ -27,6 +27,7 @@ from harness.loop.task_executor import (
     _tool_call_progress_summary,
 )
 from harness.loop.task_lifecycle import TaskLifecycleRecord, TaskRunContract
+from sessions import SessionManager
 from capability_system.tools.native_tool_catalog import build_tool_instances, get_tool_definitions
 from tests.support.runtime_stubs import (
     NativeToolCallSequenceModelRuntimeStub,
@@ -335,6 +336,141 @@ def test_default_runtime_branches_to_single_agent_turn_without_task_run() -> Non
     assert traces["task_run_count"] == 0
 
 
+def test_public_stream_projection_emits_public_timeline_delta_for_tool_progress() -> None:
+    projected = _project_public_stream_event(
+        "runtime_step_summary",
+        {
+            "type": "runtime_step_summary",
+            "step": "task_tool_executed",
+            "status": "running",
+            "public_progress_note": "正在写入 docs/plan.md",
+            "event": {
+                "event_id": "rtevt:tool-progress",
+                "payload": {
+                    "tool_name": "write_file",
+                    "tool_target": "docs/plan.md",
+                },
+            },
+        },
+    )
+
+    assert projected is not None
+    _, data = projected
+    assert data["public_timeline_delta"][0]["kind"] == "tool_activity"
+    assert data["public_timeline_delta"][0]["title"] == "正在写入 docs/plan.md"
+
+
+def test_public_stream_projection_emits_handoff_status_delta() -> None:
+    projected = _project_public_stream_event(
+        "done",
+        {
+            "type": "done",
+            "terminal_reason": "task_executor_scheduled",
+            "answer_channel": "task_control",
+            "runtime_task_run_id": "taskrun:test:handoff",
+        },
+    )
+
+    assert projected is not None
+    _, data = projected
+    assert data["public_timeline_delta"][0]["kind"] == "status_update"
+    assert data["public_timeline_delta"][0]["title"] == "后台任务已接管"
+
+
+def test_public_stream_projection_uses_inspection_language_for_path_exists() -> None:
+    projected = _project_public_stream_event(
+        "runtime_step_summary",
+        {
+            "type": "runtime_step_summary",
+            "step": "task_tool_executed",
+            "status": "running",
+            "public_progress_note": "已发起工具调用，正在等待工具返回：path_exists。",
+            "event": {
+                "event_id": "rtevt:path-exists",
+                "payload": {
+                    "tool_name": "path_exists",
+                    "tool_target": "storage/task_environments/general/workspace/artifacts/mythical_sphere.html",
+                },
+            },
+        },
+    )
+
+    assert projected is not None
+    _, data = projected
+    item = data["public_timeline_delta"][0]
+    assert item["kind"] == "tool_activity"
+    assert item["title"] == "正在检查 storage/task_environments/general/workspace/artifacts/mythical_sphere.html"
+    assert item["detail"] == "storage/task_environments/general/workspace/artifacts/mythical_sphere.html"
+
+
+def test_public_stream_projection_emits_live_tool_admission_delta() -> None:
+    projected = _project_public_stream_event(
+        "model_action_admission",
+        {
+            "type": "model_action_admission",
+            "event": {
+                "event_id": "rtevt:tool-admission",
+                "payload": {
+                    "model_action_request": {
+                        "action_type": "tool_call",
+                        "public_progress_note": "已发起工具调用，正在等待工具返回：write_file。",
+                        "tool_call": {
+                            "name": "write_file",
+                            "args": {
+                                "path": "storage/task_environments/general/workspace/artifacts/football.html",
+                            },
+                        },
+                    },
+                },
+            },
+        },
+    )
+
+    assert projected is not None
+    _, data = projected
+    item = data["public_timeline_delta"][0]
+    assert item["kind"] == "tool_activity"
+    assert item["title"] == "正在写入 storage/task_environments/general/workspace/artifacts/football.html"
+
+
+def test_public_stream_projection_emits_live_tool_result_delta() -> None:
+    projected = _project_public_stream_event(
+        "turn_tool_observation_recorded",
+        {
+            "type": "turn_tool_observation_recorded",
+            "event": {
+                "event_id": "rtevt:tool-result",
+                "payload": {
+                    "tool_observation": {
+                        "tool_name": "path_exists",
+                        "status": "ok",
+                        "text": "true",
+                        "result_envelope": {
+                            "tool_args": {
+                                "path": "storage/task_environments/general/workspace/artifacts/football.html",
+                            },
+                            "structured_payload": {
+                                "tool_result": {
+                                    "kind": "path_exists",
+                                    "path": "storage/task_environments/general/workspace/artifacts/football.html",
+                                    "exists": True,
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+        },
+    )
+
+    assert projected is not None
+    _, data = projected
+    item = data["public_timeline_delta"][0]
+    assert item["kind"] == "tool_activity"
+    assert item["title"] == "检查完成 storage/task_environments/general/workspace/artifacts/football.html"
+    assert item["detail"] == "目标路径存在"
+
+
 def test_single_agent_turn_projection_only_exposes_executable_native_actions(tmp_path: Path) -> None:
     class RecordingNativeTurnModelRuntime(NativeToolCallModelRuntimeStub):
         def __init__(self) -> None:
@@ -586,7 +722,352 @@ def test_single_agent_turn_side_effect_tool_runs_inside_development_sandbox(tmp_
     )
 
 
-def test_single_agent_turn_commits_completed_tool_protocol_before_waiting_approval(tmp_path: Path) -> None:
+def test_single_agent_turn_publishes_environment_artifact_write_before_reporting_success(tmp_path: Path) -> None:
+    artifact_path = "storage/task_environments/development/sandbox/artifacts/single_turn_artifact.html"
+    model = NativeToolCallSequenceModelRuntimeStub(
+        [
+            {
+                "tool_calls": [
+                    {
+                        "id": "call-write-artifact",
+                        "name": "write_file",
+                        "args": {"path": artifact_path, "content": "<!doctype html><title>published</title>"},
+                    }
+                ]
+            },
+            {"content": "已写入 artifact。"},
+            {
+                "tool_calls": [
+                    {
+                        "id": "call-path-exists-artifact",
+                        "name": "path_exists",
+                        "args": {"path": artifact_path},
+                    }
+                ]
+            },
+            {"content": "artifact 可见。"},
+        ]
+    )
+    tool_base_dir = _project_backend_dir()
+    runtime_root = _runtime_test_root(tmp_path)
+    runtime = build_harness_runtime(
+        base_dir=runtime_root,
+        model_runtime=model,
+        tool_runtime=_tool_runtime_for_names(tool_base_dir, {"write_file", "path_exists"}),
+    )
+
+    async def _collect(message: str) -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime.astream(
+            HarnessRuntimeRequest(
+                session_id="session-single-turn-artifact-publish",
+                message=message,
+                task_selection={"task_environment_id": "env.development.sandbox"},
+            )
+        ):
+            events.append(event)
+        return events
+
+    write_events = asyncio.run(_collect("写一个 artifact 文件。"))
+    published_file = runtime_root / artifact_path
+    write_observation = next(dict(event.get("tool_observation") or {}) for event in write_events if event.get("type") == "tool_observation")
+    artifact_refs = [dict(item) for item in list(write_observation.get("artifact_refs") or [])]
+    envelope_refs = [
+        dict(item)
+        for item in list(dict(write_observation.get("result_envelope") or {}).get("artifact_refs") or [])
+    ]
+
+    assert write_observation["status"] == "ok"
+    assert published_file.exists()
+    assert published_file.read_text(encoding="utf-8") == "<!doctype html><title>published</title>"
+    assert artifact_refs and artifact_refs[0]["path"] == artifact_path
+    assert artifact_refs[0]["absolute_path"] == str(published_file.resolve())
+    assert artifact_refs[0]["published"] is True
+    assert envelope_refs and envelope_refs[0]["absolute_path"] == str(published_file.resolve())
+    assert dict(write_observation.get("diagnostics") or {}).get("sandbox_artifact_publish", {}).get("status") == "published"
+
+    exists_events = asyncio.run(_collect("确认刚才的 artifact 是否存在。"))
+    exists_observation = next(dict(event.get("tool_observation") or {}) for event in exists_events if event.get("type") == "tool_observation")
+
+    assert model.calls == 4
+    assert exists_observation["status"] == "ok"
+    assert exists_observation["text"] == "true"
+    assert any(event.get("type") == "done" and str(event.get("content") or "") == "artifact 可见。" for event in exists_events)
+
+
+def test_vibe_coding_artifact_write_creates_environment_dirs_and_publishes(tmp_path: Path) -> None:
+    artifact_path = "storage/task_environments/coding/vibe-workspace/artifacts/vibe_index.html"
+    model = NativeToolCallSequenceModelRuntimeStub(
+        [
+            {
+                "tool_calls": [
+                    {
+                        "id": "call-write-vibe-artifact",
+                        "name": "write_file",
+                        "args": {"path": artifact_path, "content": "<!doctype html><title>vibe</title>"},
+                    }
+                ]
+            },
+            {"content": "vibe artifact 已写入。"},
+            {
+                "tool_calls": [
+                    {
+                        "id": "call-path-exists-vibe-artifact",
+                        "name": "path_exists",
+                        "args": {"path": artifact_path},
+                    }
+                ]
+            },
+            {"content": "vibe artifact 可见。"},
+        ]
+    )
+    tool_base_dir = _project_backend_dir()
+    runtime_root = _runtime_test_root(tmp_path)
+    runtime = build_harness_runtime(
+        base_dir=runtime_root,
+        model_runtime=model,
+        tool_runtime=_tool_runtime_for_names(tool_base_dir, {"write_file", "path_exists"}),
+    )
+
+    async def _collect(message: str) -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime.astream(
+            HarnessRuntimeRequest(
+                session_id="session-vibe-coding-artifact-publish",
+                message=message,
+                task_selection={"task_environment_id": "env.coding.vibe_workspace"},
+            )
+        ):
+            events.append(event)
+        return events
+
+    write_events = asyncio.run(_collect("写一个 vibe coding artifact。"))
+    storage_root = runtime_root / "storage/task_environments/coding/vibe-workspace"
+    artifact_root = storage_root / "artifacts"
+    published_file = runtime_root / artifact_path
+    write_observation = next(dict(event.get("tool_observation") or {}) for event in write_events if event.get("type") == "tool_observation")
+    artifact_refs = [dict(item) for item in list(write_observation.get("artifact_refs") or [])]
+
+    assert storage_root.exists()
+    assert artifact_root.exists()
+    assert write_observation["status"] == "ok"
+    assert published_file.exists()
+    assert published_file.read_text(encoding="utf-8") == "<!doctype html><title>vibe</title>"
+    assert artifact_refs and artifact_refs[0]["published"] is True
+    assert artifact_refs[0]["absolute_path"] == str(published_file.resolve())
+
+    exists_events = asyncio.run(_collect("确认 vibe coding artifact 是否存在。"))
+    exists_observation = next(dict(event.get("tool_observation") or {}) for event in exists_events if event.get("type") == "tool_observation")
+
+    assert model.calls == 4
+    assert exists_observation["status"] == "ok"
+    assert exists_observation["text"] == "true"
+    assert any(event.get("type") == "done" and str(event.get("content") or "") == "vibe artifact 可见。" for event in exists_events)
+
+
+def test_vibe_coding_default_mode_writes_project_path_to_sandbox_workspace(tmp_path: Path) -> None:
+    project_root = tmp_path / "project"
+    (project_root / "frontend" / "src").mkdir(parents=True)
+    project_file = project_root / "frontend" / "src" / "vibe_probe.txt"
+    model = NativeToolCallSequenceModelRuntimeStub(
+        [
+            {
+                "tool_calls": [
+                    {
+                        "id": "call-write-vibe-project",
+                        "name": "write_file",
+                        "args": {"path": "frontend/src/vibe_probe.txt", "content": "sandbox project edit"},
+                    }
+                ]
+            },
+            {"content": "sandbox project edit 已写入。"},
+        ]
+    )
+    runtime = build_harness_runtime(
+        base_dir=_runtime_test_root(tmp_path),
+        model_runtime=model,
+        tool_runtime=_tool_runtime_for_names(project_root, {"write_file"}),
+    )
+
+    async def _collect() -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime.astream(
+            HarnessRuntimeRequest(
+                session_id="session-vibe-coding-project-sandbox-write",
+                message="写一个项目文件。",
+                task_selection={"task_environment_id": "env.coding.vibe_workspace"},
+            )
+        ):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_collect())
+    observation = next(dict(event.get("tool_observation") or {}) for event in events if event.get("type") == "tool_observation")
+    artifact_refs = [dict(item) for item in list(observation.get("artifact_refs") or [])]
+    sandbox_file = Path(artifact_refs[0]["absolute_path"])
+
+    assert observation["status"] == "ok"
+    assert not project_file.exists()
+    assert sandbox_file.exists()
+    assert sandbox_file.read_text(encoding="utf-8") == "sandbox project edit"
+    assert "sandbox_path" in artifact_refs[0]
+
+
+def test_vibe_coding_full_access_writes_project_path_to_real_workspace(tmp_path: Path) -> None:
+    project_root = tmp_path / "project"
+    (project_root / "frontend" / "src").mkdir(parents=True)
+    project_file = project_root / "frontend" / "src" / "vibe_probe.txt"
+    permission = SimpleNamespace(current_mode=lambda: "full_access", supported_modes=lambda: ["default", "full_access"])
+    model = NativeToolCallSequenceModelRuntimeStub(
+        [
+            {
+                "tool_calls": [
+                    {
+                        "id": "call-write-vibe-project-full-access",
+                        "name": "write_file",
+                        "args": {"path": "frontend/src/vibe_probe.txt", "content": "real project edit"},
+                    }
+                ]
+            },
+            {"content": "real project edit 已写入。"},
+        ]
+    )
+    runtime = build_harness_runtime(
+        base_dir=_runtime_test_root(tmp_path),
+        permission_service=permission,
+        model_runtime=model,
+        tool_runtime=_tool_runtime_for_names(project_root, {"write_file"}),
+    )
+
+    async def _collect() -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime.astream(
+            HarnessRuntimeRequest(
+                session_id="session-vibe-coding-project-real-write",
+                message="写一个真实项目文件。",
+                task_selection={"task_environment_id": "env.coding.vibe_workspace"},
+            )
+        ):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_collect())
+    observation = next(dict(event.get("tool_observation") or {}) for event in events if event.get("type") == "tool_observation")
+    artifact_refs = [dict(item) for item in list(observation.get("artifact_refs") or [])]
+
+    assert observation["status"] == "ok"
+    assert project_file.exists()
+    assert project_file.read_text(encoding="utf-8") == "real project edit"
+    assert artifact_refs[0]["absolute_path"] == str(project_file.resolve())
+    assert artifact_refs[0]["repository_id"] == "repo.managed_project.project_workspace"
+
+
+def test_vibe_coding_uses_session_bound_full_access_when_request_omits_permission_mode(tmp_path: Path) -> None:
+    project_root = tmp_path / "project"
+    (project_root / "frontend" / "src").mkdir(parents=True)
+    project_file = project_root / "frontend" / "src" / "session_permission_probe.txt"
+    runtime_root = _runtime_test_root(tmp_path)
+    session_manager = SessionManager(runtime_root)
+    session = session_manager.create_session(title="Session permission")
+    session_id = str(session["id"])
+    model = NativeToolCallSequenceModelRuntimeStub(
+        [
+            {
+                "tool_calls": [
+                    {
+                        "id": "call-write-vibe-session-permission",
+                        "name": "write_file",
+                        "args": {"path": "frontend/src/session_permission_probe.txt", "content": "session full access"},
+                    }
+                ]
+            },
+            {"content": "session full access 已写入。"},
+        ]
+    )
+    runtime = build_harness_runtime(
+        base_dir=runtime_root,
+        session_manager=session_manager,
+        model_runtime=model,
+        tool_runtime=_tool_runtime_for_names(project_root, {"write_file"}),
+    )
+
+    async def _collect() -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime.astream(
+            HarnessRuntimeRequest(
+                session_id=session_id,
+                message="按当前会话权限写项目文件。",
+                task_selection={"task_environment_id": "env.coding.vibe_workspace"},
+            )
+        ):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_collect())
+    observation = next(dict(event.get("tool_observation") or {}) for event in events if event.get("type") == "tool_observation")
+    artifact_refs = [dict(item) for item in list(observation.get("artifact_refs") or [])]
+
+    assert session["conversation_state"]["permission_mode"] == "full_access"
+    assert observation["status"] == "ok"
+    assert project_file.exists()
+    assert project_file.read_text(encoding="utf-8") == "session full access"
+    assert artifact_refs[0]["absolute_path"] == str(project_file.resolve())
+    assert artifact_refs[0]["repository_id"] == "repo.managed_project.project_workspace"
+
+
+def test_vibe_coding_full_access_project_write_creates_missing_parent_directories(tmp_path: Path) -> None:
+    project_root = tmp_path / "project"
+    project_root.mkdir(parents=True)
+    project_file = project_root / "frontend" / "generated" / "vibe" / "auto_created.txt"
+    permission = SimpleNamespace(current_mode=lambda: "full_access", supported_modes=lambda: ["default", "full_access"])
+    model = NativeToolCallSequenceModelRuntimeStub(
+        [
+            {
+                "tool_calls": [
+                    {
+                        "id": "call-write-vibe-missing-parent",
+                        "name": "write_file",
+                        "args": {
+                            "path": "frontend/generated/vibe/auto_created.txt",
+                            "content": "created through full access gateway",
+                        },
+                    }
+                ]
+            },
+            {"content": "缺失目录已自动创建。"},
+        ]
+    )
+    runtime = build_harness_runtime(
+        base_dir=_runtime_test_root(tmp_path),
+        permission_service=permission,
+        model_runtime=model,
+        tool_runtime=_tool_runtime_for_names(project_root, {"write_file"}),
+    )
+
+    async def _collect() -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime.astream(
+            HarnessRuntimeRequest(
+                session_id="session-vibe-coding-missing-parent",
+                message="写入一个父目录不存在的项目文件。",
+                task_selection={"task_environment_id": "env.coding.vibe_workspace"},
+            )
+        ):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_collect())
+    observation = next(dict(event.get("tool_observation") or {}) for event in events if event.get("type") == "tool_observation")
+    artifact_refs = [dict(item) for item in list(observation.get("artifact_refs") or [])]
+
+    assert observation["status"] == "ok"
+    assert project_file.exists()
+    assert project_file.read_text(encoding="utf-8") == "created through full access gateway"
+    assert artifact_refs[0]["absolute_path"] == str(project_file.resolve())
+    assert artifact_refs[0]["repository_id"] == "repo.managed_project.project_workspace"
+
+
+def test_single_agent_turn_converts_unresumable_approval_to_model_visible_denial(tmp_path: Path) -> None:
     class ApprovalMixControlPlane:
         async def invoke(self, request, *, tool_plan):
             tool_name = str(getattr(request, "tool_name", "") or "")
@@ -614,7 +1095,7 @@ def test_single_agent_turn_commits_completed_tool_protocol_before_waiting_approv
                     {"id": "call-write", "name": "write_file", "args": {"path": ".tmp/approval.txt", "content": "pending"}},
                 ]
             },
-            {"content": "不应进入 followup。"},
+            {"content": "写入操作需要进入可恢复任务后执行。"},
         ]
     )
     tool_base_dir = _project_backend_dir()
@@ -640,20 +1121,19 @@ def test_single_agent_turn_commits_completed_tool_protocol_before_waiting_approv
     batch_plan = dict(next(event for event in events if event.get("type") == "tool_batch_planned").get("tool_batch_plan") or {})
     batch_groups = [dict(item) for item in list(batch_plan.get("groups") or [])]
 
-    assert model.calls == 1
-    assert "approval_waiting" in stream_types
-    assert any(event.get("type") == "agent_turn_terminal" for event in events)
-    assert not any(event.get("type") == "done" for event in events)
-    assert [item["status"] for item in observations] == ["ok", "needs_approval"]
+    assert model.calls == 2
+    assert "approval_waiting" not in stream_types
+    assert [item["status"] for item in observations] == ["ok", "denied"]
     assert [item["tool_name"] for item in observations] == ["read_file", "write_file"]
+    assert dict(observations[1].get("operation_gate") or {}).get("pipeline_stage") == "task_run_required_for_tool_approval"
+    assert dict(observations[1].get("diagnostics") or {}).get("model_visible_recovery_observation") is True
     assert [group["execution_class"] for group in batch_groups] == ["parallel_read", "exclusive"]
     assert assistant_tool_messages
-    assert [dict(item).get("id") for item in list(assistant_tool_messages[-1].get("tool_calls") or [])] == ["call-read"]
-    assert [item.get("tool_call_id") for item in tool_messages] == ["call-read"]
-    assert all(item.get("tool_call_id") != "call-write" for item in tool_messages)
-    assert any(
+    assert [dict(item).get("id") for item in list(assistant_tool_messages[-1].get("tool_calls") or [])] == ["call-read", "call-write"]
+    assert [item.get("tool_call_id") for item in tool_messages] == ["call-read", "call-write"]
+    assert any(event.get("type") == "done" and str(event.get("content") or "") == "写入操作需要进入可恢复任务后执行。" for event in events)
+    assert not any(
         str(item.get("answer_source") or "") == "harness.single_agent_turn.approval_waiting"
-        and str(item.get("answer_channel") or "") == "blocked"
         for item in runtime.session_manager.messages
     )
 
@@ -886,10 +1366,25 @@ def test_task_executor_repeated_admission_denial_fingerprint_is_runtime_scoped()
         admission=admission,
         runtime_fingerprint=changed_environment,
     )
+    legacy_previous = {
+        **previous,
+        "payload": {
+            key: value
+            for key, value in dict(previous.get("payload") or {}).items()
+            if key != "admission_denial_fingerprint"
+        },
+    }
+    legacy_without_fingerprint = _matching_model_action_admission_denial_observations(
+        [legacy_previous],
+        action_request=action,
+        admission=admission,
+        runtime_fingerprint=runtime_fingerprint,
+    )
 
     assert len(same) == 1
     assert different_args == []
     assert different_environment == []
+    assert legacy_without_fingerprint == []
 
 
 def test_explicit_contract_task_starts_lifecycle_without_model_action_loop() -> None:
@@ -3443,6 +3938,106 @@ def test_resume_recoverable_blocked_task_preserves_recovery_and_becomes_schedula
     assert diagnostics.get("recovery_action") == "rerun_task_executor"
     assert dict(diagnostics.get("recoverable_error") or {}).get("retryable") is True
     assert is_task_run_executable(task_run) is True
+
+
+def test_waiting_approval_task_run_requires_bound_grant_before_resume() -> None:
+    from harness.loop.task_executor import (
+        approve_task_run_tool_call,
+        is_task_run_executable,
+        resume_paused_task_run,
+    )
+    from harness.loop.task_tool_approval import tool_args_hash
+
+    runtime = build_harness_runtime()
+    host = runtime.single_agent_runtime_host
+    task_run_id = "taskrun:resume-tool-approval"
+    contract = TaskRunContract(
+        contract_id="task-contract:resume-tool-approval",
+        contract_source="test",
+        user_visible_goal="恢复等待审批的工具调用。",
+        task_run_goal="恢复等待审批的工具调用。",
+        completion_criteria=("审批后同一个 TaskRun 可以继续调度",),
+    )
+    contract_ref = host.runtime_objects.put_object("task_run_contract", contract.contract_id, contract.to_dict())
+    host.runtime_objects.put_object(
+        "task_lifecycle",
+        task_run_id,
+        TaskLifecycleRecord(
+            task_run_id=task_run_id,
+            contract_ref=contract_ref,
+            status="waiting_approval",
+            created_at=1.0,
+            updated_at=1.0,
+            terminal_reason="waiting_approval",
+        ).to_dict(),
+    )
+    pending_approval = {
+        "status": "pending",
+        "task_run_id": task_run_id,
+        "action_request_ref": "model-action:test:browser",
+        "approval_request_id": "approval-request:test:browser",
+        "tool_call_id": "call:browser",
+        "tool_name": "browser_control",
+        "operation_id": "op.browser_control",
+        "directive_ref": f"runtime-directive:{task_run_id}:tool:model-action:test:browser",
+        "approval_risk_fingerprint": "risk:browser:approved-url",
+        "tool_args_hash": tool_args_hash({"action": "open", "url": "https://example.com"}),
+        "action_request": {
+            "request_id": "model-action:test:browser",
+            "action_type": "tool_call",
+            "tool_call": {
+                "tool_name": "browser_control",
+                "operation_id": "op.browser_control",
+                "args": {"action": "open", "url": "https://example.com"},
+            },
+        },
+    }
+    host.state_index.upsert_task_run(
+        TaskRun(
+            task_run_id=task_run_id,
+            session_id="session-resume-tool-approval",
+            task_id="task:resume-tool-approval",
+            task_contract_ref=contract_ref,
+            execution_runtime_kind="single_agent_task",
+            status="waiting_approval",
+            terminal_reason="waiting_approval",
+            diagnostics={
+                "contract": contract.to_dict(),
+                "executor_status": "waiting_approval",
+                "pending_approval": pending_approval,
+            },
+        )
+    )
+
+    initial_task = host.state_index.get_task_run(task_run_id)
+    denied_resume = resume_paused_task_run(host, task_run_id, reason="未审批直接继续")
+
+    assert initial_task is not None
+    assert is_task_run_executable(initial_task) is False
+    assert denied_resume["ok"] is False
+    assert denied_resume["error"] == "task_run_waiting_approval_requires_grant"
+
+    approval_result = approve_task_run_tool_call(host, task_run_id, reason="允许打开此 URL")
+    approved_task = host.state_index.get_task_run(task_run_id)
+
+    assert approval_result["ok"] is True
+    assert approved_task is not None
+    assert approved_task.status == "waiting_approval"
+    assert dict(dict(approved_task.diagnostics or {}).get("pending_approval") or {}).get("status") == "approved"
+    assert is_task_run_executable(approved_task) is True
+
+    resume_result = resume_paused_task_run(host, task_run_id, reason="审批后继续")
+    resumed_task = host.state_index.get_task_run(task_run_id)
+
+    assert resume_result["ok"] is True
+    assert resumed_task is not None
+    assert resumed_task.status == "waiting_executor"
+    assert resumed_task.terminal_reason == "waiting_executor"
+    assert dict(resumed_task.diagnostics or {}).get("executor_status") == "waiting_executor"
+    assert dict(dict(resumed_task.diagnostics or {}).get("runtime_control") or {}).get("state") == "resume_requested"
+    assert dict(dict(resumed_task.diagnostics or {}).get("pending_approval") or {}).get("status") == "approved"
+    assert dict(dict(resumed_task.diagnostics or {}).get("approval_state") or {}).get("status") == "approved"
+    assert is_task_run_executable(resumed_task) is True
 
 
 def test_task_run_executor_step_budget_exhaustion_waits_for_next_run() -> None:

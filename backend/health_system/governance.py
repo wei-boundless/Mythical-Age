@@ -7,6 +7,7 @@ from harness.loop.work_rollout import work_rollout_ref
 from harness.runtime.monitoring import RuntimeMonitorProjector
 from runtime.environment import RuntimeEnvironment, check_runtime_connection_health
 from runtime.prompt_accounting import TokenCounterRegistry
+from runtime.prompt_accounting.ledger import summarize_usage_records
 
 from .artifact_governance_view import HealthArtifactGovernanceViewBuilder
 from .store import HealthStore
@@ -28,7 +29,7 @@ class HealthGovernanceBuilder:
         tasks = self.build_tasks(limit=limit)["tasks"]
         monitor = self._global_monitor(limit=limit)
         risks = self._risk_events(tasks=tasks, monitor=monitor)
-        token_usage = self._token_usage(tasks)
+        token_usage = self.build_token_usage(limit=limit)
         efficiency = self._efficiency(tasks)
         system_risks = self._system_risks(monitor=monitor)
         monitor_governance = self._monitor_governance(monitor=monitor)
@@ -181,8 +182,203 @@ class HealthGovernanceBuilder:
             "updated_at": self.now,
         }
 
+    def _ledger_token_run_records(self, *, limit: int, task_runs: list[Any]) -> list[dict[str, Any]]:
+        ledger = self.prompt_accounting_ledger
+        list_usage = getattr(ledger, "list_token_usage", None)
+        if not callable(list_usage):
+            return []
+        try:
+            usage_records = list(list_usage())
+        except Exception:
+            return []
+        if not usage_records:
+            return []
+        list_cache = getattr(ledger, "list_prompt_cache", None)
+        try:
+            cache_records = list(list_cache()) if callable(list_cache) else []
+        except Exception:
+            cache_records = []
+        task_by_id = {
+            str(getattr(task_run, "task_run_id", "") or ""): task_run
+            for task_run in list(task_runs or [])
+            if str(getattr(task_run, "task_run_id", "") or "")
+        }
+        usage_by_run: dict[str, list[Any]] = {}
+        for record in usage_records:
+            key = self._ledger_run_key(record)
+            if key:
+                usage_by_run.setdefault(key, []).append(record)
+        cache_by_run: dict[str, list[Any]] = {}
+        for record in cache_records:
+            key = self._ledger_run_key(record)
+            if key:
+                cache_by_run.setdefault(key, []).append(record)
+        ordered_keys = sorted(
+            usage_by_run,
+            key=lambda key: max(float(getattr(record, "created_at", 0.0) or 0.0) for record in usage_by_run.get(key, [])),
+            reverse=True,
+        )[: max(1, min(int(limit or 100), 100))]
+        rows: list[dict[str, Any]] = []
+        for key in ordered_keys:
+            records = sorted(usage_by_run.get(key) or [], key=lambda item: float(getattr(item, "created_at", 0.0) or 0.0))
+            if not records:
+                continue
+            summary = summarize_usage_records(records, cache_records=cache_by_run.get(key) or [])
+            if int(summary.get("record_count") or 0) <= 0:
+                continue
+            first = records[0]
+            last = records[-1]
+            task_run_id = str(getattr(last, "task_run_id", "") or "")
+            run_id = str(getattr(last, "run_id", "") or task_run_id or key)
+            session_id = str(getattr(last, "session_id", "") or getattr(first, "session_id", "") or "")
+            task_run = task_by_id.get(task_run_id) or task_by_id.get(run_id)
+            token_total = int(summary.get("effective_total_tokens") or summary.get("total_tokens") or 0)
+            record_kind = self._ledger_record_kind(key=key, run_id=run_id, task_run_id=task_run_id)
+            rows.append({
+                "record_key": key,
+                "record_kind": record_kind,
+                "task_run_id": task_run_id or run_id or key,
+                "run_id": run_id,
+                "session_id": session_id,
+                "task_contract_ref": str(getattr(task_run, "task_contract_ref", "") or "") if task_run is not None else "",
+                "title": self._ledger_run_title(
+                    key=key,
+                    run_id=run_id,
+                    task_run_id=task_run_id,
+                    task_run=task_run,
+                    record_kind=record_kind,
+                ),
+                "task_id": str(getattr(task_run, "task_id", "") or ""),
+                "agent_id": str(getattr(task_run, "agent_id", "") or ""),
+                "agent_profile_id": str(getattr(task_run, "agent_profile_id", "") or ""),
+                "runtime_lane": str(getattr(task_run, "execution_runtime_kind", "") or record_kind),
+                "status": str(getattr(task_run, "status", "") or "completed"),
+                "created_at": min(float(getattr(record, "created_at", 0.0) or 0.0) for record in records),
+                "updated_at": max(float(getattr(record, "created_at", 0.0) or 0.0) for record in records),
+                "duration_seconds": 0.0,
+                "agent_count": 1 if str(getattr(task_run, "agent_id", "") or "") else 0,
+                "worker_request_count": 0,
+                "worker_result_count": 0,
+                "tool_call_count": 0,
+                "event_count": int(summary.get("record_count") or 0),
+                "error_count": 0,
+                "token_total": token_total,
+                "token_source": self._token_source(summary),
+                "exact_token_total": int(summary.get("exact_total_tokens") or 0),
+                "predicted_token_total": int(summary.get("predicted_total_tokens") or 0),
+                "trace_estimate_token_total": int(summary.get("trace_estimate_total_tokens") or 0),
+                "cached_tokens": int(summary.get("cached_tokens") or 0),
+                "cache_savings_tokens": int(summary.get("cache_savings_tokens") or 0),
+                "token_record_count": int(summary.get("record_count") or 0),
+                "provider_usage_record_count": int(summary.get("provider_usage_record_count") or 0),
+                "local_prediction_record_count": int(summary.get("local_prediction_record_count") or 0),
+                "risk_level": self._token_record_risk_level(token_total),
+                "latest_risk_event": "",
+                "supervision_count": 0,
+                "latest_event_type": "prompt_accounting_recorded",
+                "monitor_ref": f"prompt_accounting:{key}",
+                "record_refs": {
+                    "task_run": task_run_id,
+                    "run": run_id,
+                    "session": session_id,
+                    "prompt_accounting": key,
+                },
+            })
+        return rows
+
+    @staticmethod
+    def _ledger_run_key(record: Any) -> str:
+        return str(
+            getattr(record, "task_run_id", "")
+            or getattr(record, "run_id", "")
+            or getattr(record, "request_id", "")
+            or getattr(record, "usage_id", "")
+            or ""
+        ).strip()
+
+    @staticmethod
+    def _ledger_record_kind(*, key: str, run_id: str, task_run_id: str) -> str:
+        if task_run_id:
+            return "task_run"
+        normalized = str(run_id or key or "").strip().lower()
+        if normalized.startswith("turnrun:") or normalized.startswith("turn:"):
+            return "turn_run"
+        return "model_run"
+
+    @staticmethod
+    def _ledger_run_title(*, key: str, run_id: str, task_run_id: str, task_run: Any, record_kind: str) -> str:
+        if task_run is not None:
+            diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
+            title = str(
+                diagnostics.get("title")
+                or diagnostics.get("task_graph_title")
+                or diagnostics.get("project_title")
+                or getattr(task_run, "task_id", "")
+                or ""
+            ).strip()
+            if title:
+                return title
+        source = str(run_id or task_run_id or key or "").strip()
+        ordinal = ""
+        parts = source.split(":")
+        if len(parts) >= 3 and parts[-1].isdigit():
+            ordinal = f" #{parts[-1]}"
+        if record_kind == "turn_run":
+            return f"会话模型调用{ordinal}"
+        if record_kind == "task_run":
+            return f"任务模型调用{ordinal}"
+        return f"模型调用{ordinal}"
+
+    @staticmethod
+    def _token_record_risk_level(token_total: int) -> str:
+        if token_total > 500000:
+            return "high"
+        if token_total > 120000:
+            return "warning"
+        return "normal"
+
     def build_token_usage(self, *, limit: int = 100) -> dict[str, Any]:
-        return self._token_usage(self.build_tasks(limit=limit)["tasks"])
+        all_task_runs = list(self.state_index.list_task_runs())
+        top_level_task_runs = [item for item in all_task_runs if self._is_top_level_task_run(item)]
+        visible_task_runs = self._operational_task_runs(top_level_task_runs)
+        task_runs = sorted(
+            visible_task_runs,
+            key=lambda item: float(item.updated_at or item.created_at or 0.0),
+            reverse=True,
+        )[: max(1, min(int(limit or 100), 100))]
+        token_summary_index = self._token_summary_index(task_runs)
+        task_records = [
+            self._task_record(
+                task_run,
+                monitor_index={},
+                token_summary_index=token_summary_index,
+                event_limit=40,
+                include_trace_token_estimate=True,
+                include_runtime_relationships=False,
+            )
+            for task_run in task_runs
+        ]
+        ledger_records = self._ledger_token_run_records(
+            limit=max(1, min(int(limit or 100), 100)),
+            task_runs=all_task_runs,
+        )
+        ledger_record_keys = {
+            str(item.get("record_key") or item.get("task_run_id") or "").strip()
+            for item in ledger_records
+            if str(item.get("record_key") or item.get("task_run_id") or "").strip()
+        }
+        fallback_task_records = [
+            item
+            for item in task_records
+            if str(item.get("task_run_id") or "").strip() not in ledger_record_keys
+            and str(item.get("token_source") or "") != "none"
+        ]
+        combined = sorted(
+            ledger_records + fallback_task_records,
+            key=lambda item: float(item.get("updated_at") or item.get("created_at") or 0.0),
+            reverse=True,
+        )[: max(1, min(int(limit or 100), 100))]
+        return self._token_usage(combined)
 
     def build_efficiency(self, *, limit: int = 100) -> dict[str, Any]:
         return self._efficiency(self.build_tasks(limit=limit)["tasks"])
@@ -648,6 +844,9 @@ class HealthGovernanceBuilder:
                 [
                     {
                         "task_run_id": task["task_run_id"],
+                        "run_id": task.get("run_id", ""),
+                        "record_kind": task.get("record_kind", "task_run"),
+                        "record_key": task.get("record_key", task.get("task_run_id", "")),
                         "title": task["title"],
                         "session_id": task["session_id"],
                         "token_total": task["token_total"],
@@ -657,6 +856,9 @@ class HealthGovernanceBuilder:
                         "trace_estimate_token_total": task.get("trace_estimate_token_total", 0),
                         "cached_tokens": task.get("cached_tokens", 0),
                         "cache_savings_tokens": task.get("cache_savings_tokens", 0),
+                        "token_record_count": task.get("token_record_count", 0),
+                        "provider_usage_record_count": task.get("provider_usage_record_count", 0),
+                        "local_prediction_record_count": task.get("local_prediction_record_count", 0),
                         "risk_level": task["risk_level"],
                     }
                     for task in tasks

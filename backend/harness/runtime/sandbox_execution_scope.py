@@ -29,6 +29,7 @@ class SandboxExecutionScope:
     publish_roots: tuple[str, ...]
     scratch_roots: tuple[str, ...]
     task_write_roots: tuple[str, ...]
+    workspace_write_roots: tuple[str, ...]
     write_roots: tuple[str, ...]
     materialized_roots: tuple[str, ...]
     canonical_output_paths: tuple[str, ...]
@@ -42,6 +43,7 @@ class SandboxExecutionScope:
             "publish_scopes": list(self.publish_roots),
             "scratch_scopes": list(self.scratch_roots),
             "task_write_scopes": list(self.task_write_roots),
+            "workspace_write_scopes": list(self.workspace_write_roots),
             "write_scopes": list(self.write_roots),
             "materialized_roots": list(self.materialized_roots),
             "canonical_output_paths": list(self.canonical_output_paths),
@@ -56,6 +58,7 @@ class SandboxExecutionScope:
                 "write_roots": list(self.write_roots),
                 "publish_roots": list(self.publish_roots),
                 "scratch_roots": list(self.scratch_roots),
+                "workspace_write_roots": list(self.workspace_write_roots),
                 "canonical_output_paths": list(self.canonical_output_paths),
                 "rule": (
                     "Write publishable deliverables to canonical_output_paths when provided; "
@@ -71,6 +74,7 @@ class SandboxExecutionScope:
             "publish_roots": list(self.publish_roots),
             "scratch_roots": list(self.scratch_roots),
             "task_write_roots": list(self.task_write_roots),
+            "workspace_write_roots": list(self.workspace_write_roots),
             "write_roots": list(self.write_roots),
             "materialized_roots": list(self.materialized_roots),
             "canonical_output_paths": list(self.canonical_output_paths),
@@ -113,7 +117,8 @@ def compile_sandbox_execution_scope(
             ]
         )
     )
-    write_roots = tuple(_dedupe([*publish_roots, *scratch_roots, *task_write_roots]))
+    workspace_write_roots = tuple(_workspace_write_roots_from_environment(environment))
+    write_roots = tuple(_dedupe([*publish_roots, *scratch_roots, *task_write_roots, *workspace_write_roots]))
     materialized_roots = tuple(
         _dedupe(
             [
@@ -131,6 +136,7 @@ def compile_sandbox_execution_scope(
         publish_roots=tuple(publish_roots),
         scratch_roots=scratch_roots,
         task_write_roots=task_write_roots,
+        workspace_write_roots=workspace_write_roots,
         write_roots=write_roots,
         materialized_roots=materialized_roots,
         canonical_output_paths=canonical_output_paths,
@@ -199,6 +205,21 @@ def _contract_write_roots(contract: dict[str, Any]) -> list[str]:
     return _dedupe(roots)
 
 
+def _workspace_write_roots_from_environment(environment: dict[str, Any]) -> list[str]:
+    file_management = dict(environment.get("file_management") or {})
+    profile_refs = {
+        str(item or "").strip()
+        for item in list(file_management.get("file_profile_refs") or [])
+        if str(item or "").strip()
+    }
+    constraints = dict(file_management.get("constraints") or {})
+    if "file_profile.managed_project_workspace" not in profile_refs:
+        return []
+    if str(constraints.get("sandbox_workspace_write") or "").strip() not in {"allowed", "allow"}:
+        return []
+    return ["."]
+
+
 def _contract_materialized_roots(contract: dict[str, Any]) -> list[str]:
     roots: list[str] = []
     for path in contract_artifact_paths(contract):
@@ -232,12 +253,19 @@ def _dedupe(values: list[str] | tuple[str, ...]) -> list[str]:
     result: list[str] = []
     seen: set[str] = set()
     for value in values:
-        normalized = normalize_logical_path(value)
+        normalized = _normalize_scope_path(value)
         if not normalized or normalized in seen:
             continue
         seen.add(normalized)
         result.append(normalized)
     return result
+
+
+def _normalize_scope_path(value: Any) -> str:
+    text = str(value or "").replace("\\", "/").strip().strip("/")
+    if text == ".":
+        return "."
+    return normalize_logical_path(text)
 
 
 def _drop_empty(payload: dict[str, Any]) -> dict[str, Any]:

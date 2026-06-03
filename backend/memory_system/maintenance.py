@@ -15,6 +15,7 @@ from memory_system.storage.models import MemoryNote
 from memory_system.storage.text_utils import normalize_storage_text
 from runtime.model_gateway.model_runtime import utility_accounting_context
 
+from .environment_context import resolve_memory_environment_context
 from .layout import durable_memory_namespace_id_for_task_environment
 from .manifest_scan import scan_memory_headers
 from .paths import normalize_session_id, safe_runtime_session_key
@@ -1066,6 +1067,7 @@ class MemoryMaintenanceCoordinator:
         main_context: dict[str, Any] | None = None,
         task_summary_refs: list[dict[str, Any]] | None = None,
         bundle_summary_refs: list[dict[str, Any]] | None = None,
+        memory_environment_context: dict[str, Any] | None = None,
         durable_lane_enabled: bool = True,
         force: bool = True,
     ) -> MemoryMaintenanceReceipt:
@@ -1081,6 +1083,7 @@ class MemoryMaintenanceCoordinator:
                 "main_context": dict(main_context or {}),
                 "task_summary_refs": list(task_summary_refs or []),
                 "bundle_summary_refs": list(bundle_summary_refs or []),
+                "memory_environment_context": dict(memory_environment_context or {}),
                 "durable_lane_enabled": durable_lane_enabled,
                 "force": force,
             },
@@ -1156,6 +1159,7 @@ class MemoryMaintenanceCoordinator:
                 main_context=main_context or {},
                 task_summary_refs=task_summary_refs or [],
                 bundle_summary_refs=bundle_summary_refs or [],
+                memory_environment_context=memory_environment_context or {},
                 durable_lane_enabled=durable_lane_enabled,
             )
             self._update_runtime_state_projection(request)
@@ -1218,29 +1222,19 @@ class MemoryMaintenanceCoordinator:
         main_context: dict[str, Any],
         task_summary_refs: list[dict[str, Any]],
         bundle_summary_refs: list[dict[str, Any]],
-        durable_lane_enabled: bool,
+        memory_environment_context: dict[str, Any] | None = None,
+        durable_lane_enabled: bool = True,
     ) -> MemoryMaintenanceRequest:
         start = max(0, last_index - 4)
         message_slice = [self._message_payload(index, item) for index, item in enumerate(messages[start:], start=start)][-16:]
         manager = self.session_memory_layer.manager(session_id)
         previous = manager.load()
         source_refs = [f"message:{index}" for index in range(last_index, len(messages))]
-        headers = [
-            {
-                "note_id": header.note_id,
-                "filename": header.filename,
-                "memory_type": header.memory_type,
-                "memory_class": header.memory_class,
-                "title": header.title,
-                "description": header.description,
-                "status": header.status,
-                "confidence": header.confidence,
-                "eligible_for_injection": header.eligible_for_injection,
-                "canonical_statement": header.canonical_statement,
-                "summary": header.summary,
-            }
-            for header in scan_memory_headers(self.memory_manager.root_dir, limit=120)
-        ]
+        decision_context = self._decision_context_from_main_context(
+            main_context,
+            memory_environment_context=memory_environment_context,
+        )
+        headers = self._manifest_headers_for_decision_context(decision_context, limit=120)
         return MemoryMaintenanceRequest(
             run_id=run_id,
             session_id=session_id,
@@ -1253,26 +1247,70 @@ class MemoryMaintenanceCoordinator:
             task_summary_refs=list(task_summary_refs or [])[:8],
             bundle_summary_refs=list(bundle_summary_refs or [])[:8],
             manifest_headers=headers,
-            decision_context=self._decision_context_from_main_context(main_context),
+            decision_context=decision_context,
             source_message_refs=source_refs,
             durable_lane_enabled=durable_lane_enabled,
         )
 
-    def _decision_context_from_main_context(self, main_context: dict[str, Any]) -> dict[str, Any]:
+    def _decision_context_from_main_context(
+        self,
+        main_context: dict[str, Any],
+        *,
+        memory_environment_context: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         task_environment = main_context.get("task_environment")
         if not isinstance(task_environment, dict):
             task_environment = {}
+        environment_context = resolve_memory_environment_context(
+            explicit=memory_environment_context,
+            main_context=main_context,
+        )
         return {
-            "task_environment_id": normalize_text(
-                task_environment.get("task_environment_id")
-                or task_environment.get("environment_id")
-                or main_context.get("task_environment_id")
-            ),
-            "environment_kind": normalize_text(task_environment.get("kind") or task_environment.get("environment_kind")),
-            "project_id": normalize_text(task_environment.get("project_id") or main_context.get("project_id")),
+            "task_environment_id": environment_context.task_environment_id,
+            "environment_kind": environment_context.environment_kind
+            or normalize_text(task_environment.get("kind") or task_environment.get("environment_kind")),
+            "project_id": environment_context.project_id
+            or normalize_text(task_environment.get("project_id") or main_context.get("project_id")),
+            "turn_id": environment_context.turn_id,
+            "task_run_id": environment_context.task_run_id,
+            "environment_context_source": environment_context.source,
             "durable_lane_enabled": bool(main_context.get("durable_lane_enabled", True)),
             "authority": "memory_system.memory_decision_context",
         }
+
+    def _manifest_headers_for_decision_context(self, decision_context: dict[str, Any], *, limit: int) -> list[dict[str, Any]]:
+        task_environment_id = normalize_text(decision_context.get("task_environment_id"))
+        namespace_ids = ["global_common"]
+        if task_environment_id:
+            namespace_ids.append(durable_memory_namespace_id_for_task_environment(task_environment_id))
+        headers: list[dict[str, Any]] = []
+        seen: set[tuple[str, str]] = set()
+        for namespace_id in namespace_ids:
+            manager = self.memory_manager
+            if namespace_id != "global_common" and self.committer.memory_manager_resolver is not None:
+                manager = self.committer.memory_manager_resolver({"task_environment_id": task_environment_id})
+            for header in scan_memory_headers(manager.root_dir, limit=limit):
+                key = (namespace_id, header.note_id)
+                if key in seen:
+                    continue
+                seen.add(key)
+                headers.append(
+                    {
+                        "note_id": header.note_id,
+                        "filename": header.filename,
+                        "namespace_id": namespace_id,
+                        "memory_type": header.memory_type,
+                        "memory_class": header.memory_class,
+                        "title": header.title,
+                        "description": header.description,
+                        "status": header.status,
+                        "confidence": header.confidence,
+                        "eligible_for_injection": header.eligible_for_injection,
+                        "canonical_statement": header.canonical_statement,
+                        "summary": header.summary,
+                    }
+                )
+        return headers[: max(1, int(limit or 120))]
 
     def _commit_proposal(
         self,

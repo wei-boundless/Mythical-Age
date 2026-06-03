@@ -226,40 +226,7 @@ class MemorySupplier:
         memory_intent: Any | None = None,
         relevant_notes: list[Any] | None = None,
     ) -> MemoryCandidatePool:
-        conversation_snapshot = memory_service.conversation_memory.load_snapshot(session_id) if plan.wants("conversation") else None
-        state_snapshot = memory_service.state_memory.load_snapshot(session_id) if plan.state_read_requested else None
-        conversation_candidates = (
-            tuple(memory_service.conversation_memory.context_candidates(session_id))
-            if plan.wants("conversation")
-            else ()
-        )
-        state_candidates = (
-            tuple(memory_service.state_memory.context_candidates(session_id))
-            if plan.state_read_requested
-            else ()
-        )
-        working_candidates = (
-            tuple(
-                memory_service.working_memory.context_candidates(
-                    task_run_id=plan.working_scope["task_run_id"],
-                    task_id=plan.working_scope["task_id"],
-                    graph_id=plan.working_scope["graph_id"],
-                    owner_node_id=plan.working_scope["owner_node_id"],
-                    node_run_id=plan.working_scope["node_run_id"],
-                    run_attempt_id=plan.working_scope["run_attempt_id"],
-                    requested_kinds=plan.working_memory_kinds,
-                    requested_semantics=plan.working_memory_semantics,
-                    limit=plan.working_limit,
-                )
-            )
-            if plan.wants("working")
-            else ()
-        )
-        restore_candidates = (
-            tuple(memory_service.state_memory.restore_candidates(session_id))
-            if plan.state_read_requested
-            else ()
-        )
+        base_candidates = self._base_candidates(memory_service, session_id=session_id, plan=plan)
         long_term_candidates = (
             tuple(
                 memory_service.build_long_term_memory_context_candidates(
@@ -276,14 +243,62 @@ class MemorySupplier:
             else ()
         )
         return MemoryCandidatePool(
-            conversation_snapshot=conversation_snapshot,
-            state_snapshot=state_snapshot,
-            conversation_candidates=conversation_candidates,
-            state_candidates=state_candidates,
-            working_candidates=working_candidates,
+            **base_candidates,
             long_term_candidates=long_term_candidates,
-            restore_candidates=restore_candidates,
         )
+
+    async def afetch_candidates(
+        self,
+        memory_service: Any,
+        *,
+        session_id: str,
+        plan: MemoryReadPlan,
+        query: str | None = None,
+        memory_intent: Any | None = None,
+        relevant_notes: list[Any] | None = None,
+    ) -> MemoryCandidatePool:
+        base_candidates = self._base_candidates(memory_service, session_id=session_id, plan=plan)
+        long_term_candidates = (
+            tuple(
+                await memory_service.abuild_long_term_memory_context_candidates(
+                    session_id=session_id,
+                    query=query,
+                    memory_intent=memory_intent,
+                    relevant_notes=relevant_notes,
+                    note_limit=plan.note_limit,
+                    environment_scope=plan.environment_scope,
+                    global_common_allowed=plan.global_common_allowed,
+                )
+            )
+            if plan.allow_long_term and plan.wants("long_term")
+            else ()
+        )
+        return MemoryCandidatePool(
+            **base_candidates,
+            long_term_candidates=long_term_candidates,
+        )
+
+    def _base_candidates(self, memory_service: Any, *, session_id: str, plan: MemoryReadPlan) -> dict[str, Any]:
+        return {
+            "conversation_snapshot": memory_service.conversation_memory.load_snapshot(session_id) if plan.wants("conversation") else None,
+            "state_snapshot": memory_service.state_memory.load_snapshot(session_id) if plan.state_read_requested else None,
+            "conversation_candidates": tuple(memory_service.conversation_memory.context_candidates(session_id)) if plan.wants("conversation") else (),
+            "state_candidates": tuple(memory_service.state_memory.context_candidates(session_id)) if plan.state_read_requested else (),
+            "working_candidates": tuple(
+                memory_service.working_memory.context_candidates(
+                    task_run_id=plan.working_scope["task_run_id"],
+                    task_id=plan.working_scope["task_id"],
+                    graph_id=plan.working_scope["graph_id"],
+                    owner_node_id=plan.working_scope["owner_node_id"],
+                    node_run_id=plan.working_scope["node_run_id"],
+                    run_attempt_id=plan.working_scope["run_attempt_id"],
+                    requested_kinds=plan.working_memory_kinds,
+                    requested_semantics=plan.working_memory_semantics,
+                    limit=plan.working_limit,
+                )
+            ) if plan.wants("working") else (),
+            "restore_candidates": tuple(memory_service.state_memory.restore_candidates(session_id)) if plan.state_read_requested else (),
+        }
 
 
 def build_memory_runtime_view(
@@ -381,6 +396,48 @@ def build_memory_scope_policy(
         allow_working_memory_read="working" in allowed_layers,
         allow_cross_task_memory=False,
         writeback_policy=str(profile.get("writeback_policy") or "task_default"),
+    )
+
+
+async def abuild_memory_runtime_view(
+    memory_service: Any,
+    *,
+    session_id: str,
+    query: str | None = None,
+    memory_intent: Any | None = None,
+    memory_request_profile: dict[str, Any] | None = None,
+    relevant_notes: list[Any] | None = None,
+    note_limit: int = 5,
+    orchestrator: MemoryOrchestrator | None = None,
+    supplier: MemorySupplier | None = None,
+) -> MemoryRuntimeView:
+    read_plan = (orchestrator or MemoryOrchestrator()).build_read_plan(
+        memory_request_profile,
+        note_limit=note_limit,
+    )
+    candidate_pool = await (supplier or MemorySupplier()).afetch_candidates(
+        memory_service,
+        session_id=session_id,
+        plan=read_plan,
+        query=query,
+        memory_intent=memory_intent,
+        relevant_notes=relevant_notes,
+    )
+    return MemoryRuntimeView(
+        view_id=f"memory-runtime:{session_id or 'default'}",
+        session_id=session_id,
+        conversation_snapshot=candidate_pool.conversation_snapshot,
+        state_snapshot=candidate_pool.state_snapshot,
+        context_candidates=candidate_pool.context_candidates,
+        restore_candidates=candidate_pool.restore_candidates,
+        read_only=True,
+        memory_write_allowed=False,
+        diagnostics={
+            **candidate_pool.diagnostics(),
+            "memory_write_allowed": False,
+            "read_plan": read_plan.diagnostics(),
+            **read_plan.diagnostics(),
+        },
     )
 
 

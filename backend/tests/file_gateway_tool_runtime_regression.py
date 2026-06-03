@@ -32,11 +32,14 @@ def test_runtime_write_file_uses_file_gateway_sandbox_repository(tmp_path: Path)
     envelope = result["observation"].payload["result_envelope"]
     gateway_payload = envelope["structured_payload"]["file_gateway"]
     receipt = gateway_payload["receipt"]
+    artifact_refs = [dict(item) for item in list(envelope.get("artifact_refs") or [])]
 
     assert result["error"] == ""
     assert (project / "docs" / "note.md").read_text(encoding="utf-8") == "real"
     assert (sandbox / "docs" / "note.md").read_text(encoding="utf-8") == "sandbox"
     assert gateway_payload["access_decision"] == "allow"
+    assert artifact_refs[0]["absolute_path"] == str((sandbox / "docs" / "note.md").resolve())
+    assert artifact_refs[0]["sandbox_path"] == "docs/note.md"
     assert receipt["repository_id"] == "repo.managed_project.sandbox_workspace"
     assert receipt["operation_id"] == "op.write_file"
     assert receipt["tool_call_id"] == "call-write_file"

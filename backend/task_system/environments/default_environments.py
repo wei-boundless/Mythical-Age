@@ -53,7 +53,7 @@ def default_task_environments() -> tuple[TaskEnvironmentDefinition, ...]:
 def coding_vibe_workspace_environment() -> TaskEnvironmentDefinition:
     record = TaskEnvironmentRecord(
         environment_id="env.coding.vibe_workspace",
-        title="Vibe Coding Workspace",
+        title="Vibe 编码工作区",
         description="Dedicated coding task environment for project inspection, implementation, file-state-aware iteration, command verification, and delivery evidence.",
         group_id="environment_group.coding",
         environment_kind="coding",
@@ -187,7 +187,7 @@ def coding_vibe_workspace_environment() -> TaskEnvironmentDefinition:
 def development_sandbox_environment() -> TaskEnvironmentDefinition:
     record = TaskEnvironmentRecord(
         environment_id="env.development.sandbox",
-        title="Development Sandbox",
+        title="开发沙盒",
         description="General development sandbox for implementation, command-based verification, and delivery evidence.",
         group_id="environment_group.development",
         environment_kind="development",
@@ -303,7 +303,7 @@ def development_sandbox_environment() -> TaskEnvironmentDefinition:
 def creation_writing_environment() -> TaskEnvironmentDefinition:
     record = TaskEnvironmentRecord(
         environment_id="env.creation.writing",
-        title="Creative Writing",
+        title="创意写作",
         description="Creative work environment for writing projects, source material, drafts, and reviewable creative outputs.",
         group_id="environment_group.creation",
         environment_kind="creation",
@@ -371,7 +371,7 @@ def creation_writing_environment() -> TaskEnvironmentDefinition:
 def general_workspace_environment() -> TaskEnvironmentDefinition:
     record = TaskEnvironmentRecord(
         environment_id="env.general.workspace",
-        title="General Workspace",
+        title="通用工作区",
         description="General-purpose work environment for broad tasks and mixed workflows.",
         group_id="environment_group.general",
         environment_kind="general",

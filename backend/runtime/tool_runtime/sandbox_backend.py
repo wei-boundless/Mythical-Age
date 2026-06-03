@@ -32,7 +32,7 @@ DEFAULT_OVERLAY_TOOL_NAMES = {
     "image_generate",
 }
 OVERLAY_COPY_ON_WRITE_TOOL_NAMES = {"edit_file"}
-OVERLAY_COPY_ON_READ_TOOL_NAMES = {"read_file", "read_structured_file"}
+OVERLAY_COPY_ON_READ_TOOL_NAMES = {"read_file", "read_structured_file", "stat_path", "path_exists"}
 OVERLAY_MATERIALIZE_BEFORE_TOOL_NAMES = {"terminal", "python_repl", "glob_paths", "search_files", "search_text", "list_dir"}
 
 
@@ -125,10 +125,13 @@ class LocalOverlaySandboxBackend:
             alternate_source = _backend_relative_source(context.workspace_root, relative_path)
             if alternate_source is not None:
                 source = alternate_source
-        if target.exists() or not source.exists() or not source.is_file():
+        if target.exists() or not source.exists():
             return
         target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(source, target)
+        if source.is_file():
+            shutil.copy2(source, target)
+        elif source.is_dir():
+            target.mkdir(parents=True, exist_ok=True)
 
     def _materialize_roots(self, context: SandboxToolContext) -> None:
         if context.workspace_root is None:

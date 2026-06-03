@@ -1,4 +1,5 @@
 import type { TaskSystemOverview } from "@/lib/api";
+import { taskEnvironmentDisplayName } from "@/lib/taskEnvironmentDisplay";
 
 export type TaskEnvironmentManagement = NonNullable<TaskSystemOverview["task_environment_management"]>;
 export type TaskEnvironmentItem = TaskEnvironmentManagement["environments"][number];
@@ -6,7 +7,7 @@ export type EnvironmentScope = "workspace" | "builtin_template" | "system_intern
 
 const KNOWN_ENVIRONMENT_COPY: Record<string, { title: string; purpose: string }> = {
   "env.coding.vibe_workspace": {
-    title: "代码环境",
+    title: "Vibe 编码工作区",
     purpose: "加载受管项目工作区、沙盒、文件状态、Git 视图和验证产物",
   },
   "env.creation.writing": {
@@ -63,7 +64,10 @@ export function taskEnvironmentScopeLabel(scope: EnvironmentScope) {
 
 export function taskEnvironmentDisplayTitle(item: TaskEnvironmentItem | undefined | null) {
   if (!item) return "新任务环境";
-  return KNOWN_ENVIRONMENT_COPY[item.record.environment_id]?.title || item.record.title || "任务环境";
+  return taskEnvironmentDisplayName(
+    item.record.environment_id,
+    KNOWN_ENVIRONMENT_COPY[item.record.environment_id]?.title || item.record.title || "任务环境",
+  );
 }
 
 export function taskEnvironmentPurpose(item: TaskEnvironmentItem | undefined | null) {

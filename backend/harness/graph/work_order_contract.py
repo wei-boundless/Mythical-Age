@@ -174,7 +174,7 @@ def _graph_node_runtime_scope(work_order: Any) -> dict[str, Any]:
         **dict(dispatch_context.get("runtime_scope") or {}),
         "graph_run_id": str(getattr(work_order, "graph_run_id", "") or ""),
         "task_run_id": str(getattr(work_order, "task_run_id", "") or ""),
-        "authority": "harness_entrypoint.graph_node_runtime_scope",
+        "authority": "harness.graph.work_order_contract.graph_node_runtime_scope",
     }
 
 

@@ -482,6 +482,8 @@ def test_coding_environment_prompt_is_isolated_from_development_prompt() -> None
     assert stable_payload["task_environment"]["environment_prompt_refs"] == expected_environment_refs
     assert assembly.environment_prompt_refs == tuple(expected_environment_refs)
     assert "你处在专用 coding 工作区任务环境中" in model_input
+    assert "项目工作区是 coding 任务的主要工作面" in model_input
+    assert "artifact 目录是交付证据和发布面" in model_input
     assert "不要反复读取同一文件窗口" in model_input
     assert "不把某个任务类型的循环控制写进工具或文件状态里" in model_input
     assert "coding 规则只在当前 coding/development 环境内适用" in model_input

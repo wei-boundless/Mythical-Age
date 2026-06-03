@@ -108,7 +108,7 @@ async def get_memory_overview(
     headers = runtime.memory_facade.governance_service.scan_durable_memory_headers(limit=limit)
     session_inspect = None
     if session_id:
-        session_inspect = _inspect_session_memory(runtime, session_id, query=query)
+        session_inspect = await _inspect_session_memory(runtime, session_id, query=query)
 
     return {
         "session_id": session_id or "",
@@ -410,9 +410,9 @@ async def recall_memory_preview(payload: RecallPreviewRequest) -> dict[str, Any]
     if payload.session_id:
         history_payload = runtime.session_manager.get_history(payload.session_id)
         session_summary = str(history_payload.get("compressed_context", "") or "")
-        context_result = _inspect_session_memory(runtime, payload.session_id, query=query, limit=payload.limit)
+        context_result = await _inspect_session_memory(runtime, payload.session_id, query=query, limit=payload.limit)
 
-    result = runtime.memory_facade.bundle_service.recall_durable_memories(
+    result = await runtime.memory_facade.bundle_service.arecall_durable_memories(
         query=query,
         memory_intent=intent,
         note_limit=payload.limit,
@@ -534,33 +534,31 @@ def _read_session_memory_preview(path: Path, limit: int = 12000) -> str:
     return raw[: max(0, limit - 1)].rstrip() + "…"
 
 
-def _inspect_session_memory(runtime: Any, session_id: str, *, query: str = "", limit: int = 5) -> dict[str, Any]:
+async def _inspect_session_memory(runtime: Any, session_id: str, *, query: str = "", limit: int = 5) -> dict[str, Any]:
     assert runtime.memory_facade is not None
-    messages = runtime.session_manager.load_session(session_id)
     intent = analyze_memory_intent(query) if query.strip() else None
-    result = runtime.memory_facade.bundle_service.build_memory_context_package_result(
+    memory_profile = {
+        "requested_memory_layers": ["state", "long_term"],
+        "allow_long_term_memory": True,
+    }
+    memory_view = await runtime.memory_facade.bundle_service.abuild_memory_runtime_view(
         session_id=session_id,
         query=query.strip() or None,
         memory_intent=intent,
         note_limit=limit,
-        memory_request_profile={
-            "requested_memory_layers": ["state", "long_term"],
-            "allow_long_term_memory": True,
-        },
+        memory_request_profile=memory_profile,
+    )
+    result = await runtime.memory_facade.bundle_service.abuild_memory_context_package_result(
+        session_id=session_id,
+        query=query.strip() or None,
+        memory_intent=intent,
+        note_limit=limit,
+        memory_request_profile=memory_profile,
+        memory_view=memory_view,
     )
     payload = result.to_dict()
     package = dict(payload.get("package") or {})
     sections = dict(package.get("model_visible_sections") or {})
-    memory_view = runtime.memory_facade.bundle_service.build_memory_runtime_view(
-        session_id=session_id,
-        query=query.strip() or None,
-        memory_intent=intent,
-        note_limit=limit,
-        memory_request_profile={
-            "requested_memory_layers": ["state", "long_term"],
-            "allow_long_term_memory": True,
-        },
-    )
     state = memory_view.state_snapshot
     rendered_sections = "\n".join(
         "\n".join(str(item) for item in list(sections.get(name, []) or []))

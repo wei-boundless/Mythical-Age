@@ -1,12 +1,15 @@
 "use client";
 
 import { useEffect, useMemo, useRef } from "react";
+import { Gauge } from "lucide-react";
 
 import { ChatInput } from "@/components/chat/ChatInput";
 import { ChatMessage } from "@/components/chat/ChatMessage";
 import { ChatSearchPolicyControls } from "@/components/chat/ChatSearchPolicyControls";
 import { SessionActivityBar } from "@/components/chat/SessionActivityBar";
 import { useAppStore } from "@/lib/store";
+import { taskEnvironmentDisplayName } from "@/lib/taskEnvironmentDisplay";
+import type { TokenStats } from "@/lib/store/types";
 
 export function ChatPanel() {
   const {
@@ -33,6 +36,7 @@ export function ChatPanel() {
     setSelectedChatModel,
     searchPolicy,
     toggleSearchPolicySource,
+    tokenStats,
   } = useAppStore();
   const endRef = useRef<HTMLDivElement | null>(null);
   const currentSessionStreaming = Boolean(currentSessionId && activeStreamSessionIds.includes(currentSessionId));
@@ -69,6 +73,7 @@ export function ChatPanel() {
     && !currentSessionStreaming
     && (
       monitorStatus === "waiting_executor"
+      || monitorStatus === "waiting_approval"
       || monitorStatus === "blocked"
       || monitorControlState === "paused"
       || monitorControlState === "pause_requested"
@@ -138,6 +143,7 @@ export function ChatPanel() {
               answerSource={message.answerSource}
               retrievals={message.retrievals}
               role={message.role}
+              runtimePublicTimelineDraft={message.runtimePublicTimelineDraft}
               runtimeAttachments={message.runtimeAttachments}
               runtimeProgress={message.runtimeProgress}
               stageStatus={message.stageStatus}
@@ -154,9 +160,15 @@ export function ChatPanel() {
           {conversationActiveEnvironment ? (
             <div className="chat-task-environment-binding" title={conversationActiveEnvironment.task_environment_id}>
               <span>环境</span>
-              <strong>{conversationActiveEnvironment.environment_label || conversationActiveEnvironment.task_environment_id}</strong>
+              <strong>
+                {taskEnvironmentDisplayName(
+                  conversationActiveEnvironment.task_environment_id,
+                  conversationActiveEnvironment.environment_label,
+                )}
+              </strong>
             </div>
           ) : null}
+          <SessionTokenMeter tokenStats={tokenStats} />
           <ChatSearchPolicyControls
             onToggleSearchPolicy={toggleSearchPolicySource}
             searchPolicy={searchPolicy}
@@ -181,5 +193,41 @@ export function ChatPanel() {
       </div>
     </section>
   );
+}
+
+function SessionTokenMeter({ tokenStats }: { tokenStats: TokenStats | null }) {
+  if (!tokenStats) {
+    return null;
+  }
+  const remainingPercent = Math.max(0, Math.min(100, Math.round(Number(tokenStats.history_remaining_ratio || 0) * 100)));
+  const pressureLevel = String(tokenStats.history_pressure_level || "normal").trim() || "normal";
+  const title = [
+    `总计 ${formatTokenCount(tokenStats.total_tokens)} tokens`,
+    `消息 ${formatTokenCount(tokenStats.message_tokens)}`,
+    `系统 ${formatTokenCount(tokenStats.system_tokens)}`,
+    `有效历史 ${formatTokenCount(tokenStats.history_tokens)}/${formatTokenCount(tokenStats.history_budget_tokens)}`,
+    `余量 ${remainingPercent}%`,
+    tokenStats.history_did_compact ? `已压缩，原始历史 ${formatTokenCount(tokenStats.raw_history_tokens)}` : "",
+  ].filter(Boolean).join("；");
+  return (
+    <div className={`chat-token-meter chat-token-meter--${tokenPressureClass(pressureLevel)}`} title={title}>
+      <Gauge size={14} />
+      <span>上下文</span>
+      <strong>{remainingPercent}%</strong>
+      <em>{formatTokenCount(tokenStats.total_tokens)} tokens</em>
+    </div>
+  );
+}
+
+function tokenPressureClass(value: string) {
+  const normalized = value.replace(/[^a-z0-9_-]/gi, "_").toLowerCase();
+  return normalized || "normal";
+}
+
+function formatTokenCount(value: unknown) {
+  const number = Math.max(0, Math.round(Number(value || 0)));
+  if (number >= 1_000_000) return `${(number / 1_000_000).toFixed(2)}M`;
+  if (number >= 1_000) return `${(number / 1_000).toFixed(1)}K`;
+  return String(number);
 }
 

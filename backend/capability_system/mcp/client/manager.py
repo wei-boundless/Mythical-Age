@@ -53,9 +53,9 @@ class ExternalMCPManager:
                         "display_name": tool.get("title") or tool["name"],
                         "route_family": "external_mcp",
                         "candidate_visibility": "external_discovery",
-                        "model_visibility": "permission_gated_external_tool_pool"
+                        "model_visibility": "runtime_plan_bound_external_tool"
                         if permission["authorized"]
-                        else "permission_hidden",
+                        else "external_permission_denied_preview",
                         "runtime_exposure": "external_mcp_client_call",
                         "requires_explicit_binding": True,
                         "discovery_priority": 200,
