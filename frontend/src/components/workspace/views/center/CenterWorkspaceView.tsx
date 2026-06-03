@@ -141,13 +141,17 @@ export function CenterWorkspaceView({
   const {
     centerWorkspaceTarget,
     clearCenterWorkspaceTarget,
+    currentSessionId,
     inspectorDirty,
+    sessionEditorContexts,
+    setSessionEditorPageState,
   } = useAppStore();
   const [layer, setLayer] = useState<CenterWorkspaceLayer>("chat");
   const [selectedGraphId, setSelectedGraphId] = useState("");
   const [activeFilePath, setActiveFilePath] = useState("");
   const [openFilePaths, setOpenFilePaths] = useState<string[]>([]);
   const graphTaskEnvironmentId = taskEnvironmentId.trim() || GENERAL_TASK_ENVIRONMENT_ID;
+  const sessionEditorContext = currentSessionId ? sessionEditorContexts[currentSessionId] : null;
 
   const canSwitchActiveFile = useCallback((nextPath: string) => {
     if (!inspectorDirty || !activeFilePath || activeFilePath === nextPath) {
@@ -161,10 +165,12 @@ export function CenterWorkspaceView({
     if (!nextPath || !canSwitchActiveFile(nextPath)) {
       return;
     }
-    setOpenFilePaths((current) => current.includes(nextPath) ? current : [...current, nextPath]);
+    const nextOpenFilePaths = openFilePaths.includes(nextPath) ? openFilePaths : [...openFilePaths, nextPath];
+    setOpenFilePaths(nextOpenFilePaths);
     setActiveFilePath(nextPath);
     setLayer("file");
-  }, [canSwitchActiveFile]);
+    setSessionEditorPageState({ activeFilePath: nextPath, openFilePaths: nextOpenFilePaths });
+  }, [canSwitchActiveFile, openFilePaths, setSessionEditorPageState]);
 
   const closeFilePage = useCallback((path: string) => {
     const targetPath = path.trim();
@@ -174,17 +180,26 @@ export function CenterWorkspaceView({
     if (targetPath === activeFilePath && inspectorDirty && !window.confirm("当前文件有未保存修改，关闭文件页会丢弃这些修改。继续关闭吗？")) {
       return;
     }
-    setOpenFilePaths((current) => {
-      const targetIndex = current.indexOf(targetPath);
-      const next = current.filter((item) => item !== targetPath);
-      if (targetPath === activeFilePath) {
-        const nextActive = next[Math.min(Math.max(targetIndex, 0), next.length - 1)] || "";
-        setActiveFilePath(nextActive);
-        setLayer(nextActive ? "file" : "chat");
-      }
-      return next;
-    });
-  }, [activeFilePath, inspectorDirty]);
+    const targetIndex = openFilePaths.indexOf(targetPath);
+    const nextOpenFilePaths = openFilePaths.filter((item) => item !== targetPath);
+    const nextActiveFilePath = targetPath === activeFilePath
+      ? nextOpenFilePaths[Math.min(Math.max(targetIndex, 0), nextOpenFilePaths.length - 1)] || ""
+      : activeFilePath;
+    setOpenFilePaths(nextOpenFilePaths);
+    setActiveFilePath(nextActiveFilePath);
+    if (targetPath === activeFilePath) {
+      setLayer(nextActiveFilePath ? "file" : "chat");
+    }
+    setSessionEditorPageState({ activeFilePath: nextActiveFilePath, openFilePaths: nextOpenFilePaths });
+  }, [activeFilePath, inspectorDirty, openFilePaths, setSessionEditorPageState]);
+
+  useEffect(() => {
+    const nextOpenFilePaths = sessionEditorContext?.openFilePaths ?? [];
+    const nextActiveFilePath = sessionEditorContext?.activeFilePath ?? "";
+    setOpenFilePaths(nextOpenFilePaths);
+    setActiveFilePath(nextActiveFilePath);
+    setLayer(nextActiveFilePath ? "file" : "chat");
+  }, [currentSessionId, sessionEditorContext?.activeFilePath, sessionEditorContext?.openFilePaths]);
 
   useEffect(() => {
     if (!centerWorkspaceTarget) {
@@ -240,6 +255,7 @@ export function CenterWorkspaceView({
                   if (!canSwitchActiveFile(path)) return;
                   setActiveFilePath(path);
                   setLayer("file");
+                  setSessionEditorPageState({ activeFilePath: path, openFilePaths });
                 }}
                 type="button"
               >

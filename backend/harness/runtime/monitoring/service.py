@@ -3,6 +3,7 @@ from __future__ import annotations
 import time
 from typing import Any
 
+from .contract import build_envelope
 from .projector import RuntimeMonitorProjector
 from .resource_resolver import MonitorResourceResolver
 
@@ -27,12 +28,22 @@ class RuntimeMonitorService:
 
     def list_global_live_monitor(self, limit: int = 20) -> dict[str, Any]:
         requested_limit = max(1, min(int(limit or 20), 100))
+        now = time.time()
         task_runs = self.runtime_host.state_index.list_recent_task_runs(limit=max(requested_limit * 4, 80))
-        return self.projector.build_global_monitor(
+        base_monitor = self.projector.build_global_monitor(
             task_runs,
-            now=time.time(),
+            now=now,
             limit=requested_limit,
         )
+        active_turn_items = self._global_active_turn_items(now=now, visible_session_ids={
+            str(item.get("session_id") or "").strip()
+            for item in list(base_monitor.get("items") or [])
+            if isinstance(item, dict)
+        })
+        if not active_turn_items:
+            return base_monitor
+        merged_items = [*list(base_monitor.get("items") or []), *active_turn_items]
+        return build_envelope(scope="global", items=merged_items, now=now, limit=requested_limit)
 
     def get_session_live_monitor(self, session_id: str, *, limit: int = 20) -> dict[str, Any]:
         task_runs = sorted(
@@ -40,7 +51,8 @@ class RuntimeMonitorService:
             key=lambda item: item.updated_at,
             reverse=True,
         )
-        monitor = self.projector.build_session_monitor(session_id, task_runs, now=time.time(), limit=limit)
+        now = time.time()
+        monitor = self.projector.build_session_monitor(session_id, task_runs, now=now, limit=limit)
         active_turn_snapshot = None
         active_turn_registry = getattr(self.runtime_host, "active_turn_registry", None)
         if active_turn_registry is not None:
@@ -49,6 +61,23 @@ class RuntimeMonitorService:
                 active_turn_snapshot = active_turn.to_dict() if active_turn is not None else None
             except Exception:
                 active_turn_snapshot = None
+        if not list(monitor.get("items") or []):
+            active_item = self._session_active_turn_item(session_id, now=now)
+            if active_item is not None:
+                monitor = build_envelope(
+                    scope="session",
+                    items=[active_item],
+                    now=now,
+                    limit=limit,
+                    selected=active_item,
+                    extra={
+                        "session_id": session_id,
+                        "active_task_run_id": str(active_item.get("task_run_id") or ""),
+                        "latest_task_run_id": "",
+                        "task_run_count": len(task_runs),
+                        "monitor": active_item,
+                    },
+                )
         return {
             **monitor,
             "active_turn_snapshot": active_turn_snapshot,
@@ -111,9 +140,30 @@ class RuntimeMonitorService:
 
     def get_task_run_live_monitor(self, task_run_id: str) -> dict[str, Any] | None:
         task_run = self.runtime_host.state_index.get_task_run(task_run_id)
-        if task_run is None:
+        now = time.time()
+        if task_run is not None:
+            return self.projector.build_task_monitor(task_run, now=now)
+        turn_run = self.runtime_host.state_index.get_turn_run(task_run_id)
+        if turn_run is None:
             return None
-        return self.projector.build_task_monitor(task_run, now=time.time())
+        active_turn = None
+        active_turn_registry = getattr(self.runtime_host, "active_turn_registry", None)
+        if active_turn_registry is not None:
+            try:
+                candidate = active_turn_registry.resolve_current(str(getattr(turn_run, "session_id", "") or ""))
+                if candidate is not None and str(getattr(candidate, "turn_run_id", "") or "") == str(getattr(turn_run, "turn_run_id", "") or ""):
+                    active_turn = candidate
+            except Exception:
+                active_turn = None
+        if active_turn is None:
+            return None
+        runtime_run = self._latest_session_runtime_run(str(getattr(turn_run, "session_id", "") or ""))
+        return self.projector.build_turn_monitor(
+            active_turn=active_turn,
+            turn_run=turn_run,
+            runtime_run=runtime_run,
+            now=now,
+        )
 
     def get_resource(self, resource_ref: str) -> dict[str, Any]:
         kind, _, resource_id = str(resource_ref or "").partition(":")
@@ -139,3 +189,62 @@ class RuntimeMonitorService:
             },
             "detail_endpoint": "",
         }
+
+    def _global_active_turn_items(self, *, now: float, visible_session_ids: set[str]) -> list[dict[str, Any]]:
+        run_registry = getattr(self.runtime_host, "run_registry", None)
+        active_turn_registry = getattr(self.runtime_host, "active_turn_registry", None)
+        if run_registry is None or active_turn_registry is None:
+            return []
+        session_ids: list[str] = []
+        seen: set[str] = set()
+        for run in list(getattr(run_registry, "list_runs", lambda: [])() or []):
+            session_id = str(getattr(run, "session_id", "") or "").strip()
+            status = str(getattr(run, "status", "") or "").strip()
+            if not session_id or session_id in seen or status in {"completed", "failed", "stopped", "orphaned"}:
+                continue
+            seen.add(session_id)
+            session_ids.append(session_id)
+        items: list[dict[str, Any]] = []
+        for session_id in session_ids:
+            if session_id in visible_session_ids:
+                continue
+            item = self._session_active_turn_item(session_id, now=now)
+            if item is not None:
+                items.append(item)
+        return items
+
+    def _session_active_turn_item(self, session_id: str, *, now: float) -> dict[str, Any] | None:
+        active_turn_registry = getattr(self.runtime_host, "active_turn_registry", None)
+        if active_turn_registry is None:
+            return None
+        try:
+            active_turn = active_turn_registry.resolve_current(session_id)
+        except Exception:
+            active_turn = None
+        if active_turn is None:
+            return None
+        if str(getattr(active_turn, "bound_task_run_id", "") or "").strip():
+            return None
+        turn_run_id = str(getattr(active_turn, "turn_run_id", "") or "").strip()
+        if not turn_run_id:
+            return None
+        turn_run = self.runtime_host.state_index.get_turn_run(turn_run_id)
+        runtime_run = self._latest_session_runtime_run(session_id)
+        return self.projector.project_active_turn(
+            active_turn=active_turn,
+            turn_run=turn_run,
+            runtime_run=runtime_run,
+            now=now,
+        )
+
+    def _latest_session_runtime_run(self, session_id: str) -> Any | None:
+        run_registry = getattr(self.runtime_host, "run_registry", None)
+        if run_registry is None:
+            return None
+        latest = getattr(run_registry, "latest_session_run", None)
+        if callable(latest):
+            try:
+                return latest(session_id)
+            except Exception:
+                return None
+        return None

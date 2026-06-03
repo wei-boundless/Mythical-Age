@@ -7685,6 +7685,12 @@ button:hover {
   gap: 0.5rem;
 }
 
+.message-edit-form__error {
+  color: #b42318;
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
 .message-edit-form__button {
   display: inline-flex;
   align-items: center;
@@ -26720,7 +26726,71 @@ html[data-workspace-tone] .agent-workbench {
 }
 
 .task-monitor-dock--embedded .task-monitor-dock__body {
+  gap: 0.5rem;
   padding: 0.55rem;
+}
+
+.task-monitor-dock--embedded .task-monitor-summary {
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  padding: 0;
+}
+
+.task-monitor-dock__embedded-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 30px;
+  align-items: center;
+  gap: 8px;
+  min-height: 38px;
+  border-bottom: 1px solid var(--workbench-line);
+  padding: 0 0 8px;
+}
+
+.task-monitor-dock__embedded-head div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.task-monitor-dock__embedded-head span {
+  overflow: hidden;
+  color: var(--console-muted, var(--color-text-muted));
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-monitor-dock__embedded-head strong {
+  overflow: hidden;
+  color: var(--console-text, var(--color-text));
+  font-size: 13px;
+  font-weight: 720;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-monitor-dock__embedded-head button {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--workbench-line);
+  border-radius: 7px;
+  background: #fff;
+  color: var(--console-muted, var(--color-text-muted));
+  cursor: pointer;
+}
+
+.task-monitor-dock__embedded-head button:hover:not(:disabled) {
+  border-color: #b8c7e4;
+  background: var(--console-blue-soft, #e9f0fb);
+  color: var(--console-blue, #285fbd);
+}
+
+.task-monitor-dock__embedded-head button:disabled {
+  cursor: default;
+  opacity: 0.55;
 }
 
 .development-status-slot {

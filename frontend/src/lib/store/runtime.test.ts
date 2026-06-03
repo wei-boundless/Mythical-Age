@@ -39,6 +39,7 @@ const api = vi.hoisted(() => ({
   stopOrchestrationHarnessTaskRun: vi.fn(),
   streamExistingChatRun: vi.fn(),
   streamChat: vi.fn(),
+  truncateSessionMessages: vi.fn(),
 }));
 
 vi.mock("@/lib/api", () => ({
@@ -83,7 +84,7 @@ vi.mock("@/lib/api", () => ({
   stopOrchestrationTaskRun: vi.fn(),
   streamExistingChatRun: api.streamExistingChatRun,
   streamChat: api.streamChat,
-  truncateSessionMessages: vi.fn(),
+  truncateSessionMessages: api.truncateSessionMessages,
 }));
 
 function itemForMonitor(patch: Record<string, unknown>) {
@@ -344,6 +345,8 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       handlers.onEvent("done", { content: "done" });
       return { terminalEvent: "done", streamRunId: "strun:test", eventLogId: "chatrun:test", lastEventOffset: 1 };
     });
+    api.truncateSessionMessages.mockReset();
+    api.truncateSessionMessages.mockResolvedValue({ ok: true });
     vi.stubGlobal("window", {
       clearTimeout,
       localStorage: {
@@ -653,6 +656,145 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       session_id: "session:plan",
       permission_mode: "plan",
     });
+  });
+
+  it("sends frontend page editor context only for the current session", async () => {
+    vi.useRealTimers();
+    const store = createStore<StoreState>({
+      ...getDefaultState(),
+      currentSessionId: "session:code",
+      workspaceContext: {
+        project_name: "repo",
+        project_root: "D:/repo",
+        backend_root: "D:/repo/backend",
+        storage_root: "D:/repo/.runtime",
+        editable_prefixes: ["frontend/src/"],
+        readable_prefixes: ["frontend/src/"],
+      },
+      sessions: [{
+        id: "session:code",
+        title: "Code",
+        created_at: 1,
+        updated_at: 1,
+        message_count: 0,
+      }],
+      inspectorPath: "frontend/src/App.tsx",
+      inspectorContent: "export function App() { return null; }",
+      inspectorDirty: true,
+      sessionEditorContexts: {
+        "session:code": {
+          activeFilePath: "frontend/src/App.tsx",
+          openFilePaths: ["frontend/src/App.tsx"],
+          inspectorPath: "frontend/src/App.tsx",
+          inspectorContent: "export function App() { return null; }",
+          inspectorDirty: true,
+          updatedAt: 1,
+        },
+      },
+    });
+    const runtime = new WorkspaceRuntime(store);
+
+    await runtime.actions.sendMessage("检查当前文件。");
+
+    expect(api.streamChat).toHaveBeenCalledTimes(1);
+    expect(api.streamChat.mock.calls[0]?.[0]?.editor_context).toMatchObject({
+      source: "frontend.center_workspace",
+      workspace_roots: ["D:/repo"],
+      active_file: {
+        path: "frontend/src/App.tsx",
+        language_id: "typescriptreact",
+        dirty: true,
+        selection: {
+          text: "export function App() { return null; }",
+          truncated: false,
+        },
+      },
+      visible_files: [{
+        path: "frontend/src/App.tsx",
+        language_id: "typescriptreact",
+        dirty: true,
+      }],
+    });
+  });
+
+  it("does not carry an opened file context into another session", async () => {
+    vi.useRealTimers();
+    const store = createStore<StoreState>({
+      ...getDefaultState(),
+      currentSessionId: "session:a",
+      sessions: [
+        {
+          id: "session:a",
+          title: "A",
+          created_at: 1,
+          updated_at: 2,
+          message_count: 0,
+        },
+        {
+          id: "session:b",
+          title: "B",
+          created_at: 1,
+          updated_at: 3,
+          message_count: 0,
+        },
+      ],
+      inspectorPath: "frontend/src/A.tsx",
+      inspectorContent: "export const a = 1;",
+      sessionEditorContexts: {
+        "session:a": {
+          activeFilePath: "frontend/src/A.tsx",
+          openFilePaths: ["frontend/src/A.tsx"],
+          inspectorPath: "frontend/src/A.tsx",
+          inspectorContent: "export const a = 1;",
+          inspectorDirty: false,
+          updatedAt: 1,
+        },
+      },
+    });
+    const runtime = new WorkspaceRuntime(store);
+
+    await runtime.actions.selectSession({ sessionId: "session:b", poolKey: "main-chat" });
+    await runtime.actions.sendMessage("普通问题。");
+
+    expect(store.getState().inspectorPath).toBe("durable_memory/index/MEMORY.md");
+    expect(api.streamChat).toHaveBeenCalledTimes(1);
+    expect(api.streamChat.mock.calls[0]?.[0]?.session_id).toBe("session:b");
+    expect(api.streamChat.mock.calls[0]?.[0]?.editor_context).toBeUndefined();
+  });
+
+  it("clears frontend editor context after the session closes its last file", async () => {
+    vi.useRealTimers();
+    const store = createStore<StoreState>({
+      ...getDefaultState(),
+      currentSessionId: "session:code",
+      sessions: [{
+        id: "session:code",
+        title: "Code",
+        created_at: 1,
+        updated_at: 1,
+        message_count: 0,
+      }],
+      inspectorPath: "frontend/src/App.tsx",
+      inspectorContent: "export const app = true;",
+      sessionEditorContexts: {
+        "session:code": {
+          activeFilePath: "frontend/src/App.tsx",
+          openFilePaths: ["frontend/src/App.tsx"],
+          inspectorPath: "frontend/src/App.tsx",
+          inspectorContent: "export const app = true;",
+          inspectorDirty: false,
+          updatedAt: 1,
+        },
+      },
+    });
+    const runtime = new WorkspaceRuntime(store);
+
+    runtime.actions.setSessionEditorPageState({ activeFilePath: "", openFilePaths: [] });
+    await runtime.actions.sendMessage("不带文件上下文。");
+
+    expect(store.getState().inspectorPath).toBe("durable_memory/index/MEMORY.md");
+    expect(api.streamChat).toHaveBeenCalledTimes(1);
+    expect(api.streamChat.mock.calls[0]?.[0]?.editor_context).toBeUndefined();
   });
 
   it("opens graph tasks inside the current shared development workspace", () => {
@@ -1948,6 +2090,56 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(store.getState().currentSessionId).toBe("session:fresh");
     expect(api.streamChat).toHaveBeenCalledTimes(1);
     expect(api.streamChat.mock.calls[0]?.[0]?.session_id).toBe("session:fresh");
+  });
+
+  it("truncates from the edited user message and sends the replacement text", async () => {
+    vi.useRealTimers();
+    const store = createStore<StoreState>({
+      ...getDefaultState(),
+      currentSessionId: "session:edit",
+      sessions: [{
+        id: "session:edit",
+        title: "Edit",
+        created_at: 1,
+        updated_at: 1,
+        message_count: 2,
+      }],
+      messages: [
+        { id: "user:1", role: "user", content: "旧问题", toolCalls: [], retrievals: [], sourceIndex: 0 },
+        { id: "assistant:1", role: "assistant", content: "旧回答", toolCalls: [], retrievals: [], sourceIndex: 1 },
+      ],
+    });
+    const runtime = new WorkspaceRuntime(store);
+
+    await runtime.actions.resendEditedMessage("user:1", "新问题");
+
+    expect(api.truncateSessionMessages).toHaveBeenCalledWith("session:edit", 0, undefined);
+    expect(api.streamChat).toHaveBeenCalledTimes(1);
+    expect(api.streamChat.mock.calls[0]?.[0]?.message).toBe("新问题");
+  });
+
+  it("does not resend an older user message because the edit affordance is only for the latest user message", async () => {
+    const store = createStore<StoreState>({
+      ...getDefaultState(),
+      currentSessionId: "session:edit",
+      sessions: [{
+        id: "session:edit",
+        title: "Edit",
+        created_at: 1,
+        updated_at: 1,
+        message_count: 3,
+      }],
+      messages: [
+        { id: "user:1", role: "user", content: "第一条", toolCalls: [], retrievals: [], sourceIndex: 0 },
+        { id: "assistant:1", role: "assistant", content: "回答", toolCalls: [], retrievals: [], sourceIndex: 1 },
+        { id: "user:2", role: "user", content: "第二条", toolCalls: [], retrievals: [], sourceIndex: 2 },
+      ],
+    });
+    const runtime = new WorkspaceRuntime(store);
+
+    await runtime.actions.resendEditedMessage("user:1", "改第一条");
+    expect(api.truncateSessionMessages).not.toHaveBeenCalled();
+    expect(api.streamChat).not.toHaveBeenCalled();
   });
 
   it("loads ordinary chat sessions without task-environment session scope", async () => {

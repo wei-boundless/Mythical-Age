@@ -42,8 +42,9 @@ import { taskEnvironmentDisplayName } from "@/lib/taskEnvironmentDisplay";
 
 import { createIdleSessionActivity, type Store } from "./core";
 import { reduceStreamEvent, startQueuedActiveTurn, startStreamingTurn, type StreamSession } from "./events";
+import { mergePublicTimelineItems, publicTimelineTerminalStateFromAnswer } from "./publicTimeline";
 import { RuntimeMonitorController } from "../runtime-monitor/controller";
-import type { ActiveTurnSnapshot, ChatMode, ChatModelSelection, ChatTaskEnvironmentBinding, ChatThinkingMode, Message, PermissionMode, RuntimeProgressEntry, SearchPolicySource, SessionPoolKey, SessionRef, StoreActions, StoreState, TaskEnvironmentWorkspaceView, TaskGraphCenterWorkspaceTarget, TaskGraphMonitorBinding, TaskSelectionState, WorkspaceView } from "./types";
+import type { ActiveTurnSnapshot, ChatMode, ChatModelSelection, ChatTaskEnvironmentBinding, ChatThinkingMode, Message, PermissionMode, RuntimeProgressEntry, SearchPolicySource, SessionEditorContext, SessionEditorPageStatePatch, SessionPoolKey, SessionRef, StoreActions, StoreState, TaskEnvironmentWorkspaceView, TaskGraphCenterWorkspaceTarget, TaskGraphMonitorBinding, TaskSelectionState, WorkspaceView } from "./types";
 import { makeId, toUiMessages } from "./utils";
 
 type HarnessSessionMonitor = NonNullable<Awaited<ReturnType<typeof getOrchestrationHarnessSessionLiveMonitor>>["monitor"]>;
@@ -53,6 +54,8 @@ const MAIN_CHAT_POOL_KEY: SessionPoolKey = "main-chat";
 const GENERAL_TASK_ENVIRONMENT_ID = "env.general.workspace";
 const CODING_TASK_ENVIRONMENT_ID = "env.coding.vibe_workspace";
 const DEFAULT_PERMISSION_MODE: PermissionMode = "full_access";
+const DEFAULT_INSPECTOR_PATH = "durable_memory/index/MEMORY.md";
+const FRONTEND_EDITOR_CONTEXT_TEXT_LIMIT = 12000;
 const GRAPH_ONLY_TASK_ENVIRONMENT_IDS = new Set(["env.creation.writing"]);
 const CODE_TASK_ENVIRONMENT_IDS = new Set([CODING_TASK_ENVIRONMENT_ID, "env.development.sandbox"]);
 
@@ -206,6 +209,9 @@ export class WorkspaceRuntime {
       },
       saveInspector: async () => {
         await this.saveInspector();
+      },
+      setSessionEditorPageState: (patch) => {
+        this.setSessionEditorPageState(patch);
       },
       setSidebarWidth: (width) => {
         this.setSidebarWidth(width);
@@ -607,9 +613,15 @@ export class WorkspaceRuntime {
       return {
         ...message,
         runtimeProgress: this.mergeMessageRuntimeProgress(message.runtimeProgress, current.runtimeProgress ?? []),
-        runtimePublicTimelineDraft: this.mergePublicTimelineItems(
+        runtimePublicTimelineDraft: mergePublicTimelineItems(
           persistedPublicTimeline,
           current.runtimePublicTimelineDraft,
+          {
+            terminalState: publicTimelineTerminalStateFromAnswer({
+              answerCanonicalState: message.answerCanonicalState,
+              answerChannel: message.answerChannel,
+            }),
+          },
         ),
         stageStatus: message.stageStatus ?? current.stageStatus,
       };
@@ -781,6 +793,73 @@ export class WorkspaceRuntime {
     };
   }
 
+  private withVisibleEditorContextForSession(state: StoreState, sessionId: string | null): StoreState {
+    const context = sessionId ? state.sessionEditorContexts[sessionId] : undefined;
+    if (!context || (!context.activeFilePath && !context.openFilePaths.length)) {
+      return {
+        ...state,
+        inspectorPath: DEFAULT_INSPECTOR_PATH,
+        inspectorContent: "",
+        inspectorDirty: false,
+      };
+    }
+    return {
+      ...state,
+      inspectorPath: context.inspectorPath || context.activeFilePath || DEFAULT_INSPECTOR_PATH,
+      inspectorContent: context.inspectorContent || "",
+      inspectorDirty: Boolean(context.inspectorDirty),
+    };
+  }
+
+  private uniqueFilePaths(paths: string[]) {
+    const result: string[] = [];
+    const seen = new Set<string>();
+    for (const path of paths.map((item) => String(item || "").trim()).filter(Boolean)) {
+      if (seen.has(path)) {
+        continue;
+      }
+      seen.add(path);
+      result.push(path);
+    }
+    return result;
+  }
+
+  private patchCurrentSessionEditorContext(state: StoreState, patch: Partial<SessionEditorContext>): StoreState {
+    const sessionId = state.currentSessionId;
+    if (!sessionId) {
+      return state;
+    }
+    const current = state.sessionEditorContexts[sessionId] ?? {
+      activeFilePath: "",
+      openFilePaths: [],
+      inspectorPath: "",
+      inspectorContent: "",
+      inspectorDirty: false,
+      updatedAt: 0,
+    };
+    const activeFilePath = String(patch.activeFilePath ?? current.activeFilePath ?? "").trim();
+    const inspectorPath = String(patch.inspectorPath ?? current.inspectorPath ?? "").trim();
+    let openFilePaths = this.uniqueFilePaths(Array.isArray(patch.openFilePaths) ? patch.openFilePaths : current.openFilePaths);
+    if (activeFilePath && !openFilePaths.includes(activeFilePath)) {
+      openFilePaths = [...openFilePaths, activeFilePath];
+    }
+    const nextContext: SessionEditorContext = {
+      activeFilePath,
+      openFilePaths,
+      inspectorPath,
+      inspectorContent: String(patch.inspectorContent ?? current.inspectorContent ?? ""),
+      inspectorDirty: Boolean(patch.inspectorDirty ?? current.inspectorDirty),
+      updatedAt: Date.now(),
+    };
+    return {
+      ...state,
+      sessionEditorContexts: {
+        ...state.sessionEditorContexts,
+        [sessionId]: nextContext,
+      },
+    };
+  }
+
   private applyVisibleStreamState(streamState: StoreState, activeStreamSessionIds: string[]) {
     this.store.setState((prev) => ({
       ...prev,
@@ -810,7 +889,7 @@ export class WorkspaceRuntime {
         ?? this.store.getState().conversationActiveEnvironment
         ?? this.defaultActiveTaskEnvironment();
       const permissionMode = this.permissionModeForSession(created.id, { ...this.store.getState(), sessions: [created] }, DEFAULT_PERMISSION_MODE);
-      this.store.setState((prev) => ({
+      this.store.setState((prev) => this.withVisibleEditorContextForSession({
         ...prev,
         sessions: [
           {
@@ -829,7 +908,7 @@ export class WorkspaceRuntime {
         permissionMode,
         messages: [],
         tokenStats: null
-      }));
+      }, created.id));
       this.store.setState((prev) => this.clearSessionActivityFor(prev, created.id));
       await setSessionPermissionMode(created.id, permissionMode).catch((error) => {
         console.debug("[workspace-runtime] default permission mode persist skipped", {
@@ -875,7 +954,7 @@ export class WorkspaceRuntime {
       this.noteSessionRefreshFailure(error);
       return;
     }
-    this.store.setState((prev) => ({
+    this.store.setState((prev) => this.withVisibleEditorContextForSession({
       ...prev,
       currentSessionId: sessionId,
       activeSessionScope: null,
@@ -887,7 +966,7 @@ export class WorkspaceRuntime {
       orchestrationSnapshot: null,
       taskGraphLiveMonitor: null,
       tokenStats: null
-    }));
+    }, sessionId));
     this.store.setState((prev) => this.clearSessionActivityFor(prev, sessionId));
     await this.refreshMainSessionPool().catch((error) => {
       this.noteSessionRefreshFailure(error);
@@ -1129,7 +1208,7 @@ export class WorkspaceRuntime {
         ? this.activeEnvironmentForSession(selectedSession) ?? this.store.getState().conversationActiveEnvironment ?? this.defaultActiveTaskEnvironment()
         : this.store.getState().conversationActiveEnvironment;
       const permissionMode = this.permissionModeForSession(normalized.sessionId, this.store.getState());
-      this.store.setState((prev) => ({
+      this.store.setState((prev) => this.withVisibleEditorContextForSession({
         ...prev,
         currentSessionId: normalized.sessionId,
         activeSessionScope: normalized.scope ?? null,
@@ -1141,7 +1220,7 @@ export class WorkspaceRuntime {
         activeTurnSnapshot: streamingCache.activeTurnSnapshot,
         taskGraphLiveMonitor: null,
         tokenStats: null
-      }));
+      }, normalized.sessionId));
       this.store.setState((prev) => this.projectSelectedSessionActivity(prev, normalized.sessionId));
       this.projectPermissionModeToRuntime(permissionMode);
       return true;
@@ -1151,7 +1230,7 @@ export class WorkspaceRuntime {
       ? this.activeEnvironmentForSession(selectedSession) ?? this.store.getState().conversationActiveEnvironment ?? this.defaultActiveTaskEnvironment()
       : this.store.getState().conversationActiveEnvironment;
     const permissionMode = this.permissionModeForSession(normalized.sessionId, this.store.getState());
-    this.store.setState((prev) => ({
+    this.store.setState((prev) => this.withVisibleEditorContextForSession({
       ...prev,
       currentSessionId: normalized.sessionId,
       activeSessionScope: normalized.scope ?? null,
@@ -1163,7 +1242,7 @@ export class WorkspaceRuntime {
       activeTurnSnapshot: null,
       taskGraphLiveMonitor: null,
       tokenStats: null
-    }));
+    }, normalized.sessionId));
     this.store.setState((prev) => this.projectSelectedSessionActivity(prev, normalized.sessionId));
     this.projectPermissionModeToRuntime(permissionMode);
     return false;
@@ -1557,6 +1636,7 @@ export class WorkspaceRuntime {
           permission_mode: permissionMode,
           expected_active_turn_id: String(activeTurnForRequest?.turn_id ?? ""),
           active_turn_input_policy: activeTurnForRequest?.turn_id ? "steer" : "auto",
+          editor_context: this.chatEditorContextPayload(requestState, sessionId),
           image_generation: imageGeneration
             ? {
                 ...imageGeneration,
@@ -2153,6 +2233,88 @@ export class WorkspaceRuntime {
       .map(([source]) => source);
   }
 
+  private chatEditorContextPayload(state: StoreState, sessionId: string): Record<string, unknown> | undefined {
+    const context = state.sessionEditorContexts[sessionId];
+    if (!context) {
+      return undefined;
+    }
+    const activePath = String(context.activeFilePath || "").trim();
+    const openFilePaths = this.uniqueFilePaths([
+      ...context.openFilePaths,
+      ...(activePath ? [activePath] : []),
+    ]).slice(0, 20);
+    if (!activePath && !openFilePaths.length) {
+      return undefined;
+    }
+    const activeFileLoaded = Boolean(activePath && context.inspectorPath === activePath);
+    const activeText = activeFileLoaded ? String(context.inspectorContent || "") : "";
+    const selectedText = activeText.slice(0, FRONTEND_EDITOR_CONTEXT_TEXT_LIMIT);
+    const selection = selectedText
+      ? {
+          start: { line: 0, character: 0 },
+          end: this.editorEndPosition(selectedText),
+          text: selectedText,
+          truncated: activeText.length > selectedText.length,
+        }
+      : undefined;
+    const workspaceRoots = this.uniqueFilePaths([
+      String(state.workspaceContext?.project_root || "").trim(),
+    ]);
+    return {
+      source: "frontend.center_workspace",
+      captured_at: new Date().toISOString(),
+      workspace_roots: workspaceRoots,
+      active_file: activePath
+        ? {
+            path: activePath,
+            language_id: this.languageIdForPath(activePath),
+            dirty: Boolean(context.inspectorDirty),
+            selection,
+          }
+        : undefined,
+      visible_files: openFilePaths.map((path) => ({
+        path,
+        language_id: this.languageIdForPath(path),
+        dirty: path === activePath ? Boolean(context.inspectorDirty) : false,
+      })),
+    };
+  }
+
+  private editorEndPosition(text: string) {
+    const lines = text.split(/\r\n|\r|\n/);
+    return {
+      line: Math.max(0, lines.length - 1),
+      character: lines.length ? lines[lines.length - 1].length : 0,
+    };
+  }
+
+  private languageIdForPath(path: string) {
+    const normalized = path.toLowerCase();
+    const extension = normalized.includes(".") ? normalized.slice(normalized.lastIndexOf(".") + 1) : "";
+    switch (extension) {
+      case "ts":
+        return "typescript";
+      case "tsx":
+        return "typescriptreact";
+      case "js":
+        return "javascript";
+      case "jsx":
+        return "javascriptreact";
+      case "py":
+        return "python";
+      case "json":
+        return "json";
+      case "md":
+        return "markdown";
+      case "css":
+        return "css";
+      case "html":
+        return "html";
+      default:
+        return extension || "plaintext";
+    }
+  }
+
   private async renameCurrentSession(title: string) {
     const currentSessionId = this.store.getState().currentSessionId;
     if (!currentSessionId || !title.trim()) {
@@ -2181,10 +2343,12 @@ export class WorkspaceRuntime {
     this.store.setState((prev) => {
       const next = this.removeActiveStreamSession(prev, sessionId);
       const { [sessionId]: _removed, ...sessionActivitiesById } = next.sessionActivitiesById;
+      const { [sessionId]: _removedEditorContext, ...sessionEditorContexts } = next.sessionEditorContexts;
       return {
         ...next,
         sessions: next.sessions.filter((session) => session.id !== sessionId),
         sessionActivitiesById,
+        sessionEditorContexts,
         sessionActivity: next.currentSessionId === sessionId ? createIdleSessionActivity(Date.now()) : next.sessionActivity,
       };
     });
@@ -2244,6 +2408,9 @@ export class WorkspaceRuntime {
       taskGraphLiveMonitor: null,
       activeTurnSnapshot: null,
       tokenStats: null,
+      inspectorPath: DEFAULT_INSPECTOR_PATH,
+      inspectorContent: "",
+      inspectorDirty: false,
       sessionActivity: createIdleSessionActivity(Date.now())
     }));
   }
@@ -2251,21 +2418,31 @@ export class WorkspaceRuntime {
   private async loadInspectorFile(path: string) {
     try {
       const file = await loadFile(path);
-      this.store.setState((prev) => ({
+      this.store.setState((prev) => this.patchCurrentSessionEditorContext({
         ...prev,
         inspectorPath: file.path,
         inspectorContent: file.content,
         inspectorDirty: false,
         workspaceTreeError: ""
+      }, {
+        activeFilePath: file.path,
+        inspectorPath: file.path,
+        inspectorContent: file.content,
+        inspectorDirty: false,
       }));
     } catch (error) {
       const message = this.errorMessage(error, `无法打开文件：${path}`);
-      this.store.setState((prev) => ({
+      this.store.setState((prev) => this.patchCurrentSessionEditorContext({
         ...prev,
         inspectorPath: path,
         inspectorContent: message,
         inspectorDirty: false,
         workspaceTreeError: message
+      }, {
+        activeFilePath: path,
+        inspectorPath: path,
+        inspectorContent: "",
+        inspectorDirty: false,
       }));
     }
   }
@@ -2294,18 +2471,49 @@ export class WorkspaceRuntime {
   }
 
   private updateInspectorContent(value: string) {
-    this.store.setState((prev) => ({
+    this.store.setState((prev) => this.patchCurrentSessionEditorContext({
       ...prev,
       inspectorContent: value,
       inspectorDirty: true
+    }, {
+      inspectorPath: prev.inspectorPath,
+      inspectorContent: value,
+      inspectorDirty: true,
     }));
   }
 
   private async saveInspector() {
     const state = this.store.getState();
     await saveFile(state.inspectorPath, state.inspectorContent);
-    this.store.setState((prev) => ({ ...prev, inspectorDirty: false }));
+    this.store.setState((prev) => this.patchCurrentSessionEditorContext({
+      ...prev,
+      inspectorDirty: false,
+    }, {
+      inspectorPath: prev.inspectorPath,
+      inspectorContent: prev.inspectorContent,
+      inspectorDirty: false,
+    }));
     await this.refreshSkills();
+  }
+
+  private setSessionEditorPageState(patch: SessionEditorPageStatePatch) {
+    this.store.setState((prev) => {
+      const clearsFiles = patch.activeFilePath === "" && Array.isArray(patch.openFilePaths) && patch.openFilePaths.length === 0;
+      return this.patchCurrentSessionEditorContext(clearsFiles
+        ? {
+            ...prev,
+            inspectorPath: DEFAULT_INSPECTOR_PATH,
+            inspectorContent: "",
+            inspectorDirty: false,
+          }
+        : prev,
+        {
+          activeFilePath: patch.activeFilePath,
+          openFilePaths: patch.openFilePaths,
+          ...(clearsFiles ? { inspectorPath: "", inspectorContent: "", inspectorDirty: false } : {}),
+        }
+      );
+    });
   }
 
   private setSidebarWidth(width: number) {
@@ -2886,47 +3094,14 @@ export class WorkspaceRuntime {
       .slice(-MAX_LIVE_RUNTIME_PROGRESS_ENTRIES);
   }
 
-  private mergePublicTimelineItems(existing: PublicChatTimelineItem[] | undefined, latest: PublicChatTimelineItem[] | undefined) {
-    const items = [...(Array.isArray(existing) ? existing : [])];
-    for (const item of Array.isArray(latest) ? latest : []) {
-      const key = this.publicTimelineItemKey(item);
-      if (!key) {
-        continue;
-      }
-      const existingIndex = items.findIndex((candidate) => this.publicTimelineItemKey(candidate) === key);
-      if (existingIndex >= 0) {
-        items[existingIndex] = { ...items[existingIndex], ...item };
-      } else {
-        items.push(item);
-      }
-    }
-    return items.slice(-MAX_LIVE_RUNTIME_PROGRESS_ENTRIES);
-  }
-
-  private publicTimelineItemKey(item: PublicChatTimelineItem | undefined) {
-    const itemId = String(item?.item_id ?? "").trim();
-    if (itemId) {
-      return itemId;
-    }
-    const refs = Array.isArray(item?.trace_refs) ? item.trace_refs.filter(Boolean).join(",") : "";
-    if (refs) {
-      return `${item?.kind ?? "item"}:${refs}`;
-    }
-    return [
-      item?.kind,
-      item?.title,
-      item?.detail,
-      item?.text,
-      item?.path,
-    ].map((value) => String(value ?? "").trim()).join("|");
-  }
-
   private mergeRuntimeAttachment(existing: SessionRuntimeAttachment | undefined, attachment: SessionRuntimeAttachment): SessionRuntimeAttachment {
     return {
       ...existing,
       ...attachment,
       progress_entries: this.mergeRuntimeProgressEntries(existing?.progress_entries, attachment.progress_entries?.[0] ?? null),
-      public_timeline: this.mergePublicTimelineItems(existing?.public_timeline, attachment.public_timeline),
+      public_timeline: mergePublicTimelineItems(existing?.public_timeline, attachment.public_timeline, {
+        limit: MAX_LIVE_RUNTIME_PROGRESS_ENTRIES,
+      }),
     };
   }
 

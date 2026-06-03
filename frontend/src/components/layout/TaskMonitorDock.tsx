@@ -18,6 +18,7 @@ import {
 import { useRuntimeNowTicker } from "@/components/layout/runtimeNowTicker";
 
 type RuntimeMonitorBucket = "running" | "waiting" | "completed" | "failed" | "diagnostics";
+const BUCKET_ORDER: RuntimeMonitorBucket[] = ["running", "waiting", "diagnostics", "completed", "failed"];
 
 function statusIcon(status: string) {
   if (isWaitingStatus(status)) return <PauseCircle size={14} />;
@@ -60,6 +61,12 @@ export function TaskMonitorDock({ embedded = false }: { embedded?: boolean }) {
           ? failedRuns
           : diagnosticsRuns;
   const allRuns = useMemo(() => [...runningRuns, ...waitingRuns, ...completedRuns, ...failedRuns, ...diagnosticsRuns], [completedRuns, diagnosticsRuns, failedRuns, runningRuns, waitingRuns]);
+  const liveRuns = useMemo(() => [...runningRuns, ...waitingRuns, ...diagnosticsRuns], [diagnosticsRuns, runningRuns, waitingRuns]);
+  const displayRuns = useMemo(() => {
+    if (runs.length) return runs;
+    if (liveRuns.length) return liveRuns;
+    return allRuns;
+  }, [allRuns, liveRuns, runs]);
   const summary = globalRuntimeMonitor?.summary;
   const selectedRun = useMemo(
     () => allRuns.find((item) => item.task_run_id === globalRuntimeMonitorSelectedTaskRunId || monitorItemInstanceId(item) === globalRuntimeMonitorSelectedTaskRunId) ?? runs[0] ?? null,
@@ -92,7 +99,7 @@ export function TaskMonitorDock({ embedded = false }: { embedded?: boolean }) {
 
   useEffect(() => {
     if (bucketCounts[activeBucket] > 0) return;
-    const nextBucket = (["running", "waiting", "completed", "failed", "diagnostics"] as RuntimeMonitorBucket[])
+    const nextBucket = BUCKET_ORDER
       .find((bucket) => bucketCounts[bucket] > 0);
     if (nextBucket && nextBucket !== activeBucket) {
       setActiveBucket(nextBucket);
@@ -157,6 +164,22 @@ export function TaskMonitorDock({ embedded = false }: { embedded?: boolean }) {
         </button>
       ) : (
         <div className="task-monitor-dock__body">
+          {embedded ? (
+            <header className="task-monitor-dock__embedded-head">
+              <div>
+                <span>运行监控</span>
+                <strong>{statusText}</strong>
+              </div>
+              <button
+                aria-label="刷新运行监控"
+                disabled={globalRuntimeMonitorLoading}
+                onClick={() => void refreshGlobalRuntimeMonitor()}
+                type="button"
+              >
+                <RefreshCw size={14} />
+              </button>
+            </header>
+          ) : null}
           <section className={hasSignal ? "task-monitor-summary task-monitor-summary--active" : "task-monitor-summary"}>
             <div>
               <span>运行监控</span>
@@ -194,8 +217,8 @@ export function TaskMonitorDock({ embedded = false }: { embedded?: boolean }) {
             </section>
           ) : null}
 
-          <section className="runtime-monitor-list" aria-label="运行任务列表">
-            {runs.length ? runs.map((item) => {
+          <section className={displayRuns.length ? "runtime-monitor-list runtime-monitor-list--active" : "runtime-monitor-list"} aria-label="运行任务列表">
+            {displayRuns.length ? displayRuns.map((item) => {
               const itemInstanceId = monitorItemInstanceId(item);
               const active = itemInstanceId === (selectedRun ? monitorItemInstanceId(selectedRun) : "");
               const work = runtimeWorkProjectionFromMonitorItem(item);

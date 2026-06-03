@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from hashlib import sha1
 from typing import Any
 
 from harness.runtime.progress_presenter import build_progress_presentation
@@ -721,7 +722,7 @@ def _public_timeline_from_progress_entries(entries: list[dict[str, Any]]) -> lis
         level = str(entry.get("level") or "")
         timeline.append(
             {
-                "item_id": f"turn-progress:{entry.get('id')}",
+                "item_id": _public_timeline_item_id(entry),
                 "kind": "tool_activity" if kind == "tool" else "assistant_text" if kind == "model" else kind or "runtime_progress",
                 "title": str(entry.get("title") or ""),
                 "detail": str(entry.get("body") or ""),
@@ -730,6 +731,32 @@ def _public_timeline_from_progress_entries(entries: list[dict[str, Any]]) -> lis
             }
         )
     return timeline
+
+
+def _public_timeline_item_id(entry: dict[str, Any]) -> str:
+    kind = str(entry.get("kind") or "")
+    if kind != "tool":
+        return f"turn-progress:{entry.get('id')}"
+    scope = str(entry.get("taskRunId") or entry.get("runId") or "").strip()
+    tool_name = str(entry.get("toolName") or "").strip()
+    target = _progress_entry_tool_target(entry)
+    family = _tool_family(tool_name)
+    digest = sha1(f"tool-activity|{scope or family}|{family}|{target or tool_name or entry.get('title')}".encode("utf-8", errors="ignore")).hexdigest()[:16]
+    return f"tool-activity:{digest}"
+
+
+def _progress_entry_tool_target(entry: dict[str, Any]) -> str:
+    for item in list(entry.get("meta") or []):
+        if not isinstance(item, dict):
+            continue
+        label = str(item.get("label") or "").strip()
+        if label == "目标":
+            value = public_runtime_progress_summary(item.get("value") or "").strip()
+            if value:
+                return value[:240]
+    body = public_runtime_progress_summary(entry.get("body") or "").strip()
+    title = public_runtime_progress_summary(entry.get("title") or "").strip()
+    return body or title
 
 
 def _artifact_refs_from_progress_entries(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:

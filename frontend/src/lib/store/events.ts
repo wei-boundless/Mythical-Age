@@ -16,6 +16,7 @@ import {
   looksLikeSkillDocumentPrefix,
   makeId
 } from "./utils";
+import { mergePublicTimelineItems, publicTimelineTerminalStateFromEvent } from "./publicTimeline";
 
 export type StreamSession = {
   assistantId: string;
@@ -837,58 +838,6 @@ function appendAssistantProgress(
   });
 }
 
-function publicTimelineItemKey(item: PublicChatTimelineItem | undefined, fallbackIndex: number) {
-  if (!item) return "";
-  const itemId = String(item.item_id ?? "").trim();
-  if (itemId) return itemId;
-  const refs = Array.isArray(item.trace_refs) ? item.trace_refs.map((ref) => String(ref ?? "").trim()).filter(Boolean) : [];
-  if (refs.length) return `refs:${refs.join(",")}`;
-  return `${String(item.kind ?? "").trim()}:${String(item.title ?? item.text ?? item.detail ?? item.path ?? "").trim()}:${fallbackIndex}`;
-}
-
-function mergePublicTimelineItems(
-  existing: PublicChatTimelineItem[] | undefined,
-  incoming: PublicChatTimelineItem[] | undefined,
-) {
-  const merged = [...(existing ?? [])];
-  const indexByKey = new Map<string, number>();
-  for (const [index, item] of merged.entries()) {
-    indexByKey.set(publicTimelineItemKey(item, index), index);
-  }
-  for (const item of incoming ?? []) {
-    const key = publicTimelineItemKey(item, merged.length);
-    if (!key) continue;
-    const existingIndex = indexByKey.get(key);
-    if (existingIndex === undefined) {
-      indexByKey.set(key, merged.length);
-      merged.push(item);
-      continue;
-    }
-    merged[existingIndex] = { ...merged[existingIndex], ...item };
-  }
-  return merged;
-}
-
-function finalizePublicTimelineDraft(
-  existing: PublicChatTimelineItem[] | undefined,
-  incoming: PublicChatTimelineItem[] | undefined,
-  terminalState: "done" | "error" | "stopped",
-) {
-  const finalState = terminalState === "error" ? "error" : "done";
-  return mergePublicTimelineItems(existing, incoming).map((item) => {
-    const state = String(item.state ?? "").trim().toLowerCase();
-    const streamState = String(item.stream_state ?? "").trim().toLowerCase();
-    if (streamState !== "streaming" && !["", "running", "working", "partial"].includes(state)) {
-      return item;
-    }
-    return {
-      ...item,
-      state: finalState,
-      stream_state: "done",
-    };
-  });
-}
-
 function patchAssistantPublicTimelineDraft(
   state: StoreState,
   assistantId: string,
@@ -1046,6 +995,7 @@ export function reduceStreamEvent(
   data: Record<string, unknown>
 ): StreamTransition {
   const visibility = projectRuntimeStreamEvent(event, data);
+  const terminalTimelineState = publicTimelineTerminalStateFromEvent(event);
   const publicTimelineDelta = Array.isArray(data.public_timeline_delta)
     ? data.public_timeline_delta as PublicChatTimelineItem[]
     : undefined;
@@ -1143,10 +1093,10 @@ export function reduceStreamEvent(
           ? {
               ...message,
               ...answerMetadata,
-              runtimePublicTimelineDraft: finalizePublicTimelineDraft(
+              runtimePublicTimelineDraft: mergePublicTimelineItems(
                 message.runtimePublicTimelineDraft,
                 publicTimelineDelta,
-                "done",
+                { terminalState: terminalTimelineState },
               ),
               stageStatus: taskSteerAccepted ? "已收到补充要求" : partialTimeout ? "部分完成" : "完成",
               image: (data.image as Message["image"]) ?? message.image ?? null
@@ -1157,10 +1107,10 @@ export function reduceStreamEvent(
               content: taskSteerAccepted
                 ? String(data.content ?? data.summary ?? "已加入当前任务队列。")
                 : String(data.content ?? ""),
-              runtimePublicTimelineDraft: finalizePublicTimelineDraft(
+              runtimePublicTimelineDraft: mergePublicTimelineItems(
                 message.runtimePublicTimelineDraft,
                 publicTimelineDelta,
-                "done",
+                { terminalState: terminalTimelineState },
               ),
               stageStatus: taskSteerAccepted ? "已收到补充要求" : partialTimeout ? "部分完成" : "完成",
               image: (data.image as Message["image"]) ?? message.image ?? null
@@ -1203,21 +1153,21 @@ export function reduceStreamEvent(
           return {
             ...message,
             content: visibleError,
-            runtimePublicTimelineDraft: finalizePublicTimelineDraft(message.runtimePublicTimelineDraft, publicTimelineDelta, "error"),
+            runtimePublicTimelineDraft: mergePublicTimelineItems(message.runtimePublicTimelineDraft, publicTimelineDelta, { terminalState: terminalTimelineState }),
             stageStatus: "出错",
           };
         }
         if (current.includes(errorText)) {
           return {
             ...message,
-            runtimePublicTimelineDraft: finalizePublicTimelineDraft(message.runtimePublicTimelineDraft, publicTimelineDelta, "error"),
+            runtimePublicTimelineDraft: mergePublicTimelineItems(message.runtimePublicTimelineDraft, publicTimelineDelta, { terminalState: terminalTimelineState }),
             stageStatus: "出错",
           };
         }
         return {
           ...message,
           content: `${current}\n\n${visibleError}`,
-          runtimePublicTimelineDraft: finalizePublicTimelineDraft(message.runtimePublicTimelineDraft, publicTimelineDelta, "error"),
+          runtimePublicTimelineDraft: mergePublicTimelineItems(message.runtimePublicTimelineDraft, publicTimelineDelta, { terminalState: terminalTimelineState }),
           stageStatus: "出错",
         };
       }),
@@ -1230,7 +1180,7 @@ export function reduceStreamEvent(
       state: patchAssistant(stateWithOrchestration, session.assistantId, (message) => ({
         ...message,
         content: message.content,
-        runtimePublicTimelineDraft: finalizePublicTimelineDraft(message.runtimePublicTimelineDraft, publicTimelineDelta, "stopped"),
+        runtimePublicTimelineDraft: mergePublicTimelineItems(message.runtimePublicTimelineDraft, publicTimelineDelta, { terminalState: terminalTimelineState }),
         stageStatus: "已停止"
       })),
       session

@@ -261,6 +261,167 @@ class RuntimeMonitorProjector:
     def build_task_monitor(self, task_run: Any, *, now: float) -> dict[str, Any]:
         return build_task_detail_envelope(item=self.project_task_run(task_run, now=now), now=now)
 
+    def project_active_turn(
+        self,
+        *,
+        active_turn: Any,
+        turn_run: Any | None,
+        runtime_run: Any | None,
+        now: float,
+    ) -> dict[str, Any]:
+        current_time = float(now)
+        session_id = str(getattr(active_turn, "session_id", "") or "")
+        turn_id = str(getattr(active_turn, "turn_id", "") or "")
+        turn_run_id = str(getattr(active_turn, "turn_run_id", "") or "")
+        stream_run_id = str(getattr(active_turn, "stream_run_id", "") or "")
+        active_state = str(getattr(active_turn, "state", "") or "model_turn")
+        started_at = float(
+            getattr(active_turn, "started_at", 0.0)
+            or getattr(turn_run, "created_at", 0.0)
+            or getattr(runtime_run, "created_at", 0.0)
+            or 0.0
+        )
+        updated_at = float(
+            getattr(active_turn, "updated_at", 0.0)
+            or getattr(turn_run, "updated_at", 0.0)
+            or getattr(runtime_run, "updated_at", 0.0)
+            or started_at
+            or 0.0
+        )
+        last_activity_at = max(started_at, updated_at)
+        last_activity_age_seconds = max(0.0, current_time - last_activity_at) if last_activity_at else 0.0
+        duration_seconds = max(0.0, current_time - started_at) if started_at else 0.0
+        status = _active_turn_status(active_state)
+        latest_event_type = "single_agent_turn_started" if active_state in {"starting", "model_turn"} else "runtime_live_monitor"
+        summary = _active_turn_summary(active_state)
+        latest_progress = {
+            "tool_status": "",
+            "observation": "",
+            "current_judgment": "",
+            "next_action": "",
+            "completion_status": summary,
+            "open_risks": [],
+            "evidence_refs": [],
+            "summary": summary,
+            "agent_brief": "",
+        }
+        item = {
+            "task_run_id": turn_run_id,
+            "session_id": session_id,
+            "task_id": turn_id or stream_run_id or turn_run_id,
+            "execution_runtime_kind": "single_agent_turn",
+            "task_instance_id": turn_run_id or stream_run_id or turn_id,
+            "root_task_run_id": turn_run_id,
+            "kind": "agent_run",
+            "title": "持续处理",
+            "status": status,
+            "terminal_reason": str(getattr(active_turn, "terminal_reason", "") or ""),
+            "lifecycle": "running" if status == "running" else "waiting",
+            "bucket": "running" if status == "running" else "waiting",
+            "resource_class": "dynamic",
+            "started_at": started_at,
+            "created_at": started_at,
+            "updated_at": updated_at,
+            "ended_at": None,
+            "duration_seconds": duration_seconds,
+            "elapsed_seconds": duration_seconds,
+            "runtime_seconds": duration_seconds,
+            "runtime_end_at": None,
+            "last_activity_at": last_activity_at,
+            "last_activity_age_seconds": last_activity_age_seconds,
+            "action_required": status != "running",
+            "terminal": False,
+            "stale": False,
+            "diagnostic_reasons": [],
+            "runtime_control": {},
+            "control_state": active_state,
+            "is_live": True,
+            "summary": summary,
+            "latest_progress": latest_progress,
+            "latest_event_type": latest_event_type,
+            "latest_event_at": updated_at,
+            "latest_event": {},
+            "latest_step": {
+                "step": active_state or "model_turn",
+                "status": status,
+                "summary": summary,
+                "public_progress_note": summary,
+                "agent_brief_output": "",
+                "tool_status": "",
+                "observation": "",
+                "current_judgment": "",
+                "next_action": "",
+                "completion_status": summary,
+                "presentation_source": "active_turn",
+                "event_id": "",
+                "offset": -1,
+                "created_at": updated_at,
+            },
+            "latest_step_summary": summary,
+            "latest_public_progress_note": summary,
+            "latest_interaction_turn_id": turn_id,
+            "agent_brief_output": "",
+            "latest_step_name": active_state or "model_turn",
+            "latest_step_status": status,
+            "artifact_count": 0,
+            "artifact_refs": [],
+            "resource_refs": [],
+            "primary_resource_ref": None,
+            "graph_status": None,
+            "child_runtime_refs": [],
+            "navigation_target": build_navigation_target(
+                kind="agent_run",
+                task_instance_id=turn_run_id or stream_run_id or turn_id,
+                task_run_id=turn_run_id,
+                session_id=session_id,
+                session_scope={"workspace_view": "chat"},
+            ),
+            "pending_user_steer_count": len(tuple(getattr(active_turn, "pending_input_refs", ()) or ())),
+            "latest_user_steer_ref": "",
+            "active_contract_revision_count": 0,
+            "latest_contract_revision_ref": "",
+            "executor_epoch": 0,
+            "next_invocation_index": 0,
+            "route": {
+                "kind": "agent_runtime_run",
+                "session_id": session_id,
+                "task_run_id": turn_run_id,
+                "graph_id": "",
+                "graph_run_id": "",
+                "graph_harness_config_id": "",
+            },
+            "session_scope": {"workspace_view": "chat", "task_environment_id": "", "project_id": ""},
+            "graph_run_id": "",
+            "graph_harness_config_id": "",
+            "graph_id": "",
+            "active_node_id": "",
+            "project_id": "",
+            "project_title": "",
+            "project_runtime_status": None,
+            "has_graph_run": False,
+            "event_count": 0,
+            "authority": "runtime_monitor.v1.item",
+        }
+        return item
+
+    def build_turn_monitor(
+        self,
+        *,
+        active_turn: Any,
+        turn_run: Any | None,
+        runtime_run: Any | None,
+        now: float,
+    ) -> dict[str, Any]:
+        return build_task_detail_envelope(
+            item=self.project_active_turn(
+                active_turn=active_turn,
+                turn_run=turn_run,
+                runtime_run=runtime_run,
+                now=now,
+            ),
+            now=now,
+        )
+
     def _current_items_by_session(self, items: list[dict[str, Any]]) -> list[dict[str, Any]]:
         selected_by_session: dict[str, dict[str, Any]] = {}
         unscoped: list[dict[str, Any]] = []
@@ -736,6 +897,30 @@ def _artifact_refs_from_event_log(event_log: Any, task_run_id: str) -> list[dict
         except Exception:
             pass
     return []
+
+
+def _active_turn_status(state: str) -> str:
+    normalized = str(state or "").strip()
+    if normalized in {"waiting_executor", "waiting_user"}:
+        return "waiting_executor"
+    return "running"
+
+
+def _active_turn_summary(state: str) -> str:
+    normalized = str(state or "").strip()
+    if normalized == "starting":
+        return "正在建立当前处理。"
+    if normalized == "model_turn":
+        return "正在分析请求并准备执行。"
+    if normalized == "running_task":
+        return "正在持续处理当前任务。"
+    if normalized == "waiting_user":
+        return "正在等待新的用户输入。"
+    if normalized == "waiting_executor":
+        return "正在等待执行器继续。"
+    if normalized == "interrupting":
+        return "正在处理中断与切换。"
+    return "正在持续处理当前请求。"
 
 
 def _session_current_item_key(item: dict[str, Any]) -> tuple[int, int, int, float, float]:

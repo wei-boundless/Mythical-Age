@@ -266,6 +266,20 @@ export type FileCenterWorkspaceTarget = {
 
 export type CenterWorkspaceTarget = TaskGraphCenterWorkspaceTarget | FileCenterWorkspaceTarget;
 
+export type SessionEditorContext = {
+  activeFilePath: string;
+  openFilePaths: string[];
+  inspectorPath: string;
+  inspectorContent: string;
+  inspectorDirty: boolean;
+  updatedAt: number;
+};
+
+export type SessionEditorPageStatePatch = {
+  activeFilePath?: string;
+  openFilePaths?: string[];
+};
+
 export type StoreState = {
   activeWorkspaceView: WorkspaceView;
   workspaceContext: WorkspaceContext | null;
@@ -300,6 +314,7 @@ export type StoreState = {
   inspectorPath: string;
   inspectorContent: string;
   inspectorDirty: boolean;
+  sessionEditorContexts: Record<string, SessionEditorContext>;
   sidebarWidth: number;
   inspectorWidth: number;
   tokenStats: TokenStats | null;
@@ -357,6 +372,7 @@ export type StoreActions = {
   loadInspectorFile: (path: string) => Promise<void>;
   updateInspectorContent: (value: string) => void;
   saveInspector: () => Promise<void>;
+  setSessionEditorPageState: (patch: SessionEditorPageStatePatch) => void;
   setSidebarWidth: (width: number) => void;
   setInspectorWidth: (width: number) => void;
   setMemoryInspectorTarget: (target: MemoryInspectorTarget | null) => void;

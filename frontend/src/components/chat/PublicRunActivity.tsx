@@ -13,6 +13,7 @@ import {
 import React from "react";
 
 import type { PublicChatTimelineItem } from "@/lib/api";
+import { normalizePublicTimelineItems, publicTimelineItemKey } from "@/lib/store/publicTimeline";
 
 type PublicRunActivityProps = {
   items: PublicChatTimelineItem[];
@@ -56,60 +57,6 @@ function textOfItem(item: PublicChatTimelineItem) {
   return cleanText(item.text || item.detail || item.title || item.path || item.href);
 }
 
-function semanticTextOfItem(item: PublicChatTimelineItem) {
-  const title = cleanText(item.title || item.text);
-  const detail = cleanText(item.detail || item.path || item.href);
-  return [cleanText(item.kind), title, detail, cleanText(item.state)].join("|").toLowerCase();
-}
-
-function normalizedToolActivityTarget(value: unknown) {
-  const text = cleanText(value);
-  if (!text) return "";
-  return text
-    .replace(/^正在使用.+?处理\s*/i, "")
-    .replace(/^正在(?:调用(?:工具)?|写入|编辑|更新|读取|搜索|检查|确认|运行)\s*/i, "")
-    .replace(/^(?:工具已完成|工具失败|写入完成|更新完成|编辑完成|读取完成|搜索完成|检查完成|命令已完成)\s*/i, "")
-    .replace(/[。.]$/g, "")
-    .replace(/\\/g, "/")
-    .replace(/\s+/g, " ")
-    .trim()
-    .toLowerCase();
-}
-
-function toolActivityOperation(item: PublicChatTimelineItem) {
-  const text = cleanText([item.title, item.text, item.detail, item.path, item.href].filter(Boolean).join(" ")).toLowerCase();
-  if (/写入|编辑|更新|write|edit/.test(text)) return "write";
-  if (/读取|read/.test(text)) return "read";
-  if (/搜索|search/.test(text)) return "search";
-  if (/检查|确认|path_exists|stat_path|list_dir|inspect/.test(text)) return "inspect";
-  if (/运行|terminal|command|shell/.test(text)) return "command";
-  return "call";
-}
-
-function semanticToolActivityKey(item: PublicChatTimelineItem) {
-  if (cleanText(item.kind) !== "tool_activity") return "";
-  const titleTarget = normalizedToolActivityTarget(item.title || item.text);
-  const detailTarget = normalizedToolActivityTarget(item.path || item.href || item.detail);
-  const target = titleTarget || detailTarget;
-  return target ? `tool:${toolActivityOperation(item)}:${target}` : "";
-}
-
-function toolActivityRank(item: PublicChatTimelineItem) {
-  const state = stateClass(item);
-  if (state === "error") return 3;
-  if (state === "done") return 2;
-  return 1;
-}
-
-function preferToolActivity(left: PublicChatTimelineItem, right: PublicChatTimelineItem) {
-  const leftRank = toolActivityRank(left);
-  const rightRank = toolActivityRank(right);
-  if (rightRank >= leftRank) {
-    return { ...left, ...right };
-  }
-  return left;
-}
-
 function samePublicText(left: unknown, right: unknown) {
   const leftText = cleanText(left);
   const rightText = cleanText(right);
@@ -117,62 +64,8 @@ function samePublicText(left: unknown, right: unknown) {
   return leftText === rightText || leftText.includes(rightText) || rightText.includes(leftText);
 }
 
-function itemKey(item: PublicChatTimelineItem, index: number) {
-  const id = cleanText(item.item_id);
-  if (id) return id;
-  const refs = Array.isArray(item.trace_refs) ? item.trace_refs.filter(Boolean).join(",") : "";
-  if (refs) return `${item.kind}:${refs}`;
-  return `${item.kind}:${textOfItem(item)}:${index}`;
-}
-
-function dedupeItems(items: PublicChatTimelineItem[]) {
-  const indexByKey = new Map<string, number>();
-  const indexBySemanticKey = new Map<string, number>();
-  const result: PublicChatTimelineItem[] = [];
-  for (const [index, item] of items.entries()) {
-    const key = itemKey(item, index);
-    const semanticKey = semanticTextOfItem(item);
-    if (!textOfItem(item)) {
-      continue;
-    }
-    const existingKeyIndex = indexByKey.get(key);
-    if (existingKeyIndex !== undefined) {
-      result[existingKeyIndex] = cleanText(item.kind) === "tool_activity"
-        ? preferToolActivity(result[existingKeyIndex], item)
-        : { ...result[existingKeyIndex], ...item };
-      continue;
-    }
-    const toolKey = semanticToolActivityKey(item);
-    const existingToolIndex = toolKey ? indexBySemanticKey.get(toolKey) : undefined;
-    if (existingToolIndex !== undefined) {
-      result[existingToolIndex] = preferToolActivity(result[existingToolIndex], item);
-      indexByKey.set(key, existingToolIndex);
-      continue;
-    }
-    if (semanticKey && cleanText(item.kind) === "tool_activity") {
-      const existingSemanticIndex = indexBySemanticKey.get(semanticKey);
-      if (existingSemanticIndex !== undefined) {
-        result[existingSemanticIndex] = preferToolActivity(result[existingSemanticIndex], item);
-        indexByKey.set(key, existingSemanticIndex);
-        continue;
-      }
-    }
-    indexByKey.set(key, result.length);
-    if (toolKey) {
-      indexBySemanticKey.set(toolKey, result.length);
-    } else if (semanticKey && cleanText(item.kind) === "tool_activity") {
-      indexBySemanticKey.set(semanticKey, result.length);
-    }
-    result.push(item);
-  }
-  return result;
-}
-
 function publicItems(items: PublicChatTimelineItem[], assistantContent = "") {
-  return dedupeItems(
-    items
-      .filter((item) => shouldRenderItem(item, assistantContent)),
-  );
+  return normalizePublicTimelineItems(items.filter((item) => shouldRenderItem(item, assistantContent)));
 }
 
 function isStatusUpdate(item: PublicChatTimelineItem) {
@@ -460,7 +353,7 @@ export function PublicRunActivity({ items, assistantContent = "" }: PublicRunAct
       {plan.recent.map((item, index) => (
         <div
           className={`public-run-activity__row public-run-activity__row--history public-run-activity__row--${stateClass(item)} public-run-activity__row--${cleanText(item.kind) || "item"}`}
-          key={itemKey(item, index)}
+          key={publicTimelineItemKey(item, index)}
         >
           <span className="public-run-activity__icon" aria-hidden="true">
             <ActivityIcon item={item} />
@@ -473,7 +366,7 @@ export function PublicRunActivity({ items, assistantContent = "" }: PublicRunAct
       {plan.current ? (
         <div
           className={`public-run-activity__row public-run-activity__row--current public-run-activity__row--${stateClass(plan.current)} public-run-activity__row--${cleanText(plan.current.kind) || "item"}`}
-          key={itemKey(plan.current, plan.recent.length)}
+          key={publicTimelineItemKey(plan.current, plan.recent.length)}
         >
           <span className="public-run-activity__icon" aria-hidden="true">
             <ActivityIcon item={plan.current} />
@@ -486,7 +379,7 @@ export function PublicRunActivity({ items, assistantContent = "" }: PublicRunAct
       {plan.finalItems.map((item, index) => (
         <div
           className={`public-run-activity__row public-run-activity__row--final public-run-activity__row--${stateClass(item)} public-run-activity__row--${cleanText(item.kind) || "item"}`}
-          key={itemKey(item, index + plan.recent.length + 1)}
+          key={publicTimelineItemKey(item, index + plan.recent.length + 1)}
         >
           <span className="public-run-activity__icon" aria-hidden="true">
             <ActivityIcon item={item} />

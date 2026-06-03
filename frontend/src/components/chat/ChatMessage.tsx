@@ -1,13 +1,14 @@
 "use client";
 
 import { AlertTriangle, Check, CircleCheck, Database, Pencil, ShieldCheck, X } from "lucide-react";
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 import { hasPublicRunActivity, PublicRunActivity } from "@/components/chat/PublicRunActivity";
 import { RetrievalCard } from "@/components/chat/RetrievalCard";
 import type { PublicChatTimelineItem, RetrievalResult, SessionRuntimeAttachment, ToolCall } from "@/lib/api";
+import { mergePublicTimelineItems, publicTimelineTerminalStateFromAnswer } from "@/lib/store/publicTimeline";
 import type { RuntimeProgressEntry } from "@/lib/store/types";
 
 export function ChatMessage({
@@ -59,6 +60,8 @@ export function ChatMessage({
   const isUser = role === "user";
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(content);
+  const [submittingEdit, setSubmittingEdit] = useState(false);
+  const [editError, setEditError] = useState("");
   const [failedImageSrc, setFailedImageSrc] = useState("");
   const imageUnavailable = Boolean(image?.src && failedImageSrc === image.src);
   const baseDisplayContent = isUser ? content : assistantDisplayContent({ content, answerChannel, answerSource });
@@ -67,7 +70,7 @@ export function ChatMessage({
     : mergedPublicTimelineItems(
       runtimeAttachments,
       runtimePublicTimelineDraft,
-      terminalTimelineStateFromAnswer({ answerCanonicalState, answerChannel }),
+      publicTimelineTerminalStateFromAnswer({ answerCanonicalState, answerChannel }),
     );
   const displayContent = isUser
     ? baseDisplayContent
@@ -90,6 +93,35 @@ export function ChatMessage({
     || Boolean(image?.src)
     || imageUnavailable
     || (!hideLegacyTaskContractReceipt && (Boolean(displayContent.trim()) || !hasRunActivity));
+  const draftValue = draft.trim();
+  const editChanged = draftValue !== content.trim();
+  const sendEditDisabled = submittingEdit || !canEdit || !draftValue || !editChanged;
+  const submitEdit = async () => {
+    if (sendEditDisabled) {
+      return;
+    }
+    if (!onResendEdit) {
+      setEditError("当前消息没有可用的改写发送处理器。");
+      return;
+    }
+    setSubmittingEdit(true);
+    setEditError("");
+    try {
+      await onResendEdit(id, draftValue);
+      setEditing(false);
+    } catch (error) {
+      setEditError(editFailureMessage(error));
+    } finally {
+      setSubmittingEdit(false);
+    }
+  };
+  useEffect(() => {
+    if (!canEdit && editing) {
+      setEditing(false);
+      setEditError("");
+      setSubmittingEdit(false);
+    }
+  }, [canEdit, editing]);
 
   return (
     <article
@@ -105,6 +137,8 @@ export function ChatMessage({
           className="message-edit-button"
           onClick={() => {
             setDraft(content);
+            setEditError("");
+            setSubmittingEdit(false);
             setEditing(true);
           }}
           title="编辑"
@@ -120,13 +154,25 @@ export function ChatMessage({
             <div className="message-edit-form">
               <textarea
                 className="message-edit-form__textarea"
-                onChange={(event) => setDraft(event.target.value)}
+                onChange={(event) => {
+                  setDraft(event.target.value);
+                  setEditError("");
+                }}
                 value={draft}
               />
+              {editError ? (
+                <small className="message-edit-form__error" role="alert">
+                  {editError}
+                </small>
+              ) : null}
               <div className="message-edit-form__actions">
                 <button
                   className="message-edit-form__button"
-                  onClick={() => setEditing(false)}
+                  disabled={submittingEdit}
+                  onClick={() => {
+                    setEditError("");
+                    setEditing(false);
+                  }}
                   type="button"
                 >
                   <X size={14} />
@@ -134,19 +180,12 @@ export function ChatMessage({
                 </button>
                 <button
                   className="message-edit-form__button message-edit-form__button--primary"
-                  disabled={!draft.trim() || draft.trim() === content.trim()}
-                  onClick={() => {
-                    const nextValue = draft.trim();
-                    if (!nextValue || !onResendEdit) {
-                      return;
-                    }
-                    setEditing(false);
-                    void onResendEdit(id, nextValue);
-                  }}
+                  disabled={sendEditDisabled}
+                  onClick={() => void submitEdit()}
                   type="button"
                 >
                   <Check size={14} />
-                  发送
+                  {submittingEdit ? "发送中" : "发送"}
                 </button>
               </div>
             </div>
@@ -184,75 +223,20 @@ export function ChatMessage({
   );
 }
 
+function editFailureMessage(error: unknown) {
+  const message = error instanceof Error ? error.message.trim() : String(error ?? "").trim();
+  return message || "改写发送失败。";
+}
+
 function mergedPublicTimelineItems(
   attachments: SessionRuntimeAttachment[],
   runtimePublicTimelineDraft: PublicChatTimelineItem[] | undefined,
-  terminalState: "done" | "error" | "" = "",
+  terminalState: ReturnType<typeof publicTimelineTerminalStateFromAnswer> = "",
 ) {
-  const merged: PublicChatTimelineItem[] = [];
-  const indexByKey = new Map<string, number>();
-  const push = (item: PublicChatTimelineItem, fallbackIndex: number) => {
-    const key = publicTimelineItemKey(item, fallbackIndex);
-    if (!key) return;
-    const existingIndex = indexByKey.get(key);
-    if (existingIndex === undefined) {
-      indexByKey.set(key, merged.length);
-      merged.push(item);
-      return;
-    }
-    merged[existingIndex] = { ...merged[existingIndex], ...item };
-  };
-  attachments.flatMap((attachment) => Array.isArray(attachment.public_timeline) ? attachment.public_timeline : [])
-    .forEach((item, index) => push(item, index));
-  finalizePublicTimelineDraft(runtimePublicTimelineDraft, terminalState)
-    .forEach((item, index) => push(item, attachments.length + index));
-  return merged;
-}
-
-function terminalTimelineStateFromAnswer({
-  answerCanonicalState,
-  answerChannel,
-}: {
-  answerCanonicalState?: string;
-  answerChannel?: string;
-}): "done" | "error" | "" {
-  const state = cleanBoundaryText(answerCanonicalState).toLowerCase();
-  const channel = cleanBoundaryText(answerChannel).toLowerCase();
-  if (state === "stable_answer" || state === "tool_summary") return "done";
-  if (state === "missing_answer" || channel === "blocked") return "error";
-  return "";
-}
-
-function finalizePublicTimelineDraft(
-  items: PublicChatTimelineItem[] | undefined,
-  terminalState: "done" | "error" | "",
-) {
-  if (!items?.length || !terminalState) {
-    return items ?? [];
-  }
-  return items.map((item) => finalizePublicTimelineItem(item, terminalState));
-}
-
-function finalizePublicTimelineItem(item: PublicChatTimelineItem, terminalState: "done" | "error") {
-  const state = cleanBoundaryText(item.state).toLowerCase();
-  const streamState = cleanBoundaryText(item.stream_state).toLowerCase();
-  if (streamState !== "streaming" && !["", "running", "working", "partial"].includes(state)) {
-    return item;
-  }
-  return {
-    ...item,
-    state: terminalState,
-    stream_state: "done",
-  };
-}
-
-function publicTimelineItemKey(item: PublicChatTimelineItem | undefined, fallbackIndex: number) {
-  if (!item) return "";
-  const itemId = String(item.item_id ?? "").trim();
-  if (itemId) return itemId;
-  const refs = Array.isArray(item.trace_refs) ? item.trace_refs.map((ref) => String(ref ?? "").trim()).filter(Boolean) : [];
-  if (refs.length) return `refs:${refs.join(",")}`;
-  return `${String(item.kind ?? "").trim()}:${String(item.title ?? item.text ?? item.detail ?? item.path ?? "").trim()}:${fallbackIndex}`;
+  const persisted = attachments.flatMap((attachment) =>
+    Array.isArray(attachment.public_timeline) ? attachment.public_timeline : [],
+  );
+  return mergePublicTimelineItems(persisted, runtimePublicTimelineDraft, { terminalState });
 }
 
 function assistantContentFromTimeline(content: string, items: PublicChatTimelineItem[]) {

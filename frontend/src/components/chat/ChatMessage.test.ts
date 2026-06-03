@@ -5,6 +5,32 @@ import { describe, expect, it } from "vitest";
 import { ChatMessage } from "./ChatMessage";
 
 describe("ChatMessage", () => {
+  it("only renders the edit affordance when the caller says this user message is editable", () => {
+    const locked = renderToStaticMarkup(
+      React.createElement(ChatMessage, {
+        canEdit: false,
+        content: "旧问题",
+        id: "user:locked",
+        retrievals: [],
+        role: "user",
+        toolCalls: [],
+      }),
+    );
+    const editable = renderToStaticMarkup(
+      React.createElement(ChatMessage, {
+        canEdit: true,
+        content: "最后一条问题",
+        id: "user:editable",
+        retrievals: [],
+        role: "user",
+        toolCalls: [],
+      }),
+    );
+
+    expect(locked).not.toContain("编辑消息");
+    expect(editable).toContain("编辑消息");
+  });
+
   it("hides task-control receipts when runtime progress is attached", () => {
     const html = renderToStaticMarkup(
       React.createElement(ChatMessage, {

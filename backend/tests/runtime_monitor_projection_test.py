@@ -42,16 +42,34 @@ class EventStub:
 
 
 class StateIndexStub:
-    def __init__(self, task_runs=None):
+    def __init__(self, task_runs=None, turn_runs=None):
         self._task_runs = list(task_runs or [])
+        self._turn_runs = {getattr(item, "turn_run_id", ""): item for item in list(turn_runs or [])}
+
+    def list_recent_task_runs(self, *, limit=80):
+        return list(self._task_runs)[: max(1, int(limit or 80))]
 
     def list_session_task_runs(self, session_id):
         return [item for item in self._task_runs if getattr(item, "session_id", "") == session_id]
+
+    def get_task_run(self, task_run_id):
+        for item in self._task_runs:
+            if getattr(item, "task_run_id", "") == task_run_id:
+                return item
+        return None
+
+    def get_turn_run(self, turn_run_id):
+        return self._turn_runs.get(turn_run_id)
 
 
 class ActiveTurnRecordStub:
     def __init__(self, **payload):
         self.payload = dict(payload)
+
+    def __getattr__(self, name):
+        if name in self.payload:
+            return self.payload[name]
+        raise AttributeError(name)
 
     def to_dict(self):
         return dict(self.payload)
@@ -67,6 +85,20 @@ class ActiveTurnRegistryStub:
         return self.record
 
 
+class RunRegistryStub:
+    def __init__(self, runs=None):
+        self._runs = list(runs or [])
+
+    def list_runs(self):
+        return list(self._runs)
+
+    def latest_session_run(self, session_id):
+        for run in self._runs:
+            if getattr(run, "session_id", "") == session_id:
+                return run
+        return None
+
+
 def task_run(**patch):
     data = {
         "task_run_id": "taskrun:turn:session-a:1:abc",
@@ -78,6 +110,35 @@ def task_run(**patch):
         "created_at": 100.0,
         "updated_at": 120.0,
         "diagnostics": {},
+    }
+    data.update(patch)
+    return SimpleNamespace(**data)
+
+
+def turn_run(**patch):
+    data = {
+        "turn_run_id": "turnrun:session-a:1",
+        "session_id": "session-a",
+        "turn_id": "turn:session-a:1",
+        "execution_runtime_kind": "single_agent_turn",
+        "status": "running",
+        "created_at": 100.0,
+        "updated_at": 125.0,
+        "latest_event_offset": 0,
+        "terminal_reason": "",
+        "diagnostics": {},
+    }
+    data.update(patch)
+    return SimpleNamespace(**data)
+
+
+def runtime_run(**patch):
+    data = {
+        "stream_run_id": "strun:test",
+        "session_id": "session-a",
+        "status": "running",
+        "created_at": 95.0,
+        "updated_at": 126.0,
     }
     data.update(patch)
     return SimpleNamespace(**data)
@@ -147,6 +208,70 @@ def test_session_live_monitor_exposes_active_turn_snapshot():
         "bound_task_run_id": "taskrun:turn:session-dev:1:root",
         "state": "running_task",
     }
+
+
+def test_global_monitor_includes_active_turn_when_task_run_not_started_yet():
+    runtime_host = SimpleNamespace(
+        state_index=StateIndexStub(
+            task_runs=[],
+            turn_runs=[turn_run(turn_run_id="turnrun:session-dev:1", session_id="session-dev", turn_id="turn:session-dev:1")],
+        ),
+        event_log=EventLogStub(),
+        backend_dir=Path.cwd(),
+        run_registry=RunRegistryStub([runtime_run(session_id="session-dev")]),
+        active_turn_registry=ActiveTurnRegistryStub(
+            ActiveTurnRecordStub(
+                session_id="session-dev",
+                turn_id="turn:session-dev:1",
+                turn_run_id="turnrun:session-dev:1",
+                bound_task_run_id="",
+                stream_run_id="strun:test",
+                state="model_turn",
+                started_at=100.0,
+                updated_at=126.0,
+            )
+        ),
+    )
+    service = RuntimeMonitorService(runtime_host=runtime_host, freshness_seconds=300.0)
+
+    monitor = service.list_global_live_monitor(limit=20)
+
+    assert monitor["summary"]["running"] == 1
+    assert monitor["buckets"]["running"][0]["task_run_id"] == "turnrun:session-dev:1"
+    assert monitor["buckets"]["running"][0]["execution_runtime_kind"] == "single_agent_turn"
+    assert monitor["buckets"]["running"][0]["summary"] == "正在分析请求并准备执行。"
+
+
+def test_turn_run_monitor_detail_is_available_for_active_turn_placeholder():
+    runtime_host = SimpleNamespace(
+        state_index=StateIndexStub(
+            task_runs=[],
+            turn_runs=[turn_run(turn_run_id="turnrun:session-dev:1", session_id="session-dev", turn_id="turn:session-dev:1")],
+        ),
+        event_log=EventLogStub(),
+        backend_dir=Path.cwd(),
+        run_registry=RunRegistryStub([runtime_run(session_id="session-dev")]),
+        active_turn_registry=ActiveTurnRegistryStub(
+            ActiveTurnRecordStub(
+                session_id="session-dev",
+                turn_id="turn:session-dev:1",
+                turn_run_id="turnrun:session-dev:1",
+                bound_task_run_id="",
+                stream_run_id="strun:test",
+                state="model_turn",
+                started_at=100.0,
+                updated_at=126.0,
+            )
+        ),
+    )
+    service = RuntimeMonitorService(runtime_host=runtime_host, freshness_seconds=300.0)
+
+    detail = service.get_task_run_live_monitor("turnrun:session-dev:1")
+
+    assert detail is not None
+    assert detail["task_run_id"] == "turnrun:session-dev:1"
+    assert detail["scope"] == "task_run"
+    assert detail["status"] == "running"
 
 
 def test_global_monitor_excludes_terminal_history_from_live_items():

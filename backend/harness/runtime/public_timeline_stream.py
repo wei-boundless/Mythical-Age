@@ -88,9 +88,10 @@ def _model_action_admission_item(data: dict[str, Any]) -> dict[str, Any]:
         target=target,
     )
     trace_ref = str(event.get("event_id") or "") or _stable_id("tool-admission", tool_name, target)
+    item_id = _tool_activity_id(data=data, event=event, tool_name=tool_name, target=target, fallback=trace_ref)
     return _compact(
         {
-            "item_id": trace_ref,
+            "item_id": item_id,
             "kind": "tool_activity",
             "title": title,
             "detail": detail if detail and detail != title else "",
@@ -113,10 +114,11 @@ def _turn_tool_observation_item(data: dict[str, Any]) -> dict[str, Any]:
     title = _tool_title(step="turn_tool_observation_recorded", tool_name=tool_name, target=target, state=state)
     detail = _tool_observation_detail(observation, target=target)
     trace_ref = str(event.get("event_id") or "") or _stable_id("tool-observation", tool_name, target or detail)
+    item_id = _tool_activity_id(data=data, event=event, tool_name=tool_name, target=target or detail, fallback=trace_ref)
     if state == "error":
         return _compact(
             {
-                "item_id": trace_ref,
+                "item_id": item_id,
                 "kind": "blocked",
                 "text": detail or title,
                 "state": state,
@@ -125,7 +127,7 @@ def _turn_tool_observation_item(data: dict[str, Any]) -> dict[str, Any]:
         )
     return _compact(
         {
-            "item_id": trace_ref,
+            "item_id": item_id,
             "kind": "tool_activity",
             "title": title,
             "detail": detail if detail and detail != title else "",
@@ -151,9 +153,10 @@ def _runtime_step_summary_item(data: dict[str, Any]) -> dict[str, Any]:
         tool_name, target = _tool_details_from_event(payload)
         title = _tool_title(step=step, tool_name=tool_name, target=target, state=state)
         detail = _tool_detail(summary=summary, agent_brief=agent_brief, target=target)
+        item_id = _tool_activity_id(data=data, event=event, tool_name=tool_name, target=target or detail, fallback=trace_ref)
         return _compact(
             {
-                "item_id": trace_ref,
+                "item_id": item_id,
                 "kind": "tool_activity",
                 "title": title,
                 "detail": detail if detail and detail != title else "",
@@ -332,6 +335,28 @@ def _tool_family(tool_name: str) -> str:
     if any(item in normalized for item in ("terminal", "shell", "command", "powershell")):
         return "run"
     return "tool"
+
+
+def _tool_activity_id(*, data: dict[str, Any], event: dict[str, Any], tool_name: str, target: str, fallback: str) -> str:
+    scope = _runtime_scope_key(data=data, event=event)
+    family = _tool_family(tool_name)
+    subject = target or tool_name or fallback
+    return _stable_id("tool-activity", scope or family, f"{family}|{subject}")
+
+
+def _runtime_scope_key(*, data: dict[str, Any], event: dict[str, Any]) -> str:
+    active_turn = _record(data.get("active_turn"))
+    return str(
+        data.get("runtime_task_run_id")
+        or data.get("task_run_id")
+        or data.get("turn_run_id")
+        or active_turn.get("turn_run_id")
+        or active_turn.get("turn_id")
+        or event.get("run_id")
+        or event.get("task_run_id")
+        or event.get("turn_id")
+        or "",
+    ).strip()
 
 
 def _tool_detail(*, summary: str, agent_brief: str, target: str) -> str:

@@ -80,6 +80,7 @@ export function getDefaultState(): StoreState {
     inspectorPath: "durable_memory/index/MEMORY.md",
     inspectorContent: "",
     inspectorDirty: false,
+    sessionEditorContexts: {},
     sidebarWidth: 308,
     inspectorWidth: 300,
     tokenStats: null,
