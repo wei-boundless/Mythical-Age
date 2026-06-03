@@ -62,6 +62,54 @@ function semanticTextOfItem(item: PublicChatTimelineItem) {
   return [cleanText(item.kind), title, detail, cleanText(item.state)].join("|").toLowerCase();
 }
 
+function normalizedToolActivityTarget(value: unknown) {
+  const text = cleanText(value);
+  if (!text) return "";
+  return text
+    .replace(/^正在使用.+?处理\s*/i, "")
+    .replace(/^正在(?:调用(?:工具)?|写入|编辑|更新|读取|搜索|检查|确认|运行)\s*/i, "")
+    .replace(/^(?:工具已完成|工具失败|写入完成|更新完成|编辑完成|读取完成|搜索完成|检查完成|命令已完成)\s*/i, "")
+    .replace(/[。.]$/g, "")
+    .replace(/\\/g, "/")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+function toolActivityOperation(item: PublicChatTimelineItem) {
+  const text = cleanText([item.title, item.text, item.detail, item.path, item.href].filter(Boolean).join(" ")).toLowerCase();
+  if (/写入|编辑|更新|write|edit/.test(text)) return "write";
+  if (/读取|read/.test(text)) return "read";
+  if (/搜索|search/.test(text)) return "search";
+  if (/检查|确认|path_exists|stat_path|list_dir|inspect/.test(text)) return "inspect";
+  if (/运行|terminal|command|shell/.test(text)) return "command";
+  return "call";
+}
+
+function semanticToolActivityKey(item: PublicChatTimelineItem) {
+  if (cleanText(item.kind) !== "tool_activity") return "";
+  const titleTarget = normalizedToolActivityTarget(item.title || item.text);
+  const detailTarget = normalizedToolActivityTarget(item.path || item.href || item.detail);
+  const target = titleTarget || detailTarget;
+  return target ? `tool:${toolActivityOperation(item)}:${target}` : "";
+}
+
+function toolActivityRank(item: PublicChatTimelineItem) {
+  const state = stateClass(item);
+  if (state === "error") return 3;
+  if (state === "done") return 2;
+  return 1;
+}
+
+function preferToolActivity(left: PublicChatTimelineItem, right: PublicChatTimelineItem) {
+  const leftRank = toolActivityRank(left);
+  const rightRank = toolActivityRank(right);
+  if (rightRank >= leftRank) {
+    return { ...left, ...right };
+  }
+  return left;
+}
+
 function samePublicText(left: unknown, right: unknown) {
   const leftText = cleanText(left);
   const rightText = cleanText(right);
@@ -78,20 +126,43 @@ function itemKey(item: PublicChatTimelineItem, index: number) {
 }
 
 function dedupeItems(items: PublicChatTimelineItem[]) {
-  const seen = new Set<string>();
-  const semanticSeen = new Set<string>();
+  const indexByKey = new Map<string, number>();
+  const indexBySemanticKey = new Map<string, number>();
   const result: PublicChatTimelineItem[] = [];
   for (const [index, item] of items.entries()) {
     const key = itemKey(item, index);
     const semanticKey = semanticTextOfItem(item);
-    if (!textOfItem(item) || seen.has(key)) {
+    if (!textOfItem(item)) {
       continue;
     }
-    if (semanticKey && semanticSeen.has(semanticKey) && cleanText(item.kind) === "tool_activity") {
+    const existingKeyIndex = indexByKey.get(key);
+    if (existingKeyIndex !== undefined) {
+      result[existingKeyIndex] = cleanText(item.kind) === "tool_activity"
+        ? preferToolActivity(result[existingKeyIndex], item)
+        : { ...result[existingKeyIndex], ...item };
       continue;
     }
-    seen.add(key);
-    semanticSeen.add(semanticKey);
+    const toolKey = semanticToolActivityKey(item);
+    const existingToolIndex = toolKey ? indexBySemanticKey.get(toolKey) : undefined;
+    if (existingToolIndex !== undefined) {
+      result[existingToolIndex] = preferToolActivity(result[existingToolIndex], item);
+      indexByKey.set(key, existingToolIndex);
+      continue;
+    }
+    if (semanticKey && cleanText(item.kind) === "tool_activity") {
+      const existingSemanticIndex = indexBySemanticKey.get(semanticKey);
+      if (existingSemanticIndex !== undefined) {
+        result[existingSemanticIndex] = preferToolActivity(result[existingSemanticIndex], item);
+        indexByKey.set(key, existingSemanticIndex);
+        continue;
+      }
+    }
+    indexByKey.set(key, result.length);
+    if (toolKey) {
+      indexBySemanticKey.set(toolKey, result.length);
+    } else if (semanticKey && cleanText(item.kind) === "tool_activity") {
+      indexBySemanticKey.set(semanticKey, result.length);
+    }
     result.push(item);
   }
   return result;
@@ -114,14 +185,11 @@ function isFinalItem(item: PublicChatTimelineItem) {
   return kind === "final_summary" || kind === "artifact";
 }
 
-function isAgentFeedback(item: PublicChatTimelineItem) {
-  return cleanText(item.kind) === "assistant_text";
-}
-
 function shouldRenderItem(item: PublicChatTimelineItem, assistantContent: string) {
   const kind = cleanText(item.kind);
   const text = textOfItem(item);
   if (!text) return false;
+  if (kind === "assistant_text") return false;
   if ((kind === "assistant_text" || kind === "final_summary") && samePublicText(text, assistantContent)) {
     return false;
   }
@@ -145,7 +213,7 @@ export function hasPublicRunActivity(
   assistantContent = "",
 ) {
   const plan = activityPlan(publicItems(items, assistantContent));
-  return Boolean(plan.agentFeedback || plan.current || plan.recent.length || plan.finalItems.length || plan.collapsedCount);
+  return Boolean(plan.current || plan.recent.length || plan.finalItems.length || plan.collapsedCount);
 }
 
 function stateClass(item: PublicChatTimelineItem) {
@@ -187,6 +255,8 @@ function actionDisplay(item: PublicChatTimelineItem) {
   const completedInspect = rawTitle.match(/^检查完成\s*(.+)?$/);
   const completedWrite = rawTitle.match(/^(?:写入完成|更新完成|编辑完成)\s*(.+)?$/);
   const commandTitle = rawTitle.match(/^正在运行\s*(.+)$/);
+  const callFromTitle = rawTitle.match(/^正在调用(?:工具)?\s*(.*)$/);
+  const completedCall = rawTitle.match(/^工具已完成\s*(.+)?$/);
 
   if (targetFromUsePattern) {
     const tool = targetFromUsePattern[1].toLowerCase();
@@ -246,6 +316,14 @@ function actionDisplay(item: PublicChatTimelineItem) {
       icon: "terminal",
     };
   }
+  if (callFromTitle || completedCall || rawTitle.includes("调用工具")) {
+    const target = compactPathLabel(rawDetail || callFromTitle?.[1] || completedCall?.[1] || "");
+    return {
+      title: done || completedCall ? "工具已完成" : "调用工具",
+      detail: target,
+      icon: "default",
+    };
+  }
   return {
     title: rawTitle,
     detail: compactPathLabel(rawDetail),
@@ -275,6 +353,9 @@ function actionSentence(item: PublicChatTimelineItem, variant: "current" | "hist
     }
     if (state === "error") {
       return `${subject} 时遇到问题`;
+    }
+    if (subject.startsWith("正在")) {
+      return subject;
     }
     return `正在${subject}`;
   }
@@ -326,15 +407,6 @@ function ActivityCopy({ item, variant = "normal" }: { item: PublicChatTimelineIt
   );
 }
 
-function AgentFeedbackCopy({ item }: { item: PublicChatTimelineItem }) {
-  return (
-    <>
-      <span className="public-run-activity__eyebrow">当前判断</span>
-      <p>{short(item.text || item.detail || item.title, 260)}</p>
-    </>
-  );
-}
-
 function lastOf<T>(items: T[]) {
   return items.length ? items[items.length - 1] : null;
 }
@@ -342,8 +414,7 @@ function lastOf<T>(items: T[]) {
 function activityPlan(items: PublicChatTimelineItem[]) {
   const finalItems = items.filter(isFinalItem);
   const statusItems = items.filter((item) => isStatusUpdate(item) && !isFinalItem(item));
-  const agentFeedback = lastOf(items.filter((item) => isAgentFeedback(item) && !isFinalItem(item)));
-  const actionItems = items.filter((item) => !isStatusUpdate(item) && !isFinalItem(item) && !isAgentFeedback(item));
+  const actionItems = items.filter((item) => !isStatusUpdate(item) && !isFinalItem(item));
   const current = [...actionItems].reverse().find((item) => {
     const state = stateClass(item);
     return state === "running" || state === "error";
@@ -356,7 +427,6 @@ function activityPlan(items: PublicChatTimelineItem[]) {
     : null;
   return {
     collapsedCount,
-    agentFeedback,
     recent,
     current: current ?? fallbackCurrent,
     finalItems,
@@ -372,19 +442,11 @@ function collapsedSummary(count: number, hasCurrent: boolean) {
 
 export function PublicRunActivity({ items, assistantContent = "" }: PublicRunActivityProps) {
   const plan = activityPlan(publicItems(items, assistantContent));
-  if (!plan.agentFeedback && !plan.current && !plan.recent.length && !plan.finalItems.length && !plan.collapsedCount) {
+  if (!plan.current && !plan.recent.length && !plan.finalItems.length && !plan.collapsedCount) {
     return null;
   }
   return (
     <div className="public-run-activity" aria-label="处理进展">
-      {plan.agentFeedback ? (
-        <div
-          className={`public-run-activity__agent-message public-run-activity__agent-message--${stateClass(plan.agentFeedback)}`}
-          key={itemKey(plan.agentFeedback, -1)}
-        >
-          <AgentFeedbackCopy item={plan.agentFeedback} />
-        </div>
-      ) : null}
       {plan.collapsedCount ? (
         <div className="public-run-activity__row public-run-activity__row--done public-run-activity__row--collapsed">
           <span className="public-run-activity__icon" aria-hidden="true">

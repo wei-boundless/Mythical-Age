@@ -765,6 +765,87 @@ def test_single_agent_turn_keeps_compressed_context_outside_recent_history_windo
     assert all("[Compressed session context]" not in item["content"] for item in history_payload["recent_turns"])
 
 
+def test_single_agent_turn_projects_vscode_editor_context_as_volatile_request() -> None:
+    editor_context = {
+        "source": "vscode",
+        "captured_at": "2026-06-04T00:00:00Z",
+        "workspace_roots": ["D:/repo"],
+        "active_file": {
+            "path": "D:/repo/backend/harness/runtime/compiler.py",
+            "language_id": "python",
+            "dirty": True,
+            "selection": {
+                "start": {"line": 10, "character": 0},
+                "end": {"line": 12, "character": 5},
+                "text": "selected code",
+                "truncated": False,
+            },
+        },
+        "visible_files": [{"path": "D:/repo/backend/harness/runtime/compiler.py", "language_id": "python", "dirty": True}],
+        "diagnostics": [{"path": "D:/repo/backend/harness/runtime/compiler.py", "severity": "warning", "message": "unused value"}],
+    }
+    result = RuntimeCompiler().compile_single_agent_turn_packet(
+        session_id="session:vscode-context",
+        turn_id="turn:vscode-context",
+        agent_invocation_id="aginvoke:vscode-context",
+        user_message="检查当前打开文件。",
+        history=[],
+        session_context={"turn_input_facts": {"editor_context": editor_context}},
+        runtime_assembly={
+            "profile": {"mode": "conversation"},
+            "task_environment": {"environment_id": "env.general.workspace"},
+        },
+    )
+
+    stable_payload_text = str(result.packet.model_messages[1]["content"])
+    volatile_payload = _payload_after_title(result.packet.model_messages[-1]["content"], "Single agent turn current request")
+    report = result.packet.diagnostics["prompt_manifest"]["dynamic_context_report"]
+    section_sources = [item["source"] for item in report["section_reports"]]
+
+    assert volatile_payload["editor_context"]["source"] == "vscode"
+    assert volatile_payload["editor_context"]["active_file"]["dirty"] is True
+    assert volatile_payload["editor_context"]["active_file"]["selection"]["text"] == "selected code"
+    assert "editor_context" not in stable_payload_text
+    assert "vscode" in section_sources
+
+
+def test_task_execution_inherits_parent_turn_editor_context_from_task_run() -> None:
+    editor_context = {
+        "source": "vscode",
+        "workspace_roots": ["D:/repo"],
+        "active_file": {
+            "path": "D:/repo/frontend/src/App.tsx",
+            "language_id": "typescriptreact",
+            "dirty": False,
+        },
+        "visible_files": [{"path": "D:/repo/frontend/src/App.tsx", "language_id": "typescriptreact", "dirty": False}],
+        "diagnostics": [],
+    }
+    result = RuntimeCompiler().compile_task_execution_packet(
+        session_id="session:vscode-task",
+        task_run={
+            "task_run_id": "taskrun:vscode-task",
+            "diagnostics": {
+                "executor_status": "running",
+                "editor_context": editor_context,
+            },
+        },
+        contract={"task_run_goal": "修复当前打开的文件", "completion_criteria": ["当前文件已验证"]},
+        observations=[],
+        execution_state={},
+        runtime_assembly={
+            "profile": {"mode": "professional"},
+            "task_environment": {"environment_id": "env.general.workspace"},
+        },
+    )
+
+    volatile_payload = _payload_after_title(result.packet.model_messages[-1]["content"], "Task execution current state")
+    manifest = result.packet.diagnostics["prompt_manifest"]
+
+    assert volatile_payload["editor_context"]["active_file"]["path"] == "D:/repo/frontend/src/App.tsx"
+    assert "editor_context" in manifest["volatile_state_refs"]
+
+
 def test_observation_followup_projects_session_context_with_observations() -> None:
     result = RuntimeCompiler().compile_observation_followup_packet(
         session_id="session:followup-context",

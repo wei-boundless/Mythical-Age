@@ -869,6 +869,26 @@ function mergePublicTimelineItems(
   return merged;
 }
 
+function finalizePublicTimelineDraft(
+  existing: PublicChatTimelineItem[] | undefined,
+  incoming: PublicChatTimelineItem[] | undefined,
+  terminalState: "done" | "error" | "stopped",
+) {
+  const finalState = terminalState === "error" ? "error" : "done";
+  return mergePublicTimelineItems(existing, incoming).map((item) => {
+    const state = String(item.state ?? "").trim().toLowerCase();
+    const streamState = String(item.stream_state ?? "").trim().toLowerCase();
+    if (streamState !== "streaming" && !["", "running", "working", "partial"].includes(state)) {
+      return item;
+    }
+    return {
+      ...item,
+      state: finalState,
+      stream_state: "done",
+    };
+  });
+}
+
 function patchAssistantPublicTimelineDraft(
   state: StoreState,
   assistantId: string,
@@ -1026,6 +1046,9 @@ export function reduceStreamEvent(
   data: Record<string, unknown>
 ): StreamTransition {
   const visibility = projectRuntimeStreamEvent(event, data);
+  const publicTimelineDelta = Array.isArray(data.public_timeline_delta)
+    ? data.public_timeline_delta as PublicChatTimelineItem[]
+    : undefined;
   const activeTurnId = String(data.active_turn_id ?? "").trim();
   const activeTurn = data.active_turn && typeof data.active_turn === "object" && !Array.isArray(data.active_turn)
     ? data.active_turn as Record<string, unknown>
@@ -1081,7 +1104,7 @@ export function reduceStreamEvent(
   const stateWithTimelineDraft = patchAssistantPublicTimelineDraft(
     stateWithOrchestration,
     session.assistantId,
-    Array.isArray(data.public_timeline_delta) ? data.public_timeline_delta as PublicChatTimelineItem[] : undefined,
+    publicTimelineDelta,
   );
 
   if (event === "retrieval") {
@@ -1120,9 +1143,10 @@ export function reduceStreamEvent(
           ? {
               ...message,
               ...answerMetadata,
-              runtimePublicTimelineDraft: mergePublicTimelineItems(
+              runtimePublicTimelineDraft: finalizePublicTimelineDraft(
                 message.runtimePublicTimelineDraft,
-                Array.isArray(data.public_timeline_delta) ? data.public_timeline_delta as PublicChatTimelineItem[] : undefined,
+                publicTimelineDelta,
+                "done",
               ),
               stageStatus: taskSteerAccepted ? "已收到补充要求" : partialTimeout ? "部分完成" : "完成",
               image: (data.image as Message["image"]) ?? message.image ?? null
@@ -1133,9 +1157,10 @@ export function reduceStreamEvent(
               content: taskSteerAccepted
                 ? String(data.content ?? data.summary ?? "已加入当前任务队列。")
                 : String(data.content ?? ""),
-              runtimePublicTimelineDraft: mergePublicTimelineItems(
+              runtimePublicTimelineDraft: finalizePublicTimelineDraft(
                 message.runtimePublicTimelineDraft,
-                Array.isArray(data.public_timeline_delta) ? data.public_timeline_delta as PublicChatTimelineItem[] : undefined,
+                publicTimelineDelta,
+                "done",
               ),
               stageStatus: taskSteerAccepted ? "已收到补充要求" : partialTimeout ? "部分完成" : "完成",
               image: (data.image as Message["image"]) ?? message.image ?? null
@@ -1172,24 +1197,27 @@ export function reduceStreamEvent(
     const errorText = String(data.content ?? data.error ?? "请求执行失败").trim() || "请求执行失败";
     const visibleError = `处理失败\n\n${errorText}`;
     return {
-      state: patchAssistant(stateWithTimelineDraft, session.assistantId, (message) => {
+      state: patchAssistant(stateWithOrchestration, session.assistantId, (message) => {
         const current = message.content.trim();
         if (!current) {
           return {
             ...message,
             content: visibleError,
+            runtimePublicTimelineDraft: finalizePublicTimelineDraft(message.runtimePublicTimelineDraft, publicTimelineDelta, "error"),
             stageStatus: "出错",
           };
         }
         if (current.includes(errorText)) {
           return {
             ...message,
+            runtimePublicTimelineDraft: finalizePublicTimelineDraft(message.runtimePublicTimelineDraft, publicTimelineDelta, "error"),
             stageStatus: "出错",
           };
         }
         return {
           ...message,
           content: `${current}\n\n${visibleError}`,
+          runtimePublicTimelineDraft: finalizePublicTimelineDraft(message.runtimePublicTimelineDraft, publicTimelineDelta, "error"),
           stageStatus: "出错",
         };
       }),
@@ -1199,9 +1227,10 @@ export function reduceStreamEvent(
 
   if (event === "stopped") {
     return {
-      state: patchAssistant(stateWithTimelineDraft, session.assistantId, (message) => ({
+      state: patchAssistant(stateWithOrchestration, session.assistantId, (message) => ({
         ...message,
         content: message.content,
+        runtimePublicTimelineDraft: finalizePublicTimelineDraft(message.runtimePublicTimelineDraft, publicTimelineDelta, "stopped"),
         stageStatus: "已停止"
       })),
       session

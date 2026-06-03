@@ -7786,29 +7786,6 @@ button:hover {
   align-items: start;
 }
 
-.public-run-activity__agent-message {
-  width: min(100%, 64ch);
-  display: grid;
-  gap: 2px;
-  color: #0f172a;
-  font-size: 15px;
-  font-weight: 470;
-  line-height: 1.62;
-}
-
-.public-run-activity__agent-message p {
-  margin: 0;
-  overflow-wrap: anywhere;
-}
-
-.public-run-activity__eyebrow {
-  color: #64748b;
-  font-size: 11px;
-  font-weight: 650;
-  letter-spacing: 0;
-  text-transform: none;
-}
-
 .public-run-activity__icon {
   display: inline-flex;
   width: 18px;
@@ -31995,10 +31972,6 @@ html[data-workspace-tone] .agent-workbench {
 .agent-workbench .public-run-activity {
   width: min(100%, 72ch);
   margin-top: 2px;
-}
-
-.agent-workbench .public-run-activity__agent-message {
-  width: min(100%, 72ch);
 }
 
 @media (max-width: 900px) {

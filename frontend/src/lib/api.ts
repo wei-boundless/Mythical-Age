@@ -4891,6 +4891,7 @@ export type ChatRunCreatePayload = {
   permission_mode?: string;
   expected_active_turn_id?: string;
   active_turn_input_policy?: string;
+  editor_context?: Record<string, unknown>;
 };
 
 export async function createChatRun(payload: ChatRunCreatePayload) {

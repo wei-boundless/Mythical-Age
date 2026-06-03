@@ -127,6 +127,7 @@ class ChatRequest(BaseModel):
     session_scope: dict[str, Any] | None = None
     expected_active_turn_id: str = ""
     active_turn_input_policy: str = "auto"
+    editor_context: dict[str, Any] = Field(default_factory=dict)
 
 
 def _error_status(code: str) -> int:
@@ -259,6 +260,7 @@ def _query_request_from_payload(payload: ChatRequest, *, session_id: str) -> Har
         permission_mode=str(payload.permission_mode or ""),
         expected_active_turn_id=str(payload.expected_active_turn_id or ""),
         active_turn_input_policy=str(payload.active_turn_input_policy or "auto"),
+        editor_context=dict(payload.editor_context or {}),
     )
 
 

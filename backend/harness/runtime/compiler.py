@@ -384,6 +384,7 @@ class RuntimeCompiler:
                 runtime_assembly=assembly_payload,
                 runtime_envelope=envelope.to_dict(),
                 current_user_message=str(user_message or ""),
+                editor_context=_editor_context_from_session_context(session_context_payload),
                 projection_policy=_dynamic_context_projection_policy(
                     invocation_kind="single_agent_turn",
                     model_selection=model_selection,
@@ -483,7 +484,7 @@ class RuntimeCompiler:
             ),
             packet_id=packet_id,
             dynamic_projection_refs=("agent_visible_runtime_projection", "operation_authorization", "active_work_context", "recent_work_outcome"),
-            volatile_state_refs=("runtime_envelope", "turn_id", "history", "user_message", "recent_work_outcome"),
+            volatile_state_refs=("runtime_envelope", "turn_id", "history", "user_message", "recent_work_outcome", "editor_context"),
         ).to_dict()
         prompt_manifest["segment_plan_ref"] = segment_plan.segment_plan_id
         prompt_manifest["dynamic_context_report"] = dynamic_context.to_report_dict()
@@ -693,6 +694,7 @@ class RuntimeCompiler:
                 work_rollout=dict(work_rollout or {}),
                 runtime_assembly=assembly_payload,
                 runtime_envelope=envelope.to_dict(),
+                editor_context=_editor_context_from_task_run(task_run),
                 projection_policy=_dynamic_context_projection_policy(
                     invocation_kind="task_execution",
                     model_selection=model_selection,
@@ -877,6 +879,7 @@ class RuntimeCompiler:
                 "task_state",
                 "pending_user_steers",
                 "active_contract_revisions",
+                "editor_context",
             ),
         ).to_dict()
         prompt_manifest["segment_plan_ref"] = segment_plan.segment_plan_id
@@ -1025,6 +1028,7 @@ class RuntimeCompiler:
                 runtime_assembly=assembly_payload,
                 runtime_envelope=envelope.to_dict(),
                 current_user_message=str(user_message or ""),
+                editor_context=_editor_context_from_session_context(dict(session_context or {})),
                 projection_policy=_dynamic_context_projection_policy(
                     invocation_kind="tool_observation_followup",
                     model_selection=model_selection,
@@ -1127,7 +1131,7 @@ class RuntimeCompiler:
             ),
             packet_id=packet_id,
             dynamic_projection_refs=("agent_visible_runtime_projection", "operation_authorization"),
-            volatile_state_refs=("runtime_envelope", "turn_id", "history", "user_message", "observations"),
+            volatile_state_refs=("runtime_envelope", "turn_id", "history", "user_message", "observations", "editor_context"),
         ).to_dict()
         prompt_manifest["segment_plan_ref"] = segment_plan.segment_plan_id
         prompt_manifest["dynamic_context_report"] = dynamic_context.to_report_dict()
@@ -1784,6 +1788,23 @@ def _dynamic_context_segment_metadata(
                 "cache_impact": report.cache_impact,
             }
     raise ValueError(f"dynamic context section report missing for source: {source_text}")
+
+
+def _editor_context_from_session_context(session_context: dict[str, Any] | None) -> dict[str, Any]:
+    payload = dict(session_context or {})
+    turn_input_facts = dict(payload.get("turn_input_facts") or {})
+    editor_context = turn_input_facts.get("editor_context")
+    if isinstance(editor_context, dict) and editor_context:
+        return dict(editor_context)
+    editor_context = payload.get("editor_context")
+    return dict(editor_context) if isinstance(editor_context, dict) and editor_context else {}
+
+
+def _editor_context_from_task_run(task_run: dict[str, Any] | None) -> dict[str, Any]:
+    payload = dict(task_run or {})
+    diagnostics = dict(payload.get("diagnostics") or {})
+    editor_context = diagnostics.get("editor_context")
+    return dict(editor_context) if isinstance(editor_context, dict) and editor_context else {}
 
 
 def _attach_model_message_metrics(

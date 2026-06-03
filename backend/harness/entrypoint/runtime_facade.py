@@ -201,6 +201,9 @@ class HarnessRuntimeFacade:
             "compressed_context": history_assembly.compressed_context,
             "api_transcript": [dict(item) for item in list(api_transcript or []) if isinstance(item, dict)],
         }
+        editor_context = dict(getattr(request, "editor_context", {}) or {})
+        if editor_context:
+            session_context["editor_context"] = editor_context
         turn_index = len(history_record.get("messages", [])) + 1
         turn_id = f"turn:{request.session_id}:{turn_index}"
         started_active_turn_id = ""
@@ -315,6 +318,7 @@ class HarnessRuntimeFacade:
                     recent_work_outcome_candidate=recent_work_outcome,
                     task_selection=dict(request.task_selection or {}),
                     runtime_profile=dict(request.runtime_profile or {}),
+                    editor_context=editor_context,
                 )
                 session_context["turn_id"] = turn_id
                 session_context["turn_input_facts"] = turn_input_facts.to_dict()
@@ -430,6 +434,7 @@ class HarnessRuntimeFacade:
                 agent_runtime_profile=agent_runtime_profile,
                 runtime_assembly=runtime_assembly,
                 runtime_branch=runtime_branch,
+                editor_context=dict(getattr(request, "editor_context", {}) or {}),
                 answer_source="harness.single_agent_turn.request_task_run",
                 scheduler="single_agent_turn",
                 max_steps=_CONVERSATION_TASK_EXECUTION_STEPS,
@@ -675,6 +680,7 @@ class HarnessRuntimeFacade:
             agent_runtime_profile=agent_runtime_profile,
             runtime_assembly=runtime_assembly,
             runtime_branch=runtime_branch,
+            editor_context=dict(getattr(request, "editor_context", {}) or {}),
             answer_source="harness.explicit_contract_task",
             scheduler="explicit_contract_task",
             task_id=str(contract.source_contract_ref or contract.contract_id or f"task:{turn_id}"),

@@ -302,6 +302,7 @@ def start_task_lifecycle(
     agent_profile_ref: str,
     model_selection: dict[str, Any] | None = None,
     runtime_assembly: Any | None = None,
+    editor_context: dict[str, Any] | None = None,
 ) -> tuple[TaskRun, AgentRun, TaskLifecycleRecord, list[dict[str, Any]]]:
     now = time.time()
     task_run_id = f"taskrun:{turn_id}:{uuid.uuid4().hex[:8]}"
@@ -310,6 +311,7 @@ def start_task_lifecycle(
     contract = _contract_with_origin(contract, origin)
     model_selection_snapshot = _model_selection_snapshot(model_selection)
     runtime_permission_mode = runtime_task_permission_mode(runtime_assembly)
+    editor_context_snapshot = _task_editor_context_snapshot(editor_context, turn_id=turn_id)
     contract_ref = runtime_host.runtime_objects.put_object(
         "task_run_contract",
         contract.contract_id,
@@ -338,6 +340,19 @@ def start_task_lifecycle(
             "selected_skill_ids": list(action_request.selected_skill_ids),
             "model_selection": model_selection_snapshot,
             "runtime_permission_mode": runtime_permission_mode,
+            **(
+                {
+                    "editor_context": editor_context_snapshot,
+                    "editor_context_binding": {
+                        "scope": "task_run",
+                        "source": "parent_turn",
+                        "turn_id": turn_id,
+                        "authority": "harness.loop.single_agent_task_editor_context_snapshot",
+                    },
+                }
+                if editor_context_snapshot
+                else {}
+            ),
             "runtime_permission_binding": {
                 "scope": "task_run",
                 "source": "turn_runtime_assembly",
@@ -544,6 +559,7 @@ async def start_task_lifecycle_from_action_request(
     commit_assistant_message: CommitAssistantMessage,
     initialize_task_todo: InitializeTaskTodo,
     schedule_task_run_executor: ScheduleTaskRunExecutor,
+    editor_context: dict[str, Any] | None = None,
 ) -> AsyncIterator[dict[str, Any]]:
     api_protocol_prefix_messages = _api_protocol_prefix_from_action_request(action_request)
     current_task = current_session_task_run(runtime_host, session_id=session_id)
@@ -592,6 +608,7 @@ async def start_task_lifecycle_from_action_request(
         agent_runtime_profile=agent_runtime_profile,
         runtime_assembly=runtime_assembly,
         runtime_branch=runtime_branch,
+        editor_context=editor_context,
         answer_source=answer_source,
         scheduler=scheduler,
         task_id=task_selection.get("selected_task_id") or task_selection.get("task_id") or f"task:{turn_id}",
@@ -621,6 +638,7 @@ async def start_task_lifecycle_from_contract(
     commit_assistant_message: CommitAssistantMessage,
     initialize_task_todo: InitializeTaskTodo,
     schedule_task_run_executor: ScheduleTaskRunExecutor,
+    editor_context: dict[str, Any] | None = None,
 ) -> AsyncIterator[dict[str, Any]]:
     api_protocol_prefix_messages = _api_protocol_prefix_from_action_request(action_request)
     current_task = current_session_task_run(runtime_host, session_id=session_id)
@@ -648,6 +666,7 @@ async def start_task_lifecycle_from_contract(
         agent_profile_ref=agent_profile_ref,
         model_selection=dict(model_selection or {}),
         runtime_assembly=runtime_assembly,
+        editor_context=editor_context,
     )
     for event in lifecycle_events:
         yield event
@@ -912,6 +931,48 @@ def _normalize_task_launch_supervision_policy(policy: dict[str, Any], *, default
         ),
         "authority": "agent_runtime_profile.task_lifecycle_policy",
     }
+
+
+def _task_editor_context_snapshot(value: Any, *, turn_id: str) -> dict[str, Any]:
+    if not isinstance(value, dict) or not value:
+        return {}
+    payload = _truncate_task_editor_context(dict(value), max_chars=60000)
+    if not isinstance(payload, dict) or not payload:
+        return {}
+    return {
+        **payload,
+        "snapshot_binding": {
+            "source": "parent_turn",
+            "turn_id": str(turn_id or "").strip(),
+            "authority": "harness.loop.single_agent_task_editor_context_snapshot",
+        },
+    }
+
+
+def _truncate_task_editor_context(value: Any, *, max_chars: int) -> Any:
+    if isinstance(value, str):
+        return value[: max(0, int(max_chars or 0))]
+    if isinstance(value, dict):
+        remaining = max(0, int(max_chars or 0))
+        result: dict[str, Any] = {}
+        for key, item in value.items():
+            if remaining <= 0:
+                break
+            truncated = _truncate_task_editor_context(item, max_chars=remaining)
+            result[str(key)] = truncated
+            remaining -= len(str(truncated))
+        return result
+    if isinstance(value, list):
+        remaining = max(0, int(max_chars or 0))
+        result: list[Any] = []
+        for item in value:
+            if remaining <= 0:
+                break
+            truncated = _truncate_task_editor_context(item, max_chars=remaining)
+            result.append(truncated)
+            remaining -= len(str(truncated))
+        return result
+    return value
 
 
 def _first_text(*values: Any) -> str:

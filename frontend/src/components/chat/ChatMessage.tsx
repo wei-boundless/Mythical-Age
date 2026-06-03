@@ -61,8 +61,17 @@ export function ChatMessage({
   const [draft, setDraft] = useState(content);
   const [failedImageSrc, setFailedImageSrc] = useState("");
   const imageUnavailable = Boolean(image?.src && failedImageSrc === image.src);
-  const displayContent = isUser ? content : assistantDisplayContent({ content, answerChannel, answerSource });
-  const publicTimelineItems = isUser ? [] : mergedPublicTimelineItems(runtimeAttachments, runtimePublicTimelineDraft);
+  const baseDisplayContent = isUser ? content : assistantDisplayContent({ content, answerChannel, answerSource });
+  const publicTimelineItems = isUser
+    ? []
+    : mergedPublicTimelineItems(
+      runtimeAttachments,
+      runtimePublicTimelineDraft,
+      terminalTimelineStateFromAnswer({ answerCanonicalState, answerChannel }),
+    );
+  const displayContent = isUser
+    ? baseDisplayContent
+    : assistantContentFromTimeline(baseDisplayContent, publicTimelineItems);
   const hasRunActivity = !isUser && hasPublicRunActivity(publicTimelineItems, displayContent);
   const legacyTaskContractReceipt = !isUser && isLegacyTaskContractReceipt({ content, answerChannel, answerSource });
   const hideLegacyTaskContractReceipt = legacyTaskContractReceipt && hasRunActivity;
@@ -178,6 +187,7 @@ export function ChatMessage({
 function mergedPublicTimelineItems(
   attachments: SessionRuntimeAttachment[],
   runtimePublicTimelineDraft: PublicChatTimelineItem[] | undefined,
+  terminalState: "done" | "error" | "" = "",
 ) {
   const merged: PublicChatTimelineItem[] = [];
   const indexByKey = new Map<string, number>();
@@ -194,8 +204,46 @@ function mergedPublicTimelineItems(
   };
   attachments.flatMap((attachment) => Array.isArray(attachment.public_timeline) ? attachment.public_timeline : [])
     .forEach((item, index) => push(item, index));
-  (runtimePublicTimelineDraft ?? []).forEach((item, index) => push(item, attachments.length + index));
+  finalizePublicTimelineDraft(runtimePublicTimelineDraft, terminalState)
+    .forEach((item, index) => push(item, attachments.length + index));
   return merged;
+}
+
+function terminalTimelineStateFromAnswer({
+  answerCanonicalState,
+  answerChannel,
+}: {
+  answerCanonicalState?: string;
+  answerChannel?: string;
+}): "done" | "error" | "" {
+  const state = cleanBoundaryText(answerCanonicalState).toLowerCase();
+  const channel = cleanBoundaryText(answerChannel).toLowerCase();
+  if (state === "stable_answer" || state === "tool_summary") return "done";
+  if (state === "missing_answer" || channel === "blocked") return "error";
+  return "";
+}
+
+function finalizePublicTimelineDraft(
+  items: PublicChatTimelineItem[] | undefined,
+  terminalState: "done" | "error" | "",
+) {
+  if (!items?.length || !terminalState) {
+    return items ?? [];
+  }
+  return items.map((item) => finalizePublicTimelineItem(item, terminalState));
+}
+
+function finalizePublicTimelineItem(item: PublicChatTimelineItem, terminalState: "done" | "error") {
+  const state = cleanBoundaryText(item.state).toLowerCase();
+  const streamState = cleanBoundaryText(item.stream_state).toLowerCase();
+  if (streamState !== "streaming" && !["", "running", "working", "partial"].includes(state)) {
+    return item;
+  }
+  return {
+    ...item,
+    state: terminalState,
+    stream_state: "done",
+  };
 }
 
 function publicTimelineItemKey(item: PublicChatTimelineItem | undefined, fallbackIndex: number) {
@@ -205,6 +253,16 @@ function publicTimelineItemKey(item: PublicChatTimelineItem | undefined, fallbac
   const refs = Array.isArray(item.trace_refs) ? item.trace_refs.map((ref) => String(ref ?? "").trim()).filter(Boolean) : [];
   if (refs.length) return `refs:${refs.join(",")}`;
   return `${String(item.kind ?? "").trim()}:${String(item.title ?? item.text ?? item.detail ?? item.path ?? "").trim()}:${fallbackIndex}`;
+}
+
+function assistantContentFromTimeline(content: string, items: PublicChatTimelineItem[]) {
+  const normalized = String(content || "").trim();
+  if (normalized) {
+    return content;
+  }
+  const feedback = [...items].reverse().find((item) => String(item.kind || "").trim() === "assistant_text");
+  const text = cleanBoundaryText(feedback?.text || feedback?.detail || feedback?.title);
+  return text || content;
 }
 
 function cleanBoundaryText(value: unknown) {

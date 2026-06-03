@@ -145,9 +145,40 @@ describe("ChatMessage", () => {
       }),
     );
 
-    expect(html).toContain("当前判断");
     expect(html).toContain("我先检查当前目录和关键文件");
+    expect(html).not.toContain("当前判断");
     expect(html).toContain("运行命令");
     expect(html).toContain("npm test -- --run src/components/chat");
+    expect(html.indexOf("我先检查当前目录和关键文件")).toBeLessThan(html.indexOf("运行命令"));
+  });
+
+  it("does not keep stale live tool activity spinning after a stable assistant answer", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(ChatMessage, {
+        answerCanonicalState: "stable_answer",
+        answerChannel: "conversation",
+        answerPersistPolicy: "persist_canonical",
+        content: "写好了。\n\nD:\\AI应用\\langchain-agent\\storage\\task_environments\\general\\workspace\\artifacts\\football.html",
+        id: "message:stable-with-draft",
+        retrievals: [],
+        role: "assistant",
+        runtimePublicTimelineDraft: [
+          {
+            item_id: "tool:football:start",
+            kind: "tool_activity",
+            title: "正在调用 storage/task_environments/general/workspace/artifacts/football.html",
+            state: "running",
+            stream_state: "streaming",
+          },
+        ],
+        toolCalls: [],
+      }),
+    );
+
+    expect(html).toContain("写好了");
+    expect(html).toContain("工具已完成 artifacts/football.html");
+    expect(html).toContain("public-run-activity__row--done");
+    expect(html).not.toContain("public-run-activity__row--current");
+    expect(html).not.toContain("public-run-activity__spinner");
   });
 });

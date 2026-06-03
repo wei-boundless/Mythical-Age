@@ -22,6 +22,7 @@ class TurnInputFacts:
     recent_work_outcome_candidate: dict[str, Any] = field(default_factory=dict)
     task_selection: dict[str, Any] = field(default_factory=dict)
     runtime_profile: dict[str, Any] = field(default_factory=dict)
+    editor_context: dict[str, Any] = field(default_factory=dict)
     authority: str = "harness.runtime.turn_input_facts"
 
     def __post_init__(self) -> None:
@@ -51,6 +52,7 @@ def build_turn_input_facts(
     recent_work_outcome_candidate: dict[str, Any] | None = None,
     task_selection: dict[str, Any] | None = None,
     runtime_profile: dict[str, Any] | None = None,
+    editor_context: dict[str, Any] | None = None,
 ) -> TurnInputFacts:
     return TurnInputFacts(
         session_id=str(session_id or "").strip(),
@@ -62,6 +64,7 @@ def build_turn_input_facts(
         recent_work_outcome_candidate=dict(recent_work_outcome_candidate or {}),
         task_selection=dict(task_selection or {}),
         runtime_profile=dict(runtime_profile or {}),
+        editor_context=dict(editor_context or {}),
     )
 
 

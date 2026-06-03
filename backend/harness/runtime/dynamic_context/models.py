@@ -22,6 +22,7 @@ class DynamicContextInput:
     runtime_assembly: dict[str, Any] = field(default_factory=dict)
     runtime_envelope: dict[str, Any] = field(default_factory=dict)
     current_user_message: str = ""
+    editor_context: dict[str, Any] = field(default_factory=dict)
     projection_policy: dict[str, Any] = field(default_factory=dict)
 
 

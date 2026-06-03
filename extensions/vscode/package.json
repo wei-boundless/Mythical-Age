@@ -1,0 +1,54 @@
+{
+  "name": "langchain-agent-vscode",
+  "displayName": "Langchain Agent",
+  "description": "Send VS Code editor context to the local Langchain Agent runtime.",
+  "version": "0.1.0",
+  "publisher": "local",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onCommand:langchainAgent.sendToAgent",
+    "onCommand:langchainAgent.showEditorContext"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "langchainAgent.sendToAgent",
+        "title": "Langchain Agent: Send Current Context"
+      },
+      {
+        "command": "langchainAgent.showEditorContext",
+        "title": "Langchain Agent: Show Editor Context Snapshot"
+      }
+    ],
+    "configuration": {
+      "title": "Langchain Agent",
+      "properties": {
+        "langchainAgent.apiBase": {
+          "type": "string",
+          "default": "http://127.0.0.1:8003/api",
+          "description": "Local backend API base URL."
+        },
+        "langchainAgent.sessionId": {
+          "type": "string",
+          "default": "",
+          "description": "Optional existing session id. Leave empty to create and reuse a VS Code session automatically."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.30",
+    "@types/vscode": "^1.90.0",
+    "typescript": "^5.4.5"
+  }
+}

@@ -27,6 +27,7 @@ class HarnessRuntimeRequest:
     permission_mode: str = ""
     expected_active_turn_id: str = ""
     active_turn_input_policy: str = "auto"
+    editor_context: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(slots=True)

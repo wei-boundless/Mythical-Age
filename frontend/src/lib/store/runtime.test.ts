@@ -3673,6 +3673,38 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     ]);
   });
 
+  it("finalizes live public timeline draft when the turn completes without a matching tool completion delta", () => {
+    let transition = startStreamingTurn(getDefaultState(), "再做一个踢足球小游戏");
+    transition = reduceStreamEvent(transition.state, transition.session, "runtime_step_summary", {
+      step: "task_tool_executed",
+      status: "running",
+      public_timeline_delta: [
+        {
+          item_id: "tool:football:start",
+          kind: "tool_activity",
+          title: "正在调用 storage/task_environments/general/workspace/artifacts/football.html",
+          state: "running",
+          stream_state: "streaming",
+        },
+      ],
+    });
+    transition = reduceStreamEvent(transition.state, transition.session, "done", {
+      content: "写好了。\n\nD:\\AI应用\\langchain-agent\\storage\\task_environments\\general\\workspace\\artifacts\\football.html",
+      answer_canonical_state: "stable_answer",
+      answer_channel: "conversation",
+    });
+
+    const assistant = transition.state.messages.at(-1);
+    expect(assistant?.runtimePublicTimelineDraft).toEqual([
+      expect.objectContaining({
+        item_id: "tool:football:start",
+        kind: "tool_activity",
+        state: "done",
+        stream_state: "done",
+      }),
+    ]);
+  });
+
   it("does not block send completion on post-stream session refresh", async () => {
     vi.useRealTimers();
     api.listSessions.mockImplementation(() => new Promise(() => undefined));

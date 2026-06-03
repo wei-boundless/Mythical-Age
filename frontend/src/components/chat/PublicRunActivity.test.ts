@@ -166,7 +166,7 @@ describe("PublicRunActivity", () => {
     expect(html).not.toContain("等待工具返回");
   });
 
-  it("keeps agent feedback separate from the active tool action", () => {
+  it("keeps assistant feedback out of the status lane and renders the active tool action", () => {
     const html = renderToStaticMarkup(
       React.createElement(PublicRunActivity, {
         items: [
@@ -188,10 +188,30 @@ describe("PublicRunActivity", () => {
       }),
     );
 
-    expect(html).toContain("public-run-activity__agent-message");
-    expect(html).toContain("我先检查文件写入权限和可用路径");
+    expect(html).not.toContain("public-run-activity__agent-message");
+    expect(html).not.toContain("我先检查文件写入权限和可用路径");
     expect(html).toContain("public-run-activity__row--current");
     expect(html).toContain("确认目标路径");
+  });
+
+  it("does not duplicate the running prefix for generic tool calls", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(PublicRunActivity, {
+        items: [
+          {
+            item_id: "tool:generic-call",
+            kind: "tool_activity",
+            title: "正在调用 storage/task_environments/general/workspace/artifacts/football.html",
+            state: "running",
+            stream_state: "streaming",
+          },
+        ],
+      }),
+    );
+
+    expect(html).toContain("正在调用工具 artifacts/football.html");
+    expect(html).not.toContain("正在正在");
+    expect(html).not.toContain("storage/task_environments/general/workspace/artifacts/football.html");
   });
 
   it("suppresses duplicate tool guard system control text", () => {
@@ -267,6 +287,33 @@ describe("PublicRunActivity", () => {
 
     expect(html).toContain("已完成");
     expect(html).toContain("public-run-activity__row--done");
+    expect(html).not.toContain("public-run-activity__spinner");
+  });
+
+  it("reconciles a completed tool event over a stale running event for the same target", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(PublicRunActivity, {
+        items: [
+          {
+            item_id: "tool:football:start",
+            kind: "tool_activity",
+            title: "正在调用 storage/task_environments/general/workspace/artifacts/football.html",
+            state: "running",
+            stream_state: "streaming",
+          },
+          {
+            item_id: "tool:football:done",
+            kind: "tool_activity",
+            title: "工具已完成 storage/task_environments/general/workspace/artifacts/football.html",
+            state: "done",
+          },
+        ],
+      }),
+    );
+
+    expect(html).toContain("工具已完成 artifacts/football.html");
+    expect(html).toContain("public-run-activity__row--done");
+    expect(html).not.toContain("public-run-activity__row--current");
     expect(html).not.toContain("public-run-activity__spinner");
   });
 });
