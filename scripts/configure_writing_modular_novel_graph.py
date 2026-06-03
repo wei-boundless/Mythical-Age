@@ -77,6 +77,13 @@ WRITING_CHAPTER_DRAFT_OUTPUT_TOKENS = 32768
 WRITING_MEMORY_OUTPUT_TOKENS = 12288
 WRITING_REVIEW_OUTPUT_TOKENS = 8192
 WRITING_ROUTER_OUTPUT_TOKENS = 4096
+CHAPTER_WRITER_SUBAGENT_OPS = (
+    "op.subagent_spawn",
+    "op.subagent_message",
+    "op.subagent_wait",
+    "op.subagent_list",
+    "op.subagent_close",
+)
 
 REPOSITORY_NODES = (
     {
@@ -684,6 +691,7 @@ def _self_repair_prompt(source: NodeSpec) -> str:
         draft_specific = (
             "如果你自修的是章节正文草稿，你必须保留并修正“写前取材判断”和“章节正文候选”两大交付主体，"
             "逐章核对当前批次允许章号、章节标题与正文内容、上一章结尾到下一章开头、时间跨度、选拔/战争/追逃/修炼等事件状态、人物伤势与位置、资源归属、伏笔状态和章末牵引。"
+            "你还必须读取系统反馈的每章字数、短缺量和达标情况，优先扩写未达 1800 字的章节，再检查章节之间的连续性。"
             "不得把十章正文改成摘要、差异说明、返修清单或试写片段；不得出现未被任务边界允许的卷终结标记，例如第一批正文误写“第1卷完”。"
         )
     return _role_prompt(
@@ -697,6 +705,7 @@ def _self_repair_prompt(source: NodeSpec) -> str:
         ),
         "你不是审核员，不能写“审核裁决：通过/返修/拒绝”，不能批准自己的稿件，不能提交记忆，不能把自修判断写成 canon，也不能要求 file_read、file_write、memory 或搜索工具。系统已经把允许你看的候选稿、上游参照和记忆包放进上下文；你必须直接基于这些内容完成自修。",
         "你的自修重点是找出并修正会导致下游审核或记忆提交出错的问题：与上游计划、细纲、基准设定、动态记忆、已提交正文事实不一致；时间线、因果链、事件起止状态、人物动机、人物状态、场域位置、资源归属、伏笔收放前后矛盾；标题与内容漂移；把未审新增设定写成事实；越出当前卷、当前批次或当前章号边界。",
+        "运行时任务包里的 batch_start_index、batch_end_index、batch_chapter_list、batch_label 和 graph_loop_summary 是自修时的硬边界。候选稿、上游参照包或卷计划小节里出现的“批次一：第1-3章”“批次二：第4-5章”等表述，如果与运行时当前批次范围不一致，只能视为卷内节奏段，不能用来缩小当前节点输出。若当前运行时要求第1章至第10章，自修后的完整候选稿必须覆盖第1章到第10章，不得只保留第1-3章或把第4-10章交给所谓下一批。",
         "你只能做一次自修。如果候选稿有问题，你要直接在修正后候选稿里改正，而不是只列问题；如果候选稿基本可用，也要重交完整候选稿，只允许做不改变事实边界的轻微润色。你不得新增无来源硬设定来掩盖矛盾；必须新增但尚未获审的内容，只能标为待审扩展建议，不能写成已成立事实。",
         draft_specific,
         "输出时先给一个很短的“自修处理记录（非正史）”，只说明你修了哪些交接风险；随后必须输出修正后的完整候选稿。自修处理记录不是正文事实、不是审核报告、不是记忆来源，下游提交记忆时不得把它写入章节事实或世界事实。",
@@ -1066,7 +1075,9 @@ CHAPTER_BASE_NODES: tuple[NodeSpec, ...] = (
             "你的细纲必须满足逐章可写标准：每一章都有当章目标、人物欲望、冲突压力、情节转折、信息释放、情绪兑现、代价余波和追读牵引；每一批十章还要形成小高潮、小回收和新的压力源。你必须让读者能看见这一批章为什么要这样走，而不是只看到场景编号。",
             "每章细纲都要明确本章如何牵动读者内心：是压迫主角、暴露软肋、制造误会、兑现爽点、加深亏欠、撕裂关系、短暂和解、揭开旧伤，还是抬高下一章悬念。人物反差必须通过本章选择、对白、行动和后果呈现，不能只在人物说明里存在。",
             "你必须读取基准库、当前卷计划、上一批提交摘要和动态连续性记录，为写手给出逐章叙事目标、关键冲突、角色状态变化、资源或线索流转、伏笔布设与回收、信息揭示、爽点兑现、章末牵引、前后文承接点和禁改边界。表达方式要像资深中文网文编辑在交付可写的章纲，而不是像舞台剧导演在分配调度。",
+            "运行时任务包里的章号范围是当前节点最高执行边界。你必须以 batch_start_index、batch_end_index、batch_chapter_list、batch_label 和 graph_loop_summary 指定的范围为准输出完整章节细纲；如果当前运行时范围是第1章至第10章，就必须交付第1章到第10章全部十章细纲。当前卷计划里出现的“批次一：第1-3章”“批次二：第4-5章”等字段只能理解为卷内节奏段或规划小段，不得覆盖运行时当前批次，不得把当前任务收缩成其中一个小段。你应把落在运行时范围内的多个卷内节奏段合并投影为当前十章细纲。",
             "分纲写手不得越过大纲。你必须先写“输入继承证据表”，逐项列出本批章号、父级全书细纲窗口、当前卷计划窗口、上一批承接事实和不可提前处理的后续内容。若父级大纲说第1-10章只建立困境，你不能把选拔、筑基、卷末战争等后续阶段压入第1-10章；除非父级分卷计划明确且无冲突地授权，并且你要写明授权来源。",
+            "如果上游卷计划的标题或小节名称把第1-3章、第4-5章、第6-7章、第8-9章、第10章分别叫作不同“批次”，而运行时任务包要求第1-10章同批生产，你不能沿用上游小节名把本节点改成第1-3章批次。你必须在输入继承证据表里说明：上游这些“批次”是卷内节奏段，本节点当前批次是运行时第1-10章。",
             "每章细纲都要能直接指导正文创作，并明确这一章的叙事重心、阅读情绪、商业爽点和追读钩子，但不能替写手写成完整正文，也不能把细纲写成报表。若发现上游计划不足以支撑当前批次，必须提出返修或风险说明，不能用临时设定硬补。",
         ),
     ),
@@ -1087,6 +1098,23 @@ CHAPTER_BASE_NODES: tuple[NodeSpec, ...] = (
         loop=_chapter_loop_contract("{batch_label}章节正文草稿"),
         length_budget=_length_budget_contract_static("batch", BATCH_TARGET_WORDS, BATCH_MIN_WORDS, BATCH_MAX_WORDS, CHAPTER_BATCH_SIZE),
         extra_runtime={
+            "subagent_policy": {
+                "enabled": True,
+                "allowed_subagent_ids": [WORKER_AGENT_ID],
+                "max_subagent_runs_per_task": CHAPTER_BATCH_SIZE * 2,
+                "max_active_subagents": 1,
+                "context_policy": "summary_and_refs_only",
+                "result_policy": "observation_refs_only",
+                "allow_nested_subagents": False,
+                "source": "contract_bindings.runtime.subagent_policy",
+            },
+            "chapter_workflow_policy": {
+                "mode": "sequential_chapter_loop",
+                "chapter_count": CHAPTER_BATCH_SIZE,
+                "chapter_task_mode": "one_subagent_per_chapter",
+                "chapter_feedback_mode": "system_metric_after_each_chapter",
+                "source": "contract_bindings.runtime.chapter_workflow_policy",
+            },
             "split_policy": {
                 "mode": "static_batch",
                 "batch_size": CHAPTER_BATCH_SIZE,
@@ -1129,6 +1157,8 @@ CHAPTER_BASE_NODES: tuple[NodeSpec, ...] = (
             "写作时不要为了赶进度而概述事件。你要把人物如何看见、如何判断、如何犹豫、如何开口、如何行动、如何承受后果写出来；世界信息必须落到可感知的物象、规则后果、人物利益、村落秩序、场域危险和对话压力里。读者应该读到小说现场，而不是读到剧情说明。",
             "你必须先完成写前取材判断，再进入正文。写前取材判断只允许简短列出本批采用的世界规则、人物当前状态、上一批承接、正文事实索引、活跃伏笔、到期伏笔、禁改边界和本批叙事目标；它必须来自基准库、动态记忆库、正文记忆库、当前卷计划和当前批次细纲，不能凭空补设定。",
             "写前取材判断必须包含“层级来源链”：本批正文继承了哪一段全书细纲、哪一个当前卷计划批次、哪一份当前批次细纲、哪一批已提交正文事实。若当前批次细纲与父级大纲或记忆事实冲突，你不能擅自重排剧情；只能在取材判断中标出冲突，并在正文中严格选择已授权且不冲突的部分执行。",
+            "你必须按章生成，不许再把十章一次写成一坨。你的真实执行顺序是：先从当前批次里取第1章，交给单章写作子任务；子任务返回本章正文后，你必须调用系统字数统计工具 text_metric 统计该章正文实际字数，并把系统返回的实际字数、是否达标、短缺量写入本章反馈；如果短于本章最低字数或存在明显连续性问题，立即在本章内修复后再进入下一章；确认通过后再启动第2章，如此顺序推进到第10章。每一章写完后，都要读取系统反馈的实际字数、是否达标、短缺量和质量问题，再决定是否扩写或进入下一章。不得用自己的估算替代系统字数反馈，不得等十章写完后才统一发现字数不足，也不得让后面的章替前面的章补量。",
+            "每一章都要形成自己的“章节任务包”，而不是靠整批长文自然漂过去。章节任务包必须包含：本章目标、可用承接、必须兑现的字数下限、系统反馈摘要、是否允许进入下一章。你可以用子任务把单章交给同职能写手执行，但每章返回后必须先做章内自回顾，再接系统字数反馈，再继续下一章。第 N 章写作结束后，必须显式保留第 N 章的字数反馈和修复结论，作为第 N+1 章输入的一部分。",
             "如果预装记忆包不足以确认某个规则、人物状态、正文事实、伏笔状态或前后承接，你不能自行搜索、补猜或扩大设定；必须在写前取材判断中标记缺口，并只使用当前任务包、上游交接包和预装记忆包中已经确认的内容完成本批正文。",
             "写前取材判断之后必须输出完整小说正文，正文才是主体。正文要尊重世界规则、角色动机、前后连续性和批次目标；如果旧产物或提示中出现其他章号，以当前任务包允许章号范围为准。你不能跳写未授权章节，也不能为方便剧情临时改世界规则。若发现必须新增设定才能写通，只能在正文后标为待审扩展建议，不能当作已成立事实写进正文核心逻辑。",
         ),
@@ -1631,7 +1661,7 @@ def _upsert_agents(backend_dir: Path) -> None:
             CREATOR_AGENT_ID,
             "task_graph.writing.modular_novel.creator",
             ("task", "runtime_contracts", "artifact_refs", "memory_runtime_view"),
-            ("op.text_metric",),
+            ("op.text_metric", *CHAPTER_WRITER_SUBAGENT_OPS),
         ),
         (
             REVIEWER_AGENT_ID,
@@ -1696,10 +1726,10 @@ def _upsert_agents(backend_dir: Path) -> None:
             allowed_memory_scopes=("writing_modular_novel", "state_readonly"),
             allowed_context_sections=contexts,
             subagent_policy={
-                "enabled": False,
-                "allowed_subagent_ids": (),
-                "max_subagent_runs_per_task": 0,
-                "max_active_subagents": 0,
+                "enabled": agent_id == CREATOR_AGENT_ID,
+                "allowed_subagent_ids": (WORKER_AGENT_ID,) if agent_id == CREATOR_AGENT_ID else (),
+                "max_subagent_runs_per_task": 16 if agent_id == CREATOR_AGENT_ID else 0,
+                "max_active_subagents": 1 if agent_id == CREATOR_AGENT_ID else 0,
                 "context_policy": "summary_and_refs_only",
                 "result_policy": "observation_refs_only",
                 "allow_nested_subagents": False,
@@ -1715,9 +1745,9 @@ def _upsert_agents(backend_dir: Path) -> None:
                 "enabled_runtime_modes": [STANDARD_MODE, CUSTOM_MODE],
                 "default_runtime_mode": STANDARD_MODE,
                 "use_shared_contract": True,
-                "can_delegate_to_agents": False,
-                "allowed_delegate_agent_ids": [],
-                "max_delegate_calls_per_turn": 0,
+                "can_delegate_to_agents": agent_id == CREATOR_AGENT_ID,
+                "allowed_delegate_agent_ids": [WORKER_AGENT_ID] if agent_id == CREATOR_AGENT_ID else [],
+                "max_delegate_calls_per_turn": 16 if agent_id == CREATOR_AGENT_ID else 0,
                 "delegate_context_policy": "summary_and_refs_only",
                 "source_task_graph_refs": [MASTER_GRAPH_ID, DESIGN_GRAPH_ID, CHAPTER_GRAPH_ID, FINALIZE_GRAPH_ID],
                 "runtime_template_id": template_id,
@@ -2173,7 +2203,16 @@ def _upsert_imported_module_graph(
 def _node_payload(node: NodeSpec) -> dict[str, Any]:
     agent_id = _node_agent_id(node)
     artifact_policy = _artifact_policy(node)
-    runtime_bindings = {"model_requirement": _model_requirement(node.node_id), **dict(node.extra_runtime)}
+    node_subagent_policy = dict(node.extra_runtime.get("subagent_policy") or {})
+    node_chapter_workflow_policy = dict(node.extra_runtime.get("chapter_workflow_policy") or {})
+    runtime_bindings = {
+        "model_requirement": _model_requirement(node.node_id),
+        **{
+            key: value
+            for key, value in dict(node.extra_runtime).items()
+            if key not in {"subagent_policy", "chapter_workflow_policy"}
+        },
+    }
     tool_execution_policy = _node_tool_execution_policy(node)
     if tool_execution_policy:
         runtime_bindings["tool_execution_policy"] = dict(tool_execution_policy)
@@ -2199,6 +2238,15 @@ def _node_payload(node: NodeSpec) -> dict[str, Any]:
     dynamic_expansion_policy = _dynamic_expansion_policy(node)
     if dynamic_expansion_policy:
         runtime_bindings["dynamic_expansion"] = dict(dynamic_expansion_policy)
+    node_runtime_policy = {
+        "subagent_policy": node_subagent_policy,
+        "chapter_workflow_policy": node_chapter_workflow_policy,
+        "control_capabilities": {
+            "may_use_subagents": bool(node_subagent_policy.get("enabled") is True),
+        },
+    }
+    if not node_runtime_policy["subagent_policy"]:
+        node_runtime_policy = {}
     contract_bindings = _node_contract_bindings(
         node,
         artifact_policy=artifact_policy,
@@ -2242,6 +2290,7 @@ def _node_payload(node: NodeSpec) -> dict[str, Any]:
         "artifact_targets": [{"path": path, "required": True, "source": "node_spec"} for path in node.artifact_paths],
         "quality_retry_policy": _quality_retry_policy(node),
         "review_gate_policy": _review_gate_policy(node),
+        **({"runtime_policy": node_runtime_policy} if node_runtime_policy else {}),
         "loop": dict(node.loop),
         "metadata": {
             "managed_by": MANAGED_BY,
@@ -2258,6 +2307,7 @@ def _node_payload(node: NodeSpec) -> dict[str, Any]:
             "outline_thread_policy": outline_thread_policy,
             "prewrite_memory_plan_policy": _prewrite_memory_plan_policy(node),
             "dynamic_expansion_policy": _dynamic_expansion_policy(node),
+            "chapter_workflow_policy": node_chapter_workflow_policy,
         },
     }
     return payload
@@ -3481,24 +3531,28 @@ def _node_operation_policy(*, node_id: str) -> dict[str, Any]:
     if node_id in {"chapter_draft", "chapter_draft_self_repair", "chapter_review", "volume_review", "final_review", "chapter_progress_router"}:
         allowed.append("op.text_metric")
         optional.append("op.text_metric")
+    if node_id == "chapter_draft":
+        allowed.extend(CHAPTER_WRITER_SUBAGENT_OPS)
+        optional.extend(CHAPTER_WRITER_SUBAGENT_OPS)
+    denied_operations = [
+        "op.read_file",
+        "op.search_files",
+        "op.search_text",
+        "op.read_structured_file",
+        "op.shell",
+        "op.python_repl",
+        "op.delegate_to_agent",
+        "op.web_search",
+        "op.fetch_url",
+        "op.write_file",
+        "op.edit_file",
+    ]
     return {
         "authority": "task_graph.contract_bound_operation_policy",
-        "allowed_operations": allowed,
+        "allowed_operations": list(dict.fromkeys(allowed)),
         "required_operations": [],
-        "optional_operations": optional,
-        "denied_operations": [
-            "op.read_file",
-            "op.search_files",
-            "op.search_text",
-            "op.read_structured_file",
-            "op.shell",
-            "op.python_repl",
-            "op.delegate_to_agent",
-            "op.web_search",
-            "op.fetch_url",
-            "op.write_file",
-            "op.edit_file",
-        ],
+        "optional_operations": list(dict.fromkeys(optional)),
+        "denied_operations": [item for item in denied_operations if item not in set(allowed)],
     }
 
 

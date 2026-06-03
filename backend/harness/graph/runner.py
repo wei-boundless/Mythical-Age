@@ -4,6 +4,8 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable
 
+from .model_overrides import merge_effective_runtime_overrides
+from .loop import assert_graph_config_compatible_with_state
 from .models import GraphHarnessConfig, GraphLoopState, GraphNodeWorkOrder
 from .runtime_objects import load_work_order
 
@@ -76,6 +78,7 @@ class GraphRunRunner:
         max_dispatches: int = 64,
         max_runtime_seconds: float = 0.0,
         max_dispatch_requests: int | None = None,
+        runtime_overrides: dict[str, Any] | None = None,
     ) -> GraphRunRunnerResult:
         graph_run_id = str(graph_run_id or "").strip()
         if not graph_run_id:
@@ -232,11 +235,16 @@ class GraphRunRunner:
                         events=events,
                     )
                 self._validate_work_order(state=state, graph_config=graph_config, work_order=order)
+                effective_runtime_overrides = merge_effective_runtime_overrides(
+                    persistent=dict(dict(state.diagnostics or {}).get("runtime_settings") or {}),
+                    temporary=dict(runtime_overrides or {}),
+                )
                 execution = await self._execute_work_order(
                     graph_config=graph_config,
                     work_order=order,
                     max_steps=max_node_steps,
                     accept_result=True,
+                    runtime_overrides=effective_runtime_overrides,
                 )
                 executed_count += 1
                 events.extend(dict(item) for item in list(execution.get("events") or []) if isinstance(item, dict))
@@ -296,10 +304,7 @@ class GraphRunRunner:
             raise ValueError(f"GraphLoopState not found: {graph_run_id}")
         if state.graph_run_id != graph_run_id:
             raise ValueError("GraphRunRunner graph_run_id mismatch")
-        if state.config_id != graph_config.config_id:
-            raise ValueError("GraphRunRunner config_id mismatch")
-        if state.config_hash != graph_config.content_hash:
-            raise ValueError("GraphRunRunner config_hash mismatch")
+        assert_graph_config_compatible_with_state(graph_config=graph_config, state=state)
         return state
 
     def _validate_work_order(
@@ -313,10 +318,12 @@ class GraphRunRunner:
             raise ValueError("GraphRunRunner work_order graph_run_id mismatch")
         if work_order.task_run_id != state.task_run_id:
             raise ValueError("GraphRunRunner work_order task_run_id mismatch")
-        if work_order.config_id != graph_config.config_id:
-            raise ValueError("GraphRunRunner work_order config_id mismatch")
-        if work_order.config_hash != graph_config.content_hash:
-            raise ValueError("GraphRunRunner work_order config_hash mismatch")
+        if not str(work_order.structure_hash or "").strip():
+            raise ValueError("GraphRunRunner work_order structure_hash missing")
+        if work_order.structure_hash != state.structure_hash:
+            raise ValueError("GraphRunRunner work_order structure_hash mismatch")
+        if _node_by_id(graph_config, work_order.node_id) is None:
+            raise ValueError("GraphRunRunner work_order node_id not found in GraphHarnessConfig")
 
     def _validate_executor_origin(
         self,
@@ -456,6 +463,11 @@ def _validate_graph_config_identity(graph_config: GraphHarnessConfig) -> None:
     expected_hash = graph_config.expected_content_hash()
     if graph_config.content_hash != expected_hash:
         raise ValueError("GraphRunRunner GraphHarnessConfig content_hash mismatch")
+
+
+def _node_by_id(graph_config: GraphHarnessConfig, node_id: str) -> dict[str, Any] | None:
+    target = str(node_id or "").strip()
+    return next((dict(item) for item in graph_config.nodes if str(dict(item).get("node_id") or "").strip() == target), None)
 
 
 def _runtime_budget_exhausted(started_at: float, *, max_runtime_seconds: float) -> bool:

@@ -65,6 +65,34 @@ def coding_vibe_workspace_environment() -> TaskEnvironmentDefinition:
             EnvironmentPrompt(
                 prompt_id="environment.coding.vibe_workspace.orientation.v1",
             ),
+            EnvironmentPrompt(
+                prompt_id="environment.rule.coding_workspace.v1",
+                prompt_kind="boundary_rule",
+            ),
+            EnvironmentPrompt(
+                prompt_id="coding.rule.codebase_inspection.v1",
+                prompt_kind="coding_rule",
+            ),
+            EnvironmentPrompt(
+                prompt_id="coding.rule.editing.v1",
+                prompt_kind="coding_rule",
+            ),
+            EnvironmentPrompt(
+                prompt_id="coding.rule.verification.v1",
+                prompt_kind="coding_rule",
+            ),
+            EnvironmentPrompt(
+                prompt_id="coding.rule.git_safety.v1",
+                prompt_kind="coding_rule",
+            ),
+            EnvironmentPrompt(
+                prompt_id="coding.rule.windows_shell.v1",
+                prompt_kind="coding_rule",
+            ),
+            EnvironmentPrompt(
+                prompt_id="coding.rule.task_progress.v1",
+                prompt_kind="coding_rule",
+            ),
         ),
         sandbox_policy=SandboxPolicy(
             enabled=True,
@@ -171,6 +199,34 @@ def development_sandbox_environment() -> TaskEnvironmentDefinition:
             EnvironmentPrompt(
                 prompt_id="environment.development.sandbox.orientation.v1",
             ),
+            EnvironmentPrompt(
+                prompt_id="environment.rule.development_sandbox.v1",
+                prompt_kind="boundary_rule",
+            ),
+            EnvironmentPrompt(
+                prompt_id="coding.rule.codebase_inspection.v1",
+                prompt_kind="coding_rule",
+            ),
+            EnvironmentPrompt(
+                prompt_id="coding.rule.editing.v1",
+                prompt_kind="coding_rule",
+            ),
+            EnvironmentPrompt(
+                prompt_id="coding.rule.verification.v1",
+                prompt_kind="coding_rule",
+            ),
+            EnvironmentPrompt(
+                prompt_id="coding.rule.git_safety.v1",
+                prompt_kind="coding_rule",
+            ),
+            EnvironmentPrompt(
+                prompt_id="coding.rule.windows_shell.v1",
+                prompt_kind="coding_rule",
+            ),
+            EnvironmentPrompt(
+                prompt_id="coding.rule.task_progress.v1",
+                prompt_kind="coding_rule",
+            ),
         ),
         sandbox_policy=SandboxPolicy(
             enabled=True,
@@ -259,6 +315,10 @@ def creation_writing_environment() -> TaskEnvironmentDefinition:
             EnvironmentPrompt(
                 prompt_id="environment.creation.writing.orientation.v1",
             ),
+            EnvironmentPrompt(
+                prompt_id="environment.rule.writing_workspace.v1",
+                prompt_kind="boundary_rule",
+            ),
         ),
         sandbox_policy=SandboxPolicy(
             enabled=False,
@@ -322,6 +382,10 @@ def general_workspace_environment() -> TaskEnvironmentDefinition:
         environment_prompts=(
             EnvironmentPrompt(
                 prompt_id="environment.general.workspace.orientation.v1",
+            ),
+            EnvironmentPrompt(
+                prompt_id="environment.rule.general_workspace.v1",
+                prompt_kind="boundary_rule",
             ),
         ),
         sandbox_policy=SandboxPolicy(

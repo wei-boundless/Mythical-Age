@@ -8,6 +8,7 @@ from typing import Any
 from .models import PromptAssemblyRequest, PromptAssemblyResult, PromptSection
 from .packs import default_pack_ref_for_invocation
 from .registry import PromptLibraryRegistry
+from .rules import build_rule_diagnostics
 
 
 class PromptAssemblyService:
@@ -78,6 +79,7 @@ class PromptAssemblyService:
                     metadata={
                         "version": resource.version,
                         "resource_type": resource.resource_type,
+                        "prompt_rule": dict(resource.metadata or {}).get("prompt_rule"),
                     },
                 )
             )
@@ -127,6 +129,11 @@ class PromptAssemblyService:
             "contract_section_count": len([item for item in sections if not item.prompt_ref]),
             "authority": "prompt_library.prompt_assembly_manifest",
         }
+        rule_diagnostics = build_rule_diagnostics(tuple(sections), invocation_kind=request.invocation_kind)
+        if rule_diagnostics.get("rejected_rules"):
+            rejected.extend(dict(item) for item in list(rule_diagnostics.get("rejected_rules") or []))
+            manifest["rejected_refs"] = [dict(item) for item in rejected]
+        manifest["prompt_rules"] = rule_diagnostics
         return PromptAssemblyResult(
             assembly_id=f"promptasm:{digest}",
             invocation_kind=request.invocation_kind,

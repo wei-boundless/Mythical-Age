@@ -14,14 +14,24 @@ def test_prompt_library_lists_only_runtime_agent_and_environment_resources_by_de
 
     assert resource_by_id["runtime.single_agent_turn.v1"].category == "runtime"
     assert resource_by_id["runtime.task_execution.v1"].category == "runtime"
+    assert resource_by_id["runtime.rule.tool_use.v1"].category == "runtime"
+    assert resource_by_id["runtime.rule.file_management.generic.v1"].resource_type == "environment.file_management_rule"
     assert resource_by_id["agent.main_interactive_agent.single_agent_turn.work_role.v1"].allowed_invocation_kinds == ("single_agent_turn",)
     assert resource_by_id["agent.main_interactive_agent.task_execution.work_role.v1"].allowed_invocation_kinds == ("task_execution",)
+    assert resource_by_id["agent.main_interactive_agent.task_execution.work_role.v1"].source_ref.startswith("prompt_library.agent_prompts")
     assert resource_by_id["environment.general.workspace.orientation.v1"].category == "environment"
     assert resource_by_id["environment.resource.general_workspace.orientation.v1"].category == "environment"
     assert resource_by_id["environment.resource.general_workspace.orientation.v1"].allowed_environment_refs == ()
+    assert not [item for item in resources if "metadata.work_role_prompt" in item.source_ref]
     assert not [item for item in resources if item.resource_id.startswith("prompt.default.")]
     assert not [item for item in resources if item.resource_type in {"task_goal_role", "stage_role", "understanding_policy"}]
     assert not (tmp_path / "storage" / "prompt_library" / "prompt_resources.json").exists()
+
+    rules = registry.list_prompt_rules()
+    rule_by_id = {item.rule_id: item for item in rules}
+    assert rule_by_id["runtime.task_execution.v1"].rule_kind == "runtime.protocol"
+    assert rule_by_id["runtime.rule.tool_use.v1"].rule_kind == "runtime.tool_use"
+    assert rule_by_id["coding.rule.editing.v1"].requires == ("runtime.rule.file_management.generic.v1",)
 
 
 def test_prompt_library_upsert_does_not_persist_all_default_resources(tmp_path: Path) -> None:

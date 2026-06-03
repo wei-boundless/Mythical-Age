@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from artifact_system.artifact_authority import artifact_refs_from_events, dedupe_artifact_refs
 from harness.runtime.public_progress import public_runtime_progress_summary
 
 from .contract import build_envelope, build_navigation_target, build_task_detail_envelope, monitor_revision
@@ -681,12 +682,7 @@ def _looks_internal_identifier(value: str) -> bool:
 
 
 def _artifact_refs_from_events(events: list[Any]) -> list[dict[str, Any]]:
-    refs: list[dict[str, Any]] = []
-    for event in events:
-        payload = _event_payload(event)
-        observation = dict(payload.get("observation") or {})
-        refs.extend(_artifact_refs_from_payload(dict(observation.get("payload") or {})))
-    return _dedupe_artifact_refs(refs)
+    return artifact_refs_from_events(events)
 
 
 def _artifact_refs_from_event_log(event_log: Any, task_run_id: str) -> list[dict[str, Any]]:
@@ -705,36 +701,8 @@ def _artifact_refs_from_event_log(event_log: Any, task_run_id: str) -> list[dict
     return []
 
 
-def _event_payload(event: Any) -> dict[str, Any]:
-    if hasattr(event, "payload"):
-        payload = getattr(event, "payload", None)
-    elif isinstance(event, dict):
-        payload = event.get("payload")
-    else:
-        payload = None
-    return dict(payload or {}) if isinstance(payload, dict) else {}
-
-
-def _artifact_refs_from_payload(payload: dict[str, Any]) -> list[dict[str, Any]]:
-    envelope = dict(payload.get("result_envelope") or {})
-    structured = dict(payload.get("structured_payload") or envelope.get("structured_payload") or {})
-    return [
-        dict(item)
-        for item in list(payload.get("artifact_refs") or envelope.get("artifact_refs") or structured.get("artifact_refs") or [])
-        if isinstance(item, dict)
-    ]
-
-
 def _dedupe_artifact_refs(refs: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    result: list[dict[str, Any]] = []
-    seen: set[str] = set()
-    for ref in refs:
-        key = str(ref.get("path") or ref.get("src") or ref.get("absolute_path") or ref)
-        if not key or key in seen:
-            continue
-        seen.add(key)
-        result.append(dict(ref))
-    return result
+    return dedupe_artifact_refs(refs)
 
 
 def _node_statuses_from_monitor(monitor: dict[str, Any]) -> list[dict[str, Any]]:

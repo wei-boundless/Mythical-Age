@@ -13,7 +13,7 @@ from .classifier import (
     looks_like_progress_text,
     looks_like_tool_claim_without_receipt,
 )
-from .output_models import OutputCandidate, OutputDecision, ToolResultEnvelope
+from .output_models import OutputCandidate, OutputDecision, ToolVisibleOutputEnvelope
 from .rag_finalizer import (
     RAGEvidenceItem,
     RAGEvidencePack,
@@ -29,7 +29,7 @@ __all__ = [
     "OutputDecision",
     "RAGEvidenceItem",
     "RAGEvidencePack",
-    "ToolResultEnvelope",
+    "ToolVisibleOutputEnvelope",
     "answer_looks_like_snippet_dump",
     "build_output_decision",
     "build_rag_answer_finalization_messages",

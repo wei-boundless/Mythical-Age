@@ -12,6 +12,7 @@ from typing import Any, Iterable
 
 from runtime.shared.models import AgentRun, AgentRunResult
 from runtime.memory.tool_observation_ledger import build_tool_observation_record
+from runtime.model_gateway.model_response_protocol import model_response_protocol_from_response
 from runtime.tool_runtime import ToolInvocationRequest, build_tool_invocation_id
 
 from orchestration.commit_gate import build_assistant_session_message_commit_decision
@@ -28,13 +29,13 @@ from harness.runtime.file_management_policy import compile_tool_file_management_
 from harness.runtime.public_progress import public_action_progress_summary, public_runtime_progress_summary
 
 from .admission import admit_model_action
+from .action_permit import action_permit_from_admission
 from .executor_sequence import claim_executor_sequence, next_model_action_request_id
 from .model_action_runtime import (
     call_model_invoker,
     compact_text,
     model_action_timeout_seconds,
     normalize_model_selection_for_invocation,
-    parse_json_object_with_diagnostics,
 )
 from .model_action_protocol import AnyModelActionRequest, task_execution_action_request_from_payload
 from .specialist_runtime_router import SpecialistRuntimeExecution, SpecialistRuntimeRouter
@@ -1014,6 +1015,7 @@ async def _execute_claimed_task_run(
                     task_run=current_task,
                     packet_ref=compilation.packet.packet_id,
                     action_request=action_request,
+                    admission=admission,
                     runtime_assembly=runtime_assembly.to_dict(),
                     runtime_tool_plan=runtime_tool_plan,
                 )
@@ -1258,14 +1260,21 @@ async def _invoke_task_model_action(
         ),
         timeout=timeout_seconds,
     )
-    payload, parse_diagnostics = parse_json_object_with_diagnostics(getattr(response, "content", response))
+    protocol_result = model_response_protocol_from_response(
+        response,
+        request_id=f"modelreq:{packet.packet_id}:{invocation_index}",
+        turn_id=task_run_id,
+        require_json_action=True,
+        allow_native_tool_calls=False,
+    )
+    payload = dict(protocol_result.json_payload or {})
     payload.setdefault(
         "request_id",
         next_model_action_request_id(
             task_run_id=task_run_id,
             executor_epoch=executor_epoch,
             invocation_index=invocation_index,
-            suffix=uuid.uuid4().hex[:8],
+            suffix=protocol_result.response_digest[:12],
         ),
     )
     action_request, protocol = task_execution_action_request_from_payload(
@@ -1278,11 +1287,17 @@ async def _invoke_task_model_action(
     if action_request is None:
         protocol = {
             **dict(protocol or {}),
-            "parse_diagnostics": parse_diagnostics,
-            "response_diagnostics": _model_action_response_diagnostics(
-                response,
-                model_selection=model_selection,
-            ),
+            "parse_diagnostics": dict(protocol_result.parse_diagnostics),
+            "response_diagnostics": {
+                **dict(protocol_result.response_diagnostics),
+                **_model_action_response_diagnostics(response, model_selection=model_selection),
+            },
+            "model_response_protocol": protocol_result.to_dict(),
+        }
+    else:
+        protocol = {
+            **dict(protocol or {}),
+            "model_response_protocol": protocol_result.to_dict(),
         }
     return action_request, protocol
 
@@ -1358,6 +1373,7 @@ async def _execute_task_tool_call(
     task_run: Any,
     packet_ref: str,
     action_request: AnyModelActionRequest,
+    admission: Any,
     runtime_assembly: dict[str, Any],
     runtime_tool_plan: Any,
 ) -> dict[str, Any]:
@@ -1390,6 +1406,15 @@ async def _execute_task_tool_call(
         **_task_runtime_scope_policy(task_run),
     }
     agent_run = _ensure_executor_agent_run(runtime_host, task_run=task_run)
+    action_permit = action_permit_from_admission(
+        action_request,
+        admission,
+        invocation_kind="task_execution",
+        packet_allowed_action_types=("respond", "ask_user", "tool_call", "block"),
+        allowed_tool_names=set(getattr(runtime_tool_plan, "dispatchable_tool_names", ()) or ()),
+        permission_mode=runtime_host._current_permission_mode(),
+        side_effect_policy="runtime_authorized",
+    )
     invocation_id = build_tool_invocation_id(
         caller_ref=task_run.task_run_id,
         action_request_ref=action_request.request_id,
@@ -1411,7 +1436,8 @@ async def _execute_task_tool_call(
         tool_args=tool_args,
         operation_id=operation_id,
         tool_plan_ref=str(getattr(runtime_tool_plan, "plan_id", "") or ""),
-        admission_ref="task_executor_admission",
+        admission_ref=str(getattr(admission, "admission_id", "") or "task_executor_admission"),
+        action_permit=action_permit.to_dict(),
         permission_mode=runtime_host._current_permission_mode(),
         caller_resource_scope={
             "task_id": task_run.task_id,
@@ -3553,12 +3579,20 @@ def _model_protocol_repair_observation(
         parse_diagnostics=parse_diagnostics,
         response_diagnostics=response_diagnostics,
     )
+    repair_ref = _stable_model_protocol_repair_ref(
+        task_run_id=task_run_id,
+        step_index=step_index,
+        validation_errors=errors,
+        parse_diagnostics=parse_diagnostics,
+        response_diagnostics=response_diagnostics,
+        repair_instruction=repair_instruction,
+    )
     return {
         "observation_id": f"rtobs:{task_run_id}:{uuid.uuid4().hex[:8]}",
         "task_run_id": task_run_id,
         "observation_type": "executor_error",
         "source": "system:model_action_protocol",
-        "request_ref": f"model-action-protocol:{task_run_id}:invocation:{step_index}:{uuid.uuid4().hex[:8]}",
+        "request_ref": repair_ref,
         "directive_ref": packet_ref,
         "content_chars": len(repair_instruction),
         "summary": repair_instruction,
@@ -3588,6 +3622,33 @@ def _model_protocol_repair_observation(
         "authority": "orchestration.runtime_observation",
         "error": "model_action_invalid",
     }
+
+
+def _stable_model_protocol_repair_ref(
+    *,
+    task_run_id: str,
+    step_index: int,
+    validation_errors: list[str],
+    parse_diagnostics: dict[str, Any],
+    response_diagnostics: dict[str, Any],
+    repair_instruction: str,
+) -> str:
+    raw = json.dumps(
+        {
+            "task_run_id": str(task_run_id or ""),
+            "step_index": int(step_index or 0),
+            "validation_errors": list(validation_errors or []),
+            "parse_diagnostics": dict(parse_diagnostics or {}),
+            "response_diagnostics": dict(response_diagnostics or {}),
+            "repair_instruction": str(repair_instruction or ""),
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+    )
+    digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:12]
+    return f"model-action-protocol:{task_run_id}:invocation:{step_index}:{digest}"
 
 
 def _model_protocol_repair_count(observations: list[dict[str, Any]]) -> int:

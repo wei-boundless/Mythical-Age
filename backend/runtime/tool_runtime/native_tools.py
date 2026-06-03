@@ -7,7 +7,6 @@ import json
 import subprocess
 import sys
 import tomllib
-import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -32,7 +31,12 @@ from file_management import (
 from runtime_encoding import build_windows_powershell_command, is_windows, utf8_subprocess_text_kwargs
 from runtime.tool_runtime.docker_sandbox_backend import DockerSandboxBackend
 from runtime.tool_runtime.tool_definition import ToolPermissionResult, ToolValidationResult
-from runtime.tool_runtime.tool_result_envelope import ToolResultEnvelope, infer_file_state_events
+from runtime.tool_runtime.tool_result_envelope import (
+    ToolResultEnvelope,
+    build_tool_result_envelope_id,
+    build_tool_result_idempotency_key,
+    infer_file_state_events,
+)
 from runtime.tool_runtime.tool_use_context import ToolUseContext
 
 if TYPE_CHECKING:
@@ -205,8 +209,16 @@ class _NativeToolBase:
             payload["file_state_events"] = [dict(item) for item in inferred_file_state_events]
         if command_receipt:
             payload["command_receipt"] = dict(command_receipt)
+        receipt = dict(execution_receipt or {})
+        idempotency_key = str(receipt.get("idempotency_key") or "").strip() or build_tool_result_idempotency_key(
+            caller_ref=context_caller_ref(receipt),
+            action_request_id=context_action_request_id(receipt),
+            tool_call_id=context_tool_call_id(receipt),
+            tool_name=self.name,
+            tool_args=dict(tool_args or {}),
+        )
         return ToolResultEnvelope(
-            envelope_id=f"tool-result:{uuid.uuid4().hex[:12]}",
+            envelope_id=build_tool_result_envelope_id(idempotency_key),
             tool_name=self.name,
             tool_args=dict(tool_args or {}),
             status=status,
@@ -222,7 +234,8 @@ class _NativeToolBase:
             artifact_refs=tuple(dict(item) for item in artifact_refs),
             file_state_events=tuple(dict(item) for item in inferred_file_state_events),
             command_receipt=dict(command_receipt or {}),
-            execution_receipt=dict(execution_receipt or {}),
+            execution_receipt=receipt,
+            idempotency_key=idempotency_key,
             error=str(text or "") if status == "error" else "",
         )
 
@@ -1105,6 +1118,8 @@ def context_caller_kind(execution_receipt: dict[str, Any] | None) -> str:
 
 def context_caller_ref(execution_receipt: dict[str, Any] | None) -> str:
     return str(dict(execution_receipt or {}).get("caller_ref") or "").strip()
+
+
 
 
 def _repository_for_action(context: ToolUseContext, action: str) -> str:

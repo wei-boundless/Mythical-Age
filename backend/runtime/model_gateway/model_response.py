@@ -8,7 +8,7 @@ from dataclasses import is_dataclass, replace
 from types import SimpleNamespace
 from typing import Any
 
-from runtime.tool_runtime.provider_tool_call_adapter import normalize_tool_call_dicts
+from runtime.model_gateway.model_response_protocol import model_response_protocol_from_response
 from runtime.model_gateway.model_runtime import ModelRuntimeError, stringify_content, utility_accounting_context
 from task_system.runtime_semantics.protocol_boundary import detect_protocol_leak
 from orchestration.commit_gate import build_blocked_runtime_commit_gate
@@ -353,12 +353,15 @@ class ModelResponseRuntimeExecutor:
                 "answer_source": "runtime_directive_executor",
             }
             return
-        raw_content = stringify_content(getattr(response, "content", response))
         additional_kwargs = dict(getattr(response, "additional_kwargs", {}) or {})
-        tool_calls = normalize_tool_call_dicts(
+        protocol_result = model_response_protocol_from_response(
             response,
+            request_id=str(accounting_context.get("request_id") or directive.directive_id),
+            turn_id=str(accounting_context.get("turn_id") or ""),
             provider=str(additional_kwargs.get("provider") or getattr(response, "provider", "") or ""),
         )
+        raw_content = protocol_result.content
+        tool_calls = [dict(item) for item in protocol_result.native_tool_calls]
         reasoning_content = str(additional_kwargs.get("reasoning_content") or "").strip()
         stream_preview_text = ""
         if stream_enabled and delta_index <= 0:

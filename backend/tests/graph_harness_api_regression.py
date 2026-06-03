@@ -52,9 +52,13 @@ def _runtime_object_payload(graph_harness: GraphHarness, ref: str) -> dict:
 
 
 class TaskExecutionModelRuntimeStub:
-    async def invoke_messages(self, messages, **_kwargs):
+    def __init__(self) -> None:
+        self.calls: list[dict] = []
+
+    async def invoke_messages(self, messages, **kwargs):
         import json
 
+        self.calls.append({"messages": list(messages or []), "kwargs": dict(kwargs or {})})
         return SimpleNamespace(
             content=json.dumps(
                 {
@@ -132,20 +136,23 @@ def _harness_runtime_with_graph_executor(*, base_dir: Path):
     from harness.entrypoint import HarnessRuntimeFacade
 
     session_manager = SessionManager(base_dir)
+    model_runtime = TaskExecutionModelRuntimeStub()
+    harness_runtime = HarnessRuntimeFacade(
+        base_dir=base_dir,
+        settings_service=PrimarySettingsStub(),
+        session_manager=session_manager,
+        memory_facade=HarnessRuntimeFacadeMemoryFacadeStub(),
+        retrieval_service=SimpleNamespace(),
+        tool_runtime=EmptyToolRuntimeStub(),
+        skill_registry=EmptySkillRegistryStub(),
+        permission_service=DefaultPermissionStub(),
+        model_runtime=model_runtime,
+    )
     return SimpleNamespace(
         base_dir=base_dir,
         session_manager=session_manager,
-        harness_runtime=HarnessRuntimeFacade(
-            base_dir=base_dir,
-            settings_service=PrimarySettingsStub(),
-            session_manager=session_manager,
-            memory_facade=HarnessRuntimeFacadeMemoryFacadeStub(),
-            retrieval_service=SimpleNamespace(),
-            tool_runtime=EmptyToolRuntimeStub(),
-            skill_registry=EmptySkillRegistryStub(),
-            permission_service=DefaultPermissionStub(),
-            model_runtime=TaskExecutionModelRuntimeStub(),
-        ),
+        harness_runtime=harness_runtime,
+        model_runtime=model_runtime,
     )
 
 
@@ -630,6 +637,111 @@ def test_task_graph_start_api_can_auto_run_graph(tmp_path: Path) -> None:
     assert payload["node_work_orders"] == []
     assert payload["graph_harness_config"]["authority"] == "harness.graph_harness_config.summary"
     assert "nodes" not in payload["graph_harness_config"]
+
+
+def test_task_graph_start_auto_run_passes_runtime_model_overrides(tmp_path: Path) -> None:
+    backend_dir = tmp_path / "backend"
+    graph = _graph()
+    registry = TaskFlowRegistry(backend_dir)
+    registry.upsert_task_graph(
+        graph_id=graph.graph_id,
+        title=graph.title,
+        graph_kind=graph.graph_kind,
+        entry_node_id=graph.entry_node_id,
+        output_node_id=graph.output_node_id,
+        nodes=tuple(node.to_dict() for node in graph.nodes),
+        runtime_policy=graph.runtime_policy,
+        publish_state="published",
+        enabled=True,
+    )
+    publish_graph_harness_config_for_graph(base_dir=backend_dir, graph_id=graph.graph_id)
+    runtime = _harness_runtime_with_graph_executor(base_dir=backend_dir)
+
+    original = orchestration_api.require_runtime
+    orchestration_api.require_runtime = lambda: runtime  # type: ignore[assignment]
+    try:
+        payload = asyncio.run(
+            orchestration_api.start_task_graph_harness_run(
+                graph.graph_id,
+                _graph_start_request(
+                    runtime,
+                    dispatch_ready=True,
+                    run_mode="auto_run",
+                    runner_budget={"max_node_executions": 1, "max_node_steps": 1},
+                    runtime_overrides={
+                        "model_overrides": {
+                            "role_groups": {
+                                "writing": {
+                                    "provider": "deepseek",
+                                    "model": "deepseek-v4-pro",
+                                    "credential_ref": "env:DEEPSEEK_WRITING_API_KEY",
+                                }
+                            }
+                        }
+                    },
+                ),
+            )
+        )
+    finally:
+        orchestration_api.require_runtime = original  # type: ignore[assignment]
+
+    assert payload["runner_result"]["status"] == "completed"
+    assert runtime.model_runtime.calls
+    model_spec = dict(dict(runtime.model_runtime.calls[0]).get("kwargs") or {}).get("model_spec")
+    assert dict(model_spec or {})["model"] == "deepseek-v4-pro"
+    assert dict(model_spec or {})["credential_ref"] == "env:DEEPSEEK_WRITING_API_KEY"
+
+
+def test_task_graph_start_auto_run_persists_runtime_settings_patch(tmp_path: Path) -> None:
+    backend_dir = tmp_path / "backend"
+    graph = _graph()
+    registry = TaskFlowRegistry(backend_dir)
+    registry.upsert_task_graph(
+        graph_id=graph.graph_id,
+        title=graph.title,
+        graph_kind=graph.graph_kind,
+        entry_node_id=graph.entry_node_id,
+        output_node_id=graph.output_node_id,
+        nodes=tuple(node.to_dict() for node in graph.nodes),
+        runtime_policy=graph.runtime_policy,
+        publish_state="published",
+        enabled=True,
+    )
+    publish_graph_harness_config_for_graph(base_dir=backend_dir, graph_id=graph.graph_id)
+    runtime = _harness_runtime_with_graph_executor(base_dir=backend_dir)
+
+    original = orchestration_api.require_runtime
+    orchestration_api.require_runtime = lambda: runtime  # type: ignore[assignment]
+    try:
+        payload = asyncio.run(
+            orchestration_api.start_task_graph_harness_run(
+                graph.graph_id,
+                _graph_start_request(
+                    runtime,
+                    dispatch_ready=True,
+                    run_mode="auto_run",
+                    runner_budget={"max_node_executions": 1, "max_node_steps": 1},
+                    runtime_settings_patch={
+                        "model_overrides": {
+                            "role_groups": {
+                                "writing": {
+                                    "provider": "deepseek",
+                                    "model": "deepseek-v4-pro",
+                                    "credential_ref": "env:DEEPSEEK_WRITING_API_KEY",
+                                }
+                            }
+                        }
+                    },
+                ),
+            )
+        )
+    finally:
+        orchestration_api.require_runtime = original  # type: ignore[assignment]
+
+    runtime_settings = dict(dict(payload["graph_loop_state"]["diagnostics"]).get("runtime_settings") or {})
+    model_spec = dict(dict(runtime.model_runtime.calls[0]).get("kwargs") or {}).get("model_spec")
+    assert runtime_settings["model_overrides"]["role_groups"]["writing"]["model"] == "deepseek-v4-pro"
+    assert dict(model_spec or {})["model"] == "deepseek-v4-pro"
 
 
 def test_graph_run_monitor_returns_recoverable_active_work_orders(tmp_path: Path) -> None:

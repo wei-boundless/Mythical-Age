@@ -1,0 +1,690 @@
+from __future__ import annotations
+
+from typing import Any
+
+from .models import PromptResource, PromptRule, PromptSection
+
+
+RUNTIME_TOOL_USE_RULE = """
+你需要把每次工具调用当作当前目标的一步真实行动。
+调用工具前，确认它服务于当前请求、任务合同、权限边界和可见工具列表。
+不可见工具不能臆造；权限、沙盒、网络、写入、git 或外部服务未授权时，不要绕过边界。
+工具返回失败时，把失败当作事实观察，下一步必须改变参数、路径、范围、工具或计划；不要原样重复同一失败动作。
+""".strip()
+
+
+RUNTIME_OUTPUT_BOUNDARY_RULE = """
+你输出给用户的内容只能描述结果、进展、问题、阻塞和可复核证据。
+不要暴露隐藏推理、内部运行标识、任务内部标识、动作格式字段或系统协议。
+如果本轮要求 JSON action，只输出一个合法 JSON 对象；JSON 外的正文、代码块或解释不会被系统当作工具输入。
+如果没有真实验证或真实产物，不能暗示已经完成；如果验证失败，必须如实说明失败。
+""".strip()
+
+
+RUNTIME_ERROR_RECOVERY_RULE = """
+遇到失败时，先判断失败属于参数错误、路径错误、权限不足、工具不可用、外部服务缺失、材料缺失还是合同矛盾。
+合同允许继续时，应修正事实基础后继续推进；同一失败原因未被修正前，不要重复执行相同动作。
+只有必要材料、权限、外部服务或用户决策真实缺失，且合同允许的替代路径不可行时，才可以阻塞。
+历史失败只能作为背景，不能自动证明当前工具不可用；当前仍有效的失败才是阻塞依据。
+""".strip()
+
+
+RUNTIME_CONTEXT_MEMORY_RULE = """
+你需要区分当前用户消息、最近观察、动态运行投影、任务稳定合同、历史摘要和记忆候选。
+旧摘要、旧任务记录、todo、记忆或恢复候选不能替代当前轮事实；它们只能帮助你决定下一步要检查什么。
+如果上下文被压缩或替换，应依赖系统提供的 refs、summary 和当前 runtime projection，不要补写自己没有证据的细节。
+写入记忆或长期结论前，必须有来源、范围和新鲜度判断；不确定内容只能作为候选，不可当作事实。
+""".strip()
+
+
+RUNTIME_PERMISSION_DENIAL_RULE = """
+如果工具调用被权限、沙盒、策略或用户拒绝阻止，你需要把拒绝当作真实边界。
+不要换一种等价方式绕过拒绝；先判断是否有已授权替代路径。
+如果没有替代路径，应向用户说明具体缺失的权限、需要的决策和继续条件。
+""".strip()
+
+
+RUNTIME_SUBAGENT_DELEGATION_RULE = """
+只有当问题需要隔离大量搜索噪声、外部资料、代码库广泛定位、记忆回溯、PDF 读取或专门验证时，才委派子 agent。
+委派 brief 必须包含目标、已知事实、范围、排除项、可用 context_refs、期望输出和失败处理。
+子 agent 未返回前，不能预测它的结论；多个互不依赖的问题可以并行委派，但不能重复委派同一搜索。
+""".strip()
+
+
+FILE_MANAGEMENT_GENERIC_RULE = """
+项目文件事实以工具观察为准，包括路径、读取窗口、搜索命中、写入事件、stale 状态、git 视图和 artifact 证据。
+修改前必须读到目标文件当前真实内容；如果文件被写入或编辑，旧读取内容可能过期，需要按需要重新读取。
+用户已有改动属于用户资产。除非用户明确要求，不能回滚、覆盖或清理不属于本任务的变更。
+文件管理只负责路径、权限、读写状态和证据，不拥有 coding、writing 或 graph 的任务循环控制。
+""".strip()
+
+
+CODING_INSPECTION_RULE = """
+你处在 coding 或 development 环境时，开始实现前先定位相关调用链、配置、测试入口和已有改动。
+不了解位置时先搜索；已知道路径时再读取具体文件；不要用文件名、记忆、todo 或旧观察代替真实文件事实。
+优先用专用搜索和读取工具定位代码，只有在需要运行验证、脚本、构建或专用工具无法表达时才使用 terminal。
+""".strip()
+
+
+CODING_EDITING_RULE = """
+编辑代码时，优先做最小必要修改，保持既有架构、命名、错误处理、类型系统和测试方式。
+只有合同要求新文件、完整重写或现有结构无法承载时才写入新文件。
+使用 edit_file 时，old_text 必须来自当前读取结果并足够唯一；失败后先重新确认路径或目标局部文本，再修正编辑。
+不要主动创建 README、计划文档或说明文件，除非用户或任务合同明确要求。
+""".strip()
+
+
+CODING_VERIFICATION_RULE = """
+收口前按改动风险运行合适的测试、构建、语法检查、脚本、API 请求或浏览器检查。
+验证必须真实；不能通过跳过测试、降低断言、硬编码结果、删除失败用例或伪造输出来制造通过。
+如果无法运行验证，必须说明具体环境限制和未验证风险。
+涉及前后端运行、SSE、监控、Electron 或页面可用性的修改，需要用固定项目节点真实启动验证。
+""".strip()
+
+
+CODING_GIT_SAFETY_RULE = """
+除非用户明确要求，不要 commit、push、reset、clean、切分支、改 git 配置或回滚已有变更。
+工作区有未提交改动时，先区分本任务改动和用户已有改动；不要把用户改动当作可清理噪声。
+需要 git 证据时可以读取 status、diff、log 或 show；破坏性 git 操作必须由明确授权和控制层许可共同成立。
+""".strip()
+
+
+CODING_WINDOWS_SHELL_RULE = """
+本地 terminal 按 Windows PowerShell 兼容语义编写命令。
+不要使用 Bash 专属的 &&、||、export 或 here-doc；多个有依赖的命令可用 PowerShell 的分号分隔，独立命令应拆成多次工具调用。
+路径含空格时必须正确引用；不要启动交互式命令，除非用户明确要求并且环境允许。
+""".strip()
+
+
+CODING_TASK_PROGRESS_RULE = """
+多步骤 coding 任务需要维护步骤状态，并在完成每个阶段后更新状态。
+todo 或步骤摘要只用于执行跟踪，不是事实来源；不能用过期 todo、进度文案或上一轮意图替代工具观察。
+最终完成声明必须基于合同、真实产物、真实观察和验证证据。
+""".strip()
+
+
+ENVIRONMENT_CODING_WORKSPACE_RULE = """
+你处在专用 coding 工作区任务环境中。该环境用于项目检查、受控实现、命令验证和交付证据。
+通用文件管理提供路径、权限、读写状态和证据；coding 环境负责代码实现、测试、shell、git 安全和失败恢复策略。
+coding 规则只在当前 coding/development 环境内适用，不能推断到写作或通用任务环境。
+""".strip()
+
+
+ENVIRONMENT_DEVELOPMENT_SANDBOX_RULE = """
+你处在通用开发沙盒任务环境中。该环境用于项目检查、实现实验、命令验证和交付证据，但它不是专用 vibe coding 工作区。
+通用文件管理提供路径、权限、读写状态和证据；development 环境可以使用 coding 检查、编辑、验证、shell 和 git 安全规则。
+coding/development 规则只在当前开发类环境内适用，不能推断到写作或通用任务环境。
+""".strip()
+
+
+ENVIRONMENT_WRITING_WORKSPACE_RULE = """
+你处在创作写作环境时，需要区分正式作品、草稿、参考材料、作者裁决、设定资料、审查记录和 artifact。
+不要把草稿、建议、旧记忆或自己的推断当成已确认正稿。
+写作环境不继承 coding 的测试、shell、git 或代码编辑规则；它以文本质量、设定一致性、来源依据和作者裁决为边界。
+""".strip()
+
+
+ENVIRONMENT_GENERAL_WORKSPACE_RULE = """
+你处在通用工作环境时，任务可能是问答、资料整理、分析、文件处理、研究或多步骤执行。
+先确认用户目标、可用上下文、风险和可验证结果，再选择最小充分的路径。
+通用环境不自动启用 coding 专属循环，也不自动启用 writing 专属稿件规则。
+""".strip()
+
+
+GRAPH_NODE_BOUNDARY_RULE = """
+你作为图节点 agent 时，只负责当前节点合同定义的职责。
+不要推断、重排或重写整张图流程；未出现在节点授权输入中的内容不能当作已授权上下文。
+节点产物由系统按输出合同物化和流转；不要为了交付节点产物而主动要求文件工具、命令工具或记忆工具。
+""".strip()
+
+
+GRAPH_NODE_OUTPUT_CONTRACT_RULE = """
+完成图节点前必须检查：当前节点职责是否满足、授权输入是否被正确使用、输出是否符合输出合同。
+如果上游授权输入缺失、节点合同互相矛盾、输出合同无法理解或边界禁止继续，应 block 并说明原因。
+final_answer 必须是可被下游节点或系统物化的完整结果，不要只写“已完成”。
+""".strip()
+
+
+def list_builtin_prompt_rule_resources() -> tuple[PromptResource, ...]:
+    return (
+        _rule_resource(
+            prompt_id="runtime.rule.tool_use.v1",
+            title="Runtime tool use rule",
+            content=RUNTIME_TOOL_USE_RULE,
+            rule_kind="runtime.tool_use",
+            applies_to=("single_agent_turn", "task_execution", "tool_observation_followup"),
+            allowed_invocation_kinds=("single_agent_turn", "task_execution", "tool_observation_followup"),
+            enforcement_mode="prompt_only",
+        ),
+        _rule_resource(
+            prompt_id="runtime.rule.output_boundary.v1",
+            title="Runtime output boundary rule",
+            content=RUNTIME_OUTPUT_BOUNDARY_RULE,
+            rule_kind="runtime.output_boundary",
+            applies_to=("single_agent_turn", "task_execution", "tool_observation_followup"),
+            allowed_invocation_kinds=("single_agent_turn", "task_execution", "tool_observation_followup"),
+            enforcement_mode="compiler_validated",
+        ),
+        _rule_resource(
+            prompt_id="runtime.rule.error_recovery.v1",
+            title="Runtime error recovery rule",
+            content=RUNTIME_ERROR_RECOVERY_RULE,
+            rule_kind="runtime.error_recovery",
+            applies_to=("single_agent_turn", "task_execution", "tool_observation_followup"),
+            allowed_invocation_kinds=("single_agent_turn", "task_execution", "tool_observation_followup"),
+        ),
+        _rule_resource(
+            prompt_id="runtime.rule.context_memory.v1",
+            title="Runtime context and memory rule",
+            content=RUNTIME_CONTEXT_MEMORY_RULE,
+            rule_kind="runtime.context_memory",
+            applies_to=("single_agent_turn", "task_execution", "tool_observation_followup"),
+            allowed_invocation_kinds=("single_agent_turn", "task_execution", "tool_observation_followup"),
+            enforcement_mode="compiler_validated",
+        ),
+        _rule_resource(
+            prompt_id="runtime.rule.permission_denial.v1",
+            title="Runtime permission denial rule",
+            content=RUNTIME_PERMISSION_DENIAL_RULE,
+            rule_kind="runtime.permission_denial",
+            applies_to=("single_agent_turn", "task_execution", "tool_observation_followup"),
+            allowed_invocation_kinds=("single_agent_turn", "task_execution", "tool_observation_followup"),
+            enforcement_mode="permit_enforced",
+        ),
+        _rule_resource(
+            prompt_id="runtime.rule.subagent_delegation.v1",
+            title="Runtime subagent delegation rule",
+            content=RUNTIME_SUBAGENT_DELEGATION_RULE,
+            rule_kind="runtime.subagent_delegation",
+            applies_to=("single_agent_turn", "task_execution"),
+            allowed_invocation_kinds=("single_agent_turn", "task_execution"),
+        ),
+        _rule_resource(
+            prompt_id="runtime.rule.file_management.generic.v1",
+            title="Generic file management rule",
+            content=FILE_MANAGEMENT_GENERIC_RULE,
+            rule_kind="file_management.generic",
+            owner_layer="file_management",
+            category="environment",
+            subtype="file_management_rule",
+            resource_type="environment.file_management_rule",
+            applies_to=("project_workspace", "managed_files"),
+            allowed_invocation_kinds=("environment",),
+            cache_scope="static_environment",
+            cache_tier="static_environment",
+            enforcement_mode="controller_enforced",
+        ),
+        _rule_resource(
+            prompt_id="coding.rule.codebase_inspection.v1",
+            title="Coding codebase inspection rule",
+            content=CODING_INSPECTION_RULE,
+            rule_kind="coding.inspection",
+            owner_layer="environment",
+            category="environment",
+            subtype="coding_rule",
+            resource_type="environment.coding_rule",
+            applies_to=("coding_agent", "task_execution"),
+            allowed_invocation_kinds=("environment",),
+            allowed_environment_refs=("env.coding.vibe_workspace", "env.development.sandbox"),
+            cache_scope="static_environment",
+            cache_tier="static_environment",
+        ),
+        _rule_resource(
+            prompt_id="coding.rule.editing.v1",
+            title="Coding editing rule",
+            content=CODING_EDITING_RULE,
+            rule_kind="coding.editing",
+            owner_layer="environment",
+            category="environment",
+            subtype="coding_rule",
+            resource_type="environment.coding_rule",
+            applies_to=("coding_agent", "task_execution"),
+            allowed_invocation_kinds=("environment",),
+            allowed_environment_refs=("env.coding.vibe_workspace", "env.development.sandbox"),
+            cache_scope="static_environment",
+            cache_tier="static_environment",
+            requires=("runtime.rule.file_management.generic.v1",),
+        ),
+        _rule_resource(
+            prompt_id="coding.rule.verification.v1",
+            title="Coding verification rule",
+            content=CODING_VERIFICATION_RULE,
+            rule_kind="coding.verification",
+            owner_layer="environment",
+            category="environment",
+            subtype="coding_rule",
+            resource_type="environment.coding_rule",
+            applies_to=("coding_agent", "task_execution"),
+            allowed_invocation_kinds=("environment",),
+            allowed_environment_refs=("env.coding.vibe_workspace", "env.development.sandbox"),
+            cache_scope="static_environment",
+            cache_tier="static_environment",
+        ),
+        _rule_resource(
+            prompt_id="coding.rule.git_safety.v1",
+            title="Coding git safety rule",
+            content=CODING_GIT_SAFETY_RULE,
+            rule_kind="coding.git_safety",
+            owner_layer="environment",
+            category="environment",
+            subtype="coding_rule",
+            resource_type="environment.coding_rule",
+            applies_to=("coding_agent", "task_execution"),
+            allowed_invocation_kinds=("environment",),
+            allowed_environment_refs=("env.coding.vibe_workspace", "env.development.sandbox"),
+            cache_scope="static_environment",
+            cache_tier="static_environment",
+            enforcement_mode="permit_enforced",
+        ),
+        _rule_resource(
+            prompt_id="coding.rule.windows_shell.v1",
+            title="Coding Windows shell rule",
+            content=CODING_WINDOWS_SHELL_RULE,
+            rule_kind="coding.windows_shell",
+            owner_layer="environment",
+            category="environment",
+            subtype="coding_rule",
+            resource_type="environment.coding_rule",
+            applies_to=("coding_agent", "task_execution"),
+            allowed_invocation_kinds=("environment",),
+            allowed_environment_refs=("env.coding.vibe_workspace", "env.development.sandbox"),
+            cache_scope="static_environment",
+            cache_tier="static_environment",
+        ),
+        _rule_resource(
+            prompt_id="coding.rule.task_progress.v1",
+            title="Coding task progress rule",
+            content=CODING_TASK_PROGRESS_RULE,
+            rule_kind="coding.task_progress",
+            owner_layer="environment",
+            category="environment",
+            subtype="coding_rule",
+            resource_type="environment.coding_rule",
+            applies_to=("coding_agent", "task_execution"),
+            allowed_invocation_kinds=("environment",),
+            allowed_environment_refs=("env.coding.vibe_workspace", "env.development.sandbox"),
+            cache_scope="static_environment",
+            cache_tier="static_environment",
+        ),
+        _rule_resource(
+            prompt_id="environment.rule.coding_workspace.v1",
+            title="Coding workspace environment rule",
+            content=ENVIRONMENT_CODING_WORKSPACE_RULE,
+            rule_kind="environment.boundary",
+            owner_layer="environment",
+            category="environment",
+            subtype="boundary_rule",
+            resource_type="environment.boundary_rule",
+            applies_to=("env.coding.vibe_workspace",),
+            allowed_invocation_kinds=("environment",),
+            allowed_environment_refs=("env.coding.vibe_workspace",),
+            cache_scope="static_environment",
+            cache_tier="static_environment",
+            enforcement_mode="compiler_validated",
+        ),
+        _rule_resource(
+            prompt_id="environment.rule.development_sandbox.v1",
+            title="Development sandbox environment rule",
+            content=ENVIRONMENT_DEVELOPMENT_SANDBOX_RULE,
+            rule_kind="environment.boundary",
+            owner_layer="environment",
+            category="environment",
+            subtype="boundary_rule",
+            resource_type="environment.boundary_rule",
+            applies_to=("env.development.sandbox",),
+            allowed_invocation_kinds=("environment",),
+            allowed_environment_refs=("env.development.sandbox",),
+            cache_scope="static_environment",
+            cache_tier="static_environment",
+            enforcement_mode="compiler_validated",
+        ),
+        _rule_resource(
+            prompt_id="environment.rule.writing_workspace.v1",
+            title="Writing workspace environment rule",
+            content=ENVIRONMENT_WRITING_WORKSPACE_RULE,
+            rule_kind="environment.boundary",
+            owner_layer="environment",
+            category="environment",
+            subtype="boundary_rule",
+            resource_type="environment.boundary_rule",
+            applies_to=("env.creation.writing",),
+            allowed_invocation_kinds=("environment",),
+            allowed_environment_refs=("env.creation.writing",),
+            cache_scope="static_environment",
+            cache_tier="static_environment",
+            enforcement_mode="compiler_validated",
+        ),
+        _rule_resource(
+            prompt_id="environment.rule.general_workspace.v1",
+            title="General workspace environment rule",
+            content=ENVIRONMENT_GENERAL_WORKSPACE_RULE,
+            rule_kind="environment.boundary",
+            owner_layer="environment",
+            category="environment",
+            subtype="boundary_rule",
+            resource_type="environment.boundary_rule",
+            applies_to=("env.general.workspace",),
+            allowed_invocation_kinds=("environment",),
+            allowed_environment_refs=("env.general.workspace",),
+            cache_scope="static_environment",
+            cache_tier="static_environment",
+            enforcement_mode="compiler_validated",
+        ),
+        _rule_resource(
+            prompt_id="graph.rule.node_boundary.v1",
+            title="Graph node boundary rule",
+            content=GRAPH_NODE_BOUNDARY_RULE,
+            rule_kind="graph.contract",
+            owner_layer="graph_node",
+            category="runtime",
+            subtype="graph_rule",
+            resource_type="runtime.graph_rule",
+            applies_to=("graph_node", "task_execution"),
+            allowed_invocation_kinds=("task_execution",),
+            cache_scope="static",
+            cache_tier="global_static",
+            enforcement_mode="compiler_validated",
+        ),
+        _rule_resource(
+            prompt_id="graph.rule.node_output_contract.v1",
+            title="Graph node output contract rule",
+            content=GRAPH_NODE_OUTPUT_CONTRACT_RULE,
+            rule_kind="graph.contract",
+            owner_layer="graph_node",
+            category="runtime",
+            subtype="graph_rule",
+            resource_type="runtime.graph_rule",
+            applies_to=("graph_node", "task_execution"),
+            allowed_invocation_kinds=("task_execution",),
+            cache_scope="static",
+            cache_tier="global_static",
+            enforcement_mode="compiler_validated",
+        ),
+    )
+
+
+def prompt_rule_from_resource(resource: PromptResource) -> PromptRule | None:
+    raw = dict(resource.metadata or {}).get("prompt_rule")
+    if not isinstance(raw, dict):
+        return None
+    return _prompt_rule_from_payload(
+        raw,
+        fallback_prompt_ref=resource.prompt_id,
+        fallback_owner_layer=resource.owner_layer,
+        fallback_allowed_invocation_kinds=resource.allowed_invocation_kinds,
+        fallback_allowed_agent_refs=resource.allowed_agent_refs,
+        fallback_allowed_environment_refs=resource.allowed_environment_refs,
+        fallback_cache_tier=_cache_tier_from_scope(resource.cache_scope),
+    )
+
+
+def prompt_rule_from_section(section: PromptSection) -> PromptRule | None:
+    raw = dict(section.metadata or {}).get("prompt_rule")
+    if not isinstance(raw, dict):
+        return None
+    return _prompt_rule_from_payload(
+        raw,
+        fallback_prompt_ref=section.prompt_ref,
+        fallback_owner_layer=section.owner_layer,
+        fallback_allowed_invocation_kinds=(),
+        fallback_allowed_agent_refs=(),
+        fallback_allowed_environment_refs=(),
+        fallback_cache_tier=_cache_tier_from_scope(section.cache_scope),
+    )
+
+
+def build_rule_diagnostics(
+    sections: tuple[PromptSection, ...] | list[PromptSection],
+    *,
+    invocation_kind: str,
+) -> dict[str, Any]:
+    rules = tuple(item for item in (prompt_rule_from_section(section) for section in sections) if item is not None)
+    rule_refs = tuple(rule.rule_id for rule in rules if rule.rule_id)
+    rule_ref_set = set(rule_refs)
+    rule_kind_counts: dict[str, int] = {}
+    rejected: list[dict[str, Any]] = []
+    warnings: list[dict[str, Any]] = []
+    for rule in rules:
+        rule_kind_counts[rule.rule_kind] = rule_kind_counts.get(rule.rule_kind, 0) + 1
+    for rule in rules:
+        for requirement in rule.requires:
+            if requirement not in rule_ref_set and requirement not in rule_kind_counts:
+                rejected.append(
+                    {
+                        "ref": rule.rule_id,
+                        "reason": "prompt_rule_requirement_missing",
+                        "requires": requirement,
+                    }
+                )
+        for conflict in rule.conflicts_with:
+            if conflict in rule_ref_set or rule_kind_counts.get(conflict, 0) > 0:
+                rejected.append(
+                    {
+                        "ref": rule.rule_id,
+                        "reason": "prompt_rule_conflict",
+                        "conflicts_with": conflict,
+                    }
+                )
+    protocol_count = rule_kind_counts.get("runtime.protocol", 0)
+    if protocol_count > 1:
+        rejected.append(
+            {
+                "ref": "runtime.protocol",
+                "reason": "multiple_runtime_protocol_rules",
+                "count": protocol_count,
+            }
+        )
+    for section in sections:
+        content = str(section.content or "")
+        if "这是 runtime 节点" in content or "根据任务图执行" in content:
+            warnings.append(
+                {
+                    "ref": section.prompt_ref or section.source_ref,
+                    "reason": "developer_style_prompt_text",
+                }
+            )
+    return {
+        "invocation_kind": invocation_kind,
+        "rule_refs": list(rule_refs),
+        "rule_kinds": [rule.rule_kind for rule in rules],
+        "rule_owner_layers": [rule.owner_layer for rule in rules],
+        "rule_cache_tiers": [rule.cache_tier for rule in rules],
+        "rule_enforcement_modes": [rule.enforcement_mode for rule in rules],
+        "rule_kind_counts": rule_kind_counts,
+        "rejected_rules": rejected,
+        "warnings": warnings,
+        "coverage": {
+            "rule_count": len(rules),
+            "has_runtime_protocol": protocol_count == 1,
+            "has_output_boundary": "runtime.output_boundary" in rule_kind_counts,
+            "has_error_recovery": "runtime.error_recovery" in rule_kind_counts,
+        },
+        "authority": "prompt_library.prompt_rule_diagnostics",
+    }
+
+
+class PromptRuleCompiler:
+    def compile(
+        self,
+        sections: tuple[PromptSection, ...] | list[PromptSection],
+        *,
+        invocation_kind: str,
+        fail_on_rejected: bool = True,
+    ):
+        from .models import PromptRuleAssemblyResult
+
+        rules = tuple(item for item in (prompt_rule_from_section(section) for section in sections) if item is not None)
+        diagnostics = build_rule_diagnostics(tuple(sections), invocation_kind=invocation_kind)
+        rejected = tuple(dict(item) for item in list(diagnostics.get("rejected_rules") or []) if isinstance(item, dict))
+        if fail_on_rejected and rejected:
+            rejected_text = ", ".join(
+                f"{item.get('ref', '')}:{item.get('reason', '')}" for item in rejected
+            )
+            raise ValueError(
+                "prompt rule compiler rejected refs: "
+                f"invocation_kind={invocation_kind} refs={rejected_text}"
+            )
+        return PromptRuleAssemblyResult(
+            assembly_id=f"promptrules:{invocation_kind}:{len(rules)}",
+            invocation_kind=invocation_kind,
+            rules=rules,
+            rejected_rules=rejected,
+            diagnostics=diagnostics,
+        )
+
+
+def rule_metadata(
+    *,
+    rule_id: str,
+    prompt_ref: str,
+    rule_kind: str,
+    owner_layer: str,
+    applies_to: tuple[str, ...] = (),
+    allowed_invocation_kinds: tuple[str, ...] = (),
+    allowed_agent_refs: tuple[str, ...] = (),
+    allowed_environment_refs: tuple[str, ...] = (),
+    cache_tier: str = "global_static",
+    enforcement_mode: str = "prompt_only",
+    conflicts_with: tuple[str, ...] = (),
+    requires: tuple[str, ...] = (),
+    supersedes: tuple[str, ...] = (),
+    lint_tags: tuple[str, ...] = (),
+    authority: str = "prompt_library.prompt_rule",
+    version: str = "v1",
+    status: str = "active",
+) -> dict[str, Any]:
+    return {
+        "rule_id": rule_id,
+        "prompt_ref": prompt_ref,
+        "rule_kind": rule_kind,
+        "owner_layer": owner_layer,
+        "applies_to": list(applies_to),
+        "allowed_invocation_kinds": list(allowed_invocation_kinds),
+        "allowed_agent_refs": list(allowed_agent_refs),
+        "allowed_environment_refs": list(allowed_environment_refs),
+        "cache_tier": cache_tier,
+        "enforcement_mode": enforcement_mode,
+        "conflicts_with": list(conflicts_with),
+        "requires": list(requires),
+        "supersedes": list(supersedes),
+        "lint_tags": list(lint_tags),
+        "authority": authority,
+        "version": version,
+        "status": status,
+    }
+
+
+def _rule_resource(
+    *,
+    prompt_id: str,
+    title: str,
+    content: str,
+    rule_kind: str,
+    owner_layer: str = "runtime",
+    category: str = "runtime",
+    subtype: str = "rule",
+    resource_type: str = "runtime.rule",
+    applies_to: tuple[str, ...] = (),
+    allowed_invocation_kinds: tuple[str, ...] = (),
+    allowed_agent_refs: tuple[str, ...] = (),
+    allowed_environment_refs: tuple[str, ...] = (),
+    cache_scope: str = "static",
+    cache_tier: str = "global_static",
+    enforcement_mode: str = "prompt_only",
+    conflicts_with: tuple[str, ...] = (),
+    requires: tuple[str, ...] = (),
+) -> PromptResource:
+    return PromptResource(
+        prompt_id=prompt_id,
+        resource_id=prompt_id,
+        category=category,
+        subtype=subtype,
+        resource_type=resource_type,
+        title=title,
+        content=content,
+        owner_layer=owner_layer,
+        cache_scope=cache_scope,
+        model_visible=True,
+        allowed_invocation_kinds=allowed_invocation_kinds,
+        allowed_agent_refs=allowed_agent_refs,
+        allowed_environment_refs=allowed_environment_refs,
+        source_ref=f"prompt_library.rules#{prompt_id}",
+        version="v1",
+        enabled=True,
+        status="active",
+        metadata={
+            "managed_by": "prompt_library.rules",
+            "source_type": "builtin_prompt_rule",
+            "prompt_rule": rule_metadata(
+                rule_id=prompt_id,
+                prompt_ref=prompt_id,
+                rule_kind=rule_kind,
+                owner_layer=owner_layer,
+                applies_to=applies_to,
+                allowed_invocation_kinds=allowed_invocation_kinds,
+                allowed_agent_refs=allowed_agent_refs,
+                allowed_environment_refs=allowed_environment_refs,
+                cache_tier=cache_tier,
+                enforcement_mode=enforcement_mode,
+                conflicts_with=conflicts_with,
+                requires=requires,
+            ),
+        },
+    )
+
+
+def _prompt_rule_from_payload(
+    payload: dict[str, Any],
+    *,
+    fallback_prompt_ref: str,
+    fallback_owner_layer: str,
+    fallback_allowed_invocation_kinds: tuple[str, ...],
+    fallback_allowed_agent_refs: tuple[str, ...],
+    fallback_allowed_environment_refs: tuple[str, ...],
+    fallback_cache_tier: str,
+) -> PromptRule:
+    return PromptRule(
+        rule_id=str(payload.get("rule_id") or fallback_prompt_ref),
+        prompt_ref=str(payload.get("prompt_ref") or fallback_prompt_ref),
+        rule_kind=str(payload.get("rule_kind") or ""),
+        owner_layer=str(payload.get("owner_layer") or fallback_owner_layer),
+        applies_to=_string_tuple(payload.get("applies_to")),
+        allowed_invocation_kinds=_string_tuple(payload.get("allowed_invocation_kinds"))
+        or fallback_allowed_invocation_kinds,
+        allowed_agent_refs=_string_tuple(payload.get("allowed_agent_refs")) or fallback_allowed_agent_refs,
+        allowed_environment_refs=_string_tuple(payload.get("allowed_environment_refs"))
+        or fallback_allowed_environment_refs,
+        cache_tier=str(payload.get("cache_tier") or fallback_cache_tier),
+        enforcement_mode=str(payload.get("enforcement_mode") or "prompt_only"),
+        authority=str(payload.get("authority") or "prompt_library.prompt_rule"),
+        conflicts_with=_string_tuple(payload.get("conflicts_with")),
+        requires=_string_tuple(payload.get("requires")),
+        supersedes=_string_tuple(payload.get("supersedes")),
+        lint_tags=_string_tuple(payload.get("lint_tags")),
+        version=str(payload.get("version") or "v1"),
+        status=str(payload.get("status") or "active"),
+        metadata=dict(payload.get("metadata") or {}),
+    )
+
+
+def _string_tuple(value: Any) -> tuple[str, ...]:
+    if isinstance(value, str):
+        values = [value]
+    else:
+        values = list(value or [])
+    return tuple(str(item).strip() for item in values if str(item).strip())
+
+
+def _cache_tier_from_scope(scope: str) -> str:
+    value = str(scope or "").strip()
+    if value in {"static", "global", "global_static"}:
+        return "global_static"
+    if value == "static_environment":
+        return "static_environment"
+    if value in {"task", "task_stable"}:
+        return "task_stable"
+    if value in {"session", "session_stable"}:
+        return "session_stable"
+    if value in {"none", "volatile"}:
+        return "volatile"
+    return value or "global_static"

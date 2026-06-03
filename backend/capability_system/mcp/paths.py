@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from capability_system.paths import resolve_capability_backend_dir
+
 
 @dataclass(frozen=True, slots=True)
 class CapabilityMCPPaths:
@@ -12,7 +14,7 @@ class CapabilityMCPPaths:
 
     @classmethod
     def from_base_dir(cls, base_dir: str | Path) -> "CapabilityMCPPaths":
-        resolved_base_dir = Path(base_dir).resolve()
+        resolved_base_dir = resolve_capability_backend_dir(base_dir)
         return cls(
             base_dir=resolved_base_dir,
             code_dir=resolved_base_dir / "capability_system" / "mcp",

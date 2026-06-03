@@ -120,9 +120,10 @@ def _skill_path(base_dir: Path, skill_name: str) -> Path:
 
 def _find_skill_path(runtime, skill_name: str) -> Path:
     target = _safe_skill_name(skill_name).lower()
+    skill_paths = CapabilitySkillPaths.from_base_dir(runtime.base_dir)
     for skill in runtime.skill_registry.skills:
         if skill.runtime.name.lower() == target:
-            return (runtime.base_dir / skill.runtime.path).resolve()
+            return (skill_paths.base_dir / skill.runtime.path).resolve()
     fallback = _skill_path(runtime.base_dir, skill_name)
     if fallback.exists():
         return fallback

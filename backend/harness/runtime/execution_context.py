@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import uuid
+import hashlib
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
@@ -46,8 +46,17 @@ def build_execution_context(
     workspace_root: Path,
     permission_snapshot: dict[str, Any] | None = None,
 ) -> ExecutionContext:
+    stable_raw = "::".join(
+        [
+            str(packet_ref or ""),
+            str(action_request_ref or ""),
+            str(tool_name or ""),
+            str(operation_id or ""),
+        ]
+    )
+    stable_digest = hashlib.sha256(stable_raw.encode("utf-8")).hexdigest()[:16]
     return ExecutionContext(
-        execution_context_id=f"execctx:{uuid.uuid4().hex[:12]}",
+        execution_context_id=f"execctx:{stable_digest}",
         packet_ref=packet_ref,
         action_request_ref=action_request_ref,
         admission_ref=admission_ref,
@@ -55,5 +64,5 @@ def build_execution_context(
         operation_id=operation_id,
         workspace_root=str(Path(workspace_root).resolve()),
         permission_snapshot=dict(permission_snapshot or {}),
-        idempotency_key=f"{packet_ref}:{action_request_ref}:{tool_name}:{uuid.uuid4().hex[:8]}",
+        idempotency_key=f"{packet_ref}:{action_request_ref}:{tool_name}:{operation_id}",
     )

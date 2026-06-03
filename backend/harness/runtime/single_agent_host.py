@@ -8,6 +8,7 @@ import time
 import uuid
 from typing import Any, Callable
 
+from artifact_system import ArtifactAuthority, ArtifactRepositoryService
 from permissions.operations import build_default_operation_registry
 from capability_system.tools.authorization import ToolAuthorizationIndex, build_tool_authorization_index
 from permissions import OperationGate
@@ -306,17 +307,36 @@ class SingleAgentRuntimeHost:
         raw_refs: list[Any] = []
         if task_run is not None:
             raw_refs.extend(list(dict(task_run.diagnostics or {}).get("artifact_refs") or []))
-        raw_refs.extend(_artifact_refs_from_task_events(self.event_log, task_run_id))
+        raw_refs.extend(self._artifact_refs_from_task_events(task_run_id))
         for result in self.state_index.list_task_agent_run_results(task_run_id):
             raw_refs.extend(list(result.artifact_refs or ()))
             raw_refs.extend(list(dict(result.diagnostics or {}).get("artifact_refs") or []))
-        artifacts = _existing_artifact_refs(raw_refs, project_root=ProjectLayout.from_backend_dir(self.backend_dir).project_root)
-        return {
-            "task_run_id": task_run_id,
-            "artifact_refs": artifacts,
-            "created_files": [item["path"] for item in artifacts],
-            "authority": "single_agent_runtime_host.task_run_artifacts",
-        }
+        return self._artifact_authority().task_artifact_view(
+            task_run_id=task_run_id,
+            candidate_refs=raw_refs,
+        )
+
+    def _artifact_authority(self) -> ArtifactAuthority:
+        layout = ProjectLayout.from_backend_dir(self.backend_dir)
+        return ArtifactAuthority(
+            workspace_root=layout.project_root,
+            artifact_repository=ArtifactRepositoryService(
+                layout.storage_root / "artifact_repository",
+                workspace_root=layout.project_root,
+            ),
+        )
+
+    def _artifact_refs_from_task_events(self, task_run_id: str) -> list[dict[str, Any]]:
+        from artifact_system.artifact_authority import artifact_refs_from_events
+
+        reader = getattr(self.event_log, "list_events", None)
+        if not callable(reader):
+            return []
+        try:
+            events = list(reader(task_run_id))
+        except Exception:
+            return []
+        return artifact_refs_from_events(events)
 
     def get_task_run_memory_receipts(self, task_run_id: str) -> dict[str, Any]:
         return {
@@ -390,90 +410,6 @@ def _event_count(event_log: Any, task_run_id: str, *, fallback: int) -> int:
         except Exception:
             return int(fallback)
     return int(fallback)
-
-
-def _existing_artifact_refs(values: list[Any], *, project_root: Path) -> list[dict[str, Any]]:
-    root = Path(project_root).resolve()
-    result: list[dict[str, Any]] = []
-    seen: set[str] = set()
-    for value in values:
-        ref = dict(value) if isinstance(value, dict) else {"path": str(value or "")}
-        logical_path = str(ref.get("path") or ref.get("published_path") or ref.get("src") or "").replace("\\", "/").strip().strip("/")
-        absolute_path = str(ref.get("absolute_path") or "").strip()
-        if not logical_path and not absolute_path:
-            continue
-        resolved: Path | None = None
-        if logical_path:
-            project_candidate = (root / logical_path).resolve()
-            if _inside(project_candidate, root) and project_candidate.exists() and project_candidate.is_file():
-                resolved = project_candidate
-        if resolved is None and absolute_path:
-            candidate = Path(absolute_path)
-            resolved = candidate.resolve() if candidate.is_absolute() else (root / absolute_path).resolve()
-        if resolved is None and logical_path:
-            resolved = (root / logical_path).resolve()
-        if not _inside(resolved, root) or not resolved.exists() or not resolved.is_file():
-            continue
-        rel = resolved.relative_to(root).as_posix()
-        key = logical_path or rel
-        if key in seen:
-            continue
-        seen.add(key)
-        result.append({**ref, "path": rel, "absolute_path": str(resolved), "exists": True, "size_bytes": resolved.stat().st_size})
-    return result
-
-
-def _artifact_refs_from_task_events(event_log: Any, task_run_id: str) -> list[dict[str, Any]]:
-    reader = getattr(event_log, "list_events", None)
-    if not callable(reader):
-        return []
-    try:
-        events = list(reader(task_run_id))
-    except Exception:
-        return []
-    refs: list[dict[str, Any]] = []
-    for event in events:
-        event_payload = _event_payload(event)
-        observation = dict(event_payload.get("observation") or {})
-        payload = dict(observation.get("payload") or {})
-        refs.extend(_artifact_refs_from_payload(payload))
-    return _dedupe_artifact_refs(refs)
-
-
-def _event_payload(event: Any) -> dict[str, Any]:
-    if hasattr(event, "payload"):
-        payload = getattr(event, "payload", None)
-    elif isinstance(event, dict):
-        payload = event.get("payload")
-    else:
-        payload = None
-    return dict(payload or {}) if isinstance(payload, dict) else {}
-
-
-def _artifact_refs_from_payload(payload: dict[str, Any]) -> list[dict[str, Any]]:
-    envelope = dict(payload.get("result_envelope") or {})
-    structured = dict(payload.get("structured_payload") or envelope.get("structured_payload") or {})
-    return [
-        dict(item)
-        for item in list(payload.get("artifact_refs") or envelope.get("artifact_refs") or structured.get("artifact_refs") or [])
-        if isinstance(item, dict)
-    ]
-
-
-def _dedupe_artifact_refs(refs: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    result: list[dict[str, Any]] = []
-    seen: set[str] = set()
-    for ref in refs:
-        key = str(ref.get("path") or ref.get("src") or ref.get("absolute_path") or ref)
-        if not key or key in seen:
-            continue
-        seen.add(key)
-        result.append(dict(ref))
-    return result
-
-
-def _inside(path: Path, root: Path) -> bool:
-    return path == root or root in path.parents
 
 
 def _safe_runtime_object_id(value: str) -> str:

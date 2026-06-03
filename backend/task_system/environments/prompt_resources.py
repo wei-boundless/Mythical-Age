@@ -149,6 +149,7 @@ def environment_resource_prompt_refs(spec: object) -> tuple[str, ...]:
     file_management = getattr(spec, "file_management", None)
     sandbox_policy = getattr(spec, "sandbox_policy", None)
     for profile_ref in tuple(getattr(file_management, "file_profile_refs", ()) or ()):
+        refs.append("runtime.rule.file_management.generic.v1")
         if profile_ref == "file_profile.base_workspace":
             refs.append("environment.resource.base_workspace.orientation.v1")
         elif profile_ref == "file_profile.managed_project_workspace":

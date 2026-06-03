@@ -19,6 +19,7 @@ from .context_materializer import GraphContextMaterializer
 from .flow_edges import build_outbound_flow_edges
 from .flow_packet import build_flow_packet, edge_delivers_flow_packet
 from .language import REVISION_EDGE_TYPES
+from .model_overrides import merge_runtime_settings
 from .models import (
     GraphHarnessConfig,
     GraphLoopState,
@@ -106,6 +107,10 @@ class GraphLoop:
             config_id=envelope.config_id,
             config_hash=envelope.config_hash,
             graph_id=envelope.graph_id,
+            structure_hash=envelope.structure_hash,
+            structure_version=envelope.structure_version,
+            config_snapshot_id=envelope.config_snapshot_id or envelope.config_id,
+            config_snapshot_hash=envelope.config_snapshot_hash or envelope.config_hash,
             status=terminal_status or "running",
             node_states=node_states,
             edge_states=edge_states,
@@ -117,6 +122,10 @@ class GraphLoop:
             diagnostics={
                 "graph_harness_config_id": graph_config.config_id,
                 "graph_harness_config_hash": graph_config.content_hash,
+                "graph_structure_hash": envelope.structure_hash,
+                "graph_structure_version": envelope.structure_version,
+                "config_snapshot_id": envelope.config_snapshot_id or envelope.config_id,
+                "config_snapshot_hash": envelope.config_snapshot_hash or envelope.config_hash,
                 "runtime_scope": dict(envelope.memory_scope.get("runtime_scope") or {}),
                 "static_topology_view": dict(envelope.static_topology_view or {}),
                 "contract_index": dict(envelope.contract_index or {}),
@@ -192,6 +201,7 @@ class GraphLoop:
         state = self.get_state(graph_run_id)
         if state is None:
             raise ValueError(f"GraphLoopState not found: {graph_run_id}")
+        assert_graph_config_compatible_with_state(graph_config=graph_config, state=state)
         work_orders = self.dispatch_ready(
             graph_config=graph_config,
             state=state,
@@ -231,6 +241,7 @@ class GraphLoop:
         state = self.get_state(graph_run_id)
         if state is None:
             raise ValueError(f"GraphLoopState not found: {graph_run_id}")
+        assert_graph_config_compatible_with_state(graph_config=graph_config, state=state)
         envelope = result if isinstance(result, NodeResultEnvelope) else NodeResultEnvelope.from_dict(dict(result or {}))
         if envelope.graph_run_id != state.graph_run_id:
             raise ValueError("NodeResultEnvelope graph_run_id does not match GraphLoopState")
@@ -372,6 +383,135 @@ class GraphLoop:
 
     def list_checkpoints(self, graph_run_id: str, *, limit: int | None = None) -> tuple[Any, ...]:
         return self._checkpoint_store.list_checkpoints(graph_run_id, limit=limit)
+
+    def patch_runtime_settings_and_checkpoint(
+        self,
+        *,
+        graph_run_id: str,
+        runtime_settings_patch: dict[str, Any] | None,
+    ) -> GraphLoopStart:
+        state = self.get_state(graph_run_id)
+        if state is None:
+            raise ValueError(f"GraphLoopState not found: {graph_run_id}")
+        patch = merge_runtime_settings(current={}, patch=runtime_settings_patch or {})
+        if not patch:
+            checkpoint = self.get_latest_checkpoint(state.graph_run_id)
+            return GraphLoopStart(
+                loop_state=state,
+                checkpoint=checkpoint.to_dict() if checkpoint is not None else {},
+            )
+        diagnostics = dict(state.diagnostics or {})
+        diagnostics["runtime_settings"] = merge_runtime_settings(
+            current=diagnostics.get("runtime_settings") or {},
+            patch=patch,
+        )
+        history = list(diagnostics.get("runtime_settings_patch_history") or [])
+        history.append(
+            {
+                "authority": "harness.graph.runtime_settings_patch",
+                "source": "graph_runtime_settings_patch",
+                "patch": patch,
+                "created_at": time.time(),
+            }
+        )
+        diagnostics["runtime_settings_patch_history"] = history[-20:]
+        diagnostics["runtime_settings_revision"] = int(diagnostics.get("runtime_settings_revision") or 0) + 1
+        next_state = _advance_event_cursor(_replace_state(state, diagnostics=diagnostics))
+        checkpoint = self._write_state(next_state)
+        events = [
+            self._append_event(
+                next_state.task_run_id,
+                "graph_runtime_settings_patched",
+                payload={
+                    "graph_run_id": next_state.graph_run_id,
+                    "runtime_settings": diagnostics["runtime_settings"],
+                },
+                refs={"graph_run_ref": next_state.graph_run_id, "graph_harness_config_ref": next_state.config_id},
+            )
+        ]
+        return GraphLoopStart(loop_state=next_state, checkpoint=checkpoint, events=tuple(events))
+
+    def requeue_nodes_and_checkpoint(
+        self,
+        *,
+        graph_config: GraphHarnessConfig,
+        graph_run_id: str,
+        start_node_ids: tuple[str, ...],
+        runtime_settings_patch: dict[str, Any] | None = None,
+        reset_downstream: bool = True,
+    ) -> GraphLoopStart:
+        state = self.get_state(graph_run_id)
+        if state is None:
+            raise ValueError(f"GraphLoopState not found: {graph_run_id}")
+        assert_graph_config_compatible_with_state(graph_config=graph_config, state=state)
+        targets = tuple(dict.fromkeys(str(item).strip() for item in start_node_ids if str(item).strip()))
+        if not targets:
+            raise ValueError("Graph node requeue requires start_node_ids")
+        missing = [item for item in targets if _node_by_id(graph_config, item) is None]
+        if missing:
+            raise ValueError(f"Graph node requeue target not found: {', '.join(missing)}")
+        reset_node_ids = _revision_reset_node_ids(graph_config=graph_config, start_node_ids=targets) if reset_downstream else targets
+        next_state = _state_after_revision_requeue(
+            graph_config=graph_config,
+            state=state,
+            targets=targets,
+            reset_node_ids=reset_node_ids,
+        )
+        diagnostics = dict(next_state.diagnostics or {})
+        diagnostics.update(
+            {
+                "graph_harness_config_id": graph_config.config_id,
+                "graph_harness_config_hash": graph_config.content_hash,
+                "config_snapshot_id": graph_config.config_id,
+                "config_snapshot_hash": graph_config.content_hash,
+                "graph_structure_hash": _effective_structure_hash(graph_config=graph_config, state=state),
+                "graph_structure_version": state.structure_version or "graph_structure.v1",
+            }
+        )
+        if runtime_settings_patch:
+            diagnostics["runtime_settings"] = merge_runtime_settings(
+                current=diagnostics.get("runtime_settings") or {},
+                patch=dict(runtime_settings_patch or {}),
+            )
+            history = list(diagnostics.get("runtime_settings_patch_history") or [])
+            history.append(
+                {
+                    "authority": "harness.graph.runtime_settings_patch",
+                    "source": "graph_requeue_nodes",
+                    "patch": dict(runtime_settings_patch or {}),
+                    "created_at": time.time(),
+                }
+            )
+            diagnostics["runtime_settings_patch_history"] = history[-20:]
+            diagnostics["runtime_settings_revision"] = int(diagnostics.get("runtime_settings_revision") or 0) + 1
+        next_state = _replace_state(
+            next_state,
+            config_id=graph_config.config_id,
+            config_hash=graph_config.content_hash,
+            config_snapshot_id=graph_config.config_id,
+            config_snapshot_hash=graph_config.content_hash,
+            structure_hash=_effective_structure_hash(graph_config=graph_config, state=state),
+            structure_version=state.structure_version or "graph_structure.v1",
+            diagnostics=diagnostics,
+        )
+        next_state = _advance_event_cursor(next_state)
+        checkpoint = self._write_state(next_state)
+        events = [
+            self._append_event(
+                next_state.task_run_id,
+                "graph_nodes_requeued",
+                payload={
+                    "graph_run_id": next_state.graph_run_id,
+                    "start_node_ids": list(targets),
+                    "reset_node_ids": list(reset_node_ids),
+                    "runtime_settings_patched": bool(runtime_settings_patch),
+                    "graph_loop_state": _loop_state_summary(next_state),
+                },
+                refs={"graph_run_ref": next_state.graph_run_id, "graph_harness_config_ref": next_state.config_snapshot_id or next_state.config_id},
+            )
+        ]
+        self._update_formal_runs(next_state, graph_result=None)
+        return GraphLoopStart(loop_state=next_state, checkpoint=checkpoint, events=tuple(events))
 
     def requeue_blocked_nodes_and_checkpoint(
         self,
@@ -748,44 +888,58 @@ class GraphLoop:
         ).to_dict()
 
     def _update_formal_runs(self, state: GraphLoopState, *, graph_result: GraphResultEnvelope | None) -> None:
-        if graph_result is None:
-            return
         now = time.time()
-        self._services.runtime_objects.put_object(
-            "graph_result",
-            safe_id(graph_result.result_id),
-            graph_result.to_dict(),
-        )
+        if graph_result is not None:
+            self._services.runtime_objects.put_object(
+                "graph_result",
+                safe_id(graph_result.result_id),
+                graph_result.to_dict(),
+            )
+        status = "completed" if graph_result is not None and graph_result.status == "completed" else ("failed" if graph_result is not None else state.status)
+        terminal_reason = (graph_result.terminal_reason or graph_result.status) if graph_result is not None else state.terminal_reason
+        audit = _state_identity_audit(state)
         current_task = self._services.state_index.get_task_run(state.task_run_id)
         if current_task is not None:
+            diagnostics = {
+                **dict(current_task.diagnostics or {}),
+                **audit,
+            }
+            if graph_result is not None:
+                diagnostics["graph_result"] = graph_result.to_dict()
             self._services.state_index.upsert_task_run(
                 TaskRun(
                     **{
                         **current_task.to_dict(),
-                        "status": "completed" if graph_result.status == "completed" else "failed",
+                        "status": status,
                         "updated_at": now,
-                        "terminal_reason": graph_result.terminal_reason or graph_result.status,
-                        "diagnostics": {
-                            **dict(current_task.diagnostics or {}),
-                            "graph_result": graph_result.to_dict(),
-                        },
+                        "terminal_reason": terminal_reason,
+                        "diagnostics": diagnostics,
                     }
                 )
             )
         graph_run = self._services.runtime_objects.get_object(f"rtobj:graph_run:{safe_id(state.graph_run_id)}")
         if graph_run:
+            diagnostics = {
+                **dict(dict(graph_run).get("diagnostics") or {}),
+                **audit,
+            }
+            if graph_result is not None:
+                diagnostics["graph_result"] = graph_result.to_dict()
             self._services.runtime_objects.put_object(
                 "graph_run",
                 safe_id(state.graph_run_id),
                 {
                     **dict(graph_run),
-                    "status": "completed" if graph_result.status == "completed" else "failed",
+                    "status": status,
                     "updated_at": now,
-                    "terminal_reason": graph_result.terminal_reason or graph_result.status,
-                    "diagnostics": {
-                        **dict(dict(graph_run).get("diagnostics") or {}),
-                        "graph_result": graph_result.to_dict(),
-                    },
+                    "terminal_reason": terminal_reason,
+                    "config_id": state.config_snapshot_id or state.config_id,
+                    "config_hash": state.config_snapshot_hash or state.config_hash,
+                    "structure_hash": state.structure_hash,
+                    "structure_version": state.structure_version,
+                    "config_snapshot_id": state.config_snapshot_id or state.config_id,
+                    "config_snapshot_hash": state.config_snapshot_hash or state.config_hash,
+                    "diagnostics": diagnostics,
                 },
             )
 
@@ -1735,10 +1889,50 @@ def _graph_result_summary(result: GraphResultEnvelope | None) -> dict[str, Any] 
     }
 
 
+def _state_identity_audit(state: GraphLoopState) -> dict[str, Any]:
+    diagnostics = dict(state.diagnostics or {})
+    return {
+        "graph_harness_config_id": state.config_snapshot_id or state.config_id,
+        "graph_harness_config_hash": state.config_snapshot_hash or state.config_hash,
+        "graph_structure_hash": state.structure_hash or str(diagnostics.get("graph_structure_hash") or ""),
+        "graph_structure_version": state.structure_version or str(diagnostics.get("graph_structure_version") or "graph_structure.v1"),
+        "config_snapshot_id": state.config_snapshot_id or state.config_id,
+        "config_snapshot_hash": state.config_snapshot_hash or state.config_hash,
+        "runtime_settings_revision": int(diagnostics.get("runtime_settings_revision") or 0),
+    }
+
+
 def _replace_state(state: GraphLoopState, **patch: Any) -> GraphLoopState:
     payload = state.to_dict()
     payload.update(patch)
     return GraphLoopState.from_dict(payload)
+
+
+def assert_graph_config_compatible_with_state(*, graph_config: GraphHarnessConfig, state: GraphLoopState) -> None:
+    if graph_config.status != "published":
+        raise ValueError("Graph operation requires a published GraphHarnessConfig")
+    expected_hash = graph_config.expected_content_hash()
+    if graph_config.content_hash and graph_config.content_hash != expected_hash:
+        raise ValueError("GraphHarnessConfig content_hash mismatch")
+    if state.graph_id != graph_config.graph_id:
+        raise ValueError("GraphRun graph_id does not match GraphHarnessConfig")
+    expected_structure_hash = graph_config.expected_structural_hash()
+    state_structure_hash = _effective_structure_hash(graph_config=graph_config, state=state)
+    if state_structure_hash != expected_structure_hash:
+        raise ValueError("GraphRun structure_hash does not match GraphHarnessConfig")
+
+
+def _effective_structure_hash(*, graph_config: GraphHarnessConfig, state: GraphLoopState) -> str:
+    current = str(state.structure_hash or "").strip()
+    if current:
+        return current
+    diagnostics = dict(state.diagnostics or {})
+    projected = str(diagnostics.get("graph_structure_hash") or "").strip()
+    if projected:
+        return projected
+    if state.config_hash == graph_config.content_hash:
+        return graph_config.expected_structural_hash()
+    return ""
 
 
 def _advance_event_cursor(state: GraphLoopState) -> GraphLoopState:

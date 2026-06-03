@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from .models import PromptPack, PromptResource
+from .rules import rule_metadata
 
 
 RUNTIME_SINGLE_AGENT_TURN_PROMPT = """
@@ -14,28 +15,22 @@ RUNTIME_SINGLE_AGENT_TURN_PROMPT = """
 如果用户是在补充当前工作的要求，应把补充内容作为新增指令记录，不能覆盖原合同。
 如果缺少必要信息，可以询问用户。
 如果请求越界、权限不足或无法继续，应说明阻塞原因。
-不要暴露隐藏推理、内部编号、runtime packet、task id 或系统协议。用户可见内容只描述结果、进展、问题或阻塞原因。
+不要暴露隐藏推理、内部编号、任务内部标识或系统协议。用户可见内容只描述结果、进展、问题或阻塞原因。
 """.strip()
 
 
 RUNTIME_TASK_EXECUTION_PROMPT = """
 你是持续任务生命周期中的执行 agent。你正在执行一个已建立的任务合同。
-你的职责是按合同真实推进工作：必要时调用工具创建或修改交付物，记录可验证证据，只在合同满足时给出完成答复。
+你的职责是按合同真实推进工作，记录可验证证据，只在合同满足时给出完成答复。
 只输出一个合法 JSON 对象，不要 Markdown 包裹，不要暴露隐藏推理；输出必须遵守本轮 action schema。
 如果需要执行一步工作，action_type=tool_call，并填写 tool_call.tool_name 与 tool_call.args。
 每一轮只能提交一个 action JSON。不要在 JSON 外继续输出正文、代码块、解释或产物内容；系统只会解析这个 JSON，JSON 外内容不会被当作工具输入。
-当任务需要创建较长文件、网页、脚本或文档时，优先调用 write_file 或 terminal，让完整内容成为工具参数或命令输入；不要把交付物正文作为普通回答或 Markdown 输出。
-如果内容可能超过本轮输出预算，应先写入一个完整可运行的紧凑版本，再通过后续 read_file、edit_file、terminal 或 write_file 增量完善，不要输出半截 JSON 或半截文件。
 如果合同已经满足，action_type=respond；final_answer 必须总结完成情况，并在 diagnostics.artifacts 中列出真实产物路径。
 如果缺少用户决策，action_type=ask_user。
 如果任务无法继续，action_type=block，并说明 blocking_reason。
 执行过程中不能再次开启新的持续处理流程。用户可见内容不得包含内部编号、系统结构或协议字段。
 写入、命令、浏览器、网络或资源生成只能使用本次 runtime 明确可见且授权的工具，并落在任务环境允许的范围内。
-不能用占位文档、空文件、清单、计划或部分示例冒充完整交付物；发现产物功能残缺时应继续修复。
-工具失败后，应把失败当作真实观察处理；合同允许继续时，再依据失败观察修正参数、路径、输入或实现方式。同一失败原因未被修正前，不要重复执行相同无效动作。
-只有当必要外部服务、权限、材料或用户决策真实缺失，且无法通过合同允许的替代方案解决时，才可以 block。
 系统会提供统一的 task_state 投影：task_state.current_facts 是当前可依赖事实，task_state.artifact_evidence 是真实产物证据，task_state.latest_tool_results 是最近工具结果，task_state.active_failures 是当前仍有效的失败，task_state.historical_failures 是历史失败，只能作为背景，不能视为当前工具不可用。
-当 task_state.active_failures 存在时，你需要判断修正参数、换工具、重试、询问用户或 block；当 task_state.historical_failures 存在时，不能仅凭历史失败放弃当前可用工具。
 """.strip()
 
 
@@ -106,28 +101,56 @@ def list_builtin_prompt_packs() -> tuple[PromptPack, ...]:
         PromptPack(
             pack_id="runtime.pack.single_agent_turn.v1",
             invocation_kind="single_agent_turn",
-            ordered_prompt_refs=("runtime.single_agent_turn.v1",),
+            ordered_prompt_refs=(
+                "runtime.single_agent_turn.v1",
+                "runtime.rule.tool_use.v1",
+                "runtime.rule.output_boundary.v1",
+                "runtime.rule.error_recovery.v1",
+                "runtime.rule.context_memory.v1",
+                "runtime.rule.permission_denial.v1",
+                "runtime.rule.subagent_delegation.v1",
+            ),
             title="Single agent turn runtime pack",
             cache_scope="static",
         ),
         PromptPack(
             pack_id="runtime.pack.task_execution.v1",
             invocation_kind="task_execution",
-            ordered_prompt_refs=("runtime.task_execution.v1",),
+            ordered_prompt_refs=(
+                "runtime.task_execution.v1",
+                "runtime.rule.tool_use.v1",
+                "runtime.rule.output_boundary.v1",
+                "runtime.rule.error_recovery.v1",
+                "runtime.rule.context_memory.v1",
+                "runtime.rule.permission_denial.v1",
+                "runtime.rule.subagent_delegation.v1",
+            ),
             title="Task execution runtime pack",
             cache_scope="static",
         ),
         PromptPack(
             pack_id="runtime.pack.graph_node_execution.v1",
             invocation_kind="task_execution",
-            ordered_prompt_refs=("runtime.graph_node_execution.v1",),
+            ordered_prompt_refs=(
+                "runtime.graph_node_execution.v1",
+                "runtime.rule.output_boundary.v1",
+                "graph.rule.node_boundary.v1",
+                "graph.rule.node_output_contract.v1",
+            ),
             title="Graph node execution runtime pack",
             cache_scope="static",
         ),
         PromptPack(
             pack_id="runtime.pack.observation_followup.v1",
             invocation_kind="tool_observation_followup",
-            ordered_prompt_refs=("runtime.observation_followup.v1",),
+            ordered_prompt_refs=(
+                "runtime.observation_followup.v1",
+                "runtime.rule.tool_use.v1",
+                "runtime.rule.output_boundary.v1",
+                "runtime.rule.error_recovery.v1",
+                "runtime.rule.context_memory.v1",
+                "runtime.rule.permission_denial.v1",
+            ),
             title="Observation followup runtime pack",
             cache_scope="static",
         ),
@@ -167,5 +190,19 @@ def _runtime_resource(
         version="v1",
         enabled=True,
         status="active",
-        metadata={"managed_by": "prompt_library.packs", "builtin_runtime_prompt": True},
+        metadata={
+            "managed_by": "prompt_library.packs",
+            "builtin_runtime_prompt": True,
+            "prompt_rule": rule_metadata(
+                rule_id=prompt_id,
+                prompt_ref=prompt_id,
+                rule_kind="runtime.protocol",
+                owner_layer="runtime",
+                applies_to=(invocation_kind, subtype),
+                allowed_invocation_kinds=(invocation_kind,),
+                cache_tier="global_static",
+                enforcement_mode="compiler_validated",
+                authority="prompt_library.runtime_protocol_rule",
+            ),
+        },
     )

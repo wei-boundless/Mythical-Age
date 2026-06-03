@@ -4,6 +4,7 @@ import asyncio
 import json
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
@@ -510,23 +511,25 @@ def test_tool_runtime_executor_returns_recoverable_invocation_validation_feedbac
     assert "Retry the same tool" in result["observation"].payload["result"]
 
 
-def test_tool_runtime_run_core_preserves_agent_turn_execution_receipt(tmp_path: Path) -> None:
+def test_tool_runtime_control_plane_request_preserves_agent_turn_execution_receipt(tmp_path: Path) -> None:
     workspace = tmp_path / "project"
     sandbox_root = tmp_path / "sandbox" / "workspace"
     workspace.mkdir(parents=True)
     executor = ToolRuntimeExecutor(tool_runtime=ToolRuntime(workspace))
 
     result = asyncio.run(
-        executor.run_core(
-            caller_kind="agent_turn",
-            caller_ref="turnrun:receipt",
-            session_id="session:receipt",
-            turn_id="turn:receipt:1",
-            tool_invocation_id="toolinvoke:receipt",
-            tool_name="write_file",
-            tool_call_id="call:write",
-            tool_args={"path": "artifacts/note.txt", "content": "hello"},
-            operation_id="op.write_file",
+        executor.execute_control_plane_request(
+            request=SimpleNamespace(
+                caller_kind="agent_turn",
+                caller_ref="turnrun:receipt",
+                session_id="session:receipt",
+                turn_id="turn:receipt:1",
+                invocation_id="toolinvoke:receipt",
+                tool_name="write_file",
+                tool_call_id="call:write",
+                tool_args={"path": "artifacts/note.txt", "content": "hello"},
+                operation_id="op.write_file",
+            ),
             sandbox_policy={
                 "enabled": True,
                 "mode": "workspace_overlay",
@@ -550,22 +553,24 @@ def test_tool_runtime_run_core_preserves_agent_turn_execution_receipt(tmp_path: 
     assert receipt["idempotency_key"]
 
 
-def test_tool_runtime_run_core_blocks_non_native_side_effect_without_sandbox_context(tmp_path: Path) -> None:
+def test_tool_runtime_control_plane_request_blocks_non_native_side_effect_without_sandbox_context(tmp_path: Path) -> None:
     workspace = tmp_path / "project"
     workspace.mkdir(parents=True)
     executor = ToolRuntimeExecutor(tool_runtime=ToolRuntime(workspace))
 
     result = asyncio.run(
-        executor.run_core(
-            caller_kind="agent_turn",
-            caller_ref="turnrun:image",
-            session_id="session:image",
-            turn_id="turn:image:1",
-            tool_invocation_id="toolinvoke:image",
-            tool_name="image_generate",
-            tool_call_id="call:image",
-            tool_args={"prompt": "pixel tower"},
-            operation_id="op.image_generate",
+        executor.execute_control_plane_request(
+            request=SimpleNamespace(
+                caller_kind="agent_turn",
+                caller_ref="turnrun:image",
+                session_id="session:image",
+                turn_id="turn:image:1",
+                invocation_id="toolinvoke:image",
+                tool_name="image_generate",
+                tool_call_id="call:image",
+                tool_args={"prompt": "pixel tower"},
+                operation_id="op.image_generate",
+            ),
             sandbox_policy={
                 "enabled": True,
                 "side_effect_policy": "sandbox_boundary",

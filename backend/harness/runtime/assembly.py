@@ -330,15 +330,6 @@ def _explicit_allowed_operations_from_runtime_selection(selection: dict[str, Any
     return tuple(operation for operation in scopes[0] if operation in allowed)
 
 
-def _work_role_prompt(agent_runtime_profile: Any | None) -> str:
-    metadata = dict(getattr(agent_runtime_profile, "metadata", {}) or {})
-    return str(
-        metadata.get("work_role_prompt")
-        or metadata.get("agent_work_role_prompt")
-        or ""
-    ).strip()
-
-
 def _agent_prompt_refs(agent_runtime_profile: Any | None) -> tuple[str, ...]:
     metadata = dict(getattr(agent_runtime_profile, "metadata", {}) or {})
     explicit = _string_tuple(metadata.get("agent_prompt_refs"))
@@ -354,15 +345,12 @@ def _agent_prompt_refs(agent_runtime_profile: Any | None) -> tuple[str, ...]:
                     seen.add(item)
                     refs.append(item)
         return tuple(refs)
-    if _work_role_prompt(agent_runtime_profile):
-        profile_id = str(getattr(agent_runtime_profile, "agent_profile_id", "") or "main_interactive_agent")
-        return (_agent_work_role_prompt_id(profile_id),)
     return ()
 
 
 def _agent_prompt_refs_by_invocation(agent_runtime_profile: Any | None) -> dict[str, tuple[str, ...]]:
     metadata = dict(getattr(agent_runtime_profile, "metadata", {}) or {})
-    raw = metadata.get("agent_prompt_refs_by_invocation") or metadata.get("work_role_prompt_refs_by_invocation")
+    raw = metadata.get("agent_prompt_refs_by_invocation")
     result: dict[str, tuple[str, ...]] = {
         str(key): _string_tuple(value)
         for key, value in dict(raw or {}).items()
@@ -370,29 +358,7 @@ def _agent_prompt_refs_by_invocation(agent_runtime_profile: Any | None) -> dict[
     }
     if result:
         return result
-    prompt_by_invocation = _work_role_prompt_by_invocation(agent_runtime_profile)
-    if prompt_by_invocation:
-        profile_id = str(getattr(agent_runtime_profile, "agent_profile_id", "") or "main_interactive_agent")
-        return {
-            invocation_kind: (_agent_work_role_prompt_id(profile_id, invocation_kind=invocation_kind),)
-            for invocation_kind, content in prompt_by_invocation.items()
-            if str(content or "").strip()
-        }
     return {}
-
-
-def _work_role_prompt_by_invocation(agent_runtime_profile: Any | None) -> dict[str, str]:
-    metadata = dict(getattr(agent_runtime_profile, "metadata", {}) or {})
-    raw = (
-        metadata.get("work_role_prompt_by_invocation")
-        or metadata.get("agent_work_role_prompt_by_invocation")
-        or {}
-    )
-    return {
-        str(key).strip(): str(value or "").strip()
-        for key, value in dict(raw or {}).items()
-        if str(key).strip() and str(value or "").strip()
-    }
 
 
 def _environment_prompt_refs(environment_payload: dict[str, Any]) -> tuple[str, ...]:
@@ -446,14 +412,6 @@ def _visible_selected_skill_ids(value: Any, *, visible_skill_ids: tuple[str, ...
         seen.add(normalized)
         selected.append(normalized)
     return tuple(selected)
-
-
-def _agent_work_role_prompt_id(agent_profile_id: str, *, invocation_kind: str = "") -> str:
-    normalized = ".".join(part for part in str(agent_profile_id or "agent").replace(":", ".").split(".") if part)
-    invocation = ".".join(part for part in str(invocation_kind or "").replace(":", ".").split(".") if part)
-    if invocation:
-        return f"agent.{normalized}.{invocation}.work_role.v1"
-    return f"agent.{normalized}.work_role.v1"
 
 
 def _resolved_runtime_policy(

@@ -59,7 +59,14 @@ def test_default_task_environments_are_grouped_scene_platforms() -> None:
     assert "AGENTS.md" not in development.memory_space.project_knowledge_refs
     assert development.environment_prompts
     assert [item.prompt_id for item in development.environment_prompts] == [
-        "environment.development.sandbox.orientation.v1"
+        "environment.development.sandbox.orientation.v1",
+        "environment.rule.development_sandbox.v1",
+        "coding.rule.codebase_inspection.v1",
+        "coding.rule.editing.v1",
+        "coding.rule.verification.v1",
+        "coding.rule.git_safety.v1",
+        "coding.rule.windows_shell.v1",
+        "coding.rule.task_progress.v1",
     ]
     assert all(not item.content for item in development.environment_prompts)
     prompt_registry = PromptLibraryRegistry(BACKEND_DIR)
@@ -292,9 +299,17 @@ def test_development_environment_prompt_is_in_task_execution_packet() -> None:
     stable_message = _message_content_with_title(packet, "Task execution environment boundary")
     stable_payload = _payload_after_title(stable_message, "Task execution environment boundary")
     expected_environment_refs = [
+        "runtime.rule.file_management.generic.v1",
         "environment.resource.base_workspace.orientation.v1",
         "environment.resource.sandbox_overlay.orientation.v1",
         "environment.development.sandbox.orientation.v1",
+        "environment.rule.development_sandbox.v1",
+        "coding.rule.codebase_inspection.v1",
+        "coding.rule.editing.v1",
+        "coding.rule.verification.v1",
+        "coding.rule.git_safety.v1",
+        "coding.rule.windows_shell.v1",
+        "coding.rule.task_progress.v1",
     ]
     assert "当前任务环境说明" in model_input
     assert stable_payload["task_environment"]["environment_prompt_refs"] == expected_environment_refs
@@ -308,6 +323,7 @@ def test_development_environment_prompt_is_in_task_execution_packet() -> None:
     assert "Windows PowerShell 5.1" in model_input
     assert "不要使用 Bash 专属的 &&、||" in model_input
     assert "你处在通用开发沙盒任务环境中" in model_input
+    assert "你处在 coding 或 development 环境时" in model_input
     assert "通用项目工作区资源" in model_input
     assert "当前环境包含沙盒工作资源" in model_input
     assert "不属于本任务的变更" in model_input
@@ -350,9 +366,17 @@ def test_coding_environment_prompt_is_isolated_from_development_prompt() -> None
     stable_message = _message_content_with_title(packet, "Task execution environment boundary")
     stable_payload = _payload_after_title(stable_message, "Task execution environment boundary")
     expected_environment_refs = [
+        "runtime.rule.file_management.generic.v1",
         "environment.resource.managed_project_workspace.orientation.v1",
         "environment.resource.sandbox_overlay.orientation.v1",
         "environment.coding.vibe_workspace.orientation.v1",
+        "environment.rule.coding_workspace.v1",
+        "coding.rule.codebase_inspection.v1",
+        "coding.rule.editing.v1",
+        "coding.rule.verification.v1",
+        "coding.rule.git_safety.v1",
+        "coding.rule.windows_shell.v1",
+        "coding.rule.task_progress.v1",
     ]
 
     assert stable_payload["task_environment"]["environment_prompt_refs"] == expected_environment_refs
@@ -360,6 +384,7 @@ def test_coding_environment_prompt_is_isolated_from_development_prompt() -> None
     assert "你处在专用 coding 工作区任务环境中" in model_input
     assert "不要反复读取同一文件窗口" in model_input
     assert "不把某个任务类型的循环控制写进工具或文件状态里" in model_input
+    assert "coding 规则只在当前 coding/development 环境内适用" in model_input
 
 
 def test_resolved_environment_exports_storage_and_file_boundaries() -> None:
@@ -785,6 +810,7 @@ def test_configured_task_environment_loads_from_backend_storage(tmp_path: Path) 
     assert payload["storage_space"]["environment_storage_root"] == "storage/task_environments/custom/lab"
     assert payload["environment_prompts"][0]["content"].startswith("你处在自定义实验环境中")
     assert payload["environment_boundary"]["prompt_refs"] == [
+        "runtime.rule.file_management.generic.v1",
         "environment.resource.general_workspace.orientation.v1",
         "environment.custom.lab.v1",
     ]
@@ -935,6 +961,7 @@ def test_runtime_assembly_can_select_configured_task_environment(tmp_path: Path)
         == "resource_prompt_library_and_task_environment_config"
     )
     assert environment["environment_boundary"]["prompt_refs"] == [
+        "runtime.rule.file_management.generic.v1",
         "environment.resource.general_workspace.orientation.v1",
         "environment.custom.runtime.v1",
     ]
@@ -1017,6 +1044,7 @@ def test_runtime_packet_includes_environment_prompt_boundary_from_configured_env
 
     assert "你处在自定义提示环境中" in _model_input_text(packet)
     assert stable_payload["task_environment"]["environment_prompt_refs"] == [
+        "runtime.rule.file_management.generic.v1",
         "environment.resource.general_workspace.orientation.v1",
         "environment.custom.prompted.v1",
     ]
@@ -1118,6 +1146,7 @@ def test_configured_environment_can_reuse_prompt_library_resources(tmp_path: Pat
 
     assert "当前环境复用共享只读工作区导览" in _model_input_text(packet)
     assert stable_payload["task_environment"]["environment_prompt_refs"] == [
+        "runtime.rule.file_management.generic.v1",
         "environment.resource.general_workspace.orientation.v1",
         "environment.shared.readonly_workspace.orientation.v1",
     ]

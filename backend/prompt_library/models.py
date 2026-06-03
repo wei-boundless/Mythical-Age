@@ -125,6 +125,88 @@ class PromptSection:
 
 
 @dataclass(frozen=True, slots=True)
+class PromptRule:
+    rule_id: str
+    prompt_ref: str
+    rule_kind: str
+    owner_layer: str
+    applies_to: tuple[str, ...] = ()
+    allowed_invocation_kinds: tuple[str, ...] = ()
+    allowed_agent_refs: tuple[str, ...] = ()
+    allowed_environment_refs: tuple[str, ...] = ()
+    cache_tier: str = "global_static"
+    enforcement_mode: str = "prompt_only"
+    authority: str = "prompt_library.prompt_rule"
+    conflicts_with: tuple[str, ...] = ()
+    requires: tuple[str, ...] = ()
+    supersedes: tuple[str, ...] = ()
+    lint_tags: tuple[str, ...] = ()
+    version: str = "v1"
+    status: str = "active"
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        rule_id = str(self.rule_id or self.prompt_ref or "").strip()
+        prompt_ref = str(self.prompt_ref or rule_id).strip()
+        rule_kind = str(self.rule_kind or "runtime.instruction").strip()
+        owner_layer = str(self.owner_layer or "runtime").strip()
+        cache_tier = str(self.cache_tier or "global_static").strip()
+        enforcement_mode = str(self.enforcement_mode or "prompt_only").strip()
+        status = str(self.status or "active").strip()
+        object.__setattr__(self, "rule_id", rule_id)
+        object.__setattr__(self, "prompt_ref", prompt_ref)
+        object.__setattr__(self, "rule_kind", rule_kind)
+        object.__setattr__(self, "owner_layer", owner_layer)
+        object.__setattr__(self, "cache_tier", cache_tier)
+        object.__setattr__(self, "enforcement_mode", enforcement_mode)
+        object.__setattr__(self, "status", status)
+
+    def to_dict(self) -> dict[str, Any]:
+        payload = asdict(self)
+        for key in (
+            "applies_to",
+            "allowed_invocation_kinds",
+            "allowed_agent_refs",
+            "allowed_environment_refs",
+            "conflicts_with",
+            "requires",
+            "supersedes",
+            "lint_tags",
+        ):
+            payload[key] = list(payload[key])
+        payload["metadata"] = dict(self.metadata)
+        return payload
+
+
+@dataclass(frozen=True, slots=True)
+class PromptRuleAssemblyResult:
+    assembly_id: str
+    invocation_kind: str
+    rules: tuple[PromptRule, ...]
+    rejected_rules: tuple[dict[str, Any], ...] = ()
+    diagnostics: dict[str, Any] = field(default_factory=dict)
+    authority: str = "prompt_library.prompt_rule_assembly_result"
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "assembly_id": self.assembly_id,
+            "invocation_kind": self.invocation_kind,
+            "rules": [item.to_dict() for item in self.rules],
+            "rejected_rules": [dict(item) for item in self.rejected_rules],
+            "diagnostics": dict(self.diagnostics),
+            "authority": self.authority,
+        }
+
+    @property
+    def rule_refs(self) -> tuple[str, ...]:
+        return tuple(item.rule_id for item in self.rules if item.rule_id)
+
+    @property
+    def rule_kinds(self) -> tuple[str, ...]:
+        return tuple(item.rule_kind for item in self.rules if item.rule_kind)
+
+
+@dataclass(frozen=True, slots=True)
 class PromptAssemblyRequest:
     invocation_kind: str
     prompt_pack_refs: tuple[str, ...] = ()

@@ -271,12 +271,22 @@ def build_tool_invocation_id(*, caller_ref: str, action_request_ref: str, tool_n
     return f"toolinv:{digest}"
 
 
-def build_tool_invocation_idempotency_key(*, tool_name: str, tool_args: dict[str, Any], tool_invocation_id: str) -> str:
+def build_tool_invocation_idempotency_key(
+    *,
+    caller_ref: str = "",
+    action_request_ref: str = "",
+    tool_call_id: str = "",
+    tool_name: str = "",
+    tool_args: dict[str, Any] | None = None,
+    tool_invocation_id: str = "",
+) -> str:
     raw = json.dumps(
         {
+            "caller_ref": str(caller_ref or ""),
+            "action_request_ref": str(action_request_ref or ""),
+            "tool_call_id": str(tool_call_id or ""),
             "tool_invocation_id": str(tool_invocation_id or ""),
             "tool_name": str(tool_name or ""),
-            "tool_args": dict(tool_args or {}),
         },
         ensure_ascii=False,
         sort_keys=True,

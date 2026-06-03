@@ -333,7 +333,7 @@ def test_memory_commit_node_requires_structured_chapter_progress_receipt(tmp_pat
     assert result.error["reason"] == "chapter_progress_receipt_missing"
 
 
-def test_chapter_draft_self_repair_result_fails_when_quality_gate_under_length(tmp_path: Path) -> None:
+def test_chapter_draft_self_repair_result_keeps_repairable_candidate_when_quality_gate_under_length(tmp_path: Path) -> None:
     runtime = _runtime_with_graph_harness(base_dir=tmp_path / "backend", runtime_root=tmp_path / "runtime_state")
     graph_config = GraphHarnessConfig(
         config_id="config:quality-gate",
@@ -413,7 +413,7 @@ def test_chapter_draft_self_repair_result_fails_when_quality_gate_under_length(t
         },
     )
 
-    assert result.status == "failed"
+    assert result.status == "completed"
     assert result.error["reason"] == "quality_gate_failed"
     assert any(str(issue).startswith("insufficient_unit_metric:1:") for issue in result.error["issues"])
     assert result.diagnostics["quality_acceptance"]["business_accepted"] is False

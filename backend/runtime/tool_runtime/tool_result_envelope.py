@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import uuid
 import json
+import hashlib
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
@@ -28,6 +28,7 @@ class ToolResultEnvelope:
     command_receipt: dict[str, Any] = field(default_factory=dict)
     execution_receipt: dict[str, Any] = field(default_factory=dict)
     result_ref: str = ""
+    idempotency_key: str = ""
     error: str = ""
     diagnostics: dict[str, Any] = field(default_factory=dict)
     authority: str = "execution.tool_result_envelope"
@@ -53,6 +54,7 @@ def build_tool_result_envelope(
     status: str = "",
     execution_receipt: dict[str, Any] | None = None,
     result_ref: str = "",
+    idempotency_key: str = "",
     tool_call_id: str = "",
     action_request_id: str = "",
     caller_kind: str = "",
@@ -88,6 +90,20 @@ def build_tool_result_envelope(
     artifact_state_events = tuple(_dict_tuple(structured_payload.get("artifact_state_events")))
     verification_events = tuple(_dict_tuple(structured_payload.get("verification_events")))
     command_receipt = dict(structured_payload.get("command_receipt") or {})
+    resolved_tool_call_id = str(tool_call_id or "").strip()
+    resolved_action_request_id = str(action_request_id or "").strip()
+    resolved_caller_ref = str(caller_ref or "").strip()
+    resolved_idempotency_key = str(idempotency_key or "").strip() or str(
+        dict(execution_receipt or {}).get("idempotency_key") or ""
+    ).strip()
+    if not resolved_idempotency_key:
+        resolved_idempotency_key = build_tool_result_idempotency_key(
+            caller_ref=resolved_caller_ref,
+            action_request_id=resolved_action_request_id,
+            tool_call_id=resolved_tool_call_id,
+            tool_name=name,
+            tool_args=args,
+        )
     if observed_paths:
         structured_payload["observed_paths"] = list(observed_paths)
     if artifact_refs:
@@ -101,14 +117,14 @@ def build_tool_result_envelope(
     if file_state_events:
         structured_payload["file_state_events"] = [dict(item) for item in file_state_events]
     return ToolResultEnvelope(
-        envelope_id=f"tool-result:{uuid.uuid4().hex[:12]}",
+        envelope_id=build_tool_result_envelope_id(resolved_idempotency_key),
         tool_name=name,
         tool_args=args,
         status=resolved_status,
-        tool_call_id=str(tool_call_id or ""),
-        action_request_id=str(action_request_id or ""),
+        tool_call_id=resolved_tool_call_id,
+        action_request_id=resolved_action_request_id,
         caller_kind=str(caller_kind or ""),
-        caller_ref=str(caller_ref or ""),
+        caller_ref=resolved_caller_ref,
         text=text,
         structured_payload=structured_payload,
         observed_paths=observed_paths,
@@ -121,6 +137,7 @@ def build_tool_result_envelope(
         command_receipt=command_receipt,
         execution_receipt=dict(execution_receipt or {}),
         result_ref=str(result_ref or ""),
+        idempotency_key=resolved_idempotency_key,
         error=text if resolved_status != "ok" else "",
         diagnostics=dict(diagnostics or {}),
     )
@@ -157,15 +174,29 @@ def tool_result_envelope_from_payload(payload: dict[str, Any] | None) -> ToolRes
     envelope = item.get("result_envelope")
     if isinstance(envelope, dict):
         try:
+            tool_name = str(envelope.get("tool_name") or item.get("tool_name") or "")
+            tool_args = dict(envelope.get("tool_args") or item.get("tool_args") or {})
+            tool_call_id = str(envelope.get("tool_call_id") or item.get("tool_call_id") or "")
+            action_request_id = str(envelope.get("action_request_id") or item.get("request_ref") or item.get("action_request_ref") or "")
+            caller_ref = str(envelope.get("caller_ref") or item.get("caller_ref") or "")
+            idempotency_key = str(envelope.get("idempotency_key") or dict(envelope.get("execution_receipt") or {}).get("idempotency_key") or "")
+            if not idempotency_key:
+                idempotency_key = build_tool_result_idempotency_key(
+                    caller_ref=caller_ref,
+                    action_request_id=action_request_id,
+                    tool_call_id=tool_call_id,
+                    tool_name=tool_name,
+                    tool_args=tool_args,
+                )
             return ToolResultEnvelope(
-                envelope_id=str(envelope.get("envelope_id") or ""),
-                tool_name=str(envelope.get("tool_name") or item.get("tool_name") or ""),
-                tool_args=dict(envelope.get("tool_args") or item.get("tool_args") or {}),
+                envelope_id=str(envelope.get("envelope_id") or build_tool_result_envelope_id(idempotency_key)),
+                tool_name=tool_name,
+                tool_args=tool_args,
                 status=str(envelope.get("status") or "ok"),
-                tool_call_id=str(envelope.get("tool_call_id") or item.get("tool_call_id") or ""),
-                action_request_id=str(envelope.get("action_request_id") or item.get("request_ref") or item.get("action_request_ref") or ""),
+                tool_call_id=tool_call_id,
+                action_request_id=action_request_id,
                 caller_kind=str(envelope.get("caller_kind") or item.get("caller_kind") or ""),
-                caller_ref=str(envelope.get("caller_ref") or item.get("caller_ref") or ""),
+                caller_ref=caller_ref,
                 text=str(envelope.get("text") or item.get("result") or ""),
                 structured_payload=dict(envelope.get("structured_payload") or {}),
                 observed_paths=tuple(str(value) for value in list(envelope.get("observed_paths") or []) if str(value).strip()),
@@ -178,6 +209,7 @@ def tool_result_envelope_from_payload(payload: dict[str, Any] | None) -> ToolRes
                 command_receipt=dict(envelope.get("command_receipt") or {}),
                 execution_receipt=dict(envelope.get("execution_receipt") or item.get("execution_receipt") or {}),
                 result_ref=str(envelope.get("result_ref") or item.get("result_ref") or ""),
+                idempotency_key=idempotency_key,
                 error=str(envelope.get("error") or ""),
                 diagnostics=dict(envelope.get("diagnostics") or {}),
             )
@@ -193,6 +225,37 @@ def _normalize_status(value: str) -> str:
     if status == "cancelled":
         return "canceled"
     return ""
+
+
+def build_tool_result_idempotency_key(
+    *,
+    caller_ref: str = "",
+    action_request_id: str = "",
+    tool_call_id: str = "",
+    tool_name: str = "",
+    tool_args: dict[str, Any] | None = None,
+) -> str:
+    primary = {
+        "caller_ref": str(caller_ref or ""),
+        "action_request_id": str(action_request_id or ""),
+        "tool_call_id": str(tool_call_id or ""),
+    }
+    if any(primary.values()):
+        raw = json.dumps(primary, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+    fallback = {
+        "tool_name": str(tool_name or ""),
+        "tool_args": dict(tool_args or {}),
+    }
+    raw = json.dumps(fallback, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def build_tool_result_envelope_id(idempotency_key: str) -> str:
+    key = str(idempotency_key or "").strip()
+    if not key:
+        key = hashlib.sha256(b"tool-result").hexdigest()
+    return f"tool-result:{key[:16]}"
 
 
 def infer_file_state_events(

@@ -6,6 +6,7 @@ from .compiler import RuntimeCompilationResult, RuntimeCompiler
 from .envelope import RuntimeEnvelope
 from .execution_context import ExecutionContext, build_execution_context
 from .invocation_packet import RuntimeInvocationPacket
+from .request_facts import TurnInputFacts, build_turn_input_facts
 from .runtime_policy import artifact_policy_from_task_execution_assembly, model_stream_policy_from_task_execution_assembly
 from .services import AgentRuntimeServices, TaskExecutorServices
 from .single_agent_host import SingleAgentRuntimeHost
@@ -18,6 +19,7 @@ __all__ = [
     "ActiveTurnRecord",
     "ActiveTurnRegistry",
     "TaskExecutorServices",
+    "TurnInputFacts",
     "SingleAgentRuntimeHost",
     "RuntimeAssembly",
     "RuntimeAssemblyProfile",
@@ -33,6 +35,7 @@ __all__ = [
     "build_runtime_assembly_profile",
     "build_execution_context",
     "build_runtime_tool_plan",
+    "build_turn_input_facts",
     "model_stream_policy_from_task_execution_assembly",
     "tool_instances_for_runtime_tool_plan",
 ]

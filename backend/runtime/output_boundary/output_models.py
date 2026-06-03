@@ -61,7 +61,7 @@ class OutputDecision:
 
 
 @dataclass(slots=True)
-class ToolResultEnvelope:
+class ToolVisibleOutputEnvelope:
     tool_name: str
     raw_text: str
     display_text: str

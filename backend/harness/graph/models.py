@@ -10,6 +10,7 @@ from .language import validate_harness_edge_config
 
 GRAPH_HARNESS_CONFIG_SCHEMA_VERSION = "graph_harness_config.v1"
 GRAPH_HARNESS_CONFIG_AUTHORITY = "harness.graph_harness_config"
+GRAPH_STRUCTURE_VERSION = "graph_structure.v1"
 
 
 def _session_scope_key(*, workspace_view: str, task_environment_id: str, project_id: str) -> str:
@@ -76,6 +77,55 @@ class GraphHarnessConfig:
     def expected_content_hash(self) -> str:
         return stable_hash(self.content_payload())
 
+    def structural_payload(self) -> dict[str, Any]:
+        return {
+            "authority": "harness.graph_structure_identity",
+            "structure_version": GRAPH_STRUCTURE_VERSION,
+            "graph_id": self.graph_id,
+            "task_environment_id": self.task_environment_id,
+            "root_task_ref": self.root_task_ref,
+            "control": _structure_mapping(
+                self.control,
+                include_keys={
+                    "max_active_nodes",
+                    "scheduler",
+                    "state_machine",
+                    "loop_policy",
+                    "human_gate_policy",
+                    "checkpoint_policy",
+                },
+            ),
+            "nodes": [_structural_node_payload(dict(item)) for item in self.nodes],
+            "edges": [_structural_edge_payload(dict(item)) for item in self.edges],
+            "loop_frames": [_structure_mapping(dict(item)) for item in self.loop_frames],
+            "resources": _structure_mapping(self.resources),
+            "memory": _structure_mapping(self.memory),
+            "artifacts": _structure_mapping(self.artifacts),
+            "environment": _structure_mapping(
+                self.environment,
+                include_keys={
+                    "storage_space",
+                    "file_access_tables",
+                    "memory_space",
+                    "artifact_policy",
+                    "file_management",
+                },
+            ),
+            "contracts": _structure_mapping(
+                self.contracts,
+                include_keys={
+                    "node_protocol_index",
+                    "edge_contract_index",
+                    "output_contract_index",
+                    "memory_contract_index",
+                    "artifact_contract_index",
+                },
+            ),
+        }
+
+    def expected_structural_hash(self) -> str:
+        return stable_hash(self.structural_payload())
+
     def with_content_identity(self, *, config_id: str = "", published_at: float = 0.0) -> "GraphHarnessConfig":
         payload = self.to_dict()
         payload["content_hash"] = stable_hash(self.content_payload())
@@ -103,6 +153,10 @@ class GraphRuntimeEnvelope:
     config_id: str
     config_hash: str
     graph_id: str
+    structure_hash: str = ""
+    structure_version: str = GRAPH_STRUCTURE_VERSION
+    config_snapshot_id: str = ""
+    config_snapshot_hash: str = ""
     initial_inputs: dict[str, Any] = field(default_factory=dict)
     static_topology_view: dict[str, Any] = field(default_factory=dict)
     contract_index: dict[str, Any] = field(default_factory=dict)
@@ -128,6 +182,10 @@ class GraphRun:
     graph_id: str
     config_id: str
     config_hash: str
+    structure_hash: str = ""
+    structure_version: str = GRAPH_STRUCTURE_VERSION
+    config_snapshot_id: str = ""
+    config_snapshot_hash: str = ""
     workspace_view: str = "chat"
     task_environment_id: str = ""
     project_id: str = ""
@@ -168,6 +226,10 @@ class GraphRun:
             graph_id=str(payload.get("graph_id") or ""),
             config_id=str(payload.get("config_id") or ""),
             config_hash=str(payload.get("config_hash") or ""),
+            structure_hash=str(payload.get("structure_hash") or dict(payload.get("diagnostics") or {}).get("graph_structure_hash") or ""),
+            structure_version=str(payload.get("structure_version") or dict(payload.get("diagnostics") or {}).get("graph_structure_version") or GRAPH_STRUCTURE_VERSION),
+            config_snapshot_id=str(payload.get("config_snapshot_id") or payload.get("config_id") or ""),
+            config_snapshot_hash=str(payload.get("config_snapshot_hash") or payload.get("config_hash") or ""),
             workspace_view=str(payload.get("workspace_view") or "chat"),
             task_environment_id=str(payload.get("task_environment_id") or dict(payload.get("diagnostics") or {}).get("task_environment_id") or ""),
             project_id=str(payload.get("project_id") or dict(payload.get("diagnostics") or {}).get("project_id") or ""),
@@ -190,6 +252,10 @@ class GraphLoopState:
     config_id: str
     config_hash: str
     graph_id: str
+    structure_hash: str = ""
+    structure_version: str = GRAPH_STRUCTURE_VERSION
+    config_snapshot_id: str = ""
+    config_snapshot_hash: str = ""
     status: str = "created"
     node_states: dict[str, dict[str, Any]] = field(default_factory=dict)
     edge_states: dict[str, dict[str, Any]] = field(default_factory=dict)
@@ -232,6 +298,10 @@ class GraphLoopState:
             config_id=str(payload.get("config_id") or ""),
             config_hash=str(payload.get("config_hash") or ""),
             graph_id=str(payload.get("graph_id") or ""),
+            structure_hash=str(payload.get("structure_hash") or dict(payload.get("diagnostics") or {}).get("graph_structure_hash") or ""),
+            structure_version=str(payload.get("structure_version") or dict(payload.get("diagnostics") or {}).get("graph_structure_version") or GRAPH_STRUCTURE_VERSION),
+            config_snapshot_id=str(payload.get("config_snapshot_id") or payload.get("config_id") or ""),
+            config_snapshot_hash=str(payload.get("config_snapshot_hash") or payload.get("config_hash") or ""),
             status=str(payload.get("status") or "created"),
             node_states={str(key): dict(value) for key, value in dict(payload.get("node_states") or {}).items()},
             edge_states={str(key): dict(value) for key, value in dict(payload.get("edge_states") or {}).items()},
@@ -303,9 +373,13 @@ class GraphNodeWorkOrder:
     graph_run_id: str
     task_run_id: str
     node_id: str
+    task_ref: str
     config_id: str
     config_hash: str
-    task_ref: str
+    structure_hash: str = ""
+    structure_version: str = GRAPH_STRUCTURE_VERSION
+    config_snapshot_id: str = ""
+    config_snapshot_hash: str = ""
     executor_type: str = "agent"
     agent_id: str = ""
     agent_profile_id: str = ""
@@ -368,6 +442,10 @@ class GraphNodeWorkOrder:
             node_id=str(payload.get("node_id") or ""),
             config_id=str(payload.get("config_id") or ""),
             config_hash=str(payload.get("config_hash") or ""),
+            structure_hash=str(payload.get("structure_hash") or dict(payload.get("dispatch_context") or {}).get("graph_structure_hash") or ""),
+            structure_version=str(payload.get("structure_version") or dict(payload.get("dispatch_context") or {}).get("graph_structure_version") or GRAPH_STRUCTURE_VERSION),
+            config_snapshot_id=str(payload.get("config_snapshot_id") or payload.get("config_id") or ""),
+            config_snapshot_hash=str(payload.get("config_snapshot_hash") or payload.get("config_hash") or ""),
             task_ref=str(payload.get("task_ref") or ""),
             executor_type=str(payload.get("executor_type") or "agent"),
             agent_id=str(payload.get("agent_id") or ""),
@@ -566,6 +644,114 @@ def _validate_edges(nodes: tuple[dict[str, Any], ...], edges: tuple[dict[str, An
     nodes_by_id = {str(dict(node).get("node_id") or ""): dict(node) for node in nodes if str(dict(node).get("node_id") or "")}
     for edge in edges:
         validate_harness_edge_config(dict(edge), nodes_by_id=nodes_by_id)
+
+
+def _structural_node_payload(node: dict[str, Any]) -> dict[str, Any]:
+    executor = dict(node.get("executor") or {})
+    loop = dict(node.get("loop") or {})
+    metadata = dict(node.get("metadata") or {})
+    runtime_profile = dict(metadata.get("runtime_profile") or metadata.get("runtime") or {})
+    runtime_policy = dict(runtime_profile.get("runtime_policy") or runtime_profile.get("execution_policy") or {})
+    return _drop_empty(
+        {
+            "node_id": str(node.get("node_id") or ""),
+            "node_type": str(node.get("node_type") or ""),
+            "executor": _structure_mapping(
+                executor,
+                include_keys={"executor_type", "task_ref", "agent_id", "agent_profile_id", "resource_kind"},
+            ),
+            "loop": _structure_mapping(loop),
+            "resource": _structure_mapping(dict(node.get("resource") or {})),
+            "memory": _structure_mapping(dict(node.get("memory") or {})),
+            "artifacts": _structure_mapping(dict(node.get("artifacts") or {})),
+            "tools": _structure_mapping(dict(node.get("tools") or {})),
+            "permissions": _structure_mapping(dict(node.get("permissions") or {})),
+            "runtime_authorization": _structure_mapping(
+                runtime_policy,
+                include_keys={
+                    "tool_exposure_policy",
+                    "subagent_policy",
+                    "network_policy",
+                    "approval_policy",
+                    "permission_policy",
+                    "artifact_policy",
+                    "memory_policy",
+                },
+            ),
+            "output_contract": _structure_mapping(dict(node.get("output_contract") or {})),
+            "input_contract": _structure_mapping(dict(node.get("input_contract") or {})),
+        }
+    )
+
+
+def _structural_edge_payload(edge: dict[str, Any]) -> dict[str, Any]:
+    return _drop_empty(
+        {
+            "edge_id": str(edge.get("edge_id") or ""),
+            "source_node_id": str(edge.get("source_node_id") or ""),
+            "target_node_id": str(edge.get("target_node_id") or ""),
+            "edge_type": str(edge.get("edge_type") or ""),
+            "semantic_role": str(edge.get("semantic_role") or ""),
+            "scheduler_role": str(edge.get("scheduler_role") or ""),
+            "route": _structure_mapping(dict(edge.get("route") or {})),
+            "memory": _structure_mapping(dict(edge.get("memory") or {})),
+            "artifact": _structure_mapping(dict(edge.get("artifact") or {})),
+            "contract": _structure_mapping(dict(edge.get("contract") or {})),
+            "delivery_policy": _structure_mapping(dict(edge.get("delivery_policy") or {})),
+        }
+    )
+
+
+def _structure_mapping(value: Any, *, include_keys: set[str] | None = None) -> Any:
+    if isinstance(value, dict):
+        result: dict[str, Any] = {}
+        for key, item in sorted(value.items(), key=lambda pair: str(pair[0])):
+            normalized_key = str(key or "")
+            if include_keys is not None and normalized_key not in include_keys:
+                continue
+            if _runtime_only_structure_key(normalized_key):
+                continue
+            child = _structure_mapping(item)
+            if child in ({}, [], (), "", None):
+                continue
+            result[normalized_key] = child
+        return result
+    if isinstance(value, list | tuple):
+        return [_structure_mapping(item) for item in value if _structure_mapping(item) not in ({}, [], (), "", None)]
+    return value
+
+
+def _runtime_only_structure_key(key: str) -> bool:
+    normalized = str(key or "").strip().lower()
+    if normalized in {
+        "prompt",
+        "prompt_text",
+        "system_prompt",
+        "developer_prompt",
+        "user_prompt",
+        "model",
+        "model_family",
+        "provider",
+        "provider_family",
+        "credential_ref",
+        "api_key",
+        "max_output_tokens",
+        "preferred_output_tokens",
+        "min_output_tokens",
+        "timeout_seconds",
+        "temperature",
+        "reasoning_effort",
+        "thinking_mode",
+        "cache_policy",
+        "prompt_cache",
+        "prompt_cache_policy",
+    }:
+        return True
+    return False
+
+
+def _drop_empty(payload: dict[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in payload.items() if value not in ({}, [], (), "", None)}
 
 
 def stable_hash(payload: Any) -> str:

@@ -13,6 +13,8 @@ from prompt_library import (
     build_runtime_prompt_manifest,
     default_pack_ref_for_invocation,
 )
+from prompt_library.rules import build_rule_diagnostics
+from runtime.model_gateway.protocol_sanitizer import sanitize_messages_for_prompt
 from task_system.contracts.runtime_contracts import expand_selected_skill_bodies, render_skill_candidate_cards
 
 from .context_budget_policy import build_model_aware_context_budget_policy
@@ -150,13 +152,15 @@ class RuntimeCompiler:
             "available_tools": _stable_tool_catalog_payload(single_turn_tools),
         }
         packet_id = f"rtpacket:{turn_id}:single_agent_turn:1"
+        session_context_payload = dict(session_context or {})
+        turn_input_facts = dict(session_context_payload.get("turn_input_facts") or {})
         dynamic_context = self.dynamic_context_manager.project(
             DynamicContextInput(
                 invocation_kind="single_agent_turn",
                 session_id=session_id,
                 turn_id=turn_id,
                 history=tuple(dict(item) for item in list(history or []) if isinstance(item, dict)),
-                session_context=dict(session_context or {}),
+                session_context=session_context_payload,
                 runtime_assembly=assembly_payload,
                 runtime_envelope=envelope.to_dict(),
                 current_user_message=str(user_message or ""),
@@ -175,6 +179,8 @@ class RuntimeCompiler:
         dynamic_payload = dict(dynamic_context.dynamic_runtime_projection or {})
         if active_work_context:
             dynamic_payload["active_work_context"] = _active_work_model_visible_payload(active_work_context)
+        if turn_input_facts:
+            dynamic_payload["turn_input_facts"] = _turn_input_facts_model_visible_payload(turn_input_facts)
         volatile_payload = dict(dynamic_context.volatile_request_projection or {})
         model_messages, segment_plan = _model_messages_and_segment_plan(
             packet_id=packet_id,
@@ -241,6 +247,12 @@ class RuntimeCompiler:
             ],
             enforce_dynamic_context_reports=True,
         )
+        protocol_sanitizer = sanitize_messages_for_prompt(
+            model_messages,
+            turn_id=turn_id,
+            source="harness.runtime.compiler.single_agent_turn",
+        )
+        model_messages = [dict(item) for item in protocol_sanitizer.messages]
         prompt_manifest = build_runtime_prompt_manifest(
             invocation_kind="single_agent_turn",
             assembly=_merge_prompt_assemblies(
@@ -255,6 +267,7 @@ class RuntimeCompiler:
         ).to_dict()
         prompt_manifest["segment_plan_ref"] = segment_plan.segment_plan_id
         prompt_manifest["dynamic_context_report"] = dynamic_context.to_report_dict()
+        prompt_manifest["protocol_sanitizer"] = dict(protocol_sanitizer.diagnostics)
         prompt_manifest["context_window"] = _context_window_report(
             session_context=session_context,
             history=history,
@@ -281,8 +294,10 @@ class RuntimeCompiler:
                 "prompt_manifest": prompt_manifest,
                 "segment_plan": segment_plan.to_dict(),
                 "model_input_authority": "runtime_invocation_packet.model_messages",
+                "protocol_sanitizer": dict(protocol_sanitizer.diagnostics),
                 "control_capabilities": dict(effective_control_capabilities),
                 "active_work_context_present": bool(active_work_context),
+                "turn_input_facts_present": bool(turn_input_facts),
             },
         )
         return RuntimeCompilationResult(envelope=envelope, packet=packet)
@@ -983,6 +998,7 @@ def _validate_runtime_prompt_pack_assembly(
             "runtime prompt pack assembly rejected refs: "
             f"invocation_kind={invocation_kind} refs={rejected}"
         )
+    _validate_prompt_rule_diagnostics(assembly, invocation_kind=invocation_kind)
     if not str(assembly.content or "").strip():
         raise ValueError(
             "runtime prompt pack assembly produced empty content: "
@@ -1007,11 +1023,26 @@ def _validate_runtime_prompt_ref_assembly(
             "runtime prompt ref assembly rejected refs: "
             f"invocation_kind={invocation_kind} refs={rejected}"
         )
+    _validate_prompt_rule_diagnostics(assembly, invocation_kind=invocation_kind)
     if not str(assembly.content or "").strip():
         raise ValueError(
             "runtime prompt ref assembly produced empty content: "
             f"invocation_kind={invocation_kind} refs={','.join(requested_refs)}"
         )
+
+
+def _validate_prompt_rule_diagnostics(assembly: PromptAssemblyResult, *, invocation_kind: str) -> None:
+    prompt_rules = dict(assembly.manifest.get("prompt_rules") or {})
+    rejected_rules = [dict(item) for item in list(prompt_rules.get("rejected_rules") or []) if isinstance(item, dict)]
+    if not rejected_rules:
+        return
+    rejected = ", ".join(
+        f"{item.get('ref', '')}:{item.get('reason', '')}" for item in rejected_rules
+    )
+    raise ValueError(
+        "runtime prompt rule assembly rejected refs: "
+        f"invocation_kind={invocation_kind} refs={rejected}"
+    )
 
 
 def model_action_request_schema(turn_id: str) -> dict[str, Any]:
@@ -1237,6 +1268,31 @@ def _active_work_model_visible_payload(active_work_context: dict[str, Any] | Non
     )
 
 
+def _turn_input_facts_model_visible_payload(facts: dict[str, Any] | None) -> dict[str, Any]:
+    payload = dict(facts or {})
+    if not payload:
+        return {}
+    active_turn = dict(payload.get("active_turn") or {})
+    return _drop_empty_payload(
+        {
+            "session_id": str(payload.get("session_id") or ""),
+            "turn_id": str(payload.get("turn_id") or ""),
+            "expected_active_turn_id": str(payload.get("expected_active_turn_id") or ""),
+            "active_turn_present": bool(active_turn),
+            "active_turn_id": str(active_turn.get("turn_id") or ""),
+            "active_turn_state": str(active_turn.get("state") or ""),
+            "active_turn_bound_task_run_id": str(active_turn.get("bound_task_run_id") or ""),
+            "active_work_candidate_present": bool(payload.get("active_work_candidate")),
+            "recent_work_outcome_candidate_present": bool(payload.get("recent_work_outcome_candidate")),
+            "decision_boundary": (
+                "These are observable request facts only. They do not decide user intent, "
+                "do not grant tool permissions, and do not require active work control."
+            ),
+            "authority": "harness.runtime.turn_input_facts.model_projection",
+        }
+    )
+
+
 def _message_spec(
     *,
     role: str,
@@ -1266,11 +1322,16 @@ def _provider_protocol_message_specs(
     source_ref: str,
 ) -> list[dict[str, Any]]:
     payload = dict(session_context or {})
-    transcript = [
-        _provider_protocol_message(item)
-        for item in list(payload.get("api_transcript") or payload.get("provider_protocol_history") or [])
-        if isinstance(item, dict)
-    ]
+    protocol_sanitizer = sanitize_messages_for_prompt(
+        [
+            item
+            for item in list(payload.get("api_transcript") or payload.get("provider_protocol_history") or [])
+            if isinstance(item, dict)
+        ],
+        turn_id=str(payload.get("turn_id") or ""),
+        source=source_ref,
+    )
+    transcript = [dict(item) for item in protocol_sanitizer.messages]
     result: list[dict[str, Any]] = []
     for index, message in enumerate([item for item in transcript if item is not None], start=1):
         result.append(
@@ -1286,6 +1347,7 @@ def _provider_protocol_message_specs(
                 "metadata": {
                     "protocol_history_index": index,
                     "provider_protocol_replay": True,
+                    "protocol_sanitizer": dict(protocol_sanitizer.diagnostics),
                     "reasoning_content_present": bool(message.get("reasoning_content")),
                     "tool_calls_present": bool(message.get("tool_calls")),
                 },
@@ -1293,34 +1355,6 @@ def _provider_protocol_message_specs(
             }
         )
     return result
-
-
-def _provider_protocol_message(item: dict[str, Any]) -> dict[str, Any] | None:
-    role = str(item.get("role") or item.get("type") or "").strip()
-    if role not in {"user", "assistant", "tool"}:
-        return None
-    message: dict[str, Any] = {
-        "role": role,
-        "content": str(item.get("content") or ""),
-    }
-    for key in ("name", "tool_call_id"):
-        value = str(item.get(key) or "").strip()
-        if value:
-            message[key] = value
-    if role == "assistant":
-        reasoning_content = str(item.get("reasoning_content") or "").strip()
-        if reasoning_content:
-            message["reasoning_content"] = reasoning_content
-        tool_calls = item.get("tool_calls")
-        if isinstance(tool_calls, list) and tool_calls:
-            message["tool_calls"] = [dict(call) for call in tool_calls if isinstance(call, dict)]
-    if role == "tool" and not message.get("tool_call_id"):
-        return None
-    if role == "assistant" and not message.get("content") and not message.get("tool_calls") and not message.get("reasoning_content"):
-        return None
-    if role == "user" and not message.get("content"):
-        return None
-    return message
 
 
 def _model_messages_and_segment_plan(
@@ -1510,6 +1544,18 @@ def _merge_prompt_assemblies(
         sections.extend(assembly.sections)
         pack_refs.extend(assembly.prompt_pack_refs)
         rejected_refs.extend(dict(item) for item in assembly.rejected_refs)
+    rule_diagnostics = build_rule_diagnostics(tuple(sections), invocation_kind=invocation_kind)
+    rejected_refs.extend(dict(item) for item in list(rule_diagnostics.get("rejected_rules") or []))
+    if rule_diagnostics.get("rejected_rules"):
+        rejected = ", ".join(
+            f"{item.get('ref', '')}:{item.get('reason', '')}"
+            for item in list(rule_diagnostics.get("rejected_rules") or [])
+            if isinstance(item, dict)
+        )
+        raise ValueError(
+            "runtime prompt rule assembly rejected refs: "
+            f"invocation_kind={invocation_kind} refs={rejected}"
+        )
     return PromptAssemblyResult(
         assembly_id=f"promptasm:runtime_packet:{invocation_kind}",
         invocation_kind=invocation_kind,
@@ -1521,6 +1567,7 @@ def _merge_prompt_assemblies(
             "stable_contract_refs": [item.source_ref for item in sections if not item.prompt_ref],
             "prompt_pack_refs": list(dict.fromkeys(pack_refs)),
             "rejected_refs": rejected_refs,
+            "prompt_rules": rule_diagnostics,
             "authority": "prompt_library.prompt_assembly_manifest",
         },
     )

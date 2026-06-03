@@ -27,7 +27,7 @@ def test_active_turn_does_not_derive_from_historical_task_run(tmp_path: Path) ->
     assert host.active_turn_registry.snapshot("session:test") is None
 
 
-def test_active_turn_binds_task_and_steer_reuses_active_task_steer(tmp_path: Path) -> None:
+def test_active_turn_binds_task_and_steer_only_queues_pending_input(tmp_path: Path) -> None:
     host = SingleAgentRuntimeHost(tmp_path, backend_dir=Path.cwd())
     host.active_turn_registry.start(session_id="session:test", turn_id="turn:session:test:1")
     action_request = ModelActionRequest(
@@ -65,11 +65,13 @@ def test_active_turn_binds_task_and_steer_reuses_active_task_steer(tmp_path: Pat
     )
 
     assert result.ok is True
+    assert result.status == "queued"
     assert result.task_run_id == task_run.task_run_id
-    assert str((result.steer or {}).get("steer_id") or "").startswith(f"steer:{task_run.task_run_id}:")
+    assert result.pending_input_ref.startswith("rtobj:active_turn_pending_input:")
+    assert result.steer in (None, {})
     updated = host.state_index.get_task_run(task_run.task_run_id)
     assert updated is not None
-    assert int(dict(updated.diagnostics or {}).get("pending_user_steer_count") or 0) == 1
+    assert int(dict(updated.diagnostics or {}).get("pending_user_steer_count") or 0) == 0
 
 
 def test_active_turn_complete_releases_session(tmp_path: Path) -> None:

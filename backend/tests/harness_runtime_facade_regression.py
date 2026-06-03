@@ -409,7 +409,7 @@ def test_single_agent_turn_read_only_tool_executes_through_control_plane_and_fol
     assert tool_observations and tool_observations[0]["status"] == "ok"
     assert tool_observations[0]["caller_kind"] == "agent_turn"
     assert tool_observations[0]["tool_name"] == "read_file"
-    assert dict(tool_observations[0].get("diagnostics") or {}).get("stage") == "tool_runtime_executor_core"
+    assert dict(tool_observations[0].get("diagnostics") or {}).get("stage") == "tool_runtime_executor_dispatch"
     assert str(tool_observations[0].get("caller_ref") or "").startswith("turnrun:")
     assert "task_run_id" not in dict(tool_observations[0].get("result_envelope") or {})
     assert dict(list(assistant_tool_message["tool_calls"])[0]).get("id") == "call-read-requirements"
@@ -2228,7 +2228,7 @@ def test_execute_task_run_uses_task_bound_agent_profile_for_runtime_assembly() -
         agent_id="agent:3",
         agent_profile_id="custom_single_agent_task_profile",
         allowed_operations=("op.model_response",),
-        metadata={"work_role_prompt": "你是单 agent 专用执行员。"},
+        metadata={},
     )
     host = runtime.single_agent_runtime_host
     contract = TaskRunContract(
@@ -2283,7 +2283,8 @@ def test_execute_task_run_uses_task_bound_agent_profile_for_runtime_assembly() -
 
     assert result["ok"] is True
     assert assembly["agent_profile_ref"] == "custom_single_agent_task_profile"
-    assert assembly["agent_prompt_refs"] == ["agent.custom_single_agent_task_profile.work_role.v1"]
+    assert assembly["agent_prompt_refs"] == []
+    assert assembly["agent_prompt_refs_by_invocation"] == {}
     assert agent_runs[-1].agent_id == "agent:3"
     assert agent_run_results[-1].agent_id == "agent:3"
 
@@ -3045,13 +3046,58 @@ def test_active_work_turn_policy_repairs_control_only_to_reply_then_control() ->
     assert decision.continuation_strategy == "same_run_resume"
 
 
+def test_active_turn_input_goes_through_model_turn_instead_of_registry_steer() -> None:
+    model = _ActiveWorkDecisionModelRuntime([
+        {
+            "action": "answer_about_active_work",
+            "relation_to_current_work": "current_work",
+            "evidence": "用户询问当前工作状态",
+            "response": "当前工作还在等待继续执行。",
+            "confidence": 0.9,
+        }
+    ])
+    runtime = build_harness_runtime(model_runtime=model)
+    task_run_id = _seed_active_work(runtime, task_run_id="taskrun:active-turn-model-decision")
+
+    host = runtime.single_agent_runtime_host
+    host.active_turn_registry.start(session_id="session-active-work", turn_id="turn:active:current")
+    host.active_turn_registry.bind_task_run(
+        session_id="session-active-work",
+        turn_id="turn:active:current",
+        task_run_id=task_run_id,
+        state="waiting_executor",
+    )
+
+    async def _collect() -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime.astream(
+            HarnessRuntimeRequest(
+                session_id="session-active-work",
+                message="现在做到哪了？",
+                expected_active_turn_id="turn:active:current",
+            )
+        ):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_collect())
+    event_types = [str(event.get("type") or "") for event in events]
+    updated_task = host.state_index.get_task_run(task_run_id)
+
+    assert "single_agent_turn_started" in event_types
+    assert "active_task_steer_accepted" not in event_types
+    assert model.active_work_decision_count == 1
+    assert updated_task is not None
+    assert int(dict(updated_task.diagnostics or {}).get("pending_user_steer_count") or 0) == 0
+    assert any(event.get("type") == "done" and "当前工作还在等待继续执行" in str(event.get("content") or "") for event in events)
+
+
 def test_single_agent_turn_does_not_control_active_work_without_native_action() -> None:
     class NoActiveWorkToolModelRuntime:
         def __init__(self) -> None:
             self.active_work_decision_count = 0
 
         async def invoke_messages_with_tools(self, _messages, tools, **_kwargs):
-            assert not any(dict(tool).get("name") == "active_work_control" for tool in list(tools or []))
             return SimpleNamespace(content="普通回复。", tool_calls=[])
 
         async def invoke_messages(self, _messages, **_kwargs):

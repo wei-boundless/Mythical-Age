@@ -11,6 +11,7 @@ from permissions.operations import build_default_operation_registry
 from harness.agent_control.controller import SubagentControl
 from orchestration.runtime_directive import RuntimeDirective
 from permissions import PermissionContext, ResourceDecision, ResourcePolicy
+from harness.loop.action_permit import validate_tool_invocation_permit
 from runtime.shared.action_request import RuntimeActionRequest
 from runtime.shared.execution_record import (
     build_idempotency_token,
@@ -19,10 +20,6 @@ from runtime.shared.execution_record import (
 )
 from runtime.shared.models import AgentRun
 from runtime.shared.safety import build_task_safety_validators
-from runtime.tool_runtime.tool_invocation_control import (
-    ToolInvocationContext,
-    build_tool_invocation_idempotency_key,
-)
 from runtime.tool_runtime.tool_invocation_request import ToolInvocationRequest
 from runtime.tool_runtime.tool_observation import ToolObservation
 from runtime.tool_runtime.tool_result_envelope import build_tool_result_envelope
@@ -36,6 +33,62 @@ _AGENT_TURN_SANDBOX_AUTO_ALLOW_OPERATIONS = {
 }
 
 
+@dataclass(frozen=True, slots=True)
+class ToolDispatchHandler:
+    handler_id: str
+    caller_kinds: tuple[str, ...]
+    operation_prefixes: tuple[str, ...] = ()
+    operation_ids: tuple[str, ...] = ()
+    default_for_caller: bool = False
+
+    def matches(self, request: ToolInvocationRequest) -> bool:
+        caller_kind = str(request.caller_kind or "").strip()
+        if caller_kind not in set(self.caller_kinds):
+            return False
+        operation_id = str(request.operation_id or "").strip()
+        if self.operation_ids and operation_id in set(self.operation_ids):
+            return True
+        if self.operation_prefixes and any(operation_id.startswith(prefix) for prefix in self.operation_prefixes):
+            return True
+        return self.default_for_caller
+
+
+@dataclass(frozen=True, slots=True)
+class ToolDispatchHandlerRegistry:
+    handlers: tuple[ToolDispatchHandler, ...]
+
+    def handler_for(self, request: ToolInvocationRequest) -> ToolDispatchHandler | None:
+        for handler in self.handlers:
+            if handler.matches(request):
+                return handler
+        return None
+
+
+_DEFAULT_TOOL_HANDLER_REGISTRY = ToolDispatchHandlerRegistry(
+    handlers=(
+        ToolDispatchHandler(
+            handler_id="subagent_control",
+            caller_kinds=("task_run",),
+            operation_prefixes=("op.subagent_",),
+        ),
+        ToolDispatchHandler(
+            handler_id="task_tool_runtime",
+            caller_kinds=("task_run",),
+            default_for_caller=True,
+        ),
+        ToolDispatchHandler(
+            handler_id="agent_turn_core",
+            caller_kinds=("agent_turn",),
+            default_for_caller=True,
+        ),
+    )
+)
+
+
+def _tool_handler_registry() -> ToolDispatchHandlerRegistry:
+    return _DEFAULT_TOOL_HANDLER_REGISTRY
+
+
 @dataclass(slots=True)
 class RuntimeToolControlPlane:
     """Runtime/session-level tool admission and observation boundary."""
@@ -45,6 +98,14 @@ class RuntimeToolControlPlane:
     operation_gate: Any | None = None
 
     async def invoke(self, request: ToolInvocationRequest, *, tool_plan: Any) -> ToolObservation:
+        permit_denial = _action_permit_denial(request)
+        if permit_denial:
+            return _observation(
+                request,
+                status="denied",
+                text=permit_denial,
+                diagnostics={"stage": "action_permit", "reason": permit_denial},
+            )
         denial = _membership_denial(request, tool_plan=tool_plan)
         if denial:
             return _observation(
@@ -58,7 +119,43 @@ class RuntimeToolControlPlane:
                 },
             )
         if request.caller_kind != "task_run":
+            handler = _tool_handler_registry().handler_for(request)
+            if handler is None:
+                return _observation(
+                    request,
+                    status="error",
+                    text="caller tool dispatch is not connected for this caller",
+                    diagnostics={
+                        "stage": "caller_dispatch_not_connected",
+                        "caller_kind": request.caller_kind,
+                        "tool_plan_ref": tool_plan.plan_id,
+                    },
+                )
+            if handler.handler_id != "agent_turn_core":
+                return _observation(
+                    request,
+                    status="error",
+                    text="caller tool dispatch handler is not valid for this caller",
+                    diagnostics={
+                        "stage": "caller_dispatch_handler_mismatch",
+                        "handler_id": handler.handler_id,
+                        "caller_kind": request.caller_kind,
+                        "tool_plan_ref": tool_plan.plan_id,
+                    },
+                )
             return await self._invoke_agent_turn_or_fail_closed(request, tool_plan=tool_plan)
+        handler = _tool_handler_registry().handler_for(request)
+        if handler is None:
+            return _observation(
+                request,
+                status="error",
+                text="caller tool dispatch is not connected for this caller",
+                diagnostics={
+                    "stage": "caller_dispatch_not_connected",
+                    "caller_kind": request.caller_kind,
+                    "tool_plan_ref": tool_plan.plan_id,
+                },
+            )
         directive, runtime_action, sandbox_policy, file_policy, resource_policy = _execution_contracts(request, tool_plan=tool_plan)
         execution_record = None
         execution_store = _execution_store(request)
@@ -135,7 +232,7 @@ class RuntimeToolControlPlane:
             )
         normalized_args = dict(supervision.normalized_args or request.tool_args or {})
         runtime_action = _runtime_action_with_args(runtime_action, tool_name=request.tool_name, tool_call_id=request.tool_call_id, tool_args=normalized_args)
-        if _is_subagent_operation(request):
+        if handler.handler_id == "subagent_control":
             observation = await _invoke_subagent_control(
                 request,
                 directive=directive,
@@ -157,34 +254,40 @@ class RuntimeToolControlPlane:
         runtime_host = _runtime_host(request)
         if tool_runtime is not None and getattr(tool_runtime, "runtime_host", None) is None and runtime_host is not None:
             setattr(tool_runtime, "runtime_host", runtime_host)
-        result = await self.tool_runtime_executor.run(
-            task_run_id=request.task_run_id,
-            action_request=runtime_action,
+        dispatch = getattr(self.tool_runtime_executor, "execute_control_plane_request", None)
+        if not callable(dispatch):
+            return _observation(
+                request,
+                status="error",
+                text="tool_runtime_executor_dispatch_unavailable",
+                operation_gate=supervision.gate_result.to_dict() if hasattr(supervision.gate_result, "to_dict") else {},
+                execution_receipt=_execution_receipt(execution_record, error="tool_runtime_executor_dispatch_unavailable"),
+                diagnostics={
+                    "stage": "tool_runtime_executor_dispatch_unavailable",
+                    "handler_id": handler.handler_id,
+                    "tool_plan_ref": tool_plan.plan_id,
+                },
+            )
+        result = await dispatch(
+            request=request,
+            runtime_action=runtime_action,
             directive=directive,
             execution_record=execution_record,
             execution_store=execution_store,
             sandbox_policy=sandbox_policy,
             file_management_policy=file_policy,
-            tool_invocation_context=ToolInvocationContext(
-                tool_invocation_id=request.invocation_id,
-                caller_kind=request.caller_kind,
-                caller_ref=request.caller_ref,
-                session_id=request.session_id,
-                turn_id=request.turn_id,
-                task_run_id=request.task_run_id,
-                tool_call_id=request.tool_call_id,
-                idempotency_key=build_tool_invocation_idempotency_key(
-                    tool_name=request.tool_name,
-                    tool_args=normalized_args,
-                    tool_invocation_id=request.invocation_id,
-                ),
-            ),
+            normalized_args=normalized_args,
         )
         return _observation_from_executor_result(
             request,
             result=result,
             operation_gate=supervision.gate_result.to_dict() if hasattr(supervision.gate_result, "to_dict") else {},
-            diagnostics={"stage": "tool_runtime_executor", "tool_plan_ref": tool_plan.plan_id, "supervision": supervision.to_dict()},
+            diagnostics={
+                "stage": "tool_runtime_executor",
+                "handler_id": handler.handler_id,
+                "tool_plan_ref": tool_plan.plan_id,
+                "supervision": supervision.to_dict(),
+            },
         )
 
     async def _invoke_agent_turn_or_fail_closed(self, request: ToolInvocationRequest, *, tool_plan: Any) -> ToolObservation:
@@ -261,36 +364,38 @@ class RuntimeToolControlPlane:
                     "supervision": supervision.to_dict(),
                 },
             )
-        if self.tool_runtime_executor is None or not hasattr(self.tool_runtime_executor, "run_core"):
+        if self.tool_runtime_executor is None or not hasattr(self.tool_runtime_executor, "execute_control_plane_request"):
             return _observation(
                 request,
                 status="error",
-                text="tool_runtime_executor_core_unavailable",
+                text="tool_runtime_executor_dispatch_unavailable",
                 operation_gate=supervision.gate_result.to_dict() if hasattr(supervision.gate_result, "to_dict") else {},
-                diagnostics={"stage": "tool_runtime_executor_core_unavailable", "tool_plan_ref": tool_plan.plan_id},
+                diagnostics={
+                    "stage": "tool_runtime_executor_dispatch_unavailable",
+                    "handler_id": "agent_turn_core",
+                    "tool_plan_ref": tool_plan.plan_id,
+                },
             )
         runtime_host = _runtime_host(request)
         tool_runtime = getattr(self.tool_runtime_executor, "tool_runtime", None)
         if tool_runtime is not None and getattr(tool_runtime, "runtime_host", None) is None and runtime_host is not None:
             setattr(tool_runtime, "runtime_host", runtime_host)
-        result = await self.tool_runtime_executor.run_core(
-            caller_kind=request.caller_kind,
-            caller_ref=request.caller_ref,
-            session_id=request.session_id,
-            turn_id=request.turn_id,
-            tool_invocation_id=request.invocation_id,
-            tool_name=request.tool_name,
-            tool_call_id=request.tool_call_id,
-            tool_args=dict(supervision.normalized_args or request.tool_args or {}),
-            operation_id=request.operation_id,
+        result = await self.tool_runtime_executor.execute_control_plane_request(
+            request=request,
             sandbox_policy=sandbox_policy,
             file_management_policy=file_policy,
+            normalized_args=dict(supervision.normalized_args or request.tool_args or {}),
         )
         return _observation_from_core_result(
             request,
             result=result,
             operation_gate=supervision.gate_result.to_dict() if hasattr(supervision.gate_result, "to_dict") else {},
-            diagnostics={"stage": "tool_runtime_executor_core", "tool_plan_ref": tool_plan.plan_id, "supervision": supervision.to_dict()},
+            diagnostics={
+                "stage": "tool_runtime_executor_dispatch",
+                "handler_id": "agent_turn_core",
+                "tool_plan_ref": tool_plan.plan_id,
+                "supervision": supervision.to_dict(),
+            },
         )
 
 
@@ -308,6 +413,16 @@ def _membership_denial(request: ToolInvocationRequest, *, tool_plan: Any) -> str
     if capability.tool_name != tool_name:
         return "tool name does not match RuntimeToolPlan capability"
     return ""
+
+
+def _action_permit_denial(request: ToolInvocationRequest) -> str:
+    return validate_tool_invocation_permit(
+        action_permit=dict(request.action_permit or {}),
+        action_request_ref=request.action_request_ref,
+        invocation_kind="task_execution" if request.caller_kind == "task_run" else str(request.caller_kind or ""),
+        tool_name=request.tool_name,
+        operation_id=request.operation_id,
+    )
 
 
 def _observation(
@@ -625,7 +740,7 @@ async def _invoke_subagent_control(
         execution_receipt=_execution_receipt(execution_record),
         result_envelope=envelope.to_dict(),
         artifact_refs=tuple(_artifact_refs_from_subagent_payload(payload)),
-        diagnostics={"stage": "subagent_control_handler", "payload": dict(payload or {})},
+        diagnostics={"stage": "subagent_control_handler", "handler_id": "subagent_control", "payload": dict(payload or {})},
     )
 
 
@@ -730,10 +845,6 @@ def _sandbox_relative_paths(values: Any, *, sandbox_policy: dict[str, Any]) -> l
         except Exception:
             roots.append(text)
     return roots
-
-
-def _is_subagent_operation(request: ToolInvocationRequest) -> bool:
-    return str(request.operation_id or "").startswith("op.subagent_")
 
 
 def _artifact_refs_from_subagent_payload(payload: Any) -> list[dict[str, Any]]:

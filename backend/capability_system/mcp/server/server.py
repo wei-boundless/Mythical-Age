@@ -11,6 +11,7 @@ from mcp.types import ToolAnnotations
 from pydantic import BaseModel, ConfigDict, Field
 
 from capability_system.mcp.local_registry import default_local_mcp_units
+from capability_system.paths import resolve_capability_backend_dir
 from capability_system.skills.registry import SkillRegistry
 from .local_capability_server import LocalCapabilityMCPExecutor, LocalMCPToolRequest
 from .tool_pool import build_mcp_tool_pool
@@ -51,7 +52,7 @@ def build_server(*, backend_dir: Path | None = None, executor: LocalCapabilityMC
             "It exposes knowledge retrieval, PDF analysis, and structured-data analysis as MCP tools."
         ),
     )
-    root = Path(backend_dir or _default_backend_dir()).resolve()
+    root = resolve_capability_backend_dir(backend_dir or _default_backend_dir())
     active_executor = executor or _executor_for_backend(root)
     readonly_annotations = ToolAnnotations(
         readOnlyHint=True,
@@ -254,14 +255,14 @@ def _skill_resource_payload(skill: Any) -> dict[str, Any]:
 
 @lru_cache(maxsize=4)
 def _executor_for_backend(backend_dir_text: str | Path) -> LocalCapabilityMCPExecutor:
-    return LocalCapabilityMCPExecutor(backend_dir=Path(backend_dir_text).resolve())
+    return LocalCapabilityMCPExecutor(backend_dir=resolve_capability_backend_dir(backend_dir_text))
 
 
 def _default_backend_dir() -> Path:
     env = str(os.getenv("LANGCHAIN_AGENT_BACKEND_DIR") or "").strip()
     if env:
         return Path(env)
-    return Path(__file__).resolve().parents[1]
+    return Path(__file__).resolve().parents[3]
 
 
 mcp = build_server()

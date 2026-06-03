@@ -54,6 +54,10 @@ class GraphContextMaterializer:
             inbound_context=inbound_context,
         )
         environment_refs = _environment_refs(graph_config)
+        structure_hash = state.structure_hash or graph_config.expected_structural_hash()
+        structure_version = state.structure_version or "graph_structure.v1"
+        config_snapshot_id = graph_config.config_id
+        config_snapshot_hash = graph_config.content_hash
         return GraphNodeWorkOrder(
             work_order_id=work_order_id,
             work_kind=_graph_work_kind(executor_type),
@@ -61,6 +65,10 @@ class GraphContextMaterializer:
             task_run_id=state.task_run_id,
             config_id=graph_config.config_id,
             config_hash=graph_config.content_hash,
+            structure_hash=structure_hash,
+            structure_version=structure_version,
+            config_snapshot_id=config_snapshot_id,
+            config_snapshot_hash=config_snapshot_hash,
             task_ref=str(node.get("task_ref") or f"task_graph.node.{graph_config.graph_id}.{node_id}"),
             executor_type=executor_type,
             node_id=node_id,
@@ -74,6 +82,10 @@ class GraphContextMaterializer:
                 "graph_run_id": state.graph_run_id,
                 "graph_id": graph_config.graph_id,
                 "config_id": graph_config.config_id,
+                "graph_structure_hash": structure_hash,
+                "graph_structure_version": structure_version,
+                "config_snapshot_id": config_snapshot_id,
+                "config_snapshot_hash": config_snapshot_hash,
                 "runtime_scope": _runtime_scope_from_state(state),
                 "graph_clock_seq": state.event_cursor + 1,
                 "completed_node_ids": list(state.completed_node_ids),
@@ -100,6 +112,10 @@ class GraphContextMaterializer:
             dispatch_context={
                 "graph_run_id": state.graph_run_id,
                 "config_id": graph_config.config_id,
+                "graph_structure_hash": structure_hash,
+                "graph_structure_version": structure_version,
+                "config_snapshot_id": config_snapshot_id,
+                "config_snapshot_hash": config_snapshot_hash,
                 "runtime_scope": _runtime_scope_from_state(state),
                 "graph_clock_seq": state.event_cursor + 1,
                 "dispatch_event_id": f"dispatch:{state.graph_run_id}:{node_id}:{int(time.time() * 1000)}",

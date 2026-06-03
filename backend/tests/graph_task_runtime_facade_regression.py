@@ -11,6 +11,7 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 from harness import GraphHarness
+from harness.graph.model_overrides import work_order_with_model_overrides
 from harness.graph.models import NodeResultEnvelope, stable_safe_id
 from harness.graph.runner import GraphRunRunner
 from harness.loop.task_executor_controller import TaskExecutorController
@@ -1854,13 +1855,131 @@ def test_graph_node_task_run_contract_and_origin_are_explicit() -> None:
     assert selection["runtime_profile"]["tool_policy"] == {}
 
 
+def test_graph_node_task_run_records_runtime_model_override() -> None:
+    runtime = _runtime("graph-node-runtime-model-override-")
+    registry = TaskFlowRegistry(runtime.base_dir)
+    graph = registry.upsert_task_graph(
+        graph_id="graph.test.runtime_model_override",
+        title="Runtime Model Override",
+        graph_kind="multi_agent",
+        entry_node_id="draft",
+        output_node_id="draft",
+        nodes=(
+            {
+                "node_id": "draft",
+                "node_type": "agent",
+                "title": "执行",
+                "task_id": "task.test.execute",
+                "agent_id": "agent:0",
+                "metadata": {
+                    "prompt_contract": {"role_prompt": "你是一名执行员。"},
+                },
+            },
+        ),
+        runtime_policy={"coordinator_agent_id": "agent:0", "task_environment_id": "env.development.sandbox"},
+        publish_state="published",
+        enabled=True,
+    )
+    graph_config = publish_graph_harness_config_for_graph(base_dir=runtime.base_dir, graph_id=graph.graph_id)
+    start = runtime.graph_harness.start_run(session_id="session:test", task_id="", graph_config=graph_config)
+    work_order, override_diagnostics = work_order_with_model_overrides(
+        graph_config=graph_config,
+        work_order=start.node_work_orders[0],
+        runtime_overrides={
+            "model_overrides": {
+                "role_groups": {
+                    "writing": {
+                        "provider": "deepseek",
+                        "model": "deepseek-v4-pro",
+                        "credential_ref": "env:DEEPSEEK_WRITING_API_KEY",
+                    }
+                }
+            }
+        },
+    )
+
+    task_run = runtime._create_graph_node_task_run(graph_config=graph_config, work_order=work_order)
+    diagnostics = dict(task_run.diagnostics or {})
+    runtime_profile = dict(dict(diagnostics.get("runtime_task_selection") or {}).get("runtime_profile") or {})
+    contract = _runtime_object_payload(runtime, task_run.task_contract_ref)
+
+    assert override_diagnostics["effective"]["model"] == "deepseek-v4-pro"
+    assert dict(runtime_profile.get("model_requirement") or {})["model"] == "deepseek-v4-pro"
+    assert dict(contract["runtime_profile"]["model_requirement"])["model"] == "deepseek-v4-pro"
+    assert diagnostics["graph_model_override"]["matched_scope"] == "role_group"
+
+
+def test_existing_waiting_graph_node_task_run_refreshes_runtime_model_override() -> None:
+    runtime = _runtime("graph-node-runtime-model-override-refresh-")
+    registry = TaskFlowRegistry(runtime.base_dir)
+    graph = registry.upsert_task_graph(
+        graph_id="graph.test.runtime_model_override_refresh",
+        title="Runtime Model Override Refresh",
+        graph_kind="multi_agent",
+        entry_node_id="draft",
+        output_node_id="draft",
+        nodes=(
+            {
+                "node_id": "draft",
+                "node_type": "agent",
+                "title": "执行",
+                "task_id": "task.test.execute",
+                "agent_id": "agent:0",
+                "metadata": {"prompt_contract": {"role_prompt": "你是一名执行员。"}},
+            },
+        ),
+        runtime_policy={"coordinator_agent_id": "agent:0", "task_environment_id": "env.development.sandbox"},
+        publish_state="published",
+        enabled=True,
+    )
+    graph_config = publish_graph_harness_config_for_graph(base_dir=runtime.base_dir, graph_id=graph.graph_id)
+    start = runtime.graph_harness.start_run(session_id="session:test", task_id="", graph_config=graph_config)
+    original_task = runtime._create_graph_node_task_run(graph_config=graph_config, work_order=start.node_work_orders[0])
+    runtime.single_agent_runtime_host.state_index.upsert_task_run(
+        TaskRun(
+            **{
+                **original_task.to_dict(),
+                "diagnostics": {
+                    **dict(original_task.diagnostics or {}),
+                    "model_selection": {"provider": "deepseek", "model": "deepseek-v4-flash"},
+                },
+            }
+        )
+    )
+    work_order, _diagnostics = work_order_with_model_overrides(
+        graph_config=graph_config,
+        work_order=start.node_work_orders[0],
+        runtime_overrides={
+            "model_overrides": {
+                "nodes": {
+                    "draft": {
+                        "provider": "deepseek",
+                        "model": "deepseek-v4-pro",
+                        "credential_ref": "env:DEEPSEEK_WRITING_API_KEY",
+                    }
+                }
+            }
+        },
+    )
+
+    refreshed = runtime._create_graph_node_task_run(graph_config=graph_config, work_order=work_order)
+    diagnostics = dict(refreshed.diagnostics or {})
+    runtime_profile = dict(dict(diagnostics.get("runtime_task_selection") or {}).get("runtime_profile") or {})
+    contract = _runtime_object_payload(runtime, refreshed.task_contract_ref)
+
+    assert "model_selection" not in diagnostics
+    assert dict(runtime_profile.get("model_requirement") or {})["model"] == "deepseek-v4-pro"
+    assert dict(contract["runtime_profile"]["model_requirement"])["model"] == "deepseek-v4-pro"
+    assert diagnostics["graph_model_override"]["matched_key"] == "draft"
+
+
 def test_graph_node_agent_profile_id_does_not_replace_agent_id() -> None:
     runtime = _runtime("graph-node-agent-profile-boundary-")
     runtime.agent_runtime_registry.upsert_profile(
         agent_id="agent:0",
         agent_profile_id="custom_graph_node_profile",
         allowed_operations=("op.model_response",),
-        metadata={"work_role_prompt": "你是图节点专用执行员。"},
+        metadata={},
     )
     registry = TaskFlowRegistry(runtime.base_dir)
     graph = registry.upsert_task_graph(
@@ -1900,7 +2019,7 @@ def test_graph_node_agent_profile_id_drives_task_executor_runtime_assembly() -> 
         agent_id="agent:0",
         agent_profile_id="custom_graph_node_profile",
         allowed_operations=("op.model_response",),
-        metadata={"work_role_prompt": "你是图节点专用执行员。"},
+        metadata={},
     )
     registry = TaskFlowRegistry(runtime.base_dir)
     graph = registry.upsert_task_graph(
@@ -1945,7 +2064,8 @@ def test_graph_node_agent_profile_id_drives_task_executor_runtime_assembly() -> 
     assert result.status == "completed"
     assert result.graph_result["node_result_refs"][0] == state["result_index"]["draft"]["result_ref"]
     assert assembly["agent_profile_ref"] == "custom_graph_node_profile"
-    assert assembly["agent_prompt_refs"] == ["agent.custom_graph_node_profile.work_role.v1"]
+    assert assembly["agent_prompt_refs"] == []
+    assert assembly["agent_prompt_refs_by_invocation"] == {}
 
 
 def test_graph_node_missing_agent_profile_fails_closed() -> None:

@@ -8,6 +8,7 @@ from runtime.shared.models import TaskRun
 
 from .graph.loop import GraphLoop, GraphLoopAdvance, GraphLoopStart
 from .graph.models import GraphHarnessConfig, GraphNodeWorkOrder, GraphRun, NodeResultEnvelope
+from .graph.model_overrides import merge_effective_runtime_overrides
 from .graph.resume import GraphResumeResult, GraphResumeService
 from .graph.runner import GraphRunRunner, GraphRunRunnerResult
 from .graph.runtime import GraphRuntime, GraphRuntimeStart
@@ -149,11 +150,24 @@ class GraphHarness:
         work_order: GraphNodeWorkOrder | dict[str, Any],
         max_steps: int = 12,
         accept_result: bool = True,
+        runtime_overrides: dict[str, Any] | None = None,
+        runtime_settings_patch: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
+        order = work_order if isinstance(work_order, GraphNodeWorkOrder) else GraphNodeWorkOrder.from_dict(dict(work_order or {}))
+        if runtime_settings_patch:
+            self.apply_runtime_settings_patch(
+                graph_run_id=order.graph_run_id,
+                runtime_settings_patch=dict(runtime_settings_patch or {}),
+            )
+        effective_runtime_overrides = self._effective_runtime_overrides(
+            graph_run_id=order.graph_run_id,
+            runtime_overrides=runtime_overrides,
+        )
         execution = await self._work_order_executor.execute(
             graph_config=graph_config,
-            work_order=work_order,
+            work_order=order,
             max_steps=max_steps,
+            runtime_overrides=effective_runtime_overrides,
         )
         advance = None
         if accept_result and _result_should_advance_loop(execution.node_result):
@@ -189,7 +203,14 @@ class GraphHarness:
         max_dispatches: int = 64,
         max_runtime_seconds: float = 0.0,
         max_dispatch_requests: int | None = None,
+        runtime_overrides: dict[str, Any] | None = None,
+        runtime_settings_patch: dict[str, Any] | None = None,
     ) -> GraphRunRunnerResult:
+        if runtime_settings_patch:
+            self.apply_runtime_settings_patch(
+                graph_run_id=graph_run_id,
+                runtime_settings_patch=dict(runtime_settings_patch or {}),
+            )
         return await self._runner.run_until_idle(
             graph_config=graph_config,
             graph_run_id=graph_run_id,
@@ -199,6 +220,26 @@ class GraphHarness:
             max_dispatches=max_dispatches,
             max_runtime_seconds=max_runtime_seconds,
             max_dispatch_requests=max_dispatch_requests,
+            runtime_overrides=dict(runtime_overrides or {}),
+        )
+
+    def apply_runtime_settings_patch(self, *, graph_run_id: str, runtime_settings_patch: dict[str, Any] | None) -> dict[str, Any]:
+        patched = self._loop.patch_runtime_settings_and_checkpoint(
+            graph_run_id=graph_run_id,
+            runtime_settings_patch=dict(runtime_settings_patch or {}),
+        )
+        return {
+            "graph_loop_state": patched.loop_state.to_dict(),
+            "checkpoint": dict(patched.checkpoint),
+            "events": [dict(item) for item in patched.events],
+        }
+
+    def _effective_runtime_overrides(self, *, graph_run_id: str, runtime_overrides: dict[str, Any] | None) -> dict[str, Any]:
+        state = self._loop.get_state(graph_run_id)
+        diagnostics = dict(getattr(state, "diagnostics", {}) or {}) if state is not None else {}
+        return merge_effective_runtime_overrides(
+            persistent=diagnostics.get("runtime_settings") or {},
+            temporary=dict(runtime_overrides or {}),
         )
 
     def get_checkpoint_state(self, graph_run_id: str) -> dict[str, Any]:

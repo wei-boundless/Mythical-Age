@@ -24,6 +24,7 @@ class ToolInvocationRequest:
     packet_ref: str = ""
     tool_plan_ref: str = ""
     admission_ref: str = ""
+    action_permit: dict[str, Any] = field(default_factory=dict)
     permission_mode: str = "default"
     caller_resource_scope: dict[str, Any] = field(default_factory=dict)
     sandbox_scope: dict[str, Any] = field(default_factory=dict)
@@ -49,6 +50,7 @@ class ToolInvocationRequest:
         payload = asdict(self)
         payload["tool_args"] = dict(self.tool_args or {})
         payload["caller_resource_scope"] = dict(self.caller_resource_scope or {})
+        payload["action_permit"] = dict(self.action_permit or {})
         payload["sandbox_scope"] = dict(self.sandbox_scope or {})
         payload["file_scope"] = dict(self.file_scope or {})
         payload["requested_constraints"] = dict(self.requested_constraints or {})

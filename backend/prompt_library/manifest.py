@@ -19,6 +19,7 @@ class RuntimePromptManifest:
     dynamic_projection_refs: tuple[str, ...] = ()
     volatile_state_refs: tuple[str, ...] = ()
     cache_boundary: dict[str, Any] = field(default_factory=dict)
+    prompt_rules: dict[str, Any] = field(default_factory=dict)
     token_estimate: dict[str, Any] = field(default_factory=dict)
     diagnostics: dict[str, Any] = field(default_factory=dict)
     authority: str = "runtime.prompt_manifest"
@@ -32,6 +33,7 @@ class RuntimePromptManifest:
         payload["dynamic_projection_refs"] = list(self.dynamic_projection_refs)
         payload["volatile_state_refs"] = list(self.volatile_state_refs)
         payload["cache_boundary"] = dict(self.cache_boundary)
+        payload["prompt_rules"] = dict(self.prompt_rules)
         payload["token_estimate"] = dict(self.token_estimate)
         payload["diagnostics"] = dict(self.diagnostics)
         return payload
@@ -60,6 +62,7 @@ def build_runtime_prompt_manifest(
     }
     digest = hashlib.sha256(json.dumps(manifest_seed, sort_keys=True).encode("utf-8")).hexdigest()[:16]
     cache_scope_counts = _cache_scope_counts(assembly)
+    prompt_rules = dict(assembly.manifest.get("prompt_rules") or {})
     static_count = sum(
         count
         for scope, count in cache_scope_counts.items()
@@ -81,6 +84,7 @@ def build_runtime_prompt_manifest(
             "static_cache_scopes": sorted(scope for scope in cache_scope_counts if _is_static_cache_scope(scope)),
             "volatile_state_after_stable_sections": True,
         },
+        prompt_rules=prompt_rules,
         token_estimate={
             "prompt_chars": sum(len(item.content) for item in assembly.sections),
         },

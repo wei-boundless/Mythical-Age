@@ -86,6 +86,27 @@ def test_chapter_draft_self_repair_keeps_long_output_and_full_handoff_budget() -
     assert edge["artifact_ref_policy"]["max_chars"] == 60000
 
 
+def test_chapter_draft_can_delegate_chapter_subtasks_and_receive_metric_feedback() -> None:
+    module = load_writing_modular_config_module()
+    node_by_id = {node.node_id: node for node in module.CHAPTER_NODES}
+
+    draft_payload = module._node_payload(node_by_id["chapter_draft"])
+    runtime_policy = dict(draft_payload.get("runtime_policy") or {})
+    operation_policy = dict(dict(draft_payload.get("executor_policy") or {}).get("operation_policy") or {})
+    subagent_policy = dict(runtime_policy.get("subagent_policy") or {})
+    control_capabilities = dict(runtime_policy.get("control_capabilities") or {})
+
+    assert subagent_policy["enabled"] is True
+    assert subagent_policy["allowed_subagent_ids"] == [module.WORKER_AGENT_ID]
+    assert subagent_policy["max_active_subagents"] == 1
+    assert control_capabilities["may_use_subagents"] is True
+    assert "op.subagent_spawn" in operation_policy["allowed_operations"]
+    assert "op.subagent_wait" in operation_policy["allowed_operations"]
+    assert "op.subagent_list" in operation_policy["allowed_operations"]
+    assert "op.subagent_close" in operation_policy["allowed_operations"]
+    assert "op.subagent_message" in operation_policy["allowed_operations"]
+
+
 def test_self_repair_nodes_do_not_register_duplicate_source_output_contracts() -> None:
     module = load_writing_modular_config_module()
     counts = Counter(spec.contract_id for spec in module._contract_specs())
@@ -144,10 +165,17 @@ def test_writing_prompts_define_outline_hierarchy_and_node_handoffs() -> None:
     assert "分纲写手不得越过大纲" in chapter_outline_prompt
     assert "输入继承证据表" in chapter_outline_prompt
     assert "不能把选拔、筑基、卷末战争等后续阶段压入第1-10章" in chapter_outline_prompt
+    assert "运行时任务包里的章号范围是当前节点最高执行边界" in chapter_outline_prompt
+    assert "卷内节奏段" in chapter_outline_prompt
 
     assert "正文写手只执行已通过当前批次细纲" in chapter_draft_prompt
     assert "层级来源链" in chapter_draft_prompt
     assert "不能擅自重排剧情" in chapter_draft_prompt
+    assert "必须按章生成" in chapter_draft_prompt
+    assert "系统反馈的实际字数" in chapter_draft_prompt
+    assert "text_metric" in chapter_draft_prompt
+    assert "不得用自己的估算替代系统字数反馈" in chapter_draft_prompt
+    assert "不得等十章写完后才统一发现字数不足" in chapter_draft_prompt
 
     assert "大纲层级一致性检查" in chapter_review_prompt
     assert "正文越过章节细纲" in chapter_review_prompt
@@ -158,3 +186,4 @@ def test_writing_prompts_define_outline_hierarchy_and_node_handoffs() -> None:
 
     assert "上游层级冲突/返修请求" in chapter_outline_repair_prompt
     assert "节点对接协议" in chapter_outline_repair_prompt
+    assert "运行时任务包里的 batch_start_index" in chapter_outline_repair_prompt

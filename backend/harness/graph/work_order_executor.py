@@ -12,6 +12,7 @@ from task_system.runtime_semantics.chapter_progress import (
 )
 
 from .models import GraphHarnessConfig, GraphNodeWorkOrder, NodeResultEnvelope, safe_id, stable_safe_id
+from .model_overrides import sanitize_runtime_overrides, work_order_with_model_overrides
 from .output_policy import resolve_output_policy
 from .runtime_objects import node_result_summary, work_order_summary
 
@@ -37,12 +38,25 @@ class GraphNodeWorkOrderExecutor:
         graph_config: GraphHarnessConfig,
         work_order: GraphNodeWorkOrder | dict[str, Any],
         max_steps: int = 12,
+        runtime_overrides: dict[str, Any] | None = None,
     ) -> GraphWorkOrderExecution:
         order = work_order if isinstance(work_order, GraphNodeWorkOrder) else GraphNodeWorkOrder.from_dict(dict(work_order or {}))
-        if order.config_id != graph_config.config_id:
-            raise ValueError("GraphNodeWorkOrder config_id does not match GraphHarnessConfig")
+        order, model_override_diagnostics = work_order_with_model_overrides(
+            graph_config=graph_config,
+            work_order=order,
+            runtime_overrides=sanitize_runtime_overrides(runtime_overrides or {}),
+        )
+        if order.structure_hash and order.structure_hash != graph_config.expected_structural_hash():
+            raise ValueError("GraphNodeWorkOrder structure_hash does not match GraphHarnessConfig")
+        if not _graph_node_by_id(graph_config, order.node_id):
+            raise ValueError("GraphNodeWorkOrder node_id not found in GraphHarnessConfig")
         if order.work_kind == "agent":
-            return await self._execute_agent_node(graph_config=graph_config, work_order=order, max_steps=max_steps)
+            return await self._execute_agent_node(
+                graph_config=graph_config,
+                work_order=order,
+                max_steps=max_steps,
+                model_override_diagnostics=model_override_diagnostics,
+            )
         if order.work_kind == "human_gate":
             return self._unsupported_executor_result(
                 graph_config=graph_config,
@@ -67,6 +81,7 @@ class GraphNodeWorkOrderExecutor:
         graph_config: GraphHarnessConfig,
         work_order: GraphNodeWorkOrder,
         max_steps: int,
+        model_override_diagnostics: dict[str, Any] | None = None,
     ) -> GraphWorkOrderExecution:
         executor = self._services.execute_graph_agent_work_order_callback
         if not callable(executor):
@@ -86,6 +101,7 @@ class GraphNodeWorkOrderExecutor:
             work_order=work_order,
             task_run_id=str(task_run_payload.get("task_run_id") or ""),
             executor_result=dict(executor_result or {}),
+            model_override_diagnostics=dict(model_override_diagnostics or {}),
         )
         event = self._services.event_log.append(
             work_order.task_run_id,
@@ -121,6 +137,7 @@ class GraphNodeWorkOrderExecutor:
         work_order: GraphNodeWorkOrder,
         task_run_id: str,
         executor_result: dict[str, Any],
+        model_override_diagnostics: dict[str, Any] | None = None,
     ) -> NodeResultEnvelope:
         ok = bool(executor_result.get("ok") is True)
         task_run_payload = dict(executor_result.get("task_run") or {})
@@ -173,8 +190,17 @@ class GraphNodeWorkOrderExecutor:
             artifact_refs=artifact_refs,
             result_status=result_status,
         )
-        if result_status == "completed" and quality_acceptance and not bool(quality_acceptance.get("accepted")):
-            result_status = "failed"
+        quality_gate_failed = bool(result_status == "completed" and quality_acceptance and not bool(quality_acceptance.get("accepted")))
+        result_error = (
+            _node_result_error(
+                executor_result=executor_result,
+                task_run_payload=task_run_payload,
+                postprocess_errors=postprocess_errors,
+                quality_acceptance=quality_acceptance,
+            )
+            if result_status != "completed" or quality_gate_failed
+            else {}
+        )
         return NodeResultEnvelope(
             result_id=f"nresult:{stable_safe_id(work_order.graph_run_id)}:{stable_safe_id(work_order.node_id)}:{stable_safe_id(work_order.work_order_id)}",
             graph_run_id=work_order.graph_run_id,
@@ -195,12 +221,7 @@ class GraphNodeWorkOrderExecutor:
             artifact_materialization_receipts=tuple(artifact_receipts),
             memory_commit_receipts=tuple(memory_receipts),
             handoff_summary=final_answer[:1200],
-            error={} if result_status == "completed" else _node_result_error(
-                executor_result=executor_result,
-                task_run_payload=task_run_payload,
-                postprocess_errors=postprocess_errors,
-                quality_acceptance=quality_acceptance,
-            ),
+            error=result_error,
             diagnostics={
                 "authority": "harness.graph.work_order_executor.agent_result",
                 "graph_harness_config_id": graph_config.config_id,
@@ -208,6 +229,7 @@ class GraphNodeWorkOrderExecutor:
                 "executor_result": _public_executor_result(executor_result),
                 "formal_postprocess_errors": postprocess_errors,
                 **({"quality_acceptance": quality_acceptance} if quality_acceptance else {}),
+                **({"graph_model_override": dict(model_override_diagnostics or {})} if model_override_diagnostics else {}),
             },
             created_at=time.time(),
         )

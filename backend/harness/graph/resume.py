@@ -4,6 +4,7 @@ from dataclasses import dataclass, replace
 import time
 from typing import Any
 
+from .loop import assert_graph_config_compatible_with_state
 from .models import GraphHarnessConfig, GraphLoopState, GraphNodeWorkOrder
 
 
@@ -59,10 +60,7 @@ class GraphResumeService:
         state = self._graph_loop.get_state(graph_run_id)
         if state is None:
             raise ValueError(f"GraphLoopState not found: {graph_run_id}")
-        if state.config_id != graph_config.config_id:
-            raise ValueError("Graph resume config_id mismatch")
-        if state.config_hash != graph_config.content_hash:
-            raise ValueError("Graph resume config_hash mismatch")
+        assert_graph_config_compatible_with_state(graph_config=graph_config, state=state)
         active = _active_work_orders_from_state(state)
         recovered = _recover_stale_active_graph_node_executors(
             services=self._services,

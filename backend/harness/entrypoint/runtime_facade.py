@@ -12,6 +12,7 @@ from observability import build_debug_trace_event, start_turn_trace
 from capability_system.tools.authorization import build_tool_authorization_index
 from harness import GraphHarness
 from harness.runtime import AgentRuntimeServices, SingleAgentRuntimeHost, TaskExecutorServices, assemble_runtime
+from harness.runtime.request_facts import build_turn_input_facts
 from harness.runtime.public_progress import public_runtime_progress_summary
 from runtime import ModelResponseRuntimeExecutor, ModelRuntimeError, ToolRuntimeExecutor
 from runtime.shared.history_assembler import assemble_runtime_history
@@ -188,58 +189,19 @@ class HarnessRuntimeFacade:
         started_active_turn_id = ""
         try:
             active_turn = self.single_agent_runtime_host.active_turn_registry.resolve_current(request.session_id)
-            if active_turn is not None:
-                expected_active_turn_id = str(getattr(request, "expected_active_turn_id", "") or "").strip()
-                steer_result = self.single_agent_runtime_host.active_turn_registry.steer(
-                    session_id=request.session_id,
-                    expected_turn_id=expected_active_turn_id,
-                    user_message=request.message,
-                    stream_run_id=str(dict(getattr(request, "runtime_profile", {}) or {}).get("stream_run_id") or ""),
-                )
-                if steer_result.ok:
-                    yield {
-                        "type": "active_task_steer_accepted",
-                        "summary": steer_result.message,
-                        "status": steer_result.status,
-                        "terminal_reason": "active_turn_steer",
-                        "active_turn_id": steer_result.actual_turn_id,
-                        "active_turn": steer_result.active_turn.to_dict() if steer_result.active_turn else {},
-                        "task_run_id": steer_result.task_run_id,
-                        "steer": dict(steer_result.steer or {}),
-                    }
-                    yield final_answer_event(
-                        content=steer_result.message,
-                        answer_source="harness.runtime.active_turn.steer",
-                        terminal_reason="active_turn_steer",
-                        extra={
-                            "completion_state": "task_steer_accepted",
-                            "active_turn_id": steer_result.actual_turn_id,
-                            "task_run": {"task_run_id": steer_result.task_run_id} if steer_result.task_run_id else {},
-                        },
-                    )
-                    return
-                yield error_event(
-                    content=steer_result.message or "当前任务仍在运行，请刷新状态后重试。",
-                    code=steer_result.status,
-                    reason=steer_result.status,
-                    extra={
-                        "active_turn_id": steer_result.actual_turn_id,
-                        "active_turn": steer_result.active_turn.to_dict() if steer_result.active_turn else {},
-                    },
-                )
-                return
             input_commit_gate = self._commit_user_message(
                 session_id=request.session_id,
                 content=request.message,
                 turn_id=turn_id,
             )
-            self.single_agent_runtime_host.active_turn_registry.start(
-                session_id=request.session_id,
-                turn_id=turn_id,
-                stream_run_id=str(dict(getattr(request, "runtime_profile", {}) or {}).get("stream_run_id") or ""),
-                state="starting",
-            )
-            started_active_turn_id = turn_id
+            if active_turn is None:
+                self.single_agent_runtime_host.active_turn_registry.start(
+                    session_id=request.session_id,
+                    turn_id=turn_id,
+                    stream_run_id=str(dict(getattr(request, "runtime_profile", {}) or {}).get("stream_run_id") or ""),
+                    state="starting",
+                )
+                started_active_turn_id = turn_id
             with start_turn_trace(
                 session_id=request.session_id,
                 user_message=request.message,
@@ -276,6 +238,7 @@ class HarnessRuntimeFacade:
                     request_task_selection=dict(request.task_selection or {}),
                     turn_id=turn_id,
                     runtime_profile=dict(request.runtime_profile or {}),
+                    active_turn_present=active_turn is not None,
                 )
                 agent_invocation_id = f"aginvoke:{turn_id}:main"
                 tool_instances = self._all_tool_instances()
@@ -299,10 +262,24 @@ class HarnessRuntimeFacade:
                 active_work_context = self._active_work_context_from_active_turn(request.session_id)
                 if active_work_context is None:
                     active_work_context = self._resumable_work_context_from_latest_task(request.session_id)
+                recent_work_outcome: dict[str, Any] = {}
                 if active_work_context is None:
                     recent_work_outcome = self._recent_work_outcome_from_latest_task(request.session_id)
                     if recent_work_outcome:
                         session_context["recent_work_outcome"] = recent_work_outcome
+                turn_input_facts = build_turn_input_facts(
+                    session_id=request.session_id,
+                    turn_id=turn_id,
+                    user_message=request.message,
+                    expected_active_turn_id=str(getattr(request, "expected_active_turn_id", "") or "").strip(),
+                    active_turn=active_turn,
+                    active_work_candidate=active_work_context,
+                    recent_work_outcome_candidate=recent_work_outcome,
+                    task_selection=dict(request.task_selection or {}),
+                    runtime_profile=dict(request.runtime_profile or {}),
+                )
+                session_context["turn_id"] = turn_id
+                session_context["turn_input_facts"] = turn_input_facts.to_dict()
                 yield {
                     "type": "runtime_branch_decided",
                     "runtime_branch": runtime_branch,
@@ -1056,10 +1033,17 @@ class HarnessRuntimeFacade:
         existing = runtime_host.state_index.get_task_run(node_task_run_id)
         if existing is not None:
             _validate_existing_graph_node_task_run(existing, graph_run_id=work_order.graph_run_id, work_order_id=work_order.work_order_id)
-            return existing
+            return _refresh_existing_graph_node_task_run(
+                runtime_host=runtime_host,
+                graph_config=graph_config,
+                work_order=work_order,
+                task_run=existing,
+                now=now,
+            )
         origin = _graph_node_origin(work_order)
         contract = _graph_node_contract_from_work_order(work_order)
         runtime_selection = _graph_node_task_selection(graph_config, work_order)
+        model_override_diagnostics = _graph_model_override_diagnostics(work_order)
         node_agent_id = _graph_node_agent_id(graph_config, work_order)
         node_profile = self._resolve_graph_node_profile(node_agent_id=node_agent_id, work_order=work_order, graph_config=graph_config)
         node_profile_id = str(getattr(node_profile, "agent_profile_id", "") or "")
@@ -1098,6 +1082,7 @@ class HarnessRuntimeFacade:
                 **_graph_node_public_scope_fields(work_order),
                 "runtime_task_selection": runtime_selection,
                 "contract": contract.to_dict(),
+                **({"graph_model_override": model_override_diagnostics} if model_override_diagnostics else {}),
             },
         )
         agent_run = AgentRun(
@@ -1580,6 +1565,46 @@ def _graph_node_task_run_id(work_order: Any) -> str:
     )
 
 
+def _graph_model_override_diagnostics(work_order: Any) -> dict[str, Any]:
+    dispatch_context = dict(getattr(work_order, "dispatch_context", {}) or {})
+    diagnostics = dispatch_context.get("model_override_diagnostics")
+    return dict(diagnostics or {}) if isinstance(diagnostics, dict) else {}
+
+
+def _refresh_existing_graph_node_task_run(
+    *,
+    runtime_host: Any,
+    graph_config: Any,
+    work_order: Any,
+    task_run: TaskRun,
+    now: float,
+) -> TaskRun:
+    model_override_diagnostics = _graph_model_override_diagnostics(work_order)
+    if not model_override_diagnostics:
+        return task_run
+    if str(getattr(task_run, "status", "") or "") not in {"created", "waiting_executor"}:
+        return task_run
+
+    contract = _graph_node_contract_from_work_order(work_order)
+    runtime_selection = _graph_node_task_selection(graph_config, work_order)
+    contract_ref = runtime_host.runtime_objects.put_object("task_run_contract", contract.contract_id, contract.to_dict())
+    diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
+    diagnostics.pop("model_selection", None)
+    diagnostics["runtime_task_selection"] = runtime_selection
+    diagnostics["contract"] = contract.to_dict()
+    diagnostics["graph_model_override"] = model_override_diagnostics
+    updated = TaskRun(
+        **{
+            **task_run.to_dict(),
+            "task_contract_ref": contract_ref,
+            "updated_at": now,
+            "diagnostics": diagnostics,
+        }
+    )
+    runtime_host.state_index.upsert_task_run(updated)
+    return runtime_host.state_index.get_task_run(updated.task_run_id) or updated
+
+
 def _validate_existing_graph_node_task_run(task_run: TaskRun, *, graph_run_id: str, work_order_id: str) -> None:
     diagnostics = dict(task_run.diagnostics or {})
     if str(diagnostics.get("origin_kind") or "") != "graph_node_assigned":
@@ -1595,13 +1620,30 @@ def _task_selection_for_runtime(
     request_task_selection: dict[str, Any],
     turn_id: str,
     runtime_profile: dict[str, Any] | None = None,
+    active_turn_present: bool = False,
 ) -> dict[str, Any]:
     profile_payload = {
         **dict(request_task_selection.get("runtime_profile") or {}),
         **dict(runtime_profile or {}),
     }
+    selection_payload = dict(request_task_selection or {})
+    if active_turn_present:
+        selection_payload.pop("task_contract", None)
+        selection_payload.pop("task_contract_seed", None)
+        selection_payload.pop("engagement_contract", None)
+        selection_payload.pop("system_issued_contract", None)
+        explicit_control = dict(selection_payload.get("control_capabilities") or {})
+        control_capabilities = {
+            **explicit_control,
+            "may_call_tools": False,
+            "may_request_task_run": False,
+            "may_control_active_work": explicit_control.get("may_control_active_work") is not False,
+            "may_use_subagents": False,
+            "requires_json_action_protocol": False,
+        }
+        selection_payload["control_capabilities"] = control_capabilities
     return {
-        **dict(request_task_selection or {}),
+        **selection_payload,
         "turn_id": turn_id,
         **({"runtime_profile": profile_payload} if profile_payload else {}),
     }

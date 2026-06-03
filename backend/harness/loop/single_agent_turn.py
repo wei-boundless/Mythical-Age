@@ -8,6 +8,7 @@ from dataclasses import replace
 from typing import Any, AsyncIterator, Awaitable, Callable
 
 from harness.loop.admission import AdmissionDecision, admit_model_action
+from harness.loop.action_permit import action_permit_from_admission
 from harness.loop.model_action_protocol import ModelActionRequest
 from harness.loop.model_action_runtime import call_model_invoker
 from harness.loop.presentation import error_event, final_answer_event
@@ -16,10 +17,12 @@ from harness.runtime.file_management_policy import compile_tool_file_management_
 from harness.runtime.prompt_segment_plan import build_prompt_segment_plan
 from harness.runtime.public_progress import public_runtime_progress_summary
 from runtime.prompt_accounting.serializer import normalize_messages
+from runtime.model_gateway.model_response_protocol import model_response_protocol_from_response
+from runtime.model_gateway.protocol_sanitizer import sanitize_messages_for_prompt
 from runtime.model_gateway.model_runtime import stringify_content
 from runtime.shared.models import TurnRun
 from runtime.tool_runtime import ToolInvocationRequest, build_tool_invocation_id
-from runtime.tool_runtime.provider_tool_call_adapter import normalize_tool_call_dicts, tool_calls_for_langchain_messages
+from runtime.tool_runtime.provider_tool_call_adapter import tool_calls_for_langchain_messages
 
 
 logger = logging.getLogger(__name__)
@@ -68,11 +71,7 @@ async def run_single_agent_turn(
             yield {"type": "harness_run_started", "turn_run": turn_run.to_dict(), "event": start_event}
         compiler = RuntimeCompiler()
         active_work_payload = _active_work_payload(active_work_context)
-        active_work_for_turn = (
-            active_work_payload
-            if _user_message_targets_active_work(user_message) or _task_selection_allows_active_work_control(session_context)
-            else {}
-        )
+        active_work_for_turn = active_work_payload
         compilation = compiler.compile_single_agent_turn_packet(
             session_id=session_id,
             turn_id=turn_id,
@@ -96,7 +95,11 @@ async def run_single_agent_turn(
             invocation_kind="single_agent_turn",
             tool_definitions_by_name=getattr(getattr(runtime_host, "tool_authorization_index", None), "definitions_by_name", {}),
         )
-        model_messages = list(compilation.packet.model_messages)
+        model_messages = _sanitize_model_messages(
+            list(compilation.packet.model_messages),
+            turn_id=turn_id,
+            source="harness.loop.single_agent_turn.initial",
+        )
         api_protocol_messages: list[dict[str, Any]] = []
         response = await _invoke_single_turn_model(
             model_runtime=model_runtime,
@@ -118,7 +121,11 @@ async def run_single_agent_turn(
         while True:
             if isinstance(response, dict) and response.get("type") == "error":
                 break
-            tool_calls = normalize_tool_call_dicts(response)
+            tool_calls = _native_tool_calls_from_response(
+                response,
+                request_id=f"model-response:{compilation.packet.packet_id}:tool:{tool_iteration + 1}",
+                turn_id=turn_id,
+            )
             tool_action = _tool_action_request_from_native_tool_calls(
                 tool_calls,
                 turn_id=turn_id,
@@ -128,18 +135,22 @@ async def run_single_agent_turn(
             if tool_action is None:
                 break
             if tool_iteration >= _MAX_SINGLE_TURN_TOOL_ITERATIONS:
-                synthesis_messages = [
-                    *model_messages,
-                    {
-                        "role": "user",
-                        "content": (
-                            "本轮工具观察已经达到运行边界。现在禁止继续调用工具。"
-                            "请只基于当前用户问题、已有上下文和已经返回的工具观察直接回答用户。"
-                            "如果事实不足，说明已知事实、缺口和下一步建议；不要再请求工具。"
-                        ),
-                        "turn_id": turn_id,
-                    },
-                ]
+                synthesis_messages = _sanitize_model_messages(
+                    [
+                        *model_messages,
+                        {
+                            "role": "user",
+                            "content": (
+                                "本轮工具观察已经达到运行边界。现在禁止继续调用工具。"
+                                "请只基于当前用户问题、已有上下文和已经返回的工具观察直接回答用户。"
+                                "如果事实不足，说明已知事实、缺口和下一步建议；不要再请求工具。"
+                            ),
+                            "turn_id": turn_id,
+                        },
+                    ],
+                    turn_id=turn_id,
+                    source="harness.loop.single_agent_turn.tool_limit_synthesis",
+                )
                 synthesis_segment_plan = _single_agent_turn_followup_segment_plan(
                     base_segment_plan=dict(compilation.packet.segment_plan or {}),
                     model_messages=synthesis_messages,
@@ -222,6 +233,15 @@ async def run_single_agent_turn(
                 permission_mode=runtime_host._current_permission_mode() if runtime_host is not None and hasattr(runtime_host, "_current_permission_mode") else "default",
                 side_effect_policy="runtime_authorized",
             )
+            action_permit = action_permit_from_admission(
+                tool_action,
+                admission,
+                invocation_kind="agent_turn",
+                packet_allowed_action_types=tuple(compilation.packet.allowed_action_types),
+                allowed_tool_names=set(runtime_tool_plan.dispatchable_tool_names),
+                permission_mode=runtime_host._current_permission_mode() if runtime_host is not None and hasattr(runtime_host, "_current_permission_mode") else "default",
+                side_effect_policy="runtime_authorized",
+            )
             if runtime_host is not None and turn_run is not None:
                 event = _record_model_action_admission(
                     runtime_host,
@@ -295,6 +315,7 @@ async def run_single_agent_turn(
                 turn_id=turn_id,
                 action_request=tool_action,
                 admission=admission,
+                action_permit=action_permit.to_dict(),
                 packet_ref=compilation.packet.packet_id,
                 tool_plan=runtime_tool_plan,
             )
@@ -353,11 +374,15 @@ async def run_single_agent_turn(
                 turn_id,
             )
             api_protocol_messages.extend([assistant_protocol_message, tool_protocol_message])
-            model_messages = [
-                *model_messages,
-                assistant_protocol_message,
-                tool_protocol_message,
-            ]
+            model_messages = _sanitize_model_messages(
+                [
+                    *model_messages,
+                    assistant_protocol_message,
+                    tool_protocol_message,
+                ],
+                turn_id=turn_id,
+                source="harness.loop.single_agent_turn.tool_followup",
+            )
             followup_segment_plan = _single_agent_turn_followup_segment_plan(
                 base_segment_plan=dict(compilation.packet.segment_plan or {}),
                 model_messages=model_messages,
@@ -399,7 +424,11 @@ async def run_single_agent_turn(
                 terminal_recorded = True
                 yield {"type": "agent_turn_terminal", "event": terminal}
             return
-        tool_calls = normalize_tool_call_dicts(response)
+        tool_calls = _native_tool_calls_from_response(
+            response,
+            request_id=f"model-response:{compilation.packet.packet_id}:final",
+            turn_id=turn_id,
+        )
         action_request = _action_request_from_native_tool_calls(
             tool_calls,
             turn_id=turn_id,
@@ -706,6 +735,11 @@ async def _invoke_single_turn_model(
     accounting_context: dict[str, Any],
     native_tools: list[dict[str, Any]],
 ) -> Any:
+    model_messages = _sanitize_model_messages(
+        model_messages,
+        turn_id=str(accounting_context.get("turn_id") or ""),
+        source=str(accounting_context.get("source") or "harness.loop.single_agent_turn.invoke"),
+    )
     tool_invoker = getattr(model_runtime, "invoke_messages_with_tools", None)
     plain_invoker = getattr(model_runtime, "invoke_messages", None)
     if native_tools and callable(tool_invoker):
@@ -743,6 +777,16 @@ async def _invoke_single_turn_model(
         code="model_runtime_unavailable",
         reason="model_runtime_unavailable",
     )
+
+
+def _native_tool_calls_from_response(response: Any, *, request_id: str, turn_id: str) -> list[dict[str, Any]]:
+    protocol = model_response_protocol_from_response(
+        response,
+        request_id=request_id,
+        turn_id=turn_id,
+        allow_native_tool_calls=True,
+    )
+    return [dict(item) for item in protocol.native_tool_calls]
 
 
 def _native_tools_for_packet(allowed_action_types: tuple[str, ...], *, available_tools: tuple[dict[str, Any], ...] = ()) -> list[dict[str, Any]]:
@@ -971,7 +1015,7 @@ def _tool_action_request_from_native_tool_calls(
         args = dict(call.get("args") or {})
         call_id = str(call.get("id") or f"call:{tool_name}:{iteration}")
         return ModelActionRequest(
-            request_id=f"model-action:{turn_id}:single-agent-tool:{iteration}:{uuid.uuid4().hex[:8]}",
+            request_id=f"model-action:{turn_id}:single-agent-tool:{iteration}:{_stable_action_suffix(call_id or tool_name)}",
             turn_id=turn_id,
             action_type="tool_call",
             public_progress_note=f"已发起工具调用，正在等待工具返回：{tool_name}。",
@@ -988,6 +1032,13 @@ def _tool_action_request_from_native_tool_calls(
             },
         )
     return None
+
+
+def _stable_action_suffix(value: str) -> str:
+    import hashlib
+
+    text = str(value or "").strip() or "tool-call"
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:12]
 
 
 def _active_work_action_request_from_native_tool_calls(
@@ -1058,6 +1109,7 @@ async def _invoke_turn_tool(
     turn_id: str,
     action_request: ModelActionRequest,
     admission: AdmissionDecision,
+    action_permit: dict[str, Any],
     packet_ref: str,
     tool_plan: Any,
 ):
@@ -1089,6 +1141,7 @@ async def _invoke_turn_tool(
         operation_id=operation_id,
         tool_plan_ref=str(getattr(tool_plan, "plan_id", "") or ""),
         admission_ref=admission.admission_id,
+        action_permit=dict(action_permit or {}),
         permission_mode=runtime_host._current_permission_mode() if runtime_host is not None and hasattr(runtime_host, "_current_permission_mode") else "default",
         sandbox_scope=_single_turn_sandbox_scope(assembly_payload),
         file_scope=compile_tool_file_management_policy(dict(assembly_payload.get("task_environment") or {})),
@@ -1226,6 +1279,22 @@ def _with_turn_id(message: dict[str, Any], turn_id: str) -> dict[str, Any]:
     return {**dict(message or {}), "turn_id": turn_id}
 
 
+def _sanitize_model_messages(
+    messages: list[dict[str, Any]],
+    *,
+    turn_id: str,
+    source: str,
+) -> list[dict[str, Any]]:
+    return [
+        dict(item)
+        for item in sanitize_messages_for_prompt(
+            messages,
+            turn_id=turn_id,
+            source=source,
+        ).messages
+    ]
+
+
 def _single_agent_turn_followup_segment_plan(
     *,
     base_segment_plan: dict[str, Any],
@@ -1240,7 +1309,13 @@ def _single_agent_turn_followup_segment_plan(
         index = _segment_model_message_index(segment)
         if index >= 0:
             base_segments[index] = dict(segment)
-    normalized_messages = normalize_messages(model_messages)
+    normalized_messages = normalize_messages(
+        _sanitize_model_messages(
+            model_messages,
+            turn_id="",
+            source="harness.loop.single_agent_turn.followup_segment_plan",
+        )
+    )
     specs: list[dict[str, Any]] = []
     for index, message in enumerate(normalized_messages):
         base = dict(base_segments.get(index) or {})
@@ -1316,6 +1391,11 @@ async def _commit_final_message(
     answer_source: str,
     api_protocol_messages: list[dict[str, Any]] | None = None,
 ) -> None:
+    sanitized_protocol_messages = _sanitize_model_messages(
+        [dict(item) for item in list(api_protocol_messages or []) if isinstance(item, dict)],
+        turn_id=turn_id,
+        source="harness.loop.single_agent_turn.commit_api_protocol_messages",
+    )
     await commit_assistant_message(
         session_id,
         {
@@ -1327,7 +1407,7 @@ async def _commit_final_message(
             "answer_canonical_state": "final",
             "answer_persist_policy": "persist_canonical",
             "answer_finalization_policy": "assistant_final",
-            "api_protocol_messages": [dict(item) for item in list(api_protocol_messages or []) if isinstance(item, dict)],
+            "api_protocol_messages": sanitized_protocol_messages,
         },
     )
 
@@ -1338,51 +1418,6 @@ def _active_work_payload(active_work_context: Any | None) -> dict[str, Any]:
     if hasattr(active_work_context, "to_dict"):
         return dict(active_work_context.to_dict())
     return dict(active_work_context or {})
-
-
-def _task_selection_allows_active_work_control(session_context: dict[str, Any] | None) -> bool:
-    payload = dict(session_context or {})
-    task_selection = dict(payload.get("task_selection") or {})
-    capabilities = dict(task_selection.get("control_capabilities") or {})
-    return bool(capabilities.get("may_control_active_work") is True)
-
-
-def _user_message_targets_active_work(message: str) -> bool:
-    text = str(message or "").strip().lower()
-    if not text:
-        return False
-    keywords = (
-        "继续",
-        "接着",
-        "恢复",
-        "续上",
-        "暂停",
-        "停止",
-        "终止",
-        "取消",
-        "先停",
-        "进展",
-        "状态",
-        "做到哪",
-        "做到哪里",
-        "卡住",
-        "为什么停",
-        "补充",
-        "改成",
-        "按这个方向",
-        "当前工作",
-        "上个任务",
-        "继续当前",
-        "resume",
-        "continue",
-        "pause",
-        "stop",
-        "cancel",
-        "status",
-        "progress",
-        "current work",
-    )
-    return any(keyword in text for keyword in keywords)
 
 
 def _start_turn_runtime(

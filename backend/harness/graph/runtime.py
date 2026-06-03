@@ -42,6 +42,7 @@ class GraphRuntime:
         expected_hash = graph_config.expected_content_hash()
         if graph_config.content_hash and graph_config.content_hash != expected_hash:
             raise ValueError("GraphHarnessConfig content_hash mismatch")
+        structure_hash = graph_config.expected_structural_hash()
         now = time.time()
         graph_run_id = f"grun:{safe_id(graph_config.graph_id)}:{int(now * 1000)}"
         task_run_id = f"taskrun:{safe_id(graph_config.graph_id)}:{int(now * 1000)}"
@@ -72,6 +73,10 @@ class GraphRuntime:
                 "graph_id": graph_config.graph_id,
                 "graph_harness_config_id": graph_config.config_id,
                 "graph_harness_config_hash": graph_config.content_hash,
+                "graph_structure_hash": structure_hash,
+                "graph_structure_version": "graph_structure.v1",
+                "config_snapshot_id": graph_config.config_id,
+                "config_snapshot_hash": graph_config.content_hash,
                 "task_environment_id": graph_config.task_environment_id,
                 "session_scope": session_scope,
                 "session_scope_key": _session_scope_key(session_scope),
@@ -88,6 +93,10 @@ class GraphRuntime:
             graph_id=graph_config.graph_id,
             config_id=graph_config.config_id,
             config_hash=graph_config.content_hash,
+            structure_hash=structure_hash,
+            structure_version="graph_structure.v1",
+            config_snapshot_id=graph_config.config_id,
+            config_snapshot_hash=graph_config.content_hash,
             workspace_view=session_scope["workspace_view"],
             task_environment_id=session_scope["task_environment_id"],
             project_id=session_scope["project_id"],
@@ -98,6 +107,12 @@ class GraphRuntime:
             diagnostics={
                 **dict(diagnostics or {}),
                 "task_environment_id": graph_config.task_environment_id,
+                "graph_harness_config_id": graph_config.config_id,
+                "graph_harness_config_hash": graph_config.content_hash,
+                "graph_structure_hash": structure_hash,
+                "graph_structure_version": "graph_structure.v1",
+                "config_snapshot_id": graph_config.config_id,
+                "config_snapshot_hash": graph_config.content_hash,
                 "session_scope": session_scope,
                 "session_scope_key": _session_scope_key(session_scope),
                 "root_task_ref": graph_config.root_task_ref,
@@ -125,6 +140,10 @@ class GraphRuntime:
             config_id=graph_config.config_id,
             config_hash=graph_config.content_hash,
             graph_id=graph_config.graph_id,
+            structure_hash=structure_hash,
+            structure_version="graph_structure.v1",
+            config_snapshot_id=graph_config.config_id,
+            config_snapshot_hash=graph_config.content_hash,
             initial_inputs=dict(initial_inputs or {}),
             static_topology_view=static_topology_view,
             contract_index=contract_index,

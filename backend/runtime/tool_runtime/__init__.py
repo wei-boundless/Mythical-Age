@@ -16,7 +16,12 @@ from runtime.tool_runtime.tool_invocation_control import (
     registry_for,
 )
 from runtime.tool_runtime.tool_observation import ToolObservation
-from runtime.tool_runtime.tool_result_envelope import ToolResultEnvelope, build_tool_result_envelope
+from runtime.tool_runtime.tool_result_envelope import (
+    ToolResultEnvelope,
+    build_tool_result_envelope,
+    build_tool_result_envelope_id,
+    build_tool_result_idempotency_key,
+)
 from runtime.tool_runtime.tool_use_context import ToolUseContext
 
 __all__ = [
@@ -36,6 +41,8 @@ __all__ = [
     "ToolValidationResult",
     "build_round_tool_call_options",
     "build_tool_result_envelope",
+    "build_tool_result_envelope_id",
+    "build_tool_result_idempotency_key",
     "build_tool_invocation_id",
     "build_tool_invocation_idempotency_key",
     "extract_tool_call_intents",

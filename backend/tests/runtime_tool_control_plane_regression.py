@@ -13,6 +13,7 @@ from harness.runtime import build_runtime_tool_plan
 from permissions import OperationGate
 from permissions.operations import build_default_operation_registry
 from runtime.tool_runtime import RuntimeToolControlPlane, ToolInvocationRequest
+from runtime.tool_runtime.tool_invocation_control import ToolInvocationContext
 
 
 def test_runtime_tool_plan_stably_orders_visible_tools_and_hashes_schema() -> None:
@@ -298,6 +299,13 @@ def test_runtime_tool_control_plane_denies_tool_outside_plan_without_dispatch() 
         tool_name="terminal",
         tool_call_id="call:shell",
         operation_id="op.shell",
+        action_request_ref="action:shell",
+        action_permit=_permit(
+            action_request_ref="action:shell",
+            invocation_kind="agent_turn",
+            tool_name="terminal",
+            operation_id="op.shell",
+        ),
     )
 
     observation = asyncio.run(RuntimeToolControlPlane().invoke(request, tool_plan=plan))
@@ -305,6 +313,31 @@ def test_runtime_tool_control_plane_denies_tool_outside_plan_without_dispatch() 
     assert observation.status == "denied"
     assert observation.diagnostics["stage"] == "capability_membership"
     assert "operation not present" in observation.text
+
+
+def test_runtime_tool_control_plane_denies_missing_action_permit_before_membership() -> None:
+    plan = build_runtime_tool_plan(
+        runtime_assembly=_assembly(available_tools=[{"name": "read_file", "operation_id": "op.read_file"}]),
+        invocation_kind="single_agent_turn",
+        tool_definitions_by_name={"read_file": SimpleNamespace(operation_id="op.read_file", is_read_only=True)},
+    )
+    request = ToolInvocationRequest(
+        invocation_id="toolinvoke:turn:no-permit",
+        caller_kind="agent_turn",
+        caller_ref="turnrun:one",
+        session_id="session:one",
+        turn_id="turn:one:1",
+        action_request_ref="action:read",
+        tool_name="read_file",
+        tool_call_id="call:read",
+        operation_id="op.read_file",
+    )
+
+    observation = asyncio.run(RuntimeToolControlPlane().invoke(request, tool_plan=plan))
+
+    assert observation.status == "denied"
+    assert observation.diagnostics["stage"] == "action_permit"
+    assert observation.text == "action_permit_missing"
 
 
 def test_runtime_tool_control_plane_dispatches_task_run_through_gate_and_executor() -> None:
@@ -329,6 +362,12 @@ def test_runtime_tool_control_plane_dispatches_task_run_through_gate_and_executo
         tool_call_id="call:read",
         tool_args={"path": "README.md"},
         operation_id="op.read_file",
+        action_permit=_permit(
+            action_request_ref="action:read",
+            invocation_kind="task_execution",
+            tool_name="read_file",
+            operation_id="op.read_file",
+        ),
         requested_constraints={
             "runtime_host": SimpleNamespace(
                 execution_store=None,
@@ -345,6 +384,7 @@ def test_runtime_tool_control_plane_dispatches_task_run_through_gate_and_executo
     assert observation.status == "ok"
     assert observation.text == "ok"
     assert observation.result_envelope["tool_name"] == "read_file"
+    assert observation.diagnostics["handler_id"] == "task_tool_runtime"
     assert gate.checked == [("op.read_file", "runtime-directive:taskrun:one:tool:action:read")]
     assert executor.preflight_calls == 1
     assert executor.run_calls == 1
@@ -352,8 +392,8 @@ def test_runtime_tool_control_plane_dispatches_task_run_through_gate_and_executo
     assert executor.last_run["tool_invocation_context"].caller_kind == "task_run"
 
 
-def test_runtime_tool_control_plane_fail_closes_agent_turn_when_core_dispatch_is_missing() -> None:
-    executor = _RecordingToolExecutor()
+def test_runtime_tool_control_plane_fail_closes_agent_turn_when_control_plane_dispatch_is_missing() -> None:
+    executor = _RecordingExecutorWithoutControlPlaneDispatch()
     plan = build_runtime_tool_plan(
         runtime_assembly=_assembly(available_tools=[{"tool_name": "read_file", "operation_id": "op.read_file"}]),
         invocation_kind="single_agent_turn",
@@ -369,6 +409,13 @@ def test_runtime_tool_control_plane_fail_closes_agent_turn_when_core_dispatch_is
         tool_call_id="call:read",
         tool_args={"path": "README.md"},
         operation_id="op.read_file",
+        action_request_ref="action:read",
+        action_permit=_permit(
+            action_request_ref="action:read",
+            invocation_kind="agent_turn",
+            tool_name="read_file",
+            operation_id="op.read_file",
+        ),
         requested_constraints={
             "runtime_host": SimpleNamespace(
                 backend_dir=BACKEND_DIR,
@@ -383,7 +430,8 @@ def test_runtime_tool_control_plane_fail_closes_agent_turn_when_core_dispatch_is
     observation = asyncio.run(RuntimeToolControlPlane(tool_runtime_executor=executor, operation_gate=_AllowingGate()).invoke(request, tool_plan=plan))
 
     assert observation.status == "error"
-    assert observation.diagnostics["stage"] == "tool_runtime_executor_core_unavailable"
+    assert observation.diagnostics["stage"] == "tool_runtime_executor_dispatch_unavailable"
+    assert observation.diagnostics["handler_id"] == "agent_turn_core"
     assert observation.caller_kind == "agent_turn"
     assert executor.run_calls == 0
 
@@ -406,6 +454,13 @@ def test_runtime_tool_control_plane_dispatches_agent_turn_through_core_without_t
         tool_call_id="call:read",
         tool_args={"path": "README.md"},
         operation_id="op.read_file",
+        action_request_ref="action:read",
+        action_permit=_permit(
+            action_request_ref="action:read",
+            invocation_kind="agent_turn",
+            tool_name="read_file",
+            operation_id="op.read_file",
+        ),
         requested_constraints={
             "runtime_host": SimpleNamespace(
                 backend_dir=BACKEND_DIR,
@@ -422,7 +477,8 @@ def test_runtime_tool_control_plane_dispatches_agent_turn_through_core_without_t
 
     assert observation.status == "ok"
     assert observation.text == "read ok"
-    assert observation.diagnostics["stage"] == "tool_runtime_executor_core"
+    assert observation.diagnostics["stage"] == "tool_runtime_executor_dispatch"
+    assert observation.diagnostics["handler_id"] == "agent_turn_core"
     assert gate.checked == [("op.read_file", "tool-permit:turnrun:one:call:read")]
     assert executor.run_calls == 0
     assert executor.core_calls == 1
@@ -449,6 +505,14 @@ def test_runtime_tool_control_plane_agent_turn_side_effect_is_denied_outside_san
         tool_call_id="call:image",
         tool_args={"prompt": "pixel tower"},
         operation_id="op.image_generate",
+        action_request_ref="action:image",
+        action_permit=_permit(
+            action_request_ref="action:image",
+            invocation_kind="agent_turn",
+            tool_name="image_generate",
+            operation_id="op.image_generate",
+            read_only=False,
+        ),
         sandbox_scope={"enabled": False},
         requested_constraints={
             "runtime_host": SimpleNamespace(
@@ -496,6 +560,14 @@ def test_runtime_tool_control_plane_agent_turn_side_effect_is_denied_before_sand
         tool_call_id="call:image",
         tool_args={"prompt": "pixel tower"},
         operation_id="op.image_generate",
+        action_request_ref="action:image",
+        action_permit=_permit(
+            action_request_ref="action:image",
+            invocation_kind="agent_turn",
+            tool_name="image_generate",
+            operation_id="op.image_generate",
+            read_only=False,
+        ),
         sandbox_scope={
             "enabled": True,
             "side_effect_policy": "sandbox_boundary",
@@ -550,6 +622,14 @@ def test_runtime_tool_control_plane_agent_turn_native_side_effect_is_denied_even
         tool_call_id="call:write",
         tool_args={"path": "artifacts/note.txt", "content": "hello"},
         operation_id="op.write_file",
+        action_request_ref="action:write",
+        action_permit=_permit(
+            action_request_ref="action:write",
+            invocation_kind="agent_turn",
+            tool_name="write_file",
+            operation_id="op.write_file",
+            read_only=False,
+        ),
         sandbox_scope={
             "enabled": True,
             "sandbox_root": str(tmp_path / "sandbox"),
@@ -606,6 +686,14 @@ def test_runtime_tool_control_plane_agent_turn_browser_side_effect_is_denied_eve
         tool_call_id="call:browser",
         tool_args={"action": "open", "url": "https://example.com"},
         operation_id="op.browser_control",
+        action_request_ref="action:browser",
+        action_permit=_permit(
+            action_request_ref="action:browser",
+            invocation_kind="agent_turn",
+            tool_name="browser_control",
+            operation_id="op.browser_control",
+            read_only=False,
+        ),
         sandbox_scope={
             "enabled": True,
             "sandbox_root": str(tmp_path / "sandbox"),
@@ -664,6 +752,32 @@ class _assembly:
         }
 
 
+def _permit(
+    *,
+    action_request_ref: str,
+    invocation_kind: str,
+    tool_name: str,
+    operation_id: str,
+    read_only: bool = True,
+) -> dict[str, object]:
+    return {
+        "permit_id": f"action-permit:{action_request_ref}",
+        "action_request_ref": action_request_ref,
+        "action_type": "tool_call",
+        "decision": "allow",
+        "invocation_kind": invocation_kind,
+        "tool_name": tool_name,
+        "operation_id": operation_id,
+        "read_only": read_only,
+        "permission_mode": "default",
+        "side_effect_policy": "runtime_authorized",
+        "allowed_action_types": ["respond", "ask_user", "tool_call", "block"],
+        "allowed_tool_names": [tool_name],
+        "authority": "harness.loop.action_permit",
+        "diagnostics": {"test_permit": True},
+    }
+
+
 class _AllowingGate:
     def __init__(self) -> None:
         self.checked: list[tuple[str, str]] = []
@@ -688,6 +802,11 @@ class _AllowingGate:
                 "diagnostics": {},
             },
         )
+
+
+class _RecordingExecutorWithoutControlPlaneDispatch:
+    def __init__(self) -> None:
+        self.run_calls = 0
 
 
 class _RecordingToolExecutor:
@@ -728,6 +847,25 @@ class _RecordingToolExecutor:
             "error": "",
         }
 
+    async def execute_control_plane_request(self, **kwargs):
+        request = kwargs["request"]
+        if str(getattr(request, "caller_kind", "") or "") != "task_run":
+            return {
+                "status": "error",
+                "text": "test_executor_only_supports_task_run",
+                "error": "test_executor_only_supports_task_run",
+            }
+        return await self.run(
+            task_run_id=str(getattr(request, "task_run_id", "") or ""),
+            action_request=kwargs["runtime_action"],
+            directive=kwargs["directive"],
+            execution_record=kwargs.get("execution_record"),
+            execution_store=kwargs.get("execution_store"),
+            sandbox_policy=kwargs.get("sandbox_policy"),
+            file_management_policy=kwargs.get("file_management_policy"),
+            tool_invocation_context=_invocation_context_from_request(request),
+        )
+
 
 class _RecordingCoreToolExecutor(_RecordingToolExecutor):
     def __init__(self) -> None:
@@ -735,7 +873,7 @@ class _RecordingCoreToolExecutor(_RecordingToolExecutor):
         self.core_calls = 0
         self.last_core: dict[str, object] = {}
 
-    async def run_core(self, **kwargs):
+    async def _record_agent_turn_dispatch(self, **kwargs):
         self.core_calls += 1
         self.last_core = dict(kwargs)
         return {
@@ -754,3 +892,43 @@ class _RecordingCoreToolExecutor(_RecordingToolExecutor):
             "artifact_refs": [],
             "error": "",
         }
+
+    async def execute_control_plane_request(self, **kwargs):
+        request = kwargs["request"]
+        if str(getattr(request, "caller_kind", "") or "") == "task_run":
+            return await self.run(
+                task_run_id=str(getattr(request, "task_run_id", "") or ""),
+                action_request=kwargs["runtime_action"],
+                directive=kwargs["directive"],
+                execution_record=kwargs.get("execution_record"),
+                execution_store=kwargs.get("execution_store"),
+                sandbox_policy=kwargs.get("sandbox_policy"),
+                file_management_policy=kwargs.get("file_management_policy"),
+                tool_invocation_context=_invocation_context_from_request(request),
+            )
+        return await self._record_agent_turn_dispatch(
+            caller_kind=str(getattr(request, "caller_kind", "") or ""),
+            caller_ref=str(getattr(request, "caller_ref", "") or ""),
+            session_id=str(getattr(request, "session_id", "") or ""),
+            turn_id=str(getattr(request, "turn_id", "") or ""),
+            tool_invocation_id=str(getattr(request, "invocation_id", "") or ""),
+            tool_name=str(getattr(request, "tool_name", "") or ""),
+            tool_call_id=str(getattr(request, "tool_call_id", "") or ""),
+            tool_args=dict(kwargs.get("normalized_args") or getattr(request, "tool_args", {}) or {}),
+            operation_id=str(getattr(request, "operation_id", "") or ""),
+            sandbox_policy=kwargs.get("sandbox_policy"),
+            file_management_policy=kwargs.get("file_management_policy"),
+        )
+
+
+def _invocation_context_from_request(request) -> ToolInvocationContext:
+    return ToolInvocationContext(
+        tool_invocation_id=str(getattr(request, "invocation_id", "") or ""),
+        caller_kind=str(getattr(request, "caller_kind", "") or ""),
+        caller_ref=str(getattr(request, "caller_ref", "") or ""),
+        session_id=str(getattr(request, "session_id", "") or ""),
+        turn_id=str(getattr(request, "turn_id", "") or ""),
+        task_run_id=str(getattr(request, "task_run_id", "") or ""),
+        tool_call_id=str(getattr(request, "tool_call_id", "") or ""),
+        idempotency_key="test-idempotency-key",
+    )

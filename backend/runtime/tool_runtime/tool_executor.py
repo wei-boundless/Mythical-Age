@@ -7,7 +7,11 @@ from typing import Any
 
 from capability_system.tools.contracts import ToolInvocationValidationDecision, ToolInvocationValidator
 from runtime.environment import RuntimeEnvironment
-from runtime.tool_runtime.tool_result_envelope import build_tool_result_envelope
+from runtime.tool_runtime.tool_result_envelope import (
+    build_tool_result_envelope,
+    build_tool_result_envelope_id,
+    build_tool_result_idempotency_key,
+)
 from runtime.tool_runtime.sandbox_backend import DEFAULT_SIDE_EFFECT_TOOL_NAMES, LocalOverlaySandboxBackend
 from runtime.tool_runtime.native_tools import build_native_runtime_tool
 from runtime.tool_runtime.tool_adapter import RuntimeToolAdapter
@@ -181,6 +185,69 @@ class ToolRuntimeExecutor:
             ),
             "error": error,
         }
+
+    async def execute_control_plane_request(
+        self,
+        *,
+        request: Any,
+        runtime_action: RuntimeActionRequest | None = None,
+        directive: RuntimeDirective | None = None,
+        execution_record: OperationExecutionRecord | None = None,
+        execution_store: RuntimeExecutionStore | None = None,
+        sandbox_policy: dict[str, Any] | None = None,
+        file_management_policy: dict[str, Any] | None = None,
+        normalized_args: dict[str, Any] | None = None,
+        max_result_size_chars: int = 0,
+    ) -> dict[str, Any]:
+        caller_kind = str(getattr(request, "caller_kind", "") or "").strip()
+        tool_args = dict(normalized_args or getattr(request, "tool_args", {}) or {})
+        if caller_kind == "task_run":
+            if runtime_action is None or directive is None:
+                return {
+                    "status": "error",
+                    "text": "tool_runtime_control_request_missing_task_runtime_contract",
+                    "error": "tool_runtime_control_request_missing_task_runtime_contract",
+                }
+            return await self.run(
+                task_run_id=str(getattr(request, "task_run_id", "") or ""),
+                action_request=runtime_action,
+                directive=directive,
+                execution_record=execution_record,
+                execution_store=execution_store,
+                max_result_size_chars=max_result_size_chars,
+                sandbox_policy=sandbox_policy,
+                file_management_policy=file_management_policy,
+                tool_invocation_context=ToolInvocationContext(
+                    tool_invocation_id=str(getattr(request, "invocation_id", "") or ""),
+                    caller_kind=caller_kind,
+                    caller_ref=str(getattr(request, "caller_ref", "") or ""),
+                    session_id=str(getattr(request, "session_id", "") or ""),
+                    turn_id=str(getattr(request, "turn_id", "") or ""),
+                    task_run_id=str(getattr(request, "task_run_id", "") or ""),
+                    tool_call_id=str(getattr(request, "tool_call_id", "") or ""),
+                    idempotency_key=build_tool_invocation_idempotency_key(
+                        caller_ref=str(getattr(request, "caller_ref", "") or ""),
+                        action_request_ref=str(getattr(request, "action_request_ref", "") or ""),
+                        tool_call_id=str(getattr(request, "tool_call_id", "") or ""),
+                        tool_name=str(getattr(request, "tool_name", "") or ""),
+                        tool_invocation_id=str(getattr(request, "invocation_id", "") or ""),
+                    ),
+                ),
+            )
+        return await self._run_core(
+            caller_kind=caller_kind or "agent_turn",
+            caller_ref=str(getattr(request, "caller_ref", "") or ""),
+            session_id=str(getattr(request, "session_id", "") or ""),
+            turn_id=str(getattr(request, "turn_id", "") or ""),
+            tool_invocation_id=str(getattr(request, "invocation_id", "") or ""),
+            tool_name=str(getattr(request, "tool_name", "") or ""),
+            tool_call_id=str(getattr(request, "tool_call_id", "") or ""),
+            tool_args=tool_args,
+            operation_id=str(getattr(request, "operation_id", "") or ""),
+            sandbox_policy=sandbox_policy,
+            file_management_policy=file_management_policy,
+            max_result_size_chars=max_result_size_chars,
+        )
 
     async def run(
         self,
@@ -621,7 +688,7 @@ class ToolRuntimeExecutor:
             "sandbox": sandbox_context.to_dict() if sandbox_context else {},
         }
 
-    async def run_core(
+    async def _run_core(
         self,
         *,
         caller_kind: str,
@@ -1069,8 +1136,10 @@ def _core_invocation_context(
         task_run_id="",
         tool_call_id=str(tool_call_id or "").strip(),
         idempotency_key=build_tool_invocation_idempotency_key(
+            caller_ref=caller_ref,
+            action_request_ref=invocation_id,
+            tool_call_id=tool_call_id,
             tool_name=tool_name,
-            tool_args=dict(tool_args or {}),
             tool_invocation_id=invocation_id,
         ),
     )
@@ -1156,15 +1225,28 @@ def _finalize_runtime_tool_envelope(
         structured_payload["file_state_events"] = [dict(item) for item in getattr(envelope, "file_state_events", ()) or ()]
     if envelope.command_receipt:
         structured_payload["command_receipt"] = dict(envelope.command_receipt)
+    resolved_tool_call_id = str(tool_call_id or getattr(envelope, "tool_call_id", "") or execution_receipt.get("tool_call_id") or "")
+    resolved_action_request_id = str(action_request_id or getattr(envelope, "action_request_id", "") or execution_receipt.get("request_ref") or "")
+    resolved_caller_kind = str(caller_kind or getattr(envelope, "caller_kind", "") or execution_receipt.get("caller_kind") or "")
+    resolved_caller_ref = str(caller_ref or getattr(envelope, "caller_ref", "") or execution_receipt.get("caller_ref") or "")
+    resolved_idempotency_key = str(getattr(envelope, "idempotency_key", "") or execution_receipt.get("idempotency_key") or "").strip()
+    if not resolved_idempotency_key:
+        resolved_idempotency_key = build_tool_result_idempotency_key(
+            caller_ref=resolved_caller_ref,
+            action_request_id=resolved_action_request_id,
+            tool_call_id=resolved_tool_call_id,
+            tool_name=str(tool_name or envelope.tool_name or ""),
+            tool_args=dict(tool_args or envelope.tool_args or {}),
+        )
     return type(envelope)(
-        envelope_id=envelope.envelope_id,
+        envelope_id=build_tool_result_envelope_id(resolved_idempotency_key),
         tool_name=str(tool_name or envelope.tool_name or ""),
         tool_args=dict(tool_args or envelope.tool_args or {}),
         status=str(envelope.status or "ok"),
-        tool_call_id=str(tool_call_id or getattr(envelope, "tool_call_id", "") or execution_receipt.get("tool_call_id") or ""),
-        action_request_id=str(action_request_id or getattr(envelope, "action_request_id", "") or execution_receipt.get("request_ref") or ""),
-        caller_kind=str(caller_kind or getattr(envelope, "caller_kind", "") or execution_receipt.get("caller_kind") or ""),
-        caller_ref=str(caller_ref or getattr(envelope, "caller_ref", "") or execution_receipt.get("caller_ref") or ""),
+        tool_call_id=resolved_tool_call_id,
+        action_request_id=resolved_action_request_id,
+        caller_kind=resolved_caller_kind,
+        caller_ref=resolved_caller_ref,
         text=str(text or ""),
         structured_payload=structured_payload,
         observed_paths=tuple(envelope.observed_paths or ()),
@@ -1177,6 +1259,7 @@ def _finalize_runtime_tool_envelope(
         command_receipt=dict(envelope.command_receipt or {}),
         execution_receipt=dict(execution_receipt or {}),
         result_ref=str(result_ref or ""),
+        idempotency_key=resolved_idempotency_key,
         error=str(envelope.error or "") if envelope.status == "error" else "",
         diagnostics=dict(getattr(envelope, "diagnostics", {}) or {}),
     )
@@ -1354,8 +1437,10 @@ def _resolve_tool_invocation_context(
             tool_call_id=tool_call_id,
         )
     idempotency_key = build_tool_invocation_idempotency_key(
+        caller_ref=caller_ref,
+        action_request_ref=action_request.request_id,
+        tool_call_id=tool_call_id,
         tool_name=tool_name,
-        tool_args=dict(tool_args or {}),
         tool_invocation_id=invocation_id,
     )
     return ToolInvocationContext(

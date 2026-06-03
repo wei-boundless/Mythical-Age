@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 from api.deps import require_runtime
 from capability_system.skills.paths import CapabilitySkillPaths
 from capability_system.skills.scanner import scan_skills
+from capability_system.tools.paths import CapabilityToolPaths
 from code_environment.workspace_tree import _is_excluded_relative_path
 from project_layout import ProjectLayout
 
@@ -137,6 +138,7 @@ def _resolve_path(relative_path: str, *, for_write: bool = False) -> Path:
     runtime = require_runtime()
     layout = ProjectLayout.from_backend_dir(runtime.base_dir)
     skill_paths = CapabilitySkillPaths.from_base_dir(runtime.base_dir)
+    tool_paths = CapabilityToolPaths.from_base_dir(runtime.base_dir)
 
     normalized = relative_path.replace("\\", "/").strip("/")
     if for_write and not _is_allowed_workspace_path(normalized, for_write=True):
@@ -155,11 +157,11 @@ def _resolve_path(relative_path: str, *, for_write: bool = False) -> Path:
         candidate = (layout.knowledge_storage_dir / normalized.removeprefix("knowledge/")).resolve()
         allowed_root = layout.knowledge_storage_dir.resolve()
     elif normalized.startswith("capability_system/skills/"):
-        candidate = (runtime.base_dir / normalized).resolve()
+        candidate = (skill_paths.code_dir / normalized.removeprefix("capability_system/skills/")).resolve()
         allowed_root = skill_paths.code_dir.resolve()
     elif normalized.startswith("capability_system/tools/registries/"):
-        candidate = (runtime.base_dir / normalized).resolve()
-        allowed_root = (runtime.base_dir / "capability_system" / "tools" / "registries").resolve()
+        candidate = (tool_paths.registries_dir / normalized.removeprefix("capability_system/tools/registries/")).resolve()
+        allowed_root = tool_paths.registries_dir.resolve()
     elif not for_write:
         candidate = (layout.project_root / normalized).resolve()
         allowed_root = layout.project_root.resolve()

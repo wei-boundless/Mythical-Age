@@ -5,8 +5,6 @@ import uuid
 from dataclasses import asdict, dataclass, replace
 from typing import Any, Literal
 
-from harness.loop.task_steering import create_active_task_steer
-
 
 _TERMINAL_TASK_RUN_STATUSES = {"completed", "success", "failed", "aborted", "cancelled", "error"}
 
@@ -283,32 +281,6 @@ class ActiveTurnRegistry:
         content = str(user_message or "").strip()
         if not content:
             return TurnSteerResult(ok=False, status="empty_input", active_turn=record, actual_turn_id=record.turn_id)
-        if record.bound_task_run_id:
-            result = create_active_task_steer(
-                self.runtime_host,
-                record.bound_task_run_id,
-                content=content,
-                turn_id=record.turn_id,
-                intent="active_turn_steer",
-            )
-            if not result.get("ok"):
-                return TurnSteerResult(
-                    ok=False,
-                    status=str(result.get("error") or "active_task_steer_failed"),
-                    active_turn=record,
-                    actual_turn_id=record.turn_id,
-                    task_run_id=record.bound_task_run_id,
-                    message=str(result.get("error") or ""),
-                )
-            return TurnSteerResult(
-                ok=True,
-                status="accepted",
-                active_turn=record,
-                actual_turn_id=record.turn_id,
-                task_run_id=record.bound_task_run_id,
-                steer=dict(result.get("steer") or {}),
-                message="已收到，会纳入当前任务继续处理。",
-            )
         pending_id = f"active-turn-input:{record.turn_id}:{uuid.uuid4().hex[:12]}"
         ref = self.runtime_host.runtime_objects.put_object(
             "active_turn_pending_input",
@@ -329,6 +301,7 @@ class ActiveTurnRegistry:
             status="queued",
             active_turn=updated,
             actual_turn_id=updated.turn_id,
+            task_run_id=updated.bound_task_run_id,
             pending_input_ref=ref,
             message="已收到，会纳入当前处理。",
         )
