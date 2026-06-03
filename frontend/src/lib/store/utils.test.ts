@@ -95,6 +95,10 @@ describe("toUiMessages runtime attachments", () => {
           role: "assistant",
           content: "任务已卡住，因为生图工具未配置。",
           answer_channel: "blocked",
+          answer_canonical_state: "progress_only",
+          answer_persist_policy: "persist_debug_only",
+          answer_selected_channel: "progress_text",
+          answer_leak_flags: ["internal_protocol_final_text"],
           answer_source: "harness.single_agent_turn.tool_loop",
         },
       ],
@@ -109,6 +113,10 @@ describe("toUiMessages runtime attachments", () => {
     });
     expect(messages[2]).toMatchObject({
       answerChannel: "blocked",
+      answerCanonicalState: "progress_only",
+      answerPersistPolicy: "persist_debug_only",
+      answerSelectedChannel: "progress_text",
+      answerLeakFlags: ["internal_protocol_final_text"],
       content: "任务已卡住，因为生图工具未配置。",
     });
   });

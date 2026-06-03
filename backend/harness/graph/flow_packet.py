@@ -5,6 +5,8 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
+from artifact_system.artifact_authority import artifact_ref_value, dedupe_artifact_refs, normalize_artifact_ref
+
 from .models import GraphHarnessConfig, GraphLoopState, NodeResultEnvelope, safe_id, stable_safe_id
 
 
@@ -300,6 +302,7 @@ def _visible_payload_for_edge(*, edge: dict[str, Any], result: dict[str, Any]) -
         "artifact_refs": artifact_refs,
         "receipt_refs": _receipt_ref_summaries(result),
         "handoff_summary": handoff_summary,
+        **_source_quality_payload(result),
     }
     if delivery_policy in {"notification_only", "status_only", "summary_only"}:
         return {"handoff_summary": handoff_summary}
@@ -317,6 +320,22 @@ def _visible_payload_for_edge(*, edge: dict[str, Any], result: dict[str, Any]) -
             return {**base_refs, "bounded_outputs": output_payload}
         return base_refs
     return {"handoff_summary": handoff_summary}
+
+
+def _source_quality_payload(result: dict[str, Any]) -> dict[str, Any]:
+    error = dict(result.get("error") or {})
+    diagnostics = dict(result.get("diagnostics") or {})
+    quality_acceptance = dict(diagnostics.get("quality_acceptance") or {})
+    if not error and not quality_acceptance:
+        return {}
+    payload: dict[str, Any] = {}
+    if error:
+        payload["source_error"] = error
+    if quality_acceptance:
+        payload["quality_acceptance"] = quality_acceptance
+        if not str(error.get("quality_issue_summary") or "").strip() and str(quality_acceptance.get("quality_issue_summary") or "").strip():
+            payload.setdefault("source_error", {})["quality_issue_summary"] = str(quality_acceptance.get("quality_issue_summary") or "")
+    return payload
 
 
 def _artifact_text_payload(refs: list[str], *, edge: dict[str, Any]) -> list[dict[str, Any]]:
@@ -398,7 +417,8 @@ def _filter_artifact_ref_values(refs: list[Any], *, artifact_ref_policy: dict[st
     if artifact_ref_policy.get("include") is False or artifact_ref_policy.get("enabled") is False:
         return []
     max_refs = _int_value(artifact_ref_policy.get("max_refs") or artifact_ref_policy.get("limit"), 0)
-    result = [str(item) for item in refs if str(item)]
+    normalized_refs = dedupe_artifact_refs([normalize_artifact_ref(item) for item in refs])
+    result = [artifact_ref_value(item) for item in normalized_refs if artifact_ref_value(item)]
     if max_refs > 0:
         result = result[:max_refs]
     return result

@@ -3,6 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from artifact_system.artifact_authority import artifact_ref_value, artifact_refs_from_tool_result_payload
+
 
 def validate_required_artifact_file(
     *,
@@ -164,10 +166,8 @@ def _structured_write_paths(payload: dict[str, Any]) -> list[str]:
     paths: list[str] = []
     paths.extend(str(path or "").strip() for path in list(envelope.get("observed_paths") or []) if str(path or "").strip())
     paths.extend(str(path or "").strip() for path in list(structured.get("observed_paths") or []) if str(path or "").strip())
-    for ref in [*list(envelope.get("artifact_refs") or []), *list(structured.get("artifact_refs") or [])]:
-        if not isinstance(ref, dict):
-            continue
-        path = str(ref.get("path") or "").strip()
+    for ref in artifact_refs_from_tool_result_payload({"result_envelope": envelope, "structured_payload": structured}):
+        path = artifact_ref_value(ref)
         if path:
             paths.append(path)
     result: list[str] = []

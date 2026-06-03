@@ -101,5 +101,18 @@ export async function apiRequest<T>(path: string, init?: RequestInit): Promise<T
     throw new Error(text || `Request failed: ${response.status}`);
   }
 
-  return (await response.json()) as T;
+  if (response.status === 204) {
+    return null as T;
+  }
+
+  if (typeof response.text === "function") {
+    const text = await response.text();
+    return (text ? JSON.parse(text) : null) as T;
+  }
+
+  if (typeof response.json === "function") {
+    return (await response.json()) as T;
+  }
+
+  return null as T;
 }

@@ -191,18 +191,18 @@ class RuntimeStateIndex:
         return [_task_run_from_payload(item) for item in payloads if isinstance(item, dict)]
 
     def list_session_task_runs(self, session_id: str) -> list[TaskRun]:
-        task_runs = self._read_record_bucket("task_runs")
         ids = self._read_index_ids("sessions", session_id)
+        task_runs = self._read_selected_records("task_runs", ids)
         return [_task_run_from_payload(task_runs[item]) for item in ids if item in task_runs]
 
     def list_session_turn_runs(self, session_id: str) -> list[TurnRun]:
-        turn_runs = self._read_record_bucket("turn_runs")
         ids = self._read_index_ids("session_turn_runs", session_id)
+        turn_runs = self._read_selected_records("turn_runs", ids)
         return [_turn_run_from_payload(turn_runs[item]) for item in ids if item in turn_runs]
 
     def list_task_agent_runs(self, task_run_id: str) -> list[AgentRun]:
-        agent_runs = self._read_record_bucket("agent_runs")
         ids = self._read_index_ids("task_agent_runs", task_run_id)
+        agent_runs = self._read_selected_records("agent_runs", ids)
         return [_agent_run_from_payload(agent_runs[item]) for item in ids if item in agent_runs]
 
     def get_project_progress_ledger(self, project_id: str) -> ProjectProgressLedger | None:
@@ -234,38 +234,38 @@ class RuntimeStateIndex:
         return sorted(matches, key=lambda item: item.updated_at, reverse=True)[0]
 
     def list_project_supervision_records(self, project_id: str) -> list[SupervisionRecord]:
-        records = self._read_record_bucket("supervision_records")
         ids = self._read_index_ids("project_supervision_records", project_id)
+        records = self._read_selected_records("supervision_records", ids)
         return [_supervision_record_from_payload(records[item]) for item in ids if item in records]
 
     def list_task_supervision_records(self, task_run_id: str) -> list[SupervisionRecord]:
-        records = self._read_record_bucket("supervision_records")
         ids = self._read_index_ids("task_supervision_records", task_run_id)
+        records = self._read_selected_records("supervision_records", ids)
         return [_supervision_record_from_payload(records[item]) for item in ids if item in records]
 
     def list_task_agent_run_results(self, task_run_id: str) -> list[AgentRunResult]:
-        results = self._read_record_bucket("agent_run_results")
         ids = self._read_index_ids("task_agent_run_results", task_run_id)
+        results = self._read_selected_records("agent_run_results", ids)
         return [_agent_run_result_from_payload(results[item]) for item in ids if item in results]
 
     def list_task_subagent_messages(self, task_run_id: str) -> list[SubagentMessage]:
-        messages = self._read_record_bucket("subagent_messages")
         ids = self._read_index_ids("task_subagent_messages", task_run_id)
+        messages = self._read_selected_records("subagent_messages", ids)
         return [subagent_message_from_dict(messages[item]) for item in ids if item in messages]
 
     def list_subagent_run_messages(self, subagent_run_ref: str) -> list[SubagentMessage]:
-        messages = self._read_record_bucket("subagent_messages")
         ids = self._read_index_ids("subagent_run_messages", subagent_run_ref)
+        messages = self._read_selected_records("subagent_messages", ids)
         return [subagent_message_from_dict(messages[item]) for item in ids if item in messages]
 
     def list_task_worker_spawn_requests(self, task_run_id: str) -> list[WorkerAgentSpawnRequest]:
-        requests = self._read_record_bucket("worker_spawn_requests")
         ids = self._read_index_ids("task_worker_spawn_requests", task_run_id)
+        requests = self._read_selected_records("worker_spawn_requests", ids)
         return [_worker_spawn_request_from_payload(requests[item]) for item in ids if item in requests]
 
     def list_task_worker_spawn_results(self, task_run_id: str) -> list[WorkerAgentSpawnResult]:
-        results = self._read_record_bucket("worker_spawn_results")
         ids = self._read_index_ids("task_worker_spawn_results", task_run_id)
+        results = self._read_selected_records("worker_spawn_results", ids)
         return [_worker_spawn_result_from_payload(results[item]) for item in ids if item in results]
 
     def read_snapshot(self) -> dict[str, Any]:

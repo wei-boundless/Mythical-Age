@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from artifact_system.artifact_authority import artifact_ref_value, dedupe_artifact_refs, normalize_artifact_ref
+
 from .models import GraphHarnessConfig, GraphLoopState, safe_id, stable_hash
 
 
@@ -260,7 +262,11 @@ def _model_visible_record(record: dict[str, Any]) -> dict[str, Any]:
             "status": str(payload.get("status") or ""),
             "canonical_text": str(payload.get("canonical_text") or ""),
             "summary": str(payload.get("summary") or ""),
-            "artifact_refs": [str(item) for item in list(payload.get("artifact_refs") or []) if str(item)],
+            "artifact_refs": [
+                artifact_ref_value(item)
+                for item in dedupe_artifact_refs([normalize_artifact_ref(ref) for ref in list(payload.get("artifact_refs") or [])])
+                if artifact_ref_value(item)
+            ],
             "model_visible_label": str(payload.get("model_visible_label") or ""),
             "usage_instruction": str(payload.get("usage_instruction") or ""),
             "content_warnings": [dict(item) for item in list(payload.get("content_warnings") or []) if isinstance(item, dict)],

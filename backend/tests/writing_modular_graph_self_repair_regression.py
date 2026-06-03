@@ -52,6 +52,8 @@ def test_writer_self_repair_nodes_are_candidate_only_without_file_or_memory_tool
         assert "不是审核员" in prompt
         assert "不能提交记忆" in prompt
         assert "自修处理记录不是正文事实" in prompt
+        assert "public_progress_note" in prompt
+        assert "public_action_state" in prompt
 
 
 def test_chapter_draft_self_repair_keeps_long_output_and_full_handoff_budget() -> None:
@@ -86,11 +88,12 @@ def test_chapter_draft_self_repair_keeps_long_output_and_full_handoff_budget() -
     assert edge["artifact_ref_policy"]["max_chars"] == 60000
 
 
-def test_chapter_draft_can_delegate_chapter_subtasks_and_receive_metric_feedback() -> None:
+def test_chapter_draft_prompt_matches_single_turn_graph_node_runtime() -> None:
     module = load_writing_modular_config_module()
     node_by_id = {node.node_id: node for node in module.CHAPTER_NODES}
 
     draft_payload = module._node_payload(node_by_id["chapter_draft"])
+    prompt = str(dict(draft_payload.get("metadata") or {}).get("role_prompt") or "")
     runtime_policy = dict(draft_payload.get("runtime_policy") or {})
     operation_policy = dict(dict(draft_payload.get("executor_policy") or {}).get("operation_policy") or {})
     subagent_policy = dict(runtime_policy.get("subagent_policy") or {})
@@ -105,6 +108,11 @@ def test_chapter_draft_can_delegate_chapter_subtasks_and_receive_metric_feedback
     assert "op.subagent_list" in operation_policy["allowed_operations"]
     assert "op.subagent_close" in operation_policy["allowed_operations"]
     assert "op.subagent_message" in operation_policy["allowed_operations"]
+    assert "本轮 final_answer 中直接交付完整正文" in prompt
+    assert "系统会在你交稿后用质量门统计每章实际字数" in prompt
+    assert "不存在的单章子任务权限" in prompt
+    assert "public_progress_note" in prompt
+    assert "public_action_state" in prompt
 
 
 def test_self_repair_nodes_do_not_register_duplicate_source_output_contracts() -> None:
@@ -171,11 +179,11 @@ def test_writing_prompts_define_outline_hierarchy_and_node_handoffs() -> None:
     assert "正文写手只执行已通过当前批次细纲" in chapter_draft_prompt
     assert "层级来源链" in chapter_draft_prompt
     assert "不能擅自重排剧情" in chapter_draft_prompt
-    assert "必须按章生成" in chapter_draft_prompt
-    assert "系统反馈的实际字数" in chapter_draft_prompt
-    assert "text_metric" in chapter_draft_prompt
-    assert "不得用自己的估算替代系统字数反馈" in chapter_draft_prompt
-    assert "不得等十章写完后才统一发现字数不足" in chapter_draft_prompt
+    assert "按章顺序完成当前批次" in chapter_draft_prompt
+    assert "系统会在你交稿后用质量门统计每章实际字数" in chapter_draft_prompt
+    assert "本轮 final_answer 中直接交付完整正文" in chapter_draft_prompt
+    assert "public_progress_note" in chapter_draft_prompt
+    assert "public_action_state" in chapter_draft_prompt
 
     assert "大纲层级一致性检查" in chapter_review_prompt
     assert "正文越过章节细纲" in chapter_review_prompt

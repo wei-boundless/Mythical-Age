@@ -1285,12 +1285,23 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     transition = reduceStreamEvent(transition.state, transition.session, "content_delta", { content: "你好，" });
     transition = reduceStreamEvent(transition.state, transition.session, "content_delta", { content: "我在。" });
     transition = reduceStreamEvent(transition.state, transition.session, "answer_candidate", { content: "候选答案不应覆盖已有流式内容。" });
-    transition = reduceStreamEvent(transition.state, transition.session, "done", { content: "最终 done 不应重复覆盖已有流式内容。" });
+    transition = reduceStreamEvent(transition.state, transition.session, "done", {
+      content: "最终 done 不应重复覆盖已有流式内容。",
+      answer_channel: "conversation",
+      answer_canonical_state: "stable_answer",
+      answer_persist_policy: "persist_canonical",
+      answer_selected_channel: "answer_candidate",
+      answer_leak_flags: ["internal_protocol_final_text"],
+    });
 
     const assistant = transition.state.messages.at(-1);
     expect(assistant?.role).toBe("assistant");
     expect(assistant?.content).toBe("你好，我在。");
     expect(assistant?.stageStatus).toBe("完成");
+    expect(assistant?.answerCanonicalState).toBe("stable_answer");
+    expect(assistant?.answerPersistPolicy).toBe("persist_canonical");
+    expect(assistant?.answerSelectedChannel).toBe("answer_candidate");
+    expect(assistant?.answerLeakFlags).toEqual(["internal_protocol_final_text"]);
   });
 
   it("keeps chat usable when noncritical workspace metadata is still loading", async () => {

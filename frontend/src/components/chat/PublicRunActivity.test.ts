@@ -255,4 +255,30 @@ describe("PublicRunActivity", () => {
     expect(html).toContain("已完成实现、测试和收口说明。");
     expect(html).toContain("public-run-activity__row--final");
   });
+
+  it("renders artifact refs from attachment using logical paths only", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(PublicRunActivity, {
+        attachments: [
+          {
+            attachment_id: "runtime-attachment:artifact",
+            run_id: "taskrun:artifact",
+            anchor_turn_id: "turn:session:1",
+            status: "completed",
+            artifact_refs: [
+              {
+                path: "storage/task_environments/general/workspace/artifacts/plan.md",
+                absolute_path: "D:/workspace/storage/runtime_state/sandboxes/taskrun/plan.md",
+                kind: "file",
+              },
+            ],
+          },
+        ],
+      }),
+    );
+
+    expect(html).toContain("产物已生成");
+    expect(html).toContain("storage/task_environments/general/workspace/artifacts/plan.md");
+    expect(html).not.toContain("runtime_state/sandboxes");
+  });
 });

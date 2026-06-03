@@ -2,10 +2,12 @@ from __future__ import annotations
 
 from typing import Any
 
+from artifact_system.artifact_authority import dedupe_artifact_refs, model_visible_artifact_refs
+
 from .models import compact_text, dict_tuple, drop_empty
 from .replacement_store import ReplacementStore
 from .structured_error_projection import structured_error_projection
-from .tool_result_projector import ToolResultProjector, model_visible_artifact_refs
+from .tool_result_projector import ToolResultProjector
 
 
 PROJECTOR_VERSION = "observation_projector.v1"
@@ -54,7 +56,7 @@ class ObservationProjector:
                     "latest_observations": latest,
                     "active_failures": active_failures[-failure_limit:],
                     "historical_failures": historical_failures[-failure_limit:],
-                    "artifact_evidence": _dedupe_artifacts(artifact_evidence),
+                    "artifact_evidence": dedupe_artifact_refs(artifact_evidence),
                     "omitted_observations": {
                         "count": max(0, len(list(observations or [])) - len(latest)),
                         "reason": "latest_observation_limit",
@@ -65,7 +67,7 @@ class ObservationProjector:
                 }
             ),
             [ref for ref in refs if ref],
-            _dedupe_artifacts(artifact_evidence),
+            dedupe_artifact_refs(artifact_evidence),
             replacement_records,
         )
 
@@ -112,7 +114,7 @@ class ObservationProjector:
                 "error": compact_text(error, limit=500),
                 "structured_error": structured_error,
                 "tool_result": _compact_tool_result(tool_projection),
-                "artifact_refs": _dedupe_artifacts(artifact_refs),
+                "artifact_refs": dedupe_artifact_refs(artifact_refs),
                 "authority": "harness.runtime.dynamic_context.observation_item_projection",
             }
         )
@@ -158,16 +160,3 @@ def _compact_tool_result(tool_projection: dict[str, Any]) -> dict[str, Any]:
             "tool_guidance": str(tool_projection.get("tool_guidance") or ""),
         }
     )
-
-
-def _dedupe_artifacts(refs: list[dict[str, Any]] | tuple[dict[str, Any], ...]) -> list[dict[str, Any]]:
-    result: list[dict[str, Any]] = []
-    seen: set[str] = set()
-    for ref in refs:
-        item = dict(ref or {})
-        key = str(item.get("path") or item.get("src") or item.get("artifact_ref") or sorted(item.items()))
-        if not key or key in seen:
-            continue
-        seen.add(key)
-        result.append(item)
-    return result

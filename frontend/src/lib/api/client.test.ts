@@ -46,6 +46,17 @@ describe("apiRequest", () => {
 
     await pending;
   });
+
+  it("returns null for 204 no-content responses", async () => {
+    vi.stubGlobal("window", {});
+    vi.stubGlobal("fetch", vi.fn(async () => ({
+      ok: true,
+      status: 204,
+      text: async () => "",
+    })));
+
+    await expect(apiRequest<null>("/chat/sessions/session:empty/latest-run?active_only=true")).resolves.toBeNull();
+  });
 });
 
 describe("streamChat", () => {

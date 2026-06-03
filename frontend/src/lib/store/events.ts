@@ -195,6 +195,26 @@ function stringValue(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
 }
 
+function stringArrayValue(value: unknown) {
+  if (!Array.isArray(value)) return undefined;
+  const values = value.map((item) => String(item ?? "").trim()).filter(Boolean);
+  return values.length ? values : undefined;
+}
+
+function answerMetadataFromEvent(data: Record<string, unknown>): Partial<Message> {
+  return {
+    answerChannel: stringValue(data.answer_channel) || undefined,
+    answerSource: stringValue(data.answer_source) || undefined,
+    answerCanonicalState: stringValue(data.answer_canonical_state) || undefined,
+    answerPersistPolicy: stringValue(data.answer_persist_policy) || undefined,
+    answerFinalizationPolicy: stringValue(data.answer_finalization_policy) || undefined,
+    answerFallbackReason: stringValue(data.answer_fallback_reason) || undefined,
+    answerSelectedChannel: stringValue(data.answer_selected_channel) || undefined,
+    answerSelectedSource: stringValue(data.answer_selected_source) || undefined,
+    answerLeakFlags: stringArrayValue(data.answer_leak_flags),
+  };
+}
+
 function recordValue(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
     ? value as Record<string, unknown>
@@ -234,7 +254,7 @@ function userReceiptForEvent(event: string, data: Record<string, unknown>): User
     };
   }
   if (event === "done") {
-    const paths = extractArtifactPaths(data.files ?? data.paths ?? data.artifacts);
+    const paths = extractArtifactPaths(data.files ?? data.paths ?? data.artifacts ?? data.artifact_refs);
     const answerSource = stringValue(data.answer_source);
     const body = stringValue(data.receipt_summary ?? data.summary ?? data.message);
     const partialTimeout = stringValue(data.completion_state) === "partial_timeout";
@@ -930,12 +950,19 @@ export function reduceStreamEvent(
   if (event === "done") {
     const partialTimeout = String(data.completion_state ?? "").trim() === "partial_timeout";
     const taskSteerAccepted = String(data.completion_state ?? "").trim() === "task_steer_accepted";
+    const answerMetadata = answerMetadataFromEvent(data);
     return {
       state: patchAssistant(stateWithOrchestration, session.assistantId, (message) =>
         message.content
-          ? { ...message, stageStatus: taskSteerAccepted ? "已收到补充要求" : partialTimeout ? "部分完成" : "完成", image: (data.image as Message["image"]) ?? message.image ?? null }
+          ? {
+              ...message,
+              ...answerMetadata,
+              stageStatus: taskSteerAccepted ? "已收到补充要求" : partialTimeout ? "部分完成" : "完成",
+              image: (data.image as Message["image"]) ?? message.image ?? null
+            }
           : {
               ...message,
+              ...answerMetadata,
               content: taskSteerAccepted ? "" : String(data.content ?? ""),
               stageStatus: taskSteerAccepted ? "已收到补充要求" : partialTimeout ? "部分完成" : "完成",
               image: (data.image as Message["image"]) ?? message.image ?? null

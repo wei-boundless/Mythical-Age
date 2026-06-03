@@ -4,6 +4,8 @@ import json
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
+from artifact_system.artifact_authority import artifact_ref_value, artifact_refs_from_tool_result_payload
+
 
 @dataclass(frozen=True, slots=True)
 class ToolUseSummary:
@@ -66,7 +68,7 @@ def build_tool_use_summary(observation: Any, *, max_items: int = 8) -> ToolUseSu
         or envelope.get("evidence_refs"),
         max_items=max_items,
     )
-    artifact_refs = _artifact_refs(payload, parsed_result, structured, envelope, max_items=max_items)
+    artifact_refs = _artifact_refs(payload, max_items=max_items)
     next_actions = _strings(
         parsed_result.get("next_actions")
         or structured.get("next_actions")
@@ -160,26 +162,9 @@ def _facts(packet: dict[str, Any], parsed_result: dict[str, Any], structured: di
     return _dedupe(facts)
 
 
-def _artifact_refs(
-    payload: dict[str, Any],
-    parsed_result: dict[str, Any],
-    structured: dict[str, Any],
-    envelope: dict[str, Any],
-    *,
-    max_items: int,
-) -> list[str]:
-    refs: list[str] = []
-    for source in (payload, parsed_result, structured, envelope):
-        for item in list(dict(source).get("artifact_refs") or []):
-            if isinstance(item, dict):
-                ref = str(item.get("ref") or item.get("artifact_ref") or item.get("path") or item.get("id") or "").strip()
-            else:
-                ref = str(item or "").strip()
-            if ref:
-                refs.append(ref)
-            if len(refs) >= max_items:
-                return _dedupe(refs)
-    return _dedupe(refs)
+def _artifact_refs(payload: dict[str, Any], *, max_items: int) -> list[str]:
+    refs = [artifact_ref_value(ref) for ref in artifact_refs_from_tool_result_payload(payload)]
+    return _dedupe([ref for ref in refs if ref])[:max_items]
 
 
 def _strings(value: Any, *, field: str = "", max_items: int) -> list[str]:

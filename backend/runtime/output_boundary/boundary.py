@@ -8,6 +8,7 @@ from runtime.output_boundary.classifier import build_output_decision, classify_o
 from runtime.output_boundary.output_models import (
     CanonicalState,
     FinalizationPolicy,
+    OutputChannel,
     OutputCandidate,
     PersistPolicy,
 )
@@ -251,6 +252,119 @@ class AssistantOutputResponse:
     raw_debug_text: str
     leak_flags: list[str]
     fallback_reason: str = ""
+
+
+@dataclass(slots=True, frozen=True)
+class CanonicalFinalTextDecision:
+    content: str
+    answer_channel: str
+    answer_source: str
+    selected_channel: OutputChannel
+    selected_source: str
+    canonical_state: CanonicalState
+    persist_policy: PersistPolicy
+    finalization_policy: FinalizationPolicy
+    fallback_reason: str = ""
+    leak_flags: list[str] = field(default_factory=list)
+
+    def to_payload(self) -> dict[str, object]:
+        return {
+            "content": self.content,
+            "answer_channel": self.answer_channel,
+            "answer_source": self.answer_source,
+            "answer_canonical_state": self.canonical_state,
+            "answer_persist_policy": self.persist_policy,
+            "answer_finalization_policy": self.finalization_policy,
+            "answer_fallback_reason": self.fallback_reason,
+            "answer_selected_channel": self.selected_channel,
+            "answer_selected_source": self.selected_source,
+            "answer_leak_flags": list(self.leak_flags),
+        }
+
+
+_DEBUG_ONLY_FINAL_TEXT_CHANNELS = {
+    "active_work_control",
+    "ask_user",
+    "task_control",
+    "blocked",
+    "orchestration_fail_closed",
+    "runtime_control",
+}
+
+
+def canonical_output_decision_for_final_text(
+    content: str,
+    *,
+    answer_source: str,
+    answer_channel: str = "final_answer",
+    route: str = "",
+    execution_posture: str = "",
+    user_message: str = "",
+    tool_name: str = "",
+    retrieval_results: list[dict[str, object]] | None = None,
+    has_tool_receipt: bool = False,
+    terminal_reason: str = "",
+    completion_state: str = "",
+) -> CanonicalFinalTextDecision:
+    raw_text = str(content or "")
+    visible_text = sanitize_visible_assistant_content(raw_text)
+    leak_flags: list[str] = []
+    if contains_internal_protocol(raw_text):
+        leak_flags.append("internal_protocol_final_text")
+    if contains_inline_pseudo_tool_call(raw_text):
+        leak_flags.append("inline_pseudo_tool_call_final_text")
+
+    normalized_channel = str(answer_channel or "").strip() or "final_answer"
+    normalized_source = str(answer_source or "").strip() or "runtime.output_boundary.final_text"
+    if normalized_channel in _DEBUG_ONLY_FINAL_TEXT_CHANNELS:
+        return CanonicalFinalTextDecision(
+            content=(visible_text or salvage_visible_assistant_content(raw_text)).strip(),
+            answer_channel=normalized_channel,
+            answer_source=normalized_source,
+            selected_channel="progress_text",
+            selected_source=normalized_source,
+            canonical_state="progress_only",
+            persist_policy="persist_debug_only",
+            finalization_policy="none",
+            fallback_reason=str(terminal_reason or completion_state or f"{normalized_channel}_message").strip(),
+            leak_flags=leak_flags,
+        )
+
+    candidates: list[OutputCandidate] = []
+    candidate = classify_output_candidate(
+        text=visible_text or raw_text,
+        route=route,
+        source=normalized_source,
+        tool_name=tool_name,
+        has_tool_receipt=has_tool_receipt,
+    )
+    if candidate is not None:
+        candidates.append(candidate)
+    decision = build_output_decision(
+        candidates=candidates,
+        route=route,
+        execution_posture=execution_posture,
+        user_message=user_message,
+        tool_name=tool_name,
+        retrieval_results=retrieval_results,
+        leak_flags=leak_flags,
+        has_tool_receipt=has_tool_receipt,
+    )
+    canonical_content = sanitize_visible_assistant_content(decision.canonical_answer).strip()
+    if not canonical_content and visible_text.strip():
+        canonical_content = visible_text.strip()
+    return CanonicalFinalTextDecision(
+        content=canonical_content,
+        answer_channel=normalized_channel,
+        answer_source=normalized_source,
+        selected_channel=decision.selected_channel,
+        selected_source=decision.selected_source,
+        canonical_state=decision.canonical_state,
+        persist_policy=decision.persist_policy,
+        finalization_policy=decision.finalization_policy,
+        fallback_reason=str(decision.fallback_reason or terminal_reason or completion_state or "").strip(),
+        leak_flags=list(decision.leak_flags),
+    )
 
 
 class AssistantOutputBoundary:

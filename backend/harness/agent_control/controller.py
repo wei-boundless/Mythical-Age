@@ -7,6 +7,7 @@ import asyncio
 from dataclasses import replace
 from typing import Any
 
+from artifact_system.artifact_authority import dedupe_artifact_refs, normalize_artifact_ref
 from agent_system.identity import normalize_agent_id
 from agent_system.profiles.runtime_profile_registry import AgentRuntimeRegistry
 from runtime.shared.models import AgentRun
@@ -543,7 +544,11 @@ def _child_result_payload(runtime_host: Any, child: AgentRun) -> dict[str, Any]:
             break
 
     final_answer = str(payload.get("final_answer") or "").strip()
-    artifact_refs = list(payload.get("artifact_refs") or []) if isinstance(payload.get("artifact_refs"), list) else []
+    artifact_refs = (
+        dedupe_artifact_refs([normalize_artifact_ref(item) for item in list(payload.get("artifact_refs") or [])])
+        if isinstance(payload.get("artifact_refs"), list)
+        else []
+    )
     if not final_answer and not artifact_refs:
         return {}
     return {

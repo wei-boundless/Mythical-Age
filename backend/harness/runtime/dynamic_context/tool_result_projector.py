@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from artifact_system.artifact_authority import artifact_refs_from_tool_result_payload, model_visible_artifact_refs
 from runtime_objects.tool_result_storage import DEFAULT_PREVIEW_SIZE_BYTES, ToolResultStore
 
 from .models import compact_text, dict_tuple, drop_empty, stable_json_hash, string_tuple
@@ -161,14 +162,7 @@ def _normalize_tool_result(tool_result: dict[str, Any]) -> dict[str, Any]:
     structured = _merge_dicts(parsed_structured_payload, envelope.get("structured_payload"), item.get("structured_payload"))
     nested_tool_result = _merge_dicts(parsed_tool_result, structured.get("tool_result"))
     result_metadata = _merge_dicts(item.get("result_metadata"), _read_file_metadata_from_structured(nested_tool_result, structured, item, envelope))
-    artifact_refs = (
-        item.get("artifact_refs")
-        or envelope.get("artifact_refs")
-        or structured.get("artifact_refs")
-        or nested_tool_result.get("artifact_refs")
-        or parsed_text.get("artifact_refs")
-        or []
-    )
+    artifact_refs = artifact_refs_from_tool_result_payload(item)
     text = _first_text(
         envelope.get("text"),
         item.get("text"),
@@ -332,38 +326,3 @@ def _status_from_ok(value: Any) -> str:
     if value is False:
         return "error"
     return ""
-
-
-def model_visible_artifact_refs(refs: Any) -> list[dict[str, Any]]:
-    result: list[dict[str, Any]] = []
-    seen: set[str] = set()
-    for ref in dict_tuple(refs):
-        path = str(ref.get("path") or ref.get("src") or ref.get("artifact_ref") or "").strip()
-        if not path:
-            absolute_path = str(ref.get("absolute_path") or "").strip()
-            if absolute_path and not _is_runtime_sandbox_path(absolute_path):
-                path = absolute_path
-        payload = drop_empty(
-            {
-                "path": path,
-                "artifact_ref": str(ref.get("artifact_ref") or "") if ref.get("artifact_ref") and ref.get("artifact_ref") != path else "",
-                "kind": str(ref.get("kind") or ""),
-                "source": str(ref.get("source") or ""),
-                "summary": compact_text(ref.get("summary") or "", limit=240),
-                "mime_type": str(ref.get("mime_type") or ""),
-                "exists": ref.get("exists") if isinstance(ref.get("exists"), bool) else None,
-                "size_bytes": ref.get("size_bytes") if isinstance(ref.get("size_bytes"), int) else None,
-                "published": ref.get("published") if isinstance(ref.get("published"), bool) else None,
-            }
-        )
-        key = str(payload.get("path") or payload.get("artifact_ref") or "")
-        if not key or key in seen:
-            continue
-        seen.add(key)
-        result.append(payload)
-    return result
-
-
-def _is_runtime_sandbox_path(path: str) -> bool:
-    normalized = str(path or "").replace("\\", "/").lower()
-    return "/storage/runtime_state/sandboxes/" in normalized or normalized.startswith("storage/runtime_state/sandboxes/")

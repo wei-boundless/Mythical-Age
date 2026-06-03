@@ -7,7 +7,7 @@ from dataclasses import replace
 from typing import Any
 
 from fastapi import APIRouter, Header, HTTPException, Query
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
 
 from api.deps import require_runtime
@@ -157,6 +157,8 @@ async def get_latest_chat_run_for_session(
         and (not active_only or run.status not in TERMINAL_RUN_STATUSES)
     ]
     if not candidates:
+        if active_only:
+            return Response(status_code=204)
         raise HTTPException(status_code=404, detail="chat run not found")
     return _run_response(runtime, candidates[0])
 

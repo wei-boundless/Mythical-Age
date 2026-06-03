@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import asyncio
 import sys
+from dataclasses import replace
 from pathlib import Path
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
@@ -333,7 +335,7 @@ def test_memory_commit_node_requires_structured_chapter_progress_receipt(tmp_pat
     assert result.error["reason"] == "chapter_progress_receipt_missing"
 
 
-def test_chapter_draft_self_repair_result_keeps_repairable_candidate_when_quality_gate_under_length(tmp_path: Path) -> None:
+def test_chapter_draft_self_repair_result_fails_closed_when_quality_gate_under_length(tmp_path: Path) -> None:
     runtime = _runtime_with_graph_harness(base_dir=tmp_path / "backend", runtime_root=tmp_path / "runtime_state")
     graph_config = GraphHarnessConfig(
         config_id="config:quality-gate",
@@ -413,10 +415,211 @@ def test_chapter_draft_self_repair_result_keeps_repairable_candidate_when_qualit
         },
     )
 
-    assert result.status == "completed"
+    assert result.status == "failed"
     assert result.error["reason"] == "quality_gate_failed"
     assert any(str(issue).startswith("insufficient_unit_metric:1:") for issue in result.error["issues"])
     assert result.diagnostics["quality_acceptance"]["business_accepted"] is False
+
+
+def test_quality_failed_draft_with_self_repair_route_passes_metric_feedback_to_repair(tmp_path: Path) -> None:
+    runtime = _runtime_with_graph_harness(base_dir=tmp_path / "backend", runtime_root=tmp_path / "runtime_state")
+    retry = {
+        "acceptance_policies": ["sectioned_text_batch_quality"],
+        "unit_start_key": "batch_start_index",
+        "unit_end_key": "batch_end_index",
+        "unit_count_key": "units_per_batch",
+        "target_metric_key": "batch_target_measure",
+        "unit_target_metric_key": "unit_target_measure",
+        "minimum_metric_ratio": 0.9,
+        "minimum_metric_per_unit": 1800,
+        "unit_summary_template": "第{index}章",
+        "required_heading_patterns": [r"第\s*(?P<index>[0-9一二三四五六七八九十百零〇两]+)\s*[章节回]"],
+        "heading_match_scope": "formal_heading",
+        "metric_section_keys": ["章节正文候选"],
+        "requirements_input_key": "chapter_revision_requirements",
+        "requirements_template": "质量门统计：{quality_issue_summary}。第{start}章至第{end}章，每章最低1800字。",
+    }
+    graph_config = GraphHarnessConfig(
+        config_id="ghcfg:test.quality.repair",
+        graph_id="graph.test.quality.repair",
+        graph_title="Quality Repair",
+        publish_version="v1",
+        control={"start_node_ids": ["chapter_draft"]},
+        nodes=(
+            {
+                "node_id": "chapter_draft",
+                "node_type": "agent",
+                "task_ref": "task.test.chapter.draft",
+                "agent_id": "agent:0",
+                "executor": {"executor_type": "agent"},
+                "contracts": {"contract_bindings": {"runtime": {"length_budget": {"configured": True, "min_units": 18000, "target_units": 20000}}}},
+                "retry": retry,
+            },
+            {
+                "node_id": "chapter_draft_self_repair",
+                "node_type": "agent",
+                "task_ref": "task.test.chapter.draft.repair",
+                "agent_id": "agent:0",
+                "executor": {"executor_type": "agent"},
+                "retry": retry,
+            },
+        ),
+        edges=(
+            {
+                "edge_id": "edge.draft.self_repair",
+                "source_node_id": "chapter_draft",
+                "target_node_id": "chapter_draft_self_repair",
+                "edge_type": "structured_handoff",
+                "scheduler_role": "dependency",
+                "semantic_role": "control",
+                "result_delivery_policy": "contract_payload_and_refs",
+            },
+        ),
+    )
+    started = runtime.harness_runtime.graph_harness.start_run(
+        session_id="session",
+        task_id="task.test",
+        graph_config=graph_config,
+        initial_inputs={
+            "batch_start_index": 1,
+            "batch_end_index": 10,
+            "units_per_batch": 10,
+            "unit_target_measure": 2000,
+            "batch_target_measure": 20000,
+        },
+        dispatch_ready=True,
+    )
+    body = "# 【章节正文候选】\n\n" + "\n\n".join(f"### 第{index}章\n" + ("泽" * 700) for index in range(1, 11))
+    draft_result = GraphNodeWorkOrderExecutor(services=runtime.harness_runtime)._node_result_from_agent_execution(
+        graph_config=graph_config,
+        work_order=started.node_work_orders[0],
+        task_run_id="node-taskrun",
+        executor_result={
+            "ok": True,
+            "final_answer": body,
+            "task_run": {"task_run_id": "node-taskrun", "status": "completed", "diagnostics": {"final_answer": body}},
+        },
+    )
+
+    assert draft_result.status == "completed"
+    assert draft_result.error["reason"] == "quality_gate_failed"
+
+    advance = runtime.harness_runtime.graph_harness.accept_node_result(
+        graph_config=graph_config,
+        graph_run_id=started.graph_run.graph_run_id,
+        result=draft_result,
+    )
+
+    assert advance.node_work_orders[0].node_id == "chapter_draft_self_repair"
+    repair_inputs = advance.node_work_orders[0].input_package["initial_inputs"]
+    assert "chapter_revision_requirements" in repair_inputs
+    assert "质量门统计" in repair_inputs["chapter_revision_requirements"]
+    assert "第1章约" in repair_inputs["chapter_revision_requirements"]
+    assert repair_inputs["quality_gate_feedback"]["source_error"]["reason"] == "quality_gate_failed"
+
+
+def test_chapter_draft_executes_real_unit_loop_before_batch_result(tmp_path: Path) -> None:
+    runtime = _runtime_with_graph_harness(base_dir=tmp_path / "backend", runtime_root=tmp_path / "runtime_state")
+    calls: list[int] = []
+
+    async def fake_executor(*, graph_config, work_order, max_steps):
+        chapter_index = int(dict(work_order.explicit_inputs or {}).get("chapter_index") or 0)
+        calls.append(chapter_index)
+        body = "# 【章节正文候选】\n\n" + f"### 第{chapter_index}章 单章标题\n" + ("泽" * 1900)
+        return {
+            "ok": True,
+            "final_answer": body,
+            "task_run": {
+                "task_run_id": f"unit-taskrun-{chapter_index}",
+                "status": "completed",
+                "diagnostics": {"final_answer": body},
+            },
+        }
+
+    services = replace(
+        runtime.harness_runtime.graph_harness._services,
+        execute_graph_agent_work_order_callback=fake_executor,
+    )
+    graph_config = GraphHarnessConfig(
+        config_id="ghcfg:test.chapter.unit.loop",
+        graph_id="graph.test.chapter.unit.loop",
+        graph_title="Chapter Unit Loop",
+        publish_version="v1",
+        nodes=(
+            {
+                "node_id": "chapter_draft",
+                "node_type": "agent_role",
+                "contracts": {
+                    "contract_bindings": {
+                        "runtime": {
+                            "chapter_workflow_policy": {"mode": "sequential_chapter_loop"},
+                            "length_budget": {
+                                "enabled": True,
+                                "budget_scope": "batch",
+                                "measurement_mode": "text_units",
+                                "target_units": 20000,
+                                "min_units": 18000,
+                                "max_units": 26000,
+                                "batch_unit_count": 10,
+                                "metric_section_keys": ["章节正文候选"],
+                            },
+                        }
+                    }
+                },
+                "retry": {
+                    "acceptance_policies": ["sectioned_text_batch_quality"],
+                    "unit_start_key": "batch_start_index",
+                    "unit_end_key": "batch_end_index",
+                    "unit_count_key": "units_per_batch",
+                    "target_metric_key": "batch_target_measure",
+                    "unit_target_metric_key": "unit_target_measure",
+                    "minimum_metric_ratio": 0.9,
+                    "minimum_metric_per_unit": 1800,
+                    "unit_summary_template": "第{index}章",
+                    "required_heading_patterns": [r"第\s*(?P<index>[0-9一二三四五六七八九十百零〇两]+)\s*[章节回]"],
+                    "heading_match_scope": "formal_heading",
+                    "metric_section_keys": ["章节正文候选"],
+                },
+            },
+        ),
+        edges=(),
+    )
+    work_order = GraphNodeWorkOrder(
+        work_order_id="gwork:chapter-unit-loop",
+        work_kind="agent",
+        graph_run_id="grun:chapter-unit-loop",
+        task_run_id="taskrun:chapter-unit-loop",
+        node_id="chapter_draft",
+        config_id=graph_config.config_id,
+        config_hash=graph_config.content_hash,
+        task_ref="task.test.chapter.draft",
+        message="你是一名单章写手。",
+        input_package={
+            "agent_instruction": "你是一名单章写手。",
+            "initial_inputs": {
+                "batch_start_index": 1,
+                "batch_end_index": 10,
+                "units_per_batch": 10,
+                "unit_target_measure": 2000,
+                "batch_target_measure": 20000,
+            },
+        },
+    )
+
+    execution = asyncio.run(
+        GraphNodeWorkOrderExecutor(services=services).execute(
+            graph_config=graph_config,
+            work_order=work_order,
+            max_steps=12,
+        )
+    )
+
+    assert calls == list(range(1, 11))
+    assert execution.node_result.status == "completed"
+    assert execution.node_result.diagnostics["quality_acceptance"]["accepted"] is True
+    assert execution.node_result.diagnostics["quality_acceptance"]["unit_metric_counts"]["10"] >= 1800
+    assert "chapter_unit_results" in execution.node_result.outputs
+    assert execution.executor_result["task_run"]["diagnostics"]["chapter_unit_results"][0]["chapter_index"] == 1
 
 
 def _accept(loop: GraphLoop, graph_config, state, order, outputs: dict):

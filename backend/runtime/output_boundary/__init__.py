@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from .boundary import (
     AssistantOutputBoundary,
+    CanonicalFinalTextDecision,
+    canonical_output_decision_for_final_text,
     contains_inline_pseudo_tool_call,
     contains_internal_protocol,
     sanitize_visible_assistant_content,
@@ -25,6 +27,7 @@ from .rag_finalizer import (
 
 __all__ = [
     "AssistantOutputBoundary",
+    "CanonicalFinalTextDecision",
     "OutputCandidate",
     "OutputDecision",
     "RAGEvidenceItem",
@@ -32,6 +35,7 @@ __all__ = [
     "ToolVisibleOutputEnvelope",
     "answer_looks_like_snippet_dump",
     "build_output_decision",
+    "canonical_output_decision_for_final_text",
     "build_rag_answer_finalization_messages",
     "build_rag_evidence_pack",
     "classify_output_candidate",

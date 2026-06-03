@@ -5,6 +5,8 @@ import re
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
+from artifact_system.artifact_authority import artifact_refs_from_tool_result_payload
+
 
 @dataclass(frozen=True, slots=True)
 class EvidencePacket:
@@ -307,11 +309,13 @@ def _tool_evidence_fields(observation: dict[str, Any], *, observation_ref: str) 
     observed_paths = _string_list(item.get("observed_paths") or envelope.get("observed_paths") or structured_payload.get("observed_paths"))
     if observed_paths:
         fields["observed_paths"] = observed_paths
-    artifact_refs = [
-        dict(ref)
-        for ref in list(item.get("artifact_refs") or envelope.get("artifact_refs") or structured_payload.get("artifact_refs") or [])
-        if isinstance(ref, dict)
-    ]
+    artifact_refs = artifact_refs_from_tool_result_payload(
+        {
+            **item,
+            "result_envelope": envelope,
+            "structured_payload": structured_payload,
+        }
+    )
     if artifact_refs:
         fields["artifact_refs"] = artifact_refs
     if command_receipt:

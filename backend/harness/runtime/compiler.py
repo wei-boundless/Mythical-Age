@@ -14,6 +14,7 @@ from prompt_library import (
     default_pack_ref_for_invocation,
 )
 from prompt_library.rules import build_rule_diagnostics
+from artifact_system.artifact_authority import artifact_ref_value, dedupe_artifact_refs, model_visible_artifact_refs, normalize_artifact_ref
 from runtime.model_gateway.protocol_sanitizer import sanitize_messages_for_prompt
 from task_system.contracts.runtime_contracts import expand_selected_skill_bodies, render_skill_candidate_cards
 
@@ -2416,18 +2417,7 @@ def _authorized_input_content(payload: dict[str, Any]) -> str:
 
 
 def _model_visible_artifact_refs(value: Any) -> list[dict[str, Any]]:
-    refs: list[dict[str, Any]] = []
-    for item in _bounded_dict_list(value, limit=8):
-        refs.append(
-            _drop_empty_payload(
-                {
-                    "path": str(item.get("path") or item.get("artifact_path") or item.get("src") or item.get("absolute_path") or ""),
-                    "title": str(item.get("title") or item.get("label") or ""),
-                    "summary": str(item.get("summary") or "")[:1000],
-                }
-            )
-        )
-    return refs
+    return model_visible_artifact_refs(value, limit=8, summary_limit=1000)
 
 
 def _model_visible_ref_summaries(value: Any, *, limit: int) -> list[dict[str, Any]]:
@@ -2708,7 +2698,11 @@ def _bounded_graph_payload(payload: dict[str, Any]) -> dict[str, Any]:
     if "handoff_summary" in payload:
         result["handoff_summary"] = str(payload.get("handoff_summary") or "")[:1200]
     if isinstance(payload.get("artifact_refs"), list):
-        result["artifact_refs"] = [str(item) for item in list(payload.get("artifact_refs") or [])[:12] if str(item)]
+        result["artifact_refs"] = [
+            artifact_ref_value(item)
+            for item in dedupe_artifact_refs([normalize_artifact_ref(ref) for ref in list(payload.get("artifact_refs") or [])])
+            if artifact_ref_value(item)
+        ][:12]
     if isinstance(payload.get("receipt_refs"), list):
         result["receipt_refs"] = _bounded_dict_list(payload.get("receipt_refs"), limit=12)
     if isinstance(payload.get("bounded_outputs"), dict):

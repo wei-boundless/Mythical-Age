@@ -109,6 +109,13 @@ export function ChatPanel() {
               key={message.id}
               onResendEdit={resendEditedMessage}
               answerChannel={message.answerChannel}
+              answerCanonicalState={message.answerCanonicalState}
+              answerFallbackReason={message.answerFallbackReason}
+              answerFinalizationPolicy={message.answerFinalizationPolicy}
+              answerLeakFlags={message.answerLeakFlags}
+              answerPersistPolicy={message.answerPersistPolicy}
+              answerSelectedChannel={message.answerSelectedChannel}
+              answerSelectedSource={message.answerSelectedSource}
               answerSource={message.answerSource}
               retrievals={message.retrievals}
               role={message.role}

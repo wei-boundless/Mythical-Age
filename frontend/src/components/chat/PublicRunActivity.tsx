@@ -85,9 +85,39 @@ function dedupeItems(items: PublicChatTimelineItem[]) {
 function publicItems(attachments: SessionRuntimeAttachment[], assistantContent = "") {
   return dedupeItems(
     attachments
-      .flatMap((attachment) => Array.isArray(attachment.public_timeline) ? attachment.public_timeline : [])
+      .flatMap((attachment) => [
+        ...(Array.isArray(attachment.public_timeline) ? attachment.public_timeline : []),
+        ...artifactItemsFromAttachment(attachment),
+      ])
       .filter((item) => shouldRenderItem(item, assistantContent)),
   );
+}
+
+function artifactItemsFromAttachment(attachment: SessionRuntimeAttachment): PublicChatTimelineItem[] {
+  const refs = Array.isArray(attachment.artifact_refs) ? attachment.artifact_refs : [];
+  return refs
+    .map<PublicChatTimelineItem | null>((ref, index) => {
+      const record = ref && typeof ref === "object" && !Array.isArray(ref) ? ref as Record<string, unknown> : {};
+      const path = artifactDisplayPath(record);
+      if (!path) return null;
+      const kind = cleanText(record.kind || record.artifact_kind || "产物");
+      const title = cleanText(record.user_visible_name || record.title || (kind === "image" ? "图像产物" : "产物已生成"));
+      const exists = record.exists;
+      const item: PublicChatTimelineItem = {
+        item_id: cleanText(record.artifact_id || record.id || `artifact:${path}:${index}`),
+        kind: "artifact",
+        title,
+        path,
+        state: exists === false ? "missing" : "ready",
+        trace_refs: [cleanText(record.source || record.provenance || attachment.task_run_id || attachment.run_id)].filter(Boolean),
+      };
+      return item;
+    })
+    .filter((item): item is PublicChatTimelineItem => Boolean(item));
+}
+
+function artifactDisplayPath(record: Record<string, unknown>) {
+  return cleanText(record.path || record.src || record.url || record.artifact_path || record.sandbox_path);
 }
 
 function isStatusUpdate(item: PublicChatTimelineItem) {

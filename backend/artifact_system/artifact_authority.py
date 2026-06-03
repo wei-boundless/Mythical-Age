@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -121,15 +122,7 @@ class ArtifactAuthority:
 def artifact_refs_from_event_payload(payload: dict[str, Any]) -> list[dict[str, Any]]:
     observation = dict(dict(payload or {}).get("observation") or {})
     source = dict(observation.get("payload") or payload or {})
-    envelope = dict(source.get("result_envelope") or {})
-    structured = dict(source.get("structured_payload") or envelope.get("structured_payload") or {})
-    return dedupe_artifact_refs(
-        [
-            *[normalize_artifact_ref(item) for item in list(source.get("artifact_refs") or [])],
-            *[normalize_artifact_ref(item) for item in list(envelope.get("artifact_refs") or [])],
-            *[normalize_artifact_ref(item) for item in list(structured.get("artifact_refs") or [])],
-        ]
-    )
+    return artifact_refs_from_tool_result_payload(source)
 
 
 def artifact_refs_from_events(events: list[Any] | tuple[Any, ...]) -> list[dict[str, Any]]:
@@ -137,6 +130,30 @@ def artifact_refs_from_events(events: list[Any] | tuple[Any, ...]) -> list[dict[
     for event in list(events or []):
         refs.extend(artifact_refs_from_event_payload(_event_payload(event)))
     return dedupe_artifact_refs(refs)
+
+
+def artifact_refs_from_tool_result_payload(tool_result: dict[str, Any]) -> list[dict[str, Any]]:
+    item = _dict_payload(tool_result)
+    envelope = _dict_payload(item.get("result_envelope") or item.get("envelope"))
+    raw_text = (
+        envelope.get("text")
+        or item.get("text")
+        or item.get("result")
+        or item.get("content")
+        or item.get("summary")
+        or ""
+    )
+    parsed_text = _parse_json_object(raw_text)
+    parsed_tool_result = _dict_payload(parsed_text.get("tool_result"))
+    parsed_structured_payload = _dict_payload(parsed_text.get("structured_payload"))
+    structured = _merge_dicts(parsed_structured_payload, envelope.get("structured_payload"), item.get("structured_payload"))
+    nested_tool_result = _merge_dicts(parsed_tool_result, structured.get("tool_result"))
+
+    refs: list[Any] = []
+    for source in (item, envelope, structured, nested_tool_result, parsed_text):
+        refs.extend(list(_dict_payload(source).get("artifact_refs") or []))
+    refs.extend(_artifact_refs_from_image_payload(parsed_text, structured, nested_tool_result))
+    return dedupe_artifact_refs([normalize_artifact_ref(ref) for ref in refs])
 
 
 def normalize_artifact_ref(value: Any) -> dict[str, Any]:
@@ -153,6 +170,40 @@ def normalize_artifact_ref(value: Any) -> dict[str, Any]:
     if ref_value:
         payload["artifact_ref"] = ref_value
     return {key: item for key, item in payload.items() if item not in ("", None, [], {})}
+
+
+def model_visible_artifact_refs(refs: Any, *, limit: int | None = None, summary_limit: int = 240) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for ref in dedupe_artifact_refs([normalize_artifact_ref(item) for item in list(refs or [])]):
+        path = _logical_artifact_path(ref)
+        if not path:
+            path = str(ref.get("sandbox_path") or "").replace("\\", "/").strip().strip("/")
+        absolute_path = str(ref.get("absolute_path") or "").strip()
+        if not path and absolute_path and not _is_runtime_sandbox_path(absolute_path):
+            path = absolute_path
+        payload = _drop_empty(
+            {
+                "path": path,
+                "artifact_ref": str(ref.get("artifact_ref") or "") if ref.get("artifact_ref") and ref.get("artifact_ref") != path else "",
+                "kind": str(ref.get("kind") or ""),
+                "source": str(ref.get("source") or ""),
+                "title": str(ref.get("title") or ref.get("label") or ""),
+                "summary": _compact_text(ref.get("summary") or "", limit=summary_limit),
+                "mime_type": str(ref.get("mime_type") or ""),
+                "exists": ref.get("exists") if isinstance(ref.get("exists"), bool) else None,
+                "size_bytes": ref.get("size_bytes") if isinstance(ref.get("size_bytes"), int) else None,
+                "published": ref.get("published") if isinstance(ref.get("published"), bool) else None,
+            }
+        )
+        key = str(payload.get("path") or payload.get("artifact_ref") or "")
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        result.append(payload)
+        if limit is not None and len(result) >= limit:
+            break
+    return result
 
 
 def dedupe_artifact_refs(refs: list[dict[str, Any]] | tuple[dict[str, Any], ...]) -> list[dict[str, Any]]:
@@ -175,6 +226,22 @@ def dedupe_artifact_refs(refs: list[dict[str, Any]] | tuple[dict[str, Any], ...]
         index_by_key[key] = len(result)
         result.append(payload)
     return result
+
+
+def artifact_ref_value(ref: Any) -> str:
+    payload = normalize_artifact_ref(ref)
+    logical_path = _logical_artifact_path(payload)
+    if logical_path:
+        return logical_path
+    return str(payload.get("absolute_path") or "").replace("\\", "/").strip()
+
+
+def artifact_materialization_ref(ref: Any) -> str:
+    payload = normalize_artifact_ref(ref)
+    explicit_ref = str(payload.get("artifact_ref") or "").strip()
+    if explicit_ref:
+        return explicit_ref
+    return artifact_ref_value(payload)
 
 
 def _artifact_ref_from_repository_record(record: dict[str, Any]) -> dict[str, Any]:
@@ -210,6 +277,69 @@ def _event_payload(event: Any) -> dict[str, Any]:
     else:
         payload = None
     return dict(payload or {}) if isinstance(payload, dict) else {}
+
+
+def _artifact_refs_from_image_payload(*sources: Any) -> list[dict[str, Any]]:
+    refs: list[dict[str, Any]] = []
+    for source in sources:
+        payload = _dict_payload(source)
+        image = _dict_payload(payload.get("image"))
+        path = str(image.get("file_path") or image.get("src") or image.get("path") or "").strip()
+        if not path:
+            continue
+        refs.append(
+            _drop_empty(
+                {
+                    "path": path,
+                    "kind": str(image.get("kind") or "image"),
+                    "source": str(image.get("source") or payload.get("tool_name") or "image_generate"),
+                    "mime_type": str(image.get("mime_type") or ""),
+                    "summary": str(image.get("summary") or ""),
+                }
+            )
+        )
+    return refs
+
+
+def _dict_payload(value: Any) -> dict[str, Any]:
+    return dict(value) if isinstance(value, dict) else {}
+
+
+def _parse_json_object(value: Any) -> dict[str, Any]:
+    if not isinstance(value, str):
+        return {}
+    text = value.strip()
+    if not text or text[0] not in "{[":
+        return {}
+    try:
+        parsed = json.loads(text)
+    except (TypeError, ValueError):
+        return {}
+    return dict(parsed) if isinstance(parsed, dict) else {}
+
+
+def _merge_dicts(*values: Any) -> dict[str, Any]:
+    merged: dict[str, Any] = {}
+    for value in values:
+        if isinstance(value, dict):
+            merged.update(value)
+    return _drop_empty(merged)
+
+
+def _drop_empty(payload: dict[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in payload.items() if value not in ("", None, [], {})}
+
+
+def _compact_text(value: Any, *, limit: int) -> str:
+    text = " ".join(str(value or "").split())
+    if limit <= 0 or len(text) <= limit:
+        return text
+    return text[: max(0, limit - 3)].rstrip() + "..."
+
+
+def _is_runtime_sandbox_path(path: str) -> bool:
+    normalized = str(path or "").replace("\\", "/").lower()
+    return "/storage/runtime_state/sandboxes/" in normalized or normalized.startswith("storage/runtime_state/sandboxes/")
 
 
 def _inside(path: Path, root: Path) -> bool:

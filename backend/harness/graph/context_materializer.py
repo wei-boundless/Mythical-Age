@@ -250,6 +250,7 @@ class GraphContextMaterializer:
         node_id = str(node.get("node_id") or "")
         prompt_contract = _prompt_contract(node)
         initial_inputs = dict(state.initial_inputs or {})
+        initial_inputs.update(_quality_revision_inputs(node=node, inbound_context=inbound_context, initial_inputs=initial_inputs))
         loop_context = self._loop_engine.context_for_node(state=state, node=node)
         environment_refs = _environment_refs(graph_config)
         return {
@@ -357,6 +358,63 @@ def _is_graph_start_node(graph_config: GraphHarnessConfig, node_id: str) -> bool
         if str(item)
     }
     return node_id in start_node_ids
+
+
+def _quality_revision_inputs(
+    *,
+    node: dict[str, Any],
+    inbound_context: list[dict[str, Any]],
+    initial_inputs: dict[str, Any],
+) -> dict[str, Any]:
+    retry_policy = dict(node.get("retry") or {})
+    requirements_key = str(retry_policy.get("requirements_input_key") or "").strip()
+    template = str(retry_policy.get("requirements_template") or "").strip()
+    if not requirements_key or not template or requirements_key in initial_inputs:
+        return {}
+    quality = _first_inbound_quality_failure(inbound_context)
+    if not quality:
+        return {}
+    values = {
+        **dict(initial_inputs or {}),
+        "quality_issues": "; ".join(str(item) for item in list(quality.get("issues") or []) if str(item)),
+        "quality_issue_summary": str(quality.get("quality_issue_summary") or ""),
+        "start": initial_inputs.get("batch_start_index") or initial_inputs.get("unit_start_index") or initial_inputs.get("chapter_index") or "",
+        "end": initial_inputs.get("batch_end_index") or initial_inputs.get("unit_end_index") or "",
+        "count": initial_inputs.get("units_per_batch") or initial_inputs.get("unit_count") or "",
+        "unit_target": initial_inputs.get("unit_target_measure") or initial_inputs.get("target_unit_measure") or "",
+    }
+    return {
+        requirements_key: _format_revision_template(template, values),
+        "quality_gate_feedback": quality,
+    }
+
+
+def _first_inbound_quality_failure(inbound_context: list[dict[str, Any]]) -> dict[str, Any]:
+    for item in inbound_context:
+        payload = dict(dict(item or {}).get("payload") or {})
+        source_error = dict(payload.get("source_error") or {})
+        quality = dict(payload.get("quality_acceptance") or {})
+        if str(source_error.get("reason") or "") != "quality_gate_failed" and bool(quality.get("accepted") is not False):
+            continue
+        return {
+            **quality,
+            "quality_issue_summary": str(source_error.get("quality_issue_summary") or quality.get("quality_issue_summary") or ""),
+            "issues": list(source_error.get("issues") or quality.get("issues") or []),
+            "source_error": source_error,
+            "authority": "harness.graph.context_materializer.quality_revision_inputs",
+        }
+    return {}
+
+
+def _format_revision_template(template: str, values: dict[str, Any]) -> str:
+    class _Missing(dict):
+        def __missing__(self, key: str) -> str:
+            return ""
+
+    try:
+        return template.format_map(_Missing(values))
+    except (KeyError, IndexError, ValueError):
+        return template
 
 
 def _edge_packet_entries(edge_state: dict[str, Any]) -> list[dict[str, Any]]:

@@ -4,6 +4,7 @@ from dataclasses import dataclass
 import time
 from typing import Any
 
+from artifact_system.artifact_authority import dedupe_artifact_refs, normalize_artifact_ref
 from runtime.shared.models import TaskRun
 
 from .graph.loop import GraphLoop, GraphLoopAdvance, GraphLoopStart
@@ -525,7 +526,7 @@ def _executor_result_summary(result: dict[str, Any] | None) -> dict[str, Any]:
     return {
         "ok": bool(payload.get("ok") is True),
         "error": str(payload.get("error") or ""),
-        "artifact_refs": [dict(item) for item in list(payload.get("artifact_refs") or []) if isinstance(item, dict)],
+        "artifact_refs": dedupe_artifact_refs([normalize_artifact_ref(item) for item in list(payload.get("artifact_refs") or [])]),
         "task_run": _task_run_summary(task_run),
         "event": _event_summary(payload.get("event")),
         "lifecycle": _lifecycle_summary(payload.get("lifecycle")),

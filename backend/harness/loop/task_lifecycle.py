@@ -6,6 +6,7 @@ from dataclasses import asdict, dataclass, field, replace
 from typing import Any, AsyncIterator, Awaitable, Callable, Literal
 
 from runtime.shared.models import AgentRun, TaskRun
+from runtime.output_boundary import canonical_output_decision_for_final_text
 
 from .presentation import error_event, final_answer_event
 from .model_action_protocol import ModelActionRequest
@@ -510,6 +511,7 @@ async def start_task_lifecycle_from_contract(
         )
         yield final_answer_event(
             content=content,
+            answer_channel="task_control",
             answer_source=f"{answer_source}.supervision",
             terminal_reason="task_launch_supervision",
             extra={
@@ -583,6 +585,7 @@ async def start_task_lifecycle_from_contract(
     )
     yield final_answer_event(
         content=content,
+        answer_channel="task_control",
         answer_source=answer_source,
         terminal_reason="task_executor_scheduled",
         extra={
@@ -614,17 +617,19 @@ async def commit_task_control_message(
     protocol_messages = [dict(item) for item in list(api_protocol_prefix_messages or []) if isinstance(item, dict)]
     if protocol_messages:
         protocol_messages.append({"role": "assistant", "content": content, "turn_id": turn_id})
+    decision = canonical_output_decision_for_final_text(
+        content,
+        answer_channel="task_control",
+        answer_source=answer_source,
+        execution_posture="task_control",
+    )
     await commit_assistant_message(
         session_id,
         {
             "role": "assistant",
-            "content": content,
+            "content": decision.content,
             "turn_id": turn_id,
-            "answer_channel": "task_control",
-            "answer_source": answer_source,
-            "answer_canonical_state": "final",
-            "answer_persist_policy": "persist_canonical",
-            "answer_finalization_policy": "assistant_final",
+            **decision.to_payload(),
             "api_protocol_messages": protocol_messages,
         },
     )

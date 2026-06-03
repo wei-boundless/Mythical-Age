@@ -83,6 +83,16 @@ def test_chat_run_event_stream_replays_after_offset_with_sse_ids() -> None:
             runtime.harness_runtime.astream = original_astream  # type: ignore[method-assign]
 
 
+def test_latest_active_chat_run_returns_no_content_when_absent() -> None:
+    with TestClient(app) as client:
+        session_id = _create_session(client, "No active run")
+
+        latest = client.get(f"/api/chat/sessions/{session_id}/latest-run?active_only=true")
+
+        assert latest.status_code == 204
+        assert latest.content == b""
+
+
 def test_chat_run_event_stream_resumes_from_last_event_id_header() -> None:
     with TestClient(app) as client:
         runtime = app_runtime.require_ready()

@@ -15,6 +15,7 @@ from harness.runtime import AgentRuntimeServices, SingleAgentRuntimeHost, TaskEx
 from harness.runtime.request_facts import build_turn_input_facts
 from harness.runtime.public_progress import public_runtime_progress_summary
 from runtime import ModelResponseRuntimeExecutor, ModelRuntimeError, ToolRuntimeExecutor
+from runtime.output_boundary import canonical_output_decision_for_final_text
 from runtime.shared.history_assembler import assemble_runtime_history
 from agent_system.profiles.runtime_profile_registry import AgentRuntimeRegistry
 from agent_system.identity import normalize_agent_id
@@ -447,17 +448,20 @@ class HarnessRuntimeFacade:
         )
         if contract is None:
             content = "显式任务合同缺少必要目标或验收边界，系统已停止启动任务。"
+            decision = canonical_output_decision_for_final_text(
+                content,
+                answer_channel="task_control",
+                answer_source="harness.explicit_contract_task.invalid_contract",
+                execution_posture="explicit_contract_task",
+                terminal_reason="explicit_contract_invalid",
+            )
             await self._apply_assistant_message_commit_async(
                 request.session_id,
                 {
                     "role": "assistant",
-                    "content": content,
+                    "content": decision.content,
                     "turn_id": turn_id,
-                    "answer_channel": "task_control",
-                    "answer_source": "harness.explicit_contract_task.invalid_contract",
-                    "answer_canonical_state": "final",
-                    "answer_persist_policy": "persist_canonical",
-                    "answer_finalization_policy": "assistant_final",
+                    **decision.to_payload(),
                 },
             )
             yield error_event(
@@ -1204,6 +1208,9 @@ class HarnessRuntimeFacade:
                     "answer_persist_policy": payload.get("answer_persist_policy"),
                     "answer_finalization_policy": payload.get("answer_finalization_policy"),
                     "answer_fallback_reason": payload.get("answer_fallback_reason"),
+                    "answer_selected_channel": payload.get("answer_selected_channel"),
+                    "answer_selected_source": payload.get("answer_selected_source"),
+                    "answer_leak_flags": payload.get("answer_leak_flags"),
                 }
             ],
         )

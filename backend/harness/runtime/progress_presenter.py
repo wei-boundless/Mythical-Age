@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from artifact_system.artifact_authority import artifact_ref_value, artifact_refs_from_tool_result_payload
 from harness.runtime.public_progress import public_runtime_progress_summary
 
 
@@ -362,14 +363,12 @@ def _tool_evidence(*, tool_name: str, tool_args: dict[str, Any], observation: di
     target = _tool_target_preview(tool_args)
     observed_paths = _string_list(payload.get("observed_paths"))
     matched_paths = _string_list(payload.get("matched_paths"))
-    artifact_refs = _string_list(payload.get("artifact_refs"))
+    artifact_refs = _string_list(artifact_ref_value(ref) for ref in artifact_refs_from_tool_result_payload(payload))
     envelope = _record(payload.get("result_envelope"))
     if not observed_paths:
         observed_paths = _string_list(envelope.get("observed_paths"))
     if not matched_paths:
         matched_paths = _string_list(envelope.get("matched_paths"))
-    if not artifact_refs:
-        artifact_refs = _string_list(envelope.get("artifact_refs"))
     result_text = _result_text(parsed if parsed is not None else raw_result)
     normalized = tool_name.lower()
 

@@ -103,6 +103,9 @@ class MemoryMessageAdapter:
             return self.looks_like_skill_document(content)
         if role == "assistant":
             canonical_state = str((item or {}).get("answer_canonical_state", "") or "").strip()
+            persist_policy = str((item or {}).get("answer_persist_policy", "") or "").strip()
+            if persist_policy and persist_policy != "persist_canonical":
+                return True
             if canonical_state and canonical_state not in {"stable_answer", "tool_summary"}:
                 return True
         if role == "assistant" and self.looks_like_skill_document(content):
@@ -134,6 +137,8 @@ class MemoryMessageAdapter:
                 "answer_persist_policy",
                 "answer_finalization_policy",
                 "answer_fallback_reason",
+                "answer_selected_channel",
+                "answer_selected_source",
             ):
                 value = item.get(key)
                 if value is None:
@@ -141,6 +146,11 @@ class MemoryMessageAdapter:
                 normalized = str(value or "").strip()
                 if normalized:
                     meta[key] = normalized
+            leak_flags = item.get("answer_leak_flags")
+            if isinstance(leak_flags, (list, tuple)):
+                normalized_flags = [str(flag or "").strip() for flag in leak_flags if str(flag or "").strip()]
+                if normalized_flags:
+                    meta["answer_leak_flags"] = normalized_flags
             if session_id:
                 meta["session_id"] = session_id
             converted.append(Message(role=role, content=content, meta=meta))

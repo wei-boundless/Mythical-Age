@@ -57,4 +57,28 @@ describe("ChatMessage", () => {
     expect(html).not.toContain("本轮工具观察次数已达到上限");
     expect(html).toContain("基于已有事实收口说明");
   });
+
+  it("shows debug-only canonical output state without hiding the assistant message", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(ChatMessage, {
+        answerCanonicalState: "progress_only",
+        answerChannel: "task_control",
+        answerFallbackReason: "task_executor_scheduled",
+        answerLeakFlags: ["internal_protocol_final_text"],
+        answerPersistPolicy: "persist_debug_only",
+        answerSelectedChannel: "progress_text",
+        answerSource: "harness.task_lifecycle",
+        content: "我会按这个目标推进：整理文件管理。",
+        id: "message:boundary",
+        retrievals: [],
+        role: "assistant",
+        toolCalls: [],
+      }),
+    );
+
+    expect(html).toContain("任务控制消息");
+    expect(html).toContain("不写入长期记忆");
+    expect(html).toContain("已清理内部协议");
+    expect(html).toContain("我会按这个目标推进");
+  });
 });

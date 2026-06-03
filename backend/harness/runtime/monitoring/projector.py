@@ -97,7 +97,7 @@ class RuntimeMonitorProjector:
             summary = diagnostic_summary
         latest_public_progress_note = summary if diagnostic_summary else public_runtime_progress_summary(latest_step.get("public_progress_note") or summary)
         agent_brief = public_runtime_progress_summary(latest_step.get("agent_brief_output") or diagnostics.get("agent_brief_output") or "")
-        artifact_refs = _dedupe_artifact_refs(
+        artifact_refs = dedupe_artifact_refs(
             [
                 *[dict(item) for item in list(diagnostics.get("artifact_refs") or []) if isinstance(item, dict)],
                 *(_artifact_refs_from_event_log(self.event_log, task_run_id) if include_runtime_details else []),
@@ -681,28 +681,20 @@ def _looks_internal_identifier(value: str) -> bool:
     return lowered.startswith(("task:", "taskrun:", "turn:", "turnrun:", "session:", "taskinst:", "coordrun:", "grun:"))
 
 
-def _artifact_refs_from_events(events: list[Any]) -> list[dict[str, Any]]:
-    return artifact_refs_from_events(events)
-
-
 def _artifact_refs_from_event_log(event_log: Any, task_run_id: str) -> list[dict[str, Any]]:
     reader = getattr(event_log, "list_event_window", None)
     if callable(reader):
         try:
-            return _artifact_refs_from_events(list(reader(task_run_id, limit=240, include_payloads=True)))
+            return artifact_refs_from_events(list(reader(task_run_id, limit=240, include_payloads=True)))
         except Exception:
             pass
     reader = getattr(event_log, "list_events", None)
     if callable(reader):
         try:
-            return _artifact_refs_from_events(list(reader(task_run_id))[-240:])
+            return artifact_refs_from_events(list(reader(task_run_id))[-240:])
         except Exception:
             pass
     return []
-
-
-def _dedupe_artifact_refs(refs: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    return dedupe_artifact_refs(refs)
 
 
 def _node_statuses_from_monitor(monitor: dict[str, Any]) -> list[dict[str, Any]]:

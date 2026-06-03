@@ -222,6 +222,9 @@ def build_assistant_session_message_commit_decision(
     answer_persist_policy: str = "",
     answer_finalization_policy: str = "",
     answer_fallback_reason: str = "",
+    answer_selected_channel: str = "",
+    answer_selected_source: str = "",
+    answer_leak_flags: list[str] | tuple[str, ...] | None = None,
     completion_state: str = "",
     terminal_reason: str = "",
     timeout_seconds: str = "",
@@ -263,6 +266,13 @@ def build_assistant_session_message_commit_decision(
             "answer_persist_policy": normalized_persist_policy,
             "answer_finalization_policy": str(answer_finalization_policy or ""),
             "answer_fallback_reason": str(answer_fallback_reason or ""),
+            "answer_selected_channel": str(answer_selected_channel or ""),
+            "answer_selected_source": str(answer_selected_source or ""),
+            "answer_leak_flags": [
+                str(flag or "").strip()
+                for flag in list(answer_leak_flags or [])
+                if str(flag or "").strip()
+            ],
             "completion_state": str(completion_state or ""),
             "terminal_reason": str(terminal_reason or ""),
             "timeout_seconds": str(timeout_seconds or ""),

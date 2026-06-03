@@ -105,3 +105,41 @@ def test_state_index_prunes_task_run_records_and_rebuilds_indexes(tmp_path) -> N
     assert state_index.list_task_agent_run_results("taskrun:delete") == []
 
 
+def test_state_index_indexed_lookups_do_not_load_full_record_buckets(tmp_path, monkeypatch) -> None:
+    state_index = RuntimeStateIndex(tmp_path)
+    state_index.upsert_task_run(
+        TaskRun(
+            task_run_id="taskrun:indexed",
+            session_id="session:indexed",
+            task_id="task.indexed",
+            updated_at=20,
+        )
+    )
+    state_index.upsert_agent_run(
+        AgentRun(
+            agent_run_id="agentrun:indexed",
+            task_run_id="taskrun:indexed",
+            agent_id="agent:0",
+            agent_profile_id="main",
+        )
+    )
+    state_index.upsert_agent_run_result(
+        AgentRunResult(
+            agent_run_result_id="agresult:indexed",
+            agent_run_id="agentrun:indexed",
+            task_run_id="taskrun:indexed",
+            agent_id="agent:0",
+            status="completed",
+        )
+    )
+
+    def _fail_full_bucket_read(bucket: str) -> dict[str, object]:
+        raise AssertionError(f"unexpected full bucket read: {bucket}")
+
+    monkeypatch.setattr(state_index, "_read_record_bucket", _fail_full_bucket_read)
+
+    assert [item.task_run_id for item in state_index.list_session_task_runs("session:indexed")] == ["taskrun:indexed"]
+    assert [item.agent_run_id for item in state_index.list_task_agent_runs("taskrun:indexed")] == ["agentrun:indexed"]
+    assert [item.agent_run_result_id for item in state_index.list_task_agent_run_results("taskrun:indexed")] == ["agresult:indexed"]
+
+

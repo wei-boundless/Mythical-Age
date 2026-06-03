@@ -99,7 +99,12 @@ export type SessionHistory = {
     answer_channel?: string;
     answer_source?: string;
     answer_canonical_state?: string;
+    answer_persist_policy?: string;
     answer_finalization_policy?: string;
+    answer_fallback_reason?: string;
+    answer_selected_channel?: string;
+    answer_selected_source?: string;
+    answer_leak_flags?: string[];
     image?: {
       src: string;
       alt?: string;
@@ -4826,7 +4831,7 @@ export async function resumeChatRun(streamRunId: string) {
 export async function getLatestChatRunForSession(sessionId: string, activeOnly = true, scope?: Partial<SessionScope>) {
   const params = sessionScopeQuery(scope);
   params.set("active_only", activeOnly ? "true" : "false");
-  return request<ChatRun>(`/chat/sessions/${encodeURIComponent(sessionId)}/latest-run?${params.toString()}`);
+  return request<ChatRun | null>(`/chat/sessions/${encodeURIComponent(sessionId)}/latest-run?${params.toString()}`);
 }
 
 function parseSseBlock(block: string): { id: string; event: string; data: Record<string, unknown> } | null {

@@ -2,8 +2,9 @@ from __future__ import annotations
 
 from typing import Any
 
+from artifact_system.artifact_authority import model_visible_artifact_refs
+
 from .models import compact_text, drop_empty
-from .tool_result_projector import model_visible_artifact_refs
 
 
 class WorkHistoryProjector:

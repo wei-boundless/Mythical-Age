@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from artifact_system.artifact_authority import artifact_ref_value, dedupe_artifact_refs
 from runtime.memory.file_state_authority import build_file_state_projection_from_observations
 
 from .compaction import replacement_history_ref
@@ -100,7 +101,7 @@ class DynamicContextManager:
             if history_projection.get("omitted_history")
             else "",
         ]
-        artifact_refs = _dedupe_artifacts(
+        artifact_refs = dedupe_artifact_refs(
             [
                 *observation_artifacts,
                 *list(work_history_projection.get("active_artifacts") or []),
@@ -115,7 +116,7 @@ class DynamicContextManager:
             tool_result_refs=tuple(str(item.get("tool_result_ref") or item.get("replacement_ref") or "") for item in tool_results if item),
             observation_refs=tuple(ref for ref in observation_refs if ref),
             context_refs=tuple(ref for ref in context_refs if ref),
-            artifact_refs=tuple(_artifact_ref_value(item) for item in artifact_refs if _artifact_ref_value(item)),
+            artifact_refs=tuple(artifact_ref_value(item) for item in artifact_refs if artifact_ref_value(item)),
             budget_report=budget_report,
             section_reports=self._section_reports(
                 request,
@@ -280,25 +281,6 @@ class DynamicContextManager:
             return ReplacementStore(storage_root), storage_root
         except Exception:
             return MemoryReplacementStore(), self.base_dir
-
-
-def _dedupe_artifacts(refs: list[dict[str, Any]] | tuple[dict[str, Any], ...]) -> list[dict[str, Any]]:
-    result: list[dict[str, Any]] = []
-    seen: set[str] = set()
-    for ref in refs:
-        if not isinstance(ref, dict):
-            continue
-        key = _artifact_ref_value(ref) or repr(sorted(ref.items()))
-        if not key or key in seen:
-            continue
-        seen.add(key)
-        result.append(dict(ref))
-    return result
-
-
-def _artifact_ref_value(ref: dict[str, Any]) -> str:
-    return str(dict(ref or {}).get("path") or dict(ref or {}).get("src") or dict(ref or {}).get("artifact_ref") or "")
-
 
 def _dynamic_context_storage_root(base_dir: Path, runtime_assembly: dict[str, Any]) -> Path | None:
     environment = dict(runtime_assembly.get("task_environment") or {})

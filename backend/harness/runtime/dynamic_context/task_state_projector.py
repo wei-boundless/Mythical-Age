@@ -2,8 +2,9 @@ from __future__ import annotations
 
 from typing import Any
 
+from artifact_system.artifact_authority import artifact_ref_value, dedupe_artifact_refs, model_visible_artifact_refs
+
 from .models import compact_text, dict_tuple, drop_empty
-from .tool_result_projector import model_visible_artifact_refs
 
 
 class TaskStateProjector:
@@ -25,7 +26,7 @@ class TaskStateProjector:
             current_fact_keys=current_fact_keys,
         )
         artifact_evidence = model_visible_artifact_refs(
-            _dedupe_artifacts(
+            dedupe_artifact_refs(
                 [
                     *dict_tuple(execution_projection.get("artifact_evidence")),
                     *dict_tuple(observation_projection.get("artifact_evidence")),
@@ -331,7 +332,7 @@ def _projection_path(item: dict[str, Any]) -> str:
             return value
     artifact_refs = [dict(ref) for ref in list(item.get("artifact_refs") or []) if isinstance(ref, dict)]
     for ref in artifact_refs:
-        value = str(ref.get("path") or ref.get("src") or ref.get("artifact_ref") or "").replace("\\", "/").strip().strip("/")
+        value = artifact_ref_value(ref).replace("\\", "/").strip().strip("/")
         if value:
             return value
     return ""
@@ -357,18 +358,6 @@ def _merge_projection(first: dict[str, Any], second: dict[str, Any]) -> dict[str
         elif not merged.get(key):
             merged[key] = value
     return drop_empty(merged)
-
-
-def _dedupe_artifacts(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    result: list[dict[str, Any]] = []
-    seen: set[str] = set()
-    for item in items:
-        path = str(item.get("path") or item.get("artifact_ref") or item.get("src") or "").strip()
-        if not path or path in seen:
-            continue
-        seen.add(path)
-        result.append(dict(item))
-    return result[-20:]
 
 
 def _positive_paths(*groups: Any) -> set[str]:

@@ -5,6 +5,7 @@ import uuid
 from dataclasses import asdict, dataclass, field, replace
 from typing import Any, Literal
 
+from artifact_system.artifact_authority import dedupe_artifact_refs, normalize_artifact_ref
 from harness.runtime.public_progress import public_runtime_progress_summary
 
 
@@ -162,10 +163,10 @@ def append_work_rollout_item(
         if model_visible
         else list(record.model_visible_history)[-80:]
     )
-    artifact_refs = _dedupe_artifacts(
+    artifact_refs = dedupe_artifact_refs(
         [
             *list(record.artifact_refs or ()),
-            *[dict(ref) for ref in list(item_payload.get("artifact_refs") or []) if isinstance(ref, dict)],
+            *[normalize_artifact_ref(ref) for ref in list(item_payload.get("artifact_refs") or [])],
         ]
     )
     updated = replace(
@@ -294,18 +295,6 @@ def _title_for_item(item_type: str, status: str) -> str:
     if status in {"waiting_executor", "blocked"}:
         return "等待继续"
     return "处理进展"
-
-
-def _dedupe_artifacts(refs: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    result: list[dict[str, Any]] = []
-    seen: set[str] = set()
-    for ref in refs:
-        key = str(ref.get("absolute_path") or ref.get("path") or ref.get("src") or ref)
-        if not key or key in seen:
-            continue
-        seen.add(key)
-        result.append(dict(ref))
-    return result
 
 
 def _sync_rollout_record(

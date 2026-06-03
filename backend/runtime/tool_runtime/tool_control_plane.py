@@ -7,6 +7,7 @@ from pathlib import Path
 from dataclasses import dataclass
 from typing import Any
 
+from artifact_system.artifact_authority import artifact_refs_from_tool_result_payload
 from permissions.operations import build_default_operation_registry
 from harness.agent_control.controller import SubagentControl
 from orchestration.runtime_directive import RuntimeDirective
@@ -716,6 +717,7 @@ async def _invoke_subagent_control(
     )
     ok = bool(dict(payload or {}).get("ok") is True)
     text = json.dumps(payload, ensure_ascii=False, sort_keys=True)
+    artifact_refs = _artifact_refs_from_subagent_payload(payload)
     envelope = build_tool_result_envelope(
         tool_name=request.tool_name,
         tool_args=dict(normalized_args or {}),
@@ -723,7 +725,7 @@ async def _invoke_subagent_control(
             "text": text,
             "structured_payload": {
                 "subagent_control": dict(payload or {}),
-                "artifact_refs": list(_artifact_refs_from_subagent_payload(payload)),
+                "artifact_refs": list(artifact_refs),
             },
         },
         execution_receipt=_execution_receipt(execution_record),
@@ -739,7 +741,7 @@ async def _invoke_subagent_control(
         operation_gate=operation_gate,
         execution_receipt=_execution_receipt(execution_record),
         result_envelope=envelope.to_dict(),
-        artifact_refs=tuple(_artifact_refs_from_subagent_payload(payload)),
+        artifact_refs=tuple(artifact_refs),
         diagnostics={"stage": "subagent_control_handler", "handler_id": "subagent_control", "payload": dict(payload or {})},
     )
 
@@ -754,6 +756,7 @@ def _observation_from_executor_result(
     observation = dict(result.get("observation").to_dict() if hasattr(result.get("observation"), "to_dict") else result.get("observation") or {})
     payload = dict(observation.get("payload") or {})
     envelope = dict(payload.get("result_envelope") or {})
+    artifact_refs = artifact_refs_from_tool_result_payload(payload)
     text = str(payload.get("result") or payload.get("error") or result.get("error") or result.get("recoverable_error") or "")
     status = "error" if result.get("error") or result.get("recoverable_error") or observation.get("error") else "ok"
     return _observation(
@@ -764,7 +767,7 @@ def _observation_from_executor_result(
         result_envelope=envelope,
         operation_gate=operation_gate,
         execution_receipt=dict(payload.get("execution_receipt") or envelope.get("execution_receipt") or {}),
-        artifact_refs=tuple(dict(item) for item in list(payload.get("artifact_refs") or envelope.get("artifact_refs") or []) if isinstance(item, dict)),
+        artifact_refs=tuple(artifact_refs),
         diagnostics={
             **dict(diagnostics or {}),
             "executor_observation": observation,
@@ -781,6 +784,7 @@ def _observation_from_core_result(
     diagnostics: dict[str, Any],
 ) -> ToolObservation:
     envelope = dict(result.get("result_envelope") or {})
+    artifact_refs = artifact_refs_from_tool_result_payload(result)
     status = "error" if result.get("error") or result.get("recoverable_error") or str(result.get("status") or "") == "error" else "ok"
     text = str(result.get("text") or envelope.get("text") or result.get("error") or result.get("recoverable_error") or "")
     return _observation(
@@ -791,7 +795,7 @@ def _observation_from_core_result(
         result_envelope=envelope,
         operation_gate=operation_gate,
         execution_receipt=dict(envelope.get("execution_receipt") or {}),
-        artifact_refs=tuple(dict(item) for item in list(result.get("artifact_refs") or envelope.get("artifact_refs") or []) if isinstance(item, dict)),
+        artifact_refs=tuple(artifact_refs),
         diagnostics={
             **dict(diagnostics or {}),
             "core_result": {key: value for key, value in dict(result or {}).items() if key not in {"result_envelope"}},
@@ -849,7 +853,7 @@ def _sandbox_relative_paths(values: Any, *, sandbox_policy: dict[str, Any]) -> l
 
 def _artifact_refs_from_subagent_payload(payload: Any) -> list[dict[str, Any]]:
     result = dict(dict(payload or {}).get("result") or {})
-    return [dict(item) for item in list(result.get("artifact_refs") or []) if isinstance(item, dict)]
+    return artifact_refs_from_tool_result_payload(result)
 
 
 def _parent_agent_run(request: ToolInvocationRequest) -> Any | None:

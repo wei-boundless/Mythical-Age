@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, Pencil, X } from "lucide-react";
+import { AlertTriangle, Check, CircleCheck, Database, Pencil, ShieldCheck, X } from "lucide-react";
 import React, { useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -17,6 +17,13 @@ export function ChatMessage({
   image,
   runtimeAttachments = [],
   answerChannel,
+  answerCanonicalState,
+  answerPersistPolicy,
+  answerFinalizationPolicy,
+  answerFallbackReason,
+  answerSelectedChannel,
+  answerSelectedSource,
+  answerLeakFlags,
   answerSource,
   retrievals,
   canEdit = false,
@@ -34,6 +41,13 @@ export function ChatMessage({
   runtimeProgress?: RuntimeProgressEntry[];
   runtimeAttachments?: SessionRuntimeAttachment[];
   answerChannel?: string;
+  answerCanonicalState?: string;
+  answerPersistPolicy?: string;
+  answerFinalizationPolicy?: string;
+  answerFallbackReason?: string;
+  answerSelectedChannel?: string;
+  answerSelectedSource?: string;
+  answerLeakFlags?: string[];
   answerSource?: string;
   toolCalls: ToolCall[];
   retrievals: RetrievalResult[];
@@ -49,6 +63,16 @@ export function ChatMessage({
   const hasRunActivity = !isUser && hasPublicRunActivity(runtimeAttachments, displayContent);
   const taskControlReceipt = !isUser && isTaskControlReceipt({ content, answerChannel, answerSource });
   const hideTaskControlReceipt = taskControlReceipt && hasRunActivity;
+  const boundary = {
+    channel: answerChannel,
+    canonicalState: answerCanonicalState,
+    persistPolicy: answerPersistPolicy,
+    finalizationPolicy: answerFinalizationPolicy,
+    fallbackReason: answerFallbackReason,
+    selectedChannel: answerSelectedChannel,
+    selectedSource: answerSelectedSource,
+    leakFlags: answerLeakFlags,
+  };
   const shouldRenderContent =
     isUser
     || Boolean(image?.src)
@@ -81,6 +105,7 @@ export function ChatMessage({
       {hasRunActivity ? (
         <PublicRunActivity attachments={runtimeAttachments} assistantContent={displayContent} />
       ) : null}
+      {!isUser ? <OutputBoundaryStatus {...boundary} /> : null}
       {shouldRenderContent ? (
         <div className={isUser ? "chat-message-shell__content whitespace-pre-wrap leading-7" : "chat-message-shell__content markdown"}>
           {isUser && editing ? (
@@ -144,6 +169,85 @@ export function ChatMessage({
         </div>
       ) : null}
     </article>
+  );
+}
+
+function cleanBoundaryText(value: unknown) {
+  return String(value ?? "").replace(/\s+/g, " ").trim();
+}
+
+function boundaryLabel(state: string, persistPolicy: string, channel: string) {
+  if (state === "stable_answer" && persistPolicy === "persist_canonical") return "稳定答案";
+  if (state === "tool_summary") return "工具摘要";
+  if (state === "progress_only" || persistPolicy === "persist_debug_only") {
+    if (channel === "task_control") return "任务控制消息";
+    if (channel === "ask_user") return "等待补充";
+    if (channel === "active_work_control") return "当前工作控制";
+    if (channel === "blocked") return "运行受阻";
+    return "过程状态";
+  }
+  if (state === "missing_answer" || persistPolicy === "do_not_persist") return "未形成稳定答案";
+  if (state) return state.replace(/_/g, " ");
+  return "";
+}
+
+function shouldShowBoundaryStatus(state: string, persistPolicy: string, leakFlags: string[], fallbackReason: string) {
+  if (!state && !persistPolicy && !leakFlags.length && !fallbackReason) return false;
+  return state !== "stable_answer" || persistPolicy !== "persist_canonical" || leakFlags.length > 0 || Boolean(fallbackReason);
+}
+
+function OutputBoundaryStatus({
+  channel,
+  canonicalState,
+  persistPolicy,
+  fallbackReason,
+  selectedChannel,
+  leakFlags,
+}: {
+  channel?: string;
+  canonicalState?: string;
+  persistPolicy?: string;
+  finalizationPolicy?: string;
+  fallbackReason?: string;
+  selectedChannel?: string;
+  selectedSource?: string;
+  leakFlags?: string[];
+}) {
+  const state = cleanBoundaryText(canonicalState);
+  const persist = cleanBoundaryText(persistPolicy);
+  const answerChannel = cleanBoundaryText(channel);
+  const selected = cleanBoundaryText(selectedChannel);
+  const reason = cleanBoundaryText(fallbackReason);
+  const leaks = Array.isArray(leakFlags) ? leakFlags.map(cleanBoundaryText).filter(Boolean) : [];
+  if (!shouldShowBoundaryStatus(state, persist, leaks, reason)) {
+    return null;
+  }
+  const tone = state === "missing_answer" || persist === "do_not_persist"
+    ? "warning"
+    : state === "progress_only" || persist === "persist_debug_only"
+      ? "debug"
+      : "clean";
+  const Icon = tone === "warning" ? AlertTriangle : persist === "persist_canonical" ? CircleCheck : Database;
+  return (
+    <div className={`output-boundary-status output-boundary-status--${tone}`} aria-label="输出状态">
+      <span className="output-boundary-status__icon" aria-hidden="true">
+        <Icon size={13} />
+      </span>
+      <span className="output-boundary-status__main">
+        <strong>{boundaryLabel(state, persist, answerChannel)}</strong>
+        <small>{persist === "persist_canonical" ? "可写入记忆" : "不写入长期记忆"}</small>
+      </span>
+      {selected && selected !== answerChannel ? (
+        <code>{selected}</code>
+      ) : null}
+      {leaks.length ? (
+        <span className="output-boundary-status__flag">
+          <ShieldCheck size={12} />
+          已清理内部协议
+        </span>
+      ) : null}
+      {reason && reason !== answerChannel ? <small className="output-boundary-status__reason">{reason}</small> : null}
+    </div>
   );
 }
 

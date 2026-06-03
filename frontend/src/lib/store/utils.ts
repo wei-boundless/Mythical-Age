@@ -156,6 +156,15 @@ export function toUiMessages(history: SessionHistory["messages"], runtimeAttachm
         sourceIndex,
         answerChannel: message.answer_channel,
         answerSource: message.answer_source,
+        answerCanonicalState: message.answer_canonical_state,
+        answerPersistPolicy: message.answer_persist_policy,
+        answerFinalizationPolicy: message.answer_finalization_policy,
+        answerFallbackReason: message.answer_fallback_reason,
+        answerSelectedChannel: message.answer_selected_channel,
+        answerSelectedSource: message.answer_selected_source,
+        answerLeakFlags: Array.isArray(message.answer_leak_flags)
+          ? message.answer_leak_flags.map((item) => String(item ?? "").trim()).filter(Boolean)
+          : undefined,
         image: message.image ?? null,
         runtimeAttachments: attachmentsByAssistantId.get(historyMessageId(message, sourceIndex)) ?? []
       };

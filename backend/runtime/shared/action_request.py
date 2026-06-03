@@ -5,6 +5,8 @@ import uuid
 from dataclasses import asdict, dataclass, field
 from typing import Any, Literal
 
+from artifact_system.artifact_authority import artifact_refs_from_tool_result_payload
+
 
 RuntimeActionRequestType = Literal[
     "model_response",
@@ -149,11 +151,13 @@ def build_tool_result_observation(
         for item in list(envelope.get("matched_paths") or structured_payload.get("matched_paths") or [])
         if str(item).strip()
     ]
-    artifact_refs = [
-        dict(item)
-        for item in list(envelope.get("artifact_refs") or structured_payload.get("artifact_refs") or [])
-        if isinstance(item, dict)
-    ]
+    artifact_refs = artifact_refs_from_tool_result_payload(
+        {
+            "result": content,
+            "result_envelope": envelope,
+            "structured_payload": structured_payload,
+        }
+    )
     command_receipt = dict(envelope.get("command_receipt") or structured_payload.get("command_receipt") or {})
     return RuntimeObservation(
         observation_id=f"rtobs:{task_run_id}:{uuid.uuid4().hex[:8]}",

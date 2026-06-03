@@ -10,9 +10,16 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any, Iterable
 
+from artifact_system.artifact_authority import (
+    artifact_ref_value,
+    artifact_refs_from_event_payload,
+    dedupe_artifact_refs,
+    normalize_artifact_ref,
+)
 from runtime.shared.models import AgentRun, AgentRunResult
 from runtime.memory.tool_observation_ledger import build_tool_observation_record
 from runtime.model_gateway.model_response_protocol import model_response_protocol_from_response
+from runtime.output_boundary import canonical_output_decision_for_final_text
 from runtime.tool_runtime import ToolInvocationRequest, build_tool_invocation_id
 
 from orchestration.commit_gate import build_assistant_session_message_commit_decision
@@ -826,7 +833,7 @@ async def _execute_claimed_task_run(
             raw_observations = list(observation_context["raw_observations"])
             observations = list(observation_context["packet_observations"])
             execution_state = dict(observation_context["execution_state"])
-            artifact_refs = _dedupe_artifacts([*list(observation_context["artifact_refs"]), *artifact_refs])
+            artifact_refs = dedupe_artifact_refs([*list(observation_context["artifact_refs"]), *artifact_refs])
             continue
         action_event = runtime_host.event_log.append(
             current_task.task_run_id,
@@ -980,7 +987,7 @@ async def _execute_claimed_task_run(
                 raw_observations = list(observation_context["raw_observations"])
                 observations = list(observation_context["packet_observations"])
                 execution_state = dict(observation_context["execution_state"])
-                artifact_refs = _dedupe_artifacts([*list(observation_context["artifact_refs"]), *artifact_refs])
+                artifact_refs = dedupe_artifact_refs([*list(observation_context["artifact_refs"]), *artifact_refs])
                 continue
             _record_task_step_summary(
                 runtime_host,
@@ -1044,7 +1051,7 @@ async def _execute_claimed_task_run(
                     "observation_ref": observation["observation_id"],
                 },
             )
-            artifact_refs = _dedupe_artifacts([*artifact_refs, *_artifact_refs_from_observation(observation)])
+            artifact_refs = dedupe_artifact_refs([*artifact_refs, *_artifact_refs_from_observation(observation)])
             _record_task_step_summary(
                 runtime_host,
                 task_run_id=current_task.task_run_id,
@@ -1092,7 +1099,7 @@ async def _execute_claimed_task_run(
             raw_observations = list(observation_context["raw_observations"])
             observations = list(observation_context["packet_observations"])
             execution_state = dict(observation_context["execution_state"])
-            artifact_refs = _dedupe_artifacts([*list(observation_context["artifact_refs"]), *artifact_refs])
+            artifact_refs = dedupe_artifact_refs([*list(observation_context["artifact_refs"]), *artifact_refs])
             continue
 
         if action_request.action_type == "respond":
@@ -1147,9 +1154,9 @@ async def _execute_claimed_task_run(
                 raw_observations = list(observation_context["raw_observations"])
                 observations = list(observation_context["packet_observations"])
                 execution_state = dict(observation_context["execution_state"])
-                artifact_refs = _dedupe_artifacts([*list(observation_context["artifact_refs"]), *artifact_refs])
+                artifact_refs = dedupe_artifact_refs([*list(observation_context["artifact_refs"]), *artifact_refs])
                 continue
-            candidate_artifacts = _dedupe_artifacts([*artifact_refs, *_artifacts_from_action(action_request)])
+            candidate_artifacts = dedupe_artifact_refs([*artifact_refs, *_artifacts_from_action(action_request)])
             verdict = _verify_completion(
                 runtime_host=runtime_host,
                 runtime_assembly=runtime_assembly.to_dict(),
@@ -1188,7 +1195,7 @@ async def _execute_claimed_task_run(
                 raw_observations = list(observation_context["raw_observations"])
                 observations = list(observation_context["packet_observations"])
                 execution_state = dict(observation_context["execution_state"])
-                artifact_refs = _dedupe_artifacts([*list(observation_context["artifact_refs"]), *artifact_refs])
+                artifact_refs = dedupe_artifact_refs([*list(observation_context["artifact_refs"]), *artifact_refs])
                 continue
             return _finish_executor_success(
                 services,
@@ -1722,7 +1729,7 @@ def _verify_completion(
         artifact_root=artifact_scope.artifact_root,
     ).contract
     required_artifacts = [dict(item) for item in list(contract.get("required_artifacts") or []) if isinstance(item, dict)]
-    artifact_refs = _dedupe_artifacts(
+    artifact_refs = dedupe_artifact_refs(
         [
             *artifact_refs,
             *_discover_sandbox_artifact_refs(
@@ -1975,16 +1982,28 @@ def _commit_task_run_final_message(
     committer = getattr(services, "assistant_message_committer", None)
     if not callable(committer):
         return
+    canonical = canonical_output_decision_for_final_text(
+        final_answer,
+        answer_channel="final_answer",
+        answer_source="harness.loop.task_executor.completed",
+        execution_posture="task_run_completed",
+        has_tool_receipt=True,
+        terminal_reason="completed",
+    )
     decision = build_assistant_session_message_commit_decision(
         session_id=str(getattr(task_run, "session_id", "") or ""),
         task_run_id=str(getattr(task_run, "task_run_id", "") or ""),
         task_id=str(getattr(task_run, "task_id", "") or ""),
-        content=final_answer,
-        answer_channel="final_answer",
-        answer_source="harness.loop.task_executor.completed",
-        answer_canonical_state="final",
-        answer_persist_policy="persist_canonical",
-        answer_finalization_policy="assistant_final",
+        content=canonical.content,
+        answer_channel=canonical.answer_channel,
+        answer_source=canonical.answer_source,
+        answer_canonical_state=canonical.canonical_state,
+        answer_persist_policy=canonical.persist_policy,
+        answer_finalization_policy=canonical.finalization_policy,
+        answer_fallback_reason=canonical.fallback_reason,
+        answer_selected_channel=canonical.selected_channel,
+        answer_selected_source=canonical.selected_source,
+        answer_leak_flags=canonical.leak_flags,
         completion_state="completed",
         terminal_reason="completed",
         source="harness.loop.task_executor",
@@ -2742,7 +2761,7 @@ def _observations_for_packet(
             "context_summary": {},
             "authority": "harness.task_observation_projection",
         },
-        "artifact_refs": _dedupe_artifacts(
+        "artifact_refs": dedupe_artifact_refs(
             [
                 dict(ref)
                 for record in records
@@ -2951,7 +2970,7 @@ def _build_execution_state_projection(records: list[dict[str, Any]]) -> dict[str
                 repair_focus.append(failure)
     return {
         "current_facts": current_facts[-12:],
-        "artifact_evidence": _dedupe_artifacts(artifact_evidence)[-20:],
+        "artifact_evidence": dedupe_artifact_refs(artifact_evidence)[-20:],
         "active_failures": active_failures[-8:],
         "historical_failures": historical_failures[-8:],
         "repair_focus": repair_focus[-8:],
@@ -3177,7 +3196,7 @@ def _observation_result_payload(observation: dict[str, Any]) -> Any:
                 "status": "error" if _observation_status(observation) in {"failed", "denied", "canceled", "error"} else "ok",
                 "text": str(payload.get("result") or payload.get("error") or ""),
                 "structured_payload": dict(payload.get("structured_payload") or {}),
-                "artifact_refs": list(payload.get("artifact_refs") or []),
+                "artifact_refs": artifact_refs_from_event_payload({"observation": observation}),
                 "error": str(payload.get("error") or observation.get("error") or ""),
             }
         }
@@ -3814,25 +3833,11 @@ def _artifact_refs_from_observations(observations: list[dict[str, Any]]) -> list
     refs: list[dict[str, Any]] = []
     for observation in observations:
         refs.extend(_artifact_refs_from_observation(observation))
-    return _dedupe_artifacts(refs)
+    return dedupe_artifact_refs(refs)
 
 
 def _artifact_refs_from_observation(observation: dict[str, Any]) -> list[dict[str, Any]]:
-    payload = dict(observation.get("payload") or {})
-    envelope = dict(payload.get("result_envelope") or {})
-    structured = dict(payload.get("structured_payload") or envelope.get("structured_payload") or {})
-    refs = [
-        dict(item)
-        for item in list(payload.get("artifact_refs") or envelope.get("artifact_refs") or structured.get("artifact_refs") or [])
-        if isinstance(item, dict)
-    ]
-    if refs:
-        return refs
-    image = dict(_json_payload(payload.get("result")).get("image") or {})
-    path = str(image.get("file_path") or image.get("src") or "").strip()
-    if path:
-        return [{"path": path, "kind": "image", "source": "image_generate"}]
-    return []
+    return artifact_refs_from_event_payload({"observation": observation})
 
 
 def _artifacts_from_action(action_request: AnyModelActionRequest) -> list[dict[str, Any]]:
@@ -3841,20 +3846,12 @@ def _artifacts_from_action(action_request: AnyModelActionRequest) -> list[dict[s
 
 
 def _normal_artifact_refs(value: Any) -> list[dict[str, Any]]:
-    refs: list[dict[str, Any]] = []
-    for item in list(value or []):
-        if isinstance(item, dict):
-            refs.append(dict(item))
-            continue
-        text = str(item or "").strip()
-        if text:
-            refs.append({"path": text})
-    return _dedupe_artifacts(refs)
+    return dedupe_artifact_refs([normalize_artifact_ref(item) for item in list(value or [])])
 
 
 def _artifact_ref_to_string(ref: Any) -> str:
     if isinstance(ref, dict):
-        return str(ref.get("path") or ref.get("src") or ref.get("url") or json.dumps(ref, ensure_ascii=False, sort_keys=True))
+        return artifact_ref_value(ref) or str(ref.get("url") or json.dumps(ref, ensure_ascii=False, sort_keys=True))
     return str(ref or "")
 
 
@@ -3863,18 +3860,6 @@ def _specialist_terminal_reason(*, execution: SpecialistRuntimeExecution, limita
         return limitations[0]
     route = str(execution.route or execution.runtime_kind or "specialist").strip()
     return f"{route}_failed" if route else "specialist_runtime_failed"
-
-
-def _dedupe_artifacts(refs: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    result: list[dict[str, Any]] = []
-    seen: set[str] = set()
-    for ref in refs:
-        key = str(ref.get("path") or ref.get("src") or json.dumps(ref, ensure_ascii=False, sort_keys=True))
-        if key in seen:
-            continue
-        seen.add(key)
-        result.append(dict(ref))
-    return result
 
 
 def _verified_artifacts(
@@ -3890,7 +3875,7 @@ def _verified_artifacts(
     artifact_root = str(sandbox_policy.get("artifact_root") or "").replace("\\", "/").strip().strip("/")
     publish_roots = tuple(_sandbox_publish_scopes(sandbox_policy))
     verified: list[dict[str, Any]] = []
-    for ref in _dedupe_artifacts(artifact_refs):
+    for ref in dedupe_artifact_refs(artifact_refs):
         resolved = _publish_or_resolve_artifact_ref(
             ref,
             project_root=project_root,
@@ -3914,7 +3899,7 @@ def _verified_artifacts(
                 "published": True,
             }
         )
-    return _dedupe_artifacts(verified)
+    return dedupe_artifact_refs(verified)
 
 
 def _discover_sandbox_artifact_refs(
@@ -3951,7 +3936,7 @@ def _discover_sandbox_artifact_refs(
                     "sandbox_path": logical_path,
                 }
             )
-    return _dedupe_artifacts(refs)
+    return dedupe_artifact_refs(refs)
 
 
 def _discovered_artifact_matches_contract(logical_path: str, contract: dict[str, Any]) -> bool:

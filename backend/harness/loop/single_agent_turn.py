@@ -20,6 +20,7 @@ from runtime.prompt_accounting.serializer import normalize_messages
 from runtime.model_gateway.model_response_protocol import model_response_protocol_from_response
 from runtime.model_gateway.protocol_sanitizer import sanitize_messages_for_prompt
 from runtime.model_gateway.model_runtime import stringify_content
+from runtime.output_boundary import CanonicalFinalTextDecision, canonical_output_decision_for_final_text
 from runtime.shared.models import TurnRun
 from runtime.tool_runtime import ToolInvocationRequest, build_tool_invocation_id
 from runtime.tool_runtime.provider_tool_call_adapter import tool_calls_for_langchain_messages
@@ -207,6 +208,7 @@ async def run_single_agent_turn(
                 )
                 yield final_answer_event(
                     content=content,
+                    answer_channel=answer_channel,
                     answer_source=answer_source,
                     terminal_reason="single_turn_tool_iteration_limit",
                     extra={"runtime_branch": dict(runtime_branch or {}), "completion_state": "tool_limit_synthesized"},
@@ -264,6 +266,7 @@ async def run_single_agent_turn(
                 )
                 yield final_answer_event(
                     content=content,
+                    answer_channel="blocked",
                     answer_source="harness.single_agent_turn.tool_admission",
                     terminal_reason=admission.system_reason or admission.decision,
                     extra={"runtime_branch": dict(runtime_branch or {}), "admission": admission.to_dict()},
@@ -291,6 +294,7 @@ async def run_single_agent_turn(
                 )
                 yield final_answer_event(
                     content=content,
+                    answer_channel="blocked",
                     answer_source="harness.single_agent_turn.tool_admission",
                     terminal_reason=admission.system_reason or admission.decision,
                     extra={"runtime_branch": dict(runtime_branch or {}), "admission": admission.to_dict()},
@@ -353,7 +357,9 @@ async def run_single_agent_turn(
                 )
                 yield final_answer_event(
                     content=content,
+                    answer_channel="blocked",
                     answer_source="harness.single_agent_turn.tool_observation",
+                    has_tool_receipt=True,
                     terminal_reason=observation.status,
                     extra={"runtime_branch": dict(runtime_branch or {}), "tool_observation": observation.to_dict()},
                 )
@@ -488,6 +494,7 @@ async def run_single_agent_turn(
                 )
                 yield final_answer_event(
                     content=content,
+                    answer_channel="blocked",
                     answer_source="harness.single_agent_turn.admission",
                     terminal_reason=admission.system_reason or admission.decision,
                     extra={"runtime_branch": dict(runtime_branch or {}), "admission": admission.to_dict()},
@@ -550,6 +557,7 @@ async def run_single_agent_turn(
                 )
                 yield final_answer_event(
                     content=content,
+                    answer_channel="blocked",
                     answer_source="harness.single_agent_turn.block",
                     terminal_reason="blocked",
                     extra={"runtime_branch": dict(runtime_branch or {})},
@@ -572,7 +580,7 @@ async def run_single_agent_turn(
                     session_id=session_id,
                     turn_id=turn_id,
                     content=content,
-                    answer_channel="conversation",
+                    answer_channel="ask_user",
                     answer_source="harness.single_agent_turn.ask_user",
                     api_protocol_messages=[
                         *_native_action_protocol_messages(
@@ -588,6 +596,7 @@ async def run_single_agent_turn(
                 )
                 yield final_answer_event(
                     content=content,
+                    answer_channel="ask_user",
                     answer_source="harness.single_agent_turn.ask_user",
                     terminal_reason="ask_user",
                     extra={"runtime_branch": dict(runtime_branch or {})},
@@ -638,6 +647,7 @@ async def run_single_agent_turn(
                 )
                 yield final_answer_event(
                     content=content,
+                    answer_channel="active_work_control",
                     answer_source="harness.single_agent_turn.active_work_control",
                     terminal_reason=resolved_action,
                     extra={
@@ -677,7 +687,7 @@ async def run_single_agent_turn(
                 terminal_recorded = True
                 yield {"type": "agent_turn_terminal", "event": terminal}
             return
-        await _commit_final_message(
+        commit_decision = await _commit_final_message(
             commit_assistant_message,
             session_id=session_id,
             turn_id=turn_id,
@@ -693,13 +703,18 @@ async def run_single_agent_turn(
         )
         yield {
             "type": "assistant_message_committed",
-            "answer_channel": "conversation",
-            "answer_source": "harness.single_agent_turn",
-            "answer_canonical_state": "final",
+            "answer_channel": commit_decision.answer_channel,
+            "answer_source": commit_decision.answer_source,
+            "answer_canonical_state": commit_decision.canonical_state,
+            "answer_persist_policy": commit_decision.persist_policy,
+            "answer_finalization_policy": commit_decision.finalization_policy,
+            "answer_fallback_reason": commit_decision.fallback_reason,
         }
         yield final_answer_event(
             content=content,
+            answer_channel="conversation",
             answer_source="harness.single_agent_turn",
+            has_tool_receipt=bool(api_protocol_messages),
             terminal_reason="assistant_message",
             extra={"runtime_branch": dict(runtime_branch or {})},
         )
@@ -1390,26 +1405,30 @@ async def _commit_final_message(
     answer_channel: str,
     answer_source: str,
     api_protocol_messages: list[dict[str, Any]] | None = None,
-) -> None:
+) -> CanonicalFinalTextDecision:
     sanitized_protocol_messages = _sanitize_model_messages(
         [dict(item) for item in list(api_protocol_messages or []) if isinstance(item, dict)],
         turn_id=turn_id,
         source="harness.loop.single_agent_turn.commit_api_protocol_messages",
     )
+    decision = canonical_output_decision_for_final_text(
+        content,
+        answer_channel=answer_channel,
+        answer_source=answer_source,
+        execution_posture="single_agent_turn",
+        has_tool_receipt=any(str(item.get("role") or "") == "tool" for item in sanitized_protocol_messages),
+    )
     await commit_assistant_message(
         session_id,
         {
             "role": "assistant",
-            "content": content,
+            "content": decision.content,
             "turn_id": turn_id,
-            "answer_channel": answer_channel,
-            "answer_source": answer_source,
-            "answer_canonical_state": "final",
-            "answer_persist_policy": "persist_canonical",
-            "answer_finalization_policy": "assistant_final",
+            **decision.to_payload(),
             "api_protocol_messages": sanitized_protocol_messages,
         },
     )
+    return decision
 
 
 def _active_work_payload(active_work_context: Any | None) -> dict[str, Any]:

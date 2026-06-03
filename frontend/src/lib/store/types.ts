@@ -37,6 +37,13 @@ export type Message = {
   sourceIndex?: number;
   answerChannel?: string;
   answerSource?: string;
+  answerCanonicalState?: string;
+  answerPersistPolicy?: string;
+  answerFinalizationPolicy?: string;
+  answerFallbackReason?: string;
+  answerSelectedChannel?: string;
+  answerSelectedSource?: string;
+  answerLeakFlags?: string[];
   image?: {
     src: string;
     alt?: string;

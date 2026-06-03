@@ -7843,6 +7843,86 @@ button:hover {
   padding: 0;
 }
 
+.output-boundary-status {
+  display: flex;
+  width: min(100%, 78ch);
+  min-width: 0;
+  align-items: center;
+  gap: 7px;
+  margin: 0 0 6px;
+  color: #475569;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.output-boundary-status__icon {
+  display: inline-flex;
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+}
+
+.output-boundary-status__main {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.output-boundary-status strong {
+  color: #334155;
+  font-size: 12.5px;
+  font-weight: 680;
+}
+
+.output-boundary-status small,
+.output-boundary-status code,
+.output-boundary-status__flag {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.output-boundary-status small {
+  color: #64748b;
+}
+
+.output-boundary-status code {
+  border: 0;
+  background: transparent;
+  color: #64748b;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 11.5px;
+  padding: 0;
+}
+
+.output-boundary-status__flag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: #047857;
+  font-size: 11.5px;
+  font-weight: 620;
+}
+
+.output-boundary-status__reason {
+  color: #94a3b8;
+}
+
+.output-boundary-status--warning .output-boundary-status__icon {
+  color: #d97706;
+}
+
+.output-boundary-status--debug .output-boundary-status__icon {
+  color: #64748b;
+}
+
+.output-boundary-status--clean .output-boundary-status__icon {
+  color: #16a34a;
+}
+
 .workbench-collapsed-rail {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
