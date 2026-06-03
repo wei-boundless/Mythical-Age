@@ -229,12 +229,6 @@ export class RuntimeMonitorController {
         })
       : null;
     const openGraphWorkspace = navigation.target_kind === "graph_task" || work.workKind === "task_graph_run";
-    if (openGraphWorkspace && navigationWorkspaceView === "task_environment" && navigationTaskEnvironmentId) {
-      this.host.bindTaskEnvironmentContext(navigationTaskEnvironmentId, {
-        environmentLabel: navigationEnvironmentLabel,
-        source: "workspace-mode",
-      });
-    }
     this.host.syncWorkspaceViewUrl(openGraphWorkspace ? owningTaskEnvironmentView : "orchestration");
     this.store.setState((prev) => ({
       ...prev,

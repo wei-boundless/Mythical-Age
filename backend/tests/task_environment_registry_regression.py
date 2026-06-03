@@ -21,6 +21,7 @@ from agent_system.profiles.runtime_profile_registry import default_agent_runtime
 from capability_system.tools.authorization import build_tool_authorization_index
 from capability_system.tools.native_tool_catalog import build_tool_instances, get_tool_definitions
 from harness.runtime import RuntimeCompiler, assemble_runtime, build_runtime_tool_plan
+from harness.runtime.tool_scheduling import environment_allowed_operations
 from prompt_library import PromptLibraryRegistry, PromptResource
 from task_system.tasks.definitions import default_task_definitions
 
@@ -146,6 +147,72 @@ def test_development_environment_exposes_shell_and_image_generation_tools_for_au
     }
     assert decisions["op.shell"]["final_decision"] == "allow"
     assert decisions["op.shell"]["environment_constraint"] == "env.development.sandbox"
+
+
+def test_coding_environment_operations_are_derived_from_registered_runtime_payload() -> None:
+    payload = build_task_environment_catalog().runtime_environment_payload("env.coding.vibe_workspace")
+    allowed = environment_allowed_operations(payload)
+
+    assert {
+        "op.read_file",
+        "op.write_file",
+        "op.edit_file",
+        "op.shell",
+        "op.python_repl",
+        "op.git_status",
+        "op.git_commit",
+        "op.codebase_search",
+        "op.python_symbol_search",
+        "op.mcp_pdf",
+    }.issubset(allowed)
+    assert environment_allowed_operations("env.coding.vibe_workspace") == allowed
+
+
+def test_coding_environment_exposes_core_development_tools_for_authorized_agent() -> None:
+    definitions = get_tool_definitions()
+    index = build_tool_authorization_index(definitions)
+    profile = SimpleNamespace(
+        agent_profile_id="coding-env-authorized-agent",
+        allowed_operations=(
+            "op.model_response",
+            "op.read_file",
+            "op.write_file",
+            "op.edit_file",
+            "op.shell",
+            "op.python_repl",
+            "op.git_status",
+            "op.python_symbol_search",
+        ),
+        blocked_operations=(),
+        metadata={},
+    )
+
+    assembly = assemble_runtime(
+        backend_dir=BACKEND_DIR,
+        session_id="session-coding-env-tools",
+        turn_id="turn-coding-env-tools",
+        agent_invocation_id="agent-invocation-coding-env-tools",
+        request_task_selection={"task_environment_id": "env.coding.vibe_workspace"},
+        model_selection={},
+        agent_runtime_profile=profile,
+        tool_instances=build_tool_instances(BACKEND_DIR),
+        definitions_by_name=index.definitions_by_name,
+    ).to_dict()
+
+    tool_names = {str(item.get("tool_name") or "") for item in list(assembly.get("available_tools") or [])}
+    operation_auth = dict(assembly.get("operation_authorization") or {})
+    decisions = {
+        str(item.get("operation_id") or ""): dict(item)
+        for item in list(operation_auth.get("decisions") or [])
+    }
+
+    assert {"read_file", "write_file", "edit_file", "terminal", "python_symbol_search"} <= tool_names
+    assert decisions["op.read_file"]["final_decision"] == "allow"
+    assert decisions["op.write_file"]["final_decision"] == "allow"
+    assert decisions["op.edit_file"]["final_decision"] == "allow"
+    assert decisions["op.shell"]["final_decision"] == "allow"
+    assert decisions["op.python_repl"]["final_decision"] == "allow"
+    assert decisions["op.python_repl"]["environment_constraint"] == "env.coding.vibe_workspace"
 
 
 def test_runtime_available_tools_expose_canonical_tool_input_schema() -> None:

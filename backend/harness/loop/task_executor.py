@@ -247,7 +247,7 @@ def resume_paused_task_run(
     status = str(getattr(task_run, "status", "") or "")
     if status in {"completed", "failed", "aborted"}:
         return _conflict(task_run_id, f"task_run_terminal:{status}")
-    if not _is_task_run_resumable_for_user_control(task_run):
+    if not _is_task_run_resumable_for_user_control(task_run) and status != "blocked":
         return _conflict(task_run_id, f"task_run_not_resumable:{status}")
     now = time.time()
     recovery_state = recovery_state_for_task_run(task_run)

@@ -218,7 +218,7 @@ class RuntimeMonitorProjector:
             for task_run in sorted(task_runs, key=lambda item: float(getattr(item, "updated_at", 0.0) or 0.0), reverse=True)
             if not self._is_internal_child_run(task_run)
         ]
-        items = [item for item in projected if self._is_global_live_item(item)]
+        items = self._current_items_by_session([item for item in projected if self._is_global_live_item(item)])
         return build_envelope(scope="global", items=items, now=now, limit=limit)
 
     def build_session_monitor(self, session_id: str, task_runs: list[Any], *, now: float, limit: int = 20) -> dict[str, Any]:
@@ -227,7 +227,7 @@ class RuntimeMonitorProjector:
             for item in sorted(task_runs, key=lambda item: float(getattr(item, "updated_at", 0.0) or 0.0), reverse=True)
             if not self._is_internal_child_run(item)
         ]
-        active_items = [item for item in items if item.get("bucket") in {"running", "diagnostics"}]
+        active_items = self._current_items_by_session([item for item in items if item.get("bucket") in {"running", "diagnostics"}])
         visible = active_items[: max(1, min(int(limit or 20), 100))]
         latest = items[0] if items else None
         active = visible[0] if visible else None
@@ -248,6 +248,19 @@ class RuntimeMonitorProjector:
 
     def build_task_monitor(self, task_run: Any, *, now: float) -> dict[str, Any]:
         return build_task_detail_envelope(item=self.project_task_run(task_run, now=now), now=now)
+
+    def _current_items_by_session(self, items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        selected_by_session: dict[str, dict[str, Any]] = {}
+        unscoped: list[dict[str, Any]] = []
+        for item in items:
+            session_id = str(item.get("session_id") or "").strip()
+            if not session_id:
+                unscoped.append(item)
+                continue
+            current = selected_by_session.get(session_id)
+            if current is None or _session_current_item_key(item) > _session_current_item_key(current):
+                selected_by_session[session_id] = item
+        return [*unscoped, *selected_by_session.values()]
 
     def _recent_events(self, task_run_id: str, *, limit: int) -> list[Any]:
         reader = getattr(self.event_log, "list_recent_events", None)
@@ -695,6 +708,33 @@ def _artifact_refs_from_event_log(event_log: Any, task_run_id: str) -> list[dict
         except Exception:
             pass
     return []
+
+
+def _session_current_item_key(item: dict[str, Any]) -> tuple[int, int, int, float, float]:
+    status = str(item.get("status") or "").strip()
+    bucket = str(item.get("bucket") or "").strip()
+    bucket_rank = 0
+    if bucket == "running":
+        bucket_rank = 4
+    elif item.get("action_required") is True:
+        bucket_rank = 3
+    elif bucket == "diagnostics":
+        bucket_rank = 2
+    status_rank = {
+        "running": 6,
+        "created": 5,
+        "waiting_executor": 4,
+        "waiting_approval": 3,
+        "blocked": 2,
+    }.get(status, 0)
+    fresh_rank = 0 if item.get("stale") is True else 1
+    return (
+        bucket_rank,
+        status_rank,
+        fresh_rank,
+        float(item.get("last_activity_at") or item.get("updated_at") or 0.0),
+        float(item.get("created_at") or 0.0),
+    )
 
 
 def _node_statuses_from_monitor(monitor: dict[str, Any]) -> list[dict[str, Any]]:

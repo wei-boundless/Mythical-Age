@@ -394,6 +394,37 @@ def test_global_monitor_filters_child_runs_and_applies_per_bucket_limit():
     assert "taskrun:completed-2" not in {item["task_run_id"] for item in monitor["task_runs"]}
 
 
+def test_global_monitor_keeps_one_current_task_per_session():
+    projector = RuntimeMonitorProjector(EventLogStub())
+    stale_blocked = task_run(
+        task_run_id="taskrun:turn:session-a:1:old",
+        session_id="session-a",
+        status="blocked",
+        updated_at=220.0,
+        diagnostics={"latest_step_summary": "旧任务阻塞记录。"},
+    )
+    current_running = task_run(
+        task_run_id="taskrun:turn:session-a:2:current",
+        session_id="session-a",
+        status="running",
+        updated_at=210.0,
+        diagnostics={"latest_step_summary": "当前续跑任务。"},
+    )
+    other_session = task_run(
+        task_run_id="taskrun:turn:session-b:1:current",
+        session_id="session-b",
+        status="waiting_executor",
+        updated_at=205.0,
+    )
+
+    monitor = projector.build_global_monitor([stale_blocked, current_running, other_session], now=230.0, limit=20)
+    visible_ids = {item["task_run_id"] for item in monitor["task_runs"]}
+
+    assert "taskrun:turn:session-a:2:current" in visible_ids
+    assert "taskrun:turn:session-a:1:old" not in visible_ids
+    assert "taskrun:turn:session-b:1:current" in visible_ids
+
+
 def test_main_chat_taskinst_task_run_remains_monitorable():
     projector = RuntimeMonitorProjector(EventLogStub())
     run = task_run(

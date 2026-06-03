@@ -831,6 +831,14 @@ async def task_system_overview() -> dict[str, object]:
     return _task_system_payload(runtime.base_dir)
 
 
+@router.get("/tasks/environments/catalog")
+async def task_environment_catalog() -> dict[str, object]:
+    runtime = require_runtime()
+    return build_task_environment_catalog(
+        registry=task_environment_registry_from_backend_dir(runtime.base_dir),
+    ).management_payload()
+
+
 @router.get("/tasks/next-ids")
 async def task_system_next_ids() -> dict[str, object]:
     runtime = require_runtime()

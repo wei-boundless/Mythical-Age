@@ -1660,7 +1660,9 @@ def _utility_accounting_context(
     source: str,
     messages: list[dict[str, Any]],
     purpose: str,
+    stable_message_count: int = 1,
 ) -> dict[str, Any]:
+    stable_count = max(1, int(stable_message_count or 1))
     segment_plan = build_prompt_segment_plan(
         packet_id=f"utility:{purpose}:{uuid.uuid4().hex[:8]}",
         invocation_kind="utility_model_call",
@@ -1668,12 +1670,12 @@ def _utility_accounting_context(
             {
                 "role": str(message.get("role") or "user"),
                 "content": str(message.get("content") or ""),
-                "kind": "utility_static" if index == 0 else "utility_volatile",
+                "kind": "utility_static" if index == 0 else ("utility_stable" if index < stable_count else "utility_volatile"),
                 "source_ref": purpose,
-                "cache_scope": "global" if index == 0 else "none",
-                "cache_role": "cacheable_prefix" if index == 0 else "volatile",
-                "prefix_tier": "provider_global" if index == 0 else "volatile",
-                "compression_role": "preserve" if index == 0 else "summarize",
+                "cache_scope": "global" if index == 0 else ("session" if index < stable_count else "none"),
+                "cache_role": "cacheable_prefix" if index == 0 else ("session_stable" if index < stable_count else "volatile"),
+                "prefix_tier": "provider_global" if index == 0 else ("session" if index < stable_count else "volatile"),
+                "compression_role": "preserve" if index < stable_count else "summarize",
             }
             for index, message in enumerate(list(messages or []))
         ],
@@ -1701,8 +1703,14 @@ def utility_accounting_context(
     session_id: str = "",
     run_id: str = "",
     task_run_id: str = "",
+    stable_message_count: int = 1,
 ) -> dict[str, Any]:
-    context = _utility_accounting_context(source=source, messages=messages, purpose=purpose)
+    context = _utility_accounting_context(
+        source=source,
+        messages=messages,
+        purpose=purpose,
+        stable_message_count=stable_message_count,
+    )
     if cache_metric_scope:
         context["cache_metric_scope"] = str(cache_metric_scope)
         context.setdefault("prompt_manifest", {})["cache_metric_scope"] = str(cache_metric_scope)

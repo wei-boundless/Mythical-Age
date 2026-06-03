@@ -59,6 +59,7 @@ class SessionManager:
             "compressed_context": "",
             "scope": _normalize_scope(scope),
             "task_binding": {},
+            "conversation_state": _normalize_conversation_state({}),
         }
         self._write_payload(session_id, payload)
         return self._summary_from_payload(payload)
@@ -116,12 +117,54 @@ class SessionManager:
             "compressed_context": str(payload.get("compressed_context") or ""),
             "scope": _normalize_scope(dict(payload.get("scope") or {})),
             "task_binding": _normalize_task_binding(dict(payload.get("task_binding") or {})),
+            "conversation_state": _normalize_conversation_state(dict(payload.get("conversation_state") or {})),
             "messages": list(payload.get("messages") or []),
         }
 
     def get_task_binding(self, session_id: str) -> dict[str, Any]:
         payload = self._read_payload(session_id)
         return _normalize_task_binding(dict(payload.get("task_binding") or {}))
+
+    def get_conversation_state(self, session_id: str) -> dict[str, Any]:
+        payload = self._read_payload(session_id)
+        return _normalize_conversation_state(dict(payload.get("conversation_state") or {}))
+
+    def set_active_task_environment(self, session_id: str, active_environment: dict[str, Any]) -> dict[str, Any]:
+        payload = self._read_payload(session_id)
+        state = _normalize_conversation_state(dict(payload.get("conversation_state") or {}))
+        state["active_task_environment"] = _normalize_active_task_environment(active_environment)
+        payload["conversation_state"] = state
+        payload["updated_at"] = time.time()
+        self._write_payload(session_id, payload)
+        return state
+
+    def update_turn_environment_snapshot(
+        self,
+        session_id: str,
+        *,
+        turn_id: str,
+        snapshot: dict[str, Any],
+    ) -> dict[str, Any]:
+        target_turn_id = str(turn_id or "").strip()
+        if not target_turn_id:
+            raise ValueError("turn_id is required")
+        clean_snapshot = _normalize_turn_environment_snapshot(snapshot)
+        payload = self._read_payload(session_id)
+        messages = []
+        updated = False
+        for item in list(payload.get("messages") or []):
+            if not isinstance(item, dict):
+                messages.append(item)
+                continue
+            if str(item.get("turn_id") or "").strip() == target_turn_id:
+                item = {**item, "turn_environment_snapshot": clean_snapshot}
+                updated = True
+            messages.append(item)
+        payload["messages"] = messages
+        if updated:
+            payload["updated_at"] = time.time()
+            self._write_payload(session_id, payload)
+        return {"updated": updated, "turn_environment_snapshot": clean_snapshot}
 
     def bind_session_graph_instance(
         self,
@@ -242,6 +285,7 @@ class SessionManager:
             "message_count": len(messages),
             "scope": _normalize_scope(dict(payload.get("scope") or {})),
             "task_binding": _normalize_task_binding(dict(payload.get("task_binding") or {})),
+            "conversation_state": _normalize_conversation_state(dict(payload.get("conversation_state") or {})),
         }
 
     def _read_payload(self, session_id: str) -> dict[str, Any]:
@@ -307,6 +351,48 @@ def _normalize_task_binding(binding: dict[str, Any] | None) -> dict[str, Any]:
         "bound_at": float(raw.get("bound_at") or raw.get("created_at") or 0.0),
         "updated_at": float(raw.get("updated_at") or raw.get("bound_at") or 0.0),
         "authority": str(raw.get("authority") or "sessions.session_task_binding"),
+    }
+
+
+def _normalize_active_task_environment(payload: dict[str, Any] | None) -> dict[str, Any]:
+    raw = dict(payload or {})
+    environment_id = str(raw.get("task_environment_id") or raw.get("environment_id") or "").strip()
+    if not environment_id:
+        return {}
+    return {
+        "task_environment_id": environment_id,
+        "environment_label": str(raw.get("environment_label") or raw.get("label") or environment_id).strip() or environment_id,
+        "source": str(raw.get("source") or "conversation").strip() or "conversation",
+        "updated_at": float(raw.get("updated_at") or time.time()),
+        "authority": "sessions.conversation_active_task_environment",
+    }
+
+
+def _normalize_conversation_state(payload: dict[str, Any] | None) -> dict[str, Any]:
+    raw = dict(payload or {})
+    active = _normalize_active_task_environment(dict(raw.get("active_task_environment") or {}))
+    return {
+        "active_task_environment": active,
+        "authority": str(raw.get("authority") or "sessions.conversation_state"),
+    }
+
+
+def _normalize_turn_environment_snapshot(payload: dict[str, Any] | None) -> dict[str, Any]:
+    raw = dict(payload or {})
+    environment_id = str(raw.get("task_environment_id") or raw.get("environment_id") or "").strip()
+    prompt_refs = [
+        str(item or "").strip()
+        for item in list(raw.get("environment_prompt_refs") or [])
+        if str(item or "").strip()
+    ]
+    return {
+        "turn_id": str(raw.get("turn_id") or "").strip(),
+        "task_environment_id": environment_id,
+        "environment_kind": str(raw.get("environment_kind") or "").strip(),
+        "environment_prompt_refs": prompt_refs,
+        "runtime_assembly_id": str(raw.get("runtime_assembly_id") or raw.get("assembly_id") or "").strip(),
+        "task_run_id": str(raw.get("task_run_id") or "").strip(),
+        "authority": "sessions.turn_environment_snapshot",
     }
 
 

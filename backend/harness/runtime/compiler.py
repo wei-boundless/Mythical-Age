@@ -429,6 +429,11 @@ class RuntimeCompiler:
         agent_function_shared_payload = _graph_agent_function_shared_stable_payload(contract)
         graph_task_shared_payload = _graph_task_shared_stable_payload(contract)
         task_contract_payload = {"task_contract": _task_contract_stable_payload(contract)}
+        graph_node_runtime_context_payload = (
+            {"graph_node_runtime_context": _graph_node_model_context_projection(graph_slot)}
+            if graph_slot
+            else {}
+        )
         artifact_execution_scope_payload = {"artifact_execution_scope": sandbox_execution_scope.to_model_visible_payload()}
         environment_stable_payload = {"task_environment": _environment_model_visible_payload(environment_payload)}
         tool_index_payload = {
@@ -497,24 +502,6 @@ class RuntimeCompiler:
                 ),
                 _message_spec(
                     role="system",
-                    content=_packet_payload_content("Task execution artifact write scope", artifact_execution_scope_payload),
-                    kind="artifact_scope_stable",
-                    source_ref="task_execution_artifact_write_scope",
-                    cache_scope="task",
-                    cache_role="session_stable",
-                    compression_role="preserve",
-                ),
-                _message_spec(
-                    role="system",
-                    content=_packet_payload_content("Task execution tool index", tool_index_payload),
-                    kind="tool_index_stable",
-                    source_ref=_short_hash(_stable_json_hash([dict(item) for item in tool_payloads])),
-                    cache_scope="task",
-                    cache_role="session_stable",
-                    compression_role="preserve",
-                ),
-                _message_spec(
-                    role="system",
                     content=agent_instruction,
                     kind="agent_stable",
                     source_ref=",".join(agent_prompt_assembly.manifest.get("stable_prompt_refs") or ()),
@@ -533,6 +520,24 @@ class RuntimeCompiler:
                 )
                 if agent_function_shared_payload
                 else None,
+                _message_spec(
+                    role="system",
+                    content=_packet_payload_content("Task execution artifact write scope", artifact_execution_scope_payload),
+                    kind="artifact_scope_stable",
+                    source_ref="task_execution_artifact_write_scope",
+                    cache_scope="task",
+                    cache_role="session_stable",
+                    compression_role="preserve",
+                ),
+                _message_spec(
+                    role="system",
+                    content=_packet_payload_content("Task execution tool index", tool_index_payload),
+                    kind="tool_index_stable",
+                    source_ref=_short_hash(_stable_json_hash([dict(item) for item in tool_payloads])),
+                    cache_scope="task",
+                    cache_role="session_stable",
+                    compression_role="preserve",
+                ),
                 _message_spec(
                     role="system",
                     content=_packet_payload_content("Task execution graph shared context", graph_task_shared_payload),
@@ -571,6 +576,21 @@ class RuntimeCompiler:
                     cache_role="session_stable",
                     compression_role="preserve",
                 ),
+                _message_spec(
+                    role="system",
+                    content=_packet_payload_content("Task execution graph node runtime context", graph_node_runtime_context_payload),
+                    kind="graph_node_runtime_context",
+                    source_ref="graph_node_runtime_context",
+                    cache_scope="none",
+                    cache_role="volatile",
+                    compression_role="ref_only",
+                    metadata={
+                        "volatility_reason": "graph node authorized inputs, memory snapshots, loop state, and upstream artifact payloads vary per node execution",
+                        "cache_impact": "volatile",
+                    },
+                )
+                if graph_node_runtime_context_payload
+                else None,
                 _message_spec(
                     role="system",
                     content=_join_prompt_sections(
@@ -2220,6 +2240,37 @@ def _graph_node_model_context_projection(graph_slot: dict[str, Any]) -> dict[str
     )
 
 
+def _graph_node_stable_contract_context(graph_slot: dict[str, Any]) -> dict[str, Any]:
+    slot = dict(graph_slot or {})
+    if not slot:
+        return {}
+    node_contract = dict(slot.get("node_contract") or {})
+    edge_contracts = dict(slot.get("edge_contracts") or {})
+    output_contract = dict(slot.get("output_contract") or {})
+    node_identity = dict(node_contract.get("node_identity") or {})
+    return _drop_empty_payload(
+        {
+            "node": _drop_empty_payload(
+                {
+                    "title": str(node_identity.get("title") or ""),
+                    "node_type": str(node_identity.get("node_type") or ""),
+                    "node_id": str(node_identity.get("node_id") or ""),
+                    "authority": "harness.runtime.graph_node_context.node_identity",
+                }
+            ),
+            "authorized_input_slots": _graph_authorized_input_stable_refs(edge_contracts.get("inbound_edge_contexts")),
+            "output": _graph_visible_output_requirements(output_contract),
+            "constraints": _graph_visible_constraints(node_contract=node_contract, output_contract=output_contract),
+            "visibility": {
+                "authorized_input_content_lives_in": "Task execution graph node runtime context",
+                "stable_contract_is_cache_prefix_safe": True,
+                "authority": "harness.runtime.graph_node_context.stable_visibility",
+            },
+            "authority": "harness.runtime.graph_node_stable_contract_context",
+        }
+    )
+
+
 def _graph_agent_function_shared_stable_payload(contract: dict[str, Any]) -> dict[str, Any]:
     graph_slot = _graph_slot_from_contract(dict(contract or {}))
     if not graph_slot:
@@ -2391,6 +2442,27 @@ def _graph_authorized_inputs(value: Any) -> list[dict[str, Any]]:
                     "artifact_refs": artifact_refs,
                     "memory_refs": memory_refs,
                     "authority": "harness.runtime.graph_node_context.authorized_input",
+                }
+            )
+        )
+    return inputs
+
+
+def _graph_authorized_input_stable_refs(value: Any) -> list[dict[str, Any]]:
+    inputs: list[dict[str, Any]] = []
+    for item in _inbound_context_stable_payload(value):
+        slot = str(item.get("target_input_slot") or item.get("target_context_key") or "").strip()
+        label = slot or str(item.get("target_context_key") or "").strip()
+        inputs.append(
+            _drop_empty_payload(
+                {
+                    "slot": slot,
+                    "label": label,
+                    "packet_type": str(item.get("packet_type") or ""),
+                    "artifact_refs": _model_visible_artifact_refs(item.get("artifact_refs")),
+                    "memory_refs": _model_visible_ref_summaries(item.get("memory_refs"), limit=8),
+                    "content_omitted_reason": "available_in_graph_node_runtime_context",
+                    "authority": "harness.runtime.graph_node_context.authorized_input_stable_ref",
                 }
             )
         )
@@ -2592,7 +2664,7 @@ def _task_contract_stable_payload(contract: dict[str, Any]) -> dict[str, Any]:
                 "contract_source": str(payload.get("contract_source") or "graph_node_work_order"),
                 "task_environment_id": str(payload.get("task_environment_id") or ""),
                 "origin": _graph_task_contract_origin_model_visible(dict(payload.get("origin") or {})),
-                "graph_node_context": _graph_node_model_context_projection(graph_slot),
+                "graph_node_context": _graph_node_stable_contract_context(graph_slot),
                 "completion_criteria": _string_list(payload.get("completion_criteria")),
                 "authority": "harness.runtime.graph_node_contract.model_visible",
             }

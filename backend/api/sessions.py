@@ -9,6 +9,7 @@ from api.deps import require_runtime
 from api.session_summary import enrich_session_summaries
 from harness.runtime.session_lifecycle import SessionRuntimeLifecycleManager
 from harness.runtime.session_timeline import build_session_runtime_timeline
+from task_system.environments import task_environment_registry_from_backend_dir
 from task_system.session_scope import assert_optional_session_scope, request_scope_from_query
 
 router = APIRouter()
@@ -31,6 +32,12 @@ class GenerateTitleRequest(BaseModel):
 
 class TruncateMessagesRequest(BaseModel):
     message_index: int = Field(..., ge=0)
+
+
+class ActiveTaskEnvironmentRequest(BaseModel):
+    task_environment_id: str = Field(..., min_length=3, max_length=200)
+    environment_label: str = Field(default="", max_length=200)
+    source: str = Field(default="conversation", max_length=80)
 
 
 @router.get("/sessions")
@@ -93,12 +100,11 @@ async def delete_session(
             raise
         missing_session = True
     try:
-        cleanup = await SessionRuntimeLifecycleManager(runtime).delete_session_runtime(session_id)
+        cleanup = await SessionRuntimeLifecycleManager(runtime).detach_session_runtime(session_id)
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     if not missing_session:
         runtime.session_manager.delete_session(session_id)
-    runtime.memory_facade.delete_session_memory(session_id)
     return {"ok": True, "cleanup": cleanup, "session_missing_before_delete": missing_session}
 
 
@@ -135,6 +141,50 @@ async def get_session_history(
         request_scope_from_query(workspace_view=workspace_view, task_environment_id=task_environment_id, project_id=project_id),
     )
     return runtime.session_manager.get_history(session_id)
+
+
+@router.get("/sessions/{session_id}/conversation-state")
+async def get_session_conversation_state(
+    session_id: str,
+    workspace_view: str | None = Query(default=None, max_length=80),
+    task_environment_id: str | None = Query(default=None, max_length=200),
+    project_id: str | None = Query(default=None, max_length=240),
+) -> dict[str, Any]:
+    runtime = require_runtime()
+    assert_optional_session_scope(
+        runtime.session_manager,
+        session_id,
+        request_scope_from_query(workspace_view=workspace_view, task_environment_id=task_environment_id, project_id=project_id),
+    )
+    return runtime.session_manager.get_conversation_state(session_id)
+
+
+@router.put("/sessions/{session_id}/active-task-environment")
+async def set_session_active_task_environment(
+    session_id: str,
+    payload: ActiveTaskEnvironmentRequest,
+    workspace_view: str | None = Query(default=None, max_length=80),
+    task_environment_id: str | None = Query(default=None, max_length=200),
+    project_id: str | None = Query(default=None, max_length=240),
+) -> dict[str, Any]:
+    runtime = require_runtime()
+    assert_optional_session_scope(
+        runtime.session_manager,
+        session_id,
+        request_scope_from_query(workspace_view=workspace_view, task_environment_id=task_environment_id, project_id=project_id),
+    )
+    try:
+        task_environment_registry_from_backend_dir(runtime.base_dir).require(payload.task_environment_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=f"unknown task environment: {payload.task_environment_id}") from exc
+    return runtime.session_manager.set_active_task_environment(
+        session_id,
+        {
+            "task_environment_id": payload.task_environment_id,
+            "environment_label": payload.environment_label or payload.task_environment_id,
+            "source": payload.source or "conversation",
+        },
+    )
 
 
 @router.get("/sessions/{session_id}/timeline")

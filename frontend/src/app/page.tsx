@@ -42,8 +42,6 @@ const WORKSPACE_QUERY_VIEWS = new Set<WorkspaceView>([
 
 const WORKSPACE_TONES = new Set(["water", "leaf", "gold", "ember", "lumen"]);
 const TASK_ENVIRONMENT_VIEWS = new Set<WorkspaceView>(["chat", "code-environment"]);
-const GENERAL_TASK_ENVIRONMENT_ID = "env.general.workspace";
-const CODING_TASK_ENVIRONMENT_ID = "env.coding.vibe_workspace";
 
 const SYSTEM_NAV_ITEMS: Array<{ view: WorkspaceView; label: string; icon: typeof MessageSquare }> = [
   { view: "chat", label: "工作台", icon: MessageSquare },
@@ -102,10 +100,12 @@ function Workspace() {
   const {
     activeWorkspaceView,
     setWorkspaceView,
+    conversationActiveEnvironment,
     clearTaskGraphMonitorRun,
     continueBoundTaskGraphRun,
     evaluateBoundTaskGraphMonitor,
     setTaskGraphRunInteractionOpen,
+    stopBoundTaskGraphRun,
     taskGraphBoundRunMonitor,
     taskGraphMonitorActionLoading,
     taskGraphMonitorBinding,
@@ -174,6 +174,7 @@ function Workspace() {
       onContinue={() => void continueBoundTaskGraphRun()}
       onEvaluate={() => void evaluateBoundTaskGraphMonitor()}
       onOpenChange={setTaskGraphRunInteractionOpen}
+      onStop={() => void stopBoundTaskGraphRun()}
       open={taskGraphRunInteractionOpen}
     />
   );
@@ -232,9 +233,7 @@ function Workspace() {
       </SystemPageShell>
     );
   } else if (activeWorkspaceView === "code-environment" || activeWorkspaceView === "chat") {
-    const centerTaskEnvironmentId = activeWorkspaceView === "code-environment"
-      ? CODING_TASK_ENVIRONMENT_ID
-      : GENERAL_TASK_ENVIRONMENT_ID;
+    const centerTaskEnvironmentId = String(conversationActiveEnvironment?.task_environment_id || "env.general.workspace");
     content = (
       <SystemPageShell label={activeWorkspaceView === "code-environment" ? "代码环境" : "主会话"} view={activeWorkspaceView}>
         <WorkbenchShell hideMainToolbar>

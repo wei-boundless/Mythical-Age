@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef } from "react";
-import { Play, Square, X } from "lucide-react";
+import { Play, Square } from "lucide-react";
 
 import { ChatInput } from "@/components/chat/ChatInput";
 import { ChatMessage } from "@/components/chat/ChatMessage";
@@ -21,8 +21,7 @@ export function ChatPanel() {
     taskGraphLiveMonitor,
     stopActiveTaskRun,
     resumeActiveTaskRun,
-    chatTaskEnvironmentBinding,
-    clearChatTaskEnvironmentBinding,
+    conversationActiveEnvironment,
     workspaceInitializing,
     modelProviderConfig,
     imageAssetConfig,
@@ -35,7 +34,6 @@ export function ChatPanel() {
   } = useAppStore();
   const endRef = useRef<HTMLDivElement | null>(null);
   const currentSessionStreaming = Boolean(currentSessionId && activeStreamSessionIds.includes(currentSessionId));
-  const canClearTaskEnvironmentBinding = Boolean(chatTaskEnvironmentBinding && chatTaskEnvironmentBinding.source !== "workspace-mode");
   const monitorRecord = taskGraphLiveMonitor as Record<string, unknown> | null;
   const monitorTaskRun = taskGraphLiveMonitor?.task_run ?? {};
   const monitorRuntimeControl = taskGraphLiveMonitor?.runtime_control ?? {};
@@ -156,15 +154,10 @@ export function ChatPanel() {
               继续
             </button>
           ) : null}
-          {chatTaskEnvironmentBinding ? (
-            <div className="chat-task-environment-binding" title={chatTaskEnvironmentBinding.task_environment_id}>
+          {conversationActiveEnvironment ? (
+            <div className="chat-task-environment-binding" title={conversationActiveEnvironment.task_environment_id}>
               <span>环境</span>
-              <strong>{chatTaskEnvironmentBinding.environment_label || chatTaskEnvironmentBinding.task_environment_id}</strong>
-              {canClearTaskEnvironmentBinding ? (
-                <button aria-label="解除任务环境绑定" onClick={clearChatTaskEnvironmentBinding} type="button">
-                  <X size={13} />
-                </button>
-              ) : null}
+              <strong>{conversationActiveEnvironment.environment_label || conversationActiveEnvironment.task_environment_id}</strong>
             </div>
           ) : null}
           <ChatSearchPolicyControls

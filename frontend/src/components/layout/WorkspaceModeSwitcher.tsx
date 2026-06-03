@@ -3,21 +3,22 @@
 import { ChevronDown } from "lucide-react";
 
 import { useAppStore } from "@/lib/store";
-import type { TaskEnvironmentWorkspaceView, WorkspaceView } from "@/lib/store/types";
+import type { TaskEnvironmentCatalog } from "@/lib/api";
+import type { WorkspaceView } from "@/lib/store/types";
 
-type WorkspaceModeItem = {
-  view: WorkspaceView;
-  optionLabel: string;
-};
+type TaskEnvironmentOption = TaskEnvironmentCatalog["environments"][number];
 
-const WORKSPACE_MODE_ITEMS: WorkspaceModeItem[] = [
-  { view: "chat", optionLabel: "常规环境" },
-  { view: "code-environment", optionLabel: "开发环境" },
-  { view: "creative", optionLabel: "写作环境" },
-];
+function taskEnvironmentTitle(item: TaskEnvironmentOption) {
+  return String(item.record?.title || item.record?.environment_id || "").trim();
+}
 
-function isTaskEnvironmentModeView(view: WorkspaceView): view is TaskEnvironmentWorkspaceView {
-  return view === "chat" || view === "code-environment";
+function taskEnvironmentId(item: TaskEnvironmentOption) {
+  return String(item.record?.environment_id || "").trim();
+}
+
+function isVisibleTaskEnvironment(item: TaskEnvironmentOption) {
+  if (item.record?.enabled === false) return false;
+  return String(item.management_scope || item.record?.management_scope || "").trim() !== "system_internal";
 }
 
 export function WorkspaceModeSwitcher({
@@ -27,26 +28,53 @@ export function WorkspaceModeSwitcher({
   ariaLabel?: string;
   className?: string;
 }) {
-  const { activeWorkspaceView, setTaskEnvironmentWorkspaceView, setWorkspaceView } = useAppStore();
-  const switchableView = WORKSPACE_MODE_ITEMS.some((item) => item.view === activeWorkspaceView)
-    ? activeWorkspaceView
-    : "chat";
+  const {
+    activeWorkspaceView,
+    conversationActiveEnvironment,
+    setActiveTaskEnvironment,
+    setWorkspaceView,
+    taskEnvironmentCatalog,
+    taskEnvironmentCatalogError,
+    taskEnvironmentCatalogLoading,
+  } = useAppStore();
+  const environments = (taskEnvironmentCatalog?.environments ?? []).filter(isVisibleTaskEnvironment);
+  const activeEnvironmentId = String(conversationActiveEnvironment?.task_environment_id || "").trim();
+  const switchableValue = activeWorkspaceView === "creative"
+    ? "env.creation.writing"
+    : activeEnvironmentId || "env.general.workspace";
+  const disabled = taskEnvironmentCatalogLoading || environments.length === 0;
+  const hasSwitchableValue = environments.some((item) => taskEnvironmentId(item) === switchableValue);
 
   return (
-    <label className={["workbench-mode-select", className].filter(Boolean).join(" ")} aria-label={ariaLabel}>
+    <label
+      className={["workbench-mode-select", className].filter(Boolean).join(" ")}
+      aria-label={ariaLabel}
+      title={taskEnvironmentCatalogError || ariaLabel}
+    >
       <select
-        value={switchableView}
+        disabled={disabled}
+        value={switchableValue}
         onChange={(event) => {
-          const view = event.target.value as WorkspaceView;
-          if (isTaskEnvironmentModeView(view)) {
-            setTaskEnvironmentWorkspaceView(view);
+          const value = event.target.value.trim();
+          if (value.startsWith("env.")) {
+            void setActiveTaskEnvironment(value, { source: "workspace-mode" });
             return;
           }
-          setWorkspaceView(view);
+          setWorkspaceView(value as WorkspaceView);
         }}
       >
-        {WORKSPACE_MODE_ITEMS.map((item) => (
-          <option key={item.view} value={item.view}>{item.optionLabel}</option>
+        {!environments.length ? (
+          <option value={switchableValue}>{taskEnvironmentCatalogLoading ? "正在读取环境" : "无可用任务环境"}</option>
+        ) : null}
+        {environments.length && !hasSwitchableValue ? (
+          <option value={switchableValue}>
+            {conversationActiveEnvironment?.environment_label || switchableValue}
+          </option>
+        ) : null}
+        {environments.map((item) => (
+          <option key={taskEnvironmentId(item)} value={taskEnvironmentId(item)}>
+            {taskEnvironmentTitle(item)}
+          </option>
         ))}
       </select>
       <ChevronDown aria-hidden="true" size={14} />

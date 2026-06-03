@@ -8070,6 +8070,25 @@ button:hover {
   text-align: left;
 }
 
+.creative-session-row {
+  grid-template-columns: minmax(0, 1fr) auto;
+  padding: 0 6px 0 0;
+}
+
+.creative-session-row > button:first-child {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 2px 8px;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: var(--creative-ink);
+  cursor: pointer;
+  padding: 8px 6px 8px 9px;
+  text-align: left;
+}
+
 .creative-project-row:hover,
 .creative-session-row:hover,
 .creative-project-row--active,
@@ -8575,11 +8594,25 @@ button:hover {
 
 .creative-session-board-row {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 8px;
   border: 0;
   border-bottom: 1px solid var(--creative-line);
+  background: transparent;
+  color: var(--creative-ink);
+  cursor: pointer;
+  padding: 0;
+  text-align: left;
+}
+
+.creative-session-board-row > button:first-child {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  border: 0;
   background: transparent;
   color: var(--creative-ink);
   cursor: pointer;
@@ -25418,6 +25451,28 @@ html[data-workspace-tone] .agent-workbench {
   line-height: 1.2;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.creative-session-row small {
+  grid-column: 2;
+}
+
+.creative-session-delete {
+  display: grid;
+  place-items: center;
+  align-self: center;
+  width: 27px;
+  height: 27px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--creative-soft);
+  cursor: pointer;
+}
+
+.creative-session-delete:hover {
+  background: #fee2e2;
+  color: #b91c1c;
 }
 
 .workbench-file-row small,

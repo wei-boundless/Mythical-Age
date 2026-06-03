@@ -22,7 +22,31 @@ export type SessionSummary = {
   message_count: number;
   scope?: SessionScope;
   task_binding?: SessionTaskBinding;
+  conversation_state?: ConversationState;
   active_task?: SessionTaskSummary;
+};
+
+export type ConversationActiveEnvironment = {
+  task_environment_id: string;
+  environment_label: string;
+  source?: string;
+  updated_at?: number;
+  authority?: string;
+};
+
+export type ConversationState = {
+  active_task_environment?: ConversationActiveEnvironment;
+  authority?: string;
+};
+
+export type TurnEnvironmentSnapshot = {
+  turn_id?: string;
+  task_environment_id?: string;
+  environment_kind?: string;
+  environment_prompt_refs?: string[];
+  runtime_assembly_id?: string;
+  task_run_id?: string;
+  authority?: string;
 };
 
 export type SessionTaskBinding = {
@@ -89,12 +113,14 @@ export type SessionHistory = {
   compressed_context?: string;
   scope?: SessionScope;
   task_binding?: SessionTaskBinding;
+  conversation_state?: ConversationState;
   messages: Array<{
     id?: string;
     message_id?: string;
     turn_id?: string;
     role: "user" | "assistant";
     content: string;
+    turn_environment_snapshot?: TurnEnvironmentSnapshot;
     tool_calls?: ToolCall[];
     answer_channel?: string;
     answer_source?: string;
@@ -1472,58 +1498,16 @@ export type TaskAgentConnectionOverview = {
   diagnostics: Record<string, unknown>;
 };
 
-export type TaskSystemOverview = {
+export type TaskEnvironmentCatalog = {
   authority: string;
-  summary: Record<string, number>;
-  task_environment_management?: {
-    authority: string;
-    groups?: Array<{
-      group_id: string;
-      title: string;
-      description?: string;
-      enabled?: boolean;
-    }>;
-    environments: Array<{
-      record: {
-        environment_id: string;
-        title: string;
-        description?: string;
-        group_id?: string;
-        enabled?: boolean;
-        owner?: string;
-        environment_kind?: string;
-        default_visibility?: string;
-        definition_source?: string;
-        management_scope?: string;
-        metadata?: Record<string, unknown>;
-      };
-      spec: Record<string, unknown>;
-      definition_source?: string;
-      management_scope?: string;
-      group?: Record<string, unknown>;
-      environment_prompts?: Array<Record<string, unknown>>;
-      environment_boundary?: Record<string, unknown>;
-      sandbox_policy?: Record<string, unknown>;
-      storage_space?: Record<string, unknown>;
-      resource_space?: Record<string, unknown>;
-      file_management?: Record<string, unknown>;
-      file_access_tables?: Array<Record<string, unknown>>;
-      memory_space?: Record<string, unknown>;
-      artifact_policy?: Record<string, unknown>;
-      execution_policy?: Record<string, unknown>;
-      risk_policy?: Record<string, unknown>;
-      observability_policy?: Record<string, unknown>;
-      lifecycle_policy?: Record<string, unknown>;
-      task_library?: {
-        environment_id: string;
-        engagement_plan_ids?: string[];
-        task_ids: string[];
-        task_count: number;
-        task_library_root?: string;
-        authority?: string;
-      };
-    }>;
-    records: Array<{
+  groups?: Array<{
+    group_id: string;
+    title: string;
+    description?: string;
+    enabled?: boolean;
+  }>;
+  environments: Array<{
+    record: {
       environment_id: string;
       title: string;
       description?: string;
@@ -1535,9 +1519,53 @@ export type TaskSystemOverview = {
       definition_source?: string;
       management_scope?: string;
       metadata?: Record<string, unknown>;
-    }>;
-    summary: Record<string, number>;
-  };
+    };
+    spec: Record<string, unknown>;
+    definition_source?: string;
+    management_scope?: string;
+    group?: Record<string, unknown>;
+    environment_prompts?: Array<Record<string, unknown>>;
+    environment_boundary?: Record<string, unknown>;
+    sandbox_policy?: Record<string, unknown>;
+    storage_space?: Record<string, unknown>;
+    resource_space?: Record<string, unknown>;
+    file_management?: Record<string, unknown>;
+    file_access_tables?: Array<Record<string, unknown>>;
+    memory_space?: Record<string, unknown>;
+    artifact_policy?: Record<string, unknown>;
+    execution_policy?: Record<string, unknown>;
+    risk_policy?: Record<string, unknown>;
+    observability_policy?: Record<string, unknown>;
+    lifecycle_policy?: Record<string, unknown>;
+    task_library?: {
+      environment_id: string;
+      engagement_plan_ids?: string[];
+      task_ids: string[];
+      task_count: number;
+      task_library_root?: string;
+      authority?: string;
+    };
+  }>;
+  records: Array<{
+    environment_id: string;
+    title: string;
+    description?: string;
+    group_id?: string;
+    enabled?: boolean;
+    owner?: string;
+    environment_kind?: string;
+    default_visibility?: string;
+    definition_source?: string;
+    management_scope?: string;
+    metadata?: Record<string, unknown>;
+  }>;
+  summary: Record<string, number>;
+};
+
+export type TaskSystemOverview = {
+  authority: string;
+  summary: Record<string, number>;
+  task_environment_management?: TaskEnvironmentCatalog;
   project_instance_management?: {
     authority: string;
     projects: ProjectInstance[];
@@ -3587,6 +3615,25 @@ export async function getSessionHistory(sessionId: string, scope?: Partial<Sessi
   return request<SessionHistory>(withSessionScopeQuery(`/sessions/${sessionId}/history`, scope));
 }
 
+export async function getSessionConversationState(sessionId: string, scope?: Partial<SessionScope>) {
+  return request<ConversationState>(withSessionScopeQuery(`/sessions/${sessionId}/conversation-state`, scope));
+}
+
+export async function setSessionActiveTaskEnvironment(
+  sessionId: string,
+  payload: {
+    task_environment_id: string;
+    environment_label?: string;
+    source?: string;
+  },
+  scope?: Partial<SessionScope>,
+) {
+  return request<ConversationState>(withSessionScopeQuery(`/sessions/${sessionId}/active-task-environment`, scope), {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+}
+
 export async function getSessionTimeline(sessionId: string, scope?: Partial<SessionScope>) {
   return request<SessionTimeline>(withSessionScopeQuery(`/sessions/${sessionId}/timeline`, scope));
 }
@@ -4516,6 +4563,10 @@ export async function resolveTaskEnvironmentSession(
 
 export async function getTaskSystemEnvironmentTasks(environmentId: string) {
   return request<TaskEnvironmentTasksPayload>(`/tasks/environments/${encodeURIComponent(environmentId)}/tasks`);
+}
+
+export async function getTaskEnvironmentCatalog() {
+  return request<TaskEnvironmentCatalog>("/tasks/environments/catalog");
 }
 
 export async function getTaskSystemProject(projectId: string) {

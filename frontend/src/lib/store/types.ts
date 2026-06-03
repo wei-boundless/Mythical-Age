@@ -10,6 +10,8 @@ import type {
   SessionRuntimeAttachment,
   SessionScope,
   SessionSummary,
+  TaskEnvironmentCatalog,
+  ConversationActiveEnvironment,
   ToolCall,
   WorkspaceContext,
   CodeEnvironmentWorkspaceTree
@@ -205,6 +207,8 @@ export type TaskSelectionState = {
   agent_invocation_id?: string;
 };
 
+export type ConversationTaskEnvironment = ConversationActiveEnvironment;
+
 export type ChatTaskEnvironmentBinding = {
   task_environment_id: string;
   environment_label: string;
@@ -269,6 +273,10 @@ export type StoreState = {
   currentSessionId: string | null;
   activeSessionScope: Partial<SessionScope> | null;
   activeSessionRef: SessionRef | null;
+  taskEnvironmentCatalog: TaskEnvironmentCatalog | null;
+  taskEnvironmentCatalogLoading: boolean;
+  taskEnvironmentCatalogError: string;
+  conversationActiveEnvironment: ConversationTaskEnvironment | null;
   workspaceInitializing: boolean;
   messages: Message[];
   isStreaming: boolean;
@@ -322,6 +330,8 @@ export type StoreState = {
 export type StoreActions = {
   setWorkspaceView: (view: WorkspaceView) => void;
   setTaskEnvironmentWorkspaceView: (view: TaskEnvironmentWorkspaceView) => void;
+  refreshTaskEnvironmentCatalog: () => Promise<void>;
+  setActiveTaskEnvironment: (environmentId: string, options?: { environmentLabel?: string; source?: string }) => Promise<void>;
   refreshWorkspaceTree: () => Promise<void>;
   createNewSession: () => Promise<void>;
   selectSession: (ref: SessionRef) => Promise<void>;
@@ -352,6 +362,7 @@ export type StoreActions = {
   setTaskGraphAutoAdvanceEnabled: (enabled: boolean) => void;
   evaluateBoundTaskGraphMonitor: () => Promise<void>;
   continueBoundTaskGraphRun: () => Promise<void>;
+  stopBoundTaskGraphRun: () => Promise<void>;
   resumeTaskGraphRun: (taskGraphRunId: string, payload?: Record<string, unknown>) => Promise<void>;
   setTaskSelection: (selection: TaskSelectionState | null) => void;
   setChatTaskEnvironmentBinding: (

@@ -586,6 +586,8 @@ def _chapter_draft_quality_retry_policy() -> dict[str, Any]:
             "本轮不是补丁说明，也不是局部增补；必须完整重交当前第{chapter_index}章小说正文。"
             "上一版正文只能作为连续性参照，不能原样缩写、摘要化或只交差异说明。\n"
             f"硬性生产规格：当前章最低不得少于{CHAPTER_MIN_WORDS}字，目标约{CHAPTER_TARGET_WORDS}字。"
+            "字数是否达标必须以系统质量门统计为准，禁止用自己的估算覆盖系统统计。"
+            "如果系统反馈低于目标，即使只差几十字，也必须补足正文场景，建议至少新增150字有效小说正文，避免再次被质量门判短。"
             "正文必须有正式章节标题、完整场景、人物行动、对话或心理变化、冲突升级、代价反馈、余波承接和章末牵引。"
             "不得用摘要、提纲、自检、设定表、工作说明、等待补充、压缩转述或只列修改点代替正文。"
         ),
@@ -746,12 +748,26 @@ def _writer_self_repair_node(source: NodeSpec) -> NodeSpec:
 
 def _self_repair_prompt(source: NodeSpec) -> str:
     draft_specific = ""
+    boundary_prompt = (
+        "运行时任务包里的 batch_start_index、batch_end_index、batch_chapter_list、batch_label 和 graph_loop_summary 是自修时的硬边界。"
+        "候选稿、上游参照包或卷计划小节里出现的“批次一：第1-3章”“批次二：第4-5章”等表述，如果与运行时当前批次范围不一致，只能视为卷内节奏段，不能用来缩小当前节点输出。"
+        "若当前运行时要求第1章至第10章，自修后的完整候选稿必须覆盖第1章到第10章，不得只保留第1-3章或把第4-10章交给所谓下一批。"
+    )
     if source.node_id == "chapter_draft":
+        boundary_prompt = (
+            "运行时任务包里的 chapter_index、unit_count、unit_target_measure 和 loop_context 当前章信息是单章自修的最高边界。"
+            "你本轮只允许修正当前 chapter_index 对应的一章正文；上游参照包中的第1章至第10章细纲只是选材参照，不代表你要补写整批正文。"
+            "如果待自修候选稿只有当前章正文，这不是缺章；不得因为看到 batch_start_index、batch_end_index、batch_chapter_list 或十章细纲，就补写第2章至第10章。"
+            "如果候选稿误含其他章正文，必须删除越界章节，只保留当前章完整正文。"
+            "自修后的“章节正文候选”必须且只能包含当前章标题和当前章小说正文。"
+        )
         draft_specific = (
             "如果你自修的是章节正文草稿，你必须保留并修正“写前取材判断”和“章节正文候选”两大交付主体，"
-            "逐章核对当前批次允许章号、章节标题与正文内容、上一章结尾到下一章开头、时间跨度、选拔/战争/追逃/修炼等事件状态、人物伤势与位置、资源归属、伏笔状态和章末牵引。"
-            "你还必须读取系统反馈的每章字数、短缺量和达标情况，优先扩写未达 1800 字的章节，再检查章节之间的连续性。"
-            "不得把十章正文改成摘要、差异说明、返修清单或试写片段；不得出现未被任务边界允许的卷终结标记，例如第一批正文误写“第1卷完”。"
+            "只核对当前章号、章节标题与正文内容、上一章结尾到当前章开头、当前章结尾到下一章细纲的承接、时间跨度、事件状态、人物伤势与位置、资源归属、伏笔状态和章末牵引。"
+            "你还必须读取系统反馈的当前章字数、短缺量和达标情况；字数判断必须以系统质量门统计为准，不得用自己的估算覆盖系统统计。"
+            "只要系统反馈低于目标，就必须扩写当前章的有效小说正文；即使只差几十字，也至少新增150字场景、动作、心理、对话或余波承接，避免再次低于目标。"
+            "超标时只压缩当前章正文，不得删除关键事件和章末牵引。"
+            "不得补写其他章节，不得把单章正文改成摘要、差异说明、返修清单或试写片段；不得出现未被任务边界允许的卷终结标记，例如第一批正文误写“第1卷完”。"
         )
     return _role_prompt(
         f"你是一名中文商业网文写手交稿前自修员。你只负责对“{source.title}”刚交出的候选稿做一次交稿前自修，输出修正后的完整候选稿。",
@@ -764,7 +780,7 @@ def _self_repair_prompt(source: NodeSpec) -> str:
         ),
         "你不是审核员，不能写“审核裁决：通过/返修/拒绝”，不能批准自己的稿件，不能提交记忆，不能把自修判断写成 canon，也不能要求 file_read、file_write、memory 或搜索工具。系统已经把允许你看的候选稿、上游参照和记忆包放进上下文；你必须直接基于这些内容完成自修。",
         "你的自修重点是找出并修正会导致下游审核或记忆提交出错的问题：与上游计划、细纲、基准设定、动态记忆、已提交正文事实不一致；时间线、因果链、事件起止状态、人物动机、人物状态、场域位置、资源归属、伏笔收放前后矛盾；标题与内容漂移；把未审新增设定写成事实；越出当前卷、当前批次或当前章号边界。",
-        "运行时任务包里的 batch_start_index、batch_end_index、batch_chapter_list、batch_label 和 graph_loop_summary 是自修时的硬边界。候选稿、上游参照包或卷计划小节里出现的“批次一：第1-3章”“批次二：第4-5章”等表述，如果与运行时当前批次范围不一致，只能视为卷内节奏段，不能用来缩小当前节点输出。若当前运行时要求第1章至第10章，自修后的完整候选稿必须覆盖第1章到第10章，不得只保留第1-3章或把第4-10章交给所谓下一批。",
+        boundary_prompt,
         "你只能做一次自修。如果候选稿有问题，你要直接在修正后候选稿里改正，而不是只列问题；如果候选稿基本可用，也要重交完整候选稿，只允许做不改变事实边界的轻微润色。你不得新增无来源硬设定来掩盖矛盾；必须新增但尚未获审的内容，只能标为待审扩展建议，不能写成已成立事实。",
         draft_specific,
         "输出时必须把“自修处理记录（非正史）”压缩到五条以内，每条只写风险类别和处理方向，不展开解释、不要复述候选稿、不要列长清单。自修处理记录之后必须立即进入修正后的完整候选稿；final_answer 的主要篇幅必须属于“章节正文候选”。自修处理记录不是正文事实、不是审核报告、不是记忆来源，下游提交记忆时不得把它写入章节事实或世界事实。",
@@ -1708,16 +1724,15 @@ def _delete_managed_graph_runtime_records(backend_dir: Path) -> None:
 
     config_payload = storage.read_object("graph_harness_configs.json", {"configs": [], "published_bindings": {}})
     config_records = [item for item in list(config_payload.get("configs") or []) if isinstance(item, dict)]
-    retained_configs = [item for item in config_records if str(item.get("graph_id") or "") not in graph_ids]
     published_bindings = {
         str(key): str(value)
         for key, value in dict(config_payload.get("published_bindings") or {}).items()
         if str(key) not in graph_ids
     }
-    if retained_configs != config_records or published_bindings != dict(config_payload.get("published_bindings") or {}):
+    if published_bindings != dict(config_payload.get("published_bindings") or {}):
         storage.write_object(
             "graph_harness_configs.json",
-            {"configs": retained_configs, "published_bindings": published_bindings},
+            {"configs": config_records, "published_bindings": published_bindings},
         )
 
 

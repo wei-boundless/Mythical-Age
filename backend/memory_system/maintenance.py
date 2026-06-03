@@ -293,6 +293,7 @@ class MemoryMaintenanceAgent:
             raise RuntimeError("memory maintenance model invoker is not configured")
         messages = [
             {"role": "system", "content": self.system_prompt()},
+            {"role": "system", "content": self.output_schema_prompt()},
             {"role": "user", "content": self._user_payload(request)},
         ]
         response = await _call_message_invoker(
@@ -305,6 +306,7 @@ class MemoryMaintenanceAgent:
                 cache_metric_scope="memory_maintenance",
                 session_id=request.session_id,
                 run_id=request.run_id,
+                stable_message_count=2,
             ),
         )
         payload = self._extract_json(self._response_text(response))
@@ -325,8 +327,14 @@ class MemoryMaintenanceAgent:
             "你只能输出 JSON，不要输出 Markdown、解释或给用户看的回答。"
         )
 
+    def output_schema_prompt(self) -> str:
+        return "请严格输出符合以下结构的 JSON：\n" + json.dumps(self._output_schema_hint(), ensure_ascii=False, indent=2)
+
     def _user_payload(self, request: MemoryMaintenanceRequest) -> str:
-        schema_hint = {
+        return json.dumps({"request": request.model_dump()}, ensure_ascii=False, indent=2)
+
+    def _output_schema_hint(self) -> dict[str, Any]:
+        return {
             "session_memory": {
                 "session_title": "短标题",
                 "active_goal": "当前用户目标",
@@ -369,7 +377,6 @@ class MemoryMaintenanceAgent:
                 "reasoning_summary": "极短内部判断摘要",
             },
         }
-        return json.dumps({"request": request.model_dump(), "output_schema": schema_hint}, ensure_ascii=False, indent=2)
 
     def _proposal_from_payload(self, payload: dict[str, Any]) -> MemoryMaintenanceProposal:
         session_payload = payload.get("session_memory")

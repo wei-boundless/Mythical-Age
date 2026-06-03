@@ -10,11 +10,13 @@ import {
   getCodeEnvironmentWorkspaceTree,
   getModelProviderConfig,
   getImageAssetConfig,
+  getTaskEnvironmentCatalog,
   getWorkspaceContext,
   getOrchestrationHarnessSessionLiveMonitor,
   pauseOrchestrationHarnessTaskRun,
   getRagMode,
   resumeOrchestrationHarnessTaskRun,
+  setSessionActiveTaskEnvironment,
   getSessionHistory,
   getSessionTimeline,
   getSessionTokens,
@@ -43,20 +45,10 @@ type HarnessSessionMonitor = NonNullable<Awaited<ReturnType<typeof getOrchestrat
 type RuntimeMonitorEvent = NonNullable<RuntimeMonitorEventPayload["runtime_event"]>;
 const MAX_LIVE_RUNTIME_PROGRESS_ENTRIES = 24;
 const MAIN_CHAT_POOL_KEY: SessionPoolKey = "main-chat";
-const TASK_ENVIRONMENT_WORKSPACE_MODES: Record<TaskEnvironmentWorkspaceView, { environmentLabel: string; taskEnvironmentId: string }> = {
-  chat: {
-    environmentLabel: "General Workspace",
-    taskEnvironmentId: "env.general.workspace",
-  },
-  "code-environment": {
-    environmentLabel: "Vibe Coding Workspace",
-    taskEnvironmentId: "env.coding.vibe_workspace",
-  },
-};
+const GENERAL_TASK_ENVIRONMENT_ID = "env.general.workspace";
+const CODING_TASK_ENVIRONMENT_ID = "env.coding.vibe_workspace";
 const GRAPH_ONLY_TASK_ENVIRONMENT_IDS = new Set(["env.creation.writing"]);
-const TASK_ENVIRONMENT_VIEW_BY_ID = Object.fromEntries(
-  Object.entries(TASK_ENVIRONMENT_WORKSPACE_MODES).map(([view, item]) => [item.taskEnvironmentId, view])
-) as Record<string, TaskEnvironmentWorkspaceView | undefined>;
+const CODE_TASK_ENVIRONMENT_IDS = new Set([CODING_TASK_ENVIRONMENT_ID, "env.development.sandbox"]);
 
 function sessionTaskEnvironmentId(session: SessionSummary) {
   return String(
@@ -69,6 +61,9 @@ function sessionTaskEnvironmentId(session: SessionSummary) {
 
 function visibleMainChatSessions(sessions: SessionSummary[]) {
   return sessions.filter((session) => {
+    if (String(session.scope?.workspace_view || "").trim() === "task_environment") {
+      return false;
+    }
     if (String(session.task_binding?.kind || "").trim() === "task_graph") {
       return false;
     }
@@ -81,6 +76,26 @@ function sessionPoolKeyForScope(scope: Partial<SessionScope> | undefined): Sessi
     return `task_environment:${String(scope.task_environment_id || "").trim()}:${String(scope.project_id || "").trim()}` as SessionPoolKey;
   }
   return MAIN_CHAT_POOL_KEY;
+}
+
+type TaskEnvironmentCatalogItem = NonNullable<StoreState["taskEnvironmentCatalog"]>["environments"][number];
+
+function taskEnvironmentIdOf(item: TaskEnvironmentCatalogItem | null | undefined) {
+  return String(item?.record?.environment_id || "").trim();
+}
+
+function taskEnvironmentLabelOf(item: TaskEnvironmentCatalogItem | null | undefined) {
+  const record = item?.record ?? {};
+  const environmentId = String(record.environment_id || "").trim();
+  return String(record.title || environmentId).trim() || environmentId;
+}
+
+function isCatalogEnvironmentVisible(item: TaskEnvironmentCatalogItem) {
+  const record = item.record ?? {};
+  if (record.enabled === false) {
+    return false;
+  }
+  return String(item.management_scope || record.management_scope || "").trim() !== "system_internal";
 }
 
 export class WorkspaceRuntime {
@@ -116,6 +131,12 @@ export class WorkspaceRuntime {
       },
       setTaskEnvironmentWorkspaceView: (view) => {
         this.setTaskEnvironmentWorkspaceView(view);
+      },
+      refreshTaskEnvironmentCatalog: async () => {
+        await this.refreshTaskEnvironmentCatalog();
+      },
+      setActiveTaskEnvironment: async (environmentId, options) => {
+        await this.setActiveTaskEnvironment(environmentId, options);
       },
       refreshWorkspaceTree: async () => {
         await this.refreshWorkspaceTree();
@@ -207,6 +228,9 @@ export class WorkspaceRuntime {
       continueBoundTaskGraphRun: async () => {
         await this.continueBoundTaskGraphRun();
       },
+      stopBoundTaskGraphRun: async () => {
+        await this.stopBoundTaskGraphRun();
+      },
       resumeTaskGraphRun: async (taskGraphRunId, payload) => {
         await this.resumeTaskGraphRun(taskGraphRunId, payload);
       },
@@ -260,6 +284,7 @@ export class WorkspaceRuntime {
       workspaceInitializing: true,
     }));
     try {
+      await this.refreshTaskEnvironmentCatalog();
       let sessions = visibleMainChatSessions(await listSessions());
       this.store.setState((prev) => ({
         ...prev,
@@ -408,6 +433,35 @@ export class WorkspaceRuntime {
     this.store.setState((prev) => ({ ...prev, skills }));
   }
 
+  private async refreshTaskEnvironmentCatalog() {
+    this.store.setState((prev) => ({
+      ...prev,
+      taskEnvironmentCatalogLoading: true,
+      taskEnvironmentCatalogError: "",
+    }));
+    try {
+      const catalog = await getTaskEnvironmentCatalog();
+      this.store.setState((prev) => {
+        const active = prev.conversationActiveEnvironment
+          ? this.normalizeActiveTaskEnvironment(prev.conversationActiveEnvironment)
+          : null;
+        return {
+          ...prev,
+          taskEnvironmentCatalog: catalog,
+          taskEnvironmentCatalogLoading: false,
+          taskEnvironmentCatalogError: "",
+          conversationActiveEnvironment: active,
+        };
+      });
+    } catch (error) {
+      this.store.setState((prev) => ({
+        ...prev,
+        taskEnvironmentCatalogLoading: false,
+        taskEnvironmentCatalogError: this.errorMessage(error, "任务环境目录读取失败。"),
+      }));
+    }
+  }
+
   private async refreshSessionDetails(sessionId: string) {
     const requestId = ++this.sessionDetailsRequest;
     try {
@@ -419,6 +473,9 @@ export class WorkspaceRuntime {
         return;
       }
       this.store.setState((prev) => {
+        const conversationActiveEnvironment = this.shouldUseConversationEnvironment(prev.activeSessionRef ?? undefined)
+          ? this.activeEnvironmentFromConversationState(history.conversation_state) ?? prev.conversationActiveEnvironment ?? this.defaultActiveTaskEnvironment()
+          : prev.conversationActiveEnvironment;
         const refreshedMessages = this.mergeVolatileMessageProgress(
           toUiMessages(
             history.messages,
@@ -430,6 +487,11 @@ export class WorkspaceRuntime {
           ...prev,
           messages: refreshedMessages,
           tokenStats: tokens,
+          conversationActiveEnvironment,
+          sessions: prev.sessions.map((session) => session.id === sessionId
+            ? { ...session, conversation_state: history.conversation_state }
+            : session
+          ),
         };
         return prev.sessionActivity.event === "session_history_load_failed"
           ? this.clearSessionActivityFor(next, sessionId)
@@ -600,6 +662,10 @@ export class WorkspaceRuntime {
 
     const pending = (async () => {
       const created = await createSession("New Session");
+      const conversationActiveEnvironment =
+        this.activeEnvironmentForSession(created)
+        ?? this.store.getState().conversationActiveEnvironment
+        ?? this.defaultActiveTaskEnvironment();
       this.store.setState((prev) => ({
         ...prev,
         sessions: [created, ...prev.sessions.filter((session) => session.id !== created.id)],
@@ -609,10 +675,17 @@ export class WorkspaceRuntime {
           sessionId: created.id,
           poolKey: MAIN_CHAT_POOL_KEY,
         },
+        conversationActiveEnvironment,
         messages: [],
         tokenStats: null
       }));
       this.store.setState((prev) => this.clearSessionActivityFor(prev, created.id));
+      await this.persistActiveTaskEnvironment(created.id, conversationActiveEnvironment).catch((error) => {
+        console.debug("[workspace-runtime] default active task environment persist skipped", {
+          event: "conversation_active_environment_default_persist_failed",
+          error: this.errorMessage(error, "默认任务环境写入失败。"),
+        });
+      });
       return created.id;
     })();
 
@@ -724,6 +797,101 @@ export class WorkspaceRuntime {
     };
   }
 
+  private shouldUseConversationEnvironment(ref: Pick<SessionRef, "scope" | "poolKey"> | undefined) {
+    const poolKey = ref?.poolKey ?? sessionPoolKeyForScope(ref?.scope);
+    return poolKey === MAIN_CHAT_POOL_KEY;
+  }
+
+  private taskEnvironmentCatalogItem(taskEnvironmentId: string) {
+    const normalized = String(taskEnvironmentId || "").trim();
+    if (!normalized) {
+      return null;
+    }
+    return this.store.getState().taskEnvironmentCatalog?.environments.find((item) => taskEnvironmentIdOf(item) === normalized) ?? null;
+  }
+
+  private taskEnvironmentLabel(taskEnvironmentId: string) {
+    return taskEnvironmentLabelOf(this.taskEnvironmentCatalogItem(taskEnvironmentId)) || taskEnvironmentId;
+  }
+
+  private normalizeActiveTaskEnvironment(
+    activeEnvironment: Partial<NonNullable<StoreState["conversationActiveEnvironment"]>> | null | undefined,
+  ): StoreState["conversationActiveEnvironment"] {
+    const taskEnvironmentId = String(
+      activeEnvironment?.task_environment_id
+      || (activeEnvironment as Record<string, unknown> | null | undefined)?.environment_id
+      || ""
+    ).trim();
+    if (!taskEnvironmentId) {
+      return null;
+    }
+    return {
+      task_environment_id: taskEnvironmentId,
+      environment_label: String(activeEnvironment?.environment_label || this.taskEnvironmentLabel(taskEnvironmentId)).trim() || taskEnvironmentId,
+      source: String(activeEnvironment?.source || "conversation").trim() || "conversation",
+      updated_at: Number(activeEnvironment?.updated_at || Date.now() / 1000),
+      authority: String(activeEnvironment?.authority || "frontend.conversation_active_task_environment"),
+    };
+  }
+
+  private defaultActiveTaskEnvironment(source = "conversation"): NonNullable<StoreState["conversationActiveEnvironment"]> {
+    const defaultId = this.taskEnvironmentCatalogItem(GENERAL_TASK_ENVIRONMENT_ID)
+      ? GENERAL_TASK_ENVIRONMENT_ID
+      : taskEnvironmentIdOf(this.store.getState().taskEnvironmentCatalog?.environments.find(isCatalogEnvironmentVisible))
+        || GENERAL_TASK_ENVIRONMENT_ID;
+    return {
+      task_environment_id: defaultId,
+      environment_label: this.taskEnvironmentLabel(defaultId),
+      source,
+      updated_at: Date.now() / 1000,
+      authority: "frontend.conversation_active_task_environment",
+    };
+  }
+
+  private activeEnvironmentFromConversationState(
+    conversationState: SessionSummary["conversation_state"] | null | undefined,
+  ): StoreState["conversationActiveEnvironment"] {
+    return this.normalizeActiveTaskEnvironment(conversationState?.active_task_environment);
+  }
+
+  private activeEnvironmentForSession(
+    session: Pick<SessionSummary, "conversation_state"> | null | undefined,
+  ): StoreState["conversationActiveEnvironment"] {
+    return this.activeEnvironmentFromConversationState(session?.conversation_state);
+  }
+
+  private async persistActiveTaskEnvironment(
+    sessionId: string,
+    activeEnvironment: NonNullable<StoreState["conversationActiveEnvironment"]>,
+  ) {
+    const state = this.store.getState();
+    const sessionScope = this.sessionScopeForSession(sessionId);
+    if (String(sessionScope?.workspace_view || "").trim() === "task_environment") {
+      return;
+    }
+    if (state.activeSessionRef?.sessionId === sessionId && !this.shouldUseConversationEnvironment(state.activeSessionRef)) {
+      return;
+    }
+    const conversationState = await setSessionActiveTaskEnvironment(
+      sessionId,
+      {
+        task_environment_id: activeEnvironment.task_environment_id,
+        environment_label: activeEnvironment.environment_label,
+        source: activeEnvironment.source || "conversation",
+      },
+      sessionScope,
+    );
+    const nextActive = this.activeEnvironmentFromConversationState(conversationState) ?? activeEnvironment;
+    this.store.setState((prev) => ({
+      ...prev,
+      conversationActiveEnvironment: prev.currentSessionId === sessionId ? nextActive : prev.conversationActiveEnvironment,
+      sessions: prev.sessions.map((session) => session.id === sessionId
+        ? { ...session, conversation_state: conversationState }
+        : session
+      ),
+    }));
+  }
+
   private applySelectedSessionShell(sessionId: string, ref?: Pick<SessionRef, "scope" | "poolKey">) {
     const normalized = this.normalizeSessionRef({ sessionId, ...ref }, this.store.getState());
     if (!normalized.sessionId) {
@@ -731,11 +899,16 @@ export class WorkspaceRuntime {
     }
     const streamingCache = this.streamingSessionCache.get(normalized.sessionId);
     if (this.store.getState().activeStreamSessionIds.includes(normalized.sessionId) && streamingCache) {
+      const selectedSession = this.store.getState().sessions.find((session) => session.id === normalized.sessionId);
+      const conversationActiveEnvironment = this.shouldUseConversationEnvironment(normalized)
+        ? this.activeEnvironmentForSession(selectedSession) ?? this.store.getState().conversationActiveEnvironment ?? this.defaultActiveTaskEnvironment()
+        : this.store.getState().conversationActiveEnvironment;
       this.store.setState((prev) => ({
         ...prev,
         currentSessionId: normalized.sessionId,
         activeSessionScope: normalized.scope ?? null,
         activeSessionRef: normalized,
+        conversationActiveEnvironment,
         messages: streamingCache.messages,
         orchestrationSnapshot: streamingCache.orchestrationSnapshot,
         taskGraphLiveMonitor: null,
@@ -744,11 +917,16 @@ export class WorkspaceRuntime {
       this.store.setState((prev) => this.projectSelectedSessionActivity(prev, normalized.sessionId));
       return true;
     }
+    const selectedSession = this.store.getState().sessions.find((session) => session.id === normalized.sessionId);
+    const conversationActiveEnvironment = this.shouldUseConversationEnvironment(normalized)
+      ? this.activeEnvironmentForSession(selectedSession) ?? this.store.getState().conversationActiveEnvironment ?? this.defaultActiveTaskEnvironment()
+      : this.store.getState().conversationActiveEnvironment;
     this.store.setState((prev) => ({
       ...prev,
       currentSessionId: normalized.sessionId,
       activeSessionScope: normalized.scope ?? null,
       activeSessionRef: normalized,
+      conversationActiveEnvironment,
       messages: [],
       orchestrationSnapshot: null,
       taskGraphLiveMonitor: null,
@@ -1422,19 +1600,19 @@ export class WorkspaceRuntime {
   }
 
   private chatTaskSelectionPayload(state: StoreState): Record<string, unknown> | undefined {
-    const binding = state.chatTaskEnvironmentBinding;
-    const taskEnvironmentId = String(binding?.task_environment_id ?? "").trim();
-    if (binding && taskEnvironmentId) {
-      return {
-        task_environment_id: taskEnvironmentId,
-        environment_id: taskEnvironmentId,
-        environment_label: String(binding.environment_label || taskEnvironmentId),
-        binding_kind: "chat_task_environment",
-        binding_source: binding.source,
-        bound_at: binding.bound_at,
-      };
+    const activeEnvironment = state.conversationActiveEnvironment ?? this.defaultActiveTaskEnvironment();
+    const taskEnvironmentId = String(activeEnvironment.task_environment_id ?? "").trim();
+    if (!taskEnvironmentId) {
+      return undefined;
     }
-    return undefined;
+    return {
+      task_environment_id: taskEnvironmentId,
+      environment_id: taskEnvironmentId,
+      environment_label: String(activeEnvironment.environment_label || this.taskEnvironmentLabel(taskEnvironmentId)),
+      binding_kind: "conversation_active_task_environment",
+      binding_source: activeEnvironment.source || "conversation",
+      bound_at: activeEnvironment.updated_at,
+    };
   }
 
   private chatModelSelectionPayload(state: StoreState): ChatModelSelection | undefined {
@@ -1766,28 +1944,29 @@ export class WorkspaceRuntime {
   }
 
   private setTaskEnvironmentWorkspaceView(view: TaskEnvironmentWorkspaceView) {
-    const mode = TASK_ENVIRONMENT_WORKSPACE_MODES[view];
-    const binding: Omit<ChatTaskEnvironmentBinding, "bound_at"> = {
-      task_environment_id: mode.taskEnvironmentId,
-      environment_label: mode.environmentLabel,
-      source: "workspace-mode",
-    };
-    const state = this.store.getState();
-    const alreadyActive = state.activeWorkspaceView === view
-      && state.chatTaskEnvironmentBinding?.task_environment_id === binding.task_environment_id
-      && state.chatTaskEnvironmentBinding?.source === binding.source;
-
-    this.syncWorkspaceViewUrl(view);
-    this.store.setState((prev) => ({ ...prev, activeWorkspaceView: view }));
-    if (alreadyActive) {
-      return;
-    }
-    this.setChatTaskEnvironmentBinding(binding);
+    const taskEnvironmentId = this.defaultTaskEnvironmentIdForView(view);
+    void this.setActiveTaskEnvironment(taskEnvironmentId, { source: "workspace-mode" });
   }
 
-  private taskEnvironmentLabel(taskEnvironmentId: string) {
-    return Object.values(TASK_ENVIRONMENT_WORKSPACE_MODES).find((item) => item.taskEnvironmentId === taskEnvironmentId)?.environmentLabel
-      ?? taskEnvironmentId;
+  private defaultTaskEnvironmentIdForView(view: TaskEnvironmentWorkspaceView) {
+    const catalog = this.store.getState().taskEnvironmentCatalog;
+    if (view === "code-environment") {
+      for (const candidate of [CODING_TASK_ENVIRONMENT_ID, "env.development.sandbox"]) {
+        if (catalog?.environments.some((item) => isCatalogEnvironmentVisible(item) && taskEnvironmentIdOf(item) === candidate)) {
+          return candidate;
+        }
+      }
+      const codeCandidate = catalog?.environments.find((item) => {
+        const kind = String(item.record?.environment_kind || "").trim();
+        return isCatalogEnvironmentVisible(item) && (kind === "coding" || kind === "development");
+      });
+      return taskEnvironmentIdOf(codeCandidate) || CODING_TASK_ENVIRONMENT_ID;
+    }
+    if (catalog?.environments.some((item) => isCatalogEnvironmentVisible(item) && taskEnvironmentIdOf(item) === GENERAL_TASK_ENVIRONMENT_ID)) {
+      return GENERAL_TASK_ENVIRONMENT_ID;
+    }
+    return taskEnvironmentIdOf(catalog?.environments.find((item) => isCatalogEnvironmentVisible(item) && !GRAPH_ONLY_TASK_ENVIRONMENT_IDS.has(taskEnvironmentIdOf(item))))
+      || GENERAL_TASK_ENVIRONMENT_ID;
   }
 
   private workspaceViewForTaskEnvironment(taskEnvironmentId: string): WorkspaceView {
@@ -1795,7 +1974,51 @@ export class WorkspaceRuntime {
     if (GRAPH_ONLY_TASK_ENVIRONMENT_IDS.has(normalized)) {
       return "creative";
     }
-    return TASK_ENVIRONMENT_VIEW_BY_ID[normalized] ?? "chat";
+    const kind = String(this.taskEnvironmentCatalogItem(normalized)?.record?.environment_kind || "").trim();
+    if (CODE_TASK_ENVIRONMENT_IDS.has(normalized) || kind === "coding" || kind === "development") {
+      return "code-environment";
+    }
+    return "chat";
+  }
+
+  private async setActiveTaskEnvironment(environmentId: string, options: { environmentLabel?: string; source?: string } = {}) {
+    const taskEnvironmentId = String(environmentId || "").trim();
+    if (!taskEnvironmentId) {
+      return;
+    }
+    const view = this.workspaceViewForTaskEnvironment(taskEnvironmentId);
+    if (view === "creative" || GRAPH_ONLY_TASK_ENVIRONMENT_IDS.has(taskEnvironmentId)) {
+      this.syncWorkspaceViewUrl("creative");
+      this.store.setState((prev) => ({
+        ...prev,
+        activeWorkspaceView: "creative",
+        chatTaskEnvironmentBinding: null,
+      }));
+      return;
+    }
+    const activeEnvironment = {
+      task_environment_id: taskEnvironmentId,
+      environment_label: String(options.environmentLabel || this.taskEnvironmentLabel(taskEnvironmentId)).trim() || taskEnvironmentId,
+      source: options.source || "conversation",
+      updated_at: Date.now() / 1000,
+      authority: "frontend.conversation_active_task_environment",
+    };
+    this.syncWorkspaceViewUrl(view);
+    this.store.setState((prev) => ({
+      ...prev,
+      activeWorkspaceView: view,
+      conversationActiveEnvironment: activeEnvironment,
+      chatTaskEnvironmentBinding: null,
+    }));
+    const sessionId = this.store.getState().currentSessionId;
+    if (sessionId) {
+      await this.persistActiveTaskEnvironment(sessionId, activeEnvironment).catch((error) => {
+        this.store.setState((prev) => ({
+          ...prev,
+          taskEnvironmentCatalogError: this.errorMessage(error, "任务环境切换已在前端生效，但会话状态写入失败。"),
+        }));
+      });
+    }
   }
 
   private bindTaskEnvironmentContext(
@@ -1818,19 +2041,15 @@ export class WorkspaceRuntime {
       }));
       return;
     }
-    const binding = {
-      task_environment_id: normalized,
-      environment_label: String(options.environmentLabel || this.taskEnvironmentLabel(normalized)).trim() || normalized,
+    void this.setActiveTaskEnvironment(normalized, {
+      environmentLabel: options.environmentLabel,
       source: options.source ?? "workspace-mode",
-      bound_at: Date.now(),
-    } satisfies ChatTaskEnvironmentBinding;
-    const view = this.workspaceViewForTaskEnvironment(normalized);
-    this.syncWorkspaceViewUrl(view);
-    this.store.setState((prev) => ({
-      ...prev,
-      activeWorkspaceView: view,
-      chatTaskEnvironmentBinding: binding,
-    }));
+    }).catch((error) => {
+      this.store.setState((prev) => ({
+        ...prev,
+        taskEnvironmentCatalogError: this.errorMessage(error, "任务环境切换失败。"),
+      }));
+    });
   }
 
   private centerWorkspaceHostView(view: WorkspaceView): TaskEnvironmentWorkspaceView {
@@ -1937,6 +2156,57 @@ export class WorkspaceRuntime {
 
   private async continueBoundTaskGraphRun() {
     await this.runtimeMonitorController.continueBoundGraphRun();
+  }
+
+  private async stopBoundTaskGraphRun() {
+    const taskRunId = this.boundTaskGraphRunTaskRunId();
+    if (!taskRunId) {
+      this.store.setState((prev) => ({
+        ...prev,
+        taskGraphMonitorError: "当前 GraphRun 没有关联可停止的 TaskRun。",
+      }));
+      return;
+    }
+    this.store.setState((prev) => ({
+      ...prev,
+      taskGraphMonitorActionLoading: true,
+      taskGraphMonitorError: "",
+    }));
+    try {
+      await stopOrchestrationHarnessTaskRun(taskRunId, "user_stop_graph_run", "");
+      await this.runtimeMonitorController.evaluateBoundGraphMonitor().catch(() => undefined);
+      await this.refreshGlobalRuntimeMonitor();
+    } catch (error) {
+      this.store.setState((prev) => ({
+        ...prev,
+        taskGraphMonitorError: this.errorMessage(error, "GraphRun 停止失败"),
+      }));
+    } finally {
+      this.store.setState((prev) => ({
+        ...prev,
+        taskGraphMonitorActionLoading: false,
+      }));
+    }
+  }
+
+  private boundTaskGraphRunTaskRunId() {
+    const state = this.store.getState();
+    const monitor = state.taskGraphBoundRunMonitor as Record<string, unknown> | null;
+    const taskRun = monitor?.task_run && typeof monitor.task_run === "object" && !Array.isArray(monitor.task_run)
+      ? monitor.task_run as Record<string, unknown>
+      : {};
+    const taskRunMonitor = (monitor?.task_run_monitor && typeof monitor.task_run_monitor === "object" && !Array.isArray(monitor.task_run_monitor)
+      ? monitor.task_run_monitor
+      : monitor?.runtime_monitor && typeof monitor.runtime_monitor === "object" && !Array.isArray(monitor.runtime_monitor)
+        ? monitor.runtime_monitor
+        : {}) as Record<string, unknown>;
+    return String(
+      state.taskGraphMonitorBinding?.task_run_id
+      || monitor?.task_run_id
+      || taskRun.task_run_id
+      || taskRunMonitor.task_run_id
+      || ""
+    ).trim();
   }
 
   private async resumeTaskGraphRun(taskGraphRunId: string, payload?: Record<string, unknown>) {
@@ -2665,25 +2935,24 @@ export class WorkspaceRuntime {
       }));
       return;
     }
-    const nextBinding = {
-      task_environment_id: taskEnvironmentId,
-      environment_label: String(binding.environment_label || taskEnvironmentId).trim() || taskEnvironmentId,
+    void this.setActiveTaskEnvironment(taskEnvironmentId, {
+      environmentLabel: binding.environment_label,
       source: binding.source,
-      bound_at: Number(binding.bound_at || Date.now()),
-    };
-    this.store.setState((prev) => ({
-      ...prev,
-      chatTaskEnvironmentBinding: nextBinding,
-    }));
+    }).catch((error) => {
+      this.store.setState((prev) => ({
+        ...prev,
+        taskEnvironmentCatalogError: this.errorMessage(error, "任务环境切换失败。"),
+      }));
+    });
   }
 
   private clearChatTaskEnvironmentBinding() {
-    this.syncWorkspaceViewUrl("chat");
-    this.store.setState((prev) => ({
-      ...prev,
-      activeWorkspaceView: "chat",
-      chatTaskEnvironmentBinding: null,
-    }));
+    void this.setActiveTaskEnvironment(GENERAL_TASK_ENVIRONMENT_ID, { source: "conversation" }).catch((error) => {
+      this.store.setState((prev) => ({
+        ...prev,
+        taskEnvironmentCatalogError: this.errorMessage(error, "任务环境切换失败。"),
+      }));
+    });
   }
 
   private hasActiveChatStream() {

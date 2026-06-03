@@ -259,9 +259,14 @@ def test_graph_harness_starts_published_config_and_creates_node_work_order() -> 
         },
     ).packet
     task_contract_content = _message_content_with_title(packet, "Task execution task contract")
+    runtime_context_content = _message_content_with_title(packet, "Task execution graph node runtime context")
     stable_payload = json.loads(task_contract_content.split("\n", 1)[1])
+    runtime_payload = json.loads(runtime_context_content.split("\n", 1)[1])
     graph_context = stable_payload["task_contract"]["graph_node_context"]
-    visible_initial = graph_context["authorized_inputs"][0]["payload"]["initial_inputs"]
+    stable_initial = graph_context["authorized_input_slots"][0]
+    visible_initial = runtime_payload["graph_node_runtime_context"]["authorized_inputs"][0]["payload"]["initial_inputs"]
+    assert stable_initial["content_omitted_reason"] == "available_in_graph_node_runtime_context"
+    assert "payload" not in stable_initial
     assert visible_initial == {"goal": "smoke"}
     assert "input_package" not in task_contract_content
     assert "graph_slot" not in task_contract_content
@@ -630,8 +635,8 @@ def test_graph_edge_contract_payload_projects_artifact_text_without_agent_tool(t
     payload = inbound["payload"]
     packet = _runtime_object_payload(runtime, inbound["packet_ref"])
 
-    assert payload["artifact_refs"] == [str(artifact_path)]
-    assert payload["artifact_payloads"][0]["artifact_ref"] == str(artifact_path)
+    assert [Path(item) for item in payload["artifact_refs"]] == [artifact_path]
+    assert Path(payload["artifact_payloads"][0]["artifact_ref"]) == artifact_path
     assert payload["artifact_payloads"][0]["content"] == "世界设定正文\n洪荒规则洪"
     assert payload["artifact_payloads"][0]["truncated"] is True
     assert packet["visible_payload"]["artifact_payloads"][0]["authority"] == "harness.graph.flow_packet.artifact_text_projection"
@@ -710,10 +715,16 @@ def test_graph_node_task_contract_keeps_model_visible_artifact_payload(tmp_path:
         },
     ).packet
     task_contract_content = _message_content_with_title(packet, "Task execution task contract")
+    runtime_context_content = _message_content_with_title(packet, "Task execution graph node runtime context")
     stable_payload = json.loads(task_contract_content.split("\n", 1)[1])
+    runtime_payload = json.loads(runtime_context_content.split("\n", 1)[1])
     visible_contract = stable_payload["task_contract"]
-    inbound = visible_contract["graph_node_context"]["authorized_inputs"][0]
+    stable_inbound = visible_contract["graph_node_context"]["authorized_input_slots"][0]
+    inbound = runtime_payload["graph_node_runtime_context"]["authorized_inputs"][0]
 
+    assert stable_inbound["content_omitted_reason"] == "available_in_graph_node_runtime_context"
+    assert "content" not in stable_inbound
+    assert "payload" not in stable_inbound
     assert inbound["payload"]["artifact_payloads"][0]["content"] == "世界设定正文"
     assert "resource_requirements" not in visible_contract
     assert "input_package" not in json.dumps(stable_payload, ensure_ascii=False)

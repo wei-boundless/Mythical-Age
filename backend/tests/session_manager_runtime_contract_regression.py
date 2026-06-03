@@ -93,6 +93,44 @@ def test_session_manager_agent_history_filters_to_model_messages(tmp_path: Path)
     ]
 
 
+def test_session_manager_records_conversation_environment_state_without_polluting_agent_history(tmp_path: Path) -> None:
+    backend_dir = tmp_path / "backend"
+    backend_dir.mkdir()
+    manager = SessionManager(backend_dir)
+    session = manager.create_session(title="Environment state")
+    session_id = session["id"]
+
+    state = manager.set_active_task_environment(
+        session_id,
+        {
+            "task_environment_id": "env.coding.vibe_workspace",
+            "environment_label": "Vibe Coding Workspace",
+            "source": "workspace-mode",
+        },
+    )
+    manager.append_messages(session_id, [{"role": "user", "content": "写一个测试", "turn_id": "turn:test:1"}])
+    snapshot = manager.update_turn_environment_snapshot(
+        session_id,
+        turn_id="turn:test:1",
+        snapshot={
+            "turn_id": "turn:test:1",
+            "task_environment_id": "env.coding.vibe_workspace",
+            "environment_kind": "coding",
+            "environment_prompt_refs": ["environment.coding.vibe_workspace.orientation.v1"],
+            "runtime_assembly_id": "rtasm:test",
+        },
+    )
+
+    history = manager.get_history(session_id)
+    agent_history = manager.load_session_for_agent(session_id)
+
+    assert state["active_task_environment"]["task_environment_id"] == "env.coding.vibe_workspace"
+    assert history["conversation_state"]["active_task_environment"]["task_environment_id"] == "env.coding.vibe_workspace"
+    assert snapshot["updated"] is True
+    assert history["messages"][0]["turn_environment_snapshot"]["runtime_assembly_id"] == "rtasm:test"
+    assert agent_history == [{"role": "user", "content": "写一个测试"}]
+
+
 def test_session_manager_agent_history_never_injects_compressed_context_as_message(tmp_path: Path) -> None:
     backend_dir = tmp_path / "backend"
     backend_dir.mkdir()

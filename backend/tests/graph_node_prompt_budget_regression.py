@@ -149,7 +149,9 @@ def test_graph_node_task_packet_does_not_embed_full_graph_policy() -> None:
     assert "prompt_contract" not in task_contract
     assert "graph_slot" not in task_contract
     graph_context = task_contract["graph_node_context"]
-    assert graph_context["node"]["role_prompt"] == "你是一名测试执行员。"
+    assert graph_context["node"]["title"] == "目标节点"
+    assert "role_prompt" not in graph_context["node"]
+    assert "角色职责：\n你是一名测试执行员。" in all_message_content
     assert "memory" not in graph_context
 
 
@@ -208,9 +210,9 @@ def test_graph_node_task_packet_places_shared_stable_segments_before_node_contra
         if segment.get("cache_role") in {"cacheable_prefix", "session_stable"}
     ]
 
-    assert stable_kinds.index("artifact_scope_stable") < stable_kinds.index("agent_function_shared_stable")
-    assert stable_kinds.index("tool_index_stable") < stable_kinds.index("agent_function_shared_stable")
-    assert stable_kinds.index("agent_function_shared_stable") < stable_kinds.index("graph_task_shared_stable")
+    assert stable_kinds.index("agent_function_shared_stable") < stable_kinds.index("artifact_scope_stable")
+    assert stable_kinds.index("agent_function_shared_stable") < stable_kinds.index("tool_index_stable")
+    assert stable_kinds.index("tool_index_stable") < stable_kinds.index("graph_task_shared_stable")
     if "active_skills" in stable_kinds:
         assert stable_kinds.index("active_skills") < stable_kinds.index("task_contract_stable")
     assert stable_kinds.index("graph_task_shared_stable") < stable_kinds.index("task_contract_stable")
@@ -225,6 +227,7 @@ def test_graph_node_task_packet_places_shared_stable_segments_before_node_contra
     assert function_payload["agent_function_shared_context"]["role_family"] == "reviewer"
     assert "Task execution graph shared context" in all_content
     assert "Task execution task contract" in all_content
+    assert "Task execution graph node runtime context" in all_content
     assert "graph_node_context" in all_content
 
 
@@ -295,8 +298,18 @@ def test_graph_node_authorized_input_payload_does_not_duplicate_content_body() -
         if message["content"].startswith("Task execution task contract")
     )
     stable_payload = json.loads(task_contract_content.split("\n", 1)[1])
-    inbound = stable_payload["task_contract"]["graph_node_context"]["authorized_inputs"][0]
+    stable_inbound = stable_payload["task_contract"]["graph_node_context"]["authorized_input_slots"][0]
+    runtime_context_content = next(
+        message["content"]
+        for message in payload.model_messages
+        if message["content"].startswith("Task execution graph node runtime context")
+    )
+    runtime_payload = json.loads(runtime_context_content.split("\n", 1)[1])
+    inbound = runtime_payload["graph_node_runtime_context"]["authorized_inputs"][0]
 
+    assert stable_inbound["content_omitted_reason"] == "available_in_graph_node_runtime_context"
+    assert "content" not in stable_inbound
+    assert "payload" not in stable_inbound
     assert inbound["content"] == body[:30000]
     assert "payload" not in inbound or len(json.dumps(inbound["payload"], ensure_ascii=False)) < 200
     assert "handoff_summary" not in json.dumps(inbound.get("payload") or {}, ensure_ascii=False)
@@ -374,9 +387,19 @@ def test_graph_node_authorized_input_payload_omits_duplicate_artifact_body() -> 
         if message["content"].startswith("Task execution task contract")
     )
     stable_payload = json.loads(task_contract_content.split("\n", 1)[1])
-    inbound = stable_payload["task_contract"]["graph_node_context"]["authorized_inputs"][0]
+    stable_inbound = stable_payload["task_contract"]["graph_node_context"]["authorized_input_slots"][0]
+    runtime_context_content = next(
+        message["content"]
+        for message in packet.model_messages
+        if message["content"].startswith("Task execution graph node runtime context")
+    )
+    runtime_payload = json.loads(runtime_context_content.split("\n", 1)[1])
+    inbound = runtime_payload["graph_node_runtime_context"]["authorized_inputs"][0]
     artifact_payload = inbound["payload"]["artifact_payloads"][0]
 
+    assert stable_inbound["content_omitted_reason"] == "available_in_graph_node_runtime_context"
+    assert "content" not in stable_inbound
+    assert "payload" not in stable_inbound
     assert inbound["content"] == body[:30000]
     assert artifact_payload["artifact_ref"] == "artifact://draft.md"
     assert "content" not in artifact_payload

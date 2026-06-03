@@ -131,10 +131,10 @@ class RuntimeRunRegistry:
                 "authority": "runtime.run_registry.delete_session_runs",
                 "session_id": "",
                 "deleted_stream_run_ids": [],
-                "deleted_event_log_ids": [],
+                "detached_event_log_ids": [],
             }
         deleted_stream_run_ids: list[str] = []
-        deleted_event_log_ids: list[str] = []
+        detached_event_log_ids: list[str] = []
         with self._lock:
             for run in self.list_session_runs(normalized):
                 path = self._run_path(run.stream_run_id)
@@ -146,12 +146,12 @@ class RuntimeRunRegistry:
                     continue
                 deleted_stream_run_ids.append(run.stream_run_id)
                 if run.event_log_id:
-                    deleted_event_log_ids.append(run.event_log_id)
+                    detached_event_log_ids.append(run.event_log_id)
         return {
             "authority": "runtime.run_registry.delete_session_runs",
             "session_id": normalized,
             "deleted_stream_run_ids": deleted_stream_run_ids,
-            "deleted_event_log_ids": deleted_event_log_ids,
+            "detached_event_log_ids": detached_event_log_ids,
         }
 
     def mark_running(self, run: RuntimeRun) -> RuntimeRun:

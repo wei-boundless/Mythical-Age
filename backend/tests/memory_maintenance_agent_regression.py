@@ -109,12 +109,19 @@ def test_memory_maintenance_model_call_has_prompt_accounting_context(tmp_path) -
 
     assert receipt.status == "succeeded"
     assert calls
+    messages = calls[0]["messages"]
     context = calls[0]["accounting_context"]
+    assert len(messages) == 3
+    assert messages[1]["role"] == "system"
+    assert "请严格输出符合以下结构的 JSON" in messages[1]["content"]
+    assert "output_schema" not in messages[2]["content"]
     assert context["cache_metric_scope"] == "memory_maintenance"
     assert context["session_id"] == "session-maintenance-accounting"
     assert context["run_id"] == "memory-maintenance:session-maintenance-accounting:2"
     assert context["prompt_manifest"]["utility_purpose"] == "memory.maintenance_after_commit"
-    assert context["segment_plan"]["segments"]
+    segments = context["segment_plan"]["segments"]
+    assert [segment["kind"] for segment in segments] == ["utility_static", "utility_stable", "utility_volatile"]
+    assert [segment["prefix_tier"] for segment in segments] == ["provider_global", "session", "volatile"]
 
 
 def test_memory_maintenance_agent_session_draft_does_not_overwrite_process_state(tmp_path) -> None:

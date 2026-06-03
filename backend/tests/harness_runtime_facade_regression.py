@@ -1038,29 +1038,19 @@ def test_global_live_monitor_groups_running_completed_and_failed_runs(monkeypatc
 
     assert {item["task_run_id"] for item in monitor["task_runs"]} == {
         "taskrun:fresh-waiting-executor",
-        "taskrun:old-waiting-executor",
-        "taskrun:waiting-approval",
-        "taskrun:old-running",
     }
     buckets = {item["task_run_id"]: item["bucket"] for item in monitor["task_runs"]}
     assert {item["task_run_id"] for item in monitor["buckets"]["running"]} == {
         "taskrun:fresh-waiting-executor",
     }
-    assert {item["task_run_id"] for item in monitor["buckets"]["diagnostics"]} == {
-        "taskrun:old-waiting-executor",
-        "taskrun:waiting-approval",
-        "taskrun:old-running",
-    }
+    assert monitor["buckets"]["diagnostics"] == []
     assert monitor["buckets"]["failed"] == []
     assert buckets["taskrun:fresh-waiting-executor"] == "running"
-    assert buckets["taskrun:waiting-approval"] == "diagnostics"
-    assert buckets["taskrun:old-waiting-executor"] == "diagnostics"
-    assert buckets["taskrun:old-running"] == "diagnostics"
-    assert monitor["summary"]["total"] == 4
+    assert monitor["summary"]["total"] == 1
     assert monitor["summary"]["running"] == 1
     assert monitor["summary"]["failed"] == 0
-    assert monitor["summary"]["diagnostics"] == 3
-    assert monitor["summary"]["action_required"] == 1
+    assert monitor["summary"]["diagnostics"] == 0
+    assert monitor["summary"]["action_required"] == 0
 
 
 def test_task_run_detail_monitor_exposes_step_summary_and_recent_terminal_status(monkeypatch) -> None:
@@ -1962,7 +1952,7 @@ def test_waiting_executor_with_stale_running_diagnostics_is_resumable_not_runnin
     assert is_task_run_executable(task_run) is True
 
 
-def test_latest_waiting_executor_without_active_turn_is_projected_as_resumable_context() -> None:
+def test_latest_waiting_executor_without_active_turn_is_projected_as_current_work_context() -> None:
     runtime = build_harness_runtime()
     session_id = "session-latest-waiting-context"
     task_run_id = _seed_active_work(
@@ -1972,7 +1962,7 @@ def test_latest_waiting_executor_without_active_turn_is_projected_as_resumable_c
     )
 
     assert runtime._active_work_context_from_active_turn(session_id) is None
-    context = runtime._resumable_work_context_from_latest_task(session_id)
+    context = runtime._current_work_context_from_latest_task(session_id)
 
     assert context is not None
     assert context.task_run_id == task_run_id
@@ -1980,10 +1970,10 @@ def test_latest_waiting_executor_without_active_turn_is_projected_as_resumable_c
     assert context.same_run_allowed is True
     assert context.running is False
     assert context.continuation_kind == "waiting"
-    assert context.authority == "harness.runtime.resumable_task_context"
+    assert context.authority == "harness.runtime.current_session_task_context"
 
 
-def test_terminal_latest_task_without_active_turn_is_not_projected_as_resumable_context() -> None:
+def test_terminal_latest_task_without_active_turn_is_not_projected_as_current_work_context() -> None:
     runtime = build_harness_runtime()
     session_id = "session-terminal-not-resumable-context"
     _seed_active_work(
@@ -1994,7 +1984,138 @@ def test_terminal_latest_task_without_active_turn_is_not_projected_as_resumable_
     )
 
     assert runtime._active_work_context_from_active_turn(session_id) is None
-    assert runtime._resumable_work_context_from_latest_task(session_id) is None
+    assert runtime._current_work_context_from_latest_task(session_id) is None
+
+
+def test_request_task_run_reuses_current_session_task_after_active_turn_is_lost() -> None:
+    session_id = "session-current-task-guard"
+    existing_task_run_id = "taskrun:turn:session-current-task-guard:1:old"
+    model = NativeToolCallModelRuntimeStub(
+        agent_turn_action_request=_action_request(
+            action_type="request_task_run",
+            task_contract_seed={
+                "user_visible_goal": "重新启动一个重复任务。",
+                "task_run_goal": "这不应该创建第二个 TaskRun。",
+                "completion_criteria": ["同一会话未完成任务只能有一个"],
+            },
+        )
+    )
+    runtime = build_harness_runtime(model_runtime=model)
+    host = runtime.single_agent_runtime_host
+    _seed_active_work(
+        runtime,
+        task_run_id=existing_task_run_id,
+        session_id=session_id,
+        status="running",
+    )
+    existing = host.state_index.get_task_run(existing_task_run_id)
+    assert existing is not None
+    host.state_index.upsert_task_run(
+        replace(
+            existing,
+            updated_at=2.0,
+            diagnostics={
+                **dict(existing.diagnostics or {}),
+                "executor_status": "scheduled",
+                "latest_step_summary": "旧任务仍是当前会话的进行中任务。",
+            },
+        )
+    )
+
+    async def _collect() -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime.astream(HarnessRuntimeRequest(session_id=session_id, message="继续")):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_collect())
+    stream_types = [str(event.get("type") or "") for event in events]
+    session_task_runs = host.state_index.list_session_task_runs(session_id)
+    terminal_events = [event for event in events if event.get("type") == "agent_turn_terminal"]
+
+    assert "task_run_lifecycle_reused_current" in stream_types
+    assert "task_run_lifecycle_started" not in stream_types
+    assert [task.task_run_id for task in session_task_runs] == [existing_task_run_id]
+    assert any(event.get("type") == "done" and event.get("terminal_reason") == "session_active_task_exists" for event in events)
+    assert terminal_events
+    assert dict(dict(terminal_events[-1].get("event") or {}).get("payload") or {}).get("terminal_reason") == "session_active_task_exists"
+
+
+def test_request_task_run_resumes_blocked_current_session_task_without_creating_second_task() -> None:
+    session_id = "session-current-task-blocked-resume"
+    existing_task_run_id = "taskrun:turn:session-current-task-blocked-resume:1:old"
+    model = NativeToolCallModelRuntimeStub(
+        agent_turn_action_request=_action_request(
+            action_type="request_task_run",
+            task_contract_seed={
+                "user_visible_goal": "继续当前被阻塞的任务。",
+                "task_run_goal": "这应该复用同一个 TaskRun 并恢复运行态。",
+                "completion_criteria": ["同一会话仍然只有一个任务"],
+            },
+        )
+    )
+    runtime = build_harness_runtime(model_runtime=model)
+    host = runtime.single_agent_runtime_host
+    _seed_active_work(
+        runtime,
+        task_run_id=existing_task_run_id,
+        session_id=session_id,
+        status="blocked",
+    )
+    existing = host.state_index.get_task_run(existing_task_run_id)
+    assert existing is not None
+    host.state_index.upsert_task_run(
+        replace(
+            existing,
+            terminal_reason="model_call_recovery_required",
+            diagnostics={
+                **dict(existing.diagnostics or {}),
+                "executor_status": "blocked",
+                "latest_step": "task_executor_blocked",
+                "latest_step_status": "blocked",
+                "latest_step_summary": "旧阻塞信息不应该继续占据监控当前态。",
+            },
+        )
+    )
+
+    spawned: list[str] = []
+
+    def _capture_background_task(coro, *, name: str = ""):
+        spawned.append(name)
+        coro.close()
+        return SimpleNamespace()
+
+    host.spawn_background_task = _capture_background_task
+
+    async def _collect() -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime.astream(HarnessRuntimeRequest(session_id=session_id, message="继续")):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_collect())
+    stream_types = [str(event.get("type") or "") for event in events]
+    session_task_runs = host.state_index.list_session_task_runs(session_id)
+    task_run = host.state_index.get_task_run(existing_task_run_id)
+    monitor = host.monitor_projector.build_global_monitor(host.state_index.list_task_runs(), now=10.0, limit=20)
+    visible = {item["task_run_id"]: item for item in monitor["task_runs"]}
+
+    assert "task_run_lifecycle_resumed_current" in stream_types
+    assert "task_run_lifecycle_started" not in stream_types
+    assert [task.task_run_id for task in session_task_runs] == [existing_task_run_id]
+    assert spawned
+    assert task_run is not None
+    assert task_run.status == "running"
+    assert task_run.terminal_reason == ""
+    diagnostics = dict(task_run.diagnostics or {})
+    assert diagnostics["latest_step"] == "task_executor_scheduled"
+    assert diagnostics["latest_step_status"] == "running"
+    assert diagnostics["latest_step_summary"] != "旧阻塞信息不应该继续占据监控当前态。"
+    assert diagnostics["recovery_action"] == "resume_task_run"
+    assert dict(diagnostics["recoverable_error"])["retryable"] is True
+    assert visible[existing_task_run_id]["status"] == "running"
+    assert visible[existing_task_run_id]["bucket"] == "running"
+    assert visible[existing_task_run_id]["summary"] != "旧阻塞信息不应该继续占据监控当前态。"
 
 
 def test_terminal_bound_active_turn_is_cleared_and_continue_starts_new_task_run() -> None:

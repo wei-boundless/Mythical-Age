@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import time
 import uuid
@@ -22,7 +23,7 @@ from runtime.model_gateway.protocol_sanitizer import sanitize_messages_for_promp
 from runtime.model_gateway.model_runtime import stringify_content
 from runtime.output_boundary import CanonicalFinalTextDecision, canonical_output_decision_for_final_text
 from runtime.shared.models import TurnRun
-from runtime.tool_runtime import ToolInvocationRequest, build_tool_invocation_id
+from runtime.tool_runtime import ToolInvocationRequest, ToolObservation, build_tool_invocation_id
 from runtime.tool_runtime.provider_tool_call_adapter import tool_calls_for_langchain_messages
 
 
@@ -38,6 +39,14 @@ _STEER_ACTIVE_WORK_ACTIONS = {
     "answer_then_continue_active_work",
 }
 _MAX_SINGLE_TURN_TOOL_ITERATIONS = 3
+_CONTROL_NATIVE_TOOL_NAMES = {"request_task_run", "active_work_control", "ask_user", "block"}
+_REPAIRABLE_SINGLE_AGENT_PROTOCOL_ERRORS = {
+    "single_agent_turn_multiple_native_actions",
+    "single_agent_turn_multiple_action_sources",
+    "single_agent_turn_invalid_native_action",
+    "single_agent_turn_invalid_json_action",
+    "single_agent_turn_json_action_required",
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,6 +54,8 @@ class SingleAgentActionParse:
     action_request: ModelActionRequest | None
     native_tool_calls: list[dict[str, Any]]
     error: dict[str, Any] | None = None
+    tool_actions: tuple[ModelActionRequest, ...] = ()
+    control_action: ModelActionRequest | None = None
 
 
 async def run_single_agent_turn(
@@ -142,6 +153,30 @@ async def run_single_agent_turn(
                 phase="tool_loop",
                 require_json_action=single_agent_requires_json_action,
             )
+            if action_parse.error:
+                action_parse = await _repair_single_agent_action_parse(
+                    action_parse,
+                    response=response,
+                    model_runtime=model_runtime,
+                    model_messages=model_messages,
+                    model_selection=dict(model_selection or {}),
+                    accounting_context={
+                        "request_id": f"modelreq:{compilation.packet.packet_id}:tool-protocol-repair:{tool_iteration + 1}",
+                        "session_id": session_id,
+                        "run_id": turn_run.turn_run_id if turn_run is not None else "",
+                        "turn_id": turn_id,
+                        "packet_ref": compilation.packet.packet_id,
+                        "source": "harness.single_agent_turn.protocol_repair",
+                        "segment_plan": dict(compilation.packet.segment_plan or {}),
+                        "prompt_manifest": dict(compilation.packet.diagnostics.get("prompt_manifest") or {}),
+                    },
+                    request_id=f"model-response:{compilation.packet.packet_id}:tool:{tool_iteration + 1}:repair",
+                    turn_id=turn_id,
+                    packet_ref=compilation.packet.packet_id,
+                    iteration=tool_iteration + 1,
+                    allowed_action_types=tuple(compilation.packet.allowed_action_types),
+                    phase="tool_loop",
+                )
             if action_parse.error:
                 async for event in _emit_single_agent_protocol_error(
                     action_parse.error,
@@ -465,6 +500,30 @@ async def run_single_agent_turn(
             require_json_action=single_agent_requires_json_action,
         )
         if action_parse.error:
+            action_parse = await _repair_single_agent_action_parse(
+                action_parse,
+                response=response,
+                model_runtime=model_runtime,
+                model_messages=model_messages,
+                model_selection=dict(model_selection or {}),
+                accounting_context={
+                    "request_id": f"modelreq:{compilation.packet.packet_id}:final-protocol-repair",
+                    "session_id": session_id,
+                    "run_id": turn_run.turn_run_id if turn_run is not None else "",
+                    "turn_id": turn_id,
+                    "packet_ref": compilation.packet.packet_id,
+                    "source": "harness.single_agent_turn.protocol_repair",
+                    "segment_plan": dict(compilation.packet.segment_plan or {}),
+                    "prompt_manifest": dict(compilation.packet.diagnostics.get("prompt_manifest") or {}),
+                },
+                request_id=f"model-response:{compilation.packet.packet_id}:final:repair",
+                turn_id=turn_id,
+                packet_ref=compilation.packet.packet_id,
+                iteration=tool_iteration + 1,
+                allowed_action_types=tuple(compilation.packet.allowed_action_types),
+                phase="final",
+            )
+        if action_parse.error:
             async for event in _emit_single_agent_protocol_error(
                 action_parse.error,
                 commit_assistant_message=commit_assistant_message,
@@ -583,7 +642,12 @@ async def run_single_agent_turn(
                         tool_result_content="Runtime accepted request_task_run and started task lifecycle scheduling.",
                     ),
                 )
+                request_task_terminal_reason = "task_executor_scheduled"
                 async for event in start_task_from_action_request(action_request):
+                    if event.get("type") == "task_run_lifecycle_reused_current":
+                        request_task_terminal_reason = "session_active_task_exists"
+                    elif event.get("type") == "task_run_lifecycle_resumed_current":
+                        request_task_terminal_reason = "task_executor_scheduled"
                     yield event
                 if runtime_host is not None and turn_run is not None:
                     terminal = _record_turn_terminal(
@@ -591,7 +655,7 @@ async def run_single_agent_turn(
                         turn_run=turn_run,
                         turn_id=turn_id,
                         status="completed",
-                        terminal_reason="task_executor_scheduled",
+                        terminal_reason=request_task_terminal_reason,
                         payload={"action_request_ref": action_request.request_id},
                     )
                     terminal_recorded = True
@@ -838,7 +902,7 @@ async def _invoke_single_turn_model(
                 model_messages,
                 native_tools,
                 model_spec=model_selection,
-                tool_call_options={"parallel_tool_calls": False},
+                tool_call_options={"parallel_tool_calls": True},
                 accounting_context=accounting_context,
             )
         except Exception as exc:
@@ -870,6 +934,164 @@ async def _invoke_single_turn_model(
     )
 
 
+async def _repair_single_agent_action_parse(
+    action_parse: SingleAgentActionParse,
+    *,
+    response: Any,
+    model_runtime: Any,
+    model_messages: list[dict[str, Any]],
+    model_selection: dict[str, Any],
+    accounting_context: dict[str, Any],
+    request_id: str,
+    turn_id: str,
+    packet_ref: str,
+    iteration: int,
+    allowed_action_types: tuple[str, ...],
+    phase: str,
+) -> SingleAgentActionParse:
+    error = dict(action_parse.error or {})
+    code = str(error.get("code") or "")
+    if code not in _REPAIRABLE_SINGLE_AGENT_PROTOCOL_ERRORS:
+        return action_parse
+    repair_messages = _single_agent_protocol_repair_messages(
+        model_messages,
+        error=error,
+        response=response,
+        turn_id=turn_id,
+        allowed_action_types=allowed_action_types,
+        phase=phase,
+    )
+    repair_response = await _invoke_single_turn_model(
+        model_runtime=model_runtime,
+        model_messages=repair_messages,
+        model_selection=dict(model_selection or {}),
+        accounting_context={
+            **dict(accounting_context or {}),
+            "request_id": request_id,
+            "source": "harness.single_agent_turn.protocol_repair",
+            "prompt_manifest": {
+                **dict(dict(accounting_context or {}).get("prompt_manifest") or {}),
+                "invocation_kind": "single_agent_turn_protocol_repair",
+                "repair_phase": phase,
+                "original_protocol_error": code,
+            },
+        },
+        native_tools=[],
+    )
+    if isinstance(repair_response, dict) and repair_response.get("type") == "error":
+        return SingleAgentActionParse(
+            action_request=None,
+            native_tool_calls=[],
+            error=_single_agent_protocol_error(
+                code="single_agent_turn_protocol_repair_failed",
+                reason=str(repair_response.get("code") or "protocol_repair_model_failed"),
+                diagnostics={
+                    "original_error": error,
+                    "repair_model_error": dict(repair_response),
+                    "phase": phase,
+                },
+            ),
+        )
+    repaired = _single_agent_action_request_from_response(
+        repair_response,
+        request_id=f"{request_id}:response",
+        turn_id=turn_id,
+        packet_ref=packet_ref,
+        iteration=iteration,
+        allowed_action_types=allowed_action_types,
+        phase=f"{phase}_protocol_repair",
+        require_json_action=True,
+    )
+    if repaired.error:
+        return SingleAgentActionParse(
+            action_request=None,
+            native_tool_calls=list(repaired.native_tool_calls or []),
+            error=_single_agent_protocol_error(
+                code="single_agent_turn_protocol_repair_failed",
+                reason=str(dict(repaired.error or {}).get("code") or "protocol_repair_invalid"),
+                diagnostics={
+                    "original_error": error,
+                    "repair_error": dict(repaired.error or {}),
+                    "phase": phase,
+                },
+            ),
+        )
+    if repaired.action_request is None:
+        return SingleAgentActionParse(
+            action_request=None,
+            native_tool_calls=[],
+            error=_single_agent_protocol_error(
+                code="single_agent_turn_protocol_repair_failed",
+                reason="protocol_repair_returned_no_action",
+                diagnostics={"original_error": error, "phase": phase},
+            ),
+        )
+    repaired_action = replace(
+        repaired.action_request,
+        diagnostics={
+            **dict(repaired.action_request.diagnostics or {}),
+            "protocol_repair": {
+                "authority": "harness.loop.single_agent_turn.protocol_repair",
+                "original_error_code": code,
+                "original_error_reason": str(error.get("reason") or ""),
+                "phase": phase,
+            },
+        },
+    )
+    return SingleAgentActionParse(
+        action_request=repaired_action,
+        native_tool_calls=[],
+        tool_actions=(repaired_action,) if repaired_action.action_type == "tool_call" else (),
+        control_action=repaired_action if repaired_action.action_type != "tool_call" else None,
+    )
+
+
+def _single_agent_protocol_repair_messages(
+    model_messages: list[dict[str, Any]],
+    *,
+    error: dict[str, Any],
+    response: Any,
+    turn_id: str,
+    allowed_action_types: tuple[str, ...],
+    phase: str,
+) -> list[dict[str, Any]]:
+    diagnostics = dict(error.get("diagnostics") or {})
+    repair_payload = {
+        "allowed_action_types": list(allowed_action_types),
+        "phase": phase,
+        "protocol_error": {
+            "code": str(error.get("code") or ""),
+            "reason": str(error.get("reason") or ""),
+            "diagnostics": diagnostics,
+        },
+        "previous_response": {
+            "content_preview": _compact_text(stringify_content(getattr(response, "content", response)), limit=1200),
+            "native_tool_call_count": diagnostics.get("native_tool_call_count"),
+            "tool_names": list(diagnostics.get("tool_names") or []),
+            "action_types": list(diagnostics.get("action_types") or []),
+        },
+    }
+    repair_instruction = (
+        "你是一名动作协议修复员。\n"
+        "你只负责把上一轮模型输出修复为一个合法的控制裁决或一个合法工具调用。\n"
+        "你不能执行动作，不能扩写用户目标，不能引入新需求。\n\n"
+        "上一轮输出违反了运行协议。请根据用户当前请求、运行边界和允许动作，只输出一个 JSON 对象。\n"
+        "如果需要控制裁决，只能选择一个 action_type。\n"
+        "如果需要普通工具，只能输出一个 action_type=tool_call 的动作；不要混入 ask_user、block、request_task_run 或 active_work_control。\n"
+        "禁止输出解释文字，禁止 Markdown，禁止多个控制动作。\n\n"
+        "修复输入：\n"
+        f"{json.dumps(repair_payload, ensure_ascii=False, sort_keys=True)}"
+    )
+    return _sanitize_model_messages(
+        [
+            *[dict(item) for item in list(model_messages or []) if isinstance(item, dict)],
+            {"role": "user", "content": repair_instruction, "turn_id": turn_id},
+        ],
+        turn_id=turn_id,
+        source="harness.loop.single_agent_turn.protocol_repair",
+    )
+
+
 def _single_agent_action_request_from_response(
     response: Any,
     *,
@@ -885,7 +1107,7 @@ def _single_agent_action_request_from_response(
         response,
         request_id=request_id,
         turn_id=turn_id,
-        require_json_action=require_json_action,
+        require_json_action=False,
         allow_native_tool_calls=True,
     )
     native_tool_calls = [dict(item) for item in protocol.native_tool_calls]
@@ -940,19 +1162,89 @@ def _single_agent_action_request_from_response(
                     },
                 ),
             )
+        parsed_action = replace(
+            action_request,
+            diagnostics={
+                **dict(action_request.diagnostics or {}),
+                "origin_kind": "single_agent_turn_json_action",
+                "origin_authority": "harness.loop.single_agent_turn",
+                "packet_ref": packet_ref,
+                "protocol_ref": protocol.protocol_id,
+                "phase": phase,
+            },
+        )
         return SingleAgentActionParse(
-            action_request=replace(
-                action_request,
+            action_request=parsed_action,
+            native_tool_calls=[],
+            control_action=parsed_action if parsed_action.action_type != "tool_call" else None,
+            tool_actions=(parsed_action,) if parsed_action.action_type == "tool_call" else (),
+        )
+    if not native_tool_calls:
+        if require_json_action:
+            return SingleAgentActionParse(
+                action_request=None,
+                native_tool_calls=native_tool_calls,
+                error=_single_agent_protocol_error(
+                    code="single_agent_turn_json_action_required",
+                    reason="json_action_required",
+                    diagnostics={
+                        "parse_diagnostics": dict(protocol.parse_diagnostics or {}),
+                        "phase": phase,
+                    },
+                ),
+            )
+        return SingleAgentActionParse(action_request=None, native_tool_calls=[])
+    native_actions = _action_requests_from_native_tool_calls(
+        native_tool_calls,
+        turn_id=turn_id,
+        packet_ref=packet_ref,
+        iteration=iteration,
+    )
+    tool_actions = tuple(item for item in native_actions if item.action_type == "tool_call")
+    control_actions = tuple(item for item in native_actions if item.action_type != "tool_call")
+    if tool_actions and control_actions:
+        return SingleAgentActionParse(
+            action_request=None,
+            native_tool_calls=native_tool_calls,
+            error=_single_agent_protocol_error(
+                code="single_agent_turn_multiple_action_sources",
+                reason="single_agent_turn_mixed_tool_and_control_actions",
                 diagnostics={
-                    **dict(action_request.diagnostics or {}),
-                    "origin_kind": "single_agent_turn_json_action",
-                    "origin_authority": "harness.loop.single_agent_turn",
-                    "packet_ref": packet_ref,
-                    "protocol_ref": protocol.protocol_id,
+                    "native_tool_call_count": len(native_tool_calls),
+                    "tool_action_count": len(tool_actions),
+                    "control_action_count": len(control_actions),
+                    "action_types": [item.action_type for item in native_actions],
+                    "tool_names": [str(call.get("name") or "") for call in native_tool_calls],
                     "phase": phase,
                 },
             ),
-            native_tool_calls=[],
+        )
+    if len(control_actions) > 1:
+        return SingleAgentActionParse(
+            action_request=None,
+            native_tool_calls=native_tool_calls,
+            error=_single_agent_protocol_error(
+                code="single_agent_turn_multiple_native_actions",
+                reason="single_agent_turn_multiple_control_actions",
+                diagnostics={
+                    "native_tool_call_count": len(native_tool_calls),
+                    "action_types": [item.action_type for item in control_actions],
+                    "tool_names": [str(call.get("name") or "") for call in native_tool_calls],
+                    "phase": phase,
+                },
+            ),
+        )
+    if len(control_actions) == 1:
+        return SingleAgentActionParse(
+            action_request=control_actions[0],
+            native_tool_calls=native_tool_calls,
+            control_action=control_actions[0],
+        )
+    if tool_actions:
+        return SingleAgentActionParse(
+            action_request=tool_actions[0] if len(tool_actions) == 1 else None,
+            native_tool_calls=native_tool_calls,
+            tool_actions=tool_actions,
         )
     if require_json_action:
         return SingleAgentActionParse(
@@ -962,49 +1254,27 @@ def _single_agent_action_request_from_response(
                 code="single_agent_turn_json_action_required",
                 reason="json_action_required",
                 diagnostics={
-                    "parse_diagnostics": dict(protocol.parse_diagnostics or {}),
-                    "phase": phase,
-                },
-            ),
-        )
-    if not native_tool_calls:
-        return SingleAgentActionParse(action_request=None, native_tool_calls=[])
-    native_actions = _action_requests_from_native_tool_calls(
-        native_tool_calls,
-        turn_id=turn_id,
-        packet_ref=packet_ref,
-        iteration=iteration,
-    )
-    if len(native_actions) > 1:
-        return SingleAgentActionParse(
-            action_request=None,
-            native_tool_calls=native_tool_calls,
-            error=_single_agent_protocol_error(
-                code="single_agent_turn_multiple_native_actions",
-                reason="single_agent_turn_multiple_native_actions",
-                diagnostics={
                     "native_tool_call_count": len(native_tool_calls),
-                    "action_types": [item.action_type for item in native_actions],
                     "tool_names": [str(call.get("name") or "") for call in native_tool_calls],
                     "phase": phase,
                 },
             ),
         )
     if not native_actions:
-        return SingleAgentActionParse(
-            action_request=None,
-            native_tool_calls=native_tool_calls,
-            error=_single_agent_protocol_error(
-                code="single_agent_turn_invalid_native_action",
-                reason="single_agent_turn_invalid_native_action",
-                diagnostics={
-                    "native_tool_call_count": len(native_tool_calls),
-                    "tool_names": [str(call.get("name") or "") for call in native_tool_calls],
-                    "phase": phase,
-                },
-            ),
-        )
-    return SingleAgentActionParse(action_request=native_actions[0], native_tool_calls=native_tool_calls)
+        return SingleAgentActionParse(action_request=None, native_tool_calls=[])
+    return SingleAgentActionParse(
+        action_request=None,
+        native_tool_calls=native_tool_calls,
+        error=_single_agent_protocol_error(
+            code="single_agent_turn_invalid_native_action",
+            reason="single_agent_turn_invalid_native_action",
+            diagnostics={
+                "native_tool_call_count": len(native_tool_calls),
+                "tool_names": [str(call.get("name") or "") for call in native_tool_calls],
+                "phase": phase,
+            },
+        ),
+    )
 
 
 def _is_model_action_json_payload(payload: dict[str, Any]) -> bool:
@@ -1028,12 +1298,11 @@ def _action_requests_from_native_tool_calls(
     iteration: int,
 ) -> list[ModelActionRequest]:
     actions: list[ModelActionRequest] = []
-    reserved = {"request_task_run", "active_work_control", "ask_user", "block"}
     for call in tool_calls:
         tool_name = str(call.get("name") or "").strip()
         if not tool_name:
             continue
-        if tool_name not in reserved:
+        if tool_name not in _CONTROL_NATIVE_TOOL_NAMES:
             action = _tool_action_request_from_native_tool_calls(
                 [call],
                 turn_id=turn_id,
@@ -1142,14 +1411,6 @@ def _native_tools_for_packet(allowed_action_types: tuple[str, ...], *, available
     tools: list[dict[str, Any]] = []
     if "tool_call" in allowed:
         tools.extend(_runtime_native_tools(available_tools))
-    if "request_task_run" in allowed:
-        tools.append(request_task_run_native_tool())
-    if "active_work_control" in allowed:
-        tools.append(active_work_control_native_tool())
-    if "ask_user" in allowed:
-        tools.append(ask_user_native_tool())
-    if "block" in allowed:
-        tools.append(block_native_tool())
     return tools
 
 
@@ -1355,10 +1616,9 @@ def _tool_action_request_from_native_tool_calls(
     packet_ref: str,
     iteration: int,
 ) -> ModelActionRequest | None:
-    reserved = {"request_task_run", "active_work_control", "ask_user", "block"}
     for call in tool_calls:
         tool_name = str(call.get("name") or "").strip()
-        if not tool_name or tool_name in reserved:
+        if not tool_name or tool_name in _CONTROL_NATIVE_TOOL_NAMES:
             continue
         args = dict(call.get("args") or {})
         call_id = str(call.get("id") or f"call:{tool_name}:{iteration}")

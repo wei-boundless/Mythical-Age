@@ -1158,6 +1158,7 @@ export function CreativeEnvironmentView() {
           onRefreshSessions={() => selectedProject && void loadScopedSessions(selectedProject.project_id)}
           onCreateSession={() => void createProjectSession()}
           onSelectSession={(sessionId) => void selectProjectSession(sessionId)}
+          onDeleteSession={(sessionId) => void deleteProjectSession(sessionId)}
           onSelectProject={setSelectedProjectId}
           selectedProjectId={selectedProject?.project_id ?? ""}
           scopedSessions={scopedSessions}
@@ -1195,6 +1196,7 @@ export function CreativeEnvironmentView() {
         onSelectGraph={setSelectedGraphId}
         onSelectSection={setActiveSection}
         onSelectSession={(sessionId) => void selectProjectSession(sessionId)}
+        onDeleteSession={(sessionId) => void deleteProjectSession(sessionId)}
         onStartGraph={() => void startWritingGraph()}
         onTaskMessageChange={setTaskMessage}
         overview={overview}

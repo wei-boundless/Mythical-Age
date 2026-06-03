@@ -1,6 +1,6 @@
 "use client";
 
-import { Activity, CheckCircle2, GripHorizontal, Minimize2, PlayCircle, RefreshCw, TriangleAlert, X } from "lucide-react";
+import { Activity, CheckCircle2, GripHorizontal, Minimize2, PlayCircle, RefreshCw, Square, TriangleAlert, X } from "lucide-react";
 import type { PointerEvent as ReactPointerEvent } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -93,6 +93,7 @@ export function TaskGraphRunInteractionDock({
   onContinue,
   onEvaluate,
   onOpenChange,
+  onStop,
   open,
 }: {
   actionLoading: boolean;
@@ -104,6 +105,7 @@ export function TaskGraphRunInteractionDock({
   onContinue: () => void;
   onEvaluate: () => void;
   onOpenChange: (open: boolean) => void;
+  onStop: () => void;
   open: boolean;
 }) {
   const [mounted, setMounted] = useState(false);
@@ -134,10 +136,20 @@ export function TaskGraphRunInteractionDock({
   const taskRunId = textValue(binding?.task_run_id || taskRunMonitor.task_run_id || recordValue(monitor?.task_run).task_run_id);
   const graphId = textValue(binding?.graph_id || state.graph_id || recordValue(monitor?.graph_run).graph_id);
   const runtimeStatus = textValue(taskRunMonitor.lifecycle || taskRunMonitor.status || state.status || recordValue(monitor?.graph_run).status);
+  const runtimeControl = recordValue(taskRunMonitor.runtime_control || recordValue(monitor?.task_run).runtime_control);
+  const controlState = textValue(taskRunMonitor.control_state || runtimeControl.state);
   const boundLabel = binding?.title || graphId || (graphRunId ? compactId(graphRunId) : "未绑定 GraphRun");
   const latestAt = latestMonitorTime(monitor);
   const lastUpdatedLabel = formatClock(latestAt);
   const needsAttention = failedNodeIds.length > 0 || blockedNodeIds.length > 0 || Boolean(error);
+  const terminalTaskStatuses = new Set(["completed", "done", "failed", "error", "cancelled", "canceled", "stopped", "aborted", "user_aborted"]);
+  const terminalControlStates = new Set(["stopped", "aborted", "user_aborted"]);
+  const canStopTaskRun = Boolean(
+    taskRunId
+    && !terminalTaskStatuses.has(runtimeStatus)
+    && !terminalControlStates.has(controlState)
+    && controlState !== "stop_requested"
+  );
 
   function getBoxSize(isOpen = open) {
     return {
@@ -387,6 +399,10 @@ export function TaskGraphRunInteractionDock({
         <button disabled={!graphRunId || !graphHarnessConfigId || actionLoading} onClick={onContinue} type="button">
           <PlayCircle size={14} />
           派发 Ready
+        </button>
+        <button disabled={!canStopTaskRun || actionLoading} onClick={onStop} type="button">
+          <Square size={14} />
+          停止
         </button>
       </div>
     </aside>
