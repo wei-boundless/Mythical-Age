@@ -411,7 +411,7 @@ def _chapter_progress_route_policy_static() -> dict[str, Any]:
         "target_key": "group_target_measure",
         "last_metric_key": "last_batch_words",
         "secondary_counters": [{"current_key": "total_current_measure", "target_key": "target_measure_units"}],
-        "patch_rules": [{"key": "chapter_index", "mode": "increment", "step_key": "units_per_batch", "step": CHAPTER_BATCH_SIZE}],
+        "patch_rules": [],
         "derived_fields": _chapter_loop_derived_fields(),
     }
 
@@ -1109,13 +1109,6 @@ CHAPTER_BASE_NODES: tuple[NodeSpec, ...] = (
                 "result_policy": "observation_refs_only",
                 "allow_nested_subagents": False,
                 "source": "contract_bindings.runtime.subagent_policy",
-            },
-            "chapter_workflow_policy": {
-                "mode": "sequential_chapter_loop",
-                "chapter_count": CHAPTER_BATCH_SIZE,
-                "chapter_task_mode": "one_subagent_per_chapter",
-                "chapter_feedback_mode": "system_metric_after_each_chapter",
-                "source": "contract_bindings.runtime.chapter_workflow_policy",
             },
             "split_policy": {
                 "mode": "static_batch",
@@ -2207,13 +2200,12 @@ def _node_payload(node: NodeSpec) -> dict[str, Any]:
     agent_id = _node_agent_id(node)
     artifact_policy = _artifact_policy(node)
     node_subagent_policy = dict(node.extra_runtime.get("subagent_policy") or {})
-    node_chapter_workflow_policy = dict(node.extra_runtime.get("chapter_workflow_policy") or {})
     runtime_bindings = {
         "model_requirement": _model_requirement(node.node_id),
         **{
             key: value
             for key, value in dict(node.extra_runtime).items()
-            if key not in {"subagent_policy", "chapter_workflow_policy"}
+            if key not in {"subagent_policy"}
         },
     }
     tool_execution_policy = _node_tool_execution_policy(node)
@@ -2243,7 +2235,6 @@ def _node_payload(node: NodeSpec) -> dict[str, Any]:
         runtime_bindings["dynamic_expansion"] = dict(dynamic_expansion_policy)
     node_runtime_policy = {
         "subagent_policy": node_subagent_policy,
-        "chapter_workflow_policy": node_chapter_workflow_policy,
         "control_capabilities": {
             "may_use_subagents": bool(node_subagent_policy.get("enabled") is True),
         },
@@ -2310,7 +2301,6 @@ def _node_payload(node: NodeSpec) -> dict[str, Any]:
             "outline_thread_policy": outline_thread_policy,
             "prewrite_memory_plan_policy": _prewrite_memory_plan_policy(node),
             "dynamic_expansion_policy": _dynamic_expansion_policy(node),
-            "chapter_workflow_policy": node_chapter_workflow_policy,
         },
     }
     return payload
@@ -3806,6 +3796,14 @@ def _chapter_loop_frames() -> list[dict[str, Any]]:
             "router_node_id": "chapter_progress_router",
             "continue_node_id": "chapter_outline",
             "exit_node_id": "volume_review",
+            "cursor_key": "chapter_index",
+            "start_key": "chapter_index",
+            "end_key": "target_unit_count",
+            "step": CHAPTER_BATCH_SIZE,
+            "iteration_index_key": "chapter_batch_iteration",
+            "iteration_identity_template": "chapter-batch-{chapter_index}",
+            "reset_scope_on_continue": True,
+            "preserve_iteration_results": True,
             "unit_kind": "chapter",
             "iteration_size_key": "units_per_batch",
             "initial_inputs": initial_inputs,
@@ -3821,6 +3819,14 @@ def _chapter_loop_frames() -> list[dict[str, Any]]:
             "router_node_id": "next_volume_router",
             "continue_node_id": "volume_plan",
             "exit_node_id": "__graph_module_complete__",
+            "cursor_key": "volume_index",
+            "start_key": "volume_index",
+            "end_key": "target_group_count",
+            "step": 1,
+            "iteration_index_key": "volume_iteration",
+            "iteration_identity_template": "volume-{volume_index}",
+            "reset_scope_on_continue": True,
+            "preserve_iteration_results": True,
             "unit_kind": "volume",
             "iteration_size_key": "target_group_count",
             "initial_inputs": initial_inputs,

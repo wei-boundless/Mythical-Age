@@ -135,11 +135,20 @@ def _loop_frame_plan(frame: dict[str, Any]) -> dict[str, Any]:
     return {
         "frame_id": str(frame.get("frame_id") or frame.get("loop_frame_id") or frame.get("scope_id") or ""),
         "scope_id": str(frame.get("scope_id") or frame.get("frame_id") or frame.get("loop_frame_id") or ""),
+        "parent_scope_id": str(frame.get("parent_scope_id") or ""),
         "kind": str(frame.get("kind") or ""),
         "entry_node_id": str(frame.get("entry_node_id") or ""),
         "router_node_id": str(frame.get("router_node_id") or ""),
         "continue_node_id": str(frame.get("continue_node_id") or ""),
         "exit_node_id": str(frame.get("exit_node_id") or ""),
+        "scope_node_ids": [str(item) for item in list(frame.get("scope_node_ids") or []) if str(item)],
+        "cursor_key": str(frame.get("cursor_key") or ""),
+        "start_key": str(frame.get("start_key") or ""),
+        "end_key": str(frame.get("end_key") or ""),
+        "step": frame.get("step"),
+        "iteration_index_key": str(frame.get("iteration_index_key") or ""),
+        "iteration_identity_template": str(frame.get("iteration_identity_template") or ""),
+        "preserve_iteration_results": bool(frame.get("preserve_iteration_results")),
         "initial_input_keys": sorted(str(key) for key in dict(frame.get("initial_inputs") or {}).keys()),
         "derived_field_count": len(list(frame.get("derived_fields") or [])),
     }
@@ -193,6 +202,9 @@ def _loop_frame_issues(loop_frames: list[dict[str, Any]]) -> list[dict[str, Any]
             issues.append(_issue("loop_frame_continue_missing", "循环 frame 缺少继续节点。", severity="warning", frame_id=frame_id))
         if not frame.get("exit_node_id"):
             issues.append(_issue("loop_frame_exit_missing", "循环 frame 缺少退出节点。", severity="warning", frame_id=frame_id))
+        if frame.get("start_key") or frame.get("end_key") or frame.get("step") is not None:
+            if not frame.get("cursor_key"):
+                issues.append(_issue("loop_frame_cursor_missing", "循环 frame 声明了范围推进但缺少游标字段。", severity="warning", frame_id=frame_id))
     return issues
 
 

@@ -754,3 +754,42 @@ pytest backend/tests/dynamic_prompt_context_projection_test.py backend/tests/gra
 pytest backend/tests/harness_runtime_facade_regression.py backend/tests/graph_task_runtime_facade_regression.py -q
 python -m compileall backend\prompt_library backend\harness\runtime backend\task_system\environments backend\agent_system\profiles
 ```
+
+## 13. Implementation Result：系统调用 Prompt Rule
+
+2026-06-03 第二轮实施补齐 prompts 的系统调用体系：
+
+- 新增 `runtime.rule.system_call_protocol.v1`，把模型可表达的系统调用统一限定为本轮 `allowed_action_types`、JSON action schema 或 provider-native action。
+- runtime protocol rule 现在显式 `requires=("runtime.rule.system_call_protocol.v1",)`；只拼 protocol、不拼系统调用规则的装配会被 `PromptRuleCompiler` 拒绝。
+- `runtime.pack.single_agent_turn.v1`、`runtime.pack.task_execution.v1`、`runtime.pack.graph_node_execution.v1`、`runtime.pack.observation_followup.v1` 都显式引用系统调用规则。
+- graph node pack 只新增系统调用协议规则，没有引入通用 `runtime.rule.tool_use.v1`，因此不改变图固定入口和调度语义。
+- manifest coverage 新增 `has_system_call_protocol`，每轮 packet 可以审计是否真的装配了系统调用协议。
+- 硬边界仍由 `ModelResponseProtocol`、`model_action_request_from_payload`、`admit_model_action`、`ActionPermit` 和 `RuntimeToolControlPlane` 执行；prompt 只负责让 agent 正确表达动作，不替代权限和工具准入。
+
+## 14. Implementation Result：用户意图反馈 Prompt Rule
+
+2026-06-03 第三轮实施补齐用户意图反馈规则：
+
+- 新增 `runtime.rule.intent_feedback.v1`，要求 agent 先判断用户当前话语的真实目标，再选择回答、询问、请求任务、控制当前工作、调用工具或阻止。
+- `single_agent_turn`、`task_execution`、`tool_observation_followup` 三类非图 runtime protocol 现在显式要求 `runtime.rule.intent_feedback.v1`。
+- graph node protocol 不要求也不引用该规则，避免图节点获得重判用户意图或改变图调度的权力。
+- manifest coverage 新增 `has_intent_feedback`，packet 可审计当前轮是否具备意图反馈规则。
+- 规则文本明确旧任务记录、todo、历史摘要、工具建议、active work context 只能作为判断材料，不能劫持当前用户意图。
+
+## 15. Implementation Result：Cache Boundary Rule Lint
+
+2026-06-03 第四轮实施补齐 prompt rule cache 边界校验：
+
+- `PromptRuleCompiler` 现在校验 `PromptRule.cache_tier` 与实际 `PromptSection.cache_scope` 是否匹配，错层装配会 fail closed。
+- runtime/global static、environment/static_environment、agent/session_stable、task/task_stable、volatile 各自有明确边界，不再只记录在 manifest 中。
+- `agent.main_interactive_agent.*.work_role.v1` 的 cache scope / cache tier 已调整为 `session_stable`，避免 agent role 被误记为全局静态规则。
+- 新增错层回归测试，构造 `static_environment` 规则塞入 `static` runtime section 时必须被 compiler 拒绝。
+
+## 16. Implementation Result：Scope / Style Rule Lint
+
+2026-06-03 第五轮实施补齐 prompt rule 适用范围和 prompt 写法校验：
+
+- `PromptRuleCompiler` 现在二次校验 rule 的 `allowed_invocation_kinds`，即使绕过 registry 直接提交 section，也不能把单轮规则塞进任务执行或其它 invocation。
+- compiler 校验 rule owner layer 与 section category / owner layer 是否匹配，防止 environment、agent、graph 规则被放到错误层。
+- 开发说明式 prompt 文本从 warning 升级为 fail-closed；包含“这是 runtime 节点”“根据任务图执行”“这个节点用于”等写法会被拒绝。
+- 目标是保证 prompt 文本写给 agent 直接执行，而不是把内部节点说明暴露给 agent。

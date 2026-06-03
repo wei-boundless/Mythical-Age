@@ -1,5 +1,7 @@
 # Writing Chapter Unit Runtime Plan
 
+> Obsolete: 本方案方向已废弃。它把写作章节单元循环放入 `GraphNodeWorkOrderExecutor`，违反“runtime 通用、loop 控制、编辑器画结构、executor 只执行单 work order”的边界。后续以 `backend/maintenance/generic_nested_loop_graph_runtime_refactor_plan_20260603.md` 为准。
+
 ## 背景
 
 第11-20章多次重跑后仍持续短稿。最新一次已修复 prompt 中的 action JSON 字段和虚假的 `text_metric`/子任务描述，但质量门仍显示正文约 11293 字，低于最低 18000 字。结论是：单个图节点让模型一次性交付十章正文不稳定，质量门只能发现失败，不能把生产粒度变成单章。

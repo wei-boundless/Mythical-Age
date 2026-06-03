@@ -989,7 +989,14 @@ def test_graph_loop_contract_drives_generic_repeated_node_progression(tmp_path: 
                 "router_node_id": "router",
                 "continue_node_id": "produce",
                 "exit_node_id": "exit",
-                "initial_inputs": {"done_units": 0, "target_units": 3},
+                "cursor_key": "unit_index",
+                "start_key": "unit_index",
+                "end_key": "target_units",
+                "step": 1,
+                "iteration_index_key": "unit_iteration",
+                "iteration_identity_template": "unit-{unit_index}",
+                "preserve_iteration_results": True,
+                "initial_inputs": {"done_units": 0, "target_units": 3, "unit_index": 1},
             },
         ),
         nodes=(
@@ -1095,6 +1102,9 @@ def test_graph_loop_contract_drives_generic_repeated_node_progression(tmp_path: 
             assert advance.node_work_orders
             dispatched = advance.node_work_orders[0]
             assert dispatched.node_id == "produce"
+            assert dispatched.input_package["loop_context"]["cursor_key"] == "unit_index"
+            assert dispatched.input_package["loop_context"]["cursor_value"] == state.initial_inputs["unit_index"]
+            assert dispatched.input_package["loop_context"]["iteration_id"] == f"unit-{state.initial_inputs['unit_index']}"
             assert state.active_work_orders == {"produce": dispatched.work_order_id}
             assert state.running_node_ids == ("produce",)
             assert state.ready_node_ids == ()
@@ -1104,7 +1114,11 @@ def test_graph_loop_contract_drives_generic_repeated_node_progression(tmp_path: 
 
     assert state.status == "completed"
     assert state.initial_inputs["done_units"] == 3
+    assert state.initial_inputs["unit_index"] == 3
     assert [item["action"] for item in state.loop_state["route_history"]] == ["continue", "continue", "exit"]
+    assert set(state.loop_state["iteration_results"]["loop.units"]) == {"unit-1", "unit-2", "unit-3"}
+    assert "produce" in state.loop_state["iteration_results"]["loop.units"]["unit-1"]
+    assert "router" in state.loop_state["iteration_results"]["loop.units"]["unit-3"]
     assert len(state.result_history["produce"]) == 3
     assert len(state.result_history["commit"]) == 3
     assert len(state.result_history["router"]) == 3

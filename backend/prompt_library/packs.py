@@ -71,6 +71,7 @@ def list_builtin_runtime_prompt_resources() -> tuple[PromptResource, ...]:
             title="Single agent turn protocol",
             content=RUNTIME_SINGLE_AGENT_TURN_PROMPT,
             invocation_kind="single_agent_turn",
+            requires=("runtime.rule.system_call_protocol.v1", "runtime.rule.intent_feedback.v1"),
         ),
         _runtime_resource(
             prompt_id="runtime.task_execution.v1",
@@ -78,6 +79,7 @@ def list_builtin_runtime_prompt_resources() -> tuple[PromptResource, ...]:
             title="Task execution protocol",
             content=RUNTIME_TASK_EXECUTION_PROMPT,
             invocation_kind="task_execution",
+            requires=("runtime.rule.system_call_protocol.v1", "runtime.rule.intent_feedback.v1"),
         ),
         _runtime_resource(
             prompt_id="runtime.graph_node_execution.v1",
@@ -92,6 +94,7 @@ def list_builtin_runtime_prompt_resources() -> tuple[PromptResource, ...]:
             title="Observation followup protocol",
             content=RUNTIME_OBSERVATION_FOLLOWUP_PROMPT,
             invocation_kind="tool_observation_followup",
+            requires=("runtime.rule.system_call_protocol.v1", "runtime.rule.intent_feedback.v1"),
         ),
     )
 
@@ -103,6 +106,8 @@ def list_builtin_prompt_packs() -> tuple[PromptPack, ...]:
             invocation_kind="single_agent_turn",
             ordered_prompt_refs=(
                 "runtime.single_agent_turn.v1",
+                "runtime.rule.system_call_protocol.v1",
+                "runtime.rule.intent_feedback.v1",
                 "runtime.rule.tool_use.v1",
                 "runtime.rule.output_boundary.v1",
                 "runtime.rule.error_recovery.v1",
@@ -118,6 +123,8 @@ def list_builtin_prompt_packs() -> tuple[PromptPack, ...]:
             invocation_kind="task_execution",
             ordered_prompt_refs=(
                 "runtime.task_execution.v1",
+                "runtime.rule.system_call_protocol.v1",
+                "runtime.rule.intent_feedback.v1",
                 "runtime.rule.tool_use.v1",
                 "runtime.rule.output_boundary.v1",
                 "runtime.rule.error_recovery.v1",
@@ -133,6 +140,7 @@ def list_builtin_prompt_packs() -> tuple[PromptPack, ...]:
             invocation_kind="task_execution",
             ordered_prompt_refs=(
                 "runtime.graph_node_execution.v1",
+                "runtime.rule.system_call_protocol.v1",
                 "runtime.rule.output_boundary.v1",
                 "graph.rule.node_boundary.v1",
                 "graph.rule.node_output_contract.v1",
@@ -145,6 +153,8 @@ def list_builtin_prompt_packs() -> tuple[PromptPack, ...]:
             invocation_kind="tool_observation_followup",
             ordered_prompt_refs=(
                 "runtime.observation_followup.v1",
+                "runtime.rule.system_call_protocol.v1",
+                "runtime.rule.intent_feedback.v1",
                 "runtime.rule.tool_use.v1",
                 "runtime.rule.output_boundary.v1",
                 "runtime.rule.error_recovery.v1",
@@ -173,6 +183,7 @@ def _runtime_resource(
     title: str,
     content: str,
     invocation_kind: str,
+    requires: tuple[str, ...] = ("runtime.rule.system_call_protocol.v1",),
 ) -> PromptResource:
     return PromptResource(
         prompt_id=prompt_id,
@@ -202,6 +213,7 @@ def _runtime_resource(
                 allowed_invocation_kinds=(invocation_kind,),
                 cache_tier="global_static",
                 enforcement_mode="compiler_validated",
+                requires=requires,
                 authority="prompt_library.runtime_protocol_rule",
             ),
         },

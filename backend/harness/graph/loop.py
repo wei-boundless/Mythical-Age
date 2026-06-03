@@ -277,8 +277,15 @@ class GraphLoop:
             )
         )
         result_index = {key: dict(value) for key, value in state.result_index.items()}
-        result_index[envelope.node_id] = _node_result_summary(envelope, result_ref=result_ref)
+        result_summary = _node_result_summary(envelope, result_ref=result_ref)
+        result_index[envelope.node_id] = result_summary
         result_history = _result_history_with_result(state=state, result=envelope, result_ref=result_ref)
+        loop_state = _loop_state_with_iteration_result(
+            graph_config=graph_config,
+            state=state,
+            node_id=envelope.node_id,
+            result_summary=result_summary,
+        )
         active_work_orders = dict(state.active_work_orders)
         active_work_orders.pop(envelope.node_id, None)
         next_state = _replace_state(
@@ -287,6 +294,7 @@ class GraphLoop:
             edge_states=edge_states,
             result_index=result_index,
             result_history=result_history,
+            loop_state=loop_state,
             active_work_orders=active_work_orders,
         )
         route_decision = _evaluate_loop_route(graph_config=graph_config, state=next_state, result=envelope, services=self._services)
@@ -964,15 +972,29 @@ def _initial_loop_inputs(*, graph_config: GraphHarnessConfig, envelope: GraphRun
 
 def _initial_loop_state(*, graph_config: GraphHarnessConfig, envelope: GraphRuntimeEnvelope) -> dict[str, Any]:
     frames: dict[str, dict[str, Any]] = {}
+    inputs = _initial_loop_inputs(graph_config=graph_config, envelope=envelope)
     for raw in graph_config.loop_frames:
         frame = _normalize_loop_frame(dict(raw))
         frame_id = str(frame.get("frame_id") or "")
         if not frame_id:
             continue
+        cursor_key = str(frame.get("cursor_key") or "").strip()
+        start_key = str(frame.get("start_key") or "").strip()
+        end_key = str(frame.get("end_key") or "").strip()
+        start_value = _numeric_value(inputs.get(start_key), None) if start_key else None
+        cursor_value = _numeric_value(inputs.get(cursor_key), start_value) if cursor_key else None
+        end_value = _numeric_value(inputs.get(end_key), None) if end_key else None
+        step = int(_numeric_value(frame.get("step"), 1) or 1)
+        identity_values = {**inputs, **frame, "cursor": cursor_value, "iteration_index": 0, "scope_id": str(frame.get("scope_id") or frame_id)}
         frames[frame_id] = {
             **frame,
             "status": "active",
             "iteration_index": 0,
+            "cursor": cursor_value,
+            "start": start_value,
+            "end": end_value,
+            "step": step,
+            "active_iteration_id": _loop_iteration_id(frame=frame, values=identity_values),
             "scope_node_ids": list(_loop_scope_node_ids(graph_config=graph_config, frame=frame)),
         }
     return {
@@ -980,6 +1002,7 @@ def _initial_loop_state(*, graph_config: GraphHarnessConfig, envelope: GraphRunt
         "graph_run_id": envelope.graph_run_id,
         "frames": frames,
         "route_history": [],
+        "iteration_results": {},
     }
 
 
@@ -990,10 +1013,22 @@ def _normalize_loop_frame(frame: dict[str, Any]) -> dict[str, Any]:
             **frame,
             "frame_id": frame_id,
             "scope_id": str(frame.get("scope_id") or frame_id).strip(),
+            "parent_scope_id": str(frame.get("parent_scope_id") or "").strip(),
             "entry_node_id": str(frame.get("entry_node_id") or "").strip(),
             "router_node_id": str(frame.get("router_node_id") or "").strip(),
             "continue_node_id": str(frame.get("continue_node_id") or "").strip(),
             "exit_node_id": str(frame.get("exit_node_id") or "").strip(),
+            "scope_node_ids": [str(item) for item in list(frame.get("scope_node_ids") or []) if str(item)],
+            "cursor_key": str(frame.get("cursor_key") or "").strip(),
+            "start_key": str(frame.get("start_key") or "").strip(),
+            "end_key": str(frame.get("end_key") or "").strip(),
+            "step": int(_numeric_value(frame.get("step"), 1) or 1),
+            "iteration_index_key": str(frame.get("iteration_index_key") or "").strip(),
+            "iteration_identity_template": str(frame.get("iteration_identity_template") or "").strip(),
+            "progress_receipt_key": str(frame.get("progress_receipt_key") or "").strip(),
+            "reset_scope_on_continue": frame.get("reset_scope_on_continue"),
+            "preserve_iteration_results": frame.get("preserve_iteration_results"),
+            "aggregate_policy": dict(frame.get("aggregate_policy") or {}),
         }
     )
 
@@ -1056,6 +1091,7 @@ def _evaluate_loop_route(
     current_value = _numeric_value(patched_inputs.get(current_key), 0) if current_key else 0
     target_value = _numeric_value(patched_inputs.get(target_key), 0) if target_key else 0
     action = "exit" if target_key and current_value >= target_value else "continue"
+    patched_inputs = _apply_frame_cursor_patch(inputs=patched_inputs, frame=frame, action=action)
     continue_node_id = str(route_policy.get("continue_node_id") or frame.get("continue_node_id") or frame.get("entry_node_id") or "").strip()
     exit_node_id = str(route_policy.get("exit_node_id") or frame.get("exit_node_id") or "").strip()
     return {
@@ -1075,6 +1111,8 @@ def _evaluate_loop_route(
         "target_value": target_value,
         "initial_inputs_patch": patched_inputs,
         "scope_node_ids": list(_loop_scope_node_ids(graph_config=graph_config, frame=frame)),
+        "reset_scope_on_continue": frame.get("reset_scope_on_continue"),
+        "preserve_iteration_results": frame.get("preserve_iteration_results"),
     }
 
 
@@ -1113,6 +1151,16 @@ def _evaluate_progress_receipt_route(
             "scope_id": scope_id,
             "route_policy": route_policy,
         }
+    if route_policy.get("receipt_to_input_mappings") or route_policy.get("receipt_complete_key") or route_policy.get("receipt_metric_key"):
+        return _evaluate_generic_progress_receipt_route(
+            graph_config=graph_config,
+            state=state,
+            result=result,
+            route_policy=route_policy,
+            frame=frame,
+            receipt=receipt,
+            scope_id=scope_id,
+        )
 
     patched_inputs = dict(state.initial_inputs or {})
     committed_words = _numeric_value(receipt.get("committed_words"), 0)
@@ -1151,6 +1199,7 @@ def _evaluate_progress_receipt_route(
     target_value = _numeric_value(patched_inputs.get(target_key), 0) if target_key else 0
     receipt_complete = bool(receipt.get("volume_complete"))
     action = "exit" if receipt_complete or (target_key and current_value >= target_value) else "continue"
+    patched_inputs = _apply_frame_cursor_patch(inputs=patched_inputs, frame=frame, action=action)
     continue_node_id = str(route_policy.get("continue_node_id") or frame.get("continue_node_id") or frame.get("entry_node_id") or "").strip()
     exit_node_id = str(route_policy.get("exit_node_id") or frame.get("exit_node_id") or "").strip()
     return {
@@ -1171,6 +1220,70 @@ def _evaluate_progress_receipt_route(
         "progress_receipt": receipt,
         "initial_inputs_patch": patched_inputs,
         "scope_node_ids": list(_loop_scope_node_ids(graph_config=graph_config, frame=frame)),
+        "reset_scope_on_continue": frame.get("reset_scope_on_continue"),
+        "preserve_iteration_results": frame.get("preserve_iteration_results"),
+    }
+
+
+def _evaluate_generic_progress_receipt_route(
+    *,
+    graph_config: GraphHarnessConfig,
+    state: GraphLoopState,
+    result: NodeResultEnvelope,
+    route_policy: dict[str, Any],
+    frame: dict[str, Any],
+    receipt: dict[str, Any],
+    scope_id: str,
+) -> dict[str, Any]:
+    patched_inputs = dict(state.initial_inputs or {})
+    metric_key = str(route_policy.get("receipt_metric_key") or "").strip()
+    metric = _numeric_value(receipt.get(metric_key), 0) if metric_key else 0
+    current_key = str(route_policy.get("current_key") or "").strip()
+    if current_key and metric_key:
+        patched_inputs[current_key] = _numeric_value(patched_inputs.get(current_key), 0) + metric
+    last_metric_key = str(route_policy.get("last_metric_key") or "").strip()
+    if last_metric_key and metric_key:
+        patched_inputs[last_metric_key] = metric
+    for mapping in list(route_policy.get("receipt_to_input_mappings") or []):
+        if not isinstance(mapping, dict):
+            continue
+        source_key = str(mapping.get("source_key") or mapping.get("from_key") or "").strip()
+        target_key = str(mapping.get("target_key") or mapping.get("key") or "").strip()
+        if not source_key or not target_key:
+            continue
+        if source_key in receipt:
+            patched_inputs[target_key] = receipt.get(source_key)
+    patched_inputs = _apply_patch_rules(patched_inputs, list(route_policy.get("patch_rules") or []))
+    patched_inputs = _apply_derived_fields(patched_inputs, list(route_policy.get("derived_fields") or []))
+    complete_key = str(route_policy.get("receipt_complete_key") or route_policy.get("complete_key") or "").strip()
+    receipt_complete = bool(receipt.get(complete_key)) if complete_key else False
+    target_key = str(route_policy.get("target_key") or "").strip()
+    current_value = _numeric_value(patched_inputs.get(current_key), 0) if current_key else 0
+    target_value = _numeric_value(patched_inputs.get(target_key), 0) if target_key else 0
+    action = "exit" if receipt_complete or (target_key and current_value >= target_value) else "continue"
+    patched_inputs = _apply_frame_cursor_patch(inputs=patched_inputs, frame=frame, action=action)
+    continue_node_id = str(route_policy.get("continue_node_id") or frame.get("continue_node_id") or frame.get("entry_node_id") or "").strip()
+    exit_node_id = str(route_policy.get("exit_node_id") or frame.get("exit_node_id") or "").strip()
+    return {
+        "authority": "harness.graph.loop_route_decision",
+        "action": action,
+        "reason": "receipt_complete" if receipt_complete else ("target_reached" if action == "exit" else "target_not_reached"),
+        "node_id": result.node_id,
+        "result_id": result.result_id,
+        "scope_id": scope_id,
+        "frame_id": str(frame.get("frame_id") or scope_id),
+        "continue_node_id": continue_node_id,
+        "exit_node_id": exit_node_id,
+        "metric": metric,
+        "current_key": current_key,
+        "current_value": current_value,
+        "target_key": target_key,
+        "target_value": target_value,
+        "progress_receipt": receipt,
+        "initial_inputs_patch": patched_inputs,
+        "scope_node_ids": list(_loop_scope_node_ids(graph_config=graph_config, frame=frame)),
+        "reset_scope_on_continue": frame.get("reset_scope_on_continue"),
+        "preserve_iteration_results": frame.get("preserve_iteration_results"),
     }
 
 
@@ -1182,6 +1295,8 @@ def _state_after_loop_route(
 ) -> GraphLoopState:
     action = str(decision.get("action") or "").strip()
     loop_state = _loop_state_after_decision(state=state, decision=decision)
+    if action == "continue" and decision.get("preserve_iteration_results") is False:
+        loop_state = _loop_state_without_frame_iteration_results(loop_state=loop_state, frame_id=str(decision.get("frame_id") or decision.get("scope_id") or ""))
     node_states = {key: dict(value) for key, value in state.node_states.items()}
     edge_states = {key: dict(value) for key, value in state.edge_states.items()}
     result_index = {key: dict(value) for key, value in state.result_index.items()}
@@ -1195,6 +1310,12 @@ def _state_after_loop_route(
         node_states[node_id] = node_payload
         return _replace_state(state, node_states=node_states, loop_state=loop_state)
     if action != "continue":
+        return _replace_state(
+            state,
+            initial_inputs=dict(decision.get("initial_inputs_patch") or state.initial_inputs),
+            loop_state=loop_state,
+        )
+    if decision.get("reset_scope_on_continue") is False:
         return _replace_state(
             state,
             initial_inputs=dict(decision.get("initial_inputs_patch") or state.initial_inputs),
@@ -1283,6 +1404,9 @@ def _loop_frame_for_route(
 
 
 def _loop_scope_node_ids(*, graph_config: GraphHarnessConfig, frame: dict[str, Any]) -> tuple[str, ...]:
+    explicit_scope = [str(item) for item in list(frame.get("scope_node_ids") or []) if str(item)]
+    if explicit_scope:
+        return tuple(dict.fromkeys(explicit_scope))
     entry = str(frame.get("entry_node_id") or frame.get("continue_node_id") or "").strip()
     router = str(frame.get("router_node_id") or "").strip()
     if entry and router:
@@ -1445,6 +1569,27 @@ def _apply_patch_rules(inputs: dict[str, Any], rules: list[Any]) -> dict[str, An
     return patched
 
 
+def _apply_frame_cursor_patch(*, inputs: dict[str, Any], frame: dict[str, Any], action: str) -> dict[str, Any]:
+    patched = dict(inputs or {})
+    if str(action or "") != "continue":
+        return patched
+    cursor_key = str(frame.get("cursor_key") or "").strip()
+    if not cursor_key:
+        return patched
+    step = int(_numeric_value(frame.get("step"), 1) or 1)
+    current = _numeric_value(patched.get(cursor_key), None)
+    if current is None:
+        start_key = str(frame.get("start_key") or "").strip()
+        current = _numeric_value(patched.get(start_key), None) if start_key else None
+    if current is None:
+        return patched
+    patched[cursor_key] = current + step
+    iteration_index_key = str(frame.get("iteration_index_key") or "").strip()
+    if iteration_index_key:
+        patched[iteration_index_key] = int(_numeric_value(patched.get(iteration_index_key), 0)) + 1
+    return patched
+
+
 def _apply_derived_fields(inputs: dict[str, Any], fields: list[Any]) -> dict[str, Any]:
     patched = dict(inputs)
     for raw_field in fields:
@@ -1507,9 +1652,26 @@ def _loop_state_after_decision(*, state: GraphLoopState, decision: dict[str, Any
     frame_id = str(decision.get("frame_id") or decision.get("scope_id") or "").strip()
     if frame_id:
         frame = dict(frames.get(frame_id) or {"frame_id": frame_id, "scope_id": str(decision.get("scope_id") or frame_id)})
+        action = str(decision.get("action") or "").strip()
+        current_iteration_index = int(_numeric_value(frame.get("iteration_index"), 0))
+        next_iteration_index = current_iteration_index + (1 if action == "continue" else 0)
+        patched_inputs = dict(decision.get("initial_inputs_patch") or {})
+        cursor_key = str(frame.get("cursor_key") or "").strip()
+        step = int(_numeric_value(frame.get("step"), 1) or 1)
+        current_cursor = _numeric_value(frame.get("cursor"), None)
+        next_cursor = _numeric_value(patched_inputs.get(cursor_key), None) if cursor_key and cursor_key in patched_inputs else None
+        if next_cursor is None and action == "continue" and current_cursor is not None:
+            next_cursor = _numeric_value(current_cursor, 0) + step
+        if next_cursor is None:
+            next_cursor = current_cursor
         frame["last_decision"] = dict(decision)
-        frame["iteration_index"] = int(_numeric_value(frame.get("iteration_index"), 0)) + (1 if str(decision.get("action") or "") == "continue" else 0)
-        frame["status"] = "exited" if str(decision.get("action") or "") == "exit" else ("blocked" if str(decision.get("action") or "") == "blocked" else "active")
+        frame["iteration_index"] = next_iteration_index
+        frame["cursor"] = next_cursor
+        frame["active_iteration_id"] = _loop_iteration_id(
+            frame=frame,
+            values={**patched_inputs, **frame, "cursor": next_cursor, "iteration_index": next_iteration_index},
+        )
+        frame["status"] = "exited" if action == "exit" else ("blocked" if action == "blocked" else "active")
         frame["scope_node_ids"] = list(decision.get("scope_node_ids") or frame.get("scope_node_ids") or [])
         frames[frame_id] = frame
     history = [dict(item) for item in list(loop_state.get("route_history") or []) if isinstance(item, dict)]
@@ -1526,6 +1688,75 @@ def _loop_state_after_decision(*, state: GraphLoopState, decision: dict[str, Any
         "frames": frames,
         "route_history": history,
     }
+
+
+def _loop_state_with_iteration_result(
+    *,
+    graph_config: GraphHarnessConfig,
+    state: GraphLoopState,
+    node_id: str,
+    result_summary: dict[str, Any],
+) -> dict[str, Any]:
+    loop_state = dict(state.loop_state or {})
+    frame = _active_loop_frame_for_node(graph_config=graph_config, state=state, node_id=node_id)
+    if not frame:
+        return loop_state
+    frame_id = str(frame.get("frame_id") or frame.get("scope_id") or "").strip()
+    iteration_id = str(frame.get("active_iteration_id") or "").strip()
+    if not frame_id or not iteration_id:
+        return loop_state
+    iteration_results = {
+        str(raw_frame_id): {
+            str(raw_iteration_id): dict(raw_results)
+            for raw_iteration_id, raw_results in dict(raw_frame_results or {}).items()
+            if isinstance(raw_results, dict)
+        }
+        for raw_frame_id, raw_frame_results in dict(loop_state.get("iteration_results") or {}).items()
+        if isinstance(raw_frame_results, dict)
+    }
+    frame_results = dict(iteration_results.get(frame_id) or {})
+    current_results = dict(frame_results.get(iteration_id) or {})
+    current_results[node_id] = dict(result_summary)
+    frame_results[iteration_id] = current_results
+    iteration_results[frame_id] = frame_results
+    return {**loop_state, "iteration_results": iteration_results}
+
+
+def _loop_state_without_frame_iteration_results(*, loop_state: dict[str, Any], frame_id: str) -> dict[str, Any]:
+    if not frame_id:
+        return loop_state
+    iteration_results = {
+        str(raw_frame_id): dict(raw_frame_results)
+        for raw_frame_id, raw_frame_results in dict(loop_state.get("iteration_results") or {}).items()
+        if isinstance(raw_frame_results, dict)
+    }
+    iteration_results.pop(frame_id, None)
+    return {**loop_state, "iteration_results": iteration_results}
+
+
+def _active_loop_frame_for_node(*, graph_config: GraphHarnessConfig, state: GraphLoopState, node_id: str) -> dict[str, Any]:
+    frames = [dict(item) for item in dict(dict(state.loop_state or {}).get("frames") or {}).values() if isinstance(item, dict)]
+    for frame in frames:
+        if str(frame.get("status") or "active") != "active":
+            continue
+        if node_id in _loop_scope_node_ids(graph_config=graph_config, frame=frame):
+            return frame
+    return {}
+
+
+def _loop_iteration_id(*, frame: dict[str, Any], values: dict[str, Any]) -> str:
+    template = str(frame.get("iteration_identity_template") or "").strip()
+    if template:
+        try:
+            return template.format_map(_SafeFormatDict(values))
+        except Exception:
+            pass
+    frame_id = str(frame.get("frame_id") or frame.get("scope_id") or "loop").strip()
+    cursor = values.get("cursor")
+    iteration_index = values.get("iteration_index")
+    if cursor is not None and cursor != "":
+        return f"{frame_id}:{cursor}"
+    return f"{frame_id}:{iteration_index}"
 
 
 def _result_history_with_result(

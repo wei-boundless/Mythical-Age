@@ -6,7 +6,8 @@ import pytest
 
 from agent_system.profiles.runtime_profile_registry import default_agent_runtime_profiles
 from harness.runtime.compiler import RuntimeCompiler
-from prompt_library import PromptAssemblyRequest, PromptAssemblyService, PromptRuleCompiler
+from prompt_library import PromptAssemblyRequest, PromptAssemblyService, PromptRuleCompiler, PromptSection
+from prompt_library.rules import rule_metadata
 
 
 def test_runtime_pack_manifest_reports_prompt_rule_coverage(tmp_path: Path) -> None:
@@ -16,14 +17,61 @@ def test_runtime_pack_manifest_reports_prompt_rule_coverage(tmp_path: Path) -> N
 
     prompt_rules = assembly.manifest["prompt_rules"]
     assert prompt_rules["coverage"]["has_runtime_protocol"] is True
+    assert prompt_rules["coverage"]["has_system_call_protocol"] is True
+    assert prompt_rules["coverage"]["has_intent_feedback"] is True
     assert "runtime.task_execution.v1" in prompt_rules["rule_refs"]
+    assert "runtime.rule.system_call_protocol.v1" in prompt_rules["rule_refs"]
+    assert "runtime.rule.intent_feedback.v1" in prompt_rules["rule_refs"]
     assert "runtime.rule.output_boundary.v1" in prompt_rules["rule_refs"]
     assert "runtime.rule.error_recovery.v1" in prompt_rules["rule_refs"]
     assert prompt_rules["rejected_rules"] == []
 
     compiled = PromptRuleCompiler().compile(assembly.sections, invocation_kind="task_execution")
     assert "runtime.protocol" in compiled.rule_kinds
+    assert "runtime.system_call_protocol" in compiled.rule_kinds
+    assert "runtime.intent_feedback" in compiled.rule_kinds
     assert "runtime.output_boundary" in compiled.rule_kinds
+
+
+def test_runtime_protocol_requires_system_call_protocol_rule(tmp_path: Path) -> None:
+    assembly = PromptAssemblyService(tmp_path).assemble(
+        PromptAssemblyRequest(
+            invocation_kind="task_execution",
+            prompt_refs=("runtime.task_execution.v1",),
+        )
+    )
+
+    prompt_rules = assembly.manifest["prompt_rules"]
+    assert prompt_rules["coverage"]["has_runtime_protocol"] is True
+    assert prompt_rules["coverage"]["has_system_call_protocol"] is False
+    assert prompt_rules["rejected_rules"][0]["reason"] == "prompt_rule_requirement_missing"
+    assert prompt_rules["rejected_rules"][0]["requires"] == "runtime.rule.system_call_protocol.v1"
+    with pytest.raises(ValueError, match="prompt_rule_requirement_missing"):
+        PromptRuleCompiler().compile(assembly.sections, invocation_kind="task_execution")
+
+
+def test_non_graph_runtime_protocol_requires_intent_feedback_rule(tmp_path: Path) -> None:
+    assembly = PromptAssemblyService(tmp_path).assemble(
+        PromptAssemblyRequest(
+            invocation_kind="task_execution",
+            prompt_refs=(
+                "runtime.task_execution.v1",
+                "runtime.rule.system_call_protocol.v1",
+            ),
+        )
+    )
+
+    prompt_rules = assembly.manifest["prompt_rules"]
+    assert prompt_rules["coverage"]["has_runtime_protocol"] is True
+    assert prompt_rules["coverage"]["has_system_call_protocol"] is True
+    assert prompt_rules["coverage"]["has_intent_feedback"] is False
+    assert any(
+        item["reason"] == "prompt_rule_requirement_missing"
+        and item["requires"] == "runtime.rule.intent_feedback.v1"
+        for item in prompt_rules["rejected_rules"]
+    )
+    with pytest.raises(ValueError, match="prompt_rule_requirement_missing"):
+        PromptRuleCompiler().compile(assembly.sections, invocation_kind="task_execution")
 
 
 def test_prompt_rule_compiler_rejects_multiple_runtime_protocols(tmp_path: Path) -> None:
@@ -52,6 +100,86 @@ def test_prompt_rule_compiler_rejects_missing_required_file_management_rule(tmp_
 
     with pytest.raises(ValueError, match="prompt_rule_requirement_missing"):
         PromptRuleCompiler().compile(assembly.sections, invocation_kind="environment")
+
+
+def test_prompt_rule_compiler_rejects_cache_tier_scope_mismatch() -> None:
+    section = PromptSection(
+        section_id="runtime.bad_environment_rule:1",
+        prompt_ref="test.rule.bad_environment_scope.v1",
+        category="runtime",
+        subtype="rule",
+        title="Bad environment-scoped rule",
+        content="你需要遵守当前环境边界。",
+        owner_layer="runtime",
+        cache_scope="static",
+        metadata={
+            "prompt_rule": rule_metadata(
+                rule_id="test.rule.bad_environment_scope.v1",
+                prompt_ref="test.rule.bad_environment_scope.v1",
+                rule_kind="environment.boundary",
+                owner_layer="environment",
+                cache_tier="static_environment",
+                enforcement_mode="compiler_validated",
+            )
+        },
+    )
+
+    with pytest.raises(ValueError, match="prompt_rule_cache_tier_scope_mismatch"):
+        PromptRuleCompiler().compile((section,), invocation_kind="task_execution")
+
+
+def test_prompt_rule_compiler_rejects_invocation_scope_mismatch() -> None:
+    section = PromptSection(
+        section_id="runtime.single_turn_only:1",
+        prompt_ref="test.rule.single_turn_only.v1",
+        category="runtime",
+        subtype="rule",
+        title="Single turn only rule",
+        content="你只在单轮对话中使用这条规则。",
+        owner_layer="runtime",
+        cache_scope="static",
+        metadata={
+            "prompt_rule": rule_metadata(
+                rule_id="test.rule.single_turn_only.v1",
+                prompt_ref="test.rule.single_turn_only.v1",
+                rule_kind="runtime.test_scope",
+                owner_layer="runtime",
+                allowed_invocation_kinds=("single_agent_turn",),
+                cache_tier="global_static",
+                enforcement_mode="compiler_validated",
+            )
+        },
+    )
+
+    with pytest.raises(ValueError, match="prompt_rule_invocation_scope_mismatch"):
+        PromptRuleCompiler().compile((section,), invocation_kind="task_execution")
+
+
+def test_prompt_rule_compiler_rejects_developer_style_prompt_text() -> None:
+    section = PromptSection(
+        section_id="runtime.bad_style:1",
+        prompt_ref="test.rule.bad_style.v1",
+        category="runtime",
+        subtype="rule",
+        title="Bad style rule",
+        content="这是 runtime 节点。根据任务图执行 world_review。这个节点用于校验资产。",
+        owner_layer="runtime",
+        cache_scope="static",
+        metadata={
+            "prompt_rule": rule_metadata(
+                rule_id="test.rule.bad_style.v1",
+                prompt_ref="test.rule.bad_style.v1",
+                rule_kind="runtime.bad_style",
+                owner_layer="runtime",
+                allowed_invocation_kinds=("task_execution",),
+                cache_tier="global_static",
+                enforcement_mode="compiler_validated",
+            )
+        },
+    )
+
+    with pytest.raises(ValueError, match="developer_style_prompt_text"):
+        PromptRuleCompiler().compile((section,), invocation_kind="task_execution")
 
 
 def test_main_profile_uses_prompt_library_refs_not_embedded_work_role_prompts() -> None:
@@ -101,6 +229,10 @@ def test_coding_rules_do_not_leak_into_writing_environment_runtime_packet() -> N
 
     model_input = "\n".join(str(message["content"]) for message in packet.model_messages)
     manifest = packet.diagnostics["prompt_manifest"]
+    assert manifest["prompt_rules"]["coverage"]["has_system_call_protocol"] is True
+    assert manifest["prompt_rules"]["coverage"]["has_intent_feedback"] is True
+    assert "runtime.rule.system_call_protocol.v1" in manifest["stable_prompt_refs"]
+    assert "runtime.rule.intent_feedback.v1" in manifest["stable_prompt_refs"]
     assert "environment.rule.writing_workspace.v1" in manifest["stable_prompt_refs"]
     assert "coding.rule.editing.v1" not in manifest["stable_prompt_refs"]
     assert "coding.rule.verification.v1" not in manifest["stable_prompt_refs"]
@@ -118,7 +250,12 @@ def test_graph_node_runtime_pack_has_single_graph_protocol(tmp_path: Path) -> No
 
     prompt_rules = assembly.manifest["prompt_rules"]
     assert prompt_rules["coverage"]["has_runtime_protocol"] is True
+    assert prompt_rules["coverage"]["has_system_call_protocol"] is True
+    assert prompt_rules["coverage"]["has_intent_feedback"] is False
     assert "runtime.graph_node_execution.v1" in prompt_rules["rule_refs"]
     assert "runtime.task_execution.v1" not in prompt_rules["rule_refs"]
+    assert "runtime.rule.system_call_protocol.v1" in prompt_rules["rule_refs"]
+    assert "runtime.rule.intent_feedback.v1" not in prompt_rules["rule_refs"]
+    assert "runtime.rule.tool_use.v1" not in prompt_rules["rule_refs"]
     assert "graph.rule.node_boundary.v1" in prompt_rules["rule_refs"]
     assert prompt_rules["rejected_rules"] == []
