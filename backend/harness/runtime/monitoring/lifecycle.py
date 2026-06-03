@@ -9,7 +9,7 @@ BLOCKED_TASK_RUN_STATUSES = {"blocked"}
 FAILED_TASK_RUN_STATUSES = {"failed", "aborted", "cancelled", "error"}
 COMPLETED_TASK_RUN_STATUSES = {"completed", "success"}
 TERMINAL_TASK_RUN_STATUSES = COMPLETED_TASK_RUN_STATUSES | FAILED_TASK_RUN_STATUSES
-GLOBAL_MONITOR_BUCKETS = ("running", "completed", "failed", "diagnostics")
+GLOBAL_MONITOR_BUCKETS = ("running", "waiting", "completed", "failed", "diagnostics")
 KNOWN_TASK_RUN_STATUSES = (
     RUNNING_TASK_RUN_STATUSES
     | WAITING_TASK_RUN_STATUSES
@@ -65,6 +65,8 @@ def monitor_bucket(lifecycle: str) -> str:
         return "failed"
     if lifecycle in {"stale", "action_required", "paused"}:
         return "diagnostics"
+    if lifecycle == "waiting":
+        return "waiting"
     return "running"
 
 

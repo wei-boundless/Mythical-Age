@@ -697,6 +697,56 @@ def test_native_write_file_permission_rejection_is_model_visible_tool_result(tmp
     assert observation.needs_model_followup is True
 
 
+def test_native_write_file_default_mode_keeps_file_gateway_approval_as_control_boundary(tmp_path: Path) -> None:
+    workspace = tmp_path / "project"
+    sandbox_root = tmp_path / "sandbox" / "workspace"
+
+    result = _run_tool(
+        workspace=workspace,
+        sandbox_root=sandbox_root,
+        tool_name="write_file",
+        tool_args={"path": "docs/needs-approval.md", "content": "blocked"},
+        operation_id="op.write_file",
+        sandbox_policy_extra={"permission_mode": "default", "write_scopes": ["docs"]},
+        file_management_policy={
+            "profile_id": "file_profile.managed_project_workspace",
+            "repositories": {"write": "repo.managed_project.project_workspace"},
+        },
+    )
+
+    observation = result["observation"]
+    assert result["execution_record"].status == "failed"
+    assert result["recoverable_error"] == "file_gateway_approval_required"
+    assert observation.payload["structured_payload"]["reason"] == "file_gateway_approval_required"
+    assert not (workspace / "docs" / "needs-approval.md").exists()
+
+
+def test_native_write_file_full_access_satisfies_file_gateway_approval(tmp_path: Path) -> None:
+    workspace = tmp_path / "project"
+    sandbox_root = tmp_path / "sandbox" / "workspace"
+
+    result = _run_tool(
+        workspace=workspace,
+        sandbox_root=sandbox_root,
+        tool_name="write_file",
+        tool_args={"path": "docs/full-access.md", "content": "allowed"},
+        operation_id="op.write_file",
+        sandbox_policy_extra={"permission_mode": "full_access", "write_scopes": ["docs"]},
+        file_management_policy={
+            "profile_id": "file_profile.managed_project_workspace",
+            "repositories": {"write": "repo.managed_project.project_workspace"},
+        },
+    )
+
+    envelope = result["observation"].payload["result_envelope"]
+    receipt = envelope["structured_payload"]["file_gateway"]["receipt"]
+    assert result["error"] == ""
+    assert (workspace / "docs" / "full-access.md").read_text(encoding="utf-8") == "allowed"
+    assert result["execution_record"].status == "completed"
+    assert envelope["structured_payload"]["file_gateway"]["access_decision"] == "ask:approved"
+    assert receipt["approval_fingerprint"].startswith("runtime-permission:full_access:")
+
+
 def test_tool_runtime_executor_blocks_operation_mismatch_before_tool_invocation(tmp_path: Path) -> None:
     workspace = tmp_path / "project"
     sandbox_root = tmp_path / "sandbox" / "workspace"
@@ -749,6 +799,7 @@ def _run_tool(
     tool_call_name: str | None = None,
     runtime_host: object | None = None,
     sandbox_policy_extra: dict | None = None,
+    file_management_policy: dict | None = None,
 ) -> dict:
     workspace.mkdir(parents=True, exist_ok=True)
     sandbox_root.mkdir(parents=True, exist_ok=True)
@@ -800,6 +851,7 @@ def _run_tool(
                 "workspace_root": str(workspace),
                 **dict(sandbox_policy_extra or {}),
             },
+            file_management_policy=dict(file_management_policy or {}),
         )
     )
 

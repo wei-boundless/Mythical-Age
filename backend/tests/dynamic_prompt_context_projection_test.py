@@ -9,6 +9,7 @@ from harness.runtime.compiler import RuntimeCompiler, _dynamic_context_segment_m
 from harness.runtime.context_budget_policy import build_model_aware_context_budget_policy
 from harness.runtime.artifact_scope import canonicalize_task_contract_artifacts
 from harness.runtime.dynamic_context import DynamicContextProjection, VolatileSectionReport
+from harness.runtime.dynamic_context.history_projector import HistoryProjector
 from harness.runtime.prompt_segment_plan import build_prompt_segment_plan
 from runtime.tool_runtime.tool_result_envelope import build_tool_result_envelope
 
@@ -17,6 +18,35 @@ def _payload_after_title(content: str, title: str) -> dict[str, object]:
     marker = title + "\n"
     assert content.startswith(marker)
     return json.loads(content[len(marker):])
+
+
+def test_history_projector_keeps_session_emphasis_as_pinned_facts() -> None:
+    projection = HistoryProjector().project(
+        [{"role": "user", "content": "继续"}],
+        session_context={
+            "session_emphasis": [
+                {
+                    "fact_id": "phase-plan-first",
+                    "content": "本会话内涉及 runtime/memory 大改时，先按计划执行。",
+                    "scope": "session_task",
+                    "priority": "high",
+                    "source_message_ref": "message:0",
+                }
+            ]
+        },
+    )
+
+    assert projection["pinned_facts"] == [
+        {
+            "fact_id": "phase-plan-first",
+            "kind": "session_emphasis",
+            "content": "本会话内涉及 runtime/memory 大改时，先按计划执行。",
+            "scope": "session_task",
+            "priority": "high",
+            "source_message_ref": "message:0",
+            "authority": "memory_system.session_emphasis",
+        }
+    ]
 
 
 def test_runtime_compiler_emits_dynamic_context_report_and_projected_task_state() -> None:

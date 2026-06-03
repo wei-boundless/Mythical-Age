@@ -149,6 +149,39 @@ def test_development_environment_exposes_shell_and_image_generation_tools_for_au
     assert decisions["op.shell"]["environment_constraint"] == "env.development.sandbox"
 
 
+def test_full_access_projects_registered_development_tools_without_profile_restrip() -> None:
+    profile = next(item for item in default_agent_runtime_profiles() if item.agent_profile_id == "main_interactive_agent")
+    definitions = get_tool_definitions()
+    index = build_tool_authorization_index(definitions)
+
+    assembly = assemble_runtime(
+        backend_dir=BACKEND_DIR,
+        session_id="session-full-access-tools",
+        turn_id="turn-full-access-tools",
+        agent_invocation_id="agent-invocation-full-access-tools",
+        request_task_selection={"task_environment_id": "env.development.sandbox"},
+        model_selection={},
+        agent_runtime_profile=profile,
+        tool_instances=build_tool_instances(BACKEND_DIR),
+        definitions_by_name=index.definitions_by_name,
+        permission_mode="full_access",
+    ).to_dict()
+
+    tool_names = {str(item.get("tool_name") or "") for item in list(assembly.get("available_tools") or [])}
+    decisions = {
+        str(item.get("operation_id") or ""): dict(item)
+        for item in list(dict(assembly.get("operation_authorization") or {}).get("decisions") or [])
+    }
+
+    assert {"terminal", "python_repl", "browser_control", "git_push"} <= tool_names
+    assert decisions["op.python_repl"]["final_decision"] == "allow"
+    assert decisions["op.python_repl"]["reason"] == "permission_mode_full_access_overrides_profile_block"
+    assert decisions["op.browser_control"]["final_decision"] == "allow"
+    assert decisions["op.browser_control"]["reason"] == "permission_mode_full_access_expanded_capability"
+    assert decisions["op.git_push"]["final_decision"] == "allow"
+    assert decisions["op.git_push"]["reason"] == "permission_mode_full_access_overrides_profile_block"
+
+
 def test_coding_environment_operations_are_derived_from_registered_runtime_payload() -> None:
     payload = build_task_environment_catalog().runtime_environment_payload("env.coding.vibe_workspace")
     allowed = environment_allowed_operations(payload)
@@ -560,6 +593,44 @@ def test_runtime_operation_ceiling_limits_tools_before_prompt_index() -> None:
         agent_runtime_profile=profile,
         tool_instances=build_tool_instances(BACKEND_DIR),
         definitions_by_name=index.definitions_by_name,
+    ).to_dict()
+
+    tool_names = {str(item.get("tool_name") or "") for item in list(assembly.get("available_tools") or [])}
+    allowed_operations = set(dict(assembly.get("operation_authorization") or {}).get("allowed_operations") or [])
+    decisions = {
+        str(item.get("operation_id") or ""): dict(item)
+        for item in list(dict(assembly.get("operation_authorization") or {}).get("decisions") or [])
+    }
+
+    assert tool_names == {"read_file"}
+    assert allowed_operations == {"op.model_response", "op.read_file"}
+    assert decisions["op.write_file"]["reason"] == "agent_permission_missing"
+    assert decisions["op.shell"]["reason"] == "agent_permission_missing"
+
+
+def test_full_access_still_respects_explicit_operation_ceiling() -> None:
+    definitions = get_tool_definitions()
+    index = build_tool_authorization_index(definitions)
+    profile = next(item for item in default_agent_runtime_profiles() if item.agent_profile_id == "main_interactive_agent")
+
+    assembly = assemble_runtime(
+        backend_dir=BACKEND_DIR,
+        session_id="session-full-access-ceiling",
+        turn_id="turn-full-access-ceiling",
+        agent_invocation_id="agent-invocation-full-access-ceiling",
+        request_task_selection={
+            "task_environment_id": "env.development.sandbox",
+            "runtime_profile": {
+                "execution_permit": {
+                    "operation_ceiling": ["op.model_response", "op.read_file"],
+                },
+            },
+        },
+        model_selection={},
+        agent_runtime_profile=profile,
+        tool_instances=build_tool_instances(BACKEND_DIR),
+        definitions_by_name=index.definitions_by_name,
+        permission_mode="full_access",
     ).to_dict()
 
     tool_names = {str(item.get("tool_name") or "") for item in list(assembly.get("available_tools") or [])}

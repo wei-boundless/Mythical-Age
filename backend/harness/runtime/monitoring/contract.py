@@ -48,6 +48,7 @@ def build_envelope(
         "summary": {
             "total": len(visible_items),
             "running": len(buckets["running"]),
+            "waiting": len(buckets["waiting"]),
             "completed": len(buckets["completed"]),
             "failed": len(buckets["failed"]),
             "diagnostics": len(buckets["diagnostics"]),

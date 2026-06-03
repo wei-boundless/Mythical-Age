@@ -12,6 +12,7 @@ from .durable import DurableMemoryLayer
 from .governance_service import DurableMemoryGovernanceService
 from .maintenance import MemoryMaintenanceAgent, MemoryMaintenanceCoordinator
 from .runtime_services import MemoryRuntimeServices
+from .session_emphasis import SessionEmphasisStore
 from .state_memory import StateMemoryStoreAdapter
 
 
@@ -22,12 +23,14 @@ class MemoryFacade:
         self.adapter = MemoryMessageAdapter()
         self.session_memory = SessionMemoryLayer(base_dir, context_budget_provider=context_budget_provider)
         self.foreground_state = ForegroundContinuityStateStore(self.session_memory.session_root)
+        self.session_emphasis = SessionEmphasisStore(self.session_memory.session_root)
         self.durable_memory = DurableMemoryLayer(base_dir)
         self.memory_manager = self.durable_memory.memory_manager
         self.maintenance_agent = MemoryMaintenanceAgent()
         self.maintenance_coordinator = MemoryMaintenanceCoordinator(
             base_dir=base_dir,
             session_memory_layer=self.session_memory,
+            session_emphasis_store=self.session_emphasis,
             memory_manager=self.memory_manager,
             maintenance_agent=self.maintenance_agent,
         )
@@ -70,7 +73,30 @@ class MemoryFacade:
         task_summary_refs: list[dict[str, Any]] | None = None,
         bundle_summary_refs: list[dict[str, Any]] | None = None,
         durable_lane_enabled: bool = True,
+        force: bool = False,
     ):
+        from .maintenance import MemoryMaintenanceReceipt
+
+        opportunity = self.maintenance_coordinator.evaluate_opportunity_for_session(
+            session_id=session_id,
+            messages=list(messages or []),
+            main_context=dict(main_context or {}),
+            task_summary_refs=list(task_summary_refs or []),
+            bundle_summary_refs=list(bundle_summary_refs or []),
+            force=force,
+        )
+        if not opportunity.should_run:
+            return MemoryMaintenanceReceipt(
+                run_id=f"memory-maintenance:{session_id}:skipped",
+                session_id=session_id,
+                turn_id=turn_id,
+                status="skipped",
+                attempted=False,
+                durable_skipped=True,
+                durable_skip_reason=opportunity.reason,
+                processed_message_count=len(messages or []),
+                diagnostics={"maintenance_opportunity": opportunity.model_dump()},
+            )
         payload = {
             "session_id": session_id,
             "messages": list(messages or []),
@@ -79,6 +105,7 @@ class MemoryFacade:
             "task_summary_refs": list(task_summary_refs or []),
             "bundle_summary_refs": list(bundle_summary_refs or []),
             "durable_lane_enabled": durable_lane_enabled,
+            "force": force,
         }
         record = self.background_task_manager.enqueue(
             "memory_maintenance_after_commit",
@@ -86,8 +113,6 @@ class MemoryFacade:
             source="memory_system.facade",
             session_id=session_id,
         )
-        from .maintenance import MemoryMaintenanceReceipt
-
         return MemoryMaintenanceReceipt(
             run_id=record.task_id,
             session_id=session_id,
@@ -118,6 +143,7 @@ class MemoryFacade:
         task_summary_refs: list[dict[str, Any]] | None = None,
         bundle_summary_refs: list[dict[str, Any]] | None = None,
         durable_lane_enabled: bool = True,
+        force: bool = True,
     ):
         return self.maintenance_coordinator.run_after_commit_sync(
             session_id=session_id,
@@ -127,6 +153,7 @@ class MemoryFacade:
             task_summary_refs=task_summary_refs,
             bundle_summary_refs=bundle_summary_refs,
             durable_lane_enabled=durable_lane_enabled,
+            force=force,
         )
 
     async def arun_memory_maintenance_after_commit(
@@ -139,6 +166,7 @@ class MemoryFacade:
         task_summary_refs: list[dict[str, Any]] | None = None,
         bundle_summary_refs: list[dict[str, Any]] | None = None,
         durable_lane_enabled: bool = True,
+        force: bool = True,
     ):
         return self.enqueue_memory_maintenance_after_commit(
             session_id=session_id,
@@ -148,6 +176,7 @@ class MemoryFacade:
             task_summary_refs=task_summary_refs,
             bundle_summary_refs=bundle_summary_refs,
             durable_lane_enabled=durable_lane_enabled,
+            force=force,
         )
 
     def describe_memory_maintenance_runtime(self) -> dict[str, Any]:
@@ -171,6 +200,7 @@ class MemoryFacade:
             task_summary_refs=list(payload.get("task_summary_refs") or []),
             bundle_summary_refs=list(payload.get("bundle_summary_refs") or []),
             durable_lane_enabled=bool(payload.get("durable_lane_enabled", True)),
+            force=bool(payload.get("force", False)),
         )
 
     def build_memory_context_package(

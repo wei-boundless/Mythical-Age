@@ -1205,7 +1205,7 @@ def test_agent_action_request_launches_task_run_and_initializes_todo() -> None:
     assert dict(contract or {}).get("origin", {}).get("origin_kind") == "single_agent_turn_json_action"
 
 
-def test_global_live_monitor_groups_running_completed_and_failed_runs(monkeypatch) -> None:
+def test_global_live_monitor_groups_waiting_completed_and_failed_runs(monkeypatch) -> None:
     monkeypatch.setattr("harness.runtime.single_agent_host.time.time", lambda: 1000.0)
     runtime = build_harness_runtime()
     host = runtime.single_agent_runtime_host
@@ -1265,14 +1265,15 @@ def test_global_live_monitor_groups_running_completed_and_failed_runs(monkeypatc
         "taskrun:fresh-waiting-executor",
     }
     buckets = {item["task_run_id"]: item["bucket"] for item in monitor["task_runs"]}
-    assert {item["task_run_id"] for item in monitor["buckets"]["running"]} == {
+    assert {item["task_run_id"] for item in monitor["buckets"]["waiting"]} == {
         "taskrun:fresh-waiting-executor",
     }
     assert monitor["buckets"]["diagnostics"] == []
     assert monitor["buckets"]["failed"] == []
-    assert buckets["taskrun:fresh-waiting-executor"] == "running"
+    assert buckets["taskrun:fresh-waiting-executor"] == "waiting"
     assert monitor["summary"]["total"] == 1
-    assert monitor["summary"]["running"] == 1
+    assert monitor["summary"]["running"] == 0
+    assert monitor["summary"]["waiting"] == 1
     assert monitor["summary"]["failed"] == 0
     assert monitor["summary"]["diagnostics"] == 0
     assert monitor["summary"]["action_required"] == 0

@@ -32232,6 +32232,13 @@ html[data-workspace-tone] .agent-workbench {
   gap: 7px;
 }
 
+.agent-workbench .chat-control-cluster--permission {
+  flex: 0 0 auto;
+  width: auto;
+  max-width: none;
+  gap: 0;
+}
+
 .agent-workbench .chat-control-cluster--mode {
   flex: 0 0 auto;
   width: auto;
@@ -32297,6 +32304,16 @@ html[data-workspace-tone] .agent-workbench {
   padding: 0 10px;
 }
 
+.agent-workbench .chat-model-select.chat-model-select--permission {
+  min-width: 0;
+  max-width: none;
+  min-height: 32px;
+  border-color: rgba(151, 166, 185, 0.32);
+  background: rgba(248, 250, 252, 0.72);
+  gap: 6px;
+  padding: 0 8px;
+}
+
 .agent-workbench .chat-model-select.chat-model-select--compound:focus-within {
   border-color: rgba(40, 95, 198, 0.32);
   background: rgba(255, 255, 255, 0.92);
@@ -32328,6 +32345,14 @@ html[data-workspace-tone] .agent-workbench {
   color: #17202d;
   font-size: 13px;
   font-weight: 700;
+}
+
+.agent-workbench .chat-model-select--permission select {
+  width: auto;
+  min-width: 0;
+  color: #17202d;
+  font-size: 12.5px;
+  font-weight: 680;
 }
 
 .agent-workbench .chat-search-policy--compact {

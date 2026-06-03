@@ -10,6 +10,17 @@ from memory_system.storage.models import MemoryNote
 
 
 def _agent_payload(*, durable_actions=None):
+    normalized_durable_actions = []
+    for action in durable_actions or []:
+        normalized = {
+            "memory_origin": "user_confirmed_project_rule",
+            "evidence_source_kind": "user_message",
+            "preference_scope": "environment",
+            "preference_horizon": "durable_active",
+            "proposed_target_layer": "environment_durable",
+        }
+        normalized.update(action)
+        normalized_durable_actions.append(normalized)
     return {
         "session_memory": {
             "session_title": "记忆系统接线",
@@ -21,9 +32,10 @@ def _agent_payload(*, durable_actions=None):
             "key_results": ["Session Memory 由 agent:1 维护"],
             "worklog": ["完成一次记忆维护"],
         },
+        "session_emphasis_actions": [],
         "durable_memory": {
-            "actions": durable_actions or [],
-            "skipped_reason": "" if durable_actions else "no_cross_session_memory",
+            "actions": normalized_durable_actions,
+            "skipped_reason": "" if normalized_durable_actions else "no_cross_session_memory",
             "reasoning_summary": "只保留稳定跨会话信息",
         },
     }
@@ -41,8 +53,113 @@ def test_memory_maintenance_agent_prompt_is_natural_role_instruction() -> None:
 
     assert "你是一名记忆管理员" in prompt
     assert "你不回答用户" in prompt
+    assert "Session Emphasis 只保存用户在本会话中显式强调" in prompt
     assert "runtime 节点" not in prompt
     assert "根据任务图执行" not in prompt
+
+
+def test_background_memory_maintenance_skips_without_opportunity_signal(tmp_path) -> None:
+    facade = MemoryFacade(tmp_path)
+    calls = []
+
+    async def invoker(messages):
+        calls.append(messages)
+        return SimpleNamespace(content=json.dumps(_agent_payload(), ensure_ascii=False))
+
+    facade.set_model_invoker(invoker)
+
+    receipt = facade.enqueue_memory_maintenance_after_commit(
+        session_id="session-maintenance-gate",
+        messages=[
+            {"role": "user", "content": "你好"},
+            {"role": "assistant", "content": "你好。"},
+        ],
+        turn_id="turn:maintenance-gate:1",
+    )
+
+    assert receipt.status == "skipped"
+    assert receipt.attempted is False
+    assert receipt.durable_skip_reason == "below_maintenance_threshold"
+    assert calls == []
+
+
+def test_session_emphasis_action_writes_pinned_user_steer(tmp_path) -> None:
+    facade = MemoryFacade(tmp_path)
+    facade.set_model_invoker(
+        _fake_invoker(
+            {
+                **_agent_payload(),
+                "session_emphasis_actions": [
+                    {
+                        "action": "upsert",
+                        "emphasis_id": "phase-plan-first",
+                        "content": "本会话内涉及 runtime/memory 大改时，先按计划执行，不要临时扩范围。",
+                        "scope": "session_task",
+                        "priority": "high",
+                        "source_message_ref": "message:0",
+                    }
+                ],
+            }
+        )
+    )
+
+    receipt = facade.run_memory_maintenance_after_commit(
+        session_id="session-emphasis-write",
+        messages=[
+            {"role": "user", "content": "强调一下：这轮先按计划执行，不要临时扩范围。"},
+            {"role": "assistant", "content": "收到。"},
+        ],
+    )
+
+    assert receipt.status == "succeeded"
+    assert receipt.session_emphasis_succeeded is True
+    assert receipt.session_emphasis_write_count == 1
+    pinned = facade.session_emphasis.render_pinned_facts("session-emphasis-write")
+    assert pinned[0]["kind"] == "session_emphasis"
+    assert "不要临时扩范围" in pinned[0]["content"]
+
+
+def test_short_horizon_preference_is_routed_out_of_durable_memory(tmp_path) -> None:
+    facade = MemoryFacade(tmp_path)
+    facade.set_model_invoker(
+        _fake_invoker(
+            _agent_payload(
+                durable_actions=[
+                    {
+                        "action": "create",
+                        "note_id": "turn-only-short-answer",
+                        "memory_type": "user",
+                        "memory_class": "preference",
+                        "title": "本轮简短回答",
+                        "canonical_statement": "用户本轮希望回答简短。",
+                        "summary": "本轮简短回答。",
+                        "confidence": "high",
+                        "reason": "用户只说本轮。",
+                        "evidence_excerpt": "这轮回答简短一点。",
+                        "source_message_refs": ["message:0"],
+                        "memory_origin": "explicit_user_preference",
+                        "preference_scope": "session_task",
+                        "preference_horizon": "session",
+                        "proposed_target_layer": "session",
+                    }
+                ]
+            )
+        )
+    )
+
+    receipt = facade.run_memory_maintenance_after_commit(
+        session_id="session-short-horizon",
+        messages=[
+            {"role": "user", "content": "这轮回答简短一点。"},
+            {"role": "assistant", "content": "好的。"},
+        ],
+    )
+
+    assert receipt.status == "succeeded"
+    assert receipt.durable_write_count == 0
+    assert receipt.durable_skipped is True
+    assert receipt.durable_skip_reason == "durable_actions_routed_to_non_durable_layer"
+    assert facade.memory_manager.list_notes() == []
 
 
 def test_memory_maintenance_coordinator_writes_session_and_durable_via_agent(tmp_path) -> None:

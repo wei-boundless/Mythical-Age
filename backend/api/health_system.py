@@ -121,7 +121,7 @@ async def health_system_overview() -> dict[str, Any]:
 
 
 @router.get("/health-system/tasks")
-async def health_system_tasks(limit: int = 100) -> dict[str, Any]:
+async def health_system_tasks(limit: int = 40) -> dict[str, Any]:
     runtime = require_runtime()
     return HealthGovernanceBuilder(runtime).build_tasks(limit=limit)
 
@@ -166,7 +166,7 @@ async def health_system_task_record_maintenance(
 
 
 @router.get("/health-system/risks")
-async def health_system_risks(limit: int = 100) -> dict[str, Any]:
+async def health_system_risks(limit: int = 40) -> dict[str, Any]:
     runtime = require_runtime()
     return HealthGovernanceBuilder(runtime).build_risks(limit=limit)
 
@@ -190,13 +190,13 @@ async def health_system_artifact_governance() -> dict[str, Any]:
 
 
 @router.get("/health-system/token-usage")
-async def health_system_token_usage(limit: int = 100) -> dict[str, Any]:
+async def health_system_token_usage(limit: int = 40) -> dict[str, Any]:
     runtime = require_runtime()
     return HealthGovernanceBuilder(runtime).build_token_usage(limit=limit)
 
 
 @router.get("/health-system/efficiency")
-async def health_system_efficiency(limit: int = 100) -> dict[str, Any]:
+async def health_system_efficiency(limit: int = 40) -> dict[str, Any]:
     runtime = require_runtime()
     return HealthGovernanceBuilder(runtime).build_efficiency(limit=limit)
 

@@ -529,7 +529,7 @@ class NativeWriteFileTool(_NativeToolBase):
                 content,
                 self._gateway_context(context),
                 operation_id=self.operation_id,
-                approval_fingerprint=context.approval_fingerprint,
+                approval_fingerprint=_gateway_approval_fingerprint(context),
             )
         except Exception as exc:
             return self._envelope(tool_args=args, status="error", text=f"Write failed: {exc}", execution_receipt=context.execution_receipt)
@@ -638,7 +638,7 @@ class NativeEditFileTool(_NativeToolBase):
                 str(args.get("new_text") or ""),
                 self._gateway_context(context),
                 operation_id=self.operation_id,
-                approval_fingerprint=context.approval_fingerprint,
+                approval_fingerprint=_gateway_approval_fingerprint(context),
             )
         except Exception as exc:
             return self._envelope(tool_args=args, status="error", text=f"Edit failed: {exc}", execution_receipt=context.execution_receipt)
@@ -1226,7 +1226,7 @@ def _check_gateway_file_permission(
         gateway.check_access(
             repository_id,
             action,
-            approval_fingerprint=context.approval_fingerprint,
+            approval_fingerprint=_gateway_approval_fingerprint(context),
         )
     except FileGatewayApprovalRequired as exc:
         return ToolPermissionResult(
@@ -1261,6 +1261,23 @@ def _check_gateway_file_permission(
         decision="allow",
         diagnostics={"repository_id": repository_id, "action": action, "path": path},
     )
+
+
+def _gateway_approval_fingerprint(context: ToolUseContext) -> str:
+    explicit = str(context.approval_fingerprint or "").strip()
+    if explicit:
+        return explicit
+    mode = str(context.permission_mode or "").strip().lower()
+    if mode in {"full_access", "bypass"}:
+        scope = (
+            str(context.task_run_id or "").strip()
+            or str(context.turn_id or "").strip()
+            or str(context.session_id or "").strip()
+            or str(context.tool_call_id or "").strip()
+            or "runtime"
+        )
+        return f"runtime-permission:{mode}:{scope}"
+    return ""
 
 
 def _real_workspace_root(context: ToolUseContext) -> Path:

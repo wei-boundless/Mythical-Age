@@ -215,6 +215,20 @@ def test_stale_waiting_executor_moves_to_diagnostics_not_running():
     assert item["stale"] is True
 
 
+def test_fresh_waiting_executor_uses_waiting_bucket_not_running():
+    projector = RuntimeMonitorProjector(EventLogStub(), freshness_seconds=60.0)
+    run = task_run(status="waiting_executor", updated_at=120.0)
+
+    item = projector.project_task_run(run, now=140.0)
+    monitor = projector.build_global_monitor([run], now=140.0, limit=20)
+
+    assert item["bucket"] == "waiting"
+    assert item["lifecycle"] == "waiting"
+    assert item["resource_class"] == "static"
+    assert monitor["summary"]["running"] == 0
+    assert monitor["summary"]["waiting"] == 1
+
+
 def test_user_paused_waiting_executor_is_actionable_not_stale():
     projector = RuntimeMonitorProjector(EventLogStub(), freshness_seconds=60.0)
     run = task_run(

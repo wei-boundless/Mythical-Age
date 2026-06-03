@@ -303,6 +303,15 @@ class HarnessRuntimeFacade:
                 )
                 session_context["turn_id"] = turn_id
                 session_context["turn_input_facts"] = turn_input_facts.to_dict()
+                session_emphasis = self._session_emphasis_for_turn(
+                    session_id=request.session_id,
+                    user_message=request.message,
+                    task_selection=dict(request.task_selection or {}),
+                    active_work_context=active_work_context,
+                    recent_work_outcome=recent_work_outcome,
+                )
+                if session_emphasis:
+                    session_context["session_emphasis"] = session_emphasis
                 yield {
                     "type": "runtime_branch_decided",
                     "runtime_branch": runtime_branch,
@@ -1586,6 +1595,27 @@ class HarnessRuntimeFacade:
             corrections=[],
         )
 
+    def _session_emphasis_for_turn(
+        self,
+        *,
+        session_id: str,
+        user_message: str,
+        task_selection: dict[str, Any],
+        active_work_context: dict[str, Any] | None,
+        recent_work_outcome: dict[str, Any] | None,
+    ) -> list[dict[str, Any]]:
+        store = getattr(self.memory_facade, "session_emphasis", None)
+        if store is None:
+            return []
+        if not _should_inject_session_emphasis(
+            user_message=user_message,
+            task_selection=task_selection,
+            active_work_context=active_work_context,
+            recent_work_outcome=recent_work_outcome,
+        ):
+            return []
+        return list(store.render_pinned_facts(session_id, limit=8))
+
     def _memory_receipt_commit_payload(self, receipt: Any) -> dict[str, Any]:
         payload = receipt.to_dict() if hasattr(receipt, "to_dict") else dict(receipt or {})
         session_succeeded = bool(payload.get("session_memory_succeeded") is True)
@@ -1665,6 +1695,42 @@ def _permission_mode_provider(*, permission_service: Any | None, settings_servic
 
 def _request_permission_mode(request: HarnessRuntimeRequest) -> str:
     return normalize_permission_mode(str(getattr(request, "permission_mode", "") or "full_access"))
+
+
+def _should_inject_session_emphasis(
+    *,
+    user_message: str,
+    task_selection: dict[str, Any],
+    active_work_context: dict[str, Any] | None,
+    recent_work_outcome: dict[str, Any] | None,
+) -> bool:
+    if task_selection or active_work_context or recent_work_outcome:
+        return True
+    content = str(user_message or "").strip().lower()
+    if not content:
+        return False
+    task_terms = (
+        "继续",
+        "执行",
+        "开始",
+        "修改",
+        "修复",
+        "重构",
+        "实现",
+        "落地",
+        "测试",
+        "检查",
+        "审查",
+        "计划",
+        "继续做",
+        "continue",
+        "implement",
+        "fix",
+        "refactor",
+        "test",
+        "review",
+    )
+    return any(term in content for term in task_terms)
 
 
 def _graph_node_contract_from_work_order(work_order: Any) -> TaskRunContract:

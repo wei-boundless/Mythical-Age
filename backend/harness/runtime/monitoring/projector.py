@@ -239,7 +239,7 @@ class RuntimeMonitorProjector:
             for item in sorted(task_runs, key=lambda item: float(getattr(item, "updated_at", 0.0) or 0.0), reverse=True)
             if not self._is_internal_child_run(item)
         ]
-        active_items = self._current_items_by_session([item for item in items if item.get("bucket") in {"running", "diagnostics"}])
+        active_items = self._current_items_by_session([item for item in items if item.get("bucket") in {"running", "waiting", "diagnostics"}])
         visible = active_items[: max(1, min(int(limit or 20), 100))]
         latest = items[0] if items else None
         active = visible[0] if visible else None
@@ -438,7 +438,7 @@ class RuntimeMonitorProjector:
 
     def _is_global_live_item(self, item: dict[str, Any]) -> bool:
         bucket = str(item.get("bucket") or "").strip()
-        if bucket in {"running", "diagnostics"}:
+        if bucket in {"running", "waiting", "diagnostics"}:
             return True
         return bool(item.get("action_required") is True or item.get("stale") is True)
 
@@ -744,10 +744,12 @@ def _session_current_item_key(item: dict[str, Any]) -> tuple[int, int, int, floa
     bucket_rank = 0
     if bucket == "running":
         bucket_rank = 4
-    elif item.get("action_required") is True:
+    elif bucket == "waiting":
         bucket_rank = 3
-    elif bucket == "diagnostics":
+    elif item.get("action_required") is True:
         bucket_rank = 2
+    elif bucket == "diagnostics":
+        bucket_rank = 1
     status_rank = {
         "running": 6,
         "created": 5,

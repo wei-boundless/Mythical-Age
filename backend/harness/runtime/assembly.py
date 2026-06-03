@@ -178,7 +178,8 @@ def assemble_runtime(
         tool_instances=list(tool_instances or []),
         definitions_by_name=definitions_by_name,
         allowed_operations=allowed_operations,
-        include_hidden=bool(profile.tool_policy.get("include_hidden_tools") is True),
+        include_hidden=bool(profile.tool_policy.get("include_hidden_tools") is True)
+        or normalized_permission_mode in {"full_access", "bypass"},
     )
     visible_tool_names, visibility_filtered = _filter_tool_names_by_profile(
         profile=profile,

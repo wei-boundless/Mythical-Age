@@ -138,7 +138,14 @@ def _owner_status(
     project_marker = str(project_root).lower()
     if project_marker in command_line and all(marker.lower() in command_line for marker in expected_command_markers):
         return "expected_project_process"
+    if all(marker.lower() in command_line for marker in expected_command_markers) and _fixed_port_command_marker(command_line):
+        return "expected_project_process"
     return "wrong_process_on_fixed_port"
+
+
+def _fixed_port_command_marker(command_line: str) -> bool:
+    normalized = " ".join(str(command_line or "").lower().split())
+    return "--port 8003" in normalized or "-p 3000" in normalized
 
 
 def _read_pid_file(path: Path) -> int:

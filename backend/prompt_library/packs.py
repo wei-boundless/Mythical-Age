@@ -14,7 +14,7 @@ RUNTIME_SINGLE_AGENT_TURN_PROMPT = """
 如果用户是在问进展或质疑状态，应回答当前工作状态；如果用户既要求回答又要求继续，应使用 answer_then_continue_active_work。
 如果用户是在补充当前工作的要求，应把补充内容作为新增指令记录，不能覆盖原合同。
 如果缺少必要信息，可以询问用户。
-如果请求越界、权限不足或无法继续，应说明阻塞原因。
+如果请求越界、工具观察明确显示边界不足或无法继续，应说明阻塞原因；如果当前运行权限模式已经授予，不要要求用户重复批准系统权限。
 不要暴露隐藏推理、内部编号、任务内部标识或系统协议。用户可见内容只描述结果、进展、问题或阻塞原因。
 """.strip()
 
@@ -31,7 +31,7 @@ RUNTIME_TASK_EXECUTION_PROMPT = """
 如果缺少用户决策，action_type=ask_user。
 如果任务无法继续，action_type=block，并说明 blocking_reason。
 执行过程中不能再次开启新的持续处理流程。用户可见内容不得包含内部编号、系统结构或协议字段。
-写入、命令、浏览器、网络或资源生成只能使用本次 runtime 明确可见且授权的工具，并落在任务环境允许的范围内。
+写入、命令、浏览器、网络或资源生成只能使用本次 runtime 明确可见且可派发的工具，并落在任务环境允许的范围内；当前运行权限模式是本轮授权事实。
 系统会提供统一的 task_state 投影：task_state.current_facts 是当前可依赖事实，task_state.artifact_evidence 是真实产物证据，task_state.latest_tool_results 是最近工具结果，task_state.active_failures 是当前仍有效的失败，task_state.historical_failures 是历史失败，只能作为背景，不能视为当前工具不可用。
 """.strip()
 

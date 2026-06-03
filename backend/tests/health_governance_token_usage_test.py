@@ -184,6 +184,100 @@ def test_health_token_usage_prefers_prompt_accounting_provider_usage(tmp_path) -
     assert token_usage["summary"]["trace_estimate_total_tokens"] == 0
 
 
+def test_health_task_list_hides_graph_node_child_task_runs() -> None:
+    now = time.time()
+    root = TaskRun(
+        task_run_id="taskrun:graph-root",
+        session_id="session:graph",
+        task_id="task.writing.modular_novel.master",
+        status="waiting_executor",
+        created_at=now - 100,
+        updated_at=now - 10,
+        diagnostics={"graph_run_id": "grun:graph-root", "graph_id": "graph.writing.modular_novel.master"},
+    )
+    child = TaskRun(
+        task_run_id="gtask:child-node",
+        session_id="session:graph",
+        task_id="task.writing.modular_novel.node.project_brief@graph_module.design_init",
+        status="completed",
+        created_at=now - 90,
+        updated_at=now - 5,
+        diagnostics={
+            "origin_kind": "graph_node_assigned",
+            "graph_run_id": "grun:graph-root",
+            "graph_node_id": "graph_module.design_init::project_brief",
+            "graph_work_order_id": "gwork:project_brief",
+        },
+    )
+    runtime_host = SimpleNamespace(
+        state_index=StateIndexStub([root, child]),
+        event_log=EventLogStub({}),
+        runtime_objects=RuntimeObjectsStub(),
+        prompt_accounting_ledger=None,
+        list_global_live_monitor=lambda limit: {"summary": {}, "task_runs": []},
+    )
+    runtime = SimpleNamespace(harness_runtime=SimpleNamespace(single_agent_runtime_host=runtime_host))
+
+    result = HealthGovernanceBuilder(runtime).build_tasks(limit=10)
+
+    assert [item["task_run_id"] for item in result["tasks"]] == ["taskrun:graph-root"]
+    assert result["summary"]["hidden_child_task_count"] == 1
+
+
+def test_health_task_list_excludes_historical_unscoped_runs_when_operational_scope_exists() -> None:
+    now = time.time()
+    active_graph = TaskRun(
+        task_run_id="taskrun:graph-active",
+        session_id="session:graph",
+        task_id="task.writing.modular_novel.master",
+        status="waiting_executor",
+        created_at=now - 100,
+        updated_at=now - 10,
+        diagnostics={
+            "graph_run_id": "grun:graph-active",
+            "workspace_view": "task_environment",
+            "task_environment_id": "env.creation.writing",
+            "project_id": "project.creation.writing.honghuang",
+        },
+    )
+    failed_same_scope = TaskRun(
+        task_run_id="taskrun:graph-failed",
+        session_id="session:graph-old",
+        task_id="task.writing.modular_novel.master",
+        status="failed",
+        terminal_reason="node_failed",
+        created_at=now - 200,
+        updated_at=now - 150,
+        diagnostics={
+            "workspace_view": "task_environment",
+            "task_environment_id": "env.creation.writing",
+            "project_id": "project.creation.writing.honghuang",
+        },
+    )
+    old_prompt_cache = TaskRun(
+        task_run_id="taskrun:old-prompt-cache",
+        session_id="session:old",
+        task_id="prompt-cache-live-five-floor-dungeon:old",
+        status="aborted",
+        terminal_reason="user_aborted",
+        created_at=now - 300,
+        updated_at=now - 250,
+    )
+    runtime_host = SimpleNamespace(
+        state_index=StateIndexStub([active_graph, failed_same_scope, old_prompt_cache]),
+        event_log=EventLogStub({}),
+        runtime_objects=RuntimeObjectsStub(),
+        prompt_accounting_ledger=None,
+        list_global_live_monitor=lambda limit: {"summary": {}, "task_runs": []},
+    )
+    runtime = SimpleNamespace(harness_runtime=SimpleNamespace(single_agent_runtime_host=runtime_host))
+
+    result = HealthGovernanceBuilder(runtime).build_tasks(limit=10)
+
+    assert [item["task_run_id"] for item in result["tasks"]] == ["taskrun:graph-active", "taskrun:graph-failed"]
+    assert result["summary"]["hidden_history_task_count"] == 1
+
+
 def test_health_task_record_maintenance_dry_run_does_not_delete_records() -> None:
     now = time.time()
     old_completed = TaskRun(

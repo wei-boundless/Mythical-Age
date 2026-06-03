@@ -24,6 +24,7 @@ class HistoryProjector:
             session_context,
             compressed_summary_chars=int(policy.get("compressed_summary_chars") or 4000),
         )
+        pinned_facts = _session_emphasis_projection(session_context)
         normalized = [
             _normalize_message(item, content_limit=message_char_limit)
             for item in list(history or [])
@@ -35,7 +36,7 @@ class HistoryProjector:
         payload = {
             "session_context": session_payload,
             "context_summary": _context_summary(older_count),
-            "pinned_facts": [],
+            "pinned_facts": pinned_facts,
             "recent_turns": recent,
             "active_tool_trajectory": _tool_trajectory(
                 normalized[-max(recent_limit * 2, 12):],
@@ -82,6 +83,35 @@ def _session_context_projection(session_context: dict[str, Any] | None, *, compr
             "authority": "harness.runtime.dynamic_context.session_context_projection" if compressed or recent_work_outcome else "",
         }
     )
+
+
+def _session_emphasis_projection(session_context: dict[str, Any] | None) -> list[dict[str, Any]]:
+    payload = dict(session_context or {})
+    items = payload.get("session_emphasis")
+    if not isinstance(items, list):
+        return []
+    projected: list[dict[str, Any]] = []
+    for item in items[:8]:
+        if not isinstance(item, dict):
+            continue
+        content = compact_text(item.get("content") or "", limit=600)
+        if not content:
+            continue
+        projected.append(
+            drop_empty(
+                {
+                    "fact_id": compact_text(item.get("fact_id") or item.get("emphasis_id") or "", limit=120),
+                    "kind": "session_emphasis",
+                    "content": content,
+                    "scope": compact_text(item.get("scope") or "", limit=80),
+                    "priority": compact_text(item.get("priority") or "", limit=40),
+                    "source_message_ref": compact_text(item.get("source_message_ref") or "", limit=120),
+                    "task_environment_id": compact_text(item.get("task_environment_id") or "", limit=120),
+                    "authority": "memory_system.session_emphasis",
+                }
+            )
+        )
+    return projected
 
 
 def _recent_work_outcome_projection(value: Any) -> dict[str, Any]:

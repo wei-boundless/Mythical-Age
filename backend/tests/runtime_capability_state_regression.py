@@ -241,6 +241,62 @@ def test_full_access_runtime_mode_does_not_emit_approval_required_operations() -
     assert decisions["op.edit_file"].diagnostics["permission_mode"] == "full_access"
 
 
+def test_tool_request_admission_full_access_satisfies_adopted_approval_policy() -> None:
+    profile = AgentRuntimeProfile(
+        agent_profile_id="main_interactive_agent",
+        agent_id="agent:0",
+        allowed_operations=("op.model_response", "op.edit_file"),
+        blocked_operations=(),
+        approval_policy="manual_approval_required",
+    )
+    task_operation = {
+        "task_contract": {"task_id": "task:test:tool-full-access-approval"},
+        "operation_requirement": {
+            "required_operations": ["op.model_response", "op.edit_file"],
+            "optional_operations": [],
+            "denied_operations": [],
+            "metadata": {"approval_policy": "manual_approval_required"},
+        },
+    }
+    registry = build_default_operation_registry()
+    _, adopted_policy = build_model_response_runtime_admission(
+        task_operation,
+        operation_registry=registry,
+        agent_runtime_profile=profile,
+    )
+    action_request = RuntimeActionRequest(
+        request_id="rtact:test:edit-full-access",
+        task_run_id="taskrun:test:edit-full-access",
+        request_type="tool_call",
+        operation_id="op.edit_file",
+        payload={
+            "tool_name": "edit_file",
+            "tool_call": {
+                "id": "call-edit-full-access",
+                "name": "edit_file",
+                "args": {"path": "backend/permissions/tool_admission.py", "old_text": "x", "new_text": "y"},
+            },
+        },
+    )
+
+    directive, tool_policy = build_tool_request_runtime_admission(
+        action_request=action_request,
+        task_id="task:test:tool-full-access-approval",
+        task_operation=task_operation,
+        operation_id="op.edit_file",
+        operation_descriptor=registry.get_operation("op.edit_file"),
+        adopted_resource_policy=adopted_policy,
+        permission_mode="full_access",
+    )
+
+    assert "op.edit_file" in adopted_policy.requires_approval_operations
+    assert "op.edit_file" in tool_policy.allowed_operations
+    assert "op.edit_file" not in tool_policy.requires_approval_operations
+    assert tool_policy.diagnostics["tool_requires_approval"] is False
+    assert tool_policy.diagnostics["permission_mode"] == "full_access"
+    assert directive.diagnostics["permission_mode"] == "full_access"
+
+
 class _runtime_assembly_for_tools:
     def __init__(self, turn_id: str, *, tool_names: tuple[str, ...], definitions_by_name: dict[str, object]) -> None:
         self.turn_id = turn_id

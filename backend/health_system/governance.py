@@ -32,7 +32,7 @@ class HealthGovernanceBuilder:
         efficiency = self._efficiency(tasks)
         system_risks = self._system_risks(monitor=monitor)
         monitor_governance = self._monitor_governance(monitor=monitor)
-        artifact_governance = self.build_artifact_governance()
+        artifact_governance = self._artifact_governance_summary()
         recommendations = self._recommendations(risks=risks, token_usage=token_usage, efficiency=efficiency)
         summary = {
             "task_count": len(tasks),
@@ -62,12 +62,15 @@ class HealthGovernanceBuilder:
         }
 
     def build_tasks(self, *, limit: int = 40) -> dict[str, Any]:
+        all_task_runs = list(self.state_index.list_task_runs())
+        top_level_task_runs = [item for item in all_task_runs if self._is_top_level_task_run(item)]
+        visible_task_runs = self._operational_task_runs(top_level_task_runs)
         task_runs = sorted(
-            self.state_index.list_task_runs(),
+            visible_task_runs,
             key=lambda item: float(item.updated_at or item.created_at or 0.0),
             reverse=True,
         )[: max(1, min(int(limit or 40), 80))]
-        monitor_index = self._monitor_index(limit=max(40, len(task_runs)))
+        monitor_index: dict[str, dict[str, Any]] = {}
         token_summary_index = self._token_summary_index(task_runs)
         tasks = [
             self._task_record(
@@ -76,6 +79,7 @@ class HealthGovernanceBuilder:
                 token_summary_index=token_summary_index,
                 event_limit=40,
                 include_trace_token_estimate=False,
+                include_runtime_relationships=False,
             )
             for task_run in task_runs
         ]
@@ -84,6 +88,8 @@ class HealthGovernanceBuilder:
             "tasks": tasks,
             "summary": {
                 "task_count": len(tasks),
+                "hidden_child_task_count": max(0, len(all_task_runs) - len(top_level_task_runs)),
+                "hidden_history_task_count": max(0, len(top_level_task_runs) - len(visible_task_runs)),
                 "running_task_count": sum(1 for item in tasks if self._task_bucket(item) == "running"),
                 "failed_task_count": sum(1 for item in tasks if self._task_bucket(item) == "failed"),
             },
@@ -101,6 +107,7 @@ class HealthGovernanceBuilder:
             token_summary_index=self._token_summary_index([task_run]),
             event_limit=160,
             include_trace_token_estimate=True,
+            include_runtime_relationships=True,
         )
         monitor = self.runtime_host.get_task_run_live_monitor(task_run_id) or {}
         graph_monitor: dict[str, Any] = {}
@@ -119,14 +126,16 @@ class HealthGovernanceBuilder:
         }
 
     def build_risks(self, *, limit: int = 100) -> dict[str, Any]:
-        overview = self.build_overview(limit=limit)
+        tasks = self.build_tasks(limit=limit)["tasks"]
+        monitor = self._global_monitor(limit=min(max(20, int(limit or 40)), 80))
+        risks = self._risk_events(tasks=tasks, monitor=monitor)
         return {
             "authority": "health_system.governance.risks",
-            "risks": overview["risks"],
+            "risks": risks,
             "summary": {
-                "risk_event_count": len(overview["risks"]),
-                "critical_risk_count": overview["summary"]["critical_risk_count"],
-                "high_risk_count": overview["summary"]["high_risk_count"],
+                "risk_event_count": len(risks),
+                "critical_risk_count": sum(1 for item in risks if item["severity"] == "critical"),
+                "high_risk_count": sum(1 for item in risks if item["severity"] == "high"),
             },
             "updated_at": self.now,
         }
@@ -159,6 +168,18 @@ class HealthGovernanceBuilder:
                 "error": "runtime.base_dir is unavailable",
             }
         return HealthArtifactGovernanceViewBuilder(base_dir).build_view()
+
+    def _artifact_governance_summary(self) -> dict[str, Any]:
+        return {
+            "authority": "health_system.artifact_governance",
+            "mode": "summary_deferred",
+            "summary": {"size_mb": 0.0},
+            "large_ports": [],
+            "diagnostic_ports": [],
+            "runtime_fact_ports": [],
+            "detail_endpoint": "/api/health-system/artifact-governance",
+            "updated_at": self.now,
+        }
 
     def build_token_usage(self, *, limit: int = 100) -> dict[str, Any]:
         return self._token_usage(self.build_tasks(limit=limit)["tasks"])
@@ -220,15 +241,22 @@ class HealthGovernanceBuilder:
         token_summary_index: dict[str, dict[str, Any]] | None = None,
         event_limit: int = 40,
         include_trace_token_estimate: bool = False,
+        include_runtime_relationships: bool = False,
     ) -> dict[str, Any]:
         task_run_id = str(task_run.task_run_id or "")
         events = self._recent_events(task_run_id, limit=max(1, min(int(event_limit or 40), 160)))
         event_dicts = [item.to_dict() for item in events]
         event_count = self._event_count(task_run_id, fallback=len(events))
-        agent_runs = self.state_index.list_task_agent_runs(task_run_id)
-        worker_requests = self.state_index.list_task_worker_spawn_requests(task_run_id)
-        worker_results = self.state_index.list_task_worker_spawn_results(task_run_id)
-        supervision_records = self.state_index.list_task_supervision_records(task_run_id)
+        if include_runtime_relationships:
+            agent_runs = self.state_index.list_task_agent_runs(task_run_id)
+            worker_requests = self.state_index.list_task_worker_spawn_requests(task_run_id)
+            worker_results = self.state_index.list_task_worker_spawn_results(task_run_id)
+            supervision_records = self.state_index.list_task_supervision_records(task_run_id)
+        else:
+            agent_runs = []
+            worker_requests = []
+            worker_results = []
+            supervision_records = []
         status = str(task_run.status or "unknown")
         monitor = self._task_monitor(task_run, monitor_index=monitor_index)
         duration = self._duration(task_run.created_at, task_run.updated_at, monitor=monitor)
@@ -299,6 +327,59 @@ class HealthGovernanceBuilder:
             },
         }
 
+    def _is_top_level_task_run(self, task_run: Any) -> bool:
+        checker = getattr(self.monitor_projector, "is_top_level_task_run", None)
+        if callable(checker):
+            try:
+                return bool(checker(task_run))
+            except Exception:
+                pass
+        diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
+        origin = diagnostics.get("origin") if isinstance(diagnostics.get("origin"), dict) else {}
+        origin_kind = str(diagnostics.get("origin_kind") or dict(origin or {}).get("origin_kind") or "").strip()
+        if origin_kind == "graph_node_assigned":
+            return False
+        return not bool(
+            diagnostics.get("graph_node_id")
+            or diagnostics.get("graph_work_order_id")
+            or diagnostics.get("coordination_stage_id")
+            or diagnostics.get("stage_request_id")
+            or diagnostics.get("stage_idempotency_key")
+        )
+
+    def _operational_task_runs(self, task_runs: list[Any]) -> list[Any]:
+        active_scope_keys = {
+            self._task_scope_key(item)
+            for item in task_runs
+            if self._is_active_or_waiting_task(item) and self._task_scope_key(item)
+        }
+        visible: list[Any] = []
+        for task_run in task_runs:
+            status = str(getattr(task_run, "status", "") or "")
+            if self._is_active_or_waiting_task(task_run):
+                visible.append(task_run)
+                continue
+            if status in {"failed", "aborted", "cancelled", "error"} and self._task_scope_key(task_run) in active_scope_keys:
+                visible.append(task_run)
+        if visible:
+            return visible
+        return task_runs
+
+    @staticmethod
+    def _is_active_or_waiting_task(task_run: Any) -> bool:
+        return str(getattr(task_run, "status", "") or "") in {"created", "running", "waiting_executor", "waiting_approval", "blocked"}
+
+    @staticmethod
+    def _task_scope_key(task_run: Any) -> str:
+        diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
+        scope = diagnostics.get("session_scope") if isinstance(diagnostics.get("session_scope"), dict) else {}
+        workspace_view = str(diagnostics.get("workspace_view") or dict(scope or {}).get("workspace_view") or "").strip()
+        task_environment_id = str(diagnostics.get("task_environment_id") or dict(scope or {}).get("task_environment_id") or "").strip()
+        project_id = str(diagnostics.get("project_id") or dict(scope or {}).get("project_id") or "").strip()
+        if not task_environment_id and not project_id:
+            return ""
+        return "|".join([workspace_view or "task_environment", task_environment_id, project_id])
+
     def _recent_events(self, task_run_id: str, *, limit: int = 240) -> list[Any]:
         reader = getattr(self.runtime_host.event_log, "list_recent_events", None)
         if callable(reader):
@@ -331,6 +412,7 @@ class HealthGovernanceBuilder:
             indexed = monitor_index.get(task_run_id)
             if indexed is not None:
                 return dict(indexed)
+            return _basic_task_monitor(task_run)
         projector = self.monitor_projector
         project = getattr(projector, "project_task_run", None)
         if callable(project):
@@ -944,5 +1026,37 @@ class HealthGovernanceBuilder:
         if scope == "efficiency":
             return "检查工具等待、循环次数、人工确认和重复执行。"
         return "继续监控并在风险升级时处理。"
+
+
+def _basic_task_monitor(task_run: Any) -> dict[str, Any]:
+    status = str(getattr(task_run, "status", "") or "unknown")
+    terminal_reason = str(getattr(task_run, "terminal_reason", "") or "")
+    if status in {"running"}:
+        bucket = "running"
+        lifecycle = "active"
+    elif status in {"waiting_executor", "waiting_approval", "blocked"}:
+        bucket = "waiting"
+        lifecycle = "waiting"
+    elif status in {"failed", "aborted"}:
+        bucket = "failed"
+        lifecycle = "terminal"
+    elif status == "completed":
+        bucket = "completed"
+        lifecycle = "terminal"
+    else:
+        bucket = "diagnostics"
+        lifecycle = "unknown"
+    return {
+        "authority": "health_system.basic_task_monitor",
+        "task_run_id": str(getattr(task_run, "task_run_id", "") or ""),
+        "status": status,
+        "terminal_reason": terminal_reason,
+        "bucket": bucket,
+        "lifecycle": lifecycle,
+        "resource_class": "static" if bucket in {"completed", "failed"} else "dynamic",
+        "action_required": status in {"waiting_executor", "waiting_approval", "blocked"},
+        "stale": False,
+        "updated_at": float(getattr(task_run, "updated_at", 0.0) or 0.0),
+    }
 
 
