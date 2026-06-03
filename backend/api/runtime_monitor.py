@@ -32,6 +32,11 @@ async def list_runtime_monitor_live(limit: int = 20) -> dict[str, Any]:
     return _service().list_global_live_monitor(limit=limit)
 
 
+@router.get("/orchestration/runtime-monitor/console")
+async def list_runtime_monitor_console(limit: int = 30) -> dict[str, Any]:
+    return _service().list_global_console_monitor(limit=limit)
+
+
 @router.get("/orchestration/runtime-monitor/events")
 async def stream_runtime_monitor_events(request: Request, limit: int = 40):
     runtime = require_runtime()
@@ -46,6 +51,7 @@ async def stream_runtime_monitor_events(request: Request, limit: int = 40):
                 "runtime_monitor_snapshot",
                 {
                     "monitor": service.list_global_live_monitor(limit=requested_limit),
+                    "console": service.list_global_console_monitor(limit=requested_limit),
                     "source": "initial",
                 },
             )
@@ -66,6 +72,7 @@ async def stream_runtime_monitor_events(request: Request, limit: int = 40):
                     {
                         "runtime_event": runtime_event.to_dict(),
                         "monitor": service.list_global_live_monitor(limit=requested_limit),
+                        "console": service.list_global_console_monitor(limit=requested_limit),
                         "source": "runtime_event_log",
                     },
                     event_id=runtime_event.event_id,

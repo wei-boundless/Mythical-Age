@@ -3,6 +3,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from harness.runtime.monitoring import RuntimeMonitorProjector, RuntimeMonitorService
+from harness.runtime.monitoring.signals import build_console_envelope
 
 
 class EventLogStub:
@@ -240,6 +241,98 @@ def test_global_monitor_includes_active_turn_when_task_run_not_started_yet():
     assert monitor["buckets"]["running"][0]["task_run_id"] == "turnrun:session-dev:1"
     assert monitor["buckets"]["running"][0]["execution_runtime_kind"] == "single_agent_turn"
     assert monitor["buckets"]["running"][0]["summary"] == "正在分析请求并准备执行。"
+
+
+def test_console_monitor_projects_active_turn_as_primary_signal():
+    runtime_host = SimpleNamespace(
+        state_index=StateIndexStub(
+            task_runs=[],
+            turn_runs=[turn_run(turn_run_id="turnrun:session-dev:1", session_id="session-dev", turn_id="turn:session-dev:1")],
+        ),
+        event_log=EventLogStub(),
+        backend_dir=Path.cwd(),
+        run_registry=RunRegistryStub([runtime_run(session_id="session-dev")]),
+        active_turn_registry=ActiveTurnRegistryStub(
+            ActiveTurnRecordStub(
+                session_id="session-dev",
+                turn_id="turn:session-dev:1",
+                turn_run_id="turnrun:session-dev:1",
+                bound_task_run_id="",
+                stream_run_id="strun:test",
+                state="model_turn",
+                started_at=100.0,
+                updated_at=126.0,
+            )
+        ),
+    )
+    service = RuntimeMonitorService(runtime_host=runtime_host, freshness_seconds=300.0)
+
+    monitor = service.list_global_console_monitor(limit=20)
+
+    assert monitor["authority"] == "runtime_monitor.console.v2"
+    assert monitor["summary"]["active"] == 1
+    assert monitor["primary"][0]["signal_id"] == "turnrun:session-dev:1"
+    assert monitor["primary"][0]["source_kind"] == "turn_run"
+    assert monitor["primary"][0]["state"] == "active"
+
+
+def test_console_monitor_orders_same_priority_by_last_activity():
+    monitor = build_console_envelope(
+        items=[
+            {
+                "task_run_id": "taskrun:old",
+                "bucket": "waiting",
+                "title": "old waiting task",
+                "updated_at": 120.0,
+                "last_activity_at": 120.0,
+                "started_at": 100.0,
+            },
+            {
+                "task_run_id": "taskrun:new",
+                "bucket": "waiting",
+                "title": "new waiting task",
+                "updated_at": 150.0,
+                "last_activity_at": 150.0,
+                "started_at": 100.0,
+            },
+        ],
+        now=180.0,
+        limit=10,
+    )
+
+    assert [item["signal_id"] for item in monitor["signals"]] == ["taskrun:new", "taskrun:old"]
+
+
+def test_console_monitor_keeps_bound_active_turn_when_task_run_is_not_visible():
+    runtime_host = SimpleNamespace(
+        state_index=StateIndexStub(
+            task_runs=[],
+            turn_runs=[turn_run(turn_run_id="turnrun:session-dev:1", session_id="session-dev", turn_id="turn:session-dev:1")],
+        ),
+        event_log=EventLogStub(),
+        backend_dir=Path.cwd(),
+        run_registry=RunRegistryStub([runtime_run(session_id="session-dev")]),
+        active_turn_registry=ActiveTurnRegistryStub(
+            ActiveTurnRecordStub(
+                session_id="session-dev",
+                turn_id="turn:session-dev:1",
+                turn_run_id="turnrun:session-dev:1",
+                bound_task_run_id="taskrun:turn:session-dev:1:bound",
+                stream_run_id="strun:test",
+                state="tool_execution",
+                started_at=100.0,
+                updated_at=126.0,
+            )
+        ),
+    )
+    service = RuntimeMonitorService(runtime_host=runtime_host, freshness_seconds=300.0)
+
+    monitor = service.list_global_console_monitor(limit=20)
+
+    assert monitor["summary"]["active"] == 1
+    assert monitor["primary"][0]["signal_id"] == "turnrun:session-dev:1"
+    assert monitor["primary"][0]["task_run_id"] == "taskrun:turn:session-dev:1:bound"
+    assert monitor["primary"][0]["navigation_target"]["task_run_id"] == "taskrun:turn:session-dev:1:bound"
 
 
 def test_turn_run_monitor_detail_is_available_for_active_turn_placeholder():

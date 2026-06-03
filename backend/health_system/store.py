@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
 import json
+import msvcrt
+import os
 import tempfile
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, BinaryIO, Iterator
 
 from project_layout import ProjectLayout
 
@@ -89,14 +92,24 @@ class HealthStore:
         }
 
     def upsert_issue(self, issue: HealthIssue) -> None:
-        issues = [item for item in self.load_issues() if item.issue_id != issue.issue_id]
-        issues.append(issue)
-        self._write_jsonl_models(self.issues_path, issues)
+        with self._jsonl_lock(self.issues_path):
+            issues = [
+                _issue_from_payload(item)
+                for item in self._read_jsonl_dicts(self.issues_path)
+                if str(item.get("issue_id") or "") != issue.issue_id
+            ]
+            issues.append(issue)
+            self._write_jsonl_models(self.issues_path, issues)
 
     def upsert_task_request(self, request: HealthTaskRequest) -> None:
-        requests = [item for item in self.load_task_requests() if item.request_id != request.request_id]
-        requests.append(request)
-        self._write_jsonl_models(self.task_requests_path, requests)
+        with self._jsonl_lock(self.task_requests_path):
+            requests = [
+                _task_request_from_payload(item)
+                for item in self._read_jsonl_dicts(self.task_requests_path)
+                if str(item.get("request_id") or "") != request.request_id
+            ]
+            requests.append(request)
+            self._write_jsonl_models(self.task_requests_path, requests)
 
     def upsert_command(self, command: HealthManagementCommand) -> None:
         self._upsert_jsonl(self.commands_path, "command_id", command.command_id, command.to_dict())
@@ -132,9 +145,14 @@ class HealthStore:
         return updated
 
     def upsert_agent_run(self, run: HealthAgentRun) -> None:
-        runs = [item for item in self.load_agent_runs() if item.run_id != run.run_id]
-        runs.append(run)
-        self._write_jsonl_models(self.agent_runs_path, runs)
+        with self._jsonl_lock(self.agent_runs_path):
+            runs = [
+                _agent_run_from_payload(item)
+                for item in self._read_jsonl_dicts(self.agent_runs_path)
+                if str(item.get("run_id") or "") != run.run_id
+            ]
+            runs.append(run)
+            self._write_jsonl_models(self.agent_runs_path, runs)
 
     def append_agent_result(self, payload: dict[str, Any]) -> None:
         self._append_jsonl(self.agent_results_path, payload)
@@ -165,22 +183,59 @@ class HealthStore:
 
     def _append_jsonl(self, path: Path, payload: dict[str, Any]) -> None:
         self.store_dir.mkdir(parents=True, exist_ok=True)
-        with path.open("a", encoding="utf-8", newline="\n") as handle:
-            handle.write(json.dumps(payload, ensure_ascii=False) + "\n")
+        with self._jsonl_lock(path):
+            with path.open("a", encoding="utf-8", newline="\n") as handle:
+                handle.write(json.dumps(payload, ensure_ascii=False) + "\n")
 
     def _upsert_jsonl(self, path: Path, key: str, value: str, payload: dict[str, Any]) -> None:
         self.store_dir.mkdir(parents=True, exist_ok=True)
-        rows = [item for item in self._read_jsonl_dicts(path) if str(item.get(key) or "") != value]
-        rows.append(payload)
-        self._atomic_write_text(path, "\n".join(json.dumps(item, ensure_ascii=False) for item in rows) + ("\n" if rows else ""))
+        with self._jsonl_lock(path):
+            rows = [item for item in self._read_jsonl_dicts(path) if str(item.get(key) or "") != value]
+            rows.append(payload)
+            self._atomic_write_text(path, "\n".join(json.dumps(item, ensure_ascii=False) for item in rows) + ("\n" if rows else ""))
 
     def _atomic_write_text(self, path: Path, content: str) -> None:
         tmp_dir = path.parent
         tmp_dir.mkdir(parents=True, exist_ok=True)
-        with tempfile.NamedTemporaryFile("w", delete=False, encoding="utf-8", dir=tmp_dir, prefix=f".{path.stem}.", suffix=".tmp") as handle:
-            handle.write(content)
-            tmp_name = handle.name
-        Path(tmp_name).replace(path)
+        tmp_path: Path | None = None
+        try:
+            with tempfile.NamedTemporaryFile("w", delete=False, encoding="utf-8", dir=tmp_dir, prefix=f".{path.stem}.", suffix=".tmp") as handle:
+                handle.write(content)
+                tmp_path = Path(handle.name)
+            tmp_path.replace(path)
+            tmp_path = None
+        finally:
+            if tmp_path is not None:
+                try:
+                    tmp_path.unlink(missing_ok=True)
+                except OSError:
+                    pass
+
+    @contextmanager
+    def _jsonl_lock(self, path: Path) -> Iterator[None]:
+        self.store_dir.mkdir(parents=True, exist_ok=True)
+        lock_path = path.with_name(f".{path.name}.lock")
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        with lock_path.open("a+b") as handle:
+            _lock_handle(handle)
+            try:
+                yield
+            finally:
+                _unlock_handle(handle)
+
+
+def _lock_handle(handle: BinaryIO) -> None:
+    handle.seek(0, os.SEEK_END)
+    if handle.tell() == 0:
+        handle.write(b"\0")
+        handle.flush()
+    handle.seek(0)
+    msvcrt.locking(handle.fileno(), msvcrt.LK_LOCK, 1)
+
+
+def _unlock_handle(handle: BinaryIO) -> None:
+    handle.seek(0)
+    msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
 
 
 def _agent_run_from_payload(payload: dict[str, Any]) -> HealthAgentRun:
@@ -240,6 +295,7 @@ def _task_request_from_payload(payload: dict[str, Any]) -> HealthTaskRequest:
         requested_by=str(payload.get("requested_by") or ""),
         created_at=float(payload.get("created_at") or 0.0),
         metadata=dict(payload.get("metadata") or {}),
+        authority=str(payload.get("authority") or "health_system.task_request"),
     )
 
 

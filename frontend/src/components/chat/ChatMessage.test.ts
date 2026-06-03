@@ -31,6 +31,30 @@ describe("ChatMessage", () => {
     expect(editable).toContain("编辑消息");
   });
 
+  it("renders a copy affordance for assistant prose only", () => {
+    const assistant = renderToStaticMarkup(
+      React.createElement(ChatMessage, {
+        content: "这是一段可复制的回复。",
+        id: "assistant:copy",
+        retrievals: [],
+        role: "assistant",
+        toolCalls: [],
+      }),
+    );
+    const user = renderToStaticMarkup(
+      React.createElement(ChatMessage, {
+        content: "用户消息不需要复制按钮。",
+        id: "user:no-copy",
+        retrievals: [],
+        role: "user",
+        toolCalls: [],
+      }),
+    );
+
+    expect(assistant).toContain("复制回复");
+    expect(user).not.toContain("复制回复");
+  });
+
   it("hides task-control receipts when runtime progress is attached", () => {
     const html = renderToStaticMarkup(
       React.createElement(ChatMessage, {
@@ -120,13 +144,13 @@ describe("ChatMessage", () => {
     expect(html.indexOf("我先把目标转成可执行任务")).toBeLessThan(html.indexOf("运行命令"));
   });
 
-  it("shows debug-only canonical output state without hiding the assistant message", () => {
+  it("hides routine output boundary cleanup state without hiding the assistant message", () => {
     const html = renderToStaticMarkup(
       React.createElement(ChatMessage, {
         answerCanonicalState: "progress_only",
         answerChannel: "task_control",
         answerFallbackReason: "task_executor_scheduled",
-        answerLeakFlags: ["internal_protocol_final_text"],
+        answerLeakFlags: ["inline_pseudo_tool_call_final_text"],
         answerPersistPolicy: "persist_debug_only",
         answerSelectedChannel: "progress_text",
         answerSource: "harness.task_lifecycle",
@@ -138,10 +162,34 @@ describe("ChatMessage", () => {
       }),
     );
 
-    expect(html).toContain("任务控制消息");
-    expect(html).toContain("不写入长期记忆");
-    expect(html).toContain("已清理内部协议");
     expect(html).toContain("我会按这个目标推进");
+    expect(html).not.toContain("任务控制消息");
+    expect(html).not.toContain("不写入长期记忆");
+    expect(html).not.toContain("已清理内部协议");
+    expect(html).not.toContain("输出状态");
+  });
+
+  it("hides stable answer boundary metadata even when protocol cleanup flags are present", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(ChatMessage, {
+        answerCanonicalState: "stable_answer",
+        answerChannel: "conversation",
+        answerLeakFlags: ["internal_protocol_final_text"],
+        answerPersistPolicy: "persist_canonical",
+        answerSelectedChannel: "answer_candidate",
+        content: "稳定回复正文。",
+        id: "message:stable-boundary",
+        retrievals: [],
+        role: "assistant",
+        toolCalls: [],
+      }),
+    );
+
+    expect(html).toContain("稳定回复正文");
+    expect(html).not.toContain("稳定答案");
+    expect(html).not.toContain("可写入记忆");
+    expect(html).not.toContain("answer_candidate");
+    expect(html).not.toContain("已清理内部协议");
   });
 
   it("projects live public timeline into the chat message before runtime attachments arrive", () => {

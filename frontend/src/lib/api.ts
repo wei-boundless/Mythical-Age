@@ -2417,6 +2417,52 @@ export type GlobalRuntimeMonitor = {
   updated_at: number;
 };
 
+export type RuntimeMonitorConsoleSignal = {
+  authority: string;
+  signal_id: string;
+  source_kind: "task_run" | "turn_run" | "runtime_run" | "graph_run" | "diagnostic" | string;
+  work_kind: "chat_turn" | "agent_task" | "graph_task" | string;
+  state: "active" | "waiting" | "attention" | "completed" | "failed" | "stale" | string;
+  priority: number;
+  title: string;
+  line: string;
+  detail: string;
+  status: string;
+  lifecycle: string;
+  bucket: string;
+  session_id: string;
+  task_run_id: string;
+  task_instance_id: string;
+  graph_run_id: string;
+  graph_id: string;
+  navigation_target: Record<string, unknown>;
+  timestamps: {
+    started_at?: number;
+    updated_at?: number;
+    last_activity_at?: number;
+    elapsed_seconds?: number;
+  };
+  raw_refs?: Record<string, unknown>;
+};
+
+export type RuntimeMonitorConsole = {
+  authority: string;
+  revision: string;
+  updated_at: number;
+  summary: {
+    active: number;
+    attention: number;
+    waiting: number;
+    failed: number;
+    recent: number;
+    total: number;
+  };
+  primary: RuntimeMonitorConsoleSignal[];
+  attention: RuntimeMonitorConsoleSignal[];
+  recent: RuntimeMonitorConsoleSignal[];
+  signals: RuntimeMonitorConsoleSignal[];
+};
+
 export type RuntimeMonitorEventPayload = {
   source?: string;
   monitor?: GlobalRuntimeMonitor;
@@ -3988,6 +4034,12 @@ export async function listOrchestrationHarnessTaskRuns(sessionId: string) {
 export async function getGlobalRuntimeMonitor(limit = 30) {
   return request<GlobalRuntimeMonitor>(
     `/orchestration/runtime-monitor/live?limit=${encodeURIComponent(String(limit))}`
+  );
+}
+
+export async function getRuntimeMonitorConsole(limit = 30) {
+  return request<RuntimeMonitorConsole>(
+    `/orchestration/runtime-monitor/console?limit=${encodeURIComponent(String(limit))}`
   );
 }
 

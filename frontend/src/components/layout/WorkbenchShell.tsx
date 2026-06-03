@@ -18,7 +18,7 @@ import {
 } from "lucide-react";
 import { useEffect, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 
-import { TaskMonitorDock } from "@/components/layout/TaskMonitorDock";
+import { RuntimeMonitorConsole } from "@/components/layout/RuntimeMonitorConsole";
 import { WorkspaceModeSwitcher } from "@/components/layout/WorkspaceModeSwitcher";
 import { openCodeEnvironmentWorkspaceRoot, type CodeEnvironmentTreeNode } from "@/lib/api";
 import type { SessionSummary, SessionTaskSummary } from "@/lib/api";
@@ -540,7 +540,7 @@ function RightToolPanel() {
   return (
     <aside className="workbench-right-panel" aria-label="辅助面板">
       <div className="workbench-right-body">
-        <TaskMonitorDock embedded />
+        <RuntimeMonitorConsole />
       </div>
     </aside>
   );

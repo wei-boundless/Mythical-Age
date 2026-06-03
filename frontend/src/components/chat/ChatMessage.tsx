@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertTriangle, Check, CircleCheck, Database, Pencil, ShieldCheck, X } from "lucide-react";
+import { AlertTriangle, Check, CircleCheck, Copy, Database, Pencil, ShieldCheck, X } from "lucide-react";
 import React, { useEffect, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -62,6 +62,7 @@ export function ChatMessage({
   const [draft, setDraft] = useState(content);
   const [submittingEdit, setSubmittingEdit] = useState(false);
   const [editError, setEditError] = useState("");
+  const [copiedReply, setCopiedReply] = useState(false);
   const [failedImageSrc, setFailedImageSrc] = useState("");
   const imageUnavailable = Boolean(image?.src && failedImageSrc === image.src);
   const baseDisplayContent = isUser ? content : assistantDisplayContent({ content, answerChannel, answerSource });
@@ -93,9 +94,9 @@ export function ChatMessage({
     || Boolean(image?.src)
     || imageUnavailable
     || (!hideLegacyTaskContractReceipt && (Boolean(displayContent.trim()) || !hasRunActivity));
+  const copyableReplyText = !isUser && shouldRenderContent ? displayContent.trim() : "";
   const draftValue = draft.trim();
-  const editChanged = draftValue !== content.trim();
-  const sendEditDisabled = submittingEdit || !canEdit || !draftValue || !editChanged;
+  const sendEditDisabled = submittingEdit || !canEdit || !draftValue;
   const submitEdit = async () => {
     if (sendEditDisabled) {
       return;
@@ -122,6 +123,14 @@ export function ChatMessage({
       setSubmittingEdit(false);
     }
   }, [canEdit, editing]);
+  const copyReply = async () => {
+    if (!copyableReplyText) {
+      return;
+    }
+    await writeClipboardText(copyableReplyText);
+    setCopiedReply(true);
+    window.setTimeout(() => setCopiedReply(false), 1200);
+  };
 
   return (
     <article
@@ -150,6 +159,17 @@ export function ChatMessage({
       {!isUser && <RetrievalCard results={retrievals} />}
       {shouldRenderContent ? (
         <div className={isUser ? "chat-message-shell__content whitespace-pre-wrap leading-7" : "chat-message-shell__content markdown"}>
+          {!isUser && copyableReplyText ? (
+            <button
+              aria-label={copiedReply ? "已复制回复" : "复制回复"}
+              className="message-copy-button"
+              onClick={() => void copyReply()}
+              title={copiedReply ? "已复制" : "复制回复"}
+              type="button"
+            >
+              {copiedReply ? <Check size={13} /> : <Copy size={13} />}
+            </button>
+          ) : null}
           {isUser && editing ? (
             <div className="message-edit-form">
               <textarea
@@ -228,6 +248,22 @@ function editFailureMessage(error: unknown) {
   return message || "改写发送失败。";
 }
 
+async function writeClipboardText(text: string) {
+  if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.setAttribute("readonly", "true");
+  textarea.style.position = "fixed";
+  textarea.style.left = "-9999px";
+  document.body.appendChild(textarea);
+  textarea.select();
+  document.execCommand("copy");
+  document.body.removeChild(textarea);
+}
+
 function mergedPublicTimelineItems(
   attachments: SessionRuntimeAttachment[],
   runtimePublicTimelineDraft: PublicChatTimelineItem[] | undefined,
@@ -270,11 +306,18 @@ function boundaryLabel(state: string, persistPolicy: string, channel: string) {
 
 function shouldShowBoundaryStatus(state: string, persistPolicy: string, leakFlags: string[], fallbackReason: string) {
   if (!state && !persistPolicy && !leakFlags.length && !fallbackReason) return false;
+  const actionableLeaks = leakFlags.filter((flag) => !isRoutineBoundaryLeakFlag(flag));
   const routineFallback = fallbackReason.endsWith("_message") || fallbackReason === "task_executor_scheduled";
-  if (leakFlags.length > 0) return true;
+  if (actionableLeaks.length > 0) return true;
   if (fallbackReason && !routineFallback) return true;
   if (state === "missing_answer" || persistPolicy === "do_not_persist") return true;
   return false;
+}
+
+function isRoutineBoundaryLeakFlag(flag: string) {
+  return flag === "internal_protocol_final_text"
+    || flag === "inline_pseudo_tool_call_final_text"
+    || flag.endsWith("_final_text");
 }
 
 function OutputBoundaryStatus({
@@ -299,7 +342,9 @@ function OutputBoundaryStatus({
   const answerChannel = cleanBoundaryText(channel);
   const selected = cleanBoundaryText(selectedChannel);
   const reason = cleanBoundaryText(fallbackReason);
-  const leaks = Array.isArray(leakFlags) ? leakFlags.map(cleanBoundaryText).filter(Boolean) : [];
+  const leaks = Array.isArray(leakFlags)
+    ? leakFlags.map(cleanBoundaryText).filter((flag) => flag && !isRoutineBoundaryLeakFlag(flag))
+    : [];
   if (!shouldShowBoundaryStatus(state, persist, leaks, reason)) {
     return null;
   }

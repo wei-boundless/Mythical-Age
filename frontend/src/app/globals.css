@@ -7636,7 +7636,8 @@ button:hover {
   display: none;
 }
 
-.message-edit-button {
+.message-edit-button,
+.message-copy-button {
   display: inline-flex;
   flex-shrink: 0;
   align-items: center;
@@ -7650,7 +7651,8 @@ button:hover {
   transition: background 160ms ease, border-color 160ms ease, transform 160ms ease;
 }
 
-.message-edit-button:hover {
+.message-edit-button:hover,
+.message-copy-button:hover {
   border-color: var(--color-border-strong);
   background: #fdfdfc;
   transform: translateY(-1px);
@@ -26706,91 +26708,208 @@ html[data-workspace-tone] .agent-workbench {
   grid-row: 1 / -1;
 }
 
-.task-monitor-dock--embedded {
-  height: 100%;
-  min-height: 0;
-  border-left: 0;
-  background: transparent;
-  box-shadow: none;
-  backdrop-filter: none;
-}
-
-.task-monitor-dock--embedded.task-monitor-dock--collapsed {
-  width: auto;
-  min-width: 0;
-}
-
-.task-monitor-dock--embedded .task-monitor-dock__head {
-  min-height: 2.7rem;
-  padding: 0.42rem 0.5rem;
-}
-
-.task-monitor-dock--embedded .task-monitor-dock__body {
-  gap: 0.5rem;
-  padding: 0.55rem;
-}
-
-.task-monitor-dock--embedded .task-monitor-summary {
-  border: 0;
-  background: transparent;
-  box-shadow: none;
-  padding: 0;
-}
-
-.task-monitor-dock__embedded-head {
+.runtime-monitor-console {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 30px;
+  grid-template-rows: auto auto auto minmax(0, 1fr);
+  gap: 10px;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  background: var(--console-surface-soft, #f8fafc);
+  padding: 10px;
+}
+
+.runtime-monitor-console__head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 32px;
   align-items: center;
   gap: 8px;
-  min-height: 38px;
+  min-height: 40px;
   border-bottom: 1px solid var(--workbench-line);
-  padding: 0 0 8px;
+  padding-bottom: 8px;
 }
 
-.task-monitor-dock__embedded-head div {
+.runtime-monitor-console__head div {
   display: grid;
   gap: 2px;
   min-width: 0;
 }
 
-.task-monitor-dock__embedded-head span {
+.runtime-monitor-console__head span,
+.runtime-monitor-console__notice span,
+.runtime-monitor-console-row__body small,
+.runtime-monitor-console-row__meta small,
+.runtime-monitor-console__empty span {
   overflow: hidden;
-  color: var(--console-muted, var(--color-text-muted));
+  color: var(--console-muted, #687385);
   font-size: 11px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.task-monitor-dock__embedded-head strong {
+.runtime-monitor-console__head strong {
   overflow: hidden;
-  color: var(--console-text, var(--color-text));
-  font-size: 13px;
-  font-weight: 720;
+  color: var(--console-text, #18202a);
+  font-size: 14px;
+  font-weight: 740;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.task-monitor-dock__embedded-head button {
+.runtime-monitor-console__head button {
   display: grid;
   place-items: center;
-  width: 30px;
-  height: 30px;
+  width: 32px;
+  height: 32px;
   border: 1px solid var(--workbench-line);
   border-radius: 7px;
   background: #fff;
-  color: var(--console-muted, var(--color-text-muted));
+  color: var(--console-muted, #687385);
   cursor: pointer;
 }
 
-.task-monitor-dock__embedded-head button:hover:not(:disabled) {
+.runtime-monitor-console__head button:hover:not(:disabled) {
   border-color: #b8c7e4;
   background: var(--console-blue-soft, #e9f0fb);
   color: var(--console-blue, #285fbd);
 }
 
-.task-monitor-dock__embedded-head button:disabled {
+.runtime-monitor-console__head button:disabled {
   cursor: default;
   opacity: 0.55;
+}
+
+.runtime-monitor-console__counts {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.runtime-monitor-console__counts span {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+  border: 1px solid rgba(184, 199, 215, 0.5);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.72);
+  color: var(--console-muted, #687385);
+  font-size: 11px;
+  padding: 7px 6px;
+  text-align: center;
+}
+
+.runtime-monitor-console__counts strong {
+  color: var(--console-text, #18202a);
+  font-size: 14px;
+  font-weight: 760;
+}
+
+.runtime-monitor-console__notice {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 7px;
+  border: 1px solid #f0c36d;
+  border-radius: 7px;
+  background: #fffaf0;
+  color: #a16207;
+  padding: 8px;
+}
+
+.runtime-monitor-console__stream {
+  display: grid;
+  align-content: start;
+  gap: 7px;
+  min-height: 0;
+  overflow: auto;
+  padding-right: 2px;
+}
+
+.runtime-monitor-console-row {
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 50px;
+  border: 1px solid rgba(184, 199, 215, 0.5);
+  border-left: 3px solid transparent;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.76);
+  color: inherit;
+  cursor: pointer;
+  padding: 8px;
+  text-align: left;
+}
+
+.runtime-monitor-console-row:hover {
+  border-color: #b8c7e4;
+  background: var(--console-blue-soft, #e9f0fb);
+}
+
+.runtime-monitor-console-row--active {
+  border-left-color: var(--console-blue, #285fbd);
+}
+
+.runtime-monitor-console-row--waiting {
+  border-left-color: #b7791f;
+}
+
+.runtime-monitor-console-row--stale,
+.runtime-monitor-console-row--failed {
+  border-left-color: #b91c1c;
+}
+
+.runtime-monitor-console-row__icon {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 999px;
+  background: #fff;
+  color: var(--console-blue, #285fbd);
+  box-shadow: inset 0 0 0 1px rgba(184, 199, 215, 0.52);
+}
+
+.runtime-monitor-console-row--waiting .runtime-monitor-console-row__icon {
+  color: #b7791f;
+}
+
+.runtime-monitor-console-row--stale .runtime-monitor-console-row__icon,
+.runtime-monitor-console-row--failed .runtime-monitor-console-row__icon {
+  color: #b91c1c;
+}
+
+.runtime-monitor-console-row__body,
+.runtime-monitor-console-row__meta {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.runtime-monitor-console-row__body strong,
+.runtime-monitor-console-row__meta strong,
+.runtime-monitor-console__empty strong {
+  overflow: hidden;
+  color: var(--console-text, #18202a);
+  font-size: 12px;
+  font-weight: 720;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.runtime-monitor-console-row__meta {
+  justify-items: end;
+  text-align: right;
+}
+
+.runtime-monitor-console__empty {
+  display: grid;
+  place-items: center;
+  gap: 4px;
+  min-height: 140px;
+  color: var(--console-muted, #687385);
+  text-align: center;
 }
 
 .development-status-slot {
@@ -27484,17 +27603,6 @@ html[data-workspace-tone] .agent-workbench {
   font-family: var(--workbench-font-mono);
 }
 
-.agent-workbench .chat-input-panel__textarea,
-.agent-workbench .message-edit-form__textarea,
-.agent-workbench .chat-model-select select,
-.agent-workbench .chat-search-policy__item,
-.agent-workbench .session-activity-bar,
-.agent-workbench .task-monitor-dock,
-.agent-workbench .runtime-monitor-row,
-.agent-workbench .runtime-monitor-empty {
-  font-family: var(--workbench-font);
-}
-
 .panel {
   border-radius: 8px;
   background: var(--workspace-panel-bg-strong);
@@ -27508,291 +27616,6 @@ html[data-workspace-tone] .agent-workbench {
 .workspace-shell::after,
 .accent-background-figure {
   display: none;
-}
-
-.task-monitor-summary small,
-.task-monitor-alert span {
-  color: var(--color-text-muted);
-  font-size: 0.72rem;
-}
-
-.task-monitor-dock__collapse,
-.task-monitor-dock__open,
-.task-monitor-dock__rail {
-  border: 1px solid transparent;
-  background: transparent;
-  color: var(--color-text-soft);
-  cursor: pointer;
-}
-
-.task-monitor-dock__collapse,
-.task-monitor-dock__open {
-  display: grid;
-  place-items: center;
-  width: 1.9rem;
-  height: 1.9rem;
-  border-radius: 7px;
-}
-
-.task-monitor-dock__collapse:hover,
-.task-monitor-dock__open:hover {
-  border-color: var(--workspace-panel-border);
-  background: var(--workspace-control-hover);
-  color: var(--color-text);
-}
-
-.task-monitor-dock {
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
-  min-width: 0;
-  min-height: 100vh;
-  border-left: 1px solid var(--workspace-panel-border);
-  background: var(--workspace-panel-bg);
-  box-shadow: var(--workspace-panel-shadow);
-  backdrop-filter: blur(16px) saturate(1.08);
-  transition: width 180ms ease;
-}
-
-.task-monitor-dock--collapsed {
-  width: 52px;
-  min-width: 52px;
-}
-
-.task-monitor-dock__head {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 0.44rem;
-  min-height: 3.5rem;
-  border-bottom: 1px solid var(--color-border);
-  padding: 0.78rem 0.72rem;
-}
-
-.task-monitor-dock--collapsed .task-monitor-dock__head {
-  grid-template-columns: 1fr;
-  padding-inline: 0.46rem;
-}
-
-.task-monitor-dock--collapsed .task-monitor-dock__title,
-.task-monitor-dock--collapsed .task-monitor-dock__open {
-  display: none;
-}
-
-.task-monitor-dock__title {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.36rem;
-  min-width: 0;
-  color: var(--color-text);
-  font-size: 0.82rem;
-  font-weight: 720;
-}
-
-.task-monitor-dock__body {
-  display: flex;
-  flex-direction: column;
-  gap: 0.55rem;
-  min-height: 0;
-  overflow: hidden;
-  padding: 0.72rem;
-}
-
-.task-monitor-summary {
-  display: grid;
-  gap: 0.28rem;
-  border: 1px solid var(--workspace-panel-border);
-  border-radius: 7px;
-  background: var(--workspace-panel-bg-strong);
-  box-shadow: 0 10px 28px rgba(67, 83, 90, 0.06);
-  padding: 0.62rem;
-}
-
-.task-monitor-summary--active {
-  border-color: #9bbcf8;
-}
-
-.task-monitor-summary div {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.6rem;
-}
-
-.task-monitor-summary span {
-  color: var(--color-text-muted);
-  font-size: 0.68rem;
-}
-
-.task-monitor-summary strong {
-  color: var(--color-text);
-  font-size: 0.82rem;
-}
-
-.task-monitor-alert {
-  display: grid;
-  gap: 0.22rem;
-  border: 1px solid var(--workspace-panel-border);
-  border-radius: 7px;
-  background: var(--workspace-panel-bg-strong);
-  padding: 0.56rem 0.62rem;
-}
-
-.task-monitor-alert strong {
-  overflow: hidden;
-  color: var(--color-text);
-  font-size: 0.76rem;
-  font-weight: 720;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.task-monitor-alert span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.task-monitor-alert small {
-  overflow: hidden;
-  color: var(--color-text-muted);
-  font-size: 0.66rem;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.task-monitor-alert--attention {
-  border-color: #f0c36d;
-  background: #fffaf0;
-}
-
-.task-monitor-alert--error {
-  border-color: #efb3ad;
-  background: #fff6f5;
-}
-
-.runtime-monitor-metrics {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 0.36rem;
-}
-
-.runtime-monitor-metrics button {
-  display: grid;
-  gap: 0.08rem;
-  border: 1px solid var(--workspace-panel-border);
-  border-radius: 7px;
-  background: var(--workspace-panel-bg-soft);
-  color: inherit;
-  cursor: pointer;
-  padding: 0.5rem 0.36rem;
-  text-align: center;
-}
-
-.runtime-monitor-metrics button:hover,
-.runtime-monitor-metrics button.is-active {
-  border-color: #b6c8ea;
-  background: #f4f7ff;
-}
-
-.runtime-monitor-metrics strong {
-  color: var(--color-text);
-  font-size: 0.9rem;
-  font-weight: 760;
-}
-
-.runtime-monitor-metrics span {
-  color: var(--color-text-muted);
-  font-size: 0.66rem;
-}
-
-.runtime-monitor-list {
-  position: relative;
-  z-index: 1;
-  display: grid;
-  align-content: start;
-  gap: 0.28rem;
-  flex: 1 1 0;
-  min-height: 0;
-  overflow: auto;
-  padding-right: 0.12rem;
-}
-
-.runtime-monitor-row {
-  position: relative;
-  z-index: 1;
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 0.48rem;
-  border: 1px solid transparent;
-  border-radius: 7px;
-  background: transparent;
-  color: inherit;
-  cursor: pointer;
-  padding: 0.5rem 0.46rem;
-  text-align: left;
-}
-
-.runtime-monitor-row:hover,
-.runtime-monitor-row--active {
-  border-color: var(--workspace-panel-border);
-  background: var(--workspace-control-hover);
-}
-
-.runtime-monitor-row__status {
-  display: grid;
-  place-items: center;
-  width: 1.55rem;
-  height: 1.55rem;
-  border-radius: 999px;
-  color: #2563eb;
-}
-
-.runtime-monitor-row__status--completed,
-.runtime-monitor-row__status--success {
-  color: #15803d;
-}
-
-.runtime-monitor-row__status--failed,
-.runtime-monitor-row__status--aborted {
-  color: #b91c1c;
-}
-
-.runtime-monitor-row__status--waiting,
-.runtime-monitor-row__status--waiting_executor,
-.runtime-monitor-row__status--waiting_approval,
-.runtime-monitor-row__status--blocked {
-  color: #b7791f;
-}
-
-.runtime-monitor-row__main,
-.runtime-monitor-row__meta {
-  display: grid;
-  min-width: 0;
-  gap: 0.08rem;
-}
-
-.runtime-monitor-row__main strong,
-.runtime-monitor-row__meta strong {
-  overflow: hidden;
-  color: var(--color-text);
-  font-size: 0.76rem;
-  font-weight: 720;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.runtime-monitor-row__main small,
-.runtime-monitor-row__meta small {
-  overflow: hidden;
-  color: var(--color-text-muted);
-  font-size: 0.64rem;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.runtime-monitor-row__meta {
-  justify-items: end;
-  text-align: right;
 }
 
 .runtime-monitor-empty {
@@ -28012,27 +27835,6 @@ html[data-workspace-tone] .agent-workbench {
 
 .runtime-monitor-center__spin {
   animation: session-activity-spin 1s linear infinite;
-}
-
-.task-monitor-dock__rail {
-  display: grid;
-  place-items: center;
-  align-content: center;
-  gap: 0.65rem;
-  width: 100%;
-  min-height: 0;
-  border: 0;
-  border-radius: 0;
-  padding: 0.7rem 0.35rem;
-  writing-mode: vertical-rl;
-}
-
-.task-monitor-dock__rail svg {
-  writing-mode: horizontal-tb;
-}
-
-.task-monitor-dock__rail--active {
-  color: #2563eb;
 }
 
 .chat-panel-shell {
@@ -28325,61 +28127,7 @@ html[data-workspace-tone] .agent-workbench {
   min-height: 17rem;
 }
 
-@media (max-width: 1260px) {
-  .task-monitor-dock {
-    position: fixed;
-    top: 0;
-    right: 0;
-    z-index: 40;
-    width: min(360px, 92vw);
-    box-shadow: -18px 0 44px rgba(16, 24, 40, 0.12);
-  }
-
-  .task-monitor-dock--collapsed {
-    position: static;
-    width: 52px;
-    min-width: 52px;
-    box-shadow: none;
-  }
-}
-
 @media (max-width: 820px) {
-  .task-monitor-dock {
-    top: 0.65rem;
-    right: 0.65rem;
-    bottom: 0.65rem;
-    width: min(360px, calc(100vw - 1.3rem));
-  }
-
-  .task-monitor-dock--collapsed {
-    position: fixed;
-    top: auto;
-    right: 0.75rem;
-    bottom: 0.75rem;
-    z-index: 38;
-    width: 44px;
-    min-width: 44px;
-    min-height: 44px;
-    max-height: 44px;
-    border: 1px solid var(--color-border-strong);
-    border-radius: 999px;
-    background: #fff;
-    box-shadow: 0 12px 28px rgba(42, 111, 174, 0.16);
-  }
-
-  .task-monitor-dock--collapsed .task-monitor-dock__head {
-    display: none;
-  }
-
-  .task-monitor-dock--collapsed .task-monitor-dock__rail {
-    min-height: 44px;
-    padding: 0;
-    writing-mode: horizontal-tb;
-  }
-
-  .task-monitor-dock--collapsed .task-monitor-dock__rail span {
-    display: none;
-  }
 
   .capability-system-console {
     overflow: visible;
@@ -28527,72 +28275,6 @@ html[data-workspace-tone] .agent-workbench {
   outline-offset: 1px;
 }
 
-.agent-workbench .workbench-resource-panel,
-.agent-workbench .workbench-right-panel,
-.agent-workbench .workbench-center,
-.agent-workbench .workbench-main-toolbar,
-.agent-workbench .workbench-center-content,
-.agent-workbench .workbench-view-host,
-.agent-workbench .panel,
-.agent-workbench .task-monitor-dock,
-.agent-workbench .chat-input-panel--inline {
-  background: var(--console-surface);
-  box-shadow: none;
-  backdrop-filter: none;
-}
-
-.agent-workbench .workbench-icon-button,
-.agent-workbench .workbench-toolbar-icon-button,
-.agent-workbench .task-monitor-dock__collapse,
-.agent-workbench .task-monitor-dock__open,
-.agent-workbench .task-monitor-dock__rail {
-  border-radius: 6px;
-  color: var(--console-muted);
-}
-
-.agent-workbench .workbench-icon-button:hover:not(:disabled),
-.agent-workbench .task-monitor-dock__collapse:hover,
-.agent-workbench .task-monitor-dock__open:hover,
-.agent-workbench .task-monitor-dock__rail--active {
-  border-color: var(--console-line);
-  background: var(--console-surface);
-  color: var(--console-blue);
-}
-
-.agent-workbench .workbench-panel-head,
-.agent-workbench .workbench-main-toolbar,
-.agent-workbench .task-monitor-dock__head {
-  min-height: 42px;
-  border-color: var(--console-line);
-  background: var(--console-surface);
-  padding-block: 7px;
-}
-
-.agent-workbench .workbench-panel-head strong,
-.agent-workbench .workbench-breadcrumb strong,
-.agent-workbench .task-monitor-dock__title,
-.agent-workbench .runtime-monitor-row__main strong,
-.agent-workbench .runtime-monitor-row__meta strong {
-  color: var(--console-text);
-  font-weight: 700;
-}
-
-.agent-workbench .workbench-panel-head span,
-.agent-workbench .workbench-breadcrumb span,
-.agent-workbench .task-monitor-summary span,
-.agent-workbench .task-monitor-summary small,
-.agent-workbench .task-monitor-alert span,
-.agent-workbench .runtime-monitor-row__main small,
-.agent-workbench .runtime-monitor-row__meta small {
-  color: var(--console-muted);
-}
-
-.agent-workbench .workbench-project-context,
-.agent-workbench .workbench-right-body,
-.agent-workbench .task-monitor-dock__body {
-  background: var(--console-surface-soft);
-}
-
 .agent-workbench .workbench-project-context {
   border-bottom: 1px solid var(--console-line);
 }
@@ -28635,22 +28317,8 @@ html[data-workspace-tone] .agent-workbench {
   box-shadow: none;
 }
 
-.agent-workbench .workbench-file-row,
-.agent-workbench .workbench-session-row,
-.agent-workbench .runtime-monitor-row {
-  border-radius: 7px;
-}
-
 .agent-workbench .workbench-session-row {
   border-radius: 0;
-}
-
-.agent-workbench .workbench-file-row:hover,
-.agent-workbench .workbench-file-row--active,
-.agent-workbench .runtime-monitor-row:hover,
-.agent-workbench .runtime-monitor-row--active {
-  background: var(--console-blue-soft);
-  box-shadow: inset 0 0 0 1px #b8c7e4;
 }
 
 .agent-workbench .workbench-session-row:hover,
@@ -28729,67 +28397,6 @@ html[data-workspace-tone] .agent-workbench {
 .agent-workbench .chat-panel-footer {
   border-top: 1px solid var(--console-line);
   background: linear-gradient(180deg, rgba(243, 245, 248, 0), var(--console-bg) 18%, var(--console-bg));
-}
-
-.agent-workbench .task-monitor-dock {
-  border-color: var(--console-line);
-  min-height: 100%;
-}
-
-.agent-workbench .task-monitor-summary,
-.agent-workbench .task-monitor-alert,
-.agent-workbench .runtime-monitor-metrics button,
-.agent-workbench .runtime-monitor-row,
-.agent-workbench .runtime-monitor-empty,
-.agent-workbench .runtime-monitor-center,
-.agent-workbench .runtime-monitor-center__alert,
-.agent-workbench .runtime-monitor-center__summary article,
-.agent-workbench .runtime-monitor-center__live article,
-.agent-workbench .runtime-monitor-center__footnote {
-  border: 1px solid var(--console-line);
-  border-radius: 8px;
-  background: #fff;
-  box-shadow: none;
-}
-
-.agent-workbench .task-monitor-summary--active,
-.agent-workbench .runtime-monitor-row--active {
-  border-color: #9db6ea;
-  background: var(--console-blue-soft);
-}
-
-.agent-workbench .task-monitor-alert--attention,
-.agent-workbench .runtime-monitor-center__alert {
-  border-color: #f1cf74;
-  background: var(--console-warn-soft);
-  color: var(--console-text);
-}
-
-.agent-workbench .task-monitor-alert--error {
-  border-color: #f0ada8;
-  background: var(--console-danger-soft);
-}
-
-.agent-workbench .runtime-monitor-row__status {
-  background: var(--console-muted);
-  box-shadow: none;
-}
-
-.agent-workbench .runtime-monitor-row__status--completed,
-.agent-workbench .runtime-monitor-row__status--success {
-  background: var(--console-green);
-}
-
-.agent-workbench .runtime-monitor-row__status--failed,
-.agent-workbench .runtime-monitor-row__status--aborted {
-  background: var(--console-danger);
-}
-
-.agent-workbench .runtime-monitor-row__status--waiting,
-.agent-workbench .runtime-monitor-row__status--waiting_executor,
-.agent-workbench .runtime-monitor-row__status--waiting_approval,
-.agent-workbench .runtime-monitor-row__status--blocked {
-  background: var(--console-warn);
 }
 
 .agent-workbench .runtime-monitor-center {
@@ -31995,14 +31602,35 @@ html[data-workspace-tone] .agent-workbench {
   opacity: 1;
 }
 
-.agent-workbench .message-edit-button:hover {
+.agent-workbench .message-edit-button:hover,
+.agent-workbench .message-copy-button:hover {
   background: #eef2f7;
   color: #334155;
   transform: none;
 }
 
+.agent-workbench .message-copy-button {
+  position: sticky;
+  top: 8px;
+  float: right;
+  z-index: 2;
+  display: inline-grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  margin: 0 0 8px 12px;
+  border: 0;
+  border-radius: 6px;
+  background: #f8fafc;
+  color: #64748b;
+  opacity: 0.9;
+  padding: 0;
+  transition: background 140ms ease, color 140ms ease, opacity 140ms ease;
+}
+
 .agent-workbench .chat-message-shell__content,
 .agent-workbench .chat-message-shell__content.markdown {
+  position: relative;
   grid-column: 1;
   width: min(100%, 78ch);
   max-width: 78ch;
@@ -32013,6 +31641,10 @@ html[data-workspace-tone] .agent-workbench {
   font-weight: 460;
   line-height: 1.8;
   letter-spacing: 0;
+}
+
+.agent-workbench .chat-message-shell--assistant .chat-message-shell__content {
+  padding-right: 42px;
 }
 
 .agent-workbench .chat-message-shell--user .chat-message-shell__content {
@@ -33893,26 +33525,6 @@ body {
   border-bottom-color: rgba(237, 241, 245, 0.92);
 }
 
-.workbench-session-toolbar button,
-.workbench-toolbar-actions button,
-.workbench-project-context button,
-.task-monitor-dock__open,
-.task-monitor-dock__collapse {
-  border-color: rgba(184, 199, 215, 0.7);
-  background: rgba(255, 255, 255, 0.86);
-  box-shadow: 0 1px 1px rgba(17, 24, 39, 0.035);
-}
-
-.workbench-session-toolbar button:hover:not(:disabled),
-.workbench-toolbar-actions button:hover:not(:disabled),
-.workbench-project-context button:hover:not(:disabled),
-.task-monitor-dock__open:hover:not(:disabled),
-.task-monitor-dock__collapse:hover:not(:disabled) {
-  border-color: rgba(40, 95, 198, 0.24);
-  background: #f3f8ff;
-  color: var(--console-accent);
-}
-
 .workbench-session-toolbar button {
   border-color: rgba(40, 95, 198, 0.3);
   background: #f3f8ff;
@@ -34084,46 +33696,6 @@ body {
   background: #0f6d53;
 }
 
-.task-monitor-dock {
-  border-color: rgba(184, 199, 215, 0.72);
-  background: transparent;
-}
-
-.task-monitor-dock__head {
-  border-bottom-color: rgba(219, 227, 236, 0.78);
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(248, 250, 252, 0.84));
-}
-
-.task-monitor-summary {
-  border-color: rgba(219, 227, 236, 0.76);
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.72);
-  box-shadow: var(--console-shadow-soft);
-}
-
-.runtime-monitor-metrics button,
-.runtime-monitor-row {
-  border-color: rgba(219, 227, 236, 0.82);
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.7);
-  box-shadow: 0 1px 1px rgba(17, 24, 39, 0.025);
-  transition: background 150ms ease, border-color 150ms ease, box-shadow 150ms ease, color 150ms ease;
-}
-
-.runtime-monitor-metrics button:hover,
-.runtime-monitor-metrics button.is-active,
-.runtime-monitor-row:hover,
-.runtime-monitor-row--active {
-  border-color: rgba(40, 95, 198, 0.24);
-  background: rgba(234, 244, 255, 0.86);
-  box-shadow: inset 2px 0 0 rgba(40, 95, 198, 0.84), 0 1px 2px rgba(17, 24, 39, 0.035);
-}
-
-.runtime-monitor-row__status {
-  background: rgba(255, 255, 255, 0.86);
-  box-shadow: inset 0 0 0 1px rgba(184, 199, 215, 0.52);
-}
-
 .runtime-monitor-empty,
 .workbench-empty-state,
 .center-workspace__empty,
@@ -34183,13 +33755,6 @@ body {
 }
 
 /* Softer conversation reading surface. */
-.agent-workbench .workbench-main-toolbar,
-.agent-workbench .workbench-panel-head,
-.agent-workbench .workbench-project-context,
-.agent-workbench .workbench-session-toolbar,
-.agent-workbench .task-monitor-dock__head {
-  border-bottom-color: rgba(219, 227, 236, 0.46);
-}
 
 .agent-workbench .chat-thread {
   background:
@@ -34211,13 +33776,6 @@ body {
 
 .agent-workbench .chat-message-shell__content.markdown blockquote {
   border-color: rgba(148, 163, 184, 0.2);
-}
-
-.agent-workbench .chat-message-shell--user .chat-message-shell__content,
-.agent-workbench .task-monitor-summary,
-.agent-workbench .runtime-monitor-metrics button,
-.agent-workbench .runtime-monitor-row {
-  border-color: rgba(184, 199, 215, 0.5);
 }
 
 /* Softer project navigator. */

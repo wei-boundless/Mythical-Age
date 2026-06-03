@@ -6,6 +6,7 @@ from typing import Any
 from .contract import build_envelope
 from .projector import RuntimeMonitorProjector
 from .resource_resolver import MonitorResourceResolver
+from .signals import build_console_envelope
 
 
 class RuntimeMonitorService:
@@ -29,21 +30,30 @@ class RuntimeMonitorService:
     def list_global_live_monitor(self, limit: int = 20) -> dict[str, Any]:
         requested_limit = max(1, min(int(limit or 20), 100))
         now = time.time()
+        items = self._global_live_items(requested_limit=requested_limit, now=now)
+        return build_envelope(scope="global", items=items, now=now, limit=requested_limit)
+
+    def list_global_console_monitor(self, limit: int = 30) -> dict[str, Any]:
+        requested_limit = max(1, min(int(limit or 30), 100))
+        now = time.time()
+        items = self._global_live_items(requested_limit=requested_limit, now=now)
+        return build_console_envelope(items=items, now=now, limit=requested_limit)
+
+    def _global_live_items(self, *, requested_limit: int, now: float) -> list[dict[str, Any]]:
         task_runs = self.runtime_host.state_index.list_recent_task_runs(limit=max(requested_limit * 4, 80))
         base_monitor = self.projector.build_global_monitor(
             task_runs,
             now=now,
             limit=requested_limit,
         )
-        active_turn_items = self._global_active_turn_items(now=now, visible_session_ids={
-            str(item.get("session_id") or "").strip()
-            for item in list(base_monitor.get("items") or [])
-            if isinstance(item, dict)
-        })
+        base_items = [item for item in list(base_monitor.get("items") or []) if isinstance(item, dict)]
+        active_turn_items = self._global_active_turn_items(now=now, visible_items=base_items)
         if not active_turn_items:
-            return base_monitor
-        merged_items = [*list(base_monitor.get("items") or []), *active_turn_items]
-        return build_envelope(scope="global", items=merged_items, now=now, limit=requested_limit)
+            return base_items
+        return [
+            *base_items,
+            *active_turn_items,
+        ]
 
     def get_session_live_monitor(self, session_id: str, *, limit: int = 20) -> dict[str, Any]:
         task_runs = sorted(
@@ -190,7 +200,7 @@ class RuntimeMonitorService:
             "detail_endpoint": "",
         }
 
-    def _global_active_turn_items(self, *, now: float, visible_session_ids: set[str]) -> list[dict[str, Any]]:
+    def _global_active_turn_items(self, *, now: float, visible_items: list[dict[str, Any]]) -> list[dict[str, Any]]:
         run_registry = getattr(self.runtime_host, "run_registry", None)
         active_turn_registry = getattr(self.runtime_host, "active_turn_registry", None)
         if run_registry is None or active_turn_registry is None:
@@ -206,10 +216,10 @@ class RuntimeMonitorService:
             session_ids.append(session_id)
         items: list[dict[str, Any]] = []
         for session_id in session_ids:
-            if session_id in visible_session_ids:
-                continue
             item = self._session_active_turn_item(session_id, now=now)
             if item is not None:
+                if self._visible_item_already_represents_active_turn(item, visible_items):
+                    continue
                 items.append(item)
         return items
 
@@ -223,8 +233,6 @@ class RuntimeMonitorService:
             active_turn = None
         if active_turn is None:
             return None
-        if str(getattr(active_turn, "bound_task_run_id", "") or "").strip():
-            return None
         turn_run_id = str(getattr(active_turn, "turn_run_id", "") or "").strip()
         if not turn_run_id:
             return None
@@ -236,6 +244,23 @@ class RuntimeMonitorService:
             runtime_run=runtime_run,
             now=now,
         )
+
+    def _visible_item_already_represents_active_turn(self, active_item: dict[str, Any], visible_items: list[dict[str, Any]]) -> bool:
+        active_session_id = str(active_item.get("session_id") or "").strip()
+        active_task_run_id = str(active_item.get("task_run_id") or "").strip()
+        active_instance_id = str(active_item.get("task_instance_id") or "").strip()
+        for item in visible_items:
+            if str(item.get("session_id") or "").strip() != active_session_id:
+                continue
+            item_task_run_id = str(item.get("task_run_id") or "").strip()
+            item_instance_id = str(item.get("task_instance_id") or "").strip()
+            same_work = active_task_run_id and item_task_run_id == active_task_run_id
+            same_instance = active_instance_id and item_instance_id == active_instance_id
+            if not same_work and not same_instance:
+                continue
+            if item.get("is_live") is True or str(item.get("bucket") or "") == "running" or str(item.get("lifecycle") or "") == "running":
+                return True
+        return False
 
     def _latest_session_runtime_run(self, session_id: str) -> Any | None:
         run_registry = getattr(self.runtime_host, "run_registry", None)

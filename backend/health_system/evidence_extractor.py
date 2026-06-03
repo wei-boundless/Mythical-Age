@@ -155,15 +155,16 @@ def _collect_event_candidates(events: list[dict[str, Any]], *, task_run_id: str)
     candidates: list[EvidenceCandidate] = []
     total_events = len(events)
     seen_tool_calls: set[str] = set()
-    for index, event in enumerate(events, start=1):
+    for event_index, event in enumerate(events):
+        time_index = event_index + 1
         event_type = str(event.get("event_type") or "")
         payload = dict(event.get("payload") or {})
-        score = score_runtime_event(event, total_events=total_events, index=index)
+        score = score_runtime_event(event, total_events=total_events, index=event_index)
         tool_name = _tool_name(event) if event_type == "tool_call_requested" else ""
-        event_id = str(event.get("event_id") or f"{task_run_id}:{index}")
+        event_id = str(event.get("event_id") or f"{task_run_id}:{time_index}")
         summary = _event_summary(event_type, payload)
-        source_ref = f"{task_run_id}#{int(event.get('offset') or index)}"
-        metadata: dict[str, Any] = {"offset": int(event.get("offset") or index)}
+        source_ref = f"{task_run_id}#{int(event.get('offset') or time_index)}"
+        metadata: dict[str, Any] = {"offset": int(event.get("offset") or time_index)}
         if tool_name:
             metadata["tool_name"] = tool_name
         candidate = EvidenceCandidate(
@@ -173,7 +174,7 @@ def _collect_event_candidates(events: list[dict[str, Any]], *, task_run_id: str)
             subject_type="task_run",
             subject_id=task_run_id,
             event_type=event_type,
-            time_index=index,
+            time_index=time_index,
             summary=summary,
             raw_ref=event_id,
             metadata=metadata,

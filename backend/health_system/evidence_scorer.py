@@ -169,7 +169,8 @@ def score_negative_observation(*, weight: float = 0.8) -> EvidenceScore:
 def _temporal_weight(*, index: int, total_events: int) -> float:
     if total_events <= 0:
         return 0.5
-    ratio = max(1, min(index, total_events)) / float(total_events)
+    normalized_index = max(0, min(index, total_events - 1))
+    ratio = (normalized_index + 1) / float(total_events)
     return round(0.25 + ratio * 0.75, 4)
 
 

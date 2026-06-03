@@ -273,7 +273,10 @@ class RuntimeMonitorProjector:
         session_id = str(getattr(active_turn, "session_id", "") or "")
         turn_id = str(getattr(active_turn, "turn_id", "") or "")
         turn_run_id = str(getattr(active_turn, "turn_run_id", "") or "")
+        bound_task_run_id = str(getattr(active_turn, "bound_task_run_id", "") or "").strip()
         stream_run_id = str(getattr(active_turn, "stream_run_id", "") or "")
+        task_run_id = bound_task_run_id or turn_run_id
+        task_instance_id = turn_run_id or stream_run_id or turn_id or task_run_id
         active_state = str(getattr(active_turn, "state", "") or "model_turn")
         started_at = float(
             getattr(active_turn, "started_at", 0.0)
@@ -306,12 +309,12 @@ class RuntimeMonitorProjector:
             "agent_brief": "",
         }
         item = {
-            "task_run_id": turn_run_id,
+            "task_run_id": task_run_id,
             "session_id": session_id,
-            "task_id": turn_id or stream_run_id or turn_run_id,
+            "task_id": turn_id or stream_run_id or task_run_id,
             "execution_runtime_kind": "single_agent_turn",
-            "task_instance_id": turn_run_id or stream_run_id or turn_id,
-            "root_task_run_id": turn_run_id,
+            "task_instance_id": task_instance_id,
+            "root_task_run_id": task_run_id,
             "kind": "agent_run",
             "title": "持续处理",
             "status": status,
@@ -371,8 +374,8 @@ class RuntimeMonitorProjector:
             "child_runtime_refs": [],
             "navigation_target": build_navigation_target(
                 kind="agent_run",
-                task_instance_id=turn_run_id or stream_run_id or turn_id,
-                task_run_id=turn_run_id,
+                task_instance_id=task_instance_id,
+                task_run_id=task_run_id,
                 session_id=session_id,
                 session_scope={"workspace_view": "chat"},
             ),
@@ -385,7 +388,7 @@ class RuntimeMonitorProjector:
             "route": {
                 "kind": "agent_runtime_run",
                 "session_id": session_id,
-                "task_run_id": turn_run_id,
+                "task_run_id": task_run_id,
                 "graph_id": "",
                 "graph_run_id": "",
                 "graph_harness_config_id": "",
