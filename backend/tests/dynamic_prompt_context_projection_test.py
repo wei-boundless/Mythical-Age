@@ -179,6 +179,11 @@ def test_read_file_content_windows_survive_task_state_projection() -> None:
     assert [item["content_range"]["start_line"] for item in windows] == [1, 11]
     assert windows[0]["content_range"]["next_start_line"] == 11
     assert "不要重复读取相同行窗口" in windows[0]["tool_guidance"]
+    assert windows[0]["rehydration_plan"]["prompt_status"] == "file_window_only"
+    assert windows[0]["rehydration_plan"]["capabilities"][0]["next_request"] == {
+        "tool_name": "read_file",
+        "args": {"path": "docs/long.md", "start_line": 11, "line_count": 10},
+    }
     assert volatile_payload["task_state"]["file_state"][0]["read_ranges"] == [
         {"start_line": 1, "end_line": 10, "observation_ref": "obs:window:1"},
         {"start_line": 11, "end_line": 20, "observation_ref": "obs:window:11"},

@@ -2289,6 +2289,41 @@ def test_graph_run_monitor_exposes_only_active_node_runtime_views_after_runner()
     assert monitor["graph_loop_state"]["completed_node_ids"] == ["draft", "review"]
 
 
+def test_graph_task_run_monitor_does_not_reenter_graph_runtime_projection() -> None:
+    class ProjectorStub:
+        def __init__(self) -> None:
+            self.calls: list[tuple[TaskRun, dict[str, object]]] = []
+
+        def project_task_run(self, task_run: TaskRun, **kwargs: object) -> dict[str, object]:
+            self.calls.append((task_run, dict(kwargs)))
+            return {
+                "authority": "runtime_monitor.v1.item",
+                "task_run_id": task_run.task_run_id,
+            }
+
+    projector = ProjectorStub()
+    harness = GraphHarness.__new__(GraphHarness)
+    harness._services = SimpleNamespace(monitor_projector=projector)
+    task_run = TaskRun(
+        task_run_id="taskrun:graph:test",
+        session_id="session:test",
+        task_id="task.graph",
+        execution_runtime_kind="task_graph",
+        status="running",
+        diagnostics={"graph_run_id": "grun:test"},
+    )
+
+    monitor = harness._task_run_monitor(task_run)
+
+    assert monitor["task_run_id"] == task_run.task_run_id
+    assert len(projector.calls) == 1
+    call_task_run, kwargs = projector.calls[0]
+    assert call_task_run is task_run
+    assert kwargs["include_runtime_details"] is False
+    assert kwargs["include_graph_runtime"] is False
+    assert isinstance(kwargs["now"], float)
+
+
 def test_graph_agent_node_records_artifact_repository_receipts(tmp_path: Path) -> None:
     artifact_rel = "storage/task_environments/development/sandbox/artifacts/graph-node-artifact.md"
     runtime = HarnessRuntimeFacade(

@@ -10,7 +10,7 @@ from .structured_error_projection import structured_error_projection
 from .tool_result_projector import ToolResultProjector
 
 
-PROJECTOR_VERSION = "observation_projector.v1"
+PROJECTOR_VERSION = "observation_projector.v2"
 
 
 class ObservationProjector:
@@ -156,7 +156,9 @@ def _compact_tool_result(tool_projection: dict[str, Any]) -> dict[str, Any]:
             "structured_error": dict(tool_projection.get("structured_error") or {}),
             "artifact_refs": list(dict_tuple(tool_projection.get("artifact_refs"))),
             "replacement_ref": str(tool_projection.get("replacement_ref") or ""),
+            "code_structure": dict(tool_projection.get("code_structure") or {}),
             "content_range": dict(tool_projection.get("content_range") or {}),
             "tool_guidance": str(tool_projection.get("tool_guidance") or ""),
+            "rehydration_plan": dict(tool_projection.get("rehydration_plan") or {}),
         }
     )

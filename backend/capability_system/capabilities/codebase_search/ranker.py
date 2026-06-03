@@ -29,6 +29,8 @@ def rank_codebase_evidence(
                 file=hit.file,
                 line=hit.line,
                 column=hit.column,
+                start_line=file_slice.start_line if file_slice else hit.line,
+                end_line=file_slice.end_line if file_slice else hit.line,
                 symbol=_symbol_from_snippet(hit.snippet),
                 evidence_kind=evidence_kind,
                 snippet=snippet,

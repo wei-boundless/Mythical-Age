@@ -12,7 +12,7 @@ from .replacement_store import ReplacementStore
 from .structured_error_projection import structured_error_projection
 
 
-PROJECTOR_VERSION = "tool_result_projector.v1"
+PROJECTOR_VERSION = "tool_result_projector.v2"
 
 
 class ToolResultProjector:
@@ -100,6 +100,11 @@ class ToolResultProjector:
                 result_ref = str(content_replacements[0].get("path") or content_replacements[0].get("replacement_id") or "")
         structured_error = dict(normalized.get("structured_error") or {})
         error = str(normalized.get("error") or structured_error.get("message") or structured_error.get("detail") or "")
+        rehydration_plan = _build_rehydration_plan(
+            normalized=normalized,
+            result_ref=result_ref,
+            content_replacements=content_replacements,
+        )
         return drop_empty(
             {
                 "tool_result_ref": str(normalized.get("tool_result_ref") or normalized.get("envelope_id") or ""),
@@ -113,9 +118,11 @@ class ToolResultProjector:
                 "observed_paths": list(string_tuple(normalized.get("observed_paths"))),
                 "matched_paths": list(string_tuple(normalized.get("matched_paths"))),
                 "command_receipt": dict(normalized.get("command_receipt") or {}),
+                "code_structure": _compact_code_structure(normalized.get("code_structure")),
                 "content_range": dict(normalized.get("content_range") or {}),
                 "tool_guidance": compact_text(normalized.get("tool_guidance") or "", limit=500),
                 "content_replacements": content_replacements,
+                "rehydration_plan": rehydration_plan,
                 "authority": "harness.runtime.dynamic_context.tool_result_projection",
             }
         )
@@ -219,6 +226,7 @@ def _normalize_tool_result(tool_result: dict[str, Any]) -> dict[str, Any]:
                 envelope.get("command_receipt") or structured.get("command_receipt") or item.get("command_receipt") or parsed_text.get("command_receipt") or {}
             ),
             "result_ref": str(envelope.get("result_ref") or item.get("result_ref") or parsed_text.get("result_ref") or ""),
+            "code_structure": dict(envelope.get("code_structure") or item.get("code_structure") or parsed_text.get("code_structure") or structured.get("code_structure") or {}),
             "content_range": dict(result_metadata.get("content_range") or {}),
             "tool_guidance": str(result_metadata.get("tool_guidance") or ""),
             "error": error,
@@ -285,6 +293,154 @@ def _read_file_metadata_from_structured(
     else:
         guidance = f"read_file 已读到 {path} 的当前可用结尾；不要重复读取相同行窗口。"
     return {"content_range": content_range, "tool_guidance": guidance}
+
+
+def _build_rehydration_plan(
+    *,
+    normalized: dict[str, Any],
+    result_ref: str,
+    content_replacements: list[dict[str, Any]],
+) -> dict[str, Any]:
+    capabilities: list[dict[str, Any]] = []
+    if content_replacements:
+        capabilities.append(
+            drop_empty(
+                {
+                    "capability": "read_persisted_tool_result",
+                    "source": "runtime_context.tool_result_store",
+                    "result_ref": str(result_ref or ""),
+                    "content_replacements": [_replacement_rehydration_ref(item) for item in content_replacements],
+                    "instruction": (
+                        "The prompt contains only a preview of this tool output. "
+                        "Use the persisted result reference only when exact omitted output is required."
+                    ),
+                }
+            )
+        )
+    content_range = dict(normalized.get("content_range") or {})
+    if content_range:
+        capabilities.append(
+            drop_empty(
+                {
+                    "capability": "read_file_range",
+                    "source": "workspace.read_file",
+                    "content_range": content_range,
+                    "next_request": _next_read_file_request(content_range),
+                    "instruction": (
+                        "This read_file result is a line window, not proof that the whole file is in prompt. "
+                        "Use next_request only if later lines are needed."
+                    ),
+                }
+            )
+        )
+    if not capabilities:
+        return {}
+    return drop_empty(
+        {
+            "authority": "harness.runtime.dynamic_context.rehydration_plan",
+            "source_kind": "tool_result",
+            "tool_result_ref": str(normalized.get("tool_result_ref") or normalized.get("envelope_id") or ""),
+            "tool_name": str(normalized.get("tool_name") or ""),
+            "result_ref": str(result_ref or ""),
+            "prompt_status": _prompt_status(
+                has_persisted_output=bool(content_replacements),
+                has_content_range=bool(content_range),
+            ),
+            "capabilities": capabilities,
+            "instruction": "Treat preview text as evidence preview only; rehydrate before relying on omitted exact content.",
+        }
+    )
+
+
+def _replacement_rehydration_ref(item: dict[str, Any]) -> dict[str, Any]:
+    return drop_empty(
+        {
+            "replacement_id": str(item.get("replacement_id") or ""),
+            "path": str(item.get("path") or ""),
+            "json_path": str(item.get("json_path") or ""),
+            "original_size_bytes": item.get("original_size_bytes"),
+            "preview_size_bytes": item.get("preview_size_bytes"),
+            "has_more": item.get("has_more") if isinstance(item.get("has_more"), bool) else None,
+        }
+    )
+
+
+def _next_read_file_request(content_range: dict[str, Any]) -> dict[str, Any]:
+    path = str(content_range.get("path") or "").strip()
+    next_start_line = _int_or_none(content_range.get("next_start_line"))
+    if not path or next_start_line is None or not bool(content_range.get("has_more") or content_range.get("truncated")):
+        return {}
+    line_count = _int_or_none(content_range.get("line_count")) or _int_or_none(content_range.get("returned_lines")) or 240
+    return {
+        "tool_name": "read_file",
+        "args": {
+            "path": path,
+            "start_line": next_start_line,
+            "line_count": max(1, min(int(line_count), 2000)),
+        },
+    }
+
+
+def _prompt_status(*, has_persisted_output: bool, has_content_range: bool) -> str:
+    if has_persisted_output and has_content_range:
+        return "preview_and_file_window_only"
+    if has_persisted_output:
+        return "preview_only"
+    return "file_window_only"
+
+
+def _compact_code_structure(value: Any) -> dict[str, Any]:
+    source = dict(value) if isinstance(value, dict) else {}
+    if not source:
+        return {}
+    files: list[dict[str, Any]] = []
+    for file_item in dict_tuple(source.get("files"))[:16]:
+        slices = []
+        for slice_item in dict_tuple(file_item.get("slices"))[:8]:
+            slices.append(
+                drop_empty(
+                    {
+                        "evidence_ref": str(slice_item.get("evidence_ref") or ""),
+                        "matched_line": _int_or_none(slice_item.get("matched_line")),
+                        "start_line": _int_or_none(slice_item.get("start_line")),
+                        "end_line": _int_or_none(slice_item.get("end_line")),
+                        "symbol": str(slice_item.get("symbol") or ""),
+                        "evidence_kind": str(slice_item.get("evidence_kind") or ""),
+                        "score": slice_item.get("score"),
+                        "read_request": dict(slice_item.get("read_request") or {}),
+                    }
+                )
+            )
+        files.append(
+            drop_empty(
+                {
+                    "path": str(file_item.get("path") or ""),
+                    "candidate_only": file_item.get("candidate_only") if isinstance(file_item.get("candidate_only"), bool) else True,
+                    "must_read_source_before_edit": (
+                        file_item.get("must_read_source_before_edit")
+                        if isinstance(file_item.get("must_read_source_before_edit"), bool)
+                        else True
+                    ),
+                    "evidence_refs": list(string_tuple(file_item.get("evidence_refs"))),
+                    "slices": slices,
+                }
+            )
+        )
+    return drop_empty(
+        {
+            "authority": str(source.get("authority") or "capability.codebase_search.code_structure_map"),
+            "source_kind": str(source.get("source_kind") or "codebase_search"),
+            "candidate_only": source.get("candidate_only") if isinstance(source.get("candidate_only"), bool) else True,
+            "source_authority": str(source.get("source_authority") or "locator_only"),
+            "instruction": compact_text(
+                source.get("instruction")
+                or "Use code structure paths and line ranges to choose read_file calls; snippets are not complete source.",
+                limit=300,
+            ),
+            "files": files,
+            "limitations": list(string_tuple(source.get("limitations")))[:8],
+        }
+    )
 
 
 def _first_string(*values: Any) -> str:

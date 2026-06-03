@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +16,7 @@ class ReplacementRecord:
     projection_policy_hash: str
     projector_version: str
     projection: dict[str, Any]
+    rehydration_plan: dict[str, Any] = field(default_factory=dict)
     authority: str = "harness.runtime.dynamic_context.replacement_record"
 
     def to_dict(self) -> dict[str, Any]:
@@ -27,6 +28,7 @@ class ReplacementRecord:
             "projection_policy_hash": self.projection_policy_hash,
             "projector_version": self.projector_version,
             "projection": dict(self.projection),
+            "rehydration_plan": dict(self.rehydration_plan),
             "authority": self.authority,
         }
 
@@ -87,6 +89,12 @@ class ReplacementStore:
             projector_version=projector_version,
         )
         existing = self.get(replacement_key)
+        selected_projection = json_clone(existing or projection)
+        rehydration_plan = _rehydration_plan_from_projection(selected_projection)
+        if rehydration_plan:
+            rehydration_plan.setdefault("replacement_ref", replacement_key)
+            rehydration_plan.setdefault("content_hash", content_hash)
+            selected_projection["rehydration_plan"] = rehydration_plan
         record = ReplacementRecord(
             replacement_key=replacement_key,
             source_kind=str(source_kind or ""),
@@ -94,12 +102,13 @@ class ReplacementStore:
             content_hash=content_hash,
             projection_policy_hash=projection_policy_hash,
             projector_version=str(projector_version or ""),
-            projection=dict(existing or projection),
+            projection=selected_projection,
+            rehydration_plan=rehydration_plan,
         )
         if existing is not None:
-            return dict(existing), record
+            return selected_projection, record
         self._write(record)
-        return dict(projection), record
+        return selected_projection, record
 
     def _write(self, record: ReplacementRecord) -> None:
         import json
@@ -127,3 +136,8 @@ class MemoryReplacementStore(ReplacementStore):
 
     def _write(self, record: ReplacementRecord) -> None:
         self._records[record.replacement_key] = record.to_dict()["projection"]
+
+
+def _rehydration_plan_from_projection(projection: dict[str, Any]) -> dict[str, Any]:
+    value = projection.get("rehydration_plan")
+    return dict(value) if isinstance(value, dict) else {}

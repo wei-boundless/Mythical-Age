@@ -87,8 +87,10 @@ def _latest_results(
                     "path": _projection_path(item),
                     "visibility": str(item.get("visibility") or ""),
                     "summary": compact_text(item.get("summary") or "", limit=300),
+                    "code_structure": dict(item.get("code_structure") or {}),
                     "content_range": dict(item.get("content_range") or {}),
                     "tool_guidance": compact_text(item.get("tool_guidance") or "", limit=500),
+                    "rehydration_plan": dict(item.get("rehydration_plan") or {}),
                 }
             )
         )
@@ -116,8 +118,10 @@ def _observation_result_projection(item: dict[str, Any]) -> dict[str, Any]:
             "structured_error": structured_error,
             "artifact_refs": list(dict_tuple(item.get("artifact_refs") or tool_result.get("artifact_refs"))),
             "replacement_ref": str(tool_result.get("replacement_ref") or ""),
+            "code_structure": dict(item.get("code_structure") or tool_result.get("code_structure") or {}),
             "content_range": dict(item.get("content_range") or tool_result.get("content_range") or {}),
             "tool_guidance": compact_text(item.get("tool_guidance") or tool_result.get("tool_guidance") or "", limit=500),
+            "rehydration_plan": dict(item.get("rehydration_plan") or tool_result.get("rehydration_plan") or {}),
         }
     )
     if set(projected).issubset({"observation_ref", "replacement_ref"}):

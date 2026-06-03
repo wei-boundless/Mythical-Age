@@ -75,6 +75,19 @@ def test_codebase_search_capability_runs_local_readonly_search() -> None:
     assert payload["diagnostics"]["specialist_route"] == "codebase_search"
     assert payload["findings"]
     assert all(str(item["file"]).startswith("backend/") for item in payload["findings"][:3])
+    structure = payload["code_structure"]
+    assert structure["authority"] == "capability.codebase_search.code_structure_map"
+    assert structure["candidate_only"] is True
+    assert structure["source_authority"] == "locator_only"
+    assert "do not treat snippets as complete source" in structure["instruction"]
+    assert structure["files"]
+    first_file = structure["files"][0]
+    assert first_file["candidate_only"] is True
+    assert first_file["must_read_source_before_edit"] is True
+    assert first_file["evidence_refs"]
+    assert first_file["slices"][0]["start_line"] <= first_file["slices"][0]["matched_line"] <= first_file["slices"][0]["end_line"]
+    assert first_file["slices"][0]["read_request"]["tool_name"] == "read_file"
+    assert "snippet" not in first_file["slices"][0]
 
 
 def test_codebase_search_permissions_do_not_accept_web_or_memory_substitute() -> None:
@@ -166,6 +179,8 @@ def test_ranker_prioritizes_definitions_over_docs() -> None:
 
     assert ranked[0].file.endswith("runtime.py")
     assert ranked[0].evidence_kind == "definition"
+    assert ranked[0].start_line == ranked[0].line
+    assert ranked[0].end_line == ranked[0].line
     assert ranked[0].score > ranked[1].score
 
 

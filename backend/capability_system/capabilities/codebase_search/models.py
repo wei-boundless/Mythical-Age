@@ -64,6 +64,8 @@ class CodebaseEvidence:
     file: str
     line: int = 1
     column: int = 1
+    start_line: int = 1
+    end_line: int = 1
     symbol: str = ""
     evidence_kind: str = "text_match"
     snippet: str = ""
@@ -75,6 +77,8 @@ class CodebaseEvidence:
             "file": self.file,
             "line": self.line,
             "column": self.column,
+            "start_line": self.start_line,
+            "end_line": self.end_line,
             "symbol": self.symbol,
             "evidence_kind": self.evidence_kind,
             "snippet": self.snippet,
@@ -89,6 +93,7 @@ class CodebaseSearchResult:
     summary: str
     findings: tuple[CodebaseEvidence, ...] = ()
     files_read: tuple[str, ...] = ()
+    code_structure: dict[str, Any] = field(default_factory=dict)
     limitations: tuple[str, ...] = ()
     diagnostics: dict[str, Any] = field(default_factory=dict)
 
@@ -98,6 +103,7 @@ class CodebaseSearchResult:
             "summary": self.summary,
             "findings": [item.to_dict() for item in self.findings],
             "files_read": list(self.files_read),
+            "code_structure": dict(self.code_structure),
             "limitations": list(self.limitations),
             "diagnostics": dict(self.diagnostics),
         }
