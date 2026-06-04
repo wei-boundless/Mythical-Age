@@ -231,6 +231,23 @@ def test_writing_prompts_define_outline_hierarchy_and_node_handoffs() -> None:
     assert "不能用提交摘要把错误节奏固化成后续权威" in memory_commit_prompt
 
 
+def test_batch_assemble_contract_remains_semantic_assembler_not_rewriter() -> None:
+    module = load_writing_modular_config_module()
+    node_by_id = {node.node_id: node for node in module.CHAPTER_NODES}
+
+    prompt = node_by_id["chapter_batch_assemble"].prompt
+
+    assert "只负责把当前批次内已经完成的单章正文按章号顺序汇总成十章候选稿" in prompt
+    assert "不能扩写、改写或重排单章正文" in prompt
+    assert "缺少某一章、章号不连续、标题与当前章号不符、上一章结尾无法承接下一章开头" in prompt
+    assert "不能用自己补写来掩盖" in prompt
+    assert "替审核员裁决通过" in prompt
+    assert "完整汇总稿必须放入 final_answer" in prompt
+    assert "运行时会按图节点执行协议解析你的 action JSON" in prompt
+    assert "必须填写 public_progress_note" not in prompt
+    assert "必须填写 public_action_state" not in prompt
+
+
 def test_writer_topology_does_not_register_duplicate_output_contracts() -> None:
     module = load_writing_modular_config_module()
     counts = Counter(spec.contract_id for spec in module._contract_specs())

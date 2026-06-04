@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from hashlib import sha1
 from typing import Any
 
@@ -333,6 +334,9 @@ def _tool_target_from_observation(observation: dict[str, Any]) -> str:
 
 def _tool_title(*, step: str, tool_name: str, target: str, state: str) -> str:
     family = _tool_family(tool_name)
+    if str(tool_name or "").strip().lower() == "memory_search":
+        action = "正在检索记忆" if state == "running" else "记忆检索完成" if state == "done" else "记忆检索失败"
+        return f"{action} {target}".strip()
     started = state == "running"
     if family == "check":
         action = "正在检查" if started else "检查完成" if state == "done" else "检查失败"
@@ -405,6 +409,9 @@ def _tool_detail(*, summary: str, agent_brief: str, target: str) -> str:
 
 def _tool_observation_detail(observation: dict[str, Any], *, target: str) -> str:
     envelope = _record(observation.get("result_envelope"))
+    tool_name = str(observation.get("tool_name") or envelope.get("tool_name") or "").strip().lower()
+    if tool_name == "memory_search":
+        return _memory_search_observation_detail(observation.get("text") or envelope.get("text"))
     structured = _record(envelope.get("structured_payload"))
     tool_result = _record(structured.get("tool_result"))
     if str(tool_result.get("kind") or "").strip() == "path_exists":
@@ -437,9 +444,53 @@ def _visible_text(value: Any, *, limit: int = 220) -> str:
     text = " ".join(text.split()).strip()
     if text.lower() in _SUPPRESSED_TEXT:
         return ""
+    if _looks_like_structured_payload_text(text):
+        return ""
     if len(text) > limit:
         return text[: max(1, limit - 1)] + "..."
     return text
+
+
+def _memory_search_observation_detail(value: Any) -> str:
+    payload = _json_record(value)
+    result_count = _safe_int(payload.get("result_count"))
+    results = payload.get("results")
+    if result_count is None and isinstance(results, list):
+        result_count = len(results)
+    if result_count is None:
+        return "记忆检索已返回，结果会纳入当前判断"
+    if result_count > 0:
+        return f"记忆检索命中 {result_count} 条相关记录"
+    return "记忆检索未找到相关记录"
+
+
+def _json_record(value: Any) -> dict[str, Any]:
+    if isinstance(value, dict):
+        return value
+    if not isinstance(value, str):
+        return {}
+    text = value.strip()
+    if not ((text.startswith("{") and text.endswith("}")) or (text.startswith("[") and text.endswith("]"))):
+        return {}
+    try:
+        parsed = json.loads(text)
+    except Exception:
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def _safe_int(value: Any) -> int | None:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _looks_like_structured_payload_text(value: str) -> bool:
+    text = str(value or "").strip()
+    if (text.startswith("{") and text.endswith("}")) or (text.startswith("[") and text.endswith("]")):
+        return True
+    return any(token in text for token in ("authority", "diagnostics", "matched_version_count", "result_envelope", "structured_payload"))
 
 
 def _stable_id(prefix: str, left: str, right: str) -> str:

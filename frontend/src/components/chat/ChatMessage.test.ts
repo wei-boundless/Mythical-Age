@@ -282,7 +282,7 @@ describe("ChatMessage", () => {
     expect(html).not.toContain("正在思考");
   });
 
-  it("does not keep stale live tool activity spinning after a stable assistant answer", () => {
+  it("folds live tool activity into a stable assistant answer", () => {
     const html = renderToStaticMarkup(
       React.createElement(ChatMessage, {
         answerCanonicalState: "stable_answer",
@@ -306,8 +306,9 @@ describe("ChatMessage", () => {
     );
 
     expect(html).toContain("写好了");
-    expect(html).toContain("工具反馈");
-    expect(html).toContain("观察：artifacts/football.html 已返回");
+    expect(html).not.toContain("public-run-activity");
+    expect(html).not.toContain("观察结果");
+    expect(html).not.toContain("football.html 已返回");
     expect(html).not.toContain("动作已返回");
     expect(html).not.toContain("public-run-activity__row--done");
     expect(html).not.toContain("public-run-activity__row--current");

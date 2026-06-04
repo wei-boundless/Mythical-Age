@@ -643,6 +643,49 @@ def test_public_stream_projection_emits_live_tool_result_delta() -> None:
     assert item["detail"] == "目标路径存在"
 
 
+def test_public_stream_projection_summarizes_memory_search_without_internal_payload() -> None:
+    projected = _project_public_stream_event(
+        "turn_tool_observation_recorded",
+        {
+            "type": "turn_tool_observation_recorded",
+            "event": {
+                "event_id": "rtevt:memory-search",
+                "payload": {
+                    "tool_observation": {
+                        "tool_name": "memory_search",
+                        "status": "ok",
+                        "text": json.dumps(
+                            {
+                                "authority": "formal_memory.memory_search_tool",
+                                "query": "主角设定",
+                                "result_count": 2,
+                                "results": [{"summary": "主角来自边境城。"}],
+                                "diagnostics": {"matched_version_count": 2},
+                            },
+                            ensure_ascii=False,
+                        ),
+                        "result_envelope": {
+                            "tool_args": {"query": "主角设定"},
+                        },
+                    },
+                },
+            },
+        },
+    )
+
+    assert projected is not None
+    _, data = projected
+    visible = json.dumps(data["public_timeline_delta"], ensure_ascii=False)
+    item = data["public_timeline_delta"][0]
+    assert item["kind"] == "tool_activity"
+    assert item["title"] == "记忆检索完成 主角设定"
+    assert item["detail"] == "记忆检索命中 2 条相关记录"
+    assert "formal_memory.memory_search_tool" not in visible
+    assert "diagnostics" not in visible
+    assert "matched_version_count" not in visible
+    assert "memory_search" not in visible
+
+
 def test_public_stream_projection_hides_sandbox_boundary_command_failures() -> None:
     projected = _project_public_stream_event(
         "turn_tool_observation_recorded",

@@ -69,6 +69,19 @@ def test_prompt_library_lists_only_runtime_agent_and_environment_resources_by_de
     assert rule_by_id["coding.rule.editing.v1"].requires == ("runtime.rule.file_management.generic.v1",)
 
 
+def test_graph_node_runtime_protocol_includes_respond_action_json_shape(tmp_path: Path) -> None:
+    registry = PromptLibraryRegistry(tmp_path)
+
+    resource = registry.get_resource("runtime.graph_node_execution.v1")
+
+    assert resource is not None
+    assert "JSON 顶层必须包含 authority、action_type、public_progress_note、public_action_state 和 final_answer" in resource.content
+    assert 'authority 固定为 "harness.loop.model_action_request"' in resource.content
+    assert 'action_type 通常使用 "respond"' in resource.content
+    assert "交付内容必须全部放入 final_answer" in resource.content
+    assert "不要把正文、汇总稿、审核报告、记忆提交包或说明文字写在 JSON 外" in resource.content
+
+
 def test_prompt_library_upsert_does_not_persist_all_default_resources(tmp_path: Path) -> None:
     registry = PromptLibraryRegistry(tmp_path)
     registry.upsert_resource(

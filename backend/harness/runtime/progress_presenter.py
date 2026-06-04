@@ -308,6 +308,8 @@ def _tool_action_keywords(tool_name: str) -> tuple[str, ...]:
         return ("写入", "创建", "修改", "编辑", "补丁", "文件", "write", "edit", "patch")
     if normalized in {"search_text", "search_files", "glob_paths"}:
         return ("搜索", "查找", "检索", "匹配", "search", "grep")
+    if normalized == "memory_search":
+        return ("记忆", "检索", "回溯", "memory", "search")
     if normalized in {"terminal", "shell", "run_command", "powershell"}:
         return ("命令", "终端", "运行", "执行", "shell", "powershell")
     return tuple(part for part in normalized.replace("-", "_").split("_") if part)
@@ -402,6 +404,9 @@ def _tool_evidence(*, tool_name: str, tool_args: dict[str, Any], observation: di
             "status": "error",
         }
 
+    if normalized == "memory_search":
+        return _memory_search_evidence(parsed)
+
     if normalized == "path_exists":
         exists = _result_bool(parsed if parsed is not None else raw_result)
         if exists is False:
@@ -485,6 +490,38 @@ def _tool_evidence(*, tool_name: str, tool_args: dict[str, Any], observation: di
         "summary": summary or "工具执行完成，结果已写入运行上下文。",
         "status": "success",
     }
+
+
+def _memory_search_evidence(parsed: Any) -> dict[str, str]:
+    payload = parsed if isinstance(parsed, dict) else {}
+    results = payload.get("results")
+    result_count = _safe_int(payload.get("result_count"))
+    if result_count is None and isinstance(results, list):
+        result_count = len(results)
+    if result_count is None:
+        return {
+            "label": "memory_search",
+            "summary": "记忆检索已返回，结果已纳入当前判断。",
+            "status": "success",
+        }
+    if result_count > 0:
+        return {
+            "label": "memory_search",
+            "summary": f"已检索记忆，命中 {result_count} 条相关记录。",
+            "status": "success",
+        }
+    return {
+        "label": "memory_search",
+        "summary": "已检索记忆，未找到相关记录。",
+        "status": "negative_evidence",
+    }
+
+
+def _safe_int(value: Any) -> int | None:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _tool_failure_status_text(
@@ -1021,6 +1058,8 @@ def _tool_title(tool_name: str, target: str) -> str:
         return "写入文件"
     if normalized in {"search_text", "search_files", "glob_paths"}:
         return "搜索证据"
+    if normalized == "memory_search":
+        return "检索记忆"
     if normalized in {"terminal", "shell", "run_command", "powershell"}:
         return "运行命令"
     return f"执行 {tool_name}" if tool_name else "执行操作"
@@ -1038,6 +1077,8 @@ def _tool_action_sentence(tool_name: str, target: str) -> str:
         return f"写入 {target}。" if target else "写入目标文件。"
     if normalized in {"search_text", "search_files", "glob_paths"}:
         return f"搜索 {target}。" if target else "搜索可用证据。"
+    if normalized == "memory_search":
+        return f"检索记忆：{target}。" if target else "检索相关记忆。"
     if normalized in {"terminal", "shell", "run_command", "powershell"}:
         return "运行命令处理当前步骤。"
     return f"调用 {tool_name}。" if tool_name else ""
@@ -1049,7 +1090,7 @@ def _work_kind_from_tool(tool_name: str) -> str:
         return "inspect_path"
     if normalized in {"write_file", "edit_file", "apply_patch"}:
         return "write_file"
-    if normalized in {"search_text", "search_files", "glob_paths"}:
+    if normalized in {"search_text", "search_files", "glob_paths", "memory_search"}:
         return "search_text"
     if normalized in {"terminal", "shell", "run_command", "powershell"}:
         return "terminal"

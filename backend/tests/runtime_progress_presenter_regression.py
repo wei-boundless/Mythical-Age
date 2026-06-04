@@ -607,6 +607,57 @@ def test_public_chat_timeline_projects_observation_reports_after_tool_work() -> 
     assert timeline[-1]["implication"] == "下一步应该根据真实调用链修改公开投影。"
 
 
+def test_memory_search_observation_is_summarized_without_internal_payload() -> None:
+    memory_payload = json.dumps(
+        {
+            "authority": "formal_memory.memory_search_tool",
+            "query": "主角设定",
+            "result_count": 2,
+            "results": [
+                {"memory_ref": "mem:1", "summary": "主角来自边境城。"},
+                {"memory_ref": "mem:2", "summary": "主角会使用旧式机关。"},
+            ],
+            "diagnostics": {
+                "candidate_version_count": 8,
+                "matched_version_count": 2,
+            },
+        },
+        ensure_ascii=False,
+    )
+    events = [
+        {
+            "event_id": "rtevt:memory",
+            "run_id": "taskrun:turn:session-progress:1:abc",
+            "event_type": "task_tool_observation_recorded",
+            "offset": 1,
+            "created_at": 1.0,
+            "payload": {
+                "observation": {
+                    "observation_id": "obs:memory",
+                    "source": "tool:memory_search",
+                    "payload": {
+                        "tool_name": "memory_search",
+                        "tool_args": {"query": "主角设定"},
+                        "result": memory_payload,
+                    },
+                },
+            },
+            "refs": {"observation_ref": "obs:memory"},
+        }
+    ]
+
+    presentation = build_progress_presentation(events=events, task_run=_task_run(), monitor={})
+    timeline = build_public_chat_timeline(progress_presentation=presentation, status="running")
+    visible = json.dumps(timeline, ensure_ascii=False)
+
+    assert "检索记忆" in visible
+    assert "已检索记忆，命中 2 条相关记录。" in visible
+    assert "formal_memory.memory_search_tool" not in visible
+    assert "diagnostics" not in visible
+    assert "matched_version_count" not in visible
+    assert "memory_search" not in visible
+
+
 def test_public_progress_scrubs_bounded_retry_policy_details() -> None:
     text = public_runtime_progress_summary(
         "当前处理已停止：image_generation_failed，"

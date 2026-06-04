@@ -26,6 +26,7 @@ import {
 } from "@/components/chat/agentRunPresentation";
 
 type PublicRunActivityProps = {
+  foldCompletedActivity?: boolean;
   items: PublicChatTimelineItem[];
   assistantContent?: string;
 };
@@ -55,8 +56,8 @@ function samePublicText(left: unknown, right: unknown) {
   return sameRunText(left, right);
 }
 
-function publicItems(items: PublicChatTimelineItem[], assistantContent = "") {
-  return normalizePublicTimelineItems(items.filter((item) => shouldRenderItem(item, assistantContent)));
+function publicItems(items: PublicChatTimelineItem[], assistantContent = "", foldCompletedActivity = false) {
+  return normalizePublicTimelineItems(items.filter((item) => shouldRenderItem(item, assistantContent, foldCompletedActivity)));
 }
 
 function isStatusUpdate(item: PublicChatTimelineItem) {
@@ -69,10 +70,13 @@ function isFinalItem(item: PublicChatTimelineItem) {
   return kind === "final_summary" || kind === "artifact";
 }
 
-function shouldRenderItem(item: PublicChatTimelineItem, assistantContent: string) {
+function shouldRenderItem(item: PublicChatTimelineItem, assistantContent: string, foldCompletedActivity: boolean) {
   const kind = cleanText(item.kind);
   const text = textOfItem(item);
   if (!text) return false;
+  if (foldCompletedActivity && isProcessActivityItem(item)) {
+    return false;
+  }
   if (assistantContent.trim() && isStaleRawToolFailure(item, text)) {
     return false;
   }
@@ -95,6 +99,19 @@ function shouldRenderItem(item: PublicChatTimelineItem, assistantContent: string
   return true;
 }
 
+function isProcessActivityItem(item: PublicChatTimelineItem) {
+  const kind = cleanText(item.kind);
+  return [
+    "observation_report",
+    "stage",
+    "status_update",
+    "task_order",
+    "todo_plan",
+    "tool_activity",
+    "verification",
+  ].includes(kind);
+}
+
 function isStaleRawToolFailure(item: PublicChatTimelineItem, text: string) {
   if (cleanText(item.kind) !== "tool_activity") return false;
   if (stateClass(item) !== "error") return false;
@@ -104,8 +121,9 @@ function isStaleRawToolFailure(item: PublicChatTimelineItem, text: string) {
 export function hasPublicRunActivity(
   items: PublicChatTimelineItem[],
   assistantContent = "",
+  options: { foldCompletedActivity?: boolean } = {},
 ) {
-  const plan = activityPlan(publicItems(items, assistantContent));
+  const plan = activityPlan(publicItems(items, assistantContent, Boolean(options.foldCompletedActivity)));
   return Boolean(plan.current || plan.recent.length || plan.finalItems.length || plan.collapsedCount);
 }
 
@@ -324,7 +342,7 @@ function activitySummary(plan: ReturnType<typeof activityPlan>) {
         detail: short(readableToolObservation(action.observation, action.detail, currentAction), 180),
         item: plan.current,
         meta: "已返回",
-        title: "工具反馈",
+        title: "观察结果",
         tone: "done",
       };
     }
@@ -399,8 +417,8 @@ function ActivitySummaryLine({ summary }: { summary: ReturnType<typeof activityS
   );
 }
 
-export function PublicRunActivity({ items, assistantContent = "" }: PublicRunActivityProps) {
-  const plan = activityPlan(publicItems(items, assistantContent));
+export function PublicRunActivity({ foldCompletedActivity = false, items, assistantContent = "" }: PublicRunActivityProps) {
+  const plan = activityPlan(publicItems(items, assistantContent, foldCompletedActivity));
   if (!plan.current && !plan.recent.length && !plan.finalItems.length && !plan.collapsedCount) {
     return null;
   }

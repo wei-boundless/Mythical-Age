@@ -77,8 +77,14 @@ export function ChatMessage({
   const displayContent = isUser
     ? baseDisplayContent
     : assistantContentFromTimeline(baseDisplayContent, publicTimelineItems);
-  const hasRunActivity = !isUser && hasPublicRunActivity(publicTimelineItems, displayContent);
-  const assistantSignal = !isUser
+  const foldCompletedActivity = !isUser && shouldFoldCompletedActivity({
+    answerCanonicalState,
+    answerChannel,
+    answerPersistPolicy,
+    content: baseDisplayContent,
+  });
+  const hasRunActivity = !isUser && hasPublicRunActivity(publicTimelineItems, displayContent, { foldCompletedActivity });
+  const assistantSignal = !isUser && !foldCompletedActivity
     ? assistantSignalFromTimeline({
       baseContent: baseDisplayContent,
       displayContent,
@@ -245,7 +251,11 @@ export function ChatMessage({
         </div>
       ) : null}
       {hasRunActivity ? (
-        <PublicRunActivity items={publicTimelineItems} assistantContent={displayContent} />
+        <PublicRunActivity
+          foldCompletedActivity={foldCompletedActivity}
+          items={publicTimelineItems}
+          assistantContent={displayContent}
+        />
       ) : null}
       {!isUser ? <OutputBoundaryStatus {...boundary} /> : null}
     </article>
@@ -329,6 +339,25 @@ function assistantContentFromTimeline(content: string, items: PublicChatTimeline
 
 function cleanBoundaryText(value: unknown) {
   return cleanRunText(value);
+}
+
+function shouldFoldCompletedActivity({
+  answerCanonicalState,
+  answerChannel,
+  answerPersistPolicy,
+  content,
+}: {
+  answerCanonicalState?: string;
+  answerChannel?: string;
+  answerPersistPolicy?: string;
+  content: string;
+}) {
+  if (!cleanBoundaryText(content)) return false;
+  const state = cleanBoundaryText(answerCanonicalState).toLowerCase();
+  const channel = cleanBoundaryText(answerChannel).toLowerCase();
+  const persist = cleanBoundaryText(answerPersistPolicy).toLowerCase();
+  if (channel === "blocked" || channel === "task_control") return false;
+  return state === "stable_answer" || state === "tool_summary" || persist === "persist_canonical";
 }
 
 function boundaryLabel(state: string, persistPolicy: string, channel: string) {

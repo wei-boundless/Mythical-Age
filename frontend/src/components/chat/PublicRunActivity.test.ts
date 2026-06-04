@@ -74,7 +74,7 @@ describe("PublicRunActivity", () => {
     );
 
     expect(html).toContain("public-run-activity");
-    expect(html).toContain("工具反馈");
+    expect(html).toContain("观察结果");
     expect(html).toContain("观察：目标文件尚未存在");
     expect(html).toContain("目标文件尚未存在");
     expect(html).not.toContain("查看执行细节");
@@ -97,7 +97,7 @@ describe("PublicRunActivity", () => {
       }),
     );
 
-    expect(html).toContain("工具反馈");
+    expect(html).toContain("观察结果");
     expect(html).toContain("观察：项目约定已读到");
     expect(html).toContain("项目要求固定端口");
   });
@@ -146,6 +146,70 @@ describe("PublicRunActivity", () => {
     );
 
     expect(html).toBe("");
+  });
+
+  it("folds process activity once the answer owns the outcome", () => {
+    const items = [
+      {
+        item_id: "todo:plan",
+        kind: "todo_plan",
+        title: "处理清单",
+        detail: "2/2 已完成",
+        state: "done",
+        completion_ready: true,
+        todo_items: [
+          { todo_id: "search", content: "检索项目记忆", status: "completed" },
+          { todo_id: "answer", content: "整理最终回答", status: "completed" },
+        ],
+      },
+      {
+        item_id: "tool:memory",
+        kind: "tool_activity",
+        title: "工具已完成 memory_search",
+        detail: "{\"authority\":\"formal_memory.memory_search_tool\",\"diagnostics\":{\"matched_version_count\":2}}",
+        state: "done",
+      },
+      {
+        item_id: "observation:memory",
+        kind: "observation_report",
+        title: "观察报告",
+        detail: "已检索记忆，命中 2 条相关记录。",
+        state: "done",
+      },
+    ];
+
+    expect(hasPublicRunActivity(items, "已根据记忆整理完成。", { foldCompletedActivity: true })).toBe(false);
+    const html = renderToStaticMarkup(
+      React.createElement(PublicRunActivity, {
+        foldCompletedActivity: true,
+        assistantContent: "已根据记忆整理完成。",
+        items,
+      }),
+    );
+
+    expect(html).toBe("");
+  });
+
+  it("does not surface structured tool diagnostics from old activity rows", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(PublicRunActivity, {
+        items: [
+          {
+            item_id: "tool:memory",
+            kind: "tool_activity",
+            title: "工具已完成 memory_search",
+            detail: "{\"authority\":\"formal_memory.memory_search_tool\",\"diagnostics\":{\"matched_version_count\":2},\"results\":[]}",
+            state: "done",
+          },
+        ],
+      }),
+    );
+
+    expect(html).toContain("观察结果");
+    expect(html).not.toContain("authority");
+    expect(html).not.toContain("diagnostics");
+    expect(html).not.toContain("matched_version_count");
+    expect(html).not.toContain("memory_search");
   });
 
   it("does not render completion-only receipts or internal event names", () => {
@@ -275,7 +339,7 @@ describe("PublicRunActivity", () => {
       }),
     );
 
-    expect(html).toContain("工具反馈");
+    expect(html).toContain("观察结果");
     expect(html).toContain("观察：项目约定已读到");
     expect(html).toContain("项目要求先说明判断");
   });
@@ -295,7 +359,7 @@ describe("PublicRunActivity", () => {
       }),
     );
 
-    expect(html).toContain("工具反馈");
+    expect(html).toContain("观察结果");
     expect(html).toContain("观察：验证命令已返回，22 tests passed");
   });
 
@@ -407,11 +471,11 @@ describe("PublicRunActivity", () => {
       }),
     );
 
-    expect(html).toContain("工具反馈");
+    expect(html).toContain("观察结果");
     expect(html).toContain("观察：验证命令已返回，31 tests passed");
     expect(html).toContain("收尾总结");
     expect(html).toContain("已完成开局反馈、运行反馈和收尾展示调整。");
-    expect(html.indexOf("工具反馈")).toBeLessThan(html.indexOf("收尾总结"));
+    expect(html.indexOf("观察结果")).toBeLessThan(html.indexOf("收尾总结"));
     expect(html).not.toContain("阶段完成");
   });
 

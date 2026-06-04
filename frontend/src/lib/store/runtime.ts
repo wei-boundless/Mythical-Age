@@ -3038,6 +3038,9 @@ export class WorkspaceRuntime {
       return null;
     }
     const kind = String(entry.kind ?? "").trim();
+    if (kind === "observation") {
+      return null;
+    }
     const body = this.publicRuntimeText(entry.publicNote || entry.agentBrief || entry.body || entry.title);
     const title = this.publicRuntimeText(entry.title);
     if (!body && !title) {

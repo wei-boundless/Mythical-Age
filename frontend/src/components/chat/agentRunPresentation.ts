@@ -212,7 +212,7 @@ function stripActionPrefix(value: unknown) {
     .replace(/^(?:已读取文件|读取完成|搜索完成|检查完成|命令已完成|写入完成|更新完成|编辑完成|工具已完成|工具失败|读取失败|搜索失败|检查失败|命令失败|写入失败)\s*/i, "")
     .replace(/^正在(?:读取文件|读取|搜索|检查|确认|运行|调用工具|调用|写入|编辑|更新)\s*/i, "")
     .replace(/^(?:读取文件|读取|搜索|检查|确认|运行|调用工具|调用|写入|编辑|更新)\s*/i, "")
-    .replace(/^执行\s+(?:read_file|read_path|search_text|search_files|glob_paths|write_file|edit_file|terminal|shell|path_exists|stat_path|list_dir)\s*/i, "")
+    .replace(/^执行\s+(?:read_file|read_path|search_text|search_files|glob_paths|memory_search|write_file|edit_file|terminal|shell|path_exists|stat_path|list_dir)\s*/i, "")
     .replace(/[。.]$/g, "")
     .trim();
 }
@@ -246,7 +246,7 @@ function stripTechnicalNoise(value: unknown) {
     }
   }
   text = text
-    .replace(/(?:^|[：:\s])(?:read_file|read_path|search_text|search_files|glob_paths|write_file|edit_file|terminal|shell|path_exists|stat_path|list_dir)[。.]?$/i, "")
+    .replace(/(?:^|[：:\s])(?:read_file|read_path|search_text|search_files|glob_paths|memory_search|write_file|edit_file|terminal|shell|path_exists|stat_path|list_dir)[。.]?$/i, "")
     .replace(/^工具(?:返回|状态|调用)?[：:]\s*/i, "")
     .replace(/^调用工具\s*/i, "")
     .replace(/^工具已完成\s*/i, "")
@@ -258,7 +258,7 @@ function stripTechnicalNoise(value: unknown) {
 }
 
 function isPureTechnicalToken(value: string) {
-  return /^(?:read_file|read_path|search_text|search_files|glob_paths|write_file|edit_file|terminal|shell|path_exists|stat_path|list_dir|tool|工具)$/i.test(value);
+  return /^(?:read_file|read_path|search_text|search_files|glob_paths|memory_search|write_file|edit_file|terminal|shell|path_exists|stat_path|list_dir|tool|工具)$/i.test(value);
 }
 
 function isGenericActionTarget(value: string) {
@@ -398,10 +398,22 @@ function meaningfulObservationDetail(value: unknown, target: string) {
   if (!text || text === target || compactPathLabel(text) === target || INTERNAL_REFERENCE_PATTERN.test(text)) {
     return "";
   }
+  if (looksLikeStructuredToolPayload(text)) {
+    return "";
+  }
   if (GENERIC_TOOL_WAIT_PREFIXES.some((prefix) => text.toLowerCase().startsWith(prefix.toLowerCase()))) {
     return "";
   }
   return text;
+}
+
+function looksLikeStructuredToolPayload(value: string) {
+  const text = cleanRunText(value);
+  if (!text) return false;
+  if ((text.startsWith("{") && text.endsWith("}")) || (text.startsWith("[") && text.endsWith("]"))) {
+    return true;
+  }
+  return /\b(?:authority|diagnostics|matched_version_count|candidate_version_count|structured_payload|result_envelope)\b/i.test(text);
 }
 
 function suppressGenericToolWait(value: string) {
