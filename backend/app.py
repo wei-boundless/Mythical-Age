@@ -21,7 +21,7 @@ from api.task_system import router as task_system_router
 from api.tokens import router as tokens_router
 from api.code_environment import router as code_environment_router
 from bootstrap.lifespan import runtime_lifespan
-from sessions import InvalidSessionId
+from sessions import InvalidSessionId, SessionPayloadCorrupt, SessionStorageError
 from runtime_encoding import configure_process_utf8
 
 configure_process_utf8()
@@ -62,6 +62,16 @@ app.include_router(code_environment_router, prefix="/api", tags=["code-environme
 @app.exception_handler(InvalidSessionId)
 async def invalid_session_id_handler(_: Request, __: InvalidSessionId) -> JSONResponse:
     return JSONResponse({"detail": "Invalid session_id"}, status_code=400)
+
+
+@app.exception_handler(SessionPayloadCorrupt)
+async def corrupt_session_payload_handler(_: Request, exc: SessionPayloadCorrupt) -> JSONResponse:
+    return JSONResponse({"detail": str(exc)}, status_code=409)
+
+
+@app.exception_handler(SessionStorageError)
+async def session_storage_error_handler(_: Request, exc: SessionStorageError) -> JSONResponse:
+    return JSONResponse({"detail": str(exc)}, status_code=503)
 
 
 @app.get("/health")

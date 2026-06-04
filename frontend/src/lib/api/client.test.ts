@@ -47,6 +47,24 @@ describe("apiRequest", () => {
     await pending;
   });
 
+  it("allows native project directory selection to wait for user input", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("window", {});
+    vi.stubGlobal("fetch", vi.fn((_url: string, init?: RequestInit) => new Promise((_resolve, reject) => {
+      init?.signal?.addEventListener("abort", () => reject(init.signal?.reason));
+    })));
+
+    const pending = expect(apiRequest("/sessions/session:pick/project-binding/select-directory", { method: "POST" })).rejects.toMatchObject({
+      name: "RequestTimeoutError",
+      message: "Request timed out after 90000ms: /sessions/session:pick/project-binding/select-directory",
+    });
+    await vi.advanceTimersByTimeAsync(89999);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1);
+
+    await pending;
+  });
+
   it("returns null for 204 no-content responses", async () => {
     vi.stubGlobal("window", {});
     vi.stubGlobal("fetch", vi.fn(async () => ({

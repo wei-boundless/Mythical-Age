@@ -6,6 +6,7 @@ from typing import Any
 
 from harness.runtime.progress_presenter import build_progress_presentation
 from harness.runtime.public_chat_timeline import build_public_chat_timeline
+from harness.runtime.public_projection_filters import should_hide_public_tool_observation
 from harness.runtime.public_progress import public_runtime_progress_summary, public_runtime_progress_title
 
 
@@ -600,6 +601,18 @@ def _turn_tool_observation_entry(event: dict[str, Any], *, payload: dict[str, An
         or envelope.get("text")
         or (f"工具状态：{status}" if status else "工具结果已返回。")
     ).strip()
+    if failed and should_hide_public_tool_observation(
+        tool_name,
+        target,
+        result_text,
+        error,
+        observation.get("text"),
+        envelope.get("error"),
+        envelope.get("text"),
+        _record_value(observation.get("structured_error")).get("message"),
+        _record_value(envelope.get("structured_error")).get("message"),
+    ):
+        return {}
     return _entry(
         event,
         title=_tool_activity_title(tool_name=tool_name, preview=target, phase="failed" if failed else "completed"),
@@ -713,6 +726,10 @@ def _turn_tool_observation_artifacts(observation: dict[str, Any]) -> list[dict[s
 
 def _compact_meta(items: list[dict[str, str]]) -> list[dict[str, str]]:
     return [item for item in items if str(item.get("label") or "").strip() and str(item.get("value") or "").strip()][:6]
+
+
+def _record_value(value: Any) -> dict[str, Any]:
+    return value if isinstance(value, dict) else {}
 
 
 def _public_timeline_from_progress_entries(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:

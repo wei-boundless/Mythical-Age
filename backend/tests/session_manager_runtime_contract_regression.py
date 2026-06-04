@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import concurrent.futures
+import json
+import logging
 import sys
 from pathlib import Path
 
@@ -9,7 +12,8 @@ if str(BACKEND_DIR) not in sys.path:
 
 import pytest
 
-from sessions import SessionManager, SessionTaskBindingConflict
+import sessions as sessions_module
+from sessions import SessionManager, SessionPayloadCorrupt, SessionStorageError, SessionTaskBindingConflict
 from scripts.migrate_legacy_task_session_scope import migrate_legacy_task_session_scope
 
 
@@ -34,6 +38,64 @@ def test_session_manager_exposes_runtime_session_record(tmp_path: Path) -> None:
     assert record["compressed_context"] == ""
     assert [item["content"] for item in record["messages"]] == ["hello", "hi"]
     assert record["task_binding"] == {}
+
+
+def test_session_manager_reports_corrupt_payload_and_keeps_list_available(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+    backend_dir = tmp_path / "backend"
+    backend_dir.mkdir()
+    manager = SessionManager(backend_dir)
+    session = manager.create_session(title="Corrupt session")
+    manager._session_path(session["id"]).write_text("{not-json", encoding="utf-8")
+
+    with pytest.raises(SessionPayloadCorrupt):
+        manager.get_history(session["id"])
+
+    caplog.set_level(logging.WARNING, logger="sessions")
+    sessions = manager.list_sessions()
+    assert sessions[0]["id"] == session["id"]
+    assert sessions[0]["storage_status"] == "unreadable"
+    assert "corrupt session payload" in sessions[0]["storage_error"]
+    assert "Skipping unreadable session payload" in caplog.text
+
+
+def test_session_manager_atomic_write_preserves_existing_payload_on_replace_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    backend_dir = tmp_path / "backend"
+    backend_dir.mkdir()
+    manager = SessionManager(backend_dir)
+    session = manager.create_session(title="Original")
+    session_path = manager._session_path(session["id"])
+    original_payload = json.loads(session_path.read_text(encoding="utf-8"))
+
+    def fail_replace(_src: object, _dst: object) -> None:
+        raise OSError("simulated replace failure")
+
+    monkeypatch.setattr(sessions_module.os, "replace", fail_replace)
+
+    with pytest.raises(SessionStorageError):
+        manager.rename_session(session["id"], "Broken")
+
+    assert json.loads(session_path.read_text(encoding="utf-8")) == original_payload
+    assert list(session_path.parent.glob(f".{session_path.name}.*.tmp")) == []
+
+
+def test_session_manager_serializes_concurrent_message_appends(tmp_path: Path) -> None:
+    backend_dir = tmp_path / "backend"
+    backend_dir.mkdir()
+    manager = SessionManager(backend_dir)
+    session_id = manager.create_session(title="Concurrent")["id"]
+    expected = {f"message-{index}" for index in range(40)}
+
+    def append_message(index: int) -> None:
+        manager.append_messages(session_id, [{"role": "user", "content": f"message-{index}"}])
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+        list(executor.map(append_message, range(40)))
+
+    actual = {item["content"] for item in manager.get_history(session_id)["messages"]}
+    assert actual == expected
 
 
 def test_session_manager_binds_one_graph_task_instance_per_session(tmp_path: Path) -> None:

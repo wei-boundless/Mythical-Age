@@ -13,6 +13,7 @@ from code_environment.models import (
     CodeEnvironmentResponse,
     HostCapabilityStatus,
     PiEnvironmentDiagnostic,
+    PiEnvironmentMode,
     PiEnvironmentStatus,
 )
 
@@ -45,6 +46,43 @@ def build_code_environment_status(
     sidecar_mode = str(sidecar_config.get("mode") or "diagnostic_only").strip() or "diagnostic_only"
     workspace_root_policy = str(config_payload.get("workspace_root_policy") or "project_root").strip() or "project_root"
 
+    def build_response(
+        *,
+        available: bool,
+        mode: PiEnvironmentMode,
+        package_payload: dict[str, Any] | None = None,
+        coding_agent_package_payload: dict[str, Any] | None = None,
+        node_version: str = "",
+        npm_version: str = "",
+        cli_built: bool = False,
+        rpc_source_available: bool = False,
+    ) -> CodeEnvironmentResponse:
+        return CodeEnvironmentResponse(
+            host=HostCapabilityStatus(
+                mode="desktop" if host_mode == "desktop" else "web",
+                local_runtime_available=local_runtime_available,
+                code_environment_host_available=code_environment_host_available,
+            ),
+            pi=PiEnvironmentStatus(
+                available=available,
+                mode=mode,
+                enabled=enabled,
+                sidecar_enabled=sidecar_enabled,
+                sidecar_mode=sidecar_mode,
+                pi_source_root=str(pi_root),
+                pi_cli_path=str(pi_cli),
+                workspace_root=str(root),
+                workspace_root_policy=workspace_root_policy,
+                node_version=node_version,
+                npm_version=npm_version,
+                package_name=str((package_payload or {}).get("name") or ""),
+                coding_agent_package_name=str((coding_agent_package_payload or {}).get("name") or ""),
+                cli_built=cli_built,
+                rpc_source_available=rpc_source_available,
+                diagnostics=diagnostics,
+            ),
+        )
+
     if not enabled:
         diagnostics.append(
             PiEnvironmentDiagnostic(
@@ -53,6 +91,8 @@ def build_code_environment_status(
                 message="Professional code environment diagnostics are disabled in backend/config.json.",
             )
         )
+        return build_response(available=False, mode="web_only")
+
     if not sidecar_enabled:
         diagnostics.append(
             PiEnvironmentDiagnostic(
@@ -61,6 +101,7 @@ def build_code_environment_status(
                 message="Pi sidecar is disabled; professional code tasks continue through the local runtime.",
             )
         )
+        return build_response(available=False, mode="web_only")
 
     package_payload = _read_json(pi_root / "package.json")
     coding_agent_package_payload = _read_json(pi_root / "packages" / "coding-agent" / "package.json")
@@ -123,34 +164,19 @@ def build_code_environment_status(
         and bool(node_version)
         and rpc_source_available
     )
-    mode = "sidecar_ready" if available and cli_built else "web_only"
+    mode: PiEnvironmentMode = "sidecar_ready" if available and cli_built else "web_only"
     if any(item.level == "error" for item in diagnostics):
         mode = "error"
 
-    return CodeEnvironmentResponse(
-        host=HostCapabilityStatus(
-            mode="desktop" if host_mode == "desktop" else "web",
-            local_runtime_available=local_runtime_available,
-            code_environment_host_available=code_environment_host_available,
-        ),
-        pi=PiEnvironmentStatus(
-            available=available,
-            mode=mode,
-            enabled=enabled,
-            sidecar_enabled=sidecar_enabled,
-            sidecar_mode=sidecar_mode,
-            pi_source_root=str(pi_root),
-            pi_cli_path=str(pi_cli),
-            workspace_root=str(root),
-            workspace_root_policy=workspace_root_policy,
-            node_version=node_version,
-            npm_version=npm_version,
-            package_name=str((package_payload or {}).get("name") or ""),
-            coding_agent_package_name=str((coding_agent_package_payload or {}).get("name") or ""),
-            cli_built=cli_built,
-            rpc_source_available=rpc_source_available,
-            diagnostics=diagnostics,
-        ),
+    return build_response(
+        available=available,
+        mode=mode,
+        package_payload=package_payload,
+        coding_agent_package_payload=coding_agent_package_payload,
+        node_version=node_version,
+        npm_version=npm_version,
+        cli_built=cli_built,
+        rpc_source_available=rpc_source_available,
     )
 
 
@@ -194,5 +220,3 @@ def _command_version(command: list[str], diagnostics: list[PiEnvironmentDiagnost
         )
         return ""
     return completed.stdout.strip()
-
-

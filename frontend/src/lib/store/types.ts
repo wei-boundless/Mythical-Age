@@ -1,12 +1,10 @@
 import type {
   OrchestrationSnapshot,
-  GlobalRuntimeMonitor,
   GraphRunMonitorView,
   ModelProviderConfig,
   PublicChatTimelineItem,
   RetrievalResult,
   RunMonitorEventPayload,
-  RuntimeMonitorEventPayload,
   RuntimeMonitorEnvelope,
   ImageAssetConfig,
   HarnessTaskRunLiveMonitor,
@@ -19,7 +17,6 @@ import type {
   WorkspaceContext,
   CodeEnvironmentWorkspaceTree
 } from "@/lib/api";
-import type { RuntimeTaskInstanceState } from "@/lib/runtime-monitor/types";
 
 export type {
   RuntimeProgressEvidence,
@@ -335,17 +332,6 @@ export type StoreState = {
   runMonitorError: string;
   runMonitorStreamStatus: RuntimeMonitorStreamStatus;
   runMonitorLastEvent: RunMonitorEventPayload["runtime_event"] | null;
-  globalRuntimeMonitor: GlobalRuntimeMonitor | null;
-  globalRuntimeMonitorRevision: string;
-  globalRuntimeMonitorSelectedTaskInstanceId: string;
-  globalRuntimeMonitorSelectedTaskRunId: string;
-  globalRuntimeMonitorSelectedLiveMonitor: HarnessTaskRunLiveMonitor | null;
-  globalRuntimeMonitorSelectedGraphMonitor: GraphRunMonitorView | null;
-  runtimeMonitorInstancesById: Record<string, RuntimeTaskInstanceState>;
-  globalRuntimeMonitorLoading: boolean;
-  globalRuntimeMonitorError: string;
-  globalRuntimeMonitorStreamStatus: RuntimeMonitorStreamStatus;
-  globalRuntimeMonitorLastEvent: RuntimeMonitorEventPayload["runtime_event"] | null;
   taskGraphBoundRunMonitor: GraphRunMonitorView | null;
   taskGraphMonitorLoading: boolean;
   taskGraphMonitorActionLoading: boolean;
@@ -365,6 +351,7 @@ export type StoreActions = {
   refreshTaskEnvironmentCatalog: () => Promise<void>;
   setActiveTaskEnvironment: (environmentId: string, options?: { environmentLabel?: string; source?: string }) => Promise<void>;
   refreshWorkspaceTree: () => Promise<void>;
+  bindCurrentSessionProject: () => Promise<void>;
   createNewSession: () => Promise<void>;
   selectSession: (ref: SessionRef) => Promise<void>;
   sendMessage: (value: string) => Promise<void>;
@@ -405,12 +392,9 @@ export type StoreActions = {
   clearChatTaskEnvironmentBinding: () => void;
   openRunMonitorSignal: (signalId: string) => void;
   refreshRunMonitor: () => Promise<void>;
-  selectGlobalRuntimeMonitorTaskRun: (taskRunId: string) => void;
-  openGlobalRuntimeMonitorTaskRun: (taskRunId: string) => void;
   openTaskGraphWorkspace: (target?: Omit<TaskGraphCenterWorkspaceTarget, "layer" | "requested_at">) => void;
   openWorkspaceFile: (path: string) => void;
   clearCenterWorkspaceTarget: () => void;
-  refreshGlobalRuntimeMonitor: () => Promise<void>;
 };
 
 export type AppStore = StoreState &

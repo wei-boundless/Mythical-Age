@@ -39,15 +39,15 @@ export function RunMonitorPanel() {
     <section className="run-monitor-panel" aria-label="运行监控">
       <header className="run-monitor-panel__head">
         <div>
-          <span>运行监控</span>
+          <span>运行</span>
           <strong>{headline}</strong>
         </div>
-        <button aria-label="刷新运行监控" disabled={runMonitorLoading} onClick={() => void refreshRunMonitor()} type="button">
+        <button aria-label="刷新运行状态" disabled={runMonitorLoading} onClick={() => void refreshRunMonitor()} type="button">
           <RefreshCw size={15} />
         </button>
       </header>
 
-      <div className="run-monitor-panel__status" aria-label="监控状态">
+      <div className="run-monitor-panel__status" aria-label="运行状态">
         <span><RadioTower size={13} />{streamLabel}</span>
         <span><strong>{summary?.active ?? 0}</strong>运行</span>
         <span><strong>{summary?.waiting ?? 0}</strong>等待</span>

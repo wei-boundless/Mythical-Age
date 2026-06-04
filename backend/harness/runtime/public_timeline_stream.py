@@ -3,6 +3,7 @@ from __future__ import annotations
 from hashlib import sha1
 from typing import Any
 
+from harness.runtime.public_projection_filters import should_hide_public_tool_observation
 from harness.runtime.public_progress import public_runtime_progress_summary
 
 
@@ -113,6 +114,19 @@ def _turn_tool_observation_item(data: dict[str, Any]) -> dict[str, Any]:
     state = "done" if status in {"ok", "success", "done", "completed"} else "error"
     title = _tool_title(step="turn_tool_observation_recorded", tool_name=tool_name, target=target, state=state)
     detail = _tool_observation_detail(observation, target=target)
+    envelope = _record(observation.get("result_envelope"))
+    if state == "error" and should_hide_public_tool_observation(
+        tool_name,
+        target,
+        detail,
+        observation.get("error"),
+        observation.get("text"),
+        envelope.get("error"),
+        envelope.get("text"),
+        _record(observation.get("structured_error")).get("message"),
+        _record(envelope.get("structured_error")).get("message"),
+    ):
+        return {}
     trace_ref = str(event.get("event_id") or "") or _stable_id("tool-observation", tool_name, target or detail)
     item_id = _tool_activity_id(data=data, event=event, tool_name=tool_name, target=target or detail, fallback=trace_ref)
     if state == "error":

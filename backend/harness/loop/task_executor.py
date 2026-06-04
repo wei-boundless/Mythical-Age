@@ -2086,7 +2086,7 @@ def _task_sandbox_policy(runtime_assembly: dict[str, Any], *, runtime_host: Any,
         contract=_load_contract_for_policy(runtime_host, task_run_id),
         safety_envelope=task_safety_envelope_from_assembly(runtime_assembly),
     )
-    project_root = ProjectLayout.from_backend_dir(runtime_host.backend_dir).project_root.resolve()
+    project_root = _task_workspace_root(runtime_assembly, runtime_host=runtime_host)
     ensure_environment_storage_dirs(project_root=project_root, storage_space=storage)
     sandbox_root = str(sandbox.get("sandbox_root") or "").strip()
     if not sandbox_root:
@@ -2105,6 +2105,17 @@ def _task_sandbox_policy(runtime_assembly: dict[str, Any], *, runtime_host: Any,
             or ("op.write_file", "op.edit_file", "op.shell", "op.python_repl", "op.browser_control", "op.image_generate")
         ),
     }
+
+
+def _task_workspace_root(runtime_assembly: dict[str, Any], *, runtime_host: Any) -> Path:
+    environment = dict(runtime_assembly.get("task_environment") or {})
+    storage = dict(environment.get("storage_space") or {})
+    sandbox = dict(environment.get("sandbox_policy") or {})
+    for candidate in (storage.get("workspace_root"), sandbox.get("workspace_root")):
+        text = str(candidate or "").strip()
+        if text:
+            return Path(text).resolve()
+    return ProjectLayout.from_backend_dir(runtime_host.backend_dir).project_root.resolve()
 
 
 def _task_runtime_scope_policy(task_run: Any) -> dict[str, Any]:

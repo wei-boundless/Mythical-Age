@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import json
+import logging
+import os
 import sys
 from pathlib import Path
 
@@ -12,8 +15,28 @@ if str(BACKEND_DIR) not in sys.path:
 import config
 
 
+def _clear_llm_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    env_names = {name for name in os.environ if name.startswith("LLM_")}
+    env_names.update(config.LLM_PROVIDER_MODEL_ENVS.values())
+    env_names.update(config.LLM_PROVIDER_BASE_URL_ENVS.values())
+    for defaults in config.LLM_PROVIDER_DEFAULTS.values():
+        env_names.update(str(name) for name in defaults.get("credential_envs") or ())
+    env_names.update(
+        {
+            "LLM_PROVIDER",
+            "LLM_FALLBACK_PROVIDER",
+            "LLM_FALLBACK_MODEL",
+            "LLM_FALLBACK_BASE_URL",
+            "LLM_FALLBACK_API_KEY",
+        }
+    )
+    for name in env_names:
+        monkeypatch.delenv(name, raising=False)
+
+
 @pytest.fixture(autouse=True)
 def _isolated_runtime_config(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+    _clear_llm_env(monkeypatch)
     runtime_path = tmp_path / "config.json"
     runtime_path.write_text("{}", encoding="utf-8")
     isolated_manager = config.RuntimeConfigManager(runtime_path)
@@ -62,6 +85,89 @@ def test_model_provider_payload_exposes_deepseek_thinking_defaults(monkeypatch: 
 
     assert payload["thinking_mode"] == "enabled"
     assert payload["reasoning_effort"] == "max"
+
+
+def test_llm_provider_resolution_tables_cover_all_catalog_providers() -> None:
+    providers = set(config.LLM_PROVIDER_DEFAULTS)
+
+    assert set(config.LLM_PROVIDER_MODEL_ENVS) == providers
+    assert set(config.LLM_PROVIDER_BASE_URL_ENVS) == providers
+    assert all(config.LLM_PROVIDER_DEFAULTS[provider].get("credential_envs") is not None for provider in providers)
+
+
+def test_provider_specific_primary_envs_precede_global_compatibility_envs(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("LLM_PROVIDER", "deepseek")
+    monkeypatch.setenv("DEEPSEEK_MODEL", "DeepSeek-V4-Flash")
+    monkeypatch.setenv("LLM_MODEL", "global-model")
+    monkeypatch.setenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com/provider")
+    monkeypatch.setenv("LLM_BASE_URL", "https://global.example.test/v1")
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "provider-key")
+    monkeypatch.setenv("LLM_API_KEY", "global-key")
+
+    settings = config.get_settings()
+
+    assert settings.llm_model == "deepseek-v4-flash"
+    assert settings.llm_base_url == "https://api.deepseek.com/provider"
+    assert settings.llm_api_key == "provider-key"
+
+
+def test_global_llm_api_key_remains_primary_compatibility_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("LLM_PROVIDER", "anthropic")
+    monkeypatch.setenv("LLM_API_KEY", "global-key")
+
+    settings = config.get_settings()
+
+    assert settings.llm_provider == "anthropic"
+    assert settings.llm_api_key == "global-key"
+
+
+def test_fallback_api_key_does_not_leak_primary_global_llm_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("LLM_PROVIDER", "deepseek")
+    monkeypatch.setenv("LLM_API_KEY", "primary-global-key")
+    monkeypatch.setenv("LLM_FALLBACK_PROVIDER", "openrouter")
+
+    settings = config.get_settings()
+
+    assert settings.llm_fallback_provider == "openrouter"
+    assert settings.llm_fallback_api_key is None
+
+
+def test_runtime_payload_warns_on_invalid_runtime_json(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    runtime_path = tmp_path / "config.json"
+    runtime_path.write_text("{ broken", encoding="utf-8")
+    monkeypatch.setattr(config, "_runtime_config_path", lambda: runtime_path)
+    config._RUNTIME_CONFIG_WARNING_KEYS.clear()
+    caplog.set_level(logging.WARNING, logger=config.__name__)
+
+    assert config._runtime_payload() == {}
+
+    messages = [record.message for record in caplog.records]
+    assert any("Ignoring runtime config" in message and "invalid JSON" in message for message in messages)
+
+
+def test_runtime_config_manager_warns_and_recovers_invalid_runtime_json(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    runtime_path = tmp_path / "config.json"
+    runtime_path.write_text("{ broken", encoding="utf-8")
+    manager = config.RuntimeConfigManager(runtime_path)
+    config._RUNTIME_CONFIG_WARNING_KEYS.clear()
+    caplog.set_level(logging.WARNING, logger=config.__name__)
+
+    payload = manager.load()
+
+    assert payload["rag_mode"] is False
+    assert payload["permission_mode"] == "default"
+    assert payload["orchestration_plan_mode"] == "primary"
+    assert payload["context_budget_preset"] == "deepseek_1m"
+    assert json.loads(runtime_path.read_text(encoding="utf-8")) == payload
+    messages = [record.message for record in caplog.records]
+    assert any("Ignoring runtime config" in message and "invalid JSON" in message for message in messages)
 
 
 def test_fallback_provider_uses_model_hint_to_avoid_cross_provider_pair(monkeypatch: pytest.MonkeyPatch) -> None:

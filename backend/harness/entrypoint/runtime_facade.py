@@ -201,6 +201,10 @@ class HarnessRuntimeFacade:
             "compressed_context": history_assembly.compressed_context,
             "api_transcript": [dict(item) for item in list(api_transcript or []) if isinstance(item, dict)],
         }
+        conversation_state = dict(history_record.get("conversation_state") or {})
+        project_binding = dict(conversation_state.get("project_binding") or {})
+        if project_binding:
+            session_context["project_binding"] = project_binding
         editor_context = dict(getattr(request, "editor_context", {}) or {})
         if editor_context:
             session_context["editor_context"] = editor_context
@@ -288,6 +292,7 @@ class HarnessRuntimeFacade:
                     tool_instances=tool_instances,
                     definitions_by_name=dict(self.single_agent_runtime_host.tool_authorization_index.definitions_by_name or {}),
                     permission_mode=request_permission_mode,
+                    workspace_root=str(project_binding.get("workspace_root") or ""),
                 )
                 self._record_turn_environment_snapshot(
                     session_id=request.session_id,

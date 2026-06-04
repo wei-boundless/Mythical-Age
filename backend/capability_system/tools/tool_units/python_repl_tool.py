@@ -34,7 +34,7 @@ class PythonReplTool(BaseTool):
         code: str,
         run_manager: CallbackManagerForToolRun | None = None,
     ) -> str:
-        blocked_reason = validate_sandbox_command_text(code, kind="code")
+        blocked_reason = validate_sandbox_command_text(code, kind="code", workspace_root=self._root_dir)
         if blocked_reason:
             return blocked_reason
         try:

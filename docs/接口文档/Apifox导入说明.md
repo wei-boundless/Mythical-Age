@@ -19,25 +19,25 @@
 
 | 分组 | 接口数量 |
 | --- | ---: |
-| tasks | 49 |
+| tasks | 50 |
 | health-system | 28 |
-| memory | 16 |
+| memory | 18 |
 | orchestration-catalog | 16 |
+| sessions | 15 |
+| orchestration-harness | 12 |
 | capability-system | 11 |
 | config | 10 |
-| orchestration-harness | 10 |
-| orchestration | 9 |
-| sessions | 9 |
+| orchestration | 10 |
 | code-environment | 8 |
 | chat | 6 |
 | mcp-system | 6 |
 | runtime-monitor | 5 |
 | files | 4 |
+| tokens | 4 |
 | image-assets | 2 |
-| tokens | 2 |
 | 未分组 | 1 |
 
-总计：166 个 path，192 个 operation。
+总计：178 个 path，206 个 operation。
 
 ## 注意事项
 

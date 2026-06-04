@@ -27,18 +27,8 @@ def _service():
     return runtime.harness_runtime.single_agent_runtime_host.runtime_monitor_service
 
 
-@router.get("/orchestration/runtime-monitor/live")
-async def list_runtime_monitor_live(limit: int = 20) -> dict[str, Any]:
-    return _service().list_global_live_monitor(limit=limit)
-
-
 @router.get("/orchestration/runtime-monitor")
 async def list_runtime_monitor(limit: int = 30) -> dict[str, Any]:
-    return _service().collect_global_runtime_monitor(limit=limit)
-
-
-@router.get("/orchestration/runtime-monitor/console")
-async def list_runtime_monitor_console(limit: int = 30) -> dict[str, Any]:
     return _service().collect_global_runtime_monitor(limit=limit)
 
 

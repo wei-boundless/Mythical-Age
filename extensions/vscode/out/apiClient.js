@@ -57,7 +57,7 @@ function configuredSessionId() {
     const value = vscode.workspace.getConfiguration("langchainAgent").get("sessionId");
     return sanitizeSessionId(value || "");
 }
-async function createSession(title) {
+async function createSession(title, projectBinding) {
     const apiBase = normalizedApiBase();
     const response = await fetch(`${apiBase}/sessions`, {
         method: "POST",
@@ -68,7 +68,8 @@ async function createSession(title) {
             title,
             scope: {
                 workspace_view: "chat"
-            }
+            },
+            ...(projectBinding ? { project_binding: projectBinding } : {})
         })
     });
     if (!response.ok) {

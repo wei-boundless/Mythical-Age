@@ -3,6 +3,7 @@
 import {
   runGraphRunUntilIdle,
   loadFile,
+  loadFileForSession,
   createSession,
   deleteSession,
   getChatRun,
@@ -29,6 +30,8 @@ import {
   listSkills,
   renameSession,
   saveFile,
+  saveFileForSession,
+  selectSessionProjectDirectory,
   setRagMode,
   stopOrchestrationHarnessTaskRun,
   clearChatStreamCursor,
@@ -37,19 +40,18 @@ import {
   streamExistingChatRun,
   truncateSessionMessages
 } from "@/lib/api";
-import type { ChatStreamCursor, GlobalRuntimeMonitor, PublicChatTimelineItem, RunMonitorEventPayload, RuntimeMonitorEventPayload, SessionRuntimeAttachment, SessionScope, SessionSummary } from "@/lib/api";
+import type { ChatStreamCursor, PublicChatTimelineItem, RunMonitorEventPayload, RuntimeMonitorEnvelope, SessionRuntimeAttachment, SessionScope, SessionSummary } from "@/lib/api";
 import { taskEnvironmentDisplayName } from "@/lib/taskEnvironmentDisplay";
 
 import { createIdleSessionActivity, type Store } from "./core";
 import { reduceStreamEvent, startQueuedActiveTurn, startStreamingTurn, type StreamSession } from "./events";
 import { mergePublicTimelineItems, publicTimelineTerminalStateFromAnswer } from "./publicTimeline";
-import { RuntimeMonitorController } from "../runtime-monitor/controller";
 import { RunMonitorController } from "../run-monitor/controller";
 import type { ActiveTurnSnapshot, ChatMode, ChatModelSelection, ChatTaskEnvironmentBinding, ChatThinkingMode, Message, PermissionMode, RuntimeProgressEntry, SearchPolicySource, SessionEditorContext, SessionEditorPageStatePatch, SessionPoolKey, SessionRef, StoreActions, StoreState, TaskEnvironmentWorkspaceView, TaskGraphCenterWorkspaceTarget, TaskGraphMonitorBinding, TaskSelectionState, WorkspaceView } from "./types";
 import { makeId, toUiMessages } from "./utils";
 
 type HarnessSessionMonitor = NonNullable<Awaited<ReturnType<typeof getOrchestrationHarnessSessionLiveMonitor>>["monitor"]>;
-type RuntimeMonitorEvent = NonNullable<RuntimeMonitorEventPayload["runtime_event"]>;
+type RuntimeMonitorEvent = NonNullable<RunMonitorEventPayload["runtime_event"]>;
 const MAX_LIVE_RUNTIME_PROGRESS_ENTRIES = 24;
 const MAIN_CHAT_POOL_KEY: SessionPoolKey = "main-chat";
 const GENERAL_TASK_ENVIRONMENT_ID = "env.general.workspace";
@@ -79,6 +81,10 @@ function visibleMainChatSessions(sessions: SessionSummary[]) {
     }
     return !GRAPH_ONLY_TASK_ENVIRONMENT_IDS.has(sessionTaskEnvironmentId(session));
   });
+}
+
+function sessionProjectRoot(session: SessionSummary | null | undefined) {
+  return String(session?.conversation_state?.project_binding?.workspace_root || "").trim();
 }
 
 function sessionPoolKeyForScope(scope: Partial<SessionScope> | undefined): SessionPoolKey {
@@ -114,7 +120,7 @@ export class WorkspaceRuntime {
   private createSessionPromise: Promise<string> | null = null;
   private sessionDetailsRequest = 0;
   private orchestrationHydrateRequest = 0;
-  private runtimeMonitorController: RuntimeMonitorController;
+  private workspaceTreeRequest = 0;
   private runMonitorController: RunMonitorController;
   private sessionRefreshTimers: number[] = [];
   private sessionListFailureNotifiedAt = 0;
@@ -129,16 +135,6 @@ export class WorkspaceRuntime {
   readonly actions: StoreActions;
 
   constructor(private readonly store: Store<StoreState>) {
-    this.runtimeMonitorController = new RuntimeMonitorController(this.store, {
-      hasActiveChatStream: () => this.hasActiveChatStream(),
-      patchRuntimeAttachmentFromRuntimeEvent: (prev, event) => this.patchRuntimeAttachmentFromRuntimeEvent(prev, event as RuntimeMonitorEvent),
-      applySelectedSessionShell: (sessionId, scope) => this.applySelectedSessionShell(sessionId, scope ? { scope, poolKey: sessionPoolKeyForScope(scope) } : undefined),
-      bindTaskEnvironmentContext: (taskEnvironmentId, options) => this.bindTaskEnvironmentContext(taskEnvironmentId, options),
-      workspaceViewForTaskEnvironment: (taskEnvironmentId) => this.workspaceViewForTaskEnvironment(taskEnvironmentId),
-      refreshSessionDetails: (sessionId) => this.refreshSessionDetails(sessionId),
-      hydrateLatestOrchestrationSnapshot: (sessionId) => this.hydrateLatestOrchestrationSnapshot(sessionId),
-      syncWorkspaceViewUrl: (view) => this.syncWorkspaceViewUrl(view),
-    });
     this.runMonitorController = new RunMonitorController(this.store, {
       hasActiveChatStream: () => this.hasActiveChatStream(),
       patchRuntimeAttachmentFromRuntimeEvent: (prev, event) => this.patchRuntimeAttachmentFromRuntimeEvent(prev, event as RuntimeMonitorEvent),
@@ -164,6 +160,9 @@ export class WorkspaceRuntime {
       },
       refreshWorkspaceTree: async () => {
         await this.refreshWorkspaceTree();
+      },
+      bindCurrentSessionProject: async () => {
+        await this.bindCurrentSessionProject();
       },
       createNewSession: async () => {
         await this.createNewSession();
@@ -279,12 +278,6 @@ export class WorkspaceRuntime {
       refreshRunMonitor: async () => {
         await this.refreshRunMonitor();
       },
-      selectGlobalRuntimeMonitorTaskRun: (taskRunId) => {
-        this.selectGlobalRuntimeMonitorTaskRun(taskRunId);
-      },
-      openGlobalRuntimeMonitorTaskRun: (taskRunId) => {
-        this.openGlobalRuntimeMonitorTaskRun(taskRunId);
-      },
       openTaskGraphWorkspace: (target) => {
         this.openTaskGraphWorkspace(target);
       },
@@ -293,14 +286,11 @@ export class WorkspaceRuntime {
       },
       clearCenterWorkspaceTarget: () => {
         this.clearCenterWorkspaceTarget();
-      },
-      refreshGlobalRuntimeMonitor: async () => {
-        await this.refreshGlobalRuntimeMonitor();
       }
     };
   }
 
-  startGlobalRuntimeMonitor() {
+  startRunMonitor() {
     this.runMonitorController.start();
   }
 
@@ -412,7 +402,14 @@ export class WorkspaceRuntime {
   }
 
   private async loadInspectorMemoryFile() {
-    const file = await loadFile("durable_memory/index/MEMORY.md").catch(() => null);
+    const state = this.store.getState();
+    const sessionId = state.currentSessionId || "";
+    if (sessionId && !this.sessionProjectRoot(state, sessionId)) {
+      return;
+    }
+    const file = sessionId
+      ? await loadFileForSession(DEFAULT_INSPECTOR_PATH, sessionId, this.sessionScopeForSession(sessionId)).catch(() => null)
+      : await loadFile(DEFAULT_INSPECTOR_PATH).catch(() => null);
     if (!file) {
       return;
     }
@@ -433,7 +430,6 @@ export class WorkspaceRuntime {
     }
     this.sessionRefreshTimers = [];
     this.runMonitorController.stop();
-    this.runtimeMonitorController.stop();
   }
 
   private scheduleSessionRefreshes(delays: number[] = [5000, 15000]) {
@@ -575,6 +571,7 @@ export class WorkspaceRuntime {
           ? this.clearSessionActivityFor(next, sessionId)
           : next;
       });
+      void this.refreshWorkspaceTree().catch(() => undefined);
     } catch (error) {
       if (this.store.getState().currentSessionId !== sessionId || this.sessionDetailsRequest !== requestId) {
         return;
@@ -1009,6 +1006,20 @@ export class WorkspaceRuntime {
     await this.hydrateLatestOrchestrationSnapshot(normalized.sessionId).catch(() => false);
   }
 
+  private async bindCurrentSessionProject() {
+    const sessionId = await this.ensureSession();
+    const scope = this.sessionScopeForSession(sessionId);
+    await selectSessionProjectDirectory(sessionId, scope);
+    await this.refreshMainSessionPool();
+    this.store.setState((prev) => ({
+      ...prev,
+      workspaceTree: null,
+      workspaceTreeError: "",
+    }));
+    await this.refreshWorkspaceTree();
+    await this.loadInspectorMemoryFile();
+  }
+
   private sessionScopeForSession(sessionId: string): Partial<SessionScope> | undefined {
     const state = this.store.getState();
     if (state.activeSessionRef?.sessionId === sessionId) {
@@ -1242,6 +1253,7 @@ export class WorkspaceRuntime {
       }, normalized.sessionId));
       this.store.setState((prev) => this.projectSelectedSessionActivity(prev, normalized.sessionId));
       this.projectPermissionModeToRuntime(permissionMode);
+      void this.refreshWorkspaceTree().catch(() => undefined);
       return true;
     }
     const selectedSession = this.store.getState().sessions.find((session) => session.id === normalized.sessionId);
@@ -1264,6 +1276,7 @@ export class WorkspaceRuntime {
     }, normalized.sessionId));
     this.store.setState((prev) => this.projectSelectedSessionActivity(prev, normalized.sessionId));
     this.projectPermissionModeToRuntime(permissionMode);
+    void this.refreshWorkspaceTree().catch(() => undefined);
     return false;
   }
 
@@ -1511,7 +1524,7 @@ export class WorkspaceRuntime {
         ) {
           await this.refreshSessionDetails(sessionId);
           await this.hydrateLatestOrchestrationSnapshot(sessionId);
-          await this.refreshGlobalRuntimeMonitor();
+          await this.refreshRunMonitor();
         }
         this.refreshMainSessionPoolInBackground();
         this.scheduleSessionRefreshes();
@@ -1786,7 +1799,7 @@ export class WorkspaceRuntime {
       ) {
         await this.refreshSessionDetails(sessionId);
         await this.hydrateLatestOrchestrationSnapshot(sessionId);
-        await this.refreshGlobalRuntimeMonitor();
+        await this.refreshRunMonitor();
       }
       this.refreshMainSessionPoolInBackground();
       this.scheduleSessionRefreshes();
@@ -1912,7 +1925,7 @@ export class WorkspaceRuntime {
       return;
     }
     await this.hydrateLatestOrchestrationSnapshot(sessionId);
-    await this.refreshGlobalRuntimeMonitor();
+    await this.refreshRunMonitor();
   }
 
   private isAbortError(error: unknown) {
@@ -2254,19 +2267,19 @@ export class WorkspaceRuntime {
 
   private chatEditorContextPayload(state: StoreState, sessionId: string): Record<string, unknown> | undefined {
     const context = state.sessionEditorContexts[sessionId];
-    if (!context) {
-      return undefined;
-    }
-    const activePath = String(context.activeFilePath || "").trim();
+    const activePath = String(context?.activeFilePath || "").trim();
     const openFilePaths = this.uniqueFilePaths([
-      ...context.openFilePaths,
+      ...(context?.openFilePaths ?? []),
       ...(activePath ? [activePath] : []),
     ]).slice(0, 20);
-    if (!activePath && !openFilePaths.length) {
+    const workspaceRoots = this.uniqueFilePaths([
+      this.sessionProjectRoot(state, sessionId),
+    ]);
+    if (!activePath && !openFilePaths.length && !workspaceRoots.length) {
       return undefined;
     }
-    const activeFileLoaded = Boolean(activePath && context.inspectorPath === activePath);
-    const activeText = activeFileLoaded ? String(context.inspectorContent || "") : "";
+    const activeFileLoaded = Boolean(activePath && context?.inspectorPath === activePath);
+    const activeText = activeFileLoaded ? String(context?.inspectorContent || "") : "";
     const selectedText = activeText.slice(0, FRONTEND_EDITOR_CONTEXT_TEXT_LIMIT);
     const selection = selectedText
       ? {
@@ -2276,9 +2289,6 @@ export class WorkspaceRuntime {
           truncated: activeText.length > selectedText.length,
         }
       : undefined;
-    const workspaceRoots = this.uniqueFilePaths([
-      String(state.workspaceContext?.project_root || "").trim(),
-    ]);
     return {
       source: "frontend.center_workspace",
       captured_at: new Date().toISOString(),
@@ -2287,14 +2297,14 @@ export class WorkspaceRuntime {
         ? {
             path: activePath,
             language_id: this.languageIdForPath(activePath),
-            dirty: Boolean(context.inspectorDirty),
+            dirty: Boolean(context?.inspectorDirty),
             selection,
           }
         : undefined,
       visible_files: openFilePaths.map((path) => ({
         path,
         language_id: this.languageIdForPath(path),
-        dirty: path === activePath ? Boolean(context.inspectorDirty) : false,
+        dirty: path === activePath ? Boolean(context?.inspectorDirty) : false,
       })),
     };
   }
@@ -2332,6 +2342,10 @@ export class WorkspaceRuntime {
       default:
         return extension || "plaintext";
     }
+  }
+
+  private sessionProjectRoot(state: StoreState, sessionId: string) {
+    return sessionProjectRoot(state.sessions.find((session) => session.id === sessionId));
   }
 
   private async renameCurrentSession(title: string) {
@@ -2436,7 +2450,15 @@ export class WorkspaceRuntime {
 
   private async loadInspectorFile(path: string) {
     try {
-      const file = await loadFile(path);
+      const state = this.store.getState();
+      const sessionId = state.currentSessionId || "";
+      const scope = sessionId ? this.sessionScopeForSession(sessionId) : undefined;
+      if (sessionId && !this.sessionProjectRoot(state, sessionId)) {
+        throw new Error("当前会话未绑定项目，不能打开项目文件。");
+      }
+      const file = sessionId
+        ? await loadFileForSession(path, sessionId, scope)
+        : await loadFile(path);
       this.store.setState((prev) => this.patchCurrentSessionEditorContext({
         ...prev,
         inspectorPath: file.path,
@@ -2467,13 +2489,32 @@ export class WorkspaceRuntime {
   }
 
   private async refreshWorkspaceTree() {
+    const requestId = ++this.workspaceTreeRequest;
+    const state = this.store.getState();
+    const sessionId = state.currentSessionId || "";
+    const scope = sessionId ? this.sessionScopeForSession(sessionId) : undefined;
+    if (sessionId && !this.sessionProjectRoot(state, sessionId)) {
+      this.store.setState((prev) => ({
+        ...prev,
+        workspaceTree: null,
+        workspaceTreeLoading: false,
+        workspaceTreeError: "",
+      }));
+      return;
+    }
     this.store.setState((prev) => ({
       ...prev,
       workspaceTreeLoading: true,
       workspaceTreeError: ""
     }));
     try {
-      const workspaceTree = await getCodeEnvironmentWorkspaceTree();
+      const workspaceTree = await getCodeEnvironmentWorkspaceTree({
+        sessionId: sessionId || undefined,
+        scope,
+      });
+      if (this.workspaceTreeRequest !== requestId) {
+        return;
+      }
       this.store.setState((prev) => ({
         ...prev,
         workspaceTree,
@@ -2481,6 +2522,9 @@ export class WorkspaceRuntime {
         workspaceTreeError: ""
       }));
     } catch (error) {
+      if (this.workspaceTreeRequest !== requestId) {
+        return;
+      }
       this.store.setState((prev) => ({
         ...prev,
         workspaceTreeLoading: false,
@@ -2503,7 +2547,20 @@ export class WorkspaceRuntime {
 
   private async saveInspector() {
     const state = this.store.getState();
-    await saveFile(state.inspectorPath, state.inspectorContent);
+    const sessionId = state.currentSessionId || "";
+    const scope = sessionId ? this.sessionScopeForSession(sessionId) : undefined;
+    if (sessionId && !this.sessionProjectRoot(state, sessionId)) {
+      this.store.setState((prev) => ({
+        ...prev,
+        workspaceTreeError: "当前会话未绑定项目，不能保存项目文件。",
+      }));
+      return;
+    }
+    if (sessionId) {
+      await saveFileForSession(state.inspectorPath, state.inspectorContent, sessionId, scope);
+    } else {
+      await saveFile(state.inspectorPath, state.inspectorContent);
+    }
     this.store.setState((prev) => this.patchCurrentSessionEditorContext({
       ...prev,
       inspectorDirty: false,
@@ -2748,27 +2805,27 @@ export class WorkspaceRuntime {
   }
 
   private bindTaskGraphMonitorRun(binding: Omit<TaskGraphMonitorBinding, "bound_at"> & { bound_at?: number }) {
-    this.runtimeMonitorController.bindGraphRun(binding);
+    this.runMonitorController.bindGraphRun(binding);
   }
 
   private clearTaskGraphMonitorRun() {
-    this.runtimeMonitorController.clearGraphRun();
+    this.runMonitorController.clearGraphRun();
   }
 
   private setTaskGraphRunInteractionOpen(open: boolean) {
-    this.runtimeMonitorController.setGraphRunInteractionOpen(open);
+    this.runMonitorController.setGraphRunInteractionOpen(open);
   }
 
   private setTaskGraphAutoAdvanceEnabled(enabled: boolean) {
-    this.runtimeMonitorController.setGraphAutoAdvanceEnabled(enabled);
+    this.runMonitorController.setGraphAutoAdvanceEnabled(enabled);
   }
 
   private async evaluateBoundTaskGraphMonitor() {
-    await this.runtimeMonitorController.evaluateBoundGraphMonitor();
+    await this.runMonitorController.evaluateBoundGraphMonitor();
   }
 
   private async continueBoundTaskGraphRun() {
-    await this.runtimeMonitorController.continueBoundGraphRun();
+    await this.runMonitorController.continueBoundGraphRun();
   }
 
   private async stopBoundTaskGraphRun() {
@@ -2787,8 +2844,8 @@ export class WorkspaceRuntime {
     }));
     try {
       await stopOrchestrationHarnessTaskRun(taskRunId, "user_stop_graph_run", "");
-      await this.runtimeMonitorController.evaluateBoundGraphMonitor().catch(() => undefined);
-      await this.refreshGlobalRuntimeMonitor();
+      await this.runMonitorController.evaluateBoundGraphMonitor().catch(() => undefined);
+      await this.refreshRunMonitor();
     } catch (error) {
       this.store.setState((prev) => ({
         ...prev,
@@ -2843,7 +2900,7 @@ export class WorkspaceRuntime {
     const sessionId = this.store.getState().currentSessionId;
     if (sessionId) {
       await this.hydrateLatestOrchestrationSnapshot(sessionId);
-      await this.refreshGlobalRuntimeMonitor();
+      await this.refreshRunMonitor();
     }
   }
 
@@ -3561,31 +3618,15 @@ export class WorkspaceRuntime {
     await this.runMonitorController.refresh();
   }
 
-  private async refreshGlobalRuntimeMonitor() {
-    await this.runMonitorController.refresh();
-  }
-
-  applyGlobalRuntimeMonitorSnapshot(
-    monitor: GlobalRuntimeMonitor,
-    options: { detailTaskRunId?: string; lastEvent?: RuntimeMonitorEventPayload["runtime_event"] | null } = {},
+  applyRunMonitorSnapshot(
+    monitor: RuntimeMonitorEnvelope,
+    options: { selectedSignalId?: string; lastEvent?: RunMonitorEventPayload["runtime_event"] | null } = {},
   ) {
-    this.runtimeMonitorController.applySnapshot(monitor, options);
+    this.runMonitorController.applySnapshot(monitor, options);
   }
 
-  applyGlobalRuntimeMonitorStreamPayload(payload: RuntimeMonitorEventPayload | null) {
-    this.runtimeMonitorController.applyStreamPayload(payload);
-  }
-
-  async loadGlobalRuntimeMonitorTaskRunDetail(taskRunId: string, revision?: string) {
-    await this.runtimeMonitorController.loadTaskRunDetail(taskRunId, revision);
-  }
-
-  private selectGlobalRuntimeMonitorTaskRun(taskRunId: string) {
-    this.runtimeMonitorController.selectTaskInstance(taskRunId);
-  }
-
-  private openGlobalRuntimeMonitorTaskRun(taskRunId: string) {
-    this.runtimeMonitorController.openTaskInstance(taskRunId);
+  applyRunMonitorStreamPayload(payload: RunMonitorEventPayload | null) {
+    this.runMonitorController.applyStreamPayload(payload);
   }
 
   private openRunMonitorSignal(signalId: string) {

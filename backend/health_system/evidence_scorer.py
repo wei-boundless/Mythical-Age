@@ -92,7 +92,7 @@ def score_runtime_event(event: dict[str, Any], *, total_events: int = 0, index: 
             semantic_score=0.4,
             novelty_score=0.1,
         )
-    if event_type == "tool_result_received":
+    if event_type in {"task_tool_observation_recorded", "turn_tool_observation_recorded", "executor_observation_received"}:
         return EvidenceScore(
             causal_score=0.8,
             temporal_score=base,

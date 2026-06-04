@@ -1,10 +1,18 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Any
 
+from json_file_store import JsonFilePayloadCorrupt, JsonFileStoreError, read_json_dict, write_json_dict
 from project_layout import ProjectLayout
+
+
+class TaskSystemStorageError(RuntimeError):
+    pass
+
+
+class TaskSystemStoragePayloadCorrupt(TaskSystemStorageError):
+    pass
 
 
 class TaskSystemStorage:
@@ -27,33 +35,41 @@ class TaskSystemStorage:
 
     def read_object(self, filename: str, fallback: dict[str, Any]) -> dict[str, Any]:
         path = self.path(filename)
-        if not path.exists():
-            return fallback
         try:
-            loaded = json.loads(path.read_text(encoding="utf-8"))
-        except Exception:
-            return fallback
+            loaded = read_json_dict(path, label=f"task storage object {filename}", missing_factory=lambda: dict(fallback))
+        except JsonFilePayloadCorrupt as exc:
+            raise TaskSystemStoragePayloadCorrupt(str(exc)) from exc
+        except JsonFileStoreError as exc:
+            raise TaskSystemStorageError(str(exc)) from exc
         return loaded if isinstance(loaded, dict) else fallback
 
     def write_object(self, filename: str, payload: dict[str, Any]) -> None:
         path = self.path(filename)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        try:
+            write_json_dict(path, payload, label=f"task storage object {filename}")
+        except JsonFileStoreError as exc:
+            raise TaskSystemStorageError(str(exc)) from exc
 
     def read_snapshot(self, bucket: str, filename: str, fallback: dict[str, Any]) -> dict[str, Any]:
         path = self.snapshot_path(bucket, filename)
-        if not path.exists():
-            return fallback
         try:
-            loaded = json.loads(path.read_text(encoding="utf-8"))
-        except Exception:
-            return fallback
+            loaded = read_json_dict(
+                path,
+                label=f"task storage snapshot {bucket}/{filename}",
+                missing_factory=lambda: dict(fallback),
+            )
+        except JsonFilePayloadCorrupt as exc:
+            raise TaskSystemStoragePayloadCorrupt(str(exc)) from exc
+        except JsonFileStoreError as exc:
+            raise TaskSystemStorageError(str(exc)) from exc
         return loaded if isinstance(loaded, dict) else fallback
 
     def write_snapshot(self, bucket: str, filename: str, payload: dict[str, Any]) -> None:
         path = self.snapshot_path(bucket, filename)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        try:
+            write_json_dict(path, payload, label=f"task storage snapshot {bucket}/{filename}")
+        except JsonFileStoreError as exc:
+            raise TaskSystemStorageError(str(exc)) from exc
 
 
 def _normalize_filename(filename: str) -> Path:

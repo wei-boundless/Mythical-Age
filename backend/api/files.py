@@ -12,6 +12,7 @@ from capability_system.skills.scanner import scan_skills
 from capability_system.tools.paths import CapabilityToolPaths
 from code_environment.workspace_tree import _is_excluded_relative_path
 from project_layout import ProjectLayout
+from task_system.session_scope import assert_optional_session_scope, request_scope_from_query
 
 router = APIRouter()
 
@@ -134,11 +135,26 @@ def _read_text_with_fallback(file_path: Path) -> str:
     return file_path.read_text(encoding="utf-8", errors="ignore")
 
 
-def _resolve_path(relative_path: str, *, for_write: bool = False) -> Path:
+def _resolve_path(
+    relative_path: str,
+    *,
+    for_write: bool = False,
+    session_id: str | None = None,
+    workspace_view: str | None = None,
+    task_environment_id: str | None = None,
+    project_id: str | None = None,
+) -> Path:
     runtime = require_runtime()
     layout = ProjectLayout.from_backend_dir(runtime.base_dir)
     skill_paths = CapabilitySkillPaths.from_base_dir(runtime.base_dir)
     tool_paths = CapabilityToolPaths.from_base_dir(runtime.base_dir)
+    project_root = _session_project_root(
+        runtime,
+        session_id=session_id,
+        workspace_view=workspace_view,
+        task_environment_id=task_environment_id,
+        project_id=project_id,
+    ) or layout.project_root.resolve()
 
     normalized = relative_path.replace("\\", "/").strip("/")
     if for_write and not _is_allowed_workspace_path(normalized, for_write=True):
@@ -163,14 +179,14 @@ def _resolve_path(relative_path: str, *, for_write: bool = False) -> Path:
         candidate = (tool_paths.registries_dir / normalized.removeprefix("capability_system/tools/registries/")).resolve()
         allowed_root = tool_paths.registries_dir.resolve()
     elif not for_write:
-        candidate = (layout.project_root / normalized).resolve()
-        allowed_root = layout.project_root.resolve()
+        candidate = (project_root / normalized).resolve()
+        allowed_root = project_root
     else:
         candidate = (runtime.base_dir / normalized).resolve()
         allowed_root = runtime.base_dir.resolve()
     if allowed_root not in candidate.parents and candidate != allowed_root:
         raise HTTPException(status_code=400, detail="Path traversal detected")
-    if not for_write and not _is_readable_project_path(normalized, candidate, layout):
+    if not for_write and not _is_readable_project_path(normalized, candidate, project_root):
         raise HTTPException(status_code=400, detail="Path is not visible in the project file tree")
     return candidate
 
@@ -181,7 +197,7 @@ def _is_allowed_workspace_path(normalized: str, *, for_write: bool) -> bool:
     return normalized in READABLE_PROJECT_FILES or normalized.startswith(READABLE_PREFIXES)
 
 
-def _is_readable_project_path(normalized: str, candidate: Path, layout: ProjectLayout) -> bool:
+def _is_readable_project_path(normalized: str, candidate: Path, project_root: Path) -> bool:
     if normalized in READABLE_PROJECT_FILES or normalized.startswith(READABLE_PREFIXES):
         return True
     if _is_excluded_relative_path(normalized):
@@ -191,15 +207,27 @@ def _is_readable_project_path(normalized: str, candidate: Path, layout: ProjectL
         return False
     if any(name.endswith(suffix) for suffix in SENSITIVE_PROJECT_SUFFIXES):
         return False
-    project_root = layout.project_root.resolve()
     if project_root not in candidate.parents and candidate != project_root:
         return False
     return True
 
 
 @router.get("/files")
-async def read_file(path: str = Query(..., min_length=1)) -> dict[str, str]:
-    file_path = _resolve_path(path, for_write=False)
+async def read_file(
+    path: str = Query(..., min_length=1),
+    session_id: str | None = Query(default=None, max_length=200),
+    workspace_view: str | None = Query(default=None, max_length=80),
+    task_environment_id: str | None = Query(default=None, max_length=200),
+    project_id: str | None = Query(default=None, max_length=240),
+) -> dict[str, str]:
+    file_path = _resolve_path(
+        path,
+        for_write=False,
+        session_id=session_id,
+        workspace_view=workspace_view,
+        task_environment_id=task_environment_id,
+        project_id=project_id,
+    )
     if not file_path.exists():
         raise HTTPException(status_code=404, detail="File not found")
     if not file_path.is_file():
@@ -211,9 +239,22 @@ async def read_file(path: str = Query(..., min_length=1)) -> dict[str, str]:
 
 
 @router.post("/files")
-async def save_file(payload: SaveFileRequest) -> dict[str, Any]:
+async def save_file(
+    payload: SaveFileRequest,
+    session_id: str | None = Query(default=None, max_length=200),
+    workspace_view: str | None = Query(default=None, max_length=80),
+    task_environment_id: str | None = Query(default=None, max_length=200),
+    project_id: str | None = Query(default=None, max_length=240),
+) -> dict[str, Any]:
     runtime = require_runtime()
-    file_path = _resolve_path(payload.path, for_write=True)
+    file_path = _resolve_path(
+        payload.path,
+        for_write=True,
+        session_id=session_id,
+        workspace_view=workspace_view,
+        task_environment_id=task_environment_id,
+        project_id=project_id,
+    )
     file_path.parent.mkdir(parents=True, exist_ok=True)
     file_path.write_text(payload.content, encoding="utf-8")
 
@@ -221,6 +262,31 @@ async def save_file(payload: SaveFileRequest) -> dict[str, Any]:
     runtime.refresh_indexes_for_path(normalized)
 
     return {"ok": True, "path": normalized}
+
+
+def _session_project_root(
+    runtime: Any,
+    *,
+    session_id: str | None,
+    workspace_view: str | None,
+    task_environment_id: str | None,
+    project_id: str | None,
+) -> Path | None:
+    if not session_id:
+        return None
+    assert_optional_session_scope(
+        runtime.session_manager,
+        session_id,
+        request_scope_from_query(workspace_view=workspace_view, task_environment_id=task_environment_id, project_id=project_id),
+    )
+    binding = runtime.session_manager.get_project_binding(session_id)
+    workspace_root = str(binding.get("workspace_root") or "").strip()
+    if not workspace_root:
+        raise HTTPException(status_code=409, detail="session has no project binding")
+    root = Path(workspace_root).expanduser().resolve()
+    if not root.is_dir():
+        raise HTTPException(status_code=404, detail="Session project binding root not found")
+    return root
 
 
 @router.get("/skills")

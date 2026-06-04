@@ -11,7 +11,7 @@ const api = vi.hoisted(() => ({
   getCodeEnvironmentWorkspaceTree: vi.fn(),
   getChatRun: vi.fn(),
   getLatestChatRunForSession: vi.fn(),
-  getGlobalRuntimeMonitor: vi.fn(),
+  getRunMonitor: vi.fn(),
   getModelProviderConfig: vi.fn(),
   getTaskEnvironmentCatalog: vi.fn(),
   getOrchestrationHarnessTaskRunLiveMonitor: vi.fn(),
@@ -36,6 +36,8 @@ const api = vi.hoisted(() => ({
   listSessions: vi.fn(),
   listSkills: vi.fn(),
   loadFile: vi.fn(),
+  loadFileForSession: vi.fn(),
+  selectSessionProjectDirectory: vi.fn(),
   stopOrchestrationHarnessTaskRun: vi.fn(),
   streamExistingChatRun: vi.fn(),
   streamChat: vi.fn(),
@@ -50,7 +52,7 @@ vi.mock("@/lib/api", () => ({
   getCodeEnvironmentWorkspaceTree: api.getCodeEnvironmentWorkspaceTree,
   getChatRun: api.getChatRun,
   getLatestChatRunForSession: api.getLatestChatRunForSession,
-  getGlobalRuntimeMonitor: api.getGlobalRuntimeMonitor,
+  getRunMonitor: api.getRunMonitor,
   getTaskEnvironmentCatalog: api.getTaskEnvironmentCatalog,
   getRuntimeMonitorEventStreamUrl: vi.fn(() => "http://127.0.0.1:8003/api/orchestration/runtime-monitor/events"),
   getModelProviderConfig: api.getModelProviderConfig,
@@ -77,8 +79,10 @@ vi.mock("@/lib/api", () => ({
   listSessions: api.listSessions,
   listSkills: api.listSkills,
   loadFile: api.loadFile,
+  loadFileForSession: api.loadFileForSession,
   renameSession: vi.fn(),
   saveFile: vi.fn(),
+  selectSessionProjectDirectory: api.selectSessionProjectDirectory,
   setRagMode: vi.fn(),
   stopOrchestrationHarnessTaskRun: api.stopOrchestrationHarnessTaskRun,
   stopOrchestrationTaskRun: vi.fn(),
@@ -119,6 +123,98 @@ function itemForMonitor(patch: Record<string, unknown>) {
   };
 }
 
+function recordValue(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+function text(value: unknown) {
+  return String(value ?? "").trim();
+}
+
+function signalState(item: Record<string, unknown>) {
+  const bucket = text(item.bucket);
+  const lifecycle = text(item.lifecycle);
+  const status = text(item.status);
+  if (bucket === "running" || lifecycle === "running" || item.is_live === true) return "active";
+  if (bucket === "failed" || lifecycle === "failed" || ["failed", "aborted", "cancelled", "error"].includes(status)) return "failed";
+  if (bucket === "completed" || lifecycle === "completed" || ["completed", "success"].includes(status)) return "completed";
+  if (bucket === "diagnostics" || lifecycle === "stale" || item.stale === true) return "stale";
+  if (bucket === "waiting" || lifecycle === "waiting" || lifecycle === "action_required" || item.action_required === true) return "waiting";
+  return "attention";
+}
+
+function monitorSignalForTest(item: Record<string, unknown>) {
+  const route = recordValue(item.route);
+  const sessionScope = recordValue(item.session_scope);
+  const navigationPatch = recordValue(item.navigation_target);
+  const taskRunId = text(item.task_run_id);
+  const graphRunId = text(item.graph_run_id);
+  const graphHarnessConfigId = text(item.graph_harness_config_id);
+  const graphId = text(item.graph_id);
+  const isGraph = graphRunId || text(route.kind) === "task_graph_run" || item.has_graph_run === true;
+  const sessionId = text(item.session_id);
+  const taskEnvironmentId = text(sessionScope.task_environment_id || navigationPatch.task_environment_id);
+  const workspaceView = text(sessionScope.workspace_view || navigationPatch.workspace_view || (isGraph ? "task_environment" : ""));
+  const navigationTarget = {
+    target_kind: isGraph ? "graph_task" : "session",
+    session_id: sessionId,
+    task_run_id: taskRunId,
+    task_instance_id: text(item.task_instance_id) || taskRunId,
+    graph_run_id: graphRunId,
+    graph_harness_config_id: graphHarnessConfigId,
+    graph_id: graphId,
+    workspace_view: workspaceView,
+    task_environment_id: taskEnvironmentId,
+    project_id: text(sessionScope.project_id || item.project_id),
+    environment_label: taskEnvironmentId,
+    ...navigationPatch,
+  };
+  const state = signalState(item);
+  return {
+    authority: "runtime_monitor.signal",
+    signal_id: text(item.task_instance_id) || taskRunId,
+    source_kind: isGraph ? "graph_run" : taskRunId.startsWith("turnrun:") ? "turn_run" : "task_run",
+    work_kind: isGraph ? "graph_task" : taskRunId.startsWith("turnrun:") ? "chat_turn" : "agent_task",
+    state,
+    priority: state === "active" ? 100 : state === "waiting" ? 80 : state === "failed" ? 60 : 20,
+    title: text(item.project_title) || text(item.title) || "持续处理",
+    line: text(item.latest_public_progress_note) || text(item.latest_step_summary) || text(item.summary) || "正在处理当前请求。",
+    detail: "运行 1s",
+    status: text(item.status),
+    lifecycle: text(item.lifecycle),
+    bucket: text(item.bucket),
+    session_id: sessionId,
+    task_run_id: taskRunId,
+    task_instance_id: text(item.task_instance_id) || taskRunId,
+    graph_run_id: graphRunId,
+    graph_id: graphId,
+    navigation_target: navigationTarget,
+    detail_ref: {
+      kind: isGraph ? "graph_run" : "task_run",
+      task_run_id: taskRunId,
+      turn_run_id: taskRunId.startsWith("turnrun:") ? taskRunId : "",
+      graph_run_id: graphRunId,
+      graph_harness_config_id: graphHarnessConfigId,
+      resource_ref: "",
+    },
+    graph_ref: {
+      graph_id: graphId,
+      graph_run_id: graphRunId,
+      graph_harness_config_id: graphHarnessConfigId,
+    },
+    timestamps: {
+      started_at: Number(item.started_at ?? 1),
+      updated_at: Number(item.updated_at ?? item.latest_event_at ?? 2),
+      last_activity_at: Number(item.last_activity_at ?? item.latest_event_at ?? item.updated_at ?? 2),
+      elapsed_seconds: Number(item.elapsed_seconds ?? 1),
+    },
+    raw_refs: {
+      task_id: text(item.task_id),
+      route,
+    },
+  };
+}
+
 async function flushPromises(times = 5) {
   for (let index = 0; index < times; index += 1) {
     await Promise.resolve();
@@ -126,26 +222,29 @@ async function flushPromises(times = 5) {
 }
 
 function monitorForTest(items: Array<Record<string, unknown>>, patch: Record<string, unknown> = {}) {
-  const buckets = {
-    running: items.filter((item) => item.bucket === "running"),
-    completed: items.filter((item) => item.bucket === "completed"),
-    failed: items.filter((item) => item.bucket === "failed"),
-    diagnostics: items.filter((item) => item.bucket === "diagnostics"),
-  };
+  const signals = items.map(monitorSignalForTest);
+  const primary = signals.filter((signal) => signal.state === "active");
+  const attention = signals.filter((signal) => ["waiting", "attention", "stale", "failed"].includes(signal.state));
+  const recent = signals.filter((signal) => signal.state === "completed");
+  const projects = signals.filter((signal) => signal.work_kind === "graph_task");
   return {
-    authority: "runtime_live_monitor.global",
+    authority: "runtime_monitor",
+    revision: text(patch.revision) || "rtmon:1:test",
+    updated_at: Number(patch.updated_at ?? 1),
     summary: {
-      total: items.length,
-      running: buckets.running.length,
-      waiting: buckets.running.filter((item) => item.lifecycle === "waiting").length,
-      completed: buckets.completed.length,
-      failed: buckets.failed.length,
-      diagnostics: buckets.diagnostics.length,
-      action_required: items.filter((item) => item.action_required === true).length,
+      active: primary.length,
+      attention: attention.length,
+      waiting: signals.filter((signal) => signal.state === "waiting").length,
+      failed: signals.filter((signal) => signal.state === "failed").length,
+      recent: recent.length,
+      projects: projects.length,
+      total: signals.length,
     },
-    buckets,
-    task_runs: items,
-    updated_at: 1,
+    primary,
+    attention,
+    recent,
+    projects,
+    signals,
     ...patch,
   };
 }
@@ -220,13 +319,8 @@ function conversationState(environmentId: string, label = environmentId, source 
 describe("WorkspaceRuntime task graph monitor polling", () => {
   beforeEach(() => {
     vi.useFakeTimers();
-    api.getGlobalRuntimeMonitor.mockReset();
-    api.getGlobalRuntimeMonitor.mockResolvedValue({
-      authority: "runtime_live_monitor.global",
-      summary: { total: 0, running: 0, waiting: 0, completed: 0, failed: 0 },
-      task_runs: [],
-      updated_at: 1,
-    });
+    api.getRunMonitor.mockReset();
+    api.getRunMonitor.mockResolvedValue(monitorForTest([]));
     api.getCodeEnvironmentWorkspaceTree.mockReset();
     api.getCodeEnvironmentWorkspaceTree.mockResolvedValue({
       authority: "langchain-agent.code_environment.workspace_tree",
@@ -290,6 +384,18 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       updated_at: 1,
       message_count: 0,
     });
+    api.selectSessionProjectDirectory.mockReset();
+    api.selectSessionProjectDirectory.mockResolvedValue({
+      project_binding: {
+        workspace_root: "D:/repo",
+        source: "frontend.directory_picker",
+        bound_at: 1,
+        last_seen_at: 1,
+        immutable: true,
+        authority: "sessions.project_binding",
+      },
+      selected_path: "D:/repo",
+    });
     api.deleteSession.mockReset();
     api.deleteSession.mockResolvedValue({ ok: true });
     api.getPermissionMode.mockReset();
@@ -318,6 +424,8 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     api.listSkills.mockResolvedValue([]);
     api.loadFile.mockReset();
     api.loadFile.mockResolvedValue({ path: "durable_memory/index/MEMORY.md", content: "" });
+    api.loadFileForSession.mockReset();
+    api.loadFileForSession.mockResolvedValue({ path: "durable_memory/index/MEMORY.md", content: "" });
     api.readChatStreamCursor.mockReset();
     api.readChatStreamCursor.mockReturnValue(null);
     api.setSessionActiveTaskEnvironment.mockReset();
@@ -421,23 +529,11 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(store.getState().taskGraphMonitorError).toContain("GraphHarnessConfig not found");
   });
 
-  it("keeps the global monitor selection on top-level TaskGraph runs", () => {
+  it("keeps the run monitor selection on known signals and clears missing ones", () => {
     const store = createStore(getDefaultState());
     const runtime = new WorkspaceRuntime(store);
     const runtimeHarness = runtime as unknown as {
-      applyGlobalRuntimeMonitorSnapshot: (monitor: {
-        authority: string;
-        summary: {
-          total: number;
-          running: number;
-          waiting: number;
-          completed: number;
-          failed: number;
-        };
-        task_runs: Array<Record<string, unknown>>;
-        updated_at: number;
-      }, options?: { detailTaskRunId?: string }) => void;
-      selectGlobalRuntimeMonitorTaskRun: (taskRunId: string) => void;
+      applyRunMonitorSnapshot: (monitor: ReturnType<typeof monitorForTest>, options?: { selectedSignalId?: string }) => void;
     };
     const monitor = monitorForTest([
         itemForMonitor({
@@ -463,31 +559,20 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
         }),
       ]);
 
-    runtimeHarness.applyGlobalRuntimeMonitorSnapshot(monitor, { detailTaskRunId: "taskrun:agent" });
+    runtimeHarness.applyRunMonitorSnapshot(monitor, { selectedSignalId: "taskrun:agent" });
 
-    expect(store.getState().globalRuntimeMonitorSelectedTaskRunId).toBe("taskrun:agent");
+    expect(store.getState().runMonitorSelectedTaskRunId).toBe("taskrun:agent");
 
-    runtimeHarness.selectGlobalRuntimeMonitorTaskRun("taskrun:module");
+    runtime.actions.openRunMonitorSignal("taskrun:module");
 
-    expect(store.getState().globalRuntimeMonitorSelectedTaskRunId).toBe("");
+    expect(store.getState().runMonitorSelectedTaskRunId).toBe("");
   });
 
-  it("opens a global monitor TaskGraph run with its session scope for explicit graph refresh", async () => {
+  it("opens a run monitor TaskGraph signal with its session scope for explicit graph refresh", async () => {
     const store = createStore(getDefaultState());
     const runtime = new WorkspaceRuntime(store);
     const runtimeHarness = runtime as unknown as {
-      applyGlobalRuntimeMonitorSnapshot: (monitor: {
-        authority: string;
-        summary: {
-          total: number;
-          running: number;
-          waiting: number;
-          completed: number;
-          failed: number;
-        };
-        task_runs: Array<Record<string, unknown>>;
-        updated_at: number;
-      }) => void;
+      applyRunMonitorSnapshot: (monitor: ReturnType<typeof monitorForTest>) => void;
     };
     const graphSessionScope = {
       workspace_view: "task_environment",
@@ -495,7 +580,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       project_id: "project",
     };
 
-    runtimeHarness.applyGlobalRuntimeMonitorSnapshot(monitorForTest([
+    runtimeHarness.applyRunMonitorSnapshot(monitorForTest([
       itemForMonitor({
         task_run_id: "taskrun:master",
         session_id: "session",
@@ -513,10 +598,10 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       }),
     ]));
 
-    runtime.actions.openGlobalRuntimeMonitorTaskRun("taskrun:master");
+    runtime.actions.openRunMonitorSignal("taskrun:master");
 
     expect(store.getState().activeWorkspaceView).toBe("creative");
-    expect(store.getState().globalRuntimeMonitorSelectedTaskRunId).toBe("taskrun:master");
+    expect(store.getState().runMonitorSelectedTaskRunId).toBe("taskrun:master");
     expect(store.getState().chatTaskEnvironmentBinding).toBeNull();
     expect(store.getState().conversationActiveEnvironment).toBeNull();
     expect(store.getState().taskGraphMonitorBinding).toMatchObject({
@@ -658,16 +743,133 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     });
   });
 
+  it("does not load the host default inspector file for an unbound session", async () => {
+    vi.useRealTimers();
+    api.listSessions.mockResolvedValue([
+      {
+        id: "session:unbound",
+        title: "Unbound",
+        created_at: 1,
+        updated_at: 1,
+        message_count: 0,
+        conversation_state: {
+          authority: "sessions.conversation_state",
+          project_binding: {},
+        },
+      },
+    ]);
+    const store = createStore(getDefaultState());
+    const runtime = new WorkspaceRuntime(store);
+
+    await runtime.initialize();
+    await flushPromises();
+
+    expect(store.getState().currentSessionId).toBe("session:unbound");
+    expect(api.loadFile).not.toHaveBeenCalled();
+    expect(api.loadFileForSession).not.toHaveBeenCalled();
+  });
+
+  it("loads the default inspector file through the bound session file API", async () => {
+    vi.useRealTimers();
+    api.listSessions.mockResolvedValue([
+      {
+        id: "session:bound",
+        title: "Bound",
+        created_at: 1,
+        updated_at: 1,
+        message_count: 0,
+        conversation_state: {
+          authority: "sessions.conversation_state",
+          project_binding: {
+            workspace_root: "D:/repo",
+            source: "vscode",
+            bound_at: 1,
+            last_seen_at: 1,
+            immutable: true,
+            authority: "sessions.project_binding",
+          },
+        },
+      },
+    ]);
+    const store = createStore(getDefaultState());
+    const runtime = new WorkspaceRuntime(store);
+
+    await runtime.initialize();
+    await flushPromises();
+
+    expect(api.loadFile).not.toHaveBeenCalled();
+    expect(api.loadFileForSession).toHaveBeenCalledWith(
+      "durable_memory/index/MEMORY.md",
+      "session:bound",
+      undefined,
+    );
+  });
+
+  it("binds the current frontend session through the native directory picker and refreshes project-scoped files", async () => {
+    vi.useRealTimers();
+    const boundSession = {
+      id: "session:unbound",
+      title: "Now Bound",
+      created_at: 1,
+      updated_at: 2,
+      message_count: 0,
+      conversation_state: {
+        authority: "sessions.conversation_state",
+        project_binding: {
+          workspace_root: "D:/repo",
+          source: "frontend.directory_picker",
+          bound_at: 1,
+          last_seen_at: 1,
+          immutable: true,
+          authority: "sessions.project_binding",
+        },
+      },
+    };
+    api.listSessions.mockResolvedValue([boundSession]);
+    const store = createStore<StoreState>({
+      ...getDefaultState(),
+      currentSessionId: "session:unbound",
+      sessions: [{
+        id: "session:unbound",
+        title: "Unbound",
+        created_at: 1,
+        updated_at: 1,
+        message_count: 0,
+        conversation_state: {
+          authority: "sessions.conversation_state",
+        },
+      }],
+    });
+    const runtime = new WorkspaceRuntime(store);
+
+    await runtime.actions.bindCurrentSessionProject();
+
+    expect(api.selectSessionProjectDirectory).toHaveBeenCalledWith(
+      "session:unbound",
+      undefined,
+    );
+    expect(api.getCodeEnvironmentWorkspaceTree).toHaveBeenCalledWith({
+      sessionId: "session:unbound",
+      scope: undefined,
+    });
+    expect(api.loadFileForSession).toHaveBeenCalledWith(
+      "durable_memory/index/MEMORY.md",
+      "session:unbound",
+      undefined,
+    );
+    expect(store.getState().sessions[0]?.conversation_state?.project_binding?.workspace_root).toBe("D:/repo");
+  });
+
   it("sends frontend page editor context only for the current session", async () => {
     vi.useRealTimers();
     const store = createStore<StoreState>({
       ...getDefaultState(),
       currentSessionId: "session:code",
       workspaceContext: {
-        project_name: "repo",
-        project_root: "D:/repo",
-        backend_root: "D:/repo/backend",
-        storage_root: "D:/repo/.runtime",
+        project_name: "host",
+        project_root: "D:/host/langchain-agent",
+        backend_root: "D:/host/langchain-agent/backend",
+        storage_root: "D:/host/langchain-agent/.runtime",
         editable_prefixes: ["frontend/src/"],
         readable_prefixes: ["frontend/src/"],
       },
@@ -677,6 +879,17 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
         created_at: 1,
         updated_at: 1,
         message_count: 0,
+        conversation_state: {
+          authority: "sessions.conversation_state",
+          project_binding: {
+            workspace_root: "D:/repo",
+            source: "vscode",
+            bound_at: 1,
+            last_seen_at: 1,
+            immutable: true,
+            authority: "sessions.project_binding",
+          },
+        },
       }],
       inspectorPath: "frontend/src/App.tsx",
       inspectorContent: "export function App() { return null; }",
@@ -714,6 +927,54 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
         language_id: "typescriptreact",
         dirty: true,
       }],
+    });
+  });
+
+  it("does not send the host project root as editor workspace root for unbound sessions", async () => {
+    vi.useRealTimers();
+    const store = createStore<StoreState>({
+      ...getDefaultState(),
+      currentSessionId: "session:code",
+      workspaceContext: {
+        project_name: "host",
+        project_root: "D:/host/langchain-agent",
+        backend_root: "D:/host/langchain-agent/backend",
+        storage_root: "D:/host/langchain-agent/.runtime",
+        editable_prefixes: ["frontend/src/"],
+        readable_prefixes: ["frontend/src/"],
+      },
+      sessions: [{
+        id: "session:code",
+        title: "Code",
+        created_at: 1,
+        updated_at: 1,
+        message_count: 0,
+      }],
+      inspectorPath: "frontend/src/App.tsx",
+      inspectorContent: "export function App() { return null; }",
+      inspectorDirty: false,
+      sessionEditorContexts: {
+        "session:code": {
+          activeFilePath: "frontend/src/App.tsx",
+          openFilePaths: ["frontend/src/App.tsx"],
+          inspectorPath: "frontend/src/App.tsx",
+          inspectorContent: "export function App() { return null; }",
+          inspectorDirty: false,
+          updatedAt: 1,
+        },
+      },
+    });
+    const runtime = new WorkspaceRuntime(store);
+
+    await runtime.actions.sendMessage("检查当前文件。");
+
+    expect(api.streamChat).toHaveBeenCalledTimes(1);
+    expect(api.streamChat.mock.calls[0]?.[0]?.editor_context).toMatchObject({
+      source: "frontend.center_workspace",
+      workspace_roots: [],
+      active_file: {
+        path: "frontend/src/App.tsx",
+      },
     });
   });
 
@@ -814,26 +1075,15 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     });
   });
 
-  it("does not fetch graph monitor details from global monitor selection alone", async () => {
+  it("loads graph monitor details when a run monitor graph signal is opened", async () => {
     api.getGraphRunMonitor.mockRejectedValue(new Error('{"detail":"GraphHarnessConfig not found"}'));
     const store = createStore(getDefaultState());
     const runtime = new WorkspaceRuntime(store);
     const runtimeHarness = runtime as unknown as {
-      applyGlobalRuntimeMonitorSnapshot: (monitor: {
-        authority: string;
-        summary: {
-          total: number;
-          running: number;
-          waiting: number;
-          completed: number;
-          failed: number;
-        };
-        task_runs: Array<Record<string, unknown>>;
-        updated_at: number;
-      }) => void;
+      applyRunMonitorSnapshot: (monitor: ReturnType<typeof monitorForTest>) => void;
     };
 
-    runtimeHarness.applyGlobalRuntimeMonitorSnapshot(monitorForTest([
+    runtimeHarness.applyRunMonitorSnapshot(monitorForTest([
       itemForMonitor({
         task_run_id: "taskrun:old-master",
         session_id: "session",
@@ -846,12 +1096,12 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       }),
     ]));
 
-    runtime.actions.openGlobalRuntimeMonitorTaskRun("taskrun:old-master");
+    runtime.actions.openRunMonitorSignal("taskrun:old-master");
     await Promise.resolve();
     await Promise.resolve();
     await vi.advanceTimersByTimeAsync(6000);
 
-    expect(api.getGraphRunMonitor).not.toHaveBeenCalled();
+    expect(api.getGraphRunMonitor).toHaveBeenCalledWith("grun:old-master", "ghcfg:old-missing", 80, { workspace_view: "task_environment" });
     expect(store.getState().taskGraphMonitorBinding?.task_run_id).toBe("taskrun:old-master");
     expect(store.getState().taskGraphMonitorError).toBe("");
   });
@@ -883,29 +1133,18 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(store.getState().taskGraphMonitorActionLoading).toBe(false);
   });
 
-  it("opens a global monitor agent runtime run in its owning session", () => {
+  it("opens a run monitor agent signal in its owning session", () => {
     const store = createStore(getDefaultState());
     const runtime = new WorkspaceRuntime(store);
     const runtimeHarness = runtime as unknown as {
-      applyGlobalRuntimeMonitorSnapshot: (monitor: {
-        authority: string;
-        summary: {
-          total: number;
-          running: number;
-          waiting: number;
-          completed: number;
-          failed: number;
-        };
-        task_runs: Array<Record<string, unknown>>;
-        updated_at: number;
-      }) => void;
+      applyRunMonitorSnapshot: (monitor: ReturnType<typeof monitorForTest>) => void;
     };
 
     api.getSessionHistory.mockResolvedValue({ messages: [] });
     api.getSessionTokens.mockResolvedValue(null);
     api.getOrchestrationHarnessSessionLiveMonitor.mockResolvedValue(null);
 
-    runtimeHarness.applyGlobalRuntimeMonitorSnapshot(monitorForTest([
+    runtimeHarness.applyRunMonitorSnapshot(monitorForTest([
       itemForMonitor({
         task_run_id: "taskrun:turn:session-a:1:abc",
         session_id: "session-a",
@@ -919,15 +1158,15 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       }),
     ]));
 
-    runtime.actions.openGlobalRuntimeMonitorTaskRun("taskrun:turn:session-a:1:abc");
+    runtime.actions.openRunMonitorSignal("taskrun:turn:session-a:1:abc");
 
     expect(store.getState().activeWorkspaceView).toBe("chat");
     expect(store.getState().currentSessionId).toBe("session-a");
-    expect(store.getState().globalRuntimeMonitorSelectedTaskRunId).toBe("taskrun:turn:session-a:1:abc");
+    expect(store.getState().runMonitorSelectedTaskRunId).toBe("taskrun:turn:session-a:1:abc");
     expect(store.getState().centerWorkspaceTarget).toBeNull();
   });
 
-  it("opens a global monitor agent runtime run without switching the visible session list scope", async () => {
+  it("opens a run monitor agent signal without switching the visible session list scope", async () => {
     vi.useRealTimers();
     api.getSessionTimeline.mockResolvedValue({
       messages: [{ role: "user", content: "开发任务" }],
@@ -959,21 +1198,10 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     });
     const runtime = new WorkspaceRuntime(store);
     const runtimeHarness = runtime as unknown as {
-      applyGlobalRuntimeMonitorSnapshot: (monitor: {
-        authority: string;
-        summary: {
-          total: number;
-          running: number;
-          waiting: number;
-          completed: number;
-          failed: number;
-        };
-        task_runs: Array<Record<string, unknown>>;
-        updated_at: number;
-      }) => void;
+      applyRunMonitorSnapshot: (monitor: ReturnType<typeof monitorForTest>) => void;
     };
 
-    runtimeHarness.applyGlobalRuntimeMonitorSnapshot(monitorForTest([
+    runtimeHarness.applyRunMonitorSnapshot(monitorForTest([
       itemForMonitor({
         task_run_id: "taskrun:turn:session-dev:1:abc",
         session_id: "session-dev",
@@ -992,7 +1220,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       }),
     ]));
 
-    runtime.actions.openGlobalRuntimeMonitorTaskRun("taskrun:turn:session-dev:1:abc");
+    runtime.actions.openRunMonitorSignal("taskrun:turn:session-dev:1:abc");
     await flushPromises(12);
 
     expect(store.getState().activeWorkspaceView).toBe("code-environment");
@@ -1003,53 +1231,27 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     });
     expect(store.getState().chatTaskEnvironmentBinding).toBeNull();
     expect(api.listSessions).not.toHaveBeenCalled();
-    expect(api.getSessionTimeline).toHaveBeenCalledWith("session-dev", undefined);
+    expect(api.getSessionTimeline).toHaveBeenCalledWith("session-dev", {
+      workspace_view: "task_environment",
+      task_environment_id: "env.coding.vibe_workspace",
+    });
   });
 
-  it("ignores stale global monitor snapshots after a newer revision has landed", () => {
+  it("ignores stale run monitor snapshots after a newer revision has landed", () => {
     const store = createStore(getDefaultState());
     const runtime = new WorkspaceRuntime(store);
     const runtimeHarness = runtime as unknown as {
-      applyGlobalRuntimeMonitorSnapshot: (monitor: {
-        authority: string;
-        revision: string;
-        summary: {
-          total: number;
-          running: number;
-          waiting: number;
-          completed: number;
-          failed: number;
-        };
-        buckets: {
-          running: Array<Record<string, unknown>>;
-        };
-        task_runs: Array<Record<string, unknown>>;
-        updated_at: number;
-      }) => void;
+      applyRunMonitorSnapshot: (monitor: ReturnType<typeof monitorForTest>) => void;
     };
 
     const newerRun = itemForMonitor({ task_run_id: "taskrun:newer", title: "新任务" });
     const olderRun = itemForMonitor({ task_run_id: "taskrun:older", title: "旧任务" });
 
-    runtimeHarness.applyGlobalRuntimeMonitorSnapshot({
-      authority: "runtime_live_monitor.global",
-      revision: "rtmon:20:new",
-      summary: { total: 1, running: 1, waiting: 0, completed: 0, failed: 0 },
-      buckets: { running: [newerRun] },
-      task_runs: [newerRun],
-      updated_at: 20,
-    });
-    runtimeHarness.applyGlobalRuntimeMonitorSnapshot({
-      authority: "runtime_live_monitor.global",
-      revision: "rtmon:10:old",
-      summary: { total: 1, running: 1, waiting: 0, completed: 0, failed: 0 },
-      buckets: { running: [olderRun] },
-      task_runs: [olderRun],
-      updated_at: 10,
-    });
+    runtimeHarness.applyRunMonitorSnapshot(monitorForTest([newerRun], { revision: "rtmon:20:new", updated_at: 20 }));
+    runtimeHarness.applyRunMonitorSnapshot(monitorForTest([olderRun], { revision: "rtmon:10:old", updated_at: 10 }));
 
-    expect(store.getState().globalRuntimeMonitorRevision).toBe("rtmon:20:new");
-    expect(store.getState().globalRuntimeMonitorSelectedTaskRunId).toBe("taskrun:newer");
+    expect(store.getState().runMonitorRevision).toBe("rtmon:20:new");
+    expect(store.getState().runMonitorSelectedTaskRunId).toBe("taskrun:newer");
   });
 
   it("does not let a stale detail response overwrite the currently selected monitor detail", async () => {
@@ -1057,23 +1259,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     const store = createStore(getDefaultState());
     const runtime = new WorkspaceRuntime(store);
     const runtimeHarness = runtime as unknown as {
-      applyGlobalRuntimeMonitorSnapshot: (monitor: {
-        authority: string;
-        revision: string;
-        summary: {
-          total: number;
-          running: number;
-          waiting: number;
-          completed: number;
-          failed: number;
-        };
-        buckets: {
-          running: Array<Record<string, unknown>>;
-        };
-        task_runs: Array<Record<string, unknown>>;
-        updated_at: number;
-      }) => void;
-      loadGlobalRuntimeMonitorTaskRunDetail: (taskRunId: string, revision?: string) => Promise<void>;
+      applyRunMonitorSnapshot: (monitor: ReturnType<typeof monitorForTest>) => void;
     };
     let resolveOldDetail: (value: unknown) => void = () => undefined;
     api.getOrchestrationHarnessTaskRunLiveMonitor.mockImplementationOnce(
@@ -1084,32 +1270,19 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     const oldRun = itemForMonitor({ task_run_id: "taskrun:old", title: "旧任务" });
     const newRun = itemForMonitor({ task_run_id: "taskrun:new", title: "新任务" });
 
-    runtimeHarness.applyGlobalRuntimeMonitorSnapshot({
-      authority: "runtime_live_monitor.global",
-      revision: "rtmon:10:old",
-      summary: { total: 1, running: 1, waiting: 0, completed: 0, failed: 0 },
-      buckets: { running: [oldRun] },
-      task_runs: [oldRun],
-      updated_at: 10,
-    });
-    const loadingOldDetail = runtimeHarness.loadGlobalRuntimeMonitorTaskRunDetail("taskrun:old", "rtmon:10:old");
-    runtimeHarness.applyGlobalRuntimeMonitorSnapshot({
-      authority: "runtime_live_monitor.global",
-      revision: "rtmon:20:new",
-      summary: { total: 1, running: 1, waiting: 0, completed: 0, failed: 0 },
-      buckets: { running: [newRun] },
-      task_runs: [newRun],
-      updated_at: 20,
-    });
+    runtimeHarness.applyRunMonitorSnapshot(monitorForTest([oldRun], { revision: "rtmon:10:old", updated_at: 10 }));
+    runtime.actions.openRunMonitorSignal("taskrun:old");
+    await flushPromises(2);
+    runtimeHarness.applyRunMonitorSnapshot(monitorForTest([newRun], { revision: "rtmon:20:new", updated_at: 20 }));
     resolveOldDetail({ monitor: { status: "running", task_run: { task_run_id: "taskrun:old" } } });
-    await loadingOldDetail;
+    await flushPromises(4);
 
-    expect(store.getState().globalRuntimeMonitorRevision).toBe("rtmon:20:new");
-    expect(store.getState().globalRuntimeMonitorSelectedTaskRunId).toBe("taskrun:new");
-    expect(store.getState().globalRuntimeMonitorSelectedLiveMonitor).toBeNull();
+    expect(store.getState().runMonitorRevision).toBe("rtmon:20:new");
+    expect(store.getState().runMonitorSelectedTaskRunId).toBe("taskrun:new");
+    expect(store.getState().runMonitorSelectedDetail).toBeNull();
   });
 
-  it("starts the global monitor in polling mode without opening an SSE stream", async () => {
+  it("starts the run monitor with an SSE stream and an initial snapshot refresh", async () => {
     const instances: Array<{ close: ReturnType<typeof vi.fn> }> = [];
     class MockEventSource {
       close = vi.fn();
@@ -1121,53 +1294,31 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       addEventListener() {}
     }
     vi.stubGlobal("EventSource", MockEventSource);
-    api.getGlobalRuntimeMonitor.mockResolvedValue({
-      authority: "runtime_live_monitor.global",
-      summary: { total: 0, running: 0, waiting: 0, completed: 0, failed: 0 },
-      task_runs: [],
-      updated_at: 1,
-    });
+    api.getRunMonitor.mockResolvedValue(monitorForTest([]));
     const store = createStore(getDefaultState());
     const runtime = new WorkspaceRuntime(store);
 
-    runtime.startGlobalRuntimeMonitor();
+    runtime.startRunMonitor();
     await vi.advanceTimersByTimeAsync(0);
 
-    expect(instances).toHaveLength(0);
-    expect(api.getGlobalRuntimeMonitor).toHaveBeenCalledTimes(1);
-    expect(store.getState().globalRuntimeMonitorStreamStatus).toBe("fallback");
+    expect(instances).toHaveLength(1);
+    expect(api.getRunMonitor).toHaveBeenCalledTimes(1);
+    expect(store.getState().runMonitorStreamStatus).toBe("connecting");
   });
 
-  it("polls the global monitor on a steady interval without relying on SSE", async () => {
-    const instances: Array<{ close: ReturnType<typeof vi.fn>; onerror: (() => void) | null; onopen: (() => void) | null }> = [];
-    class MockEventSource {
-      onerror: (() => void) | null = null;
-      onopen: (() => void) | null = null;
-      close = vi.fn();
-
-      constructor(_url: string) {
-        instances.push(this);
-      }
-
-      addEventListener() {}
-    }
-    vi.stubGlobal("EventSource", MockEventSource);
-    api.getGlobalRuntimeMonitor.mockResolvedValue({
-      authority: "runtime_live_monitor.global",
-      summary: { total: 0, running: 0, waiting: 0, completed: 0, failed: 0 },
-      task_runs: [],
-      updated_at: 1,
-    });
+  it("polls the run monitor only when SSE is unavailable", async () => {
+    vi.stubGlobal("EventSource", undefined);
+    api.getRunMonitor.mockResolvedValue(monitorForTest([]));
     const store = createStore(getDefaultState());
     const runtime = new WorkspaceRuntime(store);
 
-    runtime.startGlobalRuntimeMonitor();
+    runtime.startRunMonitor();
     await vi.advanceTimersByTimeAsync(0);
-    expect(instances).toHaveLength(0);
-    expect(api.getGlobalRuntimeMonitor).toHaveBeenCalledTimes(1);
+    expect(api.getRunMonitor).toHaveBeenCalledTimes(1);
+    expect(store.getState().runMonitorStreamStatus).toBe("fallback");
 
     await vi.advanceTimersByTimeAsync(2500);
-    expect(api.getGlobalRuntimeMonitor).toHaveBeenCalledTimes(2);
+    expect(api.getRunMonitor).toHaveBeenCalledTimes(2);
   });
 
   it("projects background TaskRun step summaries from the monitor event stream into chat", () => {
@@ -1181,10 +1332,10 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       ],
     });
     const runtime = new WorkspaceRuntime(store) as unknown as {
-      applyGlobalRuntimeMonitorStreamPayload: (payload: Record<string, unknown>) => void;
+      applyRunMonitorStreamPayload: (payload: Record<string, unknown>) => void;
     };
 
-    runtime.applyGlobalRuntimeMonitorStreamPayload({
+    runtime.applyRunMonitorStreamPayload({
       source: "runtime_event_log",
       monitor: monitorForTest([
         itemForMonitor({
@@ -1212,7 +1363,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
         authority: "orchestration.runtime_event",
       },
     });
-    runtime.applyGlobalRuntimeMonitorStreamPayload({
+    runtime.applyRunMonitorStreamPayload({
       source: "runtime_event_log",
       runtime_event: {
         event_id: "rtevt:step:2",
@@ -1254,10 +1405,10 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       ],
     });
     const runtime = new WorkspaceRuntime(store) as unknown as {
-      applyGlobalRuntimeMonitorStreamPayload: (payload: Record<string, unknown>) => void;
+      applyRunMonitorStreamPayload: (payload: Record<string, unknown>) => void;
     };
 
-    runtime.applyGlobalRuntimeMonitorStreamPayload({
+    runtime.applyRunMonitorStreamPayload({
       source: "runtime_event_log",
       monitor: monitorForTest([
         itemForMonitor({
@@ -1315,10 +1466,10 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       ],
     });
     const runtime = new WorkspaceRuntime(store) as unknown as {
-      applyGlobalRuntimeMonitorStreamPayload: (payload: Record<string, unknown>) => void;
+      applyRunMonitorStreamPayload: (payload: Record<string, unknown>) => void;
     };
 
-    runtime.applyGlobalRuntimeMonitorStreamPayload({
+    runtime.applyRunMonitorStreamPayload({
       source: "runtime_event_log",
       monitor: monitorForTest([
         itemForMonitor({
@@ -1992,17 +2143,17 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(api.resumeOrchestrationHarnessTaskRun).not.toHaveBeenCalled();
   });
 
-  it("does not surface transient global monitor aborts as user-visible errors", async () => {
+  it("does not surface transient run monitor aborts as user-visible errors", async () => {
     vi.stubGlobal("EventSource", undefined);
-    api.getGlobalRuntimeMonitor.mockRejectedValue(new DOMException("signal is aborted without reason", "AbortError"));
+    api.getRunMonitor.mockRejectedValue(new DOMException("signal is aborted without reason", "AbortError"));
     const store = createStore(getDefaultState());
     const runtime = new WorkspaceRuntime(store);
 
-    runtime.startGlobalRuntimeMonitor();
+    runtime.startRunMonitor();
     await vi.runOnlyPendingTimersAsync();
 
-    expect(store.getState().globalRuntimeMonitorError).toBe("");
-    expect(store.getState().globalRuntimeMonitorLoading).toBe(false);
+    expect(store.getState().runMonitorError).toBe("");
+    expect(store.getState().runMonitorLoading).toBe(false);
   });
 
   it("renders new runtime answer events before final done", () => {
@@ -3545,7 +3696,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(assistant?.stageStatus).toBe("继续在后台处理");
   });
 
-  it("attaches tool runtime signals to the assistant task flow", () => {
+  it("attaches tool runtime requests to the assistant task flow without reviving legacy tool results", () => {
     let transition = startStreamingTurn(getDefaultState(), "执行前端任务");
     transition = reduceStreamEvent(transition.state, transition.session, "harness_loop_event", {
       event: {
@@ -3586,11 +3737,10 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     });
 
     const assistant = transition.state.messages.at(-1);
-    expect(assistant?.runtimeProgress?.map((entry) => entry.kind)).toEqual(["tool", "tool"]);
-    expect(assistant?.runtimeProgress?.[1]).toMatchObject({
-      statusText: "已完成",
+    expect(assistant?.runtimeProgress?.map((entry) => entry.kind)).toEqual(["tool"]);
+    expect(assistant?.runtimeProgress?.[0]).toMatchObject({
+      statusText: "写入中",
       toolName: "write_file",
-      artifacts: [{ label: "产物", path: "docs/plan.md" }],
     });
   });
 

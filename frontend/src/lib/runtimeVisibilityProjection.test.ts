@@ -66,7 +66,7 @@ describe("runtimeVisibilityProjection", () => {
     expect(projection.progressEntry).toBeUndefined();
   });
 
-  it("projects runtime loop tool request and result as tool flow entries", () => {
+  it("projects runtime loop tool requests as visible tool flow entries", () => {
     const requested = projectRuntimeStreamEvent("harness_loop_event", {
       event: {
         event_id: "rtevt:tool-request",
@@ -85,7 +85,17 @@ describe("runtimeVisibilityProjection", () => {
         },
       },
     });
-    const returned = projectRuntimeStreamEvent("harness_loop_event", {
+
+    expect(requested.progressEntry).toMatchObject({
+      kind: "tool",
+      toolName: "write_file",
+      statusText: "写入中",
+      taskRunId: "taskrun:1",
+    });
+  });
+
+  it("does not project legacy runtime loop tool result events", () => {
+    const projection = projectRuntimeStreamEvent("harness_loop_event", {
       event: {
         event_id: "rtevt:tool-result",
         run_id: "taskrun:1",
@@ -94,31 +104,18 @@ describe("runtimeVisibilityProjection", () => {
         payload: {
           observation: {
             observation_id: "rtobs:tool-result",
-            source: "tool:write_file",
+            source: "tool:terminal",
             payload: {
-              tool_name: "write_file",
-              result: "wrote docs/plan.md",
-              result_chars: 18,
-              observed_paths: ["docs/plan.md"],
+              tool_name: "terminal",
+              error: "Blocked: command references an absolute path outside the sandbox workspace.",
+              tool_args: { command: "cd \"D:\\AI应用\\langchain-agent\"; python -m pytest backend/tests/" },
             },
           },
         },
       },
     });
 
-    expect(requested.progressEntry).toMatchObject({
-      kind: "tool",
-      toolName: "write_file",
-      statusText: "写入中",
-      taskRunId: "taskrun:1",
-    });
-    expect(returned.progressEntry).toMatchObject({
-      kind: "tool",
-      toolName: "write_file",
-      statusText: "已完成",
-      taskRunId: "taskrun:1",
-    });
-    expect(returned.progressEntry?.artifacts?.[0]?.path).toBe("docs/plan.md");
+    expect(projection).toEqual({});
   });
 
   it("projects single-agent turn tool admission and observation as visible tool flow entries", () => {
@@ -223,6 +220,40 @@ describe("runtimeVisibilityProjection", () => {
       runId: "turnrun:turn:session-a:8",
       artifacts: [{ label: "产物", path: "docs/plan.md" }],
     });
+  });
+
+  it("hides sandbox boundary command failures from public progress", () => {
+    const projection = projectRuntimeStreamEvent("turn_tool_observation_recorded", {
+      event: {
+        event_id: "rtevt:sandbox-boundary",
+        run_id: "turnrun:turn:session-a:9",
+        event_type: "turn_tool_observation_recorded",
+        created_at: 22,
+        payload: {
+          preview: {
+            tool_observation: {
+              observation_id: "toolobs:sandbox-boundary",
+              caller_ref: "turnrun:turn:session-a:9",
+              tool_name: "terminal",
+              status: "error",
+              error: "Blocked: command references an absolute path outside the sandbox workspace.",
+              text: "Blocked: command references an absolute path outside the sandbox workspace.",
+              result_envelope: {
+                tool_name: "terminal",
+                tool_args: {
+                  command: "cd \"D:\\AI应用\\langchain-agent\"; python -m pytest backend/tests/",
+                },
+                structured_error: {
+                  message: "Blocked: command references an absolute path outside the sandbox workspace.",
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    expect(projection).toEqual({});
   });
 
   it("projects terminal commands as Codex-style running activity", () => {

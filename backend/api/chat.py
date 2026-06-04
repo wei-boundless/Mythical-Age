@@ -19,7 +19,7 @@ from runtime.shared.stream_replay import (
     TERMINAL_PUBLIC_EVENTS,
     parse_stream_event_id,
 )
-from sessions import validate_session_id
+from sessions import SessionProjectBindingConflict, validate_session_id
 from task_system.session_scope import assert_optional_session_scope
 
 router = APIRouter()
@@ -145,6 +145,7 @@ async def create_chat_run(payload: ChatRequest):
     runtime = require_runtime()
     session_id = validate_session_id(payload.session_id)
     assert_optional_session_scope(runtime.session_manager, session_id, payload.session_scope)
+    _bind_or_validate_editor_project(runtime, session_id, dict(payload.editor_context or {}))
     request = _query_request_from_payload(payload, session_id=session_id)
     run = _create_and_schedule_run(runtime, request)
     return _run_response(runtime, run)
@@ -216,6 +217,7 @@ async def chat(payload: ChatRequest):
     runtime = require_runtime()
     session_id = validate_session_id(payload.session_id)
     assert_optional_session_scope(runtime.session_manager, session_id, payload.session_scope)
+    _bind_or_validate_editor_project(runtime, session_id, dict(payload.editor_context or {}))
     request = _query_request_from_payload(payload, session_id=session_id)
     run = _create_and_schedule_run(runtime, request)
 
@@ -262,6 +264,47 @@ def _query_request_from_payload(payload: ChatRequest, *, session_id: str) -> Har
         active_turn_input_policy=str(payload.active_turn_input_policy or "auto"),
         editor_context=dict(payload.editor_context or {}),
     )
+
+
+def _bind_or_validate_editor_project(runtime: Any, session_id: str, editor_context: dict[str, Any]) -> None:
+    workspace_roots = [
+        str(item or "").strip()
+        for item in list(editor_context.get("workspace_roots") or [])
+        if str(item or "").strip()
+    ]
+    if not workspace_roots:
+        return
+    binding = runtime.session_manager.get_project_binding(session_id)
+    if binding:
+        bound_root = str(binding.get("workspace_root") or "").strip()
+        conflict_seen = False
+        invalid_seen = ""
+        for root in workspace_roots:
+            try:
+                runtime.session_manager.bind_project(session_id, workspace_root=root, source="vscode")
+                return
+            except SessionProjectBindingConflict:
+                conflict_seen = True
+                continue
+            except ValueError as exc:
+                invalid_seen = str(exc)
+                continue
+        if conflict_seen:
+            raise HTTPException(
+                status_code=409,
+                detail=f"editor workspace root does not match bound session project: {bound_root}",
+            )
+        if invalid_seen:
+            raise HTTPException(status_code=400, detail=invalid_seen)
+        return
+    if len(workspace_roots) != 1:
+        raise HTTPException(status_code=409, detail="multiple editor workspace roots require explicit project binding")
+    try:
+        runtime.session_manager.bind_project(session_id, workspace_root=workspace_roots[0], source="vscode")
+    except SessionProjectBindingConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 def _create_and_schedule_run(runtime: Any, request: HarnessRuntimeRequest) -> RuntimeRun:

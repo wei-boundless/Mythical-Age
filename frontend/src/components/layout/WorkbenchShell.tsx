@@ -20,7 +20,7 @@ import { useEffect, useState, type CSSProperties, type PointerEvent as ReactPoin
 
 import { RunMonitorPanel } from "@/components/layout/RunMonitorPanel";
 import { WorkspaceModeSwitcher } from "@/components/layout/WorkspaceModeSwitcher";
-import { openCodeEnvironmentWorkspaceRoot, type CodeEnvironmentTreeNode } from "@/lib/api";
+import { openSessionProjectInVSCode, type CodeEnvironmentTreeNode } from "@/lib/api";
 import type { SessionSummary, SessionTaskSummary } from "@/lib/api";
 import { useAppStore } from "@/lib/store";
 
@@ -152,6 +152,16 @@ function sessionTask(session: SessionSummary) {
   return session.active_task?.available ? session.active_task : undefined;
 }
 
+function projectRootFromSession(session: SessionSummary | null | undefined) {
+  return String(session?.conversation_state?.project_binding?.workspace_root || "").trim();
+}
+
+function projectNameFromRoot(root: string) {
+  const normalized = root.replace(/\\/g, "/").replace(/\/+$/, "");
+  const parts = normalized.split("/").filter(Boolean);
+  return parts[parts.length - 1] || root || "当前项目";
+}
+
 function sessionDisplayTitle(session: SessionSummary) {
   const task = sessionTask(session);
   const taskTitle = String(task?.title || "").trim();
@@ -171,13 +181,15 @@ function sessionDisplayTitle(session: SessionSummary) {
 
 function sessionMetaLine(session: SessionSummary) {
   const task = sessionTask(session);
+  const projectRoot = projectRootFromSession(session);
+  const projectLabel = projectRoot ? `${projectNameFromRoot(projectRoot)} · ` : "";
   if (!task) {
-    return `${session.message_count} 条消息 · ${formatSessionTime(session.updated_at)}`;
+    return `${projectLabel}${session.message_count} 条消息 · ${formatSessionTime(session.updated_at)}`;
   }
   const updatedAt = Number(task.updated_at || session.updated_at || 0);
   const taskCount = Number(task.task_run_count || 0);
   const countLabel = taskCount > 1 ? `${taskCount} 个任务记录` : "当前任务";
-  return `${taskStatusLabel(task)} · ${countLabel} · ${formatSessionTime(updatedAt)}`;
+  return `${projectLabel}${taskStatusLabel(task)} · ${countLabel} · ${formatSessionTime(updatedAt)}`;
 }
 
 function usePersistedWorkbenchWidths() {
@@ -297,33 +309,60 @@ function WorkspaceManagerPanel({ onOpenFile }: { onOpenFile: (path: string) => v
     currentSessionId,
     inspectorPath,
     sessions,
+    bindCurrentSessionProject,
     createNewSession,
     refreshWorkspaceTree,
     removeSession,
     selectSession,
-    workspaceContext,
     workspaceTree,
     workspaceTreeError,
     workspaceTreeLoading,
   } = useAppStore();
   const visibleSessions = [...sessions].sort((a, b) => b.updated_at - a.updated_at);
   const currentSession = sessions.find((session) => session.id === currentSessionId) ?? null;
-  const projectName = workspaceContext?.project_name || "当前项目";
-  const projectRoot = workspaceContext?.project_root || "未加载项目根";
+  const boundProjectRoot = projectRootFromSession(currentSession);
+  const projectRoot = boundProjectRoot || "当前会话未绑定项目";
+  const projectName = boundProjectRoot ? projectNameFromRoot(boundProjectRoot) : "未绑定项目";
+  const projectContextLabel = boundProjectRoot ? "绑定项目" : "项目未绑定";
   const projectTreeNodes = workspaceTree?.tree.children || [];
   const [openingProjectRoot, setOpeningProjectRoot] = useState(false);
   const [openProjectRootError, setOpenProjectRootError] = useState("");
+  const [bindingProjectBusy, setBindingProjectBusy] = useState(false);
+  const [bindingProjectError, setBindingProjectError] = useState("");
   const [filesOpen, setFilesOpen] = useState(false);
+
+  useEffect(() => {
+    if (!boundProjectRoot) {
+      return;
+    }
+    setBindingProjectError("");
+  }, [boundProjectRoot]);
 
   async function handleOpenProjectRoot() {
     setOpeningProjectRoot(true);
     setOpenProjectRootError("");
     try {
-      await openCodeEnvironmentWorkspaceRoot();
+      if (boundProjectRoot && currentSession) {
+        await openSessionProjectInVSCode(currentSession.id, currentSession.scope);
+      } else {
+        setOpenProjectRootError("当前会话未绑定项目。请从 VS Code 创建或发送一次请求后再打开。");
+      }
     } catch (error) {
-      setOpenProjectRootError(error instanceof Error ? error.message : "无法打开项目目录。");
+      setOpenProjectRootError(error instanceof Error ? error.message : "无法打开项目。");
     } finally {
       setOpeningProjectRoot(false);
+    }
+  }
+
+  async function handleBindProject() {
+    setBindingProjectBusy(true);
+    setBindingProjectError("");
+    try {
+      await bindCurrentSessionProject();
+    } catch (error) {
+      setBindingProjectError(error instanceof Error ? error.message : "无法绑定项目。");
+    } finally {
+      setBindingProjectBusy(false);
     }
   }
 
@@ -340,15 +379,34 @@ function WorkspaceManagerPanel({ onOpenFile }: { onOpenFile: (path: string) => v
       <section className="workbench-project-context" aria-label="当前项目上下文">
         <div className="workbench-project-context__summary">
           <div>
-            <span>当前项目</span>
+            <span>{projectContextLabel}</span>
             <strong>{projectName}</strong>
             <small title={projectRoot}>{projectRoot}</small>
           </div>
-          <button disabled={workspaceTreeLoading} onClick={() => void refreshWorkspaceTree()} type="button">
-            <RefreshCw size={14} />
-            <span>刷新</span>
-          </button>
+          {boundProjectRoot ? (
+            <button
+              disabled={workspaceTreeLoading}
+              onClick={() => void refreshWorkspaceTree()}
+              title="刷新绑定项目文件"
+              type="button"
+            >
+              <RefreshCw size={14} />
+              <span>刷新</span>
+            </button>
+          ) : (
+            <button
+              className="workbench-project-context__bind-action"
+              disabled={bindingProjectBusy}
+              onClick={() => void handleBindProject()}
+              title="绑定当前会话项目"
+              type="button"
+            >
+              <FolderOpen size={14} />
+              <span>{bindingProjectBusy ? "选择中" : "绑定"}</span>
+            </button>
+          )}
         </div>
+        {!boundProjectRoot && bindingProjectError ? <small className="workbench-project-bind-error">{bindingProjectError}</small> : null}
       </section>
 
       <div className="workbench-left-body">
@@ -408,20 +466,25 @@ function WorkspaceManagerPanel({ onOpenFile }: { onOpenFile: (path: string) => v
             >
               {filesOpen ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
               <div>
-                <strong>项目文件</strong>
-                <span>{workspaceTree ? `${workspaceTree.total_entries} 项` : workspaceTreeLoading ? "加载中" : "未加载"}</span>
+                <strong>{boundProjectRoot ? "绑定项目文件" : "项目文件"}</strong>
+                <span>{workspaceTree ? `${workspaceTree.total_entries} 项 · ${workspaceTree.root_name}` : workspaceTreeLoading ? "加载中" : "未加载"}</span>
               </div>
             </button>
             <div className="workbench-file-tree__actions">
-              <button disabled={workspaceTreeLoading} onClick={() => void refreshWorkspaceTree()} type="button">
+              <button
+                disabled={!boundProjectRoot || workspaceTreeLoading}
+                title={boundProjectRoot ? "刷新绑定项目文件" : "当前会话未绑定项目"}
+                type="button"
+                onClick={() => void refreshWorkspaceTree()}
+              >
                 <RefreshCw size={14} />
               </button>
               <button
-                aria-label="打开项目目录"
+                aria-label={boundProjectRoot ? "在 VS Code 打开绑定项目" : "打开项目目录"}
                 className="workbench-file-tree__open-project"
-                disabled={openingProjectRoot}
+                disabled={!boundProjectRoot || openingProjectRoot}
                 onClick={() => void handleOpenProjectRoot()}
-                title={`打开项目目录：${projectRoot}`}
+                title={boundProjectRoot ? `在 VS Code 打开绑定项目：${projectRoot}` : "当前会话未绑定项目"}
                 type="button"
               >
                 <FolderOpen size={15} />

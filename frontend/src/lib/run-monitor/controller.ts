@@ -1,6 +1,12 @@
 import type { Store } from "@/lib/store/core";
 import type { ChatTaskEnvironmentBinding, StoreState, TaskGraphMonitorBinding, WorkspaceView } from "@/lib/store/types";
-import { isRequestAbortError, type RunMonitorEventPayload, type SessionScope } from "@/lib/api";
+import {
+  isRequestAbortError,
+  runGraphRunUntilIdle,
+  type GraphRunMonitorView,
+  type RunMonitorEventPayload,
+  type SessionScope,
+} from "@/lib/api";
 
 import {
   fetchRunMonitor,
@@ -42,6 +48,8 @@ export class RunMonitorController {
   private inFlight = false;
   private request = 0;
   private reconnectAttempts = 0;
+  private graphAutoAdvanceTimer: number | null = null;
+  private graphAutoAdvanceInFlight = false;
 
   constructor(
     private readonly store: Store<StoreState>,
@@ -66,6 +74,7 @@ export class RunMonitorController {
     this.closeStream();
     this.clearTimer();
     this.clearReconnectTimer();
+    this.stopGraphAutoAdvance();
     this.inFlight = false;
     this.store.setState((prev) => ({ ...prev, runMonitorStreamStatus: "closed" }));
   }
@@ -184,6 +193,120 @@ export class RunMonitorController {
     void this.loadSignalDetail(signal, this.store.getState().runMonitorRevision);
   }
 
+  bindGraphRun(binding: Omit<TaskGraphMonitorBinding, "bound_at"> & { bound_at?: number }) {
+    const normalized = normalizeTaskGraphBinding(binding);
+    if (!normalized) return;
+    this.store.setState((prev) => ({
+      ...prev,
+      taskGraphMonitorBinding: normalized,
+      taskGraphMonitorError: "",
+      taskGraphRunInteractionOpen: prev.taskGraphRunInteractionOpen,
+    }));
+  }
+
+  clearGraphRun() {
+    this.stopGraphAutoAdvance();
+    this.store.setState((prev) => ({
+      ...prev,
+      taskGraphMonitorBinding: null,
+      taskGraphBoundRunMonitor: null,
+      taskGraphAutoAdvanceEnabled: false,
+      taskGraphAutoAdvancePending: false,
+      taskGraphMonitorError: "",
+      taskGraphRunInteractionOpen: false,
+    }));
+  }
+
+  setGraphRunInteractionOpen(open: boolean) {
+    this.store.setState((prev) => ({ ...prev, taskGraphRunInteractionOpen: open }));
+  }
+
+  setGraphAutoAdvanceEnabled(enabled: boolean) {
+    if (!enabled) {
+      this.stopGraphAutoAdvance();
+      this.store.setState((prev) => ({
+        ...prev,
+        taskGraphAutoAdvanceEnabled: false,
+        taskGraphAutoAdvancePending: false,
+      }));
+      return;
+    }
+    this.store.setState((prev) => ({
+      ...prev,
+      taskGraphAutoAdvanceEnabled: true,
+      taskGraphMonitorError: "",
+    }));
+    const state = this.store.getState();
+    if (state.taskGraphBoundRunMonitor) {
+      this.scheduleGraphAutoAdvance(state.taskGraphBoundRunMonitor);
+      return;
+    }
+    void this.evaluateBoundGraphMonitor().then(() => {
+      const nextState = this.store.getState();
+      if (nextState.taskGraphAutoAdvanceEnabled && nextState.taskGraphBoundRunMonitor) {
+        this.scheduleGraphAutoAdvance(nextState.taskGraphBoundRunMonitor);
+      }
+    });
+  }
+
+  async evaluateBoundGraphMonitor() {
+    const binding = this.store.getState().taskGraphMonitorBinding;
+    const graphRunId = String(binding?.graph_run_id || "").trim();
+    const graphHarnessConfigId = String(binding?.graph_harness_config_id || "").trim();
+    if (!graphRunId || !graphHarnessConfigId) {
+      this.store.setState((prev) => ({ ...prev, taskGraphMonitorError: "当前没有绑定可刷新的 GraphRun。" }));
+      return;
+    }
+    this.store.setState((prev) => ({ ...prev, taskGraphMonitorLoading: true, taskGraphMonitorError: "" }));
+    try {
+      const monitor = await fetchRunMonitorGraphDetail(graphRunId, graphHarnessConfigId, binding?.session_scope);
+      this.store.setState((prev) => ({ ...prev, taskGraphBoundRunMonitor: monitor }));
+      await this.refresh({ schedule: false });
+      if (this.store.getState().taskGraphAutoAdvanceEnabled) {
+        this.scheduleGraphAutoAdvance(monitor);
+      }
+    } catch (error) {
+      this.store.setState((prev) => ({
+        ...prev,
+        taskGraphMonitorError: runMonitorErrorMessage(error, "GraphRun 监控刷新失败"),
+      }));
+    } finally {
+      this.store.setState((prev) => ({ ...prev, taskGraphMonitorLoading: false }));
+    }
+  }
+
+  async continueBoundGraphRun() {
+    const state = this.store.getState();
+    const binding = state.taskGraphMonitorBinding;
+    const graphRunId = String(binding?.graph_run_id || state.taskGraphBoundRunMonitor?.graph_run_id || "").trim();
+    const graphHarnessConfigId = String(binding?.graph_harness_config_id || "").trim();
+    if (!graphRunId || !graphHarnessConfigId) {
+      this.store.setState((prev) => ({ ...prev, taskGraphMonitorError: "当前没有可派发的 GraphRun。" }));
+      return;
+    }
+    this.store.setState((prev) => ({ ...prev, taskGraphMonitorActionLoading: true, taskGraphMonitorError: "" }));
+    try {
+      await runGraphRunUntilIdle(graphRunId, {
+        graph_harness_config_id: graphHarnessConfigId,
+        session_scope: binding?.session_scope,
+        max_dispatch_requests: 1,
+      });
+      const monitor = await fetchRunMonitorGraphDetail(graphRunId, graphHarnessConfigId, binding?.session_scope);
+      this.store.setState((prev) => ({ ...prev, taskGraphBoundRunMonitor: monitor }));
+      await this.refresh({ schedule: false });
+      if (this.store.getState().taskGraphAutoAdvanceEnabled) {
+        this.scheduleGraphAutoAdvance(monitor);
+      }
+    } catch (error) {
+      this.store.setState((prev) => ({
+        ...prev,
+        taskGraphMonitorError: error instanceof Error ? error.message : "续跑失败",
+      }));
+    } finally {
+      this.store.setState((prev) => ({ ...prev, taskGraphMonitorActionLoading: false }));
+    }
+  }
+
   private openStream() {
     this.closeStream();
     this.store.setState((prev) => ({ ...prev, runMonitorStreamStatus: "connecting" }));
@@ -285,6 +408,7 @@ export class RunMonitorController {
     if (signal.work_kind === "graph_task" || navigation.target_kind === "graph_task") {
       const graphRunId = String(signal.graph_ref?.graph_run_id || navigation.graph_run_id || "").trim();
       const graphHarnessConfigId = String(signal.graph_ref?.graph_harness_config_id || "").trim();
+      const projectId = String(navigation.project_id || "").trim();
       this.host.syncWorkspaceViewUrl(owningTaskEnvironmentView);
       this.store.setState((prev) => ({
         ...prev,
@@ -295,8 +419,13 @@ export class RunMonitorController {
           graph_harness_config_id: graphHarnessConfigId,
           graph_id: String(signal.graph_ref?.graph_id || navigation.graph_id || signal.graph_id || "").trim(),
           session_id: sessionId,
+          project_id: projectId,
           title: signal.title,
-          session_scope: { workspace_view: workspaceView || "task_environment", task_environment_id: taskEnvironmentId },
+          session_scope: {
+            workspace_view: workspaceView || "task_environment",
+            task_environment_id: taskEnvironmentId,
+            project_id: projectId,
+          },
         }) ?? prev.taskGraphMonitorBinding,
         centerWorkspaceTarget: {
           layer: "task-graph",
@@ -348,6 +477,79 @@ export class RunMonitorController {
     const message = error instanceof Error ? error.message : String(error ?? "");
     return message.includes("Failed to fetch") || message.includes("NetworkError") || message.includes("Load failed");
   }
+
+  private stopGraphAutoAdvance() {
+    if (typeof window !== "undefined" && this.graphAutoAdvanceTimer !== null) {
+      window.clearTimeout(this.graphAutoAdvanceTimer);
+    }
+    this.graphAutoAdvanceTimer = null;
+    this.graphAutoAdvanceInFlight = false;
+  }
+
+  private scheduleGraphAutoAdvance(monitor: GraphRunMonitorView) {
+    if (typeof window === "undefined") return;
+    const state = this.store.getState();
+    if (!state.taskGraphAutoAdvanceEnabled || this.graphAutoAdvanceInFlight || this.graphAutoAdvanceTimer !== null) return;
+    const loopState = monitor.graph_loop_state && typeof monitor.graph_loop_state === "object"
+      ? monitor.graph_loop_state as Record<string, unknown>
+      : {};
+    const readyNodeIds = Array.isArray(loopState.ready_node_ids) ? loopState.ready_node_ids : [];
+    const runningNodeIds = Array.isArray(loopState.running_node_ids) ? loopState.running_node_ids : [];
+    const status = String(loopState.status || monitor.task_run?.status || monitor.graph_run?.status || "").toLowerCase();
+    const activeWorkOrderCount = Number(monitor.active_node_work_order_count ?? (Array.isArray(monitor.active_node_work_orders) ? monitor.active_node_work_orders.length : 0));
+    const terminal = ["completed", "succeeded", "success", "failed", "cancelled", "canceled", "stopped"].includes(status);
+    if (terminal || readyNodeIds.length === 0 || runningNodeIds.length > 0 || activeWorkOrderCount > 0) {
+      this.store.setState((prev) => ({ ...prev, taskGraphAutoAdvancePending: false }));
+      return;
+    }
+    const binding = state.taskGraphMonitorBinding;
+    const graphRunId = String(binding?.graph_run_id || monitor.graph_run_id || "").trim();
+    const graphHarnessConfigId = String(binding?.graph_harness_config_id || loopState.config_id || "").trim();
+    if (!graphRunId || !graphHarnessConfigId) {
+      this.store.setState((prev) => ({ ...prev, taskGraphAutoAdvancePending: false }));
+      return;
+    }
+    this.store.setState((prev) => ({ ...prev, taskGraphAutoAdvancePending: true }));
+    this.graphAutoAdvanceTimer = window.setTimeout(() => {
+      this.graphAutoAdvanceTimer = null;
+      void this.runGraphAutoAdvance(graphRunId, graphHarnessConfigId);
+    }, 2500);
+  }
+
+  private async runGraphAutoAdvance(graphRunId: string, graphHarnessConfigId: string) {
+    const state = this.store.getState();
+    if (!state.taskGraphAutoAdvanceEnabled || this.graphAutoAdvanceInFlight) {
+      this.store.setState((prev) => ({ ...prev, taskGraphAutoAdvancePending: false }));
+      return;
+    }
+    this.graphAutoAdvanceInFlight = true;
+    this.store.setState((prev) => ({
+      ...prev,
+      taskGraphAutoAdvancePending: false,
+      taskGraphMonitorActionLoading: true,
+      taskGraphMonitorError: "",
+    }));
+    try {
+      await runGraphRunUntilIdle(graphRunId, {
+        graph_harness_config_id: graphHarnessConfigId,
+        session_scope: state.taskGraphMonitorBinding?.session_scope,
+        max_dispatch_requests: 1,
+      });
+      const monitor = await fetchRunMonitorGraphDetail(graphRunId, graphHarnessConfigId, state.taskGraphMonitorBinding?.session_scope);
+      this.store.setState((prev) => ({ ...prev, taskGraphBoundRunMonitor: monitor }));
+      await this.refresh({ schedule: false });
+      this.scheduleGraphAutoAdvance(monitor);
+    } catch (error) {
+      this.store.setState((prev) => ({
+        ...prev,
+        taskGraphAutoAdvanceEnabled: false,
+        taskGraphMonitorError: runMonitorErrorMessage(error, "自动推进失败"),
+      }));
+    } finally {
+      this.graphAutoAdvanceInFlight = false;
+      this.store.setState((prev) => ({ ...prev, taskGraphMonitorActionLoading: false }));
+    }
+  }
 }
 
 function signalIdFromRuntimeEvent(event: RunMonitorEventPayload["runtime_event"] | null | undefined, monitor: RunMonitorEnvelope) {
@@ -374,4 +576,12 @@ function normalizeTaskGraphBinding(
     title: String(binding.title || "").trim() || undefined,
     bound_at: Number(binding.bound_at ?? Date.now() / 1000),
   };
+}
+
+function runMonitorErrorMessage(error: unknown, fallback: string) {
+  const message = error instanceof Error ? error.message.trim() : String(error ?? "").trim();
+  if (!message) return fallback;
+  if (/request timed out after \d+ms/i.test(message)) return `${fallback}（请求超时）`;
+  if (/failed to fetch|networkerror|load failed/i.test(message)) return `${fallback}（连接中断）`;
+  return message;
 }

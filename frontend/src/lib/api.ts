@@ -34,8 +34,18 @@ export type ConversationActiveEnvironment = {
   authority?: string;
 };
 
+export type SessionProjectBinding = {
+  workspace_root: string;
+  source?: string;
+  bound_at?: number;
+  last_seen_at?: number;
+  immutable?: boolean;
+  authority?: string;
+};
+
 export type ConversationState = {
   active_task_environment?: ConversationActiveEnvironment;
+  project_binding?: SessionProjectBinding;
   permission_mode?: string;
   authority?: string;
 };
@@ -1876,7 +1886,7 @@ export type HealthSystemOverview = {
   token_usage: HealthTokenUsage;
   efficiency: HealthEfficiency;
   recommendations: HealthRecommendation[];
-  monitor: GlobalRuntimeMonitor | Record<string, unknown>;
+  monitor: Record<string, unknown>;
   monitor_governance?: HealthMonitorGovernance;
   updated_at: number;
   issues?: HealthIssue[];
@@ -1902,7 +1912,7 @@ export type HealthTaskRecordPruneResult = {
   preflight?: HealthTaskRecordMaintenance;
   policy?: Record<string, unknown>;
   maintenance_receipt?: Record<string, unknown>;
-  monitor: GlobalRuntimeMonitor | Record<string, unknown>;
+  monitor: Record<string, unknown>;
   updated_at: number;
 };
 
@@ -2313,111 +2323,7 @@ export type HarnessSessionTaskRuns = {
   task_runs: HarnessTaskRunSummary[];
 };
 
-export type GlobalRuntimeMonitorItem = {
-  task_run_id: string;
-  session_id: string;
-  task_id: string;
-  execution_runtime_kind: string;
-  task_instance_id?: string;
-  root_task_run_id?: string;
-  kind?: "agent_run" | "task_graph" | string;
-  graph_run_id?: string;
-  graph_harness_config_id?: string;
-  title: string;
-  status: string;
-  terminal_reason: string;
-  created_at?: number;
-  updated_at?: number;
-  started_at: number;
-  ended_at?: number | null;
-  duration_seconds: number;
-  elapsed_seconds: number;
-  runtime_seconds?: number;
-  runtime_end_at?: number;
-  lifecycle: "running" | "waiting" | "action_required" | "completed" | "failed" | "stale" | string;
-  bucket: "running" | "completed" | "failed" | "diagnostics" | string;
-  resource_class: "dynamic" | "static" | string;
-  last_activity_at?: number;
-  last_activity_age_seconds?: number;
-  action_required?: boolean;
-  terminal?: boolean;
-  stale?: boolean;
-  runtime_control?: Record<string, unknown>;
-  control_state?: string;
-  is_live?: boolean;
-  summary?: string;
-  latest_step?: Record<string, unknown>;
-  latest_progress?: {
-    tool_status?: string;
-    observation?: string;
-    current_judgment?: string;
-    summary?: string;
-    next_action?: string;
-    completion_status?: string;
-    agent_brief?: string;
-  } | Record<string, unknown>;
-  latest_step_summary?: string;
-  latest_step_name?: string;
-  latest_step_status?: string;
-  latest_public_progress_note?: string;
-  agent_brief_output?: string;
-  artifact_count?: number;
-  artifact_refs?: Array<Record<string, unknown>>;
-  resource_refs?: Array<Record<string, unknown>>;
-  primary_resource_ref?: Record<string, unknown> | null;
-  graph_status?: Record<string, unknown> | null;
-  child_runtime_refs?: Array<Record<string, unknown>>;
-  navigation_target?: Record<string, unknown> | null;
-  session_scope?: Partial<SessionScope>;
-  latest_event_type: string;
-  latest_event_at: number;
-  event_count: number;
-  graph_id: string;
-  active_node_id: string;
-  project_id: string;
-  project_title: string;
-  project_runtime_status: Record<string, unknown> | null;
-  has_graph_run: boolean;
-  route: {
-    kind?: "agent_runtime_run" | "task_graph_run" | string;
-    session_id?: string;
-    task_run_id?: string;
-    graph_id?: string;
-    graph_run_id?: string;
-    graph_harness_config_id?: string;
-  };
-};
-
-export type GlobalRuntimeMonitor = {
-  authority: string;
-  scope?: string;
-  summary: {
-    total: number;
-    running: number;
-    waiting?: number;
-    blocked?: number;
-    completed: number;
-    failed: number;
-    diagnostics?: number;
-    action_required?: number;
-  };
-  buckets: {
-    running: GlobalRuntimeMonitorItem[];
-    waiting?: GlobalRuntimeMonitorItem[];
-    completed: GlobalRuntimeMonitorItem[];
-    failed: GlobalRuntimeMonitorItem[];
-    diagnostics: GlobalRuntimeMonitorItem[];
-  };
-  bucket_limit?: number;
-  revision?: string;
-  items?: GlobalRuntimeMonitorItem[];
-  selected?: GlobalRuntimeMonitorItem | Record<string, unknown> | null;
-  events?: Array<Record<string, unknown>>;
-  task_runs: GlobalRuntimeMonitorItem[];
-  updated_at: number;
-};
-
-export type RuntimeMonitorConsoleSignal = {
+export type RuntimeMonitorSignal = {
   authority: string;
   signal_id: string;
   source_kind: "task_run" | "turn_run" | "runtime_run" | "graph_run" | "diagnostic" | string;
@@ -2458,9 +2364,7 @@ export type RuntimeMonitorConsoleSignal = {
   raw_refs?: Record<string, unknown>;
 };
 
-export type RuntimeMonitorSignal = RuntimeMonitorConsoleSignal;
-
-export type RuntimeMonitorConsole = {
+export type RuntimeMonitorEnvelope = {
   authority: string;
   revision: string;
   updated_at: number;
@@ -2470,16 +2374,9 @@ export type RuntimeMonitorConsole = {
     waiting: number;
     failed: number;
     recent: number;
+    projects: number;
     total: number;
   };
-  primary: RuntimeMonitorConsoleSignal[];
-  attention: RuntimeMonitorConsoleSignal[];
-  recent: RuntimeMonitorConsoleSignal[];
-  projects?: RuntimeMonitorConsoleSignal[];
-  signals: RuntimeMonitorConsoleSignal[];
-};
-
-export type RuntimeMonitorEnvelope = Omit<RuntimeMonitorConsole, "primary" | "attention" | "recent" | "projects" | "signals"> & {
   primary: RuntimeMonitorSignal[];
   attention: RuntimeMonitorSignal[];
   recent: RuntimeMonitorSignal[];
@@ -2490,24 +2387,6 @@ export type RuntimeMonitorEnvelope = Omit<RuntimeMonitorConsole, "primary" | "at
 export type RunMonitorEventPayload = {
   source?: string;
   monitor?: RuntimeMonitorEnvelope;
-  legacy_monitor?: GlobalRuntimeMonitor;
-  runtime_event?: {
-    event_id: string;
-    run_id: string;
-    task_run_id?: string;
-    event_type: string;
-    offset: number;
-    created_at: number;
-    payload: Record<string, unknown>;
-    refs: Record<string, unknown>;
-    authority: string;
-  };
-  updated_at?: number;
-};
-
-export type RuntimeMonitorEventPayload = {
-  source?: string;
-  monitor?: GlobalRuntimeMonitor;
   runtime_event?: {
     event_id: string;
     run_id: string;
@@ -3695,10 +3574,14 @@ export async function listSessions(scope?: Partial<SessionScope>) {
   return request<SessionSummary[]>(query ? `/sessions?${query}` : "/sessions");
 }
 
-export async function createSession(title = "New Session", scope?: Partial<SessionScope>) {
+export async function createSession(
+  title = "New Session",
+  scope?: Partial<SessionScope>,
+  projectBinding?: Pick<SessionProjectBinding, "workspace_root" | "source">,
+) {
   return request<SessionSummary>("/sessions", {
     method: "POST",
-    body: JSON.stringify({ title, ...(scope ? { scope } : {}) })
+    body: JSON.stringify({ title, ...(scope ? { scope } : {}), ...(projectBinding ? { project_binding: projectBinding } : {}) })
   });
 }
 
@@ -3745,6 +3628,40 @@ export async function setSessionPermissionMode(sessionId: string, mode: string, 
   });
 }
 
+export async function getSessionProjectBinding(sessionId: string, scope?: Partial<SessionScope>) {
+  return request<{ project_binding: SessionProjectBinding | Record<string, never> }>(
+    withSessionScopeQuery(`/sessions/${sessionId}/project-binding`, scope)
+  );
+}
+
+export async function bindSessionProject(
+  sessionId: string,
+  payload: Pick<SessionProjectBinding, "workspace_root" | "source">,
+  scope?: Partial<SessionScope>,
+) {
+  return request<{ project_binding: SessionProjectBinding }>(
+    withSessionScopeQuery(`/sessions/${sessionId}/project-binding`, scope),
+    {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    }
+  );
+}
+
+export async function selectSessionProjectDirectory(sessionId: string, scope?: Partial<SessionScope>) {
+  return request<{ project_binding: SessionProjectBinding; selected_path: string }>(
+    withSessionScopeQuery(`/sessions/${sessionId}/project-binding/select-directory`, scope),
+    { method: "POST" }
+  );
+}
+
+export async function openSessionProjectInVSCode(sessionId: string, scope?: Partial<SessionScope>) {
+  return request<{ ok: boolean; project_binding: SessionProjectBinding; command: string[] }>(
+    withSessionScopeQuery(`/sessions/${sessionId}/project-binding/open-vscode`, scope),
+    { method: "POST" }
+  );
+}
+
 export async function getSessionTimeline(sessionId: string, scope?: Partial<SessionScope>) {
   return request<SessionTimeline>(withSessionScopeQuery(`/sessions/${sessionId}/timeline`, scope));
 }
@@ -3786,13 +3703,27 @@ export async function getWorkspaceContext() {
 }
 
 export async function loadFile(path: string) {
-  return request<{ path: string; content: string }>(
-    `/files?path=${encodeURIComponent(path)}`
-  );
+  return request<{ path: string; content: string }>(`/files?path=${encodeURIComponent(path)}`);
+}
+
+export async function loadFileForSession(path: string, sessionId: string, scope?: Partial<SessionScope>) {
+  const params = sessionScopeQuery(scope);
+  params.set("path", path);
+  params.set("session_id", sessionId);
+  return request<{ path: string; content: string }>(`/files?${params.toString()}`);
 }
 
 export async function saveFile(path: string, content: string) {
   return request<{ ok: boolean; path: string }>("/files", {
+    method: "POST",
+    body: JSON.stringify({ path, content })
+  });
+}
+
+export async function saveFileForSession(path: string, content: string, sessionId: string, scope?: Partial<SessionScope>) {
+  const params = sessionScopeQuery(scope);
+  params.set("session_id", sessionId);
+  return request<{ ok: boolean; path: string }>(`/files?${params.toString()}`, {
     method: "POST",
     body: JSON.stringify({ path, content })
   });
@@ -4073,21 +4004,9 @@ export async function listOrchestrationHarnessTaskRuns(sessionId: string) {
   );
 }
 
-export async function getGlobalRuntimeMonitor(limit = 30) {
-  return request<GlobalRuntimeMonitor>(
-    `/orchestration/runtime-monitor/live?limit=${encodeURIComponent(String(limit))}`
-  );
-}
-
 export async function getRunMonitor(limit = 30) {
   return request<RuntimeMonitorEnvelope>(
     `/orchestration/runtime-monitor?limit=${encodeURIComponent(String(limit))}`
-  );
-}
-
-export async function getRuntimeMonitorConsole(limit = 30) {
-  return request<RuntimeMonitorConsole>(
-    `/orchestration/runtime-monitor/console?limit=${encodeURIComponent(String(limit))}`
   );
 }
 
@@ -4476,11 +4395,15 @@ export async function getCodeEnvironment(host?: {
 export async function getCodeEnvironmentWorkspaceTree(options: {
   maxDepth?: number;
   maxEntries?: number;
+  sessionId?: string;
+  scope?: Partial<SessionScope>;
 } = {}) {
-  const params = new URLSearchParams({
-    max_depth: String(options.maxDepth || 10),
-    max_entries: String(options.maxEntries || 10000),
-  });
+  const params = sessionScopeQuery(options.scope);
+  params.set("max_depth", String(options.maxDepth || 10));
+  params.set("max_entries", String(options.maxEntries || 10000));
+  if (options.sessionId) {
+    params.set("session_id", options.sessionId);
+  }
   return request<CodeEnvironmentWorkspaceTree>(`/code-environment/workspace-tree?${params.toString()}`);
 }
 

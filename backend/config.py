@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import threading
 from dataclasses import dataclass
@@ -10,6 +11,9 @@ from typing import Any
 
 from dotenv import load_dotenv
 from project_layout import ProjectLayout
+
+_LOGGER = logging.getLogger(__name__)
+_RUNTIME_CONFIG_WARNING_KEYS: set[tuple[str, str]] = set()
 
 LLM_PROVIDER_DEFAULTS: dict[str, dict[str, Any]] = {
     "deepseek": {
@@ -42,7 +46,7 @@ LLM_PROVIDER_DEFAULTS: dict[str, dict[str, Any]] = {
         "model": "openai/gpt-4.1-mini",
         "base_url": "https://openrouter.ai/api/v1",
         "adapter": "openai_compatible",
-        "credential_envs": ("OPENROUTER_API_KEY",),
+        "credential_envs": ("OPENROUTER_API_KEY", "LLM_API_KEY"),
         "model_presets": ("openai/gpt-4.1-mini", "anthropic/claude-sonnet-4", "google/gemini-2.5-pro"),
         "capability_tags": ("model_gateway", "openai_compatible"),
     },
@@ -51,7 +55,7 @@ LLM_PROVIDER_DEFAULTS: dict[str, dict[str, Any]] = {
         "model": "claude-sonnet-4",
         "base_url": "https://api.anthropic.com/v1",
         "adapter": "openai_compatible",
-        "credential_envs": ("ANTHROPIC_API_KEY",),
+        "credential_envs": ("ANTHROPIC_API_KEY", "LLM_API_KEY"),
         "model_presets": ("claude-sonnet-4", "claude-opus-4", "claude-haiku-3.5"),
         "capability_tags": ("reasoning", "long_context"),
         "metadata": {"native_adapter_pending": True},
@@ -61,7 +65,7 @@ LLM_PROVIDER_DEFAULTS: dict[str, dict[str, Any]] = {
         "model": "gemini-2.5-pro",
         "base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
         "adapter": "openai_compatible",
-        "credential_envs": ("GEMINI_API_KEY", "GOOGLE_API_KEY"),
+        "credential_envs": ("GEMINI_API_KEY", "GOOGLE_API_KEY", "LLM_API_KEY"),
         "model_presets": ("gemini-2.5-pro", "gemini-2.5-flash", "gemini-1.5-pro"),
         "capability_tags": ("reasoning", "long_context", "openai_compatible"),
     },
@@ -88,7 +92,7 @@ LLM_PROVIDER_DEFAULTS: dict[str, dict[str, Any]] = {
         "model": "kimi-k2",
         "base_url": "https://api.moonshot.cn/v1",
         "adapter": "openai_compatible",
-        "credential_envs": ("MOONSHOT_API_KEY", "KIMI_API_KEY"),
+        "credential_envs": ("MOONSHOT_API_KEY", "KIMI_API_KEY", "LLM_API_KEY"),
         "model_presets": ("kimi-k2", "moonshot-v1-128k", "moonshot-v1-32k"),
         "capability_tags": ("long_context", "openai_compatible"),
     },
@@ -97,7 +101,7 @@ LLM_PROVIDER_DEFAULTS: dict[str, dict[str, Any]] = {
         "model": "llama-3.3-70b-versatile",
         "base_url": "https://api.groq.com/openai/v1",
         "adapter": "openai_compatible",
-        "credential_envs": ("GROQ_API_KEY",),
+        "credential_envs": ("GROQ_API_KEY", "LLM_API_KEY"),
         "model_presets": ("llama-3.3-70b-versatile", "llama-3.1-8b-instant"),
         "capability_tags": ("fast", "openai_compatible"),
     },
@@ -106,7 +110,7 @@ LLM_PROVIDER_DEFAULTS: dict[str, dict[str, Any]] = {
         "model": "grok-3",
         "base_url": "https://api.x.ai/v1",
         "adapter": "openai_compatible",
-        "credential_envs": ("XAI_API_KEY",),
+        "credential_envs": ("XAI_API_KEY", "LLM_API_KEY"),
         "model_presets": ("grok-3", "grok-3-mini"),
         "capability_tags": ("reasoning", "openai_compatible"),
     },
@@ -115,7 +119,7 @@ LLM_PROVIDER_DEFAULTS: dict[str, dict[str, Any]] = {
         "model": "llama3.1",
         "base_url": "http://localhost:11434/v1",
         "adapter": "openai_compatible",
-        "credential_envs": (),
+        "credential_envs": ("OLLAMA_API_KEY",),
         "model_presets": ("llama3.1", "qwen2.5", "deepseek-r1"),
         "capability_tags": ("local", "openai_compatible"),
         "metadata": {"local_provider": True},
@@ -231,21 +235,6 @@ def _first_env(*names: str) -> str | None:
     return None
 
 
-def _provider_first_env(provider: str, specific_name: str, generic_name: str) -> str | None:
-    """Resolve provider-bound config before global compatibility config.
-
-    Global LLM_* env vars are kept as compatibility fallbacks, but they should
-    not override provider-specific values once a provider has been selected.
-    Otherwise a model name for one provider can silently enter another
-    provider's candidate chain.
-    """
-
-    specific = _first_env(specific_name)
-    if specific:
-        return specific
-    return _first_env(generic_name)
-
-
 LLM_PROVIDER_MODEL_ENVS: dict[str, str] = {
     "openai": "OPENAI_MODEL",
     "openrouter": "OPENROUTER_MODEL",
@@ -280,6 +269,43 @@ def _provider_specific_env(provider: str | None, env_map: dict[str, str]) -> str
         return None
     env_name = env_map.get(provider)
     return _first_env(env_name) if env_name else None
+
+
+def _unique_env_names(names: tuple[str, ...]) -> tuple[str, ...]:
+    unique: list[str] = []
+    seen: set[str] = set()
+    for name in names:
+        normalized = str(name or "").strip()
+        if normalized and normalized not in seen:
+            seen.add(normalized)
+            unique.append(normalized)
+    return tuple(unique)
+
+
+def _provider_credential_envs(provider: str, *, fallback: bool = False) -> tuple[str, ...]:
+    defaults = LLM_PROVIDER_DEFAULTS.get(provider) or {}
+    names = _unique_env_names(tuple(str(name) for name in defaults.get("credential_envs") or ()))
+    if not fallback:
+        return names
+    provider_names = tuple(name for name in names if name != "LLM_API_KEY")
+    if provider == "ollama":
+        return provider_names
+    return _unique_env_names(("LLM_FALLBACK_API_KEY", *provider_names))
+
+
+def _provider_config_value(
+    provider: str,
+    env_map: dict[str, str],
+    generic_env: str,
+    default_key: str,
+) -> str:
+    provider_value = _provider_specific_env(provider, env_map)
+    if provider_value:
+        return provider_value
+    generic_value = _first_env(generic_env)
+    if generic_value:
+        return generic_value
+    return str(LLM_PROVIDER_DEFAULTS[provider][default_key])
 
 
 def _normalize_llm_model_id(provider: str, model: str) -> str:
@@ -344,27 +370,7 @@ def _resolve_llm_api_key(provider: str) -> str | None:
     override_api_key = str(runtime_override.get("api_key") or "").strip()
     if override_api_key:
         return override_api_key
-    if provider == "zhipu":
-        return _first_env("LLM_API_KEY", "ZHIPU_API_KEY", "ZHIPUAI_API_KEY")
-    if provider == "bailian":
-        return _first_env("LLM_API_KEY", "BAILIAN_API_KEY", "DASHSCOPE_API_KEY")
-    if provider == "deepseek":
-        return _first_env("LLM_API_KEY", "DEEPSEEK_API_KEY")
-    if provider == "openrouter":
-        return _first_env("OPENROUTER_API_KEY", "LLM_API_KEY")
-    if provider == "anthropic":
-        return _first_env("ANTHROPIC_API_KEY", "LLM_API_KEY")
-    if provider == "google":
-        return _first_env("GEMINI_API_KEY", "GOOGLE_API_KEY", "LLM_API_KEY")
-    if provider == "moonshot":
-        return _first_env("MOONSHOT_API_KEY", "KIMI_API_KEY", "LLM_API_KEY")
-    if provider == "groq":
-        return _first_env("GROQ_API_KEY", "LLM_API_KEY")
-    if provider == "xai":
-        return _first_env("XAI_API_KEY", "LLM_API_KEY")
-    if provider == "ollama":
-        return _first_env("OLLAMA_API_KEY")
-    return _first_env("LLM_API_KEY", "OPENAI_API_KEY")
+    return _first_env(*_provider_credential_envs(provider))
 
 
 def _resolve_llm_model(provider: str) -> str:
@@ -372,28 +378,7 @@ def _resolve_llm_model(provider: str) -> str:
     override_model = str(runtime_override.get("model") or "").strip()
     if override_model:
         return _normalize_llm_model_id(provider, override_model)
-    if provider == "zhipu":
-        model = _provider_first_env(provider, "ZHIPU_MODEL", "LLM_MODEL") or LLM_PROVIDER_DEFAULTS[provider]["model"]
-        return _normalize_llm_model_id(provider, model)
-    if provider == "bailian":
-        model = _provider_first_env(provider, "BAILIAN_MODEL", "LLM_MODEL") or LLM_PROVIDER_DEFAULTS[provider]["model"]
-        return _normalize_llm_model_id(provider, model)
-    if provider == "deepseek":
-        model = _provider_first_env(provider, "DEEPSEEK_MODEL", "LLM_MODEL") or LLM_PROVIDER_DEFAULTS[provider]["model"]
-        return _normalize_llm_model_id(provider, model)
-    provider_env_map = {
-        "openrouter": "OPENROUTER_MODEL",
-        "anthropic": "ANTHROPIC_MODEL",
-        "google": "GEMINI_MODEL",
-        "moonshot": "MOONSHOT_MODEL",
-        "groq": "GROQ_MODEL",
-        "xai": "XAI_MODEL",
-        "ollama": "OLLAMA_MODEL",
-    }
-    if provider in provider_env_map:
-        model = _provider_first_env(provider, provider_env_map[provider], "LLM_MODEL") or str(LLM_PROVIDER_DEFAULTS[provider]["model"])
-        return _normalize_llm_model_id(provider, model)
-    model = _first_env("LLM_MODEL") or LLM_PROVIDER_DEFAULTS[provider]["model"]
+    model = _provider_config_value(provider, LLM_PROVIDER_MODEL_ENVS, "LLM_MODEL", "model")
     return _normalize_llm_model_id(provider, model)
 
 
@@ -402,24 +387,7 @@ def _resolve_llm_base_url(provider: str) -> str:
     override_base_url = str(runtime_override.get("base_url") or "").strip()
     if override_base_url:
         return override_base_url
-    if provider == "zhipu":
-        return _provider_first_env(provider, "ZHIPU_BASE_URL", "LLM_BASE_URL") or LLM_PROVIDER_DEFAULTS[provider]["base_url"]
-    if provider == "bailian":
-        return _provider_first_env(provider, "BAILIAN_BASE_URL", "LLM_BASE_URL") or LLM_PROVIDER_DEFAULTS[provider]["base_url"]
-    if provider == "deepseek":
-        return _provider_first_env(provider, "DEEPSEEK_BASE_URL", "LLM_BASE_URL") or LLM_PROVIDER_DEFAULTS[provider]["base_url"]
-    provider_env_map = {
-        "openrouter": "OPENROUTER_BASE_URL",
-        "anthropic": "ANTHROPIC_BASE_URL",
-        "google": "GEMINI_BASE_URL",
-        "moonshot": "MOONSHOT_BASE_URL",
-        "groq": "GROQ_BASE_URL",
-        "xai": "XAI_BASE_URL",
-        "ollama": "OLLAMA_BASE_URL",
-    }
-    if provider in provider_env_map:
-        return _provider_first_env(provider, provider_env_map[provider], "LLM_BASE_URL") or str(LLM_PROVIDER_DEFAULTS[provider]["base_url"])
-    return _first_env("LLM_BASE_URL", "OPENAI_BASE_URL") or LLM_PROVIDER_DEFAULTS[provider]["base_url"]
+    return _provider_config_value(provider, LLM_PROVIDER_BASE_URL_ENVS, "LLM_BASE_URL", "base_url")
 
 
 def _resolve_llm_fallback_provider() -> str | None:
@@ -469,12 +437,32 @@ def _runtime_config_path() -> Path:
     return Path(__file__).resolve().parent / "config.json"
 
 
+def _warn_runtime_config_issue(path: Path, reason: str, detail: str) -> None:
+    key = (str(path), reason)
+    if key in _RUNTIME_CONFIG_WARNING_KEYS:
+        return
+    _RUNTIME_CONFIG_WARNING_KEYS.add(key)
+    _LOGGER.warning("Ignoring runtime config at %s: %s", path, detail)
+
+
 def _runtime_payload() -> dict[str, Any]:
+    path = _runtime_config_path()
     try:
-        payload = json.loads(_runtime_config_path().read_text(encoding="utf-8"))
-    except Exception:
+        raw_payload = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
         return {}
-    return payload if isinstance(payload, dict) else {}
+    except OSError as exc:
+        _warn_runtime_config_issue(path, "read_error", f"{exc.__class__.__name__}: {exc}")
+        return {}
+    try:
+        payload = json.loads(raw_payload)
+    except json.JSONDecodeError as exc:
+        _warn_runtime_config_issue(path, "json_decode_error", f"invalid JSON at line {exc.lineno}, column {exc.colno}: {exc.msg}")
+        return {}
+    if not isinstance(payload, dict):
+        _warn_runtime_config_issue(path, "non_object_payload", f"expected a JSON object, got {type(payload).__name__}")
+        return {}
+    return payload
 
 
 def _runtime_llm_override() -> dict[str, Any]:
@@ -503,27 +491,23 @@ def _resolve_llm_fallback_api_key(provider: str | None) -> str | None:
     override_api_key = str(runtime_override.get("fallback_api_key") or "").strip()
     if override_api_key:
         return override_api_key
-    if provider == "zhipu":
-        return _first_env("LLM_FALLBACK_API_KEY", "ZHIPU_API_KEY", "ZHIPUAI_API_KEY")
-    if provider == "bailian":
-        return _first_env("LLM_FALLBACK_API_KEY", "BAILIAN_API_KEY", "DASHSCOPE_API_KEY")
-    if provider == "deepseek":
-        return _first_env("LLM_FALLBACK_API_KEY", "DEEPSEEK_API_KEY")
-    if provider == "openrouter":
-        return _first_env("LLM_FALLBACK_API_KEY", "OPENROUTER_API_KEY")
-    if provider == "anthropic":
-        return _first_env("LLM_FALLBACK_API_KEY", "ANTHROPIC_API_KEY")
-    if provider == "google":
-        return _first_env("LLM_FALLBACK_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY")
-    if provider == "moonshot":
-        return _first_env("LLM_FALLBACK_API_KEY", "MOONSHOT_API_KEY", "KIMI_API_KEY")
-    if provider == "groq":
-        return _first_env("LLM_FALLBACK_API_KEY", "GROQ_API_KEY")
-    if provider == "xai":
-        return _first_env("LLM_FALLBACK_API_KEY", "XAI_API_KEY")
-    if provider == "ollama":
-        return _first_env("OLLAMA_API_KEY")
-    return _first_env("LLM_FALLBACK_API_KEY", "OPENAI_API_KEY")
+    return _first_env(*_provider_credential_envs(provider, fallback=True))
+
+
+def _resolve_llm_fallback_value(
+    provider: str,
+    env_map: dict[str, str],
+    fallback_env: str,
+    default_key: str,
+) -> str:
+    declared_provider = _normalize_provider(_first_env("LLM_FALLBACK_PROVIDER"), default="", defaults=LLM_PROVIDER_DEFAULTS)
+    provider_value = _provider_specific_env(provider, env_map)
+    if declared_provider == provider and provider_value:
+        return provider_value
+    fallback_value = _first_env(fallback_env)
+    if fallback_value:
+        return fallback_value
+    return provider_value or str(LLM_PROVIDER_DEFAULTS[provider][default_key])
 
 
 def _resolve_llm_fallback_model(provider: str | None) -> str | None:
@@ -533,16 +517,7 @@ def _resolve_llm_fallback_model(provider: str | None) -> str | None:
     override_model = str(runtime_override.get("fallback_model") or "").strip()
     if override_model:
         return _normalize_llm_model_id(provider, override_model)
-    declared_provider = _normalize_provider(_first_env("LLM_FALLBACK_PROVIDER"), default="", defaults=LLM_PROVIDER_DEFAULTS)
-    provider_model = _provider_specific_env(provider, LLM_PROVIDER_MODEL_ENVS)
-    if declared_provider == provider and provider_model:
-        return _normalize_llm_model_id(provider, provider_model)
-    fallback_env_model = _first_env("LLM_FALLBACK_MODEL")
-    if fallback_env_model:
-        return _normalize_llm_model_id(provider, fallback_env_model)
-    if provider_model:
-        return _normalize_llm_model_id(provider, provider_model)
-    model = LLM_PROVIDER_DEFAULTS[provider]["model"]
+    model = _resolve_llm_fallback_value(provider, LLM_PROVIDER_MODEL_ENVS, "LLM_FALLBACK_MODEL", "model")
     return _normalize_llm_model_id(provider, model)
 
 
@@ -553,14 +528,7 @@ def _resolve_llm_fallback_base_url(provider: str | None) -> str | None:
     override_base_url = str(runtime_override.get("fallback_base_url") or "").strip()
     if override_base_url:
         return override_base_url
-    declared_provider = _normalize_provider(_first_env("LLM_FALLBACK_PROVIDER"), default="", defaults=LLM_PROVIDER_DEFAULTS)
-    provider_base_url = _provider_specific_env(provider, LLM_PROVIDER_BASE_URL_ENVS)
-    if declared_provider == provider and provider_base_url:
-        return provider_base_url
-    fallback_env_base_url = _first_env("LLM_FALLBACK_BASE_URL")
-    if fallback_env_base_url:
-        return fallback_env_base_url
-    return provider_base_url or str(LLM_PROVIDER_DEFAULTS[provider]["base_url"])
+    return _resolve_llm_fallback_value(provider, LLM_PROVIDER_BASE_URL_ENVS, "LLM_FALLBACK_BASE_URL", "base_url")
 
 
 def _resolve_llm_thinking_mode() -> str:
@@ -1002,10 +970,24 @@ class RuntimeConfigManager:
             if not self._config_path.exists():
                 self.save(self._default_config)
             try:
-                return json.loads(self._config_path.read_text(encoding="utf-8"))
-            except json.JSONDecodeError:
+                loaded = json.loads(self._config_path.read_text(encoding="utf-8"))
+            except json.JSONDecodeError as exc:
+                _warn_runtime_config_issue(
+                    self._config_path,
+                    "runtime_manager_json_decode_error",
+                    f"invalid JSON at line {exc.lineno}, column {exc.colno}: {exc.msg}",
+                )
                 self.save(self._default_config)
                 return dict(self._default_config)
+            if not isinstance(loaded, dict):
+                _warn_runtime_config_issue(
+                    self._config_path,
+                    "runtime_manager_non_object_payload",
+                    f"expected a JSON object, got {type(loaded).__name__}",
+                )
+                self.save(self._default_config)
+                return dict(self._default_config)
+            return loaded
 
     def save(self, payload: dict[str, Any]) -> dict[str, Any]:
         merged = dict(self._default_config)
@@ -1013,10 +995,21 @@ class RuntimeConfigManager:
             if self._config_path.exists():
                 try:
                     current = json.loads(self._config_path.read_text(encoding="utf-8"))
-                except json.JSONDecodeError:
+                except json.JSONDecodeError as exc:
+                    _warn_runtime_config_issue(
+                        self._config_path,
+                        "runtime_manager_save_json_decode_error",
+                        f"invalid JSON at line {exc.lineno}, column {exc.colno}: {exc.msg}",
+                    )
                     current = {}
                 if isinstance(current, dict):
                     merged.update(current)
+                else:
+                    _warn_runtime_config_issue(
+                        self._config_path,
+                        "runtime_manager_save_non_object_payload",
+                        f"expected a JSON object, got {type(current).__name__}",
+                    )
             merged.update(payload)
             self._config_path.write_text(
                 json.dumps(merged, ensure_ascii=False, indent=2),
@@ -1072,7 +1065,6 @@ class RuntimeConfigManager:
         sidecar = {**dict(current.get("pi_sidecar") or {}), **dict(next_payload.get("pi_sidecar") or {})}
         next_payload["pi_sidecar"] = sidecar
         return self.save({"code_environment": {**current, **next_payload}})
-
 
 runtime_config = RuntimeConfigManager(get_settings().backend_dir / "config.json")
 

@@ -471,6 +471,38 @@ def test_public_stream_projection_emits_live_tool_result_delta() -> None:
     assert item["detail"] == "目标路径存在"
 
 
+def test_public_stream_projection_hides_sandbox_boundary_command_failures() -> None:
+    projected = _project_public_stream_event(
+        "turn_tool_observation_recorded",
+        {
+            "type": "turn_tool_observation_recorded",
+            "event": {
+                "event_id": "rtevt:sandbox-boundary",
+                "payload": {
+                    "tool_observation": {
+                        "tool_name": "terminal",
+                        "status": "error",
+                        "error": "Blocked: command references an absolute path outside the sandbox workspace.",
+                        "text": "Blocked: command references an absolute path outside the sandbox workspace.",
+                        "result_envelope": {
+                            "tool_args": {
+                                "command": 'cd "D:\\AI应用\\langchain-agent"; python -m pytest backend/tests/',
+                            },
+                            "structured_error": {
+                                "message": "Blocked: command references an absolute path outside the sandbox workspace.",
+                            },
+                        },
+                    },
+                },
+            },
+        },
+    )
+
+    assert projected is not None
+    _, data = projected
+    assert "public_timeline_delta" not in data
+
+
 def test_single_agent_turn_projection_only_exposes_executable_native_actions(tmp_path: Path) -> None:
     class RecordingNativeTurnModelRuntime(NativeToolCallModelRuntimeStub):
         def __init__(self) -> None:
@@ -1138,31 +1170,17 @@ def test_single_agent_turn_converts_unresumable_approval_to_model_visible_denial
     )
 
 
-def test_single_agent_turn_tool_loop_synthesizes_answer_without_fourth_tool_call(tmp_path: Path) -> None:
+def test_single_agent_turn_tool_loop_synthesizes_answer_without_ninth_tool_call(tmp_path: Path) -> None:
     class SynthesizingLoopModel(NativeToolCallSequenceModelRuntimeStub):
         def __init__(self) -> None:
             super().__init__(
                 [
                     {
                         "tool_calls": [
-                            {"id": "call-exists-1", "name": "path_exists", "args": {"path": "requirements.txt"}},
+                            {"id": f"call-exists-{index}", "name": "path_exists", "args": {"path": "requirements.txt"}},
                         ]
-                    },
-                    {
-                        "tool_calls": [
-                            {"id": "call-exists-2", "name": "path_exists", "args": {"path": "requirements.txt"}},
-                        ]
-                    },
-                    {
-                        "tool_calls": [
-                            {"id": "call-exists-3", "name": "path_exists", "args": {"path": "requirements.txt"}},
-                        ]
-                    },
-                    {
-                        "tool_calls": [
-                            {"id": "call-exists-4", "name": "path_exists", "args": {"path": "requirements.txt"}},
-                        ]
-                    },
+                    }
+                    for index in range(1, 10)
                 ]
             )
             self.synthesis_messages: list[dict[str, object]] = []
@@ -1188,8 +1206,8 @@ def test_single_agent_turn_tool_loop_synthesizes_answer_without_fourth_tool_call
     events = asyncio.run(_collect())
     observations = [event for event in events if event.get("type") == "tool_observation"]
 
-    assert model.calls == 4
-    assert len(observations) == 3
+    assert model.calls == 9
+    assert len(observations) == 8
     assert any(
         event.get("type") == "done"
         and dict(event).get("terminal_reason") == "single_turn_tool_iteration_limit"

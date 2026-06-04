@@ -69,7 +69,7 @@ def successful_write_file_paths(
     artifacts: list[dict[str, str]] = []
     for raw_event in event_log_events:
         event = _unwrap_runtime_event(raw_event)
-        if str(event.get("event_type") or "") not in {"tool_result_received", "executor_observation_received"}:
+        if str(event.get("event_type") or "") not in {"task_tool_observation_recorded", "executor_observation_received"}:
             continue
         observation = dict(dict(event.get("payload") or {}).get("observation") or {})
         if observation.get("observation_type") != "tool_result":

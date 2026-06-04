@@ -251,7 +251,7 @@ export function HealthSystemView() {
                 </div>
               ))}
               {!maintenanceCandidates.length ? (
-                <div className="runtime-monitor-empty">
+                <div className="health-empty-state">
                   <TimerReset size={18} />
                   <strong>暂无维护候选</strong>
                   <span>当前没有通过预检的任务记录。</span>
@@ -274,7 +274,7 @@ export function HealthSystemView() {
                 </section>
               ))}
               {!protectedMaintenanceCandidates.length ? (
-                <div className="runtime-monitor-empty">
+                <div className="health-empty-state">
                   <ShieldAlert size={18} />
                   <strong>没有被保护候选</strong>
                   <span>当前预检候选均满足维护条件。</span>
@@ -532,7 +532,7 @@ function RiskList({ title, risks }: { title: string; risks: HealthRiskEvent[] })
             </div>
           </section>
         )) : (
-          <div className="runtime-monitor-empty">
+          <div className="health-empty-state">
             <Cpu size={18} />
             <strong>暂无风险</strong>
             <span>当前没有需要处理的健康风险。</span>
@@ -597,7 +597,7 @@ function TokenTaskLedger({ rows }: { rows: Array<Record<string, unknown>> }) {
             </section>
           );
         }) : (
-          <div className="runtime-monitor-empty">
+          <div className="health-empty-state">
             <Gauge size={18} />
             <strong>暂无 token 账本记录</strong>
             <span>模型调用产生 PromptAccounting 记录后会显示在这里。</span>

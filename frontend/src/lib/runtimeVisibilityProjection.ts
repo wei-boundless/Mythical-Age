@@ -255,6 +255,16 @@ function toolActivityText(toolName: string, preview?: string) {
   };
 }
 
+function isSandboxBoundaryCommandFailure(toolName: string, ...values: unknown[]) {
+  const normalizedTool = toolName.toLowerCase();
+  if (!(normalizedTool === "terminal" || normalizedTool === "shell" || normalizedTool.includes("command"))) {
+    return false;
+  }
+  const haystack = values.map((value) => text(value)).filter(Boolean).join(" ").toLowerCase();
+  return haystack.includes("absolute path outside the sandbox workspace")
+    || (haystack.includes("outside the sandbox workspace") && haystack.includes("absolute path"));
+}
+
 function runtimeEvent(data: Record<string, unknown>) {
   const event = record(data.event);
   if (Object.keys(event).length) {
@@ -400,26 +410,6 @@ function toolNameFromActionRequest(payload: Record<string, unknown>) {
   );
 }
 
-function toolNameFromObservation(payload: Record<string, unknown>) {
-  const observation = record(payload.observation);
-  const observationPayload = record(observation.payload);
-  return text(
-    payload.tool_name
-    ?? observationPayload.tool_name
-    ?? observation.source
-  ).replace(/^tool:/, "");
-}
-
-function toolResultArtifacts(payload: Record<string, unknown>) {
-  const observation = record(payload.observation);
-  const observationPayload = record(observation.payload);
-  return [
-    ...artifactsFromPaths(arrayText(observationPayload.observed_paths, 6)),
-    ...artifactsFromPaths(arrayText(observationPayload.matched_paths, 6)),
-    ...artifactsFromMixed(observationPayload.artifact_refs),
-  ].slice(0, 6);
-}
-
 function turnToolObservationFromData(data: Record<string, unknown>) {
   const direct = record(data.tool_observation);
   if (Object.keys(direct).length) return direct;
@@ -544,48 +534,6 @@ function turnModelActionAdmissionProjection(eventType: string, data: Record<stri
   };
 }
 
-function toolResultProjection(eventType: string, payload: Record<string, unknown>, eventMeta: ReturnType<typeof runtimeEvent>): RuntimeVisibilityProjection {
-  const observation = record(payload.observation);
-  const observationPayload = record(observation.payload);
-  const toolName = toolNameFromObservation(payload) || "工具";
-  const toolArgs = record(observationPayload.tool_args);
-  const preview = commandPreviewFromArgs(toolArgs);
-  const activity = toolActivityText(toolName, preview);
-  const resultChars = numberValue(observationPayload.result_chars ?? observation.content_chars);
-  const truncated = observationPayload.truncated === true;
-  const failed = text(observationPayload.error) || text(record(observationPayload.execution_receipt).error);
-  const resultText = short(
-    observationPayload.result
-    ?? observationPayload.error
-    ?? observation.source
-    ?? "工具结果已写入运行上下文",
-  );
-  return {
-    stageStatus: "整理工具结果",
-    activityTitle: failed ? activity.failedTitle : activity.completedTitle,
-    activityDetail: preview || resultText,
-    level: failed ? "error" : "running",
-    progressEntry: entry(eventType, failed ? `${activity.failedTitle} ${activity.display}` : `${activity.completedTitle} ${activity.display}`, {
-      body: resultText,
-      kind: "tool",
-      level: failed ? "error" : "running",
-      statusText: failed ? activity.statusFailed : truncated ? "已截断" : activity.statusDone,
-      toolName,
-      runId: eventMeta.runId,
-      taskRunId: eventMeta.taskRunId,
-      eventId: eventMeta.eventId,
-      createdAt: eventMeta.createdAt,
-      completedAt: eventMeta.createdAt,
-      meta: compactMeta([
-        metaItem("工具", toolName),
-        preview ? metaItem("目标", preview) : null,
-        metaItem("结果字符", resultChars),
-      ]),
-      artifacts: toolResultArtifacts(payload),
-    }),
-  };
-}
-
 function turnToolObservationProjection(eventType: string, data: Record<string, unknown>): RuntimeVisibilityProjection {
   const meta = runtimeEvent(data);
   const observation = turnToolObservationFromData(data);
@@ -607,6 +555,18 @@ function turnToolObservationProjection(eventType: string, data: Record<string, u
     ?? envelope.text
     ?? (status ? `工具状态：${status}` : "工具结果已返回"),
   );
+  const failureText = [
+    observation.error,
+    receipt.error,
+    envelope.error,
+    record(observation.structured_error).message,
+    record(envelope.structured_error).message,
+    observation.text,
+    envelope.text,
+  ].filter(Boolean).join(" ");
+  if (failed && isSandboxBoundaryCommandFailure(toolName, preview, resultText, failureText)) {
+    return {};
+  }
   const artifacts = turnToolObservationArtifacts(observation);
   const runId = meta.runId || text(observation.caller_ref);
   const eventId = meta.eventId || text(observation.observation_id);
@@ -702,9 +662,6 @@ export function projectHarnessLoopEvent(data: Record<string, unknown>): RuntimeV
   }
   if (eventType === "tool_call_requested") {
     return toolRequestProjection(eventType, payload, meta);
-  }
-  if (eventType === "tool_result_received") {
-    return toolResultProjection(eventType, payload, meta);
   }
   if (eventType === "operation_gate_checked") {
     return operationGateProjection(eventType, payload, meta);

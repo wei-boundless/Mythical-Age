@@ -10,7 +10,7 @@
       "turn": 17,
       "check": "response.nonempty",
       "symptom": "answer was cut after a tool observation",
-      "evidence": ["tool_result_received", "final_content_chars=0"]
+      "evidence": ["task_tool_observation_recorded", "final_content_chars=0"]
     },
     {
       "turn": 18,

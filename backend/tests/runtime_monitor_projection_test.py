@@ -243,7 +243,7 @@ def test_global_monitor_includes_active_turn_when_task_run_not_started_yet():
     assert monitor["buckets"]["running"][0]["summary"] == "正在分析请求并准备执行。"
 
 
-def test_console_monitor_projects_active_turn_as_primary_signal():
+def test_run_monitor_projects_active_turn_as_primary_signal():
     runtime_host = SimpleNamespace(
         state_index=StateIndexStub(
             task_runs=[],
@@ -267,7 +267,7 @@ def test_console_monitor_projects_active_turn_as_primary_signal():
     )
     service = RuntimeMonitorService(runtime_host=runtime_host, freshness_seconds=300.0)
 
-    monitor = service.list_global_console_monitor(limit=20)
+    monitor = service.collect_global_runtime_monitor(limit=20)
 
     assert monitor["authority"] == "runtime_monitor"
     assert monitor["summary"]["active"] == 1
@@ -276,7 +276,7 @@ def test_console_monitor_projects_active_turn_as_primary_signal():
     assert monitor["primary"][0]["state"] == "active"
 
 
-def test_console_monitor_orders_same_priority_by_last_activity():
+def test_run_monitor_orders_same_priority_by_last_activity():
     monitor = build_runtime_monitor_envelope(
         items=[
             {
@@ -303,7 +303,7 @@ def test_console_monitor_orders_same_priority_by_last_activity():
     assert [item["signal_id"] for item in monitor["signals"]] == ["taskrun:new", "taskrun:old"]
 
 
-def test_console_monitor_keeps_bound_active_turn_when_task_run_is_not_visible():
+def test_run_monitor_keeps_bound_active_turn_when_task_run_is_not_visible():
     runtime_host = SimpleNamespace(
         state_index=StateIndexStub(
             task_runs=[],
@@ -327,7 +327,7 @@ def test_console_monitor_keeps_bound_active_turn_when_task_run_is_not_visible():
     )
     service = RuntimeMonitorService(runtime_host=runtime_host, freshness_seconds=300.0)
 
-    monitor = service.list_global_console_monitor(limit=20)
+    monitor = service.collect_global_runtime_monitor(limit=20)
 
     assert monitor["summary"]["active"] == 1
     assert monitor["primary"][0]["signal_id"] == "turnrun:session-dev:1"

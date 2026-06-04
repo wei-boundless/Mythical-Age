@@ -1,16 +1,32 @@
 from __future__ import annotations
 
 import json
+import logging
+import os
+import tempfile
+import threading
 import time
 import uuid
+from contextlib import contextmanager
 from pathlib import Path
+from collections.abc import Iterator
 from typing import Any
 
 from permissions.policy import normalize_permission_mode
 from project_layout import ProjectLayout
 
+logger = logging.getLogger(__name__)
+
 
 class InvalidSessionId(ValueError):
+    pass
+
+
+class SessionStorageError(RuntimeError):
+    pass
+
+
+class SessionPayloadCorrupt(SessionStorageError):
     pass
 
 
@@ -22,6 +38,14 @@ class SessionTaskBindingMissing(ValueError):
     pass
 
 
+class SessionProjectBindingConflict(ValueError):
+    pass
+
+
+class SessionProjectBindingMissing(ValueError):
+    pass
+
+
 DEFAULT_SESSION_PERMISSION_MODE = "full_access"
 
 
@@ -30,6 +54,8 @@ class SessionManager:
         self.base_dir = Path(base_dir)
         self.sessions_dir = ProjectLayout.from_backend_dir(self.base_dir).sessions_dir
         self.sessions_dir.mkdir(parents=True, exist_ok=True)
+        self._locks_guard = threading.Lock()
+        self._session_locks: dict[str, threading.RLock] = {}
 
     def list_sessions(
         self,
@@ -50,9 +76,19 @@ class SessionManager:
         ]
         return sorted(sessions, key=lambda item: float(item.get("updated_at") or 0), reverse=True)
 
-    def create_session(self, *, title: str = "New Session", scope: dict[str, Any] | None = None) -> dict[str, Any]:
+    def create_session(
+        self,
+        *,
+        title: str = "New Session",
+        scope: dict[str, Any] | None = None,
+        project_binding: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         now = time.time()
         session_id = f"session-{uuid.uuid4().hex[:16]}"
+        initial_state: dict[str, Any] = {}
+        binding = _normalize_project_binding(project_binding, validate_root=True, timestamp=now)
+        if binding:
+            initial_state["project_binding"] = binding
         payload = {
             "id": session_id,
             "title": str(title or "New Session").strip() or "New Session",
@@ -63,26 +99,31 @@ class SessionManager:
             "compressed_context": "",
             "scope": _normalize_scope(scope),
             "task_binding": {},
-            "conversation_state": _normalize_conversation_state({}),
+            "conversation_state": _normalize_conversation_state(initial_state),
         }
         self._write_payload(session_id, payload)
         return self._summary_from_payload(payload)
 
     def rename_session(self, session_id: str, title: str) -> dict[str, Any]:
-        payload = self._read_payload(session_id)
-        payload["title"] = str(title or "").strip() or payload.get("title") or "New Session"
-        payload["updated_at"] = time.time()
-        self._write_payload(session_id, payload)
-        return self._summary_from_payload(payload)
+        with self._session_lock(session_id):
+            payload = self._read_payload(session_id)
+            payload["title"] = str(title or "").strip() or payload.get("title") or "New Session"
+            payload["updated_at"] = time.time()
+            self._write_payload(session_id, payload)
+            return self._summary_from_payload(payload)
 
     def set_title(self, session_id: str, title: str) -> dict[str, Any]:
         return self.rename_session(session_id, title)
 
     def delete_session(self, session_id: str) -> bool:
-        path = self._session_path(session_id)
-        if path.exists():
-            path.unlink()
-        return True
+        with self._session_lock(session_id):
+            path = self._session_path(session_id)
+            try:
+                if path.exists():
+                    path.unlink()
+            except OSError as exc:
+                raise SessionStorageError(f"failed to delete session payload: {session_id}") from exc
+            return True
 
     def load_session(self, session_id: str) -> list[dict[str, Any]]:
         return list(self._read_payload(session_id).get("messages") or [])
@@ -133,23 +174,80 @@ class SessionManager:
         payload = self._read_payload(session_id)
         return _normalize_conversation_state(dict(payload.get("conversation_state") or {}))
 
+    def get_project_binding(self, session_id: str) -> dict[str, Any]:
+        state = self.get_conversation_state(session_id)
+        return _normalize_project_binding(dict(state.get("project_binding") or {}), validate_root=False)
+
+    def require_project_binding(self, session_id: str) -> dict[str, Any]:
+        binding = self.get_project_binding(session_id)
+        if not binding:
+            raise SessionProjectBindingMissing("session has no project binding")
+        return binding
+
+    def bind_project(
+        self,
+        session_id: str,
+        *,
+        workspace_root: str,
+        source: str = "manual",
+    ) -> dict[str, Any]:
+        now = time.time()
+        next_binding = _normalize_project_binding(
+            {
+                "workspace_root": workspace_root,
+                "source": source,
+                "bound_at": now,
+                "last_seen_at": now,
+            },
+            validate_root=True,
+            timestamp=now,
+        )
+        if not next_binding:
+            raise ValueError("workspace_root is required")
+        with self._session_lock(session_id):
+            payload = self._read_payload(session_id)
+            state = _normalize_conversation_state(dict(payload.get("conversation_state") or {}))
+            current = _normalize_project_binding(dict(state.get("project_binding") or {}), validate_root=False)
+            if current:
+                if not _same_workspace_root(current["workspace_root"], next_binding["workspace_root"]):
+                    raise SessionProjectBindingConflict("session already has a different project binding")
+                refreshed = {
+                    **current,
+                    "last_seen_at": now,
+                    "source": current.get("source") or next_binding.get("source") or "manual",
+                    "immutable": True,
+                    "authority": "sessions.project_binding",
+                }
+                state["project_binding"] = _normalize_project_binding(refreshed, validate_root=False)
+                payload["conversation_state"] = state
+                payload["updated_at"] = now
+                self._write_payload(session_id, payload)
+                return state["project_binding"]
+            state["project_binding"] = next_binding
+            payload["conversation_state"] = state
+            payload["updated_at"] = now
+            self._write_payload(session_id, payload)
+            return next_binding
+
     def set_active_task_environment(self, session_id: str, active_environment: dict[str, Any]) -> dict[str, Any]:
-        payload = self._read_payload(session_id)
-        state = _normalize_conversation_state(dict(payload.get("conversation_state") or {}))
-        state["active_task_environment"] = _normalize_active_task_environment(active_environment)
-        payload["conversation_state"] = state
-        payload["updated_at"] = time.time()
-        self._write_payload(session_id, payload)
-        return state
+        with self._session_lock(session_id):
+            payload = self._read_payload(session_id)
+            state = _normalize_conversation_state(dict(payload.get("conversation_state") or {}))
+            state["active_task_environment"] = _normalize_active_task_environment(active_environment)
+            payload["conversation_state"] = state
+            payload["updated_at"] = time.time()
+            self._write_payload(session_id, payload)
+            return state
 
     def set_permission_mode(self, session_id: str, permission_mode: str) -> dict[str, Any]:
-        payload = self._read_payload(session_id)
-        state = _normalize_conversation_state(dict(payload.get("conversation_state") or {}))
-        state["permission_mode"] = _normalize_session_permission_mode(permission_mode)
-        payload["conversation_state"] = state
-        payload["updated_at"] = time.time()
-        self._write_payload(session_id, payload)
-        return state
+        with self._session_lock(session_id):
+            payload = self._read_payload(session_id)
+            state = _normalize_conversation_state(dict(payload.get("conversation_state") or {}))
+            state["permission_mode"] = _normalize_session_permission_mode(permission_mode)
+            payload["conversation_state"] = state
+            payload["updated_at"] = time.time()
+            self._write_payload(session_id, payload)
+            return state
 
     def update_turn_environment_snapshot(
         self,
@@ -162,22 +260,23 @@ class SessionManager:
         if not target_turn_id:
             raise ValueError("turn_id is required")
         clean_snapshot = _normalize_turn_environment_snapshot(snapshot)
-        payload = self._read_payload(session_id)
-        messages = []
-        updated = False
-        for item in list(payload.get("messages") or []):
-            if not isinstance(item, dict):
+        with self._session_lock(session_id):
+            payload = self._read_payload(session_id)
+            messages = []
+            updated = False
+            for item in list(payload.get("messages") or []):
+                if not isinstance(item, dict):
+                    messages.append(item)
+                    continue
+                if str(item.get("turn_id") or "").strip() == target_turn_id:
+                    item = {**item, "turn_environment_snapshot": clean_snapshot}
+                    updated = True
                 messages.append(item)
-                continue
-            if str(item.get("turn_id") or "").strip() == target_turn_id:
-                item = {**item, "turn_environment_snapshot": clean_snapshot}
-                updated = True
-            messages.append(item)
-        payload["messages"] = messages
-        if updated:
-            payload["updated_at"] = time.time()
-            self._write_payload(session_id, payload)
-        return {"updated": updated, "turn_environment_snapshot": clean_snapshot}
+            payload["messages"] = messages
+            if updated:
+                payload["updated_at"] = time.time()
+                self._write_payload(session_id, payload)
+            return {"updated": updated, "turn_environment_snapshot": clean_snapshot}
 
     def bind_session_graph_instance(
         self,
@@ -194,34 +293,35 @@ class SessionManager:
         target_graph_run_id = str(graph_run_id or "").strip()
         if not target_graph_run_id:
             raise ValueError("graph_run_id is required")
-        payload = self._read_payload(session_id)
-        current = _normalize_task_binding(dict(payload.get("task_binding") or {}))
-        if current:
-            current_graph_run_id = str(current.get("graph_run_id") or "").strip()
-            if current_graph_run_id != target_graph_run_id:
-                raise SessionTaskBindingConflict("session already has a different graph task binding")
-            return current
-        now = time.time()
-        scope = _normalize_scope(session_scope)
-        binding = _normalize_task_binding(
-            {
-                "kind": "task_graph",
-                "graph_run_id": target_graph_run_id,
-                "task_run_id": task_run_id,
-                "graph_id": graph_id,
-                "graph_harness_config_id": graph_harness_config_id,
-                "task_environment_id": task_environment_id or scope["task_environment_id"],
-                "project_id": project_id or scope["project_id"],
-                "session_scope": scope,
-                "bound_at": now,
-                "updated_at": now,
-                "authority": "sessions.session_task_binding",
-            }
-        )
-        payload["task_binding"] = binding
-        payload["updated_at"] = now
-        self._write_payload(session_id, payload)
-        return binding
+        with self._session_lock(session_id):
+            payload = self._read_payload(session_id)
+            current = _normalize_task_binding(dict(payload.get("task_binding") or {}))
+            if current:
+                current_graph_run_id = str(current.get("graph_run_id") or "").strip()
+                if current_graph_run_id != target_graph_run_id:
+                    raise SessionTaskBindingConflict("session already has a different graph task binding")
+                return current
+            now = time.time()
+            scope = _normalize_scope(session_scope)
+            binding = _normalize_task_binding(
+                {
+                    "kind": "task_graph",
+                    "graph_run_id": target_graph_run_id,
+                    "task_run_id": task_run_id,
+                    "graph_id": graph_id,
+                    "graph_harness_config_id": graph_harness_config_id,
+                    "task_environment_id": task_environment_id or scope["task_environment_id"],
+                    "project_id": project_id or scope["project_id"],
+                    "session_scope": scope,
+                    "bound_at": now,
+                    "updated_at": now,
+                    "authority": "sessions.session_task_binding",
+                }
+            )
+            payload["task_binding"] = binding
+            payload["updated_at"] = now
+            self._write_payload(session_id, payload)
+            return binding
 
     def assert_session_graph_instance(self, session_id: str, graph_run_id: str) -> dict[str, Any]:
         target_graph_run_id = str(graph_run_id or "").strip()
@@ -235,32 +335,34 @@ class SessionManager:
         return binding
 
     def append_messages(self, session_id: str, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        payload = self._read_payload(session_id)
-        existing = list(payload.get("messages") or [])
-        for item in messages:
-            if isinstance(item, dict):
-                role = str(item.get("role") or "").strip() or "assistant"
-                content = str(item.get("content") or "")
-                message = {**item, "role": role, "content": content}
-                existing.append(message)
-        payload["messages"] = existing
-        payload["updated_at"] = time.time()
-        self._write_payload(session_id, payload)
-        return existing
+        with self._session_lock(session_id):
+            payload = self._read_payload(session_id)
+            existing = list(payload.get("messages") or [])
+            for item in messages:
+                if isinstance(item, dict):
+                    role = str(item.get("role") or "").strip() or "assistant"
+                    content = str(item.get("content") or "")
+                    message = {**item, "role": role, "content": content}
+                    existing.append(message)
+            payload["messages"] = existing
+            payload["updated_at"] = time.time()
+            self._write_payload(session_id, payload)
+            return existing
 
     def append_api_messages(self, session_id: str, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        payload = self._read_payload(session_id)
-        existing = list(payload.get("api_transcript") or [])
-        for item in messages:
-            if not isinstance(item, dict):
-                continue
-            message = _api_message(item)
-            if message is not None:
-                existing.append(message)
-        payload["api_transcript"] = existing
-        payload["updated_at"] = time.time()
-        self._write_payload(session_id, payload)
-        return existing
+        with self._session_lock(session_id):
+            payload = self._read_payload(session_id)
+            existing = list(payload.get("api_transcript") or [])
+            for item in messages:
+                if not isinstance(item, dict):
+                    continue
+                message = _api_message(item)
+                if message is not None:
+                    existing.append(message)
+            payload["api_transcript"] = existing
+            payload["updated_at"] = time.time()
+            self._write_payload(session_id, payload)
+            return existing
 
     def replace_runtime_context(
         self,
@@ -269,50 +371,54 @@ class SessionManager:
         messages: list[dict[str, Any]],
         compressed_context: str | None = None,
     ) -> dict[str, Any]:
-        payload = self._read_payload(session_id)
-        if not list(payload.get("api_transcript") or []):
-            payload["api_transcript"] = [
-                item
-                for item in (_api_message(message) for message in list(payload.get("messages") or []) if isinstance(message, dict))
-                if item is not None
-            ]
-        normalized_messages: list[dict[str, Any]] = []
-        for item in list(messages or []):
-            if not isinstance(item, dict):
-                continue
-            role = str(item.get("role") or "").strip() or "assistant"
-            content = str(item.get("content") or "")
-            if not content:
-                continue
-            normalized_messages.append({**item, "role": role, "content": content})
-        payload["messages"] = normalized_messages
-        if compressed_context is not None:
-            payload["compressed_context"] = str(compressed_context or "")
-        payload["updated_at"] = time.time()
-        self._write_payload(session_id, payload)
-        return self.get_history(session_id)
+        with self._session_lock(session_id):
+            payload = self._read_payload(session_id)
+            if not list(payload.get("api_transcript") or []):
+                payload["api_transcript"] = [
+                    item
+                    for item in (_api_message(message) for message in list(payload.get("messages") or []) if isinstance(message, dict))
+                    if item is not None
+                ]
+            normalized_messages: list[dict[str, Any]] = []
+            for item in list(messages or []):
+                if not isinstance(item, dict):
+                    continue
+                role = str(item.get("role") or "").strip() or "assistant"
+                content = str(item.get("content") or "")
+                if not content:
+                    continue
+                normalized_messages.append({**item, "role": role, "content": content})
+            payload["messages"] = normalized_messages
+            if compressed_context is not None:
+                payload["compressed_context"] = str(compressed_context or "")
+            payload["updated_at"] = time.time()
+            self._write_payload(session_id, payload)
+            return self.get_history(session_id)
 
     def truncate_messages_from(self, session_id: str, message_index: int) -> dict[str, Any]:
-        payload = self._read_payload(session_id)
-        messages = list(payload.get("messages") or [])
-        if message_index < 0 or message_index > len(messages):
-            raise ValueError("message_index out of range")
-        kept_messages = messages[:message_index]
-        payload["messages"] = kept_messages
-        payload["api_transcript"] = _truncated_api_transcript(
-            list(payload.get("api_transcript") or []),
-            kept_messages=kept_messages,
-        )
-        payload["updated_at"] = time.time()
-        self._write_payload(session_id, payload)
-        return self.get_history(session_id)
+        with self._session_lock(session_id):
+            payload = self._read_payload(session_id)
+            messages = list(payload.get("messages") or [])
+            if message_index < 0 or message_index > len(messages):
+                raise ValueError("message_index out of range")
+            kept_messages = messages[:message_index]
+            payload["messages"] = kept_messages
+            payload["api_transcript"] = _truncated_api_transcript(
+                list(payload.get("api_transcript") or []),
+                kept_messages=kept_messages,
+            )
+            payload["updated_at"] = time.time()
+            self._write_payload(session_id, payload)
+            return self.get_history(session_id)
 
     def _load_all(self) -> list[dict[str, Any]]:
         rows: list[dict[str, Any]] = []
         for path in self.sessions_dir.glob("*.json"):
             try:
-                payload = json.loads(path.read_text(encoding="utf-8"))
-            except (OSError, json.JSONDecodeError):
+                payload = self._read_payload_from_path(path, session_id=path.stem)
+            except SessionStorageError as exc:
+                logger.warning("Skipping unreadable session payload %s: %s", path, exc)
+                rows.append(_unreadable_session_payload(path, error=str(exc)))
                 continue
             if isinstance(payload, dict):
                 rows.append(payload)
@@ -320,7 +426,7 @@ class SessionManager:
 
     def _summary_from_payload(self, payload: dict[str, Any]) -> dict[str, Any]:
         messages = list(payload.get("messages") or [])
-        return {
+        summary = {
             "id": str(payload.get("id") or ""),
             "title": str(payload.get("title") or "New Session"),
             "created_at": float(payload.get("created_at") or 0),
@@ -330,19 +436,59 @@ class SessionManager:
             "task_binding": _normalize_task_binding(dict(payload.get("task_binding") or {})),
             "conversation_state": _normalize_conversation_state(dict(payload.get("conversation_state") or {})),
         }
+        storage_status = str(payload.get("storage_status") or "").strip()
+        if storage_status:
+            summary["storage_status"] = storage_status
+            summary["storage_error"] = str(payload.get("storage_error") or "")
+        return summary
 
     def _read_payload(self, session_id: str) -> dict[str, Any]:
         path = self._session_path(session_id)
         if not path.exists():
             raise ValueError("Unknown session_id")
-        payload = json.loads(path.read_text(encoding="utf-8"))
+        return self._read_payload_from_path(path, session_id=session_id)
+
+    def _read_payload_from_path(self, path: Path, *, session_id: str) -> dict[str, Any]:
+        try:
+            raw = path.read_text(encoding="utf-8")
+        except UnicodeDecodeError as exc:
+            raise SessionPayloadCorrupt(f"corrupt session payload: {session_id}") from exc
+        except OSError as exc:
+            raise SessionStorageError(f"failed to read session payload: {session_id}") from exc
+        try:
+            payload = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise SessionPayloadCorrupt(f"corrupt session payload: {session_id}") from exc
         if not isinstance(payload, dict):
-            raise ValueError("Invalid session payload")
+            raise SessionPayloadCorrupt(f"invalid session payload: {session_id}")
         return payload
 
     def _write_payload(self, session_id: str, payload: dict[str, Any]) -> None:
         path = self._session_path(session_id)
-        path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        content = json.dumps(payload, ensure_ascii=False, indent=2)
+        tmp_path: Path | None = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                "w",
+                encoding="utf-8",
+                dir=path.parent,
+                prefix=f".{path.name}.",
+                suffix=".tmp",
+                delete=False,
+            ) as handle:
+                tmp_path = Path(handle.name)
+                handle.write(content)
+                handle.write("\n")
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(tmp_path, path)
+        except OSError as exc:
+            if tmp_path is not None:
+                try:
+                    tmp_path.unlink(missing_ok=True)
+                except OSError:
+                    pass
+            raise SessionStorageError(f"failed to write session payload: {session_id}") from exc
 
     def _session_path(self, session_id: str) -> Path:
         safe = _safe_session_id(session_id)
@@ -351,6 +497,36 @@ class SessionManager:
         if root != path.parent:
             raise ValueError("Invalid session_id")
         return path
+
+    @contextmanager
+    def _session_lock(self, session_id: str) -> Iterator[None]:
+        safe = _safe_session_id(session_id)
+        with self._locks_guard:
+            lock = self._session_locks.get(safe)
+            if lock is None:
+                lock = threading.RLock()
+                self._session_locks[safe] = lock
+        with lock:
+            yield
+
+
+def _unreadable_session_payload(path: Path, *, error: str) -> dict[str, Any]:
+    try:
+        updated_at = path.stat().st_mtime
+    except OSError:
+        updated_at = 0.0
+    return {
+        "id": path.stem,
+        "title": "Unreadable session",
+        "created_at": updated_at,
+        "updated_at": updated_at,
+        "messages": [],
+        "scope": _normalize_scope({}),
+        "task_binding": {},
+        "conversation_state": _normalize_conversation_state({}),
+        "storage_status": "unreadable",
+        "storage_error": error,
+    }
 
 
 def _safe_session_id(value: str) -> str:
@@ -411,11 +587,39 @@ def _normalize_active_task_environment(payload: dict[str, Any] | None) -> dict[s
     }
 
 
+def _normalize_project_binding(
+    payload: dict[str, Any] | None,
+    *,
+    validate_root: bool,
+    timestamp: float | None = None,
+) -> dict[str, Any]:
+    raw = dict(payload or {})
+    workspace_root = str(raw.get("workspace_root") or raw.get("root") or "").strip()
+    if not workspace_root:
+        return {}
+    root = Path(workspace_root).expanduser().resolve()
+    if validate_root and (not root.exists() or not root.is_dir()):
+        raise ValueError("project binding workspace_root must be an existing directory")
+    now = float(timestamp or time.time())
+    bound_at = float(raw.get("bound_at") or raw.get("created_at") or now)
+    last_seen_at = float(raw.get("last_seen_at") or raw.get("updated_at") or bound_at)
+    return {
+        "workspace_root": str(root),
+        "source": str(raw.get("source") or "manual").strip() or "manual",
+        "bound_at": bound_at,
+        "last_seen_at": last_seen_at,
+        "immutable": True,
+        "authority": "sessions.project_binding",
+    }
+
+
 def _normalize_conversation_state(payload: dict[str, Any] | None) -> dict[str, Any]:
     raw = dict(payload or {})
     active = _normalize_active_task_environment(dict(raw.get("active_task_environment") or {}))
+    project_binding = _normalize_project_binding(dict(raw.get("project_binding") or {}), validate_root=False)
     return {
         "active_task_environment": active,
+        "project_binding": project_binding,
         "permission_mode": _normalize_session_permission_mode(raw.get("permission_mode")),
         "authority": str(raw.get("authority") or "sessions.conversation_state"),
     }
@@ -460,6 +664,16 @@ def _scope_matches(
     if project_id is not None and scope["project_id"] != str(project_id or "").strip():
         return False
     return True
+
+
+def _same_workspace_root(left: str, right: str) -> bool:
+    try:
+        left_key = os.path.normcase(str(Path(left).resolve()))
+        right_key = os.path.normcase(str(Path(right).resolve()))
+    except Exception:
+        left_key = os.path.normcase(str(left or ""))
+        right_key = os.path.normcase(str(right or ""))
+    return left_key == right_key
 
 
 def _agent_message(payload: dict[str, Any]) -> dict[str, str] | None:

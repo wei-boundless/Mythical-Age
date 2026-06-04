@@ -59,7 +59,7 @@ async function sendCurrentContext(context) {
         return;
     }
     const editorContext = (0, editorContext_1.collectEditorContext)();
-    const sessionId = await resolveSessionId(context);
+    const sessionId = await resolveSessionId(context, editorContext);
     output?.show(true);
     output?.appendLine(`Sending request to local agent session ${sessionId}.`);
     try {
@@ -81,7 +81,7 @@ async function sendCurrentContext(context) {
         vscode.window.showErrorMessage(text);
     }
 }
-async function resolveSessionId(context) {
+async function resolveSessionId(context, editorContext) {
     const configured = (0, apiClient_1.configuredSessionId)();
     if (configured) {
         return configured;
@@ -90,10 +90,29 @@ async function resolveSessionId(context) {
     if (stored && await (0, apiClient_1.sessionExists)(stored)) {
         return stored;
     }
-    const created = await (0, apiClient_1.createSession)("VS Code Agent Session");
+    const projectBinding = await projectBindingFromEditorContext(editorContext);
+    const created = await (0, apiClient_1.createSession)("VS Code Agent Session", projectBinding);
     await context.workspaceState.update(SESSION_STATE_KEY, created.id);
     output?.appendLine(`Created local agent session ${created.id}.`);
     return created.id;
+}
+async function projectBindingFromEditorContext(editorContext) {
+    const roots = Array.from(new Set(editorContext.workspace_roots.map((item) => item.trim()).filter(Boolean)));
+    if (roots.length === 0) {
+        return undefined;
+    }
+    if (roots.length === 1) {
+        return { workspace_root: roots[0], source: "vscode" };
+    }
+    const selected = await vscode.window.showQuickPick(roots, {
+        title: "Bind Langchain Agent Session",
+        placeHolder: "Select the project root for this local agent session.",
+        ignoreFocusOut: true
+    });
+    if (!selected) {
+        throw new Error("A project root must be selected before creating a VS Code agent session.");
+    }
+    return { workspace_root: selected, source: "vscode" };
 }
 async function showEditorContext() {
     const snapshot = (0, editorContext_1.collectEditorContext)();

@@ -109,7 +109,7 @@ class LocalOverlaySandboxBackend:
             return
         effective_tool_name = str(tool_name or "").strip()
         if effective_tool_name in OVERLAY_MATERIALIZE_BEFORE_TOOL_NAMES:
-            self._materialize_roots(context)
+            self._materialize_roots(context, requested_roots=_requested_materialized_roots(context, effective_tool_name, tool_args))
         if effective_tool_name not in OVERLAY_COPY_ON_WRITE_TOOL_NAMES and effective_tool_name not in OVERLAY_COPY_ON_READ_TOOL_NAMES:
             return
         relative_path = normalize_relative_path(tool_args.get("path"))
@@ -133,10 +133,10 @@ class LocalOverlaySandboxBackend:
         elif source.is_dir():
             target.mkdir(parents=True, exist_ok=True)
 
-    def _materialize_roots(self, context: SandboxToolContext) -> None:
+    def _materialize_roots(self, context: SandboxToolContext, *, requested_roots: tuple[str, ...] = ()) -> None:
         if context.workspace_root is None:
             return
-        for raw in _materialized_roots(context):
+        for raw in _materialized_roots(context, requested_roots=requested_roots):
             source = (context.workspace_root / raw).resolve()
             target = (context.sandbox_root / raw).resolve()
             if not _is_inside(source, context.workspace_root) or not _is_inside(target, context.sandbox_root):
@@ -185,8 +185,59 @@ def _is_inside(path: Path, root: Path) -> bool:
     return path == root or root in path.parents
 
 
-def _materialized_roots(context: SandboxToolContext) -> tuple[str, ...]:
-    return tuple(str(item or "").replace("\\", "/").strip().strip("/") for item in context.materialized_roots if str(item or "").strip())
+def _materialized_roots(context: SandboxToolContext, *, requested_roots: tuple[str, ...] = ()) -> tuple[str, ...]:
+    roots = [
+        normalize_relative_path(item)
+        for item in [*context.materialized_roots, *requested_roots]
+        if normalize_relative_path(item)
+    ]
+    return tuple(dict.fromkeys(roots))
+
+
+def _requested_materialized_roots(context: SandboxToolContext, tool_name: str, tool_args: dict[str, Any]) -> tuple[str, ...]:
+    args = dict(tool_args or {})
+    if tool_name in {"search_files", "search_text"}:
+        roots = _normalized_path_list(args.get("roots"), workspace_root=context.workspace_root)
+        if roots:
+            return roots
+        paths = _normalized_path_list(args.get("paths"), workspace_root=context.workspace_root)
+        if paths:
+            return tuple(dict.fromkeys(_parent_root(path) for path in paths if path))
+    if tool_name == "list_dir":
+        return tuple(_normalized_path_list(args.get("path") or ".", workspace_root=context.workspace_root))
+    return ()
+
+
+def _normalized_path_list(value: Any, *, workspace_root: Path | None) -> tuple[str, ...]:
+    raw_values = value if isinstance(value, list) else [value]
+    return tuple(
+        dict.fromkeys(
+            normalized
+            for item in raw_values
+            for normalized in [_workspace_relative_materialized_path(item, workspace_root=workspace_root)]
+            if normalized
+        )
+    )
+
+
+def _workspace_relative_materialized_path(value: Any, *, workspace_root: Path | None) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    candidate = Path(text)
+    if candidate.is_absolute():
+        if workspace_root is None:
+            return ""
+        try:
+            return candidate.resolve().relative_to(workspace_root.resolve()).as_posix() or "."
+        except ValueError:
+            return ""
+    return normalize_relative_path(text)
+
+
+def _parent_root(path: str) -> str:
+    parent = str(Path(path).parent).replace("\\", "/")
+    return "." if parent in {"", "."} else parent
 
 
 def _backend_relative_source(workspace_root: Path, relative_path: str) -> Path | None:

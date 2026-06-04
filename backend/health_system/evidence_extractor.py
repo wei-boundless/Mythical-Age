@@ -345,11 +345,19 @@ def _build_recovery_handles(
                     },
                 )
             )
-    last_tool = next((item for item in reversed(events) if str(item.get("event_type") or "") == "tool_result_received"), None)
+    last_tool = next(
+        (
+            item
+            for item in reversed(events)
+            if str(item.get("event_type") or "")
+            in {"task_tool_observation_recorded", "turn_tool_observation_recorded", "executor_observation_received"}
+        ),
+        None,
+    )
     if last_tool is not None:
         handles.append(
             RecoveryHandle(
-                kind="tool_result_boundary",
+                kind="tool_observation_boundary",
                 ref=str(last_tool.get("event_id") or ""),
                 safe_to_resume=False,
                 side_effect_replay_risk="medium",
@@ -505,9 +513,11 @@ def _event_summary(event_type: str, payload: dict[str, Any]) -> str:
         action = dict(payload.get("action_request") or {})
         action_payload = dict(action.get("payload") or {})
         return f"tool={action_payload.get('tool_name') or ''}"
-    if event_type == "tool_result_received":
+    if event_type in {"task_tool_observation_recorded", "turn_tool_observation_recorded", "executor_observation_received"}:
         observation = dict(payload.get("observation") or {})
-        return f"tool_result={observation.get('observation_type') or 'tool_result'}; chars={payload.get('content_chars') or 0}"
+        if not observation:
+            observation = dict(payload.get("tool_observation") or {})
+        return f"tool_observation={observation.get('observation_type') or observation.get('tool_name') or 'tool_result'}; chars={observation.get('content_chars') or payload.get('content_chars') or 0}"
     if event_type == "checkpoint_written":
         return f"checkpoint={payload.get('checkpoint_id') or ''}; offset={payload.get('event_offset') or 0}"
     if event_type == "loop_error":

@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import time
 import uuid
 from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 from typing import Any, Literal
 
+from json_file_store import JsonFilePayloadCorrupt, JsonFileStoreError, json_file_lock, read_json_dict, write_json_dict
 from permissions.operations import OperationDescriptor
 
 from .action_request import RuntimeActionRequest
@@ -136,27 +136,28 @@ class RuntimeExecutionStore:
         return record
 
     def upsert(self, record: OperationExecutionRecord) -> OperationExecutionRecord:
-        payload = self._load_payload(record.task_run_id)
-        records = [OperationExecutionRecord(**item) for item in list(payload.get("records") or [])]
-        replaced = False
-        serialized = record.to_dict()
-        for index, current in enumerate(records):
-            if current.execution_id != record.execution_id:
-                continue
-            records[index] = record
-            replaced = True
-            break
-        if not replaced:
-            records.append(record)
-        self._write_payload(
-            record.task_run_id,
-            {
-                "task_run_id": record.task_run_id,
-                "updated_at": time.time(),
-                "records": [item.to_dict() for item in records],
-                "latest_execution_id": serialized["execution_id"],
-            },
-        )
+        with json_file_lock(self._payload_path(record.task_run_id)):
+            payload = self._load_payload(record.task_run_id)
+            records = [OperationExecutionRecord(**item) for item in list(payload.get("records") or [])]
+            replaced = False
+            serialized = record.to_dict()
+            for index, current in enumerate(records):
+                if current.execution_id != record.execution_id:
+                    continue
+                records[index] = record
+                replaced = True
+                break
+            if not replaced:
+                records.append(record)
+            self._write_payload(
+                record.task_run_id,
+                {
+                    "task_run_id": record.task_run_id,
+                    "updated_at": time.time(),
+                    "records": [item.to_dict() for item in records],
+                    "latest_execution_id": serialized["execution_id"],
+                },
+            )
         return record
 
     def get(self, task_run_id: str, execution_id: str) -> OperationExecutionRecord | None:
@@ -166,7 +167,8 @@ class RuntimeExecutionStore:
         return None
 
     def list_task_run_records(self, task_run_id: str) -> list[OperationExecutionRecord]:
-        payload = self._load_payload(task_run_id)
+        with json_file_lock(self._payload_path(task_run_id)):
+            payload = self._load_payload(task_run_id)
         records = []
         for item in list(payload.get("records") or []):
             if not isinstance(item, dict):
@@ -315,32 +317,21 @@ class RuntimeExecutionStore:
 
     def _load_payload(self, task_run_id: str) -> dict[str, Any]:
         path = self._payload_path(task_run_id)
-        if not path.exists():
-            return {"task_run_id": task_run_id, "records": []}
-        return json.loads(path.read_text(encoding="utf-8"))
+        try:
+            return read_json_dict(
+                path,
+                label=f"runtime execution record {task_run_id}",
+                missing_factory=lambda: {"task_run_id": task_run_id, "records": []},
+            )
+        except (JsonFileStoreError, JsonFilePayloadCorrupt) as exc:
+            raise RuntimeError(str(exc)) from exc
 
     def _write_payload(self, task_run_id: str, payload: dict[str, Any]) -> None:
         path = self._payload_path(task_run_id)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_suffix(f"{path.suffix}.{uuid.uuid4().hex}.tmp")
-        tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-        last_error: OSError | None = None
-        for attempt in range(16):
-            try:
-                os.replace(tmp, path)
-                return
-            except PermissionError as exc:
-                last_error = exc
-                time.sleep(min(0.75, 0.05 * (attempt + 1)))
         try:
-            path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-            tmp.unlink(missing_ok=True)
-            return
-        except OSError as exc:
-            tmp.unlink(missing_ok=True)
-            if last_error is not None:
-                raise last_error from exc
-            raise
+            write_json_dict(path, payload, label=f"runtime execution record {task_run_id}")
+        except JsonFileStoreError as exc:
+            raise RuntimeError(str(exc)) from exc
 
 
 def derive_replay_policy(operation: OperationDescriptor | None) -> ReplayPolicy:

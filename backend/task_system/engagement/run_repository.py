@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-import json
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
+from json_file_store import JsonFilePayloadCorrupt, JsonFileStoreError, json_file_lock, read_json_dict, write_json_dict
 from project_layout import ProjectLayout
 
 from .models import EngagementEvent, EngagementRunRecord
@@ -24,22 +24,25 @@ class EngagementRunRepository:
         return self.root / ENGAGEMENT_RUNS_FILENAME
 
     def list_runs(self) -> list[dict[str, Any]]:
-        return [dict(item) for item in list(self._read_payload().get("engagement_runs") or []) if isinstance(item, dict)]
+        with json_file_lock(self.path):
+            return [dict(item) for item in list(self._read_payload().get("engagement_runs") or []) if isinstance(item, dict)]
 
     def list_events(self) -> list[dict[str, Any]]:
-        return [dict(item) for item in list(self._read_payload().get("engagement_events") or []) if isinstance(item, dict)]
+        with json_file_lock(self.path):
+            return [dict(item) for item in list(self._read_payload().get("engagement_events") or []) if isinstance(item, dict)]
 
     def upsert_run(self, record: EngagementRunRecord) -> EngagementRunRecord:
-        payload = self._read_payload()
-        runs = [
-            dict(item)
-            for item in list(payload.get("engagement_runs") or [])
-            if isinstance(item, dict) and str(item.get("engagement_run_id") or "") != record.engagement_run_id
-        ]
-        runs.append(record.to_dict())
-        payload["engagement_runs"] = sorted(runs, key=lambda item: str(item.get("engagement_run_id") or ""))
-        self._write_payload(payload)
-        return record
+        with json_file_lock(self.path):
+            payload = self._read_payload()
+            runs = [
+                dict(item)
+                for item in list(payload.get("engagement_runs") or [])
+                if isinstance(item, dict) and str(item.get("engagement_run_id") or "") != record.engagement_run_id
+            ]
+            runs.append(record.to_dict())
+            payload["engagement_runs"] = sorted(runs, key=lambda item: str(item.get("engagement_run_id") or ""))
+            self._write_payload(payload)
+            return record
 
     def update_run(self, engagement_run_id: str, **updates: Any) -> EngagementRunRecord:
         existing = self.get_run(engagement_run_id)
@@ -70,19 +73,22 @@ class EngagementRunRepository:
         return None
 
     def append_event(self, event: EngagementEvent) -> EngagementEvent:
-        payload = self._read_payload()
-        events = [dict(item) for item in list(payload.get("engagement_events") or []) if isinstance(item, dict)]
-        events.append(event.to_dict())
-        payload["engagement_events"] = events
-        self._write_payload(payload)
-        return event
+        with json_file_lock(self.path):
+            payload = self._read_payload()
+            events = [dict(item) for item in list(payload.get("engagement_events") or []) if isinstance(item, dict)]
+            events.append(event.to_dict())
+            payload["engagement_events"] = events
+            self._write_payload(payload)
+            return event
 
     def _read_payload(self) -> dict[str, Any]:
-        if not self.path.exists():
-            return {"engagement_runs": [], "engagement_events": []}
         try:
-            payload = json.loads(self.path.read_text(encoding="utf-8"))
-        except Exception as exc:
+            payload = read_json_dict(
+                self.path,
+                label="engagement runs",
+                missing_factory=lambda: {"engagement_runs": [], "engagement_events": []},
+            )
+        except (JsonFileStoreError, JsonFilePayloadCorrupt) as exc:
             raise EngagementPlanConfigError(f"failed to read engagement runs: {exc}") from exc
         if not isinstance(payload, dict):
             raise EngagementPlanConfigError("engagement runs root must be an object")
@@ -91,6 +97,8 @@ class EngagementRunRepository:
         return payload
 
     def _write_payload(self, payload: dict[str, Any]) -> None:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.path.write_text(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        try:
+            write_json_dict(self.path, payload, label="engagement runs", sort_keys=True)
+        except JsonFileStoreError as exc:
+            raise EngagementPlanConfigError(f"failed to write engagement runs: {exc}") from exc
 

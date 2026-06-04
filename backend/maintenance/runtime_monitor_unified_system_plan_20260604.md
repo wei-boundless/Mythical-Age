@@ -348,3 +348,20 @@ These edits should be treated as unreviewed partial work. During implementation 
 - Active turn liveness cannot be hidden by stale bound task state.
 - Console, center detail, and graph monitor share the same monitor revision.
 - Old monitor code is deleted when it no longer owns a real responsibility.
+
+## Implementation Result - 2026-06-04
+
+- Backend public monitor authority is `GET /api/orchestration/runtime-monitor` plus `/events`; public `/runtime-monitor/live` was removed.
+- The backend package is `backend/harness/runtime/run_monitor/`; no runtime code imports `harness.runtime.monitoring`.
+- Frontend monitor authority is `frontend/src/lib/run-monitor/` and the single store slice `runMonitor*`.
+- `RunMonitorController` owns SSE, fallback polling, signal navigation, graph detail loading, graph run binding, continue, and auto-advance.
+- `RuntimeMonitorConsole`, `frontend/src/lib/runtime-monitor/`, `runtimeWorkProjection`, and old runtime monitor formatting wrappers were deleted.
+- Graph tasks are projected into a project lane (`projects`) while regular agent/turn signals stay in the activity lane.
+- Health-system internal maintenance still uses `list_global_live_monitor()` as a governance/task-record index. It is not exposed as a public frontend monitor API and does not own the UI monitor state.
+- Verified with:
+  - `pytest backend/tests/runtime_monitor_projection_test.py -q`
+  - `cd frontend && npx tsc --noEmit`
+  - `cd frontend && npx vitest run src/lib/store/runtime.test.ts`
+  - REST check on `http://127.0.0.1:8003/api/orchestration/runtime-monitor?limit=10`
+  - SSE check on `http://127.0.0.1:8003/api/orchestration/runtime-monitor/events?limit=5`
+  - Playwright page check on `http://127.0.0.1:3000/`

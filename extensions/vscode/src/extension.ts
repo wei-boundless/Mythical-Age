@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
-import { createChatRun, configuredSessionId, createSession, sessionExists } from "./apiClient";
-import { collectEditorContext } from "./editorContext";
+import { createChatRun, configuredSessionId, createSession, sessionExists, type ProjectBindingPayload } from "./apiClient";
+import { collectEditorContext, type EditorContextSnapshot } from "./editorContext";
 
 let output: vscode.OutputChannel | undefined;
 const SESSION_STATE_KEY = "langchainAgent.sessionId";
@@ -29,7 +29,7 @@ async function sendCurrentContext(context: vscode.ExtensionContext): Promise<voi
     return;
   }
   const editorContext = collectEditorContext();
-  const sessionId = await resolveSessionId(context);
+  const sessionId = await resolveSessionId(context, editorContext);
   output?.show(true);
   output?.appendLine(`Sending request to local agent session ${sessionId}.`);
   try {
@@ -51,7 +51,7 @@ async function sendCurrentContext(context: vscode.ExtensionContext): Promise<voi
   }
 }
 
-async function resolveSessionId(context: vscode.ExtensionContext): Promise<string> {
+async function resolveSessionId(context: vscode.ExtensionContext, editorContext: EditorContextSnapshot): Promise<string> {
   const configured = configuredSessionId();
   if (configured) {
     return configured;
@@ -60,10 +60,30 @@ async function resolveSessionId(context: vscode.ExtensionContext): Promise<strin
   if (stored && await sessionExists(stored)) {
     return stored;
   }
-  const created = await createSession("VS Code Agent Session");
+  const projectBinding = await projectBindingFromEditorContext(editorContext);
+  const created = await createSession("VS Code Agent Session", projectBinding);
   await context.workspaceState.update(SESSION_STATE_KEY, created.id);
   output?.appendLine(`Created local agent session ${created.id}.`);
   return created.id;
+}
+
+async function projectBindingFromEditorContext(editorContext: EditorContextSnapshot): Promise<ProjectBindingPayload | undefined> {
+  const roots = Array.from(new Set(editorContext.workspace_roots.map((item) => item.trim()).filter(Boolean)));
+  if (roots.length === 0) {
+    return undefined;
+  }
+  if (roots.length === 1) {
+    return { workspace_root: roots[0], source: "vscode" };
+  }
+  const selected = await vscode.window.showQuickPick(roots, {
+    title: "Bind Langchain Agent Session",
+    placeHolder: "Select the project root for this local agent session.",
+    ignoreFocusOut: true
+  });
+  if (!selected) {
+    throw new Error("A project root must be selected before creating a VS Code agent session.");
+  }
+  return { workspace_root: selected, source: "vscode" };
 }
 
 async function showEditorContext(): Promise<void> {

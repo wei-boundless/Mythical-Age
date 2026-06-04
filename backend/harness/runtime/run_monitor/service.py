@@ -39,9 +39,6 @@ class RuntimeMonitorService:
         items = self._global_live_items(requested_limit=requested_limit, now=now)
         return build_runtime_monitor_envelope(items=items, now=now, limit=requested_limit)
 
-    def list_global_console_monitor(self, limit: int = 30) -> dict[str, Any]:
-        return self.collect_global_runtime_monitor(limit=limit)
-
     def _global_live_items(self, *, requested_limit: int, now: float) -> list[dict[str, Any]]:
         task_runs = self.runtime_host.state_index.list_recent_task_runs(limit=max(requested_limit * 4, 80))
         base_monitor = self.projector.build_global_monitor(

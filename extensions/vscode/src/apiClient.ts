@@ -19,6 +19,11 @@ export type SessionResponse = {
   title?: string;
 };
 
+export type ProjectBindingPayload = {
+  workspace_root: string;
+  source: "vscode";
+};
+
 export async function createChatRun(payload: ChatRunPayload): Promise<ChatRunResponse> {
   const apiBase = normalizedApiBase();
   const response = await fetch(`${apiBase}/chat/runs`, {
@@ -40,7 +45,7 @@ export function configuredSessionId(): string {
   return sanitizeSessionId(value || "");
 }
 
-export async function createSession(title: string): Promise<SessionResponse> {
+export async function createSession(title: string, projectBinding?: ProjectBindingPayload): Promise<SessionResponse> {
   const apiBase = normalizedApiBase();
   const response = await fetch(`${apiBase}/sessions`, {
     method: "POST",
@@ -51,7 +56,8 @@ export async function createSession(title: string): Promise<SessionResponse> {
       title,
       scope: {
         workspace_view: "chat"
-      }
+      },
+      ...(projectBinding ? { project_binding: projectBinding } : {})
     })
   });
   if (!response.ok) {

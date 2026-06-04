@@ -344,6 +344,16 @@
               ],
               "title": "Project Id"
             }
+          },
+          {
+            "name": "include_active_task",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Include Active Task"
+            }
           }
         ],
         "responses": {
@@ -595,9 +605,7 @@
               "application/json": {
                 "schema": {
                   "type": "object",
-                  "additionalProperties": {
-                    "type": "boolean"
-                  },
+                  "additionalProperties": true,
                   "title": "Response Delete Session Api Sessions  Session Id  Delete"
                 }
               }
@@ -789,6 +797,604 @@
                   "type": "object",
                   "additionalProperties": true,
                   "title": "Response Get Session History Api Sessions  Session Id  History Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/sessions/{session_id}/conversation-state": {
+      "get": {
+        "tags": [
+          "sessions"
+        ],
+        "summary": "Get Session Conversation State",
+        "operationId": "get_session_conversation_state_api_sessions__session_id__conversation_state_get",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Session Id"
+            }
+          },
+          {
+            "name": "workspace_view",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 80
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Workspace View"
+            }
+          },
+          {
+            "name": "task_environment_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 200
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Task Environment Id"
+            }
+          },
+          {
+            "name": "project_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 240
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Project Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Get Session Conversation State Api Sessions  Session Id  Conversation State Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/sessions/{session_id}/active-task-environment": {
+      "put": {
+        "tags": [
+          "sessions"
+        ],
+        "summary": "Set Session Active Task Environment",
+        "operationId": "set_session_active_task_environment_api_sessions__session_id__active_task_environment_put",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Session Id"
+            }
+          },
+          {
+            "name": "workspace_view",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 80
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Workspace View"
+            }
+          },
+          {
+            "name": "task_environment_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 200
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Task Environment Id"
+            }
+          },
+          {
+            "name": "project_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 240
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Project Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ActiveTaskEnvironmentRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Set Session Active Task Environment Api Sessions  Session Id  Active Task Environment Put"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/sessions/{session_id}/permission-mode": {
+      "put": {
+        "tags": [
+          "sessions"
+        ],
+        "summary": "Set Session Permission Mode",
+        "operationId": "set_session_permission_mode_api_sessions__session_id__permission_mode_put",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Session Id"
+            }
+          },
+          {
+            "name": "workspace_view",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 80
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Workspace View"
+            }
+          },
+          {
+            "name": "task_environment_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 200
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Task Environment Id"
+            }
+          },
+          {
+            "name": "project_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 240
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Project Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SessionPermissionModeRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Set Session Permission Mode Api Sessions  Session Id  Permission Mode Put"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/sessions/{session_id}/project-binding": {
+      "get": {
+        "tags": [
+          "sessions"
+        ],
+        "summary": "Get Session Project Binding",
+        "operationId": "get_session_project_binding_api_sessions__session_id__project_binding_get",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Session Id"
+            }
+          },
+          {
+            "name": "workspace_view",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 80
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Workspace View"
+            }
+          },
+          {
+            "name": "task_environment_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 200
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Task Environment Id"
+            }
+          },
+          {
+            "name": "project_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 240
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Project Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Get Session Project Binding Api Sessions  Session Id  Project Binding Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "sessions"
+        ],
+        "summary": "Bind Session Project",
+        "operationId": "bind_session_project_api_sessions__session_id__project_binding_put",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Session Id"
+            }
+          },
+          {
+            "name": "workspace_view",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 80
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Workspace View"
+            }
+          },
+          {
+            "name": "task_environment_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 200
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Task Environment Id"
+            }
+          },
+          {
+            "name": "project_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 240
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Project Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProjectBindingRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Bind Session Project Api Sessions  Session Id  Project Binding Put"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/sessions/{session_id}/project-binding/open-vscode": {
+      "post": {
+        "tags": [
+          "sessions"
+        ],
+        "summary": "Open Session Project In Vscode",
+        "operationId": "open_session_project_in_vscode_api_sessions__session_id__project_binding_open_vscode_post",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Session Id"
+            }
+          },
+          {
+            "name": "workspace_view",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 80
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Workspace View"
+            }
+          },
+          {
+            "name": "task_environment_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 200
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Task Environment Id"
+            }
+          },
+          {
+            "name": "project_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 240
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Project Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Open Session Project In Vscode Api Sessions  Session Id  Project Binding Open Vscode Post"
                 }
               }
             }
@@ -1153,6 +1759,74 @@
               "minLength": 1,
               "title": "Path"
             }
+          },
+          {
+            "name": "session_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 200
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Session Id"
+            }
+          },
+          {
+            "name": "workspace_view",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 80
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Workspace View"
+            }
+          },
+          {
+            "name": "task_environment_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 200
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Task Environment Id"
+            }
+          },
+          {
+            "name": "project_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 240
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Project Id"
+            }
           }
         ],
         "responses": {
@@ -1188,6 +1862,76 @@
         ],
         "summary": "Save File",
         "operationId": "save_file_api_files_post",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 200
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Session Id"
+            }
+          },
+          {
+            "name": "workspace_view",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 80
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Workspace View"
+            }
+          },
+          {
+            "name": "task_environment_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 200
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Task Environment Id"
+            }
+          },
+          {
+            "name": "project_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 240
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Project Id"
+            }
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -2296,6 +3040,72 @@
         }
       }
     },
+    "/api/memory/durable/governance/runtime": {
+      "get": {
+        "tags": [
+          "memory"
+        ],
+        "summary": "Get Durable Memory Governance Runtime",
+        "operationId": "get_durable_memory_governance_runtime_api_memory_durable_governance_runtime_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Get Durable Memory Governance Runtime Api Memory Durable Governance Runtime Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/memory/durable/governance/tick": {
+      "post": {
+        "tags": [
+          "memory"
+        ],
+        "summary": "Run Durable Memory Governance Tick",
+        "operationId": "run_durable_memory_governance_tick_api_memory_durable_governance_tick_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DurableMemoryGovernanceTickRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Run Durable Memory Governance Tick Api Memory Durable Governance Tick Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/memory/recall-preview": {
       "post": {
         "tags": [
@@ -2845,6 +3655,230 @@
         }
       }
     },
+    "/api/tokens/session/{session_id}/compact/preview": {
+      "post": {
+        "tags": [
+          "tokens"
+        ],
+        "summary": "Preview Session Compaction",
+        "operationId": "preview_session_compaction_api_tokens_session__session_id__compact_preview_post",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Session Id"
+            }
+          },
+          {
+            "name": "workspace_view",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 80
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Workspace View"
+            }
+          },
+          {
+            "name": "task_environment_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 200
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Task Environment Id"
+            }
+          },
+          {
+            "name": "project_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 240
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Project Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/CompactSessionRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Payload"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Preview Session Compaction Api Tokens Session  Session Id  Compact Preview Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tokens/session/{session_id}/compact/run": {
+      "post": {
+        "tags": [
+          "tokens"
+        ],
+        "summary": "Run Session Compaction",
+        "operationId": "run_session_compaction_api_tokens_session__session_id__compact_run_post",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Session Id"
+            }
+          },
+          {
+            "name": "workspace_view",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 80
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Workspace View"
+            }
+          },
+          {
+            "name": "task_environment_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 200
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Task Environment Id"
+            }
+          },
+          {
+            "name": "project_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 240
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Project Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/CompactSessionRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Payload"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Run Session Compaction Api Tokens Session  Session Id  Compact Run Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/tokens/files": {
       "post": {
         "tags": [
@@ -3228,6 +4262,29 @@
                   "additionalProperties": true,
                   "type": "object",
                   "title": "Response Task System Overview Api Tasks Overview Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tasks/environments/catalog": {
+      "get": {
+        "tags": [
+          "tasks"
+        ],
+        "summary": "Task Environment Catalog",
+        "operationId": "task_environment_catalog_api_tasks_environments_catalog_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Task Environment Catalog Api Tasks Environments Catalog Get"
                 }
               }
             }
@@ -5533,7 +6590,7 @@
             "required": false,
             "schema": {
               "type": "integer",
-              "default": 100,
+              "default": 40,
               "title": "Limit"
             }
           }
@@ -5720,7 +6777,7 @@
             "required": false,
             "schema": {
               "type": "integer",
-              "default": 100,
+              "default": 40,
               "title": "Limit"
             }
           }
@@ -5834,7 +6891,7 @@
             "required": false,
             "schema": {
               "type": "integer",
-              "default": 100,
+              "default": 40,
               "title": "Limit"
             }
           }
@@ -5879,7 +6936,7 @@
             "required": false,
             "schema": {
               "type": "integer",
-              "default": 100,
+              "default": 40,
               "title": "Limit"
             }
           }
@@ -7343,6 +8400,54 @@
               "default": false,
               "title": "Include Config"
             }
+          },
+          {
+            "name": "workspace_view",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Workspace View"
+            }
+          },
+          {
+            "name": "task_environment_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Task Environment Id"
+            }
+          },
+          {
+            "name": "project_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Project Id"
+            }
           }
         ],
         "responses": {
@@ -7523,6 +8628,60 @@
                   "type": "object",
                   "additionalProperties": true,
                   "title": "Response Dispatch Graph Run Ready Nodes Api Orchestration Harness Graph Runs  Graph Run Id  Dispatch Ready Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/orchestration/harness/graph-runs/{graph_run_id}/requeue-nodes": {
+      "post": {
+        "tags": [
+          "orchestration"
+        ],
+        "summary": "Requeue Graph Run Nodes",
+        "operationId": "requeue_graph_run_nodes_api_orchestration_harness_graph_runs__graph_run_id__requeue_nodes_post",
+        "parameters": [
+          {
+            "name": "graph_run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Graph Run Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GraphRunRequeueNodesRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Requeue Graph Run Nodes Api Orchestration Harness Graph Runs  Graph Run Id  Requeue Nodes Post"
                 }
               }
             }
@@ -7824,6 +8983,48 @@
             }
           }
         }
+      },
+      "delete": {
+        "tags": [
+          "orchestration-harness"
+        ],
+        "summary": "Delete Harness Task Run",
+        "operationId": "delete_harness_task_run_api_orchestration_harness_task_runs__task_run_id__delete",
+        "parameters": [
+          {
+            "name": "task_run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Task Run Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Delete Harness Task Run Api Orchestration Harness Task Runs  Task Run Id  Delete"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/orchestration/harness/turn-runs/{turn_run_id}": {
@@ -8089,6 +9290,67 @@
         }
       }
     },
+    "/api/orchestration/harness/task-runs/{task_run_id}/approve-tool-call": {
+      "post": {
+        "tags": [
+          "orchestration-harness"
+        ],
+        "summary": "Approve Harness Task Run Tool Call",
+        "operationId": "approve_harness_task_run_tool_call_api_orchestration_harness_task_runs__task_run_id__approve_tool_call_post",
+        "parameters": [
+          {
+            "name": "task_run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Task Run Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/TaskRunApprovalRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Payload"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Approve Harness Task Run Tool Call Api Orchestration Harness Task Runs  Task Run Id  Approve Tool Call Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/orchestration/harness/task-runs/{task_run_id}/stop": {
       "post": {
         "tags": [
@@ -8282,13 +9544,13 @@
         }
       }
     },
-    "/api/orchestration/runtime-monitor/live": {
+    "/api/orchestration/runtime-monitor": {
       "get": {
         "tags": [
           "runtime-monitor"
         ],
-        "summary": "List Runtime Monitor Live",
-        "operationId": "list_runtime_monitor_live_api_orchestration_runtime_monitor_live_get",
+        "summary": "List Runtime Monitor",
+        "operationId": "list_runtime_monitor_api_orchestration_runtime_monitor_get",
         "parameters": [
           {
             "name": "limit",
@@ -8296,7 +9558,7 @@
             "required": false,
             "schema": {
               "type": "integer",
-              "default": 20,
+              "default": 30,
               "title": "Limit"
             }
           }
@@ -8309,7 +9571,7 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": true,
-                  "title": "Response List Runtime Monitor Live Api Orchestration Runtime Monitor Live Get"
+                  "title": "Response List Runtime Monitor Api Orchestration Runtime Monitor Get"
                 }
               }
             }
@@ -9127,6 +10389,74 @@
               "default": 10000,
               "title": "Max Entries"
             }
+          },
+          {
+            "name": "session_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 200
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Session Id"
+            }
+          },
+          {
+            "name": "workspace_view",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 80
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Workspace View"
+            }
+          },
+          {
+            "name": "task_environment_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 200
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Task Environment Id"
+            }
+          },
+          {
+            "name": "project_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 240
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Project Id"
+            }
           }
         ],
         "responses": {
@@ -9328,6 +10658,33 @@
   },
   "components": {
     "schemas": {
+      "ActiveTaskEnvironmentRequest": {
+        "properties": {
+          "task_environment_id": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 3,
+            "title": "Task Environment Id"
+          },
+          "environment_label": {
+            "type": "string",
+            "maxLength": 200,
+            "title": "Environment Label",
+            "default": ""
+          },
+          "source": {
+            "type": "string",
+            "maxLength": 80,
+            "title": "Source",
+            "default": "conversation"
+          }
+        },
+        "type": "object",
+        "required": [
+          "task_environment_id"
+        ],
+        "title": "ActiveTaskEnvironmentRequest"
+      },
       "AgentEnabledRequest": {
         "properties": {
           "enabled": {
@@ -9538,6 +10895,11 @@
             "type": "object",
             "title": "Image Generation"
           },
+          "permission_mode": {
+            "type": "string",
+            "title": "Permission Mode",
+            "default": ""
+          },
           "session_scope": {
             "anyOf": [
               {
@@ -9559,6 +10921,11 @@
             "type": "string",
             "title": "Active Turn Input Policy",
             "default": "auto"
+          },
+          "editor_context": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Editor Context"
           }
         },
         "type": "object",
@@ -9679,6 +11046,41 @@
           "tree"
         ],
         "title": "CodeEnvironmentWorkspaceTreeResponse"
+      },
+      "CompactSessionRequest": {
+        "properties": {
+          "pressure_level": {
+            "type": "string",
+            "enum": [
+              "auto",
+              "microcompact",
+              "full_compact"
+            ],
+            "title": "Pressure Level",
+            "default": "auto"
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 240,
+            "title": "Reason",
+            "default": "manual_compact"
+          },
+          "reserved_output_tokens": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 200000.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reserved Output Tokens"
+          }
+        },
+        "type": "object",
+        "title": "CompactSessionRequest"
       },
       "ContextBudgetPresetRequest": {
         "properties": {
@@ -9883,6 +11285,11 @@
             "additionalProperties": true,
             "type": "object",
             "title": "Scope"
+          },
+          "project_binding": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Project Binding"
           }
         },
         "type": "object",
@@ -10005,6 +11412,42 @@
         },
         "type": "object",
         "title": "DurableMemoryGovernRequest"
+      },
+      "DurableMemoryGovernanceTickRequest": {
+        "properties": {
+          "reason": {
+            "type": "string",
+            "maxLength": 600,
+            "title": "Reason",
+            "default": ""
+          },
+          "force": {
+            "type": "boolean",
+            "title": "Force",
+            "default": false
+          },
+          "namespace_id": {
+            "type": "string",
+            "maxLength": 200,
+            "title": "Namespace Id",
+            "default": ""
+          },
+          "task_environment_id": {
+            "type": "string",
+            "maxLength": 200,
+            "title": "Task Environment Id",
+            "default": ""
+          },
+          "min_interval_seconds": {
+            "type": "integer",
+            "maximum": 604800.0,
+            "minimum": 0.0,
+            "title": "Min Interval Seconds",
+            "default": 21600
+          }
+        },
+        "type": "object",
+        "title": "DurableMemoryGovernanceTickRequest"
       },
       "DurableMemoryMergeRequest": {
         "properties": {
@@ -10427,6 +11870,50 @@
         ],
         "title": "GraphRunDispatchReadyRequest"
       },
+      "GraphRunRequeueNodesRequest": {
+        "properties": {
+          "graph_harness_config_id": {
+            "type": "string",
+            "maxLength": 240,
+            "minLength": 1,
+            "title": "Graph Harness Config Id"
+          },
+          "session_scope": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session Scope"
+          },
+          "start_node_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Start Node Ids"
+          },
+          "runtime_settings_patch": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Runtime Settings Patch"
+          },
+          "reset_downstream": {
+            "type": "boolean",
+            "title": "Reset Downstream",
+            "default": true
+          }
+        },
+        "type": "object",
+        "required": [
+          "graph_harness_config_id"
+        ],
+        "title": "GraphRunRequeueNodesRequest"
+      },
       "GraphRunResumeRequest": {
         "properties": {
           "graph_harness_config_id": {
@@ -10491,6 +11978,16 @@
               }
             ],
             "title": "Session Scope"
+          },
+          "runtime_overrides": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Runtime Overrides"
+          },
+          "runtime_settings_patch": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Runtime Settings Patch"
           },
           "max_node_executions": {
             "type": "integer",
@@ -10571,6 +12068,16 @@
             "additionalProperties": true,
             "type": "object",
             "title": "Work Order"
+          },
+          "runtime_overrides": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Runtime Overrides"
+          },
+          "runtime_settings_patch": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Runtime Settings Patch"
           },
           "max_steps": {
             "type": "integer",
@@ -11412,6 +12919,27 @@
         "type": "object",
         "title": "PiSidecarStatus"
       },
+      "ProjectBindingRequest": {
+        "properties": {
+          "workspace_root": {
+            "type": "string",
+            "maxLength": 1000,
+            "minLength": 1,
+            "title": "Workspace Root"
+          },
+          "source": {
+            "type": "string",
+            "maxLength": 80,
+            "title": "Source",
+            "default": "manual"
+          }
+        },
+        "type": "object",
+        "required": [
+          "workspace_root"
+        ],
+        "title": "ProjectBindingRequest"
+      },
       "ProjectLifecycleRunStartRequest": {
         "properties": {
           "action": {
@@ -11611,6 +13139,21 @@
           "content"
         ],
         "title": "SaveSkillRequest"
+      },
+      "SessionPermissionModeRequest": {
+        "properties": {
+          "mode": {
+            "type": "string",
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Mode"
+          }
+        },
+        "type": "object",
+        "required": [
+          "mode"
+        ],
+        "title": "SessionPermissionModeRequest"
       },
       "SkillPromptViewRequest": {
         "properties": {
@@ -12280,8 +13823,8 @@
           "session_id": {
             "type": "string",
             "maxLength": 180,
-            "title": "Session Id",
-            "default": "task_graph_studio"
+            "minLength": 1,
+            "title": "Session Id"
           },
           "task_id": {
             "type": "string",
@@ -12331,9 +13874,22 @@
             "additionalProperties": true,
             "type": "object",
             "title": "Runner Budget"
+          },
+          "runtime_overrides": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Runtime Overrides"
+          },
+          "runtime_settings_patch": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Runtime Settings Patch"
           }
         },
         "type": "object",
+        "required": [
+          "session_id"
+        ],
         "title": "TaskGraphRunStartRequest"
       },
       "TaskGraphStandardViewUpsertRequest": {
@@ -12625,6 +14181,31 @@
         "type": "object",
         "title": "TaskNodeRuntimePreviewRequest"
       },
+      "TaskRunApprovalRequest": {
+        "properties": {
+          "max_steps": {
+            "type": "integer",
+            "maximum": 50.0,
+            "minimum": 1.0,
+            "title": "Max Steps",
+            "default": 12
+          },
+          "expected_active_turn_id": {
+            "type": "string",
+            "maxLength": 300,
+            "title": "Expected Active Turn Id",
+            "default": ""
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 500,
+            "title": "Reason",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "title": "TaskRunApprovalRequest"
+      },
       "TaskRunControlRequest": {
         "properties": {
           "reason": {
@@ -12832,11 +14413,5 @@
         "title": "ValidationError"
       }
     }
-  },
-  "servers": [
-    {
-      "url": "http://127.0.0.1:8003",
-      "description": "本地 FastAPI / Uvicorn 固定后端"
-    }
-  ]
+  }
 }

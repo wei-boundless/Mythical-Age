@@ -51,7 +51,7 @@ class TerminalTool(BaseTool):
         command: str,
         run_manager: CallbackManagerForToolRun | None = None,
     ) -> str:
-        blocked_reason = validate_sandbox_command_text(command, kind="command")
+        blocked_reason = validate_sandbox_command_text(command, kind="command", workspace_root=self._root_dir)
         if blocked_reason:
             return blocked_reason
 

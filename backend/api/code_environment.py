@@ -9,6 +9,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query
 
+from api.deps import require_runtime
 from project_layout import ProjectLayout
 from code_environment.models import (
     CodeEnvironmentResponse,
@@ -20,6 +21,7 @@ from code_environment.models import (
 from code_environment.pi_environment import build_code_environment_status
 from code_environment.pi_rpc_process import PI_SIDECAR_MANAGER
 from code_environment.workspace_tree import build_workspace_tree
+from task_system.session_scope import assert_optional_session_scope, request_scope_from_query
 
 router = APIRouter()
 
@@ -43,10 +45,21 @@ async def code_environment(
 async def code_environment_workspace_tree(
     max_depth: Annotated[int, Query(ge=1, le=12)] = 10,
     max_entries: Annotated[int, Query(ge=100, le=50000)] = 10000,
+    session_id: str | None = Query(default=None, max_length=200),
+    workspace_view: str | None = Query(default=None, max_length=80),
+    task_environment_id: str | None = Query(default=None, max_length=200),
+    project_id: str | None = Query(default=None, max_length=240),
 ) -> CodeEnvironmentWorkspaceTreeResponse:
-    layout = ProjectLayout.from_backend_dir(Path(__file__).resolve().parents[1])
+    root = _workspace_tree_root(
+        session_id=session_id,
+        workspace_view=workspace_view,
+        task_environment_id=task_environment_id,
+        project_id=project_id,
+    )
+    if not root.is_dir():
+        raise HTTPException(status_code=404, detail="Workspace root not found")
     return build_workspace_tree(
-        layout.project_root,
+        root,
         max_depth=max_depth,
         max_entries=max_entries,
     )
@@ -79,6 +92,29 @@ def _open_directory(path: Path) -> None:
         subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     except FileNotFoundError as exc:
         raise RuntimeError(f"Cannot open workspace directory: {command[0]} is not available") from exc
+
+
+def _workspace_tree_root(
+    *,
+    session_id: str | None,
+    workspace_view: str | None,
+    task_environment_id: str | None,
+    project_id: str | None,
+) -> Path:
+    layout = ProjectLayout.from_backend_dir(Path(__file__).resolve().parents[1])
+    if not session_id:
+        return layout.project_root.resolve()
+    runtime = require_runtime()
+    assert_optional_session_scope(
+        runtime.session_manager,
+        session_id,
+        request_scope_from_query(workspace_view=workspace_view, task_environment_id=task_environment_id, project_id=project_id),
+    )
+    binding = runtime.session_manager.get_project_binding(session_id)
+    workspace_root = str(binding.get("workspace_root") or "").strip()
+    if not workspace_root:
+        raise HTTPException(status_code=409, detail="session has no project binding")
+    return Path(workspace_root).expanduser().resolve()
 
 
 @router.get("/code-environment/git-status")
@@ -204,5 +240,3 @@ async def code_environment_sidecar_readonly_command(payload: PiSidecarCommandReq
         response=response,
         error=str(response.get("error") or ""),
     )
-
-

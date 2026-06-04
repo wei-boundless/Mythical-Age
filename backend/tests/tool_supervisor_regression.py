@@ -9,6 +9,7 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
+from capability_system.tools.validators import validate_filesystem_path, validate_shell_read_only
 from permissions.operations import build_default_operation_registry
 from permissions import OperationGate
 from permissions.context_models import PermissionContext
@@ -146,6 +147,117 @@ def test_tool_supervisor_stops_before_operation_gate_when_preflight_rejects_tool
     assert result.decision.reason == "tool_runtime_unavailable"
     assert result.preflight["allowed"] is False
     assert gate.called is False
+
+
+def test_tool_supervisor_supplies_bound_workspace_root_to_filesystem_validator(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    inside = workspace / "backend" / "TOOLS_REGISTRY.json"
+    inside.parent.mkdir()
+    inside.write_text("{}", encoding="utf-8")
+
+    result = ToolSupervisor().supervise(
+        task_run_id="taskrun:workspace-path",
+        agent_run_id="agrun:workspace-path",
+        tool_call_id="call:read",
+        operation_id="op.read_file",
+        tool_name="read_file",
+        tool_args={"path": str(inside)},
+        directive=_Directive(),
+        resource_policy=ResourcePolicy(
+            policy_id="respol:workspace-path",
+            task_id="task:workspace-path",
+            allowed_operations=("op.read_file",),
+            adopted=True,
+            runtime_executable=True,
+            runtime_view_only=False,
+        ),
+        capability_table=None,
+        permission_context=PermissionContext(
+            context_id="permctx:workspace-path",
+            task_run_id="taskrun:workspace-path",
+            agent_run_id="agrun:workspace-path",
+            environment_id="env.development.sandbox",
+        ),
+        operation_gate=OperationGate(build_default_operation_registry()),
+        sandbox_policy={"workspace_root": str(workspace)},
+        safety_validators={"filesystem_path": validate_filesystem_path},
+    )
+
+    assert result.allowed is True
+    assert result.gate_result.allowed is True
+
+
+def test_tool_supervisor_rejects_filesystem_path_outside_bound_workspace(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    outside = tmp_path / "outside.txt"
+    workspace.mkdir()
+    outside.write_text("secret", encoding="utf-8")
+
+    result = ToolSupervisor().supervise(
+        task_run_id="taskrun:outside-path",
+        agent_run_id="agrun:outside-path",
+        tool_call_id="call:read-outside",
+        operation_id="op.read_file",
+        tool_name="read_file",
+        tool_args={"path": str(outside)},
+        directive=_Directive(),
+        resource_policy=ResourcePolicy(
+            policy_id="respol:outside-path",
+            task_id="task:outside-path",
+            allowed_operations=("op.read_file",),
+            adopted=True,
+            runtime_executable=True,
+            runtime_view_only=False,
+        ),
+        capability_table=None,
+        permission_context=PermissionContext(
+            context_id="permctx:outside-path",
+            task_run_id="taskrun:outside-path",
+            agent_run_id="agrun:outside-path",
+            environment_id="env.development.sandbox",
+        ),
+        operation_gate=OperationGate(build_default_operation_registry()),
+        sandbox_policy={"workspace_root": str(workspace)},
+        safety_validators={"filesystem_path": validate_filesystem_path},
+    )
+
+    assert result.allowed is False
+    assert result.decision.reason == "filesystem path is outside workspace_root"
+    assert result.gate_result.pipeline_stage == "operation_specific_safety_validator"
+
+
+def test_tool_supervisor_supplies_normalized_command_to_shell_validator() -> None:
+    result = ToolSupervisor().supervise(
+        task_run_id="taskrun:shell-validator",
+        agent_run_id="agrun:shell-validator",
+        tool_call_id="call:shell-validator",
+        operation_id="op.shell",
+        tool_name="terminal",
+        tool_args={"command": "rg TODO | cat"},
+        directive=_Directive(),
+        resource_policy=ResourcePolicy(
+            policy_id="respol:shell-validator",
+            task_id="task:shell-validator",
+            allowed_operations=("op.shell",),
+            adopted=True,
+            runtime_executable=True,
+            runtime_view_only=False,
+        ),
+        capability_table=None,
+        permission_context=PermissionContext(
+            context_id="permctx:shell-validator",
+            task_run_id="taskrun:shell-validator",
+            agent_run_id="agrun:shell-validator",
+            environment_id="env.development.sandbox",
+        ),
+        operation_gate=OperationGate(build_default_operation_registry()),
+        safety_validators={"shell_read_only": validate_shell_read_only},
+    )
+
+    assert result.allowed is False
+    assert result.decision.reason == "shell command uses control operators"
+    assert result.gate_result.pipeline_stage == "operation_specific_safety_validator"
 
 
 def test_tool_supervisor_to_dict_serializes_preflight_runtime_observation() -> None:

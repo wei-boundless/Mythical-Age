@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import time
 import uuid
 from dataclasses import dataclass, replace
@@ -48,7 +49,22 @@ _STEER_ACTIVE_WORK_ACTIONS = {
     "append_instruction_to_active_work",
     "answer_then_continue_active_work",
 }
-_MAX_SINGLE_TURN_TOOL_ITERATIONS = 3
+_DEFAULT_SINGLE_TURN_TOOL_ITERATIONS = 8
+_MAX_CONFIGURED_SINGLE_TURN_TOOL_ITERATIONS = 32
+
+
+def _configured_single_turn_tool_iterations() -> int:
+    raw = str(os.getenv("AGENT_SINGLE_TURN_TOOL_ITERATIONS") or "").strip()
+    if not raw:
+        return _DEFAULT_SINGLE_TURN_TOOL_ITERATIONS
+    try:
+        configured = int(raw)
+    except ValueError:
+        return _DEFAULT_SINGLE_TURN_TOOL_ITERATIONS
+    return max(1, min(_MAX_CONFIGURED_SINGLE_TURN_TOOL_ITERATIONS, configured))
+
+
+_MAX_SINGLE_TURN_TOOL_ITERATIONS = _configured_single_turn_tool_iterations()
 _CONTROL_NATIVE_TOOL_NAMES = {"request_task_run", "active_work_control", "ask_user", "block"}
 _REPAIRABLE_SINGLE_AGENT_PROTOCOL_ERRORS = {
     "single_agent_turn_multiple_native_actions",
@@ -2495,12 +2511,9 @@ def _single_turn_sandbox_scope(assembly_payload: dict[str, Any], *, runtime_host
         contract={},
         safety_envelope={},
     )
-    backend_dir = Path(str(getattr(runtime_host, "backend_dir", "") or assembly_payload.get("backend_dir") or ".")).resolve()
-    try:
-        project_root = ProjectLayout.from_backend_dir(backend_dir).project_root.resolve()
-    except Exception:
-        project_root = backend_dir.parent.resolve()
+    project_root = Path(_single_turn_workspace_root(assembly_payload, runtime_host=runtime_host)).resolve()
     ensure_environment_storage_dirs(project_root=project_root, storage_space=storage)
+    backend_dir = Path(str(getattr(runtime_host, "backend_dir", "") or assembly_payload.get("backend_dir") or ".")).resolve()
     runtime_root = Path(str(getattr(runtime_host, "root_dir", "") or (backend_dir / "storage" / "runtime"))).resolve()
     sandbox_root = str(sandbox.get("sandbox_root") or "").strip()
     if not sandbox_root:

@@ -174,7 +174,7 @@ export function CodeEnvironmentView() {
     void loadEnvironment();
   }, [loadEnvironment]);
 
-  const diagnosticsError = codeEnvironmentDiagnosticsText(environment?.pi.diagnostics ?? []);
+  const diagnosticsError = codeEnvironmentDiagnosticsText(environment?.pi.diagnostics ?? [], { minLevel: "warning" });
   const visibleError = error || diagnosticsError;
 
   return (

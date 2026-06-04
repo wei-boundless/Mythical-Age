@@ -492,7 +492,7 @@ SANDBOX_FILE_OPS_ACCEPTANCE_TURNS: tuple[LongScenarioTurn, ...] = (
         checks=(
             "event.tool=write_file",
             "event=runtime_sandbox_prepared",
-            "event=tool_result_received",
+            "event=task_tool_observation_recorded",
             "sandbox.enabled",
             "sandbox.root.contains=output/sandbox_runs",
             "sandbox.real_workspace_access=read_only",
@@ -514,7 +514,7 @@ SANDBOX_FILE_OPS_ACCEPTANCE_TURNS: tuple[LongScenarioTurn, ...] = (
         checks=(
             "event.tool=terminal",
             "event=runtime_sandbox_prepared",
-            "event=tool_result_received",
+            "event=task_tool_observation_recorded",
             "sandbox.enabled",
             "sandbox.root.contains=output/sandbox_runs",
             "sandbox.real_workspace_access=read_only",

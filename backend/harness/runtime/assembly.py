@@ -149,9 +149,11 @@ def assemble_runtime(
     tool_instances: list[Any] | tuple[Any, ...] | None,
     definitions_by_name: dict[str, Any],
     permission_mode: str = "default",
+    workspace_root: str | Path | None = None,
 ) -> RuntimeAssembly:
     selection = dict(request_task_selection or {})
     normalized_permission_mode = normalize_permission_mode(permission_mode)
+    bound_workspace_root = _normalize_workspace_root(workspace_root)
     engagement_contract = dict(selection.get("engagement_contract") or {})
     explicit_operation_ceiling = _explicit_operation_ceiling_from_runtime_selection(selection)
     profile = build_runtime_assembly_profile(
@@ -163,6 +165,7 @@ def assemble_runtime(
         backend_dir=backend_dir,
         selection=selection,
     )
+    task_environment = _apply_bound_workspace_root(task_environment, bound_workspace_root)
     task_requested_operations = operation_requests_from_runtime_selection(selection)
     operation_projection = project_operation_authorization(
         agent_allowed_operations=profile.allowed_operations,
@@ -249,6 +252,7 @@ def assemble_runtime(
         diagnostics={
             "agent_profile_ref": str(getattr(agent_runtime_profile, "agent_profile_id", "") or ""),
             "task_environment": environment_diagnostics,
+            "workspace_root": bound_workspace_root,
             "permission_mode": normalized_permission_mode,
             "engagement_contract_ref": str(engagement_contract.get("contract_id") or selection.get("engagement_contract_ref") or ""),
             "engagement_plan_ref": str(engagement_contract.get("plan_id") or selection.get("engagement_plan_ref") or ""),
@@ -316,6 +320,30 @@ def build_runtime_assembly_profile(
         permission_policy=dict(runtime_policy.get("approval_policy") or runtime_policy.get("permission_policy") or {}),
         step_summary_policy=dict(runtime_policy.get("step_summary_policy") or {}),
     )
+
+
+def _normalize_workspace_root(value: str | Path | None) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    return str(Path(text).resolve())
+
+
+def _apply_bound_workspace_root(environment: dict[str, Any], workspace_root: str) -> dict[str, Any]:
+    if not workspace_root:
+        return dict(environment or {})
+    payload = dict(environment or {})
+    storage = dict(payload.get("storage_space") or {})
+    sandbox = dict(payload.get("sandbox_policy") or {})
+    storage["workspace_root"] = workspace_root
+    sandbox["workspace_root"] = workspace_root
+    payload["storage_space"] = storage
+    payload["sandbox_policy"] = sandbox
+    payload["project_binding"] = {
+        "workspace_root": workspace_root,
+        "authority": "harness.runtime.session_project_binding",
+    }
+    return payload
 
 
 def _explicit_operation_ceiling_from_runtime_selection(selection: dict[str, Any]) -> tuple[str, ...] | None:

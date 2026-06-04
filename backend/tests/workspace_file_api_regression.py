@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from fastapi import HTTPException
 
+from api import code_environment as code_environment_api
 from api import files as files_api
+from sessions import SessionManager
 from tests.support.runtime_stubs import RuntimeBaseDirStub
 
 
@@ -90,5 +94,106 @@ def test_project_workspace_read_rejects_traversal(tmp_path: Path) -> None:
             files_api._resolve_path("frontend/../../secret.txt")
         assert exc.value.status_code == 400
         assert exc.value.detail == "Path traversal detected"
+    finally:
+        files_api.require_runtime = original  # type: ignore[assignment]
+
+
+def test_session_bound_workspace_tree_uses_bound_project_root(tmp_path: Path) -> None:
+    host_backend = tmp_path / "host" / "backend"
+    bound_project = tmp_path / "bound-project"
+    source_file = bound_project / "src" / "main.py"
+    host_backend.mkdir(parents=True)
+    source_file.parent.mkdir(parents=True)
+    source_file.write_text("print('bound')\n", encoding="utf-8")
+
+    session_manager = SessionManager(host_backend)
+    session = session_manager.create_session(title="Bound project")
+    session_manager.bind_project(session["id"], workspace_root=str(bound_project), source="test")
+    runtime = SimpleNamespace(session_manager=session_manager)
+
+    original = code_environment_api.require_runtime
+    code_environment_api.require_runtime = lambda: runtime  # type: ignore[assignment]
+    try:
+        tree = asyncio.run(
+            code_environment_api.code_environment_workspace_tree(
+                max_depth=4,
+                max_entries=100,
+                session_id=session["id"],
+                workspace_view=None,
+                task_environment_id=None,
+                project_id=None,
+            )
+        )
+        assert Path(tree.root_path) == bound_project.resolve()
+        assert tree.root_name == "bound-project"
+        assert [node.name for node in tree.tree.children] == ["src"]
+    finally:
+        code_environment_api.require_runtime = original  # type: ignore[assignment]
+
+
+def test_session_workspace_tree_requires_project_binding(tmp_path: Path) -> None:
+    host_backend = tmp_path / "host" / "backend"
+    host_backend.mkdir(parents=True)
+    session_manager = SessionManager(host_backend)
+    session = session_manager.create_session(title="Unbound project")
+    runtime = SimpleNamespace(session_manager=session_manager)
+
+    original = code_environment_api.require_runtime
+    code_environment_api.require_runtime = lambda: runtime  # type: ignore[assignment]
+    try:
+        with pytest.raises(HTTPException) as exc:
+            asyncio.run(
+                code_environment_api.code_environment_workspace_tree(
+                    max_depth=4,
+                    max_entries=100,
+                    session_id=session["id"],
+                    workspace_view=None,
+                    task_environment_id=None,
+                    project_id=None,
+                )
+            )
+        assert exc.value.status_code == 409
+        assert exc.value.detail == "session has no project binding"
+    finally:
+        code_environment_api.require_runtime = original  # type: ignore[assignment]
+
+
+def test_session_bound_file_read_resolves_against_bound_project_root(tmp_path: Path) -> None:
+    host_backend = tmp_path / "host" / "backend"
+    bound_project = tmp_path / "bound-project"
+    bound_file = bound_project / "src" / "app.py"
+    host_backend.mkdir(parents=True)
+    bound_file.parent.mkdir(parents=True)
+    bound_file.write_text("VALUE = 'bound'\n", encoding="utf-8")
+
+    session_manager = SessionManager(host_backend)
+    session = session_manager.create_session(title="Bound project")
+    session_manager.bind_project(session["id"], workspace_root=str(bound_project), source="test")
+    runtime = RuntimeBaseDirStub(host_backend)
+    runtime.session_manager = session_manager  # type: ignore[attr-defined]
+
+    original = files_api.require_runtime
+    files_api.require_runtime = lambda: runtime  # type: ignore[assignment]
+    try:
+        assert files_api._resolve_path("src/app.py", session_id=session["id"]) == bound_file.resolve()
+    finally:
+        files_api.require_runtime = original  # type: ignore[assignment]
+
+
+def test_session_file_read_requires_project_binding(tmp_path: Path) -> None:
+    host_backend = tmp_path / "host" / "backend"
+    host_backend.mkdir(parents=True)
+    session_manager = SessionManager(host_backend)
+    session = session_manager.create_session(title="Unbound project")
+    runtime = RuntimeBaseDirStub(host_backend)
+    runtime.session_manager = session_manager  # type: ignore[attr-defined]
+
+    original = files_api.require_runtime
+    files_api.require_runtime = lambda: runtime  # type: ignore[assignment]
+    try:
+        with pytest.raises(HTTPException) as exc:
+            files_api._resolve_path("src/app.py", session_id=session["id"])
+        assert exc.value.status_code == 409
+        assert exc.value.detail == "session has no project binding"
     finally:
         files_api.require_runtime = original  # type: ignore[assignment]

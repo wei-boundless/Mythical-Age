@@ -1122,6 +1122,9 @@ def _workspace_root(request: ToolInvocationRequest) -> Path:
     explicit = request.requested_constraints.get("workspace_root")
     if explicit:
         return Path(str(explicit))
+    scoped = str(dict(request.sandbox_scope or {}).get("workspace_root") or "").strip()
+    if scoped:
+        return Path(scoped).resolve()
     runtime_assembly = _runtime_assembly(request)
     backend_dir = _backend_dir(request)
     assembly_backend = runtime_assembly.get("backend_dir")

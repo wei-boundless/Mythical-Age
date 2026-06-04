@@ -30,7 +30,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     void runtime.initialize()
       .catch(() => undefined)
       .finally(() => {
-        runtime.startGlobalRuntimeMonitor();
+        runtime.startRunMonitor();
       });
     return () => {
       runtime.dispose();

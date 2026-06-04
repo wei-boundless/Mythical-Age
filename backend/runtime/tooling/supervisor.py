@@ -11,6 +11,19 @@ from runtime.shared.approval_fingerprint import build_approval_risk_fingerprint
 from runtime.tooling.capability_table import ToolCapabilityTable
 
 
+VALIDATOR_INPUT_KEYS = (
+    "path",
+    "file_path",
+    "target_path",
+    "root",
+    "cwd",
+    "paths",
+    "file_paths",
+    "target_paths",
+    "command",
+)
+
+
 @dataclass(frozen=True, slots=True)
 class ToolSupervisionResult:
     decision: PermissionDecision
@@ -118,19 +131,20 @@ class ToolSupervisor:
 
         gate_result = operation_gate.check(
             operation_id,
-                resource_policy=resource_policy,
-                directive_ref=str(getattr(directive, "directive_id", "") or ""),
-                context=OperationGatePipelineContext(
-                    permission_mode=permission_context.permission_mode,
-                    approval_token=approval_token,
-                    approval_state=approval_state,
-                    approval_risk_fingerprint=fingerprint,
-                    operation_input={
-                        "operation_id": operation_id,
-                    "id": tool_call_id,
-                    "name": tool_name,
-                    "args": normalized_args,
-                },
+            resource_policy=resource_policy,
+            directive_ref=str(getattr(directive, "directive_id", "") or ""),
+            context=OperationGatePipelineContext(
+                permission_mode=permission_context.permission_mode,
+                approval_token=approval_token,
+                approval_state=approval_state,
+                approval_risk_fingerprint=fingerprint,
+                operation_input=_operation_input(
+                    operation_id=operation_id,
+                    tool_call_id=tool_call_id,
+                    tool_name=tool_name,
+                    normalized_args=normalized_args,
+                    sandbox_policy=sandbox_policy,
+                ),
                 validators=dict(safety_validators or {}),
             ),
         )
@@ -210,6 +224,29 @@ def _capability_membership(
     if capability.tool_name != str(tool_name or ""):
         return "tool name does not match ToolCapabilityTable capability"
     return None
+
+
+def _operation_input(
+    *,
+    operation_id: str,
+    tool_call_id: str,
+    tool_name: str,
+    normalized_args: dict[str, Any],
+    sandbox_policy: dict[str, Any] | None,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "operation_id": operation_id,
+        "id": tool_call_id,
+        "name": tool_name,
+        "args": dict(normalized_args or {}),
+    }
+    workspace_root = str(dict(sandbox_policy or {}).get("workspace_root") or "").strip()
+    if workspace_root:
+        payload["workspace_root"] = workspace_root
+    for key in VALIDATOR_INPUT_KEYS:
+        if key in dict(normalized_args or {}):
+            payload[key] = normalized_args[key]
+    return payload
 
 
 def _jsonable_payload(value: Any) -> Any:

@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-import json
 from dataclasses import fields, is_dataclass
 from pathlib import Path
 from typing import Any
 
+from json_file_store import JsonFilePayloadCorrupt, JsonFileStoreError, json_file_lock, read_json_dict, write_json_dict
 from project_layout import ProjectLayout
 
 from .models import (
@@ -32,7 +32,8 @@ class EngagementPlanRepository:
         return self.root / ENGAGEMENT_PLANS_FILENAME
 
     def list(self) -> list[RegisteredEngagementPlan]:
-        payload = self._read_payload()
+        with json_file_lock(self.path):
+            payload = self._read_payload()
         plans = [_plan_from_payload(item) for item in _list_payload(payload.get("engagement_plans"), path="$.engagement_plans")]
         return sorted(plans, key=lambda item: (item.plan_id, item.version))
 
@@ -43,27 +44,36 @@ class EngagementPlanRepository:
         return next((item for item in self.list() if item.plan_id == target), None)
 
     def upsert(self, plan: RegisteredEngagementPlan | dict[str, Any]) -> RegisteredEngagementPlan:
-        model = plan if isinstance(plan, RegisteredEngagementPlan) else _plan_from_payload(plan)
-        plans = [item for item in self.list() if item.plan_id != model.plan_id]
-        plans.append(model)
-        self._write_plans(plans)
-        return model
+        with json_file_lock(self.path):
+            model = plan if isinstance(plan, RegisteredEngagementPlan) else _plan_from_payload(plan)
+            plans = [item for item in self._list_unlocked() if item.plan_id != model.plan_id]
+            plans.append(model)
+            self._write_plans(plans)
+            return model
 
     def delete(self, plan_id: str) -> RegisteredEngagementPlan:
         target = str(plan_id or "").strip()
-        plans = self.list()
-        existing = next((item for item in plans if item.plan_id == target), None)
-        if existing is None:
-            raise KeyError(f"engagement plan not found: {target}")
-        self._write_plans([item for item in plans if item.plan_id != target])
-        return existing
+        with json_file_lock(self.path):
+            plans = self._list_unlocked()
+            existing = next((item for item in plans if item.plan_id == target), None)
+            if existing is None:
+                raise KeyError(f"engagement plan not found: {target}")
+            self._write_plans([item for item in plans if item.plan_id != target])
+            return existing
+
+    def _list_unlocked(self) -> list[RegisteredEngagementPlan]:
+        payload = self._read_payload()
+        plans = [_plan_from_payload(item) for item in _list_payload(payload.get("engagement_plans"), path="$.engagement_plans")]
+        return sorted(plans, key=lambda item: (item.plan_id, item.version))
 
     def _read_payload(self) -> dict[str, Any]:
-        if not self.path.exists():
-            return {"engagement_plans": []}
         try:
-            payload = json.loads(self.path.read_text(encoding="utf-8"))
-        except Exception as exc:
+            payload = read_json_dict(
+                self.path,
+                label="engagement plans",
+                missing_factory=lambda: {"engagement_plans": []},
+            )
+        except (JsonFileStoreError, JsonFilePayloadCorrupt) as exc:
             raise EngagementPlanConfigError(f"failed to read engagement plans: {exc}") from exc
         if not isinstance(payload, dict):
             raise EngagementPlanConfigError("engagement plans root must be an object")
@@ -72,8 +82,10 @@ class EngagementPlanRepository:
 
     def _write_plans(self, plans: list[RegisteredEngagementPlan]) -> None:
         payload = {"engagement_plans": [item.to_dict() for item in sorted(plans, key=lambda plan: plan.plan_id)]}
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.path.write_text(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        try:
+            write_json_dict(self.path, payload, label="engagement plans", sort_keys=True)
+        except JsonFileStoreError as exc:
+            raise EngagementPlanConfigError(f"failed to write engagement plans: {exc}") from exc
 
 
 def _plan_from_payload(payload: Any) -> RegisteredEngagementPlan:

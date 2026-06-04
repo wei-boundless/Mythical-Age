@@ -671,7 +671,7 @@ class NativeTerminalTool(_NativeToolBase):
     def _call_sync(self, args: dict[str, Any], context: ToolUseContext) -> ToolResultEnvelope:
         command = str(args.get("command") or "").strip()
         structured_payload = _tool_call_structured_payload(args)
-        blocked_reason = validate_sandbox_command_text(command, kind="command")
+        blocked_reason = validate_sandbox_command_text(command, kind="command", workspace_root=_real_workspace_root(context))
         if blocked_reason:
             receipt = {"command": command, "exit_code": 1, "passed": False, "output_preview": blocked_reason}
             return self._envelope(
@@ -739,7 +739,7 @@ class NativePythonReplTool(_NativeToolBase):
 
     def _call_sync(self, args: dict[str, Any], context: ToolUseContext) -> ToolResultEnvelope:
         code = str(args.get("code") or "")
-        blocked_reason = validate_sandbox_command_text(code, kind="code")
+        blocked_reason = validate_sandbox_command_text(code, kind="code", workspace_root=_real_workspace_root(context))
         if blocked_reason:
             receipt = {"command": "python -c <code>", "exit_code": 1, "passed": False, "output_preview": blocked_reason}
             return self._envelope(

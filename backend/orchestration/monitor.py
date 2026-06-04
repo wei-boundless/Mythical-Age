@@ -17,7 +17,7 @@ RUNTIME_STAGE_ORDER = (
     "tool_call_requested",
     "execution_record_created",
     "execution_dispatch_started",
-    "tool_result_received",
+    "task_tool_observation_recorded",
     "execution_result_recorded",
     "executor_observation_received",
     "output_boundary_applied",
@@ -39,7 +39,12 @@ def summarize_runtime_loop_trace(trace: dict[str, Any] | None) -> dict[str, Any]
     event_counts = Counter(str(item.get("event_type") or "") for item in events)
     gate_events = [item for item in events if str(item.get("event_type") or "") == "operation_gate_checked"]
     tool_call_events = [item for item in events if str(item.get("event_type") or "") == "tool_call_requested"]
-    tool_result_events = [item for item in events if str(item.get("event_type") or "") == "tool_result_received"]
+    tool_observation_events = [
+        item
+        for item in events
+        if str(item.get("event_type") or "")
+        in {"task_tool_observation_recorded", "turn_tool_observation_recorded", "executor_observation_received"}
+    ]
     execution_events = [
         item
         for item in events
@@ -71,9 +76,9 @@ def summarize_runtime_loop_trace(trace: dict[str, Any] | None) -> dict[str, Any]
         },
         "tools": {
             "call_count": len(tool_call_events),
-            "result_count": len(tool_result_events),
+            "result_count": len(tool_observation_events),
             "requested": [_summary(item).get("tool_name") for item in tool_call_events if _summary(item).get("tool_name")],
-            "pairing_ok": len(tool_call_events) == len(tool_result_events),
+            "pairing_ok": len(tool_call_events) == len(tool_observation_events),
         },
         "executions": {
             "event_count": len(execution_events),

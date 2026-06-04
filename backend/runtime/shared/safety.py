@@ -31,7 +31,8 @@ def _filesystem_validator(
     safety_envelope: dict[str, Any],
     sandbox_policy: dict[str, Any],
 ):
-    workspace_files = WorkspaceFileService(root_dir)
+    policy_workspace_root = str(sandbox_policy.get("workspace_root") or "").strip()
+    workspace_files = WorkspaceFileService(policy_workspace_root or root_dir)
     workspace_root = workspace_files.workspace_root
     sandbox_root = (
         Path(str(sandbox_policy.get("sandbox_root") or "")).resolve()
@@ -71,9 +72,9 @@ def _filesystem_validator(
         raw_path = str(input_payload.get("path") or args.get("path") or "").strip()
         if not raw_path:
             return True
-        normalized = _normalize_relative_path(raw_path)
+        normalized = _normalize_workspace_path(raw_path, workspace_root=workspace_root)
         if not normalized:
-            return False, "filesystem path is required"
+            return False, "path traversal detected"
         write_sensitive = operation_id in {"op.write_file", "op.edit_file"}
         if not write_sensitive and not operation_id:
             write_sensitive = any(key in input_payload for key in ("content", "old_text", "new_text"))
@@ -130,6 +131,19 @@ def _normalize_relative_path(value: Any) -> str:
     while "//" in text:
         text = text.replace("//", "/")
     return text
+
+
+def _normalize_workspace_path(value: Any, *, workspace_root: Path) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    candidate = Path(text)
+    if candidate.is_absolute():
+        try:
+            return candidate.resolve().relative_to(workspace_root.resolve()).as_posix() or "."
+        except ValueError:
+            return ""
+    return _normalize_relative_path(text)
 
 
 def _outside_write_roots_message(

@@ -23,6 +23,9 @@ function requestTimeoutMs(path: string) {
   if (path === "/sessions") {
     return 5000;
   }
+  if (path.includes("/project-binding/select-directory")) {
+    return 90000;
+  }
   if (
     path === "/tasks/overview"
     || path === "/orchestration/agents"

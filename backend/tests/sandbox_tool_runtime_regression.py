@@ -11,6 +11,7 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 from capability_system.tools.native_tool_catalog import get_tool_definition_map
+from capability_system.tools.tool_units.sandbox_command_guard import validate_sandbox_command_text
 from capability_system.tools.native_tool_runtime import ToolRuntime
 from orchestration.runtime_directive import RuntimeDirective
 from runtime.shared.action_request import RuntimeActionRequest
@@ -44,6 +45,140 @@ def test_sandbox_read_file_copies_workspace_file_into_overlay(tmp_path: Path) ->
     assert result["observation"].payload["result"] == "1 | real content"
     assert (sandbox_root / "docs" / "note.md").read_text(encoding="utf-8") == "real content"
     assert result["sandbox"]["backend"] == "local_overlay"
+
+
+def test_sandbox_read_file_accepts_absolute_path_inside_bound_workspace(tmp_path: Path) -> None:
+    workspace = tmp_path / "project"
+    sandbox_root = tmp_path / "sandbox" / "workspace"
+    (workspace / "docs").mkdir(parents=True)
+    source = workspace / "docs" / "note.md"
+    source.write_text("absolute content", encoding="utf-8")
+
+    result = _run_tool(
+        workspace=workspace,
+        sandbox_root=sandbox_root,
+        tool_name="read_file",
+        tool_args={"path": str(source)},
+        operation_id="op.read_file",
+    )
+
+    envelope = result["observation"].payload["result_envelope"]
+
+    assert result["error"] == ""
+    assert result["observation"].payload["result"] == "1 | absolute content"
+    assert (sandbox_root / "docs" / "note.md").read_text(encoding="utf-8") == "absolute content"
+    assert envelope["tool_args"]["path"] == "docs/note.md"
+    assert envelope["structured_payload"]["tool_result"]["path"] == "docs/note.md"
+
+
+def test_agent_turn_core_read_file_accepts_absolute_path_inside_bound_workspace(tmp_path: Path) -> None:
+    workspace = tmp_path / "project"
+    sandbox_root = tmp_path / "sandbox" / "workspace"
+    (workspace / "docs").mkdir(parents=True)
+    source = workspace / "docs" / "note.md"
+    source.write_text("agent turn absolute content", encoding="utf-8")
+    executor = ToolRuntimeExecutor(tool_runtime=ToolRuntime(workspace))
+
+    result = asyncio.run(
+        executor.execute_control_plane_request(
+            request=SimpleNamespace(
+                caller_kind="agent_turn",
+                caller_ref="turnrun:absolute",
+                session_id="session:absolute",
+                turn_id="turn:absolute:1",
+                invocation_id="toolinvoke:absolute",
+                tool_name="read_file",
+                tool_call_id="call:read",
+                tool_args={"path": str(source)},
+                operation_id="op.read_file",
+            ),
+            sandbox_policy={
+                "enabled": True,
+                "mode": "workspace_overlay",
+                "sandbox_root": str(sandbox_root),
+                "workspace_root": str(workspace),
+                "permission_mode": "default",
+            },
+        )
+    )
+
+    assert result["status"] == "ok"
+    assert result["text"] == "1 | agent turn absolute content"
+    assert result["result_envelope"]["tool_args"]["path"] == "docs/note.md"
+    assert (sandbox_root / "docs" / "note.md").read_text(encoding="utf-8") == "agent turn absolute content"
+
+
+def test_sandbox_search_text_accepts_absolute_root_inside_bound_workspace(tmp_path: Path) -> None:
+    workspace = tmp_path / "project"
+    sandbox_root = tmp_path / "sandbox" / "workspace"
+    docs = workspace / "docs"
+    docs.mkdir(parents=True)
+    (docs / "note.md").write_text("alpha\nneedle here\nomega", encoding="utf-8")
+
+    result = _run_tool(
+        workspace=workspace,
+        sandbox_root=sandbox_root,
+        tool_name="search_text",
+        tool_args={"query": "needle", "roots": [str(workspace)], "max_results": 10},
+        operation_id="op.search_text",
+    )
+
+    assert result["error"] == ""
+    assert "Search failed: no safe search roots" not in result["observation"].payload["result"]
+    assert "docs/note.md" in result["observation"].payload["result"]
+    assert "needle here" in result["observation"].payload["result"]
+
+
+def test_sandbox_search_files_accepts_absolute_root_inside_bound_workspace(tmp_path: Path) -> None:
+    workspace = tmp_path / "project"
+    sandbox_root = tmp_path / "sandbox" / "workspace"
+    docs = workspace / "docs"
+    docs.mkdir(parents=True)
+    (docs / "needle-plan.md").write_text("ok", encoding="utf-8")
+
+    result = _run_tool(
+        workspace=workspace,
+        sandbox_root=sandbox_root,
+        tool_name="search_files",
+        tool_args={"query": "needle", "roots": [str(workspace)], "max_results": 10},
+        operation_id="op.search_files",
+    )
+
+    assert result["error"] == ""
+    assert "Search failed: no safe search roots" not in result["observation"].payload["result"]
+    assert "docs/needle-plan.md" in result["observation"].payload["result"]
+
+
+def test_sandbox_command_guard_allows_absolute_path_inside_bound_workspace(tmp_path: Path) -> None:
+    workspace = tmp_path / "project"
+    outside = tmp_path / "outside"
+    workspace.mkdir(parents=True)
+    outside.mkdir(parents=True)
+
+    assert validate_sandbox_command_text(f'cd "{workspace}"', kind="command", workspace_root=workspace) == ""
+    assert validate_sandbox_command_text(f'cd "{outside}"', kind="command", workspace_root=workspace) == (
+        "Blocked: command references an absolute path outside the sandbox workspace."
+    )
+
+
+def test_sandbox_read_file_rejects_absolute_path_outside_bound_workspace(tmp_path: Path) -> None:
+    workspace = tmp_path / "project"
+    sandbox_root = tmp_path / "sandbox" / "workspace"
+    workspace.mkdir(parents=True)
+    outside = tmp_path / "outside.md"
+    outside.write_text("outside", encoding="utf-8")
+
+    result = _run_tool(
+        workspace=workspace,
+        sandbox_root=sandbox_root,
+        tool_name="read_file",
+        tool_args={"path": str(outside)},
+        operation_id="op.read_file",
+    )
+
+    assert result["error"] == ""
+    assert "Path traversal detected" in result["observation"].payload["result"]
+    assert not (sandbox_root / "outside.md").exists()
 
 
 def test_sandbox_read_file_respects_line_window_and_reports_window(tmp_path: Path) -> None:

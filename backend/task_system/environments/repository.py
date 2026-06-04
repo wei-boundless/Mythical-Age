@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-import json
 from dataclasses import fields, is_dataclass
 from pathlib import Path
 from typing import Any
 
 from file_management import default_file_environment_registry
+from json_file_store import JsonFilePayloadCorrupt, JsonFileStoreError, json_file_lock, read_json_dict, write_json_dict
 
 from .models import (
     ArtifactPolicy,
@@ -38,7 +38,8 @@ class TaskEnvironmentRepository:
         return self.backend_dir / DEFAULT_ENVIRONMENT_CONFIG_PATH
 
     def load(self) -> tuple[tuple[TaskEnvironmentGroup, ...], tuple[TaskEnvironmentDefinition, ...]]:
-        payload = self._read_payload()
+        with json_file_lock(self.config_path):
+            payload = self._read_payload()
         groups = tuple(_group_from_payload(item) for item in _list_payload(payload.get("groups"), path="$.groups"))
         environments = tuple(
             _definition_from_payload(item)
@@ -47,57 +48,65 @@ class TaskEnvironmentRepository:
         return groups, environments
 
     def upsert_group(self, group: TaskEnvironmentGroup | dict[str, Any]) -> dict[str, Any]:
-        payload = self._read_payload()
-        group_model = group if isinstance(group, TaskEnvironmentGroup) else _group_from_payload(group)
-        groups = [
-            item
-            for item in _list_payload(payload.get("groups"), path="$.groups")
-            if str(dict(item).get("group_id") or "") != group_model.group_id
-        ]
-        groups.append(group_model.to_dict())
-        payload["groups"] = sorted(groups, key=lambda item: str(dict(item).get("group_id") or ""))
-        self._write_payload(payload)
-        return payload
+        with json_file_lock(self.config_path):
+            payload = self._read_payload()
+            group_model = group if isinstance(group, TaskEnvironmentGroup) else _group_from_payload(group)
+            groups = [
+                item
+                for item in _list_payload(payload.get("groups"), path="$.groups")
+                if str(dict(item).get("group_id") or "") != group_model.group_id
+            ]
+            groups.append(group_model.to_dict())
+            payload["groups"] = sorted(groups, key=lambda item: str(dict(item).get("group_id") or ""))
+            self._write_payload(payload)
+            return payload
 
     def upsert_environment(self, environment: TaskEnvironmentDefinition | dict[str, Any]) -> dict[str, Any]:
-        payload = self._read_payload()
-        definition = environment if isinstance(environment, TaskEnvironmentDefinition) else _definition_from_payload(environment)
-        groups = tuple(_group_from_payload(item) for item in _list_payload(payload.get("groups"), path="$.groups"))
-        group_ids = {group.group_id for group in groups}
-        if definition.record.group_id not in group_ids and not _is_default_group_id(definition.record.group_id):
-            raise TaskEnvironmentConfigError(f"unknown task environment group: {definition.record.group_id}")
-        environments = [
-            item
-            for item in _list_payload(payload.get("environments"), path="$.environments")
-            if str(_environment_id_from_payload(item) or "") != definition.record.environment_id
-        ]
-        environments.append(definition.to_dict())
-        payload["environments"] = sorted(environments, key=lambda item: str(_environment_id_from_payload(item) or ""))
-        self._write_payload(payload)
-        return payload
+        with json_file_lock(self.config_path):
+            payload = self._read_payload()
+            definition = environment if isinstance(environment, TaskEnvironmentDefinition) else _definition_from_payload(environment)
+            groups = tuple(_group_from_payload(item) for item in _list_payload(payload.get("groups"), path="$.groups"))
+            group_ids = {group.group_id for group in groups}
+            if definition.record.group_id not in group_ids and not _is_default_group_id(definition.record.group_id):
+                raise TaskEnvironmentConfigError(f"unknown task environment group: {definition.record.group_id}")
+            environments = [
+                item
+                for item in _list_payload(payload.get("environments"), path="$.environments")
+                if str(_environment_id_from_payload(item) or "") != definition.record.environment_id
+            ]
+            environments.append(definition.to_dict())
+            payload["environments"] = sorted(environments, key=lambda item: str(_environment_id_from_payload(item) or ""))
+            self._write_payload(payload)
+            return payload
 
     def delete_environment(self, environment_id: str) -> dict[str, Any]:
         target = str(environment_id or "").strip()
         if not target:
             raise TaskEnvironmentConfigError("environment_id is required")
-        payload = self._read_payload()
-        environments = _list_payload(payload.get("environments"), path="$.environments")
-        next_environments = [
-            item
-            for item in environments
-            if str(_environment_id_from_payload(item) or "") != target
-        ]
-        if len(next_environments) == len(environments):
-            raise KeyError(f"configured task environment not found: {target}")
-        payload["environments"] = next_environments
-        self._write_payload(payload)
-        return payload
+        with json_file_lock(self.config_path):
+            payload = self._read_payload()
+            environments = _list_payload(payload.get("environments"), path="$.environments")
+            next_environments = [
+                item
+                for item in environments
+                if str(_environment_id_from_payload(item) or "") != target
+            ]
+            if len(next_environments) == len(environments):
+                raise KeyError(f"configured task environment not found: {target}")
+            payload["environments"] = next_environments
+            self._write_payload(payload)
+            return payload
 
     def _read_payload(self) -> dict[str, Any]:
         path = self.config_path
-        if not path.exists():
-            return {"groups": [], "environments": []}
-        payload = json.loads(path.read_text(encoding="utf-8"))
+        try:
+            payload = read_json_dict(
+                path,
+                label="task environment config",
+                missing_factory=lambda: {"groups": [], "environments": []},
+            )
+        except (JsonFileStoreError, JsonFilePayloadCorrupt) as exc:
+            raise TaskEnvironmentConfigError(str(exc)) from exc
         if not isinstance(payload, dict):
             raise TaskEnvironmentConfigError("task environment config root must be an object")
         payload.setdefault("groups", [])
@@ -106,11 +115,10 @@ class TaskEnvironmentRepository:
 
     def _write_payload(self, payload: dict[str, Any]) -> None:
         path = self.config_path
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(
-            json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
-            encoding="utf-8",
-        )
+        try:
+            write_json_dict(path, payload, label="task environment config", sort_keys=True)
+        except JsonFileStoreError as exc:
+            raise TaskEnvironmentConfigError(str(exc)) from exc
 
 
 def load_configured_task_environments(

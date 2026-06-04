@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import asyncio
 from typing import Any
+import shutil
+import subprocess
+import sys
 
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
@@ -8,6 +12,7 @@ from pydantic import BaseModel, Field
 from api.deps import require_runtime
 from api.session_summary import enrich_session_summaries
 from harness.runtime.session_lifecycle import SessionRuntimeLifecycleManager
+from sessions import SessionProjectBindingConflict, SessionProjectBindingMissing
 from harness.runtime.session_timeline import build_session_runtime_timeline
 from task_system.environments import task_environment_registry_from_backend_dir
 from task_system.session_scope import assert_optional_session_scope, request_scope_from_query
@@ -20,6 +25,7 @@ DEFAULT_SESSION_TITLE = "New Session"
 class CreateSessionRequest(BaseModel):
     title: str = DEFAULT_SESSION_TITLE
     scope: dict[str, Any] = Field(default_factory=dict)
+    project_binding: dict[str, Any] = Field(default_factory=dict)
 
 
 class RenameSessionRequest(BaseModel):
@@ -44,6 +50,11 @@ class SessionPermissionModeRequest(BaseModel):
     mode: str = Field(..., min_length=1, max_length=80)
 
 
+class ProjectBindingRequest(BaseModel):
+    workspace_root: str = Field(..., min_length=1, max_length=1000)
+    source: str = Field(default="manual", max_length=80)
+
+
 @router.get("/sessions")
 async def list_sessions(
     workspace_view: str | None = Query(default=None, max_length=80),
@@ -65,7 +76,14 @@ async def list_sessions(
 @router.post("/sessions")
 async def create_session(payload: CreateSessionRequest) -> dict[str, Any]:
     runtime = require_runtime()
-    return runtime.session_manager.create_session(title=payload.title, scope=payload.scope)
+    try:
+        return runtime.session_manager.create_session(
+            title=payload.title,
+            scope=payload.scope,
+            project_binding=payload.project_binding,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.put("/sessions/{session_id}")
@@ -207,6 +225,175 @@ async def set_session_permission_mode(
         request_scope_from_query(workspace_view=workspace_view, task_environment_id=task_environment_id, project_id=project_id),
     )
     return runtime.session_manager.set_permission_mode(session_id, payload.mode)
+
+
+@router.get("/sessions/{session_id}/project-binding")
+async def get_session_project_binding(
+    session_id: str,
+    workspace_view: str | None = Query(default=None, max_length=80),
+    task_environment_id: str | None = Query(default=None, max_length=200),
+    project_id: str | None = Query(default=None, max_length=240),
+) -> dict[str, Any]:
+    runtime = require_runtime()
+    assert_optional_session_scope(
+        runtime.session_manager,
+        session_id,
+        request_scope_from_query(workspace_view=workspace_view, task_environment_id=task_environment_id, project_id=project_id),
+    )
+    return {"project_binding": runtime.session_manager.get_project_binding(session_id)}
+
+
+@router.put("/sessions/{session_id}/project-binding")
+async def bind_session_project(
+    session_id: str,
+    payload: ProjectBindingRequest,
+    workspace_view: str | None = Query(default=None, max_length=80),
+    task_environment_id: str | None = Query(default=None, max_length=200),
+    project_id: str | None = Query(default=None, max_length=240),
+) -> dict[str, Any]:
+    runtime = require_runtime()
+    assert_optional_session_scope(
+        runtime.session_manager,
+        session_id,
+        request_scope_from_query(workspace_view=workspace_view, task_environment_id=task_environment_id, project_id=project_id),
+    )
+    try:
+        binding = runtime.session_manager.bind_project(
+            session_id,
+            workspace_root=payload.workspace_root,
+            source=payload.source or "manual",
+        )
+    except SessionProjectBindingConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"project_binding": binding}
+
+
+@router.post("/sessions/{session_id}/project-binding/select-directory")
+async def select_session_project_directory(
+    session_id: str,
+    workspace_view: str | None = Query(default=None, max_length=80),
+    task_environment_id: str | None = Query(default=None, max_length=200),
+    project_id: str | None = Query(default=None, max_length=240),
+) -> dict[str, Any]:
+    runtime = require_runtime()
+    assert_optional_session_scope(
+        runtime.session_manager,
+        session_id,
+        request_scope_from_query(workspace_view=workspace_view, task_environment_id=task_environment_id, project_id=project_id),
+    )
+    try:
+        selected_root = await asyncio.to_thread(_select_project_directory_with_windows_dialog)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    if not selected_root:
+        raise HTTPException(status_code=409, detail="project directory selection cancelled")
+    try:
+        binding = runtime.session_manager.bind_project(
+            session_id,
+            workspace_root=selected_root,
+            source="frontend.directory_picker",
+        )
+    except SessionProjectBindingConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"project_binding": binding, "selected_path": selected_root}
+
+
+@router.post("/sessions/{session_id}/project-binding/open-vscode")
+async def open_session_project_in_vscode(
+    session_id: str,
+    workspace_view: str | None = Query(default=None, max_length=80),
+    task_environment_id: str | None = Query(default=None, max_length=200),
+    project_id: str | None = Query(default=None, max_length=240),
+) -> dict[str, Any]:
+    runtime = require_runtime()
+    assert_optional_session_scope(
+        runtime.session_manager,
+        session_id,
+        request_scope_from_query(workspace_view=workspace_view, task_environment_id=task_environment_id, project_id=project_id),
+    )
+    try:
+        binding = runtime.session_manager.require_project_binding(session_id)
+    except SessionProjectBindingMissing as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    executable = shutil.which("code")
+    if not executable:
+        raise HTTPException(status_code=503, detail="VS Code CLI `code` was not found on PATH")
+    workspace_root = str(binding.get("workspace_root") or "").strip()
+    try:
+        creationflags = subprocess.CREATE_NO_WINDOW if sys.platform.startswith("win") else 0
+        subprocess.Popen([executable, "-r", workspace_root], creationflags=creationflags)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"failed to open VS Code: {exc}") from exc
+    return {"ok": True, "project_binding": binding, "command": [executable, "-r", workspace_root]}
+
+
+def _select_project_directory_with_windows_dialog() -> str:
+    if not sys.platform.startswith("win"):
+        raise RuntimeError("Native project directory selection is only available on Windows.")
+    try:
+        selected = _select_project_directory_with_tkinter()
+    except Exception as tk_error:
+        try:
+            return _select_project_directory_with_powershell()
+        except RuntimeError as ps_error:
+            raise RuntimeError(f"{ps_error}; tkinter selection failed: {tk_error}") from ps_error
+    return selected
+
+
+def _select_project_directory_with_tkinter() -> str:
+    import tkinter as tk
+    from tkinter import filedialog
+
+    root = tk.Tk()
+    root.withdraw()
+    try:
+        root.attributes("-topmost", True)
+        root.update()
+        selected = filedialog.askdirectory(
+            parent=root,
+            title="选择要绑定到当前会话的项目目录",
+            mustexist=True,
+        )
+        return str(selected or "").strip()
+    finally:
+        root.destroy()
+
+
+def _select_project_directory_with_powershell() -> str:
+    command = [
+        "powershell",
+        "-NoProfile",
+        "-STA",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-Command",
+        (
+            "$ErrorActionPreference = 'Stop';"
+            "Add-Type -AssemblyName System.Windows.Forms;"
+            "$dialog = New-Object System.Windows.Forms.FolderBrowserDialog;"
+            "$dialog.Description = '选择要绑定到当前会话的项目目录';"
+            "$dialog.ShowNewFolderButton = $false;"
+            "if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {"
+            "  [Console]::OutputEncoding = [System.Text.Encoding]::UTF8;"
+            "  Write-Output $dialog.SelectedPath;"
+            "}"
+        ),
+    ]
+    completed = subprocess.run(
+        command,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+    if completed.returncode != 0:
+        detail = (completed.stderr or completed.stdout or "Project directory selection failed.").strip()
+        raise RuntimeError(detail)
+    return (completed.stdout or "").strip()
 
 
 @router.get("/sessions/{session_id}/timeline")

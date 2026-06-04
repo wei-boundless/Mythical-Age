@@ -41,6 +41,23 @@ _SANDBOX_CONTEXT_REQUIRED_SIDE_EFFECT_TOOL_NAMES = DEFAULT_SIDE_EFFECT_TOOL_NAME
     "browser_control",
     "image_generate",
 }
+_WORKSPACE_PATH_ARG_TOOL_NAMES = {
+    "read_file",
+    "read_structured_file",
+    "search_files",
+    "search_text",
+    "list_dir",
+    "stat_path",
+    "path_exists",
+    "write_file",
+    "edit_file",
+    "python_code_outline",
+    "python_parse_check",
+    "python_symbol_search",
+    "text_metric",
+}
+_WORKSPACE_PATH_ARG_KEYS = ("path", "file_path", "target_path", "root", "cwd")
+_WORKSPACE_PATH_LIST_ARG_KEYS = ("paths", "file_paths", "target_paths", "roots")
 
 
 class ToolRuntimeExecutor:
@@ -137,8 +154,11 @@ class ToolRuntimeExecutor:
                 ),
                 "error": sandbox_guard_error,
             }
-        workspace_root = Path(getattr(self.tool_runtime, "base_dir", ".")).resolve()
         policy_payload = dict(sandbox_policy or {})
+        workspace_root = _workspace_root_from_sandbox_policy(
+            policy_payload,
+            fallback=Path(getattr(self.tool_runtime, "base_dir", ".")).resolve(),
+        )
         file_policy_payload = dict(file_management_policy or {})
         tool_args = _bind_runtime_scoped_tool_args(tool_name, tool_args, policy_payload=policy_payload, task_run_id=task_run_id)
         tool_context = ToolUseContext(
@@ -343,6 +363,8 @@ class ToolRuntimeExecutor:
                 "execution_record": current_record,
                 "recoverable_error": sandbox_guard_error,
             }
+        policy_payload = dict(sandbox_policy or {})
+        tool_args = _bind_runtime_scoped_tool_args(tool_name, tool_args, policy_payload=policy_payload, task_run_id=task_run_id)
         if sandbox_context:
             self.sandbox_backend.prepare_tool_call(
                 tool_name=tool_name,
@@ -434,9 +456,12 @@ class ToolRuntimeExecutor:
             if sandbox_context:
                 dispatch_diagnostics["sandbox"] = sandbox_context.to_dict()
             current_record = execution_store.mark_dispatched(current_record, diagnostics=dispatch_diagnostics)
-        workspace_root = Path(getattr(self.tool_runtime, "base_dir", ".")).resolve()
-        execution_root = self.sandbox_backend.tool_workspace_root(sandbox_context) if sandbox_context else workspace_root
         policy_payload = dict(sandbox_policy or {})
+        workspace_root = _workspace_root_from_sandbox_policy(
+            policy_payload,
+            fallback=Path(getattr(self.tool_runtime, "base_dir", ".")).resolve(),
+        )
+        execution_root = self.sandbox_backend.tool_workspace_root(sandbox_context) if sandbox_context else workspace_root
         file_policy_payload = dict(file_management_policy or {})
         tool_args = _bind_runtime_scoped_tool_args(tool_name, tool_args, policy_payload=policy_payload, task_run_id=task_run_id)
         invocation_context = _resolve_tool_invocation_context(
@@ -753,6 +778,8 @@ class ToolRuntimeExecutor:
                 recoverable_error=sandbox_guard_error,
                 sandbox=sandbox_context.to_dict() if sandbox_context else {},
             )
+        policy_payload = dict(sandbox_policy or {})
+        tool_args = _bind_runtime_scoped_tool_args(tool_name, tool_args, policy_payload=policy_payload, task_run_id="")
         if sandbox_context:
             self.sandbox_backend.prepare_tool_call(
                 tool_name=tool_name,
@@ -803,9 +830,12 @@ class ToolRuntimeExecutor:
                 error=error,
                 sandbox=sandbox_context.to_dict() if sandbox_context else {},
             )
-        workspace_root = Path(getattr(self.tool_runtime, "base_dir", ".")).resolve()
-        execution_root = self.sandbox_backend.tool_workspace_root(sandbox_context) if sandbox_context else workspace_root
         policy_payload = dict(sandbox_policy or {})
+        workspace_root = _workspace_root_from_sandbox_policy(
+            policy_payload,
+            fallback=Path(getattr(self.tool_runtime, "base_dir", ".")).resolve(),
+        )
+        execution_root = self.sandbox_backend.tool_workspace_root(sandbox_context) if sandbox_context else workspace_root
         file_policy_payload = dict(file_management_policy or {})
         tool_args = _bind_runtime_scoped_tool_args(tool_name, tool_args, policy_payload=policy_payload, task_run_id="")
         invocation_context = _core_invocation_context(
@@ -1376,17 +1406,22 @@ def _bind_runtime_scoped_tool_args(
     task_run_id: str,
 ) -> dict[str, Any]:
     effective_tool = str(tool_name or "").strip()
+    args = _normalize_workspace_path_args(
+        effective_tool,
+        dict(tool_args or {}),
+        workspace_root=_workspace_root_from_policy(policy_payload),
+    )
     if effective_tool == "memory_search":
         return _bind_memory_search_scope(
-            tool_args,
+            args,
             policy_payload=policy_payload,
             task_run_id=task_run_id,
         )
     if effective_tool != "agent_todo":
-        return dict(tool_args or {})
+        return args
     session_id = _session_id_from_policy(policy_payload)
     return {
-        **dict(tool_args or {}),
+        **args,
         "session_id": session_id,
         "task_id": task_run_id,
     }
@@ -1476,6 +1511,53 @@ def _bind_tool_invocation_args(
 def _target_id_from_invocation(tool_invocation_id: str) -> str:
     safe = "".join(ch if ch.isalnum() or ch in {"-", "_"} else "-" for ch in str(tool_invocation_id or "").strip())
     return f"tool-{safe}" if safe else "tool-invocation"
+
+
+def _workspace_root_from_sandbox_policy(policy: dict[str, Any], *, fallback: Path) -> Path:
+    workspace_root = str(dict(policy or {}).get("workspace_root") or "").strip()
+    if workspace_root:
+        return Path(workspace_root).resolve()
+    return Path(fallback).resolve()
+
+
+def _workspace_root_from_policy(policy: dict[str, Any]) -> Path | None:
+    workspace_root = str(dict(policy or {}).get("workspace_root") or "").strip()
+    if not workspace_root:
+        return None
+    return Path(workspace_root).resolve()
+
+
+def _normalize_workspace_path_args(tool_name: str, args: dict[str, Any], *, workspace_root: Path | None) -> dict[str, Any]:
+    if workspace_root is None or str(tool_name or "").strip() not in _WORKSPACE_PATH_ARG_TOOL_NAMES:
+        return dict(args or {})
+    normalized = dict(args or {})
+    for key in _WORKSPACE_PATH_ARG_KEYS:
+        if key in normalized:
+            normalized[key] = _workspace_relative_path_arg(normalized[key], workspace_root=workspace_root)
+    for key in _WORKSPACE_PATH_LIST_ARG_KEYS:
+        if key in normalized:
+            normalized[key] = _workspace_relative_path_list_arg(normalized[key], workspace_root=workspace_root)
+    return normalized
+
+
+def _workspace_relative_path_list_arg(value: Any, *, workspace_root: Path) -> Any:
+    if isinstance(value, (list, tuple)):
+        return [_workspace_relative_path_arg(item, workspace_root=workspace_root) for item in value]
+    return _workspace_relative_path_arg(value, workspace_root=workspace_root)
+
+
+def _workspace_relative_path_arg(value: Any, *, workspace_root: Path) -> Any:
+    text = str(value or "").strip()
+    if not text:
+        return value
+    candidate = Path(text)
+    if not candidate.is_absolute():
+        return value
+    try:
+        relative = candidate.resolve().relative_to(workspace_root.resolve())
+    except ValueError:
+        return value
+    return relative.as_posix() or "."
 
 
 def _session_id_from_policy(policy: dict[str, Any]) -> str:
