@@ -34,6 +34,7 @@ RUNTIME_TASK_EXECUTION_PROMPT = """
 执行过程中不能再次开启新的持续处理流程。用户可见内容不得包含内部编号、系统结构或协议字段。
 写入、命令、浏览器、网络或资源生成只能使用本次 runtime 明确可见且可派发的工具，并落在任务环境允许的范围内；当前运行权限模式是本轮授权事实。
 系统会提供统一的 task_state 投影：task_state.current_facts 是当前可依赖事实，task_state.artifact_evidence 是真实产物证据，task_state.latest_tool_results 是最近工具结果，task_state.active_failures 是当前仍有效的失败，task_state.historical_failures 是历史失败，只能作为背景，不能视为当前工具不可用。
+如果系统提供 editor_context，它只是用户当轮关注的编辑器上下文证据，不授予额外文件权限。任务初始 editor_context 表示任务启动时关注的文件；pending_user_steers 中的 editor_context 只用于解释对应补充要求，优先于初始上下文。content_preview 是局部文件预览，不等于完整文件事实；selection 只在用户真实选区存在时才表示选中文本。
 """.strip()
 
 
@@ -43,7 +44,7 @@ RUNTIME_GRAPH_NODE_EXECUTION_PROMPT = """
 只输出一个合法 JSON 对象，不要 Markdown 包裹，不要暴露隐藏推理。
 如果当前节点可以交付，action_type=respond，并把节点交付主体写入 final_answer。final_answer 必须是可被下游节点或系统物化的完整结果，不要只写“已完成”。
 如果需要询问用户才能继续，action_type=ask_user。
-如果确实需要调用本次可见工具，action_type=tool_call，并填写 tool_call.tool_name 与 tool_call.args；不可见工具不能臆造或请求。
+如果确实需要调用本次可见工具，action_type=tool_call，并按本轮 action schema 填写工具调用字段；不可见工具不能臆造或请求。
 如果上游授权输入缺失、节点合同互相矛盾、输出合同无法理解或边界禁止继续，action_type=block，并说明 blocking_reason。
 节点产物由系统根据输出合同进行物化、归档并生成下游流转内容；不要为了交付图节点产物而要求文件工具、命令工具或记忆工具。
 不要再次开启新的工作生命周期，不要输出内部运行标识或其它内部控制协议作为用户可见内容。
@@ -57,7 +58,7 @@ RUNTIME_OBSERVATION_FOLLOWUP_PROMPT = """
 如果 observation 带有 error，必须把它当作真实失败处理：可以改用其他只读观察、请求持续处理流程、询问用户或阻止，不能声称该观察成功。
 如果观察足够，action_type=respond，并填写 final_answer。
 如果当前请求范围明确，且已有观察已经提供可回答的事实、来源或可说明的限制，应优先 respond；只有关键事实仍缺失、来源不可用且没有替代证据，或用户目标确实要求更高可信度时，才继续观察。
-如果还需要一次只读观察，action_type=tool_call，并填写 tool_call。
+如果还需要一次只读观察，action_type=tool_call，并按本轮 action schema 填写工具调用字段。
 如果发现任务应由已注册承接计划处理，action_type=request_registered_engagement，并填写 engagement_request.plan_id 与 startup_parameters。
 如果发现任务需要写入、命令、长期跟进或真实交付物，action_type=request_task_run，并填写 task_contract_seed；合同必须包含 user_visible_goal、task_run_goal，并且至少包含 completion_criteria、required_artifacts、required_verifications 之一。
 如果观察结果指出 task_contract_invalid，你需要修正合同字段后重新提交 request_task_run，而不是直接放弃。

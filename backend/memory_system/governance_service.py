@@ -17,6 +17,7 @@ from memory_system.storage.frontmatter import format_frontmatter, parse_frontmat
 
 from .contracts import MemoryCommitAction, MemoryCommitLayer, MemoryCommitRecord
 from .manifest_scan import MemoryHeader, load_memory_header, scan_memory_headers
+from .storage.memory_manager import MemoryManager
 from .storage.models import MemoryNote, utc_now_iso
 
 
@@ -217,11 +218,11 @@ class DurableMemoryGovernanceService:
             "skipped": skipped,
         }
 
-    def scan_durable_memory_headers(self, *, limit: int = 200) -> list[MemoryHeader]:
-        return scan_memory_headers(self.layout.root_dir, limit=limit)
+    def scan_durable_memory_headers(self, *, limit: int = 200, namespace_id: str = "global_common") -> list[MemoryHeader]:
+        return scan_memory_headers(self._namespace_root(namespace_id), limit=limit)
 
-    def load_durable_memory_note(self, filename: str) -> dict[str, Any]:
-        path = self._safe_note_path(filename)
+    def load_durable_memory_note(self, filename: str, *, namespace_id: str = "global_common") -> dict[str, Any]:
+        path = self._safe_note_path(filename, namespace_id=namespace_id)
         if not path.exists() or path.suffix.lower() != ".md":
             raise HTTPException(status_code=404, detail="Memory note not found")
         return {
@@ -243,12 +244,14 @@ class DurableMemoryGovernanceService:
         confidence: str = "medium",
         source_kind: str = "manual",
         source_message_excerpt: str = "",
+        namespace_id: str = "global_common",
     ) -> dict[str, Any]:
+        manager = self._namespace_manager(namespace_id)
         now = utc_now_iso()
         title = title.strip()
         canonical = canonical_statement.strip()
         summary = summary.strip() or canonical
-        slug = self._unique_slug(title)
+        slug = self._unique_slug(title, manager=manager)
         memory_type = self._normalize_choice(memory_type, {"user", "feedback", "project", "reference"}, "project")
         memory_class = self._normalize_choice(memory_class, {"work", "preference"}, "work")
         hints = [item.strip() for item in list(retrieval_hints or []) if str(item).strip()][:8]
@@ -279,7 +282,7 @@ class DurableMemoryGovernanceService:
             source_kind=source_kind.strip() or "manual",
             eligible_for_injection="true",
         )
-        path = self.memory_manager.save_note(note)
+        path = manager.save_note(note)
         self._append_governance_log("create", [path.name], reason="manual_create", created=path.name)
         return {
             "filename": path.name,
@@ -294,8 +297,10 @@ class DurableMemoryGovernanceService:
         eligible_for_injection: str,
         reason: str,
         action: str,
+        namespace_id: str = "global_common",
     ) -> dict[str, Any]:
-        path = self._safe_note_path(filename)
+        manager = self._namespace_manager(namespace_id)
+        path = self._safe_note_path(filename, namespace_id=namespace_id)
         if not path.exists():
             raise HTTPException(status_code=404, detail="Memory note not found")
         self._update_note_frontmatter(
@@ -307,23 +312,24 @@ class DurableMemoryGovernanceService:
                 "invalidation_reason": reason.strip(),
             },
         )
-        self.sync_durable_index()
+        manager.sync_index()
         self._append_governance_log(action, [path.name], reason=reason)
         return {
             "filename": path.name,
             "header": load_memory_header(path),
         }
 
-    def delete_durable_memory_note(self, *, filename: str, reason: str = "") -> dict[str, Any]:
-        path = self._safe_note_path(filename)
+    def delete_durable_memory_note(self, *, filename: str, reason: str = "", namespace_id: str = "global_common") -> dict[str, Any]:
+        manager = self._namespace_manager(namespace_id)
+        path = self._safe_note_path(filename, namespace_id=namespace_id)
         if not path.exists():
             raise HTTPException(status_code=404, detail="Memory note not found")
-        trash_dir = self.layout.root_dir / "trash"
+        trash_dir = manager.root_dir / "trash"
         trash_dir.mkdir(parents=True, exist_ok=True)
         deleted_at = utc_now_iso()
         target = self._unique_trash_path(trash_dir, path.name)
         path.replace(target)
-        self.sync_durable_index()
+        manager.sync_index()
         self._append_governance_log(
             "delete",
             [path.name],
@@ -344,8 +350,10 @@ class DurableMemoryGovernanceService:
         canonical_statement: str,
         summary: str = "",
         reason: str = "",
+        namespace_id: str = "global_common",
     ) -> dict[str, Any]:
-        paths = [self._safe_note_path(filename) for filename in filenames]
+        manager = self._namespace_manager(namespace_id)
+        paths = [self._safe_note_path(filename, namespace_id=namespace_id) for filename in filenames]
         missing = [path.name for path in paths if not path.exists()]
         if missing:
             raise HTTPException(status_code=404, detail=f"Memory note not found: {', '.join(missing)}")
@@ -383,7 +391,7 @@ class DurableMemoryGovernanceService:
             eligible_for_injection="true",
             supersedes=", ".join(path.stem for path in paths),
         )
-        new_path = self.memory_manager.save_note(note)
+        new_path = manager.save_note(note)
         for path in paths:
             self._update_note_frontmatter(
                 path,
@@ -394,7 +402,7 @@ class DurableMemoryGovernanceService:
                     "invalidation_reason": reason.strip() or f"Merged into {new_path.stem}",
                 },
             )
-        self.sync_durable_index()
+        manager.sync_index()
         self._append_governance_log("merge", [path.name for path in paths], reason=reason, created=new_path.name)
         return {
             "filename": new_path.name,
@@ -415,7 +423,7 @@ class DurableMemoryGovernanceService:
         )
         return tick
 
-    def _safe_note_path(self, filename: str) -> Path:
+    def _safe_note_path(self, filename: str, *, namespace_id: str = "global_common") -> Path:
         safe_name = filename.strip()
         if (
             not safe_name
@@ -425,7 +433,7 @@ class DurableMemoryGovernanceService:
             or not safe_name.endswith(".md")
         ):
             raise HTTPException(status_code=400, detail="Invalid memory filename")
-        return self.layout.notes_dir / safe_name
+        return self._namespace_manager(namespace_id).layout.notes_dir / safe_name
 
     def _update_note_frontmatter(self, path: Path, updates: dict[str, str]) -> None:
         raw = path.read_text(encoding="utf-8")
@@ -435,14 +443,15 @@ class DurableMemoryGovernanceService:
         merged = {**frontmatter, **updates}
         path.write_text(f"{format_frontmatter(merged)}\n\n{body.strip()}\n", encoding="utf-8", newline="\n")
 
-    def _unique_slug(self, title: str) -> str:
-        base_slug = self.memory_manager.slugify(title)
+    def _unique_slug(self, title: str, *, manager: Any | None = None) -> str:
+        resolved_manager = manager or self.memory_manager
+        base_slug = resolved_manager.slugify(title)
         if base_slug == "memory-note":
             digest = hashlib.sha1(title.encode("utf-8")).hexdigest()[:8]
             base_slug = f"memory-{digest}"
         slug = base_slug
         index = 2
-        while self.memory_manager.note_path(slug).exists():
+        while resolved_manager.note_path(slug).exists():
             slug = f"{base_slug}-{index}"
             index += 1
         return slug
@@ -650,6 +659,12 @@ class DurableMemoryGovernanceService:
             safe_id = safe_memory_namespace_id(normalized.removeprefix("env:"))
             return self.layout.root_dir / "environments" / safe_id
         raise ValueError(f"Unsupported durable memory namespace: {namespace_id}")
+
+    def _namespace_manager(self, namespace_id: str) -> MemoryManager:
+        normalized = self._normalize_namespace_id(namespace_id)
+        if normalized == "global_common":
+            return self.memory_manager
+        return MemoryManager(self._namespace_root(normalized))
 
     def _normalize_namespace_id(self, namespace_id: str) -> str:
         normalized = str(namespace_id or "").strip()

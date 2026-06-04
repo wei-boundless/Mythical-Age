@@ -140,8 +140,8 @@ describe("ChatMessage", () => {
     );
 
     expect(html).toContain("我先把目标转成可执行任务");
-    expect(html).toContain("运行命令");
-    expect(html.indexOf("我先把目标转成可执行任务")).toBeLessThan(html.indexOf("运行命令"));
+    expect(html).toContain("运行验证");
+    expect(html.indexOf("我先把目标转成可执行任务")).toBeLessThan(html.indexOf("运行验证"));
   });
 
   it("hides routine output boundary cleanup state without hiding the assistant message", () => {
@@ -220,11 +220,38 @@ describe("ChatMessage", () => {
     );
 
     expect(html).toContain("我先检查当前目录和关键文件");
-    expect(html).toContain("当前判断");
+    expect(html).not.toContain("当前判断");
     expect(html.match(/我先检查当前目录和关键文件/g)?.length ?? 0).toBe(1);
-    expect(html).toContain("运行命令");
+    expect(html).toContain("运行验证");
     expect(html).toContain("npm test -- --run src/components/chat");
-    expect(html.indexOf("我先检查当前目录和关键文件")).toBeLessThan(html.indexOf("运行命令"));
+    expect(html.indexOf("我先检查当前目录和关键文件")).toBeLessThan(html.indexOf("运行验证"));
+  });
+
+  it("shows an opening judgment when a run starts with tool activity but no assistant text", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(ChatMessage, {
+        content: "",
+        id: "message:tool-only-opening",
+        retrievals: [],
+        role: "assistant",
+        runtimePublicTimelineDraft: [
+          {
+            item_id: "tool:agents",
+            kind: "tool_activity",
+            title: "正在读取文件 langchain-agent/AGENTS.md",
+            state: "running",
+            stream_state: "streaming",
+          },
+        ],
+        toolCalls: [],
+      }),
+    );
+
+    expect(html).toContain("开局判断");
+    expect(html).toContain("我先确认项目约定和协作边界");
+    expect(html).toContain("确认项目约定和协作边界");
+    expect(html).toContain("正在读取 langchain-agent/AGENTS.md");
+    expect(html).not.toContain("正在思考");
   });
 
   it("does not keep stale live tool activity spinning after a stable assistant answer", () => {
@@ -251,7 +278,7 @@ describe("ChatMessage", () => {
     );
 
     expect(html).toContain("写好了");
-    expect(html).toContain("工具已完成 artifacts/football.html");
+    expect(html).toContain("动作已返回 artifacts/football.html");
     expect(html).toContain("public-run-activity__row--done");
     expect(html).not.toContain("public-run-activity__row--current");
     expect(html).not.toContain("public-run-activity__spinner");

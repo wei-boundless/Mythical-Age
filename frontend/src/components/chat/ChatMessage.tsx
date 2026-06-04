@@ -7,6 +7,7 @@ import remarkGfm from "remark-gfm";
 
 import { hasPublicRunActivity, PublicRunActivity } from "@/components/chat/PublicRunActivity";
 import { RetrievalCard } from "@/components/chat/RetrievalCard";
+import { agentOpeningSignalFromTimeline, cleanRunText } from "@/components/chat/agentRunPresentation";
 import type { PublicChatTimelineItem, RetrievalResult, SessionRuntimeAttachment, ToolCall } from "@/lib/api";
 import { mergePublicTimelineItems, publicTimelineTerminalStateFromAnswer } from "@/lib/store/publicTimeline";
 import type { RuntimeProgressEntry } from "@/lib/store/types";
@@ -84,7 +85,6 @@ export function ChatMessage({
       items: publicTimelineItems,
     })
     : null;
-  const contentAbsorbedBySignal = Boolean(assistantSignal?.absorbsContent);
   const legacyTaskContractReceipt = !isUser && isLegacyTaskContractReceipt({ content, answerChannel, answerSource });
   const hideLegacyTaskContractReceipt = legacyTaskContractReceipt && hasRunActivity;
   const boundary = {
@@ -101,7 +101,7 @@ export function ChatMessage({
     isUser
     || Boolean(image?.src)
     || imageUnavailable
-    || (!contentAbsorbedBySignal && !hideLegacyTaskContractReceipt && (Boolean(displayContent.trim()) || !hasRunActivity));
+    || (!hideLegacyTaskContractReceipt && (Boolean(displayContent.trim()) || !hasRunActivity));
   const copyableReplyText = !isUser && shouldRenderContent ? displayContent.trim() : "";
   const draftValue = draft.trim();
   const sendEditDisabled = submittingEdit || !canEdit || !draftValue;
@@ -256,7 +256,6 @@ type AssistantOutputSignalView = {
   label: string;
   text: string;
   tone: "thinking" | "done" | "error";
-  absorbsContent: boolean;
 };
 
 function AssistantOutputSignal({ signal }: { signal: AssistantOutputSignalView }) {
@@ -283,33 +282,7 @@ function assistantSignalFromTimeline({
   displayContent: string;
   items: PublicChatTimelineItem[];
 }): AssistantOutputSignalView | null {
-  const assistantItem = [...items].reverse().find((item) => cleanBoundaryText(item.kind) === "assistant_text");
-  const candidateText = cleanBoundaryText(assistantItem?.text || assistantItem?.detail || assistantItem?.title);
-  const timelineOwnsContent = !cleanBoundaryText(baseContent) && candidateText && sameAssistantText(candidateText, displayContent);
-  const nonDuplicateText = candidateText && !sameAssistantText(candidateText, baseContent);
-  const text = timelineOwnsContent ? cleanBoundaryText(displayContent) : nonDuplicateText ? candidateText : "";
-  if (!text) {
-    return null;
-  }
-  const state = cleanBoundaryText(assistantItem?.state).toLowerCase();
-  const tone = ["error", "failed", "blocked", "missing"].includes(state)
-    ? "error"
-    : ["done", "ready", "passed", "success"].includes(state)
-      ? "done"
-      : "thinking";
-  return {
-    absorbsContent: Boolean(timelineOwnsContent),
-    label: tone === "error" ? "需要判断" : tone === "done" ? "判断完成" : "当前判断",
-    text,
-    tone,
-  };
-}
-
-function sameAssistantText(left: unknown, right: unknown) {
-  const leftText = cleanBoundaryText(left);
-  const rightText = cleanBoundaryText(right);
-  if (!leftText || !rightText) return false;
-  return leftText === rightText || leftText.includes(rightText) || rightText.includes(leftText);
+  return agentOpeningSignalFromTimeline(items, { baseContent, displayContent });
 }
 
 function editFailureMessage(error: unknown) {
@@ -355,7 +328,7 @@ function assistantContentFromTimeline(content: string, items: PublicChatTimeline
 }
 
 function cleanBoundaryText(value: unknown) {
-  return String(value ?? "").replace(/\s+/g, " ").trim();
+  return cleanRunText(value);
 }
 
 function boundaryLabel(state: string, persistPolicy: string, channel: string) {

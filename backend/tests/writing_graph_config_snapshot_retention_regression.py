@@ -1,17 +1,23 @@
 from __future__ import annotations
 
+import json
+
 from task_system.storage import TaskSystemStorage
 
 from tests.support.writing_fixtures import load_writing_modular_config_module
 
 
-def test_writing_config_publish_cleanup_preserves_historical_config_snapshots(tmp_path) -> None:
+def test_writing_config_publish_cleanup_prunes_unreferenced_snapshots_and_preserves_active_locks(tmp_path) -> None:
     backend_dir = tmp_path / "backend"
     backend_dir.mkdir()
     storage = TaskSystemStorage(backend_dir)
     module = load_writing_modular_config_module()
 
     old_writing_config_id = "ghcfg:graph_writing_modular_novel_master:old"
+    active_writing_config_id = "ghcfg:graph_writing_modular_novel_master:active"
+    idle_writing_config_id = "ghcfg:graph_writing_modular_novel_master:idle"
+    stale_aux_writing_config_id = "ghcfg:graph_writing_modular_novel_chapter_001_010_outline_rerun:old"
+    stale_aux_graph_id = "graph.writing.modular_novel.chapter_001_010_outline_rerun"
     other_config_id = "ghcfg:graph.other:stable"
     storage.write_object(
         "graph_harness_configs.json",
@@ -23,6 +29,21 @@ def test_writing_config_publish_cleanup_preserves_historical_config_snapshots(tm
                     "metadata": {"managed_by": module.MANAGED_BY},
                 },
                 {
+                    "config_id": active_writing_config_id,
+                    "graph_id": module.MASTER_GRAPH_ID,
+                    "metadata": {"managed_by": module.MANAGED_BY},
+                },
+                {
+                    "config_id": idle_writing_config_id,
+                    "graph_id": module.MASTER_GRAPH_ID,
+                    "metadata": {"managed_by": module.MANAGED_BY},
+                },
+                {
+                    "config_id": stale_aux_writing_config_id,
+                    "graph_id": stale_aux_graph_id,
+                    "metadata": {},
+                },
+                {
                     "config_id": other_config_id,
                     "graph_id": "graph.other",
                     "metadata": {"managed_by": "external"},
@@ -30,16 +51,52 @@ def test_writing_config_publish_cleanup_preserves_historical_config_snapshots(tm
             ],
             "published_bindings": {
                 module.MASTER_GRAPH_ID: old_writing_config_id,
+                stale_aux_graph_id: stale_aux_writing_config_id,
                 "graph.other": other_config_id,
             },
         },
+    )
+    graph_run_dir = tmp_path / "storage" / "runtime_state" / "runtime_objects" / "graph_run"
+    graph_run_dir.mkdir(parents=True)
+    (graph_run_dir / "grun_graph_writing_modular_novel_master_active.json").write_text(
+        json.dumps(
+            {
+                "payload": {
+                    "graph_run_id": "grun:graph_writing_modular_novel_master:active",
+                    "graph_id": module.MASTER_GRAPH_ID,
+                    "config_id": active_writing_config_id,
+                    "status": "running",
+                },
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    (graph_run_dir / "grun_graph_writing_modular_novel_master_idle.json").write_text(
+        json.dumps(
+            {
+                "payload": {
+                    "graph_run_id": "grun:graph_writing_modular_novel_master:idle",
+                    "graph_id": module.MASTER_GRAPH_ID,
+                    "config_id": idle_writing_config_id,
+                    "status": "waiting_executor",
+                    "terminal_reason": "idle",
+                },
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
     )
 
     module._delete_managed_graph_runtime_records(backend_dir)
 
     payload = storage.read_object("graph_harness_configs.json", {"configs": [], "published_bindings": {}})
     config_ids = {str(item.get("config_id") or "") for item in payload["configs"]}
-    assert old_writing_config_id in config_ids
+    assert old_writing_config_id not in config_ids
+    assert idle_writing_config_id not in config_ids
+    assert stale_aux_writing_config_id not in config_ids
+    assert active_writing_config_id in config_ids
     assert other_config_id in config_ids
     assert module.MASTER_GRAPH_ID not in payload["published_bindings"]
+    assert stale_aux_graph_id not in payload["published_bindings"]
     assert payload["published_bindings"]["graph.other"] == other_config_id

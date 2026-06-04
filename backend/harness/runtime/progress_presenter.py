@@ -100,7 +100,7 @@ def build_progress_presentation(
                 action_ref = _text(refs.get("action_request_ref"))
                 _apply_model_action_state(unit, payload, action_requests_by_ref.get(action_ref, {}), event)
                 continue
-            if step.startswith("task_tool_call_started"):
+            if step.startswith("task_tool_batch_started"):
                 unit = resolve_unit(event, fallback_kind="tool_action")
                 action_ref = _text(refs.get("action_request_ref"))
                 action_request = action_requests_by_ref.get(action_ref, {})
@@ -324,7 +324,8 @@ def _match_text(value: Any) -> str:
 
 
 def _apply_tool_action(unit: dict[str, Any], action: dict[str, Any], payload: dict[str, Any], event: dict[str, Any]) -> None:
-    tool_call = _record(action.get("tool_call"))
+    tool_calls = action.get("tool_calls") if isinstance(action.get("tool_calls"), list) else []
+    tool_call = _record(tool_calls[0] if tool_calls else action.get("tool_call"))
     tool_name = _tool_name(tool_call.get("tool_name") or tool_call.get("name") or payload.get("tool_name"))
     tool_args = _record(tool_call.get("args") or tool_call.get("tool_args"))
     target = _tool_target_preview(tool_args)
@@ -359,12 +360,21 @@ def _tool_evidence(*, tool_name: str, tool_args: dict[str, Any], observation: di
     payload = _record(observation.get("payload"))
     raw_result = _observation_result_value(payload)
     parsed = _parse_result(raw_result)
-    error = _visible_text(observation.get("error") or payload.get("error") or _result_error(parsed))
+    envelope = _record(payload.get("result_envelope"))
+    structured = _record(payload.get("structured_payload") or envelope.get("structured_payload"))
+    tool_result = _record(structured.get("tool_result"))
+    error = _visible_text(
+        observation.get("error")
+        or payload.get("error")
+        or envelope.get("error")
+        or tool_result.get("error")
+        or _result_error(parsed)
+        or _tool_failure_status_text(observation=observation, payload=payload, envelope=envelope, tool_result=tool_result, parsed=parsed)
+    )
     target = _tool_target_preview(tool_args)
     observed_paths = _string_list(payload.get("observed_paths"))
     matched_paths = _string_list(payload.get("matched_paths"))
     artifact_refs = _string_list(artifact_ref_value(ref) for ref in artifact_refs_from_tool_result_payload(payload))
-    envelope = _record(payload.get("result_envelope"))
     if not observed_paths:
         observed_paths = _string_list(envelope.get("observed_paths"))
     if not matched_paths:
@@ -462,6 +472,33 @@ def _tool_evidence(*, tool_name: str, tool_args: dict[str, Any], observation: di
         "summary": summary or "工具执行完成，结果已写入运行上下文。",
         "status": "success",
     }
+
+
+def _tool_failure_status_text(
+    *,
+    observation: dict[str, Any],
+    payload: dict[str, Any],
+    envelope: dict[str, Any],
+    tool_result: dict[str, Any],
+    parsed: Any,
+) -> str:
+    operation_gate = _record(payload.get("operation_gate"))
+    if operation_gate and operation_gate.get("allowed") is False:
+        return _visible_text(operation_gate.get("reason") or operation_gate.get("decision") or "tool execution denied")
+    if _text(observation.get("observation_type")) == "executor_error":
+        return _visible_text(observation.get("summary") or "tool execution failed")
+    if isinstance(parsed, dict) and parsed.get("ok") is False:
+        return _visible_text(parsed.get("error") or parsed.get("message") or parsed.get("status") or "tool execution failed")
+    for value in (
+        observation.get("status"),
+        payload.get("status"),
+        envelope.get("status"),
+        tool_result.get("status"),
+    ):
+        status = _text(value).lower()
+        if status in {"failed", "error", "denied", "canceled", "cancelled", "aborted"}:
+            return _visible_text(envelope.get("text") or payload.get("result") or tool_result.get("message") or status)
+    return ""
 
 
 def _build_mission(*, task_run: Any, monitor: dict[str, Any], work_units: list[dict[str, Any]]) -> dict[str, str]:
@@ -741,7 +778,7 @@ def _suppress_technical_trace_event(*, event_type: str, payload: dict[str, Any])
     if event_type != "step_summary_recorded":
         return False
     step = _text(payload.get("step"))
-    if step.startswith(("task_tool_observation_recorded", "task_tool_call_started", "task_duplicate_tool_call_guarded")):
+    if step.startswith(("task_tool_observation_recorded", "task_tool_batch_started", "task_duplicate_tool_call_guarded")):
         return False
     return True
 

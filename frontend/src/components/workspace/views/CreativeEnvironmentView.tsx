@@ -13,33 +13,27 @@ import {
   Play,
   RefreshCw,
   Search,
-  Settings2,
   Trash2,
   Workflow,
 } from "lucide-react";
 
 import { WorkbenchShell } from "@/components/layout/WorkbenchShell";
+import { WorkspaceModeSwitcher } from "@/components/layout/WorkspaceModeSwitcher";
 import {
   getTaskSystemEnvironmentProjects,
   getTaskSystemOverview,
   getTaskSystemProject,
-  getTaskSystemProjectLifecycleActions,
   getTaskSystemProjectRepositories,
   getTaskSystemProjectRepositoryFile,
   getTaskSystemProjectRepositoryTree,
   listTaskEnvironmentSessions,
-  previewTaskSystemProjectLifecycle,
   resolveTaskEnvironmentSession,
   startTaskGraphHarnessRun,
-  startTaskSystemProjectLifecycleRun,
   type ProjectFilePayload,
   type ProjectFileTreePayload,
   type ProjectInstance,
-  type ProjectLifecycleActionSpec,
-  type ProjectLifecycleActionsPayload,
   type ProjectLibraryPayload,
   type ProjectLibraryRepository,
-  type ProjectLifecyclePreviewPayload,
   type ProjectRepositoriesPayload,
   type ProjectTreeNode,
   type SessionScope,
@@ -299,6 +293,7 @@ function CreativeProjectRail({
           <strong>写作环境</strong>
           <span>作品、资料、写作流程</span>
         </div>
+        <WorkspaceModeSwitcher />
       </header>
 
       <div className="creative-env-line">
@@ -811,37 +806,17 @@ function CreativeCommandDesk({
 
 function CreativeInspector({
   selectedProject,
-  project,
-  repositories,
   selectedFile,
   file,
-  lifecycleActions,
-  cleanupPreview,
   loading,
-  error,
   onRefresh,
-  onPreviewCleanup,
-  onExecuteCleanup,
 }: {
   selectedProject: ProjectInstance | null;
-  project: ProjectLibraryPayload | null;
-  repositories: ProjectRepositoriesPayload | null;
   selectedFile: SelectedFile | null;
   file: ProjectFilePayload | null;
-  lifecycleActions: ProjectLifecycleActionsPayload | null;
-  cleanupPreview: ProjectLifecyclePreviewPayload | null;
   loading: boolean;
-  error: string;
   onRefresh: () => void;
-  onPreviewCleanup: () => void;
-  onExecuteCleanup: (actionId: string) => void;
 }) {
-  const cleanupAction = useMemo(
-    () => (lifecycleActions?.actions ?? []).find((item: ProjectLifecycleActionSpec) => item.operation === "delete_task_records_by_selector") ?? null,
-    [lifecycleActions]
-  );
-  const cleanupActionId = cleanupAction?.action_id ?? "";
-  const repositoryList = repositories?.repositories ?? [];
   const fileContent = file?.content ?? "";
 
   return (
@@ -869,63 +844,6 @@ function CreativeInspector({
             <div className="creative-inline-state">从资料库选择一份资料后在这里阅读全文。</div>
           )}
         </section>
-
-        <section className="creative-inspector-section creative-inspector-section--meta" aria-label="作品信息">
-          <header>
-            <LibraryBig size={15} />
-            <strong>作品信息</strong>
-          </header>
-          <dl className="creative-fact-list creative-fact-list--compact">
-            <div><dt>作品</dt><dd>{project?.project ? projectTitle(project.project) : projectTitle(selectedProject)}</dd></div>
-            <div><dt>类型</dt><dd>{selectedProject?.project_kind === "long_novel" ? "长篇小说" : "创作项目"}</dd></div>
-            <div><dt>资料</dt><dd>{repositoryList.length ? `${repositoryList.length} 类可用` : "整理中"}</dd></div>
-            <div><dt>状态</dt><dd>{formatProjectState(selectedProject)}</dd></div>
-          </dl>
-          {error ? <div className="creative-error-line">{error}</div> : null}
-        </section>
-
-        <section className="creative-inspector-section creative-inspector-section--meta" aria-label="可用资料">
-          <header>
-            <Settings2 size={15} />
-            <strong>可用资料</strong>
-          </header>
-          <div className="creative-permission-list">
-            {repositoryList.length ? repositoryList.map((repository) => (
-              <div className="creative-permission-row" key={repository.repository_id}>
-                <span>{repositoryDisplayName(repository)}</span>
-                <em>{repository.writable === false ? "只读" : "可更新"}</em>
-              </div>
-            )) : <div className="creative-inline-state">资料正在准备。</div>}
-          </div>
-        </section>
-
-        <section className="creative-inspector-section creative-inspector-section--meta" aria-label="作品整理">
-          <header>
-            <RefreshCw size={15} />
-            <strong>作品整理</strong>
-          </header>
-          <div className="creative-maintenance-actions">
-            <button disabled={loading || !selectedProject || !cleanupAction} onClick={onPreviewCleanup} type="button">
-              <RefreshCw size={13} />
-              <span>检查可整理内容</span>
-            </button>
-            <button
-              disabled={loading || !selectedProject || !cleanupActionId || !cleanupPreview || Number(cleanupPreview.preview.counts?.task_count ?? 0) <= 0}
-              onClick={() => onExecuteCleanup(cleanupActionId)}
-              type="button"
-            >
-              <FileText size={13} />
-              <span>整理旧记录</span>
-            </button>
-          </div>
-          {cleanupPreview ? (
-            <div className="creative-inline-state">
-              可整理 {cleanupPreview.preview.counts?.task_count ?? 0} 条旧记录；作品资料和创作产出会保留。
-            </div>
-          ) : cleanupAction ? (
-            <div className="creative-inline-state">整理前会先检查影响范围。</div>
-          ) : null}
-        </section>
       </div>
     </aside>
   );
@@ -950,8 +868,6 @@ export function CreativeEnvironmentView() {
   const [scopedSessions, setScopedSessions] = useState<SessionSummary[]>([]);
   const [selectedFile, setSelectedFile] = useState<SelectedFile | null>(null);
   const [file, setFile] = useState<ProjectFilePayload | null>(null);
-  const [lifecycleActions, setLifecycleActions] = useState<ProjectLifecycleActionsPayload | null>(null);
-  const [cleanupPreview, setCleanupPreview] = useState<ProjectLifecyclePreviewPayload | null>(null);
   const [activeSection, setActiveSection] = useState<DeskSection>("overview");
   const [selectedGraphId, setSelectedGraphId] = useState("");
   const [flow, setFlow] = useState<WritingFlowKind>("design");
@@ -998,13 +914,11 @@ export function CreativeEnvironmentView() {
     setError("");
     setSelectedFile(null);
     setFile(null);
-    setCleanupPreview(null);
     try {
       const nextProject = await getTaskSystemProject(projectId);
       setProject(nextProject);
       const nextRepositories = await getTaskSystemProjectRepositories(projectId);
       setRepositories(nextRepositories);
-      setLifecycleActions(await getTaskSystemProjectLifecycleActions(projectId));
       setLoading(false);
       const treeEntries = await Promise.all(
         nextRepositories.repositories
@@ -1022,7 +936,6 @@ export function CreativeEnvironmentView() {
       setError(caught instanceof Error ? caught.message : "无法打开项目库。");
       setProject(null);
       setRepositories(null);
-      setLifecycleActions(null);
       setTrees({});
     } finally {
       setLoading(false);
@@ -1203,38 +1116,6 @@ export function CreativeEnvironmentView() {
     }
   }
 
-  async function previewCleanup() {
-    if (!selectedProject) return;
-    const actionId = (lifecycleActions?.actions ?? []).find((item) => item.operation === "delete_task_records_by_selector")?.action_id ?? "";
-    if (!actionId) return;
-    setLoading(true);
-    setError("");
-    try {
-      setCleanupPreview(await previewTaskSystemProjectLifecycle(selectedProject.project_id, actionId));
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "无法生成维护预览。");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function executeCleanup(actionId: string) {
-    if (!selectedProject) return;
-    setLoading(true);
-    setError("");
-    try {
-      await startTaskSystemProjectLifecycleRun(selectedProject.project_id, {
-        action: actionId,
-        execute: true,
-      });
-      setCleanupPreview(await previewTaskSystemProjectLifecycle(selectedProject.project_id, actionId));
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "无法执行维护动作。");
-    } finally {
-      setLoading(false);
-    }
-  }
-
   useEffect(() => {
     if (!selectedProjectId && writingProjects[0]?.project_id) {
       setSelectedProjectId(writingProjects[0].project_id);
@@ -1313,21 +1194,14 @@ export function CreativeEnvironmentView() {
       leftPanelLabel="写作项目"
       rightPanel={(
         <CreativeInspector
-          error={error}
           file={file}
-          lifecycleActions={lifecycleActions}
-          cleanupPreview={cleanupPreview}
           loading={loading}
           onRefresh={() => selectedProject && void loadProject(selectedProject.project_id)}
-          onPreviewCleanup={() => void previewCleanup()}
-          onExecuteCleanup={(actionId) => void executeCleanup(actionId)}
-          project={project}
-          repositories={repositories}
           selectedFile={selectedFile}
           selectedProject={selectedProject}
         />
       )}
-      rightPanelLabel="资料预览"
+      rightPanelLabel="文件阅览"
     >
       <CreativeCommandDesk
         activeSection={activeSection}

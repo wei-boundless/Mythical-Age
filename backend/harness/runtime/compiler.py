@@ -267,6 +267,7 @@ class RuntimeCompiler:
         history: list[dict[str, Any]],
         session_context: dict[str, Any] | None = None,
         active_work_context: dict[str, Any] | None = None,
+        memory_context: dict[str, Any] | None = None,
         agent_profile_ref: str = "main_interactive_agent",
         model_selection: dict[str, Any] | None = None,
         runtime_assembly: Any | None = None,
@@ -410,6 +411,11 @@ class RuntimeCompiler:
             )
         )
         dynamic_payload = dict(dynamic_context.dynamic_runtime_projection or {})
+        memory_context_payload = _memory_context_model_visible_payload(
+            memory_context or session_context_payload.get("memory_context")
+        )
+        if memory_context_payload:
+            dynamic_payload["memory_context"] = memory_context_payload
         if active_work_context:
             dynamic_payload["active_work_context"] = _active_work_model_visible_payload(active_work_context)
         if turn_input_facts:
@@ -549,6 +555,7 @@ class RuntimeCompiler:
         model_selection: dict[str, Any] | None = None,
         available_tools: list[dict[str, Any]] | tuple[dict[str, Any], ...] | None = None,
         runtime_assembly: Any | None = None,
+        memory_context: dict[str, Any] | None = None,
         invocation_index: int = 1,
     ) -> RuntimeCompilationResult:
         assembly_payload = runtime_assembly.to_dict() if hasattr(runtime_assembly, "to_dict") else dict(runtime_assembly or {})
@@ -719,7 +726,10 @@ class RuntimeCompiler:
                 ),
             )
         )
-        dynamic_payload = dynamic_context.dynamic_runtime_projection
+        dynamic_payload = dict(dynamic_context.dynamic_runtime_projection or {})
+        memory_context_payload = _memory_context_model_visible_payload(memory_context)
+        if memory_context_payload:
+            dynamic_payload["memory_context"] = memory_context_payload
         volatile_payload = dynamic_context.volatile_state_projection
         model_messages, segment_plan = _model_messages_and_segment_plan(
             packet_id=packet_id,
@@ -1052,7 +1062,12 @@ class RuntimeCompiler:
                 ),
             )
         )
-        dynamic_payload = dynamic_context.dynamic_runtime_projection
+        dynamic_payload = dict(dynamic_context.dynamic_runtime_projection or {})
+        memory_context_payload = _memory_context_model_visible_payload(
+            dict(session_context or {}).get("memory_context")
+        )
+        if memory_context_payload:
+            dynamic_payload["memory_context"] = memory_context_payload
         volatile_payload = dynamic_context.volatile_request_projection
         model_messages, segment_plan = _model_messages_and_segment_plan(
             packet_id=packet_id,
@@ -2385,6 +2400,11 @@ def _runtime_projection_instruction(projection: dict[str, Any]) -> str:
             "只有确实处理了某条补充要求时，才能在 diagnostics.consumed_steer_refs 中填写对应 steer_id。"
         )
         lines.append(
+            "- 解释 pending_user_steers 时，若 steer 自带 editor_context，应优先使用该 steer-local editor_context；"
+            "任务初始 editor_context 只能表示任务启动时的关注文件，不能覆盖后续用户补充要求。"
+            "editor_context 只提供项目感知证据，不扩大文件、命令、网络或写入权限；content_preview 是局部预览，不等同完整文件事实，selection 只表示真实选区。"
+        )
+        lines.append(
             "- 如果当前执行状态里有 active_contract_revisions，你必须裁决它们是否改变目标、验收标准、范围或约束；"
             "把裁决写入 diagnostics.contract_revision_decisions。未裁决前不能宣布完成。"
         )
@@ -2624,6 +2644,49 @@ def _session_context_model_visible_payload(session_context: dict[str, Any] | Non
         "compressed_summary": compressed,
         "authority": "runtime.session_context.compressed_summary",
     }
+
+
+def _memory_context_model_visible_payload(memory_context: Any) -> dict[str, Any]:
+    if not isinstance(memory_context, dict):
+        return {}
+    sections = memory_context.get("model_visible_sections")
+    if not isinstance(sections, dict):
+        return {}
+    allowed_sections = (
+        "active_process_context",
+        "hot_truth_window",
+        "retrieval_evidence",
+        "warm_snapshots",
+        "exact_durable_context",
+        "relevant_durable_context",
+    )
+    visible_sections = {
+        section: [
+            str(item).strip()
+            for item in list(sections.get(section) or [])
+            if str(item).strip()
+        ]
+        for section in allowed_sections
+    }
+    visible_sections = {section: items for section, items in visible_sections.items() if items}
+    if not visible_sections:
+        return {}
+    diagnostics = dict(memory_context.get("diagnostics") or {}) if isinstance(memory_context.get("diagnostics"), dict) else {}
+    return _drop_empty_payload(
+        {
+            "model_visible_sections": visible_sections,
+            "selected_sections": [
+                str(item)
+                for item in list(memory_context.get("selected_sections") or visible_sections.keys())
+                if str(item)
+            ],
+            "memory_runtime_view_ref": str(memory_context.get("memory_runtime_view_ref") or ""),
+            "context_package_ref": str(memory_context.get("context_package_ref") or ""),
+            "read_namespaces": list(diagnostics.get("read_namespaces") or ()),
+            "requires_verification_before_use": True,
+            "authority": str(memory_context.get("authority") or "memory_system.runtime_memory_context"),
+        }
+    )
 
 
 def _stable_tool_catalog_payload(tool_payloads: tuple[dict[str, Any], ...]) -> list[dict[str, Any]]:

@@ -14,6 +14,15 @@ import React from "react";
 
 import type { PublicChatTimelineItem } from "@/lib/api";
 import { normalizePublicTimelineItems, publicTimelineItemKey } from "@/lib/store/publicTimeline";
+import {
+  actionSentence as presentedActionSentence,
+  actionViewForTimelineItem,
+  cleanRunText,
+  sameRunText,
+  shortRunText,
+  stateClassForTimelineItem,
+  timelineItemText,
+} from "@/components/chat/agentRunPresentation";
 
 type PublicRunActivityProps = {
   items: PublicChatTimelineItem[];
@@ -28,40 +37,21 @@ const SUPPRESSED_STATUS_TEXT = new Set([
   "已开始继续处理；接下来会持续汇报正在推进的步骤。",
   "任务执行器已接管，正在推进第一步。",
 ]);
-const GENERIC_TOOL_WAIT_PREFIXES = [
-  "已发起工具调用，正在等待工具返回",
-  "已经过工具调用，正在等待工具返回",
-];
 
 function cleanText(value: unknown) {
-  return String(value ?? "").replace(/\s+/g, " ").trim();
+  return cleanRunText(value);
 }
 
 function short(value: unknown, limit = 220) {
-  const text = cleanText(value);
-  return text.length > limit ? `${text.slice(0, limit - 1)}...` : text;
-}
-
-function compactPathLabel(value: string) {
-  const text = cleanText(value);
-  if (!text) return "";
-  const normalized = text.replace(/\\/g, "/");
-  const parts = normalized.split("/").filter(Boolean);
-  if (parts.length <= 2) return text;
-  const tail = parts.at(-1) || "";
-  const parent = parts.at(-2) || "";
-  return parent ? `${parent}/${tail}` : tail;
+  return shortRunText(value, limit);
 }
 
 function textOfItem(item: PublicChatTimelineItem) {
-  return cleanText(item.text || item.detail || item.title || item.path || item.href);
+  return timelineItemText(item);
 }
 
 function samePublicText(left: unknown, right: unknown) {
-  const leftText = cleanText(left);
-  const rightText = cleanText(right);
-  if (!leftText || !rightText) return false;
-  return leftText === rightText || leftText.includes(rightText) || rightText.includes(leftText);
+  return sameRunText(left, right);
 }
 
 function publicItems(items: PublicChatTimelineItem[], assistantContent = "") {
@@ -110,10 +100,7 @@ export function hasPublicRunActivity(
 }
 
 function stateClass(item: PublicChatTimelineItem) {
-  const state = cleanText(item.state).toLowerCase();
-  if (["error", "failed", "blocked", "missing"].includes(state) || item.kind === "blocked") return "error";
-  if (["done", "ready", "passed", "success"].includes(state)) return "done";
-  return "running";
+  return stateClassForTimelineItem(item);
 }
 
 function ActivityIcon({ item }: { item: PublicChatTimelineItem }) {
@@ -123,140 +110,14 @@ function ActivityIcon({ item }: { item: PublicChatTimelineItem }) {
   if (state === "done") return <CheckCircle2 size={14} />;
   const action = actionDisplay(item);
   if (state === "running" || item.stream_state === "streaming") return <Loader2 className="public-run-activity__spinner" size={14} />;
-  if (action.icon === "search") return <Search size={14} />;
-  if (action.icon === "terminal") return <Terminal size={14} />;
-  if (action.icon === "write") return <PenLine size={14} />;
+  if (action.kind === "search") return <Search size={14} />;
+  if (action.kind === "run") return <Terminal size={14} />;
+  if (action.kind === "write") return <PenLine size={14} />;
   return <CircleDot size={14} />;
 }
 
 function actionDisplay(item: PublicChatTimelineItem) {
-  const state = stateClass(item);
-  const rawTitle = short(item.title || item.text || "处理进展", 220);
-  const rawDetailCandidate = short(item.detail || item.path || item.href || "", 220);
-  const rawDetail = suppressGenericToolWait(rawDetailCandidate);
-  const combined = [rawTitle, rawDetail].filter(Boolean).join(" ");
-  const lower = combined.toLowerCase();
-  const running = state === "running";
-  const done = state === "done";
-  const targetFromUsePattern = rawTitle.match(/^正在使用(.+?)处理\s*(.+?)[。.]?$/);
-  const searchFromTitle = rawTitle.match(/^正在搜索\s*(.+)$/);
-  const readFromTitle = rawTitle.match(/^正在读取\s*(.+)$/);
-  const inspectFromTitle = rawTitle.match(/^正在检查\s*(.+)$/);
-  const writeFromTitle = rawTitle.match(/^正在(?:写入|编辑|更新)\s*(.+)$/);
-  const completedSearch = rawTitle.match(/^搜索完成\s*(.+)?$/);
-  const completedRead = rawTitle.match(/^读取完成\s*(.+)?$/);
-  const completedInspect = rawTitle.match(/^检查完成\s*(.+)?$/);
-  const completedWrite = rawTitle.match(/^(?:写入完成|更新完成|编辑完成)\s*(.+)?$/);
-  const commandTitle = rawTitle.match(/^正在运行\s*(.+)$/);
-  const callFromTitle = rawTitle.match(/^正在调用(?:工具)?\s*(.*)$/);
-  const completedCall = rawTitle.match(/^工具已完成\s*(.+)?$/);
-
-  if (targetFromUsePattern) {
-    const tool = targetFromUsePattern[1].toLowerCase();
-    const target = compactPathLabel(rawDetail || targetFromUsePattern[2]);
-    if (tool.includes("读取") || tool.includes("read") || tool.includes("file")) {
-      return { title: done ? "已读取文件" : "读取文件", detail: target, icon: "read" };
-    }
-    if (tool.includes("搜索") || tool.includes("search") || tool.includes("text")) {
-      return { title: done ? "已搜索代码" : "搜索代码引用", detail: target, icon: "search" };
-    }
-    if (tool.includes("写入") || tool.includes("编辑") || tool.includes("write") || tool.includes("edit")) {
-      return { title: done ? "已更新文件" : "更新文件", detail: target, icon: "write" };
-    }
-  }
-  if (searchFromTitle || lower.includes("search") || rawTitle.includes("搜索")) {
-    return {
-      title: done || completedSearch ? "已搜索代码" : running ? "搜索代码引用" : "搜索代码",
-      detail: compactPathLabel(rawDetail || searchFromTitle?.[1] || completedSearch?.[1] || ""),
-      icon: "search",
-    };
-  }
-  if (
-    inspectFromTitle
-    || completedInspect
-    || lower.includes("path_exists")
-    || lower.includes("stat_path")
-    || lower.includes("list_dir")
-    || rawTitle.includes("确认路径")
-    || rawTitle.includes("检查路径")
-    || rawTitle.includes("artifact 路径")
-  ) {
-    const target = compactPathLabel(rawDetail || inspectFromTitle?.[1] || completedInspect?.[1] || "");
-    return {
-      title: done || completedInspect ? "已确认目标路径" : "确认目标路径",
-      detail: target,
-      icon: "read",
-    };
-  }
-  if (readFromTitle || completedRead || lower.includes("read_file") || rawTitle.includes("读取")) {
-    return {
-      title: done || completedRead ? "已读取文件" : "读取文件",
-      detail: compactPathLabel(rawDetail || readFromTitle?.[1] || completedRead?.[1] || ""),
-      icon: "read",
-    };
-  }
-  if (writeFromTitle || completedWrite || lower.includes("write_file") || lower.includes("edit_file") || /写入|编辑|更新/.test(rawTitle)) {
-    return {
-      title: done || completedWrite ? "已更新文件" : "更新文件",
-      detail: compactPathLabel(rawDetail || writeFromTitle?.[1] || completedWrite?.[1] || ""),
-      icon: "write",
-    };
-  }
-  if (commandTitle || lower.includes("terminal") || rawTitle.includes("运行命令") || rawTitle.includes("正在运行")) {
-    return {
-      title: done ? "命令已完成" : "运行命令",
-      detail: short(rawDetail || commandTitle?.[1] || "", 120),
-      icon: "terminal",
-    };
-  }
-  if (callFromTitle || completedCall || rawTitle.includes("调用工具")) {
-    const target = compactPathLabel(rawDetail || callFromTitle?.[1] || completedCall?.[1] || "");
-    return {
-      title: done || completedCall ? "工具已完成" : "调用工具",
-      detail: target,
-      icon: "default",
-    };
-  }
-  return {
-    title: rawTitle,
-    detail: compactPathLabel(rawDetail),
-    icon: "default",
-  };
-}
-
-function suppressGenericToolWait(value: string) {
-  const text = cleanText(value);
-  if (!text) return "";
-  const lowered = text.toLowerCase();
-  if (GENERIC_TOOL_WAIT_PREFIXES.some((prefix) => lowered.startsWith(prefix))) {
-    return "";
-  }
-  return text;
-}
-
-function actionSentence(item: PublicChatTimelineItem, variant: "current" | "history" | "final" = "history") {
-  const kind = cleanText(item.kind);
-  if (kind === "tool_activity") {
-    const action = actionDisplay(item);
-    const state = stateClass(item);
-    const detail = cleanText(action.detail);
-    const subject = detail ? `${action.title} ${detail}` : action.title;
-    if (state === "done" || variant === "history") {
-      return subject;
-    }
-    if (state === "error") {
-      return `${subject} 时遇到问题`;
-    }
-    if (subject.startsWith("正在")) {
-      return subject;
-    }
-    return `正在${subject}`;
-  }
-  const text = short(item.title || item.text || item.detail || "处理中", 180);
-  if (variant === "current") {
-    return text.startsWith("正在") ? text : `正在${text}`;
-  }
-  return text;
+  return actionViewForTimelineItem(item);
 }
 
 function ActivityCopy({ item, variant = "normal" }: { item: PublicChatTimelineItem; variant?: "normal" | "current" | "history" }) {
@@ -286,15 +147,17 @@ function ActivityCopy({ item, variant = "normal" }: { item: PublicChatTimelineIt
     );
   }
   if (kind === "tool_activity") {
+    const action = actionDisplay(item);
     return (
       <>
-        <strong>{actionSentence(item, variant === "current" ? "current" : "history")}</strong>
+        <strong>{presentedActionSentence(item, variant === "current" ? "current" : "history")}</strong>
+        {action.observation ? <small className="public-run-activity__observation">{action.observation}</small> : null}
       </>
     );
   }
   return (
     <>
-      <strong>{actionSentence(item, variant === "current" ? "current" : "history")}</strong>
+      <strong>{presentedActionSentence(item, variant === "current" ? "current" : "history")}</strong>
       {item.detail ? <small>{short(item.detail, 180)}</small> : null}
     </>
   );
@@ -313,7 +176,7 @@ function activityPlan(items: PublicChatTimelineItem[]) {
     return state === "running" || state === "error";
   }) ?? null;
   const history = actionItems.filter((item) => item !== current);
-  const recent = current ? [] : history.slice(-RECENT_HISTORY_LIMIT);
+  const recent = history.slice(-RECENT_HISTORY_LIMIT);
   const collapsedCount = Math.max(0, history.length - recent.length);
   const fallbackCurrent = !current && !recent.length && !finalItems.length
     ? lastOf(statusItems.filter((item) => stateClass(item) === "running")) ?? lastOf(statusItems)
@@ -330,12 +193,13 @@ function activitySummary(plan: ReturnType<typeof activityPlan>) {
   if (plan.current) {
     const state = stateClass(plan.current);
     const kind = cleanText(plan.current.kind);
+    const currentAction = presentedActionSentence(plan.current, "current");
     return {
       detail: state === "error"
         ? short(plan.current.recovery_hint || textOfItem(plan.current), 180)
-        : plan.collapsedCount
-          ? `已完成 ${plan.collapsedCount} 步，当前动作正在处理。`
-          : "当前动作正在处理。",
+        : plan.collapsedCount && currentAction
+          ? `已完成 ${plan.collapsedCount} 步；${currentAction}。`
+          : currentAction || "当前动作正在处理。",
       item: plan.current,
       meta: state === "error" ? "受阻" : "实时",
       title: state === "error" ? "需要处理" : kind === "status_update" ? "判断中" : "执行中",
@@ -355,8 +219,9 @@ function activitySummary(plan: ReturnType<typeof activityPlan>) {
   }
   const lastRecent = lastOf(plan.recent);
   if (lastRecent || plan.collapsedCount) {
+    const recentAction = lastRecent ? presentedActionSentence(lastRecent, "history") : "";
     return {
-      detail: plan.collapsedCount ? `已完成 ${plan.collapsedCount} 步处理。` : "关键动作已完成。",
+      detail: recentAction || (plan.collapsedCount ? `已完成 ${plan.collapsedCount} 步处理。` : "关键动作已完成。"),
       item: lastRecent,
       meta: "已同步",
       title: "阶段完成",

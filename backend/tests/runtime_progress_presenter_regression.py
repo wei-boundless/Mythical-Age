@@ -442,7 +442,7 @@ def test_agent_feedback_survives_tool_activity_projection() -> None:
                     "request_id": "act:stat",
                     "action_type": "tool_call",
                     "public_progress_note": "我先检查文件写入权限和可用路径，然后创建游戏文件。",
-                    "tool_call": {"name": "stat_path", "args": {"path": "output"}},
+                    "tool_calls": [{"tool_name": "stat_path", "args": {"path": "output"}}],
                 }
             },
             "refs": {"action_request_ref": "act:stat"},
@@ -454,7 +454,7 @@ def test_agent_feedback_survives_tool_activity_projection() -> None:
             "offset": 2,
             "created_at": 2.0,
             "payload": {
-                "step": "task_tool_call_started:1",
+                "step": "task_tool_batch_started:1",
                 "status": "running",
                 "summary": "正在使用路径信息工具处理 output。",
             },

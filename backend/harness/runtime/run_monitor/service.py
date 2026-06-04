@@ -4,9 +4,12 @@ import time
 from typing import Any
 
 from .contract import build_envelope
+from .management import RuntimeMonitorManagementProjector
 from .projector import RuntimeMonitorProjector
+from .retention_store import RuntimeMonitorRetentionStore
 from .resource_resolver import MonitorResourceResolver
 from .signals import build_runtime_monitor_envelope
+from .lifecycle import TERMINAL_TASK_RUN_STATUSES
 
 
 class RuntimeMonitorService:
@@ -23,6 +26,12 @@ class RuntimeMonitorService:
             resource_resolver=self.resource_resolver,
             session_scope_resolver=getattr(runtime_host, "session_scope_resolver", None),
         )
+        self.retention_store = RuntimeMonitorRetentionStore(
+            backend_dir=getattr(runtime_host, "backend_dir", None),
+        )
+        self.management_projector = RuntimeMonitorManagementProjector(
+            retention_store=self.retention_store,
+        )
 
     def attach_graph_harness(self, graph_harness: Any | None) -> None:
         self.resource_resolver.graph_harness = graph_harness
@@ -36,10 +45,15 @@ class RuntimeMonitorService:
     def collect_global_runtime_monitor(self, limit: int = 30) -> dict[str, Any]:
         requested_limit = max(1, min(int(limit or 30), 100))
         now = time.time()
-        items = self._global_live_items(requested_limit=requested_limit, now=now)
-        return build_runtime_monitor_envelope(items=items, now=now, limit=requested_limit)
+        items = self._global_live_items(
+            requested_limit=requested_limit,
+            now=now,
+            include_recent_terminal=True,
+        )
+        envelope = build_runtime_monitor_envelope(items=items, now=now, limit=requested_limit)
+        return self.management_projector.apply_management(envelope, now=now, source_items=items)
 
-    def _global_live_items(self, *, requested_limit: int, now: float) -> list[dict[str, Any]]:
+    def _global_live_items(self, *, requested_limit: int, now: float, include_recent_terminal: bool = False) -> list[dict[str, Any]]:
         task_runs = self.runtime_host.state_index.list_recent_task_runs(limit=max(requested_limit * 4, 80))
         base_monitor = self.projector.build_global_monitor(
             task_runs,
@@ -47,6 +61,16 @@ class RuntimeMonitorService:
             limit=requested_limit,
         )
         base_items = [item for item in list(base_monitor.get("items") or []) if isinstance(item, dict)]
+        if include_recent_terminal:
+            base_items = [
+                *base_items,
+                *self._recent_terminal_items(
+                    task_runs=task_runs,
+                    visible_items=base_items,
+                    now=now,
+                    limit=max(requested_limit, 20),
+                ),
+            ]
         active_turn_items = self._global_active_turn_items(now=now, visible_items=base_items)
         if not active_turn_items:
             return base_items
@@ -54,6 +78,45 @@ class RuntimeMonitorService:
             *base_items,
             *active_turn_items,
         ]
+
+    def _recent_terminal_items(
+        self,
+        *,
+        task_runs: list[Any],
+        visible_items: list[dict[str, Any]],
+        now: float,
+        limit: int,
+    ) -> list[dict[str, Any]]:
+        visible_ids = {
+            str(item.get("task_run_id") or "").strip()
+            for item in visible_items
+            if str(item.get("task_run_id") or "").strip()
+        }
+        recent: list[dict[str, Any]] = []
+        for task_run in sorted(
+            task_runs,
+            key=lambda item: float(getattr(item, "updated_at", 0.0) or getattr(item, "created_at", 0.0) or 0.0),
+            reverse=True,
+        ):
+            task_run_id = str(getattr(task_run, "task_run_id", "") or "").strip()
+            if not task_run_id or task_run_id in visible_ids:
+                continue
+            if not self.projector.is_top_level_task_run(task_run):
+                continue
+            status = str(getattr(task_run, "status", "") or "").strip()
+            if status not in TERMINAL_TASK_RUN_STATUSES:
+                continue
+            recent.append(
+                self.projector.project_task_run(
+                    task_run,
+                    now=now,
+                    include_runtime_details=False,
+                    include_graph_runtime=False,
+                )
+            )
+            if len(recent) >= max(1, int(limit or 20)):
+                break
+        return recent
 
     def get_session_live_monitor(self, session_id: str, *, limit: int = 20) -> dict[str, Any]:
         task_runs = sorted(

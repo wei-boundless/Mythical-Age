@@ -448,15 +448,19 @@ class DurableMemoryLayer:
         manifest_headers: list[dict[str, object]],
         note_limit: int,
     ) -> MemoryRecallResult:
-        selected_ids = {
-            str(note_id or "")
-            for note_id in selection.selected_note_ids
-            if str(note_id or "")
+        headers_by_id = {
+            str(header.get("note_id", "") or ""): header
+            for header in manifest_headers
+            if str(header.get("note_id", "") or "")
         }
         selected_headers = [
-            header
-            for header in manifest_headers
-            if str(header.get("note_id", "") or "") in selected_ids
+            headers_by_id[note_id]
+            for note_id in (
+                str(note_id or "")
+                for note_id in selection.selected_note_ids
+                if str(note_id or "")
+            )
+            if note_id in headers_by_id
         ][:note_limit]
         note_dicts = self._load_selected_note_dicts(selected_headers, limit=note_limit)
         return MemoryRecallResult(

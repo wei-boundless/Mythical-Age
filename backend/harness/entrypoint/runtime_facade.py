@@ -68,7 +68,7 @@ from harness.graph.work_order_contract import (
     _validate_existing_graph_node_task_run,
 )
 from runtime.shared.models import AgentRun, TaskRun
-from memory_system.environment_context import resolve_memory_environment_context
+from memory_system.runtime_context_provider import RuntimeMemoryContextProvider, should_inject_session_emphasis
 
 logger = logging.getLogger(__name__)
 
@@ -101,6 +101,12 @@ class HarnessRuntimeFacade:
         self.settings_service = settings_service
         self.session_manager = session_manager
         self.memory_facade = memory_facade
+        self.runtime_memory_context_provider = RuntimeMemoryContextProvider(
+            bundle_service_getter=lambda: getattr(getattr(self, "memory_facade", None), "bundle_service", None),
+            session_record_loader=lambda session_id: self.session_manager.load_session_record(session_id),
+            recent_messages_loader=self._load_recent_api_messages_for_memory,
+            logger=logger,
+        )
         self.model_runtime = model_runtime
         self.tool_runtime = tool_runtime
         self.skill_registry = skill_registry
@@ -338,6 +344,19 @@ class HarnessRuntimeFacade:
                 )
                 if session_emphasis:
                     session_context["session_emphasis"] = session_emphasis
+                memory_context = await self._runtime_memory_context_for_turn(
+                    session_id=request.session_id,
+                    turn_id=turn_id,
+                    user_message=request.message,
+                    session_context=session_context,
+                    agent_runtime_profile=agent_runtime_profile,
+                    runtime_assembly=runtime_assembly,
+                    task_selection=dict(request.task_selection or {}),
+                    active_work_context=active_work_context,
+                    recent_work_outcome=recent_work_outcome,
+                )
+                if memory_context:
+                    session_context["memory_context"] = memory_context
                 yield {
                     "type": "runtime_branch_decided",
                     "runtime_branch": runtime_branch,
@@ -1338,6 +1357,7 @@ class HarnessRuntimeFacade:
                 payload,
             ),
             execute_task_run_callback=self.execute_task_run,
+            memory_context_provider=lambda payload: self._runtime_memory_context_for_task_execution(dict(payload or {})),
         )
 
     def _create_graph_node_task_run(self, *, graph_config: Any, work_order: Any) -> TaskRun:
@@ -1653,7 +1673,7 @@ class HarnessRuntimeFacade:
         store = getattr(self.memory_facade, "session_emphasis", None)
         if store is None:
             return []
-        if not _should_inject_session_emphasis(
+        if not should_inject_session_emphasis(
             user_message=user_message,
             task_selection=task_selection,
             active_work_context=active_work_context,
@@ -1688,20 +1708,57 @@ class HarnessRuntimeFacade:
         recent_work_outcome: dict[str, Any] | None = None,
         runtime_assembly: Any | None = None,
     ) -> dict[str, Any]:
-        try:
-            session_record = self.session_manager.load_session_record(session_id)
-        except Exception:
-            session_record = {}
-        return resolve_memory_environment_context(
-            main_context=main_context,
-            runtime_assembly=runtime_assembly,
-            session_record=session_record,
+        return self.runtime_memory_context_provider.environment_context(
+            session_id=session_id,
             turn_id=turn_id,
             task_run_id=task_run_id,
+            main_context=main_context,
             task_selection=task_selection,
             active_work_context=active_work_context,
             recent_work_outcome=recent_work_outcome,
-        ).to_dict()
+            runtime_assembly=runtime_assembly,
+        )
+
+    async def _runtime_memory_context_for_turn(
+        self,
+        *,
+        session_id: str,
+        turn_id: str,
+        user_message: str,
+        session_context: dict[str, Any],
+        agent_runtime_profile: Any,
+        runtime_assembly: Any,
+        task_selection: dict[str, Any],
+        active_work_context: dict[str, Any] | None,
+        recent_work_outcome: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        return await self.runtime_memory_context_provider.for_turn(
+            session_id=session_id,
+            turn_id=turn_id,
+            user_message=user_message,
+            session_context=session_context,
+            agent_runtime_profile=agent_runtime_profile,
+            runtime_assembly=runtime_assembly,
+            task_selection=task_selection,
+            active_work_context=active_work_context,
+            recent_work_outcome=recent_work_outcome,
+        )
+
+    def _load_recent_api_messages_for_memory(self, session_id: str) -> list[dict[str, Any]]:
+        loader = getattr(self.session_manager, "load_session_for_api", None)
+        if not callable(loader):
+            return []
+        try:
+            return [
+                dict(item)
+                for item in list(loader(session_id) or [])
+                if isinstance(item, dict)
+            ]
+        except Exception:
+            return []
+
+    async def _runtime_memory_context_for_task_execution(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return await self.runtime_memory_context_provider.for_task_execution(dict(payload or {}))
 
     def _memory_receipt_commit_payload(self, receipt: Any) -> dict[str, Any]:
         payload = receipt.to_dict() if hasattr(receipt, "to_dict") else dict(receipt or {})
@@ -1798,42 +1855,6 @@ def _request_permission_mode(
         if provider_mode:
             return normalize_permission_mode(provider_mode)
     return "full_access"
-
-
-def _should_inject_session_emphasis(
-    *,
-    user_message: str,
-    task_selection: dict[str, Any],
-    active_work_context: dict[str, Any] | None,
-    recent_work_outcome: dict[str, Any] | None,
-) -> bool:
-    if task_selection or active_work_context or recent_work_outcome:
-        return True
-    content = str(user_message or "").strip().lower()
-    if not content:
-        return False
-    task_terms = (
-        "继续",
-        "执行",
-        "开始",
-        "修改",
-        "修复",
-        "重构",
-        "实现",
-        "落地",
-        "测试",
-        "检查",
-        "审查",
-        "计划",
-        "继续做",
-        "continue",
-        "implement",
-        "fix",
-        "refactor",
-        "test",
-        "review",
-    )
-    return any(term in content for term in task_terms)
 
 
 def _graph_model_override_diagnostics(work_order: Any) -> dict[str, Any]:

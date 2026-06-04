@@ -911,6 +911,42 @@ async def _replay_approved_pending_tool_call(
     }
 
 
+async def _runtime_memory_context_for_task_step(
+    services: TaskExecutorServices,
+    *,
+    session_id: str,
+    task_run: Any,
+    contract: dict[str, Any],
+    observations: list[dict[str, Any]],
+    execution_state: dict[str, Any],
+    runtime_assembly: Any,
+    agent_runtime_profile: Any,
+    invocation_index: int,
+) -> dict[str, Any]:
+    provider = getattr(services, "memory_context_provider", None)
+    if not callable(provider):
+        return {}
+    try:
+        result = provider(
+            {
+                "session_id": session_id,
+                "task_run_id": str(getattr(task_run, "task_run_id", "") or ""),
+                "task_run": task_run.to_dict() if hasattr(task_run, "to_dict") else dict(task_run or {}),
+                "contract": dict(contract or {}),
+                "observations": [dict(item) for item in list(observations or []) if isinstance(item, dict)],
+                "execution_state": dict(execution_state or {}),
+                "runtime_assembly": runtime_assembly,
+                "agent_runtime_profile": agent_runtime_profile,
+                "invocation_index": int(invocation_index or 1),
+            }
+        )
+        if asyncio.iscoroutine(result):
+            result = await result
+    except Exception:
+        return {}
+    return dict(result or {}) if isinstance(result, dict) else {}
+
+
 async def _execute_claimed_task_run(
     services: TaskExecutorServices,
     *,
@@ -967,6 +1003,17 @@ async def _execute_claimed_task_run(
         current_task = runtime_host.state_index.get_task_run(current_task.task_run_id) or current_task
         if _task_run_session_deleted(runtime_host, current_task):
             return _conflict(current_task.task_run_id, "session_deleted")
+        memory_context = await _runtime_memory_context_for_task_step(
+            services,
+            session_id=current_task.session_id,
+            task_run=current_task,
+            contract=contract,
+            observations=observations,
+            execution_state=execution_state,
+            runtime_assembly=runtime_assembly,
+            agent_runtime_profile=services.agent_runtime_profile,
+            invocation_index=step_index,
+        )
         compilation = compiler.compile_task_execution_packet(
             session_id=current_task.session_id,
             task_run=current_task.to_dict(),
@@ -978,6 +1025,7 @@ async def _execute_claimed_task_run(
             model_selection=model_selection,
             available_tools=runtime_available_tools,
             runtime_assembly=runtime_assembly,
+            memory_context=memory_context,
             invocation_index=step_index,
         )
         packet_event = runtime_host.event_log.append(
@@ -1345,185 +1393,6 @@ async def _execute_claimed_task_run(
                 )
             continue
 
-        if action_request.action_type == "tool_call":
-            tool_progress = _tool_call_progress_summary(action_request)
-            tool_call_payload = dict(action_request.tool_call or {})
-            tool_args = dict(tool_call_payload.get("args") or tool_call_payload.get("tool_args") or {})
-            tool_name = str(tool_call_payload.get("tool_name") or tool_call_payload.get("name") or "").strip()
-            duplicate_observation = _duplicate_read_only_tool_call_observation(
-                task_run_id=current_task.task_run_id,
-                packet_ref=compilation.packet.packet_id,
-                action_request=action_request,
-                previous_observations=raw_observations,
-                runtime_fingerprint={"runtime_fingerprint": runtime_fingerprint},
-            )
-            if duplicate_observation:
-                raw_observations.append(duplicate_observation)
-                runtime_host.runtime_objects.put_object("observation", duplicate_observation["observation_id"], duplicate_observation)
-                duplicate_event = runtime_host.event_log.append(
-                    current_task.task_run_id,
-                    "task_duplicate_tool_call_guarded",
-                    payload={"observation": duplicate_observation},
-                    refs={
-                        "task_run_ref": current_task.task_run_id,
-                        "action_request_ref": action_request.request_id,
-                        "observation_ref": duplicate_observation["observation_id"],
-                        "runtime_invocation_packet_ref": compilation.packet.packet_id,
-                    },
-                )
-                _record_task_step_summary(
-                    runtime_host,
-                    task_run_id=current_task.task_run_id,
-                    step=f"task_duplicate_tool_call_guarded:{step_index}",
-                    status="running",
-                    summary="重复只读工具调用被拦截，已有观察将继续参与上下文。",
-                    refs={"observation_ref": duplicate_observation["observation_id"], "action_request_ref": action_request.request_id},
-                )
-                append_work_rollout_item(
-                    runtime_host,
-                    task_run=current_task,
-                    item_type="progress",
-                    title="重复工具调用已拦截",
-                    status="running",
-                    summary="重复只读工具调用被拦截，已有观察将继续参与上下文。",
-                    event_offset=duplicate_event.offset,
-                    refs={"observation_ref": duplicate_observation["observation_id"], "action_request_ref": action_request.request_id},
-                    payload={"model_visible": False},
-                )
-                observation_context = _observations_for_packet(
-                    runtime_host,
-                    current_task.task_run_id,
-                    current_fingerprint=runtime_fingerprint,
-                    pending_observations=raw_observations,
-                )
-                raw_observations = list(observation_context["raw_observations"])
-                observations = list(observation_context["packet_observations"])
-                execution_state = dict(observation_context["execution_state"])
-                artifact_refs = dedupe_artifact_refs([*list(observation_context["artifact_refs"]), *artifact_refs])
-                continue
-            _record_task_step_summary(
-                runtime_host,
-                task_run_id=current_task.task_run_id,
-                step=f"task_tool_call_started:{step_index}",
-                status="running",
-                summary=tool_progress,
-                tool_status=tool_progress,
-                presentation_source="system.tool_call_status",
-                tool_name=tool_name,
-                tool_target=_tool_target_preview(tool_args),
-                refs={"action_request_ref": action_request.request_id},
-            )
-            append_work_rollout_item(
-                runtime_host,
-                task_run=current_task,
-                item_type="progress",
-                title="执行操作",
-                status="running",
-                summary=tool_progress,
-                event_offset=action_event.offset,
-                refs={"action_request_ref": action_request.request_id, "runtime_invocation_packet_ref": compilation.packet.packet_id},
-                payload={
-                    "tool_name": str(action_request.tool_call.get("tool_name") or action_request.tool_call.get("name") or ""),
-                    "model_visible": False,
-                },
-            )
-            try:
-                observation = await _execute_task_tool_call(
-                    runtime_host,
-                    services=services,
-                    task_run=current_task,
-                    packet_ref=compilation.packet.packet_id,
-                    action_request=action_request,
-                    admission=admission,
-                    runtime_assembly=runtime_assembly.to_dict(),
-                    runtime_tool_plan=runtime_tool_plan,
-                )
-            except TaskRunExecutorInterrupted as exc:
-                interrupted_task = runtime_host.state_index.get_task_run(current_task.task_run_id) or current_task
-                if exc.signal.kind == "pause":
-                    return _pause_executor_for_user_control(runtime_host, task_run=interrupted_task, agent_run=agent_run, boundary=f"tool_execution:{step_index}")
-                if exc.signal.kind == "stop":
-                    return _stop_executor_for_user_control(runtime_host, task_run=interrupted_task, agent_run=agent_run, boundary=f"tool_execution:{step_index}")
-                return _replan_executor_for_user_control(
-                    runtime_host,
-                    task_run=interrupted_task,
-                    agent_run=agent_run,
-                    boundary=f"tool_execution:{step_index}",
-                    signal=exc.signal,
-                )
-            raw_observations.append(observation)
-            runtime_host.runtime_objects.put_object("observation", observation["observation_id"], observation)
-            observation_event = runtime_host.event_log.append(
-                current_task.task_run_id,
-                "task_tool_observation_recorded",
-                payload={"observation": observation},
-                refs={
-                    "task_run_ref": current_task.task_run_id,
-                    "action_request_ref": action_request.request_id,
-                    "observation_ref": observation["observation_id"],
-                },
-            )
-            artifact_refs = dedupe_artifact_refs([*artifact_refs, *_artifact_refs_from_observation(observation)])
-            if _is_approval_request_observation(observation):
-                return _pause_executor_for_tool_approval(
-                    runtime_host,
-                    task_run=current_task,
-                    agent_run=agent_run,
-                    action_request=action_request,
-                    observation=observation,
-                    observation_event=observation_event,
-                    step_index=step_index,
-                )
-            _record_task_step_summary(
-                runtime_host,
-                task_run_id=current_task.task_run_id,
-                step=f"task_tool_observation_recorded:{step_index}",
-                status="running",
-                summary="工具调用已完成，正在根据结果继续。",
-                agent_brief_output=_observation_brief(observation),
-                presentation_source="tool_observation.summary",
-                refs={
-                    "observation_ref": observation["observation_id"],
-                    "tool_name": str(action_request.tool_call.get("tool_name") or action_request.tool_call.get("name") or ""),
-                },
-            )
-            append_work_rollout_item(
-                runtime_host,
-                task_run=current_task,
-                item_type="progress",
-                title="执行操作",
-                status="running",
-                summary="工具调用已完成，正在根据结果继续。" if not observation.get("error") else "工具调用失败，正在根据失败原因调整处理路径。",
-                agent_brief_output=_observation_brief(observation),
-                event_offset=observation_event.offset,
-                refs={"observation_ref": observation["observation_id"], "action_request_ref": action_request.request_id},
-                payload={"artifact_refs": _artifact_refs_from_observation(observation), "error": str(observation.get("error") or "")},
-            )
-            if observation.get("error"):
-                _record_task_step_summary(
-                    runtime_host,
-                    task_run_id=current_task.task_run_id,
-                    step=f"task_tool_repair_required:{step_index}",
-                    status="running",
-                    summary="工具调用失败，正在根据失败原因调整处理路径。",
-                    refs={"observation_ref": observation["observation_id"]},
-                )
-            current_task = runtime_host.state_index.get_task_run(current_task.task_run_id) or current_task
-            control_result = _apply_runtime_control_boundary(runtime_host, task_run=current_task, agent_run=agent_run, boundary=f"after_tool_observation:{step_index}")
-            if control_result is not None:
-                return control_result
-            observation_context = _observations_for_packet(
-                runtime_host,
-                current_task.task_run_id,
-                current_fingerprint=runtime_fingerprint,
-                pending_observations=raw_observations,
-            )
-            raw_observations = list(observation_context["raw_observations"])
-            observations = list(observation_context["packet_observations"])
-            execution_state = dict(observation_context["execution_state"])
-            artifact_refs = dedupe_artifact_refs([*list(observation_context["artifact_refs"]), *artifact_refs])
-            continue
-
         if action_request.action_type == "respond":
             current_pending_steer_ids = [
                 str(item.get("steer_id") or "")
@@ -1757,8 +1626,8 @@ async def _process_task_tool_call_batch(
             "action_permit": action_permit.to_dict(),
             "observation": None,
         }
-        invocation_rows.append(row)
         if admission.decision != "allow":
+            invocation_rows.append(row)
             admission_result = _record_task_admission_observation_for_tool_child(
                 runtime_host,
                 current_task=current_task,
@@ -1781,13 +1650,43 @@ async def _process_task_tool_call_batch(
             observations = list(admission_result["observations"])
             execution_state = dict(admission_result["execution_state"])
             artifact_refs = dedupe_artifact_refs(list(admission_result["artifact_refs"]))
+            continue
+        duplicate_observation = _duplicate_read_only_tool_call_observation(
+            task_run_id=current_task.task_run_id,
+            packet_ref=packet_ref,
+            action_request=child_request,
+            previous_observations=raw_observations,
+            runtime_fingerprint={"runtime_fingerprint": runtime_fingerprint},
+        )
+        if duplicate_observation:
+            duplicate_result = _record_duplicate_tool_call_guard_observation_for_tool_child(
+                runtime_host,
+                current_task=current_task,
+                action_request=child_request,
+                observation=duplicate_observation,
+                runtime_fingerprint=runtime_fingerprint,
+                raw_observations=raw_observations,
+                observations=observations,
+                execution_state=execution_state,
+                artifact_refs=artifact_refs,
+                packet_ref=packet_ref,
+                step_index=step_index,
+                event_offset=action_event_offset,
+            )
+            current_task = duplicate_result["current_task"]
+            raw_observations = list(duplicate_result["raw_observations"])
+            observations = list(duplicate_result["observations"])
+            execution_state = dict(duplicate_result["execution_state"])
+            artifact_refs = dedupe_artifact_refs(list(duplicate_result["artifact_refs"]))
+            continue
+        invocation_rows.append(row)
     batch_plan = build_tool_batch_plan(
         turn_id=current_task.task_run_id,
         packet_ref=packet_ref,
         invocation_rows=invocation_rows,
         tool_plan=runtime_tool_plan,
         definitions_by_name=getattr(runtime_host.tool_authorization_index, "definitions_by_name", {}),
-        workspace_root=_task_workspace_root(runtime_assembly, runtime_host=runtime_host),
+        workspace_root=_task_batch_workspace_root(runtime_assembly, runtime_host=runtime_host),
     )
     runtime_host.event_log.append(
         current_task.task_run_id,
@@ -1821,7 +1720,7 @@ async def _process_task_tool_call_batch(
             },
         )
         try:
-            group_results = await _execute_task_tool_batch_group(
+            group_execution = await _execute_task_tool_batch_group(
                 group,
                 invocation_rows=invocation_rows,
                 runtime_host=runtime_host,
@@ -1831,6 +1730,8 @@ async def _process_task_tool_call_batch(
                 runtime_assembly=runtime_assembly,
                 runtime_tool_plan=runtime_tool_plan,
             )
+            group_results = list(group_execution.get("results") or [])
+            group_interrupt = group_execution.get("interrupt")
         except TaskRunExecutorInterrupted as exc:
             interrupted_task = runtime_host.state_index.get_task_run(current_task.task_run_id) or current_task
             if exc.signal.kind == "pause":
@@ -1938,6 +1839,7 @@ async def _process_task_tool_call_batch(
                 "tool_batch_group": group.to_dict(),
                 "observation_refs": completed_refs,
                 "statuses": completed_statuses,
+                "interrupted": isinstance(group_interrupt, TaskRunExecutorInterrupted),
             },
             refs={
                 "task_run_ref": current_task.task_run_id,
@@ -1947,6 +1849,21 @@ async def _process_task_tool_call_batch(
                 "group_event_ref": getattr(group_event, "event_id", ""),
             },
         )
+        if isinstance(group_interrupt, TaskRunExecutorInterrupted):
+            interrupted_task = runtime_host.state_index.get_task_run(current_task.task_run_id) or current_task
+            if group_interrupt.signal.kind == "pause":
+                return {"return_result": _pause_executor_for_user_control(runtime_host, task_run=interrupted_task, agent_run=agent_run, boundary=f"tool_batch_execution:{step_index}")}
+            if group_interrupt.signal.kind == "stop":
+                return {"return_result": _stop_executor_for_user_control(runtime_host, task_run=interrupted_task, agent_run=agent_run, boundary=f"tool_batch_execution:{step_index}")}
+            return {
+                "return_result": _replan_executor_for_user_control(
+                    runtime_host,
+                    task_run=interrupted_task,
+                    agent_run=agent_run,
+                    boundary=f"tool_batch_execution:{step_index}",
+                    signal=group_interrupt.signal,
+                )
+            }
         current_task = runtime_host.state_index.get_task_run(current_task.task_run_id) or current_task
         control_result = _apply_runtime_control_boundary(runtime_host, task_run=current_task, agent_run=agent_run, boundary=f"after_tool_batch_group:{step_index}")
         if control_result is not None:
@@ -1967,6 +1884,68 @@ async def _process_task_tool_call_batch(
         "observations": observations,
         "execution_state": execution_state,
         "artifact_refs": artifact_refs,
+    }
+
+
+def _record_duplicate_tool_call_guard_observation_for_tool_child(
+    runtime_host: Any,
+    *,
+    current_task: Any,
+    action_request: AnyModelActionRequest,
+    observation: dict[str, Any],
+    runtime_fingerprint: dict[str, Any],
+    raw_observations: list[dict[str, Any]],
+    observations: list[dict[str, Any]],
+    execution_state: dict[str, Any],
+    artifact_refs: list[dict[str, Any]],
+    packet_ref: str,
+    step_index: int,
+    event_offset: int | float = 0,
+) -> dict[str, Any]:
+    raw_observations.append(observation)
+    runtime_host.runtime_objects.put_object("observation", observation["observation_id"], observation)
+    duplicate_event = runtime_host.event_log.append(
+        current_task.task_run_id,
+        "task_duplicate_tool_call_guarded",
+        payload={"observation": observation},
+        refs={
+            "task_run_ref": current_task.task_run_id,
+            "action_request_ref": action_request.request_id,
+            "observation_ref": observation["observation_id"],
+            "runtime_invocation_packet_ref": packet_ref,
+        },
+    )
+    _record_task_step_summary(
+        runtime_host,
+        task_run_id=current_task.task_run_id,
+        step=f"task_duplicate_tool_call_guarded:{step_index}",
+        status="running",
+        summary="重复只读工具调用被拦截，已有观察将继续参与上下文。",
+        refs={"observation_ref": observation["observation_id"], "action_request_ref": action_request.request_id},
+    )
+    append_work_rollout_item(
+        runtime_host,
+        task_run=current_task,
+        item_type="progress",
+        title="重复工具调用已拦截",
+        status="running",
+        summary="重复只读工具调用被拦截，已有观察将继续参与上下文。",
+        event_offset=event_offset or duplicate_event.offset,
+        refs={"observation_ref": observation["observation_id"], "action_request_ref": action_request.request_id},
+        payload={"model_visible": False},
+    )
+    observation_context = _observations_for_packet(
+        runtime_host,
+        current_task.task_run_id,
+        current_fingerprint=runtime_fingerprint,
+        pending_observations=raw_observations,
+    )
+    return {
+        "current_task": runtime_host.state_index.get_task_run(current_task.task_run_id) or current_task,
+        "raw_observations": list(observation_context["raw_observations"]),
+        "observations": list(observation_context["packet_observations"]),
+        "execution_state": dict(observation_context["execution_state"]),
+        "artifact_refs": dedupe_artifact_refs([*list(observation_context["artifact_refs"]), *artifact_refs]),
     }
 
 
@@ -2172,7 +2151,15 @@ def _tool_failure_fingerprint(observation: dict[str, Any]) -> str:
         return ""
     if _is_approval_request_observation(observation):
         return ""
-    if not (observation.get("error") or dict(observation.get("payload") or {}).get("error")):
+    payload = dict(observation.get("payload") or {})
+    envelope = dict(payload.get("result_envelope") or {})
+    status = _observation_status(observation)
+    if (
+        status not in {"failed", "denied", "canceled", "error"}
+        and not observation.get("error")
+        and not payload.get("error")
+        and str(envelope.get("status") or "").strip() not in {"error", "failed", "denied", "canceled"}
+    ):
         return ""
     tool_name = _observation_tool_name(observation)
     if not tool_name or tool_name in {"repeated_tool_failure_guard", "duplicate_tool_call_guard"}:
@@ -2181,9 +2168,13 @@ def _tool_failure_fingerprint(observation: dict[str, Any]) -> str:
     structured_error = _structured_error_from_observation(observation)
     error_code = str(
         structured_error.get("code")
-        or dict(observation.get("payload") or {}).get("error_code")
+        or payload.get("error_code")
+        or envelope.get("error_code")
         or observation.get("error")
-        or dict(observation.get("payload") or {}).get("error")
+        or payload.get("error")
+        or envelope.get("error")
+        or envelope.get("status")
+        or status
         or "tool_failure"
     ).strip()
     raw = json.dumps(
@@ -2259,7 +2250,7 @@ async def _execute_task_tool_batch_group(
     packet_ref: str,
     runtime_assembly: Any,
     runtime_tool_plan: Any,
-) -> list[tuple[dict[str, Any], dict[str, Any]]]:
+) -> dict[str, Any]:
     row_indexes: list[int] = []
     for raw_index in list(group.item_indexes or ()):
         try:
@@ -2269,7 +2260,7 @@ async def _execute_task_tool_batch_group(
         if 0 <= index < len(invocation_rows):
             row_indexes.append(index)
     if not row_indexes:
-        return []
+        return {"results": [], "interrupt": None}
     timeout_seconds = _task_tool_batch_group_timeout_seconds(runtime_assembly)
     if group.parallel and len(row_indexes) > 1:
         tasks = {
@@ -2293,21 +2284,35 @@ async def _execute_task_tool_batch_group(
                 task.cancel()
             await asyncio.gather(*pending, return_exceptions=True)
         results_by_index: dict[int, Any] = {}
+        interrupt: TaskRunExecutorInterrupted | None = None
         for task in done:
             row_index = tasks[task]
             try:
                 results_by_index[row_index] = task.result()
-            except TaskRunExecutorInterrupted:
-                raise
+            except TaskRunExecutorInterrupted as exc:
+                interrupt = interrupt or exc
             except BaseException as exc:
                 results_by_index[row_index] = exc
         for task in pending:
             results_by_index[tasks[task]] = TimeoutError(f"task_tool_batch_group_timeout_after_{timeout_seconds:g}s")
-        return [
-            (invocation_rows[row_index], _task_observation_from_batch_result(results_by_index.get(row_index), task_run=task_run, packet_ref=packet_ref, row=invocation_rows[row_index]))
-            for row_index in row_indexes
-        ]
+        return {
+            "results": [
+                (
+                    invocation_rows[row_index],
+                    _task_observation_from_batch_result(
+                        results_by_index.get(row_index),
+                        task_run=task_run,
+                        packet_ref=packet_ref,
+                        row=invocation_rows[row_index],
+                    ),
+                )
+                for row_index in row_indexes
+                if row_index in results_by_index
+            ],
+            "interrupt": interrupt,
+        }
     results: list[tuple[dict[str, Any], dict[str, Any]]] = []
+    interrupt: TaskRunExecutorInterrupted | None = None
     for row_index in row_indexes:
         row = invocation_rows[row_index]
         try:
@@ -2325,14 +2330,15 @@ async def _execute_task_tool_batch_group(
                 result = await asyncio.wait_for(invocation, timeout=timeout_seconds)
             else:
                 result = await invocation
-        except TaskRunExecutorInterrupted:
-            raise
+        except TaskRunExecutorInterrupted as exc:
+            interrupt = exc
+            break
         except asyncio.TimeoutError:
             result = TimeoutError(f"task_tool_batch_group_timeout_after_{timeout_seconds:g}s")
         except BaseException as exc:
             result = exc
         results.append((row, _task_observation_from_batch_result(result, task_run=task_run, packet_ref=packet_ref, row=row)))
-    return results
+    return {"results": results, "interrupt": interrupt}
 
 
 def _task_observation_from_batch_result(result: Any, *, task_run: Any, packet_ref: str, row: dict[str, Any]) -> dict[str, Any]:
@@ -2407,7 +2413,7 @@ def _task_tool_child_action_requests(action_request: AnyModelActionRequest) -> l
     return result
 
 
-def _task_workspace_root(runtime_assembly: Any, *, runtime_host: Any | None = None) -> str:
+def _task_batch_workspace_root(runtime_assembly: Any, *, runtime_host: Any | None = None) -> str:
     payload = runtime_assembly.to_dict() if hasattr(runtime_assembly, "to_dict") else dict(runtime_assembly or {})
     for candidate in (
         dict(payload.get("sandbox_policy") or {}).get("workspace_root"),
@@ -2676,9 +2682,6 @@ async def _execute_task_tool_call(
             error="runtime_tool_control_plane_unavailable",
         )
     observation_result = await tool_control_plane.invoke(request, tool_plan=runtime_tool_plan)
-    signal = peek_executor_signal(runtime_host, task_run_id=task_run.task_run_id, executor_epoch=executor_epoch)
-    if signal is not None:
-        raise TaskRunExecutorInterrupted(signal)
     observation = observation_result.to_task_observation(
         task_run_id=task_run.task_run_id,
         request_ref=action_request.request_id,
@@ -5212,6 +5215,15 @@ def _structured_error_from_observation(observation: dict[str, Any]) -> dict[str,
             "retryable": bool(payload.get("retryable", True)),
             "origin": _error_origin(observation),
         }
+    status = _observation_status(observation)
+    if status in {"failed", "denied", "canceled", "error"}:
+        status_code = str(envelope.get("status") or tool_result.get("status") or payload.get("status") or status or "tool_error").strip()
+        return {
+            "code": status_code or "tool_error",
+            "message": str(envelope.get("text") or payload.get("result") or tool_result.get("error") or status_code or "tool execution failed"),
+            "retryable": bool(payload.get("retryable", True)),
+            "origin": _error_origin(observation),
+        }
     if _is_completion_repair_observation(observation):
         return {
             "code": "completion_evidence_missing",
@@ -6251,8 +6263,9 @@ def _model_protocol_repair_instruction(
         f"{reason}；系统没有执行上一轮动作。错误：{error_text}。"
         "本轮必须只输出一个合法 JSON 对象，必须填写 action_type、public_action_state 和 public_progress_note。"
         "不要在 JSON 外继续输出正文、代码块或解释。"
-        "如果上一轮是在生成文件、网页、脚本或长内容时失败，改用 tool_call 调用 write_file 或 terminal；"
-        "把交付物内容放入 tool_call.args，或先写入完整可运行的紧凑版本再用后续工具增量完善。"
+        "如果上一轮是在生成文件、网页、脚本或长内容时失败，改用 action_type=tool_call，"
+        "在 tool_calls 数组中调用 write_file 或 terminal；"
+        "把交付物内容放入 tool_calls[0].args，或先写入完整可运行的紧凑版本再用后续工具增量完善。"
     )
 
 

@@ -3350,6 +3350,7 @@ export type ArtifactRepositoryOverview = {
 export type MemoryOverview = {
   session_id: string;
   query: string;
+  namespace_id?: string;
   durable_memory: {
     total: number;
     active: number;
@@ -3416,6 +3417,12 @@ export type DurableMemoryNoteDetail = {
   header: MemoryHeader | null;
   content_preview: string;
   path: string;
+  namespace_id?: string;
+};
+
+export type MemoryNamespaceScope = {
+  namespace_id?: string;
+  task_environment_id?: string;
 };
 
 export type StreamHandlers = {
@@ -3793,13 +3800,19 @@ export async function setRuntimeConfigGroup(groupId: string, values: Record<stri
   });
 }
 
-export async function getMemoryOverview(sessionId?: string, query = "") {
+export async function getMemoryOverview(sessionId?: string, query = "", scope?: MemoryNamespaceScope) {
   const params = new URLSearchParams();
   if (sessionId) {
     params.set("session_id", sessionId);
   }
   if (query.trim()) {
     params.set("query", query.trim());
+  }
+  if (scope?.namespace_id?.trim()) {
+    params.set("namespace_id", scope.namespace_id.trim());
+  }
+  if (scope?.task_environment_id?.trim()) {
+    params.set("task_environment_id", scope.task_environment_id.trim());
   }
   const suffix = params.toString() ? `?${params.toString()}` : "";
   return request<MemoryOverview>(`/memory/overview${suffix}`);
@@ -3845,7 +3858,7 @@ export async function getSessionMemoryFiles(sessionId: string, scope?: Partial<S
   );
 }
 
-export async function recallMemoryPreview(payload: { query: string; session_id?: string; limit?: number }) {
+export async function recallMemoryPreview(payload: { query: string; session_id?: string; limit?: number } & MemoryNamespaceScope) {
   return request<MemoryRecallPreview>("/memory/recall-preview", {
     method: "POST",
     body: JSON.stringify(payload)
@@ -3862,43 +3875,47 @@ export async function createDurableMemory(payload: {
   confidence?: string;
   source_kind?: string;
   source_message_excerpt?: string;
-}) {
+} & MemoryNamespaceScope) {
   return request<MemoryGovernanceResponse>("/memory/durable", {
     method: "POST",
     body: JSON.stringify(payload)
   });
 }
 
-export async function disableDurableMemory(filename: string, reason = "") {
+export async function disableDurableMemory(filename: string, reason = "", scope?: MemoryNamespaceScope) {
   return request<MemoryGovernanceResponse>(`/memory/durable/${encodeURIComponent(filename)}/disable`, {
     method: "POST",
-    body: JSON.stringify({ reason })
+    body: JSON.stringify({ reason, ...scope })
   });
 }
 
-export async function activateDurableMemory(filename: string, reason = "") {
+export async function activateDurableMemory(filename: string, reason = "", scope?: MemoryNamespaceScope) {
   return request<MemoryGovernanceResponse>(`/memory/durable/${encodeURIComponent(filename)}/activate`, {
     method: "POST",
-    body: JSON.stringify({ reason })
+    body: JSON.stringify({ reason, ...scope })
   });
 }
 
-export async function archiveDurableMemory(filename: string, reason = "") {
+export async function archiveDurableMemory(filename: string, reason = "", scope?: MemoryNamespaceScope) {
   return request<MemoryGovernanceResponse>(`/memory/durable/${encodeURIComponent(filename)}/archive`, {
     method: "POST",
-    body: JSON.stringify({ reason })
+    body: JSON.stringify({ reason, ...scope })
   });
 }
 
-export async function deleteDurableMemory(filename: string, reason = "") {
+export async function deleteDurableMemory(filename: string, reason = "", scope?: MemoryNamespaceScope) {
   return request<MemoryGovernanceResponse>(`/memory/durable/${encodeURIComponent(filename)}`, {
     method: "DELETE",
-    body: JSON.stringify({ reason })
+    body: JSON.stringify({ reason, ...scope })
   });
 }
 
-export async function getDurableMemoryNote(filename: string) {
-  return request<DurableMemoryNoteDetail>(`/memory/durable/${encodeURIComponent(filename)}`);
+export async function getDurableMemoryNote(filename: string, scope?: MemoryNamespaceScope) {
+  const params = new URLSearchParams();
+  if (scope?.namespace_id?.trim()) params.set("namespace_id", scope.namespace_id.trim());
+  if (scope?.task_environment_id?.trim()) params.set("task_environment_id", scope.task_environment_id.trim());
+  const suffix = params.toString() ? `?${params.toString()}` : "";
+  return request<DurableMemoryNoteDetail>(`/memory/durable/${encodeURIComponent(filename)}${suffix}`);
 }
 
 export async function mergeDurableMemories(payload: {
@@ -3907,7 +3924,7 @@ export async function mergeDurableMemories(payload: {
   canonical_statement: string;
   summary?: string;
   reason?: string;
-}) {
+} & MemoryNamespaceScope) {
   return request<MemoryGovernanceResponse>("/memory/durable/merge", {
     method: "POST",
     body: JSON.stringify(payload)

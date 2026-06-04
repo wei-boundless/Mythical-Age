@@ -24,6 +24,8 @@ class RecallPreviewRequest(BaseModel):
     query: str = Field(..., min_length=1, max_length=1000)
     session_id: str | None = None
     limit: int = Field(default=5, ge=1, le=20)
+    namespace_id: str = Field(default="", max_length=200)
+    task_environment_id: str = Field(default="", max_length=200)
 
 
 class DurableMemoryCreateRequest(BaseModel):
@@ -36,10 +38,14 @@ class DurableMemoryCreateRequest(BaseModel):
     confidence: str = Field(default="medium", max_length=40)
     source_kind: str = Field(default="manual", max_length=80)
     source_message_excerpt: str = Field(default="", max_length=1200)
+    namespace_id: str = Field(default="", max_length=200)
+    task_environment_id: str = Field(default="", max_length=200)
 
 
 class DurableMemoryGovernRequest(BaseModel):
     reason: str = Field(default="", max_length=600)
+    namespace_id: str = Field(default="", max_length=200)
+    task_environment_id: str = Field(default="", max_length=200)
 
 
 class DurableMemoryGovernanceTickRequest(BaseModel):
@@ -60,6 +66,8 @@ class DurableMemoryMergeRequest(BaseModel):
     canonical_statement: str = Field(..., min_length=1, max_length=1600)
     summary: str = Field(default="", max_length=1000)
     reason: str = Field(default="", max_length=600)
+    namespace_id: str = Field(default="", max_length=200)
+    task_environment_id: str = Field(default="", max_length=200)
 
 
 def _layout_from_runtime(runtime: Any) -> ProjectLayout:
@@ -100,12 +108,18 @@ async def get_memory_overview(
     session_id: str | None = None,
     query: str = "",
     limit: int = Query(default=80, ge=1, le=240),
+    namespace_id: str = Query(default="", max_length=200),
+    task_environment_id: str = Query(default="", max_length=200),
 ) -> dict[str, Any]:
     runtime = require_runtime()
     assert runtime.base_dir is not None
     assert runtime.memory_facade is not None
 
-    headers = runtime.memory_facade.governance_service.scan_durable_memory_headers(limit=limit)
+    durable_namespace_id = _durable_namespace_id(namespace_id=namespace_id, task_environment_id=task_environment_id)
+    headers = runtime.memory_facade.governance_service.scan_durable_memory_headers(
+        limit=limit,
+        namespace_id=durable_namespace_id,
+    )
     session_inspect = None
     if session_id:
         session_inspect = await _inspect_session_memory(runtime, session_id, query=query)
@@ -113,6 +127,7 @@ async def get_memory_overview(
     return {
         "session_id": session_id or "",
         "query": query,
+        "namespace_id": durable_namespace_id,
         "durable_memory": _durable_overview(headers, _durable_maintenance_runtime(runtime.memory_facade)),
         "session_memory": session_inspect,
     }
@@ -298,6 +313,10 @@ async def create_durable_memory_note(payload: DurableMemoryCreateRequest) -> dic
         confidence=payload.confidence,
         source_kind=payload.source_kind,
         source_message_excerpt=payload.source_message_excerpt,
+        namespace_id=_durable_namespace_id(
+            namespace_id=payload.namespace_id,
+            task_environment_id=payload.task_environment_id,
+        ),
     )
     runtime.refresh_indexes_for_path("durable_memory/notes")
     return {
@@ -310,17 +329,17 @@ async def create_durable_memory_note(payload: DurableMemoryCreateRequest) -> dic
 
 @router.post("/memory/durable/{filename}/disable")
 async def disable_durable_memory_note(filename: str, payload: DurableMemoryGovernRequest) -> dict[str, Any]:
-    return _govern_existing_note(filename, status="inactive", eligible_for_injection="false", reason=payload.reason or "Disabled from memory UI", action="disable")
+    return _govern_existing_note(filename, status="inactive", eligible_for_injection="false", reason=payload.reason or "Disabled from memory UI", action="disable", payload=payload)
 
 
 @router.post("/memory/durable/{filename}/activate")
 async def activate_durable_memory_note(filename: str, payload: DurableMemoryGovernRequest) -> dict[str, Any]:
-    return _govern_existing_note(filename, status="active", eligible_for_injection="true", reason=payload.reason or "Activated from memory UI", action="activate")
+    return _govern_existing_note(filename, status="active", eligible_for_injection="true", reason=payload.reason or "Activated from memory UI", action="activate", payload=payload)
 
 
 @router.post("/memory/durable/{filename}/archive")
 async def archive_durable_memory_note(filename: str, payload: DurableMemoryGovernRequest) -> dict[str, Any]:
-    return _govern_existing_note(filename, status="archived", eligible_for_injection="false", reason=payload.reason or "Archived from memory UI", action="archive")
+    return _govern_existing_note(filename, status="archived", eligible_for_injection="false", reason=payload.reason or "Archived from memory UI", action="archive", payload=payload)
 
 
 @router.delete("/memory/durable/{filename}")
@@ -331,6 +350,10 @@ async def delete_durable_memory_note(filename: str, payload: DurableMemoryGovern
     result = runtime.memory_facade.governance_service.delete_durable_memory_note(
         filename=filename,
         reason=payload.reason if payload else "",
+        namespace_id=_durable_namespace_id(
+            namespace_id=payload.namespace_id if payload else "",
+            task_environment_id=payload.task_environment_id if payload else "",
+        ),
     )
     runtime.refresh_indexes_for_path("durable_memory/notes")
     return {
@@ -355,6 +378,10 @@ async def merge_durable_memory_notes(payload: DurableMemoryMergeRequest) -> dict
         canonical_statement=payload.canonical_statement,
         summary=payload.summary,
         reason=payload.reason,
+        namespace_id=_durable_namespace_id(
+            namespace_id=payload.namespace_id,
+            task_environment_id=payload.task_environment_id,
+        ),
     )
     runtime.refresh_indexes_for_path("durable_memory/notes")
     return {
@@ -412,11 +439,17 @@ async def recall_memory_preview(payload: RecallPreviewRequest) -> dict[str, Any]
         session_summary = str(history_payload.get("compressed_context", "") or "")
         context_result = await _inspect_session_memory(runtime, payload.session_id, query=query, limit=payload.limit)
 
+    preview_environment_id = payload.task_environment_id.strip()
+    if not preview_environment_id and payload.namespace_id.strip().startswith("env:"):
+        preview_environment_id = payload.namespace_id.strip().removeprefix("env:")
     result = await runtime.memory_facade.bundle_service.arecall_durable_memories(
         query=query,
         memory_intent=intent,
         note_limit=payload.limit,
         session_summary=session_summary,
+        environment_scope={
+            "task_environment_id": preview_environment_id,
+        } if preview_environment_id else None,
     )
 
     return {
@@ -476,18 +509,27 @@ async def get_session_memory_files(
 
 
 @router.get("/memory/durable/{filename}")
-async def get_durable_memory_note(filename: str) -> dict[str, Any]:
+async def get_durable_memory_note(
+    filename: str,
+    namespace_id: str = Query(default="", max_length=200),
+    task_environment_id: str = Query(default="", max_length=200),
+) -> dict[str, Any]:
     runtime = require_runtime()
     assert runtime.base_dir is not None
     safe_name = filename.strip()
     if not safe_name or "/" in safe_name or "\\" in safe_name or safe_name.startswith("."):
         raise HTTPException(status_code=400, detail="Invalid memory filename")
 
-    loaded = runtime.memory_facade.governance_service.load_durable_memory_note(safe_name)
+    durable_namespace_id = _durable_namespace_id(namespace_id=namespace_id, task_environment_id=task_environment_id)
+    loaded = runtime.memory_facade.governance_service.load_durable_memory_note(
+        safe_name,
+        namespace_id=durable_namespace_id,
+    )
     return {
         "header": _header_payload(loaded["header"]) if loaded.get("header") else None,
         "content_preview": _compact_text(str(loaded.get("content") or ""), 2600),
-        "path": f"durable_memory/notes/{safe_name}",
+        "namespace_id": durable_namespace_id,
+        "path": _durable_note_display_path(durable_namespace_id, safe_name),
     }
 
 
@@ -668,15 +710,47 @@ def _compact_text(value: str, limit: int) -> str:
     return normalized[: max(0, limit - 1)].rstrip() + "…"
 
 
-def _govern_existing_note(filename: str, *, status: str, eligible_for_injection: str, reason: str, action: str) -> dict[str, Any]:
+def _durable_namespace_id(*, namespace_id: str = "", task_environment_id: str = "") -> str:
+    normalized = str(namespace_id or "").strip()
+    if normalized:
+        return normalized
+    environment_id = str(task_environment_id or "").strip()
+    if environment_id:
+        return durable_memory_namespace_id_for_task_environment(environment_id)
+    return "global_common"
+
+
+def _durable_note_display_path(namespace_id: str, filename: str) -> str:
+    normalized = str(namespace_id or "").strip() or "global_common"
+    if normalized == "global_common":
+        return f"durable_memory/notes/{filename}"
+    if normalized.startswith("env:"):
+        return f"durable_memory/environments/{normalized.removeprefix('env:')}/notes/{filename}"
+    return f"durable_memory/{normalized}/notes/{filename}"
+
+
+def _govern_existing_note(
+    filename: str,
+    *,
+    status: str,
+    eligible_for_injection: str,
+    reason: str,
+    action: str,
+    payload: DurableMemoryGovernRequest,
+) -> dict[str, Any]:
     runtime = require_runtime()
     assert runtime.memory_facade is not None
+    durable_namespace_id = _durable_namespace_id(
+        namespace_id=payload.namespace_id,
+        task_environment_id=payload.task_environment_id,
+    )
     result = runtime.memory_facade.governance_service.set_durable_memory_note_status(
         filename=filename,
         status=status,
         eligible_for_injection=eligible_for_injection,
         reason=reason,
         action=action,
+        namespace_id=durable_namespace_id,
     )
     runtime.refresh_indexes_for_path("durable_memory/notes")
     return {

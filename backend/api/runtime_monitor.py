@@ -7,10 +7,22 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel, Field
 
 from api.deps import require_runtime
+from harness.runtime.run_monitor import RuntimeMonitorActionService
 
 router = APIRouter()
+
+
+class RuntimeMonitorActionRequest(BaseModel):
+    action: str = Field(default="", max_length=80)
+    signal_id: str = Field(default="", max_length=300)
+    task_run_id: str = Field(default="", max_length=300)
+    graph_run_id: str = Field(default="", max_length=300)
+    reason: str = Field(default="", max_length=500)
+    source_revision: str = Field(default="", max_length=300)
+    max_steps: int = Field(default=12, ge=1, le=50)
 
 
 def _sse(event: str, data: dict[str, Any], *, event_id: str = "") -> str:
@@ -27,9 +39,38 @@ def _service():
     return runtime.harness_runtime.single_agent_runtime_host.runtime_monitor_service
 
 
+def _action_service() -> RuntimeMonitorActionService:
+    runtime = require_runtime()
+    return RuntimeMonitorActionService(
+        runtime=runtime,
+        monitor_service=runtime.harness_runtime.single_agent_runtime_host.runtime_monitor_service,
+    )
+
+
 @router.get("/orchestration/runtime-monitor")
 async def list_runtime_monitor(limit: int = 30) -> dict[str, Any]:
     return _service().collect_global_runtime_monitor(limit=limit)
+
+
+@router.get("/orchestration/runtime-monitor/management")
+async def get_runtime_monitor_management(limit: int = 80) -> dict[str, Any]:
+    monitor = _service().collect_global_runtime_monitor(limit=limit)
+    return {
+        "authority": "runtime_monitor.management_api",
+        "monitor": monitor,
+        "management": dict(monitor.get("management") or {}),
+        "updated_at": time.time(),
+    }
+
+
+@router.post("/orchestration/runtime-monitor/actions/preflight")
+async def preflight_runtime_monitor_action(payload: RuntimeMonitorActionRequest) -> dict[str, Any]:
+    return await _action_service().preflight(payload.model_dump())
+
+
+@router.post("/orchestration/runtime-monitor/actions")
+async def execute_runtime_monitor_action(payload: RuntimeMonitorActionRequest) -> dict[str, Any]:
+    return await _action_service().execute(payload.model_dump())
 
 
 @router.get("/orchestration/runtime-monitor/events")

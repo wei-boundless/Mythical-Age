@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -15,6 +16,7 @@ if str(BACKEND_DIR) not in sys.path:
 from agent_system.models.model_profile_models import AgentModelProfile, parse_agent_model_profile
 from agent_system.profiles.runtime_profile_registry import AgentRuntimeRegistry
 from agent_system.registry.agent_registry import AgentRegistry
+from project_layout import ProjectLayout
 from task_system.contracts.contract_definition_models import AcceptanceRule, ArtifactRequirement, ContractField, ContractSpec
 from task_system.compiler.graph_harness_config_publisher import publish_graph_harness_config_for_graph
 from task_system.registry.contract_registry import TaskContractRegistry
@@ -41,6 +43,7 @@ DESIGN_GRAPH_ID = "graph.writing.modular_novel.design_init"
 CHAPTER_GRAPH_ID = "graph.writing.modular_novel.chapter_cycle"
 FINALIZE_GRAPH_ID = "graph.writing.modular_novel.finalize"
 WRITING_GRAPH_IDS = (MASTER_GRAPH_ID, DESIGN_GRAPH_ID, CHAPTER_GRAPH_ID, FINALIZE_GRAPH_ID)
+WRITING_GRAPH_ID_PREFIX = "graph.writing.modular_novel."
 
 WORKER_AGENT_ID = "agent:writing_modular_worker"
 CREATOR_AGENT_ID = "agent:writing_modular_creator"
@@ -77,14 +80,6 @@ WRITING_CHAPTER_DRAFT_OUTPUT_TOKENS = 32768
 WRITING_MEMORY_OUTPUT_TOKENS = 12288
 WRITING_REVIEW_OUTPUT_TOKENS = 8192
 WRITING_ROUTER_OUTPUT_TOKENS = 4096
-CHAPTER_WRITER_SUBAGENT_OPS = (
-    "op.subagent_spawn",
-    "op.subagent_message",
-    "op.subagent_wait",
-    "op.subagent_list",
-    "op.subagent_close",
-)
-
 REPOSITORY_NODES = (
     {
         "node_id": "memory.writing.baseline",
@@ -1060,6 +1055,7 @@ CHAPTER_BASE_NODES: tuple[NodeSpec, ...] = (
         title="单章正文草稿",
         node_type="agent_role",
         role="creator",
+        agent_id=WORKER_AGENT_ID,
         phase_id="phase.modular.chapter_cycle.chapter_loop",
         sequence_index=30,
         output_contract_id="contract.writing.modular_novel.chapter_draft",
@@ -1072,16 +1068,6 @@ CHAPTER_BASE_NODES: tuple[NodeSpec, ...] = (
         loop=_node_loop("loop.chapter_unit", title_template="第{chapter_index}章正文草稿"),
         length_budget=_length_budget_contract_static("unit", CHAPTER_TARGET_WORDS, CHAPTER_MIN_WORDS, CHAPTER_MAX_WORDS, 1),
         extra_runtime={
-            "subagent_policy": {
-                "enabled": True,
-                "allowed_subagent_ids": [WORKER_AGENT_ID],
-                "max_subagent_runs_per_task": CHAPTER_BATCH_SIZE * 2,
-                "max_active_subagents": 1,
-                "context_policy": "summary_and_refs_only",
-                "result_policy": "observation_refs_only",
-                "allow_nested_subagents": False,
-                "source": "contract_bindings.runtime.subagent_policy",
-            },
             "split_policy": {
                 "mode": "static_batch",
                 "batch_size": CHAPTER_BATCH_SIZE,
@@ -1125,7 +1111,8 @@ CHAPTER_BASE_NODES: tuple[NodeSpec, ...] = (
             "你必须先完成写前取材判断，再进入正文。写前取材判断只允许简短列出本批采用的世界规则、人物当前状态、上一批承接、正文事实索引、活跃伏笔、到期伏笔、禁改边界和本批叙事目标；它必须来自基准库、动态记忆库、正文记忆库、当前卷计划和当前批次细纲，不能凭空补设定。",
             "写前取材判断必须包含“层级来源链”：本批正文继承了哪一段全书细纲、哪一个当前卷计划批次、哪一份当前批次细纲、哪一批已提交正文事实。若当前批次细纲与父级大纲或记忆事实冲突，你不能擅自重排剧情；只能在取材判断中标出冲突，并在正文中严格选择已授权且不冲突的部分执行。",
             "你必须在 final_answer 内完成当前一章，不许把其他章混进来。章末在心里检查是否达到最低正文量和连续性要求；不能让后续章替当前章补量。系统会在你交稿后用质量门统计当前章实际字数；若系统反馈短章，你下一轮必须完整重交当前章。",
-            "不要在正文中输出冗长的章节任务包、系统反馈表、自检表或工具调用记录。当前章只保留正式章节标题和小说正文；如果需要说明生产边界，放在很短的写前取材判断里。不得要求 file、memory、search、delegate 或不存在的单章子任务权限；你当前能做的是在本轮 final_answer 中直接交付完整正文。",
+            "系统会把你可用的基准库、动态记忆库、正文记忆库、当前卷计划、当前批次细纲和上游交接包预装到上下文中；这些上下文记忆是你的取材依据。你不能再要求 memory 工具、文件工具、搜索工具或子 agent 代写；你当前能做的是直接阅读已授权上下文，并在本轮 final_answer 中直接交付完整正文；交付必须由你亲自完成。",
+            "不要在正文中输出冗长的章节任务包、系统反馈表、自检表或工具调用记录。当前章只保留正式章节标题和小说正文；如果需要说明生产边界，放在很短的写前取材判断里。不得要求 file、memory、search、delegate 或不存在的单章子任务权限。",
             "本轮输出必须是合法的任务执行 action JSON：action_type 使用 respond；必须填写 public_progress_note；必须填写 public_action_state，至少包含 current_judgment、next_action、completion_status；完整交付物放入 final_answer。不要把正文写在 JSON 外，也不要省略这两个公开进展字段。",
             "如果预装记忆包不足以确认某个规则、人物状态、正文事实、伏笔状态或前后承接，你不能自行搜索、补猜或扩大设定；必须在写前取材判断中标记缺口，并只使用当前任务包、上游交接包和预装记忆包中已经确认的内容完成本批正文。",
             "写前取材判断之后必须输出完整小说正文，正文才是主体。正文要尊重世界规则、角色动机、前后连续性和批次目标；如果旧产物或提示中出现其他章号，以当前任务包允许章号范围为准。你不能跳写未授权章节，也不能为方便剧情临时改世界规则。若发现必须新增设定才能写通，只能在正文后标为待审扩展建议，不能当作已成立事实写进正文核心逻辑。",
@@ -1569,6 +1556,10 @@ def configure(base_dir: Path | str | None = None) -> dict[str, Any]:
     _upsert_contracts(contract_registry)
     _upsert_protocol(registry)
     _delete_graph_module_wrapper_task_assets(registry)
+    _delete_stale_managed_node_task_assets(
+        registry,
+        active_task_ids={_node_task_id(node.node_id) for node in (*DESIGN_NODES, *CHAPTER_NODES, *FINALIZE_NODES)},
+    )
     _upsert_task_assets(registry)
     _upsert_imported_module_graph(registry, graph_id=DESIGN_GRAPH_ID, nodes=DESIGN_NODES, business_edges=DESIGN_BUSINESS_EDGES)
     _upsert_imported_module_graph(registry, graph_id=CHAPTER_GRAPH_ID, nodes=CHAPTER_NODES, business_edges=CHAPTER_BUSINESS_EDGES)
@@ -1603,30 +1594,143 @@ def configure(base_dir: Path | str | None = None) -> dict[str, Any]:
 def _delete_managed_graph_runtime_records(backend_dir: Path) -> None:
     storage = TaskSystemStorage(backend_dir)
     graph_ids = set(WRITING_GRAPH_IDS)
+    protected_config_ids = _active_writing_graph_config_ids(backend_dir)
 
     graph_payload = storage.read_object("task_graphs.json", {"task_graphs": []})
     graph_records = [item for item in list(graph_payload.get("task_graphs") or []) if isinstance(item, dict)]
     retained_graphs = [
         item
         for item in graph_records
-        if str(item.get("graph_id") or "") not in graph_ids
-        and dict(item.get("metadata") or {}).get("managed_by") != MANAGED_BY
+        if not _is_managed_writing_graph_record(item)
     ]
     if retained_graphs != graph_records:
         storage.write_object("task_graphs.json", {"task_graphs": retained_graphs})
 
     config_payload = storage.read_object("graph_harness_configs.json", {"configs": [], "published_bindings": {}})
     config_records = [item for item in list(config_payload.get("configs") or []) if isinstance(item, dict)]
+    retained_configs = [
+        item
+        for item in config_records
+        if not _is_managed_writing_graph_harness_config(item)
+        or str(item.get("config_id") or "").strip() in protected_config_ids
+    ]
+    retained_config_ids = {str(item.get("config_id") or "").strip() for item in retained_configs if str(item.get("config_id") or "").strip()}
     published_bindings = {
         str(key): str(value)
         for key, value in dict(config_payload.get("published_bindings") or {}).items()
-        if str(key) not in graph_ids
+        if str(key) not in graph_ids and not str(key).startswith(WRITING_GRAPH_ID_PREFIX)
     }
-    if published_bindings != dict(config_payload.get("published_bindings") or {}):
+    published_bindings = {
+        key: value
+        for key, value in published_bindings.items()
+        if not value or value in retained_config_ids or not str(value).startswith(_writing_graph_config_id_prefix())
+    }
+    if retained_configs != config_records or published_bindings != dict(config_payload.get("published_bindings") or {}):
         storage.write_object(
             "graph_harness_configs.json",
-            {"configs": config_records, "published_bindings": published_bindings},
+            {"configs": retained_configs, "published_bindings": published_bindings},
         )
+
+
+def _is_managed_writing_graph_harness_config(payload: dict[str, Any]) -> bool:
+    graph_id = str(payload.get("graph_id") or "").strip()
+    config_id = str(payload.get("config_id") or "").strip()
+    metadata = dict(payload.get("metadata") or {})
+    return (
+        graph_id.startswith(WRITING_GRAPH_ID_PREFIX)
+        or config_id.startswith(_writing_graph_config_id_prefix())
+        or metadata.get("managed_by") == MANAGED_BY
+    )
+
+
+def _is_managed_writing_graph_record(payload: dict[str, Any]) -> bool:
+    graph_id = str(payload.get("graph_id") or "").strip()
+    metadata = dict(payload.get("metadata") or {})
+    return graph_id.startswith(WRITING_GRAPH_ID_PREFIX) or metadata.get("managed_by") == MANAGED_BY
+
+
+def _active_writing_graph_config_ids(backend_dir: Path) -> set[str]:
+    runtime_root = ProjectLayout.from_backend_dir(backend_dir).runtime_state_dir
+    refs: set[str] = set()
+    for graph_run in _iter_runtime_payloads(runtime_root / "runtime_objects" / "graph_run"):
+        payload = dict(graph_run.get("payload") or graph_run)
+        if not _is_active_writing_graph_runtime_record(payload):
+            continue
+        refs.update(_runtime_config_refs(payload))
+    for task_run in _iter_runtime_payloads(runtime_root / "state_index" / "task_runs"):
+        payload = dict(task_run.get("payload") or task_run)
+        if not _is_active_writing_graph_runtime_record(payload):
+            continue
+        refs.update(_runtime_config_refs(payload))
+    return {item for item in refs if item}
+
+
+def _iter_runtime_payloads(root: Path) -> list[dict[str, Any]]:
+    if not root.exists():
+        return []
+    payloads: list[dict[str, Any]] = []
+    for path in sorted(root.glob("*.json")):
+        try:
+            loaded = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if isinstance(loaded, dict):
+            payloads.append(loaded)
+    return payloads
+
+
+def _is_active_writing_graph_runtime_record(payload: dict[str, Any]) -> bool:
+    diagnostics = dict(payload.get("diagnostics") or {})
+    runtime_scope = dict(diagnostics.get("runtime_scope") or {})
+    graph_id = str(
+        payload.get("graph_id")
+        or diagnostics.get("graph_id")
+        or runtime_scope.get("graph_id")
+        or ""
+    ).strip()
+    if graph_id not in set(WRITING_GRAPH_IDS):
+        if not graph_id.startswith(WRITING_GRAPH_ID_PREFIX):
+            return False
+    if not graph_id:
+        return False
+    status = str(payload.get("status") or diagnostics.get("status") or "").strip().lower()
+    terminal_reason = str(
+        payload.get("terminal_reason")
+        or diagnostics.get("runner_terminal_reason")
+        or diagnostics.get("terminal_reason")
+        or ""
+    ).strip().lower()
+    terminal_values = {
+        "completed",
+        "success",
+        "failed",
+        "aborted",
+        "cancelled",
+        "canceled",
+        "deleted",
+        "stopped",
+        "orphaned",
+        "idle",
+        "budget_exhausted",
+        "max_runtime_seconds_exhausted",
+        "max_dispatches_exhausted",
+    }
+    return status not in terminal_values and terminal_reason not in terminal_values
+
+
+def _runtime_config_refs(payload: dict[str, Any]) -> set[str]:
+    diagnostics = dict(payload.get("diagnostics") or {})
+    values = {
+        str(payload.get("config_id") or "").strip(),
+        str(payload.get("config_snapshot_id") or "").strip(),
+        str(diagnostics.get("graph_harness_config_id") or "").strip(),
+        str(diagnostics.get("config_snapshot_id") or "").strip(),
+    }
+    return {item for item in values if item}
+
+
+def _writing_graph_config_id_prefix() -> str:
+    return f"ghcfg:{_safe_id(WRITING_GRAPH_ID_PREFIX).rstrip('_')}"
 
 
 def _upsert_domain(registry: TaskFlowRegistry) -> None:
@@ -1681,7 +1785,7 @@ def _upsert_agents(backend_dir: Path) -> None:
             CREATOR_AGENT_ID,
             "task_graph.writing.modular_novel.creator",
             ("task", "runtime_contracts", "artifact_refs", "memory_runtime_view"),
-            ("op.text_metric", *CHAPTER_WRITER_SUBAGENT_OPS),
+            ("op.text_metric",),
         ),
         (
             REVIEWER_AGENT_ID,
@@ -1746,10 +1850,10 @@ def _upsert_agents(backend_dir: Path) -> None:
             allowed_memory_scopes=("writing_modular_novel", "state_readonly"),
             allowed_context_sections=contexts,
             subagent_policy={
-                "enabled": agent_id == CREATOR_AGENT_ID,
-                "allowed_subagent_ids": (WORKER_AGENT_ID,) if agent_id == CREATOR_AGENT_ID else (),
-                "max_subagent_runs_per_task": 16 if agent_id == CREATOR_AGENT_ID else 0,
-                "max_active_subagents": 1 if agent_id == CREATOR_AGENT_ID else 0,
+                "enabled": False,
+                "allowed_subagent_ids": (),
+                "max_subagent_runs_per_task": 0,
+                "max_active_subagents": 0,
                 "context_policy": "summary_and_refs_only",
                 "result_policy": "observation_refs_only",
                 "allow_nested_subagents": False,
@@ -1765,9 +1869,9 @@ def _upsert_agents(backend_dir: Path) -> None:
                 "enabled_runtime_modes": [STANDARD_MODE, CUSTOM_MODE],
                 "default_runtime_mode": STANDARD_MODE,
                 "use_shared_contract": True,
-                "can_delegate_to_agents": agent_id == CREATOR_AGENT_ID,
-                "allowed_delegate_agent_ids": [WORKER_AGENT_ID] if agent_id == CREATOR_AGENT_ID else [],
-                "max_delegate_calls_per_turn": 16 if agent_id == CREATOR_AGENT_ID else 0,
+                "can_delegate_to_agents": False,
+                "allowed_delegate_agent_ids": [],
+                "max_delegate_calls_per_turn": 0,
                 "delegate_context_policy": "summary_and_refs_only",
                 "source_task_graph_refs": [MASTER_GRAPH_ID, DESIGN_GRAPH_ID, CHAPTER_GRAPH_ID, FINALIZE_GRAPH_ID],
                 "runtime_template_id": template_id,
@@ -1993,6 +2097,134 @@ def _delete_graph_module_wrapper_task_assets(registry: TaskFlowRegistry) -> None
         if registry.get_specific_task_record(task_id) is None:
             continue
         registry.delete_specific_task_record(task_id)
+
+
+def _delete_stale_managed_node_task_assets(
+    registry: TaskFlowRegistry,
+    *,
+    active_task_ids: set[str],
+) -> None:
+    active = {str(item or "").strip() for item in active_task_ids if str(item or "").strip()}
+    stale_task_ids = _stale_managed_node_task_ids(registry, active_task_ids=active)
+    if not stale_task_ids:
+        return
+
+    for task_id in sorted(stale_task_ids):
+        try:
+            registry.delete_specific_task_record(task_id)
+        except ValueError:
+            pass
+
+    stale_flow_ids = _stale_managed_node_flow_ids(registry, stale_task_ids=stale_task_ids)
+    stale_workflow_ids = _stale_managed_node_workflow_ids(registry, stale_task_ids=stale_task_ids)
+    registry.assignment_repository.delete_for_task_ids(stale_task_ids)
+    registry.assembly_config_repository.delete_for_task_ids(stale_task_ids)
+    registry.flow_repository.delete_many(stale_flow_ids)
+    registry.workflow_registry.delete_workflows(stale_workflow_ids)
+    _purge_managed_node_task_tombstones(registry.base_dir, stale_task_ids=stale_task_ids)
+    registry._invalidate_cache()
+
+
+def _stale_managed_node_task_ids(registry: TaskFlowRegistry, *, active_task_ids: set[str]) -> set[str]:
+    candidates: set[str] = set()
+    for record in registry.list_specific_task_records():
+        payload = record.to_dict()
+        task_id = str(record.task_id or "").strip()
+        if _is_managed_node_task_asset(payload, task_id=task_id):
+            candidates.add(task_id)
+    for assignment in registry.list_task_assignments():
+        payload = assignment.to_dict()
+        task_id = str(assignment.task_id or "").strip()
+        if _is_managed_node_task_asset(payload, task_id=task_id):
+            candidates.add(task_id)
+    for flow in registry.list_flows():
+        metadata = dict(flow.metadata or {})
+        task_id = str(metadata.get("task_id") or f"task.{flow.flow_id.removeprefix('flow.')}").strip()
+        if _is_managed_node_task_asset(flow.to_dict(), task_id=task_id):
+            candidates.add(task_id)
+    for binding in registry.list_explicit_flow_contract_bindings():
+        task_id = str(binding.task_id or "").strip()
+        if _is_managed_node_task_asset(binding.to_dict(), task_id=task_id):
+            candidates.add(task_id)
+    for policy in registry.list_explicit_task_execution_policies():
+        task_id = str(policy.task_id or "").strip()
+        if _is_managed_node_task_asset(policy.to_dict(), task_id=task_id):
+            candidates.add(task_id)
+    for profile in registry.list_explicit_task_memory_request_profiles():
+        task_id = str(profile.task_id or "").strip()
+        if _is_managed_node_task_asset(profile.to_dict(), task_id=task_id):
+            candidates.add(task_id)
+    for workflow in registry.workflow_registry.list_workflows():
+        metadata = dict(workflow.metadata or {})
+        node_id = str(metadata.get("node_id") or "").strip()
+        task_id = str(metadata.get("task_id") or metadata.get("task_ref") or "").strip()
+        if not task_id and node_id:
+            task_id = _node_task_id(node_id)
+        if _is_managed_node_task_asset({"metadata": metadata}, task_id=task_id):
+            candidates.add(task_id)
+    return {
+        item
+        for item in candidates
+        if item and item not in active_task_ids
+    }
+
+
+def _stale_managed_node_flow_ids(registry: TaskFlowRegistry, *, stale_task_ids: set[str]) -> set[str]:
+    flow_ids: set[str] = set()
+    for flow in registry.list_flows():
+        metadata = dict(flow.metadata or {})
+        task_id = str(metadata.get("task_id") or f"task.{flow.flow_id.removeprefix('flow.')}").strip()
+        if task_id in stale_task_ids and _is_managed_node_task_asset(flow.to_dict(), task_id=task_id):
+            flow_ids.add(flow.flow_id)
+    return flow_ids
+
+
+def _stale_managed_node_workflow_ids(registry: TaskFlowRegistry, *, stale_task_ids: set[str]) -> set[str]:
+    workflow_ids: set[str] = set()
+    for workflow in registry.workflow_registry.list_workflows():
+        metadata = dict(workflow.metadata or {})
+        task_ref = str(metadata.get("task_id") or metadata.get("task_ref") or "").strip()
+        node_id = str(metadata.get("node_id") or "").strip()
+        derived_task_id = _node_task_id(node_id) if node_id else ""
+        workflow_task_id = str(workflow.workflow_id or "").replace("workflow.", "task.", 1)
+        if (
+            task_ref in stale_task_ids
+            or derived_task_id in stale_task_ids
+            or workflow_task_id in stale_task_ids
+        ) and metadata.get("managed_by") == MANAGED_BY:
+            workflow_ids.add(workflow.workflow_id)
+    return workflow_ids
+
+
+def _is_managed_node_task_asset(payload: dict[str, Any], *, task_id: str) -> bool:
+    metadata = dict(payload.get("metadata") or {})
+    task_policy = dict(payload.get("task_policy") or {})
+    task_structure = dict(payload.get("task_structure") or task_policy.get("task_structure") or {})
+    node_id = str(metadata.get("node_id") or task_structure.get("node_id") or "").strip()
+    return (
+        metadata.get("managed_by") == MANAGED_BY
+        and str(task_id or "").startswith("task.writing.modular_novel.node.")
+        and bool(node_id)
+    )
+
+
+def _purge_managed_node_task_tombstones(backend_dir: Path, *, stale_task_ids: set[str]) -> None:
+    storage = TaskSystemStorage(backend_dir)
+    payload = storage.read_object("specific_task_records.json", {"specific_task_records": [], "deleted_task_ids": []})
+    deleted_task_ids = [
+        str(item).strip()
+        for item in list(payload.get("deleted_task_ids") or [])
+        if str(item).strip() and str(item).strip() not in stale_task_ids
+    ]
+    if deleted_task_ids == list(payload.get("deleted_task_ids") or []):
+        return
+    storage.write_object(
+        "specific_task_records.json",
+        {
+            "specific_task_records": [item for item in list(payload.get("specific_task_records") or []) if isinstance(item, dict)],
+            "deleted_task_ids": sorted(deleted_task_ids),
+        },
+    )
 
 
 def _upsert_task_asset(
@@ -3513,9 +3745,6 @@ def _node_operation_policy(*, node_id: str) -> dict[str, Any]:
     if node_id in {"chapter_draft", "chapter_review", "volume_review", "final_review", "chapter_progress_router"}:
         allowed.append("op.text_metric")
         optional.append("op.text_metric")
-    if node_id == "chapter_draft":
-        allowed.extend(CHAPTER_WRITER_SUBAGENT_OPS)
-        optional.extend(CHAPTER_WRITER_SUBAGENT_OPS)
     denied_operations = [
         "op.read_file",
         "op.search_files",

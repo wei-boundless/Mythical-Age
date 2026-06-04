@@ -70,6 +70,7 @@ TOOL_SUBAGENT_GUIDANCE = """
 spawn brief 必须包含目标、已知事实、范围、排除项、可用 context_refs、期望输出和失败处理。
 不要重复委派同一搜索；不要把子 agent 当作绕过权限、工具边界或责任边界的方式。
 子 agent 未返回前，不能预测它的结论；需要 wait 后才能使用其结果。
+子 agent 返回后，主 agent 必须先综合结果再决定下一步；follow-up brief 必须写清具体路径、行号、错误信息和完成标准，不能只要求“根据你的发现继续修”。
 """.strip()
 
 

@@ -11,6 +11,7 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
+import harness.loop.task_executor as task_executor_module
 from harness.entrypoint.models import HarnessRuntimeRequest
 from api.chat import (
     _project_public_stream_event,
@@ -20,12 +21,17 @@ from api.chat import (
 from runtime.shared.models import AgentRunResult, TaskRun, TurnRun
 from runtime.tool_runtime import ToolObservation
 from harness.loop.model_action_protocol import ModelActionRequest
+from memory_system import MemoryFacade
+from memory_system.storage.models import MemoryNote
 from harness.loop.task_executor import (
+    TaskRunExecutorInterrupted,
     _duplicate_read_only_tool_call_observation,
     _matching_model_action_admission_denial_observations,
     _model_action_admission_observation,
     _tool_call_progress_summary,
 )
+from harness.loop.task_run_execution_control import ExecutorControlSignal
+from harness.runtime.tool_batch_planner import ToolBatchGroup
 from harness.loop.task_lifecycle import TaskLifecycleRecord, TaskRunContract
 from sessions import SessionManager
 from capability_system.tools.native_tool_catalog import build_tool_instances, get_tool_definitions
@@ -35,6 +41,7 @@ from tests.support.runtime_stubs import (
     PrimarySettingsStub,
     SingleMessageModelRuntimeStub,
     build_harness_runtime,
+    isolated_backend_root,
 )
 from runtime.prompt_accounting import (
     CanonicalPromptSerializer,
@@ -248,6 +255,98 @@ def test_single_agent_turn_receives_compressed_context_from_session_record() -> 
 
     assert "此前已经确认项目采用 DeepSeek。" in payload
     assert "[Compressed session context]" not in payload
+
+
+def test_single_agent_turn_receives_environment_durable_memory_context() -> None:
+    class MemoryAwareRecordingModelRuntime(SingleMessageModelRuntimeStub):
+        def __init__(self) -> None:
+            super().__init__(content="自然对话回复。")
+            self.last_messages: list[dict[str, object]] = []
+
+        async def invoke_messages(self, messages, **kwargs):
+            text = "\n".join(str(item.get("content") or "") for item in list(messages or []) if isinstance(item, dict))
+            if "durable memory recall selector" in text:
+                return SimpleNamespace(
+                    content=json.dumps(
+                        {
+                            "should_recall": True,
+                            "selected_note_ids": ["coding-test-policy"],
+                            "reason": "coding environment policy is relevant",
+                            "confidence": 1.0,
+                            "needs_verification": True,
+                            "manifest_only": False,
+                            "ignore_memory": False,
+                        },
+                        ensure_ascii=False,
+                    )
+                )
+            if "你是一名记忆管理员" in text:
+                return SimpleNamespace(
+                    content=json.dumps(
+                        {
+                            "session_memory": {
+                                "session_title": "测试会话",
+                                "active_goal": "验证运行时记忆注入",
+                                "flow_state": ["已完成主模型轮次"],
+                                "current_task_state": ["测试结束"],
+                                "next_step": ["无"],
+                            },
+                            "session_emphasis_actions": [],
+                            "durable_memory": {"actions": [], "skipped_reason": "test"},
+                        },
+                        ensure_ascii=False,
+                    )
+                )
+            if "Single agent turn" in text:
+                self.last_messages = [dict(item) for item in list(messages or []) if isinstance(item, dict)]
+            return await super().invoke_messages(messages, **kwargs)
+
+    base_dir = isolated_backend_root("runtime-memory-")
+    model = MemoryAwareRecordingModelRuntime()
+    memory_facade = MemoryFacade(base_dir)
+    memory_facade.set_model_invoker(model.invoke_messages)
+    memory_facade.resolve_durable_memory_manager({"task_environment_id": "env.coding.vibe_workspace"}).save_note(
+        MemoryNote(
+            slug="coding-test-policy",
+            title="Coding 测试策略",
+            summary="coding 环境修改必须真实运行聚焦测试。",
+            canonical_statement="coding 环境修改必须真实运行聚焦测试。",
+            body="coding 环境修改必须真实运行聚焦测试。",
+            memory_type="project",
+            memory_class="work",
+            confidence="high",
+        )
+    )
+    runtime = build_harness_runtime(
+        base_dir=base_dir,
+        memory_facade=memory_facade,
+        model_runtime=model,
+    )
+
+    async def _collect() -> None:
+        async for _event in runtime.astream(
+            HarnessRuntimeRequest(
+                session_id="session-env-durable-runtime",
+                message="继续修复记忆系统。",
+                task_selection={
+                    "task_environment_id": "env.coding.vibe_workspace",
+                    "control_capabilities": {
+                        "may_call_tools": False,
+                        "may_request_task_run": False,
+                        "may_control_active_work": False,
+                        "may_use_subagents": False,
+                    },
+                },
+            )
+        ):
+            pass
+
+    asyncio.run(_collect())
+    payload = "\n".join(str(message.get("content") or "") for message in model.last_messages)
+
+    assert "coding 环境修改必须真实运行聚焦测试" in payload
+    assert "memory_context" in payload
+    assert "env:env.coding.vibe_workspace" in payload
 
 
 def test_single_agent_turn_receives_recent_terminal_task_outcome_from_state_index() -> None:
@@ -2128,7 +2227,9 @@ class _ProtocolRepairPromptProbeModelRuntime:
             )
         assert "上一轮输出疑似达到模型输出上限并被截断" in model_input
         assert "系统没有执行上一轮动作" in model_input
-        assert "改用 tool_call 调用 write_file 或 terminal" in model_input
+        assert "改用 action_type=tool_call" in model_input
+        assert "在 tool_calls 数组中调用 write_file 或 terminal" in model_input
+        assert "tool_calls[0].args" in model_input
         return SimpleNamespace(
             content=json.dumps(
                 _action_request(action_type="respond", final_answer="已按恢复协议收口。"),
@@ -2148,6 +2249,17 @@ def _tool_action_request(
     return payload
 
 
+def _tool_calls_action_request(
+    *,
+    tool_calls: list[dict[str, object]],
+    public_progress_note: str = "准备调用工具。",
+) -> dict[str, object]:
+    payload = _action_request(action_type="tool_call", public_progress_note=public_progress_note)
+    payload.pop("tool_call", None)
+    payload["tool_calls"] = [dict(item) for item in tool_calls]
+    return payload
+
+
 class _SlowTaskExecutorModelRuntime:
     async def invoke_messages(self, _messages, **_kwargs):
         await asyncio.sleep(0.1)
@@ -2157,6 +2269,77 @@ class _SlowTaskExecutorModelRuntime:
                 ensure_ascii=False,
             )
         )
+
+
+def test_task_tool_batch_group_returns_completed_results_before_interrupt(monkeypatch) -> None:
+    signal = ExecutorControlSignal(
+        kind="pause",
+        task_run_id="taskrun:batch-interrupt",
+        executor_epoch=1,
+        reason="test pause",
+        requested_by="test",
+        requested_at=1.0,
+    )
+
+    async def _fake_execute_task_tool_call(_runtime_host, **kwargs):
+        action_request = kwargs["action_request"]
+        if action_request.request_id == "act:pause":
+            raise TaskRunExecutorInterrupted(signal)
+        return {
+            "observation_id": "obs:completed-before-pause",
+            "task_run_id": "taskrun:batch-interrupt",
+            "observation_type": "tool_result",
+            "source": "tool:read_file",
+            "request_ref": action_request.request_id,
+            "payload": {
+                "tool_name": "read_file",
+                "tool_args": {"path": "README.md"},
+                "result": "ok",
+            },
+            "authority": "orchestration.runtime_observation",
+        }
+
+    monkeypatch.setattr(task_executor_module, "_execute_task_tool_call", _fake_execute_task_tool_call)
+    group = ToolBatchGroup(
+        group_index=0,
+        execution_class="exclusive",
+        item_indexes=(0, 1),
+        parallel=False,
+    )
+    invocation_rows = [
+        {
+            "action_request": SimpleNamespace(
+                request_id="act:completed",
+                tool_call={"tool_name": "read_file", "args": {"path": "README.md"}},
+            ),
+            "admission": SimpleNamespace(decision="allow"),
+            "tool_call": {"tool_name": "read_file", "args": {"path": "README.md"}},
+        },
+        {
+            "action_request": SimpleNamespace(
+                request_id="act:pause",
+                tool_call={"tool_name": "read_file", "args": {"path": "pyproject.toml"}},
+            ),
+            "admission": SimpleNamespace(decision="allow"),
+            "tool_call": {"tool_name": "read_file", "args": {"path": "pyproject.toml"}},
+        },
+    ]
+
+    result = asyncio.run(
+        task_executor_module._execute_task_tool_batch_group(
+            group,
+            invocation_rows=invocation_rows,
+            runtime_host=SimpleNamespace(),
+            services=SimpleNamespace(),
+            task_run=SimpleNamespace(task_run_id="taskrun:batch-interrupt", task_id="task:batch-interrupt", session_id="session:batch-interrupt", diagnostics={}),
+            packet_ref="packet:batch-interrupt",
+            runtime_assembly={},
+            runtime_tool_plan=SimpleNamespace(),
+        )
+    )
+
+    assert [observation["observation_id"] for _row, observation in result["results"]] == ["obs:completed-before-pause"]
+    assert result["interrupt"].signal.kind == "pause"
 
 
 def test_malformed_agent_action_request_fails_closed() -> None:
@@ -2438,6 +2621,162 @@ def test_task_executor_admission_denial_becomes_model_visible_observation_and_co
     assert observation["source"] == "system:model_action_admission"
     assert observation["needs_model_followup"] is True
     assert dict(observation.get("payload") or {}).get("error_code") == "tool_not_in_runtime_assembly"
+
+
+def test_task_executor_executes_task_execution_tool_calls_batch() -> None:
+    batch_action = _tool_calls_action_request(
+        tool_calls=[
+            {"tool_name": "read_file", "args": {"path": "harness/loop/model_action_protocol.py", "start_line": 1, "line_count": 8}},
+            {"tool_name": "read_file", "args": {"path": "harness/runtime/compiler.py", "start_line": 1, "line_count": 8}},
+        ],
+        public_progress_note="准备并行读取两个文件。",
+    )
+    runtime = build_harness_runtime(
+        model_runtime=_TaskExecutorSequenceModelRuntime(
+            [
+                batch_action,
+                _action_request(action_type="respond", final_answer="两个文件都已读取。"),
+            ],
+            agent_turn_action_request=_action_request(action_type="respond", final_answer="unused"),
+        ),
+        tool_runtime=_tool_runtime_for_names(_project_backend_dir(), {"read_file"}),
+    )
+    host = runtime.single_agent_runtime_host
+    task_run_id = _seed_active_work(
+        runtime,
+        task_run_id="taskrun:executor-tool-calls-batch",
+        session_id="session-executor-tool-calls-batch",
+    )
+
+    result = asyncio.run(runtime.execute_task_run(task_run_id, max_steps=3))
+
+    trace = host.get_trace(task_run_id, include_payloads=True)
+    events = [dict(item) for item in list(dict(trace or {}).get("events") or [])]
+    batch_plans = [
+        dict(dict(item.get("payload") or {}).get("tool_batch_plan") or {})
+        for item in events
+        if str(item.get("event_type") or "") == "task_tool_batch_planned"
+    ]
+    observations = [
+        dict(dict(item.get("payload") or {}).get("observation") or {})
+        for item in events
+        if str(item.get("event_type") or "") == "task_tool_observation_recorded"
+    ]
+
+    assert result["ok"] is True
+    assert batch_plans
+    assert batch_plans[0]["diagnostics"]["item_count"] == 2
+    assert len(observations) == 2
+    assert {dict(item.get("payload") or {}).get("tool_name") for item in observations} == {"read_file"}
+    assert runtime.model_runtime.task_invocation_count == 2
+
+
+def test_task_executor_guards_duplicate_task_execution_tool_calls_batch_child() -> None:
+    read_action = _tool_calls_action_request(
+        tool_calls=[
+            {"tool_name": "path_exists", "args": {"path": "artifacts/not-created-yet.txt"}},
+        ],
+        public_progress_note="检查目标路径是否存在。",
+    )
+    runtime = build_harness_runtime(
+        model_runtime=_TaskExecutorSequenceModelRuntime(
+            [
+                read_action,
+                read_action,
+                _action_request(action_type="respond", final_answer="已避免重复读取。"),
+            ],
+            agent_turn_action_request=_action_request(action_type="respond", final_answer="unused"),
+        ),
+        tool_runtime=_tool_runtime_for_names(_project_backend_dir(), {"path_exists"}),
+    )
+    host = runtime.single_agent_runtime_host
+    task_run_id = _seed_active_work(
+        runtime,
+        task_run_id="taskrun:executor-duplicate-tool-call-batch-child",
+        session_id="session-executor-duplicate-tool-call-batch-child",
+    )
+
+    result = asyncio.run(runtime.execute_task_run(task_run_id, max_steps=4))
+
+    trace = host.get_trace(task_run_id, include_payloads=True)
+    events = [dict(item) for item in list(dict(trace or {}).get("events") or [])]
+    tool_observations = [
+        dict(dict(item.get("payload") or {}).get("observation") or {})
+        for item in events
+        if str(item.get("event_type") or "") == "task_tool_observation_recorded"
+    ]
+    duplicate_events = [
+        dict(item.get("payload") or {})
+        for item in events
+        if str(item.get("event_type") or "") == "task_duplicate_tool_call_guarded"
+    ]
+
+    assert result["ok"] is True
+    assert runtime.model_runtime.task_invocation_count == 3
+    assert len(tool_observations) == 1
+    assert len(duplicate_events) == 1
+    duplicate_payload = dict(dict(duplicate_events[0].get("observation") or {}).get("payload") or {})
+    assert duplicate_payload.get("error_code") == "duplicate_read_only_tool_call"
+    assert dict(duplicate_payload.get("tool_args") or {}).get("tool_name") == "path_exists"
+
+
+def test_task_executor_blocks_repeated_tool_failure_after_guard_observation() -> None:
+    failing_terminal = _tool_calls_action_request(
+        tool_calls=[
+            {
+                "tool_name": "terminal",
+                "args": {"command": "Write-Output 'repeat failure'; exit 7"},
+            }
+        ],
+        public_progress_note="运行会失败的验证命令。",
+    )
+    runtime = build_harness_runtime(
+        model_runtime=_TaskExecutorSequenceModelRuntime(
+            [failing_terminal, failing_terminal, failing_terminal, failing_terminal],
+            agent_turn_action_request=_action_request(action_type="respond", final_answer="unused"),
+        ),
+        permission_service=SimpleNamespace(
+            current_mode=lambda: "full_access",
+            supported_modes=lambda: ["default", "full_access"],
+        ),
+        tool_runtime=_tool_runtime_for_names(_project_backend_dir(), {"terminal"}),
+    )
+    task_run_id = _seed_active_work(
+        runtime,
+        task_run_id="taskrun:repeated-tool-failure",
+        session_id="session-repeated-tool-failure",
+    )
+
+    result = asyncio.run(runtime.execute_task_run(task_run_id, max_steps=8))
+
+    host = runtime.single_agent_runtime_host
+    task_run = host.state_index.get_task_run(task_run_id)
+    trace = host.get_trace(task_run_id, include_payloads=True)
+    events = [dict(item) for item in list(dict(trace or {}).get("events") or [])]
+    guard_events = [
+        dict(item.get("payload") or {})
+        for item in events
+        if str(item.get("event_type") or "") == "task_repeated_tool_failure_guarded"
+    ]
+    tool_observations = [
+        dict(dict(item.get("payload") or {}).get("observation") or {})
+        for item in events
+        if str(item.get("event_type") or "") == "task_tool_observation_recorded"
+    ]
+
+    assert result["error"] == "repeated_failure_limit_exceeded"
+    assert runtime.model_runtime.task_invocation_count == 4
+    assert task_run is not None
+    assert task_run.status == "blocked"
+    assert task_run.terminal_reason == "repeated_failure_limit_exceeded"
+    recoverable = dict(dict(task_run.diagnostics or {}).get("recoverable_error") or {})
+    assert recoverable.get("error_code") == "repeated_failure_limit_exceeded"
+    assert recoverable.get("repeat_count") == 4
+    assert len(tool_observations) == 4
+    assert [payload.get("repeat_count") for payload in guard_events] == [3]
+    guard_payload = dict(dict(guard_events[0].get("observation") or {}).get("payload") or {})
+    assert guard_payload.get("failure_fingerprint") == recoverable.get("failure_fingerprint")
+    assert guard_payload.get("repeat_count") == 3
 
 
 def test_task_executor_repeated_admission_denial_pauses_before_step_budget() -> None:

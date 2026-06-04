@@ -12,6 +12,7 @@ from memory_system import MemoryFacade
 from memory_system.conversation_memory import ConversationMemoryStoreAdapter
 from memory_system.contracts import ConversationMemorySnapshot, MemoryContextCandidate, StateMemoryRestoreCandidate
 from memory_system.environment_context import resolve_memory_environment_context
+from memory_system.layout import durable_memory_namespace_id_for_task_environment
 from memory_system.runtime_view import MemoryRuntimeView
 from memory_system.state_memory import StateMemoryStoreAdapter
 from memory_system.runtime_supply import (
@@ -563,6 +564,18 @@ def test_long_term_memory_read_is_scoped_to_current_environment(tmp_path) -> Non
     facade = MemoryFacade(tmp_path)
     coding_manager = facade.resolve_durable_memory_manager({"task_environment_id": "env.coding.test"})
     writing_manager = facade.resolve_durable_memory_manager({"task_environment_id": "env.writing.test"})
+    facade.memory_manager.save_note(
+        MemoryNote(
+            slug="global-style",
+            title="Global 风格",
+            summary="全局记忆不能挤掉当前环境记忆。",
+            canonical_statement="全局记忆不能挤掉当前环境记忆。",
+            body="全局记忆不能挤掉当前环境记忆。",
+            memory_type="user",
+            memory_class="preference",
+            confidence="high",
+        )
+    )
     coding_manager.save_note(
         MemoryNote(
             slug="coding-style",
@@ -616,6 +629,7 @@ def test_long_term_memory_read_is_scoped_to_current_environment(tmp_path) -> Non
             "allow_long_term_memory": True,
             "task_environment_id": "env.coding.test",
         },
+        note_limit=1,
     )
     writing_view = facade.bundle_service.build_memory_runtime_view(
         session_id="session-env-read",
@@ -631,6 +645,7 @@ def test_long_term_memory_read_is_scoped_to_current_environment(tmp_path) -> Non
     writing_preview = "\n".join(candidate.rendered_preview for candidate in writing_view.context_candidates)
     assert "coding 环境要优先真实测试" in coding_preview
     assert "writing 环境要优先叙事连贯" not in coding_preview
+    assert "全局记忆不能挤掉当前环境记忆" not in coding_preview
     assert "writing 环境要优先叙事连贯" in writing_preview
     assert "coding 环境要优先真实测试" not in writing_preview
     assert coding_view.context_candidates[0].metadata["namespace_id"] == "env:env.coding.test"
@@ -707,7 +722,48 @@ def test_memory_read_plan_records_environment_scope_diagnostics(tmp_path) -> Non
     assert read_plan["effective_task_environment_id"] == "env.coding.test"
     assert read_plan["memory_read_mode"] == "task_relevant"
     assert read_plan["environment_scope"]["project_id"] == "project-alpha"
-    assert read_plan["read_namespaces"] == ["global_common", "env:env.coding.test"]
+    assert read_plan["read_namespaces"] == ["env:env.coding.test", "global_common"]
+
+
+def test_durable_governance_crud_targets_environment_namespace(tmp_path) -> None:
+    facade = MemoryFacade(tmp_path)
+    namespace_id = durable_memory_namespace_id_for_task_environment("env.coding.test")
+
+    created = facade.governance_service.create_durable_memory_note(
+        title="Coding 环境治理",
+        canonical_statement="coding 环境治理操作必须落在 coding namespace。",
+        summary="coding 环境治理操作必须落在 coding namespace。",
+        memory_type="project",
+        memory_class="work",
+        namespace_id=namespace_id,
+    )
+
+    global_headers = facade.governance_service.scan_durable_memory_headers(namespace_id="global_common")
+    env_headers = facade.governance_service.scan_durable_memory_headers(namespace_id=namespace_id)
+    assert [header.note_id for header in global_headers] == []
+    assert [header.note_id for header in env_headers] == [created["header"].note_id]
+
+    filename = created["filename"]
+    loaded = facade.governance_service.load_durable_memory_note(filename, namespace_id=namespace_id)
+    assert loaded["header"].title == "Coding 环境治理"
+
+    updated = facade.governance_service.set_durable_memory_note_status(
+        filename=filename,
+        status="inactive",
+        eligible_for_injection="false",
+        reason="test namespace status",
+        action="disable",
+        namespace_id=namespace_id,
+    )
+    assert updated["header"].status == "inactive"
+
+    deleted = facade.governance_service.delete_durable_memory_note(
+        filename=filename,
+        namespace_id=namespace_id,
+        reason="test namespace delete",
+    )
+    assert deleted["filename"] == filename
+    assert facade.governance_service.scan_durable_memory_headers(namespace_id=namespace_id) == []
 
 
 def test_long_term_memory_context_candidates_are_optional_and_do_not_override(tmp_path) -> None:

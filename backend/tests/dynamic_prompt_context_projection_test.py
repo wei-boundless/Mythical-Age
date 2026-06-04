@@ -20,6 +20,16 @@ def _payload_after_title(content: str, title: str) -> dict[str, object]:
     return json.loads(content[len(marker):])
 
 
+def _payload_containing_title(messages: list[dict[str, object]] | tuple[dict[str, object], ...], title: str) -> dict[str, object]:
+    marker = title + "\n"
+    for message in messages:
+        content = str(message.get("content") or "")
+        index = content.find(marker)
+        if index >= 0:
+            return json.loads(content[index + len(marker):])
+    raise AssertionError(f"packet title not found: {title}")
+
+
 def test_history_projector_keeps_session_emphasis_as_pinned_facts() -> None:
     projection = HistoryProjector().project(
         [{"role": "user", "content": "继续"}],
@@ -897,6 +907,44 @@ def test_single_agent_turn_projects_compressed_context_as_session_context() -> N
     context_window = result.packet.diagnostics["prompt_manifest"]["context_window"]
     assert context_window["compressed_summary_present"] is True
     assert str(context_window["compressed_summary_hash"]).startswith("sha256:")
+
+
+def test_single_agent_turn_projects_runtime_memory_context() -> None:
+    result = RuntimeCompiler().compile_single_agent_turn_packet(
+        session_id="session:runtime-memory-context",
+        turn_id="turn:runtime-memory-context",
+        agent_invocation_id="aginvoke:runtime-memory-context",
+        user_message="继续修复记忆系统。",
+        history=[],
+        session_context={
+            "memory_context": {
+                "authority": "memory_system.runtime_memory_context",
+                "memory_runtime_view_ref": "memory-runtime:session-runtime-memory",
+                "context_package_ref": "context-receipt:test",
+                "selected_sections": ["relevant_durable_context"],
+                "model_visible_sections": {
+                    "relevant_durable_context": [
+                        "长期记忆：coding 环境修改必须真实运行聚焦测试。"
+                    ],
+                    "debug_session_trace": ["不应进入模型可见内容"],
+                },
+                "diagnostics": {"read_namespaces": ["env:env.coding.test"]},
+            }
+        },
+        runtime_assembly={
+            "profile": {"mode": "conversation"},
+            "task_environment": {"environment_id": "env.coding.test"},
+        },
+    )
+
+    dynamic_payload = _payload_containing_title(result.packet.model_messages, "Single agent turn dynamic runtime")
+
+    memory_context = dynamic_payload["memory_context"]
+    assert memory_context["read_namespaces"] == ["env:env.coding.test"]
+    assert memory_context["model_visible_sections"]["relevant_durable_context"] == [
+        "长期记忆：coding 环境修改必须真实运行聚焦测试。"
+    ]
+    assert "debug_session_trace" not in memory_context["model_visible_sections"]
 
 
 def test_single_agent_turn_projects_recent_work_outcome_as_read_only_context() -> None:

@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from collections import Counter
 
+from task_system.registry.flow_registry import TaskFlowRegistry
+from task_system.storage import TaskSystemStorage
+
 from tests.support.writing_fixtures import load_writing_modular_config_module
 
 
@@ -36,6 +39,75 @@ def test_quality_gate_retry_same_node_remains_enabled_for_writing_nodes() -> Non
     assert batch_payload["quality_retry_policy"]["quality_failure_mode"] == "retry_same_node"
     assert draft_payload["contract_bindings"]["runtime"]["length_budget"]["target_enforcement"] == "advisory"
     assert draft_payload["contract_bindings"]["runtime"]["length_budget"]["max_units"] == module.CHAPTER_MAX_WORDS
+
+
+def test_chapter_draft_writer_runs_directly_with_preloaded_context_memory() -> None:
+    module = load_writing_modular_config_module()
+    node_by_id = {node.node_id: node for node in module.CHAPTER_NODES}
+
+    draft_payload = module._node_payload(node_by_id["chapter_draft"])
+    operation_policy = draft_payload["executor_policy"]["operation_policy"]
+    memory_policy = draft_payload["memory_read_policy"]
+
+    assert module.CHAPTER_BATCH_SIZE == 10
+    assert module.CHAPTERS_PER_VOLUME == 100
+    assert draft_payload["agent_id"] == module.WORKER_AGENT_ID
+    assert "runtime_policy" not in draft_payload
+    assert not any(str(item).startswith("op.subagent_") for item in operation_policy["allowed_operations"])
+    assert memory_policy["enabled"] is True
+    assert memory_policy["required_visibility"] is True
+    assert memory_policy["access_model"] == "edge_based_repository_read"
+    assert set(memory_policy["readable_repositories"]) == {
+        "memory.writing.baseline",
+        "memory.writing.mutable",
+        "memory.writing.manuscript",
+    }
+    assert "上下文记忆是你的取材依据" in node_by_id["chapter_draft"].prompt
+
+
+def test_stale_managed_self_repair_task_assets_are_deleted_from_storage(tmp_path) -> None:
+    module = load_writing_modular_config_module()
+    backend_dir = tmp_path / "backend"
+    backend_dir.mkdir()
+    registry = TaskFlowRegistry(backend_dir)
+    active_node = next(node for node in module.CHAPTER_NODES if node.node_id == "chapter_draft")
+    active_task_id = module._node_task_id(active_node.node_id)
+    stale_task_id = module._node_task_id("chapter_draft_self_repair")
+
+    module._upsert_task_asset(
+        registry,
+        task_id=active_task_id,
+        title=active_node.title,
+        input_contract_id=active_node.input_contract_id,
+        output_contract_id=active_node.output_contract_id,
+        prompt=active_node.prompt,
+        agent_id=module.WORKER_AGENT_ID,
+        node_id=active_node.node_id,
+    )
+    module._upsert_task_asset(
+        registry,
+        task_id=stale_task_id,
+        title="旧正文自修节点",
+        input_contract_id=active_node.input_contract_id,
+        output_contract_id=active_node.output_contract_id,
+        prompt="旧自修提示词",
+        agent_id=module.WORKER_AGENT_ID,
+        node_id="chapter_draft_self_repair",
+    )
+
+    module._delete_stale_managed_node_task_assets(registry, active_task_ids={active_task_id})
+
+    refreshed = TaskFlowRegistry(backend_dir)
+    assert refreshed.get_specific_task_record(active_task_id) is not None
+    assert refreshed.get_specific_task_record(stale_task_id) is None
+    assert all(item.task_id != stale_task_id for item in refreshed.list_task_assignments())
+    assert all(item.flow_id != stale_task_id.replace("task.", "flow.", 1) for item in refreshed.list_flows())
+    assert all(item.workflow_id != stale_task_id.replace("task.", "workflow.", 1) for item in refreshed.workflow_registry.list_workflows())
+    assert all(item.task_id != stale_task_id for item in refreshed.list_explicit_task_execution_policies())
+    assert all(item.task_id != stale_task_id for item in refreshed.list_explicit_task_memory_request_profiles())
+    assert all(item.task_id != stale_task_id for item in refreshed.list_explicit_flow_contract_bindings())
+    payload = TaskSystemStorage(backend_dir).read_object("specific_task_records.json", {"deleted_task_ids": []})
+    assert stale_task_id not in set(payload.get("deleted_task_ids") or [])
 
 
 def test_chapter_loop_scopes_do_not_reference_removed_self_repair_nodes() -> None:

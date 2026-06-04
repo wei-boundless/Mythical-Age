@@ -8537,10 +8537,6 @@ button:hover {
   font-size: 11px;
 }
 
-.creative-inspector-section--meta {
-  align-content: start;
-}
-
 .creative-rail-body {
   align-content: start;
   padding: 8px 0;
@@ -8574,9 +8570,7 @@ button:hover {
 }
 
 .creative-project-list,
-.creative-session-list,
-.creative-permission-list,
-.creative-maintenance-actions {
+.creative-session-list {
   display: grid;
   gap: 4px;
 }
@@ -8846,8 +8840,7 @@ button:hover {
 
 .creative-resource-row,
 .creative-run-lane,
-.creative-library-file,
-.creative-maintenance-actions button {
+.creative-library-file {
   border: 0;
   background: transparent;
   cursor: pointer;
@@ -9232,60 +9225,6 @@ button:hover {
   font-size: 13px;
 }
 
-.creative-fact-list {
-  display: grid;
-  gap: 8px;
-  margin: 0;
-}
-
-.creative-fact-list div {
-  display: grid;
-  grid-template-columns: 58px minmax(0, 1fr);
-  gap: 8px;
-}
-
-.creative-fact-list dt,
-.creative-fact-list dd {
-  min-width: 0;
-  margin: 0;
-  font-size: 12px;
-}
-
-.creative-fact-list dt {
-  color: #94a3b8;
-}
-
-.creative-fact-list dd {
-  overflow: hidden;
-  color: var(--creative-ink);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.creative-permission-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  border-bottom: 1px solid rgba(148, 163, 184, 0.12);
-  color: var(--creative-ink);
-  font-size: 12px;
-  padding: 7px 0;
-}
-
-.creative-permission-row span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.creative-permission-row em {
-  color: var(--creative-soft);
-  font-size: 11px;
-  font-style: normal;
-  white-space: nowrap;
-}
-
 .creative-file-preview {
   height: 100%;
   min-height: 360px;
@@ -9300,27 +9239,6 @@ button:hover {
   padding: 16px;
   white-space: pre-wrap;
   overflow-wrap: break-word;
-}
-
-.creative-maintenance-actions {
-  grid-template-columns: 1fr 1fr;
-}
-
-.creative-maintenance-actions button {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  border: 1px solid var(--creative-line);
-  color: var(--creative-accent);
-  font-size: 12px;
-  font-weight: 800;
-  padding: 8px;
-}
-
-.creative-maintenance-actions button:disabled {
-  cursor: not-allowed;
-  opacity: 0.48;
 }
 
 .creative-inline-state,
@@ -31619,10 +31537,10 @@ html[data-workspace-tone] .agent-workbench {
 }
 
 .agent-workbench .chat-thread__messages {
-  width: min(100%, 1280px);
+  width: min(100%, 1480px);
   margin: 0 auto;
   gap: 18px;
-  padding: 32px 12px 38px;
+  padding: 32px 18px 38px;
 }
 
 .agent-workbench .chat-thread__empty {
@@ -31648,7 +31566,7 @@ html[data-workspace-tone] .agent-workbench {
   grid-template-columns: minmax(0, 1fr);
   justify-items: stretch;
   width: 100%;
-  max-width: 1160px;
+  max-width: 1360px;
   margin: 0 auto;
   padding: 10px 0 16px;
   border: 0;
@@ -31721,12 +31639,12 @@ html[data-workspace-tone] .agent-workbench {
 .agent-workbench .chat-message-shell__content.markdown {
   position: relative;
   grid-column: 1;
-  width: min(100%, 1080px);
-  max-width: 1080px;
-  justify-self: start;
+  width: min(100%, 1240px);
+  max-width: 1240px;
+  justify-self: end;
   color: #0f172a;
   font-family: "Source Han Sans SC", "Noto Sans CJK SC", "PingFang SC", "Microsoft YaHei", ui-sans-serif, system-ui, sans-serif;
-  font-size: 15.5px;
+  font-size: 15px;
   font-weight: 460;
   line-height: 1.8;
   letter-spacing: 0;
@@ -31738,7 +31656,7 @@ html[data-workspace-tone] .agent-workbench {
 
 .agent-workbench .chat-message-shell--user .chat-message-shell__content {
   width: max-content;
-  max-width: min(76%, 660px);
+  max-width: min(82%, 760px);
   justify-self: end;
   border: 1px solid rgba(15, 23, 42, 0.11);
   border-radius: 8px;
@@ -31757,7 +31675,7 @@ html[data-workspace-tone] .agent-workbench {
 .agent-workbench .public-run-activity,
 .agent-workbench .chat-image-message {
   grid-column: 1;
-  justify-self: start;
+  justify-self: end;
 }
 
 .agent-workbench .public-run-activity {
@@ -31822,11 +31740,33 @@ html[data-workspace-tone] .agent-workbench {
 .agent-workbench .chat-message-shell__content.markdown ul,
 .agent-workbench .chat-message-shell__content.markdown ol {
   color: #0f172a;
-  font-size: 15.5px;
+  font-size: 15px;
   font-weight: 460;
   line-height: 1.8;
   margin-top: 0;
   margin-bottom: 10px;
+}
+
+.agent-workbench .chat-message-shell__content.markdown p,
+.agent-workbench .chat-message-shell__content.markdown li,
+.agent-workbench .chat-message-shell__content.markdown blockquote {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.agent-workbench .chat-message-shell__content.markdown code {
+  white-space: break-spaces;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.agent-workbench .chat-message-shell__content.markdown pre {
+  overflow-x: hidden;
+  white-space: pre-wrap;
+}
+
+.agent-workbench .chat-message-shell__content.markdown pre code {
+  white-space: pre-wrap;
 }
 
 .agent-workbench .chat-message-shell__content.markdown strong {
@@ -32348,6 +32288,7 @@ html[data-workspace-tone] .agent-workbench {
   }
 
   .agent-workbench .chat-message-shell--user .chat-message-shell__content {
+    width: max-content;
     max-width: min(88%, 660px);
   }
 
@@ -34086,9 +34027,9 @@ body {
   display: grid;
   grid-template-columns: 24px minmax(0, 1fr);
   gap: 9px;
-  width: min(100%, 780px);
+  width: min(100%, 1240px);
   align-items: start;
-  justify-self: start;
+  justify-self: end;
   border: 1px solid rgba(40, 95, 198, 0.12);
   border-radius: 8px;
   background:
@@ -34157,7 +34098,7 @@ body {
 
 .agent-workbench .public-run-activity {
   display: grid;
-  width: min(100%, 780px);
+  width: min(100%, 1240px);
   gap: 8px;
   margin: 4px 0 8px;
   border: 1px solid rgba(151, 166, 185, 0.24);
@@ -34282,7 +34223,7 @@ body {
 
 .agent-workbench .public-run-activity__row--history,
 .agent-workbench .public-run-activity__row--collapsed {
-  opacity: 0.72;
+  opacity: 0.86;
 }
 
 .agent-workbench .public-run-activity__copy strong {
@@ -34297,6 +34238,17 @@ body {
   color: #66758a;
   font-size: 12px;
   line-height: 1.45;
+}
+
+.agent-workbench .public-run-activity__observation {
+  display: block;
+  margin-top: 4px;
+  border-left: 2px solid rgba(22, 116, 95, 0.34);
+  border-radius: 6px;
+  background: rgba(237, 248, 243, 0.64);
+  color: #2f5f4f;
+  font-weight: 580;
+  padding: 5px 7px;
 }
 
 .agent-workbench .public-run-activity__copy code {

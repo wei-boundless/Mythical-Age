@@ -201,10 +201,12 @@ class MemoryBundleService:
         }
 
     def _durable_layers_for_read(self, environment_scope: dict[str, Any] | None, *, global_common_allowed: bool) -> tuple[Any, ...]:
-        layers = [self.durable_memory] if global_common_allowed else []
+        layers = []
         scoped_layer = self._durable_layer_for_scope(environment_scope)
         if scoped_layer is not self.durable_memory:
             layers.append(scoped_layer)
+        if global_common_allowed:
+            layers.append(self.durable_memory)
         return tuple(layers)
 
     def _long_term_candidates_from_results(

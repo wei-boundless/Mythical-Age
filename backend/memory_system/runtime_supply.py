@@ -98,6 +98,11 @@ class MemoryReadPlan:
     turn_environment_snapshot: dict[str, Any] = field(default_factory=dict)
     environment_scope: dict[str, Any] = field(default_factory=dict)
     global_common_allowed: bool = True
+    main_context: dict[str, Any] = field(default_factory=dict)
+    task_summaries: tuple[dict[str, Any], ...] = ()
+    session_summary: str = ""
+    recently_surfaced_note_ids: tuple[str, ...] = ()
+    recent_tools: tuple[str, ...] = ()
     authority: str = "memory_orchestrator.read_plan"
 
     def wants(self, layer: str) -> bool:
@@ -119,6 +124,10 @@ class MemoryReadPlan:
             "state_read_requested": self.state_read_requested,
             "state_read_mode": self.state_read_mode,
             "requested_topics": list(self.requested_topics),
+            "session_summary_present": bool(self.session_summary.strip()),
+            "task_summary_count": len(self.task_summaries),
+            "recent_tool_count": len(self.recent_tools),
+            "recently_surfaced_note_count": len(self.recently_surfaced_note_ids),
             "working_memory_task_run_id": working_scope.get("task_run_id", ""),
             "working_memory_scope": {
                 "graph_id": working_scope.get("graph_id", ""),
@@ -178,10 +187,10 @@ class MemoryOrchestrator:
         effective_task_environment_id = _effective_task_environment_id(profile, turn_environment_snapshot)
         global_common_allowed = bool(profile.get("global_common_allowed", True))
         read_namespaces = []
-        if global_common_allowed:
-            read_namespaces.append("global_common")
         if effective_task_environment_id:
             read_namespaces.append(durable_memory_namespace_id_for_task_environment(effective_task_environment_id))
+        if global_common_allowed:
+            read_namespaces.append("global_common")
         memory_read_mode = str(profile.get("memory_read_mode") or ("task_relevant" if "long_term" in requested_layers else "none")).strip()
         return MemoryReadPlan(
             requested_layers=tuple(requested_layers),
@@ -210,6 +219,15 @@ class MemoryOrchestrator:
                 "read_namespaces": tuple(read_namespaces),
             },
             global_common_allowed=global_common_allowed,
+            main_context=dict(profile.get("main_context") or {}),
+            task_summaries=tuple(
+                dict(item)
+                for item in list(profile.get("task_summaries") or ())
+                if isinstance(item, dict)
+            ),
+            session_summary=str(profile.get("session_summary") or ""),
+            recently_surfaced_note_ids=tuple(_normalize_strings(profile.get("recently_surfaced_note_ids"))),
+            recent_tools=tuple(_normalize_strings(profile.get("recent_tools"))),
         )
 
 
@@ -235,6 +253,11 @@ class MemorySupplier:
                     memory_intent=memory_intent,
                     relevant_notes=relevant_notes,
                     note_limit=plan.note_limit,
+                    main_context=plan.main_context,
+                    task_summaries=list(plan.task_summaries),
+                    session_summary=plan.session_summary,
+                    recently_surfaced_note_ids=list(plan.recently_surfaced_note_ids),
+                    recent_tools=list(plan.recent_tools),
                     environment_scope=plan.environment_scope,
                     global_common_allowed=plan.global_common_allowed,
                 )
@@ -266,6 +289,11 @@ class MemorySupplier:
                     memory_intent=memory_intent,
                     relevant_notes=relevant_notes,
                     note_limit=plan.note_limit,
+                    main_context=plan.main_context,
+                    task_summaries=list(plan.task_summaries),
+                    session_summary=plan.session_summary,
+                    recently_surfaced_note_ids=list(plan.recently_surfaced_note_ids),
+                    recent_tools=list(plan.recent_tools),
                     environment_scope=plan.environment_scope,
                     global_common_allowed=plan.global_common_allowed,
                 )
