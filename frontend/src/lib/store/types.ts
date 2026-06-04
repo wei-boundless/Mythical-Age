@@ -5,6 +5,8 @@ import type {
   PublicChatTimelineItem,
   RetrievalResult,
   RunMonitorEventPayload,
+  RuntimeMonitorActionPayload,
+  RuntimeMonitorActionResult,
   RuntimeMonitorEnvelope,
   ImageAssetConfig,
   HarnessTaskRunLiveMonitor,
@@ -120,6 +122,12 @@ export type TokenStats = {
   system_tokens: number;
   message_tokens: number;
   total_tokens: number;
+  context_meter?: {
+    current_context_tokens?: number;
+    current_context_ratio?: number;
+    context_window_tokens?: number;
+    pressure_level?: string;
+  };
   raw_history_tokens: number;
   history_tokens: number;
   history_budget_tokens: number;
@@ -152,10 +160,6 @@ export type WorkspaceView =
   | "system-config";
 
 export type TaskEnvironmentWorkspaceView = Extract<WorkspaceView, "chat" | "code-environment">;
-
-export type SearchPolicySource = "rag" | "local_files" | "web";
-
-export type SearchPolicyState = Record<SearchPolicySource, boolean>;
 
 export type ChatModelSelection = {
   selection_id: string;
@@ -300,8 +304,6 @@ export type StoreState = {
   activeStreamSessionIds: string[];
   sessionActivity: SessionActivityState;
   sessionActivitiesById: Record<string, SessionActivityState>;
-  ragMode: boolean;
-  searchPolicy: SearchPolicyState;
   permissionMode: PermissionMode;
   supportedPermissionModes: PermissionMode[];
   modelProviderConfig: ModelProviderConfig | null;
@@ -333,6 +335,8 @@ export type StoreState = {
   runMonitorError: string;
   runMonitorStreamStatus: RuntimeMonitorStreamStatus;
   runMonitorLastEvent: RunMonitorEventPayload["runtime_event"] | null;
+  runMonitorActionLoading: string;
+  runMonitorLastActionResult: RuntimeMonitorActionResult | null;
   taskGraphBoundRunMonitor: GraphRunMonitorView | null;
   taskGraphMonitorLoading: boolean;
   taskGraphMonitorActionLoading: boolean;
@@ -362,8 +366,6 @@ export type StoreActions = {
   resumeActiveTaskRun: () => Promise<void>;
   stopActiveTaskRun: () => Promise<void>;
   resendEditedMessage: (messageId: string, value: string) => Promise<void>;
-  toggleRagMode: () => Promise<void>;
-  toggleSearchPolicySource: (source: SearchPolicySource) => void;
   setPermissionMode: (mode: PermissionMode) => Promise<void>;
   setSelectedChatModel: (selectionId: string) => void;
   setSelectedChatMode: (mode: ChatMode) => void;
@@ -395,6 +397,7 @@ export type StoreActions = {
   clearChatTaskEnvironmentBinding: () => void;
   openRunMonitorSignal: (signalId: string) => void;
   refreshRunMonitor: () => Promise<void>;
+  runMonitorAction: (payload: RuntimeMonitorActionPayload) => Promise<RuntimeMonitorActionResult | null>;
   openTaskGraphWorkspace: (target?: Omit<TaskGraphWorkspaceTarget, "layer" | "requested_at">) => void;
   openWorkspaceFile: (path: string) => void;
   clearTaskGraphWorkspaceTarget: () => void;

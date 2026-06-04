@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict
-from typing import Any
+from typing import Any, Literal
 
 from capability_system.unit_projection import build_capability_units
 from capability_system.mcp.local_registry import build_local_mcp_catalog, default_local_mcp_units
@@ -12,7 +12,6 @@ from capability_system.permission_projection import attach_capability_permission
 from capability_system.skills.operation_requirements import skill_operation_ids_from_runtime
 from permissions.operation_packages import default_tool_packages
 from capability_system.skills.authoring import read_text
-from capability_system.capabilities.search_policy import classify_tool_source, search_policy_labels, tool_text_set
 
 from .catalog_models import AgentCapability, CapabilityBindingEdge, CapabilityBindingGraph, MCPCapability
 from .endpoint_projection import build_capability_endpoints
@@ -98,6 +97,55 @@ CAPABILITY_RISK_TAG_LABELS = {
     "session_write_candidate": "提交会话消息候选",
     "artifact_write_candidate": "提交产物候选",
 }
+
+
+ToolSourceClass = Literal[
+    "rag",
+    "local_files",
+    "web",
+    "document",
+    "data",
+    "memory",
+    "system_execution",
+    "general",
+]
+
+
+def _field_value(tool: Any, field_name: str) -> Any:
+    if isinstance(tool, dict):
+        return tool.get(field_name)
+    return getattr(tool, field_name, None)
+
+
+def tool_text_set(tool: Any, *fields: str) -> set[str]:
+    values: set[str] = set()
+    for field_name in fields:
+        raw = _field_value(tool, field_name)
+        if isinstance(raw, (list, tuple, set)):
+            values.update(str(item).lower() for item in raw if str(item).strip())
+        elif raw:
+            values.add(str(raw).lower())
+    return values
+
+
+def classify_tool_source(tool: Any) -> ToolSourceClass:
+    tags = tool_text_set(tool, "capability_tags", "supported_modalities", "safety_tags", "route_hints")
+    name = str(_field_value(tool, "name") or "").lower()
+    if name in {"terminal", "python_repl"} or "shell" in tags:
+        return "system_execution"
+    if tags & {"subagent_lifecycle", "agent", "orchestration"}:
+        return "general"
+    if tags & {"web", "network", "realtime", "finance", "weather"}:
+        return "web"
+    if tags & {"rag", "retrieval", "knowledge", "local-knowledge"}:
+        return "rag"
+    if tags & {"pdf", "document", "page", "section", "multimodal"}:
+        return "document"
+    if tags & {"table", "spreadsheet", "csv", "json", "dataset", "analytics"}:
+        return "data"
+    if tags & {"file", "workspace", "local", "code"} or str(_field_value(tool, "resource_exposure_policy") or "") == "explicit_resource":
+        return "local_files"
+    return "general"
 
 
 def capability_display_label(value: Any, fallback: str = "未配置") -> str:
@@ -283,7 +331,6 @@ def operation_tool_metadata(
         "note": str(metadata.get("note") or ""),
         "llm_description": llm_description,
         "source_class": source_class,
-        "search_policy": search_policy_labels(source_class),
         "tool_boundary": tool_boundary(tool),
         "adapter_type": tool_adapter_type(tool),
         "risk_level": tool_risk_level(tool),

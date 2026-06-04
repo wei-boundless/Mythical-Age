@@ -21,6 +21,10 @@ import {
   type EnvironmentSubpage,
 } from "@/components/workspace/views/task-system/environment/TaskEnvironmentManagementWorkbench";
 import { NodeConfigurationWorkbench } from "@/components/workspace/views/task-system/nodes/NodeConfigurationWorkbench";
+import {
+  RunManagementWorkbench,
+  type RunManagementSubpage,
+} from "@/components/workspace/views/task-system/runs/RunManagementWorkbench";
 import { TaskSystemShell } from "@/components/workspace/views/task-system/TaskSystemShell";
 import {
   deleteTaskSystemContract,
@@ -45,7 +49,7 @@ import {
 } from "@/lib/api";
 import { useAppStore } from "@/lib/store";
 
-type TaskSystemDomain = "environments" | "contracts" | "nodes";
+type TaskSystemDomain = "environments" | "contracts" | "nodes" | "runs";
 type ContractSubpage = "catalog" | "detail" | "usage";
 type NodeSubpage = "catalog" | "detail" | "capability" | "preview";
 
@@ -89,6 +93,7 @@ export function TaskSystemView() {
   const [selectedTaskSystemGraphId, setSelectedTaskSystemGraphId] = useState("");
   const [contractSubpage, setContractSubpage] = useState<ContractSubpage>("catalog");
   const [nodeSubpage, setNodeSubpage] = useState<NodeSubpage>("catalog");
+  const [runSubpage, setRunSubpage] = useState<RunManagementSubpage>("queue");
   const [environmentDraft, setEnvironmentDraft] = useState<EnvironmentDraft>(() => defaultEnvironmentDraft());
   const loadInFlightRef = useRef<Promise<void> | null>(null);
   const nodeRuntimeCatalogLoadRef = useRef<Promise<void> | null>(null);
@@ -435,6 +440,12 @@ export function TaskSystemView() {
       meta: `${consolePayload?.node_configuration_management?.summary?.node_configuration_count ?? 0} 个配置`,
       detail: "节点角色、执行者引用、契约绑定和装配预览",
     },
+    {
+      value: "runs",
+      label: "运行管理",
+      meta: "队列和记录",
+      detail: "工作队列、图任务项目、历史记录和清理预览",
+    },
   ];
   const environmentPages: Array<LayerNavItem<EnvironmentSubpage>> = [
     { value: "types", label: "环境类型", meta: `${kindTemplates.length} 类模板`, detail: "按用途预设默认资源和策略" },
@@ -454,6 +465,12 @@ export function TaskSystemView() {
     { value: "capability", label: "能力与权限", meta: `${nodeRuntimeCatalog?.options?.capability_items?.length ?? 0} 项能力`, detail: "工具、记忆、产物和失败边界" },
     { value: "preview", label: "装配预览", meta: "可见输入", detail: "Agent 实际会拿到的运行输入" },
   ];
+  const runPages: Array<LayerNavItem<RunManagementSubpage>> = [
+    { value: "queue", label: "工作队列", meta: "当前运行", detail: "运行、等待、停滞和失败任务" },
+    { value: "projects", label: "图任务项目", meta: "总任务", detail: "按项目查看 graph run 和节点进度" },
+    { value: "records", label: "历史记录", meta: "已完成/已清出", detail: "查看最近完成和隐藏记录" },
+    { value: "cleanup", label: "清理预览", meta: "后端保护", detail: "预览可删除记录和保护原因" },
+  ];
 
   const contextSlot = (
     <EnvironmentContextPicker
@@ -471,12 +488,16 @@ export function TaskSystemView() {
     ? environmentPages
     : activeDomain === "contracts"
       ? contractPages
-      : nodePages;
+      : activeDomain === "nodes"
+        ? nodePages
+        : runPages;
   const activeSubpage = activeDomain === "environments"
     ? environmentSubpage
     : activeDomain === "contracts"
       ? contractSubpage
-      : nodeSubpage;
+      : activeDomain === "nodes"
+        ? nodeSubpage
+        : runSubpage;
 
   const managementLayerSlot = (
     <div className="task-system-layer-groups" aria-label="任务系统配置层级">
@@ -521,6 +542,7 @@ export function TaskSystemView() {
                   if (activeDomain === "environments") setEnvironmentSubpage(item.value as EnvironmentSubpage);
                   if (activeDomain === "contracts") setContractSubpage(item.value as ContractSubpage);
                   if (activeDomain === "nodes") setNodeSubpage(item.value as NodeSubpage);
+                  if (activeDomain === "runs") setRunSubpage(item.value as RunManagementSubpage);
                 }}
                 type="button"
               >
@@ -539,7 +561,9 @@ export function TaskSystemView() {
     ? `环境管理 / ${environmentPages.find((item) => item.value === environmentSubpage)?.label ?? ""} / ${selectedEnvironmentLabel}`
     : activeDomain === "contracts"
       ? `契约库 / ${contractPages.find((item) => item.value === contractSubpage)?.label ?? ""}`
-      : `节点配置 / ${nodePages.find((item) => item.value === nodeSubpage)?.label ?? ""}`;
+      : activeDomain === "nodes"
+        ? `节点配置 / ${nodePages.find((item) => item.value === nodeSubpage)?.label ?? ""}`
+        : `运行管理 / ${runPages.find((item) => item.value === runSubpage)?.label ?? ""}`;
 
   return (
     <TaskSystemShell
@@ -618,6 +642,10 @@ export function TaskSystemView() {
             selectedEnvironmentId={selectedEnvironmentId}
             taskSystemOverview={consolePayload}
           />
+        ) : null}
+
+        {activeDomain === "runs" ? (
+          <RunManagementWorkbench activePage={runSubpage} />
         ) : null}
       </section>
     </TaskSystemShell>

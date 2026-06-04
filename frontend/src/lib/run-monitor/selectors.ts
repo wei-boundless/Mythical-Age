@@ -4,6 +4,14 @@ const ATTENTION_STATES = new Set(["waiting", "attention", "stale", "failed"]);
 
 export function selectRunMonitorActivityLane(monitor: RunMonitorEnvelope | null | undefined): RunMonitorSignal[] {
   if (!monitor) return [];
+  const management = monitor.management?.lanes;
+  if (management) {
+    return uniqueSignals([
+      ...(Array.isArray(management.current) ? management.current : []),
+      ...(Array.isArray(management.attention) ? management.attention : []),
+      ...(Array.isArray(management.recent) ? management.recent : []),
+    ].filter((signal) => signal.work_kind !== "graph_task"));
+  }
   const primary = Array.isArray(monitor.primary) ? monitor.primary : [];
   const attention = Array.isArray(monitor.attention) ? monitor.attention : [];
   const recent = Array.isArray(monitor.recent) ? monitor.recent : [];
@@ -17,6 +25,10 @@ export function selectRunMonitorActivityLane(monitor: RunMonitorEnvelope | null 
 
 export function selectRunMonitorProjectLane(monitor: RunMonitorEnvelope | null | undefined): RunMonitorSignal[] {
   if (!monitor) return [];
+  const managementProjects = monitor.management?.lanes?.projects;
+  if (Array.isArray(managementProjects) && managementProjects.length) {
+    return uniqueSignals(managementProjects);
+  }
   const projects = Array.isArray(monitor.projects) ? monitor.projects : [];
   if (projects.length) return uniqueSignals(projects);
   return uniqueSignals((Array.isArray(monitor.signals) ? monitor.signals : []).filter((signal) => signal.work_kind === "graph_task"));
@@ -24,6 +36,16 @@ export function selectRunMonitorProjectLane(monitor: RunMonitorEnvelope | null |
 
 export function visibleRunMonitorSignals(monitor: RunMonitorEnvelope | null | undefined): RunMonitorSignal[] {
   if (!monitor) return [];
+  const management = monitor.management?.lanes;
+  if (management) {
+    return uniqueSignals([
+      ...(Array.isArray(management.current) ? management.current : []),
+      ...(Array.isArray(management.projects) ? management.projects : []),
+      ...(Array.isArray(management.attention) ? management.attention : []),
+      ...(Array.isArray(management.recent) ? management.recent : []),
+      ...(Array.isArray(management.hidden) ? management.hidden : []),
+    ]);
+  }
   return uniqueSignals([
     ...selectRunMonitorProjectLane(monitor),
     ...selectRunMonitorActivityLane(monitor),

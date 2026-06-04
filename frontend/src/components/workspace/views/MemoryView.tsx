@@ -145,6 +145,28 @@ function formatTokenCount(value: unknown) {
   return String(number);
 }
 
+function percentFromRatio(value: unknown) {
+  return Math.max(0, Math.min(100, Math.round(Number(value || 0) * 100)));
+}
+
+function contextUsageRatio(tokenStats: TokenStats) {
+  const rawContextRatio = tokenStats.context_meter?.current_context_ratio;
+  const contextRatio = Number(rawContextRatio);
+  if (rawContextRatio !== undefined && rawContextRatio !== null && Number.isFinite(contextRatio)) {
+    return contextRatio;
+  }
+  return Number(tokenStats.history_usage_ratio || 0);
+}
+
+function currentContextTokenCount(tokenStats: TokenStats) {
+  const rawCurrent = tokenStats.context_meter?.current_context_tokens;
+  const current = Number(rawCurrent);
+  if (rawCurrent !== undefined && rawCurrent !== null && Number.isFinite(current)) {
+    return current;
+  }
+  return Number(tokenStats.total_tokens || 0);
+}
+
 function tokenPressureLabel(value: string) {
   const labels: Record<string, string> = {
     normal: "正常",
@@ -155,15 +177,21 @@ function tokenPressureLabel(value: string) {
   return labels[value] ?? (value || "正常");
 }
 
-function sessionTokenTitle(tokenStats: TokenStats | null, remainingPercent: number | null) {
+function sessionTokenTitle(tokenStats: TokenStats | null, usagePercent: number | null, remainingPercent: number | null) {
   if (!tokenStats) {
     return "";
   }
+  const currentContextTokens = currentContextTokenCount(tokenStats);
+  const contextWindowTokens = Number(tokenStats.context_meter?.context_window_tokens || 0);
   return [
-    `总计 ${formatTokenCount(tokenStats.total_tokens)} tokens`,
+    contextWindowTokens > 0
+      ? `当前上下文 ${formatTokenCount(currentContextTokens)}/${formatTokenCount(contextWindowTokens)} tokens`
+      : `当前上下文 ${formatTokenCount(currentContextTokens)} tokens`,
+    `会话总计 ${formatTokenCount(tokenStats.total_tokens)} tokens`,
     `消息 ${formatTokenCount(tokenStats.message_tokens)}`,
     `系统 ${formatTokenCount(tokenStats.system_tokens)}`,
     `有效历史 ${formatTokenCount(tokenStats.history_tokens)}/${formatTokenCount(tokenStats.history_budget_tokens)}`,
+    usagePercent !== null ? `已用 ${usagePercent}%` : "",
     remainingPercent !== null ? `余量 ${remainingPercent}%` : "",
     tokenStats.history_did_compact ? `已压缩，原始历史 ${formatTokenCount(tokenStats.raw_history_tokens)}` : "",
   ].filter(Boolean).join("；");
@@ -292,10 +320,9 @@ export function MemoryView() {
   }, [durableStatusFilter, overview?.durable_memory.headers, query]);
 
   const selectedSemanticText = semanticMemoryText(selectedDurableNote?.header, selectedDurableNote);
-  const remainingPercent = tokenStats
-    ? Math.max(0, Math.min(100, Math.round(Number(tokenStats.history_remaining_ratio || 0) * 100)))
-    : null;
-  const tokenTitle = sessionTokenTitle(tokenStats, remainingPercent);
+  const usagePercent = tokenStats ? percentFromRatio(contextUsageRatio(tokenStats)) : null;
+  const remainingPercent = tokenStats ? percentFromRatio(tokenStats.history_remaining_ratio) : null;
+  const tokenTitle = sessionTokenTitle(tokenStats, usagePercent, remainingPercent);
 
   const loadOverview = useCallback(async () => {
     setLoading(true);
@@ -1100,13 +1127,13 @@ export function MemoryView() {
           </article>
           <article title={tokenTitle}>
             <Gauge size={16} />
-            <span>上下文余量</span>
-            <strong>{remainingPercent !== null ? `${remainingPercent}%` : "暂无"}</strong>
+            <span>上下文已用</span>
+            <strong>{usagePercent !== null ? `${usagePercent}%` : "暂无"}</strong>
           </article>
           <article title={tokenTitle}>
             <FileText size={16} />
             <span>会话 Token</span>
-            <strong>{tokenStats ? `${formatTokenCount(tokenStats.total_tokens)} · ${tokenPressureLabel(tokenStats.history_pressure_level)}` : "暂无"}</strong>
+            <strong>{tokenStats ? `${formatTokenCount(currentContextTokenCount(tokenStats))} · ${tokenPressureLabel(tokenStats.context_meter?.pressure_level || tokenStats.history_pressure_level)}` : "暂无"}</strong>
           </article>
         </div>
       </section>

@@ -302,16 +302,10 @@ backend/capability_system/
 
 ### 4.7 Search Policy
 
-迁移或删除：
+已删除：
 
-- `backend/capability_system/search_policy.py`
-  -> `backend/runtime/context_management/search_policy.py`
-
-修复：
-
-- 当前 `operation_allowed_by_search_policy()` 对未知 operation fail-open。
-- 新策略必须从 `permissions.operations.OperationDescriptor.metadata/source_class` 派生。
-- 未知 operation 在策略过滤场景中默认 fail-closed，除非显式声明 `source_class="general"`。
+- 主页面“知识库 / 本地 / 联网”三按钮和旧搜索源策略请求链路已移除。
+- 能力目录只保留工具来源展示，不再提供搜索源门禁或运行时过滤策略。
 
 ### 4.8 Permission View
 
@@ -529,7 +523,7 @@ python -m pytest backend/tests/capability_system_api_regression.py backend/tests
 验证：
 
 ```powershell
-rg -n "capability_system\\.(operation_registry|tool_definitions|tool_runtime|tool_authorization|tool_contracts|skill_registry|skill_scanner|skill_policy|search_policy|permission_views|local_mcp_registry|mcp_registry|mcp_adapter)|capability_system\\.units|capability_system\\.agent_capabilities" backend -g "*.py" -g "!**/__pycache__/**"
+rg -n "capability_system\\.(operation_registry|tool_definitions|tool_runtime|tool_authorization|tool_contracts|skill_registry|skill_scanner|skill_policy|permission_views|local_mcp_registry|mcp_registry|mcp_adapter)|capability_system\\.units|capability_system\\.agent_capabilities" backend -g "*.py" -g "!**/__pycache__/**"
 python -m compileall -q backend
 ```
 
@@ -615,7 +609,6 @@ python -m pytest backend/tests/pdf_local_first_regression.py backend/tests/retri
    - `capability_system.skill_registry`
    - `capability_system.skill_scanner`
    - `capability_system.skill_policy`
-   - `capability_system.search_policy`
    - `capability_system.permission_views`
    - `capability_system.paths`
    - `capability_system.units.*`

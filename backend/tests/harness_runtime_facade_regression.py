@@ -11,7 +11,6 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-import harness.loop.task_executor as task_executor_module
 from harness.entrypoint.models import HarnessRuntimeRequest
 from api.chat import (
     _project_public_stream_event,
@@ -32,6 +31,8 @@ from harness.loop.task_executor import (
 )
 from harness.loop.task_run_execution_control import ExecutorControlSignal
 from harness.runtime.tool_batch_planner import ToolBatchGroup
+
+task_executor_module = sys.modules["harness.loop.task_executor"]
 from harness.loop.task_lifecycle import TaskLifecycleRecord, TaskRunContract
 from sessions import SessionManager
 from capability_system.tools.native_tool_catalog import build_tool_instances, get_tool_definitions

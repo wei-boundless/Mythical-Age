@@ -118,7 +118,6 @@ class ChatRequest(BaseModel):
     session_id: str
     stream: bool = True
     explicit_subtasks: list[dict[str, Any]] = Field(default_factory=list)
-    search_policy: list[str] | None = None
     runtime_profile: dict[str, Any] = Field(default_factory=dict)
     task_selection: dict[str, Any] = Field(default_factory=dict)
     model_selection: dict[str, Any] = Field(default_factory=dict)
@@ -254,7 +253,6 @@ def _query_request_from_payload(payload: ChatRequest, *, session_id: str) -> Har
         session_id=session_id,
         message=payload.message,
         explicit_subtasks=list(payload.explicit_subtasks or []),
-        search_policy=list(payload.search_policy) if payload.search_policy is not None else None,
         runtime_profile=dict(payload.runtime_profile or {}),
         task_selection=dict(payload.task_selection or {}),
         model_selection=dict(payload.model_selection or {}),

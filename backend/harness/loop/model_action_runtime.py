@@ -3,8 +3,6 @@ from __future__ import annotations
 import inspect
 from typing import Any
 
-from runtime.model_gateway.model_response_protocol import parse_json_object_with_diagnostics as parse_model_response_json_object
-
 
 async def call_model_invoker(
     invoker: Any,
@@ -139,6 +137,8 @@ def parse_json_object(content: Any) -> dict[str, Any]:
 
 
 def parse_json_object_with_diagnostics(content: Any) -> tuple[dict[str, Any], dict[str, Any]]:
+    from runtime.model_gateway.model_response_protocol import parse_json_object_with_diagnostics as parse_model_response_json_object
+
     return parse_model_response_json_object(content)
 
 

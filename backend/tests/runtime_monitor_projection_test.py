@@ -2,7 +2,7 @@ import time
 from pathlib import Path
 from types import SimpleNamespace
 
-from harness.runtime.run_monitor import RuntimeMonitorProjector, RuntimeMonitorService
+from harness.runtime.run_monitor import RuntimeMonitorActionService, RuntimeMonitorProjector, RuntimeMonitorService
 from harness.runtime.run_monitor.signals import build_runtime_monitor_envelope
 
 
@@ -274,6 +274,69 @@ def test_run_monitor_projects_active_turn_as_primary_signal():
     assert monitor["primary"][0]["signal_id"] == "turnrun:session-dev:1"
     assert monitor["primary"][0]["source_kind"] == "turn_run"
     assert monitor["primary"][0]["state"] == "active"
+    assert monitor["management"]["lanes"]["current"][0]["signal_id"] == "turnrun:session-dev:1"
+    clear_action = next(item for item in monitor["primary"][0]["actions"] if item["action"] == "clear_from_monitor")
+    delete_action = next(item for item in monitor["primary"][0]["actions"] if item["action"] == "delete_record")
+    assert clear_action["enabled"] is False
+    assert delete_action["enabled"] is False
+
+
+def test_runtime_monitor_management_includes_recent_terminal_records(tmp_path):
+    completed = task_run(
+        task_run_id="taskrun:completed",
+        status="completed",
+        terminal_reason="completed",
+        updated_at=140.0,
+        diagnostics={"title": "已完成任务"},
+    )
+    runtime_host = SimpleNamespace(
+        state_index=StateIndexStub([completed]),
+        event_log=EventLogStub(),
+        backend_dir=tmp_path / "backend",
+    )
+    service = RuntimeMonitorService(runtime_host=runtime_host, freshness_seconds=300.0)
+
+    live_monitor = service.list_global_live_monitor(limit=20)
+    monitor = service.collect_global_runtime_monitor(limit=20)
+
+    assert live_monitor["task_runs"] == []
+    assert monitor["summary"]["recent"] == 1
+    assert monitor["management"]["lanes"]["recent"][0]["signal_id"] == "taskrun:completed"
+    clear_action = next(item for item in monitor["management"]["lanes"]["recent"][0]["actions"] if item["action"] == "clear_from_monitor")
+    delete_action = next(item for item in monitor["management"]["lanes"]["recent"][0]["actions"] if item["action"] == "delete_record")
+    assert clear_action["enabled"] is True
+    assert delete_action["enabled"] is True
+
+
+def test_runtime_monitor_clear_action_hides_signal_without_deleting_record(tmp_path):
+    completed = task_run(
+        task_run_id="taskrun:completed",
+        status="completed",
+        terminal_reason="completed",
+        updated_at=140.0,
+        diagnostics={"title": "已完成任务"},
+    )
+    runtime_host = SimpleNamespace(
+        state_index=StateIndexStub([completed]),
+        event_log=EventLogStub(),
+        backend_dir=tmp_path / "backend",
+    )
+    service = RuntimeMonitorService(runtime_host=runtime_host, freshness_seconds=300.0)
+    runtime = SimpleNamespace(
+        base_dir=tmp_path / "backend",
+        harness_runtime=SimpleNamespace(single_agent_runtime_host=runtime_host),
+    )
+    action_service = RuntimeMonitorActionService(runtime=runtime, monitor_service=service)
+
+    import asyncio
+
+    result = asyncio.run(action_service.execute({"action": "clear_from_monitor", "signal_id": "taskrun:completed"}))
+
+    assert result["accepted"] is True
+    assert runtime_host.state_index.get_task_run("taskrun:completed") is completed
+    hidden = result["monitor"]["management"]["lanes"]["hidden"]
+    assert [item["signal_id"] for item in hidden] == ["taskrun:completed"]
+    assert result["monitor"]["management"]["lanes"]["recent"] == []
 
 
 def test_run_monitor_orders_same_priority_by_last_activity():

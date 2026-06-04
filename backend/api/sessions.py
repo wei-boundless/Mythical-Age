@@ -323,12 +323,25 @@ async def open_session_project_in_vscode(
     if not executable:
         raise HTTPException(status_code=503, detail="VS Code CLI `code` was not found on PATH")
     workspace_root = str(binding.get("workspace_root") or "").strip()
+    command = [executable, "--new-window", workspace_root]
     try:
         creationflags = subprocess.CREATE_NO_WINDOW if sys.platform.startswith("win") else 0
-        subprocess.Popen([executable, "-r", workspace_root], creationflags=creationflags)
+        subprocess.Popen(
+            command,
+            creationflags=creationflags,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"failed to open VS Code: {exc}") from exc
-    return {"ok": True, "project_binding": binding, "command": [executable, "-r", workspace_root]}
+    return {
+        "ok": True,
+        "project_binding": binding,
+        "command": command,
+        "window_mode": "new_window",
+        "session_id": session_id,
+    }
 
 
 def _select_project_directory_with_windows_dialog() -> str:

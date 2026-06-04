@@ -3,16 +3,21 @@
 import { AlertTriangle, RefreshCw, RadioTower } from "lucide-react";
 import { useMemo } from "react";
 
+import { useConfirmDialog } from "@/components/layout/ConfirmDialogProvider";
 import { RunActivityLane } from "@/components/layout/RunActivityLane";
 import { RunProjectLane } from "@/components/layout/RunProjectLane";
+import type { RuntimeMonitorActionPayload } from "@/lib/api";
 import { useAppStore } from "@/lib/store";
 import { selectRunMonitorActivityLane, selectRunMonitorProjectLane } from "@/lib/run-monitor/selectors";
 
 export function RunMonitorPanel() {
+  const confirm = useConfirmDialog();
   const {
     openRunMonitorSignal,
     refreshRunMonitor,
     runMonitor,
+    runMonitorAction,
+    runMonitorActionLoading,
     runMonitorError,
     runMonitorLoading,
     runMonitorStreamStatus,
@@ -33,7 +38,30 @@ export function RunMonitorPanel() {
       ? "连接中"
       : runMonitorStreamStatus === "fallback"
         ? "轮询"
-        : "离线";
+      : "离线";
+
+  async function handleAction(payload: RuntimeMonitorActionPayload) {
+    const action = String(payload.action || "").trim();
+    if (action === "delete_record") {
+      const approved = await confirm({
+        title: "删除运行记录",
+        body: "这会删除该任务的运行记录、事件和相关账本。清出监控台不需要删除记录。",
+        confirmLabel: "删除记录",
+        tone: "danger",
+      });
+      if (!approved) return;
+    }
+    if (action === "stop_task") {
+      const approved = await confirm({
+        title: "停止当前运行",
+        body: "停止请求会让当前任务在运行边界收口，不会清除已经产生的记录。",
+        confirmLabel: "停止",
+        tone: "warning",
+      });
+      if (!approved) return;
+    }
+    await runMonitorAction(payload);
+  }
 
   return (
     <section className="run-monitor-panel" aria-label="运行监控">
@@ -61,8 +89,8 @@ export function RunMonitorPanel() {
         </div>
       ) : null}
 
-      <RunProjectLane projects={projects} onOpen={openRunMonitorSignal} />
-      <RunActivityLane signals={activity} loading={runMonitorLoading} onOpen={openRunMonitorSignal} />
+      <RunProjectLane actionLoading={runMonitorActionLoading} onAction={(payload) => void handleAction(payload)} projects={projects} onOpen={openRunMonitorSignal} />
+      <RunActivityLane actionLoading={runMonitorActionLoading} onAction={(payload) => void handleAction(payload)} signals={activity} loading={runMonitorLoading} onOpen={openRunMonitorSignal} />
     </section>
   );
 }

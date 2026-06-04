@@ -383,30 +383,44 @@ function WorkspaceManagerPanel({ onOpenFile }: { onOpenFile: (path: string) => v
             <strong>{projectName}</strong>
             <small title={projectRoot}>{projectRoot}</small>
           </div>
-          {boundProjectRoot ? (
-            <button
-              disabled={workspaceTreeLoading}
-              onClick={() => void refreshWorkspaceTree()}
-              title="刷新绑定项目文件"
-              type="button"
-            >
-              <RefreshCw size={14} />
-              <span>刷新</span>
-            </button>
-          ) : (
-            <button
-              className="workbench-project-context__bind-action"
-              disabled={bindingProjectBusy}
-              onClick={() => void handleBindProject()}
-              title="绑定当前会话项目"
-              type="button"
-            >
-              <FolderOpen size={14} />
-              <span>{bindingProjectBusy ? "选择中" : "绑定"}</span>
-            </button>
-          )}
+          <div className="workbench-project-context__actions">
+            {boundProjectRoot ? (
+              <>
+                <button
+                  disabled={openingProjectRoot}
+                  onClick={() => void handleOpenProjectRoot()}
+                  title="在新的 VS Code 窗口打开当前会话项目"
+                  type="button"
+                >
+                  <FolderOpen size={14} />
+                  <span>VS Code</span>
+                </button>
+                <button
+                  disabled={workspaceTreeLoading}
+                  onClick={() => void refreshWorkspaceTree()}
+                  title="刷新当前会话项目文件"
+                  type="button"
+                >
+                  <RefreshCw size={14} />
+                  <span>刷新</span>
+                </button>
+              </>
+            ) : (
+              <button
+                className="workbench-project-context__bind-action"
+                disabled={bindingProjectBusy}
+                onClick={() => void handleBindProject()}
+                title="选择目录并绑定到当前会话"
+                type="button"
+              >
+                <FolderOpen size={14} />
+                <span>{bindingProjectBusy ? "选择中" : "绑定"}</span>
+              </button>
+            )}
+          </div>
         </div>
         {!boundProjectRoot && bindingProjectError ? <small className="workbench-project-bind-error">{bindingProjectError}</small> : null}
+        {boundProjectRoot && openProjectRootError ? <small className="workbench-project-bind-error">{openProjectRootError}</small> : null}
       </section>
 
       <div className="workbench-left-body">
@@ -480,11 +494,11 @@ function WorkspaceManagerPanel({ onOpenFile }: { onOpenFile: (path: string) => v
                 <RefreshCw size={14} />
               </button>
               <button
-                aria-label={boundProjectRoot ? "在 VS Code 打开绑定项目" : "打开项目目录"}
+                aria-label={boundProjectRoot ? "在新的 VS Code 窗口打开当前会话项目" : "打开项目目录"}
                 className="workbench-file-tree__open-project"
                 disabled={!boundProjectRoot || openingProjectRoot}
                 onClick={() => void handleOpenProjectRoot()}
-                title={boundProjectRoot ? `在 VS Code 打开绑定项目：${projectRoot}` : "当前会话未绑定项目"}
+                title={boundProjectRoot ? `在新的 VS Code 窗口打开当前会话项目：${projectRoot}` : "当前会话未绑定项目"}
                 type="button"
               >
                 <FolderOpen size={15} />

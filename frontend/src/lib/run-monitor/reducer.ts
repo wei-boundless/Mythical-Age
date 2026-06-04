@@ -34,7 +34,26 @@ export function isStaleRunMonitorRevision(incoming: string, current: string) {
 }
 
 export function allRunMonitorSignals(monitor: RunMonitorEnvelope | null | undefined) {
-  return Array.isArray(monitor?.signals) ? monitor.signals : [];
+  if (!monitor) return [];
+  const rows = Array.isArray(monitor.signals) ? [...monitor.signals] : [];
+  const lanes = monitor.management?.lanes;
+  if (lanes) {
+    rows.push(
+      ...(Array.isArray(lanes.current) ? lanes.current : []),
+      ...(Array.isArray(lanes.attention) ? lanes.attention : []),
+      ...(Array.isArray(lanes.projects) ? lanes.projects : []),
+      ...(Array.isArray(lanes.recent) ? lanes.recent : []),
+      ...(Array.isArray(lanes.hidden) ? lanes.hidden : []),
+    );
+  }
+  const seen = new Set<string>();
+  return rows.filter((signal) => {
+    const key = signal.signal_id || signal.task_instance_id || signal.task_run_id || signal.graph_run_id;
+    if (!key) return true;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 export function findRunMonitorSignal(monitor: RunMonitorEnvelope | null | undefined, signalId: string) {

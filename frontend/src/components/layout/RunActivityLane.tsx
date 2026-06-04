@@ -2,11 +2,15 @@
 
 import { Activity, AlertTriangle, CheckCircle2, Clock3, TimerReset } from "lucide-react";
 
+import type { RuntimeMonitorActionPayload } from "@/lib/api";
+import { RunMonitorActionMenu } from "@/components/layout/RunMonitorActionMenu";
 import type { RunMonitorSignal } from "@/lib/run-monitor/types";
 
 type RunActivityLaneProps = {
   signals: RunMonitorSignal[];
   loading: boolean;
+  actionLoading: string;
+  onAction: (payload: RuntimeMonitorActionPayload) => void;
   onOpen: (signalId: string) => void;
 };
 
@@ -26,8 +30,11 @@ function signalStateLabel(signal: RunMonitorSignal) {
   return "同步";
 }
 
-export function RunActivityLane({ signals, loading, onOpen }: RunActivityLaneProps) {
-  const visible = signals.slice(0, 5);
+export function RunActivityLane({ signals, loading, actionLoading, onAction, onOpen }: RunActivityLaneProps) {
+  const current = signals.filter((signal) => signal.visibility?.lane === "current" || signal.state === "active");
+  const attention = signals.filter((signal) => (signal.visibility?.lane === "attention" || ["waiting", "attention", "stale", "failed"].includes(signal.state)) && signal.state !== "active");
+  const recent = signals.filter((signal) => signal.visibility?.lane === "recent" || signal.state === "completed");
+  const visible = [...current.slice(0, 4), ...attention.slice(0, 4), ...recent.slice(0, 3)].slice(0, 8);
   const hidden = Math.max(0, signals.length - visible.length);
   return (
     <section className="run-monitor-lane" aria-label="运行活动">
@@ -37,22 +44,21 @@ export function RunActivityLane({ signals, loading, onOpen }: RunActivityLanePro
       </header>
       <div className="run-monitor-activity">
         {visible.length ? visible.map((signal) => (
-          <button
+          <div
             className={`run-monitor-row run-monitor-row--${signal.state}`}
             key={signal.signal_id}
-            onClick={() => onOpen(signal.signal_id)}
-            type="button"
           >
             <span className="run-monitor-row__icon">{signalIcon(signal)}</span>
-            <span className="run-monitor-row__body">
+            <button className="run-monitor-row__body" onClick={() => onOpen(signal.signal_id)} type="button">
               <strong>{signal.title}</strong>
               <small>{signal.line}</small>
-            </span>
+            </button>
             <span className="run-monitor-row__meta">
               <strong>{signalStateLabel(signal)}</strong>
               <small>{signal.detail}</small>
             </span>
-          </button>
+            <RunMonitorActionMenu loadingAction={actionLoading} onAction={onAction} signal={signal} />
+          </div>
         )) : (
           <div className="run-monitor-empty">
             <Clock3 size={17} />

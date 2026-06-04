@@ -224,7 +224,7 @@ python -m pytest backend/tests/runtime_capability_state_regression.py backend/te
 已完成的自动化验证：
 
 ```powershell
-python -m pytest backend/tests/runtime_tool_control_plane_regression.py backend/tests/task_environment_registry_regression.py backend/tests/prompt_cache_prefix_tier_regression.py backend/tests/permission_service_regression.py backend/tests/runtime_capability_state_regression.py backend/tests/search_policy_capability_regression.py backend/tests/harness_runtime_facade_regression.py -k "waiting_executor or terminal_bound_active_turn or latest_waiting_executor or terminal_latest_task_without_active_turn or stale_running or not harness_runtime_facade_regression" -q
+python -m pytest backend/tests/runtime_tool_control_plane_regression.py backend/tests/task_environment_registry_regression.py backend/tests/prompt_cache_prefix_tier_regression.py backend/tests/permission_service_regression.py backend/tests/runtime_capability_state_regression.py backend/tests/harness_runtime_facade_regression.py -k "waiting_executor or terminal_bound_active_turn or latest_waiting_executor or terminal_latest_task_without_active_turn or stale_running or not harness_runtime_facade_regression" -q
 ```
 
 结果：`64 passed, 99 deselected`。

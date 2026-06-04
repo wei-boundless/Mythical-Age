@@ -122,6 +122,43 @@ def test_progress_presenter_translates_path_exists_false_without_visible_raw_boo
     assert any(item.get("raw_preview") == "false" for item in presentation["technical_trace"])
 
 
+def test_progress_presenter_marks_nested_result_envelope_failure_as_error() -> None:
+    task_run = _task_run()
+    events = [
+        {
+            "event_id": "rtevt:nested-failure",
+            "run_id": "taskrun:turn:session-progress:1:abc",
+            "event_type": "task_tool_observation_recorded",
+            "offset": 1,
+            "created_at": 1.0,
+            "payload": {
+                "observation": {
+                    "observation_id": "obs:nested-failure",
+                    "source": "tool:read_file",
+                    "action_request_ref": "act:nested-failure",
+                    "payload": {
+                        "tool_name": "read_file",
+                        "tool_args": {"path": "missing.txt"},
+                        "result_envelope": {
+                            "status": "failed",
+                            "text": "file not found",
+                        },
+                    },
+                }
+            },
+            "refs": {"action_request_ref": "act:nested-failure", "observation_ref": "obs:nested-failure"},
+        }
+    ]
+
+    presentation = build_progress_presentation(events=events, task_run=task_run, monitor={})
+
+    assert presentation["work_units"]
+    unit = presentation["work_units"][0]
+    assert unit["state"] == "error"
+    assert unit["evidence"][0]["status"] == "error"
+    assert "file not found" in unit["evidence"][0]["summary"]
+
+
 def test_progress_presenter_suppresses_empty_runtime_sync_steps() -> None:
     presentation = build_progress_presentation(
         events=[

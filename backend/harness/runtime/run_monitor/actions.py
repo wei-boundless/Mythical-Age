@@ -54,7 +54,6 @@ class RuntimeMonitorActionService:
                     reason=str(preflight.get("disabled_reason") or "action_not_available"),
                 ),
             }
-        }
         signal = _find_signal(dict(preflight.get("monitor") or {}), payload)
         effects: dict[str, Any]
         if action == "clear_from_monitor":

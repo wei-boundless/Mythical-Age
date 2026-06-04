@@ -17,7 +17,6 @@ from artifact_system.artifact_authority import (
 )
 from runtime.shared.models import AgentRun, AgentRunResult
 from runtime.memory.tool_observation_ledger import build_tool_observation_record
-from runtime.model_gateway.model_response_protocol import model_response_protocol_from_response
 from runtime.output_boundary import canonical_output_decision_for_final_text
 from runtime.shared.approval_fingerprint import build_approval_risk_fingerprint
 from runtime.tool_runtime import ToolInvocationRequest, build_tool_invocation_id
@@ -25,7 +24,11 @@ from runtime.tool_runtime import ToolInvocationRequest, build_tool_invocation_id
 from orchestration.commit_gate import build_assistant_session_message_commit_decision
 from permissions.policy import normalize_permission_mode
 from project_layout import ProjectLayout
-from harness.runtime import RuntimeCompiler, TaskExecutorServices, ToolBatchGroup, assemble_runtime, build_runtime_tool_plan, build_tool_batch_plan
+from harness.runtime.assembly import assemble_runtime
+from harness.runtime.compiler import RuntimeCompiler
+from harness.runtime.services import TaskExecutorServices
+from harness.runtime.tool_batch_planner import ToolBatchGroup, build_tool_batch_plan
+from harness.runtime.tool_plan import build_runtime_tool_plan
 from harness.runtime.environment_storage import ensure_environment_storage_dirs
 from harness.runtime.artifact_scope import (
     canonicalize_task_contract_artifacts,
@@ -2438,6 +2441,8 @@ async def _invoke_task_model_action(
     model_selection: dict[str, Any],
     executor_epoch: int = 0,
 ) -> tuple[AnyModelActionRequest | None, dict[str, Any]]:
+    from runtime.model_gateway.model_response_protocol import model_response_protocol_from_response
+
     invoker = getattr(model_runtime, "invoke_messages", None)
     if not callable(invoker):
         return None, {"status": "invalid", "validation_errors": ["model_runtime_unavailable"]}

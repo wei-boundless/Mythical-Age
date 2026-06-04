@@ -62,12 +62,6 @@ export function getDefaultState(): StoreState {
     activeStreamSessionIds: [],
     sessionActivity: createIdleSessionActivity(),
     sessionActivitiesById: {},
-    ragMode: false,
-    searchPolicy: {
-      rag: false,
-      local_files: true,
-      web: false
-    },
     permissionMode: "full_access",
     supportedPermissionModes: ["default", "plan", "accept_edits", "bypass", "full_access"],
     modelProviderConfig: null,
@@ -99,6 +93,8 @@ export function getDefaultState(): StoreState {
     runMonitorError: "",
     runMonitorStreamStatus: "closed",
     runMonitorLastEvent: null,
+    runMonitorActionLoading: "",
+    runMonitorLastActionResult: null,
     taskGraphBoundRunMonitor: null,
     taskGraphMonitorLoading: false,
     taskGraphMonitorActionLoading: false,

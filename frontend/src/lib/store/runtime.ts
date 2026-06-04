@@ -17,7 +17,6 @@ import {
   approveOrchestrationHarnessTaskRunToolCall,
   pauseOrchestrationHarnessTaskRun,
   getPermissionMode,
-  getRagMode,
   resumeOrchestrationHarnessTaskRun,
   setPermissionMode as setRuntimePermissionMode,
   setSessionActiveTaskEnvironment,
@@ -32,7 +31,6 @@ import {
   saveFile,
   saveFileForSession,
   selectSessionProjectDirectory,
-  setRagMode,
   stopOrchestrationHarnessTaskRun,
   clearChatStreamCursor,
   readChatStreamCursor,
@@ -40,14 +38,14 @@ import {
   streamExistingChatRun,
   truncateSessionMessages
 } from "@/lib/api";
-import type { ChatStreamCursor, PublicChatTimelineItem, RunMonitorEventPayload, RuntimeMonitorEnvelope, SessionRuntimeAttachment, SessionScope, SessionSummary } from "@/lib/api";
+import type { ChatStreamCursor, PublicChatTimelineItem, RunMonitorEventPayload, RuntimeMonitorActionPayload, RuntimeMonitorActionResult, RuntimeMonitorEnvelope, SessionRuntimeAttachment, SessionScope, SessionSummary } from "@/lib/api";
 import { taskEnvironmentDisplayName } from "@/lib/taskEnvironmentDisplay";
 
 import { createIdleSessionActivity, type Store } from "./core";
 import { reduceStreamEvent, startQueuedActiveTurn, startStreamingTurn, type StreamSession } from "./events";
 import { mergePublicTimelineItems, publicTimelineTerminalStateFromAnswer } from "./publicTimeline";
 import { RunMonitorController } from "../run-monitor/controller";
-import type { ActiveTurnSnapshot, ChatMode, ChatModelSelection, ChatTaskEnvironmentBinding, ChatThinkingMode, Message, PermissionMode, RuntimeProgressEntry, SearchPolicySource, SessionEditorContext, SessionEditorPageStatePatch, SessionPoolKey, SessionRef, StoreActions, StoreState, TaskEnvironmentWorkspaceView, TaskGraphMonitorBinding, TaskGraphWorkspaceTarget, TaskSelectionState, WorkspaceView } from "./types";
+import type { ActiveTurnSnapshot, ChatMode, ChatModelSelection, ChatTaskEnvironmentBinding, ChatThinkingMode, Message, PermissionMode, RuntimeProgressEntry, SessionEditorContext, SessionEditorPageStatePatch, SessionPoolKey, SessionRef, StoreActions, StoreState, TaskEnvironmentWorkspaceView, TaskGraphMonitorBinding, TaskGraphWorkspaceTarget, TaskSelectionState, WorkspaceView } from "./types";
 import { makeId, toUiMessages } from "./utils";
 
 type HarnessSessionMonitor = NonNullable<Awaited<ReturnType<typeof getOrchestrationHarnessSessionLiveMonitor>>["monitor"]>;
@@ -188,12 +186,6 @@ export class WorkspaceRuntime {
       resendEditedMessage: async (messageId, value) => {
         await this.resendEditedMessage(messageId, value);
       },
-      toggleRagMode: async () => {
-        await this.toggleRagMode();
-      },
-      toggleSearchPolicySource: (source) => {
-        this.toggleSearchPolicySource(source);
-      },
       setPermissionMode: async (mode) => {
         await this.setPermissionMode(mode);
       },
@@ -280,6 +272,9 @@ export class WorkspaceRuntime {
       },
       refreshRunMonitor: async () => {
         await this.refreshRunMonitor();
+      },
+      runMonitorAction: async (payload) => {
+        return await this.runMonitorAction(payload);
       },
       openTaskGraphWorkspace: (target) => {
         this.openTaskGraphWorkspace(target);
@@ -372,8 +367,7 @@ export class WorkspaceRuntime {
   }
 
   private async loadWorkspaceMetadata() {
-    const [rag, permissionMode, skills, modelProviderConfig, imageAssetConfig, workspaceContext] = await Promise.all([
-      getRagMode().catch(() => null),
+    const [permissionMode, skills, modelProviderConfig, imageAssetConfig, workspaceContext] = await Promise.all([
       getPermissionMode().catch(() => null),
       listSkills().catch(() => []),
       getModelProviderConfig().catch(() => null),
@@ -386,11 +380,6 @@ export class WorkspaceRuntime {
         : prev.supportedPermissionModes;
       return {
         ...prev,
-        ragMode: Boolean(rag?.enabled),
-        searchPolicy: {
-          ...prev.searchPolicy,
-          rag: Boolean(rag?.enabled)
-        },
         permissionMode: this.permissionModeForSession(
           prev.currentSessionId,
           prev,
@@ -1587,7 +1576,6 @@ export class WorkspaceRuntime {
     const abortController = new AbortController();
     this.streamAbortControllers.set(sessionId, abortController);
     const ephemeralSystemMessages = [...(state.pendingEphemeralSystemMessages ?? [])];
-    const searchPolicy = this.enabledSearchPolicy(state);
     const imageGeneration = this.chatImageGenerationPayload(state);
     const isImageGenerationTurn = Boolean(imageGeneration);
     let consumedEphemeralSystemMessages = false;
@@ -1668,7 +1656,6 @@ export class WorkspaceRuntime {
           session_id: sessionId,
           session_scope: this.sessionScopeForSession(sessionId),
           ephemeral_system_messages: ephemeralSystemMessages,
-          search_policy: searchPolicy,
           task_selection: this.chatTaskSelectionPayload(requestState),
           model_selection: this.chatModelSelectionPayload(requestState),
           permission_mode: permissionMode,
@@ -1971,57 +1958,6 @@ export class WorkspaceRuntime {
     return messages.reduce((max, message) => Math.max(max, message.sourceIndex ?? -1), -1) + 1;
   }
 
-  private async toggleRagMode() {
-    const next = !this.store.getState().ragMode;
-    this.store.setState((prev) => ({
-      ...prev,
-      ragMode: next,
-      searchPolicy: {
-        ...prev.searchPolicy,
-        rag: next
-      }
-    }));
-    try {
-      await setRagMode(next);
-    } catch (error) {
-      this.store.setState((prev) => ({
-        ...prev,
-        ragMode: !next,
-        searchPolicy: {
-          ...prev.searchPolicy,
-          rag: !next
-        }
-      }));
-      throw error;
-    }
-  }
-
-  private toggleSearchPolicySource(source: SearchPolicySource) {
-    this.store.setState((prev) => {
-      const nextEnabled = !prev.searchPolicy[source];
-      return {
-        ...prev,
-        ragMode: source === "rag" ? nextEnabled : prev.ragMode,
-        searchPolicy: {
-          ...prev.searchPolicy,
-          [source]: nextEnabled
-        }
-      };
-    });
-    if (source === "rag") {
-      void setRagMode(this.store.getState().searchPolicy.rag).catch(() => {
-        this.store.setState((prev) => ({
-          ...prev,
-          ragMode: !prev.searchPolicy.rag,
-          searchPolicy: {
-            ...prev.searchPolicy,
-            rag: !prev.searchPolicy.rag
-          }
-        }));
-      });
-    }
-  }
-
   private async setPermissionMode(mode: PermissionMode) {
     const requestedMode = this.normalizePermissionMode(mode);
     const state = this.store.getState();
@@ -2263,12 +2199,6 @@ export class WorkspaceRuntime {
       asset_kind: "chat",
       size: "1024x1024"
     };
-  }
-
-  private enabledSearchPolicy(state: StoreState) {
-    return (Object.entries(state.searchPolicy) as Array<[SearchPolicySource, boolean]>)
-      .filter(([, enabled]) => enabled)
-      .map(([source]) => source);
   }
 
   private chatEditorContextPayload(state: StoreState, sessionId: string): Record<string, unknown> | undefined {
@@ -3702,6 +3632,10 @@ export class WorkspaceRuntime {
 
   private async refreshRunMonitor() {
     await this.runMonitorController.refresh();
+  }
+
+  private async runMonitorAction(payload: RuntimeMonitorActionPayload): Promise<RuntimeMonitorActionResult | null> {
+    return await this.runMonitorController.runAction(payload);
   }
 
   applyRunMonitorSnapshot(

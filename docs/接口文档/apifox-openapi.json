@@ -10861,20 +10861,6 @@
             "type": "array",
             "title": "Explicit Subtasks"
           },
-          "search_policy": {
-            "anyOf": [
-              {
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Search Policy"
-          },
           "runtime_profile": {
             "additionalProperties": true,
             "type": "object",

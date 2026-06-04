@@ -12,6 +12,8 @@ const api = vi.hoisted(() => ({
   getChatRun: vi.fn(),
   getLatestChatRunForSession: vi.fn(),
   getRunMonitor: vi.fn(),
+  executeRunMonitorAction: vi.fn(),
+  preflightRunMonitorAction: vi.fn(),
   getModelProviderConfig: vi.fn(),
   getTaskEnvironmentCatalog: vi.fn(),
   getOrchestrationHarnessTaskRunLiveMonitor: vi.fn(),
@@ -21,7 +23,6 @@ const api = vi.hoisted(() => ({
   pauseOrchestrationHarnessTaskRun: vi.fn(),
   clearChatStreamCursor: vi.fn(),
   getPermissionMode: vi.fn(),
-  getRagMode: vi.fn(),
   readChatStreamCursor: vi.fn(),
   resumeOrchestrationHarnessTaskRun: vi.fn(),
   runGraphRunUntilIdle: vi.fn(),
@@ -54,6 +55,8 @@ vi.mock("@/lib/api", () => ({
   getChatRun: api.getChatRun,
   getLatestChatRunForSession: api.getLatestChatRunForSession,
   getRunMonitor: api.getRunMonitor,
+  executeRunMonitorAction: api.executeRunMonitorAction,
+  preflightRunMonitorAction: api.preflightRunMonitorAction,
   getTaskEnvironmentCatalog: api.getTaskEnvironmentCatalog,
   getRuntimeMonitorEventStreamUrl: vi.fn(() => "http://127.0.0.1:8003/api/orchestration/runtime-monitor/events"),
   getModelProviderConfig: api.getModelProviderConfig,
@@ -68,7 +71,6 @@ vi.mock("@/lib/api", () => ({
   pauseOrchestrationHarnessTaskRun: api.pauseOrchestrationHarnessTaskRun,
   clearChatStreamCursor: api.clearChatStreamCursor,
   getPermissionMode: api.getPermissionMode,
-  getRagMode: api.getRagMode,
   readChatStreamCursor: api.readChatStreamCursor,
   resumeOrchestrationHarnessTaskRun: api.resumeOrchestrationHarnessTaskRun,
   setSessionActiveTaskEnvironment: api.setSessionActiveTaskEnvironment,
@@ -84,7 +86,6 @@ vi.mock("@/lib/api", () => ({
   renameSession: vi.fn(),
   saveFile: vi.fn(),
   selectSessionProjectDirectory: api.selectSessionProjectDirectory,
-  setRagMode: vi.fn(),
   stopOrchestrationHarnessTaskRun: api.stopOrchestrationHarnessTaskRun,
   stopOrchestrationTaskRun: vi.fn(),
   streamExistingChatRun: api.streamExistingChatRun,
@@ -322,6 +323,27 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     vi.useFakeTimers();
     api.getRunMonitor.mockReset();
     api.getRunMonitor.mockResolvedValue(monitorForTest([]));
+    api.executeRunMonitorAction.mockReset();
+    api.executeRunMonitorAction.mockResolvedValue({
+      authority: "runtime_monitor.actions",
+      accepted: true,
+      action: "clear_from_monitor",
+      target: {},
+      effects: {},
+      monitor: monitorForTest([]),
+      updated_at: 1,
+    });
+    api.preflightRunMonitorAction.mockReset();
+    api.preflightRunMonitorAction.mockResolvedValue({
+      authority: "runtime_monitor.actions",
+      mode: "preflight",
+      accepted: true,
+      action: "clear_from_monitor",
+      target: {},
+      effects: {},
+      monitor: monitorForTest([]),
+      updated_at: 1,
+    });
     api.getCodeEnvironmentWorkspaceTree.mockReset();
     api.getCodeEnvironmentWorkspaceTree.mockResolvedValue({
       authority: "langchain-agent.code_environment.workspace_tree",
@@ -406,8 +428,6 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       mode: "default",
       supported_modes: ["default", "plan", "accept_edits", "bypass", "full_access"],
     });
-    api.getRagMode.mockReset();
-    api.getRagMode.mockResolvedValue({ enabled: false });
     api.getModelProviderConfig.mockReset();
     api.getModelProviderConfig.mockResolvedValue(null);
     api.getTaskEnvironmentCatalog.mockReset();
@@ -1396,6 +1416,62 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(store.getState().runMonitorSelectedDetail).toBeNull();
   });
 
+  it("applies run monitor action results to the shared monitor store", async () => {
+    vi.useRealTimers();
+    const store = createStore(getDefaultState());
+    const runtime = new WorkspaceRuntime(store);
+    const completed = itemForMonitor({
+      task_run_id: "taskrun:completed",
+      title: "已完成任务",
+      status: "completed",
+      lifecycle: "completed",
+      bucket: "completed",
+      resource_class: "static",
+      is_live: false,
+    });
+    const nextMonitor = monitorForTest([completed], { revision: "rtmon:30:cleared", updated_at: 30 }) as ReturnType<typeof monitorForTest> & {
+      management?: Record<string, unknown>;
+      signals: Array<Record<string, unknown>>;
+    };
+    nextMonitor.management = {
+      authority: "runtime_monitor.management",
+      policy: {},
+      summary: { hidden: 1, visible: 0, total: 1 },
+      lanes: {
+        hidden: [{
+          ...nextMonitor.signals[0],
+          visibility: { hidden: true, visible: false, lane: "hidden", hidden_reason: "user_cleared" },
+          actions: [{ action: "restore_to_monitor", label: "恢复显示", enabled: true }],
+        }],
+      },
+    };
+    nextMonitor.signals = [];
+    api.executeRunMonitorAction.mockResolvedValueOnce({
+      authority: "runtime_monitor.actions",
+      accepted: true,
+      action: "clear_from_monitor",
+      target: { signal_id: "taskrun:completed" },
+      effects: {},
+      monitor: nextMonitor,
+      updated_at: 30,
+    });
+
+    const result = await runtime.actions.runMonitorAction({
+      action: "clear_from_monitor",
+      signal_id: "taskrun:completed",
+    });
+
+    expect(result?.accepted).toBe(true);
+    expect(api.executeRunMonitorAction).toHaveBeenCalledWith({
+      action: "clear_from_monitor",
+      signal_id: "taskrun:completed",
+      source_revision: "",
+    });
+    expect(store.getState().runMonitorRevision).toBe("rtmon:30:cleared");
+    expect(store.getState().runMonitorLastActionResult?.action).toBe("clear_from_monitor");
+    expect(store.getState().runMonitorActionLoading).toBe("");
+  });
+
   it("starts the run monitor with an SSE stream and an initial snapshot refresh", async () => {
     const instances: Array<{ close: ReturnType<typeof vi.fn> }> = [];
     class MockEventSource {
@@ -2339,7 +2415,6 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
 
   it("keeps chat usable when noncritical workspace metadata is still loading", async () => {
     vi.useRealTimers();
-    api.getRagMode.mockImplementation(() => new Promise(() => undefined));
     api.listSkills.mockImplementation(() => new Promise(() => undefined));
     api.loadFile.mockImplementation(() => new Promise(() => undefined));
     api.streamChat.mockImplementation(async (_payload, handlers) => {

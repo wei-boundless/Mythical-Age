@@ -5,7 +5,6 @@ import { Gauge } from "lucide-react";
 
 import { ChatInput } from "@/components/chat/ChatInput";
 import { ChatMessage } from "@/components/chat/ChatMessage";
-import { ChatSearchPolicyControls } from "@/components/chat/ChatSearchPolicyControls";
 import { SessionActivityBar } from "@/components/chat/SessionActivityBar";
 import { useAppStore } from "@/lib/store";
 import { taskEnvironmentDisplayName } from "@/lib/taskEnvironmentDisplay";
@@ -34,8 +33,6 @@ export function ChatPanel() {
     setChatThinkingMode,
     selectedChatModelId,
     setSelectedChatModel,
-    searchPolicy,
-    toggleSearchPolicySource,
     tokenStats,
   } = useAppStore();
   const endRef = useRef<HTMLDivElement | null>(null);
@@ -169,10 +166,6 @@ export function ChatPanel() {
             </div>
           ) : null}
           <SessionTokenMeter tokenStats={tokenStats} />
-          <ChatSearchPolicyControls
-            onToggleSearchPolicy={toggleSearchPolicySource}
-            searchPolicy={searchPolicy}
-          />
         </div>
         <ChatInput
           disabled={workspaceInitializing}
@@ -199,13 +192,20 @@ function SessionTokenMeter({ tokenStats }: { tokenStats: TokenStats | null }) {
   if (!tokenStats) {
     return null;
   }
-  const remainingPercent = Math.max(0, Math.min(100, Math.round(Number(tokenStats.history_remaining_ratio || 0) * 100)));
-  const pressureLevel = String(tokenStats.history_pressure_level || "normal").trim() || "normal";
+  const currentContextTokens = currentContextTokenCount(tokenStats);
+  const contextWindowTokens = Number(tokenStats.context_meter?.context_window_tokens || 0);
+  const usagePercent = percentFromRatio(contextUsageRatio(tokenStats));
+  const remainingPercent = percentFromRatio(tokenStats.history_remaining_ratio);
+  const pressureLevel = String(tokenStats.context_meter?.pressure_level || tokenStats.history_pressure_level || "normal").trim() || "normal";
   const title = [
-    `总计 ${formatTokenCount(tokenStats.total_tokens)} tokens`,
+    contextWindowTokens > 0
+      ? `当前上下文 ${formatTokenCount(currentContextTokens)}/${formatTokenCount(contextWindowTokens)} tokens`
+      : `当前上下文 ${formatTokenCount(currentContextTokens)} tokens`,
+    `会话总计 ${formatTokenCount(tokenStats.total_tokens)} tokens`,
     `消息 ${formatTokenCount(tokenStats.message_tokens)}`,
     `系统 ${formatTokenCount(tokenStats.system_tokens)}`,
     `有效历史 ${formatTokenCount(tokenStats.history_tokens)}/${formatTokenCount(tokenStats.history_budget_tokens)}`,
+    `已用 ${usagePercent}%`,
     `余量 ${remainingPercent}%`,
     tokenStats.history_did_compact ? `已压缩，原始历史 ${formatTokenCount(tokenStats.raw_history_tokens)}` : "",
   ].filter(Boolean).join("；");
@@ -213,8 +213,8 @@ function SessionTokenMeter({ tokenStats }: { tokenStats: TokenStats | null }) {
     <div className={`chat-token-meter chat-token-meter--${tokenPressureClass(pressureLevel)}`} title={title}>
       <Gauge size={14} />
       <span>上下文</span>
-      <strong>{remainingPercent}%</strong>
-      <em>{formatTokenCount(tokenStats.total_tokens)} tokens</em>
+      <strong>{usagePercent}%</strong>
+      <em>{formatTokenCount(currentContextTokens)} tokens</em>
     </div>
   );
 }
@@ -229,5 +229,27 @@ function formatTokenCount(value: unknown) {
   if (number >= 1_000_000) return `${(number / 1_000_000).toFixed(2)}M`;
   if (number >= 1_000) return `${(number / 1_000).toFixed(1)}K`;
   return String(number);
+}
+
+function percentFromRatio(value: unknown) {
+  return Math.max(0, Math.min(100, Math.round(Number(value || 0) * 100)));
+}
+
+function contextUsageRatio(tokenStats: TokenStats) {
+  const rawContextRatio = tokenStats.context_meter?.current_context_ratio;
+  const contextRatio = Number(rawContextRatio);
+  if (rawContextRatio !== undefined && rawContextRatio !== null && Number.isFinite(contextRatio)) {
+    return contextRatio;
+  }
+  return Number(tokenStats.history_usage_ratio || 0);
+}
+
+function currentContextTokenCount(tokenStats: TokenStats) {
+  const rawCurrent = tokenStats.context_meter?.current_context_tokens;
+  const current = Number(rawCurrent);
+  if (rawCurrent !== undefined && rawCurrent !== null && Number.isFinite(current)) {
+    return current;
+  }
+  return Number(tokenStats.total_tokens || 0);
 }
 

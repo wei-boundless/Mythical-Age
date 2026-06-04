@@ -2362,6 +2362,38 @@ export type RuntimeMonitorSignal = {
     elapsed_seconds?: number;
   };
   raw_refs?: Record<string, unknown>;
+  visibility?: {
+    visible?: boolean;
+    lane?: "current" | "attention" | "projects" | "recent" | "hidden" | string;
+    default_lane?: "current" | "attention" | "projects" | "recent" | "hidden" | string;
+    hidden?: boolean;
+    hidden_reason?: string;
+    hidden_at?: number;
+    expires_at?: number;
+  };
+  actions?: RuntimeMonitorSignalAction[];
+};
+
+export type RuntimeMonitorSignalAction = {
+  action: string;
+  label: string;
+  enabled: boolean;
+  disabled_reason?: string;
+};
+
+export type RuntimeMonitorManagement = {
+  authority: string;
+  policy: Record<string, unknown>;
+  summary: Record<string, number>;
+  lanes: {
+    current?: RuntimeMonitorSignal[];
+    attention?: RuntimeMonitorSignal[];
+    projects?: RuntimeMonitorSignal[];
+    recent?: RuntimeMonitorSignal[];
+    hidden?: RuntimeMonitorSignal[];
+  };
+  capacity?: Record<string, number>;
+  updated_at?: number;
 };
 
 export type RuntimeMonitorEnvelope = {
@@ -2375,6 +2407,7 @@ export type RuntimeMonitorEnvelope = {
     failed: number;
     recent: number;
     projects: number;
+    hidden?: number;
     total: number;
   };
   primary: RuntimeMonitorSignal[];
@@ -2382,6 +2415,30 @@ export type RuntimeMonitorEnvelope = {
   recent: RuntimeMonitorSignal[];
   projects: RuntimeMonitorSignal[];
   signals: RuntimeMonitorSignal[];
+  management?: RuntimeMonitorManagement;
+};
+
+export type RuntimeMonitorActionPayload = {
+  action: string;
+  signal_id?: string;
+  task_run_id?: string;
+  graph_run_id?: string;
+  reason?: string;
+  source_revision?: string;
+  max_steps?: number;
+};
+
+export type RuntimeMonitorActionResult = {
+  authority: string;
+  mode?: "preflight" | "execute" | string;
+  accepted: boolean;
+  action: string;
+  target: Record<string, string>;
+  effects: Record<string, unknown>;
+  disabled_reason?: string;
+  receipt?: Record<string, unknown>;
+  monitor: RuntimeMonitorEnvelope;
+  updated_at: number;
 };
 
 export type RunMonitorEventPayload = {
@@ -2752,7 +2809,6 @@ export type OperationTool = OrchestrationCatalogTool & {
     note: string;
     llm_description: string;
     source_class: string;
-    search_policy: string[];
     tool_boundary: string;
     adapter_type: string;
     risk_level: string;
@@ -3663,7 +3719,13 @@ export async function selectSessionProjectDirectory(sessionId: string, scope?: P
 }
 
 export async function openSessionProjectInVSCode(sessionId: string, scope?: Partial<SessionScope>) {
-  return request<{ ok: boolean; project_binding: SessionProjectBinding; command: string[] }>(
+  return request<{
+    ok: boolean;
+    project_binding: SessionProjectBinding;
+    command: string[];
+    window_mode?: "new_window" | string;
+    session_id?: string;
+  }>(
     withSessionScopeQuery(`/sessions/${sessionId}/project-binding/open-vscode`, scope),
     { method: "POST" }
   );
@@ -3685,6 +3747,12 @@ export async function getSessionTokens(sessionId: string, scope?: Partial<Sessio
     system_tokens: number;
     message_tokens: number;
     total_tokens: number;
+    context_meter?: {
+      current_context_tokens?: number;
+      current_context_ratio?: number;
+      context_window_tokens?: number;
+      pressure_level?: string;
+    };
     raw_history_tokens: number;
     history_tokens: number;
     history_budget_tokens: number;
@@ -3733,17 +3801,6 @@ export async function saveFileForSession(path: string, content: string, sessionI
   return request<{ ok: boolean; path: string }>(`/files?${params.toString()}`, {
     method: "POST",
     body: JSON.stringify({ path, content })
-  });
-}
-
-export async function getRagMode() {
-  return request<{ enabled: boolean }>("/config/rag-mode");
-}
-
-export async function setRagMode(enabled: boolean) {
-  return request<{ enabled: boolean }>("/config/rag-mode", {
-    method: "PUT",
-    body: JSON.stringify({ enabled })
   });
 }
 
@@ -4025,6 +4082,26 @@ export async function getRunMonitor(limit = 30) {
   return request<RuntimeMonitorEnvelope>(
     `/orchestration/runtime-monitor?limit=${encodeURIComponent(String(limit))}`
   );
+}
+
+export async function getRunMonitorManagement(limit = 80) {
+  return request<{ authority: string; monitor: RuntimeMonitorEnvelope; management: RuntimeMonitorManagement; updated_at: number }>(
+    `/orchestration/runtime-monitor/management?limit=${encodeURIComponent(String(limit))}`,
+  );
+}
+
+export async function preflightRunMonitorAction(payload: RuntimeMonitorActionPayload) {
+  return request<RuntimeMonitorActionResult>("/orchestration/runtime-monitor/actions/preflight", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function executeRunMonitorAction(payload: RuntimeMonitorActionPayload) {
+  return request<RuntimeMonitorActionResult>("/orchestration/runtime-monitor/actions", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
 }
 
 export async function getOrchestrationHarnessSessionLiveMonitor(sessionId: string) {
@@ -4924,7 +5001,6 @@ export type ChatRunCreatePayload = {
   session_id: string;
   session_scope?: Partial<SessionScope>;
   ephemeral_system_messages?: string[];
-  search_policy?: string[];
   task_selection?: Record<string, unknown>;
   model_selection?: Record<string, unknown>;
   image_generation?: Record<string, unknown>;

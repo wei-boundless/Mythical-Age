@@ -149,6 +149,7 @@ def test_writing_prompts_define_outline_hierarchy_and_node_handoffs() -> None:
 
     outline_design_prompt = design_by_id["outline_design"].prompt
     outline_review_prompt = design_by_id["outline_review"].prompt
+    baseline_commit_prompt = design_by_id["baseline_memory_seed"].prompt
     volume_plan_prompt = node_by_id["volume_plan"].prompt
     chapter_outline_prompt = node_by_id["chapter_outline"].prompt
     chapter_draft_prompt = node_by_id["chapter_draft"].prompt
@@ -158,6 +159,11 @@ def test_writing_prompts_define_outline_hierarchy_and_node_handoffs() -> None:
     assert "全书细纲拥有全书结构权" in outline_design_prompt
     assert "每卷必须承接的目标、允许细化的空白、禁止提前或延后的关键节点" in outline_design_prompt
     assert "会导致分纲写手越过大纲" in outline_review_prompt
+    assert "不得再出现“阻塞级”“必须裁决”" in outline_review_prompt
+    assert "不影响当前卷执行的远期分歧必须标为非阻塞备注" in outline_review_prompt
+    assert "带备注通过意味着允许进入基准库" in baseline_commit_prompt
+    assert "不能把基准库提交成空" in baseline_commit_prompt
+    assert "不得要求作者人工裁决" in baseline_commit_prompt
 
     assert "分卷计划只能把已通过全书细纲投影到当前卷" in volume_plan_prompt
     assert "全书细纲继承表" in volume_plan_prompt

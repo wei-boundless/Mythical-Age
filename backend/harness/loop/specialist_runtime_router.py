@@ -182,7 +182,6 @@ def _request_from_task_run(
         diagnostics={
             "origin": origin,
             "subagent_control": subagent,
-            "allowed_search_sources": _allowed_search_sources(profile),
             "authority": "harness.loop.specialist_capability_request",
         },
     )
@@ -234,19 +233,6 @@ def _input_payload(*, contract: dict[str, Any], subagent: dict[str, Any], instru
     if expected_outputs:
         payload["expected_outputs"] = expected_outputs
     return payload
-
-
-def _allowed_search_sources(profile: Any) -> list[str]:
-    agent_id = str(getattr(profile, "agent_id", "") or "")
-    if agent_id == "agent:web_researcher":
-        return ["web"]
-    if agent_id == "agent:codebase_searcher":
-        return ["local_files"]
-    if agent_id == "agent:knowledge_searcher":
-        return ["rag"]
-    if agent_id == "agent:memory_searcher":
-        return ["memory"]
-    return []
 
 
 def _failed_execution(

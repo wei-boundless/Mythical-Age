@@ -125,6 +125,40 @@ def test_project_directory_picker_cancel_does_not_bind(tmp_path: Path, monkeypat
     assert manager.get_project_binding(session["id"]) == {}
 
 
+def test_open_vscode_uses_new_window_for_bound_session(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    manager = SessionManager(tmp_path / "sessions")
+    selected_project = tmp_path / "selected-project"
+    selected_project.mkdir()
+    session = manager.create_session(title="VS Code window")
+    manager.bind_project(session["id"], workspace_root=str(selected_project), source="test")
+    runtime = SimpleNamespace(session_manager=manager)
+    launched: dict[str, object] = {}
+
+    def fake_popen(command: list[str], **kwargs: object) -> object:
+        launched["command"] = command
+        launched["kwargs"] = kwargs
+        return object()
+
+    monkeypatch.setattr(sessions_api, "require_runtime", lambda: runtime)
+    monkeypatch.setattr(sessions_api.shutil, "which", lambda name: "C:/bin/code.cmd" if name == "code" else None)
+    monkeypatch.setattr(sessions_api.subprocess, "Popen", fake_popen)
+
+    result = asyncio.run(
+        sessions_api.open_session_project_in_vscode(
+            session["id"],
+            workspace_view=None,
+            task_environment_id=None,
+            project_id=None,
+        )
+    )
+
+    command = launched["command"]
+    assert command == ["C:/bin/code.cmd", "--new-window", str(selected_project.resolve())]
+    assert "-r" not in command
+    assert result["window_mode"] == "new_window"
+    assert result["session_id"] == session["id"]
+
+
 def test_runtime_assembly_carries_bound_workspace_root(tmp_path: Path) -> None:
     project_root = tmp_path / "bound-project"
     project_root.mkdir()

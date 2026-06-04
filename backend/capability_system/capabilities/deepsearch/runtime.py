@@ -3,8 +3,6 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from capability_system.capabilities.search_policy import normalize_search_policy, operation_allowed_by_search_policy
-
 from .distiller import ModelBackedSearchEvidenceDistiller, SearchEvidenceDistiller
 from .evidence_builder import build_deepsearch_evidence_packet
 from .models import SearchRuntimeConfig, required_operations_for_search_config
@@ -60,19 +58,6 @@ class DeepSearchCapability:
         available_ops = _available_operations(profile)
         required_ops = set(required_operations_for_search_config(config))
         missing_ops = sorted(required_ops - available_ops)
-        blocked_by_search_policy = _operations_blocked_by_search_policy(request=request, required_ops=required_ops)
-        if blocked_by_search_policy:
-            return _failed_result(
-                summary="Search Agent 的 DeepSearch 搜索源被当前任务搜索策略阻断。",
-                limitations=["deepsearch_search_policy_blocked", *blocked_by_search_policy],
-                diagnostics={
-                    "child_execution_mode": "profile_authorized_deepsearch_capability",
-                    "capability_id": "capability.deepsearch",
-                    "required_operations": sorted(required_ops),
-                    "search_policy_blocked_operations": blocked_by_search_policy,
-                    "allowed_search_sources": sorted(_allowed_search_sources_from_request(request)),
-                },
-            )
         if missing_ops:
             return _failed_result(
                 summary="Search Agent 缺少 DeepSearch 模板所需权限。",
@@ -325,23 +310,6 @@ def _available_operations(profile: Any) -> set[str]:
     allowed = {str(item).strip() for item in tuple(getattr(profile, "allowed_operations", ()) or ()) if str(item).strip()}
     blocked = {str(item).strip() for item in tuple(getattr(profile, "blocked_operations", ()) or ()) if str(item).strip()}
     return allowed - blocked
-
-
-def _allowed_search_sources_from_request(request: Any) -> set[str]:
-    diagnostics = dict(getattr(request, "diagnostics", None) or {})
-    if "allowed_search_sources" not in diagnostics and "search_policy" not in diagnostics:
-        return normalize_search_policy(None)
-    raw = diagnostics.get("allowed_search_sources", diagnostics.get("search_policy"))
-    return normalize_search_policy(list(raw or []))
-
-
-def _operations_blocked_by_search_policy(*, request: Any, required_ops: set[str]) -> list[str]:
-    allowed_sources = _allowed_search_sources_from_request(request)
-    return sorted(
-        operation
-        for operation in required_ops
-        if not operation_allowed_by_search_policy(operation, allowed_sources)
-    )
 
 
 def _failed_result(*, summary: str, limitations: list[str], diagnostics: dict[str, Any]) -> dict[str, Any]:

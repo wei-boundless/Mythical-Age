@@ -10,6 +10,7 @@ import {
 } from "@/lib/api";
 
 import {
+  executeRunMonitorSignalAction,
   fetchRunMonitor,
   fetchRunMonitorGraphDetail,
   fetchRunMonitorTaskDetail,
@@ -22,6 +23,7 @@ import {
   selectRunMonitorSignal,
   signalDetailTaskRunId,
 } from "./reducer";
+import type { RuntimeMonitorActionPayload, RuntimeMonitorActionResult } from "@/lib/api";
 import type { RunMonitorEnvelope, RunMonitorSignal } from "./types";
 
 type RunMonitorHost = {
@@ -108,6 +110,37 @@ export class RunMonitorController {
           this.schedulePoll();
         }
       }
+    }
+  }
+
+  async runAction(payload: RuntimeMonitorActionPayload): Promise<RuntimeMonitorActionResult | null> {
+    const action = String(payload.action || "").trim();
+    if (!action) return null;
+    this.store.setState((prev) => ({
+      ...prev,
+      runMonitorActionLoading: action,
+      runMonitorError: "",
+    }));
+    try {
+      const result = await executeRunMonitorSignalAction({
+        ...payload,
+        source_revision: payload.source_revision || this.store.getState().runMonitorRevision,
+      });
+      this.applySnapshot(result.monitor);
+      this.store.setState((prev) => ({
+        ...prev,
+        runMonitorLastActionResult: result,
+        runMonitorError: result.accepted ? "" : result.disabled_reason || "运行监控动作未被接受",
+      }));
+      return result;
+    } catch (error) {
+      this.store.setState((prev) => ({
+        ...prev,
+        runMonitorError: runMonitorErrorMessage(error, "运行监控动作执行失败"),
+      }));
+      return null;
+    } finally {
+      this.store.setState((prev) => ({ ...prev, runMonitorActionLoading: "" }));
     }
   }
 
