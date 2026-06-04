@@ -330,8 +330,10 @@ export function TaskEnvironmentManagementWorkbench({
   onSave,
   onSaveKindTemplate,
   onSetDraft,
+  onSelectGraph,
   saving,
   selectedEnvironmentId,
+  selectedGraphId,
   taskSystemOverview,
 }: {
   activePage: EnvironmentSubpage;
@@ -349,8 +351,10 @@ export function TaskEnvironmentManagementWorkbench({
   onSave: () => void;
   onSaveKindTemplate: (template: TaskEnvironmentKindTemplate) => Promise<void>;
   onSetDraft: (draft: EnvironmentDraft) => void;
+  onSelectGraph: (graphId: string) => void;
   saving: string;
   selectedEnvironmentId: string;
+  selectedGraphId: string;
   taskSystemOverview: TaskSystemOverview | null;
 }) {
   const selectedItem = environmentItems.find((item) => item.record.environment_id === selectedEnvironmentId);
@@ -413,7 +417,9 @@ export function TaskEnvironmentManagementWorkbench({
       ) : null}
       {activePage === "graphs" ? (
         <EnvironmentGraphInventoryPage
+          onSelectGraph={onSelectGraph}
           selectedEnvironmentId={selectedEnvironmentId}
+          selectedGraphId={selectedGraphId}
           taskSystemOverview={taskSystemOverview}
         />
       ) : null}

@@ -5,6 +5,7 @@ import {
   BookOpen,
   ChevronDown,
   ChevronRight,
+  ExternalLink,
   FileText,
   FolderOpen,
   LibraryBig,
@@ -54,7 +55,7 @@ import {
   listCenterWorkspaceTaskGraphs,
   resolveCenterWorkspaceSelectedGraphId,
 } from "@/components/workspace/views/center/centerWorkspaceHelpers";
-import { GraphTaskWorkspace } from "@/components/workspace/views/task-graph-workbench/GraphTaskWorkspace";
+import { TaskGraphRunControlPanel } from "@/components/workspace/views/task-system/TaskGraphRunControlPanel";
 
 const WRITING_ENVIRONMENT_ID = "env.creation.writing";
 
@@ -88,6 +89,29 @@ function compactId(value: string | undefined) {
     .replace(/^repo\.writing\./, "")
     .replace(/[._-]+/g, " ")
     .trim();
+}
+
+function recordValue(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+function textValue(value: unknown, fallback = "") {
+  const next = String(value ?? "").trim();
+  return next || fallback;
+}
+
+function sessionTaskGraphBinding(session: SessionSummary | null | undefined) {
+  const binding = recordValue(session?.task_binding);
+  const graphRunId = textValue(binding.graph_run_id);
+  const graphHarnessConfigId = textValue(binding.graph_harness_config_id);
+  if (!graphRunId || !graphHarnessConfigId) return null;
+  return {
+    task_run_id: textValue(binding.task_run_id),
+    graph_run_id: graphRunId,
+    graph_harness_config_id: graphHarnessConfigId,
+    graph_id: textValue(binding.graph_id),
+    session_scope: recordValue(binding.session_scope),
+  };
 }
 
 function repositorySignature(repository: ProjectLibraryRepository) {
@@ -357,6 +381,101 @@ function CreativeProjectRail({
   );
 }
 
+function CreativeGraphOperationsPanel({
+  flow,
+  onSelectFlow,
+  onSelectGraph,
+  onStartGraph,
+  onTaskMessageChange,
+  selectedGraph,
+  selectedProject,
+  startError,
+  starting,
+  taskGraphs,
+  taskMessage,
+}: {
+  flow: WritingFlowKind;
+  onSelectFlow: (flow: WritingFlowKind) => void;
+  onSelectGraph: (graphId: string) => void;
+  onStartGraph: () => void;
+  onTaskMessageChange: (value: string) => void;
+  selectedGraph: TaskGraphRecord | null;
+  selectedProject: ProjectInstance | null;
+  startError: string;
+  starting: boolean;
+  taskGraphs: TaskGraphRecord[];
+  taskMessage: string;
+}) {
+  const {
+    openTaskGraphWorkspace,
+  } = useAppStore();
+
+  return (
+    <section className="creative-graph-ops" aria-label="写作图任务运行与监控">
+      <section className="creative-work-strip creative-graph-ops__launch" aria-label="图任务启动">
+        <div className="creative-strip-head">
+          <strong>图任务运行</strong>
+          <span>{selectedGraph ? graphCustomerTitle(selectedGraph) : "当前环境没有可用流程"}</span>
+        </div>
+        <div className="creative-flow-grid">
+          {(Object.keys(WRITING_FLOW_LABELS) as WritingFlowKind[]).map((key) => (
+            <button
+              className={flow === key ? "creative-flow-option creative-flow-option--active" : "creative-flow-option"}
+              key={key}
+              onClick={() => onSelectFlow(key)}
+              type="button"
+            >
+              <strong>{WRITING_FLOW_LABELS[key].title}</strong>
+              <span>{WRITING_FLOW_LABELS[key].description}</span>
+            </button>
+          ))}
+        </div>
+        <label className="creative-graph-select">
+          <span>当前任务图</span>
+          <select disabled={!taskGraphs.length || starting} onChange={(event) => onSelectGraph(event.target.value)} value={selectedGraph?.graph_id || ""}>
+            {taskGraphs.map((graph) => (
+              <option key={graph.graph_id} value={graph.graph_id}>
+                {graphCustomerTitle(graph)}
+              </option>
+            ))}
+          </select>
+        </label>
+        <textarea
+          className="creative-task-composer creative-task-composer--compact"
+          onChange={(event) => onTaskMessageChange(event.target.value)}
+          placeholder="输入本次要启动或绑定的写作任务。"
+          value={taskMessage}
+        />
+        <div className="creative-workflow-actions">
+          <button disabled={starting || !selectedProject || !taskMessage.trim() || !selectedGraph} onClick={onStartGraph} type="button">
+            <Play size={15} />
+            <span>{starting ? "正在启动" : "启动/绑定运行"}</span>
+          </button>
+          <button
+            disabled={!selectedGraph}
+            onClick={() => {
+              if (!selectedGraph) return;
+              openTaskGraphWorkspace({ graph_id: selectedGraph.graph_id, task_environment_id: WRITING_ENVIRONMENT_ID, mode: "editor" });
+            }}
+            type="button"
+          >
+            <ExternalLink size={15} />
+            <span>任务系统编辑</span>
+          </button>
+        </div>
+        {startError ? <div className="creative-error-line">{startError}</div> : null}
+      </section>
+
+      <TaskGraphRunControlPanel
+        className="creative-work-strip creative-graph-ops__monitor"
+        graphId={selectedGraph?.graph_id}
+        taskEnvironmentId={WRITING_ENVIRONMENT_ID}
+        title="运行监控"
+      />
+    </section>
+  );
+}
+
 function CreativeCommandDesk({
   selectedProject,
   project,
@@ -529,12 +648,12 @@ function CreativeCommandDesk({
                 <button onClick={() => onSelectSection("workflow")} type="button">
                   <Workflow size={15} />
                   <span>提交写作需求</span>
-                  <small>输入目标，选择创作流程，开始执行</small>
+                  <small>输入目标，选择流程，启动或绑定图运行</small>
                 </button>
                 <button onClick={() => onSelectSection("graph")} type="button">
                   <Workflow size={15} />
-                  <span>打开任务图编辑台</span>
-                  <small>查看和编辑写作任务图、节点和执行拓扑</small>
+                  <span>查看图运行</span>
+                  <small>启动、暂停、续跑并监控当前写作图任务</small>
                 </button>
               </div>
             </section>
@@ -594,7 +713,7 @@ function CreativeCommandDesk({
               <div className="creative-workflow-actions">
                 <button disabled={starting || !selectedProject || !taskMessage.trim() || !selectedGraph} onClick={onStartGraph} type="button">
                   <Play size={15} />
-                  <span>{starting ? "正在开始" : "开始创作"}</span>
+                  <span>{starting ? "正在启动" : "启动/绑定创作"}</span>
                 </button>
                 <button disabled={!selectedProject} onClick={onCreateSession} type="button">
                   <MessageSquare size={15} />
@@ -666,19 +785,25 @@ function CreativeCommandDesk({
         ) : null}
 
         {activeSection === "graph" ? (
-          <section className="creative-graph-workbench" aria-label="写作任务图编辑台">
-            <GraphTaskWorkspace
-              requestedGraphId={selectedGraphId}
-              onSelectedGraphChange={onSelectGraph}
-              taskEnvironmentId={WRITING_ENVIRONMENT_ID}
-            />
-          </section>
+          <CreativeGraphOperationsPanel
+            flow={flow}
+            onSelectFlow={onSelectFlow}
+            onSelectGraph={onSelectGraph}
+            onStartGraph={onStartGraph}
+            onTaskMessageChange={onTaskMessageChange}
+            selectedGraph={selectedGraph}
+            selectedProject={selectedProject}
+            startError={startError}
+            starting={starting}
+            taskGraphs={taskGraphs}
+            taskMessage={taskMessage}
+          />
         ) : null}
       </div>
 
       <footer className="creative-desk-footer">
         <Search size={13} />
-        <span>{activeSection === "graph" ? "任务图编辑台已限定为写作环境。" : selectedFile ? `正在查看：${selectedFile.name}` : "选择资料后，右侧会显示内容预览。"}</span>
+        <span>{activeSection === "graph" ? "任务图编辑在任务系统维护；这里仅负责启动、暂停、续跑和监控。" : selectedFile ? `正在查看：${selectedFile.name}` : "选择资料后，右侧会显示内容预览。"}</span>
       </footer>
     </section>
   );
@@ -717,13 +842,14 @@ function CreativeInspector({
   );
   const cleanupActionId = cleanupAction?.action_id ?? "";
   const repositoryList = repositories?.repositories ?? [];
+  const fileContent = file?.content ?? "";
 
   return (
-    <aside className="workbench-right-panel creative-inspector" aria-label="资料预览">
+    <aside className="workbench-right-panel creative-inspector creative-file-reader" aria-label="文件阅览">
       <header className="workbench-panel-head workbench-panel-head--right">
         <div>
-          <strong>资料预览</strong>
-          <span>{selectedFile?.name || projectTitle(selectedProject)}</span>
+          <strong>{selectedFile?.name || "文件阅览"}</strong>
+          <span>{selectedFile?.path || projectTitle(selectedProject)}</span>
         </div>
         <button className="workbench-icon-button" disabled={loading || !selectedProject} onClick={onRefresh} type="button">
           <RefreshCw size={15} />
@@ -731,12 +857,25 @@ function CreativeInspector({
       </header>
 
       <div className="creative-inspector-body">
-        <section className="creative-inspector-section" aria-label="作品信息">
+        <section className="creative-inspector-section creative-inspector-section--preview" aria-label="文件正文">
+          <header>
+            <FileText size={15} />
+            <strong>{selectedFile?.name || "选择文件"}</strong>
+            {file ? <span>{fileContent.length.toLocaleString("zh-CN")} 字符</span> : null}
+          </header>
+          {file ? (
+            <pre className="creative-file-preview">{fileContent || "文件为空。"}</pre>
+          ) : (
+            <div className="creative-inline-state">从资料库选择一份资料后在这里阅读全文。</div>
+          )}
+        </section>
+
+        <section className="creative-inspector-section creative-inspector-section--meta" aria-label="作品信息">
           <header>
             <LibraryBig size={15} />
             <strong>作品信息</strong>
           </header>
-          <dl className="creative-fact-list">
+          <dl className="creative-fact-list creative-fact-list--compact">
             <div><dt>作品</dt><dd>{project?.project ? projectTitle(project.project) : projectTitle(selectedProject)}</dd></div>
             <div><dt>类型</dt><dd>{selectedProject?.project_kind === "long_novel" ? "长篇小说" : "创作项目"}</dd></div>
             <div><dt>资料</dt><dd>{repositoryList.length ? `${repositoryList.length} 类可用` : "整理中"}</dd></div>
@@ -745,7 +884,7 @@ function CreativeInspector({
           {error ? <div className="creative-error-line">{error}</div> : null}
         </section>
 
-        <section className="creative-inspector-section" aria-label="可用资料">
+        <section className="creative-inspector-section creative-inspector-section--meta" aria-label="可用资料">
           <header>
             <Settings2 size={15} />
             <strong>可用资料</strong>
@@ -760,19 +899,7 @@ function CreativeInspector({
           </div>
         </section>
 
-        <section className="creative-inspector-section creative-inspector-section--preview" aria-label="文件预览">
-          <header>
-            <FileText size={15} />
-            <strong>{selectedFile?.name || "文件预览"}</strong>
-          </header>
-          {file ? (
-            <pre className="creative-file-preview">{file.content.slice(0, 3200)}</pre>
-          ) : (
-            <div className="creative-inline-state">从资料库选择一份资料。</div>
-          )}
-        </section>
-
-        <section className="creative-inspector-section" aria-label="作品整理">
+        <section className="creative-inspector-section creative-inspector-section--meta" aria-label="作品整理">
           <header>
             <RefreshCw size={15} />
             <strong>作品整理</strong>
@@ -807,11 +934,11 @@ function CreativeInspector({
 export function CreativeEnvironmentView() {
   const {
     bindTaskGraphMonitorRun,
-    centerWorkspaceTarget,
-    clearCenterWorkspaceTarget,
     currentSessionId,
+    inspectorWidth,
     removeSession,
     selectSession,
+    setInspectorWidth,
     setTaskGraphRunInteractionOpen,
   } = useAppStore();
   const [projects, setProjects] = useState<ProjectInstance[]>([]);
@@ -1008,6 +1135,28 @@ export function CreativeEnvironmentView() {
         scope: sessionScope,
         poolKey: creativeSessionPoolKey(selectedProject.project_id),
       });
+      const existingTaskBinding = sessionTaskGraphBinding(resolved.session);
+      if (existingTaskBinding) {
+        if (existingTaskBinding.graph_id && existingTaskBinding.graph_id !== graph.graph_id) {
+          throw new Error(`当前作品会话已绑定其他创作流程：${existingTaskBinding.graph_id}`);
+        }
+        bindTaskGraphMonitorRun({
+          task_run_id: existingTaskBinding.task_run_id || undefined,
+          graph_run_id: existingTaskBinding.graph_run_id,
+          graph_harness_config_id: existingTaskBinding.graph_harness_config_id,
+          graph_id: graph.graph_id,
+          session_id: sessionId,
+          project_id: selectedProject.project_id,
+          session_scope: {
+            ...existingTaskBinding.session_scope,
+            ...sessionScope,
+          },
+          title: graph.title || graph.graph_id,
+        });
+        setTaskGraphRunInteractionOpen(true);
+        await loadScopedSessions(selectedProject.project_id);
+        return;
+      }
       const result = await startTaskGraphHarnessRun(graph.graph_id, {
         session_id: sessionId,
         session_scope: sessionScope,
@@ -1015,11 +1164,12 @@ export function CreativeEnvironmentView() {
           ...buildCenterWorkspaceTaskGraphInitialInputs(message, graph),
           project_id: selectedProject.project_id,
           session_scope: sessionScope,
+          runtime_scope: sessionScope,
           writing_flow: flow,
         },
         include_trace: true,
         dispatch_ready: true,
-        run_mode: "auto_run",
+        run_mode: "dispatch_only",
       });
       bindTaskGraphMonitorRun({
         task_run_id: result.task_run_id,
@@ -1121,23 +1271,18 @@ export function CreativeEnvironmentView() {
   }, []);
 
   useEffect(() => {
+    if (inspectorWidth < 560) {
+      setInspectorWidth(620);
+    }
+  }, [inspectorWidth, setInspectorWidth]);
+
+  useEffect(() => {
     if (selectedProjectId) void loadProject(selectedProjectId);
   }, [selectedProjectId]);
 
   useEffect(() => {
     if (selectedProjectId) void loadScopedSessions(selectedProjectId);
   }, [selectedProjectId]);
-
-  useEffect(() => {
-    if (!centerWorkspaceTarget || centerWorkspaceTarget.layer !== "task-graph") {
-      return;
-    }
-    setActiveSection("graph");
-    if (centerWorkspaceTarget.graph_id) {
-      setSelectedGraphId(centerWorkspaceTarget.graph_id);
-    }
-    clearCenterWorkspaceTarget();
-  }, [centerWorkspaceTarget, clearCenterWorkspaceTarget]);
 
   useEffect(() => {
     const graph = chooseFlowGraph(taskGraphs, flow, selectedGraphId);

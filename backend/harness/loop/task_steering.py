@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import time
 import uuid
-from dataclasses import asdict, dataclass, replace
+from dataclasses import asdict, dataclass, field, replace
 from typing import Any, Literal
 
 from .user_submission import UserSubmission, build_user_submission
@@ -27,6 +27,7 @@ class ActiveTaskSteer:
     priority: SteerPriority
     consumption_state: SteerState
     created_at: float
+    editor_context: dict[str, Any] = field(default_factory=dict)
     included_packet_ref: str = ""
     consumed_action_ref: str = ""
     authority: str = "harness.loop.active_task_steer"
@@ -53,6 +54,7 @@ def create_active_task_steer(
     submission: UserSubmission | None = None,
     steer_kind: SteerKind = "instruction",
     priority: SteerPriority = "high",
+    editor_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     task_run = runtime_host.state_index.get_task_run(task_run_id)
     if task_run is None:
@@ -80,6 +82,7 @@ def create_active_task_steer(
         priority=priority,
         consumption_state="pending",
         created_at=now,
+        editor_context=dict(editor_context or {}),
     )
     runtime_host.runtime_objects.put_object("user_submission", submission.submission_id, submission.to_dict())
     runtime_host.runtime_objects.put_object("active_task_steer", steer.steer_id, steer.to_dict())

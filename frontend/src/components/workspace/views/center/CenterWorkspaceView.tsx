@@ -4,7 +4,7 @@ import { Edit3, FileText, RefreshCw, Save, Sparkles, Workflow, X } from "lucide-
 import { useCallback, useEffect, useState } from "react";
 
 import { ChatPanel } from "@/components/chat/ChatPanel";
-import { GraphTaskWorkspace } from "@/components/workspace/views/task-graph-workbench/GraphTaskWorkspace";
+import { TaskGraphRunControlPanel } from "@/components/workspace/views/task-system/TaskGraphRunControlPanel";
 import { useAppStore } from "@/lib/store";
 
 type CenterWorkspaceLayer = "chat" | "task-graph" | "file";
@@ -143,14 +143,17 @@ export function CenterWorkspaceView({
     clearCenterWorkspaceTarget,
     currentSessionId,
     inspectorDirty,
+    openTaskGraphWorkspace,
     sessionEditorContexts,
     setSessionEditorPageState,
+    taskGraphMonitorBinding,
   } = useAppStore();
   const [layer, setLayer] = useState<CenterWorkspaceLayer>("chat");
-  const [selectedGraphId, setSelectedGraphId] = useState("");
   const [activeFilePath, setActiveFilePath] = useState("");
   const [openFilePaths, setOpenFilePaths] = useState<string[]>([]);
   const graphTaskEnvironmentId = taskEnvironmentId.trim() || GENERAL_TASK_ENVIRONMENT_ID;
+  const monitoredGraphId = String(taskGraphMonitorBinding?.graph_id || "").trim();
+  const monitoredEnvironmentId = String(taskGraphMonitorBinding?.session_scope?.task_environment_id || graphTaskEnvironmentId).trim();
   const sessionEditorContext = currentSessionId ? sessionEditorContexts[currentSessionId] : null;
 
   const canSwitchActiveFile = useCallback((nextPath: string) => {
@@ -204,12 +207,6 @@ export function CenterWorkspaceView({
   useEffect(() => {
     if (!centerWorkspaceTarget) {
       return;
-    }
-    if (centerWorkspaceTarget.layer === "task-graph") {
-      setLayer("task-graph");
-      if (centerWorkspaceTarget.graph_id) {
-        setSelectedGraphId(centerWorkspaceTarget.graph_id);
-      }
     }
     if (centerWorkspaceTarget.layer === "file") {
       openFilePage(centerWorkspaceTarget.file_path);
@@ -282,11 +279,26 @@ export function CenterWorkspaceView({
         </div>
       ) : layer === "task-graph" ? (
         <div className="center-workspace__graph-layer">
-          <GraphTaskWorkspace
-            onSelectedGraphChange={setSelectedGraphId}
-            requestedGraphId={selectedGraphId}
-            taskEnvironmentId={graphTaskEnvironmentId}
-          />
+          <section className="center-workspace__graph-monitor" aria-label="图任务监控层">
+            <header>
+              <Workflow size={18} />
+              <div>
+                <span>图任务层</span>
+                <strong>运行监控</strong>
+              </div>
+            </header>
+            <TaskGraphRunControlPanel
+              graphId={monitoredGraphId}
+              taskEnvironmentId={monitoredEnvironmentId}
+              title="当前图运行监控"
+            />
+            <div className="center-workspace__graph-monitor-actions">
+              <button onClick={() => openTaskGraphWorkspace({ graph_id: monitoredGraphId || undefined, task_environment_id: monitoredEnvironmentId, mode: "editor" })} type="button">
+                <Workflow size={14} />
+                <span>进入任务系统编辑</span>
+              </button>
+            </div>
+          </section>
         </div>
       ) : (
         <CenterWorkspaceFileLayer onClose={closeFileLayer} path={activeFilePath} />

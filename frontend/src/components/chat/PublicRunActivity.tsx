@@ -326,6 +326,52 @@ function activityPlan(items: PublicChatTimelineItem[]) {
   };
 }
 
+function activitySummary(plan: ReturnType<typeof activityPlan>) {
+  if (plan.current) {
+    const state = stateClass(plan.current);
+    const kind = cleanText(plan.current.kind);
+    return {
+      detail: state === "error"
+        ? short(plan.current.recovery_hint || textOfItem(plan.current), 180)
+        : plan.collapsedCount
+          ? `已完成 ${plan.collapsedCount} 步，当前动作正在处理。`
+          : "当前动作正在处理。",
+      item: plan.current,
+      meta: state === "error" ? "受阻" : "实时",
+      title: state === "error" ? "需要处理" : kind === "status_update" ? "判断中" : "执行中",
+      tone: state === "error" ? "error" : "running",
+    };
+  }
+  const lastFinal = lastOf(plan.finalItems);
+  if (lastFinal) {
+    const state = stateClass(lastFinal);
+    return {
+      detail: state === "error" ? short(lastFinal.recovery_hint || textOfItem(lastFinal), 180) : "结果已进入回答收口。",
+      item: lastFinal,
+      meta: state === "error" ? "受阻" : "已收口",
+      title: state === "error" ? "需要处理" : lastFinal.kind === "artifact" ? "产物就绪" : "已完成",
+      tone: state === "error" ? "error" : "done",
+    };
+  }
+  const lastRecent = lastOf(plan.recent);
+  if (lastRecent || plan.collapsedCount) {
+    return {
+      detail: plan.collapsedCount ? `已完成 ${plan.collapsedCount} 步处理。` : "关键动作已完成。",
+      item: lastRecent,
+      meta: "已同步",
+      title: "阶段完成",
+      tone: "done",
+    };
+  }
+  return {
+    detail: "正在同步处理进展。",
+    item: null,
+    meta: "实时",
+    title: "处理中",
+    tone: "running",
+  };
+}
+
 function collapsedSummary(count: number, hasCurrent: boolean) {
   if (!count) return "";
   return hasCurrent
@@ -338,57 +384,70 @@ export function PublicRunActivity({ items, assistantContent = "" }: PublicRunAct
   if (!plan.current && !plan.recent.length && !plan.finalItems.length && !plan.collapsedCount) {
     return null;
   }
+  const summary = activitySummary(plan);
   return (
-    <div className="public-run-activity" aria-label="处理进展">
-      {plan.collapsedCount ? (
-        <div className="public-run-activity__row public-run-activity__row--done public-run-activity__row--collapsed">
-          <span className="public-run-activity__icon" aria-hidden="true">
-            <CheckCircle2 size={14} />
-          </span>
-          <span className="public-run-activity__copy">
-            <small>{collapsedSummary(plan.collapsedCount, Boolean(plan.current))}</small>
-          </span>
-        </div>
-      ) : null}
-      {plan.recent.map((item, index) => (
-        <div
-          className={`public-run-activity__row public-run-activity__row--history public-run-activity__row--${stateClass(item)} public-run-activity__row--${cleanText(item.kind) || "item"}`}
-          key={publicTimelineItemKey(item, index)}
-        >
-          <span className="public-run-activity__icon" aria-hidden="true">
-            <ActivityIcon item={item} />
-          </span>
-          <span className="public-run-activity__copy">
-            <ActivityCopy item={item} variant="history" />
-          </span>
-        </div>
-      ))}
-      {plan.current ? (
-        <div
-          className={`public-run-activity__row public-run-activity__row--current public-run-activity__row--${stateClass(plan.current)} public-run-activity__row--${cleanText(plan.current.kind) || "item"}`}
-          key={publicTimelineItemKey(plan.current, plan.recent.length)}
-        >
-          <span className="public-run-activity__icon" aria-hidden="true">
-            <ActivityIcon item={plan.current} />
-          </span>
-          <span className="public-run-activity__copy">
-            <ActivityCopy item={plan.current} variant="current" />
-          </span>
-        </div>
-      ) : null}
-      {plan.finalItems.map((item, index) => (
-        <div
-          className={`public-run-activity__row public-run-activity__row--final public-run-activity__row--${stateClass(item)} public-run-activity__row--${cleanText(item.kind) || "item"}`}
-          key={publicTimelineItemKey(item, index + plan.recent.length + 1)}
-        >
-          <span className="public-run-activity__icon" aria-hidden="true">
-            <ActivityIcon item={item} />
-          </span>
-          <span className="public-run-activity__copy">
-            <ActivityCopy item={item} />
-          </span>
-        </div>
-      ))}
+    <div className={`public-run-activity public-run-activity--${summary.tone}`} aria-label="处理进展">
+      <div className="public-run-activity__summary">
+        <span className="public-run-activity__summary-icon" aria-hidden="true">
+          {summary.item ? <ActivityIcon item={summary.item} /> : <CircleDot size={14} />}
+        </span>
+        <span className="public-run-activity__summary-copy">
+          <strong>{summary.title}</strong>
+          <small>{summary.detail}</small>
+        </span>
+        <em>{summary.meta}</em>
+      </div>
+      <div className="public-run-activity__rows">
+        {plan.collapsedCount ? (
+          <div className="public-run-activity__row public-run-activity__row--done public-run-activity__row--collapsed">
+            <span className="public-run-activity__icon" aria-hidden="true">
+              <CheckCircle2 size={14} />
+            </span>
+            <span className="public-run-activity__copy">
+              <small>{collapsedSummary(plan.collapsedCount, Boolean(plan.current))}</small>
+            </span>
+          </div>
+        ) : null}
+        {plan.recent.map((item, index) => (
+          <div
+            className={`public-run-activity__row public-run-activity__row--history public-run-activity__row--${stateClass(item)} public-run-activity__row--${cleanText(item.kind) || "item"}`}
+            key={publicTimelineItemKey(item, index)}
+          >
+            <span className="public-run-activity__icon" aria-hidden="true">
+              <ActivityIcon item={item} />
+            </span>
+            <span className="public-run-activity__copy">
+              <ActivityCopy item={item} variant="history" />
+            </span>
+          </div>
+        ))}
+        {plan.current ? (
+          <div
+            className={`public-run-activity__row public-run-activity__row--current public-run-activity__row--${stateClass(plan.current)} public-run-activity__row--${cleanText(plan.current.kind) || "item"}`}
+            key={publicTimelineItemKey(plan.current, plan.recent.length)}
+          >
+            <span className="public-run-activity__icon" aria-hidden="true">
+              <ActivityIcon item={plan.current} />
+            </span>
+            <span className="public-run-activity__copy">
+              <ActivityCopy item={plan.current} variant="current" />
+            </span>
+          </div>
+        ) : null}
+        {plan.finalItems.map((item, index) => (
+          <div
+            className={`public-run-activity__row public-run-activity__row--final public-run-activity__row--${stateClass(item)} public-run-activity__row--${cleanText(item.kind) || "item"}`}
+            key={publicTimelineItemKey(item, index + plan.recent.length + 1)}
+          >
+            <span className="public-run-activity__icon" aria-hidden="true">
+              <ActivityIcon item={item} />
+            </span>
+            <span className="public-run-activity__copy">
+              <ActivityCopy item={item} />
+            </span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

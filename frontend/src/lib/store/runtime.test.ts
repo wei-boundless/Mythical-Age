@@ -24,6 +24,7 @@ const api = vi.hoisted(() => ({
   getRagMode: vi.fn(),
   readChatStreamCursor: vi.fn(),
   resumeOrchestrationHarnessTaskRun: vi.fn(),
+  runGraphRunUntilIdle: vi.fn(),
   setSessionActiveTaskEnvironment: vi.fn(),
   setSessionPermissionMode: vi.fn(),
   setPermissionMode: vi.fn(),
@@ -47,7 +48,7 @@ const api = vi.hoisted(() => ({
 vi.mock("@/lib/api", () => ({
   createSession: api.createSession,
   deleteSession: api.deleteSession,
-  runGraphRunUntilIdle: vi.fn(),
+  runGraphRunUntilIdle: api.runGraphRunUntilIdle,
   evaluateTaskGraphRunMonitor: vi.fn(),
   getCodeEnvironmentWorkspaceTree: api.getCodeEnvironmentWorkspaceTree,
   getChatRun: api.getChatRun,
@@ -354,6 +355,8 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     api.clearChatStreamCursor.mockReset();
     api.resumeOrchestrationHarnessTaskRun.mockReset();
     api.resumeOrchestrationHarnessTaskRun.mockResolvedValue({ ok: true });
+    api.runGraphRunUntilIdle.mockReset();
+    api.runGraphRunUntilIdle.mockResolvedValue({ ok: true });
     api.stopOrchestrationHarnessTaskRun.mockReset();
     api.stopOrchestrationHarnessTaskRun.mockResolvedValue({ ok: true });
     api.getSessionHistory.mockReset();
@@ -600,7 +603,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
 
     runtime.actions.openRunMonitorSignal("taskrun:master");
 
-    expect(store.getState().activeWorkspaceView).toBe("creative");
+    expect(store.getState().activeWorkspaceView).toBe("task-system");
     expect(store.getState().runMonitorSelectedTaskRunId).toBe("taskrun:master");
     expect(store.getState().chatTaskEnvironmentBinding).toBeNull();
     expect(store.getState().conversationActiveEnvironment).toBeNull();
@@ -615,7 +618,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       title: "长篇小说",
     });
     expect(store.getState().taskGraphRunInteractionOpen).toBe(false);
-    expect(store.getState().centerWorkspaceTarget).toMatchObject({
+    expect(store.getState().taskGraphWorkspaceTarget).toMatchObject({
       task_run_id: "taskrun:master",
       layer: "task-graph",
       mode: "monitor",
@@ -917,7 +920,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
         path: "frontend/src/App.tsx",
         language_id: "typescriptreact",
         dirty: true,
-        selection: {
+        content_preview: {
           text: "export function App() { return null; }",
           truncated: false,
         },
@@ -928,6 +931,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
         dirty: true,
       }],
     });
+    expect((api.streamChat.mock.calls[0]?.[0]?.editor_context as Record<string, any>)?.active_file?.selection).toBeUndefined();
   });
 
   it("does not send the host project root as editor workspace root for unbound sessions", async () => {
@@ -1058,7 +1062,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(api.streamChat.mock.calls[0]?.[0]?.editor_context).toBeUndefined();
   });
 
-  it("opens graph tasks inside the current shared development workspace", () => {
+  it("opens graph tasks inside the task system graph workspace", () => {
     const store = createStore<StoreState>({
       ...getDefaultState(),
       activeWorkspaceView: "code-environment",
@@ -1067,8 +1071,8 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
 
     runtime.actions.openTaskGraphWorkspace({ graph_id: "graph.dev.review" });
 
-    expect(store.getState().activeWorkspaceView).toBe("code-environment");
-    expect(store.getState().centerWorkspaceTarget).toMatchObject({
+    expect(store.getState().activeWorkspaceView).toBe("task-system");
+    expect(store.getState().taskGraphWorkspaceTarget).toMatchObject({
       layer: "task-graph",
       mode: "editor",
       graph_id: "graph.dev.review",
@@ -1131,6 +1135,116 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
 
     expect(api.stopOrchestrationHarnessTaskRun).toHaveBeenCalledWith("taskrun:graph-master", "user_stop_graph_run", "");
     expect(store.getState().taskGraphMonitorActionLoading).toBe(false);
+  });
+
+  it("pauses a bound GraphRun through its owning root TaskRun", async () => {
+    const store = createStore<StoreState>({
+      ...getDefaultState(),
+      taskGraphAutoAdvanceEnabled: true,
+      taskGraphAutoAdvancePending: true,
+      taskGraphMonitorBinding: {
+        task_run_id: "taskrun:graph-master",
+        graph_run_id: "grun:graph-master",
+        graph_harness_config_id: "ghcfg:graph-master",
+        bound_at: 1,
+      },
+      taskGraphBoundRunMonitor: {
+        graph_run_id: "grun:graph-master",
+        task_run_id: "taskrun:graph-master",
+        task_run: {
+          task_run_id: "taskrun:graph-master",
+          status: "running",
+        },
+        graph_loop_state: { status: "running" },
+      } as never,
+    });
+    const runtime = new WorkspaceRuntime(store);
+
+    await runtime.actions.pauseBoundTaskGraphRun();
+
+    expect(api.pauseOrchestrationHarnessTaskRun).toHaveBeenCalledWith("taskrun:graph-master", "user_pause_graph_run", "");
+    expect(store.getState().taskGraphAutoAdvanceEnabled).toBe(false);
+    expect(store.getState().taskGraphAutoAdvancePending).toBe(false);
+    expect(store.getState().taskGraphMonitorActionLoading).toBe(false);
+  });
+
+  it("manually continues a bound GraphRun by dispatching ready nodes", async () => {
+    const store = createStore<StoreState>({
+      ...getDefaultState(),
+      taskGraphMonitorBinding: {
+        task_run_id: "taskrun:graph-master",
+        graph_run_id: "grun:graph-master",
+        graph_harness_config_id: "ghcfg:graph-master",
+        session_scope: {
+          workspace_view: "task_environment",
+          task_environment_id: "env.creation.writing",
+          project_id: "project.creation.writing.honghuang",
+        },
+        bound_at: 1,
+      },
+      taskGraphBoundRunMonitor: {
+        graph_run_id: "grun:graph-master",
+        task_run_id: "taskrun:graph-master",
+        task_run: {
+          task_run_id: "taskrun:graph-master",
+          status: "running",
+        },
+        graph_loop_state: { status: "running", ready_node_ids: ["draft"] },
+      } as never,
+    });
+    const runtime = new WorkspaceRuntime(store);
+
+    await runtime.actions.continueBoundTaskGraphRun();
+
+    expect(api.resumeOrchestrationHarnessTaskRun).not.toHaveBeenCalled();
+    expect(api.runGraphRunUntilIdle).toHaveBeenCalledWith("grun:graph-master", {
+      graph_harness_config_id: "ghcfg:graph-master",
+      session_scope: {
+        workspace_view: "task_environment",
+        task_environment_id: "env.creation.writing",
+        project_id: "project.creation.writing.honghuang",
+      },
+      max_dispatch_requests: 1,
+    });
+    expect(store.getState().taskGraphMonitorActionLoading).toBe(false);
+  });
+
+  it("resumes the root TaskRun before continuing a paused GraphRun", async () => {
+    const store = createStore<StoreState>({
+      ...getDefaultState(),
+      taskGraphMonitorBinding: {
+        task_run_id: "taskrun:graph-master",
+        graph_run_id: "grun:graph-master",
+        graph_harness_config_id: "ghcfg:graph-master",
+        bound_at: 1,
+      },
+      taskGraphBoundRunMonitor: {
+        graph_run_id: "grun:graph-master",
+        task_run_id: "taskrun:graph-master",
+        task_run: {
+          task_run_id: "taskrun:graph-master",
+          status: "running",
+        },
+        task_run_monitor: {
+          task_run_id: "taskrun:graph-master",
+          control_state: "paused",
+        },
+        graph_loop_state: { status: "running", ready_node_ids: ["draft"] },
+      } as never,
+    });
+    const runtime = new WorkspaceRuntime(store);
+
+    await runtime.actions.continueBoundTaskGraphRun();
+
+    expect(api.resumeOrchestrationHarnessTaskRun).toHaveBeenCalledWith("taskrun:graph-master", 12, "");
+    expect(api.runGraphRunUntilIdle).toHaveBeenCalledWith("grun:graph-master", {
+      graph_harness_config_id: "ghcfg:graph-master",
+      session_scope: undefined,
+      max_dispatch_requests: 1,
+    });
+    expect(api.resumeOrchestrationHarnessTaskRun.mock.invocationCallOrder[0]).toBeLessThan(
+      api.runGraphRunUntilIdle.mock.invocationCallOrder[0],
+    );
   });
 
   it("opens a run monitor agent signal in its owning session", () => {

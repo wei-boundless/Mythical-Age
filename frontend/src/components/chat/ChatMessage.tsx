@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertTriangle, Check, CircleCheck, Copy, Database, Pencil, ShieldCheck, X } from "lucide-react";
+import { AlertTriangle, Check, CircleCheck, Copy, Database, Pencil, ShieldCheck, Sparkles, X } from "lucide-react";
 import React, { useEffect, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -77,6 +77,14 @@ export function ChatMessage({
     ? baseDisplayContent
     : assistantContentFromTimeline(baseDisplayContent, publicTimelineItems);
   const hasRunActivity = !isUser && hasPublicRunActivity(publicTimelineItems, displayContent);
+  const assistantSignal = !isUser && hasRunActivity
+    ? assistantSignalFromTimeline({
+      baseContent: baseDisplayContent,
+      displayContent,
+      items: publicTimelineItems,
+    })
+    : null;
+  const contentAbsorbedBySignal = Boolean(assistantSignal?.absorbsContent);
   const legacyTaskContractReceipt = !isUser && isLegacyTaskContractReceipt({ content, answerChannel, answerSource });
   const hideLegacyTaskContractReceipt = legacyTaskContractReceipt && hasRunActivity;
   const boundary = {
@@ -93,7 +101,7 @@ export function ChatMessage({
     isUser
     || Boolean(image?.src)
     || imageUnavailable
-    || (!hideLegacyTaskContractReceipt && (Boolean(displayContent.trim()) || !hasRunActivity));
+    || (!contentAbsorbedBySignal && !hideLegacyTaskContractReceipt && (Boolean(displayContent.trim()) || !hasRunActivity));
   const copyableReplyText = !isUser && shouldRenderContent ? displayContent.trim() : "";
   const draftValue = draft.trim();
   const sendEditDisabled = submittingEdit || !canEdit || !draftValue;
@@ -157,6 +165,7 @@ export function ChatMessage({
         </button>
       ) : null}
       {!isUser && <RetrievalCard results={retrievals} />}
+      {assistantSignal ? <AssistantOutputSignal signal={assistantSignal} /> : null}
       {shouldRenderContent ? (
         <div className={isUser ? "chat-message-shell__content whitespace-pre-wrap leading-7" : "chat-message-shell__content markdown"}>
           {!isUser && copyableReplyText ? (
@@ -241,6 +250,66 @@ export function ChatMessage({
       {!isUser ? <OutputBoundaryStatus {...boundary} /> : null}
     </article>
   );
+}
+
+type AssistantOutputSignalView = {
+  label: string;
+  text: string;
+  tone: "thinking" | "done" | "error";
+  absorbsContent: boolean;
+};
+
+function AssistantOutputSignal({ signal }: { signal: AssistantOutputSignalView }) {
+  const Icon = signal.tone === "error" ? AlertTriangle : signal.tone === "done" ? CircleCheck : Sparkles;
+  return (
+    <div className={`assistant-output-signal assistant-output-signal--${signal.tone}`} aria-label="当前判断">
+      <span className="assistant-output-signal__icon" aria-hidden="true">
+        <Icon size={14} />
+      </span>
+      <span className="assistant-output-signal__copy">
+        <span>{signal.label}</span>
+        <strong>{signal.text}</strong>
+      </span>
+    </div>
+  );
+}
+
+function assistantSignalFromTimeline({
+  baseContent,
+  displayContent,
+  items,
+}: {
+  baseContent: string;
+  displayContent: string;
+  items: PublicChatTimelineItem[];
+}): AssistantOutputSignalView | null {
+  const assistantItem = [...items].reverse().find((item) => cleanBoundaryText(item.kind) === "assistant_text");
+  const candidateText = cleanBoundaryText(assistantItem?.text || assistantItem?.detail || assistantItem?.title);
+  const timelineOwnsContent = !cleanBoundaryText(baseContent) && candidateText && sameAssistantText(candidateText, displayContent);
+  const nonDuplicateText = candidateText && !sameAssistantText(candidateText, baseContent);
+  const text = timelineOwnsContent ? cleanBoundaryText(displayContent) : nonDuplicateText ? candidateText : "";
+  if (!text) {
+    return null;
+  }
+  const state = cleanBoundaryText(assistantItem?.state).toLowerCase();
+  const tone = ["error", "failed", "blocked", "missing"].includes(state)
+    ? "error"
+    : ["done", "ready", "passed", "success"].includes(state)
+      ? "done"
+      : "thinking";
+  return {
+    absorbsContent: Boolean(timelineOwnsContent),
+    label: tone === "error" ? "需要判断" : tone === "done" ? "判断完成" : "当前判断",
+    text,
+    tone,
+  };
+}
+
+function sameAssistantText(left: unknown, right: unknown) {
+  const leftText = cleanBoundaryText(left);
+  const rightText = cleanBoundaryText(right);
+  if (!leftText || !rightText) return false;
+  return leftText === rightText || leftText.includes(rightText) || rightText.includes(leftText);
 }
 
 function editFailureMessage(error: unknown) {

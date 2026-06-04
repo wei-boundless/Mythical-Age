@@ -65,6 +65,7 @@ class TaskExecutionModelActionRequest:
     user_question: str = ""
     blocking_reason: str = ""
     tool_call: dict[str, Any] = field(default_factory=dict)
+    tool_calls: tuple[dict[str, Any], ...] = ()
     diagnostics: dict[str, Any] = field(default_factory=dict)
     authority: str = "harness.loop.model_action_request"
 
@@ -75,6 +76,7 @@ class TaskExecutionModelActionRequest:
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
         payload["tool_call"] = dict(self.tool_call or {})
+        payload["tool_calls"] = [dict(item) for item in tuple(self.tool_calls or ())]
         payload["public_action_state"] = dict(self.public_action_state or {})
         payload["diagnostics"] = dict(self.diagnostics or {})
         return payload
@@ -212,6 +214,9 @@ def task_execution_action_request_from_payload(
     allowed_action_types: tuple[str, ...] | set[str] | None = None,
 ) -> tuple[TaskExecutionModelActionRequest | None, dict[str, Any]]:
     raw = dict(payload or {})
+    task_tool_calls, tool_call_errors = _task_execution_tool_calls(raw)
+    if task_tool_calls:
+        raw["tool_call"] = dict(task_tool_calls[0])
     forbidden_errors = [
         f"field_not_allowed_for_task_execution:{field}"
         for field in _TASK_EXECUTION_CROSS_CONTEXT_FIELDS
@@ -227,6 +232,7 @@ def task_execution_action_request_from_payload(
     if forbidden_errors:
         validation_errors = [
             *forbidden_errors,
+            *tool_call_errors,
             *list(dict(diagnostics or {}).get("validation_errors") or []),
         ]
         return None, {
@@ -235,13 +241,31 @@ def task_execution_action_request_from_payload(
             "authority": "harness.loop.model_action_protocol",
         }
     if action_request is None:
+        if tool_call_errors:
+            return None, {
+                **dict(diagnostics or {}),
+                "status": "invalid",
+                "validation_errors": [
+                    *tool_call_errors,
+                    *list(dict(diagnostics or {}).get("validation_errors") or []),
+                ],
+                "authority": "harness.loop.model_action_protocol",
+            }
         return None, diagnostics
+    if tool_call_errors:
+        return None, {
+            "status": "invalid",
+            "validation_errors": tool_call_errors,
+            "authority": "harness.loop.model_action_protocol",
+        }
     if action_request.action_type not in {"respond", "ask_user", "tool_call", "block"}:
         return None, {
             "status": "invalid",
             "validation_errors": [f"action_type_not_allowed_for_task_execution:{action_request.action_type}"],
             "authority": "harness.loop.model_action_protocol",
         }
+    if action_request.action_type == "tool_call" and not task_tool_calls:
+        task_tool_calls = (dict(action_request.tool_call or {}),) if action_request.tool_call else ()
     return TaskExecutionModelActionRequest(
         request_id=action_request.request_id,
         turn_id=action_request.turn_id,
@@ -252,6 +276,7 @@ def task_execution_action_request_from_payload(
         user_question=action_request.user_question,
         blocking_reason=action_request.blocking_reason,
         tool_call=dict(action_request.tool_call or {}),
+        tool_calls=tuple(dict(item) for item in task_tool_calls),
         diagnostics=dict(action_request.diagnostics or {}),
     ), {
         "status": "accepted",
@@ -332,3 +357,71 @@ def _has_non_empty_value(value: Any) -> bool:
     if isinstance(value, (list, tuple, set, dict)):
         return bool(value)
     return bool(value)
+
+
+def _task_execution_tool_calls(raw: dict[str, Any]) -> tuple[tuple[dict[str, Any], ...], list[str]]:
+    if str(raw.get("action_type") or "").strip() != "tool_call":
+        return (), []
+    errors: list[str] = []
+    raw_tool_calls = raw.get("tool_calls")
+    raw_tool_call = raw.get("tool_call")
+    if (
+        _has_non_empty_value(raw_tool_calls)
+        and _has_non_empty_value(raw_tool_call)
+        and not _tool_call_matches_first(raw_tool_call, raw_tool_calls)
+    ):
+        errors.append("tool_call_and_tool_calls_cannot_both_be_present")
+    calls: list[Any]
+    if isinstance(raw_tool_calls, list):
+        calls = list(raw_tool_calls)
+    elif _has_non_empty_value(raw_tool_calls):
+        errors.append("tool_calls_must_be_array")
+        calls = []
+    elif isinstance(raw_tool_call, dict) and raw_tool_call:
+        calls = [raw_tool_call]
+    else:
+        calls = []
+    normalized: list[dict[str, Any]] = []
+    for index, item in enumerate(calls):
+        if not isinstance(item, dict):
+            errors.append(f"tool_calls[{index}]_must_be_object")
+            continue
+        payload = dict(item)
+        tool_name = str(payload.get("tool_name") or payload.get("name") or "").strip()
+        tool_args = payload.get("args") if payload.get("args") is not None else payload.get("tool_args")
+        if not tool_name:
+            errors.append(f"tool_calls[{index}].tool_name_required")
+        if tool_args is None:
+            tool_args = {}
+        if not isinstance(tool_args, dict):
+            errors.append(f"tool_calls[{index}].args_must_be_object")
+            tool_args = {}
+        payload["tool_name"] = tool_name
+        payload["name"] = tool_name
+        payload["args"] = dict(tool_args)
+        payload.pop("tool_args", None)
+        normalized.append(payload)
+    if not normalized:
+        errors.append("tool_calls_required_for_tool_call")
+    return tuple(normalized), errors
+
+
+def _tool_call_matches_first(raw_tool_call: Any, raw_tool_calls: Any) -> bool:
+    if not isinstance(raw_tool_call, dict) or not isinstance(raw_tool_calls, list) or not raw_tool_calls:
+        return False
+    first = raw_tool_calls[0]
+    if not isinstance(first, dict):
+        return False
+    left = _canonical_tool_call_for_compare(raw_tool_call)
+    right = _canonical_tool_call_for_compare(first)
+    return bool(left) and left == right
+
+
+def _canonical_tool_call_for_compare(value: dict[str, Any]) -> dict[str, Any]:
+    payload = dict(value or {})
+    tool_name = str(payload.get("tool_name") or payload.get("name") or "").strip()
+    args = payload.get("args") if payload.get("args") is not None else payload.get("tool_args")
+    return {
+        "tool_name": tool_name,
+        "args": dict(args or {}) if isinstance(args, dict) else {},
+    }

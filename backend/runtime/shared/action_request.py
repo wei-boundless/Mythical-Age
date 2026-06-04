@@ -338,13 +338,17 @@ def build_recoverable_tool_invocation_observation(
 
 def build_tool_action_request(task_run_id: str, event: dict[str, Any], *, step_id: str = "") -> RuntimeActionRequest:
     payload = dict(event.get("tool_call") or event.get("payload") or {})
+    raw_tool_calls = event.get("tool_calls") or payload.get("tool_calls")
+    tool_calls = [dict(item) for item in list(raw_tool_calls or []) if isinstance(item, dict)]
+    if not payload and tool_calls:
+        payload = dict(tool_calls[0])
     tool_name = str(payload.get("tool_name") or payload.get("name") or event.get("tool_name") or "")
     assistant_content_preview = str(event.get("assistant_content") or "").strip()
     assistant_additional_kwargs = dict(event.get("assistant_additional_kwargs") or {})
     assistant_protocol_message = {
         "role": "assistant",
         "content": assistant_content_preview,
-        "tool_calls": [payload] if payload else [],
+        "tool_calls": tool_calls or ([payload] if payload else []),
     }
     reasoning_content = str(assistant_additional_kwargs.get("reasoning_content") or "").strip()
     if reasoning_content:
@@ -359,6 +363,7 @@ def build_tool_action_request(task_run_id: str, event: dict[str, Any], *, step_i
         payload={
             "tool_name": tool_name,
             "tool_call": payload,
+            "tool_calls": tool_calls or ([payload] if payload else []),
             "execution_state": "requested_not_dispatched",
             "assistant_content_preview": assistant_content_preview,
             "assistant_additional_kwargs": assistant_additional_kwargs,

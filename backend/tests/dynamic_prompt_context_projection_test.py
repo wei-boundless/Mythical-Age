@@ -990,6 +990,50 @@ def test_single_agent_turn_replays_api_transcript_as_real_chat_messages() -> Non
     )
 
 
+def test_single_agent_turn_replays_only_hot_provider_protocol_tail() -> None:
+    cold_history = [
+        {"role": "user" if index % 2 == 0 else "assistant", "content": f"cold provider message {index}"}
+        for index in range(40)
+    ]
+    result = RuntimeCompiler().compile_single_agent_turn_packet(
+        session_id="session:protocol-tail",
+        turn_id="turn:protocol-tail:2",
+        agent_invocation_id="aginvoke:protocol-tail",
+        user_message="继续。",
+        history=[],
+        session_context={
+            "api_transcript": [
+                *cold_history,
+                {
+                    "role": "assistant",
+                    "content": "",
+                    "tool_calls": [{"id": "call_tail", "name": "read_file", "args": {}, "type": "tool_call"}],
+                },
+                {"role": "tool", "tool_call_id": "call_tail", "content": "tail tool output"},
+            ]
+        },
+        runtime_assembly={
+            "profile": {"mode": "conversation"},
+            "task_environment": {"environment_id": "env.general.workspace"},
+        },
+    )
+
+    model_text = "\n".join(str(message.get("content") or "") for message in result.packet.model_messages)
+    provider_segments = [
+        segment
+        for segment in result.packet.segment_plan["segments"]
+        if segment["kind"] == "provider_protocol_history"
+    ]
+
+    assert "cold provider message 0" not in model_text
+    assert "tail tool output" in model_text
+    assert any(message.get("tool_calls") for message in result.packet.model_messages)
+    assert any(
+        int(dict(segment.get("metadata") or {}).get("protocol_truncated_count") or 0) > 0
+        for segment in provider_segments
+    )
+
+
 def test_model_aware_context_budget_uses_deepseek_1m_for_v4_models() -> None:
     policy = build_model_aware_context_budget_policy(
         invocation_kind="single_agent_turn",

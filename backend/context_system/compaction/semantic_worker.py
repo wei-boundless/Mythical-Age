@@ -33,6 +33,7 @@ class SemanticCompactorRegistration:
 class SemanticCompactionWorkerResult:
     ok: bool
     summary_content: str = ""
+    structured_summary: dict[str, Any] = field(default_factory=dict)
     source: str = "registered_semantic_compactor"
     diagnostics: dict[str, Any] = field(default_factory=dict)
     authority: str = "context_system.compaction.semantic_compactor_result"
@@ -69,9 +70,11 @@ def normalize_semantic_compaction_worker_result(value: Any) -> SemanticCompactio
         return SemanticCompactionWorkerResult(ok=bool(value.strip()), summary_content=value.strip())
     if isinstance(value, dict):
         summary = str(value.get("summary_content") or value.get("summary") or value.get("content") or "").strip()
+        structured = _structured_summary_from_payload(value)
         return SemanticCompactionWorkerResult(
-            ok=bool(value.get("ok", bool(summary))) and bool(summary),
+            ok=bool(value.get("ok", bool(summary or structured))) and bool(summary or structured),
             summary_content=summary,
+            structured_summary=structured,
             source=str(value.get("source") or "registered_semantic_compactor"),
             diagnostics=dict(value.get("diagnostics") or {}),
         )
@@ -79,6 +82,14 @@ def normalize_semantic_compaction_worker_result(value: Any) -> SemanticCompactio
         ok=False,
         diagnostics={"reason": "semantic_compactor_returned_unsupported_result"},
     )
+
+
+def _structured_summary_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    for key in ("structured_summary", "recovery_package", "checkpoint"):
+        value = payload.get(key)
+        if isinstance(value, dict):
+            return dict(value)
+    return {}
 
 
 def semantic_compaction_worker_exception(exc: Exception) -> SemanticCompactionWorkerResult:

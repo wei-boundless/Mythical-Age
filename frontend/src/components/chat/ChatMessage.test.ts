@@ -220,7 +220,8 @@ describe("ChatMessage", () => {
     );
 
     expect(html).toContain("我先检查当前目录和关键文件");
-    expect(html).not.toContain("当前判断");
+    expect(html).toContain("当前判断");
+    expect(html.match(/我先检查当前目录和关键文件/g)?.length ?? 0).toBe(1);
     expect(html).toContain("运行命令");
     expect(html).toContain("npm test -- --run src/components/chat");
     expect(html.indexOf("我先检查当前目录和关键文件")).toBeLessThan(html.indexOf("运行命令"));

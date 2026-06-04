@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field
 
 from api.deps import require_runtime
 from memory_system.storage.models import Message
-from runtime.prompt_accounting import TokenCounterRegistry
+from runtime.prompt_accounting import ContextUsageMeter, TokenCounterRegistry
 from task_system.session_scope import assert_optional_session_scope, request_scope_from_query
 
 router = APIRouter()
@@ -42,13 +42,16 @@ async def session_tokens(
     )
 
     record = runtime.session_manager.get_history(session_id)
-    prompt_usage = runtime.harness_runtime.single_agent_runtime_host.prompt_accounting_ledger.summarize_session(session_id)
+    ledger = _prompt_accounting_ledger(runtime)
+    prompt_usage = ledger.summarize_session(session_id)
     message_text = []
     for item in record.get("messages", []):
         message_text.append(str(item.get("content", "")))
         for tool_call in item.get("tool_calls", []) or []:
             message_text.append(str(tool_call))
 
+    context_snapshot = _context_usage_snapshot(runtime, session_id=session_id, raw_messages=list(record.get("messages", [])))
+    context_meter = context_snapshot.to_dict()
     system_tokens = int(prompt_usage.get("prompt_tokens") or prompt_usage.get("predicted_total_tokens") or 0)
     message_tokens = _count_tokens("\n".join(message_text))
     messages = list(record.get("messages", []))
@@ -87,10 +90,25 @@ async def session_tokens(
         context_compaction.get("pressure_level")
         or token_diagnostics.get("history_pressure_level", "normal")
     )
+    billing_totals = dict(prompt_usage or {})
+    cache_metrics = _cache_metrics_from_context_meter(context_meter, billing_totals)
+    compaction_readiness = {
+        "pressure_level": context_meter.get("pressure_level", "normal"),
+        "auto_replacement_allowed": bool(context_meter.get("auto_replacement_allowed", False)),
+        "replacement_threshold_tokens": int(context_meter.get("replacement_threshold_tokens") or 0),
+        "warning_threshold_tokens": int(context_meter.get("warning_threshold_tokens") or 0),
+        "ready_threshold_tokens": int(context_meter.get("ready_threshold_tokens") or 0),
+        "current_context_tokens": int(context_meter.get("current_context_tokens") or 0),
+        "blocked_reason": "" if bool(context_meter.get("auto_replacement_allowed", False)) else "below_replacement_threshold",
+    }
     return {
         "system_tokens": system_tokens,
         "message_tokens": message_tokens,
         "total_tokens": system_tokens + message_tokens,
+        "billing_totals": billing_totals,
+        "context_meter": context_meter,
+        "cache_metrics": cache_metrics,
+        "compaction_readiness": compaction_readiness,
         "raw_history_tokens": raw_history_tokens,
         "history_tokens": history_tokens,
         "history_budget_tokens": history_budget_tokens,
@@ -169,7 +187,8 @@ def _compact_session(
     py_messages = runtime.memory_facade.adapter.to_messages(raw_messages, session_id=session_id)
     compactor = runtime.memory_facade.session_memory.compactor(session_id)
     tokens_before = compactor.conversation_tokens(py_messages)
-    pressure_level = compactor.pressure_level(tokens_before, len(py_messages))
+    context_snapshot = _context_usage_snapshot(runtime, session_id=session_id, raw_messages=raw_messages)
+    pressure_level = str(context_snapshot.pressure_level or "normal")
     requested_level = str(payload.pressure_level or "auto")
     effective_level = pressure_level if requested_level == "auto" else requested_level
     result = compactor.apply_strategy(
@@ -205,6 +224,7 @@ def _compact_session(
         "requested_pressure_level": requested_level,
         "pressure_level": str(pressure_level),
         "effective_pressure_level": str(effective_level),
+        "context_meter": context_snapshot.to_dict(),
         "strategy": result.strategy,
         "did_compact": result.did_compact,
         "did_microcompact": result.did_microcompact,
@@ -266,6 +286,62 @@ def _message_preview(message: Message) -> dict[str, Any]:
         "kind": str(dict(message.meta or {}).get("kind") or ""),
         "content_preview": content[:240],
         "tokens": _count_tokens(content),
+    }
+
+
+def _context_usage_snapshot(runtime: Any, *, session_id: str, raw_messages: list[dict[str, Any]]) -> Any:
+    ledger = _prompt_accounting_ledger(runtime)
+    static = getattr(getattr(runtime, "settings_service", None), "static", None)
+    provider = str(getattr(static, "llm_provider", "") or "")
+    model = str(getattr(static, "llm_model", "") or "")
+    reserved_output_tokens = int(getattr(static, "llm_max_output_tokens", 0) or 0)
+    meter = ContextUsageMeter(
+        ledger,
+        default_reserved_output_tokens=reserved_output_tokens,
+    )
+    return meter.build_snapshot(
+        session_id=session_id,
+        provider=provider,
+        model=model,
+        reserved_output_tokens=reserved_output_tokens,
+        fallback_messages=raw_messages,
+    )
+
+
+def _prompt_accounting_ledger(runtime: Any) -> Any:
+    host = getattr(getattr(runtime, "harness_runtime", None), "single_agent_runtime_host", None)
+    ledger = getattr(host, "prompt_accounting_ledger", None)
+    if ledger is not None:
+        return ledger
+
+    class _EmptyPromptAccountingLedger:
+        def list_token_usage(self, **_kwargs: Any) -> list[Any]:
+            return []
+
+        def list_prompt_cache(self, **_kwargs: Any) -> list[Any]:
+            return []
+
+        def summarize_session(self, _session_id: str) -> dict[str, Any]:
+            return {}
+
+    return _EmptyPromptAccountingLedger()
+
+
+def _cache_metrics_from_context_meter(context_meter: dict[str, Any], billing_totals: dict[str, Any]) -> dict[str, Any]:
+    prompt_tokens = int(context_meter.get("provider_prompt_tokens") or 0)
+    cached_tokens = int(context_meter.get("provider_cached_tokens") or 0)
+    miss_tokens = max(0, prompt_tokens - cached_tokens)
+    return {
+        "latest_prompt_tokens": prompt_tokens,
+        "latest_cached_tokens": cached_tokens,
+        "latest_miss_tokens": miss_tokens,
+        "latest_cache_hit_rate": float(context_meter.get("cache_hit_rate_latest") or 0.0),
+        "cache_hit_rate_last_5": float(context_meter.get("cache_hit_rate_last_5") or 0.0),
+        "cache_hit_rate_last_10": float(context_meter.get("cache_hit_rate_last_10") or 0.0),
+        "cache_hit_rate_last_20": float(context_meter.get("cache_hit_rate_last_20") or 0.0),
+        "total_cached_tokens": int(billing_totals.get("cached_tokens") or 0),
+        "total_cache_savings_tokens": int(billing_totals.get("cache_savings_tokens") or 0),
+        "provider_usage_record_count": int(billing_totals.get("provider_usage_record_count") or 0),
     }
 
 

@@ -750,6 +750,7 @@ export type GraphHarnessConfigPayload = {
   nodes: Array<Record<string, unknown>>;
   edges: Array<Record<string, unknown>>;
   loop_frames?: Array<Record<string, unknown>>;
+  environment?: Record<string, unknown>;
   resources?: Record<string, unknown>;
   memory?: Record<string, unknown>;
   artifacts?: Record<string, unknown>;
@@ -1859,7 +1860,6 @@ export type HealthTokenUsage = {
   sessions: Array<Record<string, unknown>>;
   tasks: Array<Record<string, unknown>>;
   daily: Array<Record<string, unknown>>;
-  six_hour: Array<Record<string, unknown>>;
   note?: string;
   updated_at: number;
 };

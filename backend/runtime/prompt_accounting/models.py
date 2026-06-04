@@ -131,7 +131,6 @@ class PromptCacheRecord:
     prefix_hash: str = ""
     boundary_segment_id: str = ""
     scope: PromptCacheScope = "none"
-    ttl_seconds: int = 0
     status: PromptCacheStatus = "bypassed"
     cached_tokens: int = 0
     cache_savings_tokens: int = 0
@@ -161,7 +160,6 @@ class PromptCacheRecord:
             prefix_hash=str(payload.get("prefix_hash") or ""),
             boundary_segment_id=str(payload.get("boundary_segment_id") or ""),
             scope=_cache_scope(payload.get("scope")),
-            ttl_seconds=_int(payload.get("ttl_seconds")),
             status=_cache_status(payload.get("status")),
             cached_tokens=_int(payload.get("cached_tokens")),
             cache_savings_tokens=_int(payload.get("cache_savings_tokens")),

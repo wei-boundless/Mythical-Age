@@ -656,6 +656,16 @@ async def start_task_lifecycle_from_contract(
             yield event
         return
     agent_profile_ref = str(getattr(agent_runtime_profile, "agent_profile_id", "") or "main_interactive_agent")
+    opening_content = task_run_opening_message(
+        action_request=action_request,
+        contract=contract.to_dict(),
+        fallback=_task_opening_fallback(contract.to_dict()),
+    )
+    yield assistant_text_event(
+        content=opening_content,
+        answer_channel="task_control",
+        answer_source=answer_source,
+    )
     task_run, _agent_run, lifecycle, lifecycle_events = start_task_lifecycle(
         runtime_host,
         session_id=session_id,
@@ -702,16 +712,7 @@ async def start_task_lifecycle_from_contract(
             gate_policy=launch_gate_policy,
         )
         yield {"type": "task_run_lifecycle_event", "event": gate_event}
-        content = task_run_opening_message(
-            action_request=action_request,
-            contract=contract.to_dict(),
-            fallback=_task_opening_fallback(contract.to_dict()),
-        )
-        yield assistant_text_event(
-            content=content,
-            answer_channel="task_control",
-            answer_source=f"{answer_source}.supervision",
-        )
+        content = opening_content
         await commit_task_control_message(
             commit_assistant_message,
             session_id=session_id,
@@ -782,16 +783,7 @@ async def start_task_lifecycle_from_contract(
         refs={"task_run_ref": task_run.task_run_id, "turn_ref": turn_id},
     )
     yield {"type": "task_run_lifecycle_event", "event": scheduled_summary_event.to_dict()}
-    content = task_run_opening_message(
-        action_request=action_request,
-        contract=contract.to_dict(),
-        fallback=_task_opening_fallback(contract.to_dict()),
-    )
-    yield assistant_text_event(
-        content=content,
-        answer_channel="task_control",
-        answer_source=answer_source,
-    )
+    content = opening_content
     await commit_task_control_message(
         commit_assistant_message,
         session_id=session_id,

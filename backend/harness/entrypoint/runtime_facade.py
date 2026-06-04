@@ -505,6 +505,7 @@ class HarnessRuntimeFacade:
                 context=active_work_context,
                 turn_id=turn_id,
                 user_message=request.message,
+                editor_context=dict(getattr(request, "editor_context", {}) or {}),
             )
 
         async for event in run_single_agent_turn(
@@ -573,6 +574,7 @@ class HarnessRuntimeFacade:
             content=request.message,
             turn_id=turn_id,
             intent="conversation_queued_while_running",
+            editor_context=dict(getattr(request, "editor_context", {}) or {}),
         )
         if not result.get("ok"):
             content = active_work_status_reply(self._active_work_context_from_active_turn(request.session_id))
@@ -1066,7 +1068,8 @@ class HarnessRuntimeFacade:
         turn_id: str,
         user_message: str,
         default_response: str,
-        ) -> str:
+        editor_context: dict[str, Any] | None = None,
+    ) -> str:
         host = self.single_agent_runtime_host
         instruction = decision.appended_instruction or str(user_message or "").strip()
         result = append_user_work_instruction(
@@ -1075,6 +1078,7 @@ class HarnessRuntimeFacade:
             content=instruction,
             turn_id=turn_id,
             intent="append_instruction_to_active_work",
+            editor_context=dict(editor_context or {}),
         )
         if result.get("ok") and context.resumable:
             resume_result = resume_paused_task_run(
@@ -1101,6 +1105,7 @@ class HarnessRuntimeFacade:
         context: ActiveWorkContext,
         turn_id: str,
         user_message: str,
+        editor_context: dict[str, Any] | None = None,
     ) -> str:
         host = self.single_agent_runtime_host
         action = decision.action
@@ -1113,6 +1118,7 @@ class HarnessRuntimeFacade:
                 appended_instruction=decision.appended_instruction,
                 continuation_strategy=decision.continuation_strategy,
                 default_response=response,
+                editor_context=dict(editor_context or {}),
             )
         elif action == "pause_active_work":
             result = request_task_run_pause(host, context.task_run_id, reason="conversation_pause", requested_by="user")
@@ -1129,6 +1135,7 @@ class HarnessRuntimeFacade:
                 turn_id=turn_id,
                 user_message=user_message,
                 default_response=response,
+                editor_context=dict(editor_context or {}),
             )
         elif action == "answer_then_continue_active_work":
             response = self._apply_continue_active_work(
@@ -1138,6 +1145,7 @@ class HarnessRuntimeFacade:
                 appended_instruction=decision.appended_instruction,
                 continuation_strategy=decision.continuation_strategy,
                 default_response=response,
+                editor_context=dict(editor_context or {}),
             )
         elif action == "answer_about_active_work":
             response = decision.response or active_work_status_reply(self._active_work_context_from_active_turn(context.session_id) or context)
@@ -1154,6 +1162,7 @@ class HarnessRuntimeFacade:
         appended_instruction: str = "",
         continuation_strategy: str = "",
         default_response: str,
+        editor_context: dict[str, Any] | None = None,
     ) -> str:
         host = self.single_agent_runtime_host
         strategy = _continuation_strategy_for_execution(
@@ -1171,6 +1180,7 @@ class HarnessRuntimeFacade:
                     content=instruction,
                     turn_id=turn_id,
                     intent="conversation_continue",
+                    editor_context=dict(editor_context or {}),
                 )
             result = resume_paused_task_run(
                 host,
@@ -1200,6 +1210,7 @@ class HarnessRuntimeFacade:
                     content=instruction,
                     turn_id=turn_id,
                     intent="conversation_steer_while_running",
+                    editor_context=dict(editor_context or {}),
                 )
             return default_response or "我正在接着处理，新的进展会继续更新在这里。"
         return active_work_status_reply(self._active_work_context_from_active_turn(context.session_id) or context)

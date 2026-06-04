@@ -11,14 +11,13 @@ import {
   type HealthTaskRecordMaintenance,
 } from "@/lib/api";
 
-import { byRisk, type HealthPage, type MaintenanceBucket, type TokenChartMode } from "./healthFormatters";
+import { byRisk, type HealthPage, type MaintenanceBucket } from "./healthFormatters";
 import { buildHealthSystemViewModel } from "./healthSelectors";
 
 export function useHealthSystemController() {
   const [activePage, setActivePage] = useState<HealthPage>("overview");
   const [overview, setOverview] = useState<HealthSystemOverview | null>(null);
   const [maintenance, setMaintenance] = useState<HealthTaskRecordMaintenance | null>(null);
-  const [tokenChartMode, setTokenChartMode] = useState<TokenChartMode>("daily");
   const [selectedTaskId, setSelectedTaskId] = useState("");
   const [taskDetail, setTaskDetail] = useState<Record<string, unknown> | null>(null);
   const [loading, setLoading] = useState(true);
@@ -28,8 +27,8 @@ export function useHealthSystemController() {
   const [maintenanceMessage, setMaintenanceMessage] = useState("");
 
   const view = useMemo(
-    () => buildHealthSystemViewModel(overview, maintenance, selectedTaskId, tokenChartMode),
-    [maintenance, overview, selectedTaskId, tokenChartMode],
+    () => buildHealthSystemViewModel(overview, maintenance, selectedTaskId),
+    [maintenance, overview, selectedTaskId],
   );
 
   const loadOverview = useCallback(async () => {
@@ -127,9 +126,7 @@ export function useHealthSystemController() {
     selectedTaskId,
     setActivePage,
     setSelectedTaskId,
-    setTokenChartMode,
     taskDetail,
-    tokenChartMode,
     view,
   };
 }

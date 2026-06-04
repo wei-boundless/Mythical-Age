@@ -104,6 +104,7 @@ function Workspace() {
     clearTaskGraphMonitorRun,
     continueBoundTaskGraphRun,
     evaluateBoundTaskGraphMonitor,
+    pauseBoundTaskGraphRun,
     setTaskGraphRunInteractionOpen,
     stopBoundTaskGraphRun,
     taskGraphBoundRunMonitor,
@@ -174,6 +175,7 @@ function Workspace() {
       onContinue={() => void continueBoundTaskGraphRun()}
       onEvaluate={() => void evaluateBoundTaskGraphMonitor()}
       onOpenChange={setTaskGraphRunInteractionOpen}
+      onPause={() => void pauseBoundTaskGraphRun()}
       onStop={() => void stopBoundTaskGraphRun()}
       open={taskGraphRunInteractionOpen}
     />

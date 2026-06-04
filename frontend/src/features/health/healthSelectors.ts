@@ -4,7 +4,6 @@ import {
   byRisk,
   numberValue,
   tokenBuckets,
-  type TokenChartMode,
 } from "./healthFormatters";
 
 export type TokenLinePoint = {
@@ -18,7 +17,6 @@ export function buildHealthSystemViewModel(
   overview: HealthSystemOverview | null,
   maintenance: HealthTaskRecordMaintenance | null,
   selectedTaskId: string,
-  tokenChartMode: TokenChartMode,
 ) {
   const tasks = [...(overview?.tasks ?? [])].sort(byRisk);
   const selectedTask = tasks.find((task) => task.task_run_id === selectedTaskId) ?? tasks[0] ?? null;
@@ -29,11 +27,10 @@ export function buildHealthSystemViewModel(
   const monitorGovernance = overview?.monitor_governance ?? null;
   const tokenUsage = overview?.token_usage;
   const dailyTokenBuckets = tokenBuckets(tokenUsage?.daily);
-  const sixHourTokenBuckets = tokenBuckets(tokenUsage?.six_hour);
-  const activeTokenBuckets = tokenChartMode === "daily" ? dailyTokenBuckets : sixHourTokenBuckets;
+  const activeTokenBuckets = dailyTokenBuckets;
   const maxActiveTokenBucket = Math.max(1, ...activeTokenBuckets.map((bucket) => numberValue(bucket.tokens)));
-  const tokenChartTitle = tokenChartMode === "daily" ? "最近 7 天" : "最近 24 小时";
-  const tokenChartBucketLabel = tokenChartMode === "daily" ? "日期" : "6 小时窗口";
+  const tokenChartTitle = "最近 7 天";
+  const tokenChartBucketLabel = "日期";
   const tokenChartTicks = [1, 0.75, 0.5, 0.25, 0].map((ratio) => Math.round(maxActiveTokenBucket * ratio));
   const tokenLinePoints: TokenLinePoint[] = activeTokenBuckets.map((bucket, index, buckets) => {
     const x = buckets.length <= 1 ? 50 : (index / (buckets.length - 1)) * 100;
@@ -47,6 +44,11 @@ export function buildHealthSystemViewModel(
     : "";
   const tokenSummary = tokenUsage?.summary ?? {};
   const exactTokenTotal = numberValue(tokenSummary.exact_total_tokens ?? tokenSummary.total_tokens);
+  const weeklyTokenTotal = numberValue(
+    tokenSummary.week_total_tokens,
+    activeTokenBuckets.reduce((total, bucket) => total + numberValue(bucket.tokens), 0),
+  );
+  const overallTokenTotal = numberValue(tokenSummary.overall_total_tokens ?? tokenSummary.total_tokens);
   const predictedTokenTotal = numberValue(tokenSummary.predicted_total_tokens);
   const traceTokenTotal = numberValue(tokenSummary.trace_estimate_total_tokens);
   const cacheSavingsTotal = numberValue(tokenSummary.cache_savings_tokens);
@@ -111,7 +113,6 @@ export function buildHealthSystemViewModel(
     providerUsageTaskCount,
     risks,
     selectedTask,
-    sixHourTokenBuckets,
     sourceStructureTotal,
     systemRisks,
     tasks,
@@ -124,7 +125,9 @@ export function buildHealthSystemViewModel(
     tokenLinePolyline,
     tokenRecordCount,
     tokenTasks,
+    overallTokenTotal,
     traceEstimateTaskCount,
     traceTokenTotal,
+    weeklyTokenTotal,
   };
 }

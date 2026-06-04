@@ -197,6 +197,38 @@ function commandPreviewFromToolCall(toolCall: Record<string, unknown>, fallback?
   return commandPreviewFromArgs(args, fallback ?? toolCall.command ?? toolCall.path ?? toolCall.query);
 }
 
+function toolCallsFromRequestPayload(requestPayload: Record<string, unknown>) {
+  const rawCalls = Array.isArray(requestPayload.tool_calls) ? requestPayload.tool_calls : [];
+  const calls = rawCalls
+    .map((item) => record(item))
+    .filter((item) => Object.keys(item).length > 0);
+  if (calls.length) return calls;
+  const single = record(requestPayload.tool_call);
+  return Object.keys(single).length ? [single] : [];
+}
+
+function toolCallBatchSummary(toolCalls: Record<string, unknown>[], fallback?: unknown) {
+  if (!toolCalls.length) {
+    return { toolName: text(fallback) || "工具", preview: "" };
+  }
+  if (toolCalls.length === 1) {
+    const toolCall = toolCalls[0];
+    return {
+      toolName: text(toolCall.tool_name ?? toolCall.name) || text(fallback) || "工具",
+      preview: commandPreviewFromToolCall(toolCall, fallback),
+    };
+  }
+  const previews = toolCalls.slice(0, 3).map((toolCall) => {
+    const name = text(toolCall.tool_name ?? toolCall.name) || "工具";
+    const preview = commandPreviewFromToolCall(toolCall);
+    return preview ? `${name} ${preview}` : name;
+  });
+  return {
+    toolName: `${toolCalls.length} 个工具`,
+    preview: `${previews.join("、")}${toolCalls.length > 3 ? " 等" : ""}`,
+  };
+}
+
 function toolActivityText(toolName: string, preview?: string) {
   const normalized = toolName.toLowerCase();
   const target = preview || toolName || "工具";
@@ -400,12 +432,12 @@ function verificationProjection(eventType: string, payload: Record<string, unkno
 function toolNameFromActionRequest(payload: Record<string, unknown>) {
   const actionRequest = record(payload.action_request);
   const requestPayload = record(actionRequest.payload);
-  const toolCall = record(requestPayload.tool_call);
+  const toolCalls = toolCallsFromRequestPayload(requestPayload);
+  const batch = toolCallBatchSummary(toolCalls, payload.tool);
   return text(
     payload.tool_name
     ?? requestPayload.tool_name
-    ?? toolCall.tool_name
-    ?? toolCall.name
+    ?? batch.toolName
     ?? payload.tool
   );
 }
@@ -444,15 +476,16 @@ function turnToolObservationArtifacts(observation: Record<string, unknown>) {
 function toolRequestProjection(eventType: string, payload: Record<string, unknown>, eventMeta: ReturnType<typeof runtimeEvent>): RuntimeVisibilityProjection {
   const actionRequest = record(payload.action_request);
   const requestPayload = record(actionRequest.payload);
-  const toolCall = record(requestPayload.tool_call);
-  const toolName = toolNameFromActionRequest(payload) || "工具";
-  const preview = commandPreviewFromToolCall(toolCall, requestPayload.command ?? requestPayload.path ?? requestPayload.query);
+  const toolCalls = toolCallsFromRequestPayload(requestPayload);
+  const batch = toolCallBatchSummary(toolCalls, requestPayload.command ?? requestPayload.path ?? requestPayload.query);
+  const toolName = toolNameFromActionRequest(payload) || batch.toolName || "工具";
+  const preview = batch.preview;
   const activity = toolActivityText(toolName, preview);
   const body = short(
     preview
     || text(requestPayload.command_preview)
     || text(requestPayload.assistant_content_preview)
-    || short(toolCall.args)
+    || short(toolCalls[0]?.args)
     || text(actionRequest.request_type)
     || "已发起工具请求",
   );
@@ -502,9 +535,10 @@ function turnModelActionAdmissionProjection(eventType: string, data: Record<stri
       }),
     };
   }
-  const toolCall = record(actionRequest.tool_call);
-  const toolName = text(toolCall.tool_name ?? toolCall.name ?? actionRequest.tool_name) || "工具";
-  const preview = commandPreviewFromToolCall(toolCall, actionRequest.command ?? actionRequest.path ?? actionRequest.query);
+  const toolCalls = toolCallsFromRequestPayload(actionRequest);
+  const batch = toolCallBatchSummary(toolCalls, actionRequest.command ?? actionRequest.path ?? actionRequest.query);
+  const toolName = text(actionRequest.tool_name) || batch.toolName || "工具";
+  const preview = batch.preview;
   const activity = toolActivityText(toolName, preview);
   const admission = record(payload.admission);
   const allowed = text(admission.decision) !== "deny";

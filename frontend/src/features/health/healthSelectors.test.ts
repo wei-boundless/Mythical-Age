@@ -53,6 +53,8 @@ function overviewFixture(): HealthSystemOverview {
       authority: "health-system",
       summary: {
         exact_total_tokens: 200,
+        week_total_tokens: 200,
+        overall_total_tokens: 300,
         predicted_total_tokens: 260,
         trace_estimate_total_tokens: 40,
         cache_savings_tokens: 50,
@@ -65,10 +67,6 @@ function overviewFixture(): HealthSystemOverview {
       sessions: [],
       tasks: [],
       daily: [{ bucket: "2026-05-30", tokens: 200 }],
-      six_hour: [
-        { bucket: "00:00", tokens: 100 },
-        { bucket: "06:00", tokens: 300 },
-      ],
       updated_at: 1,
     },
     efficiency: {
@@ -98,24 +96,26 @@ function overviewFixture(): HealthSystemOverview {
 
 describe("buildHealthSystemViewModel", () => {
   it("sorts task records by health risk and falls back to the highest risk task", () => {
-    const view = buildHealthSystemViewModel(overviewFixture(), null, "", "daily");
+    const view = buildHealthSystemViewModel(overviewFixture(), null, "");
 
     expect(view.tasks.map((task) => task.task_run_id)).toEqual(["taskrun:high", "taskrun:normal"]);
     expect(view.selectedTask?.task_run_id).toBe("taskrun:high");
   });
 
   it("derives monitor facts from health governance before raw monitor fallback", () => {
-    const view = buildHealthSystemViewModel(overviewFixture(), null, "", "daily");
+    const view = buildHealthSystemViewModel(overviewFixture(), null, "");
 
     expect(view.monitorRevision).toBe("governance-revision");
     expect(view.monitorSummary).toMatchObject({ running: 1, action_required: 2 });
   });
 
   it("builds token chart and accounting structure without mixing token sources", () => {
-    const view = buildHealthSystemViewModel(overviewFixture(), null, "", "six_hour");
+    const view = buildHealthSystemViewModel(overviewFixture(), null, "");
 
-    expect(view.activeTokenBuckets).toHaveLength(2);
-    expect(view.maxActiveTokenBucket).toBe(300);
+    expect(view.activeTokenBuckets).toHaveLength(1);
+    expect(view.maxActiveTokenBucket).toBe(200);
+    expect(view.weeklyTokenTotal).toBe(200);
+    expect(view.overallTokenTotal).toBe(300);
     expect(view.predictionDelta).toBe(60);
     expect(view.providerCoverage).toBeCloseTo(1 / 3);
     expect(view.providerCoverageCaption).toBe("1 / 3 个运行记录已有 provider usage");
@@ -139,7 +139,7 @@ describe("buildHealthSystemViewModel", () => {
       updated_at: 1,
     };
 
-    const view = buildHealthSystemViewModel(overviewFixture(), maintenance, "", "daily");
+    const view = buildHealthSystemViewModel(overviewFixture(), maintenance, "");
 
     expect(view.maintenanceCandidates).toHaveLength(2);
     expect(view.protectedMaintenanceCandidates).toEqual([

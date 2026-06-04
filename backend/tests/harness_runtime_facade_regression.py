@@ -1780,8 +1780,16 @@ def test_agent_action_request_launches_task_run_and_initializes_todo() -> None:
     assert admissions
     assert dict(admissions[0].get("admission") or {}).get("decision") == "allow"
     assert dict(admissions[0].get("model_action_request") or {}).get("action_type") == "request_task_run"
+    task_control_opening_index = next(
+        index
+        for index, event in enumerate(events)
+        if event.get("type") == "assistant_text"
+        and event.get("answer_channel") == "task_control"
+        and "我会开始处理：交付一个真实可验证产物。" in str(event.get("content") or "")
+    )
     assert "task_run_lifecycle_started" in stream_types
     assert "task_run_lifecycle_event" in stream_types
+    assert task_control_opening_index < stream_types.index("task_run_lifecycle_started")
     assert "agent_todo_initialized" in event_types
     assert "task_run_executor_scheduled" in event_types
     done_contents = [str(event.get("content") or "") for event in events if event.get("type") == "done"]
@@ -5409,7 +5417,15 @@ def test_single_agent_turn_request_task_run_tool_starts_real_task_lifecycle() ->
     assert dict(admissions[0].get("model_action_request") or {}).get("action_type") == "request_task_run"
     assert "runtime_invocation_packet" not in stream_types
     assert "model_action_request" not in stream_types
+    task_control_opening_index = next(
+        index
+        for index, event in enumerate(events)
+        if event.get("type") == "assistant_text"
+        and event.get("answer_channel") == "task_control"
+        and "页面目标转成可执行任务" in str(event.get("content") or "")
+    )
     assert "task_run_lifecycle_started" in stream_types
+    assert task_control_opening_index < stream_types.index("task_run_lifecycle_started")
     assert task_run_id.startswith("taskrun:")
     assert stored_task is not None
     assert dict(getattr(stored_task, "diagnostics", {}) or {}).get("origin_kind") == "single_agent_turn_native_action"
@@ -5466,7 +5482,15 @@ def test_single_agent_turn_json_request_task_run_starts_real_task_lifecycle() ->
     stored_task = runtime.single_agent_runtime_host.state_index.get_task_run(task_run_id)
     admissions = _admission_payloads(events)
 
+    task_control_opening_index = next(
+        index
+        for index, event in enumerate(events)
+        if event.get("type") == "assistant_text"
+        and event.get("answer_channel") == "task_control"
+        and "JSON 页面目标转成持续任务" in str(event.get("content") or "")
+    )
     assert "task_run_lifecycle_started" in stream_types
+    assert task_control_opening_index < stream_types.index("task_run_lifecycle_started")
     assert admissions
     assert dict(admissions[0].get("model_action_request") or {}).get("action_type") == "request_task_run"
     assert task_run_id.startswith("taskrun:")

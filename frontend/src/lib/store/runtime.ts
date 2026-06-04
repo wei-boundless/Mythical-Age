@@ -47,7 +47,7 @@ import { createIdleSessionActivity, type Store } from "./core";
 import { reduceStreamEvent, startQueuedActiveTurn, startStreamingTurn, type StreamSession } from "./events";
 import { mergePublicTimelineItems, publicTimelineTerminalStateFromAnswer } from "./publicTimeline";
 import { RunMonitorController } from "../run-monitor/controller";
-import type { ActiveTurnSnapshot, ChatMode, ChatModelSelection, ChatTaskEnvironmentBinding, ChatThinkingMode, Message, PermissionMode, RuntimeProgressEntry, SearchPolicySource, SessionEditorContext, SessionEditorPageStatePatch, SessionPoolKey, SessionRef, StoreActions, StoreState, TaskEnvironmentWorkspaceView, TaskGraphCenterWorkspaceTarget, TaskGraphMonitorBinding, TaskSelectionState, WorkspaceView } from "./types";
+import type { ActiveTurnSnapshot, ChatMode, ChatModelSelection, ChatTaskEnvironmentBinding, ChatThinkingMode, Message, PermissionMode, RuntimeProgressEntry, SearchPolicySource, SessionEditorContext, SessionEditorPageStatePatch, SessionPoolKey, SessionRef, StoreActions, StoreState, TaskEnvironmentWorkspaceView, TaskGraphMonitorBinding, TaskGraphWorkspaceTarget, TaskSelectionState, WorkspaceView } from "./types";
 import { makeId, toUiMessages } from "./utils";
 
 type HarnessSessionMonitor = NonNullable<Awaited<ReturnType<typeof getOrchestrationHarnessSessionLiveMonitor>>["monitor"]>;
@@ -254,6 +254,9 @@ export class WorkspaceRuntime {
       evaluateBoundTaskGraphMonitor: async () => {
         await this.evaluateBoundTaskGraphMonitor();
       },
+      pauseBoundTaskGraphRun: async () => {
+        await this.pauseBoundTaskGraphRun();
+      },
       continueBoundTaskGraphRun: async () => {
         await this.continueBoundTaskGraphRun();
       },
@@ -283,6 +286,9 @@ export class WorkspaceRuntime {
       },
       openWorkspaceFile: (path) => {
         this.openWorkspaceFile(path);
+      },
+      clearTaskGraphWorkspaceTarget: () => {
+        this.clearTaskGraphWorkspaceTarget();
       },
       clearCenterWorkspaceTarget: () => {
         this.clearCenterWorkspaceTarget();
@@ -2280,13 +2286,14 @@ export class WorkspaceRuntime {
     }
     const activeFileLoaded = Boolean(activePath && context?.inspectorPath === activePath);
     const activeText = activeFileLoaded ? String(context?.inspectorContent || "") : "";
-    const selectedText = activeText.slice(0, FRONTEND_EDITOR_CONTEXT_TEXT_LIMIT);
-    const selection = selectedText
+    const previewText = activeText.slice(0, FRONTEND_EDITOR_CONTEXT_TEXT_LIMIT);
+    const contentPreview = previewText
       ? {
           start: { line: 0, character: 0 },
-          end: this.editorEndPosition(selectedText),
-          text: selectedText,
-          truncated: activeText.length > selectedText.length,
+          end: this.editorEndPosition(previewText),
+          text: previewText,
+          truncated: activeText.length > previewText.length,
+          source: "frontend_inspector",
         }
       : undefined;
     return {
@@ -2298,7 +2305,8 @@ export class WorkspaceRuntime {
             path: activePath,
             language_id: this.languageIdForPath(activePath),
             dirty: Boolean(context?.inspectorDirty),
-            selection,
+            content_preview: contentPreview,
+            selection: undefined,
           }
         : undefined,
       visible_files: openFilePaths.map((path) => ({
@@ -2726,17 +2734,20 @@ export class WorkspaceRuntime {
     return view === "code-environment" ? "code-environment" : "chat";
   }
 
-  private openTaskGraphWorkspace(target: Omit<TaskGraphCenterWorkspaceTarget, "layer" | "requested_at"> = {}) {
-    const view = this.centerWorkspaceHostView(this.store.getState().activeWorkspaceView);
-    this.syncWorkspaceViewUrl(view);
+  private openTaskGraphWorkspace(target: Omit<TaskGraphWorkspaceTarget, "layer" | "requested_at"> = {}) {
+    this.syncWorkspaceViewUrl("task-system");
     this.store.setState((prev) => ({
       ...prev,
-      activeWorkspaceView: view,
-      centerWorkspaceTarget: {
+      activeWorkspaceView: "task-system",
+      taskGraphWorkspaceTarget: {
         layer: "task-graph",
         mode: target.mode ?? "editor",
+        task_environment_id: String(target.task_environment_id ?? "").trim() || undefined,
         graph_id: String(target.graph_id ?? "").trim() || undefined,
         task_run_id: String(target.task_run_id ?? "").trim() || undefined,
+        task_instance_id: String(target.task_instance_id ?? "").trim() || undefined,
+        graph_run_id: String(target.graph_run_id ?? "").trim() || undefined,
+        focus_node_id: String(target.focus_node_id ?? "").trim() || undefined,
         requested_at: Date.now(),
       },
     }));
@@ -2764,6 +2775,13 @@ export class WorkspaceRuntime {
     this.store.setState((prev) => ({
       ...prev,
       centerWorkspaceTarget: null,
+    }));
+  }
+
+  private clearTaskGraphWorkspaceTarget() {
+    this.store.setState((prev) => ({
+      ...prev,
+      taskGraphWorkspaceTarget: null,
     }));
   }
 
@@ -2828,6 +2846,39 @@ export class WorkspaceRuntime {
     await this.runMonitorController.continueBoundGraphRun();
   }
 
+  private async pauseBoundTaskGraphRun() {
+    const taskRunId = this.boundTaskGraphRunTaskRunId();
+    if (!taskRunId) {
+      this.store.setState((prev) => ({
+        ...prev,
+        taskGraphMonitorError: "当前 GraphRun 没有关联可暂停的 TaskRun。",
+      }));
+      return;
+    }
+    this.store.setState((prev) => ({
+      ...prev,
+      taskGraphAutoAdvanceEnabled: false,
+      taskGraphAutoAdvancePending: false,
+      taskGraphMonitorActionLoading: true,
+      taskGraphMonitorError: "",
+    }));
+    try {
+      await pauseOrchestrationHarnessTaskRun(taskRunId, "user_pause_graph_run", "");
+      await this.runMonitorController.evaluateBoundGraphMonitor().catch(() => undefined);
+      await this.refreshRunMonitor();
+    } catch (error) {
+      this.store.setState((prev) => ({
+        ...prev,
+        taskGraphMonitorError: this.errorMessage(error, "GraphRun 暂停失败"),
+      }));
+    } finally {
+      this.store.setState((prev) => ({
+        ...prev,
+        taskGraphMonitorActionLoading: false,
+      }));
+    }
+  }
+
   private async stopBoundTaskGraphRun() {
     const taskRunId = this.boundTaskGraphRunTaskRunId();
     if (!taskRunId) {
@@ -2839,6 +2890,8 @@ export class WorkspaceRuntime {
     }
     this.store.setState((prev) => ({
       ...prev,
+      taskGraphAutoAdvanceEnabled: false,
+      taskGraphAutoAdvancePending: false,
       taskGraphMonitorActionLoading: true,
       taskGraphMonitorError: "",
     }));
@@ -3272,15 +3325,8 @@ export class WorkspaceRuntime {
       return candidate;
     }
     if (actionType === "tool_call") {
-      const toolName = String(payload.tool_name ?? actionState.tool_name ?? "").trim();
-      const toolTarget = String(payload.tool_target ?? actionState.tool_target ?? "").trim();
-      return this.runtimeTextContainsAny(candidate, [
-        toolName,
-        toolName.replace(/[_-]+/g, " "),
-        toolTarget,
-        this.runtimeTargetBasename(toolTarget),
-        ...this.runtimeToolActionKeywords(toolName),
-      ]) ? candidate : "";
+      const toolFragments = this.runtimeToolCallFragments(payload, actionState);
+      return this.runtimeTextContainsAny(candidate, toolFragments) ? candidate : "";
     }
     const keywords: Record<string, string[]> = {
       respond: ["回复", "回答", "整理", "总结", "收口", "说明", "respond"],
@@ -3295,6 +3341,46 @@ export class WorkspaceRuntime {
   private runtimeTargetBasename(value: string) {
     const normalized = String(value ?? "").trim().replace(/\\/g, "/");
     return normalized ? normalized.split("/").pop() ?? "" : "";
+  }
+
+  private runtimeToolCallFragments(payload: Record<string, unknown>, actionState: Record<string, unknown>) {
+    const calls = this.runtimeToolCallsFromPayload(payload);
+    if (!calls.length) {
+      const fallbackName = String(payload.tool_name ?? actionState.tool_name ?? "").trim();
+      const fallbackTarget = String(payload.tool_target ?? actionState.tool_target ?? "").trim();
+      calls.push({ tool_name: fallbackName, args: { path: fallbackTarget } });
+    }
+    const fragments: string[] = [];
+    for (const call of calls) {
+      const toolName = String(call.tool_name ?? call.name ?? "").trim();
+      const args = call.args && typeof call.args === "object" && !Array.isArray(call.args)
+        ? call.args as Record<string, unknown>
+        : {};
+      const toolTarget = String(
+        args.path ?? args.file_path ?? args.target_path ?? args.query ?? args.pattern ?? args.command ?? payload.tool_target ?? actionState.tool_target ?? ""
+      ).trim();
+      fragments.push(
+        toolName,
+        toolName.replace(/[_-]+/g, " "),
+        toolTarget,
+        this.runtimeTargetBasename(toolTarget),
+        ...this.runtimeToolActionKeywords(toolName),
+      );
+    }
+    return fragments;
+  }
+
+  private runtimeToolCallsFromPayload(payload: Record<string, unknown>) {
+    const raw = Array.isArray(payload.tool_calls) ? payload.tool_calls : [];
+    const calls = raw
+      .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object" && !Array.isArray(item))
+      .map((item) => ({ ...item }));
+    if (calls.length) return calls;
+    const single = payload.tool_call;
+    if (single && typeof single === "object" && !Array.isArray(single)) {
+      return [{ ...(single as Record<string, unknown>) }];
+    }
+    return [];
   }
 
   private runtimeToolActionKeywords(toolName: string) {

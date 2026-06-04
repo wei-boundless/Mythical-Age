@@ -1,7 +1,6 @@
 import type { HealthSystemOverview, HealthTaskRecord } from "@/lib/api";
 
 export type HealthPage = "overview" | "tasks" | "maintenance" | "cost";
-export type TokenChartMode = "daily" | "six_hour";
 export type MaintenanceBucket = "static" | "completed" | "failed" | "diagnostics";
 
 export function numberValue(value: unknown, fallback = 0) {
@@ -58,11 +57,6 @@ export function compactNumber(value: number) {
 export function percentLabel(value: number) {
   if (!Number.isFinite(value)) return "0%";
   return `${Math.round(Math.max(0, Math.min(1, value)) * 100)}%`;
-}
-
-export function signedTokenLabel(value: number) {
-  const sign = value > 0 ? "+" : value < 0 ? "-" : "";
-  return `${sign}${tokenLabel(Math.abs(value))}`;
 }
 
 export function tokenSourceClass(value: unknown) {

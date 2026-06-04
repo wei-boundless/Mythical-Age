@@ -109,7 +109,19 @@ class RuntimeCompiler:
         )
         output_contract = {
             "required_json_object": True,
-            "required_fields": ["summary_content"],
+            "required_fields": ["structured_summary"],
+            "optional_fields": ["summary_content", "diagnostics"],
+            "structured_summary_schema": {
+                "current_goal": "string | string[]",
+                "active_constraints": "string[]",
+                "verified_facts": "string[]",
+                "decisions": "string[]",
+                "artifacts": "string[] | object[]",
+                "invalidated_items": "string[]",
+                "open_questions": "string[]",
+                "next_actions": "string[]",
+                "recovery_notes": "string[]",
+            },
             "forbidden_actions": ["tool_call", "file_write", "memory_write", "delegation"],
             **dict(profile_metadata.get("output_contract") or {}),
             "authority": "harness.runtime.semantic_compaction.output_contract",
@@ -1390,11 +1402,11 @@ def task_execution_action_schema() -> dict[str, Any]:
     return {
         "authority": "harness.loop.model_action_request",
         "action_type": "respond|ask_user|tool_call|block",
-        "public_progress_note": "一句用户可理解的公开正文反馈；它会作为任务执行过程中用户看到的 agent 反馈。必须与本轮 action_type 和实际 tool_call/回复/提问/阻塞完全一致。不得预测工具结果，不得把尚未完成的工具动作说成已经完成，不得写与实际 action_type 不一致的计划；不包含内部编号、系统结构、协议字段或隐藏推理。",
+        "public_progress_note": "一句用户可理解的公开正文反馈；它会作为任务执行过程中用户看到的 agent 反馈。必须与本轮 action_type 和实际 tool_calls/回复/提问/阻塞完全一致。不得预测工具结果，不得把尚未完成的工具动作说成已经完成，不得写与实际 action_type 不一致的计划；不包含内部编号、系统结构、协议字段或隐藏推理。",
         "public_action_state": {
             "visible_status": "thinking|waiting_for_tool|tool_returned|responding|blocked",
             "current_judgment": "可选；你对当前公开状态的简短说明。只能写本轮已经确定的事实或边界，不写隐藏推理。",
-            "next_action": "可选；你下一步准备执行的动作。必须与 action_type 对齐：tool_call 时必须指向同一个工具或同一目标；respond 时必须是整理回复；ask_user 时必须是向用户确认；block 时必须是说明阻塞。",
+            "next_action": "可选；你下一步准备执行的动作。必须与 action_type 对齐：tool_call 时必须指向本轮 tool_calls 中的工具或目标；respond 时必须是整理回复；ask_user 时必须是向用户确认；block 时必须是说明阻塞。",
             "evidence_refs": ["已经返回且可被用户理解的 observation/event/artifact ref；没有返回结果时留空"],
             "open_risks": ["已经观察到的公开阻塞或风险；没有则留空；不要写预测性风险"],
             "completion_status": "working|waiting_for_tool|verifying|ready_to_finish|blocked"
@@ -1402,7 +1414,9 @@ def task_execution_action_schema() -> dict[str, Any]:
         "final_answer": "",
         "user_question": "",
         "blocking_reason": "",
-        "tool_call": {"tool_name": "", "args": {}},
+        "tool_calls": [
+            {"tool_name": "本轮可见工具名", "args": {"参数名": "参数值"}}
+        ],
         "diagnostics": {
             "artifacts": [
                 {"path": "真实交付物路径", "kind": "artifact kind", "summary": "产物说明"}
@@ -1670,7 +1684,8 @@ def _provider_protocol_message_specs(
         turn_id=str(payload.get("turn_id") or ""),
         source=source_ref,
     )
-    transcript = [dict(item) for item in protocol_sanitizer.messages]
+    raw_transcript = [dict(item) for item in protocol_sanitizer.messages]
+    transcript, protocol_truncated_count = _select_provider_protocol_replay(raw_transcript)
     result: list[dict[str, Any]] = []
     for index, message in enumerate([item for item in transcript if item is not None], start=1):
         result.append(
@@ -1686,6 +1701,7 @@ def _provider_protocol_message_specs(
                 "metadata": {
                     "protocol_history_index": index,
                     "provider_protocol_replay": True,
+                    "protocol_truncated_count": protocol_truncated_count,
                     "protocol_sanitizer": dict(protocol_sanitizer.diagnostics),
                     "reasoning_content_present": bool(message.get("reasoning_content")),
                     "tool_calls_present": bool(message.get("tool_calls")),
@@ -1694,6 +1710,31 @@ def _provider_protocol_message_specs(
             }
         )
     return result
+
+
+def _select_provider_protocol_replay(
+    transcript: list[dict[str, Any]],
+    *,
+    max_messages: int = 24,
+) -> tuple[list[dict[str, Any]], int]:
+    if len(transcript) <= max_messages:
+        return list(transcript), 0
+    start = max(0, len(transcript) - max_messages)
+    selected = transcript[start:]
+    required_tool_call_ids = {
+        str(message.get("tool_call_id") or "").strip()
+        for message in selected
+        if str(message.get("role") or "") == "tool" and str(message.get("tool_call_id") or "").strip()
+    }
+    if required_tool_call_ids:
+        for index in range(start - 1, -1, -1):
+            message = transcript[index]
+            tool_calls = list(message.get("tool_calls") or []) if isinstance(message.get("tool_calls"), list) else []
+            call_ids = {str(call.get("id") or "").strip() for call in tool_calls if isinstance(call, dict)}
+            if call_ids.intersection(required_tool_call_ids):
+                start = index
+                break
+    return list(transcript[start:]), start
 
 
 def _model_messages_and_segment_plan(
@@ -2360,8 +2401,8 @@ def _runtime_projection_instruction(projection: dict[str, Any]) -> str:
         lines.append(f"- 工具只能从本轮上下文中实际可见的工具选择；当前可见工具数：{visible_count}。")
         if projection.get("invocation_kind") == "task_execution":
             lines.append(
-                "- 当前持续任务执行协议每次只能提交一个 action；如需工具，提交一个本轮可见工具调用，收到观察后再决定下一步。"
-                "成功、失败和拒绝会作为工具观察返回。显式人工审批属于 runtime/UI 控制状态，不要在聊天里要求用户批准系统权限。"
+                "- 当前持续任务执行协议每次只能提交一个 JSON action；如需工具，action_type=tool_call，并在 tool_calls 数组中提交一个或多个互不依赖的本轮可见工具调用。"
+                "运行时会按工具安全声明、资源冲突和审批状态决定并发或串行；成功、失败、拒绝和审批等待会作为工具观察返回。显式人工审批属于 runtime/UI 控制状态，不要在聊天里要求用户批准系统权限。"
                 "看到拒绝观察后，必须换用已开放工具、修改参数、询问用户、说明阻塞或收口；不要原样重复同一个未获准动作。"
             )
         else:

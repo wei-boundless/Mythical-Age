@@ -1,6 +1,6 @@
 "use client";
 
-import { Activity, ExternalLink, PlayCircle, RefreshCw } from "lucide-react";
+import { Activity, ExternalLink, PauseCircle, PlayCircle, RefreshCw } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import type { ContractSpec } from "@/lib/api";
@@ -214,6 +214,7 @@ export function TaskGraphTopologyPage({
   const {
     continueBoundTaskGraphRun,
     evaluateBoundTaskGraphMonitor,
+    pauseBoundTaskGraphRun,
     setTaskGraphRunInteractionOpen,
     taskGraphBoundRunMonitor,
     taskGraphMonitorActionLoading,
@@ -389,6 +390,9 @@ export function TaskGraphTopologyPage({
               </button>
               <button disabled={!visibleBinding || taskGraphMonitorLoading || taskGraphMonitorActionLoading} onClick={() => void continueBoundTaskGraphRun()} title="派发 Ready 节点" type="button">
                 <PlayCircle size={13} />
+              </button>
+              <button disabled={!visibleBinding || taskGraphMonitorLoading || taskGraphMonitorActionLoading} onClick={() => void pauseBoundTaskGraphRun()} title="暂停 root TaskRun" type="button">
+                <PauseCircle size={13} />
               </button>
               <button disabled={!visibleBinding} onClick={() => setTaskGraphRunInteractionOpen(true)} title="打开监控浮窗" type="button">
                 <ExternalLink size={13} />

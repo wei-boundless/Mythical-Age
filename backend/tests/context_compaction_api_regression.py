@@ -85,6 +85,27 @@ def test_full_compact_run_stores_summary_as_compressed_context(tmp_path: Path, m
     assert runtime.session_manager.load_session_for_api(session_id)[1]["content"] == old_assistant_prose
 
 
+def test_session_tokens_exposes_context_meter_and_billing_totals(tmp_path: Path, monkeypatch) -> None:
+    runtime, session_id, _old_assistant_prose = _runtime_with_session(tmp_path)
+    monkeypatch.setattr(tokens_api, "require_runtime", lambda: runtime)
+
+    response = asyncio.run(
+        tokens_api.session_tokens(
+            session_id,
+            workspace_view=None,
+            task_environment_id=None,
+            project_id=None,
+        )
+    )
+
+    assert "billing_totals" in response
+    assert "context_meter" in response
+    assert "cache_metrics" in response
+    assert "compaction_readiness" in response
+    assert response["context_meter"]["authority"] == "runtime.prompt_accounting.context_usage_snapshot"
+    assert response["context_meter"]["current_context_tokens"] > 0
+
+
 def _runtime_with_session(tmp_path: Path):
     session_manager = SessionManager(tmp_path)
     session = session_manager.create_session(title="Compact API")

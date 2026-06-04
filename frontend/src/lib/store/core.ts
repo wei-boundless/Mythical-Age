@@ -109,6 +109,7 @@ export function getDefaultState(): StoreState {
     orchestrationInspectorTarget: null,
     taskSelection: null,
     chatTaskEnvironmentBinding: null,
+    taskGraphWorkspaceTarget: null,
     centerWorkspaceTarget: null
   };
 }

@@ -258,15 +258,22 @@ class _RegisteredSemanticWorker:
         "allow_nested_subagents": False,
     }
 
-    def __init__(self, *, summary: str = "用户目标：继续压缩系统。\n已验证事实：worker 已注册。") -> None:
+    def __init__(
+        self,
+        *,
+        summary: str = "用户目标：继续压缩系统。\n已验证事实：worker 已注册。",
+        structured_summary: dict[str, object] | None = None,
+    ) -> None:
         self.summary = summary
+        self.structured_summary = structured_summary or {}
         self.requests = []
 
     def compact(self, request):
         self.requests.append(request)
         return SemanticCompactionWorkerResult(
-            ok=bool(self.summary),
+            ok=bool(self.summary or self.structured_summary),
             summary_content=self.summary,
+            structured_summary=dict(self.structured_summary),
             diagnostics={"request_id": request.request_id},
         )
 
@@ -302,6 +309,48 @@ def test_context_compactor_invokes_registered_semantic_worker(tmp_path) -> None:
     assert result.diagnostics["semantic_compactor_registered"] is True
     assert result.diagnostics["semantic_compactor_binding"]["agent_profile_id"] == "context_compactor_agent"
     assert result.diagnostics["semantic_compactor_result"]["ok"] is True
+
+
+def test_context_compactor_renders_structured_semantic_recovery_package(tmp_path) -> None:
+    manager = SessionMemoryManager(tmp_path)
+    worker = _RegisteredSemanticWorker(
+        summary="",
+        structured_summary={
+            "current_goal": "修正上下文压缩质量",
+            "active_constraints": ["压缩结果必须服务恢复工作，不替主 Agent 继续任务"],
+            "verified_facts": ["semantic compactor 只能调用模型响应"],
+            "invalidated_items": ["旧工具原文不应整段保留"],
+            "next_actions": ["检查压缩输出是否保留当前用户要求"],
+        },
+    )
+    compactor = ContextCompactor(
+        manager,
+        max_messages=6,
+        keep_recent_messages=3,
+        effective_history_token_budget=220,
+        full_compact_recent_messages=2,
+        semantic_compactor=worker,
+    )
+    messages = [
+        Message(role="user", content="请修正上下文压缩质量"),
+        Message(role="assistant", content="旧工具输出 " + ("证据 " * 400)),
+        Message(role="user", content="当前用户要求不能丢"),
+    ]
+
+    result = compactor.apply_strategy(
+        messages,
+        pressure_level="full_compact",
+        request_id="ctxcompact:structured-worker",
+        reserved_output_tokens=100,
+    )
+
+    assert result.did_full_compact is True
+    assert result.messages[0].meta["compaction_source"] == "registered_semantic_compactor"
+    assert "## 当前目标" in result.messages[0].content
+    assert "修正上下文压缩质量" in result.messages[0].content
+    assert "## 已失效或被否定内容" in result.messages[0].content
+    assert "旧工具原文不应整段保留" in result.messages[0].content
+    assert result.diagnostics["semantic_structured_summary_present"] is True
 
 
 def test_context_compactor_falls_back_when_registered_worker_returns_empty_summary(tmp_path) -> None:
@@ -407,7 +456,16 @@ class _SemanticCompactionModelRuntime:
     async def invoke_messages(self, messages, **kwargs):
         self.calls.append({"messages": messages, "kwargs": kwargs})
         return SimpleNamespace(
-            content=json.dumps({"summary_content": "用户目标：继续压缩系统。\n下一步：保留环境边界。"}, ensure_ascii=False),
+            content=json.dumps(
+                {
+                    "structured_summary": {
+                        "current_goal": "继续压缩系统",
+                        "next_actions": ["保留环境边界"],
+                    },
+                    "summary_content": "用户目标：继续压缩系统。",
+                },
+                ensure_ascii=False,
+            ),
             additional_kwargs={"provider": "test"},
         )
 
@@ -437,12 +495,12 @@ def test_registered_semantic_compaction_worker_invokes_runtime_model(tmp_path) -
     result = worker.compact(request)
 
     assert result.ok is True
-    assert "保留环境边界" in result.summary_content
+    assert result.structured_summary["next_actions"] == ["保留环境边界"]
     assert model_runtime.calls
     call = model_runtime.calls[0]
     assert call["kwargs"]["accounting_context"]["cache_metric_scope"] == "semantic_compaction_worker"
     assert any("Semantic compaction request" in str(message.get("content") or "") for message in call["messages"])
-    assert result.diagnostics["model_response_protocol"]["json_payload"]["summary_content"].startswith("用户目标")
+    assert result.diagnostics["model_response_protocol"]["json_payload"]["structured_summary"]["current_goal"] == "继续压缩系统"
 
 
 def test_memory_facade_compactor_uses_only_injected_semantic_worker(tmp_path) -> None:
@@ -517,6 +575,7 @@ def test_compactor_blocks_replacement_that_would_orphan_tool_result(tmp_path) ->
         pressure_level="full_compact",
         request_id="ctxcompact:tool-pair",
         reason="tool invariant test",
+        force_full_compact=True,
     )
 
     assert result.did_compact is False

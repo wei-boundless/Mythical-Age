@@ -246,9 +246,10 @@ export type ActiveTurnSnapshot = {
   updated_at?: number;
 };
 
-export type TaskGraphCenterWorkspaceTarget = {
+export type TaskGraphWorkspaceTarget = {
   layer: "task-graph";
   mode?: "editor" | "monitor";
+  task_environment_id?: string;
   graph_id?: string;
   task_run_id?: string;
   task_instance_id?: string;
@@ -263,7 +264,7 @@ export type FileCenterWorkspaceTarget = {
   requested_at: number;
 };
 
-export type CenterWorkspaceTarget = TaskGraphCenterWorkspaceTarget | FileCenterWorkspaceTarget;
+export type CenterWorkspaceTarget = FileCenterWorkspaceTarget;
 
 export type SessionEditorContext = {
   activeFilePath: string;
@@ -342,6 +343,7 @@ export type StoreState = {
   orchestrationInspectorTarget: OrchestrationInspectorTarget | null;
   taskSelection: TaskSelectionState | null;
   chatTaskEnvironmentBinding: ChatTaskEnvironmentBinding | null;
+  taskGraphWorkspaceTarget: TaskGraphWorkspaceTarget | null;
   centerWorkspaceTarget: CenterWorkspaceTarget | null;
 };
 
@@ -382,6 +384,7 @@ export type StoreActions = {
   setTaskGraphRunInteractionOpen: (open: boolean) => void;
   setTaskGraphAutoAdvanceEnabled: (enabled: boolean) => void;
   evaluateBoundTaskGraphMonitor: () => Promise<void>;
+  pauseBoundTaskGraphRun: () => Promise<void>;
   continueBoundTaskGraphRun: () => Promise<void>;
   stopBoundTaskGraphRun: () => Promise<void>;
   resumeTaskGraphRun: (taskGraphRunId: string, payload?: Record<string, unknown>) => Promise<void>;
@@ -392,8 +395,9 @@ export type StoreActions = {
   clearChatTaskEnvironmentBinding: () => void;
   openRunMonitorSignal: (signalId: string) => void;
   refreshRunMonitor: () => Promise<void>;
-  openTaskGraphWorkspace: (target?: Omit<TaskGraphCenterWorkspaceTarget, "layer" | "requested_at">) => void;
+  openTaskGraphWorkspace: (target?: Omit<TaskGraphWorkspaceTarget, "layer" | "requested_at">) => void;
   openWorkspaceFile: (path: string) => void;
+  clearTaskGraphWorkspaceTarget: () => void;
   clearCenterWorkspaceTarget: () => void;
 };
 

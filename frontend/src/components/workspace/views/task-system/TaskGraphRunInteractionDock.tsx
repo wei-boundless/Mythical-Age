@@ -1,6 +1,6 @@
 "use client";
 
-import { Activity, CheckCircle2, GripHorizontal, Minimize2, PlayCircle, RefreshCw, Square, TriangleAlert, X } from "lucide-react";
+import { Activity, CheckCircle2, GripHorizontal, Minimize2, PauseCircle, PlayCircle, RefreshCw, Square, TriangleAlert, X } from "lucide-react";
 import type { PointerEvent as ReactPointerEvent } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -93,6 +93,7 @@ export function TaskGraphRunInteractionDock({
   onContinue,
   onEvaluate,
   onOpenChange,
+  onPause,
   onStop,
   open,
 }: {
@@ -105,6 +106,7 @@ export function TaskGraphRunInteractionDock({
   onContinue: () => void;
   onEvaluate: () => void;
   onOpenChange: (open: boolean) => void;
+  onPause: () => void;
   onStop: () => void;
   open: boolean;
 }) {
@@ -149,6 +151,22 @@ export function TaskGraphRunInteractionDock({
     && !terminalTaskStatuses.has(runtimeStatus)
     && !terminalControlStates.has(controlState)
     && controlState !== "stop_requested"
+  );
+  const canPauseTaskRun = Boolean(
+    taskRunId
+    && !terminalTaskStatuses.has(runtimeStatus)
+    && !terminalControlStates.has(controlState)
+    && controlState !== "paused"
+    && controlState !== "pause_requested"
+    && controlState !== "stop_requested"
+  );
+  const canContinueGraphRun = Boolean(
+    graphRunId
+    && graphHarnessConfigId
+    && !terminalTaskStatuses.has(runtimeStatus)
+    && controlState !== "pause_requested"
+    && controlState !== "stop_requested"
+    && !terminalControlStates.has(controlState)
   );
 
   function getBoxSize(isOpen = open) {
@@ -394,15 +412,19 @@ export function TaskGraphRunInteractionDock({
       <div className="health-agent-dock__actions">
         <button disabled={!graphRunId || !graphHarnessConfigId || monitorLoading} onClick={onEvaluate} type="button">
           <RefreshCw size={14} />
-          刷新
+          <span>刷新</span>
         </button>
-        <button disabled={!graphRunId || !graphHarnessConfigId || actionLoading} onClick={onContinue} type="button">
+        <button disabled={!canPauseTaskRun || actionLoading} onClick={onPause} type="button">
+          <PauseCircle size={14} />
+          <span>暂停</span>
+        </button>
+        <button disabled={!canContinueGraphRun || actionLoading} onClick={onContinue} type="button">
           <PlayCircle size={14} />
-          派发 Ready
+          <span>{controlState === "paused" ? "恢复续跑" : "续跑"}</span>
         </button>
         <button disabled={!canStopTaskRun || actionLoading} onClick={onStop} type="button">
           <Square size={14} />
-          停止
+          <span>停止</span>
         </button>
       </div>
     </aside>

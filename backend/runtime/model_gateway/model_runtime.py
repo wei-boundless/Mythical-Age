@@ -1107,7 +1107,6 @@ class ModelRuntime:
                 cache_record = replace(
                     cache_record,
                     scope="none",
-                    ttl_seconds=0,
                     status="bypassed",
                     cache_safety_reasons=(
                         *tuple(cache_record.cache_safety_reasons or ()),

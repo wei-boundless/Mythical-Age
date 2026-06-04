@@ -26,7 +26,6 @@ import {
   riskLabel,
   riskLabelValue,
   runtimeEventLabelValue,
-  signedTokenLabel,
   statusLabel,
   statusLabelValue,
   taskDisplayTitle,
@@ -63,9 +62,7 @@ export function HealthSystemView() {
     pruneRecords,
     setActivePage,
     setSelectedTaskId,
-    setTokenChartMode,
     taskDetail,
-    tokenChartMode,
     view,
   } = useHealthSystemController();
   const {
@@ -82,9 +79,6 @@ export function HealthSystemView() {
     monitorGovernance,
     monitorRevision,
     monitorSummary,
-    predictedTokenTotal,
-    predictionDelta,
-    predictionDeltaRatio,
     predictionOnlyTaskCount,
     protectedMaintenanceCandidates,
     providerCoverage,
@@ -102,9 +96,11 @@ export function HealthSystemView() {
     tokenLineArea,
     tokenLinePoints,
     tokenLinePolyline,
+    tokenRecordCount,
     tokenTasks,
+    overallTokenTotal,
     traceEstimateTaskCount,
-    traceTokenTotal,
+    weeklyTokenTotal,
   } = view;
 
   return (
@@ -310,27 +306,21 @@ export function HealthSystemView() {
           <section className="health-token-ledger-strip" aria-label="Token 账本核心指标">
             <TokenStatCard
               accent="exact"
-              label="精确消耗"
-              value={tokenLabel(exactTokenTotal)}
-              detail="Provider usage"
+              label="最近 7 天"
+              value={tokenLabel(weeklyTokenTotal)}
+              detail="按日窗口聚合"
             />
             <TokenStatCard
-              accent="predicted"
-              label="预测消耗"
-              value={tokenLabel(predictedTokenTotal)}
-              detail={exactTokenTotal ? `偏差 ${signedTokenLabel(predictionDelta)} / ${percentLabel(predictionDeltaRatio)} · 仅预测 ${predictionOnlyTaskCount} 个` : `仅预测 ${predictionOnlyTaskCount} 个运行记录`}
+              accent="neutral"
+              label="账本总数"
+              value={tokenLabel(overallTokenTotal)}
+              detail={`${tokenRecordCount} 条记录 · provider 精确 ${tokenLabel(exactTokenTotal)}`}
             />
             <TokenStatCard
               accent="cache"
               label="缓存节省"
               value={tokenLabel(cacheSavingsTotal)}
               detail={`${percentLabel(cacheSavingsRatio)} 节省率 · ${tokenLabel(cachedTokenTotal)} cached`}
-            />
-            <TokenStatCard
-              accent={traceEstimateTaskCount > 0 ? "trace" : "neutral"}
-              label="旧估算"
-              value={tokenLabel(traceTokenTotal)}
-              detail={`${traceEstimateTaskCount} 个 trace fallback`}
             />
           </section>
 
@@ -363,27 +353,6 @@ export function HealthSystemView() {
                 </div>
                 <Activity size={16} />
               </div>
-              <div className="health-token-switch" role="tablist" aria-label="Token 消耗统计口径">
-                <button
-                  aria-selected={tokenChartMode === "daily"}
-                  className={tokenChartMode === "daily" ? "health-token-switch__item--active" : ""}
-                  onClick={() => setTokenChartMode("daily")}
-                  role="tab"
-                  type="button"
-                >
-                  每日
-                </button>
-                <button
-                  aria-selected={tokenChartMode === "six_hour"}
-                  className={tokenChartMode === "six_hour" ? "health-token-switch__item--active" : ""}
-                  onClick={() => setTokenChartMode("six_hour")}
-                  role="tab"
-                  type="button"
-                >
-                  每 6 小时
-                </button>
-              </div>
-
               <div className="health-token-line-chart" aria-label="Token 消耗折线图">
                 <div className="health-token-y-axis" aria-hidden="true">
                   {tokenChartTicks.map((tick, index) => <span key={`${tick}-${index}`}>{compactNumber(tick)}</span>)}

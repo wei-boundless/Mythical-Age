@@ -235,6 +235,41 @@ def test_health_token_usage_includes_turn_runs_without_task_run_id(tmp_path) -> 
     assert record["token_total"] == 120
 
 
+def test_health_token_usage_summary_counts_records_without_session_id(tmp_path) -> None:
+    now = time.time()
+    ledger = PromptAccountingLedger(tmp_path)
+    ledger.record_token_usage(
+        ModelTokenUsageRecord(
+            usage_id="tokuse:modelreq:unscoped:provider_usage",
+            request_id="modelreq:unscoped",
+            run_id="modelreq:unscoped",
+            source="provider_usage",
+            prompt_tokens=100,
+            completion_tokens=20,
+            total_tokens=120,
+            created_at=now - 10,
+        )
+    )
+    runtime_host = SimpleNamespace(
+        state_index=StateIndexStub([]),
+        event_log=EventLogStub({}),
+        runtime_objects=RuntimeObjectsStub(),
+        prompt_accounting_ledger=ledger,
+        list_global_live_monitor=lambda limit: {"summary": {}, "task_runs": []},
+    )
+    runtime = SimpleNamespace(harness_runtime=SimpleNamespace(single_agent_runtime_host=runtime_host))
+
+    token_usage = HealthGovernanceBuilder(runtime).build_token_usage(limit=10)
+
+    assert token_usage["summary"]["total_tokens"] == 120
+    assert token_usage["summary"]["overall_total_tokens"] == 120
+    assert token_usage["summary"]["exact_total_tokens"] == 120
+    assert token_usage["summary"]["week_total_tokens"] >= 120
+    assert token_usage["summary"]["session_count"] == 0
+    assert token_usage["sessions"] == []
+    assert token_usage["tasks"][0]["token_total"] == 120
+
+
 def test_health_task_list_hides_graph_node_child_task_runs() -> None:
     now = time.time()
     root = TaskRun(

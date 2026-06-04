@@ -43,7 +43,7 @@ function clampLeftWidth(value: number) {
 }
 
 function clampRightWidth(value: number) {
-  return clamp(value, 240, 820);
+  return clamp(value, 240, 1180);
 }
 
 function workbenchCenterMinWidth(viewportWidth: number) {

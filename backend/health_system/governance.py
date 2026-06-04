@@ -815,19 +815,21 @@ class HealthGovernanceBuilder:
             elif token_source == "trace_estimate":
                 current["trace_estimate_task_count"] = int(current["trace_estimate_task_count"]) + 1
         rows = sorted(by_session.values(), key=lambda item: int(item.get("total_tokens") or 0), reverse=True)
-        total = sum(int(item.get("total_tokens") or 0) for item in rows)
-        exact_total = sum(int(item.get("exact_total_tokens") or 0) for item in rows)
-        predicted_total = sum(int(item.get("predicted_total_tokens") or 0) for item in rows)
-        trace_total = sum(int(item.get("trace_estimate_total_tokens") or 0) for item in rows)
-        cached_total = sum(int(item.get("cached_tokens") or 0) for item in rows)
-        cache_savings_total = sum(int(item.get("cache_savings_tokens") or 0) for item in rows)
+        total = sum(int(item.get("token_total") or 0) for item in tasks)
+        exact_total = sum(int(item.get("exact_token_total") or 0) for item in tasks)
+        predicted_total = sum(int(item.get("predicted_token_total") or 0) for item in tasks)
+        trace_total = sum(int(item.get("trace_estimate_token_total") or 0) for item in tasks)
+        cached_total = sum(int(item.get("cached_tokens") or 0) for item in tasks)
+        cache_savings_total = sum(int(item.get("cache_savings_tokens") or 0) for item in tasks)
         daily = self._token_buckets(tasks, bucket_seconds=86400, bucket_count=7, label_mode="day")
-        six_hour = self._token_buckets(tasks, bucket_seconds=21600, bucket_count=4, label_mode="hour")
+        week_total = sum(int(item.get("tokens") or 0) for item in daily)
         return {
             "authority": "health_system.governance.token_usage",
             "summary": {
                 "session_count": len(rows),
                 "total_tokens": total,
+                "overall_total_tokens": total,
+                "week_total_tokens": week_total,
                 "exact_total_tokens": exact_total,
                 "predicted_total_tokens": predicted_total,
                 "trace_estimate_total_tokens": trace_total,
@@ -867,8 +869,7 @@ class HealthGovernanceBuilder:
                 reverse=True,
             )[:80],
             "daily": daily,
-            "six_hour": six_hour,
-            "note": "按 PromptAccounting 账本聚合：provider_usage 为精确消耗，local_prediction 为请求前预测，trace_estimate 只用于旧任务迁移回退。",
+            "note": "按 PromptAccounting 账本聚合：趋势只显示最近 7 天，summary.total_tokens 为当前账本总量；provider_usage 为精确消耗，local_prediction 为请求前预测，trace_estimate 只用于旧任务迁移回退。",
             "updated_at": self.now,
         }
 

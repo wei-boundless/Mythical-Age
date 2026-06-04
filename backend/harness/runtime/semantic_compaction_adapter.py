@@ -160,6 +160,7 @@ def _semantic_compaction_result_from_response(
     )
     payload = dict(protocol.json_payload or {})
     summary = str(payload.get("summary_content") or payload.get("summary") or "").strip()
+    structured_summary = _structured_summary_from_payload(payload)
     diagnostics = {
         "request_id": request_id,
         "packet_ref": packet_ref,
@@ -176,17 +177,26 @@ def _semantic_compaction_result_from_response(
             ok=False,
             diagnostics={**diagnostics, "reason": "semantic_compactor_json_required"},
         )
-    if not summary:
+    if not summary and not structured_summary:
         return SemanticCompactionWorkerResult(
             ok=False,
-            diagnostics={**diagnostics, "reason": "semantic_compactor_empty_summary"},
+            diagnostics={**diagnostics, "reason": "semantic_compactor_empty_recovery_package"},
         )
     return SemanticCompactionWorkerResult(
         ok=True,
         summary_content=summary,
+        structured_summary=structured_summary,
         source="registered_semantic_compactor",
         diagnostics=diagnostics,
     )
+
+
+def _structured_summary_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    for key in ("structured_summary", "recovery_package", "checkpoint"):
+        value = payload.get(key)
+        if isinstance(value, dict):
+            return dict(value)
+    return {}
 
 
 def _call_model_runtime_sync(

@@ -2,6 +2,7 @@ import type { Store } from "@/lib/store/core";
 import type { ChatTaskEnvironmentBinding, StoreState, TaskGraphMonitorBinding, WorkspaceView } from "@/lib/store/types";
 import {
   isRequestAbortError,
+  resumeOrchestrationHarnessTaskRun,
   runGraphRunUntilIdle,
   type GraphRunMonitorView,
   type RunMonitorEventPayload,
@@ -286,6 +287,16 @@ export class RunMonitorController {
     }
     this.store.setState((prev) => ({ ...prev, taskGraphMonitorActionLoading: true, taskGraphMonitorError: "" }));
     try {
+      const taskRunId = graphTaskRunId(state.taskGraphBoundRunMonitor, binding);
+      const controlState = graphTaskControlState(state.taskGraphBoundRunMonitor).toLowerCase();
+      if (controlState === "paused") {
+        if (!taskRunId) {
+          throw new Error("当前 GraphRun 已暂停，但缺少可恢复的 root TaskRun。");
+        }
+        await resumeOrchestrationHarnessTaskRun(taskRunId, 12, "");
+      } else if (controlState === "pause_requested" || controlState === "stop_requested") {
+        throw new Error(controlState === "pause_requested" ? "暂停请求正在收口，等状态变为已暂停后再续跑。" : "停止请求正在收口，不能继续派发。");
+      }
       await runGraphRunUntilIdle(graphRunId, {
         graph_harness_config_id: graphHarnessConfigId,
         session_scope: binding?.session_scope,
@@ -408,16 +419,17 @@ export class RunMonitorController {
     if (signal.work_kind === "graph_task" || navigation.target_kind === "graph_task") {
       const graphRunId = String(signal.graph_ref?.graph_run_id || navigation.graph_run_id || "").trim();
       const graphHarnessConfigId = String(signal.graph_ref?.graph_harness_config_id || "").trim();
+      const graphId = String(signal.graph_ref?.graph_id || navigation.graph_id || signal.graph_id || "").trim();
       const projectId = String(navigation.project_id || "").trim();
-      this.host.syncWorkspaceViewUrl(owningTaskEnvironmentView);
+      this.host.syncWorkspaceViewUrl("task-system");
       this.store.setState((prev) => ({
         ...prev,
-        activeWorkspaceView: owningTaskEnvironmentView,
+        activeWorkspaceView: "task-system",
         taskGraphMonitorBinding: normalizeTaskGraphBinding({
           task_run_id: signal.task_run_id,
           graph_run_id: graphRunId,
           graph_harness_config_id: graphHarnessConfigId,
-          graph_id: String(signal.graph_ref?.graph_id || navigation.graph_id || signal.graph_id || "").trim(),
+          graph_id: graphId,
           session_id: sessionId,
           project_id: projectId,
           title: signal.title,
@@ -427,10 +439,11 @@ export class RunMonitorController {
             project_id: projectId,
           },
         }) ?? prev.taskGraphMonitorBinding,
-        centerWorkspaceTarget: {
+        taskGraphWorkspaceTarget: {
           layer: "task-graph",
           mode: "monitor",
-          graph_id: String(signal.graph_ref?.graph_id || navigation.graph_id || signal.graph_id || "").trim() || undefined,
+          task_environment_id: taskEnvironmentId || undefined,
+          graph_id: graphId || undefined,
           task_run_id: signal.task_run_id || undefined,
           task_instance_id: signal.signal_id,
           graph_run_id: graphRunId || undefined,
@@ -576,6 +589,41 @@ function normalizeTaskGraphBinding(
     title: String(binding.title || "").trim() || undefined,
     bound_at: Number(binding.bound_at ?? Date.now() / 1000),
   };
+}
+
+function graphTaskRunId(monitor: GraphRunMonitorView | null, binding: TaskGraphMonitorBinding | null) {
+  const taskRun = monitor?.task_run && typeof monitor.task_run === "object" && !Array.isArray(monitor.task_run)
+    ? monitor.task_run as Record<string, unknown>
+    : {};
+  const taskRunMonitor = (monitor?.task_run_monitor && typeof monitor.task_run_monitor === "object" && !Array.isArray(monitor.task_run_monitor)
+    ? monitor.task_run_monitor
+    : monitor?.runtime_monitor && typeof monitor.runtime_monitor === "object" && !Array.isArray(monitor.runtime_monitor)
+      ? monitor.runtime_monitor
+      : {}) as Record<string, unknown>;
+  return String(
+    binding?.task_run_id
+    || (monitor as Record<string, unknown> | null)?.task_run_id
+    || taskRun.task_run_id
+    || taskRunMonitor.task_run_id
+    || ""
+  ).trim();
+}
+
+function graphTaskControlState(monitor: GraphRunMonitorView | null) {
+  const taskRun = monitor?.task_run && typeof monitor.task_run === "object" && !Array.isArray(monitor.task_run)
+    ? monitor.task_run as Record<string, unknown>
+    : {};
+  const taskRunMonitor = (monitor?.task_run_monitor && typeof monitor.task_run_monitor === "object" && !Array.isArray(monitor.task_run_monitor)
+    ? monitor.task_run_monitor
+    : monitor?.runtime_monitor && typeof monitor.runtime_monitor === "object" && !Array.isArray(monitor.runtime_monitor)
+      ? monitor.runtime_monitor
+      : {}) as Record<string, unknown>;
+  const runtimeControl = taskRunMonitor.runtime_control && typeof taskRunMonitor.runtime_control === "object" && !Array.isArray(taskRunMonitor.runtime_control)
+    ? taskRunMonitor.runtime_control as Record<string, unknown>
+    : taskRun.runtime_control && typeof taskRun.runtime_control === "object" && !Array.isArray(taskRun.runtime_control)
+      ? taskRun.runtime_control as Record<string, unknown>
+      : {};
+  return String(taskRunMonitor.control_state || runtimeControl.state || "").trim();
 }
 
 function runMonitorErrorMessage(error: unknown, fallback: string) {

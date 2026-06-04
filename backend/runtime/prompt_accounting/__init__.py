@@ -2,6 +2,7 @@ from .cache_planner import PromptCachePlanner, prompt_cache_key, stable_text_has
 from .cache_baseline import PromptCacheBaselineRecord, PromptCacheBaselineTracker
 from .cache_break_detector import PromptCacheBreakDetector, PromptCacheBreakRecord
 from .compression_budget import CompressionBudgetPlanner
+from .context_usage_meter import ContextUsageMeter, ContextUsageSnapshot
 from .ledger import PromptAccountingLedger
 from .models import (
     ModelTokenUsageRecord,
@@ -18,6 +19,8 @@ from .token_counter import TokenCounterRegistry
 __all__ = [
     "CanonicalPromptSerializer",
     "CompressionBudgetPlanner",
+    "ContextUsageMeter",
+    "ContextUsageSnapshot",
     "ModelTokenUsageRecord",
     "PromptAccountingLedger",
     "PromptCacheBaselineRecord",

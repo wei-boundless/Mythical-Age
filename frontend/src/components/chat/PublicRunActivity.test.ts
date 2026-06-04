@@ -22,6 +22,7 @@ describe("PublicRunActivity", () => {
     );
 
     expect(html).toContain("public-run-activity");
+    expect(html).toContain("阶段完成");
     expect(html).toContain("已确认目标路径");
     expect(html).toContain("目标文件尚未存在");
     expect(html).not.toContain("查看执行细节");
@@ -99,6 +100,7 @@ describe("PublicRunActivity", () => {
     );
 
     expect(html).toContain("前面已完成 3 步，继续处理中。");
+    expect(html).toContain("执行中");
     expect(html).not.toContain("处理已开始");
     expect(html).not.toContain("读取项目结构");
     expect(html).not.toContain("检查配置文件");

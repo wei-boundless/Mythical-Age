@@ -73,7 +73,9 @@ export function TaskSystemView() {
     activeWorkspaceView,
     chatTaskEnvironmentBinding,
     clearChatTaskEnvironmentBinding,
+    clearTaskGraphWorkspaceTarget,
     setChatTaskEnvironmentBinding,
+    taskGraphWorkspaceTarget,
   } = useAppStore();
   const [consolePayload, setConsolePayload] = useState<TaskSystemOverview | null>(null);
   const [nodeRuntimeCatalog, setNodeRuntimeCatalog] = useState<OrchestrationAgentRuntimeCatalog | null>(null);
@@ -84,6 +86,7 @@ export function TaskSystemView() {
   const [selectedEnvironmentId, setSelectedEnvironmentId] = useState("");
   const [activeDomain, setActiveDomain] = useState<TaskSystemDomain>("environments");
   const [environmentSubpage, setEnvironmentSubpage] = useState<EnvironmentSubpage>("loadout");
+  const [selectedTaskSystemGraphId, setSelectedTaskSystemGraphId] = useState("");
   const [contractSubpage, setContractSubpage] = useState<ContractSubpage>("catalog");
   const [nodeSubpage, setNodeSubpage] = useState<NodeSubpage>("catalog");
   const [environmentDraft, setEnvironmentDraft] = useState<EnvironmentDraft>(() => defaultEnvironmentDraft());
@@ -169,11 +172,50 @@ export function TaskSystemView() {
     [consolePayload],
   );
   const kindTemplates = consolePayload?.environment_kind_management?.kind_templates ?? [];
+  const selectedEnvironmentGraphRows = useMemo(
+    () => (consolePayload?.environment_graph_inventory?.items ?? [])
+      .filter((item) => String(item.environment_id || "") === selectedEnvironmentId),
+    [consolePayload, selectedEnvironmentId],
+  );
 
   useEffect(() => {
     if (!selectedEnvironmentItem) return;
     setEnvironmentDraft(environmentDraftFromItem(selectedEnvironmentItem));
   }, [selectedEnvironmentItem]);
+
+  useEffect(() => {
+    const currentStillVisible = selectedEnvironmentGraphRows
+      .some((item) => String(item.graph_id ?? "") === selectedTaskSystemGraphId);
+    if (!currentStillVisible) {
+      setSelectedTaskSystemGraphId(String(selectedEnvironmentGraphRows[0]?.graph_id ?? ""));
+    }
+  }, [selectedEnvironmentGraphRows, selectedTaskSystemGraphId]);
+
+  useEffect(() => {
+    if (!taskSystemActive || !taskGraphWorkspaceTarget) return;
+    setActiveDomain("environments");
+    setEnvironmentSubpage("graphs");
+
+    const targetGraphId = String(taskGraphWorkspaceTarget.graph_id || "").trim();
+    const targetEnvironmentId = String(taskGraphWorkspaceTarget.task_environment_id || "").trim();
+    if (targetGraphId) {
+      setSelectedTaskSystemGraphId(targetGraphId);
+    }
+    if (targetEnvironmentId) {
+      setSelectedEnvironmentId(targetEnvironmentId);
+    }
+    if (!consolePayload) return;
+
+    const graphInventoryRow = targetGraphId
+      ? (consolePayload.environment_graph_inventory?.items ?? []).find((item) => String(item.graph_id ?? "") === targetGraphId)
+      : null;
+    const resolvedEnvironmentId = targetEnvironmentId || String(graphInventoryRow?.environment_id || "").trim();
+    if (resolvedEnvironmentId) {
+      setSelectedEnvironmentId(resolvedEnvironmentId);
+      setEnvironmentDraft(environmentDraftFromItem(taskEnvironmentItem(resolvedEnvironmentId, consolePayload)));
+    }
+    clearTaskGraphWorkspaceTarget();
+  }, [clearTaskGraphWorkspaceTarget, consolePayload, taskGraphWorkspaceTarget, taskSystemActive]);
 
   function createEnvironmentDraft() {
     const index = environmentItems.length + 1;
@@ -542,9 +584,11 @@ export function TaskSystemView() {
             onDeleteKindTemplate={removeKindTemplate}
             onSave={() => void saveEnvironmentDraft()}
             onSaveKindTemplate={saveKindTemplate}
+            onSelectGraph={setSelectedTaskSystemGraphId}
             onSetDraft={setEnvironmentDraft}
             saving={saving}
             selectedEnvironmentId={selectedEnvironmentItem?.record.environment_id || ""}
+            selectedGraphId={selectedTaskSystemGraphId}
             taskSystemOverview={consolePayload}
           />
         ) : null}

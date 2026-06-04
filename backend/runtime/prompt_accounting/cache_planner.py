@@ -29,7 +29,6 @@ class PromptCachePlanner:
         *,
         provider: str = "",
         model: str = "",
-        ttl_seconds: int = 300,
         created_at: float | None = None,
     ) -> PromptCacheRecord:
         combined_stable_prefix = []
@@ -115,7 +114,6 @@ class PromptCachePlanner:
             prefix_hash=prefix_hash,
             boundary_segment_id=boundary.segment_id,
             scope="session" if segment_map.session_id else "global",
-            ttl_seconds=max(0, int(ttl_seconds or 0)),
             status="eligible",
             cache_safety_reasons=(),
             created_at=timestamp,

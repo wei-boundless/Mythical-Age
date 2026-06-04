@@ -23,6 +23,19 @@ from .semantic_worker import (
 )
 
 
+RECOVERY_PACKAGE_SECTIONS: tuple[tuple[str, str], ...] = (
+    ("current_goal", "当前目标"),
+    ("active_constraints", "当前约束"),
+    ("verified_facts", "已验证事实"),
+    ("decisions", "已确认决策"),
+    ("artifacts", "产物与引用"),
+    ("invalidated_items", "已失效或被否定内容"),
+    ("open_questions", "未解决问题"),
+    ("next_actions", "下一步恢复动作"),
+    ("recovery_notes", "恢复提示"),
+)
+
+
 @dataclass(slots=True)
 class CompactResult:
     did_compact: bool
@@ -73,6 +86,105 @@ class SemanticCompactionRequest:
         }
 
 
+def _summary_from_semantic_worker_result(result: SemanticCompactionWorkerResult | None) -> str:
+    if result is None or not result.ok:
+        return ""
+    if result.structured_summary:
+        rendered = _render_recovery_package(result.structured_summary, fallback=result.summary_content)
+        if rendered:
+            return rendered
+    return str(result.summary_content or "").strip()
+
+
+def _render_recovery_package(package: dict[str, Any], *, fallback: str = "") -> str:
+    normalized = {str(key): value for key, value in dict(package or {}).items()}
+    lines: list[str] = []
+    overview = _compact_recovery_text(
+        normalized.get("summary")
+        or normalized.get("overview")
+        or normalized.get("brief")
+        or fallback,
+        limit=900,
+    )
+    if overview:
+        lines.extend(["## 恢复概览", overview, ""])
+    for key, title in RECOVERY_PACKAGE_SECTIONS:
+        items = _recovery_items(normalized.get(key))
+        if not items:
+            continue
+        lines.append(f"## {title}")
+        lines.extend(f"- {item}" for item in items)
+        lines.append("")
+    return "\n".join(lines).strip()
+
+
+def _recovery_items(value: Any) -> list[str]:
+    if value in (None, "", [], {}):
+        return []
+    if isinstance(value, str):
+        return [
+            item
+            for item in (_compact_recovery_text(line.strip(" -\t"), limit=500) for line in value.splitlines())
+            if item
+        ]
+    if isinstance(value, (list, tuple)):
+        result: list[str] = []
+        for item in value:
+            result.extend(_recovery_items(item))
+        return _dedupe_recovery_items(result)
+    if isinstance(value, dict):
+        text = _recovery_item_from_dict(value)
+        return [text] if text else []
+    return [_compact_recovery_text(value, limit=500)] if _compact_recovery_text(value, limit=500) else []
+
+
+def _recovery_item_from_dict(value: dict[str, Any]) -> str:
+    preferred = (
+        value.get("content")
+        or value.get("text")
+        or value.get("summary")
+        or value.get("canonical")
+        or value.get("path")
+        or value.get("ref")
+        or value.get("title")
+    )
+    if preferred:
+        suffixes: list[str] = []
+        for key in ("status", "source", "reason"):
+            suffix = _compact_recovery_text(value.get(key), limit=120)
+            if suffix:
+                suffixes.append(f"{key}={suffix}")
+        base = _compact_recovery_text(preferred, limit=420)
+        return f"{base} ({'; '.join(suffixes)})" if suffixes else base
+    pairs = [
+        f"{key}={_compact_recovery_text(item, limit=120)}"
+        for key, item in sorted(value.items())
+        if item not in (None, "", [], {})
+    ]
+    return _compact_recovery_text("；".join(pairs), limit=500)
+
+
+def _compact_recovery_text(value: Any, *, limit: int) -> str:
+    text = " ".join(str(value or "").replace("\r\n", "\n").replace("\r", "\n").split())
+    if not text:
+        return ""
+    if len(text) <= limit:
+        return text
+    return text[: max(0, limit - 3)].rstrip() + "..."
+
+
+def _dedupe_recovery_items(values: list[str]) -> list[str]:
+    result: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        item = _compact_recovery_text(value, limit=500)
+        if not item or item in seen:
+            continue
+        seen.add(item)
+        result.append(item)
+    return result
+
+
 class ContextCompactor:
     """Applies token-aware runtime compaction using session memory as working state."""
 
@@ -105,9 +217,14 @@ class ContextCompactor:
         self.keep_recent_messages = keep_recent_messages
         self.full_compact_recent_messages = min(full_compact_recent_messages, keep_recent_messages)
         self.effective_history_token_budget = effective_history_token_budget
-        self.warning_tokens = max(1, int(effective_history_token_budget * warning_ratio))
-        self.microcompact_tokens = max(self.warning_tokens + 1, int(effective_history_token_budget * microcompact_ratio))
-        self.full_compact_tokens = max(self.microcompact_tokens + 1, int(effective_history_token_budget * full_compact_ratio))
+        if effective_history_token_budget >= 900_000:
+            self.warning_tokens = min(750_000, effective_history_token_budget)
+            self.microcompact_tokens = min(850_000, effective_history_token_budget)
+            self.full_compact_tokens = max(self.microcompact_tokens + 1, effective_history_token_budget)
+        else:
+            self.warning_tokens = max(1, int(effective_history_token_budget * warning_ratio))
+            self.microcompact_tokens = max(self.warning_tokens + 1, int(effective_history_token_budget * microcompact_ratio))
+            self.full_compact_tokens = max(self.microcompact_tokens + 1, int(effective_history_token_budget * full_compact_ratio))
         self.bulky_message_token_threshold = bulky_message_token_threshold
         self.low_authority_text_token_threshold = max(1, int(low_authority_text_token_threshold or 1))
         self.low_authority_text_target_chars = max(120, int(low_authority_text_target_chars or 120))
@@ -149,7 +266,7 @@ class ContextCompactor:
         return sum(self._message_tokens(message) for message in messages)
 
     def _pressure_level(self, tokens: int, message_count: int) -> Literal["normal", "warning", "microcompact", "full_compact"]:
-        if tokens >= self.full_compact_tokens or message_count > self.max_messages:
+        if tokens >= self.full_compact_tokens:
             return "full_compact"
         if tokens >= self.microcompact_tokens:
             return "microcompact"
@@ -509,9 +626,10 @@ class ContextCompactor:
             if semantic_summary_content is None and self.semantic_compactor is not None
             else None
         )
+        semantic_worker_summary = _summary_from_semantic_worker_result(semantic_worker_result)
         resolved_summary_content = (
             semantic_summary_content
-            or (semantic_worker_result.summary_content if semantic_worker_result and semantic_worker_result.ok else "")
+            or semantic_worker_summary
             or summary_content
         )
         compaction_source = (
@@ -600,6 +718,11 @@ class ContextCompactor:
                 ),
                 "semantic_compactor_result": semantic_worker_result.to_dict() if semantic_worker_result is not None else {},
                 "semantic_compaction_request": semantic_request.to_dict(),
+                "semantic_structured_summary_present": bool(
+                    semantic_worker_result
+                    and semantic_worker_result.ok
+                    and semantic_worker_result.structured_summary
+                ),
                 "compaction_source": compaction_source,
             },
         )
@@ -663,7 +786,11 @@ class ContextCompactor:
                 "你不能引入新事实，不能搜索，不能修改文件，不能替主 Agent 继续执行任务。",
                 "你需要保留用户目标、当前约束、已验证事实、产物引用、未解决问题、最近纠错和下一步恢复提示。",
                 "你需要丢弃重复寒暄、旧工具原文、大段 JSON/表格原文、过期状态和已被后续消息否定的信息。",
-                "输出必须是可直接放入 system checkpoint 的中文摘要，不要暴露内部字段名或运行 id。",
+                "你必须输出 JSON 对象，核心字段是 structured_summary。",
+                "structured_summary 必须只包含从输入中能找到证据的信息，字段包括：current_goal、active_constraints、verified_facts、decisions、artifacts、invalidated_items、open_questions、next_actions、recovery_notes。",
+                "每个字段可以是字符串或字符串数组；没有证据的字段留空数组或省略。",
+                "可以附带 summary_content 作为简短人工可读概览，但系统会优先使用 structured_summary 渲染 checkpoint。",
+                "不要暴露内部运行 id，不要输出 JSON 以外的解释文本，不要把旧工具原文整段复制进摘要。",
             ]
         )
 
