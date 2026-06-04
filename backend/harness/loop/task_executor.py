@@ -2789,6 +2789,7 @@ def _task_model_selection(task_run: Any, *, agent_profile: Any | None = None) ->
         "thinking_mode": str(requirement.get("thinking_mode") or profile_payload.get("thinking_mode") or "").strip(),
         "reasoning_effort": str(requirement.get("reasoning_effort") or profile_payload.get("reasoning_effort") or "").strip(),
         "stream_policy": dict(profile_payload.get("stream_policy") or {}),
+        "completion_profile": dict(runtime_profile.get("completion_profile") or {}),
         "diagnostics": {
             "authority": "harness.loop.task_executor.model_selection",
             "source": "agent_runtime_profile.model_profile+node.model_requirement",

@@ -769,6 +769,7 @@ def _node_contract_from_input_package(
         "prompt_contract": dict(input_package.get("prompt_contract") or {}),
         "model_requirement": dict(dict(node_contract.get("contract_bindings") or {}).get("runtime") or {}).get("model_requirement", {}),
         "reasoning_policy": dict(runtime_profile.get("reasoning_policy") or {}),
+        "completion_profile": dict(runtime_profile.get("completion_profile") or {}),
         "tool_contract": dict(node.get("tools") or graph_config.tools or {}),
         "skill_contract": dict(dict(node_contract.get("contract_bindings") or {}).get("skills") or {}),
         "permission_contract": dict(node.get("permissions") or graph_config.permissions or {}),

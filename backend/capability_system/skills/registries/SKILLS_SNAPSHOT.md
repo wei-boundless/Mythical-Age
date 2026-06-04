@@ -17,10 +17,16 @@
   </skill>
   <skill name="生图提示词设计">
     <description>用于角色立绘、场景图、封面图和视觉参考图生成。主 Agent 应在用户明确要求出图时，用它把意图整理成可执行的高质量提示词，并调用生图工具产出真实图片。</description>
-    <return_protocol>- 调用成功后，返回真实图片结果，不要只返回 prompt。
-- 调用失败时，说明失败原因，并保留用户原需求与整理后的 prompt，方便重试。</return_protocol>
-    <output_rule>- 调用成功后，返回真实图片结果，不要只返回 prompt。
-- 调用失败时，说明失败原因，并保留用户原需求与整理后的 prompt，方便重试。</output_rule>
+    <use_when>用户明确要求真实出图、角色立绘、场景图、封面图、概念图、视觉参考图，或任务要求必须生成真实图片产物。用户只是讨论设定、风格、配色或视觉建议时，不要调用生图工具。</use_when>
+    <return_protocol>调用成功后，返回真实图片结果和路径，不要只返回 prompt。调用失败时，说明失败原因，并保留用户原需求和整理后的 prompt，方便配置修复后重试。</return_protocol>
+    <output_rule>设计并调用生图 prompt 时：
+- prompt 按“主体和用途、关键外观、构图视角、背景环境、光线色彩、风格边界、质量约束、no text、no watermark”组织，不要只堆抽象风格词。
+- 角色写清全身/半身、姿态、服装材质、表情和轮廓；场景写清地点、空间层次、前中后景、光源和视觉焦点；道具/图标写清单一主体、居中、简单背景和适合缩放。
+- 默认工具参数：`size=1024x1024`、`quality=low`、`request_timeout_seconds=150`、`overwrite=false`。
+- 游戏 sprite、tile、icon 等小尺寸交付物仍使用 `size=1024x1024`，再用 `output_size=128x128`、`256x256` 或 `512x512` 缩放。
+- 默认不要填写 `model`，让工具使用后端统一生图配置；不要自行改成其他模型。
+- 不要在 prompt 中写 64x64、128x128、tiny、8-bit、transparent background、内部任务名或系统说明。
+- 如果工具返回 `agent_retry_policy=do_not_auto_retry`，不要继续换 prompt 或换模型硬试；应报告配置/供应商阻塞。</output_rule>
   </skill>
   <skill name="PDF 阅读分析">
     <description>用于本地 PDF 的整篇阅读、章节定位和页级问答，适合回答“这份文档讲什么”“这一部分讲什么”“第几页写了什么”等深读问题。</description>
@@ -158,7 +164,17 @@
   </skill>
   <skill name="视觉资产生成">
     <description>在任务合同或用户请求需要真实图片交付物时，指导 agent 调用 image_generate 生成可验收的视觉资产，并把工具返回的真实路径作为交付证据。</description>
-    <output_rule>直接完成用户可见任务；不要描述内部工具调用、路由策略或协议。</output_rule>
+    <use_when>用户明确要求真实图片、任务合同要求图片产物，或开发/创作任务明确需要角色、怪物、场景、道具、封面、UI 图标等真实视觉资产。没有明确图片需求时，不要主动把文本或代码任务改成生图任务。</use_when>
+    <return_protocol>成功后必须返回工具产出的真实 `image.src`、`image.file_path` 或 artifact 引用；失败时必须报告结构化错误和可重试 prompt，不能伪造图片路径，也不能用 CSS、emoji、占位图或外链图片冒充真实生成结果。</return_protocol>
+    <output_rule>执行真实视觉资产生成时：
+- 先判断是否真的需要图片；需要多张图时先生成最关键的 1-2 张，除非合同明确要求更多。
+- 默认使用低成本稳定配置：`size=1024x1024`、`quality=low`、`request_timeout_seconds=150`；最低配置任务可用 120 秒。
+- 小图不要把 128x128/256x256 直接作为 API `size`；保持 `size=1024x1024`，用 `output_size=128x128`、`256x256` 或 `512x512` 做本地缩放。
+- 角色/怪物用 `asset_kind=character`，场景/背景用 `asset_kind=scene`，道具/图标/封面或通用图用 `asset_kind=chat`。
+- `target_id` 必须短、稳定、语义清楚；`overwrite` 默认 false；`model` 默认不要填写，让工具使用后端统一生图配置。
+- prompt 必须包含主体、用途、构图/视角、环境、风格、色彩、质量边界，并明确 no text、no watermark。
+- 像素风写 `clean pixel-art inspired 2D game asset, crisp silhouette, simple background`；不要写 tiny、8-bit、transparent background 或内部任务说明。
+- 如果工具返回 `agent_retry_policy=do_not_auto_retry`，不要继续换 prompt 或换模型硬试；应报告配置/供应商阻塞。</output_rule>
   </skill>
   <skill name="快速网络简报">
     <description>用于快速搜索当前网络信息并给出简短、有来源链接的简报，适合新闻、官网状态、当前事实和轻量资料确认。</description>

@@ -1,6 +1,6 @@
 "use client";
 
-import { CheckCircle2, CircleDot, Loader2, PauseCircle, Square } from "lucide-react";
+import { CheckCircle2, CircleDot, PauseCircle, Square } from "lucide-react";
 import React from "react";
 
 import type { SessionActivityState } from "@/lib/store/types";
@@ -11,7 +11,7 @@ function statusIcon(level: SessionActivityState["level"]) {
   if (level === "error") return <CircleDot size={14} />;
   if (level === "stopped") return <Square size={13} />;
   if (level === "waiting") return <PauseCircle size={14} />;
-  if (level === "running") return <Loader2 className="session-activity-bar__spin" size={14} />;
+  if (level === "running") return <CircleDot size={14} />;
   return null;
 }
 

@@ -140,6 +140,44 @@ def test_prompt_rule_compiler_rejects_missing_required_file_management_rule(tmp_
         PromptRuleCompiler().compile(assembly.sections, invocation_kind="environment")
 
 
+def test_debug_discipline_rule_is_environment_scoped(tmp_path: Path) -> None:
+    service = PromptAssemblyService(tmp_path)
+    debug_ref = "coding.rule.debug_discipline.v1"
+
+    for environment_ref in ("env.coding.vibe_workspace", "env.development.sandbox"):
+        assembly = service.assemble(
+            PromptAssemblyRequest(
+                invocation_kind="environment",
+                prompt_refs=(debug_ref,),
+                task_environment_ref=environment_ref,
+            )
+        )
+        assert debug_ref in assembly.manifest["stable_prompt_refs"]
+        prompt_text = "\n".join(section.content for section in assembly.sections)
+        assert "当前执行基座" in prompt_text
+        assert "绑定项目根目录" in prompt_text
+        assert "沙盒或 overlay 根目录" in prompt_text
+        assert "版本事实" in prompt_text
+        assert "git status/diff/show/log" in prompt_text
+        assert "工具预算" in prompt_text
+        assert assembly.rejected_refs == ()
+        PromptRuleCompiler().compile(assembly.sections, invocation_kind="environment")
+
+    for environment_ref in ("env.creation.writing", "env.general.workspace"):
+        assembly = service.assemble(
+            PromptAssemblyRequest(
+                invocation_kind="environment",
+                prompt_refs=(debug_ref,),
+                task_environment_ref=environment_ref,
+            )
+        )
+        assert debug_ref not in assembly.manifest["stable_prompt_refs"]
+        assert any(
+            item["ref"] == debug_ref and item["reason"] == "resource_environment_ref_mismatch"
+            for item in assembly.rejected_refs
+        )
+
+
 def test_prompt_rule_compiler_rejects_cache_tier_scope_mismatch() -> None:
     section = PromptSection(
         section_id="runtime.bad_environment_rule:1",
@@ -274,8 +312,10 @@ def test_coding_rules_do_not_leak_into_writing_environment_runtime_packet() -> N
     assert "environment.rule.writing_workspace.v1" in manifest["stable_prompt_refs"]
     assert "coding.rule.editing.v1" not in manifest["stable_prompt_refs"]
     assert "coding.rule.verification.v1" not in manifest["stable_prompt_refs"]
+    assert "coding.rule.debug_discipline.v1" not in manifest["stable_prompt_refs"]
     assert "写作环境不继承 coding 的测试、shell、git 或代码编辑规则" in model_input
     assert "你处在 coding 或 development 环境时" not in model_input
+    assert "调试纪律" not in model_input
 
 
 def test_graph_node_runtime_pack_has_single_graph_protocol(tmp_path: Path) -> None:

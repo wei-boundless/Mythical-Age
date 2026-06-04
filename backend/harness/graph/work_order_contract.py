@@ -79,6 +79,7 @@ def _graph_node_runtime_profile(
     for key, value in {
         "model_requirement": node_contract.get("model_requirement"),
         "reasoning_policy": node_contract.get("reasoning_policy"),
+        "completion_profile": node_contract.get("completion_profile"),
         "tool_contract": node_contract.get("tool_contract"),
         "skill_contract": node_contract.get("skill_contract"),
         "permission_contract": node_contract.get("permission_contract"),
@@ -100,6 +101,7 @@ def _graph_node_task_selection(graph_config: Any, work_order: Any) -> dict[str, 
         "task_environment_id": task_environment_id,
         "model_requirement": dict(node_contract.get("model_requirement") or {}),
         "reasoning_policy": dict(node_contract.get("reasoning_policy") or {}),
+        "completion_profile": dict(node_contract.get("completion_profile") or {}),
         "tool_policy": dict(getattr(work_order, "tool_scope", {}) or node_contract.get("tool_contract") or getattr(graph_config, "tools", {}) or {}),
         "permission_policy": dict(getattr(work_order, "permission_scope", {}) or node_contract.get("permission_contract") or getattr(graph_config, "permissions", {}) or {}),
         "runtime_policy": {

@@ -76,6 +76,34 @@ def test_context_usage_meter_adds_only_pending_messages_after_anchor(tmp_path) -
     assert snapshot.current_context_tokens == 110 + snapshot.estimated_pending_tokens
 
 
+def test_context_usage_meter_reports_compaction_remaining_against_replacement_threshold(tmp_path) -> None:
+    ledger = PromptAccountingLedger(tmp_path)
+    ledger.record_token_usage(
+        ModelTokenUsageRecord(
+            usage_id="tokuse:modelreq:latest:provider_usage",
+            request_id="modelreq:latest",
+            session_id="session:test",
+            provider="deepseek",
+            model="deepseek-v4-pro",
+            source="provider_usage",
+            prompt_tokens=35_000,
+            completion_tokens=600,
+            total_tokens=35_600,
+            created_at=2.0,
+        )
+    )
+
+    snapshot = ContextUsageMeter(ledger, default_reserved_output_tokens=65_536).build_snapshot(session_id="session:test")
+
+    assert snapshot.context_window_tokens == 1_000_000
+    assert snapshot.input_capacity_tokens == 926_272
+    assert snapshot.replacement_threshold_tokens == 900_000
+    assert snapshot.current_context_ratio == 0.0356
+    assert snapshot.compaction_pressure_ratio == 0.039556
+    assert snapshot.compaction_remaining_tokens == 864_400
+    assert snapshot.compaction_remaining_ratio == 0.960444
+
+
 def test_context_usage_meter_invalidates_anchor_when_environment_fingerprint_changes(tmp_path) -> None:
     ledger = PromptAccountingLedger(tmp_path)
     ledger.record_token_usage(

@@ -1932,7 +1932,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     );
   });
 
-  it("sends running active task input as a queued steer request without adding an assistant placeholder", async () => {
+  it("sends running active task input as a queued steer request with visible assistant feedback", async () => {
     const taskRunId = "taskrun:turn:session-queue-only:1:abc";
     api.streamChat.mockImplementation(async (_payload, handlers) => {
       handlers.onEvent("active_task_steer_accepted", {
@@ -2003,12 +2003,18 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       expect.anything(),
       expect.anything(),
     );
-    expect(store.getState().messages.map((message) => message.role)).toEqual(["user", "assistant", "user"]);
+    expect(store.getState().messages.map((message) => message.role)).toEqual(["user", "assistant", "user", "assistant"]);
     expect(store.getState().messages.at(-1)).toMatchObject({
-      role: "user",
-      content: "补充一个限制条件",
+      role: "assistant",
+      content: "已加入当前任务队列，会在当前执行中优先纳入。",
+      answerChannel: "active_work_control",
     });
-    expect(store.getState().messages.some((message) => message.role === "assistant" && !message.content.trim())).toBe(false);
+    expect(store.getState().messages.at(-1)?.runtimePublicTimelineDraft).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        kind: "assistant_text",
+        text: "我已收到这条补充要求，会把它接入当前任务。",
+      }),
+    ]));
   });
 
   it("queues user input locally while the current stream is active and flushes it after handoff", async () => {
@@ -2096,7 +2102,12 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       expected_active_turn_id: "turn:session-stream-queue:1",
       active_turn_input_policy: "steer",
     });
-    expect(store.getState().messages.map((message) => message.role)).toEqual(["user", "assistant", "user"]);
+    expect(store.getState().messages.map((message) => message.role)).toEqual(["user", "assistant", "user", "assistant"]);
+    expect(store.getState().messages.at(-1)).toMatchObject({
+      role: "assistant",
+      content: "已加入当前任务队列，会在当前执行中优先纳入。",
+      answerChannel: "active_work_control",
+    });
   });
 
   it("accumulates live TaskRun progress entries instead of replacing them with the latest step", async () => {
@@ -2186,6 +2197,97 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     const attachment = store.getState().messages[1]?.runtimeAttachments?.[0];
     expect(attachment?.anchor_turn_id).toBe("turn:session:live:1");
     expect(attachment?.progress_entries?.map((item) => item.id)).toEqual(["step:packet", "step:model"]);
+  });
+
+  it("projects stale waiting monitor status into the assistant public timeline", async () => {
+    const taskRunId = "taskrun:turn:session:waiting:1:abc";
+    const store = createStore<StoreState>({
+      ...getDefaultState(),
+      currentSessionId: "session:waiting",
+      activeTurnSnapshot: {
+        turn_id: "turn:session:waiting:1",
+        task_run_id: taskRunId,
+      },
+      messages: [
+        {
+          id: "user:1",
+          role: "user",
+          content: "开始任务",
+          toolCalls: [],
+          retrievals: [],
+          sourceIndex: 0,
+        },
+        {
+          id: "assistant:1",
+          role: "assistant",
+          content: "任务已接管",
+          toolCalls: [],
+          retrievals: [],
+          runtimePublicTimelineDraft: [
+            {
+              item_id: "tool:image",
+              kind: "work_action",
+              action_kind: "image",
+              public_summary: "正在生成图像",
+              state: "running",
+              stream_state: "streaming",
+            },
+          ],
+          sourceIndex: 1,
+        },
+      ],
+    });
+    const runtime = new WorkspaceRuntime(store) as unknown as {
+      hydrateLatestOrchestrationSnapshot: (sessionId: string) => Promise<boolean>;
+    };
+    api.getOrchestrationHarnessSessionLiveMonitor.mockResolvedValueOnce({
+      active_task_run_id: taskRunId,
+      monitor: {
+        task_run_id: taskRunId,
+        session_id: "session:waiting",
+        status: "waiting_executor",
+        terminal_reason: "waiting_executor",
+        lifecycle: "stale",
+        bucket: "diagnostics",
+        stale: true,
+        execution_runtime_kind: "single_agent_task",
+        event_count: 11,
+        latest_step: {
+          event_id: "step:image",
+          step: "task_tool_executed:11",
+          status: "running",
+          public_progress_note: "正在生成图像",
+          created_at: 11,
+        },
+        latest_step_summary: "处理已超过2小时没有新的运行事件；当前处理已进入诊断状态。",
+        latest_event: { event_type: "step_summary_recorded" },
+        updated_at: 12,
+        task_run: {
+          task_run_id: taskRunId,
+          task_id: "task:turn:session:waiting:1",
+          status: "waiting_executor",
+          execution_runtime_kind: "single_agent_task",
+        },
+      },
+      task_runs: [],
+    });
+
+    await runtime.hydrateLatestOrchestrationSnapshot("session:waiting");
+
+    const publicTimeline = store.getState().messages[1]?.runtimeAttachments?.[0]?.public_timeline ?? [];
+    expect(publicTimeline).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        item_id: `live:${taskRunId}:monitor-status`,
+        kind: "status_update",
+        title: "等待继续",
+        state: "waiting",
+        phase: "waiting",
+      }),
+    ]));
+    expect(store.getState().sessionActivity).toMatchObject({
+      level: "waiting",
+      title: "等待继续",
+    });
   });
 
   it("anchors resumed task progress to the turn that resumed it", async () => {
@@ -2392,7 +2494,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(assistant?.answerPersistPolicy).toBe("persist_debug_only");
   });
 
-  it("keeps task steer acknowledgements out of assistant prose for queued active work", () => {
+  it("renders task steer acknowledgements as assistant prose for queued active work", () => {
     let transition = startQueuedActiveTurn(getDefaultState(), "补充限制条件");
     transition = reduceStreamEvent(transition.state, transition.session, "done", {
       content: "已加入当前任务队列，会在当前执行中优先纳入。",
@@ -2402,15 +2504,47 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       active_turn_id: "turn:session:background:1",
     });
 
-    expect(transition.state.messages).toHaveLength(1);
+    expect(transition.state.messages).toHaveLength(2);
     expect(transition.state.messages[0]).toMatchObject({
       role: "user",
       content: "补充限制条件",
+    });
+    expect(transition.state.messages[1]).toMatchObject({
+      role: "assistant",
+      content: "已加入当前任务队列，会在当前执行中优先纳入。",
+      answerChannel: "active_work_control",
     });
     expect(transition.state.sessionActivity).toMatchObject({
       level: "success",
       title: "已收到补充要求",
     });
+  });
+
+  it("projects stopped turns into the assistant public timeline", () => {
+    let transition = startStreamingTurn(getDefaultState(), "继续生成");
+    transition = reduceStreamEvent(transition.state, transition.session, "tool_observation", {
+      tool_observation: {
+        tool_name: "read_file",
+        status: "error",
+        text: "Read failed: start_line 900 exceeds total_lines 872",
+      },
+      event_offset: 1,
+    });
+    transition = reduceStreamEvent(transition.state, transition.session, "stopped", {
+      reason: "user_stopped",
+      event_offset: 2,
+    });
+
+    const assistant = transition.state.messages.at(-1);
+    expect(assistant?.stageStatus).toBe("已停止");
+    expect(assistant?.runtimePublicTimelineDraft).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        item_id: "stream:stopped",
+        kind: "status_update",
+        title: "已停止本轮生成",
+        state: "stopped",
+      }),
+    ]));
   });
 
   it("keeps chat usable when noncritical workspace metadata is still loading", async () => {
@@ -2885,12 +3019,16 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       ],
       runtime_attachments: [],
     });
+    const store = createStore(getDefaultState());
+    let recoveryFeedbackDuringAttach: unknown;
     api.streamExistingChatRun.mockImplementation(async (_sessionId, _streamRunId, handlers) => {
+      recoveryFeedbackDuringAttach = store.getState().messages
+        .flatMap((message) => message.runtimePublicTimelineDraft ?? [])
+        .find((item) => item.item_id === "stream-restore:strun:resume");
       handlers.onEvent("content_delta", { content: "续", event_offset: 4 });
       handlers.onEvent("done", { content: "续接完成", event_offset: 5 });
       return { terminalEvent: "done", streamRunId: "strun:resume", eventLogId: "chatrun:resume", lastEventOffset: 5 };
     });
-    const store = createStore(getDefaultState());
     const runtime = new WorkspaceRuntime(store);
 
     await runtime.initialize();
@@ -2909,6 +3047,12 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     );
     expect(store.getState().currentSessionId).toBe("session:existing");
     expect(store.getState().messages.some((message) => message.role === "assistant" && message.content.includes("续"))).toBe(true);
+    expect(recoveryFeedbackDuringAttach).toMatchObject({
+      kind: "assistant_text",
+      text: "我正在接回刚才的运行，已经拿到上次进度，继续同步后续结果。",
+      state: "running",
+    });
+    expect(JSON.stringify(store.getState().messages)).not.toContain("正在重新连接");
   });
 
   it("reattaches the latest active chat run without a cursor by replaying from the beginning", async () => {
@@ -2937,12 +3081,16 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       ],
       runtime_attachments: [],
     });
+    const store = createStore(getDefaultState());
+    let recoveryFeedbackDuringAttach: unknown;
     api.streamExistingChatRun.mockImplementation(async (_sessionId, _streamRunId, handlers) => {
+      recoveryFeedbackDuringAttach = store.getState().messages
+        .flatMap((message) => message.runtimePublicTimelineDraft ?? [])
+        .find((item) => item.item_id === "stream-restore:strun:latest");
       handlers.onEvent("content_delta", { content: "恢复", event_offset: 1 });
       handlers.onEvent("done", { content: "恢复完成", event_offset: 2 });
       return { terminalEvent: "done", streamRunId: "strun:latest", eventLogId: "chatrun:latest", lastEventOffset: 2 };
     });
-    const store = createStore(getDefaultState());
     const runtime = new WorkspaceRuntime(store);
 
     await runtime.initialize();
@@ -2959,6 +3107,84 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
         replayFromStart: true,
       }),
     );
+    expect(recoveryFeedbackDuringAttach).toMatchObject({
+      kind: "assistant_text",
+      text: "我找到这个会话里仍在运行的任务，正在同步已有进度。",
+      state: "running",
+    });
+  });
+
+  it("drops an invalid persisted cursor before reattaching the latest active chat run", async () => {
+    vi.useRealTimers();
+    const staleCursor = {
+      streamRunId: "strun:stale",
+      eventLogId: "chatrun:stale",
+      lastEventOffset: 99,
+      lastEventId: "strun:stale:chatrun:stale:99",
+    };
+    api.listSessions.mockResolvedValue([{
+      id: "session:latest-after-stale",
+      title: "Latest after stale",
+      created_at: 1,
+      updated_at: 1,
+      message_count: 1,
+    }]);
+    api.readChatStreamCursor.mockReturnValue(staleCursor);
+    api.getChatRun.mockResolvedValue({
+      stream_run_id: "strun:stale",
+      session_id: "session:other",
+      event_log_id: "chatrun:stale",
+      root_request_ref: "chatreq:stale",
+      status: "running",
+      latest_event_offset: 99,
+      is_reconnectable: true,
+      stream_url: "/api/chat/runs/strun:stale/events",
+    });
+    api.getLatestChatRunForSession.mockResolvedValue({
+      stream_run_id: "strun:fresh",
+      session_id: "session:latest-after-stale",
+      event_log_id: "chatrun:fresh",
+      root_request_ref: "chatreq:fresh",
+      status: "running",
+      latest_event_offset: 4,
+      is_reconnectable: true,
+      stream_url: "/api/chat/runs/strun:fresh/events",
+    });
+    api.getSessionTimeline.mockResolvedValue({
+      messages: [
+        { role: "user", content: "继续处理" },
+      ],
+      runtime_attachments: [],
+    });
+    const store = createStore(getDefaultState());
+    let recoveryFeedbackDuringAttach: unknown;
+    api.streamExistingChatRun.mockImplementation(async (_sessionId, _streamRunId, handlers) => {
+      recoveryFeedbackDuringAttach = store.getState().messages
+        .flatMap((message) => message.runtimePublicTimelineDraft ?? [])
+        .find((item) => item.item_id === "stream-restore:strun:fresh");
+      handlers.onEvent("done", { content: "已接回", event_offset: 5 });
+      return { terminalEvent: "done", streamRunId: "strun:fresh", eventLogId: "chatrun:fresh", lastEventOffset: 5 };
+    });
+    const runtime = new WorkspaceRuntime(store);
+
+    await runtime.initialize();
+    await Promise.resolve();
+
+    expect(api.clearChatStreamCursor).toHaveBeenCalledWith("session:latest-after-stale");
+    expect(api.streamExistingChatRun).toHaveBeenCalledWith(
+      "session:latest-after-stale",
+      "strun:fresh",
+      expect.any(Object),
+      expect.objectContaining({
+        initialCursor: null,
+        replayFromStart: true,
+      }),
+    );
+    expect(recoveryFeedbackDuringAttach).toMatchObject({
+      kind: "assistant_text",
+      text: "我找到这个会话里仍在运行的任务，正在同步已有进度。",
+      state: "running",
+    });
   });
 
   it("does not reattach a terminal chat run when the persisted cursor already reached the final event", async () => {

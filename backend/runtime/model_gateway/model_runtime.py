@@ -7,7 +7,8 @@ import logging
 import os
 import time
 import uuid
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, is_dataclass, replace
+from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 
 from langchain.agents import create_agent
@@ -84,6 +85,8 @@ class _DeepSeekReasoningCompatChatModel(ChatDeepSeek):
             reasoning_content = _deepseek_reasoning_content_from_message(original_message, raw_message)
             if reasoning_content:
                 serialized_message["reasoning_content"] = reasoning_content
+            if _deepseek_prefix_enabled_from_message(original_message, raw_message):
+                serialized_message["prefix"] = True
 
         return payload
 
@@ -117,6 +120,19 @@ def _deepseek_reasoning_content_from_message(message: Any, raw_message: Any = No
     return ""
 
 
+def _deepseek_prefix_enabled_from_message(message: Any, raw_message: Any = None) -> bool:
+    candidates: list[Any] = []
+    additional_kwargs = getattr(message, "additional_kwargs", None)
+    if isinstance(additional_kwargs, dict):
+        candidates.append(additional_kwargs.get("prefix"))
+    if isinstance(raw_message, dict):
+        candidates.append(raw_message.get("prefix"))
+        raw_additional_kwargs = raw_message.get("additional_kwargs")
+        if isinstance(raw_additional_kwargs, dict):
+            candidates.append(raw_additional_kwargs.get("prefix"))
+    return any(value is True or str(value or "").strip().lower() == "true" for value in candidates)
+
+
 @dataclass(frozen=True, slots=True)
 class ModelSpec:
     provider: str
@@ -131,6 +147,7 @@ class ModelSpec:
     thinking_mode: str | None = None
     reasoning_effort: str | None = None
     stream_policy: dict[str, Any] | None = None
+    completion_profile: dict[str, Any] | None = None
     diagnostics: dict[str, Any] | None = None
 
 
@@ -270,27 +287,29 @@ class ModelRuntime:
         candidates = self._candidate_specs(model_spec=model_spec)
         for spec_index, spec in enumerate(candidates):
             for attempt in range(1, self._max_retries_for_spec(spec) + 2):
-                model = self._get_chat_model_for_spec(spec)
+                effective_spec = _spec_with_chat_prefix_endpoint(spec)
+                effective_messages = _messages_with_chat_prefix_protocol(messages, spec=effective_spec)
+                model = self._get_chat_model_for_spec(effective_spec)
                 accounting = self._begin_prompt_accounting(
-                    messages,
+                    effective_messages,
                     tools=None,
-                    spec=spec,
+                    spec=effective_spec,
                     accounting_context=accounting_context,
                     attempt=attempt,
                     call_kind="invoke_messages",
                 )
                 try:
                     response = await asyncio.wait_for(
-                        model.ainvoke(messages),
-                        timeout=self._model_call_timeout_seconds_for_spec(spec),
+                        model.ainvoke(effective_messages),
+                        timeout=self._model_call_timeout_seconds_for_spec(effective_spec),
                     )
                     self._finish_prompt_accounting(accounting, response=response)
                     return response
                 except asyncio.CancelledError:
                     raise
                 except Exception as exc:
-                    last_error = self._map_error(exc, spec)
-                    await self._invalidate_chat_model_for_spec(spec)
+                    last_error = self._map_error(exc, effective_spec)
+                    await self._invalidate_chat_model_for_spec(effective_spec)
                     if attempt <= self._max_retries_for_spec(spec) and last_error.retryable:
                         logger.warning(
                             "Retrying model invoke after %s (%s/%s): %s",
@@ -415,19 +434,21 @@ class ModelRuntime:
         for spec_index, spec in enumerate(candidates):
             for attempt in range(1, self._max_retries_for_spec(spec) + 2):
                 emitted = False
-                model = self._get_chat_model_for_spec(spec)
+                effective_spec = _spec_with_chat_prefix_endpoint(spec)
+                effective_messages = _messages_with_chat_prefix_protocol(messages, spec=effective_spec)
+                model = self._get_chat_model_for_spec(effective_spec)
                 accounting = self._begin_prompt_accounting(
-                    messages,
+                    effective_messages,
                     tools=None,
-                    spec=spec,
+                    spec=effective_spec,
                     accounting_context=accounting_context,
                     attempt=attempt,
                     call_kind="astream_messages",
                 )
                 aggregated_chunk = None
                 try:
-                    stream = model.astream(messages)
-                    async for chunk in self._iterate_with_timeout(stream, spec=spec):
+                    stream = model.astream(effective_messages)
+                    async for chunk in self._iterate_with_timeout(stream, spec=effective_spec):
                         emitted = True
                         try:
                             aggregated_chunk = chunk if aggregated_chunk is None else aggregated_chunk + chunk
@@ -439,8 +460,8 @@ class ModelRuntime:
                 except asyncio.CancelledError:
                     raise
                 except Exception as exc:
-                    last_error = self._map_error(exc, spec)
-                    await self._invalidate_chat_model_for_spec(spec)
+                    last_error = self._map_error(exc, effective_spec)
+                    await self._invalidate_chat_model_for_spec(effective_spec)
                     if emitted:
                         raise last_error from exc
                     if attempt <= self._max_retries_for_spec(spec) and last_error.retryable:
@@ -764,6 +785,7 @@ class ModelRuntime:
                 "model": spec.model,
                 "api_key": spec.api_key,
                 "base_url": spec.base_url,
+                "api_base": spec.base_url,
                 "timeout": timeout_seconds,
                 "max_retries": 0,
                 "max_tokens": max_output_tokens,
@@ -916,6 +938,7 @@ class ModelRuntime:
                 thinking_mode=str(override.get("thinking_mode") or "").strip() or None,
                 reasoning_effort=str(override.get("reasoning_effort") or "").strip() or None,
                 stream_policy=dict(override.get("stream_policy") or {}),
+                completion_profile=dict(override.get("completion_profile") or {}),
                 diagnostics=dict(override.get("diagnostics") or {}),
             )
         return ModelSpec(
@@ -931,6 +954,7 @@ class ModelRuntime:
             thinking_mode=getattr(override, "thinking_mode", None),
             reasoning_effort=getattr(override, "reasoning_effort", None),
             stream_policy=dict(getattr(override, "stream_policy", {}) or {}),
+            completion_profile=dict(getattr(override, "completion_profile", {}) or {}),
             diagnostics=dict(getattr(override, "diagnostics", {}) or {}),
         )
 
@@ -1684,6 +1708,89 @@ def _model_request_prefix_hash_for_tier(model_request: Any, *, prefix_key_tier: 
     if tier == "stable":
         return str(getattr(model_request, "stable_prefix_hash", "") or "")
     return ""
+
+
+def _spec_with_chat_prefix_endpoint(spec: ModelSpec | Any) -> ModelSpec | Any:
+    profile = dict(_spec_attr(spec, "completion_profile") or {})
+    if str(profile.get("mode") or "").strip() != "chat_prefix":
+        return spec
+    if str(profile.get("provider_mode") or "").strip() != "deepseek_chat_prefix":
+        return spec
+    if str(_spec_attr(spec, "provider") or "").strip().lower() != "deepseek":
+        return spec
+    base_url = str(_spec_attr(spec, "base_url") or "").rstrip("/")
+    if not base_url or base_url.endswith("/beta"):
+        return spec
+    return _copy_spec_with_base_url(spec, f"{base_url}/beta")
+
+
+def _copy_spec_with_base_url(spec: Any, base_url: str) -> Any:
+    if is_dataclass(spec):
+        try:
+            return replace(spec, base_url=base_url)
+        except TypeError:
+            pass
+    if isinstance(spec, dict):
+        return {**spec, "base_url": base_url}
+    payload = {
+        key: getattr(spec, key)
+        for key in (
+            "provider",
+            "model",
+            "api_key",
+            "base_url",
+            "max_output_tokens",
+            "timeout_seconds",
+            "long_output_timeout_seconds",
+            "max_retries",
+            "temperature",
+            "thinking_mode",
+            "reasoning_effort",
+            "stream_policy",
+            "completion_profile",
+            "diagnostics",
+        )
+        if hasattr(spec, key)
+    }
+    payload["base_url"] = base_url
+    return SimpleNamespace(**payload)
+
+
+def _spec_attr(spec: Any, key: str) -> Any:
+    if isinstance(spec, dict):
+        return spec.get(key)
+    return getattr(spec, key, None)
+
+
+def _messages_with_chat_prefix_protocol(messages: list[Any], *, spec: ModelSpec | Any) -> list[Any]:
+    profile = dict(_spec_attr(spec, "completion_profile") or {})
+    if str(profile.get("mode") or "").strip() != "chat_prefix":
+        return messages
+    if str(profile.get("provider_mode") or "").strip() != "deepseek_chat_prefix":
+        return messages
+    if str(_spec_attr(spec, "provider") or "").strip().lower() != "deepseek":
+        return messages
+    prepared = [dict(item) if isinstance(item, dict) else item for item in list(messages or [])]
+    for index in range(len(prepared) - 1, -1, -1):
+        item = prepared[index]
+        if not isinstance(item, dict):
+            continue
+        if str(item.get("role") or "").strip() != "assistant":
+            continue
+        if not str(item.get("content") or "").strip():
+            continue
+        raw_additional_kwargs = item.get("additional_kwargs")
+        explicit_prefix = item.get("prefix") is True or (
+            isinstance(raw_additional_kwargs, dict) and raw_additional_kwargs.get("prefix") is True
+        )
+        if not explicit_prefix:
+            continue
+        item["prefix"] = True
+        additional_kwargs = dict(item.get("additional_kwargs") or {})
+        additional_kwargs["prefix"] = True
+        item["additional_kwargs"] = additional_kwargs
+        return prepared
+    return messages
 
 
 def _utility_accounting_context(

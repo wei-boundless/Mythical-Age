@@ -73,6 +73,19 @@ const ORCHESTRATION_EDGES: Array<{ id: string; from: string; to: string; label: 
   { id: "output-persistence", from: "output", to: "persistence", label: "落盘写回" }
 ];
 
+function stoppedPublicTimelineItem(): PublicChatTimelineItem {
+  return {
+    item_id: "stream:stopped",
+    kind: "status_update",
+    title: "已停止本轮生成",
+    detail: "你已停止本轮生成，当前运行不会继续推进。",
+    text: "你已停止本轮生成，当前运行不会继续推进。",
+    state: "stopped",
+    phase: "stopped",
+    stream_state: "done",
+  };
+}
+
 function stageStatusForEvent(event: string, data: Record<string, unknown>) {
   if (INTERNAL_STREAM_EVENTS.has(event)) {
     return "";
@@ -84,13 +97,15 @@ function stageStatusForEvent(event: string, data: Record<string, unknown>) {
     return "";
   }
   if (event === "stream_reconnecting") {
-    return `重新连接中 ${String(data.attempt ?? "")}/${String(data.max_attempts ?? "")}`;
+    const attempt = String(data.attempt ?? "").trim();
+    const maxAttempts = String(data.max_attempts ?? "").trim();
+    return attempt && maxAttempts ? `正在续接当前运行 ${attempt}/${maxAttempts}` : "正在续接当前运行";
   }
   if (event === "stream_reconnected") {
-    return "已重新连接";
+    return "已接回当前运行";
   }
   if (event === "stream_reconnect_failed") {
-    return "重连失败";
+    return "需要重新接回会话";
   }
   if (event === "input_commit_gate") {
     return "接收请求";
@@ -154,7 +169,7 @@ function activityLevelForEvent(event: string, data: Record<string, unknown>) {
     return "stopped" as const;
   }
   if (event === "stream_reconnect_failed") {
-    return "error" as const;
+    return "warning" as const;
   }
   if (event === "operation_gate") {
     const eventType = String(data.event_type ?? ((data.event as Record<string, unknown> | undefined)?.event_type) ?? "");
@@ -171,13 +186,13 @@ function activityDetailForEvent(event: string, data: Record<string, unknown>) {
     return results ? `已检索到 ${results} 条候选证据` : "正在检索可用证据";
   }
   if (event === "stream_reconnecting") {
-    return "连接中断，正在续接当前运行。";
+    return "连接短暂中断，已保留当前进度。";
   }
   if (event === "stream_reconnected") {
-    return "已从上次位置继续接收事件。";
+    return "后续进度会继续在这里同步。";
   }
   if (event === "stream_reconnect_failed") {
-    return "自动重连次数已用尽，后台运行可在监控中查看。";
+    return "自动续接没有成功，刷新或重新打开会话会继续查找可接回的运行。";
   }
   if (event === "active_task_steer_accepted") {
     return stringValue(data.summary) || "已收到你的补充要求。";
@@ -948,6 +963,7 @@ export function startQueuedActiveTurn(
   options: { existingUserMessageId?: string } = {},
 ): StreamTransition {
   const userId = options.existingUserMessageId || makeId();
+  const assistantId = makeId();
   const userMessage: Message = {
     id: userId,
     role: "user",
@@ -955,25 +971,46 @@ export function startQueuedActiveTurn(
     toolCalls: [],
     retrievals: []
   };
+  const assistantMessage: Message = {
+    id: assistantId,
+    role: "assistant",
+    content: "",
+    toolCalls: [],
+    retrievals: [],
+    runtimeProgress: [],
+    runtimePublicTimelineDraft: [
+      {
+        item_id: `active-turn-steer-local:${userId}`,
+        kind: "assistant_text",
+        text: "我已收到这条补充要求，会把它接入当前任务。",
+        state: "running",
+        stream_state: "streaming",
+      },
+    ],
+    stageStatus: "正在纳入补充要求",
+  };
 
   return {
     state: {
       ...state,
-      messages: options.existingUserMessageId
-        ? state.messages.map((message) =>
+      messages: [
+        ...(options.existingUserMessageId
+          ? state.messages.map((message) =>
             message.id === options.existingUserMessageId
               ? { ...message, content: userContent.trim() }
               : message
           )
-        : [...state.messages, userMessage],
+          : [...state.messages, userMessage]),
+        assistantMessage,
+      ],
       sessionActivity: {
         level: "running",
-        title: "正在排队",
+        title: "正在纳入补充要求",
         detail: "这条补充输入会进入当前任务队列。",
         event: "active_turn_input_queued_locally",
         receipt: {
           level: "running",
-          title: "正在排队",
+          title: "正在纳入补充要求",
           body: "这条补充输入会进入当前任务队列。",
           debug: { event: "active_turn_input_queued_locally" },
         },
@@ -981,7 +1018,7 @@ export function startQueuedActiveTurn(
       }
     },
     session: {
-      assistantId: "",
+      assistantId,
       userId,
       queueOnly: true,
     }
@@ -1180,7 +1217,11 @@ export function reduceStreamEvent(
       state: patchAssistant(stateWithOrchestration, session.assistantId, (message) => ({
         ...message,
         content: message.content,
-        runtimePublicTimelineDraft: mergePublicTimelineItems(message.runtimePublicTimelineDraft, publicTimelineDelta, { terminalState: terminalTimelineState }),
+        runtimePublicTimelineDraft: mergePublicTimelineItems(
+          message.runtimePublicTimelineDraft,
+          [...(publicTimelineDelta ?? []), stoppedPublicTimelineItem()],
+          { terminalState: terminalTimelineState },
+        ),
         stageStatus: "已停止"
       })),
       session

@@ -34,3 +34,18 @@ def test_coding_runtime_boundary_is_explicit_environment_policy() -> None:
     assert coding.sandbox_policy.shell_policy == "sandboxed"
     assert coding.sandbox_policy.browser_policy == "sandboxed"
     assert coding.lifecycle_policy["graph_entry_policy"] == "fixed_entry_not_scheduled_by_environment"
+
+
+def test_debug_discipline_is_only_bound_to_development_class_environments() -> None:
+    registry = default_task_environment_registry()
+    debug_ref = "coding.rule.debug_discipline.v1"
+
+    coding_refs = {item.prompt_id for item in registry.require("env.coding.vibe_workspace").spec.environment_prompts}
+    development_refs = {item.prompt_id for item in registry.require("env.development.sandbox").spec.environment_prompts}
+    writing_refs = {item.prompt_id for item in registry.require("env.creation.writing").spec.environment_prompts}
+    general_refs = {item.prompt_id for item in registry.require("env.general.workspace").spec.environment_prompts}
+
+    assert debug_ref in coding_refs
+    assert debug_ref in development_refs
+    assert debug_ref not in writing_refs
+    assert debug_ref not in general_refs

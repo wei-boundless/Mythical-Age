@@ -584,6 +584,99 @@ def test_sandbox_terminal_materializes_contract_directory_before_command(tmp_pat
     assert (sandbox_root / "docs" / "experiments" / "roguelike_long_task" / "assets" / "player.png").exists()
 
 
+def test_sandbox_terminal_materializes_full_workspace_snapshot_before_command(tmp_path: Path) -> None:
+    workspace = tmp_path / "project"
+    sandbox_root = tmp_path / "sandbox" / "workspace"
+    (workspace / "backend" / "api").mkdir(parents=True)
+    (workspace / "backend" / "tests" / "api").mkdir(parents=True)
+    (workspace / "backend" / "api" / "chat.py").write_text("CHAT = True\n", encoding="utf-8")
+    (workspace / "backend" / "tests" / "api" / "chat_api_regression.py").write_text("TEST = True\n", encoding="utf-8")
+
+    result = _run_tool(
+        workspace=workspace,
+        sandbox_root=sandbox_root,
+        tool_name="terminal",
+        tool_args={
+            "command": "python -c \"from pathlib import Path; print(Path('backend/api/chat.py').exists()); print(Path('backend/tests/api/chat_api_regression.py').exists())\""
+        },
+        operation_id="op.shell",
+    )
+
+    assert result["error"] == ""
+    assert result["observation"].payload["result"].splitlines() == ["True", "True"]
+    assert (sandbox_root / "backend" / "api" / "chat.py").exists()
+    assert (sandbox_root / "backend" / "tests" / "api" / "chat_api_regression.py").exists()
+
+
+def test_sandbox_terminal_full_snapshot_excludes_secrets_git_and_dependency_dirs(tmp_path: Path) -> None:
+    workspace = tmp_path / "project"
+    sandbox_root = tmp_path / "sandbox" / "workspace"
+    (workspace / "backend").mkdir(parents=True)
+    (workspace / "backend" / "app.py").write_text("APP = True\n", encoding="utf-8")
+    (workspace / ".env.production").write_text("SECRET=1\n", encoding="utf-8")
+    (workspace / ".git").mkdir(parents=True)
+    (workspace / ".git" / "config").write_text("[core]\n", encoding="utf-8")
+    (workspace / "node_modules" / "pkg").mkdir(parents=True)
+    (workspace / "node_modules" / "pkg" / "index.js").write_text("module.exports = 1\n", encoding="utf-8")
+
+    result = _run_tool(
+        workspace=workspace,
+        sandbox_root=sandbox_root,
+        tool_name="terminal",
+        tool_args={
+            "command": "python -c \"from pathlib import Path; print(Path('backend/app.py').exists()); print(Path('.env.production').exists()); print(Path('.git/config').exists()); print(Path('node_modules/pkg/index.js').exists())\""
+        },
+        operation_id="op.shell",
+    )
+
+    assert result["error"] == ""
+    assert result["observation"].payload["result"].splitlines() == ["True", "False", "False", "False"]
+    assert (sandbox_root / "backend" / "app.py").exists()
+    assert not (sandbox_root / ".env.production").exists()
+    assert not (sandbox_root / ".git" / "config").exists()
+    assert not (sandbox_root / "node_modules" / "pkg" / "index.js").exists()
+
+
+def test_sandbox_terminal_full_snapshot_keeps_command_writes_in_sandbox(tmp_path: Path) -> None:
+    workspace = tmp_path / "project"
+    sandbox_root = tmp_path / "sandbox" / "workspace"
+    (workspace / "backend").mkdir(parents=True)
+    (workspace / "backend" / "app.py").write_text("APP = True\n", encoding="utf-8")
+
+    result = _run_tool(
+        workspace=workspace,
+        sandbox_root=sandbox_root,
+        tool_name="terminal",
+        tool_args={
+            "command": "python -c \"from pathlib import Path; Path('generated.txt').write_text('sandbox', encoding='utf-8')\""
+        },
+        operation_id="op.shell",
+    )
+
+    assert result["error"] == ""
+    assert not (workspace / "generated.txt").exists()
+    assert (sandbox_root / "generated.txt").read_text(encoding="utf-8") == "sandbox"
+
+
+def test_sandbox_terminal_full_snapshot_blocks_direct_real_workspace_absolute_path(tmp_path: Path) -> None:
+    workspace = tmp_path / "project"
+    sandbox_root = tmp_path / "sandbox" / "workspace"
+    real_file = workspace / "backend" / "app.py"
+    real_file.parent.mkdir(parents=True)
+    real_file.write_text("APP = True\n", encoding="utf-8")
+
+    result = _run_tool(
+        workspace=workspace,
+        sandbox_root=sandbox_root,
+        tool_name="terminal",
+        tool_args={"command": f"Get-Content \"{real_file}\""},
+        operation_id="op.shell",
+    )
+
+    assert "Blocked: command references an absolute path outside the sandbox workspace." in result["observation"].payload["result"]
+    assert real_file.read_text(encoding="utf-8") == "APP = True\n"
+
+
 def test_sandbox_terminal_fails_closed_when_sandbox_context_missing(tmp_path: Path) -> None:
     workspace = tmp_path / "project"
     sandbox_root = tmp_path / "sandbox" / "workspace"

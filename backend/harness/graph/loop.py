@@ -1245,8 +1245,20 @@ def _evaluate_generic_progress_receipt_route(
     last_metric_key = str(route_policy.get("last_metric_key") or "").strip()
     if last_metric_key and metric_key:
         patched_inputs[last_metric_key] = metric
+    complete_key = str(route_policy.get("receipt_complete_key") or route_policy.get("complete_key") or "").strip()
+    receipt_complete = bool(receipt.get(complete_key)) if complete_key else False
+    cursor_key = str(frame.get("cursor_key") or "").strip()
+    cursor_set_by_receipt = False
     for mapping in list(route_policy.get("receipt_to_input_mappings") or []):
         if not isinstance(mapping, dict):
+            continue
+        apply_on = [
+            str(item).strip()
+            for item in list(mapping.get("apply_on") or mapping.get("actions") or [])
+            if str(item).strip()
+        ]
+        receipt_action = "exit" if receipt_complete else "continue"
+        if apply_on and receipt_action not in set(apply_on):
             continue
         source_key = str(mapping.get("source_key") or mapping.get("from_key") or "").strip()
         target_key = str(mapping.get("target_key") or mapping.get("key") or "").strip()
@@ -1254,14 +1266,15 @@ def _evaluate_generic_progress_receipt_route(
             continue
         if source_key in receipt:
             patched_inputs[target_key] = receipt.get(source_key)
+            if cursor_key and target_key == cursor_key:
+                cursor_set_by_receipt = True
     patched_inputs = _apply_patch_rules(patched_inputs, list(route_policy.get("patch_rules") or []))
-    complete_key = str(route_policy.get("receipt_complete_key") or route_policy.get("complete_key") or "").strip()
-    receipt_complete = bool(receipt.get(complete_key)) if complete_key else False
     target_key = str(route_policy.get("target_key") or "").strip()
     current_value = _numeric_value(patched_inputs.get(current_key), 0) if current_key else 0
     target_value = _numeric_value(patched_inputs.get(target_key), 0) if target_key else 0
-    action = "exit" if receipt_complete or (target_key and current_value >= target_value) else "continue"
-    patched_inputs = _apply_frame_cursor_patch(inputs=patched_inputs, frame=frame, action=action)
+    action = "exit" if receipt_complete or (not complete_key and target_key and current_value >= target_value) else "continue"
+    if not cursor_set_by_receipt:
+        patched_inputs = _apply_frame_cursor_patch(inputs=patched_inputs, frame=frame, action=action)
     patched_inputs = _apply_derived_fields(patched_inputs, list(route_policy.get("derived_fields") or []))
     continue_node_id = str(route_policy.get("continue_node_id") or frame.get("continue_node_id") or frame.get("entry_node_id") or "").strip()
     exit_node_id = str(route_policy.get("exit_node_id") or frame.get("exit_node_id") or "").strip()
@@ -1666,12 +1679,12 @@ def _loop_state_after_decision(*, state: GraphLoopState, decision: dict[str, Any
     loop_state = dict(state.loop_state or {})
     frames = {key: dict(value) for key, value in dict(loop_state.get("frames") or {}).items()}
     frame_id = str(decision.get("frame_id") or decision.get("scope_id") or "").strip()
+    action = str(decision.get("action") or "").strip()
+    patched_inputs = dict(decision.get("initial_inputs_patch") or {})
     if frame_id:
         frame = dict(frames.get(frame_id) or {"frame_id": frame_id, "scope_id": str(decision.get("scope_id") or frame_id)})
-        action = str(decision.get("action") or "").strip()
         current_iteration_index = int(_numeric_value(frame.get("iteration_index"), 0))
         next_iteration_index = current_iteration_index + (1 if action == "continue" else 0)
-        patched_inputs = dict(decision.get("initial_inputs_patch") or {})
         cursor_key = str(frame.get("cursor_key") or "").strip()
         step = int(_numeric_value(frame.get("step"), 1) or 1)
         current_cursor = _numeric_value(frame.get("cursor"), None)
@@ -1690,6 +1703,14 @@ def _loop_state_after_decision(*, state: GraphLoopState, decision: dict[str, Any
         frame["status"] = "exited" if action == "exit" else ("blocked" if action == "blocked" else "active")
         frame["scope_node_ids"] = list(decision.get("scope_node_ids") or frame.get("scope_node_ids") or [])
         frames[frame_id] = frame
+        if action == "continue":
+            frames = _reset_child_loop_frames_for_parent_continue(frames=frames, parent_frame_id=frame_id, inputs=patched_inputs)
+            decision["initial_inputs_patch"] = patched_inputs
+            loop_state = _loop_state_without_descendant_iteration_results(
+                loop_state=loop_state,
+                frames=frames,
+                parent_frame_id=frame_id,
+            )
     history = [dict(item) for item in list(loop_state.get("route_history") or []) if isinstance(item, dict)]
     history.append(
         {
@@ -1704,6 +1725,45 @@ def _loop_state_after_decision(*, state: GraphLoopState, decision: dict[str, Any
         "frames": frames,
         "route_history": history,
     }
+
+
+def _reset_child_loop_frames_for_parent_continue(
+    *,
+    frames: dict[str, dict[str, Any]],
+    parent_frame_id: str,
+    inputs: dict[str, Any],
+) -> dict[str, dict[str, Any]]:
+    if not parent_frame_id:
+        return frames
+    patched_frames = {key: dict(value) for key, value in frames.items()}
+    for child_frame_id, raw_child in list(patched_frames.items()):
+        child = dict(raw_child or {})
+        if str(child.get("parent_scope_id") or "").strip() != parent_frame_id:
+            continue
+        cursor_key = str(child.get("cursor_key") or "").strip()
+        start_key = str(child.get("start_key") or "").strip()
+        end_key = str(child.get("end_key") or "").strip()
+        start_value = _numeric_value(inputs.get(start_key), None) if start_key else None
+        cursor_value = start_value
+        end_value = _numeric_value(inputs.get(end_key), None) if end_key else None
+        child["status"] = "active"
+        child["iteration_index"] = 0
+        child["cursor"] = cursor_value
+        child["start"] = start_value
+        child["end"] = end_value
+        if cursor_key and cursor_value is not None:
+            inputs[cursor_key] = cursor_value
+        child["active_iteration_id"] = _loop_iteration_id(
+            frame=child,
+            values={**inputs, **child, "cursor": cursor_value, "iteration_index": 0},
+        )
+        patched_frames[child_frame_id] = child
+        patched_frames = _reset_child_loop_frames_for_parent_continue(
+            frames=patched_frames,
+            parent_frame_id=child_frame_id,
+            inputs=inputs,
+        )
+    return patched_frames
 
 
 def _loop_state_with_iteration_result(
@@ -1747,6 +1807,34 @@ def _loop_state_without_frame_iteration_results(*, loop_state: dict[str, Any], f
         if isinstance(raw_frame_results, dict)
     }
     iteration_results.pop(frame_id, None)
+    return {**loop_state, "iteration_results": iteration_results}
+
+
+def _loop_state_without_descendant_iteration_results(
+    *,
+    loop_state: dict[str, Any],
+    frames: dict[str, dict[str, Any]],
+    parent_frame_id: str,
+) -> dict[str, Any]:
+    if not parent_frame_id:
+        return loop_state
+    descendants: set[str] = set()
+    pending = [parent_frame_id]
+    while pending:
+        current = pending.pop(0)
+        for frame_id, frame in frames.items():
+            if frame_id in descendants:
+                continue
+            if str(dict(frame or {}).get("parent_scope_id") or "").strip() == current:
+                descendants.add(frame_id)
+                pending.append(frame_id)
+    if not descendants:
+        return loop_state
+    iteration_results = {
+        str(raw_frame_id): dict(raw_frame_results)
+        for raw_frame_id, raw_frame_results in dict(loop_state.get("iteration_results") or {}).items()
+        if isinstance(raw_frame_results, dict) and str(raw_frame_id) not in descendants
+    }
     return {**loop_state, "iteration_results": iteration_results}
 
 

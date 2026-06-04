@@ -48,6 +48,7 @@ export function shortRunText(value: unknown, limit = 220) {
 
 export function stateClassForTimelineItem(item: PublicChatTimelineItem) {
   const state = cleanRunText(item.state).toLowerCase();
+  if (["stopped", "aborted", "user_aborted", "cancelled", "canceled"].includes(state)) return "stopped";
   if (["error", "failed", "blocked", "missing"].includes(state) || item.kind === "blocked") return "error";
   if (["done", "ready", "passed", "success"].includes(state)) return "done";
   return "running";
@@ -151,19 +152,46 @@ function openingTextForItem(item: PublicChatTimelineItem) {
       ? `我先确认 ${target} 的状态，避免后续动作偏离目标。`
       : "我先确认目标状态，再决定下一步动作。";
   }
-  if (action.kind === "write") {
+  if (action.kind === "write" || action.kind === "edit") {
     return target
-      ? `我正在更新 ${target}，把判断落到实际界面。`
-      : "我已经定位到改动点，正在把表达层改到界面上。";
+      ? `我已经定位到 ${target}，先把改动落下去，再用结果验一遍。`
+      : "我已经定位到改动层，先把表达改顺，再验证效果。";
   }
-  if (action.kind === "run") {
+  if (action.kind === "prepare") {
+    return target
+      ? `我先准备好 ${target}，让后续产物有明确落点。`
+      : "我先把输出位置准备好，后续结果会有明确落点。";
+  }
+  if (action.kind === "memory") {
+    return target
+      ? `我先接上 ${target}，把前面的要求纳入当前判断。`
+      : "我先接上相关记忆，把前面的要求纳入当前判断。";
+  }
+  if (action.kind === "run" || action.kind === "verify") {
     return target
       ? `我正在运行 ${target}，用结果判断是否还要继续修正。`
       : "我先验证当前状态，再决定是否继续修正。";
   }
+  if (action.kind === "work") {
+    const focus = openingFocusFromSummary(item.public_summary || item.title || item.detail);
+    return focus
+      ? `我先处理 ${focus}，拿到结果后给你明确判断。`
+      : "我已经接上当前任务，先确认关键事实，再给你明确判断。";
+  }
   return target
     ? `我先处理 ${target}，再把结果整理成可读结论。`
-    : "我先推进当前步骤，并在拿到结果后说明判断。";
+    : "我已经接上当前任务，先确认关键事实，再给你明确判断。";
+}
+
+function openingFocusFromSummary(value: unknown) {
+  const text = cleanRunText(value)
+    .replace(/^(?:正在|已)?(?:推进当前步骤|处理当前步骤|处理步骤|结果已返回|步骤已返回)[，,。.\s]*/i, "")
+    .replace(/^(?:正在|已)?(?:读取上下文|搜索引用|确认目标|更新文件|准备输出|运行验证|检索相关记忆)\s*/i, "")
+    .trim();
+  if (!text || isGenericActionTarget(text) || isPureTechnicalToken(text) || looksLikeRawCommand(text) || looksLikeStructuredToolPayload(text)) {
+    return "";
+  }
+  return shortRunText(text, 80);
 }
 
 export function actionViewForTimelineItem(item: PublicChatTimelineItem): AgentRunActionView {
@@ -227,9 +255,9 @@ function inferActionKind(item: PublicChatTimelineItem, rawTitle: string, rawDeta
   if (/read_file|read_path|读取|查看|文件读取|read\b/.test(haystack)) return "read";
   if (/search_text|search_files|glob_paths|rg\b|grep\b|搜索|查找|检索|匹配|search\b/.test(haystack)) return "search";
   if (/write_file|edit_file|apply_patch|写入|编辑|更新|修改|创建|write\b|edit\b|patch\b/.test(haystack)) return "write";
-  if (/terminal|shell|powershell|command|npm\b|pytest\b|vitest\b|测试|命令|运行|执行/.test(haystack)) return "run";
   if (/web_search|fetch_url|browser|浏览器|网页|url|http/.test(haystack)) return "browse";
   if (/image_generate|生成图像|图片|图像|image/.test(haystack)) return "image";
+  if (/terminal|shell|powershell|command|npm\b|pytest\b|vitest\b|测试|命令|运行|执行/.test(haystack)) return "run";
   return "generic";
 }
 
@@ -253,7 +281,7 @@ function stripActionPrefix(value: unknown) {
     .replace(/^(?:已读取文件|读取完成|搜索完成|检查完成|命令已完成|写入完成|更新完成|编辑完成|工具已完成|工具失败|读取失败|搜索失败|检查失败|命令失败|写入失败)\s*/i, "")
     .replace(/^正在(?:读取文件|读取|搜索|检查|确认|运行|调用工具|调用|写入|编辑|更新)\s*/i, "")
     .replace(/^(?:读取文件|读取|搜索|检查|确认|运行|调用工具|调用|写入|编辑|更新)\s*/i, "")
-    .replace(/^执行\s+(?:read_file|read_path|search_text|search_files|glob_paths|memory_search|write_file|edit_file|terminal|shell|path_exists|stat_path|list_dir)\s*/i, "")
+    .replace(/^执行\s+(?:read_file|read_path|search_text|search_files|glob_paths|memory_search|write_file|edit_file|terminal|shell|path_exists|stat_path|list_dir|image_generate|image_generation|generate_image|image_asset)\s*/i, "")
     .replace(/[。.]$/g, "")
     .trim();
 }
@@ -294,7 +322,7 @@ function stripTechnicalNoise(value: unknown) {
     }
   }
   text = text
-    .replace(/(?:^|[：:\s])(?:read_file|read_path|search_text|search_files|glob_paths|memory_search|write_file|edit_file|terminal|shell|path_exists|stat_path|list_dir)[。.]?$/i, "")
+    .replace(/(?:^|[：:\s])(?:read_file|read_path|search_text|search_files|glob_paths|memory_search|write_file|edit_file|terminal|shell|path_exists|stat_path|list_dir|image_generate|image_generation|generate_image|image_asset)[。.]?$/i, "")
     .replace(/^工具(?:返回|状态|调用)?[：:]\s*/i, "")
     .replace(/^调用工具\s*/i, "")
     .replace(/^工具已完成\s*/i, "")
@@ -306,7 +334,7 @@ function stripTechnicalNoise(value: unknown) {
 }
 
 function isPureTechnicalToken(value: string) {
-  return /^(?:read_file|read_path|search_text|search_files|glob_paths|memory_search|write_file|edit_file|terminal|shell|path_exists|stat_path|list_dir|tool|工具)$/i.test(value);
+  return /^(?:read_file|read_path|search_text|search_files|glob_paths|memory_search|write_file|edit_file|terminal|shell|path_exists|stat_path|list_dir|image_generate|image_generation|generate_image|image_asset|tool|工具)$/i.test(value);
 }
 
 function isGenericActionTarget(value: string) {
@@ -344,8 +372,8 @@ function actionTitle(kind: AgentRunActionKind, state: "running" | "done" | "erro
   if (kind === "image") return error ? "图像生成需调整" : done ? "图像已生成" : "生成图像";
   if (kind === "artifact") return "产物就绪";
   if (kind === "verify") return error ? "校验方式需调整" : done ? "校验完成" : "校验结果";
-  if (kind === "work") return error ? "步骤需调整" : done ? "结果已返回" : "推进当前步骤";
-  return error ? "步骤需调整" : done ? "结果已返回" : "推进当前步骤";
+  if (kind === "work") return error ? "步骤需调整" : done ? "结果已返回" : "处理任务";
+  return error ? "步骤需调整" : done ? "结果已返回" : "处理任务";
 }
 
 export function actionSentence(item: PublicChatTimelineItem, variant: "current" | "history" = "history") {
@@ -385,8 +413,17 @@ export function actionSentence(item: PublicChatTimelineItem, variant: "current" 
   if (action.kind === "prepare") {
     return action.detail ? `正在准备 ${action.detail}` : "正在准备输出";
   }
+  if (action.kind === "image") {
+    return action.detail ? `正在生成图像 ${action.detail}` : "正在生成图像";
+  }
+  if (action.kind === "browse") {
+    return action.detail ? `正在读取网页 ${action.detail}` : "正在读取网页";
+  }
   if (action.kind === "run") {
     return action.detail ? `正在运行验证 ${action.detail}` : "正在运行验证";
+  }
+  if (action.kind === "work" || action.kind === "generic") {
+    return action.detail ? `正在处理 ${action.detail}` : "正在处理任务";
   }
   return subject.startsWith("正在") ? subject : `正在${subject}`;
 }
@@ -456,6 +493,11 @@ function observationForAction({
     return result && result !== detail
       ? `观察：输出准备已返回，${shortRunText(result, 150)}`
       : "观察：输出准备已确认，可以继续推进。";
+  }
+  if (kind === "image") {
+    return result && result !== detail
+      ? `观察：图像生成已返回，${shortRunText(result, 150)}`
+      : "观察：图像生成已返回，下一步会确认产物是否可用。";
   }
   if (kind === "run") {
     return result

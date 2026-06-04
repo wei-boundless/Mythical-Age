@@ -597,6 +597,27 @@ def test_runtime_prompt_uses_assembly_projection_not_mode_instruction() -> None:
     assert projection["planning"]["todo_required_when_task_run"] is True
 
 
+def test_runtime_prompt_teaches_rehydration_before_exact_claims() -> None:
+    result = RuntimeCompiler().compile_single_agent_turn_packet(
+        session_id="session:rehydration-prompt",
+        turn_id="turn:rehydration-prompt",
+        agent_invocation_id="aginvoke:rehydration-prompt",
+        user_message="继续。",
+        history=[],
+        runtime_assembly={
+            "profile": {"profile_ref": "main_interactive_agent"},
+            "task_environment": {"environment_id": "env.general.workspace"},
+        },
+    )
+
+    model_input = _model_input_text(result.packet)
+
+    assert "rehydration_plan" in model_input
+    assert "read_persisted_tool_result" in model_input
+    assert "只看到了预览，不等于完整原文" in model_input
+    assert "必须先用 rehydration_plan 中的 args/path 调用 read_persisted_tool_result" in model_input
+
+
 def test_runtime_projection_blocks_task_run_without_mode_instruction_text() -> None:
     result = RuntimeCompiler().compile_single_agent_turn_packet(
         session_id="session:conversation-projection",

@@ -3,6 +3,30 @@ import { describe, expect, it } from "vitest";
 import { projectRuntimeStreamEvent } from "./runtimeVisibilityProjection";
 
 describe("runtimeVisibilityProjection", () => {
+  it("projects stream reconnects as calm continuation feedback", () => {
+    expect(projectRuntimeStreamEvent("stream_reconnecting", {
+      attempt: 1,
+      max_attempts: 5,
+    })).toMatchObject({
+      stageStatus: "正在续接当前运行",
+      activityTitle: "正在续接当前运行",
+      activityDetail: "连接短暂中断，已保留当前进度。第 1/5 次尝试。",
+      level: "running",
+    });
+
+    expect(projectRuntimeStreamEvent("stream_reconnected", {})).toMatchObject({
+      stageStatus: "已接回当前运行",
+      activityDetail: "后续进度会继续在这里同步。",
+      level: "running",
+    });
+
+    expect(projectRuntimeStreamEvent("stream_reconnect_failed", {})).toMatchObject({
+      stageStatus: "续接暂未完成",
+      activityTitle: "需要重新接回会话",
+      level: "warning",
+    });
+  });
+
   it("filters internal runtime step summaries out of user-visible progress", () => {
     for (const step of [
       "turn_started",

@@ -407,23 +407,37 @@ def _chapter_progress_route_policy_static() -> dict[str, Any]:
         "target_key": "group_target_measure",
         "last_metric_key": "last_batch_words",
         "secondary_counters": [{"current_key": "total_current_measure", "target_key": "target_measure_units"}],
-        "patch_rules": [{"key": "chapter_index", "op": "copy", "from_key": "batch_start_index"}],
+        "patch_rules": [],
         "derived_fields": _chapter_loop_derived_fields(),
     }
 
 
 def _chapter_unit_route_policy_static() -> dict[str, Any]:
     return {
-        "mode": "metric_target",
+        "mode": "progress_receipt",
         "scope_id": "loop.chapter_unit",
         "continue_node_id": "chapter_draft",
         "exit_node_id": "chapter_batch_assemble",
-        "metric_key": "unit_completed",
-        "default_increment": 1,
-        "current_key": "chapter_unit_completed_count",
-        "target_key": "units_per_batch",
+        "progress_receipt_key": "chapter_progress_receipt",
+        "receipt_source_node_ids": ["chapter_unit_router"],
+        "receipt_complete_key": "batch_complete",
+        "receipt_to_input_mappings": [
+            {"source_key": "next_chapter_index", "target_key": "chapter_index", "apply_on": ["continue"]},
+            {"source_key": "batch_start_index", "target_key": "batch_start_index"},
+            {"source_key": "batch_end_index", "target_key": "batch_end_index"},
+        ],
+        "current_key": "chapter_index",
+        "target_key": "batch_end_index",
         "patch_rules": [],
         "derived_fields": _chapter_unit_derived_fields(),
+    }
+
+
+def _chapter_unit_progress_receipt_policy_static() -> dict[str, Any]:
+    return {
+        "progress_receipt_key": "chapter_progress_receipt",
+        "authority": "task_graph.node_progress_receipt_policy",
+        "receipt_authority": "harness.writing.chapter_progress_receipt",
     }
 
 
@@ -566,6 +580,7 @@ class NodeSpec:
     review_revision_stage_id: str = ""
     loop: dict[str, Any] = field(default_factory=dict)
     length_budget: dict[str, Any] = field(default_factory=dict)
+    progress_receipt_policy: dict[str, Any] = field(default_factory=dict)
     extra_runtime: dict[str, Any] = field(default_factory=dict)
 
 
@@ -1100,11 +1115,14 @@ CHAPTER_BASE_NODES: tuple[NodeSpec, ...] = (
             title_template="第{chapter_index}章单章循环路由",
             route_policy=_chapter_unit_route_policy_static(),
         ),
+        progress_receipt_policy=_chapter_unit_progress_receipt_policy_static(),
         prompt=_role_prompt(
-            "你是一名单章循环路由员。",
-            "你只负责确认当前 chapter_index 对应的单章正文候选已经产生，并把进度交给图循环控制。",
-            "你不能写正文，不能汇总批次，不能审核正文，也不能提交记忆。",
-            "你需要输出简短路由说明：当前章号、是否已有单章候选、下一步由图循环决定继续下一章还是进入批次汇总。",
+            "你是一名单章循环验收路由员。",
+            "你只负责在当前 chapter_index 对应的单章正文候选已经通过系统质量门后，出具可推进的章节进度回执，交给图循环控制。",
+            "你不能写正文，不能汇总批次，不能替批次总审做语义审核，也不能提交记忆；你也不能把质量门未接收、章号不匹配或缺失正文的候选当作完成章节。",
+            "你的路由说明必须简短说明当前章号、已接收正文候选引用、当前批次已形成的连续章节前缀和下一章号。你必须在结构化输出中提供 chapter_progress_receipt，authority 必须是 harness.writing.chapter_progress_receipt。",
+            "chapter_progress_receipt 必须以 batch_start_index 到 batch_end_index 为边界：expected_chapter_indexes 是当前批次全部章号；committed_chapter_indexes 是从 batch_start_index 开始、连续到当前 chapter_index 的已验收章节；missing_chapter_indexes 是该连续前缀之后尚未完成的章号；next_chapter_index 是当前 chapter_index 加一，若已到 batch_end_index 则为 batch_end_index 加一；batch_complete 只有当前章已到 batch_end_index 时才能为 true；commit_allowed 只有当前候选已通过质量门且章号匹配时才能为 true。",
+            "如果当前候选缺失、章号不匹配、质量门未通过或无法确认连续前缀，你不能伪造回执；必须明确阻塞原因并不要输出可推进的 chapter_progress_receipt。",
         ),
     ),
     NodeSpec(
@@ -1124,18 +1142,18 @@ CHAPTER_BASE_NODES: tuple[NodeSpec, ...] = (
         artifact_paths=("volume_{volume_index_padded}/chapters/chapter_{batch_chapter_range}/draft_batch_assemble_round_{round_index:03d}.md",),
         loop=_chapter_loop_contract("{batch_label}章节批次汇总"),
         prompt=_role_prompt(
-            "你是一名章节批次汇总员。你只负责把当前批次内已经完成的单章正文按章号顺序汇总成十章候选稿。",
+            "你是一名章节批次装订员。你只负责把当前批次内已经完成的单章正文按章号顺序整理成可审核的引用索引和连续性交接包。",
             WRITING_OUTLINE_HIERARCHY_PROMPT,
             _node_handoff_prompt(
                 upstream="当前批次细纲、单章循环中每章已完成正文、基准库、动态记忆库和正文记忆库",
-                own_scope="按运行时允许章号范围汇总当前批次正文，检查缺章、乱序、标题不匹配和明显承接断裂",
+                own_scope="按运行时允许章号范围装订当前批次正文引用，检查缺章、乱序、标题不匹配和明显承接断裂",
                 forbidden="新增剧情、改写上游章纲、替审核员裁决通过、把未生成或未自修的章节伪装成已完成",
-                downstream="完整十章正文候选、缺章/乱序/连续性风险说明，供章节审核逐项对照",
+                downstream="十章正文引用索引、章节顺序表、缺章/乱序/连续性风险说明，供章节审核逐项对照原文",
             ),
             "你必须读取 loop_context.iteration_results 中当前 loop.chapter_unit 的每章结果索引，并结合上游交接包中的单章候选内容或引用，按 batch_start_index 到 batch_end_index 顺序汇总。",
-            "你不能扩写、改写或重排单章正文。若发现缺少某一章、章号不连续、标题与当前章号不符、上一章结尾无法承接下一章开头，必须在写前汇总检查中标出，并输出返修风险，不能用自己补写来掩盖。",
-            "汇总稿必须包含“写前取材判断”和“章节正文候选”。写前取材判断只允许简短说明汇总范围、已接收章号和风险；章节正文候选必须按章号顺序排列当前批次正文。",
-            "你的完整汇总稿必须放入 final_answer；不要把汇总正文写在 final_answer 外。运行时会按图节点执行协议解析你的 action JSON。",
+            "你不能扩写、改写、重排或复制整章正文。若发现缺少某一章、章号不连续、标题与当前章号不符、上一章结尾无法承接下一章开头，必须在汇总检查中标出，并输出返修风险，不能用自己补写来掩盖。",
+            "你的交付必须包含“批次装订检查”“章节引用索引”“连续性交接”。批次装订检查只允许简短说明汇总范围、已接收章号和风险；章节引用索引必须按章号列出每章标题、正文 artifact 引用、路由/验收引用和一句内容摘要；连续性交接必须说明相邻章节是否存在明显断裂或矛盾。",
+            "不要在本节点复制十章全文。正文原文以每章 artifact 为权威，下游审核员应按你的引用索引逐项读取或对照。你的完整交接包必须放入 final_answer；不要把交接内容写在 final_answer 外。运行时会按图节点执行协议解析你的 action JSON。",
         ),
     ),
     NodeSpec(
@@ -2422,7 +2440,7 @@ def _node_payload(node: NodeSpec) -> dict[str, Any]:
         **{
             key: value
             for key, value in dict(node.extra_runtime).items()
-            if key not in {"subagent_policy"}
+            if key not in {"subagent_policy", "completion_profile"}
         },
     }
     tool_execution_policy = _node_tool_execution_policy(node)
@@ -2499,6 +2517,7 @@ def _node_payload(node: NodeSpec) -> dict[str, Any]:
         "artifact_context_policy": _artifact_context_policy(node),
         "artifact_policy": artifact_policy,
         "artifact_targets": [{"path": path, "required": True, "source": "node_spec"} for path in node.artifact_paths],
+        "progress_receipt_policy": dict(node.progress_receipt_policy),
         "quality_retry_policy": _quality_retry_policy(node),
         "review_gate_policy": _review_gate_policy(node),
         **({"runtime_policy": node_runtime_policy} if node_runtime_policy else {}),
@@ -2514,6 +2533,7 @@ def _node_payload(node: NodeSpec) -> dict[str, Any]:
             "model_profile_ref": MODEL_PROFILE_REF,
             "task_graph_node_runtime": True,
             "artifact_context_policy": _artifact_context_policy(node),
+            "progress_receipt_policy": dict(node.progress_receipt_policy),
             "governance_policy": governance_policy,
             "outline_thread_policy": outline_thread_policy,
             "prewrite_memory_plan_policy": _prewrite_memory_plan_policy(node),
@@ -3062,7 +3082,9 @@ def _output_policy(node: NodeSpec, *, artifact_policy: dict[str, Any]) -> dict[s
 
 
 def _output_kind(node: NodeSpec) -> str:
-    if node.node_id in {"chapter_draft", "chapter_batch_assemble"}:
+    if node.node_id == "chapter_batch_assemble":
+        return "chapter_batch_index"
+    if node.node_id == "chapter_draft":
         return "chapter_draft"
     if node.node_id.endswith("review") or node.node_type == "review_gate":
         return "review_report"
@@ -3076,7 +3098,9 @@ def _output_kind(node: NodeSpec) -> str:
 
 
 def _output_required_sections(node: NodeSpec) -> list[str]:
-    if node.node_id in {"chapter_draft", "chapter_batch_assemble"}:
+    if node.node_id == "chapter_batch_assemble":
+        return ["批次装订检查", "章节引用索引", "连续性交接"]
+    if node.node_id == "chapter_draft":
         return ["写前取材判断", "章节正文候选"]
     if node.node_id.endswith("review") or node.node_type == "review_gate":
         return ["审核裁决", "问题清单", "是否允许进入下一阶段"]

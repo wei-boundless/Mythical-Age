@@ -542,7 +542,18 @@ def _should_try_next_payload(api_error: dict[str, Any]) -> bool:
 
 
 def _should_try_chat_completions_fallback(api_error: dict[str, Any]) -> bool:
-    return str(api_error.get("code") or "") == "image_endpoint_not_found"
+    if str(api_error.get("code") or "") == "image_endpoint_not_found":
+        return True
+    try:
+        status = int(api_error.get("http_status") or 0)
+    except (TypeError, ValueError):
+        status = 0
+    if status != 403:
+        return False
+    message = str(api_error.get("message") or "").lower()
+    if any(marker in message for marker in ("insufficient", "balance", "quota", "余额", "额度", "无可用渠道", "channel")):
+        return False
+    return any(marker in message for marker in ("未启用", "not enabled", "disabled", "组内", "group"))
 
 
 def _chat_generation_payload(*, prompt: str, size: str, quality: str = "", model: str = "") -> dict[str, Any]:
@@ -625,13 +636,13 @@ def _first_image_item_from_text(text: str) -> dict[str, Any] | None:
     parsed = _json_from_text(stripped)
     if parsed is not None:
         return _first_image_item_from_any(parsed)
-    data_match = re.search(r"data:image/(?:png|webp|jpeg);base64,([A-Za-z0-9+/=\\r\\n]+)", stripped, flags=re.IGNORECASE)
+    data_match = re.search(r"data:image/(?:png|webp|jpeg);base64,([A-Za-z0-9+/=\r\n]+)", stripped, flags=re.IGNORECASE)
     if data_match:
         return {"b64_json": data_match.group(1).replace("\n", "").replace("\r", "")}
     markdown_match = re.search(r"!\[[^\]]*\]\((https?://[^)]+)\)", stripped)
     if markdown_match:
         return {"url": markdown_match.group(1)}
-    url_match = re.search(r"https?://\\S+", stripped)
+    url_match = re.search(r"https?://\S+", stripped)
     if url_match:
         return {"url": url_match.group(0).rstrip(").,;")}
     return None

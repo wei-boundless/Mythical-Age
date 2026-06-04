@@ -26,6 +26,7 @@ class ContextUsageSnapshot:
     context_window_tokens: int = 0
     reserved_output_tokens: int = 0
     safety_margin_tokens: int = 0
+    input_capacity_tokens: int = 0
     warning_threshold_tokens: int = 0
     ready_threshold_tokens: int = 0
     replacement_threshold_tokens: int = 0
@@ -39,6 +40,9 @@ class ContextUsageSnapshot:
     estimated_pending_tokens: int = 0
     current_context_tokens: int = 0
     current_context_ratio: float = 0.0
+    compaction_pressure_ratio: float = 0.0
+    compaction_remaining_tokens: int = 0
+    compaction_remaining_ratio: float = 0.0
     pressure_level: ContextPressureLevel = "normal"
     auto_replacement_allowed: bool = False
     cache_hit_rate_latest: float = 0.0
@@ -101,6 +105,7 @@ class ContextUsageMeter:
         resolved_model = str(model or getattr(anchor, "model", "") or getattr(local_anchor, "model", "") or "")
         window = max(1, int(context_window_tokens or self._default_window_for_model(resolved_provider, resolved_model)))
         reserved = max(0, int(reserved_output_tokens if reserved_output_tokens is not None else self.default_reserved_output_tokens))
+        input_capacity_tokens = self._input_capacity_tokens(context_window_tokens=window, reserved_output_tokens=reserved)
         thresholds = self._thresholds(provider=resolved_provider, model=resolved_model, context_window_tokens=window, reserved_output_tokens=reserved)
         invalidation_reason = self._invalidation_reason(
             context_fingerprint=context_fingerprint,
@@ -132,6 +137,10 @@ class ContextUsageMeter:
 
         pressure_level = self._pressure_level(current_context_tokens, thresholds)
         ratio = round(current_context_tokens / window, 6) if window > 0 else 0.0
+        replacement_threshold = int(thresholds.get("replacement") or input_capacity_tokens)
+        compaction_pressure_ratio = round(current_context_tokens / replacement_threshold, 6) if replacement_threshold > 0 else 0.0
+        compaction_remaining_tokens = max(0, replacement_threshold - int(current_context_tokens or 0))
+        compaction_remaining_ratio = round(compaction_remaining_tokens / replacement_threshold, 6) if replacement_threshold > 0 else 0.0
         cache_rates = self._cache_hit_rates(provider_records)
         latest_cache_hit_rate = self._cache_hit_rate(anchor)
         return ContextUsageSnapshot(
@@ -143,6 +152,7 @@ class ContextUsageMeter:
             context_window_tokens=window,
             reserved_output_tokens=reserved,
             safety_margin_tokens=self.safety_margin_tokens,
+            input_capacity_tokens=input_capacity_tokens,
             warning_threshold_tokens=thresholds["warning"],
             ready_threshold_tokens=thresholds["ready"],
             replacement_threshold_tokens=thresholds["replacement"],
@@ -156,6 +166,9 @@ class ContextUsageMeter:
             estimated_pending_tokens=pending_tokens,
             current_context_tokens=max(0, int(current_context_tokens or 0)),
             current_context_ratio=ratio,
+            compaction_pressure_ratio=compaction_pressure_ratio,
+            compaction_remaining_tokens=compaction_remaining_tokens,
+            compaction_remaining_ratio=compaction_remaining_ratio,
             pressure_level=pressure_level,
             auto_replacement_allowed=current_context_tokens >= thresholds["replacement"],
             cache_hit_rate_latest=latest_cache_hit_rate,
@@ -234,8 +247,11 @@ class ContextUsageMeter:
             return 128_000
         return self.default_context_window_tokens
 
+    def _input_capacity_tokens(self, *, context_window_tokens: int, reserved_output_tokens: int) -> int:
+        return max(1, int(context_window_tokens or 0) - int(reserved_output_tokens or 0) - self.safety_margin_tokens)
+
     def _thresholds(self, *, provider: str, model: str, context_window_tokens: int, reserved_output_tokens: int) -> dict[str, int]:
-        available_input = max(1, int(context_window_tokens or 0) - int(reserved_output_tokens or 0) - self.safety_margin_tokens)
+        available_input = self._input_capacity_tokens(context_window_tokens=context_window_tokens, reserved_output_tokens=reserved_output_tokens)
         is_large_deepseek = (
             int(context_window_tokens or 0) >= 900_000
             and (str(provider or "").strip().lower() == "deepseek" or "deepseek" in str(model or "").strip().lower())

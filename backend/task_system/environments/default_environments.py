@@ -86,6 +86,10 @@ def coding_vibe_workspace_environment() -> TaskEnvironmentDefinition:
                 prompt_kind="coding_rule",
             ),
             EnvironmentPrompt(
+                prompt_id="coding.rule.debug_discipline.v1",
+                prompt_kind="coding_rule",
+            ),
+            EnvironmentPrompt(
                 prompt_id="coding.rule.git_safety.v1",
                 prompt_kind="coding_rule",
             ),
@@ -221,6 +225,10 @@ def development_sandbox_environment() -> TaskEnvironmentDefinition:
             ),
             EnvironmentPrompt(
                 prompt_id="coding.rule.verification.v1",
+                prompt_kind="coding_rule",
+            ),
+            EnvironmentPrompt(
+                prompt_id="coding.rule.debug_discipline.v1",
                 prompt_kind="coding_rule",
             ),
             EnvironmentPrompt(

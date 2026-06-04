@@ -30,6 +30,21 @@ def _payload_containing_title(messages: list[dict[str, object]] | tuple[dict[str
     raise AssertionError(f"packet title not found: {title}")
 
 
+def _persisted_output_path(content: str) -> Path:
+    for line in str(content or "").splitlines():
+        if line.startswith("Path: "):
+            return Path(line.split("Path: ", 1)[1].strip())
+    raise AssertionError("persisted output path not found")
+
+
+def _stable_prefix_hashes(segment_plan: dict[str, object]) -> dict[str, str]:
+    return {
+        str(segment["kind"]): str(segment["model_message_hash"])
+        for segment in list(segment_plan.get("segments") or [])
+        if isinstance(segment, dict) and segment.get("kind") in {"global_static", "turn_stable", "turn_context"}
+    }
+
+
 def test_history_projector_keeps_session_emphasis_as_pinned_facts() -> None:
     projection = HistoryProjector().project(
         [{"role": "user", "content": "继续"}],
@@ -112,6 +127,57 @@ def test_runtime_compiler_emits_dynamic_context_report_and_projected_task_state(
     assert "large_internal_blob" not in json.dumps(volatile_payload, ensure_ascii=False)
     assert task_state["latest_tool_results"][0]["tool_name"] == "read_file"
     assert packet.artifact_refs == ("artifacts/file.txt",)
+
+
+def test_task_observation_large_tool_result_exposes_rehydration_address(tmp_path: Path) -> None:
+    storage_root = tmp_path / "runtime-state"
+    large_tool_output = "observation-tool-output\n" + ("y" * 9000)
+
+    result = RuntimeCompiler().compile_task_execution_packet(
+        session_id="session:observation-rehydration-address",
+        task_run={
+            "task_run_id": "taskrun:observation-rehydration-address",
+            "diagnostics": {"executor_status": "running"},
+        },
+        contract={
+            "task_run_goal": "验证 observation 大工具输出恢复入口",
+            "completion_criteria": ["恢复入口进入模型可见状态"],
+        },
+        observations=[
+            {
+                "observation_id": "obs:large-output",
+                "payload": {
+                    "result_envelope": {
+                        "envelope_id": "tool-result:large-output",
+                        "tool_name": "read_file",
+                        "status": "ok",
+                        "text": large_tool_output,
+                    }
+                },
+            }
+        ],
+        runtime_assembly={
+            "profile": {"mode": "professional"},
+            "task_environment": {
+                "environment_id": "env.general.workspace",
+                "storage_space": {"runtime_state_root": str(storage_root)},
+            },
+        },
+    )
+
+    volatile_payload = _payload_after_title(result.packet.model_messages[-1]["content"], "Task execution current state")
+    latest = volatile_payload["task_state"]["latest_tool_results"][0]
+    plan = latest["rehydration_plan"]
+    persisted = plan["capabilities"][0]
+    path = Path(persisted["args"]["path"])
+    model_text = "\n".join(str(message.get("content") or "") for message in result.packet.model_messages)
+
+    assert persisted["tool_name"] == "read_persisted_tool_result"
+    assert persisted["args"]["path"]
+    assert path.exists()
+    assert path.read_text(encoding="utf-8") == large_tool_output
+    assert "read_persisted_tool_result" in model_text
+    assert "y" * 5000 not in model_text
 
 
 def test_task_state_projects_exploration_advisory() -> None:
@@ -1115,6 +1181,125 @@ def test_single_agent_turn_replays_only_hot_provider_protocol_tail() -> None:
     )
 
 
+def test_single_agent_turn_projects_large_provider_tool_output_to_persisted_preview(tmp_path: Path) -> None:
+    storage_root = tmp_path / "runtime-state"
+    large_tool_output = "raw-provider-tool-output\n" + ("x" * 9000)
+
+    result = RuntimeCompiler().compile_single_agent_turn_packet(
+        session_id="session-provider-large-tool",
+        turn_id="turn:provider-large-tool:2",
+        agent_invocation_id="aginvoke:provider-large-tool",
+        user_message="继续。",
+        history=[],
+        session_context={
+            "api_transcript": [
+                {"role": "user", "content": "读取大文件。"},
+                {
+                    "role": "assistant",
+                    "content": "",
+                    "tool_calls": [{"id": "call_big", "name": "read_file", "args": {}, "type": "tool_call"}],
+                },
+                {"role": "tool", "tool_call_id": "call_big", "content": large_tool_output},
+                {"role": "assistant", "content": "已读取。"},
+            ]
+        },
+        runtime_assembly={
+            "profile": {"mode": "conversation"},
+            "task_environment": {
+                "environment_id": "env.general.workspace",
+                "storage_space": {"runtime_state_root": str(storage_root)},
+            },
+        },
+    )
+
+    tool_message = next(
+        item
+        for item in result.packet.model_messages
+        if item.get("role") == "tool" and item.get("tool_call_id") == "call_big"
+    )
+    tool_content = str(tool_message.get("content") or "")
+    persisted_path = _persisted_output_path(tool_content)
+    provider_segment = next(
+        segment
+        for segment in result.packet.segment_plan["segments"]
+        if segment["kind"] == "provider_protocol_history"
+        and int(segment["model_message_index"]) == result.packet.model_messages.index(tool_message)
+    )
+    projection = dict(dict(provider_segment.get("metadata") or {}).get("protocol_projection") or {})
+    model_text = "\n".join(str(message.get("content") or "") for message in result.packet.model_messages)
+
+    assert "<persisted-output>" in tool_content
+    assert "read_persisted_tool_result" in tool_content
+    assert dict(provider_segment.get("metadata") or {})["exact_content_required_before_final"] is True
+    assert "x" * 4000 not in model_text
+    assert persisted_path.exists()
+    assert persisted_path.read_text(encoding="utf-8") == large_tool_output
+    assert projection["projected_tool_output_count"] == 1
+    assert projection["persisted_tool_replacement_count"] == 1
+    assert projection["output_chars"] < projection["input_chars"]
+
+
+def test_provider_protocol_projection_preserves_stable_prefix_hashes(tmp_path: Path) -> None:
+    runtime_assembly = {
+        "profile": {"mode": "conversation"},
+        "task_environment": {
+            "environment_id": "env.general.workspace",
+            "storage_space": {"runtime_state_root": str(tmp_path / "runtime-state")},
+        },
+    }
+    hot_protocol_tail = [
+        {"role": "user", "content": "查最后一个文件。"},
+        {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [{"id": "call_tail", "name": "read_file", "args": {}, "type": "tool_call"}],
+        },
+        {"role": "tool", "tool_call_id": "call_tail", "content": "tail output"},
+        {"role": "assistant", "content": "tail answer"},
+    ]
+    base = RuntimeCompiler().compile_single_agent_turn_packet(
+        session_id="session:stable-provider-base",
+        turn_id="turn:stable-provider-base",
+        agent_invocation_id="aginvoke:stable-provider-base",
+        user_message="继续。",
+        history=[],
+        session_context={"api_transcript": hot_protocol_tail},
+        runtime_assembly=runtime_assembly,
+    ).packet
+    noisy = RuntimeCompiler().compile_single_agent_turn_packet(
+        session_id="session:stable-provider-noisy",
+        turn_id="turn:stable-provider-noisy",
+        agent_invocation_id="aginvoke:stable-provider-noisy",
+        user_message="继续。",
+        history=[],
+        session_context={
+            "api_transcript": [
+                *[
+                    {
+                        "role": "assistant" if index % 2 else "user",
+                        "content": f"old protocol message {index} " + ("z" * 3000),
+                    }
+                    for index in range(24)
+                ],
+                *hot_protocol_tail,
+            ]
+        },
+        runtime_assembly=runtime_assembly,
+    ).packet
+
+    noisy_protocol_segments = [
+        segment
+        for segment in noisy.segment_plan["segments"]
+        if segment["kind"] == "provider_protocol_history"
+    ]
+
+    assert _stable_prefix_hashes(base.segment_plan) == _stable_prefix_hashes(noisy.segment_plan)
+    assert any(
+        int(dict(segment.get("metadata") or {}).get("protocol_truncated_count") or 0) > 0
+        for segment in noisy_protocol_segments
+    )
+
+
 def test_model_aware_context_budget_uses_deepseek_1m_for_v4_models() -> None:
     policy = build_model_aware_context_budget_policy(
         invocation_kind="single_agent_turn",
@@ -1132,6 +1317,8 @@ def test_model_aware_context_budget_uses_deepseek_1m_for_v4_models() -> None:
     assert policy.context_window_tokens == 1_000_000
     assert policy.available_context_tokens >= 800_000
     assert policy.projection_limits["recent_history_message_limit"] > 100
+    assert 6 <= policy.projection_limits["provider_protocol_message_limit"] <= 16
+    assert policy.projection_limits["provider_protocol_char_budget"] <= 24_000
     assert policy.volatile_char_budget > 1_000_000
     assert policy.thinking_mode == "enabled"
     assert policy.reasoning_effort == "max"

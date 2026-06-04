@@ -50,6 +50,9 @@ TOOL_NAME_TOKENS = {
     "apply_patch",
     "edit_file",
     "glob_paths",
+    "image_asset",
+    "image_generate",
+    "image_generation",
     "list_dir",
     "memory_search",
     "path_exists",
@@ -149,6 +152,8 @@ def public_action_kind(tool_name: str, raw_target: Any = "") -> str:
     target = str(raw_target or "").strip().lower()
     if normalized == "memory_search":
         return "memory"
+    if normalized in {"image_generate", "image_generation", "generate_image", "image_asset"}:
+        return "image"
     if normalized in {"path_exists", "stat_path", "list_dir"}:
         return "inspect"
     if normalized in {"read_file", "read_path"} or "read" in normalized:
@@ -203,13 +208,14 @@ def public_action_title(*, action_kind: str, phase: str) -> str:
         "read": ("正在读取上下文", "已读取上下文", "读取上下文需调整"),
         "search": ("正在搜索引用", "已搜索引用", "搜索方式需调整"),
         "edit": ("正在更新文件", "已更新文件", "更新文件需调整"),
-        "run": ("正在推进当前步骤", "步骤已返回", "步骤需调整"),
+        "run": ("正在执行操作", "操作已返回", "操作需调整"),
         "verify": ("正在运行验证", "验证已返回", "验证需调整"),
         "memory": ("正在检索相关记忆", "记忆检索已返回", "记忆检索需调整"),
         "prepare": ("正在准备输出", "输出准备完成", "输出准备需调整"),
+        "image": ("正在生成图像", "图像已生成", "图像生成需调整"),
         "artifact": ("产物就绪", "产物就绪", "产物需调整"),
     }
-    running, done, adjusting = labels.get(action_kind, ("正在推进当前步骤", "结果已返回", "步骤需调整"))
+    running, done, adjusting = labels.get(action_kind, ("正在处理任务", "结果已返回", "步骤需调整"))
     if phase == "done":
         return done
     if phase == "adjusting":
@@ -248,6 +254,8 @@ def public_observation_text(*, action_kind: str, phase: str, subject_label: str,
         return "观察：相关引用已定位，下一步应该收敛到真实改动点。"
     if action_kind == "verify":
         return "观察：验证已返回，需要根据结果判断是否继续修正。"
+    if action_kind == "image":
+        return "观察：图像生成已返回，下一步会确认产物是否可用。"
     if action_kind == "prepare":
         return "观察：输出准备已确认，可以继续推进。"
     if subject_label:

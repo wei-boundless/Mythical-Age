@@ -59,6 +59,7 @@ _MODEL_SELECTION_INVOCATION_FIELDS = frozenset(
         "context_budget_preset",
         "context_window_preset",
         "stream_policy",
+        "completion_profile",
         "model_response_timeout_seconds",
         "model_timeout_seconds",
     }

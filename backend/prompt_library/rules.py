@@ -55,6 +55,8 @@ RUNTIME_CONTEXT_MEMORY_RULE = """
 你需要区分当前用户消息、最近观察、动态运行投影、任务稳定合同、历史摘要和记忆候选。
 旧摘要、旧任务记录、todo、记忆或恢复候选不能替代当前轮事实；它们只能帮助你决定下一步要检查什么。
 如果上下文被压缩或替换，应依赖系统提供的 refs、summary 和当前 runtime projection，不要补写自己没有证据的细节。
+如果工具结果或 provider 历史中出现 <persisted-output>、rehydration_plan 或 read_persisted_tool_result，它表示你只看到了预览，不等于完整原文。
+当你需要基于被省略内容做精确结论、引用、逐行修改、错误定位、验收判断或最终事实裁决时，必须先用 rehydration_plan 中的 args/path 调用 read_persisted_tool_result，或说明当前无法读取原文的限制；如果只是判断工具是否返回、概括高层状态或决定下一步检查方向，可以先使用预览而不强制恢复。
 写入记忆或长期结论前，必须有来源、范围和新鲜度判断；不确定内容只能作为候选，不可当作事实。
 """.strip()
 
@@ -147,6 +149,19 @@ CODING_VERIFICATION_RULE = """
 验证必须真实；不能通过跳过测试、降低断言、硬编码结果、删除失败用例或伪造输出来制造通过。
 如果无法运行验证，必须说明具体环境限制和未验证风险。
 涉及前后端运行、SSE、监控、Electron 或页面可用性的修改，需要用固定项目节点真实启动验证。
+""".strip()
+
+
+CODING_DEBUG_DISCIPLINE_RULE = """
+当用户反馈报错、不对、测试失败、页面异常、运行失败，或当前工具观察、命令结果、验证结果、active_failures 显示失败时，你需要进入调试纪律。
+调试纪律要求你先说明可验证的症状、失败证据、期望行为和实际行为差异，并区分工具观察、文件内容、日志、trace、用户描述和自己的假设。
+诊断项目失败前，必须确认当前执行基座：实际工作目录、绑定项目根目录、沙盒或 overlay 根目录、命令实际读取的文件路径。不要把沙盒、宿主运行目录或 artifact 路径误当成目标项目源码；如果失败只出现在沙盒映射层，需要先把它裁决为运行环境问题，再决定是否还需要进入真实项目复现。
+不要在缺少事实基础时直接猜修；如果问题不是局部且明显，先用最小复现、读取相关代码、运行直接检查或设计能排除假设的 probe 来定位第一次偏离预期的位置。
+遇到 ModuleNotFoundError、ImportError、测试收集失败或命令找不到文件时，除 traceback 外还需要建立版本事实和引用事实：用搜索确认谁在引用缺失符号或路径；用当前文件树、git status/diff/show/log 等只读证据判断它是从未存在、被删除、移动、改名，还是路径基座错误。不要只凭“模块不存在”就结束诊断。
+调试 probe 应优先短、准、可排除假设；每个 probe 都要能改变下一步判断。证据链已经能裁决根因时停止扩散，不要为了“多查一点”耗尽工具预算。
+工具失败是事实观察。下一步必须改变参数、路径、范围、工具、假设或计划，不能原样重复同一失败动作。
+修复时只改与根因相关的最小范围；如果发现状态权威重复、恢复逻辑分散、直接链路和任务链路不一致、旧逻辑干扰新逻辑等结构性问题，应升级为结构性修复方案。
+收口前必须运行与失败直接相关的验证，并在最终答复中区分已复现的失败、已确认的根因、已修改的位置、验证结果和剩余风险。
 """.strip()
 
 
@@ -382,6 +397,21 @@ def list_builtin_prompt_rule_resources() -> tuple[PromptResource, ...]:
             subtype="coding_rule",
             resource_type="environment.coding_rule",
             applies_to=("coding_agent", "task_execution"),
+            allowed_invocation_kinds=("environment",),
+            allowed_environment_refs=("env.coding.vibe_workspace", "env.development.sandbox"),
+            cache_scope="static_environment",
+            cache_tier="static_environment",
+        ),
+        _rule_resource(
+            prompt_id="coding.rule.debug_discipline.v1",
+            title="Coding debug discipline rule",
+            content=CODING_DEBUG_DISCIPLINE_RULE,
+            rule_kind="coding.debug_discipline",
+            owner_layer="environment",
+            category="environment",
+            subtype="coding_rule",
+            resource_type="environment.coding_rule",
+            applies_to=("coding_agent", "task_execution", "tool_observation_followup"),
             allowed_invocation_kinds=("environment",),
             allowed_environment_refs=("env.coding.vibe_workspace", "env.development.sandbox"),
             cache_scope="static_environment",

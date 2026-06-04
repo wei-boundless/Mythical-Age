@@ -1,16 +1,5 @@
 "use client";
 
-import {
-  CheckCircle2,
-  CircleDot,
-  ClipboardCheck,
-  FileText,
-  ListChecks,
-  Loader2,
-  PenLine,
-  Search,
-  Terminal,
-} from "lucide-react";
 import React from "react";
 
 import type { PublicChatTimelineItem } from "@/lib/api";
@@ -30,7 +19,6 @@ type PublicRunActivityProps = {
   assistantContent?: string;
 };
 
-const RECENT_HISTORY_LIMIT = 3;
 const SUPPRESSED_STATUS_TEXT = new Set([
   "已同步最新进展。",
   "已接上当前工作，正在同步最新进展。",
@@ -67,6 +55,24 @@ function isStatusUpdate(item: PublicChatTimelineItem) {
 function isFinalItem(item: PublicChatTimelineItem) {
   const kind = cleanText(item.kind);
   return kind === "final_summary" || kind === "artifact";
+}
+
+function isWaitingItem(item: PublicChatTimelineItem) {
+  const state = cleanText(item.state).toLowerCase();
+  const phase = cleanText(item.phase).toLowerCase();
+  const text = textOfItem(item);
+  return ["waiting", "queued", "paused"].includes(state)
+    || phase === "waiting"
+    || (isStatusUpdate(item) && /等待|暂停|队列|停住/.test(text));
+}
+
+function isStoppedItem(item: PublicChatTimelineItem) {
+  const state = cleanText(item.state).toLowerCase();
+  const phase = cleanText(item.phase).toLowerCase();
+  const text = textOfItem(item);
+  return ["stopped", "aborted", "user_aborted", "cancelled", "canceled"].includes(state)
+    || ["stopped", "aborted"].includes(phase)
+    || (isStatusUpdate(item) && /已停止|已中断|停止本轮/.test(text));
 }
 
 function shouldRenderItem(item: PublicChatTimelineItem, assistantContent: string) {
@@ -111,21 +117,6 @@ export function hasPublicRunActivity(
 
 function stateClass(item: PublicChatTimelineItem) {
   return stateClassForTimelineItem(item);
-}
-
-function ActivityIcon({ item }: { item: PublicChatTimelineItem }) {
-  const state = stateClass(item);
-  if (item.kind === "artifact") return <FileText size={14} />;
-  if (item.kind === "todo_plan") return <ListChecks size={14} />;
-  if (item.kind === "observation_report") return <ClipboardCheck size={14} />;
-  if (state === "error") return <CircleDot size={14} />;
-  if (state === "done") return <CheckCircle2 size={14} />;
-  const action = actionDisplay(item);
-  if (state === "running" || item.stream_state === "streaming") return <Loader2 className="public-run-activity__spinner" size={14} />;
-  if (action.kind === "search") return <Search size={14} />;
-  if (action.kind === "run") return <Terminal size={14} />;
-  if (action.kind === "write" || action.kind === "edit" || action.kind === "prepare") return <PenLine size={14} />;
-  return <CircleDot size={14} />;
 }
 
 function actionDisplay(item: PublicChatTimelineItem) {
@@ -235,25 +226,31 @@ function activityPlan(items: PublicChatTimelineItem[]) {
   const finalItems = items.filter(isFinalItem);
   const statusItems = items.filter((item) => isStatusUpdate(item) && !isFinalItem(item));
   const actionItems = items.filter((item) => !isStatusUpdate(item) && !isFinalItem(item));
-  const liveCurrent = [...actionItems].reverse().find((item) => {
+  const stoppedCurrent = lastOf(items.filter(isStoppedItem));
+  const waitingCurrent = lastOf(items.filter(isWaitingItem));
+  const liveItems = actionItems.filter((item) => {
     const state = stateClass(item);
     return state === "running" || state === "error";
-  }) ?? null;
+  });
+  const liveCurrent = lastOf(liveItems.filter(isPreferredLiveItem)) ?? lastOf(liveItems);
   const latestObservation = [...actionItems].reverse().find((item) => cleanText(item.kind) === "observation_report") ?? null;
   const latestAction = lastOf(actionItems);
-  const current = liveCurrent ?? latestObservation ?? latestAction;
-  const history = actionItems.filter((item) => item !== current);
-  const recent = RECENT_HISTORY_LIMIT > 0 ? history.slice(-RECENT_HISTORY_LIMIT) : [];
-  const collapsedCount = Math.max(0, history.length - recent.length);
-  const fallbackCurrent = !current && !recent.length && !finalItems.length
+  const current = stoppedCurrent ?? waitingCurrent ?? liveCurrent ?? latestObservation ?? latestAction;
+  const fallbackCurrent = !current && !finalItems.length
     ? lastOf(statusItems.filter((item) => stateClass(item) === "running")) ?? lastOf(statusItems)
     : null;
   return {
-    collapsedCount,
-    recent,
+    collapsedCount: 0,
+    recent: [],
     current: current ?? fallbackCurrent,
     finalItems,
   };
+}
+
+function isPreferredLiveItem(item: PublicChatTimelineItem) {
+  const kind = cleanText(item.kind);
+  if (kind === "work_action" && cleanText(item.action_kind) && cleanText(item.action_kind) !== "work") return true;
+  return kind === "todo_plan" || kind === "observation_report" || kind === "blocked";
 }
 
 function shouldRenderDetailRow(item: PublicChatTimelineItem) {
@@ -277,9 +274,6 @@ function ActivityRows({ plan }: { plan: ReturnType<typeof activityPlan> }) {
           className={`public-run-activity__row public-run-activity__row--${variant} public-run-activity__row--${stateClass(item)} public-run-activity__row--${cleanText(item.kind) || "item"}`}
           key={publicTimelineItemKey(item, index)}
         >
-          <span className="public-run-activity__icon" aria-hidden="true">
-            <ActivityIcon item={item} />
-          </span>
           <span className="public-run-activity__copy">
             <ActivityCopy item={item} variant={variant} />
           </span>
@@ -324,6 +318,24 @@ function finalActivitySummary(plan: ReturnType<typeof activityPlan>) {
 
 function activitySummary(plan: ReturnType<typeof activityPlan>) {
   if (plan.current) {
+    if (isStoppedItem(plan.current)) {
+      return {
+        detail: short(plan.current.detail || plan.current.text || "你已停止本轮生成。", 180),
+        item: plan.current,
+        meta: "已停止",
+        title: short(plan.current.title || "已停止本轮生成", 80),
+        tone: "stopped",
+      };
+    }
+    if (isWaitingItem(plan.current)) {
+      return {
+        detail: short(plan.current.detail || plan.current.text || "当前任务已停在可继续状态，继续后会接上现有进度。", 180),
+        item: plan.current,
+        meta: "等待",
+        title: short(plan.current.title || "等待继续", 80),
+        tone: "waiting",
+      };
+    }
     const state = stateClass(plan.current);
     const kind = cleanText(plan.current.kind);
     const currentAction = presentedActionSentence(plan.current, "current");
@@ -365,10 +377,10 @@ function activitySummary(plan: ReturnType<typeof activityPlan>) {
     return {
       detail: state === "error"
         ? short(errorDetail, 180)
-        : currentAction || "当前动作正在处理。",
+        : action.observation || "",
       item: plan.current,
       meta: state === "error" ? "调整中" : "实时",
-      title: state === "error" ? "需要调整" : kind === "status_update" ? "判断中" : "执行中",
+      title: state === "error" ? "需要调整" : currentAction || "正在处理任务",
       tone: state === "error" ? "error" : "running",
     };
   }
@@ -416,14 +428,11 @@ function activitySummary(plan: ReturnType<typeof activityPlan>) {
 function ActivitySummaryLine({ summary }: { summary: ReturnType<typeof activitySummary> }) {
   return (
     <div className={`public-run-activity__summary public-run-activity__summary--${summary.tone}`}>
-      <span className="public-run-activity__summary-icon" aria-hidden="true">
-        {summary.item ? <ActivityIcon item={summary.item} /> : <CircleDot size={14} />}
-      </span>
       <span className="public-run-activity__summary-copy">
         <strong>{summary.title}</strong>
-        <small>{summary.detail}</small>
+        {summary.detail ? <small>{summary.detail}</small> : null}
       </span>
-      <em>{summary.meta}</em>
+      {summary.tone === "running" ? null : <em>{summary.meta}</em>}
     </div>
   );
 }

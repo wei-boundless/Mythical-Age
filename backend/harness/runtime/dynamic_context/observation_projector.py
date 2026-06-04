@@ -83,7 +83,7 @@ class ObservationProjector:
         tool_projection, tool_record = self.tool_result_projector.project_from_observation(
             source,
             task_run_id=task_run_id,
-            projection_policy=projection_policy,
+            projection_policy=_tool_projection_policy_for_observation(projection_policy),
         )
         structured_error = structured_error_projection(source.get("structured_error") or observation.get("structured_error") or tool_projection.get("structured_error"))
         error = str(source.get("error") or observation.get("error") or tool_projection.get("error") or "")
@@ -143,6 +143,19 @@ def _visibility(source: dict[str, Any]) -> str:
     return value if value in {"active", "historical"} else "active"
 
 
+def _tool_projection_policy_for_observation(projection_policy: dict[str, Any]) -> dict[str, Any]:
+    policy = dict(projection_policy or {})
+    summary_chars = _positive_int(policy.get("observation_summary_chars"))
+    if summary_chars <= 0:
+        return policy
+    tool_preview_chars = _positive_int(policy.get("tool_result_preview_chars"))
+    policy["tool_result_preview_chars"] = min(
+        tool_preview_chars or summary_chars,
+        max(1000, summary_chars),
+    )
+    return policy
+
+
 def _compact_tool_result(tool_projection: dict[str, Any]) -> dict[str, Any]:
     if not tool_projection:
         return {}
@@ -162,3 +175,11 @@ def _compact_tool_result(tool_projection: dict[str, Any]) -> dict[str, Any]:
             "rehydration_plan": dict(tool_projection.get("rehydration_plan") or {}),
         }
     )
+
+
+def _positive_int(value: Any) -> int:
+    try:
+        parsed = int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+    return parsed if parsed > 0 else 0

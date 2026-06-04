@@ -740,28 +740,28 @@ export function projectRuntimeStreamEvent(event: string, data: Record<string, un
   if (event === "stream_reconnecting") {
     const attempt = text(data.attempt);
     const maxAttempts = text(data.max_attempts);
-    const suffix = attempt && maxAttempts ? ` ${attempt}/${maxAttempts}` : "";
+    const suffix = attempt && maxAttempts ? `第 ${attempt}/${maxAttempts} 次尝试。` : "";
     return {
-      stageStatus: `重新连接中${suffix}`,
-      activityTitle: `重新连接中${suffix}`,
-      activityDetail: "连接中断，正在续接当前运行。",
+      stageStatus: "正在续接当前运行",
+      activityTitle: "正在续接当前运行",
+      activityDetail: `连接短暂中断，已保留当前进度。${suffix}`,
       level: "running",
     };
   }
   if (event === "stream_reconnected") {
     return {
-      stageStatus: "已重新连接",
-      activityTitle: "已重新连接",
-      activityDetail: "已从上次位置继续接收事件。",
+      stageStatus: "已接回当前运行",
+      activityTitle: "已接回当前运行",
+      activityDetail: "后续进度会继续在这里同步。",
       level: "running",
     };
   }
   if (event === "stream_reconnect_failed") {
     return {
-      stageStatus: "重连失败",
-      activityTitle: "重连失败",
-      activityDetail: "自动重连次数已用尽，后台运行可在监控中查看。",
-      level: "error",
+      stageStatus: "续接暂未完成",
+      activityTitle: "需要重新接回会话",
+      activityDetail: "自动续接没有成功，刷新或重新打开会话会继续查找可接回的运行。",
+      level: "warning",
     };
   }
   if (event === "harness_run_started") {

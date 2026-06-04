@@ -126,6 +126,11 @@ export type TokenStats = {
     current_context_tokens?: number;
     current_context_ratio?: number;
     context_window_tokens?: number;
+    input_capacity_tokens?: number;
+    replacement_threshold_tokens?: number;
+    compaction_pressure_ratio?: number;
+    compaction_remaining_tokens?: number;
+    compaction_remaining_ratio?: number;
     pressure_level?: string;
   };
   cumulative_transcript_tokens?: number;

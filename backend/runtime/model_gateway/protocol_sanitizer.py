@@ -124,6 +124,8 @@ def _normalize_message(raw: Any) -> dict[str, Any] | None:
         reasoning_content = str(item.get("reasoning_content") or "").strip()
         if reasoning_content:
             message["reasoning_content"] = reasoning_content
+        if item.get("prefix") is True or str(item.get("prefix") or "").strip().lower() == "true":
+            message["prefix"] = True
         tool_calls = _tool_calls(item.get("tool_calls"))
         if tool_calls:
             message["tool_calls"] = tool_calls

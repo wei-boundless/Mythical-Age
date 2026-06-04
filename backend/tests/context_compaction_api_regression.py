@@ -106,6 +106,10 @@ def test_session_tokens_exposes_context_meter_and_billing_totals(tmp_path: Path,
     assert "compaction_readiness" in response
     assert response["context_meter"]["authority"] == "runtime.prompt_accounting.context_usage_snapshot"
     assert response["context_meter"]["current_context_tokens"] > 0
+    assert response["context_meter"]["reserved_output_tokens"] == 65_536
+    assert response["context_meter"]["input_capacity_tokens"] == 926_272
+    assert response["context_meter"]["replacement_threshold_tokens"] == 900_000
+    assert response["context_meter"]["compaction_remaining_tokens"] <= response["context_meter"]["replacement_threshold_tokens"]
     assert response["cumulative_transcript_message_count"] == 4
     assert response["cumulative_transcript_tokens"] >= response["raw_history_tokens"]
     assert response["compression_saved_tokens"] == response["cumulative_transcript_tokens"] - response["history_tokens"]
@@ -158,6 +162,13 @@ def _runtime_with_session(tmp_path: Path):
     return (
         SimpleNamespace(
             session_manager=session_manager,
+            settings=SimpleNamespace(
+                static=SimpleNamespace(
+                    llm_provider="deepseek",
+                    llm_model="deepseek-v4-pro",
+                    llm_max_output_tokens=65_536,
+                ),
+            ),
             memory_facade=SimpleNamespace(
                 adapter=MemoryMessageAdapter(),
                 session_memory=_FakeSessionMemory(tmp_path / "session-memory"),

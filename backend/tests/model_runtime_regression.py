@@ -12,7 +12,7 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-from runtime.model_gateway.model_runtime import ModelRuntime, ModelRuntimeError, ModelSpec
+from runtime.model_gateway.model_runtime import _DeepSeekReasoningCompatChatModel, ModelRuntime, ModelRuntimeError, ModelSpec
 from runtime.model_gateway.provider_cache_policy import ProviderCachePolicyResolver
 from runtime.tool_runtime.provider_tool_call_adapter import normalize_tool_call_dicts, tool_calls_for_langchain_messages
 from runtime.model_gateway.model_response import ModelResponseRuntimeExecutor
@@ -1231,6 +1231,50 @@ def test_model_runtime_per_call_override_controls_deepseek_parameters() -> None:
     assert model.temperature == 0.7
     assert model.reasoning_effort is None
     assert model.extra_body == {"thinking": {"type": "disabled"}}
+
+
+def test_deepseek_chat_prefix_protocol_preserves_assistant_prefix_flag() -> None:
+    model = _DeepSeekReasoningCompatChatModel(
+        model="deepseek-v4-flash",
+        api_key="deepseek-key",
+        base_url="https://api.deepseek.com/beta",
+        api_base="https://api.deepseek.com/beta",
+        extra_body={"thinking": {"type": "disabled"}},
+    )
+
+    payload = model._get_request_payload(
+        [
+            {"role": "system", "content": "写作任务"},
+            {
+                "role": "assistant",
+                "content": "## 章节正文候选\n\n### 第11章 ",
+                "prefix": True,
+            },
+        ]
+    )
+
+    assert payload["messages"][-1]["role"] == "assistant"
+    assert payload["messages"][-1]["prefix"] is True
+
+
+def test_deepseek_model_runtime_sets_langchain_deepseek_api_base_for_beta_prefix_endpoint() -> None:
+    runtime = _runtime(retries=0, thinking_mode="disabled")
+
+    model = runtime._build_chat_model_for_spec(
+        ModelSpec(
+            provider="deepseek",
+            model="deepseek-v4-flash",
+            api_key="deepseek-key",
+            base_url="https://api.deepseek.com/beta",
+            completion_profile={
+                "mode": "chat_prefix",
+                "provider_mode": "deepseek_chat_prefix",
+            },
+        )
+    )
+
+    assert model.openai_api_base == "https://api.deepseek.com/beta"
+    assert model.api_base == "https://api.deepseek.com/beta"
 
 
 def test_model_runtime_rejects_deepseek_max_when_thinking_disabled() -> None:

@@ -5,10 +5,13 @@ import { Gauge } from "lucide-react";
 
 import { ChatInput } from "@/components/chat/ChatInput";
 import { ChatMessage } from "@/components/chat/ChatMessage";
+import { hasPublicRunActivity } from "@/components/chat/PublicRunActivity";
 import { SessionActivityBar } from "@/components/chat/SessionActivityBar";
+import type { PublicChatTimelineItem } from "@/lib/api";
 import { useAppStore } from "@/lib/store";
+import { mergePublicTimelineItems, publicTimelineItemText, publicTimelineTerminalStateFromAnswer } from "@/lib/store/publicTimeline";
 import { taskEnvironmentDisplayName } from "@/lib/taskEnvironmentDisplay";
-import type { TokenStats } from "@/lib/store/types";
+import type { Message, TokenStats } from "@/lib/store/types";
 
 export function ChatPanel() {
   const {
@@ -37,6 +40,7 @@ export function ChatPanel() {
   } = useAppStore();
   const endRef = useRef<HTMLDivElement | null>(null);
   const currentSessionStreaming = Boolean(currentSessionId && activeStreamSessionIds.includes(currentSessionId));
+  const suppressFooterActivity = shouldSuppressSessionActivityBar(messages, currentSessionStreaming);
   const monitorRecord = taskGraphLiveMonitor as Record<string, unknown> | null;
   const monitorTaskRun = taskGraphLiveMonitor?.task_run ?? {};
   const monitorRuntimeControl = taskGraphLiveMonitor?.runtime_control ?? {};
@@ -153,7 +157,7 @@ export function ChatPanel() {
 
       <div className="chat-panel-footer min-w-0">
         <div className="chat-panel-status-row">
-          <SessionActivityBar activity={sessionActivity} active={currentSessionStreaming} />
+          {suppressFooterActivity ? null : <SessionActivityBar activity={sessionActivity} active={currentSessionStreaming} />}
           {conversationActiveEnvironment ? (
             <div className="chat-task-environment-binding" title={conversationActiveEnvironment.task_environment_id}>
               <span>环境</span>
@@ -188,47 +192,144 @@ export function ChatPanel() {
   );
 }
 
+export function shouldSuppressSessionActivityBar(messages: Message[], _active: boolean) {
+  const latestAssistant = [...messages].reverse().find((message) => message.role === "assistant");
+  if (!latestAssistant) return false;
+  const persisted = (latestAssistant.runtimeAttachments ?? []).flatMap((attachment) =>
+    Array.isArray(attachment.public_timeline) ? attachment.public_timeline : [],
+  );
+  const publicTimeline = mergePublicTimelineItems(
+    persisted,
+    latestAssistant.runtimePublicTimelineDraft,
+    {
+      terminalState: publicTimelineTerminalStateFromAnswer({
+        answerCanonicalState: latestAssistant.answerCanonicalState,
+        answerChannel: latestAssistant.answerChannel,
+      }),
+    },
+  );
+  if (!latestAssistant.content.trim() && publicTimeline.some(isMessageLevelAssistantFeedback)) {
+    return true;
+  }
+  if (latestAssistant.content.trim() && latestAssistant.answerChannel === "active_work_control") {
+    return true;
+  }
+  return hasPublicRunActivity(publicTimeline, latestAssistant.content);
+}
+
+function isMessageLevelAssistantFeedback(item: PublicChatTimelineItem) {
+  const kind = String(item.kind || "").trim();
+  return (kind === "assistant_text" || kind === "opening_judgment") && Boolean(publicTimelineItemText(item));
+}
+
 function SessionTokenMeter({ tokenStats }: { tokenStats: TokenStats | null }) {
-  if (!tokenStats) {
+  const presentation = sessionContextPressurePresentation(tokenStats);
+  if (!presentation) {
     return null;
   }
-  const currentContextTokens = currentContextTokenCount(tokenStats);
-  const cumulativeTokens = cumulativeTranscriptTokenCount(tokenStats);
-  const compressionSavedTokens = compressionSavedTokenCount(tokenStats);
-  const contextWindowTokens = Number(tokenStats.context_meter?.context_window_tokens || 0);
-  const usagePercent = percentFromRatio(contextUsageRatio(tokenStats));
-  const remainingPercent = percentFromRatio(tokenStats.history_remaining_ratio);
-  const pressureLevel = String(tokenStats.context_meter?.pressure_level || tokenStats.history_pressure_level || "normal").trim() || "normal";
-  const title = [
-    contextWindowTokens > 0
-      ? `当前上下文 ${formatTokenCount(currentContextTokens)}/${formatTokenCount(contextWindowTokens)} tokens`
-      : `当前上下文 ${formatTokenCount(currentContextTokens)} tokens`,
-    `累计原始会话 ${formatTokenCount(cumulativeTokens)} tokens`,
-    tokenStats.cumulative_transcript_message_count ? `累计消息 ${tokenStats.cumulative_transcript_message_count} 条` : "",
-    `会话总计 ${formatTokenCount(tokenStats.total_tokens)} tokens`,
-    `消息 ${formatTokenCount(tokenStats.message_tokens)}`,
-    `系统 ${formatTokenCount(tokenStats.system_tokens)}`,
-    `当前运行历史 ${formatTokenCount(tokenStats.raw_history_tokens)} tokens`,
-    `有效历史 ${formatTokenCount(tokenStats.history_tokens)}/${formatTokenCount(tokenStats.history_budget_tokens)}`,
-    compressionSavedTokens > 0 ? `压缩节省 ${formatTokenCount(compressionSavedTokens)} tokens` : "",
-    tokenStats.compression_ratio !== undefined ? `压缩后占累计 ${percentFromRatio(tokenStats.compression_ratio)}%` : "",
-    `已用 ${usagePercent}%`,
-    `余量 ${remainingPercent}%`,
-    tokenStats.history_did_compact ? "本次预览会压缩当前运行历史" : "",
-  ].filter(Boolean).join("；");
   return (
-    <div className={`chat-token-meter chat-token-meter--${tokenPressureClass(pressureLevel)}`} title={title}>
+    <div className={`chat-token-meter chat-token-meter--${presentation.levelClass}`} title={presentation.title}>
       <Gauge size={14} />
-      <span>上下文</span>
-      <strong>{usagePercent}%</strong>
-      <em>当前 {formatTokenCount(currentContextTokens)} · 累计 {formatTokenCount(cumulativeTokens)}</em>
+      <span>{presentation.label}</span>
+      <strong>{presentation.remainingPercentText}</strong>
+      {presentation.remainingTokenText ? <em>{presentation.remainingTokenText}</em> : null}
     </div>
   );
+}
+
+export function sessionContextPressurePresentation(tokenStats: TokenStats | null) {
+  if (!tokenStats) {
+    return {
+      label: "上下文同步中",
+      usedPercent: 0,
+      remainingPercent: 0,
+      remainingPercentText: "--",
+      remainingTokens: 0,
+      remainingTokenText: "",
+      title: "正在读取当前 session 上下文状态",
+      levelClass: "pending",
+    };
+  }
+  const contextMeter = tokenStats.context_meter;
+  const pressureLevel = String(contextMeter?.pressure_level || tokenStats.history_pressure_level || "normal").trim() || "normal";
+  const levelClass = tokenPressureClass(pressureLevel);
+  const usedPercent = percentFromRatio(currentSessionContextRatio(tokenStats));
+  const remainingPercent = currentSessionRemainingPercent(tokenStats, usedPercent);
+  const remainingTokens = currentSessionRemainingTokens(tokenStats);
+  const didCompact = Boolean(tokenStats.history_did_compact || tokenStats.history_did_microcompact || tokenStats.history_did_full_compact);
+  const label = didCompact
+    ? "已压缩"
+    : pressureLevel === "full_compact"
+      ? "需要压缩"
+      : pressureLevel === "microcompact"
+        ? "接近压缩"
+        : pressureLevel === "warning"
+          ? "余量偏低"
+          : "压缩余量";
+  const remainingPercentText = `${remainingPercent}%`;
+  const remainingTokenText = remainingTokens > 0 ? `剩 ${formatTokenCount(remainingTokens)}` : "";
+  const title = [
+    `当前 session 压缩压力 ${usedPercent}%`,
+    `距离自动压缩阈值 ${remainingPercentText}`,
+    remainingTokenText ? `距压缩 ${formatExactTokenCount(remainingTokens)} tokens` : "",
+  ].filter(Boolean).join("；");
+  return {
+    label,
+    usedPercent,
+    remainingPercent,
+    remainingPercentText,
+    remainingTokens,
+    remainingTokenText,
+    title,
+    levelClass,
+  };
 }
 
 function tokenPressureClass(value: string) {
   const normalized = value.replace(/[^a-z0-9_-]/gi, "_").toLowerCase();
   return normalized || "normal";
+}
+
+function percentFromRatio(value: unknown) {
+  return Math.max(0, Math.min(100, Math.round(Number(value || 0) * 100)));
+}
+
+function currentSessionContextRatio(tokenStats: TokenStats) {
+  const rawCompactionRatio = tokenStats.context_meter?.compaction_pressure_ratio;
+  const compactionRatio = Number(rawCompactionRatio);
+  if (rawCompactionRatio !== undefined && rawCompactionRatio !== null && Number.isFinite(compactionRatio)) {
+    return compactionRatio;
+  }
+  const rawContextRatio = tokenStats.context_meter?.current_context_ratio;
+  const contextRatio = Number(rawContextRatio);
+  if (rawContextRatio !== undefined && rawContextRatio !== null && Number.isFinite(contextRatio)) {
+    return contextRatio;
+  }
+  return Number(tokenStats.history_usage_ratio || 0);
+}
+
+function currentSessionRemainingPercent(tokenStats: TokenStats, usedPercent: number) {
+  const rawRemainingRatio = tokenStats.context_meter?.compaction_remaining_ratio;
+  const remainingRatio = Number(rawRemainingRatio);
+  if (rawRemainingRatio !== undefined && rawRemainingRatio !== null && Number.isFinite(remainingRatio)) {
+    return percentFromRatio(remainingRatio);
+  }
+  return Math.max(0, 100 - usedPercent);
+}
+
+function currentSessionRemainingTokens(tokenStats: TokenStats) {
+  const rawCompactionRemaining = tokenStats.context_meter?.compaction_remaining_tokens;
+  const compactionRemaining = Number(rawCompactionRemaining);
+  if (rawCompactionRemaining !== undefined && rawCompactionRemaining !== null && Number.isFinite(compactionRemaining)) {
+    return Math.max(0, Math.round(compactionRemaining));
+  }
+  const replacementThresholdTokens = Number(tokenStats.context_meter?.replacement_threshold_tokens || 0);
+  const currentContextTokens = Number(tokenStats.context_meter?.current_context_tokens || 0);
+  if (Number.isFinite(replacementThresholdTokens) && replacementThresholdTokens > 0 && Number.isFinite(currentContextTokens)) {
+    return Math.max(0, Math.round(replacementThresholdTokens - currentContextTokens));
+  }
+  const historyRemainingTokens = Number(tokenStats.history_remaining_tokens || 0);
+  return Number.isFinite(historyRemainingTokens) ? Math.max(0, Math.round(historyRemainingTokens)) : 0;
 }
 
 function formatTokenCount(value: unknown) {
@@ -238,43 +339,7 @@ function formatTokenCount(value: unknown) {
   return String(number);
 }
 
-function percentFromRatio(value: unknown) {
-  return Math.max(0, Math.min(100, Math.round(Number(value || 0) * 100)));
-}
-
-function contextUsageRatio(tokenStats: TokenStats) {
-  const rawContextRatio = tokenStats.context_meter?.current_context_ratio;
-  const contextRatio = Number(rawContextRatio);
-  if (rawContextRatio !== undefined && rawContextRatio !== null && Number.isFinite(contextRatio)) {
-    return contextRatio;
-  }
-  return Number(tokenStats.history_usage_ratio || 0);
-}
-
-function currentContextTokenCount(tokenStats: TokenStats) {
-  const rawCurrent = tokenStats.context_meter?.current_context_tokens;
-  const current = Number(rawCurrent);
-  if (rawCurrent !== undefined && rawCurrent !== null && Number.isFinite(current)) {
-    return current;
-  }
-  return Number(tokenStats.total_tokens || 0);
-}
-
-function cumulativeTranscriptTokenCount(tokenStats: TokenStats) {
-  const rawCumulative = tokenStats.cumulative_transcript_tokens;
-  const cumulative = Number(rawCumulative);
-  if (rawCumulative !== undefined && rawCumulative !== null && Number.isFinite(cumulative)) {
-    return cumulative;
-  }
-  return Math.max(Number(tokenStats.raw_history_tokens || 0), Number(tokenStats.total_tokens || 0));
-}
-
-function compressionSavedTokenCount(tokenStats: TokenStats) {
-  const rawSaved = tokenStats.compression_saved_tokens;
-  const saved = Number(rawSaved);
-  if (rawSaved !== undefined && rawSaved !== null && Number.isFinite(saved)) {
-    return Math.max(0, saved);
-  }
-  return Math.max(cumulativeTranscriptTokenCount(tokenStats) - Number(tokenStats.history_tokens || 0), 0);
+function formatExactTokenCount(value: unknown) {
+  return Math.max(0, Math.round(Number(value || 0))).toLocaleString("en-US");
 }
 

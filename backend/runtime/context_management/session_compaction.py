@@ -40,7 +40,7 @@ def prompt_accounting_ledger(runtime: Any) -> Any:
 
 def build_context_usage_snapshot(runtime: Any, *, session_id: str, raw_messages: list[dict[str, Any]]) -> Any:
     ledger = prompt_accounting_ledger(runtime)
-    static = getattr(getattr(runtime, "settings_service", None), "static", None)
+    static = _runtime_static_settings(runtime)
     provider = str(getattr(static, "llm_provider", "") or "")
     model = str(getattr(static, "llm_model", "") or "")
     reserved_output_tokens = int(getattr(static, "llm_max_output_tokens", 0) or 0)
@@ -55,6 +55,19 @@ def build_context_usage_snapshot(runtime: Any, *, session_id: str, raw_messages:
         reserved_output_tokens=reserved_output_tokens,
         fallback_messages=raw_messages,
     )
+
+
+def _runtime_static_settings(runtime: Any) -> Any:
+    for candidate in (
+        getattr(runtime, "settings_service", None),
+        getattr(runtime, "settings", None),
+        getattr(getattr(runtime, "harness_runtime", None), "settings_service", None),
+        getattr(getattr(runtime, "model_runtime", None), "settings_service", None),
+    ):
+        static = getattr(candidate, "static", None)
+        if static is not None:
+            return static
+    return None
 
 
 def compact_session_history(

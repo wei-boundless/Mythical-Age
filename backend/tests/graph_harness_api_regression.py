@@ -1180,6 +1180,190 @@ def test_graph_loop_contract_drives_generic_repeated_node_progression(tmp_path: 
     assert completed_orders == ["produce", "commit", "router", "produce", "commit", "router", "produce", "commit", "router", "exit"]
 
 
+def test_parent_loop_continue_resets_child_loop_cursor_from_child_start_key(tmp_path: Path) -> None:
+    backend_dir = tmp_path / "backend"
+    graph = TaskGraphDefinition(
+        graph_id="graph.test.nested_cursor_reset",
+        title="Nested Cursor Reset",
+        graph_kind="coordination",
+        publish_state="published",
+        enabled=True,
+        entry_node_id="outline",
+        output_node_id="volume_review",
+        runtime_policy={"coordinator_agent_id": "agent:0"},
+        loop_frames=(
+            {
+                "frame_id": "loop.chapter_unit",
+                "scope_id": "loop.chapter_unit",
+                "parent_scope_id": "loop.chapter_batch",
+                "entry_node_id": "draft",
+                "router_node_id": "unit_router",
+                "continue_node_id": "draft",
+                "exit_node_id": "assemble",
+                "scope_node_ids": ["draft", "unit_router"],
+                "cursor_key": "chapter_index",
+                "start_key": "batch_start_index",
+                "end_key": "batch_end_index",
+                "step": 1,
+                "iteration_identity_template": "chapter-{chapter_index}",
+                "reset_scope_on_continue": True,
+                "preserve_iteration_results": True,
+                "initial_inputs": {"chapter_index": 1, "batch_start_index": 1, "batch_end_index": 10},
+            },
+            {
+                "frame_id": "loop.chapter_batch",
+                "scope_id": "loop.chapter_batch",
+                "entry_node_id": "outline",
+                "router_node_id": "batch_router",
+                "continue_node_id": "outline",
+                "exit_node_id": "volume_review",
+                "scope_node_ids": ["outline", "draft", "unit_router", "assemble", "review", "commit", "batch_router"],
+                "cursor_key": "batch_start_index",
+                "start_key": "batch_start_index",
+                "end_key": "target_unit_count",
+                "step": 10,
+                "iteration_identity_template": "chapter-batch-{batch_start_index}",
+                "reset_scope_on_continue": True,
+                "preserve_iteration_results": True,
+                "initial_inputs": {
+                    "chapter_index": 1,
+                    "batch_start_index": 1,
+                    "batch_end_index": 10,
+                    "target_unit_count": 20,
+                    "units_per_batch": 10,
+                    "batch_words": 0,
+                    "target_words": 999999,
+                },
+                "derived_fields": [
+                    {"key": "batch_end_index", "op": "add", "from_key": "batch_start_index", "value": 9},
+                ],
+            },
+        ),
+        nodes=(
+            TaskGraphNodeDefinition(node_id="outline", node_type="agent", title="Outline", task_id="task.outline", agent_id="agent:0", loop={"scope_id": "loop.chapter_batch"}),
+            TaskGraphNodeDefinition(
+                node_id="draft",
+                node_type="agent",
+                title="Draft",
+                task_id="task.draft",
+                agent_id="agent:0",
+                loop={"scope_id": "loop.chapter_unit"},
+            ),
+            TaskGraphNodeDefinition(
+                node_id="unit_router",
+                node_type="agent",
+                title="Unit Router",
+                task_id="task.unit_router",
+                agent_id="agent:0",
+                loop={
+                    "scope_id": "loop.chapter_unit",
+                    "route_policy": {
+                        "mode": "metric_target",
+                        "scope_id": "loop.chapter_unit",
+                        "continue_node_id": "draft",
+                        "exit_node_id": "assemble",
+                        "metric_key": "unit_count",
+                        "default_increment": 1,
+                        "current_key": "chapter_index",
+                        "target_key": "batch_end_index",
+                    },
+                },
+            ),
+            TaskGraphNodeDefinition(node_id="assemble", node_type="agent", title="Assemble", task_id="task.assemble", agent_id="agent:0", loop={"scope_id": "loop.chapter_batch"}),
+            TaskGraphNodeDefinition(node_id="review", node_type="agent", title="Review", task_id="task.review", agent_id="agent:0", loop={"scope_id": "loop.chapter_batch"}),
+            TaskGraphNodeDefinition(node_id="commit", node_type="agent", title="Commit", task_id="task.commit", agent_id="agent:0", loop={"scope_id": "loop.chapter_batch"}),
+            TaskGraphNodeDefinition(
+                node_id="batch_router",
+                node_type="agent",
+                title="Batch Router",
+                task_id="task.batch_router",
+                agent_id="agent:0",
+                loop={
+                    "scope_id": "loop.chapter_batch",
+                    "route_policy": {
+                        "mode": "metric_target",
+                        "scope_id": "loop.chapter_batch",
+                        "continue_node_id": "outline",
+                        "exit_node_id": "volume_review",
+                        "metric_key": "batch_words",
+                        "default_increment": 100,
+                        "current_key": "batch_words",
+                        "target_key": "target_words",
+                        "derived_fields": [
+                            {"key": "batch_end_index", "op": "add", "from_key": "batch_start_index", "value": 9},
+                        ],
+                    },
+                },
+            ),
+            TaskGraphNodeDefinition(node_id="volume_review", node_type="agent", title="Volume Review", task_id="task.volume_review", agent_id="agent:0"),
+        ),
+        edges=(
+            TaskGraphEdgeDefinition(edge_id="edge.outline.draft", source_node_id="outline", target_node_id="draft", edge_type="handoff"),
+            TaskGraphEdgeDefinition(edge_id="edge.draft.unit_router", source_node_id="draft", target_node_id="unit_router", edge_type="handoff"),
+            TaskGraphEdgeDefinition(edge_id="edge.unit_router.assemble", source_node_id="unit_router", target_node_id="assemble", edge_type="handoff"),
+            TaskGraphEdgeDefinition(edge_id="edge.assemble.review", source_node_id="assemble", target_node_id="review", edge_type="handoff"),
+            TaskGraphEdgeDefinition(edge_id="edge.review.commit", source_node_id="review", target_node_id="commit", edge_type="handoff"),
+            TaskGraphEdgeDefinition(edge_id="edge.commit.batch_router", source_node_id="commit", target_node_id="batch_router", edge_type="handoff"),
+            TaskGraphEdgeDefinition(edge_id="edge.batch_router.volume_review", source_node_id="batch_router", target_node_id="volume_review", edge_type="handoff"),
+        ),
+    )
+    graph_config = build_graph_harness_config_from_graph(graph=graph)
+    runtime = _runtime_with_graph_harness(base_dir=backend_dir, runtime_root=tmp_path / "runtime_state")
+    loop = runtime.harness_runtime.graph_harness.graph_loop
+    started = runtime.harness_runtime.graph_harness.start_run(
+        session_id="session-test",
+        task_id="task.test.nested_cursor_reset",
+        graph_config=graph_config,
+        initial_inputs={},
+        dispatch_ready=True,
+    )
+
+    state = started.loop_state
+    order = started.node_work_orders[0]
+    while order.node_id != "batch_router":
+        advance = loop.accept_node_result(
+            graph_config=graph_config,
+            graph_run_id=state.graph_run_id,
+            result={
+                "result_id": f"nresult:{order.node_id}:{state.event_cursor}",
+                "graph_run_id": state.graph_run_id,
+                "task_run_id": state.task_run_id,
+                "node_id": order.node_id,
+                "work_order_id": order.work_order_id,
+                "outputs": {"unit_count": 1, "batch_words": 100},
+            },
+        )
+        state = advance.loop_state
+        order = advance.node_work_orders[0]
+
+    advance = loop.accept_node_result(
+        graph_config=graph_config,
+        graph_run_id=state.graph_run_id,
+        result={
+            "result_id": "nresult:batch_router:continue",
+            "graph_run_id": state.graph_run_id,
+            "task_run_id": state.task_run_id,
+            "node_id": order.node_id,
+            "work_order_id": order.work_order_id,
+            "outputs": {"batch_words": 100},
+        },
+    )
+
+    state = advance.loop_state
+    frames = state.loop_state["frames"]
+    assert state.initial_inputs["batch_start_index"] == 11
+    assert state.initial_inputs["batch_end_index"] == 20
+    assert state.initial_inputs["chapter_index"] == 11
+    assert frames["loop.chapter_batch"]["cursor"] == 11
+    assert frames["loop.chapter_batch"]["active_iteration_id"] == "chapter-batch-11"
+    assert frames["loop.chapter_unit"]["cursor"] == 11
+    assert frames["loop.chapter_unit"]["start"] == 11
+    assert frames["loop.chapter_unit"]["end"] == 20
+    assert frames["loop.chapter_unit"]["active_iteration_id"] == "chapter-11"
+    assert "loop.chapter_unit" not in state.loop_state.get("iteration_results", {})
+    assert advance.node_work_orders[0].node_id == "outline"
+
+
 def test_graph_harness_config_publication_preserves_formal_node_loop_contract() -> None:
     graph = TaskGraphDefinition(
         graph_id="graph.test.loop_publication",

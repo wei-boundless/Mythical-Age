@@ -18,11 +18,12 @@ from prompt_library.tool_prompts import tool_guidance_payload_for_visible_tools
 from artifact_system.artifact_authority import artifact_ref_value, dedupe_artifact_refs, model_visible_artifact_refs, normalize_artifact_ref
 from project_layout import ProjectLayout
 from runtime.model_gateway.protocol_sanitizer import sanitize_messages_for_prompt
+from runtime_objects.tool_result_storage import DEFAULT_PREVIEW_SIZE_BYTES, ToolResultStore
 from task_system.contracts.runtime_contracts import expand_selected_skill_bodies, render_skill_candidate_cards
 
 from .context_budget_policy import build_model_aware_context_budget_policy
 from .artifact_scope import runtime_artifact_scope_from_environment
-from .dynamic_context import DynamicContextInput, DynamicContextManager, DynamicContextProjection
+from .dynamic_context import DynamicContextInput, DynamicContextManager, DynamicContextProjection, dynamic_context_storage_root
 from .envelope import RuntimeEnvelope
 from .invocation_packet import RuntimeInvocationPacket
 from .environment_storage import ensure_environment_storage_dirs
@@ -38,6 +39,14 @@ _SUBAGENT_TOOL_NAMES = {
     "list_subagents",
     "close_subagent",
 }
+
+_PROVIDER_PROTOCOL_DEFAULT_MESSAGE_LIMIT = 12
+_PROVIDER_PROTOCOL_DEFAULT_CHAR_BUDGET = 24_000
+_PROVIDER_PROTOCOL_DEFAULT_MESSAGE_CHARS = 2_400
+_PROVIDER_PROTOCOL_REHYDRATION_NOTE = (
+    "Preview only. Do not rely on omitted content for exact claims, citations, line-level edits, "
+    "or final factual judgments; call read_persisted_tool_result first when exact omitted output matters."
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -387,6 +396,16 @@ class RuntimeCompiler:
         packet_id = f"rtpacket:{turn_id}:single_agent_turn:1"
         session_context_payload = dict(session_context or {})
         turn_input_facts = dict(session_context_payload.get("turn_input_facts") or {})
+        projection_policy = _dynamic_context_projection_policy(
+            invocation_kind="single_agent_turn",
+            model_selection=model_selection,
+            assembly_payload=assembly_payload,
+            overrides={
+                "agent_visible_runtime_projection": agent_visible_runtime_projection,
+                "operation_authorization": dict(assembly_payload.get("operation_authorization") or {}),
+                "active_work_context": dict(active_work_context or {}),
+            },
+        )
         dynamic_context = self.dynamic_context_manager.project(
             DynamicContextInput(
                 invocation_kind="single_agent_turn",
@@ -398,16 +417,7 @@ class RuntimeCompiler:
                 runtime_envelope=envelope.to_dict(),
                 current_user_message=str(user_message or ""),
                 editor_context=_editor_context_from_session_context(session_context_payload),
-                projection_policy=_dynamic_context_projection_policy(
-                    invocation_kind="single_agent_turn",
-                    model_selection=model_selection,
-                    assembly_payload=assembly_payload,
-                    overrides={
-                        "agent_visible_runtime_projection": agent_visible_runtime_projection,
-                        "operation_authorization": dict(assembly_payload.get("operation_authorization") or {}),
-                        "active_work_context": dict(active_work_context or {}),
-                    },
-                ),
+                projection_policy=projection_policy,
             )
         )
         dynamic_payload = dict(dynamic_context.dynamic_runtime_projection or {})
@@ -459,6 +469,9 @@ class RuntimeCompiler:
                 *_provider_protocol_message_specs(
                     session_context,
                     source_ref="single_agent_turn_api_transcript",
+                    projection_policy=projection_policy,
+                    storage_root=dynamic_context_storage_root(self.base_dir, assembly_payload) or self.base_dir,
+                    storage_run_id=session_id,
                 ),
                 _message_spec(
                     role="system",
@@ -691,6 +704,11 @@ class RuntimeCompiler:
             if graph_slot
             else {}
         )
+        graph_node_completion_prefix = _graph_node_completion_prefix(
+            graph_slot,
+            invocation_kind="task_execution",
+            allowed_action_types=("respond", "ask_user", "tool_call", "block"),
+        )
         artifact_execution_scope_payload = {"artifact_execution_scope": sandbox_execution_scope.to_model_visible_payload()}
         environment_stable_payload = {
             "task_environment": _environment_model_visible_payload(environment_payload),
@@ -879,6 +897,24 @@ class RuntimeCompiler:
                     compression_role="summarize",
                     metadata=_dynamic_context_segment_metadata(dynamic_context, source="task_state"),
                 ),
+                _message_spec(
+                    role="assistant",
+                    content=graph_node_completion_prefix,
+                    kind="graph_node_completion_prefix",
+                    source_ref="graph_node_completion_prefix",
+                    cache_scope="none",
+                    cache_role="volatile",
+                    compression_role="preserve",
+                    metadata={
+                        "completion_mode": "chat_prefix",
+                        "provider_protocol": "deepseek_chat_prefix_completion",
+                        "volatility_reason": "graph loop cursor and current unit heading vary per node execution",
+                        "cache_impact": "volatile_suffix_only",
+                    },
+                    prefix=True,
+                )
+                if graph_node_completion_prefix
+                else None,
             ],
             enforce_dynamic_context_reports=True,
         )
@@ -1039,6 +1075,15 @@ class RuntimeCompiler:
             **_project_instruction_model_payload(project_instruction_bundle),
         }
         packet_id = f"rtpacket:{turn_id}:tool_observation_followup:{len(observations) + 1}"
+        projection_policy = _dynamic_context_projection_policy(
+            invocation_kind="tool_observation_followup",
+            model_selection=model_selection,
+            assembly_payload=assembly_payload,
+            overrides={
+                "agent_visible_runtime_projection": agent_visible_runtime_projection,
+                "operation_authorization": dict(assembly_payload.get("operation_authorization") or {}),
+            },
+        )
         dynamic_context = self.dynamic_context_manager.project(
             DynamicContextInput(
                 invocation_kind="tool_observation_followup",
@@ -1051,15 +1096,7 @@ class RuntimeCompiler:
                 runtime_envelope=envelope.to_dict(),
                 current_user_message=str(user_message or ""),
                 editor_context=_editor_context_from_session_context(dict(session_context or {})),
-                projection_policy=_dynamic_context_projection_policy(
-                    invocation_kind="tool_observation_followup",
-                    model_selection=model_selection,
-                    assembly_payload=assembly_payload,
-                    overrides={
-                        "agent_visible_runtime_projection": agent_visible_runtime_projection,
-                        "operation_authorization": dict(assembly_payload.get("operation_authorization") or {}),
-                    },
-                ),
+                projection_policy=projection_policy,
             )
         )
         dynamic_payload = dict(dynamic_context.dynamic_runtime_projection or {})
@@ -1121,6 +1158,9 @@ class RuntimeCompiler:
                 *_provider_protocol_message_specs(
                     session_context,
                     source_ref="observation_followup_api_transcript",
+                    projection_policy=projection_policy,
+                    storage_root=dynamic_context_storage_root(self.base_dir, assembly_payload) or self.base_dir,
+                    storage_run_id=session_id,
                 ),
                 _message_spec(
                     role="system",
@@ -1671,8 +1711,9 @@ def _message_spec(
     cache_role: str,
     compression_role: str,
     metadata: dict[str, Any] | None = None,
+    prefix: bool = False,
 ) -> dict[str, Any]:
-    return {
+    payload = {
         "role": str(role or "user"),
         "content": str(content or ""),
         "kind": str(kind or "unknown_unplanned"),
@@ -1682,12 +1723,18 @@ def _message_spec(
         "compression_role": str(compression_role or "summarize"),
         "metadata": dict(metadata or {}),
     }
+    if prefix:
+        payload["prefix"] = True
+    return payload
 
 
 def _provider_protocol_message_specs(
     session_context: dict[str, Any] | None,
     *,
     source_ref: str,
+    projection_policy: dict[str, Any] | None = None,
+    storage_root: Path | None = None,
+    storage_run_id: str = "",
 ) -> list[dict[str, Any]]:
     payload = dict(session_context or {})
     if str(payload.get("compressed_context") or payload.get("compressed_summary") or "").strip():
@@ -1702,7 +1749,13 @@ def _provider_protocol_message_specs(
         source=source_ref,
     )
     raw_transcript = [dict(item) for item in protocol_sanitizer.messages]
-    transcript, protocol_truncated_count = _select_provider_protocol_replay(raw_transcript)
+    transcript, protocol_projection = _project_provider_protocol_replay(
+        raw_transcript,
+        projection_policy=projection_policy,
+        storage_root=storage_root,
+        storage_run_id=storage_run_id,
+    )
+    protocol_truncated_count = max(0, len(raw_transcript) - len(transcript))
     result: list[dict[str, Any]] = []
     for index, message in enumerate([item for item in transcript if item is not None], start=1):
         result.append(
@@ -1720,8 +1773,10 @@ def _provider_protocol_message_specs(
                     "provider_protocol_replay": True,
                     "protocol_truncated_count": protocol_truncated_count,
                     "protocol_sanitizer": dict(protocol_sanitizer.diagnostics),
+                    "protocol_projection": dict(protocol_projection),
                     "reasoning_content_present": bool(message.get("reasoning_content")),
                     "tool_calls_present": bool(message.get("tool_calls")),
+                    "exact_content_required_before_final": _provider_protocol_requires_rehydration(message),
                 },
                 "model_message": message,
             }
@@ -1732,11 +1787,131 @@ def _provider_protocol_message_specs(
 def _select_provider_protocol_replay(
     transcript: list[dict[str, Any]],
     *,
-    max_messages: int = 24,
-) -> tuple[list[dict[str, Any]], int]:
+    max_messages: int = _PROVIDER_PROTOCOL_DEFAULT_MESSAGE_LIMIT,
+) -> list[dict[str, Any]]:
     if len(transcript) <= max_messages:
-        return list(transcript), 0
+        return list(transcript)
     start = max(0, len(transcript) - max_messages)
+    start = _provider_protocol_start_with_tool_pairs(transcript, start)
+    return list(transcript[start:])
+
+
+def _project_provider_protocol_replay(
+    transcript: list[dict[str, Any]],
+    *,
+    projection_policy: dict[str, Any] | None,
+    storage_root: Path | None,
+    storage_run_id: str,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    policy = dict(projection_policy or {})
+    message_limit = _provider_protocol_message_limit(policy)
+    char_budget = _provider_protocol_char_budget(policy, message_limit=message_limit)
+    selected = _select_provider_protocol_replay(transcript, max_messages=message_limit)
+    projected, projection = _project_provider_protocol_messages(
+        selected,
+        projection_policy=policy,
+        storage_root=storage_root,
+        storage_run_id=storage_run_id,
+    )
+    budgeted = _select_provider_protocol_replay_by_char_budget(projected, max_chars=char_budget)
+    projection.update(
+        {
+            "authority": "harness.runtime.compiler.provider_protocol_projection",
+            "input_message_count": len(transcript),
+            "selected_message_limit": message_limit,
+            "char_budget": char_budget,
+            "selected_message_count": len(selected),
+            "replayed_message_count": len(budgeted),
+            "omitted_message_count": max(0, len(transcript) - len(budgeted)),
+            "input_chars": _provider_protocol_messages_chars(transcript),
+            "output_chars": _provider_protocol_messages_chars(budgeted),
+        }
+    )
+    return budgeted, _drop_empty_payload(projection)
+
+
+def _project_provider_protocol_messages(
+    transcript: list[dict[str, Any]],
+    *,
+    projection_policy: dict[str, Any],
+    storage_root: Path | None,
+    storage_run_id: str,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    tool_preview_chars = _provider_protocol_tool_preview_chars(projection_policy)
+    message_chars = _provider_protocol_message_chars_limit(projection_policy)
+    store = ToolResultStore(
+        storage_root or Path.cwd(),
+        run_id=storage_run_id or "session",
+        namespace="runtime_context",
+    )
+    projected: list[dict[str, Any]] = []
+    projected_tool_outputs = 0
+    persisted_replacements = 0
+    compacted_messages = 0
+    storage_errors = 0
+    for message in transcript:
+        item = dict(message)
+        role = str(item.get("role") or "")
+        content = str(item.get("content") or "")
+        if role == "tool" and content:
+            try:
+                budgeted, replacements = store.apply_budget(
+                    {"content": content},
+                    field_limit_bytes=tool_preview_chars,
+                    preview_size_bytes=tool_preview_chars,
+                    payload_budget_bytes=max(tool_preview_chars * 2, tool_preview_chars + 1000),
+                )
+            except Exception:
+                item["content"] = _provider_protocol_storage_unavailable_preview(
+                    content,
+                    preview_chars=tool_preview_chars,
+                )
+                storage_errors += 1
+                compacted_messages += 1
+            else:
+                if replacements:
+                    replacement_content = str(budgeted.get("content") or "")
+                    item["content"] = _with_provider_protocol_rehydration_note(replacement_content)
+                    projected_tool_outputs += 1
+                    persisted_replacements += len(replacements)
+        elif content and len(content) > message_chars:
+            item["content"] = _provider_protocol_bounded_message_preview(content, limit=message_chars)
+            compacted_messages += 1
+        projected.append(item)
+    return projected, _drop_empty_payload(
+        {
+            "tool_preview_chars": tool_preview_chars,
+            "message_chars": message_chars,
+            "projected_tool_output_count": projected_tool_outputs,
+            "persisted_tool_replacement_count": persisted_replacements,
+            "compacted_message_count": compacted_messages,
+            "storage_error_count": storage_errors,
+        }
+    )
+
+
+def _select_provider_protocol_replay_by_char_budget(
+    transcript: list[dict[str, Any]],
+    *,
+    max_chars: int,
+) -> list[dict[str, Any]]:
+    if not transcript or _provider_protocol_messages_chars(transcript) <= max_chars:
+        return list(transcript)
+    total = 0
+    start = len(transcript)
+    for index in range(len(transcript) - 1, -1, -1):
+        size = _provider_protocol_message_chars(transcript[index])
+        if start < len(transcript) and total + size > max_chars:
+            break
+        start = index
+        total += size
+    if start >= len(transcript):
+        start = max(0, len(transcript) - 1)
+    start = _provider_protocol_start_with_tool_pairs(transcript, start)
+    return list(transcript[start:])
+
+
+def _provider_protocol_start_with_tool_pairs(transcript: list[dict[str, Any]], start: int) -> int:
     selected = transcript[start:]
     required_tool_call_ids = {
         str(message.get("tool_call_id") or "").strip()
@@ -1745,13 +1920,96 @@ def _select_provider_protocol_replay(
     }
     if required_tool_call_ids:
         for index in range(start - 1, -1, -1):
-            message = transcript[index]
-            tool_calls = list(message.get("tool_calls") or []) if isinstance(message.get("tool_calls"), list) else []
-            call_ids = {str(call.get("id") or "").strip() for call in tool_calls if isinstance(call, dict)}
-            if call_ids.intersection(required_tool_call_ids):
+            call_ids = _assistant_tool_call_ids(transcript[index])
+            matched = call_ids.intersection(required_tool_call_ids)
+            if matched:
                 start = index
-                break
-    return list(transcript[start:]), start
+                required_tool_call_ids.difference_update(matched)
+                if not required_tool_call_ids:
+                    break
+    return start
+
+
+def _assistant_tool_call_ids(message: dict[str, Any]) -> set[str]:
+    if str(message.get("role") or "") != "assistant":
+        return set()
+    tool_calls = list(message.get("tool_calls") or []) if isinstance(message.get("tool_calls"), list) else []
+    return {str(call.get("id") or "").strip() for call in tool_calls if isinstance(call, dict) and str(call.get("id") or "").strip()}
+
+
+def _provider_protocol_message_limit(policy: dict[str, Any]) -> int:
+    explicit = policy.get("provider_protocol_message_limit")
+    if explicit not in (None, ""):
+        return _int_in_range(explicit, default=_PROVIDER_PROTOCOL_DEFAULT_MESSAGE_LIMIT, low=4, high=32)
+    recent_limit = _safe_int(policy.get("recent_history_message_limit"))
+    inferred = recent_limit // 12 if recent_limit else _PROVIDER_PROTOCOL_DEFAULT_MESSAGE_LIMIT
+    return _int_in_range(inferred, default=_PROVIDER_PROTOCOL_DEFAULT_MESSAGE_LIMIT, low=6, high=16)
+
+
+def _provider_protocol_char_budget(policy: dict[str, Any], *, message_limit: int) -> int:
+    explicit = policy.get("provider_protocol_char_budget")
+    if explicit not in (None, ""):
+        return _int_in_range(explicit, default=_PROVIDER_PROTOCOL_DEFAULT_CHAR_BUDGET, low=4_000, high=48_000)
+    inferred = max(4_000, int(message_limit or _PROVIDER_PROTOCOL_DEFAULT_MESSAGE_LIMIT) * 1_800)
+    return _int_in_range(inferred, default=_PROVIDER_PROTOCOL_DEFAULT_CHAR_BUDGET, low=6_000, high=24_000)
+
+
+def _provider_protocol_tool_preview_chars(policy: dict[str, Any]) -> int:
+    explicit = policy.get("provider_protocol_tool_result_preview_chars")
+    if explicit not in (None, ""):
+        return _int_in_range(explicit, default=DEFAULT_PREVIEW_SIZE_BYTES, low=600, high=6_000)
+    base = _safe_int(policy.get("tool_result_preview_chars")) or DEFAULT_PREVIEW_SIZE_BYTES
+    return _int_in_range(min(base, 3_000), default=DEFAULT_PREVIEW_SIZE_BYTES, low=800, high=3_000)
+
+
+def _provider_protocol_message_chars_limit(policy: dict[str, Any]) -> int:
+    explicit = policy.get("provider_protocol_message_chars")
+    if explicit not in (None, ""):
+        return _int_in_range(explicit, default=_PROVIDER_PROTOCOL_DEFAULT_MESSAGE_CHARS, low=600, high=8_000)
+    base = _safe_int(policy.get("history_message_chars")) or _PROVIDER_PROTOCOL_DEFAULT_MESSAGE_CHARS
+    return _int_in_range(min(base, _PROVIDER_PROTOCOL_DEFAULT_MESSAGE_CHARS), default=_PROVIDER_PROTOCOL_DEFAULT_MESSAGE_CHARS, low=800, high=4_000)
+
+
+def _provider_protocol_messages_chars(messages: list[dict[str, Any]]) -> int:
+    return sum(_provider_protocol_message_chars(message) for message in messages)
+
+
+def _provider_protocol_message_chars(message: dict[str, Any]) -> int:
+    return len(json.dumps(_json_stable(message), ensure_ascii=False, sort_keys=True, separators=(",", ":")))
+
+
+def _with_provider_protocol_rehydration_note(content: str) -> str:
+    text = str(content or "").strip()
+    if not text or _PROVIDER_PROTOCOL_REHYDRATION_NOTE in text:
+        return text
+    return f"{text}\n{_PROVIDER_PROTOCOL_REHYDRATION_NOTE}"
+
+
+def _provider_protocol_requires_rehydration(message: dict[str, Any]) -> bool:
+    content = str(message.get("content") or "")
+    return str(message.get("role") or "") == "tool" and "<persisted-output>" in content
+
+
+def _provider_protocol_storage_unavailable_preview(content: str, *, preview_chars: int) -> str:
+    preview = _compact_text(content, limit=max(120, int(preview_chars or DEFAULT_PREVIEW_SIZE_BYTES)))
+    return (
+        f"{preview}\n"
+        "[Provider protocol replay omitted the rest of this tool output; persisted storage was unavailable.]"
+    )
+
+
+def _provider_protocol_bounded_message_preview(content: str, *, limit: int) -> str:
+    preview = _compact_text(content, limit=max(120, int(limit or _PROVIDER_PROTOCOL_DEFAULT_MESSAGE_CHARS)))
+    omitted = max(0, len(str(content or "")) - len(preview))
+    return f"{preview}\n[Provider protocol replay omitted {omitted} char(s) from this older message.]"
+
+
+def _int_in_range(value: Any, *, default: int, low: int, high: int) -> int:
+    try:
+        parsed = int(value if value not in (None, "") else default)
+    except (TypeError, ValueError):
+        parsed = default
+    return max(int(low), min(int(high), parsed))
 
 
 def _model_messages_and_segment_plan(
@@ -1807,6 +2065,9 @@ def _model_message_from_spec(spec: dict[str, Any]) -> dict[str, Any]:
     ).strip()
     if reasoning_content:
         message["reasoning_content"] = reasoning_content
+    prefix = raw_message.get("prefix") if raw_message.get("prefix") is not None else spec.get("prefix")
+    if prefix is True or str(prefix or "").strip().lower() == "true":
+        message["prefix"] = True
     return message
 
 
@@ -2870,6 +3131,41 @@ def _graph_node_model_context_projection(graph_slot: dict[str, Any]) -> dict[str
             "authority": "harness.runtime.graph_node_model_context",
         }
     )
+
+
+def _graph_node_completion_prefix(
+    graph_slot: dict[str, Any],
+    *,
+    invocation_kind: str = "",
+    allowed_action_types: tuple[str, ...] = (),
+) -> str:
+    slot = dict(graph_slot or {})
+    if not slot:
+        return ""
+    node_contract = dict(slot.get("node_contract") or {})
+    completion_profile = dict(node_contract.get("completion_profile") or {})
+    if str(completion_profile.get("mode") or "").strip() != "chat_prefix":
+        return ""
+    allowed = {str(item or "").strip() for item in tuple(allowed_action_types or ()) if str(item or "").strip()}
+    if "model_response" not in allowed:
+        return ""
+    profile_invocation_kind = str(completion_profile.get("invocation_kind") or "").strip()
+    if profile_invocation_kind and profile_invocation_kind != str(invocation_kind or "").strip():
+        return ""
+    template = str(completion_profile.get("assistant_prefix_template") or "").strip()
+    if not template:
+        return ""
+    loop_contract = dict(slot.get("loop_contract") or {})
+    variables = dict(loop_contract.get("variables") or {})
+    try:
+        return template.format_map(_SafeFormatMap(variables))
+    except (KeyError, IndexError, ValueError):
+        return template
+
+
+class _SafeFormatMap(dict):
+    def __missing__(self, key: str) -> str:
+        return ""
 
 
 def _graph_node_stable_contract_context(graph_slot: dict[str, Any]) -> dict[str, Any]:

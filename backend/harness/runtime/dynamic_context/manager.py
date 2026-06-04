@@ -301,7 +301,7 @@ class DynamicContextManager:
     def _replacement_store_for_request(self, request: DynamicContextInput) -> tuple[ReplacementStore, Path]:
         if self._explicit_replacement_store:
             return self.replacement_store, self.base_dir
-        storage_root = _dynamic_context_storage_root(self.base_dir, dict(request.runtime_assembly or {}))
+        storage_root = dynamic_context_storage_root(self.base_dir, dict(request.runtime_assembly or {}))
         if storage_root is None:
             return self.replacement_store, self.base_dir
         try:
@@ -309,7 +309,7 @@ class DynamicContextManager:
         except Exception:
             return MemoryReplacementStore(), self.base_dir
 
-def _dynamic_context_storage_root(base_dir: Path, runtime_assembly: dict[str, Any]) -> Path | None:
+def dynamic_context_storage_root(base_dir: Path, runtime_assembly: dict[str, Any]) -> Path | None:
     environment = dict(runtime_assembly.get("task_environment") or {})
     storage = dict(environment.get("storage_space") or {})
     for key in ("runtime_state_root", "cache_root", "environment_storage_root"):

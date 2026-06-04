@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import base64
+import io
 import json
 import logging
 import os
@@ -32,6 +34,43 @@ def _clear_llm_env(monkeypatch: pytest.MonkeyPatch) -> None:
     )
     for name in env_names:
         monkeypatch.delenv(name, raising=False)
+
+
+class _ImageJsonResponse:
+    headers = {"content-type": "application/json"}
+
+    def __init__(self, status_code: int, payload: dict[str, object] | None = None, text: str = "") -> None:
+        self.status_code = status_code
+        self._payload = dict(payload or {})
+        self.text = text or json.dumps(self._payload, ensure_ascii=False)
+
+    def json(self):
+        return self._payload
+
+
+def _png_b64(width: int, height: int, color: tuple[int, int, int, int]) -> str:
+    from PIL import Image
+
+    source = io.BytesIO()
+    Image.new("RGBA", (width, height), color).save(source, format="PNG")
+    return base64.b64encode(source.getvalue()).decode("ascii")
+
+
+def _patch_image_http_client(monkeypatch: pytest.MonkeyPatch, handler):
+    class _Client:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        async def post(self, endpoint, headers=None, json=None):
+            return handler(str(endpoint), dict(json or {}))
+
+    monkeypatch.setattr("capability_system.capabilities.image_generation.image_asset_service.httpx.AsyncClient", _Client)
 
 
 @pytest.fixture(autouse=True)
@@ -383,6 +422,142 @@ def test_image_asset_generation_resizes_small_requested_size_locally(monkeypatch
     assert generated["bypass_sandbox_publish"] is True
     with Image.open(generated["file_path"]) as image:
         assert image.size == (128, 128)
+
+
+def test_image_asset_generation_falls_back_to_chat_completions_with_same_config(monkeypatch: pytest.MonkeyPatch) -> None:
+    import asyncio
+
+    from PIL import Image
+    from capability_system.capabilities.image_generation.image_asset_service import ImageAssetService
+
+    service = ImageAssetService(BACKEND_DIR)
+    monkeypatch.setenv("IMAGE_API_BASE_URL", "https://images.example.test/v1")
+    monkeypatch.setenv("IMAGE_MODEL", "gpt-image-2")
+    monkeypatch.setenv("IMAGE_API_KEY", "image-key")
+    calls: list[dict[str, object]] = []
+
+    def _handler(endpoint: str, payload: dict[str, object]) -> _ImageJsonResponse:
+        calls.append({"endpoint": endpoint, "payload": payload})
+        if endpoint.endswith("/images/generations"):
+            return _ImageJsonResponse(404, text="Cannot POST /v1/images/generations")
+        return _ImageJsonResponse(
+            200,
+            {
+                "choices": [{"message": {"content": json.dumps({"b64_json": _png_b64(96, 96, (20, 80, 160, 255))})}}],
+                "created": 1,
+                "model": "gpt-image-2",
+            },
+        )
+
+    _patch_image_http_client(monkeypatch, _handler)
+
+    generated = asyncio.run(
+        service.generate(
+            prompt="chat endpoint image",
+            target_id="chat-fallback-test",
+            asset_kind="chat",
+            size="1024x1024",
+            overwrite=True,
+        )
+    )
+
+    assert [str(call["endpoint"]).removeprefix("https://images.example.test/v1") for call in calls] == [
+        "/images/generations",
+        "/chat/completions",
+    ]
+    assert calls[0]["payload"]["model"] == "gpt-image-2"
+    assert calls[1]["payload"]["model"] == "gpt-image-2"
+    assert calls[1]["payload"]["messages"] == [{"role": "user", "content": "chat endpoint image"}]
+    assert generated["model"] == "gpt-image-2"
+    assert generated["path"].startswith("storage/generated/images/")
+    with Image.open(generated["file_path"]) as image:
+        assert image.size == (96, 96)
+
+
+def test_image_asset_generation_falls_back_to_chat_completions_when_group_image_endpoint_rejects_model(monkeypatch: pytest.MonkeyPatch) -> None:
+    import asyncio
+
+    from PIL import Image
+    from capability_system.capabilities.image_generation.image_asset_service import ImageAssetService
+
+    service = ImageAssetService(BACKEND_DIR)
+    monkeypatch.setenv("IMAGE_API_BASE_URL", "https://images.example.test/v1")
+    monkeypatch.setenv("IMAGE_MODEL", "gpt-image-2")
+    monkeypatch.setenv("IMAGE_API_KEY", "image-key")
+    calls: list[dict[str, object]] = []
+
+    def _handler(endpoint: str, payload: dict[str, object]) -> _ImageJsonResponse:
+        calls.append({"endpoint": endpoint, "payload": payload})
+        if endpoint.endswith("/images/generations"):
+            return _ImageJsonResponse(
+                403,
+                {"error": {"message": "组内未启用此模型: gpt-image-2", "type": "forbidden"}},
+            )
+        return _ImageJsonResponse(
+            200,
+            {
+                "choices": [{"message": {"content": json.dumps({"b64_json": _png_b64(80, 80, (120, 40, 20, 255))})}}],
+                "created": 1,
+                "model": "gpt-image-2",
+            },
+        )
+
+    _patch_image_http_client(monkeypatch, _handler)
+
+    generated = asyncio.run(
+        service.generate(
+            prompt="chat compatible image",
+            target_id="chat-compatible-403-fallback",
+            asset_kind="chat",
+            size="1024x1024",
+            overwrite=True,
+        )
+    )
+
+    assert [str(call["endpoint"]).removeprefix("https://images.example.test/v1") for call in calls] == [
+        "/images/generations",
+        "/chat/completions",
+    ]
+    assert calls[0]["payload"]["model"] == "gpt-image-2"
+    assert calls[1]["payload"]["model"] == "gpt-image-2"
+    assert generated["model"] == "gpt-image-2"
+    with Image.open(generated["file_path"]) as image:
+        assert image.size == (80, 80)
+
+
+def test_image_asset_generation_does_not_fallback_to_chat_on_account_or_channel_403(monkeypatch: pytest.MonkeyPatch) -> None:
+    import asyncio
+
+    from capability_system.capabilities.image_generation.image_asset_service import ImageAssetError, ImageAssetService
+
+    service = ImageAssetService(BACKEND_DIR)
+    monkeypatch.setenv("IMAGE_API_BASE_URL", "https://images.example.test/v1")
+    monkeypatch.setenv("IMAGE_MODEL", "gpt-image-2")
+    monkeypatch.setenv("IMAGE_API_KEY", "image-key")
+    calls: list[str] = []
+
+    def _handler(endpoint: str, payload: dict[str, object]) -> _ImageJsonResponse:
+        calls.append(endpoint.removeprefix("https://images.example.test/v1"))
+        return _ImageJsonResponse(
+            403,
+            {"error": {"message": "Insufficient account balance for image channel", "type": "forbidden"}},
+        )
+
+    _patch_image_http_client(monkeypatch, _handler)
+
+    with pytest.raises(ImageAssetError) as exc_info:
+        asyncio.run(
+            service.generate(
+                prompt="provider unavailable",
+                target_id="no-chat-fallback-403",
+                asset_kind="chat",
+                size="1024x1024",
+                overwrite=True,
+            )
+        )
+
+    assert calls == ["/images/generations"]
+    assert "Insufficient account balance" in str(exc_info.value)
 
 
 def test_image_asset_generation_uses_output_size_for_local_resize(monkeypatch: pytest.MonkeyPatch) -> None:

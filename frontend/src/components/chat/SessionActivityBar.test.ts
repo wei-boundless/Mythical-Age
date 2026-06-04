@@ -49,4 +49,23 @@ describe("SessionActivityBar", () => {
     expect(html).toContain("无法创建会话");
     expect(html).not.toContain("会话连接失败");
   });
+
+  it("uses a static running indicator instead of a spinner", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(SessionActivityBar, {
+        active: true,
+        activity: {
+          level: "running",
+          title: "正在处理",
+          detail: "正在同步当前处理进展。",
+          event: "runtime_live_monitor",
+          updatedAt: 1,
+        },
+      }),
+    );
+
+    expect(html).toContain("正在处理");
+    expect(html).not.toContain("session-activity-bar__spin");
+    expect(html).not.toContain("animate-spin");
+  });
 });

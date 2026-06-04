@@ -252,8 +252,10 @@ describe("ChatMessage", () => {
       }),
     );
 
-    expect(html).toContain("开局反馈");
     expect(html).toContain("我先确认现有输出链路");
+    expect(html.match(/我先确认现有输出链路/g)?.length ?? 0).toBe(1);
+    expect(html).not.toContain("开局反馈");
+    expect(html).not.toContain("assistant-output-signal");
     expect(html).not.toContain("public-run-activity");
     expect(html).not.toContain("正在思考");
   });
@@ -278,10 +280,11 @@ describe("ChatMessage", () => {
       }),
     );
 
-    expect(html).toContain("开局反馈");
     expect(html).toContain("我先确认项目约定和协作边界");
     expect(html).toContain("确认项目约定和协作边界");
     expect(html).toContain("正在读取 langchain-agent/AGENTS.md");
+    expect(html).not.toContain("开局反馈");
+    expect(html).not.toContain("assistant-output-signal");
     expect(html).not.toContain("正在思考");
   });
 

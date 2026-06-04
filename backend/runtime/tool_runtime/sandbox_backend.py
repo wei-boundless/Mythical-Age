@@ -34,6 +34,42 @@ FIXED_STORE_TOOL_NAMES = {"image_generate"}
 OVERLAY_COPY_ON_WRITE_TOOL_NAMES = {"edit_file"}
 OVERLAY_COPY_ON_READ_TOOL_NAMES = {"read_file", "read_structured_file", "stat_path", "path_exists"}
 OVERLAY_MATERIALIZE_BEFORE_TOOL_NAMES = {"terminal", "python_repl", "glob_paths", "search_files", "search_text", "list_dir"}
+FULL_WORKSPACE_SNAPSHOT_TOOL_NAMES = {"terminal", "python_repl"}
+DEFAULT_FULL_WORKSPACE_EXCLUDED_DIR_NAMES = {
+    ".cache",
+    ".git",
+    ".gradle",
+    ".hg",
+    ".mypy_cache",
+    ".next",
+    ".pytest_cache",
+    ".ruff_cache",
+    ".svn",
+    ".turbo",
+    ".venv",
+    "__pycache__",
+    "build",
+    "coverage",
+    "dist",
+    "env",
+    "node_modules",
+    "target",
+    "venv",
+}
+DEFAULT_FULL_WORKSPACE_EXCLUDED_FILE_NAMES = {
+    ".env",
+    ".env.local",
+    ".env.production",
+    ".env.development",
+    "id_rsa",
+    "id_dsa",
+}
+DEFAULT_FULL_WORKSPACE_EXCLUDED_FILE_SUFFIXES = {
+    ".key",
+    ".pem",
+    ".p12",
+    ".pfx",
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -110,8 +146,11 @@ class LocalOverlaySandboxBackend:
         if not context.overlay_copy_on_write:
             return
         effective_tool_name = str(tool_name or "").strip()
+        requested_roots = _requested_materialized_roots(context, effective_tool_name, tool_args)
+        if _requires_full_workspace_snapshot(context, effective_tool_name):
+            requested_roots = (".", *requested_roots)
         if effective_tool_name in OVERLAY_MATERIALIZE_BEFORE_TOOL_NAMES:
-            self._materialize_roots(context, requested_roots=_requested_materialized_roots(context, effective_tool_name, tool_args))
+            self._materialize_roots(context, requested_roots=requested_roots)
         if effective_tool_name not in OVERLAY_COPY_ON_WRITE_TOOL_NAMES and effective_tool_name not in OVERLAY_COPY_ON_READ_TOOL_NAMES:
             return
         relative_path = normalize_relative_path(tool_args.get("path"))
@@ -146,12 +185,16 @@ class LocalOverlaySandboxBackend:
             if not source.exists():
                 continue
             if source.is_file():
+                if _should_skip_workspace_file(source, root=context.workspace_root, context=context):
+                    continue
                 if target.exists():
                     continue
                 target.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(source, target)
                 continue
             for child in source.rglob("*"):
+                if _should_skip_workspace_path(child, root=context.workspace_root, context=context):
+                    continue
                 if not child.is_file():
                     continue
                 relative = child.resolve().relative_to(source).as_posix()
@@ -194,6 +237,44 @@ def _materialized_roots(context: SandboxToolContext, *, requested_roots: tuple[s
         if normalize_relative_path(item)
     ]
     return tuple(dict.fromkeys(roots))
+
+
+def _requires_full_workspace_snapshot(context: SandboxToolContext, tool_name: str) -> bool:
+    if context.mode != "workspace_overlay":
+        return False
+    if tool_name not in FULL_WORKSPACE_SNAPSHOT_TOOL_NAMES:
+        return False
+    return context.workspace_root is not None
+
+
+def _should_skip_workspace_path(path: Path, *, root: Path, context: SandboxToolContext) -> bool:
+    if _is_inside(path.resolve(), context.sandbox_root.resolve()):
+        return True
+    try:
+        relative = path.resolve().relative_to(root.resolve())
+    except ValueError:
+        return True
+    if any(part in DEFAULT_FULL_WORKSPACE_EXCLUDED_DIR_NAMES for part in relative.parts):
+        return True
+    if path.is_file() and _should_skip_workspace_file(path, root=root, context=context):
+        return True
+    return False
+
+
+def _should_skip_workspace_file(path: Path, *, root: Path, context: SandboxToolContext) -> bool:
+    if _is_inside(path.resolve(), context.sandbox_root.resolve()):
+        return True
+    try:
+        relative = path.resolve().relative_to(root.resolve())
+    except ValueError:
+        return True
+    name = path.name
+    lowered_name = name.lower()
+    if lowered_name == ".env" or lowered_name.startswith(".env."):
+        return True
+    if name in DEFAULT_FULL_WORKSPACE_EXCLUDED_FILE_NAMES or lowered_name in DEFAULT_FULL_WORKSPACE_EXCLUDED_FILE_NAMES:
+        return True
+    return any(lowered_name.endswith(suffix) for suffix in DEFAULT_FULL_WORKSPACE_EXCLUDED_FILE_SUFFIXES)
 
 
 def _requested_materialized_roots(context: SandboxToolContext, tool_name: str, tool_args: dict[str, Any]) -> tuple[str, ...]:

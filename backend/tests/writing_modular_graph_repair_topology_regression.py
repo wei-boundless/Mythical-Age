@@ -165,6 +165,7 @@ def test_chapter_batch_and_unit_loops_use_separate_cursor_authorities() -> None:
     initial_inputs = module._chapter_initial_graph_loop_inputs()
     derived_fields = module._chapter_loop_derived_fields()
     progress_policy = module._chapter_progress_route_policy_static()
+    unit_policy = module._chapter_unit_route_policy_static()
 
     assert initial_inputs["batch_start_index"] == 1
     assert initial_inputs["chapter_index"] == 1
@@ -180,7 +181,21 @@ def test_chapter_batch_and_unit_loops_use_separate_cursor_authorities() -> None:
     assert frames["loop.chapter_batch"]["iteration_identity_template"] == "chapter-batch-{batch_start_index}"
 
     assert {"key": "batch_start_index", "op": "copy", "from_key": "chapter_index"} not in derived_fields
-    assert {"key": "chapter_index", "op": "copy", "from_key": "batch_start_index"} in progress_policy["patch_rules"]
+    assert {"key": "chapter_index", "op": "copy", "from_key": "batch_start_index"} not in derived_fields
+    assert unit_policy["mode"] == "progress_receipt"
+    assert unit_policy["progress_receipt_key"] == "chapter_progress_receipt"
+    assert unit_policy["receipt_source_node_ids"] == ["chapter_unit_router"]
+    assert unit_policy["receipt_complete_key"] == "batch_complete"
+    assert {"source_key": "next_chapter_index", "target_key": "chapter_index", "apply_on": ["continue"]} in unit_policy["receipt_to_input_mappings"]
+    assert unit_policy["current_key"] == "chapter_index"
+    assert unit_policy["target_key"] == "batch_end_index"
+    assert unit_policy["patch_rules"] == []
+    assert progress_policy["patch_rules"] == []
+    assert {"key": "chapter_index", "op": "copy", "from_key": "batch_start_index"} not in progress_policy["derived_fields"]
+
+    unit_router = {node.node_id: node for node in module.CHAPTER_NODES}["chapter_unit_router"]
+    assert unit_router.progress_receipt_policy["progress_receipt_key"] == "chapter_progress_receipt"
+    assert "harness.writing.chapter_progress_receipt" in unit_router.prompt
 
 
 def test_memory_commit_uses_reviewed_batch_assembly_as_source_candidate() -> None:
@@ -261,12 +276,13 @@ def test_batch_assemble_contract_remains_semantic_assembler_not_rewriter() -> No
 
     prompt = node_by_id["chapter_batch_assemble"].prompt
 
-    assert "只负责把当前批次内已经完成的单章正文按章号顺序汇总成十章候选稿" in prompt
-    assert "不能扩写、改写或重排单章正文" in prompt
+    assert "只负责把当前批次内已经完成的单章正文按章号顺序整理成可审核的引用索引和连续性交接包" in prompt
+    assert "不能扩写、改写、重排或复制整章正文" in prompt
     assert "缺少某一章、章号不连续、标题与当前章号不符、上一章结尾无法承接下一章开头" in prompt
     assert "不能用自己补写来掩盖" in prompt
     assert "替审核员裁决通过" in prompt
-    assert "完整汇总稿必须放入 final_answer" in prompt
+    assert "不要在本节点复制十章全文" in prompt
+    assert "完整交接包必须放入 final_answer" in prompt
     assert "运行时会按图节点执行协议解析你的 action JSON" in prompt
     assert "必须填写 public_progress_note" not in prompt
     assert "必须填写 public_action_state" not in prompt

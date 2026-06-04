@@ -638,6 +638,40 @@ def test_public_stream_projection_emits_live_tool_admission_delta() -> None:
     assert item["public_summary"] == "正在更新文件 artifacts/football.html"
 
 
+def test_public_stream_projection_simplifies_image_generation_tool() -> None:
+    projected = _project_public_stream_event(
+        "model_action_admission",
+        {
+            "type": "model_action_admission",
+            "event": {
+                "event_id": "rtevt:image-tool-admission",
+                "payload": {
+                    "model_action_request": {
+                        "action_type": "tool_call",
+                        "public_progress_note": "已发起工具调用，正在等待工具返回：image_generate。",
+                        "tool_call": {
+                            "name": "image_generate",
+                            "args": {
+                                "prompt": "hero concept art",
+                            },
+                        },
+                    },
+                },
+            },
+        },
+    )
+
+    assert projected is not None
+    _, data = projected
+    visible = json.dumps(data["public_timeline_delta"], ensure_ascii=False)
+    item = data["public_timeline_delta"][0]
+    assert item["kind"] == "work_action"
+    assert item["action_kind"] == "image"
+    assert item["public_summary"] == "正在生成图像"
+    assert "image_generate" not in visible
+    assert "正在等待工具返回" not in visible
+
+
 def test_public_stream_projection_emits_live_tool_result_delta() -> None:
     projected = _project_public_stream_event(
         "turn_tool_observation_recorded",

@@ -77,20 +77,7 @@ export function ChatMessage({
   const displayContent = isUser
     ? baseDisplayContent
     : assistantContentFromTimeline(baseDisplayContent, publicTimelineItems);
-  const stableAssistantAnswer = !isUser && hasStableAssistantAnswer({
-    answerCanonicalState,
-    answerChannel,
-    answerPersistPolicy,
-    content: baseDisplayContent,
-  });
   const hasRunActivity = !isUser && hasPublicRunActivity(publicTimelineItems, displayContent);
-  const assistantSignal = !isUser && !stableAssistantAnswer
-    ? assistantSignalFromTimeline({
-      baseContent: baseDisplayContent,
-      displayContent,
-      items: publicTimelineItems,
-    })
-    : null;
   const legacyTaskContractReceipt = !isUser && isLegacyTaskContractReceipt({ content, answerChannel, answerSource });
   const hideLegacyTaskContractReceipt = legacyTaskContractReceipt && hasRunActivity;
   const boundary = {
@@ -107,7 +94,7 @@ export function ChatMessage({
     isUser
     || Boolean(image?.src)
     || imageUnavailable
-    || (!hideLegacyTaskContractReceipt && (Boolean(displayContent.trim()) || (!hasRunActivity && !assistantSignal)));
+    || (!hideLegacyTaskContractReceipt && (Boolean(displayContent.trim()) || !hasRunActivity));
   const copyableReplyText = !isUser && shouldRenderContent ? displayContent.trim() : "";
   const draftValue = draft.trim();
   const sendEditDisabled = submittingEdit || !canEdit || !draftValue;
@@ -171,7 +158,6 @@ export function ChatMessage({
         </button>
       ) : null}
       {!isUser && <RetrievalCard results={retrievals} />}
-      {assistantSignal ? <AssistantOutputSignal signal={assistantSignal} /> : null}
       {shouldRenderContent ? (
         <div className={isUser ? "chat-message-shell__content whitespace-pre-wrap leading-7" : "chat-message-shell__content markdown"}>
           {!isUser && copyableReplyText ? (
@@ -257,39 +243,6 @@ export function ChatMessage({
   );
 }
 
-type AssistantOutputSignalView = {
-  label: string;
-  text: string;
-  tone: "thinking" | "done" | "error";
-};
-
-function AssistantOutputSignal({ signal }: { signal: AssistantOutputSignalView }) {
-  const Icon = signal.tone === "done" ? CircleCheck : Sparkles;
-  return (
-    <div className={`assistant-output-signal assistant-output-signal--${signal.tone}`} aria-label="当前判断">
-      <span className="assistant-output-signal__icon" aria-hidden="true">
-        <Icon size={14} />
-      </span>
-      <span className="assistant-output-signal__copy">
-        <span>{signal.label}</span>
-        <strong>{signal.text}</strong>
-      </span>
-    </div>
-  );
-}
-
-function assistantSignalFromTimeline({
-  baseContent,
-  displayContent,
-  items,
-}: {
-  baseContent: string;
-  displayContent: string;
-  items: PublicChatTimelineItem[];
-}): AssistantOutputSignalView | null {
-  return agentOpeningSignalFromTimeline(items, { baseContent, displayContent });
-}
-
 function editFailureMessage(error: unknown) {
   const message = error instanceof Error ? error.message.trim() : String(error ?? "").trim();
   return message || "改写没有发送成功。";
@@ -327,6 +280,10 @@ function assistantContentFromTimeline(content: string, items: PublicChatTimeline
   if (normalized) {
     return content;
   }
+  const opening = agentOpeningSignalFromTimeline(items, { baseContent: content, displayContent: content });
+  if (opening?.text) {
+    return opening.text;
+  }
   const feedback = [...items].reverse().find((item) => String(item.kind || "").trim() === "assistant_text");
   const text = cleanBoundaryText(feedback?.text || feedback?.detail || feedback?.title);
   return text || content;
@@ -334,25 +291,6 @@ function assistantContentFromTimeline(content: string, items: PublicChatTimeline
 
 function cleanBoundaryText(value: unknown) {
   return cleanRunText(value);
-}
-
-function hasStableAssistantAnswer({
-  answerCanonicalState,
-  answerChannel,
-  answerPersistPolicy,
-  content,
-}: {
-  answerCanonicalState?: string;
-  answerChannel?: string;
-  answerPersistPolicy?: string;
-  content: string;
-}) {
-  if (!cleanBoundaryText(content)) return false;
-  const state = cleanBoundaryText(answerCanonicalState).toLowerCase();
-  const channel = cleanBoundaryText(answerChannel).toLowerCase();
-  const persist = cleanBoundaryText(answerPersistPolicy).toLowerCase();
-  if (channel === "blocked" || channel === "task_control") return false;
-  return state === "stable_answer" || state === "tool_summary" || persist === "persist_canonical";
 }
 
 function boundaryLabel(state: string, persistPolicy: string, channel: string) {

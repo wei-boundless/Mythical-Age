@@ -60,6 +60,24 @@ const FRONTEND_EDITOR_CONTEXT_TEXT_LIMIT = 12000;
 const GRAPH_ONLY_TASK_ENVIRONMENT_IDS = new Set(["env.creation.writing"]);
 const CODE_TASK_ENVIRONMENT_IDS = new Set([CODING_TASK_ENVIRONMENT_ID, "env.development.sandbox"]);
 
+function recoveredChatRunMessage(streamRunId: string, cursor: ChatStreamCursor | null): PublicChatTimelineItem {
+  return {
+    item_id: `stream-restore:${streamRunId}`,
+    kind: "assistant_text",
+    text: cursor
+      ? "我正在接回刚才的运行，已经拿到上次进度，继续同步后续结果。"
+      : "我找到这个会话里仍在运行的任务，正在同步已有进度。",
+    state: "running",
+    stream_state: "streaming",
+  };
+}
+
+function recoveredChatRunActivityDetail(cursor: ChatStreamCursor | null) {
+  return cursor
+    ? "已拿到上次进度，继续同步后续结果。"
+    : "正在同步这个会话里仍在运行的进度。";
+}
+
 function sessionTaskEnvironmentId(session: SessionSummary) {
   return String(
     session.scope?.task_environment_id
@@ -610,7 +628,7 @@ export class WorkspaceRuntime {
         currentBySourceIndex.set(message.sourceIndex, message);
       }
     }
-    return refreshedMessages.map((message) => {
+    const refreshedWithMergedProgress = refreshedMessages.map((message) => {
       if (message.role !== "assistant" || message.sourceIndex === undefined) {
         return message;
       }
@@ -637,6 +655,51 @@ export class WorkspaceRuntime {
         stageStatus: message.stageStatus ?? current.stageStatus,
       };
     });
+    const refreshedSourceIndexes = new Set(
+      refreshedWithMergedProgress
+        .map((message) => message.sourceIndex)
+        .filter((sourceIndex): sourceIndex is number => sourceIndex !== undefined),
+    );
+    const localSteerReceipts = currentMessages.filter((message) =>
+      this.isLocalActiveTurnSteerReceipt(message)
+      && (message.sourceIndex === undefined || !refreshedSourceIndexes.has(message.sourceIndex))
+      && !this.hasEquivalentActiveTurnSteerReceipt(refreshedWithMergedProgress, message)
+    );
+    return localSteerReceipts.length
+      ? [...refreshedWithMergedProgress, ...localSteerReceipts]
+      : refreshedWithMergedProgress;
+  }
+
+  private isLocalActiveTurnSteerReceipt(message: Message) {
+    return message.role === "assistant"
+      && Boolean(message.runtimePublicTimelineDraft?.some((item) =>
+        String(item.item_id || "").startsWith("active-turn-steer-local:")
+      ));
+  }
+
+  private hasEquivalentActiveTurnSteerReceipt(messages: Message[], receipt: Message) {
+    const receiptText = this.activeTurnSteerReceiptText(receipt);
+    if (!receiptText) {
+      return false;
+    }
+    return messages.some((message) =>
+      message.role === "assistant"
+      && this.activeTurnSteerReceiptText(message) === receiptText
+    );
+  }
+
+  private activeTurnSteerReceiptText(message: Message) {
+    const content = message.content.trim();
+    if (content) {
+      return content;
+    }
+    for (const item of message.runtimePublicTimelineDraft ?? []) {
+      const text = String(item.text || item.detail || item.title || "").trim();
+      if (text) {
+        return text;
+      }
+    }
+    return "";
   }
 
   private mergeMessageRuntimeProgress(
@@ -1281,7 +1344,7 @@ export class WorkspaceRuntime {
     }
     this.recoveringStreamSessionIds.add(sessionId);
     try {
-      const cursor = readChatStreamCursor(sessionId);
+      let cursor = readChatStreamCursor(sessionId);
       let streamRunId = cursor?.streamRunId || "";
       if (streamRunId) {
         const cursorRun = await getChatRun(streamRunId).catch(() => null);
@@ -1291,9 +1354,11 @@ export class WorkspaceRuntime {
           || cursorRun.is_reconnectable === false
         ) {
           clearChatStreamCursor(sessionId);
+          cursor = null;
           streamRunId = "";
         } else if (this.chatRunCursorAlreadyReachedTerminal(cursorRun, cursor)) {
           clearChatStreamCursor(sessionId);
+          cursor = null;
           await this.refreshSessionDetails(sessionId).catch(() => undefined);
           return false;
         } else {
@@ -1371,6 +1436,8 @@ export class WorkspaceRuntime {
     const activeStreamSessionIds = this.store.getState().activeStreamSessionIds.includes(sessionId)
       ? this.store.getState().activeStreamSessionIds
       : [...this.store.getState().activeStreamSessionIds, sessionId];
+    const recoveryMessage = recoveredChatRunMessage(streamRunId, cursor);
+    const recoveryActivityDetail = recoveredChatRunActivityDetail(cursor);
     let streamState: StoreState = {
       ...this.store.getState(),
       messages: [
@@ -1382,7 +1449,8 @@ export class WorkspaceRuntime {
           toolCalls: [],
           retrievals: [],
           runtimeProgress: [],
-          stageStatus: "正在重新连接",
+          runtimePublicTimelineDraft: [recoveryMessage],
+          stageStatus: "接回当前运行",
           sourceIndex,
         }
       ],
@@ -1391,13 +1459,13 @@ export class WorkspaceRuntime {
       isStreaming: activeStreamSessionIds.length > 0,
       sessionActivity: {
         level: "running",
-        title: "正在重新连接",
-        detail: "正在挂回当前运行并回放进度。",
+        title: "接回当前运行",
+        detail: recoveryActivityDetail,
         event: "stream_restore_started",
         receipt: {
           level: "running",
-          title: "正在重新连接",
-          body: "正在挂回当前运行并回放进度。",
+          title: "接回当前运行",
+          body: recoveryActivityDetail,
           debug: { event: "stream_restore_started" },
         },
         updatedAt: Date.now(),
@@ -1604,7 +1672,7 @@ export class WorkspaceRuntime {
         messages: transition.state.messages.map((message) =>
           transition.session.userId && message.id === transition.session.userId
             ? { ...message, sourceIndex: nextSourceIndex }
-            : !transition.session.queueOnly && transition.session.assistantId && message.id === transition.session.assistantId
+            : transition.session.assistantId && message.id === transition.session.assistantId
               ? { ...message, sourceIndex: nextSourceIndex + 1 }
             : message
         )
@@ -3093,6 +3161,51 @@ export class WorkspaceRuntime {
     };
   }
 
+  private publicTimelineStatusItemFromMonitor(monitor: HarnessSessionMonitor, taskRunId: string): PublicChatTimelineItem | null {
+    const taskRun = this.harnessMonitorTaskRun(monitor);
+    const status = String(monitor.status ?? taskRun.status ?? "").trim().toLowerCase();
+    const lifecycle = String((monitor as Record<string, unknown>).lifecycle ?? taskRun.lifecycle ?? "").trim().toLowerCase();
+    const bucket = String((monitor as Record<string, unknown>).bucket ?? taskRun.bucket ?? "").trim().toLowerCase();
+    const stale = Boolean((monitor as Record<string, unknown>).stale ?? taskRun.stale);
+    const controlState = this.runtimeControlState(monitor).trim().toLowerCase();
+    const staleOrDiagnostic = stale || lifecycle === "stale" || bucket === "diagnostics";
+
+    let title = "";
+    let detail = "";
+    if (controlState === "paused") {
+      title = "已暂停";
+      detail = "当前处理已停在可继续状态，可以直接继续。";
+    } else if (status === "waiting_executor") {
+      title = "等待继续";
+      detail = staleOrDiagnostic
+        ? "当前任务已停在等待队列，最近没有新的运行动作；继续后会接上现有进度。"
+        : "当前任务已进入等待队列，继续后会接上现有进度。";
+    } else if (status === "waiting_approval") {
+      title = "等待确认";
+      detail = "需要确认后继续执行。";
+    } else if (status === "blocked") {
+      title = "等待调整";
+      detail = "当前处理受阻，需要调整条件后继续。";
+    } else if (staleOrDiagnostic) {
+      title = "等待继续";
+      detail = "最近没有新的运行动作，继续后会接上现有进度。";
+    } else {
+      return null;
+    }
+
+    return {
+      item_id: `live:${taskRunId}:monitor-status`,
+      kind: "status_update",
+      phase: "waiting",
+      title,
+      detail,
+      text: detail,
+      state: "waiting",
+      stream_state: "done",
+      trace_refs: [taskRunId].filter(Boolean),
+    };
+  }
+
   private publicTimelineKindFromProgressKind(kind: string) {
     if (kind === "model") return "assistant_text";
     if (kind === "tool" || kind === "observation") return "work_action";
@@ -3146,6 +3259,7 @@ export class WorkspaceRuntime {
     const raw = rawText.trim().toLowerCase();
     if (kind === "verification" || /\b(npm\s+test|pnpm\s+test|yarn\s+test|vitest|pytest|ruff|mypy|tsc|eslint)\b/.test(raw)) return "verify";
     if (normalizedTool === "memory_search" || /记忆|memory_search/.test(raw)) return "memory";
+    if (["image_generate", "image_generation", "generate_image", "image_asset"].includes(normalizedTool)) return "image";
     if (/\b(new-item|mkdir)\b/.test(raw)) return "prepare";
     if (/read|读取/.test(normalizedTool)) return "read";
     if (/search|grep|glob|搜索|检索/.test(normalizedTool)) return "search";
@@ -3166,6 +3280,7 @@ export class WorkspaceRuntime {
       return "输出准备";
     }
     if (actionKind === "memory") return "相关记忆";
+    if (actionKind === "image") return "";
     return "";
   }
 
@@ -3176,10 +3291,11 @@ export class WorkspaceRuntime {
       inspect: ["正在确认目标", "已确认目标", "确认目标需调整"],
       memory: ["正在检索相关记忆", "记忆检索已返回", "记忆检索需调整"],
       prepare: ["正在准备输出", "输出准备完成", "输出准备需调整"],
+      image: ["正在生成图像", "图像已生成", "图像生成需调整"],
       read: ["正在读取上下文", "已读取上下文", "读取上下文需调整"],
       search: ["正在搜索引用", "已搜索引用", "搜索方式需调整"],
       verify: ["正在运行验证", "验证已返回", "验证需调整"],
-      work: ["正在推进当前步骤", "结果已返回", "步骤需调整"],
+      work: ["正在处理任务", "结果已返回", "步骤需调整"],
     };
     return (labels[actionKind] ?? labels.work)[phase];
   }
@@ -3197,6 +3313,7 @@ export class WorkspaceRuntime {
     if (actionKind === "verify") return "观察：验证已返回，需要根据结果判断是否继续修正。";
     if (actionKind === "memory") return "观察：记忆检索已返回，下一步会纳入判断。";
     if (actionKind === "prepare") return "观察：输出准备已确认，可以继续推进。";
+    if (actionKind === "image") return "观察：图像生成已返回，下一步会确认产物是否可用。";
     return subject ? `观察：${subject} 已返回，我会据此推进下一步。` : "观察：结果已返回，继续根据结果推进下一步。";
   }
 
@@ -3630,6 +3747,8 @@ export class WorkspaceRuntime {
     }
     const latestProgressEntry = this.runtimeProgressEntryFromMonitor(monitor, taskRunId);
     const publicItem = this.publicTimelineItemFromRuntimeProgressEntry(latestProgressEntry);
+    const monitorStatusItem = this.publicTimelineStatusItemFromMonitor(monitor, taskRunId);
+    const publicTimelineItems = [publicItem, monitorStatusItem].filter((item): item is PublicChatTimelineItem => Boolean(item));
     const attachment: SessionRuntimeAttachment = {
       attachment_id: `runtime-attachment:${taskRunId}`,
       run_id: taskRunId,
@@ -3647,7 +3766,7 @@ export class WorkspaceRuntime {
       latest_event_type: String((monitor.latest_event as Record<string, unknown> | undefined)?.event_type ?? ""),
       event_count: Number(monitor.event_count ?? 0),
       progress_entries: latestProgressEntry ? [latestProgressEntry] : [],
-      public_timeline: publicItem ? [publicItem] : [],
+      public_timeline: publicTimelineItems,
       artifact_refs: Array.isArray(monitor.artifact_refs) ? monitor.artifact_refs : [],
       trace_available: true,
       debug_trace_ref: taskRunId,

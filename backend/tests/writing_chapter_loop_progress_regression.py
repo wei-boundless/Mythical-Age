@@ -224,6 +224,162 @@ def test_chapter_progress_receipt_route_blocks_when_receipt_missing(tmp_path: Pa
     assert advance.node_work_orders == ()
 
 
+def test_chapter_unit_receipt_route_advances_only_from_router_receipt(tmp_path: Path) -> None:
+    graph = TaskGraphDefinition(
+        graph_id="graph.test.writing_chapter_unit_receipt_loop",
+        title="Writing Chapter Unit Receipt Loop",
+        graph_kind="coordination",
+        publish_state="published",
+        enabled=True,
+        entry_node_id="chapter_draft",
+        output_node_id="chapter_batch_assemble",
+        runtime_policy={"coordinator_agent_id": "agent:0"},
+        loop_frames=(
+            {
+                "frame_id": "loop.chapter_unit",
+                "scope_id": "loop.chapter_unit",
+                "entry_node_id": "chapter_draft",
+                "router_node_id": "chapter_unit_router",
+                "continue_node_id": "chapter_draft",
+                "exit_node_id": "chapter_batch_assemble",
+                "cursor_key": "chapter_index",
+                "start_key": "batch_start_index",
+                "end_key": "batch_end_index",
+                "step": 1,
+                "iteration_identity_template": "chapter-{chapter_index}",
+                "initial_inputs": {"volume_index": 1, "chapter_index": 1, "batch_start_index": 1, "batch_end_index": 2},
+            },
+        ),
+        nodes=(
+            TaskGraphNodeDefinition(
+                node_id="chapter_draft",
+                node_type="agent",
+                title="Draft",
+                task_id="task.test.chapter.draft",
+                agent_id="agent:0",
+                loop={"scope_id": "loop.chapter_unit"},
+            ),
+            TaskGraphNodeDefinition(
+                node_id="chapter_unit_router",
+                node_type="agent",
+                title="Unit Router",
+                task_id="task.test.chapter.unit_router",
+                agent_id="agent:0",
+                metadata={"progress_receipt_policy": {"progress_receipt_key": "chapter_progress_receipt"}},
+                loop={
+                    "scope_id": "loop.chapter_unit",
+                    "route_policy": {
+                        "mode": "progress_receipt",
+                        "scope_id": "loop.chapter_unit",
+                        "continue_node_id": "chapter_draft",
+                        "exit_node_id": "chapter_batch_assemble",
+                        "progress_receipt_key": "chapter_progress_receipt",
+                        "receipt_source_node_ids": ["chapter_unit_router"],
+                        "receipt_complete_key": "batch_complete",
+                        "receipt_to_input_mappings": [
+                            {"source_key": "next_chapter_index", "target_key": "chapter_index", "apply_on": ["continue"]},
+                            {"source_key": "batch_start_index", "target_key": "batch_start_index"},
+                            {"source_key": "batch_end_index", "target_key": "batch_end_index"},
+                        ],
+                        "current_key": "chapter_index",
+                        "target_key": "batch_end_index",
+                    },
+                },
+            ),
+            TaskGraphNodeDefinition(
+                node_id="chapter_batch_assemble",
+                node_type="agent",
+                title="Assemble",
+                task_id="task.test.chapter.assemble",
+                agent_id="agent:0",
+            ),
+        ),
+        edges=(
+            TaskGraphEdgeDefinition(edge_id="edge.draft.router", source_node_id="chapter_draft", target_node_id="chapter_unit_router", edge_type="handoff"),
+            TaskGraphEdgeDefinition(edge_id="edge.router.assemble", source_node_id="chapter_unit_router", target_node_id="chapter_batch_assemble", edge_type="handoff"),
+        ),
+    )
+    graph_config = build_graph_harness_config_from_graph(graph=graph)
+    runtime = _runtime_with_graph_harness(base_dir=tmp_path / "backend", runtime_root=tmp_path / "runtime_state")
+    loop = runtime.harness_runtime.graph_harness.graph_loop
+    started = runtime.harness_runtime.graph_harness.start_run(
+        session_id="session",
+        task_id="task.test",
+        graph_config=graph_config,
+        initial_inputs={},
+        dispatch_ready=True,
+    )
+    state = started.loop_state
+    order = started.node_work_orders[0]
+    assert order.node_id == "chapter_draft"
+
+    advance = _accept(loop, graph_config, state, order, {"draft": "第1章正文"})
+    state = advance.loop_state
+    order = advance.node_work_orders[0]
+    assert order.node_id == "chapter_unit_router"
+
+    advance = _accept(
+        loop,
+        graph_config,
+        state,
+        order,
+        {
+            "chapter_progress_receipt": {
+                "authority": "harness.writing.chapter_progress_receipt",
+                "volume_index": 1,
+                "batch_start_index": 1,
+                "batch_end_index": 2,
+                "expected_chapter_indexes": [1, 2],
+                "committed_chapter_indexes": [1],
+                "missing_chapter_indexes": [2],
+                "unexpected_chapter_indexes": [],
+                "committed_words": 2200,
+                "next_chapter_index": 2,
+                "batch_complete": False,
+                "volume_complete": False,
+                "commit_allowed": True,
+            }
+        },
+    )
+    state = advance.loop_state
+    order = advance.node_work_orders[0]
+    assert order.node_id == "chapter_draft"
+    assert state.initial_inputs["chapter_index"] == 2
+
+    advance = _accept(loop, graph_config, state, order, {"draft": "第2章正文"})
+    state = advance.loop_state
+    order = advance.node_work_orders[0]
+    assert order.node_id == "chapter_unit_router"
+
+    advance = _accept(
+        loop,
+        graph_config,
+        state,
+        order,
+        {
+            "chapter_progress_receipt": {
+                "authority": "harness.writing.chapter_progress_receipt",
+                "volume_index": 1,
+                "batch_start_index": 1,
+                "batch_end_index": 2,
+                "expected_chapter_indexes": [1, 2],
+                "committed_chapter_indexes": [1, 2],
+                "missing_chapter_indexes": [],
+                "unexpected_chapter_indexes": [],
+                "committed_words": 4300,
+                "next_chapter_index": 3,
+                "batch_complete": True,
+                "volume_complete": False,
+                "commit_allowed": True,
+            }
+        },
+    )
+
+    assert advance.node_work_orders[0].node_id == "chapter_batch_assemble"
+    assert advance.loop_state.initial_inputs["chapter_index"] == 2
+    assert [item["action"] for item in advance.loop_state.loop_state["route_history"]] == ["continue", "exit"]
+
+
 def test_progress_receipt_route_uses_explicit_source_over_router_output(tmp_path: Path) -> None:
     runtime = _runtime_with_graph_harness(base_dir=tmp_path / "backend", runtime_root=tmp_path / "runtime_state")
     graph_config = _chapter_loop_config()

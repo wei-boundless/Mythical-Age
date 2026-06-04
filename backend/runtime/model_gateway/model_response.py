@@ -871,6 +871,30 @@ def _copy_model_spec(model_spec: Any, updates: dict[str, Any]) -> Any:
             return replace(model_spec, **updates)
         except TypeError:
             pass
+    if isinstance(model_spec, dict):
+        payload = {
+            key: model_spec.get(key)
+            for key in (
+                "provider",
+                "model",
+                "api_key",
+                "base_url",
+                "max_output_tokens",
+                "timeout_seconds",
+                "long_output_timeout_seconds",
+                "max_retries",
+                "temperature",
+                "thinking_mode",
+                "reasoning_effort",
+                "stream_policy",
+                "completion_profile",
+                "source_chain",
+                "diagnostics",
+            )
+            if key in model_spec
+        }
+        payload.update(updates)
+        return SimpleNamespace(**payload)
     payload = {
         key: getattr(model_spec, key)
         for key in (
@@ -886,6 +910,7 @@ def _copy_model_spec(model_spec: Any, updates: dict[str, Any]) -> Any:
             "thinking_mode",
             "reasoning_effort",
             "stream_policy",
+            "completion_profile",
             "source_chain",
             "diagnostics",
         )

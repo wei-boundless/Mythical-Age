@@ -57,6 +57,37 @@ describe("PublicRunActivity", () => {
     expect(html).not.toContain("工具已完成");
   });
 
+  it("shows a stopped turn instead of the last failed tool observation", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(PublicRunActivity, {
+        items: [
+          {
+            item_id: "tool:read:error",
+            kind: "tool_activity",
+            action_kind: "read",
+            title: "读取失败",
+            observation: "Read failed: start_line 900 exceeds total_lines 872",
+            state: "error",
+          },
+          {
+            item_id: "stream:stopped",
+            kind: "status_update",
+            title: "已停止本轮生成",
+            detail: "你已停止本轮生成，当前运行不会继续推进。",
+            state: "stopped",
+            phase: "stopped",
+          },
+        ],
+      }),
+    );
+
+    expect(html).toContain("已停止本轮生成");
+    expect(html).toContain("已停止");
+    expect(html).not.toContain("需要调整");
+    expect(html).not.toContain("调整中");
+    expect(html).not.toContain("Read failed");
+  });
+
   it("renders public tool activity as compact assistant-side rows", () => {
     const html = renderToStaticMarkup(
       React.createElement(PublicRunActivity, {
@@ -243,7 +274,7 @@ describe("PublicRunActivity", () => {
     expect(hasPublicRunActivity(attachments[0].public_timeline ?? [])).toBe(false);
   });
 
-  it("keeps the active action prominent while retaining recent readable observations", () => {
+  it("keeps only the active action visible while a run is moving", () => {
     const html = renderToStaticMarkup(
       React.createElement(PublicRunActivity, {
         items: [
@@ -257,21 +288,23 @@ describe("PublicRunActivity", () => {
       }),
     );
 
-    expect(html).toContain("执行中");
     expect(html).toContain("正在运行验证 前端测试");
+    expect(html).not.toContain("执行中");
+    expect(html).not.toContain("实时");
     expect(html).not.toContain("较早的 1 条进展已收起");
     expect(html).not.toContain("已完成 3 步");
     expect(html).not.toContain("处理已开始");
     expect(html).not.toContain("读取项目结构");
-    expect(html).toContain("已确认目标");
-    expect(html).toContain("已搜索引用 入口组件");
-    expect(html).toContain("样式文件");
+    expect(html).not.toContain("已确认目标");
+    expect(html).not.toContain("已搜索引用 入口组件");
+    expect(html).not.toContain("样式文件");
     expect(html).toContain("运行验证");
     expect(html).not.toContain("npm test");
+    expect(html).not.toContain("public-run-activity__row--history");
     expect(html).not.toContain("public-run-activity__row--current");
   });
 
-  it("dedupes repeated file reads and keeps them as quiet context for the current search", () => {
+  it("dedupes repeated file reads and does not stack them under the current search", () => {
     const html = renderToStaticMarkup(
       React.createElement(PublicRunActivity, {
         items: [
@@ -310,11 +343,12 @@ describe("PublicRunActivity", () => {
     );
 
     expect(html).not.toContain("前面已完成");
-    expect(html).toContain("已读取上下文 artifacts/game.html");
-    expect(html).toContain("观察：关键上下文已拿到");
+    expect(html).not.toContain("已读取上下文 artifacts/game.html");
+    expect(html).not.toContain("观察：关键上下文已拿到");
     expect(html).toContain("正在搜索");
     expect(html).not.toContain("function attack");
     expect(html.match(/storage/g)?.length ?? 0).toBe(0);
+    expect(html).not.toContain("public-run-activity__row--history");
     expect(html).not.toContain("public-run-activity__row--current");
   });
 
@@ -426,11 +460,66 @@ describe("PublicRunActivity", () => {
       }),
     );
 
-    expect(html).toContain("正在推进当前步骤 artifacts/football.html");
+    expect(html).toContain("正在处理 artifacts/football.html");
     expect(html).not.toContain("执行动作");
     expect(html).not.toContain("正在正在");
     expect(html).not.toContain("正在调用工具");
+    expect(html).not.toContain("正在推进当前步骤");
     expect(html).not.toContain("storage/task_environments/general/workspace/artifacts/football.html");
+  });
+
+  it("renders image generation tools as simple user-facing steps", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(PublicRunActivity, {
+        items: [
+          {
+            item_id: "tool:image",
+            kind: "tool_activity",
+            title: "正在调用 image_generate",
+            state: "running",
+            stream_state: "streaming",
+          },
+        ],
+      }),
+    );
+
+    expect(html).toContain("正在生成图像");
+    expect(html).not.toContain("image_generate");
+    expect(html).not.toContain("正在调用");
+    expect(html).not.toContain("正在推进当前步骤");
+  });
+
+  it("shows monitor waiting status over a stale running tool action", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(PublicRunActivity, {
+        items: [
+          {
+            item_id: "tool:image",
+            kind: "work_action",
+            action_kind: "image",
+            public_summary: "正在生成图像",
+            state: "running",
+            stream_state: "streaming",
+          },
+          {
+            item_id: "live:taskrun:monitor-status",
+            kind: "status_update",
+            title: "等待继续",
+            detail: "当前任务已停在等待队列，继续后会接上现有进度。",
+            state: "waiting",
+            phase: "waiting",
+            stream_state: "done",
+          },
+        ],
+      }),
+    );
+
+    expect(html).toContain("等待继续");
+    expect(html).toContain("当前任务已停在等待队列");
+    expect(html).toContain("等待");
+    expect(html).not.toContain("执行中");
+    expect(html).not.toContain("正在生成图像");
+    expect(html).not.toContain("public-run-activity--error");
   });
 
   it("renders memory search as meaningful work instead of a blank generic step", () => {
