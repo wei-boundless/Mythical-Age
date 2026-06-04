@@ -3089,8 +3089,8 @@ def test_session_runtime_timeline_projects_tool_observation_as_agent_visible_obs
         {"label": "计划动作", "value": "降低并发后继续生成资源。"},
     ]
     assert any(
-        item.get("kind") == "assistant_text"
-        and item.get("title") == "重试生成主角美术图片，调整参数避免超时。"
+        item.get("kind") == "opening_judgment"
+        and item.get("text") == "重试生成主角美术图片，调整参数避免超时。"
         for item in public_timeline
     )
     assert any(

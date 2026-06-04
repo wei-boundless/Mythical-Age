@@ -5,6 +5,7 @@ from hashlib import sha1
 from typing import Any
 
 from harness.runtime.progress_presenter import build_progress_presentation
+from harness.runtime.public_execution_state import build_public_execution_state
 from harness.runtime.public_chat_timeline import build_public_chat_timeline
 from harness.runtime.public_projection_filters import should_hide_public_tool_observation
 from harness.runtime.public_progress import public_runtime_progress_summary, public_runtime_progress_title
@@ -66,8 +67,17 @@ def _runtime_attachment(runtime_host: Any, task_run: Any, *, history_messages: l
     anchor_turn_id = _anchor_turn_id(task_run_id=task_run_id, diagnostics=diagnostics, events=events)
     anchor_message = _anchor_assistant_message(anchor_turn_id=anchor_turn_id, history_messages=history_messages)
     assistant_text = str(anchor_message.get("content") or "") if anchor_message else ""
+    public_execution_state = build_public_execution_state(
+        events=events,
+        progress_presentation=progress_presentation,
+        final_answer=final_answer,
+        artifact_refs=artifact_refs,
+        status=str(getattr(task_run, "status", "") or ""),
+        assistant_text=assistant_text,
+    )
     public_timeline = build_public_chat_timeline(
         progress_presentation=progress_presentation,
+        public_execution_state=public_execution_state,
         final_answer=final_answer,
         artifact_refs=artifact_refs,
         status=str(getattr(task_run, "status", "") or ""),
@@ -92,6 +102,7 @@ def _runtime_attachment(runtime_host: Any, task_run: Any, *, history_messages: l
         "latest_step_summary": public_runtime_progress_summary(monitor.get("latest_step_summary") or ""),
         "latest_event_type": str(monitor.get("latest_event_type") or ""),
         "event_count": _event_count(runtime_host, task_run_id, fallback=len(events)),
+        "public_execution_state": public_execution_state,
         "progress_presentation": progress_presentation,
         "progress_entries": progress_entries,
         "public_timeline": public_timeline,

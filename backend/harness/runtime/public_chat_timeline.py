@@ -3,6 +3,7 @@ from __future__ import annotations
 from hashlib import sha1
 from typing import Any
 
+from harness.runtime.public_execution_state import public_todo_plan_item
 from harness.runtime.public_progress import public_runtime_progress_summary
 
 
@@ -37,6 +38,7 @@ _SUPPRESSED_EVENT_TOKENS = {
 def build_public_chat_timeline(
     *,
     progress_presentation: dict[str, Any] | None,
+    public_execution_state: dict[str, Any] | None = None,
     final_answer: str = "",
     artifact_refs: list[Any] | None = None,
     status: str = "",
@@ -46,16 +48,27 @@ def build_public_chat_timeline(
     presentation = dict(progress_presentation or {})
     mission = _record(presentation.get("mission"))
     units = [item for item in presentation.get("work_units") or [] if isinstance(item, dict)]
+    execution = _record(public_execution_state)
+    observations_by_unit_id = _execution_observations_by_unit(execution)
     items: list[dict[str, Any]] = []
     seen: set[str] = set()
 
+    opening = _execution_opening_item(execution)
+    if opening:
+        _append_item(items, seen, opening)
+    todo = _execution_todo_item(execution)
+    if todo:
+        _append_item(items, seen, todo)
+
     for unit in units:
-        feedback = _agent_feedback_item_from_work_unit(unit)
+        feedback = {} if opening else _agent_feedback_item_from_work_unit(unit)
         if feedback:
             _append_item(items, seen, feedback)
         item = _item_from_work_unit(unit)
         if item:
             _append_item(items, seen, item)
+        for report in observations_by_unit_id.get(_text(unit.get("unit_id")), []):
+            _append_item(items, seen, report)
 
     for artifact in list(artifact_refs or []):
         item = _item_from_artifact(artifact)
@@ -73,6 +86,7 @@ def build_public_chat_timeline(
 
     closeout = _final_summary_item(
         mission=mission,
+        execution=execution,
         final_answer=final_answer,
         assistant_text=assistant_text,
         status=status,
@@ -83,12 +97,57 @@ def build_public_chat_timeline(
     return items
 
 
+def _execution_opening_item(execution: dict[str, Any]) -> dict[str, Any]:
+    opening = _record(execution.get("opening"))
+    text = _visible_text(opening.get("text"), limit=220)
+    if not text:
+        return {}
+    refs = _trace_refs(opening)
+    return _compact(
+        {
+            "item_id": _stable_id("opening", refs, text, ""),
+            "kind": "opening_judgment",
+            "title": "开局判断",
+            "text": text,
+            "state": _public_state(opening.get("state")),
+            "trace_refs": refs,
+        }
+    )
+
+
+def _execution_todo_item(execution: dict[str, Any]) -> dict[str, Any]:
+    return public_todo_plan_item(_record(execution.get("todo_plan")))
+
+
+def _execution_observations_by_unit(execution: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
+    result: dict[str, list[dict[str, Any]]] = {}
+    for raw in list(execution.get("observations") or []):
+        item = _record(raw)
+        unit_id = _text(item.get("unit_id"))
+        detail = _visible_text(item.get("detail"), limit=220)
+        if not unit_id or not detail:
+            continue
+        refs = _trace_refs(item)
+        public_item = _compact(
+            {
+                "item_id": _text(item.get("item_id")) or _stable_id("observation", refs, unit_id, detail),
+                "kind": "observation_report",
+                "title": _visible_text(item.get("title"), limit=80) or "观察报告",
+                "detail": detail,
+                "implication": _visible_text(item.get("implication"), limit=180),
+                "state": _public_state(item.get("state")),
+                "trace_refs": refs,
+            }
+        )
+        result.setdefault(unit_id, []).append(public_item)
+    return result
+
+
 def _item_from_work_unit(unit: dict[str, Any]) -> dict[str, Any]:
     title = _visible_text(unit.get("title"), limit=80)
-    detail = _visible_text(
-        _first_evidence_summary(unit),
-        limit=180,
-    )
+    evidence_detail = _visible_text(_first_evidence_summary(unit), limit=180)
+    action_detail = _visible_text(unit.get("action"), limit=180)
+    detail = (action_detail or evidence_detail) if _is_tool_like(unit) else evidence_detail
     if not title and not detail:
         return {}
     if _looks_internal(title) or _looks_internal(detail):
@@ -147,8 +206,9 @@ def _agent_feedback_item_from_work_unit(unit: dict[str, Any]) -> dict[str, Any]:
     return _compact(
         {
             "item_id": _stable_id("agent-feedback", refs, text, _text(unit.get("unit_id"))),
-            "kind": "assistant_text",
-            "title": text,
+            "kind": "opening_judgment",
+            "title": "开局判断",
+            "text": text,
             "state": _public_state(unit.get("state")),
             "trace_refs": refs,
         }
@@ -184,6 +244,7 @@ def _blocked_item(
 def _final_summary_item(
     *,
     mission: dict[str, Any],
+    execution: dict[str, Any],
     final_answer: str,
     assistant_text: str,
     status: str,
@@ -191,15 +252,20 @@ def _final_summary_item(
     state = _text(mission.get("state") or status).lower()
     if state not in {"completed", "success", "done"}:
         return {}
-    text = _visible_text(final_answer or mission.get("closeout_summary") or mission.get("current_action"), limit=420)
+    execution_final = _record(execution.get("final_summary"))
+    text = _visible_text(execution_final.get("text") or final_answer or mission.get("closeout_summary") or mission.get("current_action"), limit=420)
     if not text or _same_public_text(text, assistant_text):
         return {}
+    verified = [_visible_text(item, limit=140) for item in list(execution_final.get("verified") or [])]
+    artifacts = [_visible_text(item, limit=180) for item in list(execution_final.get("artifacts") or [])]
     return _compact(
         {
             "item_id": _stable_id("final", [], text, ""),
             "kind": "final_summary",
             "text": text,
             "state": "done",
+            "verified": [item for item in verified if item][:4],
+            "artifacts": [{"label": "产物", "path": item} for item in artifacts if item][:6],
         }
     )
 

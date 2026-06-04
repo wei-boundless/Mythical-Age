@@ -227,6 +227,32 @@ describe("ChatMessage", () => {
     expect(html.indexOf("我先检查当前目录和关键文件")).toBeLessThan(html.indexOf("运行验证"));
   });
 
+  it("renders an explicit opening judgment even before activity rows exist", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(ChatMessage, {
+        content: "",
+        id: "message:opening-only",
+        retrievals: [],
+        role: "assistant",
+        runtimePublicTimelineDraft: [
+          {
+            item_id: "opening:1",
+            kind: "opening_judgment",
+            title: "开局判断",
+            text: "我先确认现有输出链路，再改公开反馈状态。",
+            state: "running",
+          },
+        ],
+        toolCalls: [],
+      }),
+    );
+
+    expect(html).toContain("开局判断");
+    expect(html).toContain("我先确认现有输出链路");
+    expect(html).not.toContain("public-run-activity");
+    expect(html).not.toContain("正在思考");
+  });
+
   it("shows an opening judgment when a run starts with tool activity but no assistant text", () => {
     const html = renderToStaticMarkup(
       React.createElement(ChatMessage, {

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import time
 from typing import Any
 
@@ -161,8 +162,12 @@ class RuntimeMonitorActionService:
 
     async def _delete_record(self, *, payload: dict[str, Any], signal: dict[str, Any] | None) -> dict[str, Any]:
         task_run_id = _task_run_id(payload=payload, signal=signal)
+        manager = TaskRecordLifecycleManager(self.runtime)
         try:
-            return await TaskRecordLifecycleManager(self.runtime).delete_task_record(task_run_id)
+            task_run, deletion_mark = await manager.prepare_single_task_record_deletion(
+                task_run_id,
+                cancel_timeout_seconds=1.0,
+            )
         except TaskRecordLifecycleNotFound:
             return {"error": "task_run_not_found", "task_run_id": task_run_id}
         except TaskRecordLifecycleConflict as exc:
@@ -171,6 +176,50 @@ class RuntimeMonitorActionService:
                 "task_run_id": exc.task_run_id,
                 "graph_run_id": exc.graph_run_id,
             }
+        signal_id = _signal_id(payload=payload, signal=signal) or task_run_id
+        hidden = self.monitor_service.retention_store.hide_signal(
+            signal_id=signal_id,
+            task_run_id=task_run_id,
+            graph_run_id=_graph_run_id(payload=payload, signal=signal),
+            reason="delete_record_queued",
+            hidden_by="user",
+            source_revision=str(payload.get("source_revision") or ""),
+        )
+        cleanup_name = f"runtime-monitor-delete-record:{task_run_id}"
+        cleanup_queued = False
+        if not _background_task_running(self.host, cleanup_name):
+            self._spawn_background_cleanup(
+                self._cleanup_task_record(manager=manager, task_run=task_run),
+                name=cleanup_name,
+            )
+            cleanup_queued = True
+        return {
+            "authority": "runtime_monitor.actions.delete_record",
+            "mode": "queued_cleanup",
+            "task_run_id": task_run_id,
+            "deleted": False,
+            "cleanup_queued": cleanup_queued,
+            "cleanup_task_name": cleanup_name,
+            "hidden": hidden,
+            "deletion_mark": deletion_mark,
+        }
+
+    async def _cleanup_task_record(self, *, manager: TaskRecordLifecycleManager, task_run: Any) -> dict[str, Any]:
+        try:
+            return await asyncio.to_thread(manager.cleanup_single_task_record, task_run)
+        except Exception as exc:
+            return {
+                "authority": "runtime_monitor.actions.delete_record.cleanup",
+                "task_run_id": str(getattr(task_run, "task_run_id", "") or ""),
+                "error": str(exc),
+            }
+
+    def _spawn_background_cleanup(self, coro: Any, *, name: str) -> None:
+        spawner = getattr(self.host, "spawn_background_task", None)
+        if callable(spawner):
+            spawner(coro, name=name)
+            return
+        asyncio.create_task(coro, name=name)
 
     def _pause_task(self, *, payload: dict[str, Any], signal: dict[str, Any] | None) -> dict[str, Any]:
         task_run_id = _task_run_id(payload=payload, signal=signal)
@@ -265,3 +314,11 @@ def _receipt(*, action: str, accepted: bool, mode: str, reason: str = "") -> dic
         "reason": reason,
         "created_at": time.time(),
     }
+
+
+def _background_task_running(host: Any, name: str) -> bool:
+    tasks_by_name = getattr(host, "_background_tasks_by_name", {})
+    if not isinstance(tasks_by_name, dict):
+        return False
+    tasks = tasks_by_name.get(name, set())
+    return any(not getattr(task, "done", lambda: True)() for task in list(tasks or []))

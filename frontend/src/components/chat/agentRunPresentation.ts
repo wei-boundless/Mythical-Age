@@ -65,7 +65,11 @@ export function agentOpeningSignalFromTimeline(
   items: PublicChatTimelineItem[],
   options: { baseContent?: string; displayContent?: string } = {},
 ): AgentOpeningSignal | null {
-  const assistantItem = [...items].reverse().find((item) => cleanRunText(item.kind) === "assistant_text");
+  const assistantItem = [...items].reverse().find((item) => {
+    const kind = cleanRunText(item.kind);
+    return kind === "opening_judgment" || kind === "assistant_text";
+  });
+  const sourceKind = cleanRunText(assistantItem?.kind);
   const candidateText = cleanRunText(assistantItem?.text || assistantItem?.detail || assistantItem?.title);
   const baseText = cleanRunText(options.baseContent);
   const displayText = cleanRunText(options.displayContent);
@@ -87,7 +91,9 @@ export function agentOpeningSignalFromTimeline(
       : "thinking";
   return {
     label: directText
-      ? tone === "error" ? "需要判断" : tone === "done" ? "判断完成" : "当前判断"
+      ? sourceKind === "opening_judgment"
+        ? tone === "error" ? "开局受阻" : tone === "done" ? "判断完成" : "开局判断"
+        : tone === "error" ? "需要判断" : tone === "done" ? "判断完成" : "当前判断"
       : tone === "error" ? "需要处理" : tone === "done" ? "判断完成" : "开局判断",
     text,
     tone,
@@ -97,7 +103,7 @@ export function agentOpeningSignalFromTimeline(
 function openingFallbackItem(items: PublicChatTimelineItem[]) {
   const actionableItems = items.filter((item) => {
     const kind = cleanRunText(item.kind);
-    return kind && kind !== "assistant_text" && kind !== "final_summary";
+    return kind && kind !== "assistant_text" && kind !== "opening_judgment" && kind !== "final_summary";
   });
   return [...actionableItems].reverse().find((item) => {
     const state = cleanRunText(item.state).toLowerCase();

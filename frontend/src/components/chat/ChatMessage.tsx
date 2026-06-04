@@ -78,7 +78,7 @@ export function ChatMessage({
     ? baseDisplayContent
     : assistantContentFromTimeline(baseDisplayContent, publicTimelineItems);
   const hasRunActivity = !isUser && hasPublicRunActivity(publicTimelineItems, displayContent);
-  const assistantSignal = !isUser && hasRunActivity
+  const assistantSignal = !isUser
     ? assistantSignalFromTimeline({
       baseContent: baseDisplayContent,
       displayContent,
@@ -101,7 +101,7 @@ export function ChatMessage({
     isUser
     || Boolean(image?.src)
     || imageUnavailable
-    || (!hideLegacyTaskContractReceipt && (Boolean(displayContent.trim()) || !hasRunActivity));
+    || (!hideLegacyTaskContractReceipt && (Boolean(displayContent.trim()) || (!hasRunActivity && !assistantSignal)));
   const copyableReplyText = !isUser && shouldRenderContent ? displayContent.trim() : "";
   const draftValue = draft.trim();
   const sendEditDisabled = submittingEdit || !canEdit || !draftValue;

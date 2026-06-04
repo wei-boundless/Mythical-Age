@@ -5,6 +5,7 @@ from types import SimpleNamespace
 
 from harness.runtime.progress_presenter import build_progress_presentation
 from harness.runtime.public_chat_timeline import build_public_chat_timeline
+from harness.runtime.public_execution_state import build_public_execution_state
 from harness.runtime.public_progress import public_runtime_progress_summary
 
 
@@ -502,9 +503,105 @@ def test_agent_feedback_survives_tool_activity_projection() -> None:
     presentation = build_progress_presentation(events=events, task_run=_task_run(), monitor={})
     timeline = build_public_chat_timeline(progress_presentation=presentation, status="running")
 
-    assert [item["kind"] for item in timeline] == ["assistant_text", "tool_activity"]
-    assert timeline[0]["title"] == "我先检查文件写入权限和可用路径，然后创建游戏文件。"
+    assert [item["kind"] for item in timeline] == ["opening_judgment", "tool_activity"]
+    assert timeline[0]["title"] == "开局判断"
+    assert timeline[0]["text"] == "我先检查文件写入权限和可用路径，然后创建游戏文件。"
     assert timeline[1]["title"] == "检查路径信息"
+
+
+def test_public_execution_state_recovers_agent_todo_as_public_plan() -> None:
+    todo_result = json.dumps(
+        {
+            "status": "ok",
+            "plan_id": "agent-todo:session:task",
+            "active_item_id": "read",
+            "completion_ready": False,
+            "items": [
+                {"todo_id": "inspect", "content": "确认现有事件投影链路", "status": "completed"},
+                {"todo_id": "read", "content": "持久化 todo 到会话公开状态", "active_form": "正在持久化 todo 状态", "status": "in_progress"},
+                {"todo_id": "summary", "content": "优化最终总结", "status": "pending"},
+            ],
+        },
+        ensure_ascii=False,
+    )
+    events = [
+        {
+            "event_id": "rtevt:todo",
+            "run_id": "taskrun:turn:session-progress:1:abc",
+            "event_type": "agent_todo_initialized",
+            "offset": 1,
+            "created_at": 1.0,
+            "payload": {
+                "observation": {
+                    "source": "system:agent_todo",
+                    "summary": todo_result,
+                    "payload": {"result": todo_result},
+                }
+            },
+            "refs": {},
+        }
+    ]
+
+    state = build_public_execution_state(events=events, progress_presentation={}, status="running")
+    timeline = build_public_chat_timeline(
+        progress_presentation={},
+        public_execution_state=state,
+        status="running",
+    )
+
+    assert state["todo_plan"]["active_item_id"] == "read"
+    assert timeline == [
+        {
+            "item_id": timeline[0]["item_id"],
+            "kind": "todo_plan",
+            "title": "处理清单",
+            "detail": "1/3 已完成",
+            "state": "running",
+            "todo_items": [
+                {"todo_id": "inspect", "content": "确认现有事件投影链路", "active_form": "确认现有事件投影链路", "status": "completed"},
+                {"todo_id": "read", "content": "持久化 todo 到会话公开状态", "active_form": "正在持久化 todo 状态", "status": "in_progress"},
+                {"todo_id": "summary", "content": "优化最终总结", "active_form": "优化最终总结", "status": "pending"},
+            ],
+            "active_item_id": "read",
+            "completion_ready": False,
+            "trace_refs": ["rtevt:todo"],
+        }
+    ]
+    visible = json.dumps(timeline, ensure_ascii=False)
+    assert "agent_todo" not in visible
+    assert "plan_id" not in visible
+
+
+def test_public_execution_state_projects_observation_reports_after_tool_work() -> None:
+    presentation = {
+        "mission": {"state": "running"},
+        "work_units": [
+            {
+                "unit_id": "workunit:read",
+                "kind": "inspect_path",
+                "title": "读取文件内容",
+                "state": "completed",
+                "action": "读取主会话组件。",
+                "judgment": "下一步应该根据真实调用链修改公开投影。",
+                "evidence": [
+                    {"label": "read_file", "summary": "已读到主会话从 public_timeline 渲染运行反馈。", "status": "success"}
+                ],
+                "technical_trace_refs": ["rtevt:read"],
+            }
+        ],
+    }
+
+    state = build_public_execution_state(events=[], progress_presentation=presentation, status="running")
+    timeline = build_public_chat_timeline(
+        progress_presentation=presentation,
+        public_execution_state=state,
+        status="running",
+    )
+
+    assert [item["kind"] for item in timeline] == ["opening_judgment", "tool_activity", "observation_report"]
+    assert timeline[-1]["title"] == "观察报告"
+    assert timeline[-1]["detail"] == "已读到主会话从 public_timeline 渲染运行反馈。"
+    assert timeline[-1]["implication"] == "下一步应该根据真实调用链修改公开投影。"
 
 
 def test_public_progress_scrubs_bounded_retry_policy_details() -> None:

@@ -34041,7 +34041,7 @@ body {
   display: grid;
   grid-template-columns: 24px minmax(0, 1fr);
   gap: 9px;
-  width: min(100%, 1240px);
+  width: min(100%, 84ch);
   align-items: start;
   justify-self: end;
   border: 1px solid rgba(40, 95, 198, 0.12);
@@ -34080,7 +34080,7 @@ body {
 
 .agent-workbench .assistant-output-signal__copy strong {
   color: #172033;
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 640;
   line-height: 1.58;
   overflow-wrap: anywhere;
@@ -34112,7 +34112,7 @@ body {
 
 .agent-workbench .public-run-activity {
   display: grid;
-  width: min(100%, 1240px);
+  width: min(100%, 84ch);
   gap: 8px;
   margin: 4px 0 8px;
   border: 1px solid rgba(151, 166, 185, 0.24);
@@ -34164,14 +34164,14 @@ body {
 
 .agent-workbench .public-run-activity__summary-copy strong {
   color: #172033;
-  font-size: 13px;
+  font-size: 12.5px;
   font-weight: 760;
   line-height: 1.35;
 }
 
 .agent-workbench .public-run-activity__summary-copy small {
   color: #66758a;
-  font-size: 12px;
+  font-size: 11.5px;
   line-height: 1.42;
   overflow-wrap: anywhere;
 }
@@ -34242,16 +34242,18 @@ body {
 
 .agent-workbench .public-run-activity__copy strong {
   color: #243042;
-  font-size: 13px;
+  font-size: 12.5px;
   font-weight: 600;
   line-height: 1.48;
+  overflow-wrap: anywhere;
 }
 
 .agent-workbench .public-run-activity__copy small,
 .agent-workbench .public-run-activity__copy code {
   color: #66758a;
-  font-size: 12px;
+  font-size: 11.5px;
   line-height: 1.45;
+  overflow-wrap: anywhere;
 }
 
 .agent-workbench .public-run-activity__observation {
@@ -34267,6 +34269,52 @@ body {
 
 .agent-workbench .public-run-activity__copy code {
   font-family: "Cascadia Mono", "Consolas", monospace;
+}
+
+.agent-workbench .public-run-activity__todo-list {
+  display: grid;
+  gap: 4px;
+  margin-top: 6px;
+  min-width: 0;
+}
+
+.agent-workbench .public-run-activity__todo {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  gap: 6px;
+  align-items: start;
+  color: #536174;
+  font-size: 11.5px;
+  line-height: 1.42;
+  min-width: 0;
+}
+
+.agent-workbench .public-run-activity__todo b {
+  color: #285fc6;
+  font-family: "Cascadia Mono", "Consolas", monospace;
+  font-size: 11px;
+  font-weight: 760;
+  line-height: 1.42;
+}
+
+.agent-workbench .public-run-activity__todo span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.agent-workbench .public-run-activity__todo--completed {
+  color: #718096;
+}
+
+.agent-workbench .public-run-activity__todo--completed b {
+  color: #147a5c;
+}
+
+.agent-workbench .public-run-activity__todo-list em {
+  color: #718096;
+  font-size: 11px;
+  font-style: normal;
+  overflow-wrap: anywhere;
 }
 
 @media (max-width: 760px) {

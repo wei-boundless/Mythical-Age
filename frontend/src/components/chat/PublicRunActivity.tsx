@@ -4,7 +4,9 @@ import {
   AlertTriangle,
   CheckCircle2,
   CircleDot,
+  ClipboardCheck,
   FileText,
+  ListChecks,
   Loader2,
   PenLine,
   Search,
@@ -72,7 +74,7 @@ function shouldRenderItem(item: PublicChatTimelineItem, assistantContent: string
   const kind = cleanText(item.kind);
   const text = textOfItem(item);
   if (!text) return false;
-  if (kind === "assistant_text") return false;
+  if (kind === "assistant_text" || kind === "opening_judgment") return false;
   if ((kind === "assistant_text" || kind === "final_summary") && samePublicText(text, assistantContent)) {
     return false;
   }
@@ -106,6 +108,8 @@ function stateClass(item: PublicChatTimelineItem) {
 function ActivityIcon({ item }: { item: PublicChatTimelineItem }) {
   const state = stateClass(item);
   if (item.kind === "artifact") return <FileText size={14} />;
+  if (item.kind === "todo_plan") return <ListChecks size={14} />;
+  if (item.kind === "observation_report") return <ClipboardCheck size={14} />;
   if (state === "error") return <AlertTriangle size={14} />;
   if (state === "done") return <CheckCircle2 size={14} />;
   const action = actionDisplay(item);
@@ -143,6 +147,21 @@ function ActivityCopy({ item, variant = "normal" }: { item: PublicChatTimelineIt
     return (
       <>
         <strong>{short(item.text || item.detail || item.title, 240)}</strong>
+        {Array.isArray(item.verified) && item.verified.length ? (
+          <small className="public-run-activity__observation">验证：{item.verified.slice(0, 3).map((entry) => short(entry, 90)).join("；")}</small>
+        ) : null}
+      </>
+    );
+  }
+  if (kind === "todo_plan") {
+    return <TodoPlanCopy item={item} />;
+  }
+  if (kind === "observation_report") {
+    return (
+      <>
+        <strong>{short(item.title || "观察报告", 120)}</strong>
+        {item.detail ? <small className="public-run-activity__observation">{short(item.detail, 180)}</small> : null}
+        {item.implication ? <small>{`下一步：${short(item.implication, 150)}`}</small> : null}
       </>
     );
   }
@@ -159,6 +178,43 @@ function ActivityCopy({ item, variant = "normal" }: { item: PublicChatTimelineIt
     <>
       <strong>{presentedActionSentence(item, variant === "current" ? "current" : "history")}</strong>
       {item.detail ? <small>{short(item.detail, 180)}</small> : null}
+    </>
+  );
+}
+
+function TodoPlanCopy({ item }: { item: PublicChatTimelineItem }) {
+  const todos = Array.isArray(item.todo_items) ? item.todo_items : [];
+  const completed = todos.filter((todo) => cleanText(todo.status) === "completed").length;
+  const active = todos.find((todo) => cleanText(todo.todo_id) === cleanText(item.active_item_id))
+    ?? todos.find((todo) => cleanText(todo.status) === "in_progress")
+    ?? null;
+  const pending = todos.filter((todo) => cleanText(todo.status) === "pending").slice(0, 2);
+  const visibleTodos = [
+    ...todos.filter((todo) => cleanText(todo.status) === "completed").slice(-1),
+    ...(active ? [active] : []),
+    ...pending,
+  ].filter((todo, index, list) =>
+    list.findIndex((candidate) => cleanText(candidate.todo_id) === cleanText(todo.todo_id)) === index
+  ).slice(0, 4);
+  const hidden = Math.max(0, todos.length - visibleTodos.length);
+  return (
+    <>
+      <strong>{item.completion_ready ? "处理清单已完成" : active ? `当前：${short(active.active_form || active.content, 140)}` : "处理清单已建立"}</strong>
+      <small>{item.detail || `${completed}/${todos.length} 已完成`}</small>
+      {visibleTodos.length ? (
+        <span className="public-run-activity__todo-list">
+          {visibleTodos.map((todo) => {
+            const status = cleanText(todo.status);
+            return (
+              <span className={`public-run-activity__todo public-run-activity__todo--${status || "pending"}`} key={cleanText(todo.todo_id) || cleanText(todo.content)}>
+                <b aria-hidden="true">{status === "completed" ? "✓" : status === "in_progress" ? "●" : "○"}</b>
+                <span>{short(status === "in_progress" ? todo.active_form || todo.content : todo.content, 120)}</span>
+              </span>
+            );
+          })}
+          {hidden ? <em>还有 {hidden} 项</em> : null}
+        </span>
+      ) : null}
     </>
   );
 }
@@ -194,6 +250,26 @@ function activitySummary(plan: ReturnType<typeof activityPlan>) {
     const state = stateClass(plan.current);
     const kind = cleanText(plan.current.kind);
     const currentAction = presentedActionSentence(plan.current, "current");
+    if (kind === "todo_plan") {
+      const todos = Array.isArray(plan.current.todo_items) ? plan.current.todo_items : [];
+      const active = todos.find((todo) => cleanText(todo.status) === "in_progress");
+      return {
+        detail: active ? `当前：${short(active.active_form || active.content, 160)}` : plan.current.detail || "清单会跟随当前处理持续更新。",
+        item: plan.current,
+        meta: plan.current.completion_ready ? "已完成" : "实时",
+        title: plan.current.completion_ready ? "清单完成" : "处理清单",
+        tone: plan.current.completion_ready ? "done" : "running",
+      };
+    }
+    if (kind === "observation_report") {
+      return {
+        detail: short(plan.current.detail || plan.current.implication || "关键观察已记录。", 180),
+        item: plan.current,
+        meta: state === "error" ? "受阻" : "观察",
+        title: state === "error" ? "观察到阻塞" : "观察报告",
+        tone: state === "error" ? "error" : "done",
+      };
+    }
     return {
       detail: state === "error"
         ? short(plan.current.recovery_hint || textOfItem(plan.current), 180)
@@ -219,6 +295,25 @@ function activitySummary(plan: ReturnType<typeof activityPlan>) {
   }
   const lastRecent = lastOf(plan.recent);
   if (lastRecent || plan.collapsedCount) {
+    const recentKind = cleanText(lastRecent?.kind);
+    if (lastRecent && recentKind === "observation_report") {
+      return {
+        detail: short(lastRecent.detail || lastRecent.implication || "关键观察已记录。", 180),
+        item: lastRecent,
+        meta: "观察",
+        title: "观察报告",
+        tone: stateClass(lastRecent) === "error" ? "error" : "done",
+      };
+    }
+    if (lastRecent && recentKind === "todo_plan") {
+      return {
+        detail: lastRecent.detail || (plan.collapsedCount ? `已完成 ${plan.collapsedCount} 步处理。` : "清单已同步。"),
+        item: lastRecent,
+        meta: lastRecent.completion_ready ? "已完成" : "已同步",
+        title: "处理清单",
+        tone: lastRecent.completion_ready ? "done" : "running",
+      };
+    }
     const recentAction = lastRecent ? presentedActionSentence(lastRecent, "history") : "";
     return {
       detail: recentAction || (plan.collapsedCount ? `已完成 ${plan.collapsedCount} 步处理。` : "关键动作已完成。"),

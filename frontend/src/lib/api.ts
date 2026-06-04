@@ -195,12 +195,51 @@ export type RuntimeProgressPresentation = {
   authority?: string;
 };
 
+export type PublicTodoItem = {
+  todo_id?: string;
+  content: string;
+  active_form?: string;
+  status: "pending" | "in_progress" | "completed" | "blocked" | string;
+  notes?: string;
+};
+
+export type PublicExecutionState = {
+  opening?: {
+    text?: string;
+    state?: "running" | "done" | "error" | string;
+    trace_refs?: string[];
+  };
+  todo_plan?: {
+    plan_id?: string;
+    active_item_id?: string;
+    completion_ready?: boolean;
+    items?: PublicTodoItem[];
+    trace_refs?: string[];
+  };
+  observations?: Array<{
+    item_id?: string;
+    unit_id?: string;
+    title?: string;
+    detail?: string;
+    implication?: string;
+    state?: "running" | "done" | "error" | string;
+    trace_refs?: string[];
+  }>;
+  final_summary?: {
+    text?: string;
+    verified?: string[];
+    artifacts?: string[];
+  };
+  authority?: string;
+};
+
 export type PublicChatTimelineItem = {
   item_id?: string;
-  kind: "status_update" | "assistant_text" | "tool_activity" | "artifact" | "verification" | "blocked" | "final_summary" | string;
+  kind: "status_update" | "assistant_text" | "opening_judgment" | "todo_plan" | "tool_activity" | "observation_report" | "artifact" | "verification" | "blocked" | "final_summary" | string;
   title?: string;
   detail?: string;
   text?: string;
+  implication?: string;
   recovery_hint?: string;
   href?: string;
   path?: string;
@@ -208,6 +247,10 @@ export type PublicChatTimelineItem = {
   stream_state?: "streaming" | "done" | string;
   trace_refs?: string[];
   artifacts?: Array<Record<string, unknown>>;
+  verified?: string[];
+  todo_items?: PublicTodoItem[];
+  active_item_id?: string;
+  completion_ready?: boolean;
 };
 
 export type PublicChatTimelineDelta = {
@@ -254,6 +297,7 @@ export type SessionRuntimeAttachment = {
   agent_brief_output?: string;
   latest_event_type?: string;
   event_count?: number;
+  public_execution_state?: PublicExecutionState;
   progress_presentation?: RuntimeProgressPresentation;
   progress_entries?: Array<Record<string, unknown>>;
   public_timeline?: PublicChatTimelineItem[];

@@ -5,6 +5,58 @@ import { describe, expect, it } from "vitest";
 import { hasPublicRunActivity, PublicRunActivity } from "./PublicRunActivity";
 
 describe("PublicRunActivity", () => {
+  it("renders persisted todo plans as compact public work state", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(PublicRunActivity, {
+        items: [
+          {
+            item_id: "todo:plan",
+            kind: "todo_plan",
+            title: "处理清单",
+            detail: "1/3 已完成",
+            state: "running",
+            active_item_id: "persist",
+            todo_items: [
+              { todo_id: "inspect", content: "确认现有事件投影链路", status: "completed" },
+              { todo_id: "persist", content: "持久化 todo 到会话公开状态", active_form: "正在持久化 todo 状态", status: "in_progress" },
+              { todo_id: "summary", content: "优化最终总结", status: "pending" },
+            ],
+          },
+        ],
+      }),
+    );
+
+    expect(html).toContain("处理清单");
+    expect(html).toContain("当前：正在持久化 todo 状态");
+    expect(html).toContain("1/3 已完成");
+    expect(html).toContain("确认现有事件投影链路");
+    expect(html).toContain("优化最终总结");
+    expect(html).not.toContain("agent_todo");
+    expect(html).not.toContain("plan_id");
+  });
+
+  it("renders backend observation reports without exposing tool names as the main copy", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(PublicRunActivity, {
+        items: [
+          {
+            item_id: "observation:read",
+            kind: "observation_report",
+            title: "观察报告",
+            detail: "已读到主会话从 public_timeline 渲染运行反馈。",
+            implication: "根据真实调用链修改公开投影。",
+            state: "done",
+          },
+        ],
+      }),
+    );
+
+    expect(html).toContain("观察报告");
+    expect(html).toContain("已读到主会话从 public_timeline 渲染运行反馈");
+    expect(html).toContain("下一步：根据真实调用链修改公开投影");
+    expect(html).not.toContain("工具已完成");
+  });
+
   it("renders public tool activity as compact assistant-side rows", () => {
     const html = renderToStaticMarkup(
       React.createElement(PublicRunActivity, {

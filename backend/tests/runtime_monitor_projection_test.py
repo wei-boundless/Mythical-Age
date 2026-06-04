@@ -1,3 +1,4 @@
+import asyncio
 import time
 from pathlib import Path
 from types import SimpleNamespace
@@ -46,6 +47,7 @@ class StateIndexStub:
     def __init__(self, task_runs=None, turn_runs=None):
         self._task_runs = list(task_runs or [])
         self._turn_runs = {getattr(item, "turn_run_id", ""): item for item in list(turn_runs or [])}
+        self.deleted_task_run_ids = []
 
     def list_recent_task_runs(self, *, limit=80):
         return list(self._task_runs)[: max(1, int(limit or 80))]
@@ -61,6 +63,16 @@ class StateIndexStub:
 
     def get_turn_run(self, turn_run_id):
         return self._turn_runs.get(turn_run_id)
+
+    def mark_task_run_deleted(self, task_run_id):
+        normalized = str(task_run_id or "").strip()
+        if normalized:
+            self.deleted_task_run_ids.append(normalized)
+        return {
+            "authority": "orchestration.runtime_state_index.task_run_deletion_tombstone",
+            "task_run_id": normalized,
+            "recorded": bool(normalized),
+        }
 
 
 class ActiveTurnRecordStub:
@@ -333,6 +345,58 @@ def test_runtime_monitor_clear_action_hides_signal_without_deleting_record(tmp_p
     result = asyncio.run(action_service.execute({"action": "clear_from_monitor", "signal_id": "taskrun:completed"}))
 
     assert result["accepted"] is True
+    assert runtime_host.state_index.get_task_run("taskrun:completed") is completed
+    hidden = result["monitor"]["management"]["lanes"]["hidden"]
+    assert [item["signal_id"] for item in hidden] == ["taskrun:completed"]
+    assert result["monitor"]["management"]["lanes"]["recent"] == []
+
+
+def test_runtime_monitor_delete_action_queues_physical_cleanup_and_hides_signal(tmp_path):
+    completed = task_run(
+        task_run_id="taskrun:completed",
+        status="completed",
+        terminal_reason="completed",
+        updated_at=140.0,
+        diagnostics={"title": "已完成任务"},
+    )
+    state_index = StateIndexStub([completed])
+    spawned_names = []
+
+    async def cancel_background_tasks(*, names, reason="", timeout_seconds=0.0):
+        return {
+            "authority": "single_agent_runtime_host.cancel_background_tasks",
+            "requested_names": sorted(names),
+            "reason": reason,
+            "timeout_seconds": timeout_seconds,
+        }
+
+    def spawn_background_task(coro, *, name=""):
+        spawned_names.append(name)
+        coro.close()
+        return SimpleNamespace(done=lambda: False)
+
+    runtime_host = SimpleNamespace(
+        state_index=state_index,
+        event_log=EventLogStub(),
+        backend_dir=tmp_path / "backend",
+        active_turn_registry=SimpleNamespace(complete_bound_task=lambda **_kwargs: {}),
+        cancel_background_tasks=cancel_background_tasks,
+        spawn_background_task=spawn_background_task,
+    )
+    service = RuntimeMonitorService(runtime_host=runtime_host, freshness_seconds=300.0)
+    runtime = SimpleNamespace(
+        base_dir=tmp_path / "backend",
+        harness_runtime=SimpleNamespace(single_agent_runtime_host=runtime_host),
+    )
+    action_service = RuntimeMonitorActionService(runtime=runtime, monitor_service=service)
+
+    result = asyncio.run(action_service.execute({"action": "delete_record", "signal_id": "taskrun:completed"}))
+
+    assert result["accepted"] is True
+    assert result["effects"]["mode"] == "queued_cleanup"
+    assert result["effects"]["cleanup_queued"] is True
+    assert state_index.deleted_task_run_ids == ["taskrun:completed"]
+    assert spawned_names == ["runtime-monitor-delete-record:taskrun:completed"]
     assert runtime_host.state_index.get_task_run("taskrun:completed") is completed
     hidden = result["monitor"]["management"]["lanes"]["hidden"]
     assert [item["signal_id"] for item in hidden] == ["taskrun:completed"]

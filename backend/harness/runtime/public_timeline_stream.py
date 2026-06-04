@@ -3,6 +3,7 @@ from __future__ import annotations
 from hashlib import sha1
 from typing import Any
 
+from harness.runtime.public_execution_state import public_todo_plan_from_event, public_todo_plan_item
 from harness.runtime.public_projection_filters import should_hide_public_tool_observation
 from harness.runtime.public_progress import public_runtime_progress_summary
 
@@ -49,6 +50,8 @@ def _item_for_event(event_type: str, data: dict[str, Any]) -> dict[str, Any]:
         return _model_action_admission_item(data)
     if event_type == "turn_tool_observation_recorded":
         return _turn_tool_observation_item(data)
+    if event_type == "task_run_lifecycle_event":
+        return _task_run_lifecycle_item(data)
     if event_type == "active_task_steer_accepted":
         return _status_item(
             item_id=_stable_id("steer", str(data.get("runtime_task_run_id") or ""), str(data.get("summary") or "")),
@@ -72,6 +75,13 @@ def _item_for_event(event_type: str, data: dict[str, Any]) -> dict[str, Any]:
             state="error",
         )
     return {}
+
+
+def _task_run_lifecycle_item(data: dict[str, Any]) -> dict[str, Any]:
+    event = _record(data.get("event"))
+    if str(event.get("event_type") or "").strip() != "agent_todo_initialized":
+        return {}
+    return public_todo_plan_item(public_todo_plan_from_event(event))
 
 
 def _model_action_admission_item(data: dict[str, Any]) -> dict[str, Any]:
@@ -109,6 +119,8 @@ def _turn_tool_observation_item(data: dict[str, Any]) -> dict[str, Any]:
     if not observation:
         return {}
     tool_name = str(observation.get("tool_name") or "").strip()
+    if tool_name == "agent_todo":
+        return public_todo_plan_item(public_todo_plan_from_event(event))
     target = _tool_target_from_observation(observation)
     status = str(observation.get("status") or "").strip().lower()
     state = "done" if status in {"ok", "success", "done", "completed"} else "error"
@@ -155,8 +167,11 @@ def _runtime_step_summary_item(data: dict[str, Any]) -> dict[str, Any]:
     step = str(data.get("step") or "").strip()
     if not step or step in _INTERNAL_STEP_SUMMARIES:
         return {}
-    status = str(data.get("status") or "").strip().lower()
     event = _record(data.get("event"))
+    todo = public_todo_plan_item(public_todo_plan_from_event(event))
+    if todo:
+        return todo
+    status = str(data.get("status") or "").strip().lower()
     payload = _record(event.get("payload"))
     summary = _visible_text(data.get("public_progress_note") or data.get("summary"))
     agent_brief = _visible_text(data.get("agent_brief_output") or data.get("current_judgment"))
@@ -185,8 +200,8 @@ def _runtime_step_summary_item(data: dict[str, Any]) -> dict[str, Any]:
     return _compact(
         {
             "item_id": trace_ref,
-            "kind": "assistant_text" if not _is_status_only_step(step) else "status_update",
-            "title": prose,
+            "kind": "opening_judgment" if not _is_status_only_step(step) else "status_update",
+            "title": "开局判断" if not _is_status_only_step(step) else prose,
             "text": prose,
             "state": state,
             "trace_refs": [trace_ref],

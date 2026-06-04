@@ -27,53 +27,121 @@ class TaskRecordLifecycleManager:
         self.graph_harness = getattr(runtime.harness_runtime, "graph_harness", None)
 
     async def delete_task_record(self, task_run_id: str) -> dict[str, Any]:
-        task_run_id = str(task_run_id or "").strip()
-        if not task_run_id:
-            raise ValueError("task_run_id is required")
-        task_run = self.host.state_index.get_task_run(task_run_id)
-        if task_run is None:
-            raise TaskRecordLifecycleNotFound(task_run_id)
+        task_run = self._deletable_task_run(task_run_id)
+        task_run_id = str(getattr(task_run, "task_run_id", "") or "")
         diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
         graph_run_id = _graph_run_id(diagnostics)
-        if _origin_kind(diagnostics) == "graph_node_assigned":
-            raise TaskRecordLifecycleConflict(
-                "graph_node_task_run_controlled_by_graph_runtime",
-                task_run_id=task_run_id,
-                graph_run_id=graph_run_id,
-            )
         if graph_run_id and self._is_graph_root(task_run_id=task_run_id, graph_run_id=graph_run_id):
             return await self._delete_graph_root(task_run_id=task_run_id, graph_run_id=graph_run_id)
-        await self._delete_single(task_run)
+        effects = await self._delete_single(task_run)
         return {
             "authority": self.authority,
             "mode": "single_task_record",
             "task_run_id": task_run_id,
             "deleted": True,
+            "effects": effects,
         }
 
-    async def _delete_single(self, task_run: Any) -> None:
-        task_run_id = str(getattr(task_run, "task_run_id", "") or "")
-        session_id = str(getattr(task_run, "session_id", "") or "")
-        self._stop_executors({task_run_id})
-        self.host.state_index.mark_task_run_deleted(task_run_id)
-        await self.host.cancel_background_tasks(names=_executor_task_names({task_run_id}), reason="task_record_deleted")
-        if session_id:
-            self.host.active_turn_registry.complete_bound_task(
-                session_id=session_id,
-                task_run_id=task_run_id,
-                terminal_reason="task_record_deleted",
+    async def prepare_single_task_record_deletion(
+        self,
+        task_run_id: str,
+        *,
+        cancel_timeout_seconds: float = 1.0,
+    ) -> tuple[Any, dict[str, Any]]:
+        task_run = self._deletable_task_run(task_run_id)
+        resolved_task_run_id = str(getattr(task_run, "task_run_id", "") or "")
+        diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
+        graph_run_id = _graph_run_id(diagnostics)
+        if graph_run_id and self._is_graph_root(task_run_id=resolved_task_run_id, graph_run_id=graph_run_id):
+            raise TaskRecordLifecycleConflict(
+                "graph_root_task_run_requires_graph_lifecycle",
+                task_run_id=resolved_task_run_id,
+                graph_run_id=graph_run_id,
             )
+        effects = await self._mark_single_task_record_deleting(
+            task_run,
+            cancel_timeout_seconds=cancel_timeout_seconds,
+        )
+        return task_run, effects
+
+    def cleanup_single_task_record(self, task_run: Any) -> dict[str, Any]:
+        task_run_id = str(getattr(task_run, "task_run_id", "") or "")
+        effects: dict[str, Any] = {
+            "authority": f"{self.authority}.cleanup",
+            "task_run_id": task_run_id,
+        }
         contract_ref = str(getattr(task_run, "task_contract_ref", "") or "")
         if contract_ref.startswith("rtobj:"):
             try:
-                self.host.runtime_objects.delete_ref(contract_ref)
+                effects["contract_ref_deleted"] = self.host.runtime_objects.delete_ref(contract_ref)
             except Exception:
-                pass
-        self.host.event_log.delete_events(task_run_id)
-        self.host.prompt_accounting_ledger.prune_task_runs({task_run_id})
-        self.host.execution_store.prune_task_runs({task_run_id})
-        self.host.runtime_objects.delete_graph_run_objects(graph_run_id="", task_run_ids={task_run_id})
-        self.host.state_index.prune_task_runs({task_run_id})
+                effects["contract_ref_delete_error"] = True
+        effects["event_log_deleted"] = self.host.event_log.delete_events(task_run_id)
+        effects["prompt_accounting"] = self.host.prompt_accounting_ledger.prune_task_runs({task_run_id})
+        effects["execution_store"] = self.host.execution_store.prune_task_runs({task_run_id})
+        effects["runtime_objects"] = self.host.runtime_objects.delete_graph_run_objects(graph_run_id="", task_run_ids={task_run_id})
+        effects["state_index"] = self.host.state_index.prune_task_runs({task_run_id})
+        effects["deleted"] = True
+        return effects
+
+    async def _delete_single(self, task_run: Any) -> dict[str, Any]:
+        control_effects = await self._mark_single_task_record_deleting(
+            task_run,
+            cancel_timeout_seconds=5.0,
+        )
+        cleanup_effects = self.cleanup_single_task_record(task_run)
+        return {
+            "control": control_effects,
+            "cleanup": cleanup_effects,
+        }
+
+    async def _mark_single_task_record_deleting(
+        self,
+        task_run: Any,
+        *,
+        cancel_timeout_seconds: float,
+    ) -> dict[str, Any]:
+        task_run_id = str(getattr(task_run, "task_run_id", "") or "")
+        session_id = str(getattr(task_run, "session_id", "") or "")
+        self._stop_executors({task_run_id})
+        tombstone = self.host.state_index.mark_task_run_deleted(task_run_id)
+        cancel = await self.host.cancel_background_tasks(
+            names=_executor_task_names({task_run_id}),
+            reason="task_record_deleted",
+            timeout_seconds=cancel_timeout_seconds,
+        )
+        active_turn = {}
+        if session_id:
+            active_turn = self.host.active_turn_registry.complete_bound_task(
+                session_id=session_id,
+                task_run_id=task_run_id,
+                terminal_reason="task_record_deleted",
+            ) or {}
+        return {
+            "authority": f"{self.authority}.deletion_mark",
+            "task_run_id": task_run_id,
+            "session_id": session_id,
+            "tombstone": tombstone,
+            "cancel_background_tasks": cancel,
+            "active_turn": active_turn,
+        }
+
+    def _deletable_task_run(self, task_run_id: str) -> Any:
+        normalized = str(task_run_id or "").strip()
+        if not normalized:
+            raise ValueError("task_run_id is required")
+        task_run = self.host.state_index.get_task_run(normalized)
+        if task_run is None:
+            raise TaskRecordLifecycleNotFound(normalized)
+        diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
+        graph_run_id = _graph_run_id(diagnostics)
+        if _origin_kind(diagnostics) == "graph_node_assigned":
+            raise TaskRecordLifecycleConflict(
+                "graph_node_task_run_controlled_by_graph_runtime",
+                task_run_id=normalized,
+                graph_run_id=graph_run_id,
+            )
+        return task_run
 
     async def _delete_graph_root(self, *, task_run_id: str, graph_run_id: str) -> dict[str, Any]:
         if self.graph_harness is None:
