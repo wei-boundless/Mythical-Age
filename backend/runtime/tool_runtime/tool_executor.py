@@ -39,7 +39,6 @@ from runtime.shared.policy_rejection_observation import build_policy_rejection_o
 
 _SANDBOX_CONTEXT_REQUIRED_SIDE_EFFECT_TOOL_NAMES = DEFAULT_SIDE_EFFECT_TOOL_NAMES | {
     "browser_control",
-    "image_generate",
 }
 _WORKSPACE_PATH_ARG_TOOL_NAMES = {
     "read_file",

@@ -13,7 +13,7 @@ def is_direct_image_generation_request(image_generation: dict[str, Any] | None) 
     payload = dict(image_generation or {})
     model = str(payload.get("model") or "").strip().lower()
     mode = str(payload.get("mode") or "").strip().lower()
-    return model in {"gpt-image-2", "image-2"} or mode == "generate"
+    return model in {"gpt-image-1", "gpt-image-2", "image-2"} or mode == "generate"
 
 
 async def run_direct_system_route(

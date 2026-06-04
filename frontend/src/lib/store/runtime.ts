@@ -2165,10 +2165,8 @@ export class WorkspaceRuntime {
   }
 
   private resolveSelectedChatMode(selectionId: string, config: StoreState["modelProviderConfig"]) {
-    if (selectionId.includes("::image-2") || selectionId.includes("::gpt-image-2")) {
-      return "image" as const;
-    }
-    if (selectionId === "image-2" || selectionId === "gpt-image-2") {
+    const modelId = (selectionId.split("::").pop() || selectionId).trim().toLowerCase();
+    if (modelId.includes("image")) {
       return "image" as const;
     }
     return "chat" as const;
@@ -2185,15 +2183,17 @@ export class WorkspaceRuntime {
       return undefined;
     }
     const [provider, ...modelParts] = selectionId.split("::");
-    const model = modelParts.join("::").trim() || selectionId.trim();
-    if (!model || !model.toLowerCase().includes("image")) {
+    const selectedModel = modelParts.join("::").trim() || selectionId.trim();
+    const imageModel = String(imageConfig.model || "").trim();
+    if (!imageModel || !imageModel.toLowerCase().includes("image")) {
       return undefined;
     }
     return {
       mode: "generate",
       selection_id: selectionId,
-      provider: provider || "openai",
-      model: model || imageConfig.model || "gpt-image-2",
+      provider: selectionId.includes("::") ? provider || "openai" : "openai",
+      selected_model: selectedModel,
+      model: imageModel,
       base_url: imageConfig.base_url,
       credential_ref: imageConfig.api_key_present ? "image-assets:api-key" : undefined,
       asset_kind: "chat",
@@ -3043,14 +3043,33 @@ export class WorkspaceRuntime {
     }
     const body = this.publicRuntimeText(entry.publicNote || entry.agentBrief || entry.body || entry.title);
     const title = this.publicRuntimeText(entry.title);
-    if (!body && !title) {
-      return null;
-    }
-    if (this.publicRuntimeTextLooksInternal(body || title)) {
+    const rawText = String(entry.publicNote || entry.agentBrief || entry.body || entry.title || "");
+    if (this.publicRuntimeTextLooksInternal(body || title || rawText)) {
       return null;
     }
     const state = entry.level === "error" ? "error" : entry.level === "success" ? "done" : "running";
     if (state === "done" && kind === "terminal") {
+      return null;
+    }
+    if (kind === "tool" || kind === "verification") {
+      const actionKind = this.publicRuntimeActionKind(kind, String(entry.toolName || ""), rawText);
+      const subject = this.publicRuntimeSubjectLabel(actionKind, rawText);
+      return {
+        item_id: `live:${entry.id}`,
+        kind: "work_action",
+        action_kind: actionKind,
+        phase: state === "error" ? "adjusting" : state === "done" ? "done" : "running",
+        title: this.publicRuntimeActionTitle(actionKind, state),
+        subject_label: subject,
+        public_summary: this.publicRuntimeActionSummary(actionKind, state, subject, body || title),
+        observation: state === "done" ? this.publicRuntimeObservation(actionKind, body || title, subject) : "",
+        recovery_hint: state === "error" ? body || title || "当前步骤需要调整后继续。" : "",
+        state,
+        stream_state: state === "running" ? "streaming" : "done",
+        trace_refs: [entry.id].filter(Boolean),
+      };
+    }
+    if (!body && !title) {
       return null;
     }
     if (state === "error") {
@@ -3076,7 +3095,7 @@ export class WorkspaceRuntime {
 
   private publicTimelineKindFromProgressKind(kind: string) {
     if (kind === "model") return "assistant_text";
-    if (kind === "tool" || kind === "observation") return "tool_activity";
+    if (kind === "tool" || kind === "observation") return "work_action";
     if (kind === "verification") return "verification";
     if (kind === "terminal") return "final_summary";
     return "status_update";
@@ -3094,12 +3113,91 @@ export class WorkspaceRuntime {
     if (text === "回答已生成并写回会话" || text === "会话输出完成" || text === "工具调用已完成，正在根据结果继续。") {
       return "";
     }
+    if (/^(已发起工具调用|已经过工具调用)，正在等待工具返回/.test(text)) {
+      return "";
+    }
+    if (this.publicRuntimeTextLooksStructured(text) || this.publicRuntimeTextLooksRawCommand(text)) {
+      return "";
+    }
     return text.length > 180 ? `${text.slice(0, 179)}...` : text;
   }
 
   private publicRuntimeTextLooksInternal(value: string) {
     return /(agent_turn_terminal|runtime_invocation_packet_compiled|task_execution_packet_compiled|step_summary_recorded)/.test(value)
       || /^(?:rtevt|taskrun|turnrun|task):/.test(value);
+  }
+
+  private publicRuntimeTextLooksStructured(value: string) {
+    const text = String(value || "").trim();
+    if ((text.startsWith("{") && text.endsWith("}")) || (text.startsWith("[") && text.endsWith("]"))) return true;
+    return /\b(authority|diagnostics|matched_version_count|candidate_version_count|result_envelope|structured_payload)\b/i.test(text);
+  }
+
+  private publicRuntimeTextLooksRawCommand(value: string) {
+    const text = String(value || "").trim();
+    if (!text) return false;
+    return /\b(New-Item|Set-Content|Get-Content|Remove-Item|Move-Item|Copy-Item|npm|pnpm|yarn|pytest|python|powershell|cmd\s*\/c|git|rg|grep|mkdir|touch)\b/i.test(text)
+      || /\s-(?:ItemType|Path|Recurse|Force|Filter|Pattern|Command)\b/i.test(text)
+      || /[;&|]{1,2}/.test(text);
+  }
+
+  private publicRuntimeActionKind(kind: string, toolName: string, rawText: string) {
+    const normalizedTool = toolName.trim().toLowerCase();
+    const raw = rawText.trim().toLowerCase();
+    if (kind === "verification" || /\b(npm\s+test|pnpm\s+test|yarn\s+test|vitest|pytest|ruff|mypy|tsc|eslint)\b/.test(raw)) return "verify";
+    if (normalizedTool === "memory_search" || /记忆|memory_search/.test(raw)) return "memory";
+    if (/\b(new-item|mkdir)\b/.test(raw)) return "prepare";
+    if (/read|读取/.test(normalizedTool)) return "read";
+    if (/search|grep|glob|搜索|检索/.test(normalizedTool)) return "search";
+    if (/write|edit|patch|写入|编辑|更新/.test(normalizedTool)) return "edit";
+    if (/path_exists|stat_path|list_dir|检查|确认/.test(normalizedTool)) return "inspect";
+    return "work";
+  }
+
+  private publicRuntimeSubjectLabel(actionKind: string, rawText: string) {
+    const raw = rawText.trim().toLowerCase();
+    if (actionKind === "verify") {
+      if (/npm\s+test|pnpm\s+test|yarn\s+test|vitest/.test(raw)) return "前端测试";
+      if (/pytest/.test(raw)) return "后端测试";
+      return "验证结果";
+    }
+    if (actionKind === "prepare") {
+      if (/new-item|mkdir/.test(raw)) return /directory/.test(raw) ? "输出目录" : "输出准备";
+      return "输出准备";
+    }
+    if (actionKind === "memory") return "相关记忆";
+    return "";
+  }
+
+  private publicRuntimeActionTitle(actionKind: string, state: "running" | "done" | "error") {
+    const phase = state === "error" ? 2 : state === "done" ? 1 : 0;
+    const labels: Record<string, [string, string, string]> = {
+      edit: ["正在更新文件", "已更新文件", "更新文件需调整"],
+      inspect: ["正在确认目标", "已确认目标", "确认目标需调整"],
+      memory: ["正在检索相关记忆", "记忆检索已返回", "记忆检索需调整"],
+      prepare: ["正在准备输出", "输出准备完成", "输出准备需调整"],
+      read: ["正在读取上下文", "已读取上下文", "读取上下文需调整"],
+      search: ["正在搜索引用", "已搜索引用", "搜索方式需调整"],
+      verify: ["正在运行验证", "验证已返回", "验证需调整"],
+      work: ["正在推进当前步骤", "结果已返回", "步骤需调整"],
+    };
+    return (labels[actionKind] ?? labels.work)[phase];
+  }
+
+  private publicRuntimeActionSummary(actionKind: string, state: "running" | "done" | "error", subject: string, fallback: string) {
+    const fallbackText = this.publicRuntimeText(fallback);
+    if (fallbackText) return fallbackText;
+    const title = this.publicRuntimeActionTitle(actionKind, state);
+    return subject ? `${title} ${subject}` : title;
+  }
+
+  private publicRuntimeObservation(actionKind: string, fallback: string, subject: string) {
+    const fallbackText = this.publicRuntimeText(fallback);
+    if (fallbackText) return fallbackText.startsWith("观察：") ? fallbackText : `观察：${fallbackText}`;
+    if (actionKind === "verify") return "观察：验证已返回，需要根据结果判断是否继续修正。";
+    if (actionKind === "memory") return "观察：记忆检索已返回，下一步会纳入判断。";
+    if (actionKind === "prepare") return "观察：输出准备已确认，可以继续推进。";
+    return subject ? `观察：${subject} 已返回，我会据此推进下一步。` : "观察：结果已返回，继续根据结果推进下一步。";
   }
 
   private runtimeProgressKindFromStep(step: string): "stage" | "tool" | "verification" | "model" | "observation" | "terminal" {

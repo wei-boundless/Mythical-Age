@@ -211,9 +211,11 @@ describe("ChatMessage", () => {
           },
           {
             item_id: "progress:tool",
-            kind: "tool_activity",
-            title: "正在运行 npm test -- --run src/components/chat",
-            detail: "npm test -- --run src/components/chat",
+            kind: "work_action",
+            action_kind: "verify",
+            title: "正在运行验证",
+            subject_label: "前端测试",
+            public_summary: "正在运行验证 前端测试",
             state: "running",
           },
         ],
@@ -225,7 +227,8 @@ describe("ChatMessage", () => {
     expect(html).not.toContain("当前判断");
     expect(html.match(/我先检查当前目录和关键文件/g)?.length ?? 0).toBe(1);
     expect(html).toContain("运行验证");
-    expect(html).toContain("npm test -- --run src/components/chat");
+    expect(html).toContain("前端测试");
+    expect(html).not.toContain("npm test -- --run src/components/chat");
     expect(html.indexOf("我先检查当前目录和关键文件")).toBeLessThan(html.indexOf("运行验证"));
   });
 
@@ -282,7 +285,7 @@ describe("ChatMessage", () => {
     expect(html).not.toContain("正在思考");
   });
 
-  it("folds live tool activity into a stable assistant answer", () => {
+  it("keeps completed process feedback readable beside a stable assistant answer", () => {
     const html = renderToStaticMarkup(
       React.createElement(ChatMessage, {
         answerCanonicalState: "stable_answer",
@@ -306,9 +309,9 @@ describe("ChatMessage", () => {
     );
 
     expect(html).toContain("写好了");
-    expect(html).not.toContain("public-run-activity");
-    expect(html).not.toContain("观察结果");
-    expect(html).not.toContain("football.html 已返回");
+    expect(html).toContain("public-run-activity");
+    expect(html).toContain("观察结果");
+    expect(html).toContain("artifacts/football.html 已返回");
     expect(html).not.toContain("动作已返回");
     expect(html).not.toContain("public-run-activity__row--done");
     expect(html).not.toContain("public-run-activity__row--current");

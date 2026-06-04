@@ -3460,7 +3460,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       handlers.onEvent("done", {
         content: "已生成图像。",
         image: {
-          src: "/generated/images/chat-turn.png",
+          src: "/api/image-assets/files/chat-turn.png",
           alt: "睡着的小猫",
           caption: "revised prompt",
         },
@@ -3479,7 +3479,9 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
         base_url: "https://api.openai.com/v1",
         model: "gpt-image-2",
         api_key_present: true,
-        public_dir: "D:/AI应用/langchain-agent/frontend/public/generated/images",
+        asset_dir: "D:/AI应用/langchain-agent/storage/generated/images",
+        asset_route_prefix: "/api/image-assets/files",
+        asset_store_relative_dir: "storage/generated/images",
       },
     });
     const runtime = new WorkspaceRuntime(store);
@@ -3495,6 +3497,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
         mode: "generate",
         selection_id: "openai::gpt-image-2",
         provider: "openai",
+        selected_model: "gpt-image-2",
         model: "gpt-image-2",
         asset_kind: "chat",
         size: "1024x1024",
@@ -3506,7 +3509,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     );
     expect(store.getState().taskGraphLiveMonitor).toBeNull();
     expect(store.getState().taskGraphBoundRunMonitor).not.toBeNull();
-    expect(store.getState().messages.at(-1)?.image?.src).toBe("/generated/images/chat-turn.png");
+    expect(store.getState().messages.at(-1)?.image?.src).toBe("/api/image-assets/files/chat-turn.png");
   });
 
   it("keeps image turn errors visible instead of replacing them with refreshed empty history", async () => {
@@ -3532,7 +3535,9 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
         base_url: "https://api.openai.com/v1",
         model: "gpt-image-2",
         api_key_present: true,
-        public_dir: "D:/AI应用/langchain-agent/frontend/public/generated/images",
+        asset_dir: "D:/AI应用/langchain-agent/storage/generated/images",
+        asset_route_prefix: "/api/image-assets/files",
+        asset_store_relative_dir: "storage/generated/images",
       },
     });
     const runtime = new WorkspaceRuntime(store);
@@ -4187,8 +4192,11 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       public_timeline_delta: [
         {
           item_id: "tool:write",
-          kind: "tool_activity",
-          title: "正在写入 docs/plan.md",
+          kind: "work_action",
+          action_kind: "edit",
+          title: "正在更新文件",
+          subject_label: "docs/plan.md",
+          public_summary: "正在更新文件 docs/plan.md",
           state: "running",
         },
       ],
@@ -4198,8 +4206,8 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(assistant?.runtimePublicTimelineDraft).toEqual([
       expect.objectContaining({
         item_id: "tool:write",
-        kind: "tool_activity",
-        title: "正在写入 docs/plan.md",
+        kind: "work_action",
+        public_summary: "正在更新文件 docs/plan.md",
       }),
     ]);
   });
@@ -4212,8 +4220,11 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       public_timeline_delta: [
         {
           item_id: "tool:football:start",
-          kind: "tool_activity",
-          title: "正在调用 storage/task_environments/general/workspace/artifacts/football.html",
+          kind: "work_action",
+          action_kind: "edit",
+          title: "正在更新文件",
+          subject_label: "artifacts/football.html",
+          public_summary: "正在更新文件 artifacts/football.html",
           state: "running",
           stream_state: "streaming",
         },
@@ -4229,7 +4240,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(assistant?.runtimePublicTimelineDraft).toEqual([
       expect.objectContaining({
         item_id: "tool:football:start",
-        kind: "tool_activity",
+        kind: "work_action",
         state: "done",
         stream_state: "done",
       }),

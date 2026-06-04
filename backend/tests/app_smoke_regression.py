@@ -36,12 +36,18 @@ async def _fake_missing_terminal_astream(_request):
 async def _fake_image_generate(self, **kwargs):
     target_id = str(kwargs.get("target_id") or "chat-turn").replace(":", "-")
     filename = f"chat-{target_id}.png"
-    output_path = self.public_dir / filename
+    output_path = self.asset_dir / filename
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_bytes(base64.b64decode(_ONE_PIXEL_PNG_BASE64))
+    project_path = output_path.resolve().relative_to(self.project_root).as_posix()
     return {
-        "asset_path": f"/generated/images/{filename}",
+        "asset_path": f"/api/image-assets/files/{filename}",
+        "path": project_path,
+        "project_path": project_path,
         "file_path": str(output_path),
+        "absolute_path": str(output_path),
+        "storage_authority": "image_asset_store",
+        "bypass_sandbox_publish": True,
         "reused": False,
         "bytes": output_path.stat().st_size,
         "revised_prompt": "revised prompt",
@@ -131,10 +137,13 @@ def test_chat_routes_gpt_image_2_to_image_generation() -> None:
             assert response.status_code == 200
             assert response.json()["content"] == "已生成图像。"
             image = response.json()["image"]
-            generated_path = BACKEND_DIR.parent / "frontend" / "public" / Path(*image["src"].strip("/").split("/"))
-            assert image["src"].startswith(f"/generated/images/chat-turn-{session_id}-")
+            generated_path = BACKEND_DIR.parent / "storage" / "generated" / "images" / Path(image["src"]).name
+            assert image["src"].startswith(f"/api/image-assets/files/chat-turn-{session_id}-")
             assert image["src"].endswith(".png")
             assert generated_path.exists()
+            image_file = client.get(image["src"])
+            assert image_file.status_code == 200
+            assert image_file.headers["content-type"].startswith("image/png")
             assert response.json()["image"] == {
                 "src": image["src"],
                 "alt": "a blue glass mountain at sunset",

@@ -528,8 +528,39 @@ def test_public_stream_projection_emits_public_timeline_delta_for_tool_progress(
 
     assert projected is not None
     _, data = projected
-    assert data["public_timeline_delta"][0]["kind"] == "tool_activity"
-    assert data["public_timeline_delta"][0]["title"] == "正在写入 docs/plan.md"
+    item = data["public_timeline_delta"][0]
+    assert item["kind"] == "work_action"
+    assert item["action_kind"] == "edit"
+    assert item["public_summary"] == "正在更新文件 docs/plan.md"
+
+
+def test_public_stream_projection_hides_raw_shell_command_from_main_projection() -> None:
+    projected = _project_public_stream_event(
+        "runtime_step_summary",
+        {
+            "type": "runtime_step_summary",
+            "step": "task_tool_executed",
+            "status": "running",
+            "event": {
+                "event_id": "rtevt:shell-progress",
+                "payload": {
+                    "tool_name": "terminal",
+                    "tool_target": 'New-Item -ItemType Directory -Path "frontend/src/app/adventure-island" -Force',
+                },
+            },
+        },
+    )
+
+    assert projected is not None
+    _, data = projected
+    visible = json.dumps(data["public_timeline_delta"], ensure_ascii=False)
+    item = data["public_timeline_delta"][0]
+    assert item["kind"] == "work_action"
+    assert item["action_kind"] == "prepare"
+    assert item["public_summary"] == "正在准备输出 输出目录"
+    assert "New-Item" not in visible
+    assert "ItemType" not in visible
+    assert "frontend/src/app/adventure-island" not in visible
 
 
 def test_public_stream_projection_emits_handoff_status_delta() -> None:
@@ -570,9 +601,10 @@ def test_public_stream_projection_uses_inspection_language_for_path_exists() -> 
     assert projected is not None
     _, data = projected
     item = data["public_timeline_delta"][0]
-    assert item["kind"] == "tool_activity"
-    assert item["title"] == "正在检查 storage/task_environments/general/workspace/artifacts/mythical_sphere.html"
-    assert item["detail"] == "storage/task_environments/general/workspace/artifacts/mythical_sphere.html"
+    assert item["kind"] == "work_action"
+    assert item["action_kind"] == "inspect"
+    assert item["public_summary"] == "正在确认目标 artifacts/mythical_sphere.html"
+    assert "storage/task_environments" not in json.dumps(item, ensure_ascii=False)
 
 
 def test_public_stream_projection_emits_live_tool_admission_delta() -> None:
@@ -601,8 +633,9 @@ def test_public_stream_projection_emits_live_tool_admission_delta() -> None:
     assert projected is not None
     _, data = projected
     item = data["public_timeline_delta"][0]
-    assert item["kind"] == "tool_activity"
-    assert item["title"] == "正在写入 storage/task_environments/general/workspace/artifacts/football.html"
+    assert item["kind"] == "work_action"
+    assert item["action_kind"] == "edit"
+    assert item["public_summary"] == "正在更新文件 artifacts/football.html"
 
 
 def test_public_stream_projection_emits_live_tool_result_delta() -> None:
@@ -638,9 +671,10 @@ def test_public_stream_projection_emits_live_tool_result_delta() -> None:
     assert projected is not None
     _, data = projected
     item = data["public_timeline_delta"][0]
-    assert item["kind"] == "tool_activity"
-    assert item["title"] == "检查完成 storage/task_environments/general/workspace/artifacts/football.html"
-    assert item["detail"] == "目标路径存在"
+    assert item["kind"] == "work_action"
+    assert item["title"] == "已确认目标"
+    assert item["subject_label"] == "artifacts/football.html"
+    assert item["observation"] == "观察：目标路径存在"
 
 
 def test_public_stream_projection_summarizes_memory_search_without_internal_payload() -> None:
@@ -677,9 +711,10 @@ def test_public_stream_projection_summarizes_memory_search_without_internal_payl
     _, data = projected
     visible = json.dumps(data["public_timeline_delta"], ensure_ascii=False)
     item = data["public_timeline_delta"][0]
-    assert item["kind"] == "tool_activity"
-    assert item["title"] == "记忆检索完成 主角设定"
-    assert item["detail"] == "记忆检索命中 2 条相关记录"
+    assert item["kind"] == "work_action"
+    assert item["title"] == "记忆检索已返回"
+    assert item["subject_label"] == "相关记忆"
+    assert item["observation"] == "观察：记忆检索命中 2 条相关记录"
     assert "formal_memory.memory_search_tool" not in visible
     assert "diagnostics" not in visible
     assert "matched_version_count" not in visible
@@ -3297,7 +3332,12 @@ def test_session_runtime_timeline_projects_turn_run_tool_progress() -> None:
     assert entries[1]["toolName"] == "write_file"
     assert entries[1]["statusText"] == "已完成"
     assert entries[1]["artifacts"] == [{"label": "产物", "path": "docs/turn.md"}]
-    assert any(item.get("kind") == "tool_activity" and item.get("title") == "写入完成 docs/turn.md" for item in attachment["public_timeline"])
+    assert any(
+        item.get("kind") == "work_action"
+        and item.get("action_kind") == "edit"
+        and item.get("public_summary") == "已更新文件 docs/turn.md"
+        for item in attachment["public_timeline"]
+    )
 
 
 def test_session_runtime_timeline_derives_turn_anchor_from_structural_task_run_id() -> None:
@@ -7197,9 +7237,9 @@ def test_task_observation_projection_keeps_success_artifact_evidence() -> None:
                         "tool_args": {"prompt": "hero"},
                         "status": "ok",
                         "text": "generated",
-                        "artifact_refs": [{"path": "frontend/public/generated/images/hero.png", "kind": "image"}],
+                        "artifact_refs": [{"path": "storage/generated/images/hero.png", "kind": "image"}],
                         "structured_payload": {
-                            "artifact_refs": [{"path": "frontend/public/generated/images/hero.png", "kind": "image"}]
+                            "artifact_refs": [{"path": "storage/generated/images/hero.png", "kind": "image"}]
                         },
                     },
                 },
@@ -7211,7 +7251,7 @@ def test_task_observation_projection_keeps_success_artifact_evidence() -> None:
     projection = context["execution_state"]["system_projection"]
 
     assert projection["current_facts"][0]["tool_name"] == "image_generate"
-    assert projection["artifact_evidence"][0]["path"] == "frontend/public/generated/images/hero.png"
+    assert projection["artifact_evidence"][0]["path"] == "storage/generated/images/hero.png"
     assert context["artifact_refs"][0]["kind"] == "image"
 
 

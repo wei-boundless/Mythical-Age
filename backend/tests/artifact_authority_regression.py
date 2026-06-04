@@ -102,7 +102,7 @@ def test_artifact_authority_extracts_image_ref_from_json_tool_result() -> None:
                 {
                     "ok": True,
                     "image": {
-                        "file_path": "frontend/public/generated/images/hero.png",
+                        "file_path": "storage/generated/images/hero.png",
                         "mime_type": "image/png",
                     },
                 }
@@ -112,10 +112,69 @@ def test_artifact_authority_extracts_image_ref_from_json_tool_result() -> None:
 
     assert refs == [
         {
-            "path": "frontend/public/generated/images/hero.png",
+            "path": "storage/generated/images/hero.png",
             "kind": "image",
             "source": "image_generate",
             "mime_type": "image/png",
+        }
+    ]
+
+
+def test_artifact_authority_prefers_image_project_path_over_absolute_file_path(tmp_path: Path) -> None:
+    absolute_path = tmp_path / "storage" / "generated" / "images" / "hero.png"
+    refs = artifact_refs_from_tool_result_payload(
+        {
+            "tool_name": "image_generate",
+            "result": json.dumps(
+                {
+                    "ok": True,
+                    "image": {
+                        "src": "/api/image-assets/files/hero.png",
+                        "path": "storage/generated/images/hero.png",
+                        "file_path": str(absolute_path),
+                        "absolute_path": str(absolute_path),
+                        "storage_authority": "image_asset_store",
+                        "bypass_sandbox_publish": True,
+                    },
+                }
+            ),
+        }
+    )
+
+    assert refs == [
+        {
+            "path": "storage/generated/images/hero.png",
+            "absolute_path": str(absolute_path),
+            "src": "/api/image-assets/files/hero.png",
+            "storage_authority": "image_asset_store",
+            "bypass_sandbox_publish": True,
+            "kind": "image",
+            "source": "image_generate",
+        }
+    ]
+
+
+def test_artifact_authority_maps_image_asset_src_to_project_store_path() -> None:
+    refs = artifact_refs_from_tool_result_payload(
+        {
+            "tool_name": "image_generate",
+            "result": json.dumps(
+                {
+                    "ok": True,
+                    "image": {
+                        "src": "/api/image-assets/files/hero.png",
+                    },
+                }
+            ),
+        }
+    )
+
+    assert refs == [
+        {
+            "path": "storage/generated/images/hero.png",
+            "src": "/api/image-assets/files/hero.png",
+            "kind": "image",
+            "source": "image_generate",
         }
     ]
 

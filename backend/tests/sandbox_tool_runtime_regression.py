@@ -451,10 +451,17 @@ def test_image_generate_executor_injects_stable_target_and_does_not_overwrite_by
     calls: list[dict] = []
 
     async def _fake_generate(self, **kwargs):
+        project_path = f"storage/generated/images/chat-{kwargs['target_id']}.png"
+        absolute_path = tmp_path / project_path
         calls.append(dict(kwargs))
         return {
-            "asset_path": f"/generated/images/chat-{kwargs['target_id']}.png",
-            "file_path": str(tmp_path / f"chat-{kwargs['target_id']}.png"),
+            "asset_path": f"/api/image-assets/files/chat-{kwargs['target_id']}.png",
+            "path": project_path,
+            "project_path": project_path,
+            "file_path": str(absolute_path),
+            "absolute_path": str(absolute_path),
+            "storage_authority": "image_asset_store",
+            "bypass_sandbox_publish": True,
             "bytes": 10,
             "provider_size": "1024x1024",
             "final_size": "1024x1024",
@@ -477,6 +484,12 @@ def test_image_generate_executor_injects_stable_target_and_does_not_overwrite_by
     assert calls[0]["target_id"].startswith("tool-toolinv-")
     assert calls[0]["overwrite"] is False
     assert result["observation"].payload["tool_args"]["target_id"] == calls[0]["target_id"]
+    artifact = result["observation"].payload["artifact_refs"][0]
+    assert artifact["path"].startswith("storage/generated/images/chat-tool-toolinv-")
+    assert artifact["src"].startswith("/api/image-assets/files/chat-tool-toolinv-")
+    assert artifact["storage_authority"] == "image_asset_store"
+    assert artifact["bypass_sandbox_publish"] is True
+    assert Path(artifact["absolute_path"]).is_absolute()
 
 
 def test_sandbox_search_uses_overlay_view_after_read_copies_workspace_file(tmp_path: Path) -> None:
@@ -705,10 +718,34 @@ def test_tool_runtime_control_plane_request_preserves_agent_turn_execution_recei
     assert receipt["idempotency_key"]
 
 
-def test_tool_runtime_control_plane_request_blocks_non_native_side_effect_without_sandbox_context(tmp_path: Path) -> None:
+def test_tool_runtime_control_plane_request_allows_image_generate_fixed_store_without_sandbox_context(tmp_path: Path, monkeypatch) -> None:
+    from capability_system.capabilities.image_generation.image_asset_service import ImageAssetService
+
     workspace = tmp_path / "project"
     workspace.mkdir(parents=True)
     executor = ToolRuntimeExecutor(tool_runtime=ToolRuntime(workspace))
+
+    async def _fake_generate(self, **kwargs):
+        project_path = "storage/generated/images/chat-toolinvoke-image.png"
+        absolute_path = workspace / project_path
+        absolute_path.parent.mkdir(parents=True, exist_ok=True)
+        absolute_path.write_bytes(b"\x89PNG\r\n\x1a\nfake")
+        return {
+            "asset_path": "/api/image-assets/files/chat-toolinvoke-image.png",
+            "path": project_path,
+            "project_path": project_path,
+            "file_path": str(absolute_path),
+            "absolute_path": str(absolute_path),
+            "storage_authority": "image_asset_store",
+            "bypass_sandbox_publish": True,
+            "bytes": absolute_path.stat().st_size,
+            "provider_size": "1024x1024",
+            "final_size": "1024x1024",
+            "duration_ms": 1,
+            "model": "gpt-image-2",
+        }
+
+    monkeypatch.setattr(ImageAssetService, "generate", _fake_generate)
 
     result = asyncio.run(
         executor.execute_control_plane_request(
@@ -732,12 +769,17 @@ def test_tool_runtime_control_plane_request_blocks_non_native_side_effect_withou
         )
     )
 
-    assert result["status"] == "error"
-    assert result["recoverable_error"].startswith("sandbox_context_required_for_side_effect_tool")
+    assert result["status"] == "ok"
+    assert "recoverable_error" not in result
     receipt = result["result_envelope"]["execution_receipt"]
-    assert receipt["status"] == "failed"
+    assert receipt["status"] == "completed"
     assert receipt["operation_id"] == "op.image_generate"
     assert receipt["caller_kind"] == "agent_turn"
+    artifact = result["artifact_refs"][0]
+    assert artifact["path"] == "storage/generated/images/chat-toolinvoke-image.png"
+    assert artifact["src"] == "/api/image-assets/files/chat-toolinvoke-image.png"
+    assert artifact["storage_authority"] == "image_asset_store"
+    assert artifact["bypass_sandbox_publish"] is True
 
 
 def test_tool_runtime_preflight_rejects_missing_input_before_execution_record(tmp_path: Path) -> None:

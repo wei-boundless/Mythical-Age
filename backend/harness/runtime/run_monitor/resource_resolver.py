@@ -93,10 +93,11 @@ class MonitorResourceResolver:
             return False
 
     def _artifact_ref(self, ref: dict[str, Any], *, resolve_availability: bool) -> dict[str, Any]:
-        path_text = str(ref.get("absolute_path") or ref.get("path") or ref.get("src") or "").strip()
+        path_text = _artifact_display_path(ref)
+        absolute_path = str(ref.get("absolute_path") or "").strip()
         exists = False
-        if resolve_availability and path_text:
-            candidate = Path(path_text)
+        if resolve_availability and (absolute_path or path_text):
+            candidate = Path(absolute_path or path_text)
             resolved = candidate.resolve() if candidate.is_absolute() else (self.project_root / path_text).resolve()
             exists = _inside(resolved, self.project_root) and resolved.exists() and resolved.is_file()
         resource_id = path_text or str(ref)
@@ -124,3 +125,21 @@ class MonitorResourceResolver:
 
 def _inside(path: Path, root: Path) -> bool:
     return path == root or root in path.parents
+
+
+def _artifact_display_path(ref: dict[str, Any]) -> str:
+    path = str(ref.get("path") or ref.get("published_path") or "").replace("\\", "/").strip().strip("/")
+    if path:
+        return path
+    src = str(ref.get("src") or "").replace("\\", "/").strip()
+    if not src or "://" in src or src.startswith("//"):
+        return str(ref.get("absolute_path") or "").strip()
+    normalized = src.lstrip("/")
+    if not normalized:
+        return str(ref.get("absolute_path") or "").strip()
+    prefix = "api/image-assets/files/"
+    if normalized.startswith(prefix):
+        filename = normalized.removeprefix(prefix).strip("/")
+        if filename and "/" not in filename and filename not in {".", ".."}:
+            return f"storage/generated/images/{filename}"
+    return str(ref.get("absolute_path") or "").strip()

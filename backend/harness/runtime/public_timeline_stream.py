@@ -1,13 +1,16 @@
 from __future__ import annotations
 
-import json
 from hashlib import sha1
 from typing import Any
 
 from harness.runtime.progress_presenter import public_todo_plan_from_event
 from harness.runtime.public_chat_timeline import public_todo_plan_item
 from harness.runtime.public_projection_filters import should_hide_public_tool_observation
-from harness.runtime.public_progress import public_runtime_progress_summary
+from harness.runtime.public_timeline_projection import (
+    memory_search_observation_detail,
+    public_text,
+    public_work_action_item,
+)
 
 
 _INTERNAL_STEP_SUMMARIES = {
@@ -94,23 +97,15 @@ def _model_action_admission_item(data: dict[str, Any]) -> dict[str, Any]:
     if action_type != "tool_call":
         return {}
     tool_name, target = _tool_details_from_event(request)
-    title = _tool_title(step="model_action_admission", tool_name=tool_name, target=target, state="running")
-    detail = _tool_detail(
-        summary=_visible_text(request.get("public_progress_note")),
-        agent_brief="",
-        target=target,
-    )
     trace_ref = str(event.get("event_id") or "") or _stable_id("tool-admission", tool_name, target)
-    item_id = _tool_activity_id(data=data, event=event, tool_name=tool_name, target=target, fallback=trace_ref)
-    return _compact(
-        {
-            "item_id": item_id,
-            "kind": "tool_activity",
-            "title": title,
-            "detail": detail if detail and detail != title else "",
-            "state": "running",
-            "trace_refs": [trace_ref],
-        }
+    item_id = _work_action_id(data=data, event=event, tool_name=tool_name, target=target, fallback=trace_ref)
+    return public_work_action_item(
+        item_id=item_id,
+        tool_name=tool_name,
+        raw_target=target,
+        summary=request.get("public_progress_note"),
+        state="running",
+        trace_refs=[trace_ref],
     )
 
 
@@ -126,7 +121,6 @@ def _turn_tool_observation_item(data: dict[str, Any]) -> dict[str, Any]:
     target = _tool_target_from_observation(observation)
     status = str(observation.get("status") or "").strip().lower()
     state = "done" if status in {"ok", "success", "done", "completed"} else "error"
-    title = _tool_title(step="turn_tool_observation_recorded", tool_name=tool_name, target=target, state=state)
     detail = _tool_observation_detail(observation, target=target)
     envelope = _record(observation.get("result_envelope"))
     if state == "error" and should_hide_public_tool_observation(
@@ -142,26 +136,15 @@ def _turn_tool_observation_item(data: dict[str, Any]) -> dict[str, Any]:
     ):
         return {}
     trace_ref = str(event.get("event_id") or "") or _stable_id("tool-observation", tool_name, target or detail)
-    item_id = _tool_activity_id(data=data, event=event, tool_name=tool_name, target=target or detail, fallback=trace_ref)
-    if state == "error":
-        return _compact(
-            {
-                "item_id": item_id,
-                "kind": "blocked",
-                "text": detail or title,
-                "state": state,
-                "trace_refs": [trace_ref],
-            }
-        )
-    return _compact(
-        {
-            "item_id": item_id,
-            "kind": "tool_activity",
-            "title": title,
-            "detail": detail if detail and detail != title else "",
-            "state": state,
-            "trace_refs": [trace_ref],
-        }
+    item_id = _work_action_id(data=data, event=event, tool_name=tool_name, target=target or detail, fallback=trace_ref)
+    return public_work_action_item(
+        item_id=item_id,
+        tool_name=tool_name,
+        raw_target=target,
+        observation=detail,
+        state=state,
+        trace_refs=[trace_ref],
+        recovery_hint=observation.get("error") or envelope.get("error"),
     )
 
 
@@ -182,18 +165,15 @@ def _runtime_step_summary_item(data: dict[str, Any]) -> dict[str, Any]:
 
     if _looks_like_tool_step(step, payload):
         tool_name, target = _tool_details_from_event(payload)
-        title = _tool_title(step=step, tool_name=tool_name, target=target, state=state)
         detail = _tool_detail(summary=summary, agent_brief=agent_brief, target=target)
-        item_id = _tool_activity_id(data=data, event=event, tool_name=tool_name, target=target or detail, fallback=trace_ref)
-        return _compact(
-            {
-                "item_id": item_id,
-                "kind": "tool_activity",
-                "title": title,
-                "detail": detail if detail and detail != title else "",
-                "state": state,
-                "trace_refs": [trace_ref],
-            }
+        item_id = _work_action_id(data=data, event=event, tool_name=tool_name, target=target or detail, fallback=trace_ref)
+        return public_work_action_item(
+            item_id=item_id,
+            tool_name=tool_name,
+            raw_target=target,
+            summary=detail,
+            state=state,
+            trace_refs=[trace_ref],
         )
 
     prose = _visible_text(agent_brief or summary)
@@ -332,32 +312,10 @@ def _tool_target_from_observation(observation: dict[str, Any]) -> str:
     return ""
 
 
-def _tool_title(*, step: str, tool_name: str, target: str, state: str) -> str:
-    family = _tool_family(tool_name)
-    if str(tool_name or "").strip().lower() == "memory_search":
-        action = "正在检索记忆" if state == "running" else "记忆检索完成" if state == "done" else "记忆检索失败"
-        return f"{action} {target}".strip()
-    started = state == "running"
-    if family == "check":
-        action = "正在检查" if started else "检查完成" if state == "done" else "检查失败"
-    elif family == "write":
-        action = "正在写入" if started else "写入完成" if state == "done" else "写入失败"
-    elif family == "read":
-        action = "正在读取" if started else "读取完成" if state == "done" else "读取失败"
-    elif family == "search":
-        action = "正在搜索" if started else "搜索完成" if state == "done" else "搜索失败"
-    elif family == "run":
-        action = "正在运行" if started else "命令已完成" if state == "done" else "命令失败"
-    else:
-        action = "正在调用工具" if started else "工具已完成" if state == "done" else "工具失败"
-    candidate = f"{action} {target or tool_name}".strip()
-    if candidate != action:
-        return candidate
-    return _visible_text(step, limit=120) or action
-
-
 def _tool_family(tool_name: str) -> str:
     normalized = str(tool_name or "").strip().lower()
+    if normalized == "memory_search":
+        return "memory"
     if normalized in {"path_exists", "stat_path", "list_dir"}:
         return "check"
     if any(item in normalized for item in ("write", "edit", "patch")):
@@ -371,11 +329,11 @@ def _tool_family(tool_name: str) -> str:
     return "tool"
 
 
-def _tool_activity_id(*, data: dict[str, Any], event: dict[str, Any], tool_name: str, target: str, fallback: str) -> str:
+def _work_action_id(*, data: dict[str, Any], event: dict[str, Any], tool_name: str, target: str, fallback: str) -> str:
     scope = _runtime_scope_key(data=data, event=event)
     family = _tool_family(tool_name)
     subject = target or tool_name or fallback
-    return _stable_id("tool-activity", scope or family, f"{family}|{subject}")
+    return _stable_id("work-action", scope or family, f"{family}|{subject}")
 
 
 def _runtime_scope_key(*, data: dict[str, Any], event: dict[str, Any]) -> str:
@@ -438,59 +396,11 @@ def _timeline_state(status: str) -> str:
 
 
 def _visible_text(value: Any, *, limit: int = 220) -> str:
-    text = public_runtime_progress_summary(value).strip()
-    if not text:
-        return ""
-    text = " ".join(text.split()).strip()
-    if text.lower() in _SUPPRESSED_TEXT:
-        return ""
-    if _looks_like_structured_payload_text(text):
-        return ""
-    if len(text) > limit:
-        return text[: max(1, limit - 1)] + "..."
-    return text
+    return public_text(value, limit=limit)
 
 
 def _memory_search_observation_detail(value: Any) -> str:
-    payload = _json_record(value)
-    result_count = _safe_int(payload.get("result_count"))
-    results = payload.get("results")
-    if result_count is None and isinstance(results, list):
-        result_count = len(results)
-    if result_count is None:
-        return "记忆检索已返回，结果会纳入当前判断"
-    if result_count > 0:
-        return f"记忆检索命中 {result_count} 条相关记录"
-    return "记忆检索未找到相关记录"
-
-
-def _json_record(value: Any) -> dict[str, Any]:
-    if isinstance(value, dict):
-        return value
-    if not isinstance(value, str):
-        return {}
-    text = value.strip()
-    if not ((text.startswith("{") and text.endswith("}")) or (text.startswith("[") and text.endswith("]"))):
-        return {}
-    try:
-        parsed = json.loads(text)
-    except Exception:
-        return {}
-    return parsed if isinstance(parsed, dict) else {}
-
-
-def _safe_int(value: Any) -> int | None:
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return None
-
-
-def _looks_like_structured_payload_text(value: str) -> bool:
-    text = str(value or "").strip()
-    if (text.startswith("{") and text.endswith("}")) or (text.startswith("[") and text.endswith("]")):
-        return True
-    return any(token in text for token in ("authority", "diagnostics", "matched_version_count", "result_envelope", "structured_payload"))
+    return memory_search_observation_detail(value)
 
 
 def _stable_id(prefix: str, left: str, right: str) -> str:

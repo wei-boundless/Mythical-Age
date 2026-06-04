@@ -161,6 +161,18 @@ def _structured_result_payload(result: Any) -> dict[str, Any]:
             "text": str(payload.get("text") or payload.get("message") or payload.get("error") or json.dumps(payload, ensure_ascii=False, sort_keys=True)),
             "structured_payload": structured_payload,
         }
+    artifact_refs = [dict(item) for item in list(payload.get("artifact_refs") or []) if isinstance(item, dict)]
+    image_payload = dict(payload.get("image") or {}) if isinstance(payload.get("image"), dict) else {}
+    if artifact_refs or image_payload:
+        structured_payload = {
+            "tool_result": payload,
+        }
+        if artifact_refs:
+            structured_payload["artifact_refs"] = artifact_refs
+        return {
+            "text": str(payload.get("text") or payload.get("message") or payload.get("summary") or json.dumps(payload, ensure_ascii=False, sort_keys=True)),
+            "structured_payload": structured_payload,
+        }
     if "structured_payload" not in payload:
         return {}
     return {

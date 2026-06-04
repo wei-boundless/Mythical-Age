@@ -51,10 +51,10 @@ def test_complex_live_prompt_cache_scenario_requires_image_generation() -> None:
     assert "output_size=`512x512`" in goal
     assert "2D pixel art" in goal
     assert "每层章节文本" in goal
-    assert "/generated/images/" in "\n".join(contract["completion_criteria"])
+    assert "/api/image-assets/files/" in "\n".join(contract["completion_criteria"])
     artifact_paths = {item["path"] for item in contract["required_artifacts"]}
-    assert "frontend/public/generated/images/scene-five-floor-dungeon-pixel-tower-five_floor_dungeon_e2e_20260602_130944_4d0391.png" in artifact_paths
-    assert "frontend/public/generated/images/character-five-floor-dungeon-pixel-boss-five_floor_dungeon_e2e_20260602_130944_4d0391.png" in artifact_paths
+    assert "storage/generated/images/scene-five-floor-dungeon-pixel-tower-five_floor_dungeon_e2e_20260602_130944_4d0391.png" in artifact_paths
+    assert "storage/generated/images/character-five-floor-dungeon-pixel-boss-five_floor_dungeon_e2e_20260602_130944_4d0391.png" in artifact_paths
     assert any(item["kind"] == "image_asset_check" for item in contract["required_verifications"])
 
 

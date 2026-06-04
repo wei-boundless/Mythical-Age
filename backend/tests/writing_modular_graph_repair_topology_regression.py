@@ -159,6 +159,30 @@ def test_chapter_loop_scopes_do_not_reference_removed_self_repair_nodes() -> Non
     assert "chapter_draft_self_repair" not in batch_scope
 
 
+def test_chapter_batch_and_unit_loops_use_separate_cursor_authorities() -> None:
+    module = load_writing_modular_config_module()
+    frames = {frame["frame_id"]: frame for frame in module._chapter_loop_frames()}
+    initial_inputs = module._chapter_initial_graph_loop_inputs()
+    derived_fields = module._chapter_loop_derived_fields()
+    progress_policy = module._chapter_progress_route_policy_static()
+
+    assert initial_inputs["batch_start_index"] == 1
+    assert initial_inputs["chapter_index"] == 1
+
+    assert frames["loop.chapter_unit"]["cursor_key"] == "chapter_index"
+    assert frames["loop.chapter_unit"]["start_key"] == "batch_start_index"
+    assert frames["loop.chapter_unit"]["end_key"] == "batch_end_index"
+    assert frames["loop.chapter_unit"]["step"] == 1
+
+    assert frames["loop.chapter_batch"]["cursor_key"] == "batch_start_index"
+    assert frames["loop.chapter_batch"]["start_key"] == "batch_start_index"
+    assert frames["loop.chapter_batch"]["step"] == module.CHAPTER_BATCH_SIZE
+    assert frames["loop.chapter_batch"]["iteration_identity_template"] == "chapter-batch-{batch_start_index}"
+
+    assert {"key": "batch_start_index", "op": "copy", "from_key": "chapter_index"} not in derived_fields
+    assert {"key": "chapter_index", "op": "copy", "from_key": "batch_start_index"} in progress_policy["patch_rules"]
+
+
 def test_memory_commit_uses_reviewed_batch_assembly_as_source_candidate() -> None:
     module = load_writing_modular_config_module()
     node_by_id = {node.node_id: node for node in module.CHAPTER_NODES}

@@ -453,7 +453,8 @@ class AppSettingsService:
                 },
             ],
             "metadata": {
-                "public_dir": image_payload["public_dir"],
+                "asset_dir": image_payload["asset_dir"],
+                "asset_route_prefix": image_payload["asset_route_prefix"],
             },
         }
         rerank_mode = "disabled"

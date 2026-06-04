@@ -340,9 +340,15 @@ def test_public_chat_timeline_projects_tool_activity_without_raw_trace() -> None
     assert timeline == [
         {
             "item_id": "workunit:path-check",
-            "kind": "tool_activity",
-            "title": "确认 artifact 路径",
+            "kind": "work_action",
+            "action_kind": "inspect",
+            "phase": "done",
+            "title": "已确认目标",
+            "subject_label": "确认 artifact 路径",
+            "public_summary": "已确认目标 确认 artifact 路径",
+            "observation": "观察：目标文件尚未存在，路径检查已完成。",
             "state": "done",
+            "stream_state": "done",
             "trace_refs": ["rtevt:obs"],
         },
         {
@@ -509,10 +515,10 @@ def test_agent_feedback_survives_tool_activity_projection() -> None:
     presentation = build_progress_presentation(events=events, task_run=_task_run(), monitor={})
     timeline = build_public_chat_timeline(progress_presentation=presentation, status="running")
 
-    assert [item["kind"] for item in timeline] == ["opening_judgment", "tool_activity"]
+    assert [item["kind"] for item in timeline] == ["opening_judgment", "work_action"]
     assert timeline[0]["title"] == "开局判断"
     assert timeline[0]["text"] == "我先检查文件写入权限和可用路径，然后创建游戏文件。"
-    assert timeline[1]["title"] == "检查路径信息"
+    assert timeline[1]["title"] == "正在确认目标"
 
 
 def test_progress_presentation_recovers_agent_todo_as_public_plan() -> None:
@@ -601,7 +607,7 @@ def test_public_chat_timeline_projects_observation_reports_after_tool_work() -> 
         status="running",
     )
 
-    assert [item["kind"] for item in timeline] == ["opening_judgment", "tool_activity", "observation_report"]
+    assert [item["kind"] for item in timeline] == ["opening_judgment", "work_action", "observation_report"]
     assert timeline[-1]["title"] == "观察报告"
     assert timeline[-1]["detail"] == "已读到主会话从 public_timeline 渲染运行反馈。"
     assert timeline[-1]["implication"] == "下一步应该根据真实调用链修改公开投影。"

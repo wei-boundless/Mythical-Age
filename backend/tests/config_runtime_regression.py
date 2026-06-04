@@ -375,6 +375,12 @@ def test_image_asset_generation_resizes_small_requested_size_locally(monkeypatch
     assert generated["requested_size"] == "128x128"
     assert generated["provider_size"] == "1024x1024"
     assert generated["final_size"] == "128x128"
+    assert generated["asset_path"].startswith("/api/image-assets/files/")
+    assert generated["path"].startswith("storage/generated/images/")
+    assert generated["project_path"] == generated["path"]
+    assert generated["absolute_path"] == generated["file_path"]
+    assert generated["storage_authority"] == "image_asset_store"
+    assert generated["bypass_sandbox_publish"] is True
     with Image.open(generated["file_path"]) as image:
         assert image.size == (128, 128)
 

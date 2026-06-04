@@ -260,13 +260,15 @@ def _artifact_ref_from_repository_record(record: dict[str, Any]) -> dict[str, An
 
 
 def _logical_artifact_path(payload: dict[str, Any]) -> str:
-    return str(
+    path = str(
         payload.get("path")
         or payload.get("published_path")
-        or payload.get("src")
         or payload.get("artifact_path")
         or ""
     ).replace("\\", "/").strip().strip("/")
+    if path:
+        return path
+    return _project_path_from_image_asset_src(payload.get("src"))
 
 
 def _event_payload(event: Any) -> dict[str, Any]:
@@ -284,13 +286,26 @@ def _artifact_refs_from_image_payload(*sources: Any) -> list[dict[str, Any]]:
     for source in sources:
         payload = _dict_payload(source)
         image = _dict_payload(payload.get("image"))
-        path = str(image.get("file_path") or image.get("src") or image.get("path") or "").strip()
+        path = str(image.get("path") or image.get("published_path") or image.get("artifact_path") or "").strip()
+        absolute_path = str(image.get("absolute_path") or "").strip()
+        file_path = str(image.get("file_path") or "").strip()
+        if file_path:
+            if _looks_like_absolute_local_path(file_path):
+                absolute_path = absolute_path or file_path
+            elif not path:
+                path = file_path
         if not path:
+            path = _project_path_from_image_asset_src(image.get("src"))
+        if not path and not absolute_path:
             continue
         refs.append(
             _drop_empty(
                 {
                     "path": path,
+                    "absolute_path": absolute_path,
+                    "src": str(image.get("src") or ""),
+                    "storage_authority": str(image.get("storage_authority") or ""),
+                    **({"bypass_sandbox_publish": True} if image.get("bypass_sandbox_publish") is True else {}),
                     "kind": str(image.get("kind") or "image"),
                     "source": str(image.get("source") or payload.get("tool_name") or "image_generate"),
                     "mime_type": str(image.get("mime_type") or ""),
@@ -340,6 +355,31 @@ def _compact_text(value: Any, *, limit: int) -> str:
 def _is_runtime_sandbox_path(path: str) -> bool:
     normalized = str(path or "").replace("\\", "/").lower()
     return "/storage/runtime_state/sandboxes/" in normalized or normalized.startswith("storage/runtime_state/sandboxes/")
+
+
+def _project_path_from_image_asset_src(value: Any) -> str:
+    src = str(value or "").replace("\\", "/").strip()
+    if not src or "://" in src or src.startswith("//"):
+        return ""
+    normalized = src.lstrip("/")
+    if not normalized:
+        return ""
+    prefix = "api/image-assets/files/"
+    if not normalized.startswith(prefix):
+        return ""
+    filename = normalized.removeprefix(prefix).strip("/")
+    if not filename or "/" in filename or filename in {".", ".."}:
+        return ""
+    return f"storage/generated/images/{filename}"
+
+
+def _looks_like_absolute_local_path(value: str) -> bool:
+    text = str(value or "").strip()
+    if not text:
+        return False
+    if text.startswith(("/", "\\")):
+        return True
+    return len(text) >= 3 and text[1] == ":" and text[2] in {"/", "\\"}
 
 
 def _inside(path: Path, root: Path) -> bool:

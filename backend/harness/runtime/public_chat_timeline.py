@@ -3,7 +3,11 @@ from __future__ import annotations
 from hashlib import sha1
 from typing import Any
 
-from harness.runtime.public_progress import public_runtime_progress_summary
+from harness.runtime.public_timeline_projection import (
+    public_observation_report_item,
+    public_text,
+    public_work_action_item,
+)
 
 
 _SUPPRESSED_TEXT = {
@@ -143,6 +147,17 @@ def _item_from_work_unit(unit: dict[str, Any]) -> dict[str, Any]:
     state = _public_state(unit.get("state"))
     refs = _trace_refs(unit)
     unit_id = _visible_id(unit.get("unit_id")) or _stable_id("unit", refs, title, detail)
+    if _is_tool_like(unit):
+        return public_work_action_item(
+            item_id=unit_id,
+            tool_name=_tool_name_from_unit(unit),
+            raw_target=detail or title,
+            summary=detail or title,
+            observation=evidence_detail,
+            state=state,
+            trace_refs=refs,
+            action_kind=_action_kind_from_unit(unit),
+        )
     if state == "error":
         return _compact(
             {
@@ -171,16 +186,12 @@ def _observation_report_from_work_unit(unit: dict[str, Any]) -> dict[str, Any]:
         return {}
     refs = _trace_refs(unit)
     implication = _visible_text(unit.get("next_action") or unit.get("judgment"), limit=180)
-    return _compact(
-        {
-            "item_id": _stable_id("observation", refs, _text(unit.get("unit_id")), detail),
-            "kind": "observation_report",
-            "title": "观察报告",
-            "detail": detail,
-            "implication": implication if implication and implication != detail else "",
-            "state": _public_state(unit.get("state")),
-            "trace_refs": refs,
-        }
+    return public_observation_report_item(
+        item_id=_stable_id("observation", refs, _text(unit.get("unit_id")), detail),
+        detail=detail,
+        implication=implication if implication and implication != detail else "",
+        state=_public_state(unit.get("state")),
+        trace_refs=refs,
     )
 
 
@@ -311,12 +322,55 @@ def _is_tool_like(unit: dict[str, Any]) -> bool:
 def _public_item_kind(unit: dict[str, Any]) -> str:
     kind = _text(unit.get("kind"))
     if _is_tool_like(unit):
-        return "tool_activity"
+        return "work_action"
     if kind == "verification":
         return "verification"
     if kind in {"stage", "task_order", "model_judgment"}:
         return "status_update"
     return "assistant_text"
+
+
+def _tool_name_from_unit(unit: dict[str, Any]) -> str:
+    kind = _text(unit.get("kind"))
+    if _unit_mentions_memory(unit):
+        return "memory_search"
+    mapping = {
+        "inspect_path": "path_exists",
+        "write_file": "write_file",
+        "search_text": "search_text",
+        "terminal": "terminal",
+        "tool_action": "tool",
+    }
+    return mapping.get(kind, kind)
+
+
+def _action_kind_from_unit(unit: dict[str, Any]) -> str:
+    kind = _text(unit.get("kind"))
+    if _unit_mentions_memory(unit):
+        return "memory"
+    if kind == "inspect_path":
+        return "inspect"
+    if kind == "write_file":
+        return "edit"
+    if kind == "search_text":
+        return "search"
+    if kind == "terminal":
+        return "verify"
+    if kind == "verification":
+        return "verify"
+    return ""
+
+
+def _unit_mentions_memory(unit: dict[str, Any]) -> bool:
+    parts = [
+        _text(unit.get("kind")),
+        _text(unit.get("title")),
+        _text(unit.get("action")),
+        _text(unit.get("judgment")),
+        _first_evidence_summary(unit),
+    ]
+    haystack = " ".join(parts).lower()
+    return "memory" in haystack or "记忆" in haystack
 
 
 def _public_state(value: Any) -> str:
@@ -338,19 +392,7 @@ def _trace_refs(value: dict[str, Any]) -> list[str]:
 
 
 def _visible_text(value: Any, *, limit: int = 220) -> str:
-    text = public_runtime_progress_summary(value).strip()
-    if not text:
-        return ""
-    text = " ".join(text.split()).strip()
-    if text in _SUPPRESSED_TEXT or text.lower() in _SUPPRESSED_TEXT:
-        return ""
-    if text.lower() in {"true", "false", "null", "none"}:
-        return ""
-    if _looks_internal(text):
-        return ""
-    if len(text) > limit:
-        return text[: max(1, limit - 1)] + "..."
-    return text
+    return public_text(value, limit=limit)
 
 
 def _looks_internal(text: str) -> bool:

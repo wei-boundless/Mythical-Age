@@ -13,7 +13,7 @@ export function cleanPublicTimelineText(value: unknown) {
 
 export function publicTimelineItemText(item: PublicChatTimelineItem | undefined) {
   if (!item) return "";
-  return cleanPublicTimelineText(item.text || item.detail || item.title || item.path || item.href);
+  return cleanPublicTimelineText(item.public_summary || item.observation || item.text || item.detail || item.title || item.subject_label || item.path || item.href);
 }
 
 export function publicTimelineItemKey(item: PublicChatTimelineItem | undefined, fallbackIndex = 0) {
@@ -36,6 +36,15 @@ export function publicTimelineItemKey(item: PublicChatTimelineItem | undefined, 
 export function publicTimelineSemanticKey(item: PublicChatTimelineItem | undefined) {
   if (!item) return "";
   const kind = cleanPublicTimelineText(item.kind);
+  if (kind === "work_action") {
+    const actionKind = cleanPublicTimelineText(item.action_kind);
+    const subject = cleanPublicTimelineText(item.subject_label);
+    const refs = Array.isArray(item.trace_refs)
+      ? item.trace_refs.map((ref) => cleanPublicTimelineText(ref)).filter(Boolean)
+      : [];
+    if (refs.length) return `work:${refs.join(",")}`;
+    return actionKind || subject ? `work:${actionKind}:${subject}` : "";
+  }
   if (kind !== "tool_activity") return "";
   const titleTarget = normalizedToolActivityTarget(item.title || item.text);
   const detailTarget = normalizedToolActivityTarget(item.path || item.href || item.detail);

@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from api.deps import require_runtime
@@ -27,6 +29,24 @@ class ImageAssetGenerateRequest(BaseModel):
 async def image_asset_config() -> dict[str, Any]:
     runtime = require_runtime()
     return ImageAssetService(runtime.base_dir).config_summary()
+
+
+@router.get("/image-assets/files/{filename:path}")
+async def get_image_asset_file(filename: str) -> FileResponse:
+    runtime = require_runtime()
+    service = ImageAssetService(runtime.base_dir)
+    asset_dir = service.asset_dir.resolve()
+    requested_name = str(filename or "").replace("\\", "/").strip().lstrip("/")
+    if not requested_name or "/" in requested_name or requested_name in {".", ".."}:
+        raise HTTPException(status_code=404, detail="Image asset not found")
+    if Path(requested_name).name != requested_name:
+        raise HTTPException(status_code=404, detail="Image asset not found")
+    path = (asset_dir / requested_name).resolve()
+    if not _inside(path, asset_dir) or not path.exists() or not path.is_file():
+        raise HTTPException(status_code=404, detail="Image asset not found")
+    if path.suffix.lower() != ".png":
+        raise HTTPException(status_code=415, detail="Unsupported image asset type")
+    return FileResponse(path, media_type="image/png", filename=path.name)
 
 
 @router.post("/image-assets/generate")
@@ -67,3 +87,7 @@ def _image_error_http_status(exc: ImageAssetError) -> int:
     if code in {"image_provider_auth_error", "image_endpoint_not_found"}:
         return 502
     return 500
+
+
+def _inside(path: Path, root: Path) -> bool:
+    return path == root or root in path.parents

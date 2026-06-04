@@ -14,6 +14,11 @@ import httpx
 from dotenv import load_dotenv
 from PIL import Image
 from config import runtime_config
+from project_layout import ProjectLayout
+
+
+IMAGE_ASSET_ROUTE_PREFIX = "/api/image-assets/files"
+IMAGE_ASSET_STORE_RELATIVE_DIR = "storage/generated/images"
 
 
 class ImageAssetError(RuntimeError):
@@ -39,8 +44,9 @@ class ImageAssetService:
     def __init__(self, base_dir: Path) -> None:
         self.base_dir = Path(base_dir)
         load_dotenv(self.base_dir / ".env")
-        self.project_root = self.base_dir.resolve().parent
-        self.public_dir = (self.project_root / "frontend" / "public" / "generated" / "images").resolve()
+        self.layout = ProjectLayout.from_backend_dir(self.base_dir)
+        self.project_root = self.layout.project_root.resolve()
+        self.asset_dir = (self.layout.storage_root / "generated" / "images").resolve()
 
     def configured(self) -> bool:
         return bool(self._api_key() and self._base_url() and self._model())
@@ -55,7 +61,9 @@ class ImageAssetService:
             "request_retry_attempts": self._request_retry_attempts(),
             "concurrency": self._request_concurrency(),
             "api_key_present": bool(self._api_key()),
-            "public_dir": str(self.public_dir),
+            "asset_dir": str(self.asset_dir),
+            "asset_route_prefix": IMAGE_ASSET_ROUTE_PREFIX,
+            "asset_store_relative_dir": IMAGE_ASSET_STORE_RELATIVE_DIR,
         }
 
     def set_config(
@@ -105,8 +113,8 @@ class ImageAssetService:
         safe_kind = self._safe_slug(asset_kind or "asset")
         safe_target = self._safe_slug(target_id or f"asset-{int(time.time())}")
         filename = f"{safe_kind}-{safe_target}.png"
-        output_path = (self.public_dir / filename).resolve()
-        if self.public_dir not in output_path.parents:
+        output_path = (self.asset_dir / filename).resolve()
+        if self.asset_dir not in output_path.parents:
             raise ImageAssetError("Invalid image output path")
         if output_path.exists() and not overwrite:
             return self._asset_response(output_path, filename, reused=True)
@@ -116,7 +124,9 @@ class ImageAssetService:
             "Authorization": f"Bearer {self._api_key()}",
             "Content-Type": "application/json",
         }
-        endpoint = f"{self._base_url().rstrip('/')}/images/generations"
+        base_url = self._base_url().rstrip("/")
+        endpoint = f"{base_url}/images/generations"
+        chat_endpoint = f"{base_url}/chat/completions"
 
         attempts: list[dict[str, Any]] = []
         data: dict[str, Any] | None = None
@@ -136,6 +146,28 @@ class ImageAssetService:
             if api_error and _should_try_next_payload(api_error):
                 continue
             if api_error:
+                if _should_try_chat_completions_fallback(api_error):
+                    chat_result = await self._post_chat_generation_payload_concurrently(
+                        endpoint=chat_endpoint,
+                        headers=headers,
+                        prompt=clean_prompt,
+                        size=provider_size,
+                        quality=quality,
+                        model=str(payload.get("model") or model or self._model()),
+                        request_timeout_seconds=request_timeout_seconds,
+                    )
+                    attempts.extend(list(chat_result.get("attempts") or []))
+                    if chat_result.get("data") is not None:
+                        data = dict(chat_result.get("data") or {})
+                        break
+                    chat_error = dict(chat_result.get("api_error") or {})
+                    if chat_error:
+                        raise ImageAssetError(
+                            _format_generation_failure(attempts),
+                            code=str(chat_error.get("code") or "image_api_error"),
+                            retryable=bool(chat_error.get("retryable", True)),
+                            attempts=attempts,
+                        )
                 raise ImageAssetError(
                     _format_generation_failure(attempts),
                     code=str(api_error.get("code") or "image_api_error"),
@@ -186,7 +218,7 @@ class ImageAssetService:
             image_bytes = _resize_png(image_bytes, requested_size)
             final_size = requested_size
 
-        self.public_dir.mkdir(parents=True, exist_ok=True)
+        self.asset_dir.mkdir(parents=True, exist_ok=True)
         output_path.write_bytes(image_bytes)
         if not output_path.exists() or output_path.stat().st_size <= 0:
             raise ImageAssetError("Generated image was not written to disk", code="image_asset_write_failed", retryable=True, attempts=attempts)
@@ -292,6 +324,57 @@ class ImageAssetService:
                 await asyncio.sleep(min(1.5, 0.35 * (round_index + 1)))
         return {"data": None, "attempts": attempts, "api_error": last_api_error}
 
+    async def _post_chat_generation_payload_concurrently(
+        self,
+        *,
+        endpoint: str,
+        headers: dict[str, str],
+        prompt: str,
+        size: str,
+        quality: str = "",
+        model: str = "",
+        request_timeout_seconds: float | None = None,
+    ) -> dict[str, Any]:
+        payload = _chat_generation_payload(prompt=prompt, size=size, quality=quality, model=model)
+        result = await self._post_generation_payload(
+            endpoint=endpoint,
+            headers=headers,
+            payload=payload,
+            request_timeout_seconds=request_timeout_seconds,
+            attempt_index=1,
+        )
+        attempts = [
+            {
+                **dict(item),
+                "endpoint_strategy": "chat_completions_image_fallback",
+            }
+            for item in list(result.get("attempts") or [])
+        ]
+        if result.get("data") is None:
+            return {"data": None, "attempts": attempts, "api_error": dict(result.get("api_error") or {})}
+        normalized = _image_generation_data_from_chat_completion(dict(result.get("data") or {}), model=model)
+        if normalized is None:
+            attempts.append(
+                {
+                    "model": str(model or ""),
+                    "payload_shape": sorted(str(key) for key in payload.keys()),
+                    "code": "missing_image_payload",
+                    "message": "Chat completions fallback returned no image payload",
+                    "retryable": True,
+                    "endpoint_strategy": "chat_completions_image_fallback",
+                }
+            )
+            return {
+                "data": None,
+                "attempts": attempts,
+                "api_error": {
+                    "code": "missing_image_payload",
+                    "retryable": True,
+                    "message": "Chat completions fallback returned no image payload",
+                },
+            }
+        return {"data": normalized, "attempts": attempts}
+
     async def _post_generation_payload(
         self,
         *,
@@ -329,9 +412,16 @@ class ImageAssetService:
             return {"data": None, "attempts": [attempt], "api_error": {"code": "non_json_response", "retryable": False, "message": detail}}
 
     def _asset_response(self, output_path: Path, filename: str, *, reused: bool) -> dict[str, Any]:
+        project_path = output_path.resolve().relative_to(self.project_root).as_posix()
         return {
-            "asset_path": f"/generated/images/{filename}",
+            "asset_path": f"{IMAGE_ASSET_ROUTE_PREFIX}/{filename}",
+            "asset_url": f"{IMAGE_ASSET_ROUTE_PREFIX}/{filename}",
+            "path": project_path,
+            "project_path": project_path,
             "file_path": str(output_path),
+            "absolute_path": str(output_path),
+            "storage_authority": "image_asset_store",
+            "bypass_sandbox_publish": True,
             "reused": reused,
             "bytes": output_path.stat().st_size if output_path.exists() else 0,
         }
@@ -449,6 +539,117 @@ def _attempt_success(*, payload: dict[str, Any], attempt_index: int) -> dict[str
 
 def _should_try_next_payload(api_error: dict[str, Any]) -> bool:
     return str(api_error.get("code") or "") == "model_endpoint_incompatible" and bool(api_error.get("retryable", True))
+
+
+def _should_try_chat_completions_fallback(api_error: dict[str, Any]) -> bool:
+    return str(api_error.get("code") or "") == "image_endpoint_not_found"
+
+
+def _chat_generation_payload(*, prompt: str, size: str, quality: str = "", model: str = "") -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "model": str(model or "").strip(),
+        "messages": [{"role": "user", "content": prompt}],
+        "stream": False,
+        "size": size,
+    }
+    normalized_quality = _normalize_quality(quality)
+    if normalized_quality:
+        payload["quality"] = normalized_quality
+    return payload
+
+
+def _image_generation_data_from_chat_completion(data: dict[str, Any], *, model: str = "") -> dict[str, Any] | None:
+    choices = list(data.get("choices") or [])
+    for choice in choices:
+        message = dict(dict(choice or {}).get("message") or {})
+        image_item = _first_image_item_from_any(message)
+        if image_item:
+            return {
+                "data": [image_item],
+                "created": data.get("created"),
+                "model": str(data.get("model") or model or ""),
+            }
+    image_item = _first_image_item_from_any(data)
+    if image_item:
+        return {
+            "data": [image_item],
+            "created": data.get("created"),
+            "model": str(data.get("model") or model or ""),
+        }
+    return None
+
+
+def _first_image_item_from_any(value: Any) -> dict[str, Any] | None:
+    if isinstance(value, dict):
+        if str(value.get("b64_json") or "").strip():
+            return {"b64_json": str(value.get("b64_json") or ""), "revised_prompt": str(value.get("revised_prompt") or "")}
+        url = _image_url_from_value(value)
+        if url:
+            return {"url": url, "revised_prompt": str(value.get("revised_prompt") or "")}
+        for key in ("image", "image_url"):
+            nested = _first_image_item_from_any(value.get(key))
+            if nested:
+                return nested
+        for key in ("images", "data", "content"):
+            nested = _first_image_item_from_any(value.get(key))
+            if nested:
+                return nested
+    if isinstance(value, list):
+        for item in value:
+            nested = _first_image_item_from_any(item)
+            if nested:
+                return nested
+    if isinstance(value, str):
+        return _first_image_item_from_text(value)
+    return None
+
+
+def _image_url_from_value(value: dict[str, Any]) -> str:
+    raw_url = value.get("url")
+    if isinstance(raw_url, str) and raw_url.strip():
+        return raw_url.strip()
+    image_url = value.get("image_url")
+    if isinstance(image_url, str) and image_url.strip():
+        return image_url.strip()
+    if isinstance(image_url, dict):
+        nested_url = str(image_url.get("url") or "").strip()
+        if nested_url:
+            return nested_url
+    return ""
+
+
+def _first_image_item_from_text(text: str) -> dict[str, Any] | None:
+    stripped = str(text or "").strip()
+    if not stripped:
+        return None
+    parsed = _json_from_text(stripped)
+    if parsed is not None:
+        return _first_image_item_from_any(parsed)
+    data_match = re.search(r"data:image/(?:png|webp|jpeg);base64,([A-Za-z0-9+/=\\r\\n]+)", stripped, flags=re.IGNORECASE)
+    if data_match:
+        return {"b64_json": data_match.group(1).replace("\n", "").replace("\r", "")}
+    markdown_match = re.search(r"!\[[^\]]*\]\((https?://[^)]+)\)", stripped)
+    if markdown_match:
+        return {"url": markdown_match.group(1)}
+    url_match = re.search(r"https?://\\S+", stripped)
+    if url_match:
+        return {"url": url_match.group(0).rstrip(").,;")}
+    return None
+
+
+def _json_from_text(text: str) -> Any | None:
+    try:
+        return json.loads(text)
+    except (TypeError, ValueError):
+        pass
+    start = text.find("{")
+    end = text.rfind("}")
+    if start >= 0 and end > start:
+        try:
+            return json.loads(text[start : end + 1])
+        except (TypeError, ValueError):
+            return None
+    return None
 
 
 def _format_generation_failure(attempts: list[dict[str, Any]]) -> str:

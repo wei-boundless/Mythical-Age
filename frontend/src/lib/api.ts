@@ -205,7 +205,13 @@ export type PublicTodoItem = {
 
 export type PublicChatTimelineItem = {
   item_id?: string;
-  kind: "status_update" | "assistant_text" | "opening_judgment" | "todo_plan" | "tool_activity" | "observation_report" | "artifact" | "verification" | "blocked" | "final_summary" | string;
+  kind: "status_update" | "assistant_text" | "opening_judgment" | "todo_plan" | "work_action" | "tool_activity" | "observation_report" | "artifact" | "verification" | "blocked" | "final_summary" | string;
+  action_kind?: "inspect" | "read" | "search" | "edit" | "write" | "run" | "verify" | "memory" | "prepare" | "artifact" | "browse" | "image" | "work" | string;
+  phase?: "running" | "done" | "adjusting" | string;
+  subject_label?: string;
+  public_summary?: string;
+  observation?: string;
+  next_step?: string;
   title?: string;
   detail?: string;
   text?: string;
@@ -2027,7 +2033,9 @@ export type ImageAssetConfig = {
   base_url: string;
   model: string;
   api_key_present: boolean;
-  public_dir: string;
+  asset_dir: string;
+  asset_route_prefix: string;
+  asset_store_relative_dir: string;
 };
 
 export type RuntimeConfigField = {

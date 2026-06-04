@@ -26,12 +26,11 @@ import {
 } from "@/components/chat/agentRunPresentation";
 
 type PublicRunActivityProps = {
-  foldCompletedActivity?: boolean;
   items: PublicChatTimelineItem[];
   assistantContent?: string;
 };
 
-const RECENT_HISTORY_LIMIT = 0;
+const RECENT_HISTORY_LIMIT = 3;
 const SUPPRESSED_STATUS_TEXT = new Set([
   "已同步最新进展。",
   "已接上当前工作，正在同步最新进展。",
@@ -56,8 +55,8 @@ function samePublicText(left: unknown, right: unknown) {
   return sameRunText(left, right);
 }
 
-function publicItems(items: PublicChatTimelineItem[], assistantContent = "", foldCompletedActivity = false) {
-  return normalizePublicTimelineItems(items.filter((item) => shouldRenderItem(item, assistantContent, foldCompletedActivity)));
+function publicItems(items: PublicChatTimelineItem[], assistantContent = "") {
+  return normalizePublicTimelineItems(items.filter((item) => shouldRenderItem(item, assistantContent)));
 }
 
 function isStatusUpdate(item: PublicChatTimelineItem) {
@@ -70,13 +69,10 @@ function isFinalItem(item: PublicChatTimelineItem) {
   return kind === "final_summary" || kind === "artifact";
 }
 
-function shouldRenderItem(item: PublicChatTimelineItem, assistantContent: string, foldCompletedActivity: boolean) {
+function shouldRenderItem(item: PublicChatTimelineItem, assistantContent: string) {
   const kind = cleanText(item.kind);
   const text = textOfItem(item);
   if (!text) return false;
-  if (foldCompletedActivity && isProcessActivityItem(item)) {
-    return false;
-  }
   if (assistantContent.trim() && isStaleRawToolFailure(item, text)) {
     return false;
   }
@@ -99,19 +95,6 @@ function shouldRenderItem(item: PublicChatTimelineItem, assistantContent: string
   return true;
 }
 
-function isProcessActivityItem(item: PublicChatTimelineItem) {
-  const kind = cleanText(item.kind);
-  return [
-    "observation_report",
-    "stage",
-    "status_update",
-    "task_order",
-    "todo_plan",
-    "tool_activity",
-    "verification",
-  ].includes(kind);
-}
-
 function isStaleRawToolFailure(item: PublicChatTimelineItem, text: string) {
   if (cleanText(item.kind) !== "tool_activity") return false;
   if (stateClass(item) !== "error") return false;
@@ -121,9 +104,8 @@ function isStaleRawToolFailure(item: PublicChatTimelineItem, text: string) {
 export function hasPublicRunActivity(
   items: PublicChatTimelineItem[],
   assistantContent = "",
-  options: { foldCompletedActivity?: boolean } = {},
 ) {
-  const plan = activityPlan(publicItems(items, assistantContent, Boolean(options.foldCompletedActivity)));
+  const plan = activityPlan(publicItems(items, assistantContent));
   return Boolean(plan.current || plan.recent.length || plan.finalItems.length || plan.collapsedCount);
 }
 
@@ -142,7 +124,7 @@ function ActivityIcon({ item }: { item: PublicChatTimelineItem }) {
   if (state === "running" || item.stream_state === "streaming") return <Loader2 className="public-run-activity__spinner" size={14} />;
   if (action.kind === "search") return <Search size={14} />;
   if (action.kind === "run") return <Terminal size={14} />;
-  if (action.kind === "write") return <PenLine size={14} />;
+  if (action.kind === "write" || action.kind === "edit" || action.kind === "prepare") return <PenLine size={14} />;
   return <CircleDot size={14} />;
 }
 
@@ -191,7 +173,7 @@ function ActivityCopy({ item, variant = "normal" }: { item: PublicChatTimelineIt
       </>
     );
   }
-  if (kind === "tool_activity") {
+  if (kind === "tool_activity" || kind === "work_action") {
     const action = actionDisplay(item);
     return (
       <>
@@ -276,6 +258,35 @@ function activityPlan(items: PublicChatTimelineItem[]) {
 
 function shouldRenderDetailRow(item: PublicChatTimelineItem) {
   return cleanText(item.kind) === "todo_plan";
+}
+
+function ActivityRows({ plan }: { plan: ReturnType<typeof activityPlan> }) {
+  const rows = [
+    ...plan.recent.map((item) => ({ item, variant: "history" as const })),
+    ...(plan.current && shouldRenderDetailRow(plan.current)
+      ? [{ item: plan.current, variant: "current" as const }]
+      : []),
+  ];
+  if (!rows.length) {
+    return null;
+  }
+  return (
+    <div className="public-run-activity__rows">
+      {rows.map(({ item, variant }, index) => (
+        <div
+          className={`public-run-activity__row public-run-activity__row--${variant} public-run-activity__row--${stateClass(item)} public-run-activity__row--${cleanText(item.kind) || "item"}`}
+          key={publicTimelineItemKey(item, index)}
+        >
+          <span className="public-run-activity__icon" aria-hidden="true">
+            <ActivityIcon item={item} />
+          </span>
+          <span className="public-run-activity__copy">
+            <ActivityCopy item={item} variant={variant} />
+          </span>
+        </div>
+      ))}
+    </div>
+  );
 }
 
 function genericObservation(value: string) {
@@ -417,8 +428,8 @@ function ActivitySummaryLine({ summary }: { summary: ReturnType<typeof activityS
   );
 }
 
-export function PublicRunActivity({ foldCompletedActivity = false, items, assistantContent = "" }: PublicRunActivityProps) {
-  const plan = activityPlan(publicItems(items, assistantContent, foldCompletedActivity));
+export function PublicRunActivity({ items, assistantContent = "" }: PublicRunActivityProps) {
+  const plan = activityPlan(publicItems(items, assistantContent));
   if (!plan.current && !plan.recent.length && !plan.finalItems.length && !plan.collapsedCount) {
     return null;
   }
@@ -428,21 +439,7 @@ export function PublicRunActivity({ foldCompletedActivity = false, items, assist
     <div className={`public-run-activity public-run-activity--${summary.tone}`} aria-label="处理进展">
       <ActivitySummaryLine summary={summary} />
       {closeoutSummary ? <ActivitySummaryLine summary={closeoutSummary} /> : null}
-      {plan.current && shouldRenderDetailRow(plan.current) ? (
-        <div className="public-run-activity__rows">
-          <div
-            className={`public-run-activity__row public-run-activity__row--current public-run-activity__row--${stateClass(plan.current)} public-run-activity__row--${cleanText(plan.current.kind) || "item"}`}
-            key={publicTimelineItemKey(plan.current, 0)}
-          >
-            <span className="public-run-activity__icon" aria-hidden="true">
-              <ActivityIcon item={plan.current} />
-            </span>
-            <span className="public-run-activity__copy">
-              <ActivityCopy item={plan.current} variant="current" />
-            </span>
-          </div>
-        </div>
-      ) : null}
+      <ActivityRows plan={plan} />
     </div>
   );
 }

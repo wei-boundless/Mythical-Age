@@ -209,13 +209,13 @@ def _task_selection(*, run_id: str, artifact_path: str, model_selection: dict[st
             {
                 "target_id": f"five-floor-dungeon-pixel-tower-{run_id}",
                 "asset_kind": "scene",
-                "path": f"frontend/public/generated/images/scene-five-floor-dungeon-pixel-tower-{run_id}.png",
+                "path": f"storage/generated/images/scene-five-floor-dungeon-pixel-tower-{run_id}.png",
                 "user_visible_name": "五层地下塔像素主视觉",
             },
             {
                 "target_id": f"five-floor-dungeon-pixel-boss-{run_id}",
                 "asset_kind": "character",
-                "path": f"frontend/public/generated/images/character-five-floor-dungeon-pixel-boss-{run_id}.png",
+                "path": f"storage/generated/images/character-five-floor-dungeon-pixel-boss-{run_id}.png",
                 "user_visible_name": "五层地下塔像素 Boss 图",
             },
         ]
@@ -262,7 +262,7 @@ def _task_selection(*, run_id: str, artifact_path: str, model_selection: dict[st
             "必须包含可见剧情：开场设定、每层章节文本、事件叙事、Boss 台词、胜利/失败结局。",
             "必须包含至少一种非战斗事件，例如商店、陷阱、宝箱或休息点。",
             "必须包含失败、胜利、重新开始，以及本地保存/读档或进度保存能力。",
-            "必须真实调用 image_generate 生成两张低配置 2D 像素风 PNG 图片，并在 HTML 中引用生成结果的 /generated/images/ 路径。",
+            "必须真实调用 image_generate 生成两张低配置 2D 像素风 PNG 图片，并在 HTML 中引用生成结果的 /api/image-assets/files/ 路径。",
             "image_generate 必须使用最低配置：size=1024x1024、quality=low、output_size=512x512、request_timeout_seconds=120、overwrite=false。",
             "不得用 emoji、纯 CSS、占位图或外链图替代真实生成图片；如果 image_generate 失败，必须按阻塞任务处理。",
             "最终收口前必须读取文件或运行命令验证关键关键词和核心逻辑存在。",

@@ -102,12 +102,19 @@ class ImageGenerationTool(BaseTool):
                 },
                 ensure_ascii=False,
             )
+        image_src = str(generated.get("asset_path") or "").strip()
+        project_path = str(generated.get("project_path") or generated.get("path") or "").strip()
+        absolute_path = str(generated.get("absolute_path") or generated.get("file_path") or "").strip()
         return json.dumps(
             {
                 "ok": True,
                 "image": {
-                    "src": generated.get("asset_path"),
-                    "file_path": generated.get("file_path"),
+                    "src": image_src,
+                    "path": project_path,
+                    "file_path": absolute_path,
+                    "absolute_path": absolute_path,
+                    "storage_authority": "image_asset_store",
+                    "bypass_sandbox_publish": True,
                     "bytes": generated.get("bytes"),
                     "revised_prompt": generated.get("revised_prompt") or "",
                     "provider_size": generated.get("provider_size") or "",
@@ -118,8 +125,11 @@ class ImageGenerationTool(BaseTool):
                 "artifact_refs": [
                     {
                         "kind": "image",
-                        "path": generated.get("file_path"),
-                        "src": generated.get("asset_path"),
+                        "path": project_path,
+                        "absolute_path": absolute_path,
+                        "src": image_src,
+                        "storage_authority": "image_asset_store",
+                        "bypass_sandbox_publish": True,
                         "bytes": generated.get("bytes"),
                     }
                 ],

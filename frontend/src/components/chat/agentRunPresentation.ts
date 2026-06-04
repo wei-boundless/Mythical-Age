@@ -3,13 +3,17 @@ import type { PublicChatTimelineItem } from "@/lib/api";
 export type AgentRunActionKind =
   | "artifact"
   | "browse"
+  | "edit"
   | "generic"
   | "image"
   | "inspect"
+  | "memory"
+  | "prepare"
   | "read"
   | "run"
   | "search"
   | "verify"
+  | "work"
   | "write";
 
 export type AgentRunActionView = {
@@ -51,7 +55,7 @@ export function stateClassForTimelineItem(item: PublicChatTimelineItem) {
 
 export function timelineItemText(item: PublicChatTimelineItem | undefined) {
   if (!item) return "";
-  return cleanRunText(item.text || item.detail || item.title || item.path || item.href);
+  return cleanRunText(item.public_summary || item.observation || item.text || item.detail || item.title || item.subject_label || item.path || item.href);
 }
 
 export function sameRunText(left: unknown, right: unknown) {
@@ -123,7 +127,7 @@ function openingTextForItem(item: PublicChatTimelineItem) {
   if (kind === "verification") {
     return "我先做结果校验，确认它不是只停留在表面完成。";
   }
-  if (kind !== "tool_activity") {
+  if (kind !== "tool_activity" && kind !== "work_action") {
     const text = shortRunText(item.title || item.text || item.detail, 120);
     return text ? `我先确认当前进展：${text}。` : "";
   }
@@ -164,6 +168,8 @@ function openingTextForItem(item: PublicChatTimelineItem) {
 
 export function actionViewForTimelineItem(item: PublicChatTimelineItem): AgentRunActionView {
   const state = stateClassForTimelineItem(item);
+  const semantic = semanticActionViewForTimelineItem(item, state);
+  if (semantic) return semantic;
   const rawTitle = shortRunText(item.title || item.text || "处理进展", 220);
   const rawDetail = suppressGenericToolWait(shortRunText(item.detail || item.path || item.href || "", 220));
   const kind = inferActionKind(item, rawTitle, rawDetail);
@@ -177,11 +183,46 @@ export function actionViewForTimelineItem(item: PublicChatTimelineItem): AgentRu
   };
 }
 
+function semanticActionViewForTimelineItem(item: PublicChatTimelineItem, state: "running" | "done" | "error"): AgentRunActionView | null {
+  const kind = cleanRunText(item.kind);
+  const actionKind = normalizeActionKind(item.action_kind);
+  const summary = cleanRunText(item.public_summary);
+  const subject = publicTargetText(item.subject_label, actionKind || "generic");
+  if (kind !== "work_action" && !actionKind && !summary && !cleanRunText(item.observation)) {
+    return null;
+  }
+  const resolvedKind = actionKind || "generic";
+  const title = cleanRunText(item.title) || actionTitle(resolvedKind, state);
+  return {
+    detail: subject,
+    kind: resolvedKind,
+    observation: cleanRunText(item.observation) || observationForAction({
+      detail: subject,
+      item,
+      kind: resolvedKind,
+      rawDetail: cleanRunText(item.detail),
+      state,
+    }),
+    title,
+  };
+}
+
+function normalizeActionKind(value: unknown): AgentRunActionKind | "" {
+  const kind = cleanRunText(value).toLowerCase();
+  if (kind === "edit" || kind === "write") return "edit";
+  if (["artifact", "browse", "generic", "image", "inspect", "memory", "prepare", "read", "run", "search", "verify", "work"].includes(kind)) {
+    return kind as AgentRunActionKind;
+  }
+  return "";
+}
+
 function inferActionKind(item: PublicChatTimelineItem, rawTitle: string, rawDetail: string): AgentRunActionKind {
   const kind = cleanRunText(item.kind);
   if (kind === "artifact") return "artifact";
   if (kind === "verification") return "verify";
   const haystack = cleanRunText([rawTitle, rawDetail, item.path, item.href].filter(Boolean).join(" ")).toLowerCase();
+  if (/\bnew-item\b|\bmkdir\b|itemtype\s+directory/.test(haystack)) return "prepare";
+  if (/memory_search|记忆检索|检索记忆|相关记忆|\bmemory\b/.test(haystack)) return "memory";
   if (/path_exists|stat_path|list_dir|确认|检查|路径|目录|artifact 路径/.test(haystack)) return "inspect";
   if (/read_file|read_path|读取|查看|文件读取|read\b/.test(haystack)) return "read";
   if (/search_text|search_files|glob_paths|rg\b|grep\b|搜索|查找|检索|匹配|search\b/.test(haystack)) return "search";
@@ -219,7 +260,14 @@ function stripActionPrefix(value: unknown) {
 
 function publicTargetText(value: unknown, kind: AgentRunActionKind) {
   const text = stripTechnicalNoise(value);
-  if (!text || isPureTechnicalToken(text) || isGenericActionTarget(text) || INTERNAL_REFERENCE_PATTERN.test(text)) {
+  if (
+    !text
+    || looksLikeStructuredToolPayload(text)
+    || looksLikeRawCommand(text)
+    || isPureTechnicalToken(text)
+    || isGenericActionTarget(text)
+    || INTERNAL_REFERENCE_PATTERN.test(text)
+  ) {
     return "";
   }
   if (kind === "inspect" && /(?:不存在|尚未存在|已存在|存在|状态已确认|路径检查已完成|检查已完成)/.test(text)) {
@@ -288,23 +336,30 @@ function actionTitle(kind: AgentRunActionKind, state: "running" | "done" | "erro
   if (kind === "inspect") return error ? "确认目标需调整" : done ? "已确认目标" : "确认目标";
   if (kind === "read") return error ? "读取上下文需调整" : done ? "已读取上下文" : "读取上下文";
   if (kind === "search") return error ? "搜索方式需调整" : done ? "已搜索引用" : "搜索引用";
-  if (kind === "write") return error ? "更新路径需调整" : done ? "已更新文件" : "更新文件";
+  if (kind === "memory") return error ? "记忆检索需调整" : done ? "记忆检索已返回" : "检索相关记忆";
+  if (kind === "write" || kind === "edit") return error ? "更新路径需调整" : done ? "已更新文件" : "更新文件";
   if (kind === "run") return error ? "验证方式需调整" : done ? "验证已返回" : "运行验证";
+  if (kind === "prepare") return error ? "输出准备需调整" : done ? "输出准备完成" : "准备输出";
   if (kind === "browse") return error ? "访问方式需调整" : done ? "已读取网页" : "读取网页";
   if (kind === "image") return error ? "图像生成需调整" : done ? "图像已生成" : "生成图像";
   if (kind === "artifact") return "产物就绪";
   if (kind === "verify") return error ? "校验方式需调整" : done ? "校验完成" : "校验结果";
-  return error ? "步骤需调整" : done ? "结果已返回" : "处理步骤";
+  if (kind === "work") return error ? "步骤需调整" : done ? "结果已返回" : "推进当前步骤";
+  return error ? "步骤需调整" : done ? "结果已返回" : "推进当前步骤";
 }
 
 export function actionSentence(item: PublicChatTimelineItem, variant: "current" | "history" = "history") {
   const kind = cleanRunText(item.kind);
-  if (kind !== "tool_activity") {
+  if (kind !== "tool_activity" && kind !== "work_action") {
     const text = shortRunText(item.title || item.text || item.detail || "处理中", 180);
     return variant === "current" && text && !text.startsWith("正在") ? `正在${text}` : text;
   }
   const action = actionViewForTimelineItem(item);
   const state = stateClassForTimelineItem(item);
+  const summary = publicTargetText(item.public_summary, action.kind);
+  if (summary && cleanRunText(item.kind) === "work_action") {
+    return state === "error" ? `${summary}，我会调整后继续` : summary;
+  }
   const subject = action.detail ? `${action.title} ${action.detail}` : action.title;
   if (state === "error") {
     return `${subject}，我会调整后继续`;
@@ -318,11 +373,17 @@ export function actionSentence(item: PublicChatTimelineItem, variant: "current" 
   if (action.kind === "search") {
     return action.detail ? `正在搜索 ${action.detail}` : "正在搜索相关引用";
   }
+  if (action.kind === "memory") {
+    return action.detail ? `正在检索记忆 ${action.detail}` : "正在检索相关记忆";
+  }
   if (action.kind === "inspect") {
     return action.detail ? `正在确认 ${action.detail}` : "正在确认目标状态";
   }
-  if (action.kind === "write") {
+  if (action.kind === "write" || action.kind === "edit") {
     return action.detail ? `正在更新 ${action.detail}` : "正在更新文件";
+  }
+  if (action.kind === "prepare") {
+    return action.detail ? `正在准备 ${action.detail}` : "正在准备输出";
   }
   if (action.kind === "run") {
     return action.detail ? `正在运行验证 ${action.detail}` : "正在运行验证";
@@ -344,6 +405,10 @@ function observationForAction({
   state: "running" | "done" | "error";
 }) {
   const result = meaningfulObservationDetail(rawDetail || item.text || item.detail || item.title, detail);
+  const semanticObservation = cleanRunText(item.observation);
+  if (semanticObservation) {
+    return semanticObservation.startsWith("观察：") ? semanticObservation : `观察：${semanticObservation}`;
+  }
   if (state === "error") {
     return `观察：${shortRunText(item.recovery_hint || result || "当前动作需要调整路径、权限或输入后继续。", 180)}`;
   }
@@ -377,10 +442,20 @@ function observationForAction({
       ? `观察：已定位相关线索，${shortRunText(result, 150)}`
       : "观察：相关引用已定位，下一步应该收敛到真实改动点。";
   }
-  if (kind === "write") {
+  if (kind === "memory") {
+    return result && result !== detail
+      ? `观察：已检索相关记忆，${shortRunText(result, 150)}`
+      : "观察：记忆检索已返回，下一步会纳入判断。";
+  }
+  if (kind === "write" || kind === "edit") {
     return result && result !== detail
       ? `观察：更新结果已返回，${shortRunText(result, 150)}`
       : "观察：文件更新已返回，下一步需要用页面或测试验证。";
+  }
+  if (kind === "prepare") {
+    return result && result !== detail
+      ? `观察：输出准备已返回，${shortRunText(result, 150)}`
+      : "观察：输出准备已确认，可以继续推进。";
   }
   if (kind === "run") {
     return result
@@ -414,6 +489,14 @@ function looksLikeStructuredToolPayload(value: string) {
     return true;
   }
   return /\b(?:authority|diagnostics|matched_version_count|candidate_version_count|structured_payload|result_envelope)\b/i.test(text);
+}
+
+function looksLikeRawCommand(value: string) {
+  const text = cleanRunText(value);
+  if (!text) return false;
+  return /\b(New-Item|Set-Content|Get-Content|Remove-Item|Move-Item|Copy-Item|npm|pnpm|yarn|pytest|python|powershell|cmd\s*\/c|git|rg|grep|mkdir|touch)\b/i.test(text)
+    || /\s-(?:ItemType|Path|Recurse|Force|Filter|Pattern|Command)\b/i.test(text)
+    || /[;&|]{1,2}/.test(text);
 }
 
 function suppressGenericToolWait(value: string) {

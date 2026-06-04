@@ -2424,10 +2424,16 @@ def _publishable_observation_artifact_refs(
     result: list[dict[str, Any]] = []
     for ref in observation.artifact_refs:
         payload = dict(ref or {})
+        if _artifact_ref_bypasses_sandbox_publish(payload):
+            continue
         logical_path = str(payload.get("path") or payload.get("published_path") or payload.get("src") or "")
         if logical_path_publish_allowed(logical_path, artifact_root, publish_roots):
             result.append(payload)
     return result
+
+
+def _artifact_ref_bypasses_sandbox_publish(ref: dict[str, Any]) -> bool:
+    return bool(ref.get("bypass_sandbox_publish") is True) or str(ref.get("storage_authority") or "") == "image_asset_store"
 
 
 def _artifact_ref_path_set(refs: list[dict[str, Any]]) -> set[str]:

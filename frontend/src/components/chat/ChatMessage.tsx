@@ -77,14 +77,14 @@ export function ChatMessage({
   const displayContent = isUser
     ? baseDisplayContent
     : assistantContentFromTimeline(baseDisplayContent, publicTimelineItems);
-  const foldCompletedActivity = !isUser && shouldFoldCompletedActivity({
+  const stableAssistantAnswer = !isUser && hasStableAssistantAnswer({
     answerCanonicalState,
     answerChannel,
     answerPersistPolicy,
     content: baseDisplayContent,
   });
-  const hasRunActivity = !isUser && hasPublicRunActivity(publicTimelineItems, displayContent, { foldCompletedActivity });
-  const assistantSignal = !isUser && !foldCompletedActivity
+  const hasRunActivity = !isUser && hasPublicRunActivity(publicTimelineItems, displayContent);
+  const assistantSignal = !isUser && !stableAssistantAnswer
     ? assistantSignalFromTimeline({
       baseContent: baseDisplayContent,
       displayContent,
@@ -228,7 +228,6 @@ export function ChatMessage({
             content
           ) : image?.src && !imageUnavailable ? (
             <figure className="chat-image-message">
-              {/* Generated local assets are final files served from public/. */}
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 alt={image.alt || "生成图像"}
@@ -251,11 +250,7 @@ export function ChatMessage({
         </div>
       ) : null}
       {hasRunActivity ? (
-        <PublicRunActivity
-          foldCompletedActivity={foldCompletedActivity}
-          items={publicTimelineItems}
-          assistantContent={displayContent}
-        />
+        <PublicRunActivity items={publicTimelineItems} assistantContent={displayContent} />
       ) : null}
       {!isUser ? <OutputBoundaryStatus {...boundary} /> : null}
     </article>
@@ -341,7 +336,7 @@ function cleanBoundaryText(value: unknown) {
   return cleanRunText(value);
 }
 
-function shouldFoldCompletedActivity({
+function hasStableAssistantAnswer({
   answerCanonicalState,
   answerChannel,
   answerPersistPolicy,

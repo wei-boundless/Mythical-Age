@@ -29,8 +29,8 @@ DEFAULT_OVERLAY_TOOL_NAMES = {
     "edit_file",
     "terminal",
     "python_repl",
-    "image_generate",
 }
+FIXED_STORE_TOOL_NAMES = {"image_generate"}
 OVERLAY_COPY_ON_WRITE_TOOL_NAMES = {"edit_file"}
 OVERLAY_COPY_ON_READ_TOOL_NAMES = {"read_file", "read_structured_file", "stat_path", "path_exists"}
 OVERLAY_MATERIALIZE_BEFORE_TOOL_NAMES = {"terminal", "python_repl", "glob_paths", "search_files", "search_text", "list_dir"}
@@ -72,6 +72,8 @@ class LocalOverlaySandboxBackend:
         if policy.get("enabled") is not True:
             return None
         effective_tool_name = str(tool_name or "").strip()
+        if effective_tool_name in FIXED_STORE_TOOL_NAMES:
+            return None
         overlay_tools = {
             str(item or "").strip()
             for item in list(policy.get("overlay_tools") or DEFAULT_OVERLAY_TOOL_NAMES)

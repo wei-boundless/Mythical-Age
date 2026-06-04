@@ -148,7 +148,7 @@ describe("PublicRunActivity", () => {
     expect(html).toBe("");
   });
 
-  it("folds process activity once the answer owns the outcome", () => {
+  it("keeps process feedback readable when the answer owns the outcome", () => {
     const items = [
       {
         item_id: "todo:plan",
@@ -178,16 +178,19 @@ describe("PublicRunActivity", () => {
       },
     ];
 
-    expect(hasPublicRunActivity(items, "已根据记忆整理完成。", { foldCompletedActivity: true })).toBe(false);
+    expect(hasPublicRunActivity(items, "已根据记忆整理完成。")).toBe(true);
     const html = renderToStaticMarkup(
       React.createElement(PublicRunActivity, {
-        foldCompletedActivity: true,
         assistantContent: "已根据记忆整理完成。",
         items,
       }),
     );
 
-    expect(html).toBe("");
+    expect(html).toContain("观察报告");
+    expect(html).toContain("已检索记忆，命中 2 条相关记录。");
+    expect(html).not.toContain("authority");
+    expect(html).not.toContain("diagnostics");
+    expect(html).not.toContain("matched_version_count");
   });
 
   it("does not surface structured tool diagnostics from old activity rows", () => {
@@ -240,53 +243,65 @@ describe("PublicRunActivity", () => {
     expect(hasPublicRunActivity(attachments[0].public_timeline ?? [])).toBe(false);
   });
 
-  it("keeps only the active action prominent while folding older activity into context", () => {
+  it("keeps the active action prominent while retaining recent readable observations", () => {
     const html = renderToStaticMarkup(
       React.createElement(PublicRunActivity, {
         items: [
           { item_id: "status:start", kind: "status_update", title: "处理已开始", state: "running" },
-          { item_id: "tool:1", kind: "tool_activity", title: "读取项目结构", state: "done" },
-          { item_id: "tool:2", kind: "tool_activity", title: "检查配置文件", state: "done" },
-          { item_id: "tool:3", kind: "tool_activity", title: "搜索入口组件", state: "done" },
-          { item_id: "tool:4", kind: "tool_activity", title: "正在运行测试", detail: "npm test", state: "running", stream_state: "streaming" },
+          { item_id: "work:1", kind: "work_action", action_kind: "read", title: "已读取上下文", subject_label: "项目结构", public_summary: "已读取上下文 项目结构", observation: "观察：关键上下文已拿到，下一步可以基于文件事实判断。", state: "done" },
+          { item_id: "work:2", kind: "work_action", action_kind: "inspect", title: "已确认目标", subject_label: "配置文件", public_summary: "已确认目标 配置文件", observation: "观察：已确认配置文件。", state: "done" },
+          { item_id: "work:3", kind: "work_action", action_kind: "search", title: "已搜索引用", subject_label: "入口组件", public_summary: "已搜索引用 入口组件", observation: "观察：相关引用已定位。", state: "done" },
+          { item_id: "work:4", kind: "work_action", action_kind: "read", title: "已读取上下文", subject_label: "样式文件", public_summary: "已读取上下文 样式文件", observation: "观察：关键上下文已拿到。", state: "done" },
+          { item_id: "work:5", kind: "work_action", action_kind: "verify", title: "正在运行验证", subject_label: "前端测试", public_summary: "正在运行验证 前端测试", state: "running", stream_state: "streaming" },
         ],
       }),
     );
 
     expect(html).toContain("执行中");
-    expect(html).toContain("正在运行验证 npm test");
-    expect(html).not.toContain("前面已完成");
+    expect(html).toContain("正在运行验证 前端测试");
+    expect(html).not.toContain("较早的 1 条进展已收起");
     expect(html).not.toContain("已完成 3 步");
     expect(html).not.toContain("处理已开始");
     expect(html).not.toContain("读取项目结构");
-    expect(html).not.toContain("检查配置文件");
+    expect(html).toContain("已确认目标");
+    expect(html).toContain("已搜索引用 入口组件");
+    expect(html).toContain("样式文件");
     expect(html).toContain("运行验证");
-    expect(html).toContain("npm test");
+    expect(html).not.toContain("npm test");
     expect(html).not.toContain("public-run-activity__row--current");
   });
 
-  it("collapses duplicated file reads and presents search as a single current action", () => {
+  it("dedupes repeated file reads and keeps them as quiet context for the current search", () => {
     const html = renderToStaticMarkup(
       React.createElement(PublicRunActivity, {
         items: [
           {
             item_id: "read:1",
-            kind: "tool_activity",
-            title: "正在使用文件读取工具处理",
-            detail: "storage/task_environments/development/sandbox/artifacts/game.html",
+            kind: "work_action",
+            action_kind: "read",
+            title: "已读取上下文",
+            subject_label: "artifacts/game.html",
+            public_summary: "已读取上下文 artifacts/game.html",
+            observation: "观察：关键上下文已拿到，下一步可以基于文件事实判断。",
             state: "done",
           },
           {
             item_id: "read:2",
-            kind: "tool_activity",
-            title: "正在使用文件读取工具处理",
-            detail: "storage/task_environments/development/sandbox/artifacts/game.html",
+            kind: "work_action",
+            action_kind: "read",
+            title: "已读取上下文",
+            subject_label: "artifacts/game.html",
+            public_summary: "已读取上下文 artifacts/game.html",
+            observation: "观察：关键上下文已拿到，下一步可以基于文件事实判断。",
             state: "done",
           },
           {
             item_id: "search:1",
-            kind: "tool_activity",
-            title: "正在使用search_text处理 function attack|function damage|function kill|monster.*dead|monster.*remove。",
+            kind: "work_action",
+            action_kind: "search",
+            title: "正在搜索引用",
+            subject_label: "相关引用",
+            public_summary: "正在搜索引用 相关引用",
             state: "running",
             stream_state: "streaming",
           },
@@ -295,9 +310,10 @@ describe("PublicRunActivity", () => {
     );
 
     expect(html).not.toContain("前面已完成");
-    expect(html).not.toContain("已读取上下文 artifacts/game.html");
+    expect(html).toContain("已读取上下文 artifacts/game.html");
+    expect(html).toContain("观察：关键上下文已拿到");
     expect(html).toContain("正在搜索");
-    expect(html).toContain("function attack");
+    expect(html).not.toContain("function attack");
     expect(html.match(/storage/g)?.length ?? 0).toBe(0);
     expect(html).not.toContain("public-run-activity__row--current");
   });
@@ -350,9 +366,12 @@ describe("PublicRunActivity", () => {
         items: [
           {
             item_id: "tool:test:done",
-            kind: "tool_activity",
-            title: "命令已完成 npm test -- --run src/components/chat",
-            detail: "22 tests passed",
+            kind: "work_action",
+            action_kind: "verify",
+            title: "验证已返回",
+            subject_label: "前端测试",
+            public_summary: "验证已返回 前端测试",
+            observation: "观察：验证已返回，22 tests passed",
             state: "done",
           },
         ],
@@ -360,7 +379,8 @@ describe("PublicRunActivity", () => {
     );
 
     expect(html).toContain("观察结果");
-    expect(html).toContain("观察：验证命令已返回，22 tests passed");
+    expect(html).toContain("观察：验证已返回，22 tests passed");
+    expect(html).not.toContain("npm test");
   });
 
   it("keeps assistant feedback out of the status lane and renders the active tool action", () => {
@@ -406,11 +426,53 @@ describe("PublicRunActivity", () => {
       }),
     );
 
-    expect(html).toContain("正在处理步骤 artifacts/football.html");
+    expect(html).toContain("正在推进当前步骤 artifacts/football.html");
     expect(html).not.toContain("执行动作");
     expect(html).not.toContain("正在正在");
     expect(html).not.toContain("正在调用工具");
     expect(html).not.toContain("storage/task_environments/general/workspace/artifacts/football.html");
+  });
+
+  it("renders memory search as meaningful work instead of a blank generic step", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(PublicRunActivity, {
+        items: [
+          {
+            item_id: "tool:memory:start",
+            kind: "tool_activity",
+            title: "已发起工具调用，正在等待工具返回：memory_search。",
+            state: "running",
+            stream_state: "streaming",
+          },
+        ],
+      }),
+    );
+
+    expect(html).toContain("正在检索相关记忆");
+    expect(html).not.toContain("正在处理步骤");
+    expect(html).not.toContain("memory_search");
+    expect(html).not.toContain("等待工具返回");
+  });
+
+  it("does not expose a raw shell command from legacy activity rows", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(PublicRunActivity, {
+        items: [
+          {
+            item_id: "tool:shell:start",
+            kind: "tool_activity",
+            title: '正在运行 New-Item -ItemType Directory -Path "frontend/src/app/adventure-island" -Force',
+            state: "running",
+            stream_state: "streaming",
+          },
+        ],
+      }),
+    );
+
+    expect(html).toContain("正在准备输出");
+    expect(html).not.toContain("New-Item");
+    expect(html).not.toContain("ItemType");
+    expect(html).not.toContain("frontend/src/app/adventure-island");
   });
 
   it("suppresses duplicate tool guard system control text", () => {
@@ -455,9 +517,12 @@ describe("PublicRunActivity", () => {
         items: [
           {
             item_id: "tool:test:done",
-            kind: "tool_activity",
-            title: "命令已完成 npm test -- --run src/components/chat",
-            detail: "31 tests passed",
+            kind: "work_action",
+            action_kind: "verify",
+            title: "验证已返回",
+            subject_label: "前端测试",
+            public_summary: "验证已返回 前端测试",
+            observation: "观察：验证已返回，31 tests passed",
             state: "done",
           },
           {
@@ -472,7 +537,8 @@ describe("PublicRunActivity", () => {
     );
 
     expect(html).toContain("观察结果");
-    expect(html).toContain("观察：验证命令已返回，31 tests passed");
+    expect(html).toContain("观察：验证已返回，31 tests passed");
+    expect(html).not.toContain("npm test");
     expect(html).toContain("收尾总结");
     expect(html).toContain("已完成开局反馈、运行反馈和收尾展示调整。");
     expect(html.indexOf("观察结果")).toBeLessThan(html.indexOf("收尾总结"));

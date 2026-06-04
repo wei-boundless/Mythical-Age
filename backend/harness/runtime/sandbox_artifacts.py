@@ -123,7 +123,7 @@ def publish_or_resolve_artifact_ref(
     artifact_root: str,
     publish_roots: tuple[str, ...] = (),
 ) -> Path | None:
-    logical_path = normalize_logical_path(str(ref.get("path") or ref.get("published_path") or ref.get("src") or ""))
+    logical_path = _artifact_logical_path(ref)
     sandbox_source = sandbox_artifact_source(ref, sandbox_root=sandbox_root)
     if sandbox_source is not None and sandbox_source.exists() and sandbox_source.is_file():
         if not logical_path or not logical_path_publish_allowed(logical_path, artifact_root, publish_roots):
@@ -139,6 +139,29 @@ def publish_or_resolve_artifact_ref(
         if _is_inside(project_candidate, project_root) and project_candidate.exists() and project_candidate.is_file():
             return project_candidate
     return None
+
+
+def _artifact_logical_path(ref: dict[str, Any]) -> str:
+    path = normalize_logical_path(str(ref.get("path") or ref.get("published_path") or ""))
+    if path:
+        return path
+    return _project_path_from_image_asset_src(ref.get("src"))
+
+
+def _project_path_from_image_asset_src(value: Any) -> str:
+    src = str(value or "").replace("\\", "/").strip()
+    if not src or "://" in src or src.startswith("//"):
+        return ""
+    normalized = normalize_logical_path(src.lstrip("/"))
+    if not normalized:
+        return ""
+    prefix = "api/image-assets/files/"
+    if not normalized.startswith(prefix):
+        return ""
+    filename = normalized.removeprefix(prefix).strip("/")
+    if not filename or "/" in filename or filename in {".", ".."}:
+        return ""
+    return normalize_logical_path(f"storage/generated/images/{filename}")
 
 
 def sandbox_artifact_source(ref: dict[str, Any], *, sandbox_root: Path) -> Path | None:
