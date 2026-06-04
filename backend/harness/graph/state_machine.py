@@ -105,11 +105,10 @@ class GraphStateMachine:
         node_states: dict[str, dict[str, Any]],
         loop_state: dict[str, Any] | None = None,
     ) -> tuple[str, ...]:
-        ready = set(self.ready_nodes(graph_config=graph_config, node_states=node_states, loop_state=loop_state))
         return tuple(
             node_id
             for node_id, payload in node_states.items()
-            if str(payload.get("status") or "") in {"pending", "blocked"} and node_id not in ready
+            if str(payload.get("status") or "") in {"blocked", "waiting_human_gate"}
         )
 
     def status_snapshot(
@@ -136,8 +135,6 @@ class GraphStateMachine:
         blocked = tuple(
             dict.fromkeys(
                 [
-                    *_nodes_with_status(node_states, "blocked"),
-                    *waiting_human,
                     *self.blocked_nodes(graph_config=graph_config, node_states=node_states, loop_state=loop_state),
                 ]
             )

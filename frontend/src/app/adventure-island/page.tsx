@@ -100,8 +100,17 @@ export default function AdventureIslandPage() {
         return;
       }
 
-      // 移动键 + 攻击键
-      state.keys.add(key);
+      // Tab: 打开/关闭背包
+      if (key === "Tab") {
+        e.preventDefault();
+        if (state.phase === "playing" || state.phase === "dialogue") {
+          state.showInventory = !state.showInventory;
+        }
+        return;
+      }
+
+      // 移动键 + 攻击键（用 e.code 保证 KeyJ/KeyW 等格式与引擎一致）
+      state.keys.add(e.code);
     },
     [startGame],
   );
@@ -113,7 +122,7 @@ export default function AdventureIslandPage() {
     if (e.key === " " || e.key === "Spacebar") {
       state.keys.delete("Space");
     } else {
-      state.keys.delete(e.key);
+      state.keys.delete(e.code);
     }
   }, []);
 

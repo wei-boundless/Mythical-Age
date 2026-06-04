@@ -104,12 +104,17 @@ def test_session_tokens_exposes_context_meter_and_billing_totals(tmp_path: Path,
     assert "context_meter" in response
     assert "cache_metrics" in response
     assert "compaction_readiness" in response
+    assert "session_context_pressure" in response
     assert response["context_meter"]["authority"] == "runtime.prompt_accounting.context_usage_snapshot"
     assert response["context_meter"]["current_context_tokens"] > 0
     assert response["context_meter"]["reserved_output_tokens"] == 65_536
     assert response["context_meter"]["input_capacity_tokens"] == 926_272
     assert response["context_meter"]["replacement_threshold_tokens"] == 900_000
     assert response["context_meter"]["compaction_remaining_tokens"] <= response["context_meter"]["replacement_threshold_tokens"]
+    assert response["session_context_pressure"]["threshold_tokens"] == 900_000
+    assert response["session_context_pressure"]["pressure_tokens"] >= response["cumulative_transcript_tokens"]
+    assert response["session_context_pressure"]["remaining_tokens"] <= response["context_meter"]["compaction_remaining_tokens"]
+    assert response["session_context_pressure"]["source"] == "cumulative_transcript_plus_current_runtime_overhead"
     assert response["cumulative_transcript_message_count"] == 4
     assert response["cumulative_transcript_tokens"] >= response["raw_history_tokens"]
     assert response["compression_saved_tokens"] == response["cumulative_transcript_tokens"] - response["history_tokens"]

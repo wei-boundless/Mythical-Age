@@ -25,7 +25,7 @@ describe("SessionActivityBar", () => {
       }),
     );
 
-    expect(html).toContain("需要调整");
+    expect(html).toContain("处理未完成");
     expect(html).toContain("详情已写入会话。");
     expect(html).not.toContain("处理失败");
     expect(html).not.toContain("当前环境的写入权限不足");

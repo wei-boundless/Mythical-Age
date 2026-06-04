@@ -562,7 +562,11 @@ class GraphLoop:
             active_work_orders=active_work_orders,
             ready_node_ids=tuple(dict.fromkeys([*state.ready_node_ids, *targets])),
             running_node_ids=(),
-            blocked_node_ids=tuple(item for item in state.blocked_node_ids if item not in set(targets)),
+            blocked_node_ids=tuple(
+                node_id
+                for node_id, payload in node_states.items()
+                if str(payload.get("status") or "") in {"blocked", "waiting_human_gate"}
+            ),
             terminal_reason="",
         )
         next_state = _advance_event_cursor(next_state)
@@ -626,7 +630,11 @@ class GraphLoop:
             ready_node_ids=tuple(dict.fromkeys([*state.ready_node_ids, *targets])),
             running_node_ids=(),
             failed_node_ids=tuple(item for item in state.failed_node_ids if item not in target_set),
-            blocked_node_ids=tuple(item for item in state.blocked_node_ids if item not in target_set),
+            blocked_node_ids=tuple(
+                node_id
+                for node_id, payload in node_states.items()
+                if str(payload.get("status") or "") in {"blocked", "waiting_human_gate"}
+            ),
             terminal_reason="",
         )
         next_state = _advance_event_cursor(next_state)
@@ -1275,6 +1283,12 @@ def _evaluate_generic_progress_receipt_route(
     action = "exit" if receipt_complete or (not complete_key and target_key and current_value >= target_value) else "continue"
     if not cursor_set_by_receipt:
         patched_inputs = _apply_frame_cursor_patch(inputs=patched_inputs, frame=frame, action=action)
+    patched_inputs = _patch_chapter_active_range_for_cursor(
+        patched_inputs,
+        cursor_key=cursor_key,
+        start_value=_numeric_value(patched_inputs.get(cursor_key), None) if cursor_key else None,
+        end_value=_numeric_value(patched_inputs.get("batch_end_index"), None),
+    )
     patched_inputs = _apply_derived_fields(patched_inputs, list(route_policy.get("derived_fields") or []))
     continue_node_id = str(route_policy.get("continue_node_id") or frame.get("continue_node_id") or frame.get("entry_node_id") or "").strip()
     exit_node_id = str(route_policy.get("exit_node_id") or frame.get("exit_node_id") or "").strip()
@@ -1753,6 +1767,14 @@ def _reset_child_loop_frames_for_parent_continue(
         child["end"] = end_value
         if cursor_key and cursor_value is not None:
             inputs[cursor_key] = cursor_value
+        inputs.update(
+            _patch_chapter_active_range_for_cursor(
+                inputs,
+                cursor_key=cursor_key,
+                start_value=cursor_value,
+                end_value=end_value,
+            )
+        )
         child["active_iteration_id"] = _loop_iteration_id(
             frame=child,
             values={**inputs, **child, "cursor": cursor_value, "iteration_index": 0},
@@ -1764,6 +1786,27 @@ def _reset_child_loop_frames_for_parent_continue(
             inputs=inputs,
         )
     return patched_frames
+
+
+def _patch_chapter_active_range_for_cursor(
+    inputs: dict[str, Any],
+    *,
+    cursor_key: str,
+    start_value: Any,
+    end_value: Any,
+) -> dict[str, Any]:
+    if str(cursor_key or "").strip() != "chapter_index" or start_value is None:
+        return inputs
+    patched = dict(inputs)
+    start = int(_numeric_value(start_value, 0))
+    end = int(_numeric_value(end_value, start))
+    if end < start:
+        end = start
+    patched["active_chapter_start_index"] = start
+    patched["active_chapter_end_index"] = end
+    patched["active_chapter_count"] = max(0, end - start + 1)
+    patched["active_chapter_range"] = f"{start:03d}-{end:03d}"
+    return patched
 
 
 def _loop_state_with_iteration_result(
@@ -1949,9 +1992,22 @@ def _ready_rejected_revision_targets(
             continue
         source_result = dict(state.result_index.get(source) or {})
         verdict = extract_review_verdict(str(source_result.get("handoff_summary") or ""))
+        if review_verdict_is_rejected(verdict) and _rejected_revision_count(state=state, node_id=source) >= 2:
+            continue
         if review_verdict_is_rejected(verdict) and target not in targets:
             targets.append(target)
     return tuple(targets)
+
+
+def _rejected_revision_count(*, state: GraphLoopState, node_id: str) -> int:
+    count = 0
+    for item in list(dict(state.result_history or {}).get(node_id) or []):
+        if not isinstance(item, dict):
+            continue
+        verdict = extract_review_verdict(str(item.get("handoff_summary") or ""))
+        if review_verdict_is_rejected(verdict):
+            count += 1
+    return count
 
 
 def _revision_reset_node_ids(

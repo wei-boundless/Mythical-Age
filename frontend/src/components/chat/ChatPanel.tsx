@@ -231,7 +231,7 @@ function SessionTokenMeter({ tokenStats }: { tokenStats: TokenStats | null }) {
     <div className={`chat-token-meter chat-token-meter--${presentation.levelClass}`} title={presentation.title}>
       <Gauge size={14} />
       <span>{presentation.label}</span>
-      <strong>{presentation.remainingPercentText}</strong>
+      <strong>{presentation.pressurePercentText}</strong>
       {presentation.remainingTokenText ? <em>{presentation.remainingTokenText}</em> : null}
     </div>
   );
@@ -243,6 +243,7 @@ export function sessionContextPressurePresentation(tokenStats: TokenStats | null
       label: "上下文同步中",
       usedPercent: 0,
       remainingPercent: 0,
+      pressurePercentText: "--",
       remainingPercentText: "--",
       remainingTokens: 0,
       remainingTokenText: "",
@@ -264,19 +265,21 @@ export function sessionContextPressurePresentation(tokenStats: TokenStats | null
       : pressureLevel === "microcompact"
         ? "接近压缩"
         : pressureLevel === "warning"
-          ? "余量偏低"
-          : "压缩余量";
+          ? "压力偏高"
+          : "上下文压力";
+  const pressurePercentText = `${usedPercent}%`;
   const remainingPercentText = `${remainingPercent}%`;
-  const remainingTokenText = remainingTokens > 0 ? `剩 ${formatTokenCount(remainingTokens)}` : "";
+  const remainingTokenText = remainingTokens > 0 ? `距压缩 ${formatTokenCount(remainingTokens)}` : "";
   const title = [
-    `当前 session 压缩压力 ${usedPercent}%`,
-    `距离自动压缩阈值 ${remainingPercentText}`,
+    `当前 session 上下文压力 ${pressurePercentText}`,
+    `距离自动压缩阈值剩余 ${remainingPercentText}`,
     remainingTokenText ? `距压缩 ${formatExactTokenCount(remainingTokens)} tokens` : "",
   ].filter(Boolean).join("；");
   return {
     label,
     usedPercent,
     remainingPercent,
+    pressurePercentText,
     remainingPercentText,
     remainingTokens,
     remainingTokenText,
@@ -295,6 +298,11 @@ function percentFromRatio(value: unknown) {
 }
 
 function currentSessionContextRatio(tokenStats: TokenStats) {
+  const rawSessionPressureRatio = tokenStats.session_context_pressure?.pressure_ratio;
+  const sessionPressureRatio = Number(rawSessionPressureRatio);
+  if (rawSessionPressureRatio !== undefined && rawSessionPressureRatio !== null && Number.isFinite(sessionPressureRatio)) {
+    return sessionPressureRatio;
+  }
   const rawCompactionRatio = tokenStats.context_meter?.compaction_pressure_ratio;
   const compactionRatio = Number(rawCompactionRatio);
   if (rawCompactionRatio !== undefined && rawCompactionRatio !== null && Number.isFinite(compactionRatio)) {
@@ -309,6 +317,11 @@ function currentSessionContextRatio(tokenStats: TokenStats) {
 }
 
 function currentSessionRemainingPercent(tokenStats: TokenStats, usedPercent: number) {
+  const rawSessionRemainingRatio = tokenStats.session_context_pressure?.remaining_ratio;
+  const sessionRemainingRatio = Number(rawSessionRemainingRatio);
+  if (rawSessionRemainingRatio !== undefined && rawSessionRemainingRatio !== null && Number.isFinite(sessionRemainingRatio)) {
+    return percentFromRatio(sessionRemainingRatio);
+  }
   const rawRemainingRatio = tokenStats.context_meter?.compaction_remaining_ratio;
   const remainingRatio = Number(rawRemainingRatio);
   if (rawRemainingRatio !== undefined && rawRemainingRatio !== null && Number.isFinite(remainingRatio)) {
@@ -318,6 +331,11 @@ function currentSessionRemainingPercent(tokenStats: TokenStats, usedPercent: num
 }
 
 function currentSessionRemainingTokens(tokenStats: TokenStats) {
+  const rawSessionRemaining = tokenStats.session_context_pressure?.remaining_tokens;
+  const sessionRemaining = Number(rawSessionRemaining);
+  if (rawSessionRemaining !== undefined && rawSessionRemaining !== null && Number.isFinite(sessionRemaining)) {
+    return Math.max(0, Math.round(sessionRemaining));
+  }
   const rawCompactionRemaining = tokenStats.context_meter?.compaction_remaining_tokens;
   const compactionRemaining = Number(rawCompactionRemaining);
   if (rawCompactionRemaining !== undefined && rawCompactionRemaining !== null && Number.isFinite(compactionRemaining)) {

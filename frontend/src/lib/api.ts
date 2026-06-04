@@ -354,6 +354,19 @@ export type CodeEnvironmentWorkspaceTree = {
   tree: CodeEnvironmentTreeNode;
 };
 
+export type ProjectWorkspaceSummary = {
+  key: string;
+  workspace_root: string;
+  name: string;
+  source: string;
+  created_at: number;
+  last_seen_at: number;
+  session_count: number;
+  latest_session_at: number;
+  available: boolean;
+  authority: string;
+};
+
 export type CodeEnvironmentGitStatus = {
   authority: string;
   available: boolean;
@@ -3712,44 +3725,73 @@ export async function setSessionPermissionMode(sessionId: string, mode: string, 
   });
 }
 
-export async function getSessionProjectBinding(sessionId: string, scope?: Partial<SessionScope>) {
-  return request<{ project_binding: SessionProjectBinding | Record<string, never> }>(
-    withSessionScopeQuery(`/sessions/${sessionId}/project-binding`, scope)
-  );
-}
-
-export async function bindSessionProject(
-  sessionId: string,
-  payload: Pick<SessionProjectBinding, "workspace_root" | "source">,
-  scope?: Partial<SessionScope>,
-) {
-  return request<{ project_binding: SessionProjectBinding }>(
-    withSessionScopeQuery(`/sessions/${sessionId}/project-binding`, scope),
-    {
-      method: "PUT",
-      body: JSON.stringify(payload),
-    }
-  );
-}
-
-export async function selectSessionProjectDirectory(sessionId: string, scope?: Partial<SessionScope>) {
-  return request<{ project_binding: SessionProjectBinding; selected_path: string }>(
-    withSessionScopeQuery(`/sessions/${sessionId}/project-binding/select-directory`, scope),
-    { method: "POST" }
-  );
-}
-
-export async function openSessionProjectInVSCode(sessionId: string, scope?: Partial<SessionScope>) {
+export async function listProjectWorkspaces() {
   return request<{
-    ok: boolean;
-    project_binding: SessionProjectBinding;
-    command: string[];
-    window_mode?: "new_window" | string;
-    session_id?: string;
-  }>(
-    withSessionScopeQuery(`/sessions/${sessionId}/project-binding/open-vscode`, scope),
-    { method: "POST" }
+    authority: string;
+    projects: ProjectWorkspaceSummary[];
+    summary: { project_count: number };
+  }>("/project-workspaces");
+}
+
+export async function registerProjectWorkspace(payload: Pick<SessionProjectBinding, "workspace_root" | "source">) {
+  return request<{
+    authority: string;
+    project: ProjectWorkspaceSummary;
+  }>("/project-workspaces", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function selectProjectWorkspaceDirectory() {
+  return request<{
+    authority: string;
+    project: ProjectWorkspaceSummary;
+    selected_path: string;
+  }>("/project-workspaces/select-directory", {
+    method: "POST",
+  });
+}
+
+export async function listProjectWorkspaceSessions(projectKey: string) {
+  return request<{
+    authority: string;
+    project_key: string;
+    sessions: SessionSummary[];
+  }>(`/project-workspaces/${encodeURIComponent(projectKey)}/sessions`);
+}
+
+export async function createProjectWorkspaceSession(projectKey: string, title = "New Session") {
+  return request<{
+    authority: string;
+    project_key: string;
+    session: SessionSummary;
+    created: boolean;
+  }>(`/project-workspaces/${encodeURIComponent(projectKey)}/sessions`, {
+    method: "POST",
+    body: JSON.stringify({ title }),
+  });
+}
+
+export async function getProjectWorkspaceTree(projectKey: string, options: { maxDepth?: number; maxEntries?: number } = {}) {
+  const params = new URLSearchParams();
+  params.set("max_depth", String(options.maxDepth || 10));
+  params.set("max_entries", String(options.maxEntries || 10000));
+  return request<CodeEnvironmentWorkspaceTree>(
+    `/project-workspaces/${encodeURIComponent(projectKey)}/workspace-tree?${params.toString()}`
   );
+}
+
+export async function openProjectWorkspaceInVSCode(projectKey: string) {
+  return request<{
+    authority: string;
+    ok: boolean;
+    project: ProjectWorkspaceSummary;
+    command: string[];
+    window_mode: string;
+  }>(`/project-workspaces/${encodeURIComponent(projectKey)}/open-vscode`, {
+    method: "POST",
+  });
 }
 
 export async function getSessionTimeline(sessionId: string, scope?: Partial<SessionScope>) {
@@ -3778,6 +3820,16 @@ export async function getSessionTokens(sessionId: string, scope?: Partial<Sessio
       compaction_remaining_tokens?: number;
       compaction_remaining_ratio?: number;
       pressure_level?: string;
+    };
+    session_context_pressure?: {
+      pressure_tokens?: number;
+      pressure_ratio?: number;
+      remaining_tokens?: number;
+      remaining_ratio?: number;
+      threshold_tokens?: number;
+      accumulated_history_tokens?: number;
+      non_history_context_tokens?: number;
+      source?: string;
     };
     cumulative_transcript_tokens?: number;
     cumulative_transcript_message_count?: number;

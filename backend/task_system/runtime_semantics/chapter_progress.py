@@ -64,9 +64,7 @@ def normalize_chapter_progress_receipt(
     if batch_complete != (not missing):
         raise ChapterProgressReceiptError("chapter_progress_receipt_batch_complete_inconsistent")
 
-    committed_words = _int_value(receipt.get("committed_words"), -1)
-    if committed_words < 0:
-        raise ChapterProgressReceiptError("chapter_progress_receipt_committed_words_invalid")
+    committed_words = max(0, _int_value(receipt.get("committed_words"), 0))
 
     normalized = {
         **receipt,

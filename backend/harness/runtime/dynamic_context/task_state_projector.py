@@ -90,6 +90,8 @@ def _latest_results(
                     "summary": compact_text(item.get("summary") or "", limit=300),
                     "code_structure": dict(item.get("code_structure") or {}),
                     "content_range": dict(item.get("content_range") or {}),
+                    "evidence_policy": dict(item.get("evidence_policy") or {}),
+                    "preview": _code_evidence_preview(item),
                     "tool_guidance": compact_text(item.get("tool_guidance") or "", limit=500),
                     "rehydration_plan": dict(item.get("rehydration_plan") or {}),
                 }
@@ -98,11 +100,7 @@ def _latest_results(
     for item in dict_tuple(observation_projection.get("latest_observations")):
         results.append(_observation_result_projection(item))
     deduped = _dedupe_by_semantic([item for item in results if item])
-    return [
-        item
-        for item in deduped
-        if _semantic_projection_key(item) not in current_fact_keys
-    ]
+    return [item for item in deduped if _should_keep_latest_result(item, current_fact_keys=current_fact_keys)]
 
 
 def _observation_result_projection(item: dict[str, Any]) -> dict[str, Any]:
@@ -121,6 +119,8 @@ def _observation_result_projection(item: dict[str, Any]) -> dict[str, Any]:
             "replacement_ref": str(tool_result.get("replacement_ref") or ""),
             "code_structure": dict(item.get("code_structure") or tool_result.get("code_structure") or {}),
             "content_range": dict(item.get("content_range") or tool_result.get("content_range") or {}),
+            "evidence_policy": dict(item.get("evidence_policy") or tool_result.get("evidence_policy") or {}),
+            "preview": _code_evidence_preview(tool_result),
             "tool_guidance": compact_text(item.get("tool_guidance") or tool_result.get("tool_guidance") or "", limit=500),
             "rehydration_plan": dict(item.get("rehydration_plan") or tool_result.get("rehydration_plan") or {}),
         }
@@ -128,6 +128,26 @@ def _observation_result_projection(item: dict[str, Any]) -> dict[str, Any]:
     if set(projected).issubset({"observation_ref", "replacement_ref"}):
         return {}
     return projected
+
+
+def _should_keep_latest_result(item: dict[str, Any], *, current_fact_keys: set[str]) -> bool:
+    key = _semantic_projection_key(item)
+    if key not in current_fact_keys:
+        return True
+    evidence_policy = dict(item.get("evidence_policy") or {})
+    if not str(evidence_policy.get("source_kind") or "").startswith("code_"):
+        return False
+    return bool(item.get("preview") or item.get("code_structure"))
+
+
+def _code_evidence_preview(item: dict[str, Any]) -> str:
+    evidence_policy = dict(item.get("evidence_policy") or {})
+    if str(evidence_policy.get("source_kind") or "") != "code_evidence":
+        return ""
+    preview = str(item.get("preview") or "")
+    if not preview:
+        return ""
+    return preview[:4000].rstrip()
 
 
 def _dedupe_failures(items: list[dict[str, Any]]) -> list[dict[str, Any]]:

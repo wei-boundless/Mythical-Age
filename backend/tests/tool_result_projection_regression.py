@@ -85,6 +85,10 @@ def test_tool_result_projector_emits_read_file_rehydration_plan_for_partial_wind
 
     plan = projection["rehydration_plan"]
     assert plan["prompt_status"] == "file_window_only"
+    assert projection["preview"] == "1 | first\n2 | second"
+    assert projection["evidence_policy"]["source_kind"] == "code_evidence"
+    assert projection["evidence_policy"]["visible_content_authority"] == "exact_visible_line_window"
+    assert projection["evidence_policy"]["rehydration_preference"] == "read_file_range_for_code_edits"
     range_capability = plan["capabilities"][0]
     assert range_capability["capability"] == "read_file_range"
     assert range_capability["content_range"]["content_sha256"] == "sha256:long-md"
@@ -93,6 +97,88 @@ def test_tool_result_projector_emits_read_file_rehydration_plan_for_partial_wind
         "args": {"path": "docs/long.md", "start_line": 3, "line_count": 2},
     }
     assert "not proof that the whole file is in prompt" in range_capability["instruction"]
+
+
+def test_tool_result_projector_normalizes_tool_source_prefix_for_read_file(tmp_path: Path) -> None:
+    projector = ToolResultProjector(root_dir=tmp_path, replacement_store=ReplacementStore(tmp_path))
+
+    projection, _ = projector.project(
+        {
+            "tool_name": "tool:read_file",
+            "text": "7 | target = value",
+            "structured_payload": {
+                "tool_result": {
+                    "kind": "text_file",
+                    "path": "src/prefixed.py",
+                    "start_line": 7,
+                    "end_line": 7,
+                    "returned_lines": 1,
+                    "line_count": 1,
+                    "total_lines": 9,
+                    "has_more": False,
+                    "truncated": False,
+                }
+            },
+        },
+        task_run_id="taskrun:prefixed-read",
+        projection_policy={"tool_result_preview_chars": 300},
+    )
+
+    assert projection["tool_name"] == "read_file"
+    assert projection["content_range"]["path"] == "src/prefixed.py"
+    assert projection["evidence_policy"]["source_kind"] == "code_evidence"
+    assert projection["preview"] == "7 | target = value"
+
+
+def test_tool_result_projector_marks_oversized_read_file_preview_as_partial_code_window(tmp_path: Path) -> None:
+    projector = ToolResultProjector(root_dir=tmp_path, replacement_store=ReplacementStore(tmp_path))
+    large_window = "\n".join(f"{line} |     value_{line} = compute({line})" for line in range(1, 180))
+
+    projection, _ = projector.project(
+        {
+            "result_envelope": {
+                "envelope_id": "tool-result:large-read-window",
+                "tool_name": "read_file",
+                "status": "ok",
+                "text": large_window,
+                "observed_paths": ["src/large.py"],
+                "structured_payload": {
+                    "tool_result": {
+                        "kind": "text_file",
+                        "path": "src/large.py",
+                        "start_line": 1,
+                        "end_line": 179,
+                        "returned_lines": 179,
+                        "line_count": 179,
+                        "total_lines": 260,
+                        "next_start_line": 180,
+                        "has_more": True,
+                        "truncated": True,
+                        "content_sha256": "sha256:large-py",
+                    }
+                },
+            }
+        },
+        task_run_id="taskrun:large-read-window",
+        projection_policy={"tool_result_preview_chars": 300},
+    )
+
+    policy = projection["evidence_policy"]
+    plan = projection["rehydration_plan"]
+    capabilities = {item["capability"]: item for item in plan["capabilities"]}
+
+    assert projection["content_replacements"]
+    assert policy["source_kind"] == "code_evidence"
+    assert policy["visible_content_authority"] == "preview_of_line_window"
+    assert policy["must_read_current_source_before_edit"] is True
+    assert plan["prompt_status"] == "preview_and_file_window_only"
+    assert capabilities["read_persisted_tool_result"]["tool_name"] == "read_persisted_tool_result"
+    assert capabilities["read_file_range"]["next_request"] == {
+        "tool_name": "read_file",
+        "args": {"path": "src/large.py", "start_line": 180, "line_count": 179},
+    }
+    assert "For code edits, prefer a fresh read_file" in capabilities["read_persisted_tool_result"]["instruction"]
+    assert "read the exact current target line window" in capabilities["read_file_range"]["instruction"]
 
 
 def test_tool_result_projector_projects_code_structure_as_locator_only(tmp_path: Path) -> None:
@@ -150,11 +236,15 @@ def test_tool_result_projector_projects_code_structure_as_locator_only(tmp_path:
     )
 
     structure = projection["code_structure"]
+    evidence_policy = projection["evidence_policy"]
     assert structure["candidate_only"] is True
     assert structure["source_authority"] == "locator_only"
     assert structure["files"][0]["must_read_source_before_edit"] is True
     assert structure["files"][0]["slices"][0]["read_request"]["tool_name"] == "read_file"
     assert "snippet" not in structure["files"][0]["slices"][0]
+    assert evidence_policy["source_kind"] == "code_locator"
+    assert evidence_policy["source_authority"] == "locator_only"
+    assert evidence_policy["must_read_source_before_edit"] is True
 
 
 def test_tool_result_projector_hides_runtime_sandbox_physical_artifact_paths(tmp_path: Path) -> None:

@@ -104,14 +104,46 @@ describe("ChatPanel", () => {
       },
       cumulative_transcript_tokens: 52000,
     }))).toEqual({
-      label: "压缩余量",
+      label: "上下文压力",
       usedPercent: 4,
       remainingPercent: 96,
+      pressurePercentText: "4%",
       remainingPercentText: "96%",
       remainingTokens: 866000,
-      remainingTokenText: "剩 866.0K",
-      title: "当前 session 压缩压力 4%；距离自动压缩阈值 96%；距压缩 866,000 tokens",
+      remainingTokenText: "距压缩 866.0K",
+      title: "当前 session 上下文压力 4%；距离自动压缩阈值剩余 96%；距压缩 866,000 tokens",
       levelClass: "normal",
+    });
+  });
+
+  it("uses accumulated session context pressure before latest provider prompt pressure", () => {
+    expect(sessionContextPressurePresentation(tokenStats({
+      context_meter: {
+        current_context_ratio: 0.03,
+        current_context_tokens: 34000,
+        context_window_tokens: 1_000_000,
+        replacement_threshold_tokens: 900000,
+        compaction_pressure_ratio: 34000 / 900000,
+        compaction_remaining_tokens: 866000,
+        compaction_remaining_ratio: 866000 / 900000,
+        pressure_level: "normal",
+      },
+      session_context_pressure: {
+        pressure_tokens: 320000,
+        pressure_ratio: 320000 / 900000,
+        remaining_tokens: 580000,
+        remaining_ratio: 580000 / 900000,
+        threshold_tokens: 900000,
+      },
+      cumulative_transcript_tokens: 300000,
+    }))).toMatchObject({
+      label: "上下文压力",
+      usedPercent: 36,
+      remainingPercent: 64,
+      pressurePercentText: "36%",
+      remainingPercentText: "64%",
+      remainingTokens: 580000,
+      remainingTokenText: "距压缩 580.0K",
     });
   });
 
@@ -120,6 +152,7 @@ describe("ChatPanel", () => {
       label: "上下文同步中",
       usedPercent: 0,
       remainingPercent: 0,
+      pressurePercentText: "--",
       remainingPercentText: "--",
       remainingTokens: 0,
       remainingTokenText: "",
@@ -142,13 +175,14 @@ describe("ChatPanel", () => {
       },
       cumulative_transcript_tokens: 2_000_000,
     }))).toEqual({
-      label: "余量偏低",
+      label: "压力偏高",
       usedPercent: 91,
       remainingPercent: 9,
+      pressurePercentText: "91%",
       remainingPercentText: "9%",
       remainingTokens: 80000,
-      remainingTokenText: "剩 80.0K",
-      title: "当前 session 压缩压力 91%；距离自动压缩阈值 9%；距压缩 80,000 tokens",
+      remainingTokenText: "距压缩 80.0K",
+      title: "当前 session 上下文压力 91%；距离自动压缩阈值剩余 9%；距压缩 80,000 tokens",
       levelClass: "warning",
     });
   });
@@ -171,9 +205,10 @@ describe("ChatPanel", () => {
       label: "已压缩",
       usedPercent: 13,
       remainingPercent: 87,
+      pressurePercentText: "13%",
       remainingPercentText: "87%",
       remainingTokens: 780000,
-      remainingTokenText: "剩 780.0K",
+      remainingTokenText: "距压缩 780.0K",
       levelClass: "normal",
     });
   });

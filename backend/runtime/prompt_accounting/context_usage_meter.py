@@ -11,6 +11,7 @@ ContextEstimateMode = Literal[
     "provider_anchor",
     "local_predicted_no_provider_anchor",
     "local_predicted_anchor_invalid",
+    "local_predicted_newer_than_provider",
     "empty",
 ]
 ContextPressureLevel = Literal["normal", "warning", "microcompact", "full_compact"]
@@ -97,12 +98,16 @@ class ContextUsageMeter:
         previous_context_fingerprint: str = "",
     ) -> ContextUsageSnapshot:
         records = self._list_token_usage(session_id=session_id, run_id=run_id, task_run_id=task_run_id)
-        provider_records = [record for record in records if record.source == "provider_usage"]
-        local_records = [record for record in records if record.source == "local_prediction"]
+        candidate_records = self._context_meter_candidate_records(records)
+        candidate_scope = "agent_runtime" if len(candidate_records) != len(records) else "all_session_usage"
+        provider_records = [record for record in candidate_records if record.source == "provider_usage"]
+        local_records = [record for record in candidate_records if record.source == "local_prediction"]
         anchor = provider_records[-1] if provider_records else None
         local_anchor = local_records[-1] if local_records else None
-        resolved_provider = str(provider or getattr(anchor, "provider", "") or getattr(local_anchor, "provider", "") or "")
-        resolved_model = str(model or getattr(anchor, "model", "") or getattr(local_anchor, "model", "") or "")
+        local_newer_than_provider = self._record_newer(local_anchor, anchor)
+        effective_anchor = local_anchor if local_newer_than_provider else (anchor or local_anchor)
+        resolved_provider = str(provider or getattr(effective_anchor, "provider", "") or "")
+        resolved_model = str(model or getattr(effective_anchor, "model", "") or "")
         window = max(1, int(context_window_tokens or self._default_window_for_model(resolved_provider, resolved_model)))
         reserved = max(0, int(reserved_output_tokens if reserved_output_tokens is not None else self.default_reserved_output_tokens))
         input_capacity_tokens = self._input_capacity_tokens(context_window_tokens=window, reserved_output_tokens=reserved)
@@ -119,7 +124,7 @@ class ContextUsageMeter:
             model=resolved_model,
         )
 
-        if anchor is not None and not invalidation_reason:
+        if anchor is not None and not invalidation_reason and not local_newer_than_provider:
             provider_context_tokens = self._provider_context_tokens(anchor)
             current_context_tokens = provider_context_tokens + pending_tokens
             estimate_mode: ContextEstimateMode = "provider_anchor"
@@ -127,7 +132,12 @@ class ContextUsageMeter:
         elif local_anchor is not None:
             provider_context_tokens = 0
             current_context_tokens = int(local_anchor.total_tokens or local_anchor.prompt_tokens or 0) + pending_tokens
-            estimate_mode = "local_predicted_anchor_invalid" if invalidation_reason else "local_predicted_no_provider_anchor"
+            if invalidation_reason:
+                estimate_mode = "local_predicted_anchor_invalid"
+            elif anchor is not None and local_newer_than_provider:
+                estimate_mode = "local_predicted_newer_than_provider"
+            else:
+                estimate_mode = "local_predicted_no_provider_anchor"
             anchor_valid = False
         else:
             provider_context_tokens = 0
@@ -179,10 +189,16 @@ class ContextUsageMeter:
             anchor_valid=anchor_valid,
             invalidation_reason=invalidation_reason,
             diagnostics={
-                "record_count": len(records),
+                "record_count": len(candidate_records),
+                "raw_record_count": len(records),
+                "candidate_scope": candidate_scope,
                 "provider_usage_record_count": len(provider_records),
                 "local_prediction_record_count": len(local_records),
                 "provider_context_tokens": provider_context_tokens,
+                "effective_anchor_source": str(getattr(effective_anchor, "source", "") or ""),
+                "effective_anchor_request_id": str(getattr(effective_anchor, "request_id", "") or ""),
+                "effective_anchor_created_at": float(getattr(effective_anchor, "created_at", 0.0) or 0.0),
+                "local_prediction_newer_than_provider": bool(local_newer_than_provider),
                 "context_fingerprint": str(context_fingerprint or ""),
                 "previous_context_fingerprint": str(previous_context_fingerprint or ""),
             },
@@ -195,11 +211,30 @@ class ContextUsageMeter:
         records = list_token_usage(session_id=session_id, run_id=run_id, task_run_id=task_run_id)
         return sorted(list(records or []), key=lambda item: float(getattr(item, "created_at", 0.0) or 0.0))
 
+    def _context_meter_candidate_records(self, records: list[ModelTokenUsageRecord]) -> list[ModelTokenUsageRecord]:
+        runtime_records = [record for record in records if self._is_agent_runtime_record(record)]
+        return runtime_records or records
+
     def _provider_context_tokens(self, record: ModelTokenUsageRecord) -> int:
         total = int(record.total_tokens or 0)
         if total > 0:
             return total
         return int(record.prompt_tokens or 0) + int(record.completion_tokens or 0) + int(record.reasoning_tokens or 0)
+
+    def _is_agent_runtime_record(self, record: ModelTokenUsageRecord) -> bool:
+        diagnostics = dict(getattr(record, "diagnostics", {}) or {})
+        if str(diagnostics.get("cache_metric_scope") or "") == "agent_runtime":
+            return True
+        if str(diagnostics.get("packet_ref") or "").startswith("rtpacket:"):
+            return True
+        return "rtpacket:" in str(getattr(record, "request_id", "") or "")
+
+    def _record_newer(self, candidate: ModelTokenUsageRecord | None, baseline: ModelTokenUsageRecord | None) -> bool:
+        if candidate is None:
+            return False
+        if baseline is None:
+            return True
+        return float(candidate.created_at or 0.0) > float(baseline.created_at or 0.0)
 
     def _estimate_pending_tokens(
         self,

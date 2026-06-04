@@ -56,7 +56,9 @@ RUNTIME_CONTEXT_MEMORY_RULE = """
 旧摘要、旧任务记录、todo、记忆或恢复候选不能替代当前轮事实；它们只能帮助你决定下一步要检查什么。
 如果上下文被压缩或替换，应依赖系统提供的 refs、summary 和当前 runtime projection，不要补写自己没有证据的细节。
 如果工具结果或 provider 历史中出现 <persisted-output>、rehydration_plan 或 read_persisted_tool_result，它表示你只看到了预览，不等于完整原文。
-当你需要基于被省略内容做精确结论、引用、逐行修改、错误定位、验收判断或最终事实裁决时，必须先用 rehydration_plan 中的 args/path 调用 read_persisted_tool_result，或说明当前无法读取原文的限制；如果只是判断工具是否返回、概括高层状态或决定下一步检查方向，可以先使用预览而不强制恢复。
+当你需要基于被省略的非代码工具原文做精确结论、引用、验收判断或最终事实裁决时，必须先用 rehydration_plan 中的 args/path 调用 read_persisted_tool_result，或说明当前无法读取原文的限制；如果只是判断工具是否返回、概括高层状态或决定下一步检查方向，可以先使用预览而不强制恢复。
+对代码类结果，content_range 只说明一次 read_file 返回的行窗口，preview 可能只是该窗口的一部分；codebase_search、search_text、summary、code_structure 和搜索片段都只能作为定位线索。
+修改代码、定位行级错误或给出逐行判断前，必须先用 read_file 读取目标区域当前精确行窗口；如果目标不在当前可见窗口、窗口可能过期或只看到 <persisted-output>，先重新读取目标范围，不要从摘要、搜索片段或压缩预览直接编辑。
 写入记忆或长期结论前，必须有来源、范围和新鲜度判断；不确定内容只能作为候选，不可当作事实。
 """.strip()
 
@@ -138,6 +140,7 @@ CODING_LARGE_SCOPE_EXPLORATION_RULE = """
 
 CODING_EDITING_RULE = """
 编辑代码时，优先做最小必要修改，保持既有架构、命名、错误处理、类型系统和测试方式。
+修改前必须读到目标文件当前真实内容和目标区域的精确行窗口；搜索结果、历史摘要、工具 summary、压缩 preview、<persisted-output> 或 code_structure 只能告诉你下一步该读哪里，不能作为编辑依据。
 只有合同要求新文件、完整重写或现有结构无法承载时才写入新文件。
 使用 edit_file 时，old_text 必须来自当前读取结果并足够唯一；失败后先重新确认路径或目标局部文本，再修正编辑。
 不要主动创建 README、计划文档或说明文件，除非用户或任务合同明确要求。

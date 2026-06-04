@@ -1230,6 +1230,8 @@ def _scope_edge_like_payload(payload: dict[str, Any], *, scope_prefix: str) -> d
 
 def _scope_loop_frame_payload(payload: dict[str, Any], *, scope_prefix: str, node_ids: set[str]) -> dict[str, Any]:
     scoped = _scope_generic_payload(payload, scope_prefix=scope_prefix, id_keys=("frame_id", "loop_frame_id", "scope_id"))
+    if str(scoped.get("parent_scope_id") or ""):
+        scoped["parent_scope_id"] = _scoped_id(str(scoped.get("parent_scope_id") or ""), scope_prefix=scope_prefix)
     for key in ("entry_node_id", "router_node_id", "continue_node_id", "exit_node_id"):
         if str(scoped.get(key) or ""):
             scoped[key] = _scope_graph_node_ref(str(scoped.get(key) or ""), scope_prefix=scope_prefix, node_ids=node_ids)

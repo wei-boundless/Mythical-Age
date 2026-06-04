@@ -92,6 +92,25 @@ async def session_tokens(
         if cumulative_transcript_tokens > 0
         else 1.0
     )
+    replacement_threshold_tokens = int(context_meter.get("replacement_threshold_tokens") or 0)
+    current_context_tokens = int(context_meter.get("current_context_tokens") or 0)
+    accumulated_history_tokens = max(cumulative_transcript_tokens, history_tokens, message_tokens)
+    non_history_context_tokens = max(current_context_tokens - history_tokens, 0)
+    session_context_pressure_tokens = max(
+        current_context_tokens,
+        accumulated_history_tokens + non_history_context_tokens,
+    )
+    session_context_remaining_tokens = max(replacement_threshold_tokens - session_context_pressure_tokens, 0)
+    session_context_pressure_ratio = (
+        min(session_context_pressure_tokens / replacement_threshold_tokens, 1.0)
+        if replacement_threshold_tokens > 0
+        else 0.0
+    )
+    session_context_remaining_ratio = (
+        max(session_context_remaining_tokens / replacement_threshold_tokens, 0.0)
+        if replacement_threshold_tokens > 0
+        else 0.0
+    )
     history_budget_tokens = int(context_compaction.get("history_budget_tokens") or 0)
     history_remaining_tokens = max(history_budget_tokens - history_tokens, 0)
     history_usage_ratio = (
@@ -128,6 +147,16 @@ async def session_tokens(
         "context_meter": context_meter,
         "cache_metrics": cache_metrics,
         "compaction_readiness": compaction_readiness,
+        "session_context_pressure": {
+            "pressure_tokens": session_context_pressure_tokens,
+            "pressure_ratio": round(session_context_pressure_ratio, 6),
+            "remaining_tokens": session_context_remaining_tokens,
+            "remaining_ratio": round(session_context_remaining_ratio, 6),
+            "threshold_tokens": replacement_threshold_tokens,
+            "accumulated_history_tokens": accumulated_history_tokens,
+            "non_history_context_tokens": non_history_context_tokens,
+            "source": "cumulative_transcript_plus_current_runtime_overhead",
+        },
         "cumulative_transcript_tokens": cumulative_transcript_tokens,
         "cumulative_transcript_message_count": len(cumulative_messages),
         "compression_saved_tokens": compression_saved_tokens,

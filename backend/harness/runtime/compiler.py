@@ -45,7 +45,8 @@ _PROVIDER_PROTOCOL_DEFAULT_CHAR_BUDGET = 24_000
 _PROVIDER_PROTOCOL_DEFAULT_MESSAGE_CHARS = 2_400
 _PROVIDER_PROTOCOL_REHYDRATION_NOTE = (
     "Preview only. Do not rely on omitted content for exact claims, citations, line-level edits, "
-    "or final factual judgments; call read_persisted_tool_result first when exact omitted output matters."
+    "or final factual judgments. For non-code omitted output, call read_persisted_tool_result first when exact content matters. "
+    "For code edits, read the exact current target line window with read_file before editing."
 )
 
 

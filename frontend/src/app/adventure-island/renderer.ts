@@ -56,6 +56,14 @@ function drawCenteredText(
   ctx.fillText(text, x, y);
 }
 
+function displayAtk(player: Player): number {
+  return player.baseAtk + (player.weapon?.atk ?? 0) + (player.accessory?.atk ?? 0);
+}
+
+function displayDef(player: Player): number {
+  return player.baseDef + (player.armor?.def ?? 0) + (player.accessory?.def ?? 0);
+}
+
 // ============================================================
 // 背景渲染（parallax）
 // ============================================================
@@ -768,5 +776,232 @@ export function renderGame(ctx: CanvasRenderingContext2D, state: GameState): voi
   // 对话层
   if (state.phase === "dialogue" && state.dialogueNPC) {
     renderDialogue(ctx, state);
+  }
+
+  // 按键提示（playing / dialogue 阶段始终显示）
+  if (state.phase === "playing" || state.phase === "dialogue") {
+    renderKeyHints(ctx);
+  }
+
+  // 背包 / 装备界面
+  if (state.showInventory) {
+    renderInventoryPanel(ctx, state);
+  }
+}
+
+// ============================================================
+// 按键提示栏
+// ============================================================
+
+function renderKeyHints(ctx: CanvasRenderingContext2D): void {
+  const hints = [
+    { key: "WASD/↑↓←→", desc: "移动" },
+    { key: "J", desc: "攻击" },
+    { key: "Space", desc: "跳跃" },
+    { key: "Enter", desc: "对话" },
+    { key: "1-4", desc: "技能" },
+    { key: "Tab", desc: "背包" },
+  ];
+
+  const panelH = 28;
+  const panelY = GAME_H - panelH;
+
+  ctx.fillStyle = "rgba(0,0,0,0.55)";
+  ctx.fillRect(0, panelY, GAME_W, panelH);
+
+  ctx.strokeStyle = "#333";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(0, panelY);
+  ctx.lineTo(GAME_W, panelY);
+  ctx.stroke();
+
+  const spacing = GAME_W / hints.length;
+  for (let i = 0; i < hints.length; i++) {
+    const cx = spacing * i + spacing / 2;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+
+    ctx.fillStyle = "#ffd700";
+    ctx.font = "bold 9px monospace";
+    ctx.fillText(hints[i].key, cx, panelY + 8);
+
+    ctx.fillStyle = "#aaa";
+    ctx.font = "8px sans-serif";
+    ctx.fillText(hints[i].desc, cx, panelY + 20);
+  }
+}
+
+// ============================================================
+// 背包 / 装备面板
+// ============================================================
+
+function renderInventoryPanel(ctx: CanvasRenderingContext2D, state: GameState): void {
+  const p = state.player;
+
+  // 半透明遮罩
+  ctx.fillStyle = "rgba(0,0,0,0.65)";
+  ctx.fillRect(0, 0, GAME_W, GAME_H);
+
+  // 面板主框
+  const panelW = 500;
+  const panelH = 400;
+  const panelX = (GAME_W - panelW) / 2;
+  const panelY = (GAME_H - panelH) / 2;
+
+  ctx.fillStyle = "#1a1a2e";
+  ctx.strokeStyle = "#ffd700";
+  ctx.lineWidth = 2;
+  ctx.fillRect(panelX, panelY, panelW, panelH);
+  ctx.strokeRect(panelX, panelY, panelW, panelH);
+
+  // 标题
+  ctx.fillStyle = "#ffd700";
+  ctx.font = "bold 18px sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "top";
+  ctx.fillText("⚔️ 背包 / 装备", panelX + panelW / 2, panelY + 12);
+
+  // 关闭提示
+  ctx.fillStyle = "#888";
+  ctx.font = "11px sans-serif";
+  ctx.fillText("↑↓选择  Enter装备  Tab关闭", panelX + panelW / 2, panelY + panelH - 20);
+
+  // ---- 左侧：背包列表 ----
+  const leftX = panelX + 16;
+  const leftY = panelY + 44;
+  const leftW = 220;
+  const listH = 280;
+
+  ctx.fillStyle = "#22223a";
+  ctx.fillRect(leftX, leftY, leftW, listH);
+  ctx.strokeStyle = "#555";
+  ctx.lineWidth = 1;
+  ctx.strokeRect(leftX, leftY, leftW, listH);
+
+  ctx.fillStyle = "#ccc";
+  ctx.font = "bold 12px sans-serif";
+  ctx.textAlign = "left";
+  ctx.textBaseline = "bottom";
+  ctx.fillText("📦 背包", leftX, leftY - 4);
+
+  if (p.inventory.length === 0) {
+    ctx.fillStyle = "#555";
+    ctx.font = "12px sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("（空）", leftX + leftW / 2, leftY + listH / 2);
+  } else {
+    const icons: Record<string, string> = { weapon: "⚔️", armor: "🛡️", accessory: "💎" };
+    for (let i = 0; i < p.inventory.length && i < 7; i++) {
+      const item = p.inventory[i];
+      const iy = leftY + 8 + i * 40;
+
+      ctx.fillStyle = i % 2 === 0 ? "#1e1e36" : "#282850";
+      ctx.fillRect(leftX + 4, iy, leftW - 8, 36);
+
+      // 选中高亮
+      if (i === state.selectedInventoryIndex) {
+        ctx.strokeStyle = "#ffd700";
+        ctx.lineWidth = 2;
+        ctx.strokeRect(leftX + 4, iy, leftW - 8, 36);
+      }
+
+      ctx.font = "14px sans-serif";
+      ctx.textAlign = "left";
+      ctx.textBaseline = "middle";
+      ctx.fillText(icons[item.slot] || "📦", leftX + 10, iy + 18);
+
+      ctx.fillStyle = "#ffd700";
+      ctx.font = "11px sans-serif";
+      ctx.fillText(item.name, leftX + 30, iy + 12);
+
+      const stats: string[] = [];
+      if (item.atk) stats.push(`攻+${item.atk}`);
+      if (item.def) stats.push(`防+${item.def}`);
+      if (item.hpBonus) stats.push(`HP+${item.hpBonus}`);
+      ctx.fillStyle = "#8f8";
+      ctx.font = "9px sans-serif";
+      ctx.fillText(stats.join(" "), leftX + 30, iy + 27);
+    }
+  }
+
+  // ---- 右侧：装备槽 + 属性 ----
+  const rightX = panelX + 260;
+  const rightY = panelY + 44;
+
+  // 装备槽
+  const slots: { slot: "weapon" | "armor" | "accessory"; equip: Equipment | null; label: string }[] = [
+    { slot: "weapon", equip: p.weapon, label: "武器" },
+    { slot: "armor", equip: p.armor, label: "护甲" },
+    { slot: "accessory", equip: p.accessory, label: "饰品" },
+  ];
+
+  ctx.fillStyle = "#ccc";
+  ctx.font = "bold 12px sans-serif";
+  ctx.textAlign = "left";
+  ctx.textBaseline = "bottom";
+  ctx.fillText("🛡️ 装备栏", rightX, rightY - 4);
+
+  const eqIcons: Record<string, string> = { weapon: "⚔️", armor: "🛡️", accessory: "💎" };
+  for (let i = 0; i < slots.length; i++) {
+    const { equip, label, slot } = slots[i];
+    const ey = rightY + 8 + i * 48;
+
+    ctx.fillStyle = equip ? "#1e2e1e" : "#222240";
+    ctx.strokeStyle = equip ? "#ffd700" : "#555";
+    ctx.lineWidth = 1;
+    ctx.fillRect(rightX, ey, 220, 42);
+    ctx.strokeRect(rightX, ey, 220, 42);
+
+    ctx.fillStyle = "#888";
+    ctx.font = "9px sans-serif";
+    ctx.textAlign = "left";
+    ctx.textBaseline = "top";
+    ctx.fillText(label, rightX + 6, ey + 4);
+
+    if (equip) {
+      ctx.font = "14px sans-serif";
+      ctx.textBaseline = "middle";
+      ctx.fillText(eqIcons[slot] || "", rightX + 6, ey + 28);
+
+      ctx.fillStyle = "#ffd700";
+      ctx.font = "bold 11px sans-serif";
+      ctx.textBaseline = "middle";
+      ctx.fillText(equip.name, rightX + 30, ey + 18);
+
+      const stats: string[] = [];
+      if (equip.atk) stats.push(`攻+${equip.atk}`);
+      if (equip.def) stats.push(`防+${equip.def}`);
+      if (equip.hpBonus) stats.push(`HP+${equip.hpBonus}`);
+      ctx.fillStyle = "#8f8";
+      ctx.font = "9px sans-serif";
+      ctx.fillText(stats.join(" "), rightX + 30, ey + 34);
+    } else {
+      ctx.fillStyle = "#555";
+      ctx.font = "10px sans-serif";
+      ctx.textBaseline = "middle";
+      ctx.fillText("空", rightX + 30, ey + 21);
+    }
+  }
+
+  // 属性总览
+  const statsY = rightY + 170;
+  ctx.fillStyle = "#ccc";
+  ctx.font = "bold 12px sans-serif";
+  ctx.textAlign = "left";
+  ctx.textBaseline = "bottom";
+  ctx.fillText("📊 属性总览", rightX, statsY - 4);
+
+  ctx.fillStyle = "#ddd";
+  ctx.font = "11px sans-serif";
+  ctx.textBaseline = "top";
+  const statLines = [
+    `等级: ${p.level}    经验: ${p.xp}/${xpForLevelImported(p.level)}`,
+    `攻击: ${displayAtk(p)}    防御: ${displayDef(p)}`,
+    `HP: ${p.hp}/${p.maxHp}    MP: ${p.mp}/${p.maxMp}`,
+  ];
+  for (let i = 0; i < statLines.length; i++) {
+    ctx.fillText(statLines[i], rightX, statsY + 8 + i * 18);
   }
 }

@@ -51,8 +51,9 @@ describe("PublicRunActivity", () => {
       }),
     );
 
-    expect(html).toContain("观察报告");
     expect(html).toContain("已读到主会话从 public_timeline 渲染运行反馈");
+    expect(html).not.toContain("观察报告");
+    expect(html).not.toContain("观察：");
     expect(html).not.toContain("下一步：");
     expect(html).not.toContain("工具已完成");
   });
@@ -105,9 +106,9 @@ describe("PublicRunActivity", () => {
     );
 
     expect(html).toContain("public-run-activity");
-    expect(html).toContain("观察结果");
-    expect(html).toContain("观察：目标文件尚未存在");
     expect(html).toContain("目标文件尚未存在");
+    expect(html).not.toContain("观察结果");
+    expect(html).not.toContain("观察：");
     expect(html).not.toContain("查看执行细节");
     expect(html).not.toContain("查看技术细节");
     expect(html).not.toContain("rtevt:obs");
@@ -128,9 +129,10 @@ describe("PublicRunActivity", () => {
       }),
     );
 
-    expect(html).toContain("观察结果");
-    expect(html).toContain("观察：项目约定已读到");
+    expect(html).toContain("项目约定已读到");
     expect(html).toContain("项目要求固定端口");
+    expect(html).not.toContain("观察结果");
+    expect(html).not.toContain("观察：");
   });
 
   it("suppresses duplicated assistant final summary", () => {
@@ -217,8 +219,9 @@ describe("PublicRunActivity", () => {
       }),
     );
 
-    expect(html).toContain("观察报告");
     expect(html).toContain("已检索记忆，命中 2 条相关记录。");
+    expect(html).not.toContain("观察报告");
+    expect(html).not.toContain("观察：");
     expect(html).not.toContain("authority");
     expect(html).not.toContain("diagnostics");
     expect(html).not.toContain("matched_version_count");
@@ -239,7 +242,8 @@ describe("PublicRunActivity", () => {
       }),
     );
 
-    expect(html).toContain("观察结果");
+    expect(html).toContain("记忆检索已返回");
+    expect(html).not.toContain("观察结果");
     expect(html).not.toContain("authority");
     expect(html).not.toContain("diagnostics");
     expect(html).not.toContain("matched_version_count");
@@ -299,6 +303,8 @@ describe("PublicRunActivity", () => {
     expect(html).not.toContain("已搜索引用 入口组件");
     expect(html).not.toContain("样式文件");
     expect(html).toContain("运行验证");
+    expect(html).toContain("关键上下文已拿到");
+    expect(html).not.toContain("观察：关键上下文已拿到");
     expect(html).not.toContain("npm test");
     expect(html).not.toContain("public-run-activity__row--history");
     expect(html).not.toContain("public-run-activity__row--current");
@@ -345,6 +351,7 @@ describe("PublicRunActivity", () => {
     expect(html).not.toContain("前面已完成");
     expect(html).not.toContain("已读取上下文 artifacts/game.html");
     expect(html).not.toContain("观察：关键上下文已拿到");
+    expect(html).toContain("关键上下文已拿到");
     expect(html).toContain("正在搜索");
     expect(html).not.toContain("function attack");
     expect(html.match(/storage/g)?.length ?? 0).toBe(0);
@@ -389,9 +396,10 @@ describe("PublicRunActivity", () => {
       }),
     );
 
-    expect(html).toContain("观察结果");
-    expect(html).toContain("观察：项目约定已读到");
+    expect(html).toContain("项目约定已读到");
     expect(html).toContain("项目要求先说明判断");
+    expect(html).not.toContain("观察结果");
+    expect(html).not.toContain("观察：");
   });
 
   it("keeps command return observations visible after verification", () => {
@@ -412,9 +420,10 @@ describe("PublicRunActivity", () => {
       }),
     );
 
-    expect(html).toContain("观察结果");
-    expect(html).toContain("观察：验证已返回，22 tests passed");
+    expect(html).toContain("验证已返回，22 tests passed");
     expect(html).not.toContain("npm test");
+    expect(html).not.toContain("观察结果");
+    expect(html).not.toContain("观察：");
   });
 
   it("keeps assistant feedback out of the status lane and renders the active tool action", () => {
@@ -625,12 +634,13 @@ describe("PublicRunActivity", () => {
       }),
     );
 
-    expect(html).toContain("观察结果");
-    expect(html).toContain("观察：验证已返回，31 tests passed");
+    expect(html).toContain("验证已返回，31 tests passed");
     expect(html).not.toContain("npm test");
     expect(html).toContain("收尾总结");
     expect(html).toContain("已完成开局反馈、运行反馈和收尾展示调整。");
-    expect(html.indexOf("观察结果")).toBeLessThan(html.indexOf("收尾总结"));
+    expect(html.indexOf("验证已返回，31 tests passed")).toBeLessThan(html.indexOf("收尾总结"));
+    expect(html).not.toContain("观察结果");
+    expect(html).not.toContain("观察：");
     expect(html).not.toContain("阶段完成");
   });
 
@@ -669,7 +679,8 @@ describe("PublicRunActivity", () => {
       }),
     );
 
-    expect(html).toContain("观察：artifacts/test_placeholder 已返回");
+    expect(html).toContain("artifacts/test_placeholder 已返回");
+    expect(html).not.toContain("观察：");
     expect(html).not.toContain("动作已返回");
     expect(html).not.toContain("public-run-activity__row--done");
     expect(html).not.toContain("public-run-activity__spinner");
@@ -696,7 +707,8 @@ describe("PublicRunActivity", () => {
       }),
     );
 
-    expect(html).toContain("观察：artifacts/football.html 已返回");
+    expect(html).toContain("artifacts/football.html 已返回");
+    expect(html).not.toContain("观察：");
     expect(html).not.toContain("动作已返回");
     expect(html).not.toContain("public-run-activity__row--done");
     expect(html).not.toContain("public-run-activity__row--current");

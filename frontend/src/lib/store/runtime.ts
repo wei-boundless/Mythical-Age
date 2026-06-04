@@ -24,13 +24,17 @@ import {
   getSessionHistory,
   getSessionTimeline,
   getSessionTokens,
+  getProjectWorkspaceTree,
   isRequestAbortError,
+  listProjectWorkspaces,
+  listProjectWorkspaceSessions,
   listSessions,
   listSkills,
   renameSession,
   saveFile,
   saveFileForSession,
-  selectSessionProjectDirectory,
+  createProjectWorkspaceSession,
+  selectProjectWorkspaceDirectory,
   stopOrchestrationHarnessTaskRun,
   clearChatStreamCursor,
   readChatStreamCursor,
@@ -38,7 +42,7 @@ import {
   streamExistingChatRun,
   truncateSessionMessages
 } from "@/lib/api";
-import type { ChatStreamCursor, PublicChatTimelineItem, RunMonitorEventPayload, RuntimeMonitorActionPayload, RuntimeMonitorActionResult, RuntimeMonitorEnvelope, SessionRuntimeAttachment, SessionScope, SessionSummary } from "@/lib/api";
+import type { ChatStreamCursor, ProjectWorkspaceSummary, PublicChatTimelineItem, RunMonitorEventPayload, RuntimeMonitorActionPayload, RuntimeMonitorActionResult, RuntimeMonitorEnvelope, SessionRuntimeAttachment, SessionScope, SessionSummary } from "@/lib/api";
 import { taskEnvironmentDisplayName } from "@/lib/taskEnvironmentDisplay";
 
 import { createIdleSessionActivity, type Store } from "./core";
@@ -57,6 +61,7 @@ const CODING_TASK_ENVIRONMENT_ID = "env.coding.vibe_workspace";
 const DEFAULT_PERMISSION_MODE: PermissionMode = "full_access";
 const DEFAULT_INSPECTOR_PATH = "durable_memory/index/MEMORY.md";
 const FRONTEND_EDITOR_CONTEXT_TEXT_LIMIT = 12000;
+const LAST_ACTIVE_TASK_ENVIRONMENT_KEY = "agentWorkbench.lastActiveTaskEnvironment";
 const GRAPH_ONLY_TASK_ENVIRONMENT_IDS = new Set(["env.creation.writing"]);
 const CODE_TASK_ENVIRONMENT_IDS = new Set([CODING_TASK_ENVIRONMENT_ID, "env.development.sandbox"]);
 
@@ -103,6 +108,33 @@ function sessionProjectRoot(session: SessionSummary | null | undefined) {
   return String(session?.conversation_state?.project_binding?.workspace_root || "").trim();
 }
 
+function workspaceRootKey(root: string) {
+  return root.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+}
+
+function sessionBelongsToProject(session: SessionSummary, workspaceRoot: string) {
+  const root = workspaceRootKey(workspaceRoot);
+  return Boolean(root && workspaceRootKey(sessionProjectRoot(session)) === root);
+}
+
+function mergeSessionSummaries(existing: SessionSummary[], incoming: SessionSummary[]) {
+  const byId = new Map<string, SessionSummary>();
+  for (const session of existing) byId.set(session.id, session);
+  for (const session of incoming) byId.set(session.id, session);
+  return [...byId.values()].sort((a, b) => b.updated_at - a.updated_at);
+}
+
+function mergeProjectWorkspaces(existing: ProjectWorkspaceSummary[], incoming: ProjectWorkspaceSummary[]) {
+  const byKey = new Map<string, ProjectWorkspaceSummary>();
+  for (const project of existing) byKey.set(project.key, project);
+  for (const project of incoming) byKey.set(project.key, project);
+  return [...byKey.values()].sort((a, b) => {
+    const bySeen = Number(b.last_seen_at || 0) - Number(a.last_seen_at || 0);
+    if (bySeen) return bySeen;
+    return a.name.localeCompare(b.name);
+  });
+}
+
 function sessionPoolKeyForScope(scope: Partial<SessionScope> | undefined): SessionPoolKey {
   if (scope?.workspace_view === "task_environment") {
     return `task_environment:${String(scope.task_environment_id || "").trim()}:${String(scope.project_id || "").trim()}` as SessionPoolKey;
@@ -129,6 +161,45 @@ function isCatalogEnvironmentVisible(item: TaskEnvironmentCatalogItem) {
     return false;
   }
   return String(item.management_scope || record.management_scope || "").trim() !== "system_internal";
+}
+
+function storageGet(key: string) {
+  try {
+    if (typeof window === "undefined") {
+      return "";
+    }
+    return String(window.localStorage?.getItem(key) || "").trim();
+  } catch {
+    return "";
+  }
+}
+
+function storageSet(key: string, value: string) {
+  try {
+    if (typeof window === "undefined") {
+      return;
+    }
+    window.localStorage?.setItem(key, value);
+  } catch {
+    // Local storage is only an interface memory hint; runtime behavior must not depend on it.
+  }
+}
+
+function errorDetailMessage(error: unknown) {
+  const message = error instanceof Error ? error.message.trim() : String(error ?? "").trim();
+  if (!message) {
+    return "";
+  }
+  try {
+    const parsed = JSON.parse(message) as { detail?: unknown; message?: unknown };
+    return String(parsed.detail || parsed.message || message).trim();
+  } catch {
+    return message;
+  }
+}
+
+function isProjectDirectorySelectionCancelled(error: unknown) {
+  return /^project directory selection cancelled$/i.test(errorDetailMessage(error));
 }
 
 export class WorkspaceRuntime {
@@ -177,8 +248,17 @@ export class WorkspaceRuntime {
       refreshWorkspaceTree: async () => {
         await this.refreshWorkspaceTree();
       },
-      bindCurrentSessionProject: async () => {
-        await this.bindCurrentSessionProject();
+      selectProjectWorkspace: async (projectKey) => {
+        await this.selectProjectWorkspace(projectKey);
+      },
+      selectProjectWorkspaceDirectory: async () => {
+        await this.selectProjectWorkspaceDirectory();
+      },
+      refreshProjectWorkspaces: async () => {
+        await this.refreshProjectWorkspaces();
+      },
+      refreshProjectSessions: async () => {
+        await this.refreshProjectSessions();
       },
       createNewSession: async () => {
         await this.createNewSession();
@@ -330,14 +410,29 @@ export class WorkspaceRuntime {
     }));
     try {
       await this.refreshTaskEnvironmentCatalog();
-      let sessions = visibleMainChatSessions(await listSessions());
+      const [projectPayload, allSessions] = await Promise.all([
+        listProjectWorkspaces(),
+        listSessions(),
+      ]);
+      const sessions = visibleMainChatSessions(allSessions);
+      const projects = Array.isArray(projectPayload.projects) ? projectPayload.projects : [];
+      const currentSessionId = this.store.getState().currentSessionId;
+      const currentSession = currentSessionId ? sessions.find((session) => session.id === currentSessionId) : null;
+      const currentProjectRoot = sessionProjectRoot(currentSession);
+      const activeProject = currentProjectRoot
+        ? projects.find((project) => sessionBelongsToProject(currentSession!, project.workspace_root))
+        : projects[0] ?? null;
       this.store.setState((prev) => ({
         ...prev,
         sessions,
+        projectWorkspaces: projects,
+        activeProjectKey: activeProject?.key || "",
+        activeProjectRoot: activeProject?.workspace_root || "",
       }));
 
-      const currentSessionId = this.store.getState().currentSessionId;
-      if (!currentSessionId && sessions.length) {
+      if (activeProject) {
+        await this.selectProjectWorkspace(activeProject.key, { preferredSessionId: currentSessionId || undefined });
+      } else if (!currentSessionId && sessions.length) {
         const sessionId = sessions[0].id;
         const restoredFromStreamCache = this.applySelectedSessionShell(sessionId, {
           scope: sessions[0].scope,
@@ -350,8 +445,18 @@ export class WorkspaceRuntime {
             void this.hydrateLatestOrchestrationSnapshot(sessionId).catch(() => undefined);
           }
         }
-      } else if (!currentSessionId) {
-        await this.createFreshSession();
+      } else if (currentSessionId) {
+        const restoredFromStreamCache = this.applySelectedSessionShell(currentSessionId, {
+          scope: currentSession?.scope,
+          poolKey: MAIN_CHAT_POOL_KEY,
+        });
+        if (!restoredFromStreamCache) {
+          const reattached = await this.reattachChatRunForSession(currentSessionId);
+          if (!reattached) {
+            void this.refreshSessionDetails(currentSessionId).catch(() => undefined);
+            void this.hydrateLatestOrchestrationSnapshot(currentSessionId).catch(() => undefined);
+          }
+        }
       }
       this.store.setState((prev) => ({
         ...prev,
@@ -417,6 +522,9 @@ export class WorkspaceRuntime {
   private async loadInspectorMemoryFile() {
     const state = this.store.getState();
     const sessionId = state.currentSessionId || "";
+    if (!sessionId && state.activeProjectKey) {
+      return;
+    }
     if (sessionId && !this.sessionProjectRoot(state, sessionId)) {
       return;
     }
@@ -465,9 +573,13 @@ export class WorkspaceRuntime {
     const sessions = visibleMainChatSessions(await listSessions());
     this.sessionListFailureNotifiedAt = 0;
     this.store.setState((prev) => {
+      const activeProjectRoot = prev.activeProjectRoot;
       const nextState = { ...prev, sessions };
       const projected = {
         ...nextState,
+        projectSessions: activeProjectRoot
+          ? sessions.filter((session) => sessionBelongsToProject(session, activeProjectRoot))
+          : prev.projectSessions,
         permissionMode: this.permissionModeForSession(prev.currentSessionId, nextState, prev.permissionMode),
       };
       if (prev.currentSessionId && prev.sessionActivity.event === "workspace_initialize_failed") {
@@ -476,6 +588,123 @@ export class WorkspaceRuntime {
       return projected;
     });
     return sessions;
+  }
+
+  private async refreshProjectWorkspaces() {
+    this.store.setState((prev) => ({
+      ...prev,
+      projectWorkspacesLoading: true,
+      projectWorkspacesError: "",
+    }));
+    try {
+      const payload = await listProjectWorkspaces();
+      this.store.setState((prev) => ({
+        ...prev,
+        projectWorkspaces: Array.isArray(payload.projects) ? payload.projects : [],
+        projectWorkspacesLoading: false,
+        projectWorkspacesError: "",
+      }));
+    } catch (error) {
+      this.store.setState((prev) => ({
+        ...prev,
+        projectWorkspacesLoading: false,
+        projectWorkspacesError: this.errorMessage(error, "项目列表读取失败。"),
+      }));
+    }
+  }
+
+  private async refreshProjectSessions(projectKey = this.store.getState().activeProjectKey) {
+    if (!projectKey) {
+      this.store.setState((prev) => ({ ...prev, projectSessions: [] }));
+      return [];
+    }
+    const payload = await listProjectWorkspaceSessions(projectKey);
+    const projectSessions = visibleMainChatSessions(payload.sessions);
+    this.store.setState((prev) => ({
+      ...prev,
+      projectSessions,
+      sessions: mergeSessionSummaries(prev.sessions, projectSessions),
+    }));
+    return projectSessions;
+  }
+
+  private async selectProjectWorkspace(
+    projectKey: string,
+    options: { preferredSessionId?: string } = {},
+  ) {
+    const normalizedKey = String(projectKey || "").trim();
+    if (!normalizedKey) {
+      return;
+    }
+    const projectPayload = this.store.getState().projectWorkspaces.length
+      ? { projects: this.store.getState().projectWorkspaces }
+      : await listProjectWorkspaces();
+    const project = projectPayload.projects.find((item) => item.key === normalizedKey);
+    if (!project) {
+      throw new Error("项目工作区不存在。");
+    }
+    this.store.setState((prev) => ({
+      ...prev,
+      activeProjectKey: project.key,
+      activeProjectRoot: project.workspace_root,
+      projectWorkspaces: mergeProjectWorkspaces(prev.projectWorkspaces, [project]),
+      workspaceTree: null,
+      workspaceTreeError: "",
+    }));
+    const projectSessions = await this.refreshProjectSessions(project.key);
+    const preferred = options.preferredSessionId
+      ? projectSessions.find((session) => session.id === options.preferredSessionId)
+      : null;
+    const nextSession = preferred ?? projectSessions[0] ?? null;
+    if (!nextSession) {
+      this.clearActiveSession();
+      void this.refreshWorkspaceTree().catch(() => undefined);
+      return;
+    }
+    const restoredFromStreamCache = this.applySelectedSessionShell(nextSession.id, {
+      scope: nextSession.scope,
+      poolKey: MAIN_CHAT_POOL_KEY,
+    });
+    if (!restoredFromStreamCache) {
+      const reattached = await this.reattachChatRunForSession(nextSession.id);
+      if (!reattached) {
+        void this.refreshSessionDetails(nextSession.id).catch(() => undefined);
+        void this.hydrateLatestOrchestrationSnapshot(nextSession.id).catch(() => undefined);
+      }
+    }
+  }
+
+  private async selectProjectWorkspaceDirectory() {
+    this.store.setState((prev) => ({
+      ...prev,
+      projectWorkspacesLoading: true,
+      projectWorkspacesError: "",
+    }));
+    try {
+      const payload = await selectProjectWorkspaceDirectory();
+      this.store.setState((prev) => ({
+        ...prev,
+        projectWorkspacesLoading: false,
+        projectWorkspacesError: "",
+        projectWorkspaces: mergeProjectWorkspaces(prev.projectWorkspaces, [payload.project]),
+      }));
+      await this.selectProjectWorkspace(payload.project.key);
+    } catch (error) {
+      if (isProjectDirectorySelectionCancelled(error)) {
+        this.store.setState((prev) => ({
+          ...prev,
+          projectWorkspacesLoading: false,
+          projectWorkspacesError: "",
+        }));
+        return;
+      }
+      this.store.setState((prev) => ({
+        ...prev,
+        projectWorkspacesLoading: false,
+        projectWorkspacesError: this.errorMessage(error, "无法选择项目目录。"),
+      }));
+      throw error;
+    }
   }
 
   private refreshMainSessionPoolInBackground() {
@@ -521,6 +750,12 @@ export class WorkspaceRuntime {
           conversationActiveEnvironment: active,
         };
       });
+      if (!this.store.getState().conversationActiveEnvironment) {
+        this.store.setState((prev) => ({
+          ...prev,
+          conversationActiveEnvironment: this.defaultActiveTaskEnvironment("workspace-mode"),
+        }));
+      }
     } catch (error) {
       this.store.setState((prev) => ({
         ...prev,
@@ -957,7 +1192,10 @@ export class WorkspaceRuntime {
     }
 
     const pending = (async () => {
-      const created = await createSession("New Session");
+      const activeProjectKey = this.store.getState().activeProjectKey;
+      const created = activeProjectKey
+        ? (await createProjectWorkspaceSession(activeProjectKey, "New Session")).session
+        : await createSession("New Session");
       const conversationActiveEnvironment =
         this.activeEnvironmentForSession(created)
         ?? this.store.getState().conversationActiveEnvironment
@@ -972,6 +1210,15 @@ export class WorkspaceRuntime {
           },
           ...prev.sessions.filter((session) => session.id !== created.id),
         ],
+        projectSessions: activeProjectKey
+          ? [
+              {
+                ...created,
+                conversation_state: this.conversationStateWithPermissionMode(created.conversation_state, permissionMode),
+              },
+              ...prev.projectSessions.filter((session) => session.id !== created.id),
+            ]
+          : prev.projectSessions,
         currentSessionId: created.id,
         activeSessionScope: null,
         activeSessionRef: {
@@ -1042,9 +1289,16 @@ export class WorkspaceRuntime {
       tokenStats: null
     }, sessionId));
     this.store.setState((prev) => this.clearSessionActivityFor(prev, sessionId));
-    await this.refreshMainSessionPool().catch((error) => {
-      this.noteSessionRefreshFailure(error);
-    });
+    const activeProjectKey = this.store.getState().activeProjectKey;
+    if (activeProjectKey) {
+      await this.refreshProjectSessions(activeProjectKey).catch((error) => {
+        this.noteSessionRefreshFailure(error);
+      });
+    } else {
+      await this.refreshMainSessionPool().catch((error) => {
+        this.noteSessionRefreshFailure(error);
+      });
+    }
   }
 
   private async selectSession(ref: SessionRef) {
@@ -1062,20 +1316,6 @@ export class WorkspaceRuntime {
     }
     await this.refreshSessionDetails(normalized.sessionId).catch(() => undefined);
     await this.hydrateLatestOrchestrationSnapshot(normalized.sessionId).catch(() => false);
-  }
-
-  private async bindCurrentSessionProject() {
-    const sessionId = await this.ensureSession();
-    const scope = this.sessionScopeForSession(sessionId);
-    await selectSessionProjectDirectory(sessionId, scope);
-    await this.refreshMainSessionPool();
-    this.store.setState((prev) => ({
-      ...prev,
-      workspaceTree: null,
-      workspaceTreeError: "",
-    }));
-    await this.refreshWorkspaceTree();
-    await this.loadInspectorMemoryFile();
   }
 
   private sessionScopeForSession(sessionId: string): Partial<SessionScope> | undefined {
@@ -1221,11 +1461,48 @@ export class WorkspaceRuntime {
     };
   }
 
+  private rememberedTaskEnvironmentId() {
+    const remembered = storageGet(LAST_ACTIVE_TASK_ENVIRONMENT_KEY);
+    if (!remembered || GRAPH_ONLY_TASK_ENVIRONMENT_IDS.has(remembered)) {
+      return "";
+    }
+    return this.taskEnvironmentCatalogItem(remembered) ? remembered : "";
+  }
+
+  private rememberTaskEnvironment(activeEnvironment: StoreState["conversationActiveEnvironment"]) {
+    const taskEnvironmentId = String(activeEnvironment?.task_environment_id || "").trim();
+    if (!taskEnvironmentId || GRAPH_ONLY_TASK_ENVIRONMENT_IDS.has(taskEnvironmentId)) {
+      return;
+    }
+    storageSet(LAST_ACTIVE_TASK_ENVIRONMENT_KEY, taskEnvironmentId);
+  }
+
+  private activeTaskEnvironmentWithRememberedDefault(
+    activeEnvironment: StoreState["conversationActiveEnvironment"],
+  ): StoreState["conversationActiveEnvironment"] {
+    const activeId = String(activeEnvironment?.task_environment_id || "").trim();
+    const rememberedId = this.rememberedTaskEnvironmentId();
+    if (!activeEnvironment || !rememberedId || rememberedId === activeId) {
+      return activeEnvironment;
+    }
+    if (activeId === GENERAL_TASK_ENVIRONMENT_ID) {
+      return {
+        task_environment_id: rememberedId,
+        environment_label: this.taskEnvironmentLabel(rememberedId),
+        source: "workspace-mode",
+        updated_at: Date.now() / 1000,
+        authority: "frontend.conversation_active_task_environment",
+      };
+    }
+    return activeEnvironment;
+  }
+
   private defaultActiveTaskEnvironment(source = "conversation"): NonNullable<StoreState["conversationActiveEnvironment"]> {
-    const defaultId = this.taskEnvironmentCatalogItem(GENERAL_TASK_ENVIRONMENT_ID)
+    const rememberedId = this.rememberedTaskEnvironmentId();
+    const defaultId = rememberedId || (this.taskEnvironmentCatalogItem(GENERAL_TASK_ENVIRONMENT_ID)
       ? GENERAL_TASK_ENVIRONMENT_ID
       : taskEnvironmentIdOf(this.store.getState().taskEnvironmentCatalog?.environments.find(isCatalogEnvironmentVisible))
-        || GENERAL_TASK_ENVIRONMENT_ID;
+        || GENERAL_TASK_ENVIRONMENT_ID);
     return {
       task_environment_id: defaultId,
       environment_label: this.taskEnvironmentLabel(defaultId),
@@ -1238,7 +1515,9 @@ export class WorkspaceRuntime {
   private activeEnvironmentFromConversationState(
     conversationState: SessionSummary["conversation_state"] | null | undefined,
   ): StoreState["conversationActiveEnvironment"] {
-    return this.normalizeActiveTaskEnvironment(conversationState?.active_task_environment);
+    return this.activeTaskEnvironmentWithRememberedDefault(
+      this.normalizeActiveTaskEnvironment(conversationState?.active_task_environment),
+    );
   }
 
   private activeEnvironmentForSession(
@@ -1269,6 +1548,7 @@ export class WorkspaceRuntime {
       sessionScope,
     );
     const nextActive = this.activeEnvironmentFromConversationState(conversationState) ?? activeEnvironment;
+    this.rememberTaskEnvironment(nextActive);
     this.store.setState((prev) => ({
       ...prev,
       conversationActiveEnvironment: prev.currentSessionId === sessionId ? nextActive : prev.conversationActiveEnvironment,
@@ -2456,8 +2736,12 @@ export class WorkspaceRuntime {
 
   private async loadInspectorFile(path: string) {
     try {
-      const state = this.store.getState();
-      const sessionId = state.currentSessionId || "";
+      let state = this.store.getState();
+      let sessionId = state.currentSessionId || "";
+      if (!sessionId && state.activeProjectKey) {
+        sessionId = await this.ensureSession();
+        state = this.store.getState();
+      }
       const scope = sessionId ? this.sessionScopeForSession(sessionId) : undefined;
       if (sessionId && !this.sessionProjectRoot(state, sessionId)) {
         throw new Error("当前会话未绑定项目，不能打开项目文件。");
@@ -2497,9 +2781,10 @@ export class WorkspaceRuntime {
   private async refreshWorkspaceTree() {
     const requestId = ++this.workspaceTreeRequest;
     const state = this.store.getState();
+    const activeProjectKey = state.activeProjectKey;
     const sessionId = state.currentSessionId || "";
     const scope = sessionId ? this.sessionScopeForSession(sessionId) : undefined;
-    if (sessionId && !this.sessionProjectRoot(state, sessionId)) {
+    if (!activeProjectKey && sessionId && !this.sessionProjectRoot(state, sessionId)) {
       this.store.setState((prev) => ({
         ...prev,
         workspaceTree: null,
@@ -2514,10 +2799,12 @@ export class WorkspaceRuntime {
       workspaceTreeError: ""
     }));
     try {
-      const workspaceTree = await getCodeEnvironmentWorkspaceTree({
-        sessionId: sessionId || undefined,
-        scope,
-      });
+      const workspaceTree = activeProjectKey
+        ? await getProjectWorkspaceTree(activeProjectKey)
+        : await getCodeEnvironmentWorkspaceTree({
+            sessionId: sessionId || undefined,
+            scope,
+          });
       if (this.workspaceTreeRequest !== requestId) {
         return;
       }
@@ -2552,8 +2839,12 @@ export class WorkspaceRuntime {
   }
 
   private async saveInspector() {
-    const state = this.store.getState();
-    const sessionId = state.currentSessionId || "";
+    let state = this.store.getState();
+    let sessionId = state.currentSessionId || "";
+    if (!sessionId && state.activeProjectKey) {
+      sessionId = await this.ensureSession();
+      state = this.store.getState();
+    }
     const scope = sessionId ? this.sessionScopeForSession(sessionId) : undefined;
     if (sessionId && !this.sessionProjectRoot(state, sessionId)) {
       this.store.setState((prev) => ({
@@ -2627,6 +2918,10 @@ export class WorkspaceRuntime {
   private defaultTaskEnvironmentIdForView(view: TaskEnvironmentWorkspaceView) {
     const catalog = this.store.getState().taskEnvironmentCatalog;
     if (view === "code-environment") {
+      const rememberedId = this.rememberedTaskEnvironmentId();
+      if (rememberedId && this.workspaceViewForTaskEnvironment(rememberedId) === "code-environment") {
+        return rememberedId;
+      }
       for (const candidate of [CODING_TASK_ENVIRONMENT_ID, "env.development.sandbox"]) {
         if (catalog?.environments.some((item) => isCatalogEnvironmentVisible(item) && taskEnvironmentIdOf(item) === candidate)) {
           return candidate;
@@ -2637,6 +2932,10 @@ export class WorkspaceRuntime {
         return isCatalogEnvironmentVisible(item) && (kind === "coding" || kind === "development");
       });
       return taskEnvironmentIdOf(codeCandidate) || CODING_TASK_ENVIRONMENT_ID;
+    }
+    const rememberedId = this.rememberedTaskEnvironmentId();
+    if (rememberedId && this.workspaceViewForTaskEnvironment(rememberedId) === "chat") {
+      return rememberedId;
     }
     if (catalog?.environments.some((item) => isCatalogEnvironmentVisible(item) && taskEnvironmentIdOf(item) === GENERAL_TASK_ENVIRONMENT_ID)) {
       return GENERAL_TASK_ENVIRONMENT_ID;
@@ -2680,6 +2979,7 @@ export class WorkspaceRuntime {
       authority: "frontend.conversation_active_task_environment",
     };
     this.syncWorkspaceViewUrl(view);
+    this.rememberTaskEnvironment(activeEnvironment);
     this.store.setState((prev) => ({
       ...prev,
       activeWorkspaceView: view,
@@ -3131,7 +3431,7 @@ export class WorkspaceRuntime {
         subject_label: subject,
         public_summary: this.publicRuntimeActionSummary(actionKind, state, subject, body || title),
         observation: state === "done" ? this.publicRuntimeObservation(actionKind, body || title, subject) : "",
-        recovery_hint: state === "error" ? body || title || "当前步骤需要调整后继续。" : "",
+        recovery_hint: state === "error" ? body || title || "当前步骤没有执行成功，我会换一种方式继续。" : "",
         state,
         stream_state: state === "running" ? "streaming" : "done",
         trace_refs: [entry.id].filter(Boolean),
@@ -3185,7 +3485,7 @@ export class WorkspaceRuntime {
       detail = "需要确认后继续执行。";
     } else if (status === "blocked") {
       title = "等待调整";
-      detail = "当前处理受阻，需要调整条件后继续。";
+      detail = "当前处理暂时停住，需要换一种方式继续。";
     } else if (staleOrDiagnostic) {
       title = "等待继续";
       detail = "最近没有新的运行动作，继续后会接上现有进度。";
@@ -3287,15 +3587,15 @@ export class WorkspaceRuntime {
   private publicRuntimeActionTitle(actionKind: string, state: "running" | "done" | "error") {
     const phase = state === "error" ? 2 : state === "done" ? 1 : 0;
     const labels: Record<string, [string, string, string]> = {
-      edit: ["正在更新文件", "已更新文件", "更新文件需调整"],
-      inspect: ["正在确认目标", "已确认目标", "确认目标需调整"],
-      memory: ["正在检索相关记忆", "记忆检索已返回", "记忆检索需调整"],
-      prepare: ["正在准备输出", "输出准备完成", "输出准备需调整"],
-      image: ["正在生成图像", "图像已生成", "图像生成需调整"],
-      read: ["正在读取上下文", "已读取上下文", "读取上下文需调整"],
-      search: ["正在搜索引用", "已搜索引用", "搜索方式需调整"],
-      verify: ["正在运行验证", "验证已返回", "验证需调整"],
-      work: ["正在处理任务", "结果已返回", "步骤需调整"],
+      edit: ["正在更新文件", "已更新文件", "更新未完成"],
+      inspect: ["正在确认目标", "已确认目标", "确认目标未完成"],
+      memory: ["正在检索相关记忆", "记忆检索已返回", "记忆检索未完成"],
+      prepare: ["正在准备输出", "输出准备完成", "输出准备未完成"],
+      image: ["正在生成图像", "图像已生成", "图像生成未完成"],
+      read: ["正在读取上下文", "已读取上下文", "读取上下文未完成"],
+      search: ["正在搜索引用", "已搜索引用", "搜索未完成"],
+      verify: ["正在运行验证", "验证已返回", "验证未完成"],
+      work: ["正在处理任务", "结果已返回", "步骤未完成"],
     };
     return (labels[actionKind] ?? labels.work)[phase];
   }
@@ -3434,7 +3734,7 @@ export class WorkspaceRuntime {
     }
     return {
       id: String(runtimeEvent.event_id ?? "").trim() || `${runId}:event:${runtimeEvent.offset}`,
-      title: kind === "observation" ? "观察结果" : kind === "model" ? "正在思考" : publicNote || summary || step || "正在处理",
+      title: kind === "observation" ? "结果已返回" : kind === "model" ? "正在思考" : publicNote || summary || step || "正在处理",
       body: actionBody || body,
       publicNote: publicNote || actionBody || observationBody,
       agentBrief: observationBody || agentBrief,
@@ -4022,7 +4322,7 @@ export class WorkspaceRuntime {
   }
 
   private errorMessage(error: unknown, fallback: string) {
-    const message = error instanceof Error ? error.message.trim() : String(error ?? "").trim();
+    const message = errorDetailMessage(error);
     if (!message) {
       return fallback;
     }

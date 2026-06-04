@@ -493,6 +493,58 @@ def test_memory_commit_node_requires_structured_chapter_progress_receipt(tmp_pat
     assert result.error["reason"] == "chapter_progress_receipt_missing"
 
 
+def test_progress_receipt_can_be_extracted_from_final_answer_json_block(tmp_path: Path) -> None:
+    runtime = _runtime_with_graph_harness(base_dir=tmp_path / "backend", runtime_root=tmp_path / "runtime_state")
+    graph_config = _chapter_loop_config()
+    work_order = GraphNodeWorkOrder(
+        work_order_id="gwork:text-receipt",
+        work_kind="agent",
+        graph_run_id="grun:text-receipt",
+        task_run_id="taskrun:text-receipt",
+        node_id="memory_commit_chapter",
+        config_id=graph_config.config_id,
+        config_hash=graph_config.content_hash,
+        task_ref="task.test.chapter.commit",
+        input_package={"initial_inputs": {"batch_start_index": 1, "batch_end_index": 10, "chapter_index": 1}},
+    )
+    executor = GraphNodeWorkOrderExecutor(services=runtime.harness_runtime)
+
+    result = executor._node_result_from_agent_execution(
+        graph_config=graph_config,
+        work_order=work_order,
+        task_run_id="node-taskrun",
+        executor_result={
+            "ok": True,
+            "final_answer": """
+### chapter_progress_receipt
+
+```json
+{
+  "authority": "harness.writing.chapter_progress_receipt",
+  "batch_start_index": 1,
+  "batch_end_index": 10,
+  "expected_chapter_indexes": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+  "committed_chapter_indexes": [1],
+  "missing_chapter_indexes": [2, 3, 4, 5, 6, 7, 8, 9, 10],
+  "next_chapter_index": 2,
+  "batch_complete": false,
+  "commit_allowed": true
+}
+```
+""",
+            "task_run": {
+                "task_run_id": "node-taskrun",
+                "status": "completed",
+                "diagnostics": {"final_action_diagnostics": {"structured_output": {}}},
+            },
+        },
+    )
+
+    assert result.status == "completed"
+    assert result.progress_receipts[0]["next_chapter_index"] == 2
+    assert result.progress_receipts[0]["committed_words"] == 0
+
+
 def test_chapter_draft_result_fails_closed_when_quality_gate_under_length(tmp_path: Path) -> None:
     runtime = _runtime_with_graph_harness(base_dir=tmp_path / "backend", runtime_root=tmp_path / "runtime_state")
     graph_config = GraphHarnessConfig(

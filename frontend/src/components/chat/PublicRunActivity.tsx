@@ -35,6 +35,31 @@ function short(value: unknown, limit = 220) {
   return shortRunText(value, limit);
 }
 
+function stripPublicFeedbackLabel(value: unknown) {
+  return cleanText(value).replace(/^(?:观察结果|观察报告|观察)[：:\s]*/u, "").trim();
+}
+
+function shortFact(value: unknown, limit = 220) {
+  return short(stripPublicFeedbackLabel(value), limit);
+}
+
+function blockedFact(value: unknown, fallback = "") {
+  const text = stripPublicFeedbackLabel(value) || stripPublicFeedbackLabel(fallback);
+  if (/shell command uses control operators/i.test(text)) {
+    return "命令被安全规则拦截，我会拆成更简单的步骤继续。";
+  }
+  if (/path traversal detected/i.test(text)) {
+    return "路径被安全规则拦截，我会改用项目内可访问路径继续。";
+  }
+  if (/当前(?:动作|步骤).*(?:路径|权限|输入).*继续/.test(text)) {
+    return "当前步骤没有执行成功，我会换一种方式继续。";
+  }
+  if (/permission|denied|权限|拒绝/.test(text)) {
+    return "当前权限不足，我会改用允许的路径或方式继续。";
+  }
+  return text || "这一步没有执行成功，我会换一种方式继续。";
+}
+
 function textOfItem(item: PublicChatTimelineItem) {
   return timelineItemText(item);
 }
@@ -128,8 +153,8 @@ function ActivityCopy({ item, variant = "normal" }: { item: PublicChatTimelineIt
   if (kind === "blocked") {
     return (
       <>
-        <strong>{short(item.text || item.title || "需要调整", 180)}</strong>
-        {item.recovery_hint ? <small>{short(item.recovery_hint, 180)}</small> : null}
+        <strong>{short(blockedFact(item.text || item.title, item.recovery_hint), 180)}</strong>
+        {item.recovery_hint ? <small>{shortFact(blockedFact(item.recovery_hint), 180)}</small> : null}
       </>
     );
   }
@@ -156,11 +181,11 @@ function ActivityCopy({ item, variant = "normal" }: { item: PublicChatTimelineIt
     return <TodoPlanCopy item={item} />;
   }
   if (kind === "observation_report") {
+    const fact = shortFact(item.detail || item.title || "当前事实已记录。", 180);
     return (
       <>
-        <strong>{short(item.title || "观察报告", 120)}</strong>
-        {item.detail ? <small className="public-run-activity__observation">{short(item.detail, 180)}</small> : null}
-        {item.implication ? <small>{`下一步：${short(item.implication, 150)}`}</small> : null}
+        <strong>{fact}</strong>
+        {item.implication ? <small>{shortFact(item.implication, 150)}</small> : null}
       </>
     );
   }
@@ -169,7 +194,7 @@ function ActivityCopy({ item, variant = "normal" }: { item: PublicChatTimelineIt
     return (
       <>
         <strong>{presentedActionSentence(item, variant === "current" ? "current" : "history")}</strong>
-        {action.observation ? <small className="public-run-activity__observation">{action.observation}</small> : null}
+        {action.observation ? <small className="public-run-activity__observation">{shortFact(action.observation, 180)}</small> : null}
       </>
     );
   }
@@ -222,6 +247,26 @@ function lastOf<T>(items: T[]) {
   return items.length ? items[items.length - 1] : null;
 }
 
+function resultFactForItem(item: PublicChatTimelineItem | null) {
+  if (!item) return "";
+  const kind = cleanText(item.kind);
+  if (kind === "observation_report") {
+    return shortFact(item.detail || item.implication || item.title, 180);
+  }
+  if (kind === "blocked") {
+    return short(blockedFact(item.text || item.title, item.recovery_hint), 180);
+  }
+  if (kind === "tool_activity" || kind === "work_action") {
+    const action = actionDisplay(item);
+    return short(readableToolObservation(action.observation, action.detail, presentedActionSentence(item, "history")), 180);
+  }
+  return shortFact(textOfItem(item), 180);
+}
+
+function hasResultFact(item: PublicChatTimelineItem) {
+  return Boolean(resultFactForItem(item));
+}
+
 function activityPlan(items: PublicChatTimelineItem[]) {
   const finalItems = items.filter(isFinalItem);
   const statusItems = items.filter((item) => isStatusUpdate(item) && !isFinalItem(item));
@@ -239,11 +284,16 @@ function activityPlan(items: PublicChatTimelineItem[]) {
   const fallbackCurrent = !current && !finalItems.length
     ? lastOf(statusItems.filter((item) => stateClass(item) === "running")) ?? lastOf(statusItems)
     : null;
+  const activeCurrent = current ?? fallbackCurrent;
+  const recentResult = activeCurrent && stateClass(activeCurrent) === "running"
+    ? [...actionItems].reverse().find((item) => item !== activeCurrent && stateClass(item) === "done" && hasResultFact(item)) ?? null
+    : null;
   return {
     collapsedCount: 0,
-    recent: [],
-    current: current ?? fallbackCurrent,
+    recent: [] as PublicChatTimelineItem[],
+    current: activeCurrent,
     finalItems,
+    recentResult,
   };
 }
 
@@ -284,34 +334,35 @@ function ActivityRows({ plan }: { plan: ReturnType<typeof activityPlan> }) {
 }
 
 function genericObservation(value: string) {
-  return /(?:动作|结果)已返回，继续根据结果推进下一步|当前动作需要调整路径、权限或输入后继续/.test(value);
+  return /(?:动作|结果)已返回，继续根据结果推进下一步|当前(?:动作|步骤).*(?:路径|权限|输入).*继续/.test(value);
 }
 
 function readableToolObservation(value: string, target = "", fallback = "") {
-  const observation = cleanText(value);
+  const observation = stripPublicFeedbackLabel(value);
   if (observation && !genericObservation(observation)) {
-    return observation.startsWith("观察：") ? observation : `观察：${observation}`;
+    return observation;
   }
-  const fallbackText = cleanText(fallback);
+  const fallbackText = stripPublicFeedbackLabel(fallback);
   if (fallbackText && !/动作已返回|结果已返回|执行动作|处理步骤/.test(fallbackText)) {
-    return fallbackText.startsWith("观察：") ? fallbackText : `观察：${fallbackText}`;
+    return fallbackText;
   }
   const targetText = cleanText(target);
   return targetText
-    ? `观察：${targetText} 已返回，我会据此推进下一步。`
-    : "观察：结果已返回，我会据此推进下一步。";
+    ? `${targetText} 已返回，我会据此推进下一步。`
+    : "结果已返回，我会据此推进下一步。";
 }
 
 function finalActivitySummary(plan: ReturnType<typeof activityPlan>) {
   const lastFinal = lastOf(plan.finalItems);
   if (!lastFinal) return null;
   const state = stateClass(lastFinal);
-  const finalText = short(lastFinal.text || lastFinal.detail || lastFinal.title || lastFinal.path || lastFinal.href, 180);
+  const finalText = shortFact(lastFinal.text || lastFinal.detail || lastFinal.title || lastFinal.path || lastFinal.href, 180);
+  const errorText = short(blockedFact(lastFinal.recovery_hint || finalText), 180);
   return {
-    detail: state === "error" ? short(lastFinal.recovery_hint || finalText || "收口信息需要调整。", 180) : finalText || "结果已进入回答收口。",
+    detail: state === "error" ? "" : finalText || "结果已进入回答收口。",
     item: lastFinal,
-    meta: state === "error" ? "调整中" : "已收口",
-    title: state === "error" ? "需要调整" : lastFinal.kind === "artifact" ? "产物就绪" : "收尾总结",
+    meta: state === "error" ? "" : "已收口",
+    title: state === "error" ? errorText : lastFinal.kind === "artifact" ? "产物就绪" : "收尾总结",
     tone: state === "error" ? "error" : "done",
   };
 }
@@ -351,36 +402,39 @@ function activitySummary(plan: ReturnType<typeof activityPlan>) {
       };
     }
     if (kind === "observation_report") {
+      const fact = shortFact(plan.current.detail || plan.current.implication || "关键事实已记录。", 180);
       return {
-        detail: short(plan.current.detail || plan.current.implication || "关键观察已记录。", 180),
+        detail: "",
         item: plan.current,
-        meta: state === "error" ? "调整中" : "观察",
-        title: state === "error" ? "观察到限制" : "观察报告",
+        meta: "",
+        title: fact,
         tone: state === "error" ? "error" : "done",
       };
     }
     const action = actionDisplay(plan.current);
     if (state === "done") {
+      const fact = short(readableToolObservation(action.observation, action.detail, currentAction), 180);
       return {
-        detail: short(readableToolObservation(action.observation, action.detail, currentAction), 180),
+        detail: "",
         item: plan.current,
-        meta: "已返回",
-        title: "观察结果",
+        meta: "",
+        title: fact || currentAction || "结果已返回",
         tone: "done",
       };
     }
     const errorDetail = kind === "blocked"
-      ? textOfItem(plan.current)
+      ? blockedFact(textOfItem(plan.current), plan.current.recovery_hint)
       : genericObservation(action.observation)
-        ? currentAction || plan.current.recovery_hint || "当前步骤需要调整，我会换一种方式继续。"
-        : action.observation || currentAction || plan.current.recovery_hint || "当前步骤需要调整，我会换一种方式继续。";
+        ? currentAction || plan.current.recovery_hint || "当前步骤没有执行成功，我会换一种方式继续。"
+        : action.observation || currentAction || plan.current.recovery_hint || "当前步骤没有执行成功，我会换一种方式继续。";
+    const errorFact = blockedFact(errorDetail);
     return {
       detail: state === "error"
-        ? short(errorDetail, 180)
-        : action.observation || "",
+        ? ""
+        : action.observation || resultFactForItem(plan.recentResult),
       item: plan.current,
-      meta: state === "error" ? "调整中" : "实时",
-      title: state === "error" ? "需要调整" : currentAction || "正在处理任务",
+      meta: state === "error" ? "" : "实时",
+      title: state === "error" ? short(errorFact, 180) : currentAction || "正在处理任务",
       tone: state === "error" ? "error" : "running",
     };
   }
@@ -391,10 +445,10 @@ function activitySummary(plan: ReturnType<typeof activityPlan>) {
     const recentKind = cleanText(lastRecent?.kind);
     if (lastRecent && recentKind === "observation_report") {
       return {
-        detail: short(lastRecent.detail || lastRecent.implication || "关键观察已记录。", 180),
+        detail: "",
         item: lastRecent,
-        meta: "观察",
-        title: "观察报告",
+        meta: "",
+        title: shortFact(lastRecent.detail || lastRecent.implication || "关键事实已记录。", 180),
         tone: stateClass(lastRecent) === "error" ? "error" : "done",
       };
     }
@@ -432,7 +486,7 @@ function ActivitySummaryLine({ summary }: { summary: ReturnType<typeof activityS
         <strong>{summary.title}</strong>
         {summary.detail ? <small>{summary.detail}</small> : null}
       </span>
-      {summary.tone === "running" ? null : <em>{summary.meta}</em>}
+      {summary.tone === "running" || !summary.meta ? null : <em>{summary.meta}</em>}
     </div>
   );
 }

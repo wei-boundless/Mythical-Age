@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import re
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -186,6 +188,7 @@ class GraphNodeWorkOrderExecutor:
             structured_outputs,
             graph_config=graph_config,
             work_order=work_order,
+            final_answer=final_answer,
         )
         postprocess_errors = [*contract_artifact_errors, *artifact_errors, *memory_errors, *progress_errors]
         result_status = "completed" if ok and not postprocess_errors else "failed"
@@ -500,14 +503,15 @@ def _progress_receipts_from_structured_outputs(
     *,
     graph_config: GraphHarnessConfig,
     work_order: GraphNodeWorkOrder,
+    final_answer: str = "",
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     policy = _progress_receipt_policy(graph_config=graph_config, work_order=work_order)
     if not policy:
         return [], []
     key = str(policy.get("progress_receipt_key") or "chapter_progress_receipt").strip()
     source = _structured_output_source(structured_outputs)
-    candidate = source.get(key)
-    if not isinstance(candidate, dict):
+    candidates = _progress_receipt_candidates(source=source, key=key, final_answer=final_answer)
+    if not candidates:
         return [], [
             {
                 "reason": "chapter_progress_receipt_missing",
@@ -516,22 +520,58 @@ def _progress_receipts_from_structured_outputs(
                 "authority": "harness.graph.progress_receipt_postprocess",
             }
         ]
-    try:
-        receipt = normalize_chapter_progress_receipt(
-            candidate,
-            initial_inputs=dict(dict(work_order.input_package or {}).get("initial_inputs") or work_order.explicit_inputs or {}),
-        )
-    except ChapterProgressReceiptError as exc:
-        return [], [
-            {
-                "reason": "chapter_progress_receipt_invalid",
-                "detail": str(exc),
-                "node_id": work_order.node_id,
-                "progress_receipt_key": key,
-                "authority": "harness.graph.progress_receipt_postprocess",
-            }
-        ]
-    return [receipt], []
+    errors: list[str] = []
+    initial_inputs = dict(dict(work_order.input_package or {}).get("initial_inputs") or work_order.explicit_inputs or {})
+    for candidate in candidates:
+        try:
+            receipt = normalize_chapter_progress_receipt(
+                candidate,
+                initial_inputs=initial_inputs,
+            )
+            return [receipt], []
+        except ChapterProgressReceiptError as exc:
+            errors.append(str(exc))
+    detail = ",".join(dict.fromkeys(errors)) if errors else "chapter_progress_receipt_invalid"
+    return [], [
+        {
+            "reason": "chapter_progress_receipt_invalid",
+            "detail": detail,
+            "node_id": work_order.node_id,
+            "progress_receipt_key": key,
+            "authority": "harness.graph.progress_receipt_postprocess",
+        }
+    ]
+
+
+def _progress_receipt_candidates(*, source: dict[str, Any], key: str, final_answer: str) -> list[dict[str, Any]]:
+    candidates: list[dict[str, Any]] = []
+    direct = source.get(key)
+    if isinstance(direct, dict):
+        candidates.append(direct)
+    for alternate_key in ("progress_receipt", "receipt"):
+        value = source.get(alternate_key)
+        if isinstance(value, dict):
+            candidates.append(value)
+    if str(source.get("authority") or "").strip() == "harness.writing.chapter_progress_receipt":
+        candidates.append(source)
+    for payload in _json_objects_from_text(final_answer):
+        if isinstance(payload.get(key), dict):
+            candidates.append(dict(payload.get(key) or {}))
+        if str(payload.get("authority") or "").strip() == "harness.writing.chapter_progress_receipt":
+            candidates.append(payload)
+    return candidates
+
+
+def _json_objects_from_text(text: str) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    for match in re.finditer(r"```(?:json)?\s*(\{.*?\})\s*```", str(text or ""), flags=re.IGNORECASE | re.DOTALL):
+        try:
+            payload = json.loads(match.group(1))
+        except json.JSONDecodeError:
+            continue
+        if isinstance(payload, dict):
+            result.append(payload)
+    return result
 
 
 def _structured_output_source(structured_outputs: dict[str, Any]) -> dict[str, Any]:

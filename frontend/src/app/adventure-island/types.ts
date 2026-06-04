@@ -128,7 +128,7 @@ export interface NPC {
   name: string;
   dialogues: string[];
   triggered: boolean;
-  giftItem?: Equipment;
+  giftItems?: Equipment[];
   healsPlayer?: boolean;
 }
 
@@ -210,4 +210,6 @@ export interface GameState {
   clearedMaps: Set<number>;
   // 背包界面
   showInventory: boolean;
+  // 背包选中索引
+  selectedInventoryIndex: number;
 }

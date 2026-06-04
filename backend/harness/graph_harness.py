@@ -212,6 +212,12 @@ class GraphHarness:
                 graph_run_id=graph_run_id,
                 runtime_settings_patch=dict(runtime_settings_patch or {}),
             )
+        self._resume.resume(
+            graph_config=graph_config,
+            graph_run_id=graph_run_id,
+            dispatch_ready=True,
+            max_requests=max_dispatch_requests,
+        )
         result = await self._runner.run_until_idle(
             graph_config=graph_config,
             graph_run_id=graph_run_id,

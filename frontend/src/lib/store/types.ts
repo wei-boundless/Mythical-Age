@@ -17,7 +17,8 @@ import type {
   ConversationActiveEnvironment,
   ToolCall,
   WorkspaceContext,
-  CodeEnvironmentWorkspaceTree
+  CodeEnvironmentWorkspaceTree,
+  ProjectWorkspaceSummary
 } from "@/lib/api";
 
 export type {
@@ -132,6 +133,16 @@ export type TokenStats = {
     compaction_remaining_tokens?: number;
     compaction_remaining_ratio?: number;
     pressure_level?: string;
+  };
+  session_context_pressure?: {
+    pressure_tokens?: number;
+    pressure_ratio?: number;
+    remaining_tokens?: number;
+    remaining_ratio?: number;
+    threshold_tokens?: number;
+    accumulated_history_tokens?: number;
+    non_history_context_tokens?: number;
+    source?: string;
   };
   cumulative_transcript_tokens?: number;
   cumulative_transcript_message_count?: number;
@@ -299,6 +310,12 @@ export type StoreState = {
   workspaceTree: CodeEnvironmentWorkspaceTree | null;
   workspaceTreeLoading: boolean;
   workspaceTreeError: string;
+  projectWorkspaces: ProjectWorkspaceSummary[];
+  projectWorkspacesLoading: boolean;
+  projectWorkspacesError: string;
+  activeProjectKey: string;
+  activeProjectRoot: string;
+  projectSessions: SessionSummary[];
   sessions: SessionSummary[];
   currentSessionId: string | null;
   activeSessionScope: Partial<SessionScope> | null;
@@ -366,7 +383,10 @@ export type StoreActions = {
   refreshTaskEnvironmentCatalog: () => Promise<void>;
   setActiveTaskEnvironment: (environmentId: string, options?: { environmentLabel?: string; source?: string }) => Promise<void>;
   refreshWorkspaceTree: () => Promise<void>;
-  bindCurrentSessionProject: () => Promise<void>;
+  selectProjectWorkspace: (projectKey: string) => Promise<void>;
+  selectProjectWorkspaceDirectory: () => Promise<void>;
+  refreshProjectWorkspaces: () => Promise<void>;
+  refreshProjectSessions: () => Promise<void>;
   createNewSession: () => Promise<void>;
   selectSession: (ref: SessionRef) => Promise<void>;
   sendMessage: (value: string) => Promise<void>;

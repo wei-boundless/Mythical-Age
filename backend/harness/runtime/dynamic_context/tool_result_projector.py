@@ -12,7 +12,9 @@ from .replacement_store import ReplacementStore
 from .structured_error_projection import structured_error_projection
 
 
-PROJECTOR_VERSION = "tool_result_projector.v2"
+PROJECTOR_VERSION = "tool_result_projector.v3"
+
+_CODE_LOCATOR_TOOL_NAMES = frozenset({"codebase_search", "search_text"})
 
 
 class ToolResultProjector:
@@ -84,7 +86,7 @@ class ToolResultProjector:
         text = str(normalized.get("text") or "")
         preview_limit = int(projection_policy.get("tool_result_preview_chars") or DEFAULT_PREVIEW_SIZE_BYTES)
         content_replacements: list[dict[str, Any]] = []
-        preview = compact_text(text, limit=preview_limit)
+        preview = _preview_text_for_tool(normalized, limit=preview_limit)
         result_ref = str(normalized.get("result_ref") or "")
         if len(text.encode("utf-8", errors="ignore")) > preview_limit:
             store = ToolResultStore(self.root_dir, run_id=task_run_id or "session", namespace="runtime_context")
@@ -98,6 +100,7 @@ class ToolResultProjector:
             content_replacements = [item.to_dict() for item in replacements]
             if content_replacements and not result_ref:
                 result_ref = str(content_replacements[0].get("path") or content_replacements[0].get("replacement_id") or "")
+        evidence_policy = _evidence_policy(normalized, content_replacements=content_replacements)
         structured_error = dict(normalized.get("structured_error") or {})
         error = str(normalized.get("error") or structured_error.get("message") or structured_error.get("detail") or "")
         rehydration_plan = _build_rehydration_plan(
@@ -121,6 +124,7 @@ class ToolResultProjector:
                 "command_receipt": dict(normalized.get("command_receipt") or {}),
                 "code_structure": _compact_code_structure(normalized.get("code_structure")),
                 "content_range": dict(normalized.get("content_range") or {}),
+                "evidence_policy": evidence_policy,
                 "tool_guidance": compact_text(normalized.get("tool_guidance") or "", limit=500),
                 "content_replacements": content_replacements,
                 "rehydration_plan": rehydration_plan,
@@ -210,7 +214,7 @@ def _normalize_tool_result(tool_result: dict[str, Any]) -> dict[str, Any]:
         {
             "tool_result_ref": str(item.get("tool_result_ref") or item.get("observation_id") or ""),
             "envelope_id": str(envelope.get("envelope_id") or ""),
-            "tool_name": str(envelope.get("tool_name") or item.get("tool_name") or parsed_text.get("tool_name") or ""),
+            "tool_name": _normalized_tool_name(envelope.get("tool_name") or item.get("tool_name") or parsed_text.get("tool_name") or ""),
             "tool_args": dict(envelope.get("tool_args") or item.get("tool_args") or {}),
             "status": status or ("error" if error or structured_error else "ok"),
             "text": str(text or ""),
@@ -262,7 +266,7 @@ def _read_file_metadata_from_structured(
     item: dict[str, Any],
     envelope: dict[str, Any],
 ) -> dict[str, Any]:
-    tool_name = str(envelope.get("tool_name") or item.get("tool_name") or "").strip()
+    tool_name = _normalized_tool_name(envelope.get("tool_name") or item.get("tool_name") or "")
     if tool_name and tool_name != "read_file":
         return {}
     source = dict(tool_result or {})
@@ -290,9 +294,10 @@ def _read_file_metadata_from_structured(
         guidance = (
             f"read_file 已返回 {path} 的第 {content_range.get('start_line')} 行到第 {content_range.get('end_line')} 行。"
             f"如仍需要后续内容，下一次应使用 start_line={next_start_line} 和 line_count={content_range.get('line_count') or ''}；不要重复读取相同行窗口。"
+            "修改或定位错误前，需要读取目标行所在的当前精确窗口。"
         )
     else:
-        guidance = f"read_file 已读到 {path} 的当前可用结尾；不要重复读取相同行窗口。"
+        guidance = f"read_file 已读到 {path} 的当前可用结尾；不要重复读取相同行窗口。修改或定位错误前，需要读取目标行所在的当前精确窗口。"
     return {"content_range": content_range, "tool_guidance": guidance}
 
 
@@ -306,6 +311,15 @@ def _build_rehydration_plan(
     capabilities: list[dict[str, Any]] = []
     if content_replacements:
         request = _persisted_tool_result_request(content_replacements, task_run_id=task_run_id)
+        persisted_instruction = (
+            "This restores omitted bytes from this read_file result. For code edits, prefer a fresh read_file "
+            "call for the exact target line range so current source and line numbers are controlled."
+            if _is_read_file_window(normalized)
+            else (
+                "The prompt contains only a preview of this tool output. "
+                "Use the persisted result reference only when exact omitted output is required."
+            )
+        )
         capabilities.append(
             drop_empty(
                 {
@@ -316,10 +330,7 @@ def _build_rehydration_plan(
                     "next_request": request,
                     "result_ref": str(result_ref or ""),
                     "content_replacements": [_replacement_rehydration_ref(item) for item in content_replacements],
-                    "instruction": (
-                        "The prompt contains only a preview of this tool output. "
-                        "Use the persisted result reference only when exact omitted output is required."
-                    ),
+                    "instruction": persisted_instruction,
                 }
             )
         )
@@ -334,7 +345,8 @@ def _build_rehydration_plan(
                     "next_request": _next_read_file_request(content_range),
                     "instruction": (
                         "This read_file result is a line window, not proof that the whole file is in prompt. "
-                        "Use next_request only if later lines are needed."
+                        "Use next_request only if later lines are needed. For code edits or error localization, "
+                        "read the exact current target line window before acting."
                     ),
                 }
             )
@@ -353,9 +365,76 @@ def _build_rehydration_plan(
                 has_content_range=bool(content_range),
             ),
             "capabilities": capabilities,
-            "instruction": "Treat preview text as evidence preview only; rehydrate before relying on omitted exact content.",
+            "instruction": (
+                "Treat preview text as evidence preview only; rehydrate before relying on omitted exact content. "
+                "For code edits, read_file the exact current target lines before editing."
+            ),
         }
     )
+
+
+def _preview_text_for_tool(normalized: dict[str, Any], *, limit: int) -> str:
+    text = str(normalized.get("text") or "")
+    if _is_read_file_result(normalized):
+        return _compact_code_preview(text, limit=limit)
+    return compact_text(text, limit=limit)
+
+
+def _compact_code_preview(value: Any, *, limit: int) -> str:
+    text = str(value or "")
+    if limit <= 0 or len(text) <= limit:
+        return text
+    return text[: max(0, limit - 25)].rstrip() + "\n... <preview truncated>"
+
+
+def _evidence_policy(normalized: dict[str, Any], *, content_replacements: list[dict[str, Any]]) -> dict[str, Any]:
+    tool_name = _normalized_tool_name(normalized.get("tool_name"))
+    content_range = dict(normalized.get("content_range") or {})
+    if tool_name == "read_file" and content_range:
+        return drop_empty(
+            {
+                "source_kind": "code_evidence",
+                "source_authority": "read_file_line_window",
+                "visible_content_authority": "preview_of_line_window" if content_replacements else "exact_visible_line_window",
+                "candidate_only": False,
+                "must_read_current_source_before_edit": True,
+                "rehydration_preference": "read_file_range_for_code_edits",
+                "instruction": (
+                    "Only the visible preview lines are in prompt. Before editing, read the exact current target "
+                    "line window with read_file; use persisted output only to recover omitted original tool output."
+                ),
+            }
+        )
+    if tool_name in _CODE_LOCATOR_TOOL_NAMES or normalized.get("code_structure"):
+        return {
+            "source_kind": "code_locator",
+            "source_authority": "locator_only",
+            "candidate_only": True,
+            "must_read_source_before_edit": True,
+            "rehydration_preference": "read_file",
+            "instruction": "Use paths and ranges to choose read_file calls; do not edit from snippets, summaries, or search previews.",
+        }
+    if content_replacements:
+        return {
+            "source_kind": "tool_output_preview",
+            "source_authority": "preview_only",
+            "rehydration_preference": "read_persisted_tool_result",
+            "instruction": "Use the preview for orientation only; call read_persisted_tool_result before relying on omitted exact output.",
+        }
+    return {}
+
+
+def _is_read_file_result(normalized: dict[str, Any]) -> bool:
+    return _normalized_tool_name(normalized.get("tool_name")) == "read_file"
+
+
+def _is_read_file_window(normalized: dict[str, Any]) -> bool:
+    return _is_read_file_result(normalized) and bool(dict(normalized.get("content_range") or {}))
+
+
+def _normalized_tool_name(value: Any) -> str:
+    text = str(value or "").strip()
+    return text.removeprefix("tool:").strip()
 
 
 def _persisted_tool_result_request(content_replacements: list[dict[str, Any]], *, task_run_id: str) -> dict[str, Any]:

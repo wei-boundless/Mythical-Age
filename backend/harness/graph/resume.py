@@ -381,8 +381,15 @@ def _recoverable_failed_node_ids(state: GraphLoopState, *, services: Any | None)
         executor_result = dict(diagnostics.get("executor_result") or {})
         reason = str(error.get("reason") or executor_result.get("error") or "")
         recoverable_error = dict(error.get("recoverable_error") or {})
+        postprocess_reasons = {
+            str(item.get("reason") or "")
+            for item in list(error.get("postprocess_errors") or [])
+            if isinstance(item, dict)
+        }
         if recoverable_error and bool(recoverable_error.get("retryable", True)):
             targets.append(node_id)
         elif reason in {"task_run_executor_already_running", "model_call_recovery_required", "quality_gate_failed"}:
+            targets.append(node_id)
+        elif any(item.startswith("chapter_progress_receipt_") for item in postprocess_reasons):
             targets.append(node_id)
     return tuple(dict.fromkeys(targets))

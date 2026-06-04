@@ -11,6 +11,7 @@ import type {
   FloatingText,
   MapData,
   Equipment,
+  SkillId,
 } from "./types";
 import {
   GAME_W,
@@ -61,7 +62,12 @@ export function createInitialState(maps: MapData[]): GameState {
     skillKeyJustPressed: null,
     clearedMaps: new Set<number>(),
     showInventory: false,
+    selectedInventoryIndex: 0,
   } as GameState;
+}
+
+function createSkillCooldowns(): Record<SkillId, number> {
+  return Object.fromEntries(SKILLS.map((skill) => [skill.id, 0])) as Record<SkillId, number>;
 }
 
 function createPlayer(): Player {
@@ -93,7 +99,7 @@ function createPlayer(): Player {
     accessory: null,
     inventory: [],
     skills: [],
-    skillCooldowns: {},
+    skillCooldowns: createSkillCooldowns(),
     activeSkill: null,
     activeSkillTimer: 0,
     shieldTimer: 0,
@@ -571,7 +577,7 @@ function checkLevelClear(state: GameState, map: MapData): boolean {
 // ============================================================
 // 技能释放
 // ============================================================
-function castSkill(state: GameState, skillId: string, map: MapData): void {
+function castSkill(state: GameState, skillId: SkillId, map: MapData): void {
   const p = state.player;
   if (p.skillCooldowns[skillId] > 0) return;
   const skillDef = SKILLS.find((s) => s.id === skillId);
@@ -580,7 +586,7 @@ function castSkill(state: GameState, skillId: string, map: MapData): void {
 
   p.mp -= skillDef.mpCost;
   p.skillCooldowns[skillId] = skillDef.cooldownMax;
-  p.activeSkill = skillId as any;
+  p.activeSkill = skillId;
   p.activeSkillTimer = skillDef.duration;
 
   if (skillId === "whirlwind") {
@@ -716,8 +722,10 @@ export function updateGame(state: GameState): void {
         state.dialogueLine++;
         if (state.dialogueLine >= state.dialogueNPC.dialogues.length) {
           // 对话结束
-          if (state.dialogueNPC.giftItem) {
-            giveEquipment(state.player, state.dialogueNPC.giftItem);
+          if (state.dialogueNPC.giftItems) {
+            for (const item of state.dialogueNPC.giftItems) {
+              giveEquipment(state.player, item);
+            }
           }
           state.dialogueNPC = null;
           state.dialogueLine = 0;
@@ -766,17 +774,45 @@ export function updateGame(state: GameState): void {
   p.activeSkillTimer = Math.max(0, p.activeSkillTimer - 1);
   if (p.activeSkillTimer <= 0) p.activeSkill = null;
   p.shieldTimer = Math.max(0, p.shieldTimer - 1);
-  for (const key of Object.keys(p.skillCooldowns)) {
+  for (const key of Object.keys(p.skillCooldowns) as SkillId[]) {
     p.skillCooldowns[key] = Math.max(0, p.skillCooldowns[key] - 1);
   }
   state.shakeTimer = Math.max(0, state.shakeTimer - 1);
 
-  // 背包界面切换
+  // 背包界面切换与操作
   if (state.keys.has("Tab")) {
     state.keys.delete("Tab");
     state.showInventory = !state.showInventory;
+    if (state.showInventory) state.selectedInventoryIndex = 0;
   }
-  if (state.showInventory) return;
+  if (state.showInventory) {
+    // 上下导航
+    if (state.keys.has("ArrowUp") || state.keys.has("KeyW")) {
+      state.keys.delete("ArrowUp");
+      state.keys.delete("KeyW");
+      state.selectedInventoryIndex = Math.max(0, state.selectedInventoryIndex - 1);
+    }
+    if (state.keys.has("ArrowDown") || state.keys.has("KeyS")) {
+      state.keys.delete("ArrowDown");
+      state.keys.delete("KeyS");
+      state.selectedInventoryIndex = Math.min(state.player.inventory.length - 1, state.selectedInventoryIndex + 1);
+    }
+    // 装备选中物品
+    if (state.keys.has("Enter")) {
+      state.keys.delete("Enter");
+      const inv = state.player.inventory;
+      if (inv.length > 0 && state.selectedInventoryIndex < inv.length) {
+        const item = inv[state.selectedInventoryIndex];
+        const slot = item.slot as "weapon" | "armor" | "accessory";
+        const old = state.player[slot];
+        state.player[slot] = item;
+        inv.splice(state.selectedInventoryIndex, 1);
+        if (old) inv.push(old);
+        state.selectedInventoryIndex = Math.min(state.selectedInventoryIndex, inv.length - 1);
+      }
+    }
+    return;
+  }
 
   // 攻击输入
   if (state.keys.has("KeyJ") && p.attackCooldown <= 0 && !p.attacking) {

@@ -10,6 +10,7 @@ from harness.runtime.context_budget_policy import build_model_aware_context_budg
 from harness.runtime.artifact_scope import canonicalize_task_contract_artifacts
 from harness.runtime.dynamic_context import DynamicContextProjection, VolatileSectionReport
 from harness.runtime.dynamic_context.history_projector import HistoryProjector
+from harness.runtime.dynamic_context.task_state_projector import TaskStateProjector
 from harness.runtime.prompt_segment_plan import build_prompt_segment_plan
 from runtime.tool_runtime.tool_result_envelope import build_tool_result_envelope
 
@@ -287,6 +288,8 @@ def test_read_file_content_windows_survive_task_state_projection() -> None:
 
     assert [item["content_range"]["start_line"] for item in windows] == [1, 11]
     assert windows[0]["content_range"]["next_start_line"] == 11
+    assert windows[0]["preview"] == "1 | first"
+    assert windows[0]["evidence_policy"]["source_kind"] == "code_evidence"
     assert "不要重复读取相同行窗口" in windows[0]["tool_guidance"]
     assert windows[0]["rehydration_plan"]["prompt_status"] == "file_window_only"
     assert windows[0]["rehydration_plan"]["capabilities"][0]["next_request"] == {
@@ -297,6 +300,114 @@ def test_read_file_content_windows_survive_task_state_projection() -> None:
         {"start_line": 1, "end_line": 10, "observation_ref": "obs:window:1"},
         {"start_line": 11, "end_line": 20, "observation_ref": "obs:window:11"},
     ]
+
+
+def test_code_read_preview_survives_current_fact_dedupe() -> None:
+    result = RuntimeCompiler().compile_task_execution_packet(
+        session_id="session:code-preview-dedupe",
+        task_run={"task_run_id": "taskrun:code-preview-dedupe", "diagnostics": {"executor_status": "running"}},
+        contract={"task_run_goal": "读取代码并准备编辑", "completion_criteria": ["代码窗口可见"]},
+        observations=[
+            {
+                "observation_id": "obs:read-app",
+                "payload": {
+                    "result_envelope": {
+                        "envelope_id": "tool-result:read-app",
+                        "tool_name": "read_file",
+                        "status": "ok",
+                        "text": "1 | def run():\n2 |     return True",
+                        "observed_paths": ["src/app.py"],
+                        "structured_payload": {
+                            "tool_result": {
+                                "kind": "text_file",
+                                "path": "src/app.py",
+                                "start_line": 1,
+                                "end_line": 2,
+                                "returned_lines": 2,
+                                "line_count": 2,
+                                "total_lines": 2,
+                                "has_more": False,
+                                "truncated": False,
+                                "content_sha256": "sha256:app",
+                            }
+                        },
+                    }
+                },
+            }
+        ],
+        execution_state={
+            "system_projection": {
+                "current_facts": [
+                    {
+                        "observation_ref": "obs:read-app",
+                        "tool_name": "read_file",
+                        "status": "ok",
+                        "path": "src/app.py",
+                        "summary": "read src/app.py",
+                        "content_range": {"path": "src/app.py", "start_line": 1, "end_line": 2},
+                    }
+                ]
+            }
+        },
+        runtime_assembly={
+            "profile": {"mode": "professional"},
+            "task_environment": {"environment_id": "env.coding.vibe_workspace"},
+            "operation_authorization": {"allowed_operations": ["op.read_file"]},
+        },
+    )
+
+    volatile_payload = _payload_after_title(result.packet.model_messages[-1]["content"], "Task execution current state")
+    windows = [
+        item
+        for item in volatile_payload["task_state"]["latest_tool_results"]
+        if item.get("tool_name") == "read_file"
+    ]
+
+    assert windows
+    assert windows[0]["preview"] == "1 | def run():\n2 |     return True"
+    assert windows[0]["evidence_policy"]["visible_content_authority"] == "exact_visible_line_window"
+
+
+def test_prefixed_read_file_source_gets_code_observation_preview_budget() -> None:
+    long_window = "\n".join(f"{line} | value_{line} = {'x' * 24}" for line in range(1, 90))
+    result = RuntimeCompiler().compile_task_execution_packet(
+        session_id="session:prefixed-read-budget",
+        task_run={"task_run_id": "taskrun:prefixed-read-budget", "diagnostics": {"executor_status": "running"}},
+        contract={"task_run_goal": "读取带前缀来源的代码", "completion_criteria": ["代码窗口可见"]},
+        observations=[
+            {
+                "observation_id": "obs:prefixed-read",
+                "source": "tool:read_file",
+                "text": long_window,
+                "structured_payload": {
+                    "tool_result": {
+                        "kind": "text_file",
+                        "path": "src/prefixed.py",
+                        "start_line": 1,
+                        "end_line": 89,
+                        "returned_lines": 89,
+                        "line_count": 89,
+                        "total_lines": 89,
+                        "has_more": False,
+                        "truncated": False,
+                    }
+                },
+            }
+        ],
+        runtime_assembly={
+            "profile": {"mode": "professional"},
+            "task_environment": {"environment_id": "env.coding.vibe_workspace"},
+            "operation_authorization": {"allowed_operations": ["op.read_file"]},
+        },
+    )
+
+    volatile_payload = _payload_after_title(result.packet.model_messages[-1]["content"], "Task execution current state")
+    latest = volatile_payload["task_state"]["latest_tool_results"][0]
+
+    assert latest["tool_name"] == "read_file"
+    assert latest["evidence_policy"]["source_kind"] == "code_evidence"
+    assert "<persisted-output>" not in latest["preview"]
+    assert "89 | value_89" in latest["preview"]
 
 
 def test_code_structure_map_survives_task_state_projection() -> None:
@@ -374,6 +485,73 @@ def test_code_structure_map_survives_task_state_projection() -> None:
     assert structure["source_authority"] == "locator_only"
     assert structure["files"][0]["slices"][0]["read_request"]["tool_name"] == "read_file"
     assert "snippet" not in structure["files"][0]["slices"][0]
+    assert latest["evidence_policy"]["source_kind"] == "code_locator"
+    assert latest["evidence_policy"]["must_read_source_before_edit"] is True
+
+
+def test_code_structure_locator_survives_current_fact_dedupe() -> None:
+    code_structure = {
+        "source_authority": "locator_only",
+        "candidate_only": True,
+        "files": [
+            {
+                "path": "backend/harness/runtime/dynamic_context/manager.py",
+                "must_read_source_before_edit": True,
+                "slices": [
+                    {
+                        "read_request": {
+                            "tool_name": "read_file",
+                            "args": {
+                                "path": "backend/harness/runtime/dynamic_context/manager.py",
+                                "start_line": 18,
+                                "line_count": 20,
+                            },
+                        }
+                    }
+                ],
+            }
+        ],
+    }
+
+    payload = TaskStateProjector().project(
+        execution_projection={
+            "current_facts": [
+                {
+                    "tool_name": "codebase_search",
+                    "status": "ok",
+                    "summary": "Found DynamicContextManager",
+                }
+            ]
+        },
+        observation_projection={
+            "latest_observations": [
+                {
+                    "observation_id": "obs:code-search",
+                    "source": "codebase_search",
+                    "status": "ok",
+                    "summary": "Found DynamicContextManager",
+                    "tool_result": {
+                        "tool_name": "codebase_search",
+                        "status": "ok",
+                        "code_structure": code_structure,
+                        "evidence_policy": {
+                            "source_kind": "code_locator",
+                            "source_authority": "locator_only",
+                            "must_read_source_before_edit": True,
+                        },
+                    },
+                }
+            ]
+        },
+        work_history_projection={},
+        task_run_state={},
+        envelope_projection={},
+        include_task_run_context=False,
+    )
+
+    latest = payload["latest_tool_results"][0]
+    assert latest["code_structure"]["files"][0]["slices"][0]["read_request"]["tool_name"] == "read_file"
+    assert latest["evidence_policy"]["source_kind"] == "code_locator"
 
 
 def test_task_execution_derives_file_state_from_tool_observations() -> None:

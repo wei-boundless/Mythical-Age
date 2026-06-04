@@ -615,7 +615,8 @@ def test_runtime_prompt_teaches_rehydration_before_exact_claims() -> None:
     assert "rehydration_plan" in model_input
     assert "read_persisted_tool_result" in model_input
     assert "只看到了预览，不等于完整原文" in model_input
-    assert "必须先用 rehydration_plan 中的 args/path 调用 read_persisted_tool_result" in model_input
+    assert "基于被省略的非代码工具原文做精确结论" in model_input
+    assert "修改代码、定位行级错误或给出逐行判断前，必须先用 read_file 读取目标区域当前精确行窗口" in model_input
 
 
 def test_runtime_projection_blocks_task_run_without_mode_instruction_text() -> None:

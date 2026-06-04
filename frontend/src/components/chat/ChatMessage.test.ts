@@ -87,7 +87,8 @@ describe("ChatMessage", () => {
 
     expect(html).not.toContain("我会按这个目标推进");
     expect(html).toContain("生图工具未配置");
-    expect(html).toContain("调整中");
+    expect(html).not.toContain("调整中");
+    expect(html).not.toContain("需要调整");
     expect(html).not.toContain("受阻");
     expect(html).not.toContain("查看执行细节");
     expect(html).not.toContain("查看技术细节");
@@ -313,8 +314,9 @@ describe("ChatMessage", () => {
 
     expect(html).toContain("写好了");
     expect(html).toContain("public-run-activity");
-    expect(html).toContain("观察结果");
     expect(html).toContain("artifacts/football.html 已返回");
+    expect(html).not.toContain("观察结果");
+    expect(html).not.toContain("观察：");
     expect(html).not.toContain("动作已返回");
     expect(html).not.toContain("public-run-activity__row--done");
     expect(html).not.toContain("public-run-activity__row--current");

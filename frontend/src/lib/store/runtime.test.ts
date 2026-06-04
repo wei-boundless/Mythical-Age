@@ -9,6 +9,7 @@ const api = vi.hoisted(() => ({
   createSession: vi.fn(),
   deleteSession: vi.fn(),
   getCodeEnvironmentWorkspaceTree: vi.fn(),
+  getProjectWorkspaceTree: vi.fn(),
   getChatRun: vi.fn(),
   getLatestChatRunForSession: vi.fn(),
   getRunMonitor: vi.fn(),
@@ -36,10 +37,14 @@ const api = vi.hoisted(() => ({
   getGraphRunMonitor: vi.fn(),
   getWorkspaceContext: vi.fn(),
   listSessions: vi.fn(),
+  listProjectWorkspaces: vi.fn(),
+  listProjectWorkspaceSessions: vi.fn(),
   listSkills: vi.fn(),
   loadFile: vi.fn(),
   loadFileForSession: vi.fn(),
-  selectSessionProjectDirectory: vi.fn(),
+  saveFileForSession: vi.fn(),
+  createProjectWorkspaceSession: vi.fn(),
+  selectProjectWorkspaceDirectory: vi.fn(),
   stopOrchestrationHarnessTaskRun: vi.fn(),
   streamExistingChatRun: vi.fn(),
   streamChat: vi.fn(),
@@ -52,6 +57,7 @@ vi.mock("@/lib/api", () => ({
   runGraphRunUntilIdle: api.runGraphRunUntilIdle,
   evaluateTaskGraphRunMonitor: vi.fn(),
   getCodeEnvironmentWorkspaceTree: api.getCodeEnvironmentWorkspaceTree,
+  getProjectWorkspaceTree: api.getProjectWorkspaceTree,
   getChatRun: api.getChatRun,
   getLatestChatRunForSession: api.getLatestChatRunForSession,
   getRunMonitor: api.getRunMonitor,
@@ -80,12 +86,16 @@ vi.mock("@/lib/api", () => ({
   getSessionTimeline: api.getSessionTimeline,
   getSessionTokens: api.getSessionTokens,
   listSessions: api.listSessions,
+  listProjectWorkspaces: api.listProjectWorkspaces,
+  listProjectWorkspaceSessions: api.listProjectWorkspaceSessions,
   listSkills: api.listSkills,
   loadFile: api.loadFile,
   loadFileForSession: api.loadFileForSession,
   renameSession: vi.fn(),
   saveFile: vi.fn(),
-  selectSessionProjectDirectory: api.selectSessionProjectDirectory,
+  saveFileForSession: api.saveFileForSession,
+  createProjectWorkspaceSession: api.createProjectWorkspaceSession,
+  selectProjectWorkspaceDirectory: api.selectProjectWorkspaceDirectory,
   stopOrchestrationHarnessTaskRun: api.stopOrchestrationHarnessTaskRun,
   stopOrchestrationTaskRun: vi.fn(),
   streamExistingChatRun: api.streamExistingChatRun,
@@ -362,6 +372,24 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
         truncated: false,
       },
     });
+    api.getProjectWorkspaceTree.mockReset();
+    api.getProjectWorkspaceTree.mockResolvedValue({
+      authority: "langchain-agent.code_environment.workspace_tree",
+      root_name: "repo",
+      root_path: "D:/repo",
+      max_depth: 10,
+      max_entries: 10000,
+      total_entries: 0,
+      truncated: false,
+      tree: {
+        name: "repo",
+        path: "",
+        kind: "directory",
+        depth: 0,
+        children: [],
+        truncated: false,
+      },
+    });
     api.getOrchestrationHarnessSessionLiveMonitor.mockReset();
     api.getOrchestrationHarnessSessionLiveMonitor.mockResolvedValue({ monitor: null });
     api.getOrchestrationHarnessTaskRunLiveMonitor.mockReset();
@@ -409,15 +437,44 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       updated_at: 1,
       message_count: 0,
     });
-    api.selectSessionProjectDirectory.mockReset();
-    api.selectSessionProjectDirectory.mockResolvedValue({
-      project_binding: {
+    api.createProjectWorkspaceSession.mockReset();
+    api.createProjectWorkspaceSession.mockResolvedValue({
+      authority: "project_workspaces.session_create",
+      project_key: "workspace:repo",
+      session: {
+        id: "session:fresh",
+        title: "New Session",
+        created_at: 1,
+        updated_at: 1,
+        message_count: 0,
+        conversation_state: {
+          authority: "sessions.conversation_state",
+          project_binding: {
+            workspace_root: "D:/repo",
+            source: "project_workspace",
+            bound_at: 1,
+            last_seen_at: 1,
+            immutable: true,
+            authority: "sessions.project_binding",
+          },
+        },
+      },
+      created: true,
+    });
+    api.selectProjectWorkspaceDirectory.mockReset();
+    api.selectProjectWorkspaceDirectory.mockResolvedValue({
+      authority: "project_workspaces.directory_picker",
+      project: {
+        key: "workspace:repo",
         workspace_root: "D:/repo",
+        name: "repo",
         source: "frontend.directory_picker",
-        bound_at: 1,
+        created_at: 1,
         last_seen_at: 1,
-        immutable: true,
-        authority: "sessions.project_binding",
+        session_count: 0,
+        latest_session_at: 0,
+        available: true,
+        authority: "project_workspaces.workspace",
       },
       selected_path: "D:/repo",
     });
@@ -443,12 +500,26 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     });
     api.listSessions.mockReset();
     api.listSessions.mockResolvedValue([]);
+    api.listProjectWorkspaces.mockReset();
+    api.listProjectWorkspaces.mockResolvedValue({
+      authority: "project_workspaces.list",
+      projects: [],
+      summary: { project_count: 0 },
+    });
+    api.listProjectWorkspaceSessions.mockReset();
+    api.listProjectWorkspaceSessions.mockResolvedValue({
+      authority: "project_workspaces.sessions",
+      project_key: "workspace:repo",
+      sessions: [],
+    });
     api.listSkills.mockReset();
     api.listSkills.mockResolvedValue([]);
     api.loadFile.mockReset();
     api.loadFile.mockResolvedValue({ path: "durable_memory/index/MEMORY.md", content: "" });
     api.loadFileForSession.mockReset();
     api.loadFileForSession.mockResolvedValue({ path: "durable_memory/index/MEMORY.md", content: "" });
+    api.saveFileForSession.mockReset();
+    api.saveFileForSession.mockResolvedValue({ ok: true, path: "durable_memory/index/MEMORY.md" });
     api.readChatStreamCursor.mockReset();
     api.readChatStreamCursor.mockReturnValue(null);
     api.setSessionActiveTaskEnvironment.mockReset();
@@ -687,7 +758,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
 
     await runtime.actions.setPermissionMode("default");
 
-    expect(api.setSessionPermissionMode).toHaveBeenLastCalledWith("session:fresh", "default", undefined);
+    expect(api.setSessionPermissionMode).not.toHaveBeenCalled();
     expect(api.setPermissionMode).toHaveBeenLastCalledWith("default");
     expect(store.getState().permissionMode).toBe("default");
   });
@@ -766,7 +837,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     });
   });
 
-  it("does not load the host default inspector file for an unbound session", async () => {
+  it("keeps an unbound legacy session usable without loading the host default inspector file", async () => {
     vi.useRealTimers();
     api.listSessions.mockResolvedValue([
       {
@@ -788,6 +859,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     await flushPromises();
 
     expect(store.getState().currentSessionId).toBe("session:unbound");
+    expect(store.getState().activeProjectRoot).toBe("");
     expect(api.loadFile).not.toHaveBeenCalled();
     expect(api.loadFileForSession).not.toHaveBeenCalled();
   });
@@ -814,6 +886,44 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
         },
       },
     ]);
+    api.listProjectWorkspaces.mockResolvedValue({
+      authority: "project_workspaces.list",
+      projects: [{
+        key: "workspace:repo",
+        workspace_root: "D:/repo",
+        name: "repo",
+        source: "session.project_binding",
+        created_at: 1,
+        last_seen_at: 1,
+        session_count: 1,
+        latest_session_at: 1,
+        available: true,
+        authority: "project_workspaces.workspace",
+      }],
+      summary: { project_count: 1 },
+    });
+    api.listProjectWorkspaceSessions.mockResolvedValue({
+      authority: "project_workspaces.sessions",
+      project_key: "workspace:repo",
+      sessions: [{
+        id: "session:bound",
+        title: "Bound",
+        created_at: 1,
+        updated_at: 1,
+        message_count: 0,
+        conversation_state: {
+          authority: "sessions.conversation_state",
+          project_binding: {
+            workspace_root: "D:/repo",
+            source: "vscode",
+            bound_at: 1,
+            last_seen_at: 1,
+            immutable: true,
+            authority: "sessions.project_binding",
+          },
+        },
+      }],
+    });
     const store = createStore(getDefaultState());
     const runtime = new WorkspaceRuntime(store);
 
@@ -828,27 +938,8 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     );
   });
 
-  it("binds the current frontend session through the native directory picker and refreshes project-scoped files", async () => {
+  it("selects a project workspace through the native directory picker without rebinding an existing session", async () => {
     vi.useRealTimers();
-    const boundSession = {
-      id: "session:unbound",
-      title: "Now Bound",
-      created_at: 1,
-      updated_at: 2,
-      message_count: 0,
-      conversation_state: {
-        authority: "sessions.conversation_state",
-        project_binding: {
-          workspace_root: "D:/repo",
-          source: "frontend.directory_picker",
-          bound_at: 1,
-          last_seen_at: 1,
-          immutable: true,
-          authority: "sessions.project_binding",
-        },
-      },
-    };
-    api.listSessions.mockResolvedValue([boundSession]);
     const store = createStore<StoreState>({
       ...getDefaultState(),
       currentSessionId: "session:unbound",
@@ -865,22 +956,30 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     });
     const runtime = new WorkspaceRuntime(store);
 
-    await runtime.actions.bindCurrentSessionProject();
+    await runtime.actions.selectProjectWorkspaceDirectory();
 
-    expect(api.selectSessionProjectDirectory).toHaveBeenCalledWith(
-      "session:unbound",
-      undefined,
-    );
-    expect(api.getCodeEnvironmentWorkspaceTree).toHaveBeenCalledWith({
-      sessionId: "session:unbound",
-      scope: undefined,
+    expect(api.selectProjectWorkspaceDirectory).toHaveBeenCalledTimes(1);
+    expect(store.getState().activeProjectKey).toBe("workspace:repo");
+    expect(store.getState().activeProjectRoot).toBe("D:/repo");
+    expect(store.getState().currentSessionId).toBeNull();
+    expect(api.getProjectWorkspaceTree).toHaveBeenCalledWith("workspace:repo");
+    expect(api.loadFileForSession).not.toHaveBeenCalled();
+  });
+
+  it("treats a cancelled project directory picker as a quiet no-op", async () => {
+    vi.useRealTimers();
+    api.selectProjectWorkspaceDirectory.mockRejectedValueOnce(new Error('{"detail":"project directory selection cancelled"}'));
+    const store = createStore<StoreState>({
+      ...getDefaultState(),
+      projectWorkspacesError: "previous error",
     });
-    expect(api.loadFileForSession).toHaveBeenCalledWith(
-      "durable_memory/index/MEMORY.md",
-      "session:unbound",
-      undefined,
-    );
-    expect(store.getState().sessions[0]?.conversation_state?.project_binding?.workspace_root).toBe("D:/repo");
+    const runtime = new WorkspaceRuntime(store);
+
+    await runtime.actions.selectProjectWorkspaceDirectory();
+
+    expect(store.getState().projectWorkspacesLoading).toBe(false);
+    expect(store.getState().projectWorkspacesError).toBe("");
+    expect(store.getState().activeProjectKey).toBe("");
   });
 
   it("sends frontend page editor context only for the current session", async () => {
@@ -2566,6 +2665,57 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(api.streamChat.mock.calls[0]?.[0]?.session_id).toBe("session:fresh");
   });
 
+  it("creates a new conversation inside the active project workspace", async () => {
+    vi.useRealTimers();
+    const store = createStore<StoreState>({
+      ...getDefaultState(),
+      activeProjectKey: "workspace:repo",
+      activeProjectRoot: "D:/repo",
+      projectWorkspaces: [{
+        key: "workspace:repo",
+        workspace_root: "D:/repo",
+        name: "repo",
+        source: "test",
+        created_at: 1,
+        last_seen_at: 1,
+        session_count: 0,
+        latest_session_at: 0,
+        available: true,
+        authority: "project_workspaces.workspace",
+      }],
+    });
+    api.listProjectWorkspaceSessions.mockResolvedValue({
+      authority: "project_workspaces.sessions",
+      project_key: "workspace:repo",
+      sessions: [{
+        id: "session:fresh",
+        title: "New Session",
+        created_at: 1,
+        updated_at: 1,
+        message_count: 0,
+        conversation_state: {
+          authority: "sessions.conversation_state",
+          project_binding: {
+            workspace_root: "D:/repo",
+            source: "project_workspace",
+            bound_at: 1,
+            last_seen_at: 1,
+            immutable: true,
+            authority: "sessions.project_binding",
+          },
+        },
+      }],
+    });
+    const runtime = new WorkspaceRuntime(store);
+
+    await runtime.actions.createNewSession();
+
+    expect(api.createProjectWorkspaceSession).toHaveBeenCalledWith("workspace:repo", "New Session");
+    expect(api.createSession).not.toHaveBeenCalled();
+    expect(store.getState().currentSessionId).toBe("session:fresh");
+    expect(store.getState().projectSessions[0]?.conversation_state?.project_binding?.workspace_root).toBe("D:/repo");
+  });
+
   it("truncates from the edited user message and sends the replacement text", async () => {
     vi.useRealTimers();
     const store = createStore<StoreState>({
@@ -3344,9 +3494,9 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     });
   });
 
-  it("keeps the workspace interactive and reports an error when session creation fails", async () => {
+  it("keeps the workspace interactive and reports an error when the project/session index fails", async () => {
     vi.useRealTimers();
-    api.createSession.mockRejectedValue(new Error("backend offline"));
+    api.listProjectWorkspaces.mockRejectedValue(new Error("backend offline"));
     const store = createStore(getDefaultState());
     const runtime = new WorkspaceRuntime(store);
 
@@ -3833,6 +3983,40 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     });
   });
 
+  it("remembers the last selected task environment for later default selection", async () => {
+    vi.useRealTimers();
+    const store = createStore<StoreState>({
+      ...getDefaultState(),
+      currentSessionId: "session:env-bound",
+      taskEnvironmentCatalog: TASK_ENVIRONMENT_CATALOG,
+    });
+    const runtime = new WorkspaceRuntime(store);
+
+    await runtime.actions.setActiveTaskEnvironment("env.development.sandbox", { source: "workspace-mode" });
+
+    expect(window.localStorage.setItem).toHaveBeenCalledWith(
+      "agentWorkbench.lastActiveTaskEnvironment",
+      "env.development.sandbox",
+    );
+  });
+
+  it("restores the last selected task environment instead of defaulting to general", async () => {
+    vi.useRealTimers();
+    vi.mocked(window.localStorage.getItem).mockImplementation((key) =>
+      key === "agentWorkbench.lastActiveTaskEnvironment" ? "env.development.sandbox" : null
+    );
+    const store = createStore<StoreState>(getDefaultState());
+    const runtime = new WorkspaceRuntime(store);
+
+    await runtime.actions.refreshTaskEnvironmentCatalog();
+
+    expect(store.getState().conversationActiveEnvironment).toMatchObject({
+      task_environment_id: "env.development.sandbox",
+      environment_label: "开发沙盒",
+      source: "workspace-mode",
+    });
+  });
+
   it("restores the active task environment from session conversation state", async () => {
     vi.useRealTimers();
     api.getSessionTimeline.mockResolvedValue({
@@ -3859,6 +4043,39 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(store.getState().conversationActiveEnvironment).toMatchObject({
       task_environment_id: "env.coding.vibe_workspace",
       environment_label: "Vibe 编码工作区",
+    });
+  });
+
+  it("uses the remembered task environment over an implicit general session default", async () => {
+    vi.useRealTimers();
+    vi.mocked(window.localStorage.getItem).mockImplementation((key) =>
+      key === "agentWorkbench.lastActiveTaskEnvironment" ? "env.development.sandbox" : null
+    );
+    api.getSessionTimeline.mockResolvedValue({
+      messages: [],
+      runtime_attachments: [],
+      conversation_state: conversationState("env.general.workspace", "通用工作区", "conversation"),
+    });
+    const store = createStore<StoreState>({
+      ...getDefaultState(),
+      taskEnvironmentCatalog: TASK_ENVIRONMENT_CATALOG,
+      sessions: [{
+        id: "session:general-default",
+        title: "General",
+        created_at: 1,
+        updated_at: 1,
+        message_count: 0,
+        conversation_state: conversationState("env.general.workspace", "通用工作区", "conversation"),
+      }],
+    });
+    const runtime = new WorkspaceRuntime(store);
+
+    await runtime.actions.selectSession({ sessionId: "session:general-default", poolKey: "main-chat" });
+
+    expect(store.getState().conversationActiveEnvironment).toMatchObject({
+      task_environment_id: "env.development.sandbox",
+      environment_label: "开发沙盒",
+      source: "workspace-mode",
     });
   });
 

@@ -300,7 +300,7 @@ function boundaryLabel(state: string, persistPolicy: string, channel: string) {
     if (channel === "task_control") return "任务控制消息";
     if (channel === "ask_user") return "等待补充";
     if (channel === "active_work_control") return "当前工作控制";
-    if (channel === "blocked") return "需要调整";
+    if (channel === "blocked") return "处理反馈";
     return "过程状态";
   }
   if (state === "missing_answer" || persistPolicy === "do_not_persist") return "未形成稳定答案";

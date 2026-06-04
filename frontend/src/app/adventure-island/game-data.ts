@@ -3,7 +3,7 @@
 // ============================================================
 
 import type { MapData, Monster, NPC, Platform, Portal, MonsterKind, MonsterSize } from "./types";
-import { MONSTER_SIZE_MULT } from "./config";
+import { MONSTER_SIZE_MULT, EQUIPMENT_DB } from "./config";
 
 // ---- 怪物模板工厂 ----
 let _monsterId = 0;
@@ -211,7 +211,7 @@ export function buildMaps(): MapData[] {
         name: "村长",
         dialogues: NPC_DIALOGUES.elder_start,
         triggered: false,
-        giftItem: undefined,
+        giftItems: [EQUIPMENT_DB.iron_sword, EQUIPMENT_DB.hero_amulet],
         healsPlayer: true,
       },
     ],
@@ -308,13 +308,13 @@ export function buildMaps(): MapData[] {
         name: "树精长老",
         dialogues: NPC_DIALOGUES.forest_elder,
         triggered: false,
-        giftItem: {
+        giftItems: [{
           id: "leather_armor",
           name: "皮甲",
           slot: "armor",
           atk: 0, def: 3, hpBonus: 0, hpRegen: 0,
           description: "轻便的皮甲",
-        },
+        }],
       },
     ],
     portals: [
@@ -475,13 +475,13 @@ export function buildMaps(): MapData[] {
         name: "洞穴贤者",
         dialogues: NPC_DIALOGUES.cave_sage,
         triggered: false,
-        giftItem: {
+        giftItems: [{
           id: "chainmail",
           name: "锁子甲",
           slot: "armor",
           atk: 0, def: 8, hpBonus: 0, hpRegen: 0,
           description: "坚固的锁子甲",
-        },
+        }],
       },
     ],
     portals: [
@@ -613,13 +613,13 @@ export function buildMaps(): MapData[] {
         name: "骑士亡魂",
         dialogues: NPC_DIALOGUES.knight_ghost,
         triggered: false,
-        giftItem: {
+        giftItems: [{
           id: "knight_armor",
           name: "骑士铠甲",
           slot: "armor",
           atk: 0, def: 15, hpBonus: 0, hpRegen: 0,
           description: "骑士的荣耀铠甲",
-        },
+        }],
       },
     ],
     portals: [
@@ -660,13 +660,13 @@ export function buildMaps(): MapData[] {
         name: "贤者之魂",
         dialogues: NPC_DIALOGUES.sage_ghost,
         triggered: false,
-        giftItem: {
+        giftItems: [{
           id: "sage_stone",
           name: "贤者之石",
           slot: "accessory",
           atk: 0, def: 0, hpBonus: 50, hpRegen: 1,
           description: "每秒回复生命，蕴含神秘力量",
-        },
+        }],
       },
     ],
     portals: [

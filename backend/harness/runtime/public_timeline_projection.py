@@ -204,18 +204,18 @@ def public_subject_label(*, tool_name: str, raw_target: Any, action_kind: str) -
 
 def public_action_title(*, action_kind: str, phase: str) -> str:
     labels = {
-        "inspect": ("正在确认目标", "已确认目标", "确认目标需调整"),
-        "read": ("正在读取上下文", "已读取上下文", "读取上下文需调整"),
-        "search": ("正在搜索引用", "已搜索引用", "搜索方式需调整"),
-        "edit": ("正在更新文件", "已更新文件", "更新文件需调整"),
-        "run": ("正在执行操作", "操作已返回", "操作需调整"),
-        "verify": ("正在运行验证", "验证已返回", "验证需调整"),
-        "memory": ("正在检索相关记忆", "记忆检索已返回", "记忆检索需调整"),
-        "prepare": ("正在准备输出", "输出准备完成", "输出准备需调整"),
-        "image": ("正在生成图像", "图像已生成", "图像生成需调整"),
-        "artifact": ("产物就绪", "产物就绪", "产物需调整"),
+        "inspect": ("正在确认目标", "已确认目标", "确认目标未完成"),
+        "read": ("正在读取上下文", "已读取上下文", "读取上下文未完成"),
+        "search": ("正在搜索引用", "已搜索引用", "搜索未完成"),
+        "edit": ("正在更新文件", "已更新文件", "更新未完成"),
+        "run": ("正在执行操作", "操作已返回", "操作未完成"),
+        "verify": ("正在运行验证", "验证已返回", "验证未完成"),
+        "memory": ("正在检索相关记忆", "记忆检索已返回", "记忆检索未完成"),
+        "prepare": ("正在准备输出", "输出准备完成", "输出准备未完成"),
+        "image": ("正在生成图像", "图像已生成", "图像生成未完成"),
+        "artifact": ("产物就绪", "产物就绪", "产物未完成"),
     }
-    running, done, adjusting = labels.get(action_kind, ("正在处理任务", "结果已返回", "步骤需调整"))
+    running, done, adjusting = labels.get(action_kind, ("正在处理任务", "结果已返回", "步骤未完成"))
     if phase == "done":
         return done
     if phase == "adjusting":
@@ -245,7 +245,7 @@ def public_observation_text(*, action_kind: str, phase: str, subject_label: str,
             return f"观察：输出准备已返回，{text}"
         return _ensure_observation_prefix(text)
     if phase == "adjusting":
-        return "观察：当前步骤需要调整路径、权限或输入后继续。"
+        return "观察：当前步骤没有执行成功，我会换一种方式继续。"
     if action_kind == "memory":
         return "观察：记忆检索已返回，下一步会纳入判断。"
     if action_kind == "read":

@@ -1454,7 +1454,8 @@ def test_graph_resume_requeues_blocked_agent_node_after_recoverable_model_failur
     assert blocked.status == "blocked"
     assert blocked_state["status"] == "blocked"
     assert blocked_state["node_states"]["draft"]["status"] == "blocked"
-    assert blocked_state["blocked_node_ids"][0] == "draft"
+    assert blocked_state["node_states"]["next"]["status"] == "pending"
+    assert blocked_state["blocked_node_ids"] == ["draft"]
     assert blocked_state["edge_states"]["edge.draft.next"]["status"] == "source_failed"
     assert blocked_result["status"] == "blocked"
     assert blocked_result["error"]["reason"] == "model_call_recovery_required"
@@ -1532,7 +1533,6 @@ def test_graph_node_result_refs_remain_unique_for_long_retry_ids() -> None:
     )
     first_state = runtime.graph_harness.get_checkpoint_state(start.graph_run.graph_run_id)
     first_ref = first_state["result_index"][long_node_id]["result_ref"]
-    runtime.graph_harness.resume_run(graph_config=graph_config, graph_run_id=start.graph_run.graph_run_id)
     second = asyncio.run(
         runtime.graph_harness.run_until_idle(
             graph_config=graph_config,

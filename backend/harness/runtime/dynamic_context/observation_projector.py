@@ -10,7 +10,7 @@ from .structured_error_projection import structured_error_projection
 from .tool_result_projector import ToolResultProjector
 
 
-PROJECTOR_VERSION = "observation_projector.v2"
+PROJECTOR_VERSION = "observation_projector.v3"
 
 
 class ObservationProjector:
@@ -83,7 +83,7 @@ class ObservationProjector:
         tool_projection, tool_record = self.tool_result_projector.project_from_observation(
             source,
             task_run_id=task_run_id,
-            projection_policy=_tool_projection_policy_for_observation(projection_policy),
+            projection_policy=_tool_projection_policy_for_observation(projection_policy, source=source),
         )
         structured_error = structured_error_projection(source.get("structured_error") or observation.get("structured_error") or tool_projection.get("structured_error"))
         error = str(source.get("error") or observation.get("error") or tool_projection.get("error") or "")
@@ -143,15 +143,16 @@ def _visibility(source: dict[str, Any]) -> str:
     return value if value in {"active", "historical"} else "active"
 
 
-def _tool_projection_policy_for_observation(projection_policy: dict[str, Any]) -> dict[str, Any]:
+def _tool_projection_policy_for_observation(projection_policy: dict[str, Any], *, source: dict[str, Any]) -> dict[str, Any]:
     policy = dict(projection_policy or {})
     summary_chars = _positive_int(policy.get("observation_summary_chars"))
     if summary_chars <= 0:
         return policy
     tool_preview_chars = _positive_int(policy.get("tool_result_preview_chars"))
+    observation_limit = max(4000, summary_chars) if _is_code_observation(source) else max(1000, summary_chars)
     policy["tool_result_preview_chars"] = min(
-        tool_preview_chars or summary_chars,
-        max(1000, summary_chars),
+        tool_preview_chars or observation_limit,
+        observation_limit,
     )
     return policy
 
@@ -171,10 +172,37 @@ def _compact_tool_result(tool_projection: dict[str, Any]) -> dict[str, Any]:
             "replacement_ref": str(tool_projection.get("replacement_ref") or ""),
             "code_structure": dict(tool_projection.get("code_structure") or {}),
             "content_range": dict(tool_projection.get("content_range") or {}),
+            "evidence_policy": dict(tool_projection.get("evidence_policy") or {}),
             "tool_guidance": str(tool_projection.get("tool_guidance") or ""),
             "rehydration_plan": dict(tool_projection.get("rehydration_plan") or {}),
         }
     )
+
+
+def _is_code_observation(source: dict[str, Any]) -> bool:
+    payload = dict(source.get("payload") or {})
+    envelope = dict(payload.get("result_envelope") or source.get("result_envelope") or {})
+    tool_name = _normalized_tool_name(
+        payload.get("tool_name")
+        or source.get("tool_name")
+        or envelope.get("tool_name")
+        or source.get("source")
+        or ""
+    )
+    if tool_name in {"read_file", "codebase_search", "search_text"}:
+        return True
+    structured = dict(
+        payload.get("structured_payload")
+        or source.get("structured_payload")
+        or envelope.get("structured_payload")
+        or {}
+    )
+    return bool(structured.get("code_structure") or dict(structured.get("tool_result") or {}).get("kind") == "text_file")
+
+
+def _normalized_tool_name(value: Any) -> str:
+    text = str(value or "").strip()
+    return text.removeprefix("tool:").strip()
 
 
 def _positive_int(value: Any) -> int:

@@ -104,6 +104,109 @@ def test_context_usage_meter_reports_compaction_remaining_against_replacement_th
     assert snapshot.compaction_remaining_ratio == 0.960444
 
 
+def test_context_usage_meter_uses_newer_local_prediction_until_provider_usage_arrives(tmp_path) -> None:
+    ledger = PromptAccountingLedger(tmp_path)
+    ledger.record_token_usage(
+        ModelTokenUsageRecord(
+            usage_id="tokuse:modelreq:provider:provider_usage",
+            request_id="modelreq:provider",
+            session_id="session:test",
+            provider="deepseek",
+            model="deepseek-v4-pro",
+            source="provider_usage",
+            prompt_tokens=35_000,
+            completion_tokens=500,
+            cached_tokens=20_000,
+            total_tokens=35_500,
+            created_at=2.0,
+        )
+    )
+    ledger.record_token_usage(
+        ModelTokenUsageRecord(
+            usage_id="tokuse:modelreq:local:local_prediction",
+            request_id="modelreq:local",
+            session_id="session:test",
+            provider="deepseek",
+            model="deepseek-v4-pro",
+            source="local_prediction",
+            prompt_tokens=88_000,
+            total_tokens=88_000,
+            created_at=3.0,
+        )
+    )
+
+    snapshot = ContextUsageMeter(ledger, default_reserved_output_tokens=65_536).build_snapshot(session_id="session:test")
+
+    assert snapshot.estimate_mode == "local_predicted_newer_than_provider"
+    assert snapshot.anchor_valid is False
+    assert snapshot.current_context_tokens == 88_000
+    assert snapshot.compaction_remaining_tokens == 812_000
+    assert snapshot.cache_hit_rate_latest == round(20_000 / 35_000, 4)
+    assert snapshot.diagnostics["effective_anchor_source"] == "local_prediction"
+    assert snapshot.diagnostics["effective_anchor_request_id"] == "modelreq:local"
+    assert snapshot.diagnostics["local_prediction_newer_than_provider"] is True
+
+
+def test_context_usage_meter_prefers_agent_runtime_records_over_utility_calls(tmp_path) -> None:
+    ledger = PromptAccountingLedger(tmp_path)
+    ledger.record_token_usage(
+        ModelTokenUsageRecord(
+            usage_id="tokuse:modelreq:rtpacket:provider:provider_usage",
+            request_id="modelreq:rtpacket:turn:session:test:1:single_agent_turn:1:1",
+            session_id="session:test",
+            provider="deepseek",
+            model="deepseek-v4-pro",
+            source="provider_usage",
+            prompt_tokens=40_000,
+            total_tokens=40_000,
+            created_at=2.0,
+            diagnostics={
+                "cache_metric_scope": "agent_runtime",
+                "packet_ref": "rtpacket:turn:session:test:1",
+            },
+        )
+    )
+    ledger.record_token_usage(
+        ModelTokenUsageRecord(
+            usage_id="tokuse:modelreq:rtpacket:local:local_prediction",
+            request_id="modelreq:rtpacket:turn:session:test:2:single_agent_turn:1:1",
+            session_id="session:test",
+            provider="deepseek",
+            model="deepseek-v4-pro",
+            source="local_prediction",
+            prompt_tokens=92_000,
+            total_tokens=92_000,
+            created_at=3.0,
+            diagnostics={
+                "cache_metric_scope": "agent_runtime",
+                "packet_ref": "rtpacket:turn:session:test:2",
+            },
+        )
+    )
+    ledger.record_token_usage(
+        ModelTokenUsageRecord(
+            usage_id="tokuse:modelreq:utility:provider_usage",
+            request_id="modelreq:utility",
+            session_id="session:test",
+            provider="deepseek",
+            model="deepseek-v4-pro",
+            source="provider_usage",
+            prompt_tokens=1_000,
+            total_tokens=1_000,
+            created_at=4.0,
+        )
+    )
+
+    snapshot = ContextUsageMeter(ledger, default_reserved_output_tokens=65_536).build_snapshot(session_id="session:test")
+
+    assert snapshot.estimate_mode == "local_predicted_newer_than_provider"
+    assert snapshot.current_context_tokens == 92_000
+    assert snapshot.diagnostics["candidate_scope"] == "agent_runtime"
+    assert snapshot.diagnostics["record_count"] == 2
+    assert snapshot.diagnostics["raw_record_count"] == 3
+    assert snapshot.diagnostics["effective_anchor_request_id"] == "modelreq:rtpacket:turn:session:test:2:single_agent_turn:1:1"
+
+
 def test_context_usage_meter_invalidates_anchor_when_environment_fingerprint_changes(tmp_path) -> None:
     ledger = PromptAccountingLedger(tmp_path)
     ledger.record_token_usage(

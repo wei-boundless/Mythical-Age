@@ -1480,6 +1480,25 @@ def test_graph_module_expansion_scopes_progress_receipt_route_source() -> None:
         enabled=True,
         entry_node_id="commit",
         output_node_id="router",
+        loop_frames=(
+            {
+                "frame_id": "loop.units",
+                "scope_id": "loop.units",
+                "parent_scope_id": "loop.batches",
+                "entry_node_id": "commit",
+                "router_node_id": "router",
+                "continue_node_id": "commit",
+                "exit_node_id": "done",
+            },
+            {
+                "frame_id": "loop.batches",
+                "scope_id": "loop.batches",
+                "entry_node_id": "commit",
+                "router_node_id": "router",
+                "continue_node_id": "commit",
+                "exit_node_id": "done",
+            },
+        ),
         nodes=(
             TaskGraphNodeDefinition(node_id="commit", node_type="agent", title="Commit", task_id="task.test.commit"),
             TaskGraphNodeDefinition(
@@ -1538,7 +1557,11 @@ def test_graph_module_expansion_scopes_progress_receipt_route_source() -> None:
     )
     router = next(item for item in config.nodes if item["node_id"] == "module.child::router")
     route_policy = router["loop"]["route_policy"]
+    unit_frame = next(item for item in config.loop_frames if item["frame_id"] == "module.child::loop.units")
+    batch_frame = next(item for item in config.loop_frames if item["frame_id"] == "module.child::loop.batches")
 
     assert route_policy["continue_node_id"] == "module.child::commit"
     assert route_policy["exit_node_id"] == "module.child::done"
     assert route_policy["receipt_source_node_ids"] == ["module.child::commit"]
+    assert unit_frame["parent_scope_id"] == "module.child::loop.batches"
+    assert batch_frame["scope_id"] == "module.child::loop.batches"
