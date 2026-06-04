@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertTriangle, Check, CircleCheck, Copy, Database, Pencil, ShieldCheck, Sparkles, X } from "lucide-react";
+import { Check, CircleCheck, Copy, Database, Pencil, ShieldCheck, Sparkles, X } from "lucide-react";
 import React, { useEffect, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -259,7 +259,7 @@ type AssistantOutputSignalView = {
 };
 
 function AssistantOutputSignal({ signal }: { signal: AssistantOutputSignalView }) {
-  const Icon = signal.tone === "error" ? AlertTriangle : signal.tone === "done" ? CircleCheck : Sparkles;
+  const Icon = signal.tone === "done" ? CircleCheck : Sparkles;
   return (
     <div className={`assistant-output-signal assistant-output-signal--${signal.tone}`} aria-label="当前判断">
       <span className="assistant-output-signal__icon" aria-hidden="true">
@@ -287,7 +287,7 @@ function assistantSignalFromTimeline({
 
 function editFailureMessage(error: unknown) {
   const message = error instanceof Error ? error.message.trim() : String(error ?? "").trim();
-  return message || "改写发送失败。";
+  return message || "改写没有发送成功。";
 }
 
 async function writeClipboardText(text: string) {
@@ -338,7 +338,7 @@ function boundaryLabel(state: string, persistPolicy: string, channel: string) {
     if (channel === "task_control") return "任务控制消息";
     if (channel === "ask_user") return "等待补充";
     if (channel === "active_work_control") return "当前工作控制";
-    if (channel === "blocked") return "运行受阻";
+    if (channel === "blocked") return "需要调整";
     return "过程状态";
   }
   if (state === "missing_answer" || persistPolicy === "do_not_persist") return "未形成稳定答案";
@@ -395,7 +395,7 @@ function OutputBoundaryStatus({
     : state === "progress_only" || persist === "persist_debug_only"
       ? "debug"
       : "clean";
-  const Icon = tone === "warning" ? AlertTriangle : persist === "persist_canonical" ? CircleCheck : Database;
+  const Icon = tone === "warning" ? Sparkles : persist === "persist_canonical" ? CircleCheck : Database;
   return (
     <div className={`output-boundary-status output-boundary-status--${tone}`} aria-label="输出状态">
       <span className="output-boundary-status__icon" aria-hidden="true">

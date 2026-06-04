@@ -74,6 +74,10 @@ def coding_vibe_workspace_environment() -> TaskEnvironmentDefinition:
                 prompt_kind="coding_rule",
             ),
             EnvironmentPrompt(
+                prompt_id="coding.rule.large_scope_exploration.v1",
+                prompt_kind="coding_rule",
+            ),
+            EnvironmentPrompt(
                 prompt_id="coding.rule.editing.v1",
                 prompt_kind="coding_rule",
             ),
@@ -205,6 +209,10 @@ def development_sandbox_environment() -> TaskEnvironmentDefinition:
             ),
             EnvironmentPrompt(
                 prompt_id="coding.rule.codebase_inspection.v1",
+                prompt_kind="coding_rule",
+            ),
+            EnvironmentPrompt(
+                prompt_id="coding.rule.large_scope_exploration.v1",
                 prompt_kind="coding_rule",
             ),
             EnvironmentPrompt(

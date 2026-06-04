@@ -1,6 +1,7 @@
 from .budget import estimate_json_bytes, estimate_text_bytes
 from .child_result_compaction import compact_child_result_observation
 from .history_compaction import microcompact_history
+from .session_compaction import auto_compact_session_if_needed, compact_session_history
 from runtime_objects.tool_result_storage import (
     DEFAULT_FIELD_SIZE_LIMIT_BYTES,
     DEFAULT_PAYLOAD_BUDGET_BYTES,
@@ -20,6 +21,8 @@ __all__ = [
     "ToolResultStore",
     "ToolUseSummary",
     "build_tool_use_summary",
+    "auto_compact_session_if_needed",
+    "compact_session_history",
     "compact_child_result_observation",
     "estimate_json_bytes",
     "estimate_text_bytes",

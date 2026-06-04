@@ -104,6 +104,7 @@ class ToolResultProjector:
             normalized=normalized,
             result_ref=result_ref,
             content_replacements=content_replacements,
+            task_run_id=task_run_id,
         )
         return drop_empty(
             {
@@ -300,14 +301,19 @@ def _build_rehydration_plan(
     normalized: dict[str, Any],
     result_ref: str,
     content_replacements: list[dict[str, Any]],
+    task_run_id: str,
 ) -> dict[str, Any]:
     capabilities: list[dict[str, Any]] = []
     if content_replacements:
+        request = _persisted_tool_result_request(content_replacements, task_run_id=task_run_id)
         capabilities.append(
             drop_empty(
                 {
                     "capability": "read_persisted_tool_result",
                     "source": "runtime_context.tool_result_store",
+                    "tool_name": request.get("tool_name"),
+                    "args": request.get("args"),
+                    "next_request": request,
                     "result_ref": str(result_ref or ""),
                     "content_replacements": [_replacement_rehydration_ref(item) for item in content_replacements],
                     "instruction": (
@@ -350,6 +356,22 @@ def _build_rehydration_plan(
             "instruction": "Treat preview text as evidence preview only; rehydrate before relying on omitted exact content.",
         }
     )
+
+
+def _persisted_tool_result_request(content_replacements: list[dict[str, Any]], *, task_run_id: str) -> dict[str, Any]:
+    if not content_replacements:
+        return {}
+    first = dict(content_replacements[0] or {})
+    args = drop_empty(
+        {
+            "replacement_id": str(first.get("replacement_id") or ""),
+            "path": str(first.get("path") or ""),
+            "task_run_id": str(task_run_id or ""),
+        }
+    )
+    if not args:
+        return {}
+    return {"tool_name": "read_persisted_tool_result", "args": args}
 
 
 def _replacement_rehydration_ref(item: dict[str, Any]) -> dict[str, Any]:

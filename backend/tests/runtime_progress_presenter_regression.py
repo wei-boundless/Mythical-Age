@@ -5,7 +5,6 @@ from types import SimpleNamespace
 
 from harness.runtime.progress_presenter import build_progress_presentation
 from harness.runtime.public_chat_timeline import build_public_chat_timeline
-from harness.runtime.public_execution_state import build_public_execution_state
 from harness.runtime.public_progress import public_runtime_progress_summary
 
 
@@ -343,6 +342,13 @@ def test_public_chat_timeline_projects_tool_activity_without_raw_trace() -> None
             "item_id": "workunit:path-check",
             "kind": "tool_activity",
             "title": "确认 artifact 路径",
+            "state": "done",
+            "trace_refs": ["rtevt:obs"],
+        },
+        {
+            "item_id": "observation:rtevt:obs",
+            "kind": "observation_report",
+            "title": "观察报告",
             "detail": "目标文件尚未存在，路径检查已完成。",
             "state": "done",
             "trace_refs": ["rtevt:obs"],
@@ -509,7 +515,7 @@ def test_agent_feedback_survives_tool_activity_projection() -> None:
     assert timeline[1]["title"] == "检查路径信息"
 
 
-def test_public_execution_state_recovers_agent_todo_as_public_plan() -> None:
+def test_progress_presentation_recovers_agent_todo_as_public_plan() -> None:
     todo_result = json.dumps(
         {
             "status": "ok",
@@ -542,14 +548,13 @@ def test_public_execution_state_recovers_agent_todo_as_public_plan() -> None:
         }
     ]
 
-    state = build_public_execution_state(events=events, progress_presentation={}, status="running")
+    presentation = build_progress_presentation(events=events, task_run=_task_run(), monitor={})
     timeline = build_public_chat_timeline(
-        progress_presentation={},
-        public_execution_state=state,
+        progress_presentation=presentation,
         status="running",
     )
 
-    assert state["todo_plan"]["active_item_id"] == "read"
+    assert presentation["work_units"][0]["todo_plan"]["active_item_id"] == "read"
     assert timeline == [
         {
             "item_id": timeline[0]["item_id"],
@@ -572,7 +577,7 @@ def test_public_execution_state_recovers_agent_todo_as_public_plan() -> None:
     assert "plan_id" not in visible
 
 
-def test_public_execution_state_projects_observation_reports_after_tool_work() -> None:
+def test_public_chat_timeline_projects_observation_reports_after_tool_work() -> None:
     presentation = {
         "mission": {"state": "running"},
         "work_units": [
@@ -591,10 +596,8 @@ def test_public_execution_state_projects_observation_reports_after_tool_work() -
         ],
     }
 
-    state = build_public_execution_state(events=[], progress_presentation=presentation, status="running")
     timeline = build_public_chat_timeline(
         progress_presentation=presentation,
-        public_execution_state=state,
         status="running",
     )
 

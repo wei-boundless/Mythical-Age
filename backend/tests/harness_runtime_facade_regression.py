@@ -258,6 +258,78 @@ def test_single_agent_turn_receives_compressed_context_from_session_record() -> 
     assert "[Compressed session context]" not in payload
 
 
+def test_single_agent_turn_auto_compacts_session_before_model_turn(tmp_path: Path) -> None:
+    class RecordingModelRuntime(SingleMessageModelRuntimeStub):
+        def __init__(self) -> None:
+            super().__init__(content="继续完成。")
+            self.last_messages: list[dict[str, object]] = []
+
+        async def invoke_messages(self, messages, **kwargs):
+            self.last_messages = [dict(item) for item in list(messages or []) if isinstance(item, dict)]
+            return await super().invoke_messages(messages, **kwargs)
+
+    runtime_root = _runtime_test_root(tmp_path)
+    session_manager = SessionManager(runtime_root)
+    session = session_manager.create_session(title="Auto compact")
+    session_id = str(session["id"])
+    old_context = "旧的大段过程性上下文，应被自动压缩替换，不应继续进入模型原始历史。 " * 160
+    messages = [{"role": "user", "content": "历史起点"}, {"role": "assistant", "content": old_context}]
+    for index in range(10):
+        messages.append({"role": "user" if index % 2 == 0 else "assistant", "content": f"最近短消息 {index}"})
+    session_manager.append_messages(session_id, messages)
+
+    model = RecordingModelRuntime()
+    runtime = build_harness_runtime(
+        base_dir=runtime_root,
+        session_manager=session_manager,
+        memory_facade=MemoryFacade(runtime_root),
+        model_runtime=model,
+    )
+    runtime.single_agent_runtime_host.prompt_accounting_ledger.record_token_usage(
+        ModelTokenUsageRecord(
+            usage_id="usage:auto-compact",
+            request_id="request:auto-compact",
+            session_id=session_id,
+            provider="local",
+            model="auto-compact-test",
+            source="provider_usage",
+            prompt_tokens=125_000,
+            total_tokens=125_000,
+            created_at=1.0,
+        )
+    )
+
+    async def _collect() -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime.astream(
+            HarnessRuntimeRequest(
+                session_id=session_id,
+                message="继续。",
+                task_selection={
+                    "control_capabilities": {
+                        "may_call_tools": False,
+                        "may_request_task_run": False,
+                        "may_control_active_work": False,
+                        "may_use_subagents": False,
+                    }
+                },
+            )
+        ):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_collect())
+    record = session_manager.get_history(session_id)
+    payload = "\n".join(str(message.get("content") or "") for message in model.last_messages)
+
+    assert any(event.get("type") == "done" for event in events)
+    assert "Conversation history was compacted into a checkpoint" in record["compressed_context"]
+    assert old_context not in [str(item.get("content") or "") for item in record["messages"]]
+    assert old_context not in payload
+    assert "Conversation history was compacted into a checkpoint" in payload
+    assert session_manager.load_session_for_api(session_id)[1]["content"] == old_context
+
+
 def test_single_agent_turn_receives_environment_durable_memory_context() -> None:
     class MemoryAwareRecordingModelRuntime(SingleMessageModelRuntimeStub):
         def __init__(self) -> None:
@@ -6826,6 +6898,57 @@ def test_task_observation_projection_separates_stale_and_active_failures() -> No
     assert projection["historical_failures"][0]["current_runtime_fact"] is False
     assert projection["active_failures"][0]["tool_name"] == "read_file"
     assert projection["active_failures"][0]["error"]["message"] == "file missing"
+
+
+def test_task_observation_projection_adds_non_blocking_exploration_advisory() -> None:
+    from harness.loop.task_executor import _observations_for_packet
+
+    runtime = build_harness_runtime()
+    host = runtime.single_agent_runtime_host
+    task_run_id = "taskrun:test:exploration-advisory"
+    fingerprint = {
+        "tool_registry_hash": "tools-v1",
+        "tool_config_hash": "tool-config-v1",
+        "sandbox_policy_hash": "sandbox-v1",
+        "permission_policy_hash": "permission-v1",
+        "backend_config_hash": "backend-v1",
+    }
+    tool_calls = [
+        ("list_dir", {"path": "."}),
+        ("search_text", {"query": "runtime", "roots": ["backend/harness"]}),
+        ("glob_paths", {"pattern": "backend/**/*.py"}),
+        ("read_file", {"path": "backend/harness/runtime/compiler.py"}),
+        ("search_files", {"query": "subagent"}),
+        ("read_file", {"path": "backend/harness/loop/task_executor.py"}),
+    ]
+    for index, (tool_name, tool_args) in enumerate(tool_calls, start=1):
+        host.event_log.append(
+            task_run_id,
+            "task_tool_observation_recorded",
+            payload={
+                "observation": {
+                    "observation_id": f"obs:explore:{index}",
+                    "task_run_id": task_run_id,
+                    "observation_type": "tool_result",
+                    "source": f"tool:{tool_name}",
+                    "payload": {
+                        "tool_name": tool_name,
+                        "tool_args": tool_args,
+                        "result": f"{tool_name} ok",
+                        "runtime_fingerprint": fingerprint,
+                    },
+                }
+            },
+        )
+
+    context = _observations_for_packet(host, task_run_id, current_fingerprint=fingerprint)
+    advisory = context["execution_state"]["system_projection"]["exploration_advisory"]
+
+    assert advisory["triggered"] is True
+    assert advisory["non_blocking"] is True
+    assert advisory["consecutive_exploration_tool_calls"] == 6
+    assert advisory["recent_tools"][-1]["tool_name"] == "read_file"
+    assert advisory["recommended_action"] == "pause_serial_exploration_and_consider_agent_todo_plus_codebase_searcher_split"
 
 
 def test_task_observation_projection_extracts_structured_error_from_tool_json_result() -> None:

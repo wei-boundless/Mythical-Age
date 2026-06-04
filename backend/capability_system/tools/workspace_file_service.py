@@ -16,10 +16,10 @@ DEFAULT_EXCLUDED_DIRS: tuple[str, ...] = (
     ".tmp-tests-runtime",
     "__pycache__",
     "node_modules",
-    "output",
 )
 DEFAULT_SEARCH_EXCLUDED_PATHS: tuple[str, ...] = (
     "backend/knowledge",
+    "output",
     "storage/runtime_state/sandboxes",
 )
 TEXT_ENCODINGS: tuple[str, ...] = ("utf-8", "utf-8-sig", "gb18030", "gbk")
@@ -174,13 +174,14 @@ class WorkspaceFileService:
         if not normalized or normalized.startswith("/") or ".." in Path(normalized).parts:
             raise ValueError("invalid pattern")
         limit = max(1, min(int(max_results or 80), 300))
+        include_default_excludes = not _targets_default_excluded_path(normalized)
         matches: list[str] = []
         for walk_root in self._glob_walk_roots(normalized):
             for directory, dirnames, filenames in os.walk(walk_root):
                 dirnames[:] = [
                     dirname
                     for dirname in dirnames
-                    if not self.is_excluded(Path(directory) / dirname, include_default_search_excludes=True)
+                    if not self.is_excluded(Path(directory) / dirname, include_default_search_excludes=include_default_excludes)
                 ]
                 candidates = [
                     Path(directory) / dirname
@@ -198,6 +199,17 @@ class WorkspaceFileService:
         return sorted(dict.fromkeys(matches))[:limit]
 
     def _glob_walk_roots(self, normalized_pattern: str) -> list[Path]:
+        fixed_prefix = _fixed_glob_prefix(normalized_pattern)
+        if fixed_prefix:
+            try:
+                fixed_target = self.resolve(fixed_prefix)
+            except ValueError:
+                return []
+            if fixed_target.is_file():
+                return [fixed_target.parent]
+            if fixed_target.is_dir():
+                return [fixed_target]
+            return []
         head = normalized_pattern.split("/", 1)[0]
         logical_root = self._logical_roots.get(head)
         if logical_root is not None:
@@ -256,5 +268,29 @@ def _glob_matches(relative_path: str, pattern: str) -> bool:
     if "/**/" in pattern:
         variants.add(pattern.replace("/**/", "/"))
     return any(fnmatch.fnmatch(relative_path, variant) for variant in variants)
+
+
+def _fixed_glob_prefix(pattern: str) -> str:
+    parts: list[str] = []
+    for part in str(pattern or "").replace("\\", "/").split("/"):
+        if not part or any(token in part for token in ("*", "?", "[")):
+            break
+        parts.append(part)
+    return "/".join(parts)
+
+
+def _targets_default_excluded_path(pattern: str) -> bool:
+    normalized = str(pattern or "").replace("\\", "/").strip("/")
+    if not normalized:
+        return False
+    fixed_prefix = _fixed_glob_prefix(normalized)
+    if not fixed_prefix:
+        return False
+    fixed_prefix = fixed_prefix.lower()
+    for excluded in DEFAULT_SEARCH_EXCLUDED_PATHS:
+        target = excluded.lower().strip("/")
+        if fixed_prefix == target or fixed_prefix.startswith(f"{target}/"):
+            return True
+    return False
 
 

@@ -55,6 +55,26 @@ def test_runtime_event_log_recent_events_and_count_use_index(tmp_path) -> None:
     assert log.event_count("taskrun:test") == 5
 
 
+def test_runtime_event_index_atomic_write_retries_windows_replace_lock(tmp_path, monkeypatch) -> None:
+    target = tmp_path / "tail.json"
+    calls = {"count": 0}
+    original_replace = event_index.os.replace
+
+    def flaky_replace(src, dst):
+        calls["count"] += 1
+        if calls["count"] == 1:
+            raise PermissionError("target is temporarily locked")
+        return original_replace(src, dst)
+
+    monkeypatch.setattr(event_index.os, "replace", flaky_replace)
+    monkeypatch.setattr(event_index.time, "sleep", lambda _seconds: None)
+
+    event_index._atomic_write_json(target, {"ok": True})
+
+    assert calls["count"] == 2
+    assert json.loads(target.read_text(encoding="utf-8")) == {"ok": True}
+
+
 def test_runtime_event_log_recent_events_can_read_tail_without_full_index_rebuild(tmp_path, monkeypatch) -> None:
     log = RuntimeEventLog(tmp_path)
     path = log._event_path("taskrun:test")

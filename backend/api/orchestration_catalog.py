@@ -104,6 +104,7 @@ OPTION_LABELS: dict[str, str] = {
     "memory_candidate_review": "记忆候选审核",
     "op.model_response": "模型响应",
     "op.read_file": "读取文件",
+    "op.read_persisted_tool_result": "读取持久化工具输出",
     "op.search_files": "搜索文件",
     "op.search_text": "搜索文本",
     "op.list_dir": "列出目录",

@@ -40,6 +40,13 @@ def test_tool_result_projector_persists_large_output_and_keeps_artifact_refs(tmp
     assert record["rehydration_plan"] == plan
     persisted = plan["capabilities"][0]
     assert persisted["capability"] == "read_persisted_tool_result"
+    assert persisted["tool_name"] == "read_persisted_tool_result"
+    assert persisted["args"] == {
+        "replacement_id": projection["content_replacements"][0]["replacement_id"],
+        "path": projection["content_replacements"][0]["path"],
+        "task_run_id": "taskrun:test",
+    }
+    assert persisted["next_request"] == {"tool_name": "read_persisted_tool_result", "args": persisted["args"]}
     assert persisted["content_replacements"][0]["path"] == projection["content_replacements"][0]["path"]
     assert "preview" in plan["instruction"]
 

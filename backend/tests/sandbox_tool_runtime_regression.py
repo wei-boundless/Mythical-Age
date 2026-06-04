@@ -161,6 +161,23 @@ def test_sandbox_command_guard_allows_absolute_path_inside_bound_workspace(tmp_p
     )
 
 
+def test_sandbox_terminal_allows_absolute_path_inside_execution_root(tmp_path: Path) -> None:
+    workspace = tmp_path / "project"
+    sandbox_root = tmp_path / "sandbox" / "workspace"
+
+    result = _run_tool(
+        workspace=workspace,
+        sandbox_root=sandbox_root,
+        tool_name="terminal",
+        tool_args={"command": f'cd "{sandbox_root}"; pwd'},
+        operation_id="op.shell",
+    )
+
+    assert result["error"] == ""
+    assert result["execution_record"].status == "completed"
+    assert "absolute path outside the sandbox workspace" not in result["observation"].payload["result"]
+
+
 def test_sandbox_read_file_rejects_absolute_path_outside_bound_workspace(tmp_path: Path) -> None:
     workspace = tmp_path / "project"
     sandbox_root = tmp_path / "sandbox" / "workspace"
@@ -806,7 +823,7 @@ def test_tool_runtime_preflight_rejects_unavailable_runtime_tool_instance(tmp_pa
     assert "agent_todo" in observation.payload["result"]
 
 
-def test_native_write_file_permission_rejection_is_model_visible_tool_result(tmp_path: Path) -> None:
+def test_native_write_file_write_scopes_do_not_restrict_sandbox_root(tmp_path: Path) -> None:
     workspace = tmp_path / "project"
     sandbox_root = tmp_path / "sandbox" / "workspace"
 
@@ -814,22 +831,15 @@ def test_native_write_file_permission_rejection_is_model_visible_tool_result(tmp
         workspace=workspace,
         sandbox_root=sandbox_root,
         tool_name="write_file",
-        tool_args={"path": "private/note.md", "content": "blocked"},
+        tool_args={"path": "private/note.md", "content": "allowed"},
         operation_id="op.write_file",
         sandbox_policy_extra={"write_scopes": ["allowed"]},
     )
 
     observation = result["observation"]
-    assert result["execution_record"].status == "failed"
-    assert "recoverable_error" in result
+    assert result["execution_record"].status == "completed"
     assert observation.observation_type == "tool_result"
-    assert observation.payload["structured_payload"]["type"] == "tool_policy_rejection"
-    assert observation.payload["structured_payload"]["policy"] == "tool_permission"
-    assert observation.payload["structured_payload"]["reason"] == "path_outside_write_scopes"
-    assert observation.payload["structured_payload"]["tool_executed"] is False
-    assert observation.payload["structured_payload"]["is_tool_execution_failure"] is False
-    assert "No tool side effect occurred" in observation.payload["result"]
-    assert observation.needs_model_followup is True
+    assert (sandbox_root / "private" / "note.md").read_text(encoding="utf-8") == "allowed"
 
 
 def test_native_write_file_default_mode_keeps_file_gateway_approval_as_control_boundary(tmp_path: Path) -> None:

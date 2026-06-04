@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "tool_count": 38,
+  "tool_count": 39,
   "tools": [
     {
       "name": "agent_todo",
@@ -885,6 +885,72 @@
       "runtime_visibility": "main_runtime",
       "prompt_exposure_policy": "schema_plus_guidance",
       "resource_exposure_policy": "explicit_resource",
+      "is_read_only": true,
+      "is_destructive": false,
+      "is_concurrency_safe": true
+    },
+    {
+      "name": "read_persisted_tool_result",
+      "display_name": "读取持久化工具输出",
+      "operation_id": "op.read_persisted_tool_result",
+      "module": "tools.persisted_tool_result_tool",
+      "contract": {
+        "required_inputs": [],
+        "required_bindings": [],
+        "optional_inputs": [
+          "replacement_id",
+          "path",
+          "task_run_id",
+          "start_byte",
+          "max_bytes"
+        ],
+        "owner_scope": "none",
+        "allow_catalog_default": false,
+        "allow_history_binding": false,
+        "missing_binding_behavior": "clarify",
+        "context_policy": "inline",
+        "result_channel": "canonical"
+      },
+      "resolution_contract": {
+        "path_field": "",
+        "path_kind": "",
+        "binding_field": "",
+        "allow_message_extraction": false
+      },
+      "output_contract": {
+        "display_mode": "verbatim_text",
+        "finalization_policy": "none",
+        "persistence_policy": "persist_canonical"
+      },
+      "projection_contract": {
+        "task_summary_policy": "canonical_only",
+        "result_ref_policy": "default",
+        "memory_projection_policy": "canonical_only"
+      },
+      "capability_tags": [
+        "tool_result",
+        "rehydration",
+        "runtime_context",
+        "read"
+      ],
+      "supported_modalities": [
+        "text",
+        "workspace"
+      ],
+      "safety_tags": [
+        "read",
+        "runtime_context"
+      ],
+      "route_hints": [
+        "tool",
+        "rehydration",
+        "tool_result_recovery"
+      ],
+      "safe_for_auto_route": false,
+      "schema_identity": "local.tools/read_persisted_tool_result",
+      "runtime_visibility": "main_runtime",
+      "prompt_exposure_policy": "schema_plus_guidance",
+      "resource_exposure_policy": "none",
       "is_read_only": true,
       "is_destructive": false,
       "is_concurrency_safe": true
@@ -2401,10 +2467,11 @@
     {
       "package_id": "pkg.filesystem.read",
       "title": "文件只读",
-      "description": "读取、查找和检查工作区文件，不修改内容。",
+      "description": "读取、查找和检查工作区文件，并恢复运行时持久化的只读工具输出，不修改内容。",
       "category": "本地文件",
       "operation_ids": [
         "op.read_file",
+        "op.read_persisted_tool_result",
         "op.list_dir",
         "op.stat_path",
         "op.path_exists",
@@ -2416,7 +2483,8 @@
       "default_enabled": true,
       "tags": [
         "filesystem",
-        "read"
+        "read",
+        "runtime_context"
       ],
       "metadata": {}
     },

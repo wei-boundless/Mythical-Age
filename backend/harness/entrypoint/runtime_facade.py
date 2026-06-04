@@ -15,6 +15,7 @@ from harness.runtime import AgentRuntimeServices, SingleAgentRuntimeHost, TaskEx
 from harness.runtime.request_facts import build_turn_input_facts
 from harness.runtime.public_progress import public_runtime_progress_summary
 from runtime import ModelResponseRuntimeExecutor, ModelRuntimeError, ToolRuntimeExecutor
+from runtime.context_management.session_compaction import auto_compact_session_if_needed
 from runtime.output_boundary import canonical_output_decision_for_final_text
 from runtime.shared.history_assembler import assemble_runtime_history
 from permissions.policy import normalize_permission_mode
@@ -191,6 +192,15 @@ class HarnessRuntimeFacade:
 
     async def astream(self, request: HarnessRuntimeRequest):
         history_record = self.session_manager.load_session_record(request.session_id)
+        auto_compaction: dict[str, Any] = {}
+        if not request.history:
+            auto_compaction = auto_compact_session_if_needed(
+                self,
+                session_id=request.session_id,
+                reason="auto_context_replacement_before_model_turn",
+            )
+            if bool(auto_compaction.get("applied")):
+                history_record = self.session_manager.load_session_record(request.session_id)
         raw_history = request.history or self.session_manager.load_session_for_agent(request.session_id)
         api_transcript_loader = getattr(self.session_manager, "load_session_for_api", None)
         api_transcript = (
@@ -245,6 +255,11 @@ class HarnessRuntimeFacade:
                     "request_kind": "chat",
                     "harness.entrypoint_role": "application_runtime_facade",
                     "history_assembly": dict(history_assembly.diagnostics),
+                    "auto_context_compaction": {
+                        "applied": bool(auto_compaction.get("applied")),
+                        "strategy": str(auto_compaction.get("strategy") or "none"),
+                        "skipped_reason": str(auto_compaction.get("skipped_reason") or ""),
+                    },
                     "permission_mode": request_permission_mode,
                 },
                 tags=["harness-entrypoint", "agent-runtime-chain"],

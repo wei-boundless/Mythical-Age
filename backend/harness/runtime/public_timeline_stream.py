@@ -3,7 +3,8 @@ from __future__ import annotations
 from hashlib import sha1
 from typing import Any
 
-from harness.runtime.public_execution_state import public_todo_plan_from_event, public_todo_plan_item
+from harness.runtime.progress_presenter import public_todo_plan_from_event
+from harness.runtime.public_chat_timeline import public_todo_plan_item
 from harness.runtime.public_projection_filters import should_hide_public_tool_observation
 from harness.runtime.public_progress import public_runtime_progress_summary
 

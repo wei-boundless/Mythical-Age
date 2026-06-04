@@ -38,7 +38,7 @@ def rank_codebase_evidence(
                 reason=reason,
             )
         )
-    evidence.sort(key=lambda item: (-item.score, item.file, item.line))
+    evidence.sort(key=lambda item: (-item.score, -_path_priority(item.file, context=context), item.file, item.line))
     return tuple(_diversify_by_file(evidence, limit=limit))
 
 
@@ -157,6 +157,7 @@ def _ranking_context(*, plan: CodebaseSearchPlan | None, query: str) -> dict[str
         "path_terms": tuple(item for item in dict.fromkeys(path_terms) if item),
         "test_intent": bool(getattr(plan, "test_intent", False)) or _contains_test_intent(query),
         "doc_intent": bool(getattr(plan, "doc_intent", False)) or _contains_doc_intent(query),
+        "rag_eval_intent": _contains_rag_eval_intent(query),
     }
 
 
@@ -188,5 +189,41 @@ def _contains_test_intent(value: str) -> bool:
 def _contains_doc_intent(value: str) -> bool:
     lowered = str(value or "").lower()
     return any(token in lowered for token in ("文档", "计划书", "设计书", "方案")) or bool(re.search(r"\b(docs?|readme)\b", lowered))
+
+
+def _contains_rag_eval_intent(value: str) -> bool:
+    lowered = str(value or "").lower()
+    return any(
+        token in lowered
+        for token in (
+            "rag",
+            "retrieval",
+            "scifact",
+            "qrels",
+            "benchmark",
+            "eval",
+            "evaluation",
+            "测试数据",
+            "评测",
+            "检索质量",
+            "召回率",
+            "准确率",
+        )
+    )
+
+
+def _path_priority(path: str, *, context: dict[str, Any]) -> int:
+    if not context.get("rag_eval_intent"):
+        return 0
+    normalized = str(path or "").replace("\\", "/").lower()
+    if normalized.startswith("scifact/") and "/qrels/" in normalized:
+        return 90
+    if normalized.startswith("scifact/") and normalized.endswith((".jsonl", ".tsv", ".parquet")):
+        return 80
+    if normalized.startswith("backend/tests/_artifacts/") and normalized.endswith(".json"):
+        return 75
+    if normalized.startswith("output/benchmark_runtime/"):
+        return 60
+    return 0
 
 

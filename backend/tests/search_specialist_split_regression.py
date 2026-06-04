@@ -58,6 +58,9 @@ def test_search_specialists_are_registered_with_separate_authority() -> None:
     assert set(web.metadata["runtime_config"]["search"]["search_sources"]) == {"web"}
     assert "Web" in web.metadata["when_to_use"]
     assert web.metadata["output_contract"]["source_policy"]
+    assert web.metadata["worker_prompt_ref"] == "worker.prompt.web_research.v1"
+    assert web.metadata["agent_prompt_refs_by_invocation"]["task_execution"] == ["worker.prompt.web_research.v1"]
+    assert "source_matrix" in web.metadata["output_contract"]["recommended_fields"]
 
     code = profiles["agent:codebase_searcher"]
     assert {"op.search_files", "op.search_text", "op.read_file", "op.git_log", "op.git_show"} <= set(code.allowed_operations)
@@ -142,6 +145,10 @@ def test_deepsearch_capability_runs_web_only_sources() -> None:
     assert payload["diagnostics"]["child_execution_mode"] == "profile_authorized_deepsearch_capability"
     assert payload["diagnostics"]["capability_id"] == "capability.deepsearch"
     assert payload["diagnostics"]["web_payload"]["usage"]["search_sources"] == ["web"]
+    assert payload["source_urls"] == ["web://source-1"]
+    assert payload["source_matrix"][0]["url"] == "web://source-1"
+    assert payload["source_matrix"][0]["evidence_ref"] in payload["evidence_refs"]
+    assert payload["recommended_parent_action"]
     assert web_provider.queries == ["official release notes"]
 
 
@@ -265,6 +272,8 @@ def test_web_research_agent_blocks_non_web_source_by_permission() -> None:
 
     assert payload["status"] == "failed"
     assert "deepsearch_unsupported_source" in payload["limitations"]
+    assert payload["source_matrix"] == []
+    assert payload["open_questions"]
     assert "local_files" in payload["limitations"]
     assert payload["diagnostics"]["supported_search_sources"] == ["web"]
 

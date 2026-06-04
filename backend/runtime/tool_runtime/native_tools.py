@@ -28,6 +28,11 @@ from file_management import (
     build_file_access_table,
     resolve_file_environment,
 )
+from runtime_objects.tool_result_storage import (
+    DEFAULT_REHYDRATION_SIZE_BYTES,
+    MAX_REHYDRATION_SIZE_BYTES,
+    read_persisted_tool_result,
+)
 from runtime_encoding import build_windows_powershell_command, is_windows, utf8_subprocess_text_kwargs
 from runtime.tool_runtime.docker_sandbox_backend import DockerSandboxBackend
 from runtime.tool_runtime.tool_definition import ToolPermissionResult, ToolValidationResult
@@ -45,6 +50,7 @@ if TYPE_CHECKING:
 
 NATIVE_RUNTIME_TOOL_NAMES = {
     "read_file",
+    "read_persisted_tool_result",
     "read_structured_file",
     "search_files",
     "search_text",
@@ -69,6 +75,8 @@ def build_native_runtime_tool(
     name = str(capability_definition.name or "").strip()
     if name == "read_file":
         return NativeReadFileTool(capability_definition)
+    if name == "read_persisted_tool_result":
+        return NativeReadPersistedToolResultTool(capability_definition)
     if name == "write_file":
         return NativeWriteFileTool(capability_definition)
     if name == "edit_file":
@@ -391,6 +399,90 @@ class NativeReadFileTool(_NativeToolBase):
         )
 
 
+class NativeReadPersistedToolResultTool(_NativeToolBase):
+    def validate_input(self, args: dict[str, Any], context: ToolUseContext) -> ToolValidationResult:
+        base = super().validate_input(args, context)
+        if not base.allowed:
+            return base
+        payload = dict(args or {})
+        replacement_id = str(payload.get("replacement_id") or "").strip()
+        path = str(payload.get("path") or "").strip()
+        if not replacement_id and not path:
+            return ToolValidationResult(
+                allowed=False,
+                reason="missing_required_tool_inputs",
+                repair_instruction="Retry with replacement_id or path from the rehydration_plan.",
+                normalized_args=payload,
+                diagnostics={"missing_inputs": ["replacement_id_or_path"]},
+            )
+        return ToolValidationResult(
+            allowed=True,
+            normalized_args={
+                "replacement_id": replacement_id,
+                "path": path,
+                "task_run_id": str(payload.get("task_run_id") or context.task_run_id or "").strip(),
+                "start_byte": payload.get("start_byte", 0),
+                "max_bytes": payload.get("max_bytes", DEFAULT_REHYDRATION_SIZE_BYTES),
+            },
+        )
+
+    async def call(self, args: dict[str, Any], context: ToolUseContext) -> ToolResultEnvelope:
+        return await asyncio.to_thread(self._call_sync, dict(args or {}), context)
+
+    def _call_sync(self, args: dict[str, Any], context: ToolUseContext) -> ToolResultEnvelope:
+        result = read_persisted_tool_result(
+            root_dir=_real_workspace_root(context),
+            replacement_id=str(args.get("replacement_id") or ""),
+            path=str(args.get("path") or ""),
+            task_run_id=str(args.get("task_run_id") or context.task_run_id or ""),
+            start_byte=args.get("start_byte", 0),
+            max_bytes=args.get("max_bytes", DEFAULT_REHYDRATION_SIZE_BYTES),
+            trusted_roots=_runtime_context_storage_roots(context),
+        )
+        if result.get("ok") is not True:
+            error = str(result.get("error") or "persisted tool result read failed")
+            return self._envelope(
+                tool_args=args,
+                status="error",
+                text=f"Read persisted tool result failed: {error}",
+                structured_payload={
+                    "tool_result": {
+                        "kind": "persisted_tool_result",
+                        "status": "error",
+                        "replacement_id": str(args.get("replacement_id") or ""),
+                        "path": str(args.get("path") or ""),
+                        "error": error,
+                    },
+                    "structured_error": {
+                        "code": "persisted_tool_result_read_failed",
+                        "message": error,
+                        "retryable": False,
+                    },
+                },
+                execution_receipt=context.execution_receipt,
+            )
+        tool_result = {
+            "kind": "persisted_tool_result",
+            "status": "ok",
+            "replacement_id": str(result.get("replacement_id") or ""),
+            "path": str(result.get("path") or ""),
+            "start_byte": int(result.get("start_byte") or 0),
+            "returned_bytes": int(result.get("returned_bytes") or 0),
+            "total_bytes": int(result.get("total_bytes") or 0),
+            "truncated": bool(result.get("truncated")),
+            "authority": str(result.get("authority") or "runtime.tool_result_rehydration"),
+        }
+        observed = (tool_result["path"],) if tool_result["path"] else ()
+        return self._envelope(
+            tool_args=args,
+            status="ok",
+            text=str(result.get("content") or ""),
+            structured_payload={"tool_result": tool_result},
+            observed_paths=observed,
+            execution_receipt=context.execution_receipt,
+        )
+
+
 def _coerce_read_window_int(
     value: Any,
     *,
@@ -452,20 +544,8 @@ class NativeWriteFileTool(_NativeToolBase):
         )
         if gateway_permission is not None and not gateway_permission.allowed:
             return gateway_permission
-        files = self._files(context)
         path = str(args.get("path") or "").strip()
-        if not _path_within_scopes(files, path, context.write_scopes):
-            return ToolPermissionResult(
-                allowed=False,
-                decision="deny",
-                reason="path_outside_write_scopes",
-                repair_instruction=_write_scope_repair_instruction(context),
-                diagnostics={
-                    "path": path,
-                    "write_scopes": list(context.write_scopes),
-                    "canonical_output_paths": _canonical_output_paths(context),
-                },
-            )
+        files = self._files(context)
         existing = _resolve_existing_file(files, path)
         if existing is not None and not _overwrite_intent_is_explicit(args, existing, context):
             return ToolPermissionResult(
@@ -570,19 +650,6 @@ class NativeEditFileTool(_NativeToolBase):
         )
         if gateway_permission is not None and not gateway_permission.allowed:
             return gateway_permission
-        path = str(args.get("path") or "").strip()
-        if not _path_within_scopes(self._files(context), path, context.write_scopes):
-            return ToolPermissionResult(
-                allowed=False,
-                decision="deny",
-                reason="path_outside_write_scopes",
-                repair_instruction=_write_scope_repair_instruction(context),
-                diagnostics={
-                    "path": path,
-                    "write_scopes": list(context.write_scopes),
-                    "canonical_output_paths": _canonical_output_paths(context),
-                },
-            )
         return ToolPermissionResult(allowed=True, decision="allow")
 
     async def call(self, args: dict[str, Any], context: ToolUseContext) -> ToolResultEnvelope:
@@ -671,7 +738,7 @@ class NativeTerminalTool(_NativeToolBase):
     def _call_sync(self, args: dict[str, Any], context: ToolUseContext) -> ToolResultEnvelope:
         command = str(args.get("command") or "").strip()
         structured_payload = _tool_call_structured_payload(args)
-        blocked_reason = validate_sandbox_command_text(command, kind="command", workspace_root=_real_workspace_root(context))
+        blocked_reason = validate_sandbox_command_text(command, kind="command", workspace_root=context.workspace_root)
         if blocked_reason:
             receipt = {"command": command, "exit_code": 1, "passed": False, "output_preview": blocked_reason}
             return self._envelope(
@@ -739,7 +806,7 @@ class NativePythonReplTool(_NativeToolBase):
 
     def _call_sync(self, args: dict[str, Any], context: ToolUseContext) -> ToolResultEnvelope:
         code = str(args.get("code") or "")
-        blocked_reason = validate_sandbox_command_text(code, kind="code", workspace_root=_real_workspace_root(context))
+        blocked_reason = validate_sandbox_command_text(code, kind="code", workspace_root=context.workspace_root)
         if blocked_reason:
             receipt = {"command": "python -c <code>", "exit_code": 1, "passed": False, "output_preview": blocked_reason}
             return self._envelope(
@@ -1301,6 +1368,21 @@ def _real_workspace_root(context: ToolUseContext) -> Path:
     return Path(context.workspace_root).resolve()
 
 
+def _runtime_context_storage_roots(context: ToolUseContext) -> tuple[Path, ...]:
+    roots: list[Path] = []
+    project_root = _real_workspace_root(context)
+    storage = dict(context.file_management_policy.get("storage_space") or {})
+    for key in ("runtime_state_root", "cache_root", "environment_storage_root"):
+        text = str(storage.get(key) or "").strip()
+        if not text:
+            continue
+        candidate = Path(text)
+        root = candidate.resolve() if candidate.is_absolute() else (project_root / candidate).resolve()
+        if root not in roots:
+            roots.append(root)
+    return tuple(roots)
+
+
 def _sandbox_root_from_policy(context: ToolUseContext) -> Path | None:
     value = str(dict(context.sandbox_policy or {}).get("sandbox_root") or "").strip()
     if not value:
@@ -1517,47 +1599,6 @@ def _fallback_search_text(
                 matches.append({"path": files.relative_path(path), "line": line_number, "column": column, "text": line[:240]})
                 break
     return matches
-
-
-def _path_within_scopes(files: WorkspaceFileService, path: str, scopes: tuple[str, ...]) -> bool:
-    cleaned_path = str(path or "").strip()
-    if not cleaned_path:
-        return False
-    try:
-        candidate = files.resolve(cleaned_path, require_path=True)
-    except ValueError:
-        return False
-    normalized_candidate = files.relative_path(candidate)
-    cleaned_scopes = [str(item or "").replace("\\", "/").strip().strip("/") for item in list(scopes or ())]
-    if not cleaned_scopes:
-        return True
-    return any(
-        scope == "." or normalized_candidate == scope or normalized_candidate.startswith(f"{scope}/")
-        for scope in cleaned_scopes
-        if scope
-    )
-
-
-def _canonical_output_paths(context: ToolUseContext) -> list[str]:
-    return [
-        str(item or "").replace("\\", "/").strip().strip("/")
-        for item in list(dict(context.sandbox_policy or {}).get("canonical_output_paths") or [])
-        if str(item or "").strip()
-    ]
-
-
-def _write_scope_repair_instruction(context: ToolUseContext) -> str:
-    canonical_paths = _canonical_output_paths(context)
-    if canonical_paths:
-        return f"Retry with the canonical output path: {canonical_paths[0]}."
-    scopes = [
-        str(item or "").replace("\\", "/").strip().strip("/")
-        for item in list(context.write_scopes or ())
-        if str(item or "").strip()
-    ]
-    if scopes:
-        return "Retry with a path inside the allowed write scope: " + ", ".join(scopes[:8]) + "."
-    return "Retry with a path inside the allowed write scope."
 
 
 def _resolve_existing_file(files: WorkspaceFileService, path: str) -> Path | None:

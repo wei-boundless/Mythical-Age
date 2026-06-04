@@ -16,6 +16,7 @@ def test_tool_guidance_resources_are_registered_as_prompt_library_resources(tmp_
 
     read_guidance = resources["tool.guidance.read_file.v1"]
     terminal_guidance = resources["tool.guidance.terminal_powershell.v1"]
+    web_guidance = resources["tool.guidance.web_fetch.v1"]
 
     assert read_guidance.category == "tool"
     assert read_guidance.owner_layer == "tool"
@@ -27,6 +28,8 @@ def test_tool_guidance_resources_are_registered_as_prompt_library_resources(tmp_
     )
     assert "has_more" in read_guidance.content
     assert "Windows PowerShell" in terminal_guidance.content
+    assert "不要只凭搜索摘要下结论" in web_guidance.content
+    assert "来源之间冲突" in web_guidance.content
 
 
 def test_schema_plus_guidance_tools_remain_prompt_visible() -> None:

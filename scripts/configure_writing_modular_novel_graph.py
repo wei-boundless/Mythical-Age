@@ -63,9 +63,9 @@ AGENT_CREDENTIAL_REFS = {
 TARGET_VOLUMES = 5
 CHAPTERS_PER_VOLUME = 100
 CHAPTER_BATCH_SIZE = 10
-CHAPTER_TARGET_WORDS = 2000
+CHAPTER_TARGET_WORDS = 3500
 CHAPTER_MIN_WORDS = 1800
-CHAPTER_MAX_WORDS = 4000
+CHAPTER_MAX_WORDS = 8000
 BATCH_TARGET_WORDS = CHAPTER_BATCH_SIZE * CHAPTER_TARGET_WORDS
 BATCH_MIN_WORDS = CHAPTER_BATCH_SIZE * CHAPTER_MIN_WORDS
 BATCH_MAX_WORDS = CHAPTER_BATCH_SIZE * CHAPTER_MAX_WORDS
@@ -451,6 +451,27 @@ def _length_budget_contract_static(scope: str, target_units: int, min_units: int
 
 
 def _length_budget_contract(scope: str, target_units: int, min_units: int, max_units: int, batch_unit_count: int, source: str) -> dict[str, Any]:
+    if scope == "unit":
+        repair_instruction = (
+            "上一轮当前章正文量或章节完整度未达标。必须重写为当前单章完整小说正文："
+            f"当前章要围绕目标约{target_units}字自然展开，最低不得少于{min_units}字。"
+            "必须展开场景、行动、对话、试探、冲突、代价、人物反应、余波和章末牵引。"
+            "不得用摘要、提纲、说明、自检、设定表或压缩转述补量；不得把写前取材判断计入正文。"
+        )
+    elif scope == "batch":
+        repair_instruction = (
+            "上一轮正文量或分章完整度未达标。必须重写为当前批次完整小说正文："
+            f"每章要围绕目标约{CHAPTER_TARGET_WORDS}字自然展开，最低不得少于{CHAPTER_MIN_WORDS}字；"
+            f"当前批次总正文目标约{target_units}字，最低不得少于{min_units}字。"
+            "必须逐章展开场景、行动、对话、试探、冲突、代价、人物反应、余波和章末牵引。"
+            "不得用摘要、提纲、说明、自检、设定表或压缩转述补量；不得把写前取材判断计入正文。"
+        )
+    else:
+        repair_instruction = (
+            "上一轮正文量或结构完整度未达标。必须重交当前范围的完整正文或正式汇总稿："
+            f"目标约{target_units}字，最低不得少于{min_units}字。"
+            "必须保持章节完整、顺序清楚、连续性可追踪，不得用摘要、说明、自检或设定表替代正文交付。"
+        )
     return {
         "enabled": True,
         "budget_scope": scope,
@@ -467,73 +488,10 @@ def _length_budget_contract(scope: str, target_units: int, min_units: int, max_u
         "repair_policy": {
             "mode": "expand_or_split",
             "max_repair_rounds": 4,
-            "repair_instruction": (
-                "上一轮正文量或分章完整度未达标。必须重写为当前批次十章完整小说正文："
-                "每章都要接近两千字，最低不得少于一千八百字；总正文量应接近两万字，最低不得少于一万八千字。"
-                "必须逐章展开场景、行动、对话、试探、冲突、代价、人物反应、余波和章末牵引。"
-                "不得用摘要、提纲、说明、自检、设定表或压缩转述补量；不得把写前取材判断计入正文。"
-            ),
+            "repair_instruction": repair_instruction,
         },
         "acceptance_policy": {"require_continuity": True, "require_formal_headings": True, "require_artifact_ref": True, "metric_tool_operation": "op.text_metric"},
         "source": source,
-    }
-
-
-def _chapter_batch_quality_retry_policy() -> dict[str, Any]:
-    return {
-        "acceptance_policies": ["sectioned_text_batch_quality"],
-        "quality_failure_mode": "retry_same_node",
-        "unit_start_key": "batch_start_index",
-        "unit_end_key": "batch_end_index",
-        "unit_count_key": "units_per_batch",
-        "target_metric_key": "batch_target_measure",
-        "unit_target_metric_key": "unit_target_measure",
-        "minimum_metric_ratio": 0.9,
-        "minimum_metric_per_unit": CHAPTER_MIN_WORDS,
-        "unit_label": "章",
-        "unit_summary_template": "第{index}章",
-        "metric_summary_label": "字",
-        "required_heading_patterns": [r"第\s*(?P<index>[0-9一二三四五六七八九十百零〇两]+)\s*[章节回]"],
-        "heading_match_scope": "formal_heading",
-        "metric_section_keys": ["章节正文候选"],
-        "metric_stop_section_keys": [
-            "承接说明",
-            "本章目标完成说明",
-            "人物与冲突推进",
-            "商业钩子与爽点兑现",
-            "后续伏笔或待承接事项",
-            "自检风险",
-            "公开摘要",
-        ],
-        "forbid_unexpected_unit_indexes": True,
-        "forbid_unexpected_unit_ranges": True,
-        "range_declaration_keywords": [
-            "当前批次",
-            "当前章批次",
-            "本批允许范围",
-            "本批允许章号",
-            "允许范围",
-            "批次目标",
-            "批次摘要",
-            "当前批次细纲",
-            "当前批次正文",
-        ],
-        "broad_range_keywords": ["本批", "本轮"],
-        "range_mention_patterns": [
-            r"第\s*(?P<start>[0-9一二三四五六七八九十百零〇两]+)\s*章?\s*(?:至|到|[-—~～])\s*第?\s*(?P<end>[0-9一二三四五六七八九十百零〇两]+)\s*章"
-        ],
-        "future_range_keywords": [
-            "下一批",
-            "下批",
-            "下一轮",
-            "下轮",
-            "后续批次",
-            "后续章节",
-            "后续章",
-            "后续承接",
-            "承接点",
-            "下一阶段",
-        ],
     }
 
 
@@ -546,8 +504,9 @@ def _chapter_draft_quality_retry_policy() -> dict[str, Any]:
         "unit_count_key": "unit_count",
         "target_metric_key": "unit_target_measure",
         "unit_target_metric_key": "unit_target_measure",
-        "minimum_metric_ratio": 0.9,
+        "minimum_metric_ratio": 0.0,
         "minimum_metric_per_unit": CHAPTER_MIN_WORDS,
+        "max_quality_retries": 1,
         "unit_label": "章",
         "unit_summary_template": "第{index}章",
         "metric_summary_label": "字",
@@ -574,8 +533,9 @@ def _chapter_draft_quality_retry_policy() -> dict[str, Any]:
             f"硬性生产规格：当前章最低不得少于{CHAPTER_MIN_WORDS}字，目标约{CHAPTER_TARGET_WORDS}字。"
             "字数是否达标必须以系统质量门统计为准，禁止用自己的估算覆盖系统统计。"
             "如果系统反馈低于最低要求，不要只补短缺量；必须把“章节正文候选”中的当前章小说正文补到不少于最低要求，"
-            "优先补场景、动作、心理、对话、冲突余波或章末牵引。正文可以自然展开到约2000-3500字；只要剧情连贯、节奏完整，不需要为了贴近2000字而强行压缩。"
-            "只有系统反馈超过4000字或明显拖沓时，才压缩解释、重复心理、重复环境描写和弱动作，不得删除关键事件和章末牵引。"
+            f"并尽力稳定接近{CHAPTER_TARGET_WORDS}字的正式成稿量。必须优先补足场景、动作、心理、对话、冲突余波和章末牵引，"
+            "让正文呈现完整小说现场，而不是补一段解释或扩写说明。"
+            f"只有系统反馈超过{CHAPTER_MAX_WORDS}字或明显拖沓时，才压缩解释、重复心理、重复环境描写和弱动作，不得删除关键事件和章末牵引。"
             "自修处理记录、写前判断、说明文字、清单和摘要不计入正文达标；有效字数只能来自“章节正文候选”下当前章正式小说叙事。"
             "正文必须有正式章节标题、完整场景、人物行动、对话或心理变化、冲突升级、代价反馈、余波承接和章末牵引。"
             "不得用摘要、提纲、自检、设定表、工作说明、等待补充、压缩转述或只列修改点代替正文。"
@@ -1102,7 +1062,8 @@ CHAPTER_BASE_NODES: tuple[NodeSpec, ...] = (
                 forbidden="改写章纲事件顺序、越过当前批次章号、提前收束父级大纲给后续批次/后续卷的节点、用正文临时修补上游大纲冲突",
                 downstream="当前单章正文候选、写前取材判断、正文事实可追踪的场景与章末承接，供单章自修和批次汇总读取",
             ),
-            "当前任务包的章号范围和生产规格是硬性要求，不是建议：你本轮只写 initial_inputs.chapter_index 指定的一章；每章目标约两千字，最低不得少于一千八百字。不得把当前章压缩成剧情摘要、章节梗概、片段式示例或试写稿；未达到正文量和分章完整度时，视为没有完成写手职责。",
+            f"当前任务包的章号范围和生产规格是硬性要求，不是建议：你本轮只写 initial_inputs.chapter_index 指定的一章；每章目标约{CHAPTER_TARGET_WORDS}字，最低不得少于{CHAPTER_MIN_WORDS}字。目标字数代表正式连载成稿量，你必须主动把场景、人物行动、对白、心理变化、冲突推进、代价反馈和章末牵引写足。不得把当前章压缩成剧情摘要、章节梗概、片段式示例或试写稿；未达到正文量和分章完整度时，视为没有完成写手职责。",
+            f"你必须使用 Plan-and-Write 的章节生产流程控制正文容量：先在写前取材判断中给出“章节场景预算”，把当前章拆成4到7个连续场景或叙事段，每段写明场景目标、阻碍、转折、结果、承接点和预计正文量；预算总和必须接近{CHAPTER_TARGET_WORDS}字且不得低于{CHAPTER_MIN_WORDS}字。随后严格按这个预算写正文，不得跳过预算中的关键场景，不得把预算表当作正文补量。",
             "输出结构必须清楚区分“写前取材判断”和“章节正文候选”。写前取材判断只能短，不计入正文量；章节正文候选才是交付主体。章节正文候选下只能出现当前章的正式章节标题和完整叙事，不得合并其他章、跳到后续章、用省略号略写、用“此处承接”之类占位。",
             "你的正文目标必须可执行，并且要有头部中文商业网文的连载质感：语言自然、有现场感和节奏弹性，叙述像有经验的人类作者在铺陈情势、递进冲突和安放伏笔；人物有清晰欲望、当下情绪、关系立场和选择压力，冲突通过行动、对话、试探、代价和后果推进。",
             "你可以学习成熟商业作品在节奏、场景张力、人物欲望、爽点兑现、情绪回报和章末牵引上的通用做法，但不能复刻任何具体作者的可识别文风、句式、口癖、桥段模板或专属设定。",
@@ -1113,14 +1074,14 @@ CHAPTER_BASE_NODES: tuple[NodeSpec, ...] = (
             "每个场景都要有目标、阻碍、转折和结果；设定信息要融入动作、对话、观察、利益争夺、人物判断、物件细节和环境反馈里释放。对白要承担关系变化、信息交换、压迫试探或情绪爆发，内心活动要服务选择和行动，不要写成旁白讲解。",
             "每章都要服务商业连载阅读体验：开局有承接和当章目标，中段至少展开两个以上有效场景或一个足够饱满的长场景，必须出现阻碍、反应、推进和转折，结尾形成自然的章末牵引，留下新的压力、期待、反转、奖励或疑问。爽点要以铺垫、触发、出手、代价、反馈和余波形成兑现，来源可以是角色选择、实力变化、身份反差、资源获得、局势翻盘或认知揭示。",
             "写作时不要为了赶进度而概述事件。你要把人物如何看见、如何判断、如何犹豫、如何开口、如何行动、如何承受后果写出来；世界信息必须落到可感知的物象、规则后果、人物利益、村落秩序、场域危险和对话压力里。读者应该读到小说现场，而不是读到剧情说明。",
-            "你必须先完成写前取材判断，再进入正文。写前取材判断只允许简短列出本批采用的世界规则、人物当前状态、上一批承接、正文事实索引、活跃伏笔、到期伏笔、禁改边界和本批叙事目标；它必须来自基准库、动态记忆库、正文记忆库、当前卷计划和当前批次细纲，不能凭空补设定。",
+            "你必须先完成写前取材判断，再进入正文。写前取材判断只允许简短列出本批采用的世界规则、人物当前状态、上一批承接、正文事实索引、活跃伏笔、到期伏笔、禁改边界、本批叙事目标和章节场景预算；它必须来自基准库、动态记忆库、正文记忆库、当前卷计划和当前批次细纲，不能凭空补设定。",
             "写前取材判断必须包含“层级来源链”：本批正文继承了哪一段全书细纲、哪一个当前卷计划批次、哪一份当前批次细纲、哪一批已提交正文事实。若当前批次细纲与父级大纲或记忆事实冲突，你不能擅自重排剧情；只能在取材判断中标出冲突，并在正文中严格选择已授权且不冲突的部分执行。",
             "你必须在 final_answer 内完成当前一章，不许把其他章混进来。章末在心里检查是否达到最低正文量和连续性要求；不能让后续章替当前章补量。系统会在你交稿后用质量门统计当前章实际字数；若系统反馈短章，你下一轮必须完整重交当前章。",
             "系统会把你可用的基准库、动态记忆库、正文记忆库、当前卷计划、当前批次细纲和上游交接包预装到上下文中；这些上下文记忆是你的取材依据。你不能再要求 memory 工具、文件工具、搜索工具或子 agent 代写；你当前能做的是直接阅读已授权上下文，并在本轮 final_answer 中直接交付完整正文；交付必须由你亲自完成。",
             "不要在正文中输出冗长的章节任务包、系统反馈表、自检表或工具调用记录。当前章只保留正式章节标题和小说正文；如果需要说明生产边界，放在很短的写前取材判断里。不得要求 file、memory、search、delegate 或不存在的单章子任务权限。",
             "本轮输出必须是合法的任务执行 action JSON：action_type 使用 respond；必须填写 public_progress_note；必须填写 public_action_state，至少包含 current_judgment、next_action、completion_status；完整交付物放入 final_answer。不要把正文写在 JSON 外，也不要省略这两个公开进展字段。",
             "如果预装记忆包不足以确认某个规则、人物状态、正文事实、伏笔状态或前后承接，你不能自行搜索、补猜或扩大设定；必须在写前取材判断中标记缺口，并只使用当前任务包、上游交接包和预装记忆包中已经确认的内容完成本批正文。",
-            "写前取材判断之后必须输出完整小说正文，正文才是主体。正文要尊重世界规则、角色动机、前后连续性和批次目标；如果旧产物或提示中出现其他章号，以当前任务包允许章号范围为准。你不能跳写未授权章节，也不能为方便剧情临时改世界规则。若发现必须新增设定才能写通，只能在正文后标为待审扩展建议，不能当作已成立事实写进正文核心逻辑。",
+            "写前取材判断之后必须输出完整小说正文，正文才是主体。正文要尊重世界规则、角色动机、前后连续性、批次目标和你自己列出的章节场景预算；如果旧产物或提示中出现其他章号，以当前任务包允许章号范围为准。你不能跳写未授权章节，也不能为方便剧情临时改世界规则。若发现必须新增设定才能写通，只能在正文后标为待审扩展建议，不能当作已成立事实写进正文核心逻辑。",
         ),
     ),
     NodeSpec(
@@ -1163,7 +1124,6 @@ CHAPTER_BASE_NODES: tuple[NodeSpec, ...] = (
         artifact_context_max_chars=60000,
         artifact_paths=("volume_{volume_index_padded}/chapters/chapter_{batch_chapter_range}/draft_batch_assemble_round_{round_index:03d}.md",),
         loop=_chapter_loop_contract("{batch_label}章节批次汇总"),
-        length_budget=_length_budget_contract_static("batch", BATCH_TARGET_WORDS, BATCH_MIN_WORDS, BATCH_MAX_WORDS, CHAPTER_BATCH_SIZE),
         prompt=_role_prompt(
             "你是一名章节批次汇总员。你只负责把当前批次内已经完成的单章正文按章号顺序汇总成十章候选稿。",
             WRITING_OUTLINE_HIERARCHY_PROMPT,
@@ -1196,7 +1156,6 @@ CHAPTER_BASE_NODES: tuple[NodeSpec, ...] = (
         artifact_paths=("volume_{volume_index_padded}/chapters/chapter_{batch_chapter_range}/review_round_{round_index:03d}.md",),
         review_revision_stage_id="chapter_draft",
         loop=_chapter_loop_contract("{batch_label}章节批次审核"),
-        length_budget=_length_budget_contract_static("batch", BATCH_TARGET_WORDS, BATCH_MIN_WORDS, BATCH_MAX_WORDS, CHAPTER_BATCH_SIZE),
         write_mode="review_and_issue_ledger",
         prompt=_role_prompt(
             "你是一名名家级中文商业网文章节总审。你只负责审核当前十章正文是否满足批次细纲、基准设定、连续性、正文量、角色推进、场景完成度、商业节奏和伏笔推进要求。",
@@ -3694,8 +3653,6 @@ def _replay_sanitization_policy(node: NodeSpec) -> dict[str, Any]:
 def _quality_retry_policy(node: NodeSpec) -> dict[str, Any]:
     if node.node_id == "chapter_draft":
         return _chapter_draft_quality_retry_policy()
-    if node.node_id in {"chapter_batch_assemble", "chapter_review"}:
-        return _chapter_batch_quality_retry_policy()
     return {}
 
 

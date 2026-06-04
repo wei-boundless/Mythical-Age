@@ -25,8 +25,9 @@ describe("SessionActivityBar", () => {
       }),
     );
 
-    expect(html).toContain("处理失败");
+    expect(html).toContain("需要调整");
     expect(html).toContain("详情已写入会话。");
+    expect(html).not.toContain("处理失败");
     expect(html).not.toContain("当前环境的写入权限不足");
   });
 
@@ -44,7 +45,8 @@ describe("SessionActivityBar", () => {
       }),
     );
 
-    expect(html).toContain("会话连接失败");
+    expect(html).toContain("会话连接需要处理");
     expect(html).toContain("无法创建会话");
+    expect(html).not.toContain("会话连接失败");
   });
 });

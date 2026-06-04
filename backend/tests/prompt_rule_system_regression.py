@@ -26,6 +26,7 @@ def test_runtime_pack_manifest_reports_prompt_rule_coverage(tmp_path: Path) -> N
     assert "runtime.rule.intent_feedback.v1" in prompt_rules["rule_refs"]
     assert "runtime.rule.output_boundary.v1" in prompt_rules["rule_refs"]
     assert "runtime.rule.error_recovery.v1" in prompt_rules["rule_refs"]
+    assert "runtime.rule.subagent_invocation_protocol.v1" in prompt_rules["rule_refs"]
     assert prompt_rules["rejected_rules"] == []
 
     compiled = PromptRuleCompiler().compile(assembly.sections, invocation_kind="task_execution")
@@ -34,6 +35,7 @@ def test_runtime_pack_manifest_reports_prompt_rule_coverage(tmp_path: Path) -> N
     assert "runtime.system_call_protocol" in compiled.rule_kinds
     assert "runtime.intent_feedback" in compiled.rule_kinds
     assert "runtime.output_boundary" in compiled.rule_kinds
+    assert "runtime.subagent_invocation_protocol" in compiled.rule_kinds
 
 
 def test_runtime_protocol_requires_system_call_protocol_rule(tmp_path: Path) -> None:

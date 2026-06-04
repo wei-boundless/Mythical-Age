@@ -137,6 +137,26 @@ def test_query_planner_extracts_symbols_from_natural_language_without_command_no
     assert "SpecialistRuntimeRouter" in plan.required_terms
 
 
+def test_query_planner_treats_rag_test_data_as_local_evidence_discovery() -> None:
+    plan = build_codebase_search_plan(
+        "你能查到我项目里面的 RAG 测试数据和实验结果吗",
+        max_queries=12,
+        include_tests=True,
+    )
+
+    assert "scifact" in plan.preferred_roots
+    assert "backend/tests/_artifacts" in plan.preferred_roots
+    assert "output/benchmark_runtime" in plan.preferred_roots
+    assert "scifact" in plan.path_queries
+    assert "qrels" in plan.path_queries
+    assert "_artifacts" in plan.path_queries
+    assert "recall_at_10" in plan.text_queries
+    assert "mrr_at_10" in plan.text_queries
+    assert "scifact/**/*.jsonl" in plan.file_globs
+    assert "backend/tests/_artifacts/scifact_v2*.json" in plan.file_globs
+    assert "output/benchmark_runtime/**/*.json" in plan.file_globs
+
+
 def test_codebase_search_natural_language_query_prioritizes_relevant_runtime_files() -> None:
     query = "Find where SpecialistRuntimeRouter routes to CodebaseSearchCapability and where execute_task_run records the result."
 
@@ -152,6 +172,35 @@ def test_codebase_search_natural_language_query_prioritizes_relevant_runtime_fil
     top_files = [item["file"] for item in payload["findings"][:8]]
     assert "backend/harness/loop/specialist_runtime_router.py" in top_files
     assert "backend/harness/loop/task_executor.py" in top_files
+
+
+def test_codebase_search_finds_rag_dataset_and_historical_eval_artifacts() -> None:
+    query = "你能查到我项目里面的 RAG 测试数据和实验结果吗"
+
+    payload = asyncio.run(
+        CodebaseSearchCapability(Path(".")).run(
+            request=_request(query),
+            agent=_agent(),
+            profile=_profile(include_git_history=False),
+            config=normalize_codebase_search_config(
+                {
+                    "max_queries": 12,
+                    "max_text_results": 120,
+                    "max_path_results": 100,
+                    "max_file_slices": 24,
+                    "include_git_history": False,
+                }
+            ),
+        )
+    )
+
+    files = {item["file"] for item in payload["findings"]}
+
+    assert payload["status"] == "completed"
+    assert "scifact/_beir_extract/scifact/qrels/test.tsv" in files
+    assert "backend/tests/_artifacts/scifact_v2_current_top50.json" in files
+    assert any(path.startswith("backend/tests/_artifacts/scifact_v2") and path.endswith(".json") for path in files)
+    assert {"scifact", "qrels", "_artifacts"} <= set(payload["diagnostics"]["plan"]["path_queries"])
 
 
 def test_file_slicer_reads_bounded_context() -> None:

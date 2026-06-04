@@ -141,8 +141,11 @@ def build_progress_presentation(
 
         if event_type == "agent_todo_initialized":
             unit = resolve_unit(event, fallback_kind="stage")
+            todo_plan = public_todo_plan_from_event(event)
             _set_if_better(unit, "title", "建立处理清单")
             _set_if_visible(unit, "action", "已把任务目标转成可跟踪的处理清单。")
+            if todo_plan:
+                unit["todo_plan"] = todo_plan
             _set_if_better(unit, "state", "completed")
             _append_trace_ref(unit, event)
             continue
@@ -341,6 +344,16 @@ def _apply_tool_action(unit: dict[str, Any], action: dict[str, Any], payload: di
 
 
 def _apply_tool_observation(unit: dict[str, Any], observation: dict[str, Any], event: dict[str, Any]) -> None:
+    todo_plan = _todo_plan_from_observation(observation, trace_ref=_event_id(event))
+    if todo_plan:
+        _set_if_better(unit, "kind", "stage")
+        _set_if_better(unit, "title", "更新处理清单")
+        _set_if_visible(unit, "action", "处理清单已更新。")
+        unit["todo_plan"] = todo_plan
+        _set_if_better(unit, "state", "completed" if todo_plan.get("completion_ready") else "running")
+        _append_trace_ref(unit, event)
+        return
+
     payload = _record(observation.get("payload"))
     source = _text(observation.get("source"))
     tool_name = _tool_name(payload.get("tool_name") or source)
@@ -611,6 +624,7 @@ def _normalize_work_unit(unit: dict[str, Any]) -> dict[str, Any]:
         "action": _visible_text(unit.get("action")),
         "agent_feedback": _visible_text(unit.get("agent_feedback")),
         "evidence": evidence,
+        "todo_plan": _record(unit.get("todo_plan")),
         "next_action": _visible_text(unit.get("next_action")),
         "risk": _visible_text(unit.get("risk")),
         "technical_trace_refs": refs,
@@ -635,6 +649,7 @@ def _new_work_unit(key: str, *, kind: str) -> dict[str, Any]:
         "action": "",
         "agent_feedback": "",
         "evidence": [],
+        "todo_plan": {},
         "next_action": "",
         "risk": "",
         "technical_trace_refs": [],
@@ -799,6 +814,95 @@ def _append_evidence(unit: dict[str, Any], evidence: dict[str, str]) -> None:
     unit["evidence"].append(evidence)
 
 
+def public_todo_plan_from_event(event: dict[str, Any]) -> dict[str, Any]:
+    payload = _record(event.get("payload"))
+    observation = _record(payload.get("observation") or payload.get("tool_observation"))
+    plan = _todo_plan_from_observation(observation, trace_ref=_event_id(event))
+    if plan:
+        return plan
+    if _text(event.get("event_type")) == "agent_todo_initialized":
+        return _parse_todo_plan(payload, trace_ref=_event_id(event))
+    return {}
+
+
+def _todo_plan_from_observation(observation: dict[str, Any], *, trace_ref: str = "") -> dict[str, Any]:
+    if not observation:
+        return {}
+    payload = _record(observation.get("payload"))
+    envelope = _record(payload.get("result_envelope"))
+    structured = _record(payload.get("structured_payload") or envelope.get("structured_payload"))
+    source = _text(observation.get("source"))
+    tool_name = _tool_name(payload.get("tool_name") or envelope.get("tool_name") or structured.get("tool_name") or source)
+    if tool_name != "agent_todo" and source not in {"agent_todo", "system:agent_todo", "tool:agent_todo"}:
+        return {}
+    for candidate in (
+        payload.get("result"),
+        payload.get("text"),
+        payload.get("structured_payload"),
+        envelope.get("text"),
+        envelope.get("structured_payload"),
+        observation.get("summary"),
+    ):
+        plan = _parse_todo_plan(candidate, trace_ref=trace_ref)
+        if plan:
+            return plan
+    return {}
+
+
+def _parse_todo_plan(value: Any, *, trace_ref: str = "") -> dict[str, Any]:
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except Exception:
+            return {}
+    elif isinstance(value, dict):
+        parsed = dict(value)
+    else:
+        return {}
+    for key in ("result", "structured_payload", "tool_result"):
+        if key in parsed and "items" not in parsed:
+            nested = _parse_todo_plan(parsed.get(key), trace_ref=trace_ref)
+            if nested:
+                return nested
+    items = [_normalize_todo_item(item) for item in list(parsed.get("items") or []) if isinstance(item, dict)]
+    items = [item for item in items if item]
+    if not items:
+        return {}
+    active = _text(parsed.get("active_item_id"))
+    if active and not any(item.get("todo_id") == active and item.get("status") == "in_progress" for item in items):
+        active = ""
+    trace_refs = _string_list(parsed.get("trace_refs"))
+    if trace_ref and trace_ref not in trace_refs:
+        trace_refs.append(trace_ref)
+    return _compact_dict(
+        {
+            "plan_id": _text(parsed.get("plan_id")),
+            "active_item_id": active,
+            "completion_ready": bool(parsed.get("completion_ready") or all(item.get("status") == "completed" for item in items)),
+            "items": items,
+            "trace_refs": trace_refs,
+        }
+    )
+
+
+def _normalize_todo_item(item: dict[str, Any]) -> dict[str, Any]:
+    content = _visible_text(item.get("content") or item.get("title"), limit=180)
+    if not content:
+        return {}
+    status = _text(item.get("status") or "pending")
+    if status not in {"pending", "in_progress", "completed", "blocked"}:
+        status = "pending"
+    return _compact_dict(
+        {
+            "todo_id": _text(item.get("todo_id") or content),
+            "content": content,
+            "active_form": _visible_text(item.get("active_form") or content, limit=180),
+            "status": status,
+            "notes": _visible_text(item.get("notes"), limit=180),
+        }
+    )
+
+
 def _set_if_visible(unit: dict[str, Any], key: str, value: Any) -> None:
     text = _visible_text(value)
     if text:
@@ -869,6 +973,10 @@ def _string_list(value: Any) -> list[str]:
     if not isinstance(value, list):
         return []
     return [_text(item) for item in value if _text(item)]
+
+
+def _compact_dict(payload: dict[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in payload.items() if value not in ("", None, [], {})}
 
 
 def _event_id(event: dict[str, Any]) -> str:

@@ -6,12 +6,16 @@ from fastapi import APIRouter, Query
 from pydantic import BaseModel, Field
 
 from api.deps import require_runtime
-from memory_system.storage.models import Message
-from runtime.prompt_accounting import ContextUsageMeter, TokenCounterRegistry
+from runtime.context_management.session_compaction import (
+    build_context_usage_snapshot,
+    cache_metrics_from_context_meter,
+    compact_session_history,
+    count_tokens,
+    prompt_accounting_ledger,
+)
 from task_system.session_scope import assert_optional_session_scope, request_scope_from_query
 
 router = APIRouter()
-TOKEN_COUNTER = TokenCounterRegistry()
 
 class FileTokensRequest(BaseModel):
     paths: list[str] = Field(default_factory=list)
@@ -24,7 +28,21 @@ class CompactSessionRequest(BaseModel):
 
 
 def _count_tokens(text: str) -> int:
-    return TOKEN_COUNTER.count_text(text, provider="local", model="session_token_api").tokens
+    return count_tokens(text)
+
+
+def _messages_token_text(messages: list[dict[str, Any]]) -> str:
+    chunks: list[str] = []
+    for item in messages:
+        if not isinstance(item, dict):
+            continue
+        chunks.append(str(item.get("content", "")))
+        reasoning = str(item.get("reasoning_content") or "").strip()
+        if reasoning:
+            chunks.append(reasoning)
+        for tool_call in item.get("tool_calls", []) or []:
+            chunks.append(str(tool_call))
+    return "\n".join(chunks)
 
 
 @router.get("/tokens/session/{session_id}")
@@ -42,39 +60,39 @@ async def session_tokens(
     )
 
     record = runtime.session_manager.get_history(session_id)
-    ledger = _prompt_accounting_ledger(runtime)
+    ledger = prompt_accounting_ledger(runtime)
     prompt_usage = ledger.summarize_session(session_id)
-    message_text = []
-    for item in record.get("messages", []):
-        message_text.append(str(item.get("content", "")))
-        for tool_call in item.get("tool_calls", []) or []:
-            message_text.append(str(tool_call))
 
-    context_snapshot = _context_usage_snapshot(runtime, session_id=session_id, raw_messages=list(record.get("messages", [])))
+    raw_messages = list(record.get("messages", []))
+    api_transcript_loader = getattr(runtime.session_manager, "load_session_for_api", None)
+    cumulative_messages = (
+        list(api_transcript_loader(session_id))
+        if callable(api_transcript_loader)
+        else raw_messages
+    )
+    context_snapshot = build_context_usage_snapshot(runtime, session_id=session_id, raw_messages=raw_messages)
     context_meter = context_snapshot.to_dict()
     system_tokens = int(prompt_usage.get("prompt_tokens") or prompt_usage.get("predicted_total_tokens") or 0)
-    message_tokens = _count_tokens("\n".join(message_text))
-    messages = list(record.get("messages", []))
-    py_messages = runtime.memory_facade.adapter.to_messages(messages, session_id=session_id)
-    compactor = runtime.memory_facade.session_memory.compactor(session_id)
-    raw_history_tokens = compactor.conversation_tokens(py_messages)
-    pressure_level = compactor.pressure_level(raw_history_tokens, len(py_messages))
-    token_diagnostics = {
-        "raw_history_tokens": raw_history_tokens,
-        "history_budget_tokens": int(compactor.effective_history_token_budget),
-        "history_pressure_level": str(pressure_level),
-    }
-    raw_history_tokens = int(token_diagnostics.get("raw_history_tokens", 0))
-    context_compaction: dict[str, Any] = {}
-    try:
-        _compacted_history, context_compaction = runtime.memory_facade.bundle_service.inspect_memory_context_compaction(
-            session_id,
-            messages,
-        )
-    except Exception:
-        context_compaction = {}
+    message_tokens = _count_tokens(_messages_token_text(raw_messages))
+    cumulative_transcript_tokens = _count_tokens(_messages_token_text(cumulative_messages))
+    context_compaction = compact_session_history(
+        runtime,
+        session_id=session_id,
+        mode="preview",
+        pressure_level="auto",
+        reason="session_token_status_preview",
+        pressure_source="history",
+        context_snapshot=context_snapshot,
+    )
+    raw_history_tokens = int(context_compaction.get("estimated_tokens_before") or 0)
     history_tokens = int(context_compaction.get("estimated_tokens_after") or raw_history_tokens)
-    history_budget_tokens = int(token_diagnostics.get("history_budget_tokens", 0))
+    compression_saved_tokens = max(cumulative_transcript_tokens - history_tokens, 0)
+    compression_ratio = (
+        min(history_tokens / cumulative_transcript_tokens, 1.0)
+        if cumulative_transcript_tokens > 0
+        else 1.0
+    )
+    history_budget_tokens = int(context_compaction.get("history_budget_tokens") or 0)
     history_remaining_tokens = max(history_budget_tokens - history_tokens, 0)
     history_usage_ratio = (
         min(history_tokens / history_budget_tokens, 1.0)
@@ -87,11 +105,12 @@ async def session_tokens(
         else 0.0
     )
     history_pressure_level = str(
-        context_compaction.get("pressure_level")
-        or token_diagnostics.get("history_pressure_level", "normal")
+        context_compaction.get("history_pressure_level")
+        or context_compaction.get("pressure_level")
+        or "normal"
     )
     billing_totals = dict(prompt_usage or {})
-    cache_metrics = _cache_metrics_from_context_meter(context_meter, billing_totals)
+    cache_metrics = cache_metrics_from_context_meter(context_meter, billing_totals)
     compaction_readiness = {
         "pressure_level": context_meter.get("pressure_level", "normal"),
         "auto_replacement_allowed": bool(context_meter.get("auto_replacement_allowed", False)),
@@ -109,6 +128,10 @@ async def session_tokens(
         "context_meter": context_meter,
         "cache_metrics": cache_metrics,
         "compaction_readiness": compaction_readiness,
+        "cumulative_transcript_tokens": cumulative_transcript_tokens,
+        "cumulative_transcript_message_count": len(cumulative_messages),
+        "compression_saved_tokens": compression_saved_tokens,
+        "compression_ratio": round(compression_ratio, 4),
         "raw_history_tokens": raw_history_tokens,
         "history_tokens": history_tokens,
         "history_budget_tokens": history_budget_tokens,
@@ -138,7 +161,16 @@ async def preview_session_compaction(
         session_id,
         request_scope_from_query(workspace_view=workspace_view, task_environment_id=task_environment_id, project_id=project_id),
     )
-    return _compact_session(runtime, session_id=session_id, payload=payload or CompactSessionRequest(), mode="preview")
+    compact_payload = payload or CompactSessionRequest()
+    return compact_session_history(
+        runtime,
+        session_id=session_id,
+        mode="preview",
+        pressure_level=compact_payload.pressure_level,
+        reason=compact_payload.reason or "manual_compact",
+        reserved_output_tokens=int(compact_payload.reserved_output_tokens or 0),
+        pressure_source="context",
+    )
 
 
 @router.post("/tokens/session/{session_id}/compact/run")
@@ -155,7 +187,16 @@ async def run_session_compaction(
         session_id,
         request_scope_from_query(workspace_view=workspace_view, task_environment_id=task_environment_id, project_id=project_id),
     )
-    return _compact_session(runtime, session_id=session_id, payload=payload or CompactSessionRequest(), mode="run")
+    compact_payload = payload or CompactSessionRequest()
+    return compact_session_history(
+        runtime,
+        session_id=session_id,
+        mode="run",
+        pressure_level=compact_payload.pressure_level,
+        reason=compact_payload.reason or "manual_compact",
+        reserved_output_tokens=int(compact_payload.reserved_output_tokens or 0),
+        pressure_source="context",
+    )
 
 
 @router.post("/tokens/files")
@@ -173,175 +214,4 @@ async def file_tokens(payload: FileTokensRequest) -> dict[str, Any]:
         files.append({"path": relative_path, "tokens": count})
 
     return {"files": files, "total_tokens": total}
-
-
-def _compact_session(
-    runtime: Any,
-    *,
-    session_id: str,
-    payload: CompactSessionRequest,
-    mode: Literal["preview", "run"],
-) -> dict[str, Any]:
-    record = runtime.session_manager.get_history(session_id)
-    raw_messages = list(record.get("messages") or [])
-    py_messages = runtime.memory_facade.adapter.to_messages(raw_messages, session_id=session_id)
-    compactor = runtime.memory_facade.session_memory.compactor(session_id)
-    tokens_before = compactor.conversation_tokens(py_messages)
-    context_snapshot = _context_usage_snapshot(runtime, session_id=session_id, raw_messages=raw_messages)
-    pressure_level = str(context_snapshot.pressure_level or "normal")
-    requested_level = str(payload.pressure_level or "auto")
-    effective_level = pressure_level if requested_level == "auto" else requested_level
-    result = compactor.apply_strategy(
-        py_messages,
-        pressure_level=effective_level,
-        request_id=f"context_compaction:manual:{mode}:{session_id}",
-        session_id=session_id,
-        trigger="preview" if mode == "preview" else "manual",
-        reason=payload.reason or "manual_compact",
-        reserved_output_tokens=int(payload.reserved_output_tokens or 0),
-        force_full_compact=requested_level == "full_compact",
-    )
-    receipt = dict(dict(result.diagnostics or {}).get("compact_boundary_receipt") or {})
-    blocked = bool(receipt.get("blocked"))
-    applied = False
-    persisted: dict[str, Any] = {}
-    if mode == "run" and not blocked and _result_rewrites_history(result):
-        compressed_context = _compressed_context_after_compact(record, result.summary_message)
-        stored_messages = _stored_messages_after_compact(result.messages)
-        replace = getattr(runtime.session_manager, "replace_runtime_context", None)
-        if callable(replace):
-            persisted = replace(
-                session_id,
-                messages=stored_messages,
-                compressed_context=compressed_context,
-            )
-            applied = True
-    return {
-        "authority": "api.tokens.session_compaction",
-        "mode": mode,
-        "session_id": session_id,
-        "applied": applied,
-        "requested_pressure_level": requested_level,
-        "pressure_level": str(pressure_level),
-        "effective_pressure_level": str(effective_level),
-        "context_meter": context_snapshot.to_dict(),
-        "strategy": result.strategy,
-        "did_compact": result.did_compact,
-        "did_microcompact": result.did_microcompact,
-        "did_full_compact": result.did_full_compact,
-        "estimated_tokens_before": result.estimated_tokens_before,
-        "estimated_tokens_after": result.estimated_tokens_after,
-        "original_message_count": result.original_message_count,
-        "compacted_message_count": result.compacted_message_count,
-        "replaced_message_count": result.replaced_message_count,
-        "preserved_recent_count": result.preserved_recent_count,
-        "blocked": blocked,
-        "blocked_reason": str(receipt.get("block_reason") or ""),
-        "compact_boundary_receipt": receipt,
-        "compression_budget_decision": dict(dict(result.diagnostics or {}).get("compression_budget_decision") or {}),
-        "microcompact_cache_decision": dict(dict(result.diagnostics or {}).get("microcompact_cache_decision") or {}),
-        "message_preview": [_message_preview(message) for message in result.messages[:8]],
-        "persisted_message_count": len(list(persisted.get("messages") or [])) if persisted else len(raw_messages),
-        "compressed_context_present": bool(str((persisted or record).get("compressed_context") or "")),
-    }
-
-
-def _result_rewrites_history(result: Any) -> bool:
-    return bool(getattr(result, "did_full_compact", False)) or int(getattr(result, "replaced_message_count", 0) or 0) > 0
-
-
-def _compressed_context_after_compact(record: dict[str, Any], summary_message: Message | None) -> str:
-    if summary_message is None:
-        return str(record.get("compressed_context") or "")
-    return str(summary_message.content or "").strip()
-
-
-def _stored_messages_after_compact(messages: list[Message]) -> list[dict[str, Any]]:
-    stored: list[dict[str, Any]] = []
-    for message in list(messages or []):
-        meta = dict(message.meta or {})
-        if str(meta.get("kind") or "") == "compact_summary":
-            continue
-        if message.role == "system":
-            continue
-        stored.append(_message_to_session_dict(message))
-    return stored
-
-
-def _message_to_session_dict(message: Message) -> dict[str, Any]:
-    payload = {
-        "role": message.role,
-        "content": message.content,
-    }
-    meta = dict(message.meta or {})
-    if meta:
-        payload["meta"] = meta
-    return payload
-
-
-def _message_preview(message: Message) -> dict[str, Any]:
-    content = str(message.content or "")
-    return {
-        "role": message.role,
-        "kind": str(dict(message.meta or {}).get("kind") or ""),
-        "content_preview": content[:240],
-        "tokens": _count_tokens(content),
-    }
-
-
-def _context_usage_snapshot(runtime: Any, *, session_id: str, raw_messages: list[dict[str, Any]]) -> Any:
-    ledger = _prompt_accounting_ledger(runtime)
-    static = getattr(getattr(runtime, "settings_service", None), "static", None)
-    provider = str(getattr(static, "llm_provider", "") or "")
-    model = str(getattr(static, "llm_model", "") or "")
-    reserved_output_tokens = int(getattr(static, "llm_max_output_tokens", 0) or 0)
-    meter = ContextUsageMeter(
-        ledger,
-        default_reserved_output_tokens=reserved_output_tokens,
-    )
-    return meter.build_snapshot(
-        session_id=session_id,
-        provider=provider,
-        model=model,
-        reserved_output_tokens=reserved_output_tokens,
-        fallback_messages=raw_messages,
-    )
-
-
-def _prompt_accounting_ledger(runtime: Any) -> Any:
-    host = getattr(getattr(runtime, "harness_runtime", None), "single_agent_runtime_host", None)
-    ledger = getattr(host, "prompt_accounting_ledger", None)
-    if ledger is not None:
-        return ledger
-
-    class _EmptyPromptAccountingLedger:
-        def list_token_usage(self, **_kwargs: Any) -> list[Any]:
-            return []
-
-        def list_prompt_cache(self, **_kwargs: Any) -> list[Any]:
-            return []
-
-        def summarize_session(self, _session_id: str) -> dict[str, Any]:
-            return {}
-
-    return _EmptyPromptAccountingLedger()
-
-
-def _cache_metrics_from_context_meter(context_meter: dict[str, Any], billing_totals: dict[str, Any]) -> dict[str, Any]:
-    prompt_tokens = int(context_meter.get("provider_prompt_tokens") or 0)
-    cached_tokens = int(context_meter.get("provider_cached_tokens") or 0)
-    miss_tokens = max(0, prompt_tokens - cached_tokens)
-    return {
-        "latest_prompt_tokens": prompt_tokens,
-        "latest_cached_tokens": cached_tokens,
-        "latest_miss_tokens": miss_tokens,
-        "latest_cache_hit_rate": float(context_meter.get("cache_hit_rate_latest") or 0.0),
-        "cache_hit_rate_last_5": float(context_meter.get("cache_hit_rate_last_5") or 0.0),
-        "cache_hit_rate_last_10": float(context_meter.get("cache_hit_rate_last_10") or 0.0),
-        "cache_hit_rate_last_20": float(context_meter.get("cache_hit_rate_last_20") or 0.0),
-        "total_cached_tokens": int(billing_totals.get("cached_tokens") or 0),
-        "total_cache_savings_tokens": int(billing_totals.get("cache_savings_tokens") or 0),
-        "provider_usage_record_count": int(billing_totals.get("provider_usage_record_count") or 0),
-    }
-
 

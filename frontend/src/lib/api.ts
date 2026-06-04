@@ -203,36 +203,6 @@ export type PublicTodoItem = {
   notes?: string;
 };
 
-export type PublicExecutionState = {
-  opening?: {
-    text?: string;
-    state?: "running" | "done" | "error" | string;
-    trace_refs?: string[];
-  };
-  todo_plan?: {
-    plan_id?: string;
-    active_item_id?: string;
-    completion_ready?: boolean;
-    items?: PublicTodoItem[];
-    trace_refs?: string[];
-  };
-  observations?: Array<{
-    item_id?: string;
-    unit_id?: string;
-    title?: string;
-    detail?: string;
-    implication?: string;
-    state?: "running" | "done" | "error" | string;
-    trace_refs?: string[];
-  }>;
-  final_summary?: {
-    text?: string;
-    verified?: string[];
-    artifacts?: string[];
-  };
-  authority?: string;
-};
-
 export type PublicChatTimelineItem = {
   item_id?: string;
   kind: "status_update" | "assistant_text" | "opening_judgment" | "todo_plan" | "tool_activity" | "observation_report" | "artifact" | "verification" | "blocked" | "final_summary" | string;
@@ -297,7 +267,6 @@ export type SessionRuntimeAttachment = {
   agent_brief_output?: string;
   latest_event_type?: string;
   event_count?: number;
-  public_execution_state?: PublicExecutionState;
   progress_presentation?: RuntimeProgressPresentation;
   progress_entries?: Array<Record<string, unknown>>;
   public_timeline?: PublicChatTimelineItem[];
@@ -3797,6 +3766,10 @@ export async function getSessionTokens(sessionId: string, scope?: Partial<Sessio
       context_window_tokens?: number;
       pressure_level?: string;
     };
+    cumulative_transcript_tokens?: number;
+    cumulative_transcript_message_count?: number;
+    compression_saved_tokens?: number;
+    compression_ratio?: number;
     raw_history_tokens: number;
     history_tokens: number;
     history_budget_tokens: number;

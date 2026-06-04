@@ -128,6 +128,10 @@ export type TokenStats = {
     context_window_tokens?: number;
     pressure_level?: string;
   };
+  cumulative_transcript_tokens?: number;
+  cumulative_transcript_message_count?: number;
+  compression_saved_tokens?: number;
+  compression_ratio?: number;
   raw_history_tokens: number;
   history_tokens: number;
   history_budget_tokens: number;

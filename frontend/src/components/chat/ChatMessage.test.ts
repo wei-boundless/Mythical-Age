@@ -87,6 +87,8 @@ describe("ChatMessage", () => {
 
     expect(html).not.toContain("我会按这个目标推进");
     expect(html).toContain("生图工具未配置");
+    expect(html).toContain("调整中");
+    expect(html).not.toContain("受阻");
     expect(html).not.toContain("查看执行细节");
     expect(html).not.toContain("查看技术细节");
   });
@@ -247,7 +249,7 @@ describe("ChatMessage", () => {
       }),
     );
 
-    expect(html).toContain("开局判断");
+    expect(html).toContain("开局反馈");
     expect(html).toContain("我先确认现有输出链路");
     expect(html).not.toContain("public-run-activity");
     expect(html).not.toContain("正在思考");
@@ -273,7 +275,7 @@ describe("ChatMessage", () => {
       }),
     );
 
-    expect(html).toContain("开局判断");
+    expect(html).toContain("开局反馈");
     expect(html).toContain("我先确认项目约定和协作边界");
     expect(html).toContain("确认项目约定和协作边界");
     expect(html).toContain("正在读取 langchain-agent/AGENTS.md");
@@ -304,8 +306,10 @@ describe("ChatMessage", () => {
     );
 
     expect(html).toContain("写好了");
-    expect(html).toContain("动作已返回 artifacts/football.html");
-    expect(html).toContain("public-run-activity__row--done");
+    expect(html).toContain("工具反馈");
+    expect(html).toContain("观察：artifacts/football.html 已返回");
+    expect(html).not.toContain("动作已返回");
+    expect(html).not.toContain("public-run-activity__row--done");
     expect(html).not.toContain("public-run-activity__row--current");
     expect(html).not.toContain("public-run-activity__spinner");
   });

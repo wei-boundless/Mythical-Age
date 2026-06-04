@@ -75,6 +75,19 @@ RUNTIME_SUBAGENT_DELEGATION_RULE = """
 """.strip()
 
 
+RUNTIME_SUBAGENT_INVOCATION_PROTOCOL_RULE = """
+调用子 agent 前，你需要先写清楚分工，不要把“帮我看看整个项目”这类模糊目标直接交给子 agent。
+spawn_subagent 的 brief 应使用可执行结构：目标、scope、排除项、已知事实、可用 context_refs、搜索策略、期望输出、失败处理。
+多子 agent 并行搜索时，先划分不重叠的 scope 和问题；每个子 agent 只负责自己的范围，并明确不要搜索其它子 agent 的范围。
+给 codebase_searcher 的 brief 必须要求返回 evidence matrix：positive findings、negative findings、files_read、evidence_refs、limitations、open_questions 和 recommended_parent_reads。
+给 web_researcher 的 brief 必须写清 research question、topic、time_range 或 freshness 要求、source preference、排除来源、需要核验的 claim 和引用格式；时间敏感问题必须要求同时核对发布日期和事件日期。
+web_researcher 的返回必须要求 source matrix：claim、source_urls、source_type、published_at/event_date、是否已 fetch、evidence_refs、limitations、open_questions 和 confidence；搜索摘要、社区帖子或二手博客不能单独支撑关键结论。
+主 agent 在 wait_subagent 前不能引用子 agent 结论；wait 后先综合所有返回，按文件、模块、风险和未确认问题去重，再决定是否继续读取、实现、验证或收口。
+如果达到 max_active_subagents 或 max_subagent_runs_per_task，应先 wait/list_subagents 观察已有子 agent，而不是继续 spawn 或换说法绕过限额。
+子 agent 的结果是证据输入，不是最终裁决；主 agent 必须承担最终判断、用户可见总结和验收责任。
+""".strip()
+
+
 RUNTIME_MULTI_TOOL_SCHEDULING_RULE = """
 如果本轮协议和模型接口允许多个普通工具调用，你可以在同一轮提出多个互不依赖的工具调用。
 这只表示请求层允许多个 tool calls；运行时会根据工具元数据、资源冲突、审批状态、文件写入范围和安全策略决定并发执行、串行执行或阻塞等待。
@@ -104,6 +117,20 @@ CODING_INSPECTION_RULE = """
 你处在 coding 或 development 环境时，开始实现前先定位相关调用链、配置、测试入口和已有改动。
 不了解位置时先搜索；已知道路径时再读取具体文件；不要用文件名、记忆、todo 或旧观察代替真实文件事实。
 优先用专用搜索和读取工具定位代码，只有在需要运行验证、脚本、构建或专用工具无法表达时才使用 terminal。
+""".strip()
+
+
+CODING_LARGE_SCOPE_EXPLORATION_RULE = """
+当用户请求涉及全项目、整个代码库、所有模块、架构审查、系统性排查或类似广度目标时，先做规模判断，再展开细读。
+在调用 read_file 前，优先用 list_dir 读取项目根目录一层结构；如果 list_dir 不可见，应使用本轮可见的等价目录或路径搜索工具获得顶层结构。
+若顶层模块数量不少于 8 个、预期代码量超过 500KB，或问题明显跨越 3 个以上互不依赖区域，应判定为大范围探索。
+大范围探索时，先用 agent_todo 写出按区域拆分的执行项；每项需要包含范围、目标、期望证据和是否适合 codebase_searcher。
+当需要探查 3 个以上互不依赖的目录、模块或语言层时，应优先委派 codebase_searcher 子 agent 分区只读搜索；主 agent 负责综合结果、裁决风险和决定后续实现。
+多子 agent 搜索必须分配互不重叠的 scope、搜索问题和排除项；不要让多个子 agent 同时搜索整个仓库，也不要把同一关键词和同一目录重复分配。
+每个 brief 都应要求返回 positive findings、negative findings、files_read、evidence_refs、limitations 和建议主 agent 下一步只需读取的少量关键文件。
+主 agent 等待结果后，应先合并证据矩阵：按文件、模块、风险和未确认问题去重；只读取能改变结论的关键文件，不要把所有子 agent 读过的文件重新串行读一遍。
+如果 runtime 的 task_state.exploration_advisory 提示连续只读探索已经过长，应暂停继续串行读文件，先判断剩余区域是否应拆给子 agent；除非只剩一个明确目标，否则不要继续线性读取。
+子 agent 协作不改变权限、任务合同或最终责任；子 agent 返回前不能预测结论，返回后必须由主 agent 综合证据再决定下一步。
 """.strip()
 
 
@@ -259,6 +286,14 @@ def list_builtin_prompt_rule_resources() -> tuple[PromptResource, ...]:
             allowed_invocation_kinds=("single_agent_turn", "task_execution"),
         ),
         _rule_resource(
+            prompt_id="runtime.rule.subagent_invocation_protocol.v1",
+            title="Runtime subagent invocation protocol rule",
+            content=RUNTIME_SUBAGENT_INVOCATION_PROTOCOL_RULE,
+            rule_kind="runtime.subagent_invocation_protocol",
+            applies_to=("single_agent_turn", "task_execution"),
+            allowed_invocation_kinds=("single_agent_turn", "task_execution"),
+        ),
+        _rule_resource(
             prompt_id="runtime.rule.multi_tool_scheduling.v1",
             title="Runtime multi-tool scheduling rule",
             content=RUNTIME_MULTI_TOOL_SCHEDULING_RULE,
@@ -296,6 +331,21 @@ def list_builtin_prompt_rule_resources() -> tuple[PromptResource, ...]:
             title="Coding codebase inspection rule",
             content=CODING_INSPECTION_RULE,
             rule_kind="coding.inspection",
+            owner_layer="environment",
+            category="environment",
+            subtype="coding_rule",
+            resource_type="environment.coding_rule",
+            applies_to=("coding_agent", "task_execution"),
+            allowed_invocation_kinds=("environment",),
+            allowed_environment_refs=("env.coding.vibe_workspace", "env.development.sandbox"),
+            cache_scope="static_environment",
+            cache_tier="static_environment",
+        ),
+        _rule_resource(
+            prompt_id="coding.rule.large_scope_exploration.v1",
+            title="Coding large scope exploration rule",
+            content=CODING_LARGE_SCOPE_EXPLORATION_RULE,
+            rule_kind="coding.large_scope_exploration",
             owner_layer="environment",
             category="environment",
             subtype="coding_rule",

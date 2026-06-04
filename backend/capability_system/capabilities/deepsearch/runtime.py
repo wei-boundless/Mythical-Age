@@ -9,7 +9,7 @@ from .models import SearchRuntimeConfig, required_operations_for_search_config
 from .providers import FetchUrlProvider, TavilySearchProvider
 from .result_storage import SearchToolResultStore
 from .strategy import DefaultDeepSearchStrategy, ResearchState, enqueue_queries
-from .web_text import normalize_web_result_item
+from .web_text import clean_web_text, normalize_web_result_item
 
 
 class DeepSearchCapability:
@@ -183,14 +183,20 @@ class DeepSearchCapability:
         if not ok and not limitations:
             limitations.append("deepsearch_no_sources")
         answer = _deepsearch_summary(web_payload=combined_payload, packet=packet)
+        source_matrix = _source_matrix_from_packet(packet=packet, web_payload=combined_payload)
+        open_questions = _open_questions_from_research(packet=packet, limitations=limitations, distillation=distillation)
         return {
             "status": "completed" if ok else "failed",
             "summary": answer,
             "answer_candidate": answer,
             "evidence_refs": [item.evidence_id for item in packet.evidence],
+            "source_urls": _source_urls(source_matrix),
+            "source_matrix": source_matrix,
             "artifact_refs": artifact_refs,
             "confidence": packet.confidence,
             "limitations": limitations,
+            "open_questions": open_questions,
+            "recommended_parent_action": _recommended_parent_action(ok=ok, open_questions=open_questions),
             "diagnostics": {
                 "child_execution_mode": "profile_authorized_deepsearch_capability",
                 "operation_id": "op.search_agent",
@@ -318,9 +324,13 @@ def _failed_result(*, summary: str, limitations: list[str], diagnostics: dict[st
         "summary": summary,
         "answer_candidate": summary,
         "evidence_refs": [],
+        "source_urls": [],
+        "source_matrix": [],
         "artifact_refs": [],
         "confidence": "low",
         "limitations": limitations,
+        "open_questions": list(limitations),
+        "recommended_parent_action": "Report the limitation to the parent task; retry only if a clearer query or required operation becomes available.",
         "diagnostics": diagnostics,
     }
 
@@ -459,6 +469,66 @@ def _artifact_refs_from_distillation(distillation: Any) -> list[str]:
         if ref and ref not in refs:
             refs.append(ref)
     return refs
+
+
+def _source_matrix_from_packet(*, packet: Any, web_payload: dict[str, Any]) -> list[dict[str, Any]]:
+    fetched_urls = {
+        str(item.get("url") or "").strip()
+        for item in list(dict(web_payload.get("deepsearch") or {}).get("fetched_sources") or [])
+        if isinstance(item, dict)
+    }
+    matrix: list[dict[str, Any]] = []
+    for evidence in list(getattr(packet, "evidence", ()) or ())[:12]:
+        locator = dict(getattr(evidence, "locator", {}) or {})
+        url = str(locator.get("url") or getattr(evidence, "source", "") or "").strip()
+        row = {
+            "evidence_ref": str(getattr(evidence, "evidence_id", "") or ""),
+            "url": url,
+            "title": str(locator.get("title") or ""),
+            "host": str(locator.get("host") or ""),
+            "source_type": str(locator.get("source_type") or "secondary"),
+            "published_at": str(locator.get("published_date") or ""),
+            "event_date": str(locator.get("event_date") or ""),
+            "claim": clean_web_text(getattr(evidence, "text_or_value", "") or "", limit=360),
+            "confidence": str(getattr(evidence, "confidence", "") or ""),
+            "was_fetched": bool(url and url in fetched_urls),
+        }
+        matrix.append({key: value for key, value in row.items() if value not in ("", None, [], {})})
+    return matrix
+
+
+def _source_urls(source_matrix: list[dict[str, Any]]) -> list[str]:
+    urls: list[str] = []
+    for item in source_matrix:
+        url = str(item.get("url") or "").strip()
+        if url and url not in urls:
+            urls.append(url)
+    return urls
+
+
+def _open_questions_from_research(*, packet: Any, limitations: list[str], distillation: Any) -> list[str]:
+    questions: list[str] = []
+    for unknown in list(getattr(packet, "unknowns", ()) or []):
+        description = str(getattr(unknown, "description", "") or "").strip()
+        if description:
+            questions.append(description)
+    for conflict in tuple(getattr(distillation, "conflicts", ()) or ()):
+        item = str(conflict or "").strip()
+        if item:
+            questions.append(f"source_conflict:{item}")
+    for limitation in limitations:
+        item = str(limitation or "").strip()
+        if item and item not in questions:
+            questions.append(item)
+    return _dedupe_strings(questions)[:8]
+
+
+def _recommended_parent_action(*, ok: bool, open_questions: list[str]) -> str:
+    if not ok:
+        return "Treat this web research result as incomplete; refine the query, add source constraints, or tell the user what could not be verified."
+    if open_questions:
+        return "Use the source_matrix as evidence, but keep unresolved questions visible in the parent answer or run a focused follow-up search."
+    return "Use the source_matrix and evidence_refs as the external evidence boundary; cite primary or official sources first."
 
 
 def _dedupe_strings(values: list[str]) -> list[str]:

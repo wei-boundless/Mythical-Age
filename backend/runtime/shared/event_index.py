@@ -347,8 +347,24 @@ def _safe_stat(path: Path) -> os.stat_result | None:
 def _atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(f"{path.suffix}.{uuid.uuid4().hex}.tmp")
-    tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    os.replace(tmp, path)
+    text = json.dumps(payload, ensure_ascii=False, indent=2)
+    tmp.write_text(text, encoding="utf-8")
+    last_error: OSError | None = None
+    for attempt in range(16):
+        try:
+            os.replace(tmp, path)
+            return
+        except PermissionError as exc:
+            last_error = exc
+            time.sleep(min(0.75, 0.05 * (attempt + 1)))
+    try:
+        path.write_text(text, encoding="utf-8")
+        tmp.unlink(missing_ok=True)
+    except OSError as exc:
+        tmp.unlink(missing_ok=True)
+        if last_error is not None:
+            raise last_error from exc
+        raise
 
 
 def _safe_id(value: str, *, limit: int = 180) -> str:

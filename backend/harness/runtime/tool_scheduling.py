@@ -19,6 +19,7 @@ _CONTROL_OPERATIONS = {
 }
 _FILE_READ_OPERATIONS = {
     "op.read_file",
+    "op.read_persisted_tool_result",
     "op.list_dir",
     "op.stat_path",
     "op.path_exists",
@@ -171,7 +172,7 @@ def operation_channel(operation_id: str) -> str:
     descriptor = _OPERATION_REGISTRY.get_operation(operation)
     if descriptor is None:
         return "other"
-    if descriptor.operation_type in {"shell", "browser", "network", "mcp", "memory", "filesystem", "vcs"}:
+    if descriptor.operation_type in {"shell", "browser", "network", "mcp", "memory", "filesystem", "runtime_context", "vcs"}:
         return descriptor.operation_type
     if descriptor.open_world:
         return "network"

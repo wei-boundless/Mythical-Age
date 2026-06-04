@@ -8,6 +8,7 @@ from api import tokens as tokens_api
 from context_system.compaction.compactor import ContextCompactor
 from memory_system.continuity import MemoryMessageAdapter
 from memory_system.storage.session_memory import SessionMemoryManager
+from runtime.context_management.session_compaction import auto_compact_session_if_needed, compact_session_history
 from sessions import SessionManager
 
 
@@ -88,6 +89,7 @@ def test_full_compact_run_stores_summary_as_compressed_context(tmp_path: Path, m
 def test_session_tokens_exposes_context_meter_and_billing_totals(tmp_path: Path, monkeypatch) -> None:
     runtime, session_id, _old_assistant_prose = _runtime_with_session(tmp_path)
     monkeypatch.setattr(tokens_api, "require_runtime", lambda: runtime)
+    before = runtime.session_manager.load_session(session_id)
 
     response = asyncio.run(
         tokens_api.session_tokens(
@@ -104,6 +106,39 @@ def test_session_tokens_exposes_context_meter_and_billing_totals(tmp_path: Path,
     assert "compaction_readiness" in response
     assert response["context_meter"]["authority"] == "runtime.prompt_accounting.context_usage_snapshot"
     assert response["context_meter"]["current_context_tokens"] > 0
+    assert response["cumulative_transcript_message_count"] == 4
+    assert response["cumulative_transcript_tokens"] >= response["raw_history_tokens"]
+    assert response["compression_saved_tokens"] == response["cumulative_transcript_tokens"] - response["history_tokens"]
+    assert 0 < response["compression_ratio"] <= 1
+    assert response["history_did_compact"] is True
+    assert response["history_compaction_strategy"] in {"microcompact", "full_compact"}
+    assert response["history_tokens"] < response["raw_history_tokens"]
+    assert runtime.session_manager.load_session(session_id) == before
+
+
+def test_auto_compact_not_applied_reports_preserved_message_count(tmp_path: Path) -> None:
+    runtime, session_id, _old_assistant_prose = _runtime_with_session(tmp_path)
+
+    response = compact_session_history(
+        runtime,
+        session_id=session_id,
+        mode="auto",
+        context_snapshot=_ContextSnapshot(auto_replacement_allowed=False),
+    )
+
+    assert response["applied"] is False
+    assert response["skipped_reason"] == "below_replacement_threshold"
+    assert response["preserved_recent_count"] == len(runtime.session_manager.load_session(session_id))
+
+
+def test_auto_compact_if_needed_reports_preserved_message_count_when_skipped(tmp_path: Path) -> None:
+    runtime, session_id, _old_assistant_prose = _runtime_with_session(tmp_path)
+
+    response = auto_compact_session_if_needed(runtime, session_id=session_id)
+
+    assert response["applied"] is False
+    assert response["skipped_reason"] == "below_replacement_threshold"
+    assert response["preserved_recent_count"] == len(runtime.session_manager.load_session(session_id))
 
 
 def _runtime_with_session(tmp_path: Path):
@@ -148,3 +183,18 @@ class _FakeSessionMemory:
             low_authority_text_token_threshold=10,
             low_authority_text_target_chars=140,
         )
+
+
+class _ContextSnapshot:
+    def __init__(self, *, auto_replacement_allowed: bool) -> None:
+        self.auto_replacement_allowed = auto_replacement_allowed
+        self.pressure_level = "normal"
+        self.current_context_tokens = 0
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "authority": "test.context_snapshot",
+            "auto_replacement_allowed": self.auto_replacement_allowed,
+            "pressure_level": self.pressure_level,
+            "current_context_tokens": self.current_context_tokens,
+        }

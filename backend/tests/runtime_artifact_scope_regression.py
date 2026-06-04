@@ -130,11 +130,13 @@ def test_managed_project_workspace_write_scope_is_not_limited_to_artifacts() -> 
     assert scope.publish_roots == (artifact_root,)
 
 
-def test_safety_gate_reports_allowed_roots_and_canonical_output_suggestion(tmp_path: Path) -> None:
+def test_safety_gate_allows_any_write_inside_sandbox_root(tmp_path: Path) -> None:
     sandbox_root = tmp_path / "sandbox"
+    workspace_root = Path(__file__).resolve().parents[2]
+    outside_root = workspace_root.parent / "outside-sandbox-root"
     sandbox_root.mkdir()
     validators = build_task_safety_validators(
-        root_dir=Path(__file__).resolve().parents[1],
+        root_dir=workspace_root,
         safety_envelope={
             "write_mode": "bounded_create",
             "write_roots": ["storage/task_environments/development/sandbox/artifacts"],
@@ -143,9 +145,10 @@ def test_safety_gate_reports_allowed_roots_and_canonical_output_suggestion(tmp_p
         sandbox_policy={"enabled": True, "sandbox_root": str(sandbox_root)},
     )
 
-    ok, reason = validators["filesystem_path"]({"operation_id": "op.write_file", "args": {"path": "game.html"}})
+    assert validators["filesystem_path"]({"operation_id": "op.write_file", "args": {"path": "game.html"}}) is True
+    assert validators["filesystem_path"]({"operation_id": "op.write_file", "args": {"path": "docs/game.html"}}) is True
 
-    assert ok is False
-    assert "path outside task write roots: game.html" in reason
-    assert "allowed write roots: storage/task_environments/development/sandbox/artifacts" in reason
-    assert "suggested output path: storage/task_environments/development/sandbox/artifacts/game.html" in reason
+    assert validators["filesystem_path"]({"operation_id": "op.write_file", "args": {"path": str(outside_root / "game.html")}}) == (
+        False,
+        "path traversal detected",
+    )

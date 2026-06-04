@@ -167,6 +167,24 @@ function currentContextTokenCount(tokenStats: TokenStats) {
   return Number(tokenStats.total_tokens || 0);
 }
 
+function cumulativeTranscriptTokenCount(tokenStats: TokenStats) {
+  const rawCumulative = tokenStats.cumulative_transcript_tokens;
+  const cumulative = Number(rawCumulative);
+  if (rawCumulative !== undefined && rawCumulative !== null && Number.isFinite(cumulative)) {
+    return cumulative;
+  }
+  return Math.max(Number(tokenStats.raw_history_tokens || 0), Number(tokenStats.total_tokens || 0));
+}
+
+function compressionSavedTokenCount(tokenStats: TokenStats) {
+  const rawSaved = tokenStats.compression_saved_tokens;
+  const saved = Number(rawSaved);
+  if (rawSaved !== undefined && rawSaved !== null && Number.isFinite(saved)) {
+    return Math.max(0, saved);
+  }
+  return Math.max(cumulativeTranscriptTokenCount(tokenStats) - Number(tokenStats.history_tokens || 0), 0);
+}
+
 function tokenPressureLabel(value: string) {
   const labels: Record<string, string> = {
     normal: "正常",
@@ -182,18 +200,25 @@ function sessionTokenTitle(tokenStats: TokenStats | null, usagePercent: number |
     return "";
   }
   const currentContextTokens = currentContextTokenCount(tokenStats);
+  const cumulativeTokens = cumulativeTranscriptTokenCount(tokenStats);
+  const compressionSavedTokens = compressionSavedTokenCount(tokenStats);
   const contextWindowTokens = Number(tokenStats.context_meter?.context_window_tokens || 0);
   return [
     contextWindowTokens > 0
       ? `当前上下文 ${formatTokenCount(currentContextTokens)}/${formatTokenCount(contextWindowTokens)} tokens`
       : `当前上下文 ${formatTokenCount(currentContextTokens)} tokens`,
+    `累计原始会话 ${formatTokenCount(cumulativeTokens)} tokens`,
+    tokenStats.cumulative_transcript_message_count ? `累计消息 ${tokenStats.cumulative_transcript_message_count} 条` : "",
     `会话总计 ${formatTokenCount(tokenStats.total_tokens)} tokens`,
     `消息 ${formatTokenCount(tokenStats.message_tokens)}`,
     `系统 ${formatTokenCount(tokenStats.system_tokens)}`,
+    `当前运行历史 ${formatTokenCount(tokenStats.raw_history_tokens)} tokens`,
     `有效历史 ${formatTokenCount(tokenStats.history_tokens)}/${formatTokenCount(tokenStats.history_budget_tokens)}`,
+    compressionSavedTokens > 0 ? `压缩节省 ${formatTokenCount(compressionSavedTokens)} tokens` : "",
+    tokenStats.compression_ratio !== undefined ? `压缩后占累计 ${percentFromRatio(tokenStats.compression_ratio)}%` : "",
     usagePercent !== null ? `已用 ${usagePercent}%` : "",
     remainingPercent !== null ? `余量 ${remainingPercent}%` : "",
-    tokenStats.history_did_compact ? `已压缩，原始历史 ${formatTokenCount(tokenStats.raw_history_tokens)}` : "",
+    tokenStats.history_did_compact ? "本次预览会压缩当前运行历史" : "",
   ].filter(Boolean).join("；");
 }
 
@@ -1132,8 +1157,8 @@ export function MemoryView() {
           </article>
           <article title={tokenTitle}>
             <FileText size={16} />
-            <span>会话 Token</span>
-            <strong>{tokenStats ? `${formatTokenCount(currentContextTokenCount(tokenStats))} · ${tokenPressureLabel(tokenStats.context_meter?.pressure_level || tokenStats.history_pressure_level)}` : "暂无"}</strong>
+            <span>当前 / 累计</span>
+            <strong>{tokenStats ? `${formatTokenCount(currentContextTokenCount(tokenStats))} / ${formatTokenCount(cumulativeTranscriptTokenCount(tokenStats))} · ${tokenPressureLabel(tokenStats.context_meter?.pressure_level || tokenStats.history_pressure_level)}` : "暂无"}</strong>
           </article>
         </div>
       </section>

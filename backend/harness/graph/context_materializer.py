@@ -1,14 +1,18 @@
 from __future__ import annotations
 
+import re
 import time
+from pathlib import Path
 from typing import Any
+
+from artifact_system.artifact_authority import artifact_ref_value, dedupe_artifact_refs, normalize_artifact_ref
 
 from .flow_edges import build_inbound_flow_edges, build_outbound_flow_edges
 from .flow_packet import flow_packet_inbound_projection
 from .loop_engine import LoopEngine
 from .memory_context import MemoryContextAssembler
 from .models import GraphHarnessConfig, GraphLoopState, GraphNodeExecutionSlot, GraphNodeWorkOrder, safe_id, stable_hash
-from .runtime_objects import load_flow_packet
+from .runtime_objects import load_flow_packet, load_node_result
 from .scheduler_view import upstream_dependency_node_ids
 
 
@@ -308,7 +312,286 @@ class GraphContextMaterializer:
                 if packet is None or packet.target_unit_id != node_id:
                     continue
                 context.append(flow_packet_inbound_projection(packet, packet_ref=str(packet_entry.get("packet_ref") or "")))
+        context.extend(_loop_iteration_contexts_for_node(graph_config=graph_config, state=state, node_id=node_id))
+        context.extend(_self_quality_failure_contexts_for_node(services=self._services, state=state, node_id=node_id))
         return context
+
+
+def _self_quality_failure_contexts_for_node(
+    *,
+    services: Any | None,
+    state: GraphLoopState,
+    node_id: str,
+) -> list[dict[str, Any]]:
+    latest_failure = _latest_self_quality_failure(services=services, state=state, node_id=node_id)
+    if not latest_failure:
+        return []
+    result = latest_failure["result"]
+    summary = dict(latest_failure.get("summary") or {})
+    artifact_refs = _artifact_ref_values(list(result.artifact_refs or []) or summary.get("artifact_refs"))
+    source_error = dict(result.error or summary.get("error") or {})
+    quality_acceptance = dict(dict(result.diagnostics or {}).get("quality_acceptance") or {})
+    payload = _drop_empty(
+        {
+            "source_error": source_error,
+            "quality_acceptance": quality_acceptance,
+            "quality_issue_summary": str(
+                source_error.get("quality_issue_summary")
+                or quality_acceptance.get("quality_issue_summary")
+                or ""
+            ),
+            "issues": list(source_error.get("issues") or quality_acceptance.get("issues") or []),
+            "handoff_summary": str(result.handoff_summary or summary.get("handoff_summary") or "")[:1200],
+            "artifact_refs": artifact_refs,
+            "artifact_payloads": _artifact_payloads_for_refs(artifact_refs, max_refs=8, max_chars=30000),
+            "authority": "harness.graph.self_quality_failure_payload",
+        }
+    )
+    return [
+        _drop_empty(
+            {
+                "context_id": f"qualityretry:{safe_id(state.graph_run_id)}:{safe_id(node_id)}:{safe_id(str(summary.get('result_id') or result.result_id))}",
+                "packet_type": "quality_retry_feedback",
+                "source_node_id": node_id,
+                "target_node_id": node_id,
+                "edge_id": f"quality_retry_feedback::{node_id}->{node_id}",
+                "payload_contract_id": "contract.graph.quality_retry_feedback",
+                "packet_contract_id": "contract.graph.quality_retry_feedback",
+                "target_context_key": "quality_retry_feedback",
+                "target_input_slot": "quality_retry_feedback",
+                "delivery_policy": "quality_failure_payload_and_artifact_text",
+                "payload": payload,
+                "artifact_refs": [{"path": ref} for ref in artifact_refs],
+                "memory_refs": [],
+                "result_refs": [
+                    _drop_empty(
+                        {
+                            "ref_kind": "node_result",
+                            "result_ref": str(summary.get("result_ref") or ""),
+                            "result_id": str(summary.get("result_id") or result.result_id),
+                            "node_id": node_id,
+                            "status": str(summary.get("status") or result.status),
+                        }
+                    )
+                ],
+                "receipt_refs": [],
+                "visibility": {
+                    "source": "graph_loop.result_history.latest_self_quality_failure",
+                    "artifact_text_projection": "bounded",
+                    "authority": "harness.graph.self_quality_failure_context.visibility",
+                },
+                "authority": "harness.graph.self_quality_failure_context",
+            }
+        )
+    ]
+
+
+def _latest_self_quality_failure(
+    *,
+    services: Any | None,
+    state: GraphLoopState,
+    node_id: str,
+) -> dict[str, Any]:
+    for raw_summary in reversed(tuple(dict(state.result_history or {}).get(node_id) or ())):
+        if not isinstance(raw_summary, dict):
+            continue
+        summary = dict(raw_summary)
+        result = load_node_result(services, summary) if services is not None else None
+        if result is None:
+            result = _node_result_from_history_summary(summary)
+        if result is None:
+            continue
+        source_error = dict(result.error or summary.get("error") or {})
+        quality_acceptance = dict(dict(result.diagnostics or {}).get("quality_acceptance") or {})
+        status = str(summary.get("status") or result.status)
+        if status == "blocked" and (
+            str(source_error.get("reason") or "") == "quality_gate_failed"
+            or quality_acceptance.get("accepted") is False
+        ):
+            return {"summary": summary, "result": result}
+        break
+    return {}
+
+
+def _node_result_from_history_summary(summary: dict[str, Any]) -> Any | None:
+    result_id = str(summary.get("result_id") or "")
+    graph_run_id = str(summary.get("graph_run_id") or "")
+    task_run_id = str(summary.get("task_run_id") or "")
+    node_id = str(summary.get("node_id") or "")
+    work_order_id = str(summary.get("work_order_id") or "")
+    if not result_id or not graph_run_id or not task_run_id or not node_id or not work_order_id:
+        return None
+    from .models import NodeResultEnvelope
+
+    return NodeResultEnvelope(
+        result_id=result_id,
+        graph_run_id=graph_run_id,
+        task_run_id=task_run_id,
+        node_id=node_id,
+        work_order_id=work_order_id,
+        executor_type=str(summary.get("executor_type") or "agent"),
+        status=str(summary.get("status") or "blocked"),
+        artifact_refs=tuple(_artifact_ref_values(summary.get("artifact_refs"))),
+        handoff_summary=str(summary.get("handoff_summary") or ""),
+        error=dict(summary.get("error") or {}),
+        created_at=float(summary.get("created_at") or 0.0),
+    )
+
+
+def _loop_iteration_contexts_for_node(
+    *,
+    graph_config: GraphHarnessConfig,
+    state: GraphLoopState,
+    node_id: str,
+) -> list[dict[str, Any]]:
+    loop_state = dict(state.loop_state or {})
+    frames = {
+        str(frame_id): dict(frame)
+        for frame_id, frame in dict(loop_state.get("frames") or {}).items()
+        if isinstance(frame, dict)
+    }
+    iteration_results = {
+        str(frame_id): dict(frame_results)
+        for frame_id, frame_results in dict(loop_state.get("iteration_results") or {}).items()
+        if isinstance(frame_results, dict)
+    }
+    contexts: list[dict[str, Any]] = []
+    for frame in frames.values():
+        frame_id = str(frame.get("frame_id") or frame.get("scope_id") or "").strip()
+        scope_id = str(frame.get("scope_id") or frame_id).strip()
+        if not frame_id or str(frame.get("exit_node_id") or "").strip() != node_id:
+            continue
+        frame_results = dict(iteration_results.get(frame_id) or iteration_results.get(scope_id) or {})
+        if not frame_results:
+            continue
+        iteration_entries: list[dict[str, Any]] = []
+        aggregate_refs: list[Any] = []
+        for iteration_id, raw_node_results in _ordered_iteration_items(frame_results):
+            node_entries: list[dict[str, Any]] = []
+            for result_node_id, raw_summary in dict(raw_node_results or {}).items():
+                if not isinstance(raw_summary, dict):
+                    continue
+                summary = dict(raw_summary)
+                artifact_refs = _artifact_ref_values(summary.get("artifact_refs"))
+                aggregate_refs.extend(artifact_refs)
+                node_entries.append(
+                    _drop_empty(
+                        {
+                            "node_id": str(result_node_id or summary.get("node_id") or ""),
+                            "status": str(summary.get("status") or ""),
+                            "result_ref": str(summary.get("result_ref") or ""),
+                            "artifact_refs": artifact_refs,
+                            "handoff_summary": str(summary.get("handoff_summary") or "")[:1200],
+                        }
+                    )
+                )
+            if node_entries:
+                iteration_entries.append(
+                    {
+                        "iteration_id": str(iteration_id or ""),
+                        "node_results": node_entries,
+                    }
+                )
+        artifact_refs = _artifact_ref_values(aggregate_refs)
+        contexts.append(
+            _drop_empty(
+                {
+                    "context_id": f"loopctx:{safe_id(state.graph_run_id)}:{safe_id(frame_id)}:{safe_id(node_id)}",
+                    "packet_type": "loop_iteration_results",
+                    "source_node_id": "__loop__",
+                    "target_node_id": node_id,
+                    "edge_id": f"loop_iteration_results::{frame_id}->{node_id}",
+                    "payload_contract_id": "contract.graph.loop_iteration_results",
+                    "packet_contract_id": "contract.graph.loop_iteration_results",
+                    "target_context_key": "loop_iteration_results",
+                    "target_input_slot": "loop_iteration_results",
+                    "delivery_policy": "loop_iteration_artifact_payloads",
+                    "payload": {
+                        "frame_id": frame_id,
+                        "scope_id": scope_id,
+                        "frame_status": str(frame.get("status") or ""),
+                        "loop_iteration_results": iteration_entries,
+                        "artifact_refs": artifact_refs,
+                        "artifact_payloads": _artifact_payloads_for_refs(artifact_refs, max_refs=24, max_chars=12000),
+                        "authority": "harness.graph.loop_iteration_results_payload",
+                    },
+                    "artifact_refs": [{"path": ref} for ref in artifact_refs],
+                    "memory_refs": [],
+                    "result_refs": [],
+                    "receipt_refs": [],
+                    "visibility": {
+                        "source": "loop_state.iteration_results",
+                        "artifact_text_projection": "bounded",
+                        "authority": "harness.graph.loop_iteration_context.visibility",
+                    },
+                    "authority": "harness.graph.loop_iteration_context",
+                }
+            )
+        )
+    return contexts
+
+
+def _ordered_iteration_items(frame_results: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
+    items = [
+        (str(iteration_id), dict(node_results))
+        for iteration_id, node_results in frame_results.items()
+        if isinstance(node_results, dict)
+    ]
+    return sorted(items, key=lambda item: _iteration_sort_key(item[0]))
+
+
+def _iteration_sort_key(iteration_id: str) -> tuple[int, str]:
+    numbers = [int(match) for match in re.findall(r"\d+", str(iteration_id or ""))]
+    return (numbers[-1] if numbers else 0, str(iteration_id or ""))
+
+
+def _artifact_ref_values(refs: Any) -> list[str]:
+    normalized = dedupe_artifact_refs([normalize_artifact_ref(ref) for ref in list(refs or [])])
+    return [value for value in (artifact_ref_value(ref) for ref in normalized) if value]
+
+
+def _artifact_payloads_for_refs(refs: list[str], *, max_refs: int, max_chars: int) -> list[dict[str, Any]]:
+    payloads: list[dict[str, Any]] = []
+    for ref in refs[:max_refs]:
+        text, truncated = _read_artifact_text(ref, max_chars=max_chars)
+        if not text:
+            continue
+        payloads.append(
+            {
+                "artifact_ref": ref,
+                "content": text,
+                "truncated": truncated,
+                "max_chars": max_chars,
+                "authority": "harness.graph.loop_iteration_artifact_text_projection",
+            }
+        )
+    return payloads
+
+
+def _read_artifact_text(ref: str, *, max_chars: int) -> tuple[str, bool]:
+    raw = Path(str(ref or "")).expanduser()
+    candidates = [raw] if raw.is_absolute() else [
+        Path.cwd() / raw,
+        Path.cwd().parent / raw,
+        Path(__file__).resolve().parents[3] / raw,
+    ]
+    for path in candidates:
+        try:
+            resolved = path.resolve()
+        except OSError:
+            continue
+        try:
+            if not resolved.exists() or not resolved.is_file():
+                continue
+            text = resolved.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        return text[:max_chars], len(text) > max_chars
+    return "", False
+
+
+def _drop_empty(payload: dict[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in payload.items() if value not in ("", None, [], {})}
 
 
 def _slot_inbound_contexts(
@@ -383,10 +666,16 @@ def _quality_revision_inputs(
         "count": initial_inputs.get("units_per_batch") or initial_inputs.get("unit_count") or "",
         "unit_target": initial_inputs.get("unit_target_measure") or initial_inputs.get("target_unit_measure") or "",
     }
-    return {
+    revision_inputs = {
         requirements_key: _format_revision_template(template, values),
         "quality_gate_feedback": quality,
     }
+    carry_key = str(retry_policy.get("carry_current_output_as") or "").strip()
+    if carry_key and carry_key not in initial_inputs:
+        previous_output = _quality_failure_previous_output(quality)
+        if previous_output:
+            revision_inputs[carry_key] = previous_output
+    return revision_inputs
 
 
 def _first_inbound_quality_failure(inbound_context: list[dict[str, Any]]) -> dict[str, Any]:
@@ -401,9 +690,38 @@ def _first_inbound_quality_failure(inbound_context: list[dict[str, Any]]) -> dic
             "quality_issue_summary": str(source_error.get("quality_issue_summary") or quality.get("quality_issue_summary") or ""),
             "issues": list(source_error.get("issues") or quality.get("issues") or []),
             "source_error": source_error,
+            "artifact_refs": _artifact_ref_values(payload.get("artifact_refs")),
+            "artifact_payloads": [
+                dict(item)
+                for item in list(payload.get("artifact_payloads") or [])
+                if isinstance(item, dict)
+            ],
+            "handoff_summary": str(payload.get("handoff_summary") or ""),
             "authority": "harness.graph.context_materializer.quality_revision_inputs",
         }
     return {}
+
+
+def _quality_failure_previous_output(quality: dict[str, Any]) -> dict[str, Any]:
+    return _drop_empty(
+        {
+            "artifact_refs": _artifact_ref_values(quality.get("artifact_refs")),
+            "artifact_payloads": [
+                _drop_empty(
+                    {
+                        "artifact_ref": str(dict(item).get("artifact_ref") or ""),
+                        "content": str(dict(item).get("content") or dict(item).get("text") or "")[:30000],
+                        "truncated": bool(dict(item).get("truncated") is True),
+                        "max_chars": int(dict(item).get("max_chars") or 30000),
+                    }
+                )
+                for item in list(quality.get("artifact_payloads") or [])[:8]
+                if isinstance(item, dict)
+            ],
+            "handoff_summary": str(quality.get("handoff_summary") or "")[:1200],
+            "authority": "harness.graph.context_materializer.previous_quality_failure_output",
+        }
+    )
 
 
 def _format_revision_template(template: str, values: dict[str, Any]) -> str:

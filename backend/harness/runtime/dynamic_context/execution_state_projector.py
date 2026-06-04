@@ -23,6 +23,7 @@ class ExecutionStateProjector:
             "last_action_receipts": _bounded_dicts(system_projection.get("last_action_receipts"), limit=12),
             "pending_user_steers": _bounded_dicts(system_projection.get("pending_user_steers"), limit=8),
             "active_contract_revisions": _bounded_dicts(system_projection.get("active_contract_revisions"), limit=8),
+            "exploration_advisory": _exploration_advisory(system_projection.get("exploration_advisory")),
             "recoverable_error": _recoverable_error(system_projection, state, diagnostics),
             "validation_status": _validation_status(system_projection, state, diagnostics),
             "authority": "harness.runtime.dynamic_context.execution_state_projection",
@@ -87,6 +88,39 @@ def _current_step(system_projection: dict[str, Any], state: dict[str, Any], task
     if task_run.get("current_step_index") is not None:
         return {"index": task_run.get("current_step_index")}
     return {}
+
+
+def _exploration_advisory(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict) or not value:
+        return {}
+    recent_tools = []
+    for item in list(value.get("recent_tools") or [])[-8:]:
+        if not isinstance(item, dict):
+            continue
+        recent_tools.append(
+            drop_empty(
+                {
+                    "observation_ref": str(item.get("observation_ref") or ""),
+                    "tool_name": str(item.get("tool_name") or ""),
+                    "status": str(item.get("status") or ""),
+                    "path": compact_text(item.get("path") or "", limit=300),
+                    "summary": compact_text(item.get("summary") or "", limit=180),
+                }
+            )
+        )
+    return drop_empty(
+        {
+            "triggered": value.get("triggered") if isinstance(value.get("triggered"), bool) else None,
+            "kind": compact_text(value.get("kind") or "", limit=120),
+            "consecutive_exploration_tool_calls": value.get("consecutive_exploration_tool_calls"),
+            "threshold": value.get("threshold"),
+            "recent_tools": recent_tools,
+            "recommended_action": compact_text(value.get("recommended_action") or "", limit=180),
+            "decision_questions": [compact_text(item, limit=180) for item in list(value.get("decision_questions") or [])[:4] if str(item).strip()],
+            "non_blocking": value.get("non_blocking") if isinstance(value.get("non_blocking"), bool) else None,
+            "authority": compact_text(value.get("authority") or "", limit=160),
+        }
+    )
 
 
 def _recoverable_error(*payloads: dict[str, Any]) -> dict[str, Any]:

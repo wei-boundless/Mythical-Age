@@ -10,8 +10,8 @@ param(
     [string]$ProjectBriefFile = "output/novel_artifacts/modular_novel/runs/project-honghuang-times-memoryscope-20260523-001/project_brief.md",
     [int]$TargetGroupCount = 5,
     [int]$UnitsPerGroup = 100,
-    [int]$TargetMeasureUnits = 1000000,
-    [int]$UnitTargetMeasure = 2000,
+    [int]$TargetMeasureUnits = 1750000,
+    [int]$UnitTargetMeasure = 3500,
     [int]$UnitsPerBatch = 10,
     [string]$ArtifactRoot = ""
 )

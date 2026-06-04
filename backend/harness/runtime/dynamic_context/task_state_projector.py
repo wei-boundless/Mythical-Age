@@ -55,6 +55,7 @@ class TaskStateProjector:
                     *dict_tuple(observation_projection.get("historical_failures")),
                 ]
             )[-4:],
+            "exploration_advisory": dict(execution_projection.get("exploration_advisory") or {}),
             "artifact_evidence": artifact_evidence,
             "pending_user_steers": _dedupe_by_ref(dict_tuple(execution_projection.get("pending_user_steers")), ref_keys=("steer_id",)),
             "active_contract_revisions": _dedupe_by_ref(

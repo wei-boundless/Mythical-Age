@@ -691,14 +691,15 @@ class MemoryCommitter:
         durable_error = ""
         durable_actions = {"created": [], "updated": [], "merged": [], "deprecated": [], "routed": [], "rejected": []}
         saved_namespaces: dict[str, int] = {}
+        durable_errors: list[str] = []
         if not request.durable_lane_enabled:
             durable_skip_reason = "durable_lane_disabled"
         else:
-            try:
-                actions = plan.normalized_actions()
-                if actions:
-                    durable_skipped = False
-                    for action in actions:
+            actions = plan.normalized_actions()
+            if actions:
+                durable_skipped = False
+                for action in actions:
+                    try:
                         policy = self._durable_policy_decision(action, request=request)
                         if not policy["allow_durable_write"]:
                             durable_actions["routed" if policy["route_only"] else "rejected"].append(policy["reason"])
@@ -709,25 +710,30 @@ class MemoryCommitter:
                         durable_count += 1
                         namespace_id = self._namespace_for_policy(policy, request=request)
                         saved_namespaces[namespace_id] = saved_namespaces.get(namespace_id, 0) + 1
-                    if saved_namespaces:
-                        durable_actions["namespaces"] = sorted(saved_namespaces)
-                    if durable_count == 0:
-                        durable_skipped = True
-                        if durable_actions["routed"]:
-                            durable_skip_reason = "durable_actions_routed_to_non_durable_layer"
-                        elif durable_actions["rejected"]:
-                            durable_skip_reason = "durable_actions_rejected_by_policy"
-                    if self.on_durable_saved is not None and saved_namespaces:
-                        self.on_durable_saved(saved_namespaces)
-                else:
-                    durable_skip_reason = plan.skipped_reason or "agent_returned_no_durable_actions"
-            except Exception as exc:
-                durable_skipped = True
-                durable_error = str(exc)
-                durable_actions["rejected"].append(durable_error)
-                durable_skip_reason = "durable_write_rejected_by_committer"
+                    except Exception as exc:
+                        durable_errors.append(str(exc))
+                        durable_actions["rejected"].append(str(exc))
+                if saved_namespaces:
+                    durable_actions["namespaces"] = sorted(saved_namespaces)
+                if durable_count == 0:
+                    durable_skipped = True
+                    if durable_errors:
+                        durable_skip_reason = "durable_write_rejected_by_committer"
+                    elif durable_actions["routed"]:
+                        durable_skip_reason = "durable_actions_routed_to_non_durable_layer"
+                    elif durable_actions["rejected"]:
+                        durable_skip_reason = "durable_actions_rejected_by_policy"
+                elif durable_errors:
+                    durable_skip_reason = "durable_plan_partially_rejected_by_committer"
+                elif durable_actions["rejected"]:
+                    durable_skip_reason = "durable_plan_partially_rejected_by_policy"
+                if self.on_durable_saved is not None and saved_namespaces:
+                    self.on_durable_saved(saved_namespaces)
+                durable_error = "; ".join(durable_errors)
+            else:
+                durable_skip_reason = plan.skipped_reason or "agent_returned_no_durable_actions"
         return {
-            "durable_memory_succeeded": bool(request.durable_lane_enabled and not durable_error),
+            "durable_memory_succeeded": bool(request.durable_lane_enabled and not durable_error and not durable_actions["rejected"]),
             "durable_write_count": durable_count,
             "durable_skipped": durable_skipped,
             "durable_skip_reason": durable_skip_reason,

@@ -1,7 +1,6 @@
 "use client";
 
 import {
-  AlertTriangle,
   CheckCircle2,
   CircleDot,
   ClipboardCheck,
@@ -31,7 +30,7 @@ type PublicRunActivityProps = {
   assistantContent?: string;
 };
 
-const RECENT_HISTORY_LIMIT = 1;
+const RECENT_HISTORY_LIMIT = 0;
 const SUPPRESSED_STATUS_TEXT = new Set([
   "已同步最新进展。",
   "已接上当前工作，正在同步最新进展。",
@@ -74,6 +73,9 @@ function shouldRenderItem(item: PublicChatTimelineItem, assistantContent: string
   const kind = cleanText(item.kind);
   const text = textOfItem(item);
   if (!text) return false;
+  if (assistantContent.trim() && isStaleRawToolFailure(item, text)) {
+    return false;
+  }
   if (kind === "assistant_text" || kind === "opening_judgment") return false;
   if ((kind === "assistant_text" || kind === "final_summary") && samePublicText(text, assistantContent)) {
     return false;
@@ -93,6 +95,12 @@ function shouldRenderItem(item: PublicChatTimelineItem, assistantContent: string
   return true;
 }
 
+function isStaleRawToolFailure(item: PublicChatTimelineItem, text: string) {
+  if (cleanText(item.kind) !== "tool_activity") return false;
+  if (stateClass(item) !== "error") return false;
+  return /(?:Tool execution failed|Fetch failed|HTTP\s+4\d\d|HTTP\s+5\d\d|tool_execution_failed)/i.test(text);
+}
+
 export function hasPublicRunActivity(
   items: PublicChatTimelineItem[],
   assistantContent = "",
@@ -110,7 +118,7 @@ function ActivityIcon({ item }: { item: PublicChatTimelineItem }) {
   if (item.kind === "artifact") return <FileText size={14} />;
   if (item.kind === "todo_plan") return <ListChecks size={14} />;
   if (item.kind === "observation_report") return <ClipboardCheck size={14} />;
-  if (state === "error") return <AlertTriangle size={14} />;
+  if (state === "error") return <CircleDot size={14} />;
   if (state === "done") return <CheckCircle2 size={14} />;
   const action = actionDisplay(item);
   if (state === "running" || item.stream_state === "streaming") return <Loader2 className="public-run-activity__spinner" size={14} />;
@@ -129,7 +137,7 @@ function ActivityCopy({ item, variant = "normal" }: { item: PublicChatTimelineIt
   if (kind === "blocked") {
     return (
       <>
-        <strong>{short(item.text || item.title || "处理受阻", 180)}</strong>
+        <strong>{short(item.text || item.title || "需要调整", 180)}</strong>
         {item.recovery_hint ? <small>{short(item.recovery_hint, 180)}</small> : null}
       </>
     );
@@ -227,12 +235,15 @@ function activityPlan(items: PublicChatTimelineItem[]) {
   const finalItems = items.filter(isFinalItem);
   const statusItems = items.filter((item) => isStatusUpdate(item) && !isFinalItem(item));
   const actionItems = items.filter((item) => !isStatusUpdate(item) && !isFinalItem(item));
-  const current = [...actionItems].reverse().find((item) => {
+  const liveCurrent = [...actionItems].reverse().find((item) => {
     const state = stateClass(item);
     return state === "running" || state === "error";
   }) ?? null;
+  const latestObservation = [...actionItems].reverse().find((item) => cleanText(item.kind) === "observation_report") ?? null;
+  const latestAction = lastOf(actionItems);
+  const current = liveCurrent ?? latestObservation ?? latestAction;
   const history = actionItems.filter((item) => item !== current);
-  const recent = history.slice(-RECENT_HISTORY_LIMIT);
+  const recent = RECENT_HISTORY_LIMIT > 0 ? history.slice(-RECENT_HISTORY_LIMIT) : [];
   const collapsedCount = Math.max(0, history.length - recent.length);
   const fallbackCurrent = !current && !recent.length && !finalItems.length
     ? lastOf(statusItems.filter((item) => stateClass(item) === "running")) ?? lastOf(statusItems)
@@ -242,6 +253,43 @@ function activityPlan(items: PublicChatTimelineItem[]) {
     recent,
     current: current ?? fallbackCurrent,
     finalItems,
+  };
+}
+
+function shouldRenderDetailRow(item: PublicChatTimelineItem) {
+  return cleanText(item.kind) === "todo_plan";
+}
+
+function genericObservation(value: string) {
+  return /(?:动作|结果)已返回，继续根据结果推进下一步|当前动作需要调整路径、权限或输入后继续/.test(value);
+}
+
+function readableToolObservation(value: string, target = "", fallback = "") {
+  const observation = cleanText(value);
+  if (observation && !genericObservation(observation)) {
+    return observation.startsWith("观察：") ? observation : `观察：${observation}`;
+  }
+  const fallbackText = cleanText(fallback);
+  if (fallbackText && !/动作已返回|结果已返回|执行动作|处理步骤/.test(fallbackText)) {
+    return fallbackText.startsWith("观察：") ? fallbackText : `观察：${fallbackText}`;
+  }
+  const targetText = cleanText(target);
+  return targetText
+    ? `观察：${targetText} 已返回，我会据此推进下一步。`
+    : "观察：结果已返回，我会据此推进下一步。";
+}
+
+function finalActivitySummary(plan: ReturnType<typeof activityPlan>) {
+  const lastFinal = lastOf(plan.finalItems);
+  if (!lastFinal) return null;
+  const state = stateClass(lastFinal);
+  const finalText = short(lastFinal.text || lastFinal.detail || lastFinal.title || lastFinal.path || lastFinal.href, 180);
+  return {
+    detail: state === "error" ? short(lastFinal.recovery_hint || finalText || "收口信息需要调整。", 180) : finalText || "结果已进入回答收口。",
+    item: lastFinal,
+    meta: state === "error" ? "调整中" : "已收口",
+    title: state === "error" ? "需要调整" : lastFinal.kind === "artifact" ? "产物就绪" : "收尾总结",
+    tone: state === "error" ? "error" : "done",
   };
 }
 
@@ -265,34 +313,38 @@ function activitySummary(plan: ReturnType<typeof activityPlan>) {
       return {
         detail: short(plan.current.detail || plan.current.implication || "关键观察已记录。", 180),
         item: plan.current,
-        meta: state === "error" ? "受阻" : "观察",
-        title: state === "error" ? "观察到阻塞" : "观察报告",
+        meta: state === "error" ? "调整中" : "观察",
+        title: state === "error" ? "观察到限制" : "观察报告",
         tone: state === "error" ? "error" : "done",
       };
     }
+    const action = actionDisplay(plan.current);
+    if (state === "done") {
+      return {
+        detail: short(readableToolObservation(action.observation, action.detail, currentAction), 180),
+        item: plan.current,
+        meta: "已返回",
+        title: "工具反馈",
+        tone: "done",
+      };
+    }
+    const errorDetail = kind === "blocked"
+      ? textOfItem(plan.current)
+      : genericObservation(action.observation)
+        ? currentAction || plan.current.recovery_hint || "当前步骤需要调整，我会换一种方式继续。"
+        : action.observation || currentAction || plan.current.recovery_hint || "当前步骤需要调整，我会换一种方式继续。";
     return {
       detail: state === "error"
-        ? short(plan.current.recovery_hint || textOfItem(plan.current), 180)
-        : plan.collapsedCount && currentAction
-          ? `已完成 ${plan.collapsedCount} 步；${currentAction}。`
-          : currentAction || "当前动作正在处理。",
+        ? short(errorDetail, 180)
+        : currentAction || "当前动作正在处理。",
       item: plan.current,
-      meta: state === "error" ? "受阻" : "实时",
-      title: state === "error" ? "需要处理" : kind === "status_update" ? "判断中" : "执行中",
+      meta: state === "error" ? "调整中" : "实时",
+      title: state === "error" ? "需要调整" : kind === "status_update" ? "判断中" : "执行中",
       tone: state === "error" ? "error" : "running",
     };
   }
-  const lastFinal = lastOf(plan.finalItems);
-  if (lastFinal) {
-    const state = stateClass(lastFinal);
-    return {
-      detail: state === "error" ? short(lastFinal.recovery_hint || textOfItem(lastFinal), 180) : "结果已进入回答收口。",
-      item: lastFinal,
-      meta: state === "error" ? "受阻" : "已收口",
-      title: state === "error" ? "需要处理" : lastFinal.kind === "artifact" ? "产物就绪" : "已完成",
-      tone: state === "error" ? "error" : "done",
-    };
-  }
+  const finalSummary = finalActivitySummary(plan);
+  if (finalSummary) return finalSummary;
   const lastRecent = lastOf(plan.recent);
   if (lastRecent || plan.collapsedCount) {
     const recentKind = cleanText(lastRecent?.kind);
@@ -319,7 +371,7 @@ function activitySummary(plan: ReturnType<typeof activityPlan>) {
       detail: recentAction || (plan.collapsedCount ? `已完成 ${plan.collapsedCount} 步处理。` : "关键动作已完成。"),
       item: lastRecent,
       meta: "已同步",
-      title: "阶段完成",
+      title: "运行反馈",
       tone: "done",
     };
   }
@@ -332,11 +384,19 @@ function activitySummary(plan: ReturnType<typeof activityPlan>) {
   };
 }
 
-function collapsedSummary(count: number, hasCurrent: boolean) {
-  if (!count) return "";
-  return hasCurrent
-    ? `前面已完成 ${count} 步，继续处理中。`
-    : `已完成 ${count} 步处理。`;
+function ActivitySummaryLine({ summary }: { summary: ReturnType<typeof activitySummary> }) {
+  return (
+    <div className={`public-run-activity__summary public-run-activity__summary--${summary.tone}`}>
+      <span className="public-run-activity__summary-icon" aria-hidden="true">
+        {summary.item ? <ActivityIcon item={summary.item} /> : <CircleDot size={14} />}
+      </span>
+      <span className="public-run-activity__summary-copy">
+        <strong>{summary.title}</strong>
+        <small>{summary.detail}</small>
+      </span>
+      <em>{summary.meta}</em>
+    </div>
+  );
 }
 
 export function PublicRunActivity({ items, assistantContent = "" }: PublicRunActivityProps) {
@@ -345,46 +405,16 @@ export function PublicRunActivity({ items, assistantContent = "" }: PublicRunAct
     return null;
   }
   const summary = activitySummary(plan);
+  const closeoutSummary = plan.current ? finalActivitySummary(plan) : null;
   return (
     <div className={`public-run-activity public-run-activity--${summary.tone}`} aria-label="处理进展">
-      <div className="public-run-activity__summary">
-        <span className="public-run-activity__summary-icon" aria-hidden="true">
-          {summary.item ? <ActivityIcon item={summary.item} /> : <CircleDot size={14} />}
-        </span>
-        <span className="public-run-activity__summary-copy">
-          <strong>{summary.title}</strong>
-          <small>{summary.detail}</small>
-        </span>
-        <em>{summary.meta}</em>
-      </div>
-      <div className="public-run-activity__rows">
-        {plan.collapsedCount ? (
-          <div className="public-run-activity__row public-run-activity__row--done public-run-activity__row--collapsed">
-            <span className="public-run-activity__icon" aria-hidden="true">
-              <CheckCircle2 size={14} />
-            </span>
-            <span className="public-run-activity__copy">
-              <small>{collapsedSummary(plan.collapsedCount, Boolean(plan.current))}</small>
-            </span>
-          </div>
-        ) : null}
-        {plan.recent.map((item, index) => (
-          <div
-            className={`public-run-activity__row public-run-activity__row--history public-run-activity__row--${stateClass(item)} public-run-activity__row--${cleanText(item.kind) || "item"}`}
-            key={publicTimelineItemKey(item, index)}
-          >
-            <span className="public-run-activity__icon" aria-hidden="true">
-              <ActivityIcon item={item} />
-            </span>
-            <span className="public-run-activity__copy">
-              <ActivityCopy item={item} variant="history" />
-            </span>
-          </div>
-        ))}
-        {plan.current ? (
+      <ActivitySummaryLine summary={summary} />
+      {closeoutSummary ? <ActivitySummaryLine summary={closeoutSummary} /> : null}
+      {plan.current && shouldRenderDetailRow(plan.current) ? (
+        <div className="public-run-activity__rows">
           <div
             className={`public-run-activity__row public-run-activity__row--current public-run-activity__row--${stateClass(plan.current)} public-run-activity__row--${cleanText(plan.current.kind) || "item"}`}
-            key={publicTimelineItemKey(plan.current, plan.recent.length)}
+            key={publicTimelineItemKey(plan.current, 0)}
           >
             <span className="public-run-activity__icon" aria-hidden="true">
               <ActivityIcon item={plan.current} />
@@ -393,21 +423,8 @@ export function PublicRunActivity({ items, assistantContent = "" }: PublicRunAct
               <ActivityCopy item={plan.current} variant="current" />
             </span>
           </div>
-        ) : null}
-        {plan.finalItems.map((item, index) => (
-          <div
-            className={`public-run-activity__row public-run-activity__row--final public-run-activity__row--${stateClass(item)} public-run-activity__row--${cleanText(item.kind) || "item"}`}
-            key={publicTimelineItemKey(item, index + plan.recent.length + 1)}
-          >
-            <span className="public-run-activity__icon" aria-hidden="true">
-              <ActivityIcon item={item} />
-            </span>
-            <span className="public-run-activity__copy">
-              <ActivityCopy item={item} />
-            </span>
-          </div>
-        ))}
-      </div>
+        </div>
+      ) : null}
     </div>
   );
 }

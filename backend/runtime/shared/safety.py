@@ -45,25 +45,11 @@ def _filesystem_validator(
         if str(item or "").strip()
     }
 
-    write_root_values = list(safety_envelope.get("write_roots") or [])
-    if not write_root_values:
-        write_root_values = list(safety_envelope.get("default_write_roots") or [])
-    write_roots = [
-        _normalize_relative_path(item)
-        for item in write_root_values
-        if _normalize_relative_path(item)
-    ]
-    canonical_output_paths = [
-        _normalize_relative_path(item)
-        for item in list(sandbox_policy.get("canonical_output_paths") or safety_envelope.get("canonical_output_paths") or [])
-        if _normalize_relative_path(item)
-    ]
     forbidden_paths = [
         _normalize_relative_path(item)
         for item in list(safety_envelope.get("forbidden_paths") or [])
         if _normalize_relative_path(item)
     ]
-    write_mode = str(safety_envelope.get("write_mode") or "none").strip()
 
     def _validate(operation_input: dict[str, Any]) -> bool | tuple[bool, str] | OperationGateResult:
         input_payload = dict(operation_input or {})
@@ -96,16 +82,6 @@ def _filesystem_validator(
                 for blocked in forbidden_paths
             ):
                 return False, f"path blocked by task safety envelope: {normalized_candidate}"
-            if write_mode in {"bounded_create", "scoped_patch"} and write_roots:
-                if not any(
-                    allowed == "." or normalized_candidate == allowed or normalized_candidate.startswith(f"{allowed}/")
-                    for allowed in write_roots
-                ):
-                    return False, _outside_write_roots_message(
-                        normalized_candidate,
-                        write_roots=write_roots,
-                        canonical_output_paths=canonical_output_paths,
-                    )
         return True
 
     return _validate
@@ -144,19 +120,4 @@ def _normalize_workspace_path(value: Any, *, workspace_root: Path) -> str:
         except ValueError:
             return ""
     return _normalize_relative_path(text)
-
-
-def _outside_write_roots_message(
-    normalized_candidate: str,
-    *,
-    write_roots: list[str],
-    canonical_output_paths: list[str],
-) -> str:
-    details: list[str] = [f"path outside task write roots: {normalized_candidate}"]
-    if write_roots:
-        details.append("allowed write roots: " + ", ".join(write_roots[:8]))
-    if canonical_output_paths:
-        details.append("suggested output path: " + canonical_output_paths[0])
-    return "; ".join(details)
-
 

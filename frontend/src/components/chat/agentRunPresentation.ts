@@ -92,9 +92,9 @@ export function agentOpeningSignalFromTimeline(
   return {
     label: directText
       ? sourceKind === "opening_judgment"
-        ? tone === "error" ? "开局受阻" : tone === "done" ? "判断完成" : "开局判断"
-        : tone === "error" ? "需要判断" : tone === "done" ? "判断完成" : "当前判断"
-      : tone === "error" ? "需要处理" : tone === "done" ? "判断完成" : "开局判断",
+        ? "开局反馈"
+        : tone === "error" ? "需要调整" : tone === "done" ? "判断完成" : "当前判断"
+      : tone === "error" ? "需要调整" : tone === "done" ? "判断完成" : "开局反馈",
     text,
     tone,
   };
@@ -115,7 +115,7 @@ function openingTextForItem(item: PublicChatTimelineItem) {
   const kind = cleanRunText(item.kind);
   if (kind === "blocked") {
     const text = shortRunText(item.recovery_hint || item.text || item.title || "当前步骤没有继续条件", 120);
-    return `我先处理阻塞点：${text}。`;
+    return `我先调整当前条件：${text}。`;
   }
   if (kind === "artifact") {
     return "我已经拿到阶段产物，先把结果整理成可读结论。";
@@ -285,16 +285,16 @@ export function compactPathLabel(value: unknown, limit = 90) {
 function actionTitle(kind: AgentRunActionKind, state: "running" | "done" | "error") {
   const done = state === "done";
   const error = state === "error";
-  if (kind === "inspect") return error ? "确认目标受阻" : done ? "已确认目标" : "确认目标";
-  if (kind === "read") return error ? "读取上下文受阻" : done ? "已读取上下文" : "读取上下文";
-  if (kind === "search") return error ? "搜索受阻" : done ? "已搜索引用" : "搜索引用";
-  if (kind === "write") return error ? "更新受阻" : done ? "已更新文件" : "更新文件";
-  if (kind === "run") return error ? "验证受阻" : done ? "验证已返回" : "运行验证";
-  if (kind === "browse") return error ? "访问受阻" : done ? "已读取网页" : "读取网页";
-  if (kind === "image") return error ? "图像生成受阻" : done ? "图像已生成" : "生成图像";
+  if (kind === "inspect") return error ? "确认目标需调整" : done ? "已确认目标" : "确认目标";
+  if (kind === "read") return error ? "读取上下文需调整" : done ? "已读取上下文" : "读取上下文";
+  if (kind === "search") return error ? "搜索方式需调整" : done ? "已搜索引用" : "搜索引用";
+  if (kind === "write") return error ? "更新路径需调整" : done ? "已更新文件" : "更新文件";
+  if (kind === "run") return error ? "验证方式需调整" : done ? "验证已返回" : "运行验证";
+  if (kind === "browse") return error ? "访问方式需调整" : done ? "已读取网页" : "读取网页";
+  if (kind === "image") return error ? "图像生成需调整" : done ? "图像已生成" : "生成图像";
   if (kind === "artifact") return "产物就绪";
-  if (kind === "verify") return error ? "校验受阻" : done ? "校验完成" : "校验结果";
-  return error ? "动作受阻" : done ? "动作已返回" : "执行动作";
+  if (kind === "verify") return error ? "校验方式需调整" : done ? "校验完成" : "校验结果";
+  return error ? "步骤需调整" : done ? "结果已返回" : "处理步骤";
 }
 
 export function actionSentence(item: PublicChatTimelineItem, variant: "current" | "history" = "history") {
@@ -307,7 +307,7 @@ export function actionSentence(item: PublicChatTimelineItem, variant: "current" 
   const state = stateClassForTimelineItem(item);
   const subject = action.detail ? `${action.title} ${action.detail}` : action.title;
   if (state === "error") {
-    return `${subject}，需要处理`;
+    return `${subject}，我会调整后继续`;
   }
   if (state === "done" || variant === "history") {
     return subject;
@@ -345,7 +345,7 @@ function observationForAction({
 }) {
   const result = meaningfulObservationDetail(rawDetail || item.text || item.detail || item.title, detail);
   if (state === "error") {
-    return `观察：${shortRunText(item.recovery_hint || result || "当前动作没有成功返回，需要调整路径、权限或输入后继续。", 180)}`;
+    return `观察：${shortRunText(item.recovery_hint || result || "当前动作需要调整路径、权限或输入后继续。", 180)}`;
   }
   if (state !== "done") {
     return "";
@@ -379,7 +379,7 @@ function observationForAction({
   }
   if (kind === "write") {
     return result && result !== detail
-      ? `观察：更新动作已返回，${shortRunText(result, 150)}`
+      ? `观察：更新结果已返回，${shortRunText(result, 150)}`
       : "观察：文件更新已返回，下一步需要用页面或测试验证。";
   }
   if (kind === "run") {
@@ -390,7 +390,7 @@ function observationForAction({
   if (result && result !== detail) {
     return `观察：${shortRunText(result, 160)}`;
   }
-  return "观察：动作已返回，继续根据结果推进下一步。";
+  return "观察：结果已返回，继续根据结果推进下一步。";
 }
 
 function meaningfulObservationDetail(value: unknown, target: string) {

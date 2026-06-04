@@ -114,6 +114,39 @@ def test_runtime_compiler_emits_dynamic_context_report_and_projected_task_state(
     assert packet.artifact_refs == ("artifacts/file.txt",)
 
 
+def test_task_state_projects_exploration_advisory() -> None:
+    result = RuntimeCompiler().compile_task_execution_packet(
+        session_id="session:exploration-advisory",
+        task_run={"task_run_id": "taskrun:exploration-advisory", "diagnostics": {"executor_status": "running"}},
+        contract={"task_run_goal": "审查整个代码库", "completion_criteria": ["输出审查结论"]},
+        observations=[],
+        execution_state={
+            "system_projection": {
+                "exploration_advisory": {
+                    "triggered": True,
+                    "kind": "large_scope_exploration_streak",
+                    "consecutive_exploration_tool_calls": 6,
+                    "threshold": 6,
+                    "recommended_action": "pause_serial_exploration_and_consider_agent_todo_plus_codebase_searcher_split",
+                    "non_blocking": True,
+                }
+            }
+        },
+        runtime_assembly={
+            "profile": {"mode": "professional"},
+            "task_environment": {"environment_id": "env.development.sandbox"},
+            "operation_authorization": {"allowed_operations": ["op.read_file", "op.search_text"]},
+        },
+    )
+
+    volatile_payload = _payload_after_title(result.packet.model_messages[-1]["content"], "Task execution current state")
+    advisory = volatile_payload["task_state"]["exploration_advisory"]
+
+    assert advisory["triggered"] is True
+    assert advisory["consecutive_exploration_tool_calls"] == 6
+    assert advisory["non_blocking"] is True
+
+
 def test_read_file_content_windows_survive_task_state_projection() -> None:
     def _read_observation(ref: str, text: str, start_line: int, end_line: int, next_start_line: int | None) -> dict[str, object]:
         return {

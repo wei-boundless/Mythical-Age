@@ -43,12 +43,20 @@ def default_tool_packages() -> tuple[ToolPackageDefinition, ...]:
         ToolPackageDefinition(
             package_id="pkg.filesystem.read",
             title="文件只读",
-            description="读取、查找和检查工作区文件，不修改内容。",
+            description="读取、查找和检查工作区文件，并恢复运行时持久化的只读工具输出，不修改内容。",
             category="本地文件",
-            operation_ids=("op.read_file", "op.list_dir", "op.stat_path", "op.path_exists", "op.glob_paths", "op.read_structured_file"),
+            operation_ids=(
+                "op.read_file",
+                "op.read_persisted_tool_result",
+                "op.list_dir",
+                "op.stat_path",
+                "op.path_exists",
+                "op.glob_paths",
+                "op.read_structured_file",
+            ),
             risk_level="低",
             default_enabled=True,
-            tags=("filesystem", "read"),
+            tags=("filesystem", "read", "runtime_context"),
         ),
         ToolPackageDefinition(
             package_id="pkg.filesystem.write",

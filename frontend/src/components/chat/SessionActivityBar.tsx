@@ -1,15 +1,14 @@
 "use client";
 
-import { AlertTriangle, CheckCircle2, Loader2, PauseCircle, Square, Wrench } from "lucide-react";
+import { CheckCircle2, CircleDot, Loader2, PauseCircle, Square } from "lucide-react";
 import React from "react";
 
 import type { SessionActivityState } from "@/lib/store/types";
 
-function statusIcon(level: SessionActivityState["level"], hasTool: boolean) {
-  if (hasTool) return <Wrench size={14} />;
+function statusIcon(level: SessionActivityState["level"]) {
   if (level === "success") return <CheckCircle2 size={14} />;
-  if (level === "warning") return <AlertTriangle size={14} />;
-  if (level === "error") return <AlertTriangle size={14} />;
+  if (level === "warning") return <CircleDot size={14} />;
+  if (level === "error") return <CircleDot size={14} />;
   if (level === "stopped") return <Square size={13} />;
   if (level === "waiting") return <PauseCircle size={14} />;
   if (level === "running") return <Loader2 className="session-activity-bar__spin" size={14} />;
@@ -22,6 +21,14 @@ function isMachineNoise(value: string) {
   return /^(taskrun|taskinst|turn|runtime_live_monitor|user_message|tool[_:-]|event[_:-])/i.test(text);
 }
 
+function publicStatusTitle(level: SessionActivityState["level"], title: string) {
+  if (level !== "error") return title;
+  return title
+    .replace(/处理失败/g, "需要调整")
+    .replace(/会话连接失败/g, "会话连接需要处理")
+    .replace(/失败/g, "未完成");
+}
+
 export function SessionActivityBar({
   activity,
   active,
@@ -29,11 +36,11 @@ export function SessionActivityBar({
   activity: SessionActivityState;
   active: boolean;
 }) {
-  const hasTool = Boolean(activity.toolName);
   const receipt = activity.receipt ?? null;
   const rawLevel = receipt?.level ?? activity.level;
   const level = active ? rawLevel : rawLevel === "running" ? "idle" : rawLevel;
-  const title = active || rawLevel !== "running" ? receipt?.title ?? activity.title : "";
+  const rawTitle = active || rawLevel !== "running" ? receipt?.title ?? activity.title : "";
+  const title = publicStatusTitle(rawLevel, rawTitle);
   const rawDetail = active || rawLevel !== "running" ? receipt?.body ?? activity.detail : "";
   const detailSourceEvent = receipt?.debug?.event ?? activity.event;
   const detail = detailSourceEvent === "error" && rawLevel === "error" && rawDetail
@@ -48,7 +55,7 @@ export function SessionActivityBar({
   return (
     <div className={`session-activity-bar session-activity-bar--${level}`} aria-live="polite">
       <div className="session-activity-bar__main">
-        <span className="session-activity-bar__icon">{statusIcon(level, hasTool)}</span>
+        <span className="session-activity-bar__icon">{statusIcon(level)}</span>
         <strong>{title}</strong>
         {detail ? <span>{detail}</span> : null}
       </div>

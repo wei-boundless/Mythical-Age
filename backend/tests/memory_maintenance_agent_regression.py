@@ -404,6 +404,57 @@ def test_durable_update_requires_existing_target(tmp_path) -> None:
     assert "Unknown durable memory update target" in receipt.diagnostics["durable_error"]
 
 
+def test_durable_plan_partial_failure_reports_written_namespace(tmp_path) -> None:
+    facade = MemoryFacade(tmp_path)
+    saved_events: list[dict[str, int]] = []
+    facade.set_durable_memory_saved_callback(lambda payload: saved_events.append(dict(payload)))
+    facade.set_model_invoker(
+        _fake_invoker(
+            _agent_payload(
+                durable_actions=[
+                    {
+                        "action": "create",
+                        "note_id": "partial-valid",
+                        "memory_type": "project",
+                        "memory_class": "work",
+                        "title": "部分成功写入",
+                        "canonical_statement": "部分成功的长期记忆写入必须触发治理 dirty 事件。",
+                        "summary": "部分成功也要准确报告。",
+                        "evidence_excerpt": "用户要求记忆提交不能误报 skipped",
+                        "source_message_refs": ["message:0"],
+                    },
+                    {
+                        "action": "update",
+                        "target_note_id": "missing-after-partial",
+                        "memory_type": "project",
+                        "memory_class": "work",
+                        "title": "不存在的目标",
+                        "canonical_statement": "这条 update 应该被拒绝。",
+                        "summary": "缺少目标。",
+                        "evidence_excerpt": "用户要求记忆提交不能误报 skipped",
+                        "source_message_refs": ["message:0"],
+                    },
+                ]
+            )
+        )
+    )
+
+    receipt = facade.run_memory_maintenance_after_commit(
+        session_id="session-partial-durable",
+        messages=[{"role": "user", "content": "记忆提交不能误报 skipped。"}],
+    )
+
+    assert receipt.status == "succeeded"
+    assert receipt.durable_memory_succeeded is False
+    assert receipt.durable_write_count == 1
+    assert receipt.durable_skipped is False
+    assert receipt.durable_skip_reason == "durable_plan_partially_rejected_by_committer"
+    assert receipt.diagnostics["durable_actions"]["created"] == ["partial-valid"]
+    assert "Unknown durable memory update target" in receipt.diagnostics["durable_error"]
+    assert facade.memory_manager.note_path("partial-valid").exists()
+    assert saved_events == [{"global_common": 1}]
+
+
 def test_memory_maintenance_runtime_state_corruption_fails_visible(tmp_path) -> None:
     facade = MemoryFacade(tmp_path)
     state_path = facade.maintenance_coordinator._session_dir("session-corrupt-maintenance") / "state.json"

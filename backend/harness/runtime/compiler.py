@@ -1690,6 +1690,8 @@ def _provider_protocol_message_specs(
     source_ref: str,
 ) -> list[dict[str, Any]]:
     payload = dict(session_context or {})
+    if str(payload.get("compressed_context") or payload.get("compressed_summary") or "").strip():
+        return []
     protocol_sanitizer = sanitize_messages_for_prompt(
         [
             item
@@ -3106,13 +3108,19 @@ def _authorized_input_payload(payload: dict[str, Any], *, primary_content: str =
         "title",
         "project_id",
         "graph_id",
+        "loop_iteration_results",
+        "source_error",
+        "quality_acceptance",
+        "quality_issue_summary",
+        "issues",
     ):
         if key in payload:
             allowed[key] = payload.get(key)
     if isinstance(payload.get("artifact_payloads"), list):
+        artifact_payload_limit = 16 if isinstance(payload.get("loop_iteration_results"), list) else 8
         allowed["artifact_payloads"] = [
             _bounded_artifact_payload_for_authorized_input(dict(item), primary_content=primary_content)
-            for item in list(payload.get("artifact_payloads") or [])[:8]
+            for item in list(payload.get("artifact_payloads") or [])[:artifact_payload_limit]
             if isinstance(item, dict)
         ]
     return _truncate_value(allowed, max_chars=30000) if allowed else {}
@@ -3217,12 +3225,56 @@ def _graph_visible_loop_context(loop_contract: dict[str, Any]) -> dict[str, Any]
     active_frame = dict(dict(loop_contract.get("loop_context") or {}).get("active_frame") or {})
     if active_frame:
         allowed["active_frame"] = _truncate_value(active_frame, max_chars=4000)
+    loop_context = dict(loop_contract.get("loop_context") or {})
     return _drop_empty_payload(
         {
             "variables": _truncate_value(allowed, max_chars=8000),
+            "iteration_results": _graph_visible_loop_iteration_results(loop_context.get("iteration_results")),
             "authority": "harness.runtime.graph_node_context.loop",
         }
     )
+
+
+def _graph_visible_loop_iteration_results(value: Any) -> list[dict[str, Any]]:
+    frames: list[dict[str, Any]] = []
+    for frame_id, raw_frame_results in list(dict(value or {}).items())[:8]:
+        if not isinstance(raw_frame_results, dict):
+            continue
+        iterations: list[dict[str, Any]] = []
+        for iteration_id, raw_node_results in list(raw_frame_results.items())[-32:]:
+            if not isinstance(raw_node_results, dict):
+                continue
+            node_results: list[dict[str, Any]] = []
+            for node_id, raw_summary in list(raw_node_results.items())[:12]:
+                if not isinstance(raw_summary, dict):
+                    continue
+                summary = dict(raw_summary)
+                node_results.append(
+                    _drop_empty_payload(
+                        {
+                            "node_id": str(node_id or summary.get("node_id") or ""),
+                            "status": str(summary.get("status") or ""),
+                            "result_ref": str(summary.get("result_ref") or ""),
+                            "artifact_refs": _model_visible_artifact_refs(summary.get("artifact_refs")),
+                            "handoff_summary": str(summary.get("handoff_summary") or "")[:1200],
+                        }
+                    )
+                )
+            if node_results:
+                iterations.append(
+                    {
+                        "iteration_id": str(iteration_id or ""),
+                        "node_results": node_results,
+                    }
+                )
+        if iterations:
+            frames.append(
+                {
+                    "frame_id": str(frame_id or ""),
+                    "iterations": iterations,
+                }
+            )
+    return frames
 
 
 def _graph_visible_output_requirements(output_contract: dict[str, Any]) -> dict[str, Any]:
@@ -3423,6 +3475,14 @@ def _bounded_graph_payload(payload: dict[str, Any]) -> dict[str, Any]:
         result["project_id"] = str(payload.get("project_id") or "")
     if "handoff_summary" in payload:
         result["handoff_summary"] = str(payload.get("handoff_summary") or "")[:1200]
+    if isinstance(payload.get("source_error"), dict):
+        result["source_error"] = _truncate_value(dict(payload.get("source_error") or {}), max_chars=12000)
+    if isinstance(payload.get("quality_acceptance"), dict):
+        result["quality_acceptance"] = _truncate_value(dict(payload.get("quality_acceptance") or {}), max_chars=12000)
+    if payload.get("quality_issue_summary"):
+        result["quality_issue_summary"] = str(payload.get("quality_issue_summary") or "")[:4000]
+    if isinstance(payload.get("issues"), list):
+        result["issues"] = [str(item) for item in list(payload.get("issues") or [])[:32] if str(item)]
     if isinstance(payload.get("artifact_refs"), list):
         result["artifact_refs"] = [
             artifact_ref_value(item)
@@ -3433,10 +3493,13 @@ def _bounded_graph_payload(payload: dict[str, Any]) -> dict[str, Any]:
         result["receipt_refs"] = _bounded_dict_list(payload.get("receipt_refs"), limit=12)
     if isinstance(payload.get("bounded_outputs"), dict):
         result["bounded_outputs"] = _truncate_value(dict(payload.get("bounded_outputs") or {}), max_chars=30000)
+    if isinstance(payload.get("loop_iteration_results"), list):
+        result["loop_iteration_results"] = _truncate_value(list(payload.get("loop_iteration_results") or [])[:32], max_chars=12000)
     if isinstance(payload.get("artifact_payloads"), list):
+        artifact_payload_limit = 16 if isinstance(payload.get("loop_iteration_results"), list) else 8
         result["artifact_payloads"] = [
             _bounded_artifact_payload(dict(item))
-            for item in list(payload.get("artifact_payloads") or [])[:8]
+            for item in list(payload.get("artifact_payloads") or [])[:artifact_payload_limit]
             if isinstance(item, dict)
         ]
     return result

@@ -46,6 +46,7 @@ CAPABILITY_OPERATION_TYPE_LABELS = {
     "memory": "记忆",
     "model": "模型响应",
     "network": "网络",
+    "runtime_context": "运行时上下文",
     "session": "会话",
     "shell": "本地执行",
     "vcs": "版本控制",

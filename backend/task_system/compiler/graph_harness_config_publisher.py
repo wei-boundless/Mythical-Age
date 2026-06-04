@@ -1233,6 +1233,13 @@ def _scope_loop_frame_payload(payload: dict[str, Any], *, scope_prefix: str, nod
     for key in ("entry_node_id", "router_node_id", "continue_node_id", "exit_node_id"):
         if str(scoped.get(key) or ""):
             scoped[key] = _scope_graph_node_ref(str(scoped.get(key) or ""), scope_prefix=scope_prefix, node_ids=node_ids)
+    scope_node_ids = scoped.get("scope_node_ids")
+    if isinstance(scope_node_ids, list):
+        scoped["scope_node_ids"] = [
+            _scope_graph_node_ref(str(item), scope_prefix=scope_prefix, node_ids=node_ids)
+            for item in scope_node_ids
+            if str(item).strip()
+        ]
     return scoped
 
 

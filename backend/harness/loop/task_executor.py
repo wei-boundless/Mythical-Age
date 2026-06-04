@@ -4819,6 +4819,21 @@ def _classify_record_freshness(
     }
 
 
+_EXPLORATION_ADVISORY_TOOLS = frozenset(
+    {
+        "glob_paths",
+        "list_dir",
+        "path_exists",
+        "read_file",
+        "read_structured_file",
+        "search_files",
+        "search_text",
+        "stat_path",
+    }
+)
+_EXPLORATION_ADVISORY_THRESHOLD = 6
+
+
 def _build_execution_state_projection(records: list[dict[str, Any]]) -> dict[str, Any]:
     current_facts: list[dict[str, Any]] = []
     artifact_evidence: list[dict[str, Any]] = []
@@ -4861,7 +4876,7 @@ def _build_execution_state_projection(records: list[dict[str, Any]]) -> dict[str
             active_failures.append(failure)
             if str(dict(record.get("structured_error") or {}).get("origin") or "") == "validator" or str(record.get("side_effect_kind") or "") == "repair":
                 repair_focus.append(failure)
-    return {
+    projection = {
         "current_facts": current_facts[-12:],
         "artifact_evidence": dedupe_artifact_refs(artifact_evidence)[-20:],
         "active_failures": active_failures[-8:],
@@ -4872,6 +4887,50 @@ def _build_execution_state_projection(records: list[dict[str, Any]]) -> dict[str
         "last_action_receipts": last_action_receipts[-12:],
         "authority": "harness.task_observation_projection",
     }
+    exploration_advisory = _exploration_advisory_from_records(records)
+    if exploration_advisory:
+        projection["exploration_advisory"] = exploration_advisory
+    return projection
+
+
+def _exploration_advisory_from_records(records: list[dict[str, Any]]) -> dict[str, Any]:
+    streak: list[dict[str, Any]] = []
+    for record in reversed(list(records or [])):
+        if _record_visibility(record) != "active":
+            continue
+        tool_name = str(record.get("tool_name") or "").strip()
+        if tool_name not in _EXPLORATION_ADVISORY_TOOLS:
+            break
+        streak.append(record)
+    if len(streak) < _EXPLORATION_ADVISORY_THRESHOLD:
+        return {}
+    ordered = list(reversed(streak))
+    return {
+        "triggered": True,
+        "kind": "large_scope_exploration_streak",
+        "consecutive_exploration_tool_calls": len(ordered),
+        "threshold": _EXPLORATION_ADVISORY_THRESHOLD,
+        "recent_tools": [_exploration_record_projection(item) for item in ordered[-8:]],
+        "recommended_action": "pause_serial_exploration_and_consider_agent_todo_plus_codebase_searcher_split",
+        "decision_questions": [
+            "还剩多少未探索的独立代码区域？",
+            "剩余区域是否可以按目录、模块或语言层拆给 codebase_searcher？",
+            "是否已经有足够证据可以停止探索并进入计划、实现或收口？",
+        ],
+        "non_blocking": True,
+        "authority": "harness.task_observation_projection.exploration_advisory",
+    }
+
+
+def _exploration_record_projection(record: dict[str, Any]) -> dict[str, Any]:
+    payload = {
+        "observation_ref": str(record.get("observation_ref") or ""),
+        "tool_name": str(record.get("tool_name") or ""),
+        "status": str(record.get("status") or "ok"),
+        "path": _record_target_path(record),
+        "summary": compact_text(_record_summary(record), limit=160),
+    }
+    return {key: value for key, value in payload.items() if value not in ("", None, [], {})}
 
 
 def _build_file_state_projection(records: list[dict[str, Any]]) -> list[dict[str, Any]]:

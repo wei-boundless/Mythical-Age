@@ -10,6 +10,7 @@ if str(BACKEND_DIR) not in sys.path:
 from harness.graph.context_materializer import GraphContextMaterializer
 from harness.graph.models import GraphLoopState, NodeResultEnvelope, graph_harness_config_from_dict
 from harness.graph.scheduler_view import build_scheduler_view
+from harness.runtime.compiler import _graph_authorized_inputs
 from task_system.compiler.graph_harness_config_publisher import build_graph_harness_config_from_graph
 from task_system.graphs.task_graph_models import (
     TaskGraphDefinition,
@@ -153,6 +154,7 @@ def test_graph_module_expansion_scopes_imported_loop_contracts() -> None:
                 "router_node_id": "router",
                 "continue_node_id": "draft",
                 "exit_node_id": "review",
+                "scope_node_ids": ["draft", "router"],
                 "initial_inputs": {"target_unit_count": 2, "unit_index": 1},
             },
         ),
@@ -222,10 +224,93 @@ def test_graph_module_expansion_scopes_imported_loop_contracts() -> None:
     assert frame["router_node_id"] == "graph_module.child::router"
     assert frame["continue_node_id"] == "graph_module.child::draft"
     assert frame["exit_node_id"] == "graph_module.child::review"
+    assert frame["scope_node_ids"] == ["graph_module.child::draft", "graph_module.child::router"]
     assert router["loop"]["scope_id"] == "graph_module.child::loop.units"
     assert route_policy["scope_id"] == "graph_module.child::loop.units"
     assert route_policy["continue_node_id"] == "graph_module.child::draft"
     assert route_policy["exit_node_id"] == "graph_module.child::review"
+
+
+def test_loop_exit_node_receives_preserved_iteration_artifact_payloads(tmp_path: Path) -> None:
+    chapter_paths = []
+    for index in range(1, 11):
+        path = tmp_path / f"chapter_{index:03d}.md"
+        path.write_text(f"第{index}章正文\n" + ("本章内容。" * 20), encoding="utf-8")
+        chapter_paths.append(path)
+    graph_config = graph_harness_config_from_dict(
+        {
+            "config_id": "ghcfg:test_loop_iteration_payloads",
+            "graph_id": "graph.test.loop_iteration_payloads",
+            "graph_title": "Loop Iteration Payloads",
+            "publish_version": "test",
+            "content_hash": "hash",
+            "nodes": [
+                {"node_id": "draft", "node_type": "agent_role", "title": "起草"},
+                {"node_id": "router", "node_type": "agent_role", "title": "路由"},
+                {"node_id": "assemble", "node_type": "agent_role", "title": "汇总"},
+            ],
+            "loop_frames": [
+                {
+                    "frame_id": "loop.chapter_unit",
+                    "scope_id": "loop.chapter_unit",
+                    "entry_node_id": "draft",
+                    "router_node_id": "router",
+                    "continue_node_id": "draft",
+                    "exit_node_id": "assemble",
+                    "scope_node_ids": ["draft", "router"],
+                }
+            ],
+        }
+    )
+    state = GraphLoopState(
+        state_id="gstate:test_loop_iteration_payloads",
+        graph_run_id="grun:test_loop_iteration_payloads",
+        task_run_id="taskrun:test_loop_iteration_payloads",
+        session_id="session:test",
+        config_id=graph_config.config_id,
+        config_hash=graph_config.content_hash,
+        graph_id=graph_config.graph_id,
+        loop_state={
+            "frames": {
+                "loop.chapter_unit": {
+                    "frame_id": "loop.chapter_unit",
+                    "scope_id": "loop.chapter_unit",
+                    "exit_node_id": "assemble",
+                    "status": "exited",
+                }
+            },
+            "iteration_results": {
+                "loop.chapter_unit": {
+                    f"chapter_{index:03d}": {
+                        "draft": {
+                            "node_id": "draft",
+                            "status": "completed",
+                            "artifact_refs": [str(path)],
+                            "handoff_summary": f"第{index}章已完成",
+                        }
+                    }
+                    for index, path in enumerate(chapter_paths, start=1)
+                }
+            },
+        },
+    )
+
+    contexts = GraphContextMaterializer().inbound_context_for_node(
+        graph_config=graph_config,
+        state=state,
+        node_id="assemble",
+    )
+    loop_context = next(item for item in contexts if item["packet_type"] == "loop_iteration_results")
+    payload = dict(loop_context["payload"])
+
+    assert len(payload["loop_iteration_results"]) == 10
+    assert len(payload["artifact_payloads"]) == 10
+    assert "第10章正文" in payload["artifact_payloads"][-1]["content"]
+
+    authorized = _graph_authorized_inputs(contexts)
+    loop_authorized = next(item for item in authorized if item["packet_type"] == "loop_iteration_results")
+    assert len(loop_authorized["payload"]["artifact_payloads"]) == 10
+    assert "第10章正文" in str(loop_authorized)
 
 
 def test_scheduler_view_uses_only_dependency_edges() -> None:

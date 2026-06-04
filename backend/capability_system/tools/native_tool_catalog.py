@@ -36,6 +36,7 @@ from capability_system.tools.tool_units.git_tools import (
 )
 from capability_system.tools.tool_units.image_generation_tool import ImageGenerationTool
 from capability_system.tools.tool_units.memory_search_tool import MemorySearchTool
+from capability_system.tools.tool_units.persisted_tool_result_tool import ReadPersistedToolResultTool
 from capability_system.tools.tool_units.python_repl_tool import PythonReplTool
 from capability_system.tools.tool_units.python_ast_tools import PythonCodeOutlineTool, PythonParseCheckTool, PythonSymbolSearchTool
 from capability_system.tools.tool_units.read_file_tool import ReadFileTool
@@ -435,6 +436,30 @@ def _tool_definitions() -> list[ToolDefinition]:
             schema_identity="local.tools/read_file",
             prompt_exposure_policy="schema_plus_guidance",
             resource_exposure_policy="explicit_resource",
+        ),
+        ToolDefinition(
+            name="read_persisted_tool_result",
+            display_name="读取持久化工具输出",
+            operation_id="op.read_persisted_tool_result",
+            module="tools.persisted_tool_result_tool",
+            factory=lambda base_dir: ReadPersistedToolResultTool(root_dir=base_dir),
+            contract=ToolExecutionContract(
+                required_inputs=[],
+                optional_inputs=["replacement_id", "path", "task_run_id", "start_byte", "max_bytes"],
+                owner_scope="none",
+                missing_binding_behavior="clarify",
+                context_policy="inline",
+                result_channel="canonical",
+            ),
+            output_contract=ToolOutputContract(display_mode="verbatim_text"),
+            capability_tags=["tool_result", "rehydration", "runtime_context", "read"],
+            supported_modalities=["text", "workspace"],
+            safety_tags=["read", "runtime_context"],
+            route_hints=["tool", "rehydration", "tool_result_recovery"],
+            safe_for_auto_route=False,
+            schema_identity="local.tools/read_persisted_tool_result",
+            prompt_exposure_policy="schema_plus_guidance",
+            resource_exposure_policy="none",
         ),
         ToolDefinition(
             name="read_structured_file",

@@ -225,6 +225,18 @@ def default_operation_descriptors() -> list[OperationDescriptor]:
             safety_validator_ref="filesystem_path",
         ),
         _descriptor(
+            "op.read_persisted_tool_result",
+            "runtime_context",
+            "Read persisted tool result",
+            "Read exact omitted tool output previously persisted by the runtime context projector.",
+            aliases=("read_persisted_tool_result",),
+            risk_tags=("read_only", "runtime_context", "tool_result_rehydration"),
+            read_only=True,
+            idempotent=True,
+            concurrency_safe=True,
+            max_result_size_chars=120_000,
+        ),
+        _descriptor(
             "op.search_files",
             "filesystem",
             "Search files",

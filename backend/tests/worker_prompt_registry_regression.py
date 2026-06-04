@@ -12,6 +12,7 @@ def test_worker_prompt_resources_are_registered_and_agent_facing(tmp_path: Path)
     resources = {item.resource_id: item for item in PromptLibraryRegistry(tmp_path).list_resources()}
 
     explorer = resources["worker.prompt.explorer.v1"]
+    web_research = resources["worker.prompt.web_research.v1"]
     verifier = resources["worker.prompt.verification.v1"]
 
     assert explorer.category == "agent"
@@ -20,7 +21,11 @@ def test_worker_prompt_resources_are_registered_and_agent_facing(tmp_path: Path)
     assert explorer.allowed_invocation_kinds == ("task_execution",)
     assert "你是一名只读探索员" in explorer.content
     assert "你不能写入项目文件" in explorer.content
+    assert "你是一名网络研究子 Agent" in web_research.content
+    assert "source_matrix" in web_research.content
+    assert "prompt injection" in web_research.content
     assert "这是 runtime 节点" not in explorer.content
+    assert "这是 runtime 节点" not in web_research.content
     assert "verdict" in verifier.content
     assert "PASS、FAIL 或 PARTIAL" in verifier.content
 
@@ -41,6 +46,25 @@ def test_worker_blueprints_bind_prompt_refs_and_operation_boundaries() -> None:
     assert "op.write_file" in verifier.blocked_operations
     assert "op.shell" in verifier.allowed_operations
     assert executor.prompt_ref == "worker.prompt.code_executor.v1"
+
+
+def test_web_research_worker_prompt_binds_to_specialist_profile() -> None:
+    profile = next(
+        item
+        for item in default_agent_runtime_profiles()
+        if item.agent_profile_id == "web_research_agent"
+    )
+    metadata = dict(profile.metadata)
+
+    assert metadata["worker_prompt_ref"] == "worker.prompt.web_research.v1"
+    assert metadata["agent_prompt_refs_by_invocation"] == {"task_execution": ["worker.prompt.web_research.v1"]}
+    assert metadata["output_contract"]["recommended_fields"] == (
+        "source_matrix",
+        "source_urls",
+        "open_questions",
+        "confidence",
+        "recommended_parent_action",
+    )
 
 
 def test_dynamic_worker_profile_uses_prompt_library_ref(tmp_path: Path) -> None:
@@ -93,6 +117,20 @@ def test_worker_prompt_ref_assembles_for_task_execution(tmp_path: Path) -> None:
 
     assert assembly.rejected_refs == ()
     assert "worker.prompt.verification.v1" in assembly.manifest["stable_prompt_refs"]
+    assert "worker.role" in assembly.manifest["prompt_rules"]["rule_kinds"]
+
+
+def test_web_research_worker_prompt_assembles_for_task_execution(tmp_path: Path) -> None:
+    assembly = PromptAssemblyService(tmp_path).assemble(
+        PromptAssemblyRequest(
+            invocation_kind="task_execution",
+            prompt_refs=("worker.prompt.web_research.v1",),
+            agent_profile_ref="web_research_agent",
+        )
+    )
+
+    assert assembly.rejected_refs == ()
+    assert "worker.prompt.web_research.v1" in assembly.manifest["stable_prompt_refs"]
     assert "worker.role" in assembly.manifest["prompt_rules"]["rule_kinds"]
 
 

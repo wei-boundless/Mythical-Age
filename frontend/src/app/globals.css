@@ -8282,7 +8282,7 @@ button:hover {
 }
 
 .public-run-activity__row--error .public-run-activity__icon {
-  color: #dc2626;
+  color: #8a6a16;
 }
 
 .public-run-activity__row--history,
@@ -28030,7 +28030,7 @@ html[data-workspace-tone] .agent-workbench {
 }
 
 .session-activity-bar--error .session-activity-bar__icon {
-  color: #b91c1c;
+  color: #8a6a16;
 }
 
 .session-activity-bar--stopped .session-activity-bar__icon {
@@ -31842,6 +31842,8 @@ html[data-workspace-tone] .agent-workbench {
 
 .agent-workbench .chat-token-meter {
   display: inline-flex;
+  max-width: min(360px, 100%);
+  min-width: 0;
   min-height: 24px;
   align-items: center;
   gap: 5px;
@@ -31863,6 +31865,12 @@ html[data-workspace-tone] .agent-workbench {
   font-style: normal;
   font-weight: 560;
   line-height: 1;
+}
+
+.agent-workbench .chat-token-meter em {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .agent-workbench .chat-token-meter strong {
@@ -34039,29 +34047,29 @@ body {
 
 .agent-workbench .assistant-output-signal {
   display: grid;
-  grid-template-columns: 24px minmax(0, 1fr);
-  gap: 9px;
-  width: min(100%, 84ch);
+  grid-template-columns: 18px minmax(0, 1fr);
+  gap: 7px;
+  width: min(100%, 64ch);
   align-items: start;
-  justify-self: end;
-  border: 1px solid rgba(40, 95, 198, 0.12);
-  border-radius: 8px;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.84), rgba(247, 250, 252, 0.72)),
-    rgba(238, 245, 255, 0.46);
-  box-shadow: 0 10px 28px rgba(17, 24, 39, 0.045);
+  justify-self: start;
+  margin-left: 0;
+  border: 0;
+  border-left: 2px solid rgba(40, 95, 198, 0.22);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
   color: #172033;
-  padding: 9px 11px;
+  padding: 4px 0 4px 9px;
 }
 
 .agent-workbench .assistant-output-signal__icon {
   display: inline-grid;
-  width: 24px;
-  height: 24px;
+  width: 18px;
+  height: 20px;
   place-items: center;
-  border: 1px solid rgba(40, 95, 198, 0.13);
-  border-radius: 7px;
-  background: #ffffff;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
   color: #285fc6;
 }
 
@@ -34073,24 +34081,22 @@ body {
 
 .agent-workbench .assistant-output-signal__copy span {
   color: #66758a;
-  font-size: 11px;
+  font-size: 10.5px;
   font-weight: 720;
-  letter-spacing: 0.04em;
+  letter-spacing: 0;
 }
 
 .agent-workbench .assistant-output-signal__copy strong {
   color: #172033;
-  font-size: 13px;
+  font-size: 12.5px;
   font-weight: 640;
-  line-height: 1.58;
+  line-height: 1.5;
   overflow-wrap: anywhere;
 }
 
 .agent-workbench .assistant-output-signal--done {
-  border-color: rgba(22, 116, 95, 0.16);
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.86), rgba(245, 251, 248, 0.74)),
-    rgba(237, 248, 243, 0.66);
+  border-left-color: rgba(22, 116, 95, 0.22);
+  background: transparent;
 }
 
 .agent-workbench .assistant-output-signal--done .assistant-output-signal__icon {
@@ -34099,50 +34105,48 @@ body {
 }
 
 .agent-workbench .assistant-output-signal--error {
-  border-color: rgba(180, 35, 24, 0.16);
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.86), rgba(255, 247, 247, 0.76)),
-    rgba(255, 241, 241, 0.68);
+  border-left-color: rgba(148, 116, 35, 0.28);
+  background: transparent;
 }
 
 .agent-workbench .assistant-output-signal--error .assistant-output-signal__icon {
-  border-color: rgba(180, 35, 24, 0.16);
-  color: #b42318;
+  border-color: transparent;
+  color: #8a6a16;
 }
 
 .agent-workbench .public-run-activity {
   display: grid;
-  width: min(100%, 84ch);
-  gap: 8px;
-  margin: 4px 0 8px;
-  border: 1px solid rgba(151, 166, 185, 0.24);
-  border-radius: 8px;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.76), rgba(248, 250, 252, 0.66)),
-    rgba(255, 255, 255, 0.56);
-  box-shadow: 0 10px 26px rgba(17, 24, 39, 0.04);
+  width: min(100%, 64ch);
+  justify-self: start;
+  gap: 5px;
+  margin: 2px 0 6px;
+  border: 0;
+  border-left: 2px solid rgba(100, 116, 139, 0.22);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
   color: #475569;
-  padding: 9px 10px 10px;
+  padding: 4px 0 4px 9px;
 }
 
 .agent-workbench .public-run-activity__summary {
   display: grid;
-  grid-template-columns: 24px minmax(0, 1fr) auto;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
   align-items: center;
-  gap: 8px;
+  gap: 7px;
   min-width: 0;
-  border-bottom: 1px solid rgba(151, 166, 185, 0.14);
-  padding-bottom: 8px;
+  border-bottom: 0;
+  padding-bottom: 0;
 }
 
 .agent-workbench .public-run-activity__summary-icon {
   display: inline-grid;
-  width: 24px;
-  height: 24px;
+  width: 18px;
+  height: 20px;
   place-items: center;
-  border: 1px solid rgba(40, 95, 198, 0.14);
-  border-radius: 7px;
-  background: #ffffff;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
   color: #285fc6;
 }
 
@@ -34151,9 +34155,21 @@ body {
   color: #147a5c;
 }
 
+.agent-workbench .public-run-activity__summary--done .public-run-activity__summary-icon {
+  color: #147a5c;
+}
+
 .agent-workbench .public-run-activity--error .public-run-activity__summary-icon {
-  border-color: rgba(180, 35, 24, 0.16);
-  color: #b42318;
+  border-color: transparent;
+  color: #8a6a16;
+}
+
+.agent-workbench .public-run-activity__summary--error .public-run-activity__summary-icon {
+  color: #8a6a16;
+}
+
+.agent-workbench .public-run-activity__row--error .public-run-activity__icon {
+  color: #8a6a16;
 }
 
 .agent-workbench .public-run-activity__summary-copy {
@@ -34164,53 +34180,56 @@ body {
 
 .agent-workbench .public-run-activity__summary-copy strong {
   color: #172033;
-  font-size: 12.5px;
-  font-weight: 760;
+  font-size: 12px;
+  font-weight: 700;
   line-height: 1.35;
 }
 
 .agent-workbench .public-run-activity__summary-copy small {
   color: #66758a;
-  font-size: 11.5px;
+  font-size: 11px;
   line-height: 1.42;
   overflow-wrap: anywhere;
 }
 
 .agent-workbench .public-run-activity__summary em {
-  border: 1px solid rgba(151, 166, 185, 0.18);
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.7);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
   color: #64748b;
-  font-size: 11px;
+  font-size: 10.5px;
   font-style: normal;
-  font-weight: 720;
+  font-weight: 680;
   line-height: 1;
-  padding: 5px 7px;
+  padding: 0;
   white-space: nowrap;
 }
 
 .agent-workbench .public-run-activity--running .public-run-activity__summary em {
-  border-color: rgba(40, 95, 198, 0.18);
-  background: rgba(235, 242, 255, 0.78);
   color: #285fc6;
 }
 
 .agent-workbench .public-run-activity--done .public-run-activity__summary em {
-  border-color: rgba(22, 116, 95, 0.16);
-  background: rgba(237, 248, 243, 0.78);
+  color: #147a5c;
+}
+
+.agent-workbench .public-run-activity__summary--done em {
   color: #147a5c;
 }
 
 .agent-workbench .public-run-activity--error .public-run-activity__summary em {
-  border-color: rgba(180, 35, 24, 0.16);
-  background: rgba(255, 241, 241, 0.78);
-  color: #b42318;
+  color: #8a6a16;
+}
+
+.agent-workbench .public-run-activity__summary--error em {
+  color: #8a6a16;
 }
 
 .agent-workbench .public-run-activity__rows {
   display: grid;
-  gap: 6px;
+  gap: 4px;
   min-width: 0;
+  padding-top: 3px;
 }
 
 .agent-workbench .public-run-activity__row {
@@ -34225,14 +34244,14 @@ body {
 }
 
 .agent-workbench .public-run-activity__row--current {
-  border-left-color: rgba(40, 95, 198, 0.36);
-  padding: 2px 0 2px 8px;
+  border-left-color: transparent;
+  padding: 0;
 }
 
 .agent-workbench .public-run-activity__row--current .public-run-activity__copy strong {
   color: #172033;
-  font-size: 14px;
-  font-weight: 680;
+  font-size: 12.5px;
+  font-weight: 650;
 }
 
 .agent-workbench .public-run-activity__row--history,
@@ -34242,7 +34261,7 @@ body {
 
 .agent-workbench .public-run-activity__copy strong {
   color: #243042;
-  font-size: 12.5px;
+  font-size: 12px;
   font-weight: 600;
   line-height: 1.48;
   overflow-wrap: anywhere;
@@ -34251,20 +34270,20 @@ body {
 .agent-workbench .public-run-activity__copy small,
 .agent-workbench .public-run-activity__copy code {
   color: #66758a;
-  font-size: 11.5px;
+  font-size: 11px;
   line-height: 1.45;
   overflow-wrap: anywhere;
 }
 
 .agent-workbench .public-run-activity__observation {
   display: block;
-  margin-top: 4px;
-  border-left: 2px solid rgba(22, 116, 95, 0.34);
-  border-radius: 6px;
-  background: rgba(237, 248, 243, 0.64);
+  margin-top: 3px;
+  border-left: 2px solid rgba(22, 116, 95, 0.22);
+  border-radius: 0;
+  background: transparent;
   color: #2f5f4f;
-  font-weight: 580;
-  padding: 5px 7px;
+  font-weight: 560;
+  padding: 0 0 0 7px;
 }
 
 .agent-workbench .public-run-activity__copy code {
@@ -34321,6 +34340,7 @@ body {
   .agent-workbench .assistant-output-signal,
   .agent-workbench .public-run-activity {
     width: 100%;
+    margin-left: 0;
   }
 
   .agent-workbench .public-run-activity__summary {

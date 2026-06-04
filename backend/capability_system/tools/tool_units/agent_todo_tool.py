@@ -23,7 +23,12 @@ class AgentTodoInput(BaseModel):
     task_id: str = Field(default="runtime", description="Current task id; use runtime when no task id is provided.")
     items: list[dict[str, Any]] = Field(
         default_factory=list,
-        description="Todo items for replace/append. Each item should include content, optional active_form, status, evidence_expectations, and contract_refs. Use this field instead of todos.",
+        description=(
+            "Todo items for replace/append. Each item should include content, optional active_form, status, "
+            "evidence_expectations, contract_refs, and optional subagent orchestration metadata such as "
+            "owner_agent_id, scope, subagent_run_ref, depends_on, handoff_goal, or parallel_group. "
+            "Use this field instead of todos."
+        ),
     )
     todo_id: str = Field(default="", description="Target todo id for start, complete, update_status, or remove.")
     status: str = Field(default="", description="Target status for update_status: pending, in_progress, or completed.")
@@ -161,22 +166,29 @@ def _build_plan(*, session_id: str, task_id: str, items: list[dict[str, Any]]) -
             else:
                 active_item_id = str(raw.get("todo_id") or _todo_id(content, index))
         todo_id = str(raw.get("todo_id") or _todo_id(content, index))
-        normalized.append(
-            {
-                "todo_id": todo_id,
-                "content": content,
-                "active_form": str(raw.get("active_form") or content),
-                "status": status,
-                "notes": str(raw.get("notes") or ""),
-                "evidence_expectations": [
-                    str(item) for item in list(raw.get("evidence_expectations") or []) if str(item).strip()
-                ],
-                "contract_refs": [
-                    str(item) for item in list(raw.get("contract_refs") or []) if str(item).strip()
-                ],
-                "updated_at": float(raw.get("updated_at") or now),
-            }
-        )
+        item = {
+            "todo_id": todo_id,
+            "content": content,
+            "active_form": str(raw.get("active_form") or content),
+            "status": status,
+            "notes": str(raw.get("notes") or ""),
+            "evidence_expectations": [
+                str(item) for item in list(raw.get("evidence_expectations") or []) if str(item).strip()
+            ],
+            "contract_refs": [
+                str(item) for item in list(raw.get("contract_refs") or []) if str(item).strip()
+            ],
+            "updated_at": float(raw.get("updated_at") or now),
+        }
+        _copy_optional_string_field(item, raw, "owner_agent_id", aliases=("assigned_agent_id",))
+        _copy_optional_string_field(item, raw, "scope")
+        _copy_optional_string_field(item, raw, "subagent_run_ref")
+        _copy_optional_string_field(item, raw, "handoff_goal")
+        _copy_optional_string_field(item, raw, "parallel_group")
+        depends_on = [str(value).strip() for value in list(raw.get("depends_on") or []) if str(value).strip()]
+        if depends_on:
+            item["depends_on"] = depends_on
+        normalized.append(item)
     return {
         "plan_id": f"agent-todo:{_safe_key(session_id)}:{_safe_key(task_id)}",
         "session_id": session_id,
@@ -231,6 +243,14 @@ def _update_plan(
                 item = {**item, "notes": notes}
             next_items.append(item)
     return _build_plan(session_id=session_id, task_id=task_id, items=next_items)
+
+
+def _copy_optional_string_field(target: dict[str, Any], source: dict[str, Any], key: str, *, aliases: tuple[str, ...] = ()) -> None:
+    for field in (key, *aliases):
+        value = str(source.get(field) or "").strip()
+        if value:
+            target[key] = value
+            return
 
 
 def _todo_id(content: str, index: int) -> str:

@@ -66,6 +66,7 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
                 "op.model_response",
                 "op.codebase_search",
                 "op.read_file",
+                "op.read_persisted_tool_result",
                 "op.list_dir",
                 "op.stat_path",
                 "op.path_exists",
@@ -370,11 +371,16 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
                 },
                 "output_contract": {
                     "required_fields": ("answer_candidate", "evidence_refs", "limitations"),
+                    "recommended_fields": ("source_matrix", "source_urls", "open_questions", "confidence", "recommended_parent_action"),
                     "source_policy": "无 source URL 或 evidence packet 时不得完成为成功答案。",
                     "result_policy": "summary_and_refs_only",
                 },
                 "context_policy": "fresh_specialist_summary_and_refs_only",
                 "runtime_template_id": "builtin.specialist.web_researcher",
+                "worker_prompt_ref": "worker.prompt.web_research.v1",
+                "agent_prompt_refs_by_invocation": {
+                    "task_execution": ["worker.prompt.web_research.v1"],
+                },
                 "runtime_config": {
                     "template_id": "runtime.template.deepsearch",
                     "runtime_kind": "search_agent",

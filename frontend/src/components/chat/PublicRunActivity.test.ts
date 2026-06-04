@@ -53,7 +53,7 @@ describe("PublicRunActivity", () => {
 
     expect(html).toContain("观察报告");
     expect(html).toContain("已读到主会话从 public_timeline 渲染运行反馈");
-    expect(html).toContain("下一步：根据真实调用链修改公开投影");
+    expect(html).not.toContain("下一步：");
     expect(html).not.toContain("工具已完成");
   });
 
@@ -74,8 +74,7 @@ describe("PublicRunActivity", () => {
     );
 
     expect(html).toContain("public-run-activity");
-    expect(html).toContain("阶段完成");
-    expect(html).toContain("已确认目标");
+    expect(html).toContain("工具反馈");
     expect(html).toContain("观察：目标文件尚未存在");
     expect(html).toContain("目标文件尚未存在");
     expect(html).not.toContain("查看执行细节");
@@ -98,7 +97,7 @@ describe("PublicRunActivity", () => {
       }),
     );
 
-    expect(html).toContain("已读取上下文 langchain-agent/AGENTS.md");
+    expect(html).toContain("工具反馈");
     expect(html).toContain("观察：项目约定已读到");
     expect(html).toContain("项目要求固定端口");
   });
@@ -128,6 +127,24 @@ describe("PublicRunActivity", () => {
         assistantContent: "已完成五层地下塔的核心结构、关键交互和验收记录。",
       }),
     );
+    expect(html).toBe("");
+  });
+
+  it("suppresses stale raw tool failures once assistant prose is available", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(PublicRunActivity, {
+        assistantContent: "我没有继续调用工具，直接基于已有信息回答。",
+        items: [
+          {
+            item_id: "tool:fetch:failed",
+            kind: "tool_activity",
+            title: "Tool execution failed: Fetch failed for https://www.hko.gov.hk/en/wxinfo/fcstact/dailywx/20260603.htm: HTTP 404",
+            state: "error",
+          },
+        ],
+      }),
+    );
+
     expect(html).toBe("");
   });
 
@@ -172,16 +189,16 @@ describe("PublicRunActivity", () => {
       }),
     );
 
-    expect(html).toContain("前面已完成 2 步，继续处理中。");
     expect(html).toContain("执行中");
+    expect(html).toContain("正在运行验证 npm test");
+    expect(html).not.toContain("前面已完成");
+    expect(html).not.toContain("已完成 3 步");
     expect(html).not.toContain("处理已开始");
     expect(html).not.toContain("读取项目结构");
     expect(html).not.toContain("检查配置文件");
-    expect(html).toContain("已搜索引用 入口组件");
-    expect(html).toContain("观察：相关引用已定位");
     expect(html).toContain("运行验证");
     expect(html).toContain("npm test");
-    expect(html).toContain("public-run-activity__row--current");
+    expect(html).not.toContain("public-run-activity__row--current");
   });
 
   it("collapses duplicated file reads and presents search as a single current action", () => {
@@ -214,11 +231,11 @@ describe("PublicRunActivity", () => {
     );
 
     expect(html).not.toContain("前面已完成");
-    expect(html).toContain("已读取上下文 artifacts/game.html");
+    expect(html).not.toContain("已读取上下文 artifacts/game.html");
     expect(html).toContain("正在搜索");
     expect(html).toContain("function attack");
     expect(html.match(/storage/g)?.length ?? 0).toBe(0);
-    expect(html).toContain("public-run-activity__row--current");
+    expect(html).not.toContain("public-run-activity__row--current");
   });
 
   it("renders path checks as inspection instead of generic tool calls", () => {
@@ -258,7 +275,7 @@ describe("PublicRunActivity", () => {
       }),
     );
 
-    expect(html).toContain("已读取上下文 langchain-agent/AGENTS.md");
+    expect(html).toContain("工具反馈");
     expect(html).toContain("观察：项目约定已读到");
     expect(html).toContain("项目要求先说明判断");
   });
@@ -278,7 +295,7 @@ describe("PublicRunActivity", () => {
       }),
     );
 
-    expect(html).toContain("验证已返回 npm test -- --run src/components/chat");
+    expect(html).toContain("工具反馈");
     expect(html).toContain("观察：验证命令已返回，22 tests passed");
   });
 
@@ -306,7 +323,7 @@ describe("PublicRunActivity", () => {
 
     expect(html).not.toContain("public-run-activity__agent-message");
     expect(html).not.toContain("我先检查文件写入权限和可用路径");
-    expect(html).toContain("public-run-activity__row--current");
+    expect(html).not.toContain("public-run-activity__row--current");
     expect(html).toContain("正在确认 output");
   });
 
@@ -325,7 +342,8 @@ describe("PublicRunActivity", () => {
       }),
     );
 
-    expect(html).toContain("正在执行动作 artifacts/football.html");
+    expect(html).toContain("正在处理步骤 artifacts/football.html");
+    expect(html).not.toContain("执行动作");
     expect(html).not.toContain("正在正在");
     expect(html).not.toContain("正在调用工具");
     expect(html).not.toContain("storage/task_environments/general/workspace/artifacts/football.html");
@@ -364,7 +382,37 @@ describe("PublicRunActivity", () => {
     );
 
     expect(html).toContain("已完成实现、测试和收口说明。");
-    expect(html).toContain("public-run-activity__row--final");
+    expect(html).not.toContain("public-run-activity__row--final");
+  });
+
+  it("keeps the latest tool observation visible before the closeout summary", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(PublicRunActivity, {
+        items: [
+          {
+            item_id: "tool:test:done",
+            kind: "tool_activity",
+            title: "命令已完成 npm test -- --run src/components/chat",
+            detail: "31 tests passed",
+            state: "done",
+          },
+          {
+            item_id: "final:closeout",
+            kind: "final_summary",
+            text: "已完成开局反馈、运行反馈和收尾展示调整。",
+            state: "done",
+          },
+        ],
+        assistantContent: "",
+      }),
+    );
+
+    expect(html).toContain("工具反馈");
+    expect(html).toContain("观察：验证命令已返回，31 tests passed");
+    expect(html).toContain("收尾总结");
+    expect(html).toContain("已完成开局反馈、运行反馈和收尾展示调整。");
+    expect(html.indexOf("工具反馈")).toBeLessThan(html.indexOf("收尾总结"));
+    expect(html).not.toContain("阶段完成");
   });
 
   it("renders artifact refs from attachment using logical paths only", () => {
@@ -383,7 +431,7 @@ describe("PublicRunActivity", () => {
     );
 
     expect(html).toContain("产物已生成");
-    expect(html).toContain("storage/task_environments/general/workspace/artifacts/plan.md");
+    expect(html).not.toContain("storage/task_environments/general/workspace/artifacts/plan.md");
     expect(html).not.toContain("runtime_state/sandboxes");
   });
 
@@ -402,8 +450,9 @@ describe("PublicRunActivity", () => {
       }),
     );
 
-    expect(html).toContain("动作已返回 artifacts/test_placeholder");
-    expect(html).toContain("public-run-activity__row--done");
+    expect(html).toContain("观察：artifacts/test_placeholder 已返回");
+    expect(html).not.toContain("动作已返回");
+    expect(html).not.toContain("public-run-activity__row--done");
     expect(html).not.toContain("public-run-activity__spinner");
   });
 
@@ -428,8 +477,9 @@ describe("PublicRunActivity", () => {
       }),
     );
 
-    expect(html).toContain("动作已返回 artifacts/football.html");
-    expect(html).toContain("public-run-activity__row--done");
+    expect(html).toContain("观察：artifacts/football.html 已返回");
+    expect(html).not.toContain("动作已返回");
+    expect(html).not.toContain("public-run-activity__row--done");
     expect(html).not.toContain("public-run-activity__row--current");
     expect(html).not.toContain("public-run-activity__spinner");
   });

@@ -130,7 +130,7 @@ def _boost_path_hits(text_hits: list[TextHit], *, path_results: list[str]) -> li
     direct_hits = [
         TextHit(file=path, line=1, column=1, snippet=f"path match: {path}", query="path")
         for path in known_paths
-        if path.endswith((".py", ".ts", ".tsx", ".js", ".jsx", ".json", ".md"))
+        if path.endswith((".py", ".ts", ".tsx", ".js", ".jsx", ".json", ".jsonl", ".tsv", ".csv", ".parquet", ".ipynb", ".md"))
     ]
     return [*text_hits, *direct_hits]
 

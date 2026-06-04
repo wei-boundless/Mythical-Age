@@ -67,6 +67,33 @@ def test_agent_todo_tool_persists_and_updates_state(tmp_path: Path) -> None:
     assert viewed["items"][0]["todo_id"] == "read"
 
 
+def test_agent_todo_preserves_subagent_orchestration_metadata() -> None:
+    plan = _build_plan(
+        session_id="s1",
+        task_id="t1",
+        items=[
+            {
+                "todo_id": "backend-runtime",
+                "content": "审查 backend runtime",
+                "owner_agent_id": "agent:codebase_searcher",
+                "scope": "backend/harness",
+                "handoff_goal": "定位 runtime 执行循环和风险点",
+                "subagent_run_ref": "agrun:child",
+                "parallel_group": "project-audit",
+                "depends_on": ["top-level-scale-check"],
+            }
+        ],
+    )
+
+    item = plan["items"][0]
+    assert item["owner_agent_id"] == "agent:codebase_searcher"
+    assert item["scope"] == "backend/harness"
+    assert item["handoff_goal"] == "定位 runtime 执行循环和风险点"
+    assert item["subagent_run_ref"] == "agrun:child"
+    assert item["parallel_group"] == "project-audit"
+    assert item["depends_on"] == ["top-level-scale-check"]
+
+
 def test_agent_todo_registered_as_non_destructive_tool() -> None:
     definitions = {definition.name: definition for definition in get_tool_definitions()}
     todo = definitions["agent_todo"]

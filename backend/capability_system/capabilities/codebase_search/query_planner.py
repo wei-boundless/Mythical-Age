@@ -70,6 +70,44 @@ STOP_TERMS = {
     "代码",
 }
 
+RAG_EVAL_INTENT_TERMS = {
+    "rag",
+    "retrieval",
+    "scifact",
+    "qrels",
+    "benchmark",
+    "eval",
+    "evaluation",
+    "experiment",
+    "recall",
+    "mrr",
+    "ndcg",
+}
+RAG_EVAL_PATH_QUERIES = (
+    "scifact",
+    "qrels",
+    "_artifacts",
+    "benchmark",
+    "jsonl",
+    "tsv",
+)
+RAG_EVAL_TEXT_QUERIES = (
+    "recall_at_10",
+    "mrr_at_10",
+    "ndcg_at_10",
+    "hit_at_10",
+    "accuracy_at_1",
+    "scifact_root",
+    "qrels",
+)
+RAG_EVAL_GLOBS = (
+    "scifact/**/*.jsonl",
+    "scifact/**/*.tsv",
+    "scifact/**/*.parquet",
+    "backend/tests/_artifacts/scifact_v2*.json",
+    "output/benchmark_runtime/**/*.json",
+)
+
 
 def build_codebase_search_plan(query: str, *, max_queries: int = 12, include_tests: bool = True) -> CodebaseSearchPlan:
     normalized = str(query or "").strip()
@@ -77,10 +115,14 @@ def build_codebase_search_plan(query: str, *, max_queries: int = 12, include_tes
     symbols = _symbols(normalized, tokens)
     test_intent = _has_test_intent(normalized)
     doc_intent = _has_doc_intent(normalized)
-    roots = _preferred_roots(normalized, include_tests=include_tests)
+    rag_eval_intent = _has_rag_eval_intent(normalized)
+    roots = _preferred_roots(normalized, include_tests=include_tests, rag_eval_intent=rag_eval_intent)
     path_queries = _dedupe([item for item in tokens if _is_path_query(item)])
     search_terms = [item for item in tokens if _is_search_term(item)]
     high_value_terms = [item for item in search_terms if _is_high_value_term(item)]
+    if rag_eval_intent:
+        path_queries = _dedupe([*path_queries, *RAG_EVAL_PATH_QUERIES])
+        high_value_terms = [*RAG_EVAL_TEXT_QUERIES, *high_value_terms]
     text_queries = _dedupe([*symbols, *high_value_terms, *search_terms])
     if not text_queries and normalized:
         text_queries = (normalized,)
@@ -89,7 +131,7 @@ def build_codebase_search_plan(query: str, *, max_queries: int = 12, include_tes
     query_terms = _dedupe([*symbol_queries, *path_queries, *search_terms])[:max_queries]
     required_terms = _dedupe([*symbol_queries, *path_queries, *high_value_terms])[:max_queries]
     git_history_queries = _dedupe([*symbol_queries, *path_queries, *[item for item in text_queries if _is_history_query(item)]])[: max(1, max_queries // 2)]
-    file_globs = _file_globs(normalized, include_tests=include_tests)
+    file_globs = _file_globs(normalized, include_tests=include_tests, rag_eval_intent=rag_eval_intent)
     return CodebaseSearchPlan(
         path_queries=tuple(path_queries[:max_queries]),
         text_queries=tuple(text_queries),
@@ -155,6 +197,8 @@ def _is_search_term(value: str) -> bool:
     lowered = item.lower()
     if lowered in STOP_TERMS:
         return False
+    if lowered in RAG_EVAL_INTENT_TERMS:
+        return True
     if "/" in item or "\\" in item:
         return True
     if re.match(r"^[\u4e00-\u9fff]{2,}$", item):
@@ -186,9 +230,11 @@ def _is_history_query(value: str) -> bool:
     return _looks_like_identifier(item) or len(item) >= 6
 
 
-def _preferred_roots(value: str, *, include_tests: bool) -> list[str]:
+def _preferred_roots(value: str, *, include_tests: bool, rag_eval_intent: bool) -> list[str]:
     roots: list[str] = []
     lowered = value.lower().replace("\\", "/")
+    if rag_eval_intent:
+        roots.extend(["scifact", "backend/tests/_artifacts", "output/benchmark_runtime", "backend/tests", "docs"])
     if any(token in lowered for token in ("harness", "router", "runtime", "executor", "task_run", "subagent", "agentrun", "agent_run")):
         roots.append("backend/harness")
     if any(token in lowered for token in ("capability", "codebase", "deepsearch", "search_agent", "pdf_reader")):
@@ -203,9 +249,11 @@ def _preferred_roots(value: str, *, include_tests: bool) -> list[str]:
     return _dedupe(roots)
 
 
-def _file_globs(value: str, *, include_tests: bool) -> list[str]:
+def _file_globs(value: str, *, include_tests: bool, rag_eval_intent: bool) -> list[str]:
     lowered = value.lower()
     globs = ["**/*.py", "**/*.ts", "**/*.tsx", "**/*.js", "**/*.jsx", "**/*.json", "**/*.md"]
+    if rag_eval_intent:
+        return list(RAG_EVAL_GLOBS)
     if _has_test_intent(lowered):
         return ["backend/tests/**/*.py", *globs] if include_tests else globs
     return globs
@@ -219,6 +267,24 @@ def _has_test_intent(value: str) -> bool:
 def _has_doc_intent(value: str) -> bool:
     lowered = str(value or "").lower()
     return any(token in lowered for token in ("文档", "计划书", "设计书", "方案")) or bool(re.search(r"\b(docs?|readme)\b", lowered))
+
+
+def _has_rag_eval_intent(value: str) -> bool:
+    lowered = str(value or "").lower()
+    if any(token in lowered for token in RAG_EVAL_INTENT_TERMS):
+        return True
+    return any(
+        token in lowered
+        for token in (
+            "测试数据",
+            "评测",
+            "实验结果",
+            "性能基准",
+            "准确率",
+            "召回率",
+            "检索质量",
+        )
+    )
 
 
 def _dedupe(values: Iterable[str]) -> tuple[str, ...]:

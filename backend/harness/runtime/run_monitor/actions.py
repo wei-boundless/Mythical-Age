@@ -5,7 +5,6 @@ import time
 from typing import Any
 
 from harness.graph.lifecycle_manager import GraphTaskLifecycleManager
-from harness.loop.task_executor import request_task_run_pause, resume_paused_task_run, stop_task_run
 from harness.runtime.task_record_lifecycle import (
     TaskRecordLifecycleConflict,
     TaskRecordLifecycleManager,
@@ -222,10 +221,14 @@ class RuntimeMonitorActionService:
         asyncio.create_task(coro, name=name)
 
     def _pause_task(self, *, payload: dict[str, Any], signal: dict[str, Any] | None) -> dict[str, Any]:
+        from harness.loop.task_executor import request_task_run_pause
+
         task_run_id = _task_run_id(payload=payload, signal=signal)
         return dict(request_task_run_pause(self.host, task_run_id, reason=str(payload.get("reason") or ""), requested_by="user") or {})
 
     def _resume_task(self, *, payload: dict[str, Any], signal: dict[str, Any] | None) -> dict[str, Any]:
+        from harness.loop.task_executor import resume_paused_task_run
+
         task_run_id = _task_run_id(payload=payload, signal=signal)
         result = dict(resume_paused_task_run(self.host, task_run_id, reason=str(payload.get("reason") or ""), requested_by="user") or {})
         if result.get("ok"):
@@ -240,6 +243,8 @@ class RuntimeMonitorActionService:
         return result
 
     def _stop_task(self, *, payload: dict[str, Any], signal: dict[str, Any] | None) -> dict[str, Any]:
+        from harness.loop.task_executor import stop_task_run
+
         task_run_id = _task_run_id(payload=payload, signal=signal)
         return dict(stop_task_run(self.host, task_run_id, reason=str(payload.get("reason") or ""), requested_by="user") or {})
 

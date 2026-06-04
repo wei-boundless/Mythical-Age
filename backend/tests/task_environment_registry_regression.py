@@ -63,6 +63,7 @@ def test_default_task_environments_are_grouped_scene_platforms() -> None:
         "environment.development.sandbox.orientation.v1",
         "environment.rule.development_sandbox.v1",
         "coding.rule.codebase_inspection.v1",
+        "coding.rule.large_scope_exploration.v1",
         "coding.rule.editing.v1",
         "coding.rule.verification.v1",
         "coding.rule.git_safety.v1",
@@ -405,6 +406,7 @@ def test_development_environment_prompt_is_in_task_execution_packet() -> None:
         "environment.development.sandbox.orientation.v1",
         "environment.rule.development_sandbox.v1",
         "coding.rule.codebase_inspection.v1",
+        "coding.rule.large_scope_exploration.v1",
         "coding.rule.editing.v1",
         "coding.rule.verification.v1",
         "coding.rule.git_safety.v1",
@@ -418,6 +420,7 @@ def test_development_environment_prompt_is_in_task_execution_packet() -> None:
     assert "old_text not found" in model_input
     assert "next_start_line" in model_input
     assert "不要重复同一 path、start_line、line_count" in model_input
+    assert "大范围探索" in model_input
     assert "todo 不是事实来源" in model_input
     assert "验证必须真实" in model_input
     assert "Windows PowerShell 5.1" in model_input
@@ -472,6 +475,7 @@ def test_coding_environment_prompt_is_isolated_from_development_prompt() -> None
         "environment.coding.vibe_workspace.orientation.v1",
         "environment.rule.coding_workspace.v1",
         "coding.rule.codebase_inspection.v1",
+        "coding.rule.large_scope_exploration.v1",
         "coding.rule.editing.v1",
         "coding.rule.verification.v1",
         "coding.rule.git_safety.v1",
@@ -485,6 +489,7 @@ def test_coding_environment_prompt_is_isolated_from_development_prompt() -> None
     assert "项目工作区是 coding 任务的主要工作面" in model_input
     assert "artifact 目录是交付证据和发布面" in model_input
     assert "不要反复读取同一文件窗口" in model_input
+    assert "大范围探索" in model_input
     assert "不把某个任务类型的循环控制写进工具或文件状态里" in model_input
     assert "coding 规则只在当前 coding/development 环境内适用" in model_input
 

@@ -248,21 +248,16 @@ class MemorySupplier:
         long_term_candidates = (
             tuple(
                 memory_service.build_long_term_memory_context_candidates(
-                    session_id=session_id,
-                    query=query,
-                    memory_intent=memory_intent,
-                    relevant_notes=relevant_notes,
-                    note_limit=plan.note_limit,
-                    main_context=plan.main_context,
-                    task_summaries=list(plan.task_summaries),
-                    session_summary=plan.session_summary,
-                    recently_surfaced_note_ids=list(plan.recently_surfaced_note_ids),
-                    recent_tools=list(plan.recent_tools),
-                    environment_scope=plan.environment_scope,
-                    global_common_allowed=plan.global_common_allowed,
+                    **self._long_term_fetch_kwargs(
+                        session_id=session_id,
+                        plan=plan,
+                        query=query,
+                        memory_intent=memory_intent,
+                        relevant_notes=relevant_notes,
+                    )
                 )
             )
-            if plan.allow_long_term and plan.wants("long_term")
+            if self._should_fetch_long_term(plan)
             else ()
         )
         return MemoryCandidatePool(
@@ -284,21 +279,16 @@ class MemorySupplier:
         long_term_candidates = (
             tuple(
                 await memory_service.abuild_long_term_memory_context_candidates(
-                    session_id=session_id,
-                    query=query,
-                    memory_intent=memory_intent,
-                    relevant_notes=relevant_notes,
-                    note_limit=plan.note_limit,
-                    main_context=plan.main_context,
-                    task_summaries=list(plan.task_summaries),
-                    session_summary=plan.session_summary,
-                    recently_surfaced_note_ids=list(plan.recently_surfaced_note_ids),
-                    recent_tools=list(plan.recent_tools),
-                    environment_scope=plan.environment_scope,
-                    global_common_allowed=plan.global_common_allowed,
+                    **self._long_term_fetch_kwargs(
+                        session_id=session_id,
+                        plan=plan,
+                        query=query,
+                        memory_intent=memory_intent,
+                        relevant_notes=relevant_notes,
+                    )
                 )
             )
-            if plan.allow_long_term and plan.wants("long_term")
+            if self._should_fetch_long_term(plan)
             else ()
         )
         return MemoryCandidatePool(
@@ -328,6 +318,33 @@ class MemorySupplier:
             "restore_candidates": tuple(memory_service.state_memory.restore_candidates(session_id)) if plan.state_read_requested else (),
         }
 
+    def _should_fetch_long_term(self, plan: MemoryReadPlan) -> bool:
+        return plan.allow_long_term and plan.wants("long_term")
+
+    def _long_term_fetch_kwargs(
+        self,
+        *,
+        session_id: str,
+        plan: MemoryReadPlan,
+        query: str | None,
+        memory_intent: Any | None,
+        relevant_notes: list[Any] | None,
+    ) -> dict[str, Any]:
+        return {
+            "session_id": session_id,
+            "query": query,
+            "memory_intent": memory_intent,
+            "relevant_notes": relevant_notes,
+            "note_limit": plan.note_limit,
+            "main_context": plan.main_context,
+            "task_summaries": list(plan.task_summaries),
+            "session_summary": plan.session_summary,
+            "recently_surfaced_note_ids": list(plan.recently_surfaced_note_ids),
+            "recent_tools": list(plan.recent_tools),
+            "environment_scope": plan.environment_scope,
+            "global_common_allowed": plan.global_common_allowed,
+        }
+
 
 def build_memory_runtime_view(
     memory_service: Any,
@@ -353,22 +370,7 @@ def build_memory_runtime_view(
         memory_intent=memory_intent,
         relevant_notes=relevant_notes,
     )
-    return MemoryRuntimeView(
-        view_id=f"memory-runtime:{session_id or 'default'}",
-        session_id=session_id,
-        conversation_snapshot=candidate_pool.conversation_snapshot,
-        state_snapshot=candidate_pool.state_snapshot,
-        context_candidates=candidate_pool.context_candidates,
-        restore_candidates=candidate_pool.restore_candidates,
-        read_only=True,
-        memory_write_allowed=False,
-        diagnostics={
-            **candidate_pool.diagnostics(),
-            "memory_write_allowed": False,
-            "read_plan": read_plan.diagnostics(),
-            **read_plan.diagnostics(),
-        },
-    )
+    return _runtime_view_from_candidate_pool(session_id=session_id, read_plan=read_plan, candidate_pool=candidate_pool)
 
 
 def build_memory_request(
@@ -451,6 +453,15 @@ async def abuild_memory_runtime_view(
         memory_intent=memory_intent,
         relevant_notes=relevant_notes,
     )
+    return _runtime_view_from_candidate_pool(session_id=session_id, read_plan=read_plan, candidate_pool=candidate_pool)
+
+
+def _runtime_view_from_candidate_pool(
+    *,
+    session_id: str,
+    read_plan: MemoryReadPlan,
+    candidate_pool: MemoryCandidatePool,
+) -> MemoryRuntimeView:
     return MemoryRuntimeView(
         view_id=f"memory-runtime:{session_id or 'default'}",
         session_id=session_id,

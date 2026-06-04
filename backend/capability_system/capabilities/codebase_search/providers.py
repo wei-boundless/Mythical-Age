@@ -26,10 +26,11 @@ class CodebaseSearchProviders:
         self.git_log_tool = GitLogTool(root_dir)
 
     async def search_paths(self, *, queries: tuple[str, ...], roots: tuple[str, ...], max_results: int) -> list[str]:
-        found: list[str] = []
-        for query in queries:
-            raw = await self.search_files_tool._arun(query=query, roots=list(roots), max_results=max_results)
-            found.extend(_parse_path_results(raw))
+        combined_query = " ".join(str(query or "").strip() for query in queries if str(query or "").strip())
+        if not combined_query:
+            return []
+        raw = await self.search_files_tool._arun(query=combined_query, roots=list(roots), max_results=max_results)
+        found = _parse_path_results(raw)
         return _dedupe(found)[:max_results]
 
     async def search_text(self, *, queries: tuple[str, ...], roots: tuple[str, ...], max_results: int) -> list[TextHit]:

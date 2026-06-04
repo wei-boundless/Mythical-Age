@@ -197,6 +197,21 @@ class GraphNodeWorkOrderExecutor:
             result_status=result_status,
         )
         quality_gate_failed = bool(result_status == "completed" and quality_acceptance and not bool(quality_acceptance.get("accepted")))
+        quality_soft_pass = _quality_failure_soft_passes(
+            graph_config=graph_config,
+            work_order=work_order,
+            quality_acceptance=quality_acceptance,
+        )
+        if quality_soft_pass:
+            quality_acceptance = {
+                **quality_acceptance,
+                "accepted": True,
+                "business_accepted": True,
+                "quality_gate_soft_pass": True,
+                "quality_gate_soft_pass_reason": "quality_retry_limit_exhausted_for_metric_only_failure",
+                "authority": "harness.graph.work_order_executor.quality_gate_soft_pass",
+            }
+            quality_gate_failed = False
         has_quality_repair_route = bool(
             result_status == "completed" and quality_gate_failed and _has_quality_repair_route(graph_config, work_order.node_id)
         )
@@ -250,6 +265,7 @@ class GraphNodeWorkOrderExecutor:
                 "executor_result": _public_executor_result(executor_result),
                 "formal_postprocess_errors": postprocess_errors,
                 **({"quality_acceptance": quality_acceptance} if quality_acceptance else {}),
+                **({"quality_gate_soft_pass": True} if quality_soft_pass else {}),
                 **({"graph_model_override": dict(model_override_diagnostics or {})} if model_override_diagnostics else {}),
             },
             created_at=time.time(),
@@ -1569,6 +1585,31 @@ def _quality_failure_requeues_same_node(*, graph_config: GraphHarnessConfig, wor
     retry_policy = dict(node.get("retry") or work_order.retry_policy or {})
     mode = str(retry_policy.get("quality_failure_mode") or retry_policy.get("failure_mode") or "").strip().lower()
     return mode in {"retry_same_node", "requeue_same_node"}
+
+
+def _quality_failure_soft_passes(
+    *,
+    graph_config: GraphHarnessConfig,
+    work_order: GraphNodeWorkOrder,
+    quality_acceptance: dict[str, Any],
+) -> bool:
+    if not quality_acceptance or bool(quality_acceptance.get("accepted")):
+        return False
+    node = _graph_node_by_id(graph_config, work_order.node_id)
+    retry_policy = dict(node.get("retry") or work_order.retry_policy or {})
+    if str(retry_policy.get("quality_failure_mode") or "").strip().lower() != "retry_same_node":
+        return False
+    max_retries = int(retry_policy.get("max_quality_retries") or retry_policy.get("max_metric_retries") or 0)
+    if max_retries < 1:
+        return False
+    revision_feedback = dict(dict(work_order.input_package or {}).get("initial_inputs") or {}).get("quality_gate_feedback")
+    if not isinstance(revision_feedback, dict):
+        return False
+    issues = [str(item) for item in list(quality_acceptance.get("issues") or []) if str(item)]
+    if not issues:
+        return False
+    allowed_prefixes = ("insufficient_metric:", "insufficient_unit_metric:", "below_target:")
+    return all(any(issue.startswith(prefix) for prefix in allowed_prefixes) for issue in issues)
 
 
 def _graph_node_by_id(graph_config: GraphHarnessConfig, node_id: str) -> dict[str, Any]:
