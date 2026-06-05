@@ -3,6 +3,8 @@ from __future__ import annotations
 import hashlib
 from typing import Any
 
+from .activity import project_runtime_activity, signal_state_from_activity
+
 
 MONITOR_AUTHORITY = "runtime_monitor"
 SIGNAL_AUTHORITY = "runtime_monitor.signal"
@@ -15,7 +17,7 @@ def build_runtime_monitor_envelope(*, items: list[dict[str, Any]], now: float, l
         key=lambda item: (int(item.get("priority") or 0), _signal_last_activity(item)),
         reverse=True,
     )[:requested_limit]
-    primary = [item for item in signals if item.get("state") == "active"]
+    primary = [item for item in signals if item.get("is_running") is True]
     attention = [item for item in signals if item.get("state") in {"waiting", "attention", "stale", "failed"}]
     recent = [item for item in signals if item.get("state") == "completed"]
     projects = [item for item in signals if item.get("work_kind") == "graph_task"]
@@ -26,7 +28,7 @@ def build_runtime_monitor_envelope(*, items: list[dict[str, Any]], now: float, l
         "summary": {
             "active": len(primary),
             "attention": len(attention),
-            "waiting": sum(1 for item in signals if item.get("state") == "waiting"),
+            "waiting": sum(1 for item in signals if item.get("activity_state") in {"waiting", "paused"}),
             "failed": sum(1 for item in signals if item.get("state") == "failed"),
             "recent": len(recent),
             "projects": len(projects),
@@ -41,7 +43,9 @@ def build_runtime_monitor_envelope(*, items: list[dict[str, Any]], now: float, l
 
 
 def project_monitor_signal(item: dict[str, Any], *, now: float) -> dict[str, Any]:
-    state = _signal_state(item)
+    activity = _activity(item)
+    view_item = {**item, **activity, "activity": activity}
+    state = signal_state_from_activity(activity)
     source_kind = _source_kind(item)
     work_kind = _work_kind(item)
     signal_id = str(item.get("task_instance_id") or item.get("task_run_id") or "").strip()
@@ -55,12 +59,26 @@ def project_monitor_signal(item: dict[str, Any], *, now: float) -> dict[str, Any
         "work_kind": work_kind,
         "state": state,
         "priority": _signal_priority(item, state=state, source_kind=source_kind),
-        "title": _public_title(item, work_kind=work_kind, state=state),
-        "line": _public_line(item, state=state),
-        "detail": _signal_detail(item, elapsed_seconds=elapsed_seconds, last_activity_at=last_activity_at),
+        "title": _public_title(view_item, work_kind=work_kind, state=state),
+        "line": _public_line(view_item, state=state),
+        "detail": _signal_detail(view_item, elapsed_seconds=elapsed_seconds, last_activity_at=last_activity_at),
         "status": str(item.get("status") or ""),
         "lifecycle": str(item.get("lifecycle") or ""),
         "bucket": str(item.get("bucket") or ""),
+        "activity_state": str(activity.get("activity_state") or ""),
+        "activity_label": str(activity.get("activity_label") or ""),
+        "is_running": bool(activity.get("is_running")),
+        "is_waiting": bool(activity.get("is_waiting")),
+        "is_resumable": bool(activity.get("is_resumable")),
+        "is_interruptible": bool(activity.get("is_interruptible")),
+        "control_reason": str(activity.get("control_reason") or ""),
+        "tone": str(activity.get("tone") or ""),
+        "activity": activity,
+        "control_capability": dict(item.get("control_capability") or {
+            "is_resumable": bool(activity.get("is_resumable")),
+            "is_interruptible": bool(activity.get("is_interruptible")),
+            "control_reason": str(activity.get("control_reason") or ""),
+        }),
         "session_id": str(item.get("session_id") or ""),
         "task_run_id": str(item.get("task_run_id") or ""),
         "task_instance_id": signal_id,
@@ -83,26 +101,15 @@ def project_monitor_signal(item: dict[str, Any], *, now: float) -> dict[str, Any
     }
 
 
-def _signal_state(item: dict[str, Any]) -> str:
-    bucket = str(item.get("bucket") or "").strip()
-    lifecycle = str(item.get("lifecycle") or "").strip()
-    status = str(item.get("status") or "").strip()
-    if bucket == "failed" or lifecycle == "failed" or status in {"failed", "aborted", "cancelled", "error"}:
-        return "failed"
-    if bucket == "completed" or lifecycle == "completed" or status in {"completed", "success"}:
-        return "completed"
-    if (
-        status in {"waiting_executor", "waiting_approval", "waiting_user", "blocked"}
-        or lifecycle in {"waiting", "waiting_executor", "waiting_approval", "waiting_user", "action_required", "paused"}
-        or bucket == "waiting"
-        or bool(item.get("action_required"))
-    ):
-        return "waiting"
-    if bucket == "diagnostics" or lifecycle == "stale" or bool(item.get("stale")):
-        return "stale"
-    if bucket == "running" or lifecycle == "running" or bool(item.get("is_live")):
-        return "active"
-    return "attention"
+def _signal_lane_state(item: dict[str, Any]) -> str:
+    return signal_state_from_activity(_activity(item))
+
+
+def _activity(item: dict[str, Any]) -> dict[str, Any]:
+    activity = item.get("activity")
+    if isinstance(activity, dict) and activity.get("activity_state"):
+        return dict(activity)
+    return dict(project_runtime_activity(item))
 
 
 def _source_kind(item: dict[str, Any]) -> str:
@@ -188,6 +195,9 @@ def _public_title(item: dict[str, Any], *, work_kind: str, state: str) -> str:
         return "任务图运行"
     if work_kind == "chat_turn":
         return "当前对话"
+    activity_state = str(item.get("activity_state") or dict(item.get("activity") or {}).get("activity_state") or "")
+    if activity_state == "stopped":
+        return "已停止"
     if state == "failed":
         return "处理失败"
     if state == "stale":
@@ -223,12 +233,15 @@ def _public_line(item: dict[str, Any], *, state: str) -> str:
     if state == "failed":
         return "处理失败，需要检查原因。"
     if state == "completed":
+        activity_state = str(item.get("activity_state") or dict(item.get("activity") or {}).get("activity_state") or "")
+        if activity_state == "stopped":
+            return "处理已停止。"
         return "处理已完成。"
     return "运行状态已同步。"
 
 
 def _signal_detail(item: dict[str, Any], *, elapsed_seconds: float, last_activity_at: float) -> str:
-    state = _signal_state(item)
+    state = _signal_lane_state(item)
     if state == "active":
         return f"运行 {_human_duration(elapsed_seconds)}"
     if state == "stale":

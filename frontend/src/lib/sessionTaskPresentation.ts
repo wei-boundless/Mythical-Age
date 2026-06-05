@@ -1,93 +1,56 @@
 import type { SessionSummary, SessionTaskSummary } from "@/lib/api";
 
-export type SessionTaskActivityKind = "idle" | "running" | "waiting" | "completed" | "failed" | "stopped";
-
-const WAITING_TASK_STATUSES = new Set([
-  "action_required",
-  "blocked",
-  "diagnostics",
-  "paused",
-  "pause_requested",
-  "stale",
-  "waiting",
-  "waiting_approval",
-  "waiting_executor",
-  "waiting_user",
-]);
-
-const RUNNING_TASK_STATUSES = new Set(["created", "in_progress", "running"]);
-const COMPLETED_TASK_STATUSES = new Set(["completed", "done", "success", "succeeded"]);
-const FAILED_TASK_STATUSES = new Set(["error", "failed"]);
-const STOPPED_TASK_STATUSES = new Set(["aborted", "cancelled", "canceled", "stopped", "user_aborted"]);
+export type SessionTaskActivityKind = "idle" | "running" | "waiting" | "paused" | "stale" | "completed" | "failed" | "stopped";
 
 function taskValue(value: unknown) {
   return String(value || "").trim().toLowerCase();
 }
 
-function taskStatusValues(task: SessionTaskSummary | undefined) {
-  return {
-    bucket: taskValue(task?.bucket),
-    lifecycle: taskValue(task?.lifecycle),
-    status: taskValue(task?.status),
-  };
-}
-
 export function sessionTaskActivityKind(task: SessionTaskSummary | undefined): SessionTaskActivityKind {
   if (!task) return "idle";
-  const { bucket, lifecycle, status } = taskStatusValues(task);
-  if (
-    WAITING_TASK_STATUSES.has(status)
-    || WAITING_TASK_STATUSES.has(lifecycle)
-    || task.stale
-  ) {
-    return "waiting";
-  }
-  if (FAILED_TASK_STATUSES.has(status) || FAILED_TASK_STATUSES.has(lifecycle)) {
-    return "failed";
-  }
-  if (STOPPED_TASK_STATUSES.has(status) || STOPPED_TASK_STATUSES.has(lifecycle)) {
-    return "stopped";
-  }
-  if (task.action_required || WAITING_TASK_STATUSES.has(bucket)) {
-    return "waiting";
-  }
-  if (task.terminal || COMPLETED_TASK_STATUSES.has(status) || COMPLETED_TASK_STATUSES.has(lifecycle)) {
-    return "completed";
-  }
-  if (RUNNING_TASK_STATUSES.has(status) || RUNNING_TASK_STATUSES.has(lifecycle) || bucket === "running") {
-    return "running";
-  }
+  const state = taskValue(task.activity_state);
+  if (state === "running") return "running";
+  if (state === "waiting") return "waiting";
+  if (state === "paused") return "paused";
+  if (state === "stale") return "stale";
+  if (state === "completed") return "completed";
+  if (state === "failed") return "failed";
+  if (state === "stopped") return "stopped";
+  if (task.is_running) return "running";
+  if (task.is_waiting) return "waiting";
   return "idle";
 }
 
 export function sessionTaskStatusLabel(task: SessionTaskSummary | undefined) {
   if (!task) return "任务";
-  const { bucket, lifecycle, status } = taskStatusValues(task);
-  if (status === "waiting_executor" || lifecycle === "waiting_executor" || status === "waiting_user") return "等待继续";
-  if (status === "waiting_approval" || lifecycle === "waiting_approval") return "等待确认";
-  if (status === "paused" || lifecycle === "paused" || status === "pause_requested" || lifecycle === "pause_requested") return "已暂停";
+  const label = String(task.activity_label || "").trim();
+  if (label) return label;
   const kind = sessionTaskActivityKind(task);
+  if (kind === "running") return "运行中";
+  if (kind === "waiting") return "等待继续";
+  if (kind === "paused") return "已暂停";
+  if (kind === "stale") return "等待检查";
   if (kind === "failed") return "失败";
   if (kind === "stopped") return "已停止";
-  if (task.stale || status === "stale" || lifecycle === "stale" || bucket === "diagnostics") return "等待继续";
-  if (task.action_required || status === "blocked" || lifecycle === "blocked" || lifecycle === "action_required" || bucket === "waiting") return "等待处理";
-  if (kind === "running") return "运行中";
   if (kind === "completed") return "已完成";
-  return status || lifecycle || bucket || "任务";
+  return "任务";
 }
 
 export function sessionSummaryTask(session: SessionSummary) {
   return session.active_task?.available ? session.active_task : undefined;
 }
 
-export function sessionSummaryIsRunning(session: SessionSummary, activeStreamSessionIds: string[]) {
+export function sessionSummaryIsRunning(session: SessionSummary) {
   const task = sessionSummaryTask(session);
-  const taskActivity = sessionTaskActivityKind(task);
-  if (taskActivity === "waiting" || taskActivity === "failed" || taskActivity === "stopped") {
-    return false;
-  }
-  if (activeStreamSessionIds.includes(session.id)) {
-    return true;
-  }
-  return taskActivity === "running";
+  return sessionTaskActivityKind(task) === "running" || task?.is_running === true;
+}
+
+export function sessionSummaryCanResume(session: SessionSummary) {
+  const task = sessionSummaryTask(session);
+  return task?.is_resumable === true;
+}
+
+export function sessionSummaryCanInterrupt(session: SessionSummary) {
+  const task = sessionSummaryTask(session);
+  return task?.is_interruptible === true;
 }

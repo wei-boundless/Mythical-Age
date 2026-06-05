@@ -182,7 +182,7 @@ class RuntimeMonitorService:
         active = next(
             (
                 item for item in items
-                if item.get("bucket") in {"running", "diagnostics"} or item.get("action_required") is True
+                if item.get("activity_state") in {"running", "waiting", "paused", "stale"}
             ),
             None,
         )
@@ -204,6 +204,16 @@ class RuntimeMonitorService:
             "bucket": str(selected.get("bucket") or ""),
             "terminal": bool(selected.get("terminal")),
             "action_required": bool(selected.get("action_required")),
+            "activity_state": str(selected.get("activity_state") or ""),
+            "activity_label": str(selected.get("activity_label") or ""),
+            "is_running": bool(selected.get("is_running")),
+            "is_waiting": bool(selected.get("is_waiting")),
+            "is_resumable": bool(selected.get("is_resumable")),
+            "is_interruptible": bool(selected.get("is_interruptible")),
+            "control_reason": str(selected.get("control_reason") or ""),
+            "tone": str(selected.get("tone") or ""),
+            "activity": dict(selected.get("activity") or {}),
+            "control_capability": dict(selected.get("control_capability") or {}),
             "graph_run_id": str(selected.get("graph_run_id") or ""),
             "graph_id": str(selected.get("graph_id") or ""),
             "graph_harness_config_id": str(selected.get("graph_harness_config_id") or ""),
@@ -321,7 +331,7 @@ class RuntimeMonitorService:
             same_instance = active_instance_id and item_instance_id == active_instance_id
             if not same_work and not same_instance:
                 continue
-            if item.get("is_live") is True or str(item.get("bucket") or "") == "running" or str(item.get("lifecycle") or "") == "running":
+            if item.get("is_running") is True or str(item.get("activity_state") or "") in {"waiting", "paused", "stale"}:
                 return True
         return False
 

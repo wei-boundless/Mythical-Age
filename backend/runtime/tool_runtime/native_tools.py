@@ -36,6 +36,12 @@ from runtime_objects.tool_result_storage import (
 from runtime_encoding import build_windows_powershell_command, is_windows, utf8_subprocess_text_kwargs
 from runtime.tool_runtime.docker_sandbox_backend import DockerSandboxBackend
 from runtime.tool_runtime.tool_definition import ToolPermissionResult, ToolValidationResult
+from runtime.tool_runtime.read_file_window import (
+    READ_FILE_DEFAULT_LINE_COUNT,
+    READ_FILE_MAX_LINE_COUNT,
+    build_read_file_error_result,
+    build_read_file_window_result,
+)
 from runtime.tool_runtime.tool_result_envelope import (
     ToolResultEnvelope,
     build_tool_result_envelope_id,
@@ -63,10 +69,6 @@ NATIVE_RUNTIME_TOOL_NAMES = {
     "terminal",
     "python_repl",
 }
-
-READ_FILE_DEFAULT_LINE_COUNT = 240
-READ_FILE_MAX_LINE_COUNT = 2000
-
 
 def build_native_runtime_tool(
     *,
@@ -325,27 +327,26 @@ class NativeReadFileTool(_NativeToolBase):
             if file_path.is_dir():
                 raise IsADirectoryError("path is a directory")
             content = files.read_text(file_path, limit=None)
-            window = _read_line_window(content, start_line=start_line, line_count=line_count)
             rel = files.relative_path(file_path)
+            window = build_read_file_window_result(
+                content,
+                path=rel,
+                start_line=start_line,
+                line_count=line_count,
+            )
         except Exception as exc:
             return self._envelope(
                 tool_args=args,
                 status="error",
                 text=f"Read failed: {exc}",
-                structured_payload={"tool_result": {"kind": "text_file", "status": "error", "error": str(exc)}},
+                structured_payload={"tool_result": build_read_file_error_result(path=path, error=str(exc))},
                 execution_receipt=context.execution_receipt,
             )
         return self._envelope(
             tool_args=args,
             status="ok",
-            text=window["text"],
-            structured_payload={
-                "tool_result": {
-                    "kind": "text_file",
-                    "path": rel,
-                    **window["payload"],
-                }
-            },
+            text=window.text,
+            structured_payload={"tool_result": window.to_dict(include_text=False)},
             observed_paths=(rel,),
             execution_receipt=context.execution_receipt,
         )
@@ -368,27 +369,34 @@ class NativeReadFileTool(_NativeToolBase):
                 self._gateway_context(context),
                 operation_id=self.operation_id,
             )
-            window = _read_line_window(result.content, start_line=start_line, line_count=line_count)
+            window = build_read_file_window_result(
+                result.content,
+                path=result.logical_path,
+                repository_id=result.repository_id,
+                managed_file_ref=result.managed_file_ref.to_dict(),
+                start_line=start_line,
+                line_count=line_count,
+            )
         except Exception as exc:
             return self._envelope(
                 tool_args=args,
                 status="error",
                 text=f"Read failed: {exc}",
-                structured_payload={"tool_result": {"kind": "text_file", "status": "error", "error": str(exc)}},
+                structured_payload={
+                    "tool_result": build_read_file_error_result(
+                        path=path,
+                        error=str(exc),
+                        repository_id=repository_id,
+                    )
+                },
                 execution_receipt=context.execution_receipt,
             )
         return self._envelope(
             tool_args=args,
             status="ok",
-            text=window["text"],
+            text=window.text,
             structured_payload={
-                "tool_result": {
-                    "kind": "text_file",
-                    "path": result.logical_path,
-                    "repository_id": result.repository_id,
-                    "managed_file_ref": result.managed_file_ref.to_dict(),
-                    **window["payload"],
-                },
+                "tool_result": window.to_dict(include_text=False),
                 "file_gateway": {
                     "access_decision": result.access_decision,
                     "root_binding": result.metadata.get("root_binding"),
@@ -502,36 +510,6 @@ def _coerce_read_window_int(
     if maximum is not None and number > maximum:
         return default, f"{field_name} must be <= {maximum}."
     return number, ""
-
-
-def _read_line_window(content: str, *, start_line: int, line_count: int) -> dict[str, Any]:
-    lines = str(content or "").splitlines()
-    total_lines = len(lines)
-    start = max(1, int(start_line or 1))
-    count = max(1, min(int(line_count or READ_FILE_DEFAULT_LINE_COUNT), READ_FILE_MAX_LINE_COUNT))
-    if total_lines == 0:
-        end_line = 0
-        selected: list[str] = []
-    elif start > total_lines:
-        raise ValueError(f"start_line {start} exceeds total_lines {total_lines}")
-    else:
-        end_line = min(total_lines, start + count - 1)
-        selected = lines[start - 1 : end_line]
-    width = max(1, len(str(max(end_line, start, total_lines))))
-    text = "\n".join(f"{line_no:>{width}} | {line}" for line_no, line in enumerate(selected, start=start))
-    has_more = bool(total_lines and end_line < total_lines)
-    payload = {
-        "total_lines": total_lines,
-        "start_line": start,
-        "line_count": count,
-        "returned_lines": len(selected),
-        "end_line": end_line,
-        "next_start_line": end_line + 1 if has_more else None,
-        "has_more": has_more,
-        "truncated": has_more,
-        "content_sha256": hashlib.sha256(str(content or "").encode("utf-8", errors="replace")).hexdigest(),
-    }
-    return {"text": text, "payload": payload}
 
 
 class NativeWriteFileTool(_NativeToolBase):

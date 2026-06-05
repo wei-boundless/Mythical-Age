@@ -1,16 +1,19 @@
 from __future__ import annotations
 
 import sys
+import asyncio
 from pathlib import Path
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-from capability_system.tools.tool_units.read_file_tool import ReadFileTool
+from capability_system.tools.native_tool_catalog import get_tool_definition_map
 from capability_system.tools.tool_units.file_system_tools import GlobPathsTool
 from capability_system.tools.tool_units.search_files_tool import SearchFilesTool, SearchTextTool
 from capability_system.tools.tool_units.write_file_tool import EditFileTool, WriteFileTool
+from runtime.tool_runtime.native_tools import build_native_runtime_tool
+from runtime.tool_runtime.tool_use_context import ToolUseContext
 
 
 def test_workspace_file_tools_use_external_knowledge_root_when_initialized_from_backend(tmp_path: Path, monkeypatch) -> None:
@@ -24,17 +27,16 @@ def test_workspace_file_tools_use_external_knowledge_root_when_initialized_from_
     (root_knowledge / "note.md").write_text("root knowledge", encoding="utf-8")
     (backend_knowledge / "note.md").write_text("backend knowledge", encoding="utf-8")
 
-    reader = ReadFileTool(root_dir=backend_dir)
     writer = WriteFileTool(root_dir=backend_dir)
     editor = EditFileTool(root_dir=backend_dir)
 
-    assert reader.invoke({"path": "knowledge/note.md"}) == "1 | root knowledge"
+    assert _read_file_text(backend_dir, "knowledge/note.md") == "1 | root knowledge"
 
     write_result = writer.invoke({"path": "knowledge/note.md", "content": "updated from workspace"})
     assert write_result == "Write succeeded: knowledge/note.md"
     assert (root_knowledge / "note.md").read_text(encoding="utf-8") == "updated from workspace"
     assert (backend_knowledge / "note.md").read_text(encoding="utf-8") == "backend knowledge"
-    assert reader.invoke({"path": "knowledge/note.md"}) == "1 | updated from workspace"
+    assert _read_file_text(backend_dir, "knowledge/note.md") == "1 | updated from workspace"
 
     edit_result = editor.invoke(
         {
@@ -44,7 +46,7 @@ def test_workspace_file_tools_use_external_knowledge_root_when_initialized_from_
         }
     )
     assert edit_result == "Edit succeeded: knowledge/note.md"
-    assert reader.invoke({"path": "knowledge/note.md"}) == "1 | edited from workspace"
+    assert _read_file_text(backend_dir, "knowledge/note.md") == "1 | edited from workspace"
 
 
 def test_workspace_file_tools_reject_path_traversal_from_project_root(tmp_path: Path) -> None:
@@ -54,10 +56,9 @@ def test_workspace_file_tools_reject_path_traversal_from_project_root(tmp_path: 
     outside = tmp_path / "outside.md"
     outside.write_text("outside", encoding="utf-8")
 
-    reader = ReadFileTool(root_dir=backend_dir)
     writer = WriteFileTool(root_dir=backend_dir)
 
-    assert "Path traversal detected" in reader.invoke({"path": "../outside.md"})
+    assert "Path traversal detected" in _read_file_text(backend_dir, "../outside.md")
     assert "Path traversal detected" in writer.invoke({"path": "../outside.md", "content": "bad"})
     assert outside.read_text(encoding="utf-8") == "outside"
 
@@ -115,5 +116,18 @@ def test_workspace_glob_uses_single_project_root(tmp_path: Path) -> None:
     result = globber.invoke({"pattern": "docs/**/*.md", "max_results": 10})
 
     assert result.splitlines() == ["docs/plan.md"]
+
+
+def _read_file_text(root_dir: Path, path: str, *, start_line: int = 1, line_count: int = 240) -> str:
+    definition = get_tool_definition_map()["read_file"]
+    tool = build_native_runtime_tool(capability_definition=definition)
+    assert tool is not None
+    envelope = asyncio.run(
+        tool.call(
+            {"path": path, "start_line": start_line, "line_count": line_count},
+            ToolUseContext(workspace_root=root_dir),
+        )
+    )
+    return envelope.text
 
 

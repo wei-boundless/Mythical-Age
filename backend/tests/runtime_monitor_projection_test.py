@@ -317,6 +317,152 @@ def test_run_monitor_waiting_state_wins_over_running_bucket_residue():
     assert monitor["summary"]["waiting"] == 1
     assert monitor["primary"] == []
     assert monitor["attention"][0]["state"] == "waiting"
+    assert monitor["attention"][0]["activity_state"] in {"waiting", "paused"}
+    assert monitor["attention"][0]["is_resumable"] is False
+
+
+def test_user_aborted_projects_as_stopped_not_failed():
+    monitor = build_runtime_monitor_envelope(
+        items=[
+            {
+                "task_run_id": "taskrun:stopped",
+                "status": "aborted",
+                "terminal_reason": "user_aborted",
+                "lifecycle": "failed",
+                "bucket": "running",
+                "is_live": True,
+                "title": "用户停止的任务",
+                "updated_at": 150.0,
+                "last_activity_at": 150.0,
+                "started_at": 100.0,
+            },
+        ],
+        now=180.0,
+        limit=10,
+    )
+
+    assert monitor["summary"]["active"] == 0
+    assert monitor["summary"]["failed"] == 0
+    assert monitor["summary"]["recent"] == 1
+    assert monitor["recent"][0]["activity_state"] == "stopped"
+    assert monitor["recent"][0]["tone"] == "neutral"
+
+
+def test_runtime_monitor_actions_use_activity_control_capability(tmp_path):
+    now = time.time()
+    waiting = task_run(
+        task_run_id="taskrun:waiting",
+        session_id="session-waiting",
+        status="waiting_executor",
+        created_at=now - 5,
+        updated_at=now - 1,
+    )
+    paused = task_run(
+        task_run_id="taskrun:paused",
+        session_id="session-paused",
+        status="running",
+        created_at=now - 5,
+        updated_at=now - 1,
+        diagnostics={"runtime_control": {"state": "paused"}},
+    )
+    running = task_run(
+        task_run_id="taskrun:running",
+        session_id="session-running",
+        status="running",
+        created_at=now - 5,
+        updated_at=now - 1,
+    )
+    stopped = task_run(
+        task_run_id="taskrun:stopped",
+        session_id="session-stopped",
+        status="aborted",
+        terminal_reason="user_aborted",
+        created_at=now - 5,
+        updated_at=now - 1,
+    )
+    runtime_host = SimpleNamespace(
+        state_index=StateIndexStub([waiting, paused, running, stopped]),
+        event_log=EventLogStub(),
+        backend_dir=tmp_path / "backend",
+    )
+    service = RuntimeMonitorService(runtime_host=runtime_host, freshness_seconds=300.0)
+
+    monitor = service.collect_global_runtime_monitor(limit=20)
+    signals = {item["signal_id"]: item for item in monitor["signals"]}
+
+    waiting_signal = signals["taskrun:waiting"]
+    waiting_actions = {item["action"]: item for item in waiting_signal["actions"]}
+    assert waiting_signal["activity_state"] == "waiting"
+    assert waiting_signal["is_resumable"] is False
+    assert waiting_actions["resume_task"]["enabled"] is False
+    assert waiting_actions["stop_task"]["enabled"] is False
+
+    paused_signal = signals["taskrun:paused"]
+    paused_actions = {item["action"]: item for item in paused_signal["actions"]}
+    assert paused_signal["activity_state"] == "paused"
+    assert paused_signal["is_resumable"] is True
+    assert paused_actions["resume_task"]["enabled"] is True
+    assert paused_actions["stop_task"]["enabled"] is False
+
+    running_signal = signals["taskrun:running"]
+    running_actions = {item["action"]: item for item in running_signal["actions"]}
+    assert running_signal["is_running"] is True
+    assert running_actions["pause_task"]["enabled"] is True
+    assert running_actions["stop_task"]["enabled"] is True
+    assert running_actions["resume_task"]["enabled"] is False
+
+    stopped_signal = signals["taskrun:stopped"]
+    stopped_actions = {item["action"]: item for item in stopped_signal["actions"]}
+    assert stopped_signal["activity_state"] == "stopped"
+    assert stopped_actions["resume_task"]["enabled"] is False
+    assert stopped_actions["stop_task"]["enabled"] is False
+
+
+def test_runtime_monitor_summary_counts_project_activity_outside_attention_lane(tmp_path):
+    now = time.time()
+    running_graph = task_run(
+        task_run_id="taskrun:graph-running",
+        session_id="session-graph-running",
+        status="running",
+        created_at=now - 10,
+        updated_at=now - 1,
+        diagnostics={
+            "graph_id": "graph.demo",
+            "graph_run_id": "grun:running",
+            "graph_harness_config_id": "ghcfg:running",
+            "workspace_view": "task_environment",
+            "task_environment_id": "env.demo",
+            "project_id": "project.demo.running",
+        },
+    )
+    waiting_graph = task_run(
+        task_run_id="taskrun:graph-waiting",
+        session_id="session-graph-waiting",
+        status="waiting_executor",
+        created_at=now - 10,
+        updated_at=now - 1,
+        diagnostics={
+            "graph_id": "graph.demo",
+            "graph_run_id": "grun:waiting",
+            "graph_harness_config_id": "ghcfg:waiting",
+            "workspace_view": "task_environment",
+            "task_environment_id": "env.demo",
+            "project_id": "project.demo.waiting",
+        },
+    )
+    runtime_host = SimpleNamespace(
+        state_index=StateIndexStub([running_graph, waiting_graph]),
+        event_log=EventLogStub(),
+        backend_dir=tmp_path / "backend",
+    )
+    service = RuntimeMonitorService(runtime_host=runtime_host, freshness_seconds=300.0)
+
+    monitor = service.collect_global_runtime_monitor(limit=20)
+
+    assert [item["visibility"]["lane"] for item in monitor["projects"]] == ["projects", "projects"]
+    assert monitor["summary"]["projects"] == 2
+    assert monitor["summary"]["active"] == 1
+    assert monitor["summary"]["waiting"] == 1
 
 
 def test_run_monitor_projects_waiting_active_turn_as_waiting_signal():
@@ -350,6 +496,48 @@ def test_run_monitor_projects_waiting_active_turn_as_waiting_signal():
     assert monitor["primary"] == []
     assert monitor["management"]["lanes"]["attention"][0]["signal_id"] == "turnrun:session-dev:1"
     assert monitor["management"]["lanes"]["attention"][0]["state"] == "waiting"
+
+
+def test_runtime_monitor_dedupes_waiting_bound_active_turn_against_task_run(tmp_path):
+    now = time.time()
+    bound_task = task_run(
+        task_run_id="taskrun:bound-wait",
+        session_id="session-wait",
+        status="waiting_executor",
+        created_at=now - 10,
+        updated_at=now - 1,
+    )
+    bound_turn = turn_run(
+        turn_run_id="turnrun:wait:1",
+        session_id="session-wait",
+        turn_id="turn:wait:1",
+    )
+    runtime_host = SimpleNamespace(
+        state_index=StateIndexStub([bound_task], [bound_turn]),
+        event_log=EventLogStub(),
+        backend_dir=tmp_path / "backend",
+        run_registry=RunRegistryStub([runtime_run(session_id="session-wait", status="running")]),
+        active_turn_registry=ActiveTurnRegistryStub(
+            ActiveTurnRecordStub(
+                session_id="session-wait",
+                turn_id="turn:wait:1",
+                turn_run_id="turnrun:wait:1",
+                bound_task_run_id="taskrun:bound-wait",
+                stream_run_id="strun:wait",
+                state="waiting_executor",
+                started_at=now - 10,
+                updated_at=now - 1,
+            )
+        ),
+    )
+    service = RuntimeMonitorService(runtime_host=runtime_host, freshness_seconds=300.0)
+
+    monitor = service.collect_global_runtime_monitor(limit=20)
+
+    assert monitor["summary"]["total"] == 1
+    assert monitor["summary"]["waiting"] == 1
+    assert monitor["signals"][0]["signal_id"] == "taskrun:bound-wait"
+    assert monitor["signals"][0]["activity_state"] == "waiting"
 
 
 def test_runtime_monitor_management_includes_recent_terminal_records(tmp_path):

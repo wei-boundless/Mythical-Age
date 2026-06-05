@@ -5,8 +5,6 @@ from typing import Any
 
 from runtime.tool_runtime.tool_result_envelope import tool_result_envelope_from_payload
 
-from .tool_observation_ledger import build_tool_observation_record
-
 
 @dataclass(frozen=True, slots=True)
 class FileReadRange:
@@ -39,6 +37,25 @@ class FileWriteEvent:
 
     def to_dict(self) -> dict[str, Any]:
         return _drop_empty(asdict(self))
+
+
+@dataclass(frozen=True, slots=True)
+class FileStateObservationEvents:
+    observation_ref: str = ""
+    tool_call_id: str = ""
+    events: tuple[dict[str, Any], ...] = ()
+    authority: str = "runtime.memory.file_state_authority.observation_events"
+
+    def to_dict(self) -> dict[str, Any]:
+        return _drop_empty(
+            {
+                "observation_ref": self.observation_ref,
+                "tool_call_id": self.tool_call_id,
+                "events": [dict(item) for item in self.events],
+                "event_count": len(self.events),
+                "authority": self.authority,
+            }
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -87,49 +104,50 @@ class FileStateAuthority:
                 authority = authority.apply_observation(observation)
         return authority
 
+    @classmethod
+    def from_dict(cls, payload: dict[str, Any] | None) -> "FileStateAuthority":
+        item = dict(payload or {})
+        files: list[TaskFileState] = []
+        for raw in list(item.get("files") or []):
+            if not isinstance(raw, dict):
+                continue
+            parsed = _task_file_state_from_dict(raw)
+            if parsed is not None:
+                files.append(parsed)
+        return cls(
+            task_run_id=str(item.get("task_run_id") or ""),
+            files=tuple(files),
+        )
+
     def apply_observation(self, observation: dict[str, Any]) -> "FileStateAuthority":
-        source = _source_observation_payload(observation)
-        observation_ref = str(source.get("observation_id") or observation.get("observation_id") or source.get("observation_ref") or "")
-        payload = dict(source.get("payload") or source)
-        envelope = tool_result_envelope_from_payload(payload)
-        if envelope is None:
-            record = build_tool_observation_record(
-                observation_ref=observation_ref,
-                tool_name=str(payload.get("tool_name") or source.get("tool_name") or ""),
-                tool_args=dict(payload.get("tool_args") or {}),
-                result=payload,
-            )
-            events = _events_from_record(record.to_dict(), observation_ref=observation_ref)
-            tool_call_id = str(payload.get("tool_call_id") or "")
-        else:
-            events = tuple(dict(item) for item in envelope.file_state_events)
-            if not events:
-                record = build_tool_observation_record(
-                    observation_ref=observation_ref,
-                    tool_name=envelope.tool_name,
-                    tool_args=dict(envelope.tool_args),
-                    result={"result_envelope": envelope.to_dict()},
-                )
-                events = _events_from_record(record.to_dict(), observation_ref=observation_ref)
-            tool_call_id = str(envelope.tool_call_id or payload.get("tool_call_id") or "")
+        extracted = file_state_events_from_observation(observation)
         state = self
-        for event in events:
-            state = state.apply_event(event, observation_ref=observation_ref, tool_call_id=tool_call_id)
+        for event in extracted.events:
+            state = state.apply_event(
+                event,
+                observation_ref=extracted.observation_ref,
+                tool_call_id=extracted.tool_call_id,
+            )
         return state
 
     def apply_event(self, event: dict[str, Any], *, observation_ref: str = "", tool_call_id: str = "") -> "FileStateAuthority":
         path = _normalize_path(event.get("path"))
         if not path:
             return self
+        resolved_observation_ref = str(observation_ref or event.get("observation_ref") or "")
+        resolved_tool_call_id = str(tool_call_id or event.get("tool_call_id") or "")
         files = list(self.files)
         index = next((idx for idx, item in enumerate(files) if item.path == path), -1)
         current = files[index] if index >= 0 else TaskFileState(path=path)
-        updated = _apply_file_event(current, event, observation_ref=observation_ref, tool_call_id=tool_call_id)
+        updated = _apply_file_event(
+            current,
+            event,
+            observation_ref=resolved_observation_ref,
+            tool_call_id=resolved_tool_call_id,
+        )
         if index >= 0:
-            files[index] = updated
-        else:
-            files.append(updated)
-        files = sorted(files, key=lambda item: item.path)
+            files.pop(index)
+        files.append(updated)
         return replace(self, files=tuple(files))
 
     def projection(self, *, limit: int = 20) -> list[dict[str, Any]]:
@@ -143,13 +161,22 @@ class FileStateAuthority:
         }
 
 
-def build_file_state_projection_from_observations(
-    observations: list[dict[str, Any]] | tuple[dict[str, Any], ...],
-    *,
-    task_run_id: str = "",
-    limit: int = 20,
-) -> list[dict[str, Any]]:
-    return FileStateAuthority.from_observations(observations, task_run_id=task_run_id).projection(limit=limit)
+def file_state_events_from_observation(observation: dict[str, Any]) -> FileStateObservationEvents:
+    source = _source_observation_payload(observation)
+    observation_ref = str(source.get("observation_id") or observation.get("observation_id") or source.get("observation_ref") or "")
+    payload = dict(source.get("payload") or source)
+    envelope = tool_result_envelope_from_payload(payload)
+    events: tuple[dict[str, Any], ...] = ()
+    if envelope is None:
+        tool_call_id = str(payload.get("tool_call_id") or "")
+    else:
+        events = tuple(dict(item) for item in envelope.file_state_events)
+        tool_call_id = str(envelope.tool_call_id or payload.get("tool_call_id") or "")
+    return FileStateObservationEvents(
+        observation_ref=observation_ref,
+        tool_call_id=tool_call_id,
+        events=tuple(dict(item) for item in events),
+    )
 
 
 def _apply_file_event(
@@ -240,47 +267,75 @@ def _apply_file_event(
     return current
 
 
-def _events_from_record(record: dict[str, Any], *, observation_ref: str) -> tuple[dict[str, Any], ...]:
-    tool_name = str(record.get("tool_name") or "")
-    args = dict(record.get("tool_args") or {})
-    events: list[dict[str, Any]] = []
-    if tool_name == "read_file":
-        content_range = dict(dict(record.get("result_metadata") or {}).get("content_range") or {})
-        path = _normalize_path(content_range.get("path") or args.get("path"))
-        if path:
-            events.append(
-                {
-                    "event_type": "read",
-                    "path": path,
-                    "start_line": content_range.get("start_line"),
-                    "end_line": content_range.get("end_line"),
-                    "returned_lines": content_range.get("returned_lines"),
-                    "total_lines": content_range.get("total_lines"),
-                    "line_count": content_range.get("line_count"),
-                    "next_start_line": content_range.get("next_start_line"),
-                    "has_more": content_range.get("has_more"),
-                    "content_sha256": content_range.get("content_sha256"),
-                }
-            )
-    elif tool_name in {"write_file", "edit_file"}:
-        for path in _paths_from_record(record):
-            events.append({"event_type": "write" if tool_name == "write_file" else "edit", "path": path})
-    elif tool_name == "search_text":
-        for path in _paths_from_record(record, key="matched_paths"):
-            events.append({"event_type": "search", "path": path, "query": str(args.get("query") or ""), "matches": []})
-    elif tool_name in {"stat_path", "path_exists"}:
-        for path in _paths_from_record(record):
-            events.append({"event_type": "stat" if tool_name == "stat_path" else "exists", "path": path})
-    return tuple(_drop_empty({**event, "observation_ref": observation_ref}) for event in events)
+def _task_file_state_from_dict(payload: dict[str, Any]) -> TaskFileState | None:
+    path = _normalize_path(payload.get("path"))
+    if not path:
+        return None
+    return TaskFileState(
+        path=path,
+        status=str(payload.get("status") or "unread"),
+        read_ranges=tuple(
+            item
+            for item in (_file_read_range_from_dict(raw) for raw in list(payload.get("read_ranges") or []))
+            if item is not None
+        ),
+        search_hits=tuple(
+            item
+            for item in (_file_search_hit_from_dict(raw) for raw in list(payload.get("search_hits") or []))
+            if item is not None
+        ),
+        write_events=tuple(
+            item
+            for item in (_file_write_event_from_dict(raw) for raw in list(payload.get("write_events") or []))
+            if item is not None
+        ),
+        total_lines=_int_or_none(payload.get("total_lines")),
+        content_sha256=str(payload.get("content_sha256") or ""),
+        last_observation_ref=str(payload.get("last_observation_ref") or ""),
+        last_tool_call_id=str(payload.get("last_tool_call_id") or ""),
+        has_more=_bool_or_none(payload.get("has_more")),
+        exists=_bool_or_none(payload.get("exists")),
+    )
 
 
-def _paths_from_record(record: dict[str, Any], *, key: str = "observed_paths") -> list[str]:
-    paths = [_normalize_path(item) for item in list(record.get(key) or []) if _normalize_path(item)]
-    for ref in [dict(item) for item in list(record.get("artifact_refs") or []) if isinstance(item, dict)]:
-        path = _normalize_path(ref.get("path") or ref.get("artifact_ref"))
-        if path:
-            paths.append(path)
-    return sorted(set(paths))
+def _file_read_range_from_dict(payload: Any) -> FileReadRange | None:
+    if not isinstance(payload, dict):
+        return None
+    start_line = _int_or_none(payload.get("start_line"))
+    end_line = _int_or_none(payload.get("end_line"))
+    if start_line is None or end_line is None:
+        return None
+    return FileReadRange(
+        start_line=start_line,
+        end_line=end_line,
+        observation_ref=str(payload.get("observation_ref") or ""),
+        content_sha256=str(payload.get("content_sha256") or ""),
+        stale=bool(payload.get("stale") is True),
+    )
+
+
+def _file_search_hit_from_dict(payload: Any) -> FileSearchHit | None:
+    if not isinstance(payload, dict):
+        return None
+    return FileSearchHit(
+        query=str(payload.get("query") or ""),
+        line=_int_or_none(payload.get("line")),
+        preview=str(payload.get("preview") or ""),
+        observation_ref=str(payload.get("observation_ref") or ""),
+    )
+
+
+def _file_write_event_from_dict(payload: Any) -> FileWriteEvent | None:
+    if not isinstance(payload, dict):
+        return None
+    operation = str(payload.get("operation") or "").strip()
+    if not operation:
+        return None
+    return FileWriteEvent(
+        operation=operation,
+        observation_ref=str(payload.get("observation_ref") or ""),
+        content_sha256_after=str(payload.get("content_sha256_after") or ""),
+    )
 
 
 def _coverage_payload(ranges: tuple[FileReadRange, ...]) -> dict[str, Any]:
@@ -330,6 +385,12 @@ def _int_or_none(value: Any) -> int | None:
         return int(value)
     except (TypeError, ValueError):
         return None
+
+
+def _bool_or_none(value: Any) -> bool | None:
+    if isinstance(value, bool):
+        return value
+    return None
 
 
 def _drop_empty(payload: dict[str, Any]) -> dict[str, Any]:

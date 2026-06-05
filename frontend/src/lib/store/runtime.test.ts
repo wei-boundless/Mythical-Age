@@ -130,6 +130,12 @@ function itemForMonitor(patch: Record<string, unknown>) {
     project_runtime_status: null,
     has_graph_run: false,
     is_live: true,
+    activity_state: "running",
+    activity_label: "运行中",
+    is_running: true,
+    is_waiting: false,
+    is_resumable: false,
+    is_interruptible: true,
     route: { kind: "agent_runtime_run", session_id: "session:test", task_run_id: "taskrun:test" },
     ...patch,
   };
@@ -143,16 +149,32 @@ function text(value: unknown) {
   return String(value ?? "").trim();
 }
 
-function signalState(item: Record<string, unknown>) {
-  const bucket = text(item.bucket);
-  const lifecycle = text(item.lifecycle);
-  const status = text(item.status);
-  if (bucket === "running" || lifecycle === "running" || item.is_live === true) return "active";
-  if (bucket === "failed" || lifecycle === "failed" || ["failed", "aborted", "cancelled", "error"].includes(status)) return "failed";
-  if (bucket === "completed" || lifecycle === "completed" || ["completed", "success"].includes(status)) return "completed";
-  if (bucket === "diagnostics" || lifecycle === "stale" || item.stale === true) return "stale";
-  if (bucket === "waiting" || lifecycle === "waiting" || lifecycle === "action_required" || item.action_required === true) return "waiting";
+function signalLaneState(item: Record<string, unknown>) {
+  const activityState = activityStateForTest(item);
+  if (activityState === "running") return "active";
+  if (activityState === "waiting" || activityState === "paused") return "waiting";
+  if (activityState === "failed") return "failed";
+  if (activityState === "completed" || activityState === "stopped") return "completed";
+  if (activityState === "stale") return "stale";
   return "attention";
+}
+
+function activityStateForTest(item: Record<string, unknown>) {
+  const explicit = text(item.activity_state);
+  if (explicit) return explicit;
+  const status = text(item.status);
+  const lifecycle = text(item.lifecycle);
+  const bucket = text(item.bucket);
+  const terminalReason = text(item.terminal_reason);
+  const controlState = text(item.control_state);
+  if (["user_aborted", "stopped", "cancelled", "canceled"].includes(status) || ["user_aborted", "stopped", "cancelled", "canceled"].includes(terminalReason) || controlState === "stopped") return "stopped";
+  if (["failed", "aborted", "error"].includes(status) || lifecycle === "failed" || bucket === "failed") return "failed";
+  if (["completed", "success"].includes(status) || lifecycle === "completed" || bucket === "completed") return "completed";
+  if (controlState === "paused" || lifecycle === "paused") return "paused";
+  if (["waiting_executor", "waiting_approval", "waiting_user", "blocked"].includes(status) || ["waiting", "action_required"].includes(lifecycle) || bucket === "waiting" || item.action_required === true) return "waiting";
+  if (bucket === "diagnostics" || lifecycle === "stale" || item.stale === true) return "stale";
+  if (item.is_running === true || ["created", "running"].includes(status) || lifecycle === "running") return "running";
+  return "idle";
 }
 
 function monitorSignalForTest(item: Record<string, unknown>) {
@@ -181,7 +203,12 @@ function monitorSignalForTest(item: Record<string, unknown>) {
     environment_label: taskEnvironmentId,
     ...navigationPatch,
   };
-  const state = signalState(item);
+  const state = signalLaneState(item);
+  const activityState = activityStateForTest(item);
+  const isRunning = activityState === "running";
+  const isWaiting = activityState === "waiting" || activityState === "paused";
+  const isResumable = item.is_resumable === true || controlStateForTest(item) === "paused";
+  const isInterruptible = item.is_interruptible === true || Boolean(isRunning && taskRunId && !taskRunId.startsWith("turnrun:"));
   return {
     authority: "runtime_monitor.signal",
     signal_id: text(item.task_instance_id) || taskRunId,
@@ -195,6 +222,28 @@ function monitorSignalForTest(item: Record<string, unknown>) {
     status: text(item.status),
     lifecycle: text(item.lifecycle),
     bucket: text(item.bucket),
+    activity_state: activityState,
+    activity_label: text(item.activity_label) || activityLabelForTest(activityState),
+    is_running: isRunning,
+    is_waiting: isWaiting,
+    is_resumable: isResumable,
+    is_interruptible: isInterruptible,
+    control_reason: text(item.control_reason),
+    tone: text(item.tone) || (isRunning ? "active" : activityState === "completed" ? "done" : activityState === "failed" ? "attention" : "neutral"),
+    activity: {
+      activity_state: activityState,
+      activity_label: text(item.activity_label) || activityLabelForTest(activityState),
+      is_running: isRunning,
+      is_waiting: isWaiting,
+      is_resumable: isResumable,
+      is_interruptible: isInterruptible,
+      control_reason: text(item.control_reason),
+    },
+    control_capability: {
+      is_resumable: isResumable,
+      is_interruptible: isInterruptible,
+      control_reason: text(item.control_reason),
+    },
     session_id: sessionId,
     task_run_id: taskRunId,
     task_instance_id: text(item.task_instance_id) || taskRunId,
@@ -227,6 +276,22 @@ function monitorSignalForTest(item: Record<string, unknown>) {
   };
 }
 
+function controlStateForTest(item: Record<string, unknown>) {
+  const runtimeControl = recordValue(item.runtime_control);
+  return text(item.control_state || runtimeControl.state);
+}
+
+function activityLabelForTest(activityState: string) {
+  if (activityState === "running") return "运行中";
+  if (activityState === "paused") return "已暂停";
+  if (activityState === "waiting") return "等待继续";
+  if (activityState === "stopped") return "已停止";
+  if (activityState === "failed") return "失败";
+  if (activityState === "completed") return "已完成";
+  if (activityState === "stale") return "等待检查";
+  return "待命";
+}
+
 async function flushPromises(times = 5) {
   for (let index = 0; index < times; index += 1) {
     await Promise.resolve();
@@ -235,7 +300,7 @@ async function flushPromises(times = 5) {
 
 function monitorForTest(items: Array<Record<string, unknown>>, patch: Record<string, unknown> = {}) {
   const signals = items.map(monitorSignalForTest);
-  const primary = signals.filter((signal) => signal.state === "active");
+  const primary = signals.filter((signal) => signal.is_running === true);
   const attention = signals.filter((signal) => ["waiting", "attention", "stale", "failed"].includes(signal.state));
   const recent = signals.filter((signal) => signal.state === "completed");
   const projects = signals.filter((signal) => signal.work_kind === "graph_task");
@@ -246,7 +311,7 @@ function monitorForTest(items: Array<Record<string, unknown>>, patch: Record<str
     summary: {
       active: primary.length,
       attention: attention.length,
-      waiting: signals.filter((signal) => signal.state === "waiting").length,
+      waiting: signals.filter((signal) => ["waiting", "paused"].includes(text(signal.activity_state))).length,
       failed: signals.filter((signal) => signal.state === "failed").length,
       recent: recent.length,
       projects: projects.length,
@@ -1735,7 +1800,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       id: "rtevt:observation",
       kind: "observation",
       level: "error",
-      title: "观察结果",
+      title: "结果已返回",
       body: "工具返回失败：Image API request timed out",
       publicNote: "工具调用已完成，正在根据结果继续。",
       agentBrief: "工具返回失败：Image API request timed out",

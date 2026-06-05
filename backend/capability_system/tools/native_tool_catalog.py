@@ -39,7 +39,6 @@ from capability_system.tools.tool_units.memory_search_tool import MemorySearchTo
 from capability_system.tools.tool_units.persisted_tool_result_tool import ReadPersistedToolResultTool
 from capability_system.tools.tool_units.python_repl_tool import PythonReplTool
 from capability_system.tools.tool_units.python_ast_tools import PythonCodeOutlineTool, PythonParseCheckTool, PythonSymbolSearchTool
-from capability_system.tools.tool_units.read_file_tool import ReadFileTool
 from capability_system.tools.tool_units.search_files_tool import SearchFilesTool, SearchTextTool
 from capability_system.tools.tool_units.structured_file_tool import ReadStructuredFileTool
 from capability_system.tools.tool_units.subagent_control_tool import (
@@ -65,7 +64,7 @@ class ToolDefinition:
     display_name: str
     operation_id: str
     module: str
-    factory: ToolFactory
+    factory: ToolFactory | None = None
     contract: ToolExecutionContract = field(default_factory=ToolExecutionContract)
     resolution_contract: ToolResolutionContract = field(default_factory=ToolResolutionContract)
     output_contract: ToolOutputContract = field(default_factory=ToolOutputContract)
@@ -79,6 +78,7 @@ class ToolDefinition:
     runtime_visibility: ToolRuntimeVisibility = "main_runtime"
     prompt_exposure_policy: ToolPromptExposurePolicy = "schema_only"
     resource_exposure_policy: ToolResourceExposurePolicy = "none"
+    native_runtime_only: bool = False
     is_read_only: bool = field(init=False)
     is_destructive: bool = field(init=False)
     is_concurrency_safe: bool = field(init=False)
@@ -92,6 +92,8 @@ class ToolDefinition:
         object.__setattr__(self, "is_concurrency_safe", bool(operation.concurrency_safe))
 
     def build(self, base_dir: Path) -> BaseTool:
+        if self.factory is None:
+            raise RuntimeError(f"Tool {self.name!r} is native-runtime-only and has no BaseTool factory")
         return self.factory(base_dir)
 
     def to_registry_record(self) -> dict[str, Any]:
@@ -413,8 +415,8 @@ def _tool_definitions() -> list[ToolDefinition]:
             name="read_file",
             display_name="读取文件",
             operation_id="op.read_file",
-            module="tools.read_file_tool",
-            factory=lambda base_dir: ReadFileTool(root_dir=base_dir),
+            module="runtime.tool_runtime.native_tools",
+            factory=None,
             contract=ToolExecutionContract(
                 required_inputs=["path"],
                 optional_inputs=["start_line", "line_count"],
@@ -436,6 +438,7 @@ def _tool_definitions() -> list[ToolDefinition]:
             schema_identity="local.tools/read_file",
             prompt_exposure_policy="schema_plus_guidance",
             resource_exposure_policy="explicit_resource",
+            native_runtime_only=True,
         ),
         ToolDefinition(
             name="read_persisted_tool_result",
@@ -994,7 +997,7 @@ def get_tool_definition_map() -> dict[str, ToolDefinition]:
 
 
 def build_tool_instances(base_dir: Path) -> list[BaseTool]:
-    return [definition.build(base_dir) for definition in get_tool_definitions()]
+    return [definition.build(base_dir) for definition in get_tool_definitions() if definition.factory is not None]
 
 
 def build_tool_registry_payload() -> dict[str, Any]:

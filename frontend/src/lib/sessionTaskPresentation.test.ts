@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
 
 import type { SessionSummary, SessionTaskSummary } from "@/lib/api";
-import { sessionSummaryIsRunning, sessionTaskActivityKind, sessionTaskStatusLabel } from "./sessionTaskPresentation";
+import {
+  sessionSummaryCanInterrupt,
+  sessionSummaryCanResume,
+  sessionSummaryIsRunning,
+  sessionTaskActivityKind,
+  sessionTaskStatusLabel,
+} from "./sessionTaskPresentation";
 
 function task(patch: Partial<SessionTaskSummary>): SessionTaskSummary {
   return {
@@ -23,47 +29,51 @@ function session(activeTask: SessionTaskSummary): SessionSummary {
 }
 
 describe("sessionTaskPresentation", () => {
-  it("treats waiting task state as waiting even when the bucket still says running", () => {
+  it("uses backend activity fields instead of legacy bucket or stream state", () => {
     const waitingTask = task({
-      action_required: true,
+      activity_state: "waiting",
+      activity_label: "等待继续",
       bucket: "running",
-      lifecycle: "paused",
+      is_running: false,
+      is_waiting: true,
       status: "waiting_executor",
     });
 
     expect(sessionTaskActivityKind(waitingTask)).toBe("waiting");
     expect(sessionTaskStatusLabel(waitingTask)).toBe("等待继续");
-    expect(sessionSummaryIsRunning(session(waitingTask), ["session:main"])).toBe(false);
+    expect(sessionSummaryIsRunning(session(waitingTask))).toBe(false);
   });
 
-  it("lets waiting semantics beat terminal and stale stream residue", () => {
-    const waitingTerminalTask = task({
-      bucket: "running",
-      lifecycle: "paused",
-      status: "waiting_executor",
-      terminal: true,
-    });
-    const staleDiagnosticTask = task({
-      bucket: "diagnostics",
-      lifecycle: "stale",
-      stale: true,
-      status: "running",
-    });
+  it("does not treat completed or stopped tasks as running because a stream exists elsewhere", () => {
+    const completedTask = task({ activity_state: "completed", activity_label: "已完成", is_running: false });
+    const stoppedTask = task({ activity_state: "stopped", activity_label: "已停止", is_running: false });
 
-    expect(sessionTaskActivityKind(waitingTerminalTask)).toBe("waiting");
-    expect(sessionSummaryIsRunning(session(waitingTerminalTask), ["session:main"])).toBe(false);
-    expect(sessionTaskStatusLabel(staleDiagnosticTask)).toBe("等待继续");
-    expect(sessionSummaryIsRunning(session(staleDiagnosticTask), ["session:main"])).toBe(false);
+    expect(sessionSummaryIsRunning(session(completedTask))).toBe(false);
+    expect(sessionTaskStatusLabel(stoppedTask)).toBe("已停止");
+    expect(sessionSummaryIsRunning(session(stoppedTask))).toBe(false);
   });
 
-  it("marks sessions as running for active streams or true running task state", () => {
-    const runningTask = task({ bucket: "running", status: "running" });
-    const completedTask = task({ status: "completed", terminal: true });
-    const stoppedTask = task({ status: "user_aborted" });
+  it("exposes control capability separately from display state", () => {
+    const pausedTask = task({
+      activity_state: "paused",
+      activity_label: "已暂停",
+      is_running: false,
+      is_waiting: true,
+      is_resumable: true,
+      is_interruptible: false,
+    });
+    const runningTask = task({
+      activity_state: "running",
+      activity_label: "运行中",
+      is_running: true,
+      is_interruptible: true,
+      is_resumable: false,
+    });
 
-    expect(sessionSummaryIsRunning(session(runningTask), [])).toBe(true);
-    expect(sessionSummaryIsRunning(session(completedTask), ["session:main"])).toBe(true);
-    expect(sessionSummaryIsRunning(session(completedTask), [])).toBe(false);
-    expect(sessionSummaryIsRunning(session(stoppedTask), ["session:main"])).toBe(false);
+    expect(sessionTaskActivityKind(pausedTask)).toBe("paused");
+    expect(sessionSummaryCanResume(session(pausedTask))).toBe(true);
+    expect(sessionSummaryCanInterrupt(session(pausedTask))).toBe(false);
+    expect(sessionSummaryIsRunning(session(runningTask))).toBe(true);
+    expect(sessionSummaryCanInterrupt(session(runningTask))).toBe(true);
   });
 });

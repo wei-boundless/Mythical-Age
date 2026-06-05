@@ -173,6 +173,7 @@ function subtitleForPage(page: RunManagementSubpage) {
 
 function stateLabel(signal: RunMonitorSignal) {
   if (signal.visibility?.hidden) return "已清出";
+  if (signal.activity_label) return signal.activity_label;
   if (signal.state === "active") return "运行中";
   if (signal.state === "waiting") return "等待";
   if (signal.state === "stale") return "需诊断";

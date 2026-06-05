@@ -63,6 +63,7 @@ export function createInitialState(maps: MapData[]): GameState {
     clearedMaps: new Set<number>(),
     showInventory: false,
     selectedInventoryIndex: 0,
+    showSkillsPanel: false,
   } as GameState;
 }
 
@@ -622,7 +623,7 @@ function castSkill(state: GameState, skillId: SkillId, map: MapData): void {
     for (const m of map.monsters) {
       if (!m.alive) continue;
       const dist = Math.sqrt((cx - (m.x + m.width / 2)) ** 2 + (cy - (m.y + m.height / 2)) ** 2);
-      if (dist < 80) {
+      if (dist < 100) {
         const dmg = calcDamage(totalAtk(p), 0, skillDef.damage, m.def, totalDef(p));
         m.hp -= dmg;
         m.hitTimer = 10;
@@ -829,7 +830,13 @@ export function updateGame(state: GameState): void {
   if (state.keys.has("Tab")) {
     state.keys.delete("Tab");
     state.showInventory = !state.showInventory;
-    if (state.showInventory) state.selectedInventoryIndex = 0;
+    if (state.showInventory) { state.selectedInventoryIndex = 0; state.showSkillsPanel = false; }
+  }
+  // 技能详情面板切换
+  if (state.keys.has("KeyK")) {
+    state.keys.delete("KeyK");
+    state.showSkillsPanel = !state.showSkillsPanel;
+    if (state.showSkillsPanel) state.showInventory = false;
   }
   if (state.showInventory) {
     // 上下导航

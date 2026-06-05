@@ -95,6 +95,40 @@ def test_file_state_authority_marks_reads_stale_after_write() -> None:
     assert state["next_suggested_read"]["start_line"] == 1
 
 
+def test_file_state_authority_projection_keeps_recent_updates_over_path_sort() -> None:
+    authority = FileStateAuthority(task_run_id="taskrun:file-state-recency")
+    for index in range(25):
+        authority = authority.apply_event(
+            {
+                "event_type": "read",
+                "path": f"z{index:02}.py",
+                "start_line": 1,
+                "end_line": 1,
+                "total_lines": 1,
+                "has_more": False,
+            },
+            observation_ref=f"obs:z{index:02}",
+        )
+    authority = authority.apply_event(
+        {
+            "event_type": "read",
+            "path": "a.py",
+            "start_line": 1,
+            "end_line": 1,
+            "total_lines": 1,
+            "has_more": False,
+        },
+        observation_ref="obs:a-latest",
+    )
+
+    projection = authority.projection(limit=20)
+    paths = [item["path"] for item in projection]
+
+    assert "a.py" in paths
+    assert projection[-1]["path"] == "a.py"
+    assert projection[-1]["last_observation_ref"] == "obs:a-latest"
+
+
 def test_file_state_authority_tracks_search_hits_without_reading_full_file() -> None:
     envelope = build_tool_result_envelope(
         tool_name="search_text",

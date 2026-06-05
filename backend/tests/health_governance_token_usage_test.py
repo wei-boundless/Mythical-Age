@@ -491,7 +491,7 @@ def test_health_task_record_maintenance_protects_failed_without_report_and_delet
     assert event_log.deleted_task_run_ids == ["taskrun:old-completed"]
 
 
-def test_health_governance_reports_resumable_rollout_risks_without_terminal_recovery_branch_risks() -> None:
+def test_health_governance_does_not_treat_waiting_executor_as_resumable_without_control_context() -> None:
     now = time.time()
     stopped_terminal = TaskRun(
         task_run_id="taskrun:stopped-terminal",
@@ -547,7 +547,7 @@ def test_health_governance_reports_resumable_rollout_risks_without_terminal_reco
     risks = HealthGovernanceBuilder(runtime).build_risks(limit=10)["risks"]
     risk_codes = {str(item.get("risk_code") or "") for item in risks}
 
-    assert "missing_rollout_for_resumable_task" in risk_codes
+    assert "missing_rollout_for_resumable_task" not in risk_codes
     assert "stale_waiting_executor" in risk_codes
     assert "interrupted_without_recovery_branch" not in risk_codes
     assert "repeated_terminal_recovery_branch_failure" not in risk_codes

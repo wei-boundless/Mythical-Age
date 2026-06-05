@@ -705,11 +705,19 @@ class ToolRuntimeExecutor:
             result_ref=result_ref,
             result_envelope=envelope.to_dict(),
         )
+        file_state_commit = _commit_file_state_events(
+            execution_store=execution_store,
+            task_run_id=task_run_id,
+            observation_ref=observation.observation_id,
+            tool_call_id=tool_call_id,
+            envelope=envelope,
+        )
         return {
             "observation": observation,
             "execution_record": current_record,
             "error": "",
             "sandbox": sandbox_context.to_dict() if sandbox_context else {},
+            "file_state_commit": file_state_commit,
         }
 
     async def _run_core(
@@ -1359,6 +1367,35 @@ def _capability_tool_instance(
 
 def _uses_system_backend_root(tool_name: str) -> bool:
     return str(tool_name or "").strip() in {"agent_todo", "image_generate"}
+
+
+def _commit_file_state_events(
+    *,
+    execution_store: RuntimeExecutionStore | None,
+    task_run_id: str,
+    observation_ref: str,
+    tool_call_id: str,
+    envelope: Any,
+) -> dict[str, Any]:
+    events = tuple(dict(item) for item in tuple(getattr(envelope, "file_state_events", ()) or ()) if isinstance(item, dict))
+    if execution_store is None or not str(task_run_id or "").strip() or not events:
+        return {}
+    from runtime.memory.file_state_store import FileStateAuthorityStore
+
+    authority = FileStateAuthorityStore(execution_store.root_dir).apply_events(
+        task_run_id,
+        events,
+        observation_ref=observation_ref,
+        tool_call_id=tool_call_id,
+    )
+    return {
+        "task_run_id": str(task_run_id or ""),
+        "observation_ref": str(observation_ref or ""),
+        "tool_call_id": str(tool_call_id or ""),
+        "event_count": len(events),
+        "file_count": len(authority.files),
+        "authority": "runtime.tool_runtime.tool_executor.file_state_commit",
+    }
 
 
 async def _call_runtime_tool_with_control(

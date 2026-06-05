@@ -464,12 +464,12 @@ function renderSkillBar(ctx: CanvasRenderingContext2D, p: Player): void {
   const unlockedSkills = SKILLS.filter((s) => p.level >= s.unlockLevel);
   if (unlockedSkills.length === 0) return;
 
-  const slotW = 44;
-  const slotH = 44;
-  const gap = 6;
+  const slotW = 38;
+  const slotH = 32;
+  const gap = 5;
   const totalW = unlockedSkills.length * slotW + (unlockedSkills.length - 1) * gap;
   const startX = (GAME_W - totalW) / 2;
-  const barY = GAME_H - 60;
+  const barY = GAME_H - 44;
 
   for (let i = 0; i < unlockedSkills.length; i++) {
     const sk = unlockedSkills[i];
@@ -493,28 +493,28 @@ function renderSkillBar(ctx: CanvasRenderingContext2D, p: Player): void {
       light_judgment: "#ce93d8",
     };
     ctx.fillStyle = iconColors[sk.id] || "#888";
-    ctx.font = "20px sans-serif";
+    ctx.font = "16px sans-serif";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillText(sk.icon, sx + slotW / 2, barY + slotH / 2 - 4);
+    ctx.fillText(sk.icon, sx + slotW / 2, barY + slotH / 2 - 3);
 
     // 技能名缩写
     ctx.fillStyle = "#ccc";
-    ctx.font = "8px sans-serif";
-    ctx.fillText(sk.name.slice(0, 4), sx + slotW / 2, barY + slotH - 8);
+    ctx.font = "7px sans-serif";
+    ctx.fillText(sk.name.slice(0, 4), sx + slotW / 2, barY + slotH - 6);
 
     // CD 覆盖
     if (cd > 0) {
       ctx.fillStyle = "rgba(0,0,0,0.6)";
       ctx.fillRect(sx, barY, slotW, slotH * cdRatio);
       ctx.fillStyle = "#fff";
-      ctx.font = "bold 12px sans-serif";
-      ctx.fillText(`${Math.ceil(cd / 60)}s`, sx + slotW / 2, barY + slotH / 2 + 10);
+      ctx.font = "bold 10px sans-serif";
+      ctx.fillText(`${Math.ceil(cd / 60)}s`, sx + slotW / 2, barY + slotH / 2 + 8);
     }
 
     // 热键编号
     ctx.fillStyle = "#ffd700";
-    ctx.font = "bold 10px sans-serif";
+    ctx.font = "bold 9px sans-serif";
     ctx.textAlign = "left";
     ctx.textBaseline = "top";
     ctx.fillText(`${i + 1}`, sx + 3, barY + 2);

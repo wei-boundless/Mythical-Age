@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+import asyncio
 from pathlib import Path
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
@@ -10,10 +11,12 @@ if str(BACKEND_DIR) not in sys.path:
 from capability_system.capabilities.document_processing.pdf.analysis.catalog import PdfAnalysisCatalog
 from capability_system.capabilities.retrieval.collections import build_default_collections
 from capability_system.capabilities.structured_data.catalog import StructuredDataCatalog
-from capability_system.tools.tool_units.read_file_tool import ReadFileTool
+from capability_system.tools.native_tool_catalog import get_tool_definition_map
 from capability_system.tools.tool_units.search_files_tool import SearchFilesTool
 from capability_system.tools.tool_units.write_file_tool import WriteFileTool
 from project_layout import ProjectLayout
+from runtime.tool_runtime.native_tools import build_native_runtime_tool
+from runtime.tool_runtime.tool_use_context import ToolUseContext
 
 
 def test_rag_layout_defaults_to_external_data_root_and_keeps_memory_in_storage(tmp_path: Path, monkeypatch) -> None:
@@ -102,11 +105,10 @@ def test_knowledge_logical_paths_resolve_to_external_physical_root(tmp_path: Pat
     knowledge_dir.mkdir(parents=True)
     (knowledge_dir / "note.md").write_text("external knowledge", encoding="utf-8")
 
-    reader = ReadFileTool(root_dir=backend_dir)
     writer = WriteFileTool(root_dir=backend_dir)
     search = SearchFilesTool(root_dir=backend_dir)
 
-    assert reader.invoke({"path": "knowledge/note.md"}) == "external knowledge"
+    assert _read_file_text(backend_dir, "knowledge/note.md") == "1 | external knowledge"
     assert writer.invoke({"path": "knowledge/new.md", "content": "new external"}) == "Write succeeded: knowledge/new.md"
     assert (knowledge_dir / "new.md").read_text(encoding="utf-8") == "new external"
     assert "knowledge/note.md" in search.invoke({"query": "note", "roots": ["knowledge"], "max_results": 10})
@@ -129,3 +131,16 @@ def test_pdf_and_structured_catalogs_keep_knowledge_logical_paths(tmp_path: Path
     assert PdfAnalysisCatalog.resolve_pdf_path(backend_dir, "knowledge/AI Knowledge/report.pdf", "") == pdf_path
     assert StructuredDataCatalog.relative_path(backend_dir, xlsx_path) == "knowledge/E-commerce Data/employees.xlsx"
     assert StructuredDataCatalog.resolve_dataset_path(backend_dir, "knowledge/E-commerce Data/employees.xlsx", "") == xlsx_path
+
+
+def _read_file_text(root_dir: Path, path: str, *, start_line: int = 1, line_count: int = 240) -> str:
+    definition = get_tool_definition_map()["read_file"]
+    tool = build_native_runtime_tool(capability_definition=definition)
+    assert tool is not None
+    envelope = asyncio.run(
+        tool.call(
+            {"path": path, "start_line": start_line, "line_count": line_count},
+            ToolUseContext(workspace_root=root_dir),
+        )
+    )
+    return envelope.text

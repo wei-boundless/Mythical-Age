@@ -199,10 +199,12 @@ class HealthTaskRecordMaintenanceService:
         age_seconds = max(0.0, self.now - max(created_at, updated_at))
         bucket = str(monitor.get("bucket") or self._bucket_from_status(status))
         resource_class = str(monitor.get("resource_class") or ("dynamic" if status in ACTIVE_TASK_STATUSES else "static"))
+        activity = _project_runtime_activity({**dict(monitor or {}), "status": str(monitor.get("status") or status)})
+        activity_state = str(activity.get("activity_state") or "")
         event_count = self._event_count(task_run_id)
         token_summary = dict(token_summary_index.get(task_run_id) or {})
         protection_reasons: list[str] = []
-        if status in ACTIVE_TASK_STATUSES or resource_class == "dynamic" or bucket == "running":
+        if activity.get("is_running") is True or activity.get("is_waiting") is True or activity_state == "stale" or resource_class == "dynamic":
             protection_reasons.append("active_or_dynamic_runtime")
         if age_seconds < max(0, int(min_age_seconds or 0)):
             protection_reasons.append("recent_task_record")
@@ -432,3 +434,9 @@ class HealthTaskRecordMaintenanceService:
         if bucket == "static":
             return resource_class == "static" and record_bucket in {"completed", "failed", "diagnostics"}
         return resource_class == "static" and record_bucket == bucket
+
+
+def _project_runtime_activity(payload: dict[str, Any]) -> dict[str, Any]:
+    from harness.runtime.run_monitor.activity import project_runtime_activity
+
+    return dict(project_runtime_activity(payload))

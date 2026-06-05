@@ -14,6 +14,7 @@ type RunProjectLaneProps = {
 };
 
 function projectStatus(signal: RunMonitorSignal) {
+  if (signal.activity_label) return signal.activity_label;
   if (signal.state === "active") return "运行中";
   if (signal.state === "waiting") return "等待推进";
   if (signal.state === "stale") return "需诊断";

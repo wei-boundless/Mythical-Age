@@ -5,6 +5,7 @@ from typing import Any
 from artifact_system.artifact_authority import artifact_refs_from_events, dedupe_artifact_refs
 from harness.runtime.public_progress import public_runtime_progress_summary
 
+from .activity import RuntimeActivityControlContext, activity_is_monitor_visible, activity_sort_rank, with_runtime_activity
 from .contract import build_envelope, build_navigation_target, build_task_detail_envelope, monitor_revision
 from .lifecycle import (
     BLOCKED_TASK_RUN_STATUSES,
@@ -220,7 +221,7 @@ class RuntimeMonitorProjector:
             "event_count": event_count,
             "authority": "runtime_monitor.v1.item",
         }
-        return item
+        return with_runtime_activity(item)
 
     def build_global_monitor(self, task_runs: list[Any], *, now: float, limit: int) -> dict[str, Any]:
         projected = [
@@ -239,7 +240,7 @@ class RuntimeMonitorProjector:
             for item in sorted(task_runs, key=lambda item: float(getattr(item, "updated_at", 0.0) or 0.0), reverse=True)
             if not self._is_internal_child_run(item)
         ]
-        active_items = self._current_items_by_session([item for item in items if item.get("bucket") in {"running", "waiting", "diagnostics"}])
+        active_items = self._current_items_by_session([item for item in items if activity_is_monitor_visible(item)])
         visible = active_items[: max(1, min(int(limit or 20), 100))]
         latest = items[0] if items else None
         active = visible[0] if visible else None
@@ -405,7 +406,14 @@ class RuntimeMonitorProjector:
             "event_count": 0,
             "authority": "runtime_monitor.v1.item",
         }
-        return item
+        return with_runtime_activity(
+            item,
+            control_context=RuntimeActivityControlContext(
+                resumable=status == "waiting_executor" and bool(bound_task_run_id),
+                interruptible=status == "running" and bool(bound_task_run_id),
+                reason="active_turn",
+            ),
+        )
 
     def build_turn_monitor(
         self,
@@ -601,10 +609,7 @@ class RuntimeMonitorProjector:
         return not self._is_internal_child_run(task_run)
 
     def _is_global_live_item(self, item: dict[str, Any]) -> bool:
-        bucket = str(item.get("bucket") or "").strip()
-        if bucket in {"running", "waiting", "diagnostics"}:
-            return True
-        return bool(item.get("action_required") is True or item.get("stale") is True)
+        return activity_is_monitor_visible(item)
 
     def _display_title(self, task_run: Any, diagnostics: dict[str, Any], *, lifecycle: str) -> str:
         for key in ("title", "task_graph_title", "project_title", "goal", "task_goal"):
@@ -928,16 +933,7 @@ def _active_turn_summary(state: str) -> str:
 
 def _session_current_item_key(item: dict[str, Any]) -> tuple[int, int, int, float, float]:
     status = str(item.get("status") or "").strip()
-    bucket = str(item.get("bucket") or "").strip()
-    bucket_rank = 0
-    if bucket == "running":
-        bucket_rank = 4
-    elif bucket == "waiting":
-        bucket_rank = 3
-    elif item.get("action_required") is True:
-        bucket_rank = 2
-    elif bucket == "diagnostics":
-        bucket_rank = 1
+    state_rank = activity_sort_rank(item)
     status_rank = {
         "running": 6,
         "created": 5,
@@ -947,7 +943,7 @@ def _session_current_item_key(item: dict[str, Any]) -> tuple[int, int, int, floa
     }.get(status, 0)
     fresh_rank = 0 if item.get("stale") is True else 1
     return (
-        bucket_rank,
+        state_rank,
         status_rank,
         fresh_rank,
         float(item.get("last_activity_at") or item.get("updated_at") or 0.0),

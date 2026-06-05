@@ -13,7 +13,7 @@ type RunMonitorActionMenuProps = {
 };
 
 const HIDDEN_ACTIONS = new Set(["open", "inspect"]);
-const DANGER_ACTIONS = new Set(["delete_record", "stop_task"]);
+const DANGER_ACTIONS = new Set(["delete_record"]);
 
 export function RunMonitorActionMenu({ signal, loadingAction, onAction }: RunMonitorActionMenuProps) {
   const [open, setOpen] = useState(false);

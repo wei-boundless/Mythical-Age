@@ -3,9 +3,6 @@ from __future__ import annotations
 import time
 from typing import Any
 
-from harness.loop.work_rollout import work_rollout_ref
-from harness.runtime.run_monitor import RuntimeMonitorProjector
-from runtime.environment import RuntimeEnvironment, check_runtime_connection_health
 from runtime.prompt_accounting import TokenCounterRegistry
 from runtime.prompt_accounting.ledger import summarize_usage_records
 
@@ -21,7 +18,7 @@ class HealthGovernanceBuilder:
         self.state_index = self.runtime_host.state_index
         self.prompt_accounting_ledger = getattr(self.runtime_host, "prompt_accounting_ledger", None)
         self.token_counter = TokenCounterRegistry()
-        self.monitor_projector = getattr(self.runtime_host, "monitor_projector", None) or RuntimeMonitorProjector(self.runtime_host.event_log)
+        self.monitor_projector = getattr(self.runtime_host, "monitor_projector", None) or _runtime_monitor_projector(self.runtime_host.event_log)
         self.now = time.time()
         self.store = self._build_store()
 
@@ -37,8 +34,8 @@ class HealthGovernanceBuilder:
         recommendations = self._recommendations(risks=risks, token_usage=token_usage, efficiency=efficiency)
         summary = {
             "task_count": len(tasks),
-            "running_task_count": sum(1 for item in tasks if self._task_bucket(item) == "running"),
-            "waiting_task_count": sum(1 for item in tasks if self._task_action_required(item)),
+            "running_task_count": sum(1 for item in tasks if self._task_activity_state(item) == "running"),
+            "waiting_task_count": sum(1 for item in tasks if self._task_activity_state(item) in {"waiting", "paused"}),
             "failed_task_count": sum(1 for item in tasks if self._task_bucket(item) == "failed"),
             "risk_event_count": len(risks),
             "critical_risk_count": sum(1 for item in risks if item["severity"] == "critical"),
@@ -91,7 +88,7 @@ class HealthGovernanceBuilder:
                 "task_count": len(tasks),
                 "hidden_child_task_count": max(0, len(all_task_runs) - len(top_level_task_runs)),
                 "hidden_history_task_count": max(0, len(top_level_task_runs) - len(visible_task_runs)),
-                "running_task_count": sum(1 for item in tasks if self._task_bucket(item) == "running"),
+                "running_task_count": sum(1 for item in tasks if self._task_activity_state(item) == "running"),
                 "failed_task_count": sum(1 for item in tasks if self._task_bucket(item) == "failed"),
             },
             "updated_at": self.now,
@@ -671,7 +668,7 @@ class HealthGovernanceBuilder:
         waiting_age = max(0.0, self.now - float(task.get("updated_at") or task.get("created_at") or self.now))
         if str(self._task_monitor_from_record(task).get("status") or "") == "waiting_executor" and waiting_age > 600:
             risks.append(self._risk("task", "warning", task_run_id, "等待继续时间过长", f"任务已等待约 {int(waiting_age)} 秒，建议检查是否需要用户继续、恢复或处理阻塞。", risk_code="stale_waiting_executor"))
-        if self._task_bucket(task) == "running" and duration > 1800:
+        if self._task_activity_state(task) == "running" and duration > 1800:
             risks.append(self._risk("efficiency", "high", task_run_id, "任务运行时间过长", f"任务已运行约 {int(duration)} 秒，建议检查是否卡住或空转。"))
         if error_count > 0:
             risks.append(self._risk("task", "warning", task_run_id, "任务事件包含错误", f"最近事件中发现 {error_count} 个错误信号。"))
@@ -687,8 +684,10 @@ class HealthGovernanceBuilder:
         return risks
 
     def _is_resumable_record(self, task: dict[str, Any]) -> bool:
-        status = str(task.get("status") or "")
-        return status in {"waiting_executor", "paused"}
+        monitor = self._task_monitor_from_record(task)
+        if "is_resumable" in monitor:
+            return bool(monitor.get("is_resumable") is True)
+        return bool(_project_runtime_activity(monitor).get("is_resumable") is True)
 
     def _has_work_rollout(self, task_run_id: str) -> bool:
         runtime_objects = getattr(self.runtime_host, "runtime_objects", None)
@@ -696,7 +695,7 @@ class HealthGovernanceBuilder:
         if not callable(getter) or not task_run_id:
             return False
         try:
-            return bool(getter(work_rollout_ref(task_run_id)))
+            return bool(getter(_work_rollout_ref(task_run_id)))
         except Exception:
             return False
 
@@ -1051,8 +1050,7 @@ class HealthGovernanceBuilder:
         if base_dir is None:
             return [self._risk("system", "info", "runtime_environment", "运行环境健康探针未接入", "unknown/not_instrumented，当前 runtime 没有 base_dir。")]
         try:
-            environment = RuntimeEnvironment(workspace_root=base_dir.parent)
-            health = check_runtime_connection_health(environment)
+            health = _runtime_connection_health(workspace_root=base_dir.parent)
             payload = health.to_dict()
         except Exception as exc:
             return [self._risk("system", "high", "runtime_environment", "运行环境健康检查失败", str(exc))]
@@ -1181,20 +1179,22 @@ class HealthGovernanceBuilder:
         return max(0.0, end - created)
 
     def _risk_level(self, *, monitor: dict[str, Any], duration_seconds: float, error_count: int) -> str:
-        if str(monitor.get("bucket") or "") == "failed":
+        activity_state = str(monitor.get("activity_state") or _project_runtime_activity(monitor).get("activity_state") or "")
+        if activity_state == "failed" or str(monitor.get("bucket") or "") == "failed":
             return "critical"
-        if bool(monitor.get("action_required") is True) or (str(monitor.get("bucket") or "") == "running" and duration_seconds > 1800):
+        if activity_state in {"waiting", "paused"} or bool(monitor.get("action_required") is True) or (activity_state == "running" and duration_seconds > 1800):
             return "high"
         if error_count > 0 or duration_seconds > 600:
             return "warning"
         return "normal"
 
     def _latest_task_risk_title(self, *, monitor: dict[str, Any], duration_seconds: float, error_count: int) -> str:
-        if str(monitor.get("bucket") or "") == "failed":
+        activity_state = str(monitor.get("activity_state") or _project_runtime_activity(monitor).get("activity_state") or "")
+        if activity_state == "failed" or str(monitor.get("bucket") or "") == "failed":
             return "任务运行失败"
-        if bool(monitor.get("action_required") is True):
+        if activity_state in {"waiting", "paused"} or bool(monitor.get("action_required") is True):
             return "任务等待处理"
-        if str(monitor.get("bucket") or "") == "running" and duration_seconds > 1800:
+        if activity_state == "running" and duration_seconds > 1800:
             return "任务可能卡住"
         if error_count > 0:
             return "存在错误事件"
@@ -1204,11 +1204,18 @@ class HealthGovernanceBuilder:
     def _task_monitor_from_record(task: dict[str, Any]) -> dict[str, Any]:
         return dict(task.get("monitor") or {})
 
+    def _task_activity_state(self, task: dict[str, Any]) -> str:
+        monitor = self._task_monitor_from_record(task)
+        return str(monitor.get("activity_state") or _project_runtime_activity(monitor).get("activity_state") or "")
+
     def _task_bucket(self, task: dict[str, Any]) -> str:
         return str(self._task_monitor_from_record(task).get("bucket") or "")
 
     def _task_action_required(self, task: dict[str, Any]) -> bool:
-        return bool(self._task_monitor_from_record(task).get("action_required") is True)
+        monitor = self._task_monitor_from_record(task)
+        if monitor.get("activity_state") in {"waiting", "paused"}:
+            return True
+        return bool(monitor.get("action_required") is True)
 
     def _risk(self, scope: str, severity: str, target_ref: str, title: str, summary: str, *, risk_code: str = "") -> dict[str, Any]:
         return {
@@ -1264,5 +1271,33 @@ def _basic_task_monitor(task_run: Any) -> dict[str, Any]:
         "stale": False,
         "updated_at": float(getattr(task_run, "updated_at", 0.0) or 0.0),
     }
+
+
+def _project_runtime_activity(payload: dict[str, Any]) -> dict[str, Any]:
+    from harness.runtime.run_monitor.activity import project_runtime_activity
+
+    return dict(project_runtime_activity(payload))
+
+
+def _runtime_monitor_projector(event_log: Any) -> Any:
+    from harness.runtime.run_monitor import RuntimeMonitorProjector
+
+    return RuntimeMonitorProjector(event_log)
+
+
+def _runtime_connection_health(*, workspace_root: Any) -> Any:
+    from runtime.environment import RuntimeEnvironment, check_runtime_connection_health
+
+    return check_runtime_connection_health(RuntimeEnvironment(workspace_root=workspace_root))
+
+
+def _work_rollout_ref(task_run_id: str) -> str:
+    return f"rtobj:work_rollout:{_safe_object_id(task_run_id)}"
+
+
+def _safe_object_id(value: str) -> str:
+    raw = str(value or "")
+    safe = "".join(ch if ch.isalnum() or ch in {"-", "_"} else "_" for ch in raw).strip("_")
+    return safe[:180] or "work_rollout"
 
 

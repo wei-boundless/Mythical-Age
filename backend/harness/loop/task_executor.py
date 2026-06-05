@@ -16,6 +16,7 @@ from artifact_system.artifact_authority import (
     normalize_artifact_ref,
 )
 from runtime.shared.models import AgentRun, AgentRunResult
+from runtime.memory.file_state_store import FileStateAuthorityStore
 from runtime.memory.tool_observation_ledger import build_tool_observation_record
 from runtime.output_boundary import canonical_output_decision_for_final_text
 from runtime.shared.approval_fingerprint import build_approval_risk_fingerprint
@@ -4545,6 +4546,22 @@ def _reusable_observations(runtime_host: Any, task_run_id: str) -> list[dict[str
     return list(context["packet_observations"])
 
 
+def _file_state_projection_from_store(runtime_host: Any, task_run_id: str) -> list[dict[str, Any]]:
+    task_id = str(task_run_id or "").strip()
+    if not task_id:
+        return []
+    store = getattr(runtime_host, "file_state_store", None)
+    if store is None:
+        root_dir = getattr(runtime_host, "root_dir", None)
+        if root_dir is None:
+            return []
+        store = FileStateAuthorityStore(Path(root_dir))
+    snapshot = getattr(store, "snapshot", None)
+    if not callable(snapshot):
+        return []
+    return list(snapshot(task_id, limit=20) or [])
+
+
 def _observations_for_packet(
     runtime_host: Any,
     task_run_id: str,
@@ -4559,6 +4576,13 @@ def _observations_for_packet(
         for observation in deduped
     ]
     projection = _build_execution_state_projection(records)
+    file_state = _file_state_projection_from_store(runtime_host, task_run_id)
+    if file_state:
+        projection = {
+            **projection,
+            "file_state": file_state,
+            "file_state_source": "runtime.memory.file_state_store",
+        }
     pending_steers = list_pending_task_steers(runtime_host, task_run_id)
     for steer in pending_steers:
         ensure_revision_for_steer(runtime_host, task_run_id, steer)
@@ -4883,7 +4907,6 @@ def _build_execution_state_projection(records: list[dict[str, Any]]) -> dict[str
         "active_failures": active_failures[-8:],
         "historical_failures": historical_failures[-8:],
         "repair_focus": repair_focus[-8:],
-        "file_state": _build_file_state_projection(records),
         "open_questions": [],
         "last_action_receipts": last_action_receipts[-12:],
         "authority": "harness.task_observation_projection",
@@ -4932,125 +4955,6 @@ def _exploration_record_projection(record: dict[str, Any]) -> dict[str, Any]:
         "summary": compact_text(_record_summary(record), limit=160),
     }
     return {key: value for key, value in payload.items() if value not in ("", None, [], {})}
-
-
-def _build_file_state_projection(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    by_path: dict[str, dict[str, Any]] = {}
-    for record in records:
-        tool_name = str(record.get("tool_name") or "")
-        if str(record.get("status") or "ok") != "ok" or _record_visibility(record) != "active":
-            continue
-        if tool_name in {"write_file", "edit_file"}:
-            path = _record_target_path(record)
-            if path:
-                by_path[path] = {
-                    "path": path,
-                    "read_ranges": [],
-                    "total_lines": 0,
-                    "content_sha256": "",
-                    "last_observation_ref": str(record.get("observation_ref") or ""),
-                    "has_more": False,
-                    "status": "modified_after_read",
-                }
-            continue
-        if tool_name != "read_file":
-            continue
-        result_metadata = dict(record.get("result_metadata") or {})
-        content_range = dict(result_metadata.get("content_range") or {})
-        path = str(content_range.get("path") or _record_target_path(record) or "").replace("\\", "/").strip().strip("/")
-        if not path:
-            continue
-        start_line = _first_int(content_range.get("start_line"))
-        end_line = _first_int(content_range.get("end_line"))
-        if start_line <= 0 or end_line <= 0:
-            continue
-        state = by_path.setdefault(
-            path,
-            {
-                "path": path,
-                "read_ranges": [],
-                "total_lines": _first_int(content_range.get("total_lines")),
-                "content_sha256": str(content_range.get("content_sha256") or ""),
-                "last_observation_ref": "",
-                "has_more": False,
-                "status": "partial",
-            },
-        )
-        state["read_ranges"].append(
-            {
-                "start_line": start_line,
-                "end_line": end_line,
-                "observation_ref": str(record.get("observation_ref") or ""),
-            }
-        )
-        if _first_int(content_range.get("total_lines")):
-            state["total_lines"] = _first_int(content_range.get("total_lines"))
-        if str(content_range.get("content_sha256") or "").strip():
-            state["content_sha256"] = str(content_range.get("content_sha256") or "").strip()
-        state["last_observation_ref"] = str(record.get("observation_ref") or "")
-        state["has_more"] = bool(content_range.get("has_more") or content_range.get("truncated"))
-    projected: list[dict[str, Any]] = []
-    for state in by_path.values():
-        if str(state.get("status") or "") == "modified_after_read":
-            projected.append(
-                {
-                    "path": state["path"],
-                    "read_ranges": [],
-                    "coverage": {"covered_lines": 0, "total_lines": 0, "complete": False},
-                    "total_lines": 0,
-                    "content_sha256": "",
-                    "last_observation_ref": str(state.get("last_observation_ref") or ""),
-                    "has_more": False,
-                    "status": "modified_after_read",
-                }
-            )
-            continue
-        ranges = _merge_line_ranges([dict(item) for item in list(state.get("read_ranges") or []) if isinstance(item, dict)])
-        total_lines = _first_int(state.get("total_lines"))
-        covered_lines = sum(max(0, int(item.get("end_line") or 0) - int(item.get("start_line") or 0) + 1) for item in ranges)
-        complete = bool(total_lines and ranges and ranges[0].get("start_line") == 1 and covered_lines >= total_lines)
-        projected.append(
-            {
-                "path": state["path"],
-                "read_ranges": ranges[-12:],
-                "coverage": {
-                    "covered_lines": covered_lines,
-                    "total_lines": total_lines,
-                    "complete": complete,
-                },
-                "total_lines": total_lines,
-                "content_sha256": str(state.get("content_sha256") or ""),
-                "last_observation_ref": str(state.get("last_observation_ref") or ""),
-                "has_more": bool(state.get("has_more")) and not complete,
-                "status": "complete" if complete else "partial",
-            }
-        )
-    return projected[-20:]
-
-
-def _merge_line_ranges(ranges: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    normalized = sorted(
-        (
-            {
-                "start_line": _first_int(item.get("start_line")),
-                "end_line": _first_int(item.get("end_line")),
-                "observation_ref": str(item.get("observation_ref") or ""),
-            }
-            for item in ranges
-        ),
-        key=lambda item: (item["start_line"], item["end_line"]),
-    )
-    merged: list[dict[str, Any]] = []
-    for item in normalized:
-        if item["start_line"] <= 0 or item["end_line"] < item["start_line"]:
-            continue
-        if merged and item["start_line"] <= int(merged[-1]["end_line"]) + 1:
-            merged[-1]["end_line"] = max(int(merged[-1]["end_line"]), item["end_line"])
-            if item["observation_ref"]:
-                merged[-1]["observation_ref"] = item["observation_ref"]
-            continue
-        merged.append(item)
-    return merged
 
 
 def _packet_observations_from_records(records: list[dict[str, Any]]) -> list[dict[str, Any]]:

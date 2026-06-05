@@ -636,16 +636,16 @@ def _tool_view(*, tool_name: str, definition: Any, tool_instance: Any | None = N
     description = str(getattr(tool_instance, "description", "") or "").strip()
     if description:
         payload["description"] = description
-    input_schema = _tool_input_schema(tool_instance)
+    input_schema = _tool_input_schema(tool_instance, definition=definition)
     if input_schema:
         payload["input_schema"] = input_schema
     return payload
 
 
-def _tool_input_schema(tool_instance: Any | None) -> dict[str, Any]:
+def _tool_input_schema(tool_instance: Any | None, *, definition: Any | None = None) -> dict[str, Any]:
     args_schema = getattr(tool_instance, "args_schema", None)
     if args_schema is None:
-        return {}
+        return _contract_input_schema(definition)
     try:
         if hasattr(args_schema, "model_json_schema"):
             schema = args_schema.model_json_schema()
@@ -658,6 +658,47 @@ def _tool_input_schema(tool_instance: Any | None) -> dict[str, Any]:
     if not isinstance(schema, dict):
         return {}
     return dict(schema)
+
+
+def _contract_input_schema(definition: Any | None) -> dict[str, Any]:
+    contract = getattr(definition, "contract", None)
+    if contract is None:
+        return {}
+    field_names = [
+        *list(getattr(contract, "required_inputs", []) or []),
+        *list(getattr(contract, "optional_inputs", []) or []),
+    ]
+    properties: dict[str, Any] = {}
+    for field_name in field_names:
+        name = str(field_name or "").strip()
+        if not name:
+            continue
+        properties[name] = _contract_field_schema(name)
+    if not properties:
+        return {}
+    return {
+        "type": "object",
+        "properties": properties,
+        "required": [
+            str(item or "").strip()
+            for item in list(getattr(contract, "required_inputs", []) or [])
+            if str(item or "").strip()
+        ],
+        "additionalProperties": False,
+    }
+
+
+def _contract_field_schema(field_name: str) -> dict[str, Any]:
+    name = str(field_name or "").strip()
+    if name in {"start_line", "line_count", "max_results", "max_entries", "max_symbols", "max_bytes", "start_byte"}:
+        return {"type": "integer"}
+    if name in {"allow_overwrite", "dry_run"}:
+        return {"type": "boolean"}
+    if name in {"roots", "paths", "items", "context_refs", "expected_outputs"}:
+        return {"type": "array"}
+    if name in {"args", "diagnostics", "metadata"}:
+        return {"type": "object"}
+    return {"type": "string"}
 
 
 def _filter_tool_names_by_profile(

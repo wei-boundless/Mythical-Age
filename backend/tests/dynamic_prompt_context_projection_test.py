@@ -12,6 +12,7 @@ from harness.runtime.dynamic_context import DynamicContextProjection, VolatileSe
 from harness.runtime.dynamic_context.history_projector import HistoryProjector
 from harness.runtime.dynamic_context.task_state_projector import TaskStateProjector
 from harness.runtime.prompt_segment_plan import build_prompt_segment_plan
+from runtime.memory.file_state_store import FileStateAuthorityStore
 from runtime.tool_runtime.tool_result_envelope import build_tool_result_envelope
 
 
@@ -554,7 +555,8 @@ def test_code_structure_locator_survives_current_fact_dedupe() -> None:
     assert latest["evidence_policy"]["source_kind"] == "code_locator"
 
 
-def test_task_execution_derives_file_state_from_tool_observations() -> None:
+def test_task_execution_projects_file_state_from_persisted_store(tmp_path: Path) -> None:
+    storage_root = tmp_path / "runtime-state"
     read_envelope = build_tool_result_envelope(
         tool_name="read_file",
         tool_args={"path": "backend/runtime/tool_runtime/native_tools.py", "start_line": 11, "line_count": 5},
@@ -581,25 +583,30 @@ def test_task_execution_derives_file_state_from_tool_observations() -> None:
         caller_kind="task_run",
         caller_ref="taskrun:derived-file-state",
     )
+    FileStateAuthorityStore(storage_root).apply_observation(
+        "taskrun:derived-file-state",
+        {
+            "observation_id": "obs:read-native",
+            "payload": {
+                "tool_name": "read_file",
+                "tool_call_id": "call:read-native",
+                "result_envelope": read_envelope.to_dict(),
+            },
+        },
+    )
 
     result = RuntimeCompiler().compile_task_execution_packet(
         session_id="session:derived-file-state",
         task_run={"task_run_id": "taskrun:derived-file-state", "diagnostics": {"executor_status": "running"}},
-        contract={"task_run_goal": "验证文件状态派生", "completion_criteria": ["file_state 来自 observation"]},
-        observations=[
-            {
-                "observation_id": "obs:read-native",
-                "payload": {
-                    "tool_name": "read_file",
-                    "tool_call_id": "call:read-native",
-                    "result_envelope": read_envelope.to_dict(),
-                },
-            }
-        ],
+        contract={"task_run_goal": "验证文件状态投影", "completion_criteria": ["file_state 来自持久 store"]},
+        observations=[],
         execution_state={"system_projection": {"runtime_status": "running"}},
         runtime_assembly={
             "profile": {"mode": "professional"},
-            "task_environment": {"environment_id": "env.coding.vibe_workspace"},
+            "task_environment": {
+                "environment_id": "env.coding.vibe_workspace",
+                "storage_space": {"runtime_state_root": str(storage_root)},
+            },
             "operation_authorization": {"allowed_operations": ["op.read_file"]},
         },
     )

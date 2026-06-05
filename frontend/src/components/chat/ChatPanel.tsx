@@ -45,10 +45,10 @@ export function ChatPanel() {
     () => sessions.find((session) => session.id === currentSessionId) ?? null,
     [currentSessionId, sessions],
   );
-  const currentSessionStreaming = currentSession
-    ? sessionSummaryIsRunning(currentSession, activeStreamSessionIds)
-    : Boolean(currentSessionId && activeStreamSessionIds.includes(currentSessionId));
-  const suppressFooterActivity = shouldSuppressSessionActivityBar(messages, currentSessionStreaming);
+  const currentSessionReceivingStream = Boolean(currentSessionId && activeStreamSessionIds.includes(currentSessionId));
+  const currentTaskIsRunning = currentSession ? sessionSummaryIsRunning(currentSession) : false;
+  const currentSessionActive = currentSessionReceivingStream || currentTaskIsRunning;
+  const suppressFooterActivity = shouldSuppressSessionActivityBar(messages, currentSessionActive);
   const monitorRecord = taskGraphLiveMonitor as Record<string, unknown> | null;
   const monitorTaskRun = taskGraphLiveMonitor?.task_run ?? {};
   const monitorRuntimeControl = taskGraphLiveMonitor?.runtime_control ?? {};
@@ -79,21 +79,13 @@ export function ChatPanel() {
   );
   const canResumeSingleAgentTask = Boolean(
     isSingleAgentTaskMonitor
-    && !currentSessionStreaming
-    && (
-      monitorStatus === "waiting_executor"
-      || monitorStatus === "waiting_approval"
-      || monitorStatus === "blocked"
-      || monitorControlState === "paused"
-      || monitorControlState === "pause_requested"
-    ),
+    && !currentSessionReceivingStream
+    && taskGraphLiveMonitor?.is_resumable === true,
   );
   const canInterruptSingleAgentTask = Boolean(
     canControlSingleAgentTask
-    && !currentSessionStreaming
-    && monitorStatus !== "waiting_executor"
-    && monitorControlState !== "paused"
-    && monitorControlState !== "pause_requested"
+    && !currentSessionReceivingStream
+    && taskGraphLiveMonitor?.is_interruptible === true
   );
   const chatPrimaryTaskAction = canResumeSingleAgentTask
     ? {
@@ -135,7 +127,7 @@ export function ChatPanel() {
 
           {messages.map((message) => (
             <ChatMessage
-              canEdit={!currentSessionStreaming && message.id === lastEditableUserMessageId}
+              canEdit={!currentSessionActive && message.id === lastEditableUserMessageId}
               content={message.content}
               image={message.image}
               id={message.id}
@@ -165,7 +157,7 @@ export function ChatPanel() {
 
       <div className="chat-panel-footer min-w-0">
         <div className="chat-panel-status-row">
-          {suppressFooterActivity ? null : <SessionActivityBar activity={sessionActivity} active={currentSessionStreaming} />}
+          {suppressFooterActivity ? null : <SessionActivityBar activity={sessionActivity} active={currentSessionActive} />}
           {conversationActiveEnvironment ? (
             <div className="chat-task-environment-binding" title={conversationActiveEnvironment.task_environment_id}>
               <span>环境</span>
@@ -181,7 +173,7 @@ export function ChatPanel() {
         </div>
         <ChatInput
           disabled={workspaceInitializing}
-          streaming={currentSessionStreaming}
+          streaming={currentSessionReceivingStream}
           taskPrimaryAction={chatPrimaryTaskAction}
           onSend={sendMessage}
           onStop={stopCurrentStream}

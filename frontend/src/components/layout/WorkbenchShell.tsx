@@ -181,8 +181,8 @@ function sessionMetaLine(session: SessionSummary) {
   return `${projectLabel}${sessionTaskStatusLabel(task)} · ${countLabel} · ${formatSessionTime(updatedAt)}`;
 }
 
-function sessionIsRunning(session: SessionSummary, activeStreamSessionIds: string[]) {
-  return sessionSummaryIsRunning(session, activeStreamSessionIds);
+function sessionIsRunning(session: SessionSummary) {
+  return sessionSummaryIsRunning(session);
 }
 
 function projectSelectionErrorMessage(error: unknown) {
@@ -490,7 +490,7 @@ function WorkspaceManagerPanel({ onOpenFile }: { onOpenFile: (path: string) => v
           <div className="workbench-session-list">
             {visibleSessions.length ? visibleSessions.map((session) => {
               const active = session.id === currentSessionId;
-              const running = sessionIsRunning(session, activeStreamSessionIds);
+              const running = sessionIsRunning(session);
               return (
               <div className={[
                 "workbench-session-row",
@@ -622,12 +622,12 @@ function MainToolbar({
   const currentTask = currentSession ? sessionTask(currentSession) : undefined;
   const currentTaskActivity = sessionTaskActivityKind(currentTask);
   const subject = friendlySessionTitle(currentSession?.title, currentSessionId || "");
-  const streaming = currentSession
-    ? sessionIsRunning(currentSession, activeStreamSessionIds)
-    : Boolean(currentSessionId && activeStreamSessionIds.includes(currentSessionId));
+  const receivingStream = Boolean(currentSessionId && activeStreamSessionIds.includes(currentSessionId));
+  const taskRunning = currentSession ? sessionIsRunning(currentSession) : false;
+  const streaming = receivingStream || taskRunning;
   const activityLabel = streaming
     ? sessionActivity.title || sessionActivity.detail || sessionActivity.event || "处理中"
-    : currentTaskActivity === "waiting" || currentTaskActivity === "stopped" || currentTaskActivity === "failed"
+    : currentTaskActivity === "waiting" || currentTaskActivity === "paused" || currentTaskActivity === "stale" || currentTaskActivity === "stopped" || currentTaskActivity === "failed"
       ? sessionTaskStatusLabel(currentTask)
     : inspectorDirty
       ? "有未保存文件"
@@ -635,7 +635,7 @@ function MainToolbar({
   const runtimeStateClassName = [
     "workbench-runtime-state",
     streaming ? "workbench-runtime-state--active" : "",
-    !streaming && currentTaskActivity === "waiting" ? "workbench-runtime-state--waiting" : "",
+    !streaming && (currentTaskActivity === "waiting" || currentTaskActivity === "paused" || currentTaskActivity === "stale") ? "workbench-runtime-state--waiting" : "",
     !streaming && currentTaskActivity === "stopped" ? "workbench-runtime-state--stopped" : "",
   ].filter(Boolean).join(" ");
 

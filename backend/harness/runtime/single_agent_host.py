@@ -16,6 +16,7 @@ from project_layout import ProjectLayout
 from harness.runtime.run_monitor import RuntimeMonitorService
 from harness.graph.langgraph_checkpoint_store import LangGraphCheckpointStore
 from runtime.memory.state_index import RuntimeStateIndex
+from runtime.memory.file_state_store import FileStateAuthorityStore
 from runtime.prompt_accounting import PromptAccountingLedger
 from runtime.shared.event_log import RuntimeEventLog
 from runtime.shared.execution_record import RuntimeExecutionStore
@@ -54,6 +55,7 @@ class SingleAgentRuntimeHost:
         self._close_unowned_active_chat_runs()
         self.prompt_accounting_ledger = PromptAccountingLedger(self.root_dir)
         self.execution_store = RuntimeExecutionStore(self.root_dir)
+        self.file_state_store = FileStateAuthorityStore(self.root_dir)
         self.state_index = RuntimeStateIndex(self.root_dir)
         self.runtime_objects = RuntimeObjectStore(self.root_dir)
         self.active_turn_registry = ActiveTurnRegistry(self)

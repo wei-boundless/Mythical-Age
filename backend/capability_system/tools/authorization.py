@@ -65,15 +65,18 @@ def build_authorized_tool_set(
     if not allowed_operations:
         return AuthorizedToolSet()
 
+    instances_by_name = {
+        str(getattr(tool, "name", "") or "").strip(): tool
+        for tool in list(tool_instances or [])
+        if str(getattr(tool, "name", "") or "").strip()
+    }
     instances: list[Any] = []
     tool_names: list[str] = []
     operation_ids: list[str] = []
     filtered_out: list[dict[str, str]] = []
-    for tool in list(tool_instances or []):
-        tool_name = str(getattr(tool, "name", "") or "").strip()
-        definition = definitions_by_name.get(tool_name)
-        if definition is None:
-            filtered_out.append({"tool_name": tool_name, "reason": "missing_tool_definition"})
+    for tool_name, definition in definitions_by_name.items():
+        tool_name = str(tool_name or "").strip()
+        if not tool_name:
             continue
         operation_id = str(definition.operation_id or "").strip()
         if not operation_id:
@@ -85,9 +88,13 @@ def build_authorized_tool_set(
         if not include_hidden and not is_prompt_visible_tool_policy(definition.prompt_exposure_policy):
             filtered_out.append({"tool_name": tool_name, "operation_id": operation_id, "reason": "not_prompt_schema_visible"})
             continue
-        instances.append(tool)
+        tool = instances_by_name.get(tool_name)
+        if tool is not None:
+            instances.append(tool)
         tool_names.append(tool_name)
         operation_ids.append(operation_id)
+    for tool_name in sorted(set(instances_by_name) - set(definitions_by_name)):
+        filtered_out.append({"tool_name": tool_name, "reason": "missing_tool_definition"})
 
     return AuthorizedToolSet(
         instances=tuple(instances),

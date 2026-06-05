@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Any
 
 from artifact_system.artifact_authority import artifact_ref_value, dedupe_artifact_refs
-from runtime.memory.file_state_authority import build_file_state_projection_from_observations
+from runtime.memory.file_state_store import FileStateAuthorityStore
 
 from .compaction import replacement_history_ref
 from .execution_state_projector import ExecutionStateProjector
@@ -40,6 +40,7 @@ class DynamicContextManager:
 
     def project(self, request: DynamicContextInput) -> DynamicContextProjection:
         replacement_store, storage_root = self._replacement_store_for_request(request)
+        file_state_storage_root = dynamic_context_storage_root(self.base_dir, dict(request.runtime_assembly or {}))
         tool_result_projector = ToolResultProjector(root_dir=storage_root, replacement_store=replacement_store)
         observation_projector = ObservationProjector(
             replacement_store=replacement_store,
@@ -66,8 +67,8 @@ class DynamicContextManager:
         )
         execution_projection = self._with_file_state_authority_projection(
             execution_projection,
-            observations=request.observations,
             task_run_id=request.task_run_id,
+            storage_root=file_state_storage_root,
         )
         history_projection = self.history_projector.project(
             request.history,
@@ -169,23 +170,21 @@ class DynamicContextManager:
         self,
         execution_projection: dict[str, Any],
         *,
-        observations: tuple[dict[str, Any], ...],
         task_run_id: str,
+        storage_root: Path | None,
     ) -> dict[str, Any]:
         projection = dict(execution_projection or {})
         if projection.get("file_state"):
             return projection
-        file_state = build_file_state_projection_from_observations(
-            observations,
-            task_run_id=task_run_id,
-            limit=20,
-        )
+        if storage_root is None or not str(task_run_id or "").strip():
+            return projection
+        file_state = FileStateAuthorityStore(storage_root).snapshot(task_run_id, limit=20)
         if not file_state:
             return projection
         return {
             **projection,
             "file_state": file_state,
-            "file_state_source": "runtime.memory.file_state_authority",
+            "file_state_source": "runtime.memory.file_state_store",
         }
 
     def _volatile_state_projection(

@@ -80,16 +80,17 @@ class RuntimeMonitorManagementProjector:
                 "updated_at": float(now),
             },
         }
+        visible_signals = [signal for signal in enriched if _is_default_visible(signal)]
         managed["summary"] = {
             **dict(envelope.get("summary") or {}),
-            "active": len(managed["primary"]),
+            "active": sum(1 for item in visible_signals if item.get("is_running") is True),
             "attention": len(managed["attention"]),
-            "waiting": sum(1 for item in managed["attention"] if item.get("state") == "waiting"),
-            "failed": sum(1 for item in managed["attention"] if item.get("state") == "failed"),
+            "waiting": sum(1 for item in visible_signals if str(item.get("activity_state") or "") in {"waiting", "paused"}),
+            "failed": sum(1 for item in visible_signals if str(item.get("activity_state") or "") == "failed" or item.get("state") == "failed"),
             "recent": len(managed["recent"]),
             "projects": len(managed["projects"]),
             "hidden": len(lanes["hidden"]),
-            "total": len(managed["signals"]),
+            "total": len(visible_signals),
         }
         return managed
 
@@ -212,6 +213,8 @@ def _summary(signals: list[dict[str, Any]]) -> dict[str, int]:
 def _lane_for_signal(signal: dict[str, Any]) -> str:
     if str(signal.get("work_kind") or "") == "graph_task":
         return "projects"
+    if signal.get("is_running") is True:
+        return "current"
     state = str(signal.get("state") or "")
     if state == "active":
         return "current"
@@ -222,11 +225,14 @@ def _lane_for_signal(signal: dict[str, Any]) -> str:
 
 def _actions_for_signal(signal: dict[str, Any], *, source: dict[str, Any], hidden: bool) -> list[dict[str, Any]]:
     state = str(signal.get("state") or "")
+    activity_state = str(signal.get("activity_state") or source.get("activity_state") or "")
     work_kind = str(signal.get("work_kind") or "")
     task_run_id = str(signal.get("task_run_id") or "").strip()
     graph_run_id = str(signal.get("graph_run_id") or dict(signal.get("graph_ref") or {}).get("graph_run_id") or "").strip()
-    terminal = state in {"completed", "failed"} or bool(source.get("terminal") is True)
-    active = state == "active" or bool(source.get("is_live") is True)
+    terminal = activity_state in {"completed", "failed", "stopped"} or state in {"completed", "failed"} or bool(source.get("terminal") is True)
+    running = bool(signal.get("is_running") is True or source.get("is_running") is True)
+    resumable = bool(signal.get("is_resumable") is True or source.get("is_resumable") is True)
+    interruptible = bool(signal.get("is_interruptible") is True or source.get("is_interruptible") is True)
     graph_task = work_kind == "graph_task" or bool(graph_run_id)
     actions = [
         _action("open", "打开", True),
@@ -235,11 +241,11 @@ def _actions_for_signal(signal: dict[str, Any], *, source: dict[str, Any], hidde
     if hidden:
         actions.append(_action("restore_to_monitor", "恢复显示", True))
     else:
-        clear_enabled = state in {"completed", "failed", "stale"} and not active
+        clear_enabled = activity_state in {"completed", "failed", "stopped", "stale"} and not running
         actions.append(_action("clear_from_monitor", "清出", clear_enabled, "" if clear_enabled else "active_or_waiting_runtime"))
-    stop_enabled = bool(task_run_id) and state in {"active", "waiting", "stale"} and not terminal
-    pause_enabled = bool(task_run_id) and state == "active" and not terminal
-    resume_enabled = bool(task_run_id) and state in {"waiting", "stale"} and not terminal
+    pause_enabled = bool(task_run_id) and interruptible and not terminal
+    resume_enabled = bool(task_run_id) and resumable and not terminal
+    stop_enabled = bool(task_run_id) and interruptible and not terminal
     actions.extend(
         [
             _action("pause_task", "暂停", pause_enabled, "" if pause_enabled else "not_active_task"),
@@ -251,8 +257,8 @@ def _actions_for_signal(signal: dict[str, Any], *, source: dict[str, Any], hidde
         actions.append(_action("preview_delete_graph_run", "删除预览", bool(graph_run_id), "" if graph_run_id else "missing_graph_run_id"))
         actions.append(_action("delete_record", "删除记录", False, "graph_run_requires_graph_lifecycle"))
     else:
-        delete_enabled = bool(task_run_id) and terminal and not active
-        actions.append(_action("preview_delete_record", "删除预览", bool(task_run_id) and not active, "" if task_run_id and not active else "active_or_missing_task_run"))
+        delete_enabled = bool(task_run_id) and terminal and not running
+        actions.append(_action("preview_delete_record", "删除预览", bool(task_run_id) and not running, "" if task_run_id and not running else "active_or_missing_task_run"))
         actions.append(_action("delete_record", "删除记录", delete_enabled, "" if delete_enabled else "active_or_non_terminal_runtime"))
     return actions
 
