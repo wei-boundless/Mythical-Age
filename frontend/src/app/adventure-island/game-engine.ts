@@ -261,6 +261,31 @@ function addXp(state: GameState, xp: number): void {
 }
 
 // ============================================================
+// 怪物击杀恢复掉落
+// ============================================================
+function dropRecovery(state: GameState, monX: number, monY: number): void {
+  const p = state.player;
+  // HP 掉落：25% 概率
+  if (Math.random() < 0.25) {
+    const hpAmt = 15 + Math.floor(Math.random() * 10); // 15-24
+    p.hp = Math.min(p.maxHp, p.hp + hpAmt);
+    state.floatingTexts.push({
+      x: monX, y: monY - 30, vy: -2, life: 35,
+      text: `+${hpAmt} HP`, color: "#00ff66",
+    });
+  }
+  // MP 掉落：15% 概率（独立判定，可与 HP 同时触发）
+  if (Math.random() < 0.15) {
+    const mpAmt = 8 + Math.floor(Math.random() * 8); // 8-15
+    p.mp = Math.min(p.maxMp, p.mp + mpAmt);
+    state.floatingTexts.push({
+      x: monX, y: monY - 45, vy: -2, life: 35,
+      text: `+${mpAmt} MP`, color: "#6699ff",
+    });
+  }
+}
+
+// ============================================================
 // 玩家物理 & 移动
 // ============================================================
 function updatePlayerPhysics(player: Player, keys: Set<string>, map: MapData): void {
@@ -480,6 +505,7 @@ function playerAttack(state: GameState, map: MapData): void {
         m.alive = false;
         spawnParticles(state.particles, m.x + m.width / 2, m.y + m.height / 2, 15, "#ffaa00");
         addXp(state, m.xpReward);
+        dropRecovery(state, m.x + m.width / 2, m.y + m.height / 2);
         state.floatingTexts.push({
           x: m.x + m.width / 2,
           y: m.y - 20,
@@ -606,6 +632,7 @@ function castSkill(state: GameState, skillId: SkillId, map: MapData): void {
           m.alive = false;
           spawnParticles(state.particles, m.x + m.width / 2, m.y + m.height / 2, 15, "#ffaa00");
           addXp(state, m.xpReward);
+          dropRecovery(state, m.x + m.width / 2, m.y + m.height / 2);
         }
       }
     }
@@ -615,6 +642,10 @@ function castSkill(state: GameState, skillId: SkillId, map: MapData): void {
     // 伤害在 update 中检测接触
   } else if (skillId === "holy_shield") {
     p.shieldTimer = skillDef.duration;
+    // 附带回血
+    const healAmt = 20;
+    p.hp = Math.min(p.maxHp, p.hp + healAmt);
+    state.floatingTexts.push({ x: p.x + p.width / 2, y: p.y - 30, vy: -2, life: 30, text: `+${healAmt} HP`, color: "#88ff88" });
     spawnParticles(state.particles, p.x + p.width / 2, p.y + p.height / 2, 20, "#ffff88", 1.5);
   } else if (skillId === "light_judgment") {
     // 全屏打击
@@ -629,6 +660,7 @@ function castSkill(state: GameState, skillId: SkillId, map: MapData): void {
         m.alive = false;
         spawnParticles(state.particles, m.x + m.width / 2, m.y + m.height / 2, 15, "#ffaa00");
         addXp(state, m.xpReward);
+        dropRecovery(state, m.x + m.width / 2, m.y + m.height / 2);
       }
     }
     state.shakeTimer = 20;
@@ -660,6 +692,7 @@ function activeSkillDamage(state: GameState, map: MapData): void {
         m.alive = false;
         spawnParticles(state.particles, m.x + m.width / 2, m.y + m.height / 2, 15, "#ffaa00");
         addXp(state, m.xpReward);
+        dropRecovery(state, m.x + m.width / 2, m.y + m.height / 2);
       }
     }
   }

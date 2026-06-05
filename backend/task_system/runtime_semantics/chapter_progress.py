@@ -66,10 +66,12 @@ def normalize_chapter_progress_receipt(
 
     committed_words = max(0, _int_value(receipt.get("committed_words"), 0))
 
+    authoritative_volume_index = _authoritative_volume_index(receipt=receipt, inputs=inputs)
+
     normalized = {
         **receipt,
         "authority": AUTHORITY,
-        "volume_index": _int_value(receipt.get("volume_index"), _int_value(inputs.get("volume_index"), 1)),
+        "volume_index": authoritative_volume_index,
         "batch_start_index": batch_start,
         "batch_end_index": batch_end,
         "expected_chapter_indexes": expected,
@@ -86,6 +88,12 @@ def normalize_chapter_progress_receipt(
     if not normalized["commit_allowed"]:
         raise ChapterProgressReceiptError("chapter_progress_receipt_commit_not_allowed")
     return normalized
+
+
+def _authoritative_volume_index(*, receipt: dict[str, Any], inputs: dict[str, Any]) -> int:
+    if "volume_index" in inputs and inputs.get("volume_index") not in (None, ""):
+        return _int_value(inputs.get("volume_index"), 1)
+    return _int_value(receipt.get("volume_index"), 1)
 
 
 def first_chapter_progress_receipt(

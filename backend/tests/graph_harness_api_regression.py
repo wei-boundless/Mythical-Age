@@ -1364,6 +1364,90 @@ def test_parent_loop_continue_resets_child_loop_cursor_from_child_start_key(tmp_
     assert advance.node_work_orders[0].node_id == "outline"
 
 
+def test_metric_route_patch_cursor_is_not_incremented_twice(tmp_path: Path) -> None:
+    graph = TaskGraphDefinition(
+        graph_id="graph.test.volume_cursor_patch",
+        title="Volume Cursor Patch",
+        graph_kind="coordination",
+        publish_state="published",
+        enabled=True,
+        entry_node_id="next_volume_router",
+        output_node_id="done",
+        runtime_policy={"coordinator_agent_id": "agent:0"},
+        loop_frames=(
+            {
+                "frame_id": "loop.volume",
+                "scope_id": "loop.volume",
+                "entry_node_id": "next_volume_router",
+                "router_node_id": "next_volume_router",
+                "continue_node_id": "next_volume_router",
+                "exit_node_id": "done",
+                "scope_node_ids": ["next_volume_router"],
+                "cursor_key": "volume_index",
+                "start_key": "volume_index",
+                "end_key": "target_group_count",
+                "step": 1,
+                "reset_scope_on_continue": True,
+                "initial_inputs": {"volume_index": 1, "completed_groups": 0, "target_group_count": 5},
+                "derived_fields": [{"key": "volume_index_padded", "op": "format", "template": "{volume_index:03d}"}],
+            },
+        ),
+        nodes=(
+            TaskGraphNodeDefinition(
+                node_id="next_volume_router",
+                node_type="agent",
+                title="Next Volume Router",
+                task_id="task.next_volume_router",
+                agent_id="agent:0",
+                loop={
+                    "scope_id": "loop.volume",
+                    "route_policy": {
+                        "mode": "metric_target",
+                        "scope_id": "loop.volume",
+                        "continue_node_id": "next_volume_router",
+                        "exit_node_id": "done",
+                        "default_increment": 1,
+                        "current_key": "completed_groups",
+                        "target_key": "target_group_count",
+                        "patch_rules": [{"key": "volume_index", "mode": "increment", "step": 1}],
+                        "derived_fields": [{"key": "volume_index_padded", "op": "format", "template": "{volume_index:03d}"}],
+                    },
+                },
+            ),
+            TaskGraphNodeDefinition(node_id="done", node_type="agent", title="Done", task_id="task.done", agent_id="agent:0"),
+        ),
+        edges=(TaskGraphEdgeDefinition(edge_id="edge.router.done", source_node_id="next_volume_router", target_node_id="done", edge_type="handoff"),),
+    )
+    graph_config = build_graph_harness_config_from_graph(graph=graph)
+    runtime = _runtime_with_graph_harness(base_dir=tmp_path / "backend", runtime_root=tmp_path / "runtime_state")
+    loop = runtime.harness_runtime.graph_harness.graph_loop
+    started = runtime.harness_runtime.graph_harness.start_run(
+        session_id="session-test",
+        task_id="task.test.volume_cursor_patch",
+        graph_config=graph_config,
+        initial_inputs={},
+        dispatch_ready=True,
+    )
+
+    order = started.node_work_orders[0]
+    advance = loop.accept_node_result(
+        graph_config=graph_config,
+        graph_run_id=started.loop_state.graph_run_id,
+        result={
+            "result_id": "nresult:next_volume_router:continue",
+            "graph_run_id": started.loop_state.graph_run_id,
+            "task_run_id": started.loop_state.task_run_id,
+            "node_id": order.node_id,
+            "work_order_id": order.work_order_id,
+            "outputs": {"volume_router_metric": 1},
+        },
+    )
+
+    assert advance.loop_state.initial_inputs["completed_groups"] == 1
+    assert advance.loop_state.initial_inputs["volume_index"] == 2
+    assert advance.loop_state.initial_inputs["volume_index_padded"] == "002"
+
+
 def test_graph_harness_config_publication_preserves_formal_node_loop_contract() -> None:
     graph = TaskGraphDefinition(
         graph_id="graph.test.loop_publication",

@@ -12,6 +12,7 @@ if str(BACKEND_DIR) not in sys.path:
 from harness.graph.loop import GraphLoop
 from harness.graph.models import GraphHarnessConfig, GraphNodeWorkOrder
 from harness.graph.work_order_executor import GraphNodeWorkOrderExecutor
+from task_system.runtime_semantics.chapter_progress import normalize_chapter_progress_receipt
 from task_system.compiler.graph_harness_config_publisher import build_graph_harness_config_from_graph
 from task_system.graphs.task_graph_models import TaskGraphDefinition, TaskGraphEdgeDefinition, TaskGraphNodeDefinition
 from tests.graph_harness_api_regression import _runtime_with_graph_harness
@@ -111,6 +112,29 @@ def _chapter_loop_config():
         ),
     )
     return build_graph_harness_config_from_graph(graph=graph)
+
+
+def test_chapter_progress_receipt_cannot_override_runtime_volume_index() -> None:
+    receipt = normalize_chapter_progress_receipt(
+        {
+            "authority": "harness.writing.chapter_progress_receipt",
+            "volume_index": 1,
+            "batch_start_index": 51,
+            "batch_end_index": 60,
+            "expected_chapter_indexes": list(range(51, 61)),
+            "committed_chapter_indexes": list(range(51, 61)),
+            "missing_chapter_indexes": [],
+            "unexpected_chapter_indexes": [],
+            "committed_words": 35000,
+            "next_chapter_index": 61,
+            "batch_complete": True,
+            "volume_complete": False,
+            "commit_allowed": True,
+        },
+        initial_inputs={"volume_index": 2, "batch_start_index": 51, "batch_end_index": 60},
+    )
+
+    assert receipt["volume_index"] == 2
 
 
 def test_chapter_progress_receipt_partial_commit_continues_from_next_missing_chapter(tmp_path: Path) -> None:

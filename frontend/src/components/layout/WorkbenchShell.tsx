@@ -21,7 +21,8 @@ import { useEffect, useState, type CSSProperties, type PointerEvent as ReactPoin
 import { RunMonitorPanel } from "@/components/layout/RunMonitorPanel";
 import { WorkspaceModeSwitcher } from "@/components/layout/WorkspaceModeSwitcher";
 import { openProjectWorkspaceInVSCode, type CodeEnvironmentTreeNode } from "@/lib/api";
-import type { SessionSummary, SessionTaskSummary } from "@/lib/api";
+import type { SessionSummary } from "@/lib/api";
+import { sessionSummaryIsRunning, sessionSummaryTask, sessionTaskStatusLabel } from "@/lib/sessionTaskPresentation";
 import { useAppStore } from "@/lib/store";
 
 const LEFT_WIDTH_KEY = "agentWorkbench.leftWidth";
@@ -136,20 +137,8 @@ function formatSessionTime(timestamp: number) {
   }).format(date);
 }
 
-function taskStatusLabel(task: SessionTaskSummary | undefined) {
-  const status = String(task?.status || task?.lifecycle || "").trim();
-  if (task?.action_required) return "需要处理";
-  if (status === "running" || task?.bucket === "running") return "运行中";
-  if (status === "waiting_executor") return "等待继续";
-  if (status === "waiting_approval") return "等待确认";
-  if (status === "completed" || task?.terminal) return "已完成";
-  if (status === "failed" || status === "error") return "失败";
-  if (status === "aborted" || status === "stopped") return "已停止";
-  return status || "任务";
-}
-
 function sessionTask(session: SessionSummary) {
-  return session.active_task?.available ? session.active_task : undefined;
+  return sessionSummaryTask(session);
 }
 
 function projectRootFromSession(session: SessionSummary | null | undefined) {
@@ -189,14 +178,11 @@ function sessionMetaLine(session: SessionSummary) {
   const updatedAt = Number(task.updated_at || session.updated_at || 0);
   const taskCount = Number(task.task_run_count || 0);
   const countLabel = taskCount > 1 ? `${taskCount} 个任务记录` : "当前任务";
-  return `${projectLabel}${taskStatusLabel(task)} · ${countLabel} · ${formatSessionTime(updatedAt)}`;
+  return `${projectLabel}${sessionTaskStatusLabel(task)} · ${countLabel} · ${formatSessionTime(updatedAt)}`;
 }
 
 function sessionIsRunning(session: SessionSummary, activeStreamSessionIds: string[]) {
-  if (activeStreamSessionIds.includes(session.id)) return true;
-  const task = sessionTask(session);
-  const status = String(task?.status || task?.lifecycle || "").trim();
-  return Boolean(task && !task.terminal && (status === "running" || task.bucket === "running"));
+  return sessionSummaryIsRunning(session, activeStreamSessionIds);
 }
 
 function projectSelectionErrorMessage(error: unknown) {

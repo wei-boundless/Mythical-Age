@@ -1099,7 +1099,16 @@ def _evaluate_loop_route(
     current_value = _numeric_value(patched_inputs.get(current_key), 0) if current_key else 0
     target_value = _numeric_value(patched_inputs.get(target_key), 0) if target_key else 0
     action = "exit" if target_key and current_value >= target_value else "continue"
-    patched_inputs = _apply_frame_cursor_patch(inputs=patched_inputs, frame=frame, action=action)
+    cursor_key = str(frame.get("cursor_key") or "").strip()
+    cursor_set_by_route = bool(
+        cursor_key
+        and (
+            cursor_key == current_key
+            or _patch_rules_target_key(list(route_policy.get("patch_rules") or []), cursor_key)
+        )
+    )
+    if not cursor_set_by_route:
+        patched_inputs = _apply_frame_cursor_patch(inputs=patched_inputs, frame=frame, action=action)
     patched_inputs = _apply_derived_fields(patched_inputs, list(route_policy.get("derived_fields") or []))
     continue_node_id = str(route_policy.get("continue_node_id") or frame.get("continue_node_id") or frame.get("entry_node_id") or "").strip()
     exit_node_id = str(route_policy.get("exit_node_id") or frame.get("exit_node_id") or "").strip()
@@ -1338,8 +1347,22 @@ def _state_after_loop_route(
         node_states[node_id] = node_payload
         return _replace_state(state, node_states=node_states, loop_state=loop_state)
     if action != "continue":
+        if action == "exit":
+            node_states, edge_states, result_index, active_work_orders = _cancel_descendant_loop_nodes_after_parent_exit(
+                graph_config=graph_config,
+                loop_state=loop_state,
+                parent_frame_id=str(decision.get("frame_id") or decision.get("scope_id") or ""),
+                node_states=node_states,
+                edge_states=edge_states,
+                result_index=result_index,
+                active_work_orders=active_work_orders,
+            )
         return _replace_state(
             state,
+            node_states=node_states,
+            edge_states=edge_states,
+            result_index=result_index,
+            active_work_orders=active_work_orders,
             initial_inputs=dict(decision.get("initial_inputs_patch") or state.initial_inputs),
             loop_state=loop_state,
         )
@@ -1612,6 +1635,17 @@ def _apply_patch_rules(inputs: dict[str, Any], rules: list[Any]) -> dict[str, An
     return patched
 
 
+def _patch_rules_target_key(rules: list[Any], target_key: str) -> bool:
+    if not target_key:
+        return False
+    for raw_rule in rules:
+        if not isinstance(raw_rule, dict):
+            continue
+        if str(raw_rule.get("key") or "").strip() == target_key:
+            return True
+    return False
+
+
 def _apply_frame_cursor_patch(*, inputs: dict[str, Any], frame: dict[str, Any], action: str) -> dict[str, Any]:
     patched = dict(inputs or {})
     if str(action or "") != "continue":
@@ -1725,6 +1759,8 @@ def _loop_state_after_decision(*, state: GraphLoopState, decision: dict[str, Any
                 frames=frames,
                 parent_frame_id=frame_id,
             )
+        elif action == "exit":
+            frames = _exit_child_loop_frames_for_parent_exit(frames=frames, parent_frame_id=frame_id)
     history = [dict(item) for item in list(loop_state.get("route_history") or []) if isinstance(item, dict)]
     history.append(
         {
@@ -1739,6 +1775,22 @@ def _loop_state_after_decision(*, state: GraphLoopState, decision: dict[str, Any
         "frames": frames,
         "route_history": history,
     }
+
+
+def _exit_child_loop_frames_for_parent_exit(
+    *,
+    frames: dict[str, dict[str, Any]],
+    parent_frame_id: str,
+) -> dict[str, dict[str, Any]]:
+    if not parent_frame_id:
+        return frames
+    patched_frames = {key: dict(value) for key, value in frames.items()}
+    for child_frame_id in _descendant_loop_frame_ids(frames=patched_frames, parent_frame_id=parent_frame_id):
+        child = dict(patched_frames.get(child_frame_id) or {})
+        child["status"] = "exited"
+        child["updated_at"] = time.time()
+        patched_frames[child_frame_id] = child
+    return patched_frames
 
 
 def _reset_child_loop_frames_for_parent_continue(
@@ -1853,14 +1905,7 @@ def _loop_state_without_frame_iteration_results(*, loop_state: dict[str, Any], f
     return {**loop_state, "iteration_results": iteration_results}
 
 
-def _loop_state_without_descendant_iteration_results(
-    *,
-    loop_state: dict[str, Any],
-    frames: dict[str, dict[str, Any]],
-    parent_frame_id: str,
-) -> dict[str, Any]:
-    if not parent_frame_id:
-        return loop_state
+def _descendant_loop_frame_ids(*, frames: dict[str, dict[str, Any]], parent_frame_id: str) -> set[str]:
     descendants: set[str] = set()
     pending = [parent_frame_id]
     while pending:
@@ -1871,6 +1916,18 @@ def _loop_state_without_descendant_iteration_results(
             if str(dict(frame or {}).get("parent_scope_id") or "").strip() == current:
                 descendants.add(frame_id)
                 pending.append(frame_id)
+    return descendants
+
+
+def _loop_state_without_descendant_iteration_results(
+    *,
+    loop_state: dict[str, Any],
+    frames: dict[str, dict[str, Any]],
+    parent_frame_id: str,
+) -> dict[str, Any]:
+    if not parent_frame_id:
+        return loop_state
+    descendants = _descendant_loop_frame_ids(frames=frames, parent_frame_id=parent_frame_id)
     if not descendants:
         return loop_state
     iteration_results = {
@@ -1879,6 +1936,67 @@ def _loop_state_without_descendant_iteration_results(
         if isinstance(raw_frame_results, dict) and str(raw_frame_id) not in descendants
     }
     return {**loop_state, "iteration_results": iteration_results}
+
+
+def _cancel_descendant_loop_nodes_after_parent_exit(
+    *,
+    graph_config: GraphHarnessConfig,
+    loop_state: dict[str, Any],
+    parent_frame_id: str,
+    node_states: dict[str, dict[str, Any]],
+    edge_states: dict[str, dict[str, Any]],
+    result_index: dict[str, dict[str, Any]],
+    active_work_orders: dict[str, str],
+) -> tuple[dict[str, dict[str, Any]], dict[str, dict[str, Any]], dict[str, dict[str, Any]], dict[str, str]]:
+    frames = {key: dict(value) for key, value in dict(loop_state.get("frames") or {}).items() if isinstance(value, dict)}
+    descendant_frame_ids = _descendant_loop_frame_ids(frames=frames, parent_frame_id=parent_frame_id)
+    if not descendant_frame_ids:
+        return node_states, edge_states, result_index, active_work_orders
+    descendant_node_ids: set[str] = set()
+    for frame_id in descendant_frame_ids:
+        frame = dict(frames.get(frame_id) or {})
+        descendant_node_ids.update(_loop_scope_node_ids(graph_config=graph_config, frame=frame))
+    if not descendant_node_ids:
+        return node_states, edge_states, result_index, active_work_orders
+    now = time.time()
+    patched_nodes = {key: dict(value) for key, value in node_states.items()}
+    patched_edges = {key: dict(value) for key, value in edge_states.items()}
+    patched_results = {key: dict(value) for key, value in result_index.items()}
+    patched_active = dict(active_work_orders)
+    for node_id in descendant_node_ids:
+        payload = dict(patched_nodes.get(node_id) or {})
+        if not payload:
+            continue
+        if str(payload.get("status") or "") in {"ready", "running", "blocked", "waiting_human_gate"}:
+            payload["status"] = "pending"
+        payload.pop("work_order_id", None)
+        payload.pop("blocked_reason", None)
+        payload["updated_at"] = now
+        patched_nodes[node_id] = payload
+        patched_active.pop(node_id, None)
+        patched_results.pop(node_id, None)
+    for edge in graph_config.edges:
+        edge_id = str(edge.get("edge_id") or "")
+        if not edge_id:
+            continue
+        source = str(edge.get("source_node_id") or "")
+        target = str(edge.get("target_node_id") or "")
+        if source not in descendant_node_ids and target not in descendant_node_ids:
+            continue
+        edge_payload = dict(patched_edges.get(edge_id) or {})
+        edge_payload.update(
+            {
+                "edge_id": edge_id,
+                "source_node_id": source,
+                "target_node_id": target,
+                "status": "pending",
+                "updated_at": now,
+            }
+        )
+        for key in ("source_result_ref", "handoff_packet_id", "packet_refs", "latest_packet_id", "latest_packet_ref", "latest_packet"):
+            edge_payload.pop(key, None)
+        patched_edges[edge_id] = edge_payload
+    return patched_nodes, patched_edges, patched_results, patched_active
 
 
 def _active_loop_frame_for_node(*, graph_config: GraphHarnessConfig, state: GraphLoopState, node_id: str) -> dict[str, Any]:

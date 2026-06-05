@@ -242,7 +242,7 @@ describe("PublicRunActivity", () => {
       }),
     );
 
-    expect(html).toContain("记忆检索已返回");
+    expect(html).toContain("相关记忆已返回");
     expect(html).not.toContain("观察结果");
     expect(html).not.toContain("authority");
     expect(html).not.toContain("diagnostics");
@@ -293,7 +293,7 @@ describe("PublicRunActivity", () => {
     );
 
     expect(html).toContain("我正在跑前端测试");
-    expect(html).toContain("已读到样式文件");
+    expect(html).not.toContain("已读到样式文件");
     expect(html).not.toContain("正在运行验证 前端测试");
     expect(html).not.toContain("执行中");
     expect(html).not.toContain("实时");
@@ -304,6 +304,7 @@ describe("PublicRunActivity", () => {
     expect(html).not.toContain("已确认目标");
     expect(html).not.toContain("已搜索引用 入口组件");
     expect(html).not.toContain("已读取上下文 样式文件");
+    expect(html).not.toContain("关键上下文已拿到");
     expect(html).not.toContain("观察：关键上下文已拿到");
     expect(html).not.toContain("npm test");
     expect(html).not.toContain("public-run-activity__row--history");
@@ -351,7 +352,7 @@ describe("PublicRunActivity", () => {
     expect(html).not.toContain("前面已完成");
     expect(html).not.toContain("已读取上下文 artifacts/game.html");
     expect(html).not.toContain("观察：关键上下文已拿到");
-    expect(html).toContain("已读到 artifacts/game.html");
+    expect(html).not.toContain("已读到 artifacts/game.html");
     expect(html).toContain("我先搜索相关引用");
     expect(html).not.toContain("function attack");
     expect(html.match(/storage/g)?.length ?? 0).toBe(0);
@@ -424,6 +425,47 @@ describe("PublicRunActivity", () => {
     expect(html).not.toContain("npm test");
     expect(html).not.toContain("观察结果");
     expect(html).not.toContain("观察：");
+  });
+
+  it("replaces a running action with the result fact after the tool returns", () => {
+    const runningHtml = renderToStaticMarkup(
+      React.createElement(PublicRunActivity, {
+        items: [
+          {
+            item_id: "tool:test",
+            kind: "work_action",
+            action_kind: "verify",
+            title: "正在运行验证",
+            subject_label: "前端测试",
+            public_summary: "正在运行验证 前端测试",
+            state: "running",
+            stream_state: "streaming",
+          },
+        ],
+      }),
+    );
+    const doneHtml = renderToStaticMarkup(
+      React.createElement(PublicRunActivity, {
+        items: [
+          {
+            item_id: "tool:test",
+            kind: "work_action",
+            action_kind: "verify",
+            title: "验证已返回",
+            subject_label: "前端测试",
+            public_summary: "验证已返回 前端测试",
+            observation: "观察：验证已返回，22 tests passed",
+            state: "done",
+          },
+        ],
+      }),
+    );
+
+    expect(runningHtml).toContain("我正在跑前端测试");
+    expect(runningHtml).not.toContain("22 tests passed");
+    expect(doneHtml).toContain("验证已返回，22 tests passed");
+    expect(doneHtml).not.toContain("我正在跑前端测试");
+    expect(doneHtml).not.toContain("观察：");
   });
 
   it("keeps assistant feedback out of the status lane and renders the active tool action", () => {

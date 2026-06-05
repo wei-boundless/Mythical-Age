@@ -313,22 +313,6 @@ function lastOf<T>(items: T[]) {
   return items.length ? items[items.length - 1] : null;
 }
 
-function resultFactForItem(item: PublicChatTimelineItem | null) {
-  if (!item) return "";
-  const kind = cleanText(item.kind);
-  if (kind === "observation_report") {
-    return shortFact(item.detail || item.implication || item.title, 180);
-  }
-  if (kind === "blocked") {
-    return short(blockedFact(item.text || item.title, item.recovery_hint), 180);
-  }
-  if (kind === "tool_activity" || kind === "work_action") {
-    const action = actionDisplay(item);
-    return short(naturalResultFact(action, item), 180);
-  }
-  return shortFact(textOfItem(item), 180);
-}
-
 function naturalResultFact(action: ReturnType<typeof actionDisplay>, item: PublicChatTimelineItem) {
   const raw = readableToolObservation(action.observation, action.detail, presentedActionSentence(item, "history"));
   if (/关键上下文已拿到|已读到关键信息/.test(raw)) {
@@ -356,10 +340,6 @@ function naturalResultFact(action: ReturnType<typeof actionDisplay>, item: Publi
   return sentence(raw);
 }
 
-function hasResultFact(item: PublicChatTimelineItem) {
-  return Boolean(resultFactForItem(item));
-}
-
 function activityPlan(items: PublicChatTimelineItem[]) {
   const finalItems = items.filter(isFinalItem);
   const statusItems = items.filter((item) => isStatusUpdate(item) && !isFinalItem(item));
@@ -378,15 +358,11 @@ function activityPlan(items: PublicChatTimelineItem[]) {
     ? lastOf(statusItems.filter((item) => stateClass(item) === "running")) ?? lastOf(statusItems)
     : null;
   const activeCurrent = current ?? fallbackCurrent;
-  const recentResult = activeCurrent && stateClass(activeCurrent) === "running"
-    ? [...actionItems].reverse().find((item) => item !== activeCurrent && stateClass(item) === "done" && hasResultFact(item)) ?? null
-    : null;
   return {
     collapsedCount: 0,
     recent: [] as PublicChatTimelineItem[],
     current: activeCurrent,
     finalItems,
-    recentResult,
   };
 }
 
@@ -501,7 +477,7 @@ function activitySummary(plan: ReturnType<typeof activityPlan>) {
     }
     const action = actionDisplay(plan.current);
     if (state === "done") {
-      const fact = short(readableToolObservation(action.observation, action.detail, currentAction), 180);
+      const fact = short(naturalResultFact(action, plan.current), 180);
       return {
         detail: "",
         item: plan.current,
@@ -516,9 +492,7 @@ function activitySummary(plan: ReturnType<typeof activityPlan>) {
         : action.observation || currentAction || plan.current.recovery_hint || "当前步骤没有执行成功，我会换一种方式继续。";
     const errorFact = blockedFact(errorDetail);
     return {
-      detail: state === "error"
-        ? ""
-        : action.observation || resultFactForItem(plan.recentResult),
+      detail: "",
       item: plan.current,
       title: state === "error" ? sentence(errorFact) : naturalActionSentence(plan.current),
       tone: state === "error" ? "error" : "running",

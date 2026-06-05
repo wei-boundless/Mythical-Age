@@ -42,6 +42,7 @@ import {
   type TaskSystemOverview,
 } from "@/lib/api";
 import { useAppStore } from "@/lib/store";
+import { sessionSummaryTask, sessionTaskStatusLabel } from "@/lib/sessionTaskPresentation";
 import type { SessionPoolKey } from "@/lib/store/types";
 import {
   buildCenterWorkspaceTaskGraphInitialInputs,
@@ -174,7 +175,7 @@ function formatProjectState(project: ProjectInstance | null) {
 }
 
 function creativeSessionTaskTitle(session: SessionSummary) {
-  const task = session.active_task?.available ? session.active_task : null;
+  const task = sessionSummaryTask(session);
   const title = String(task?.title || "").trim();
   if (title && !/^(session|taskrun|task|turn|turnrun|grun|coordrun|rtobj|rtpacket)[:-]/i.test(title)) {
     return title;
@@ -183,18 +184,11 @@ function creativeSessionTaskTitle(session: SessionSummary) {
 }
 
 function creativeSessionTaskMeta(session: SessionSummary) {
-  const task = session.active_task?.available ? session.active_task : null;
+  const task = sessionSummaryTask(session);
   if (!task) {
     return `${session.message_count} 条`;
   }
-  const status = String(task.status || task.lifecycle || "").trim();
-  const label = task.action_required
-    ? "需要处理"
-    : status === "running" || task.bucket === "running"
-      ? "运行中"
-      : status === "completed" || task.terminal
-        ? "已完成"
-        : status || "任务";
+  const label = sessionTaskStatusLabel(task);
   return `${label} · ${task.task_run_count > 1 ? `${task.task_run_count} 个任务记录` : "当前任务"}`;
 }
 
