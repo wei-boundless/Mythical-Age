@@ -13,7 +13,7 @@ class WorkerAgentBlueprint:
     agent_name_template: str
     prompt_ref: str = ""
     description: str = ""
-    allowed_operations: tuple[str, ...] = ()
+    extra_allowed_operations: tuple[str, ...] = ()
     blocked_operations: tuple[str, ...] = ()
     allowed_memory_scopes: tuple[str, ...] = ()
     allowed_context_sections: tuple[str, ...] = ()
@@ -33,7 +33,7 @@ class WorkerAgentBlueprint:
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
         for key in (
-            "allowed_operations",
+            "extra_allowed_operations",
             "blocked_operations",
             "allowed_memory_scopes",
             "allowed_context_sections",

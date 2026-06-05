@@ -4,7 +4,7 @@ from dataclasses import asdict
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from agent_system.groups.registry import AgentGroupRegistry
 from agent_system.models.model_profile_resolver import build_provider_catalog
@@ -13,7 +13,7 @@ from agent_system.registry.agent_registry import AgentRegistry
 from agent_system.registry.worker_agent_factory import default_worker_agent_blueprints
 from api.deps import require_runtime
 from capability_system import build_capability_catalog, build_orchestration_capability_items
-from permissions.operation_packages import parse_tool_package_selection
+from permissions.operation_packages import default_tool_packages, parse_tool_package_selection
 from permissions.operations import build_default_operation_registry
 from harness.runtime import assemble_runtime
 from orchestration import ControlKernel, TaskContract, build_base_unit_catalog
@@ -34,10 +34,11 @@ class OrchestrationModeRequest(BaseModel):
 
 
 class AgentRuntimeProfileRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     agent_profile_id: str = Field(default="", max_length=160)
     allowed_tool_packages: list[dict[str, Any]] = Field(default_factory=list)
     extra_allowed_operations: list[str] = Field(default_factory=list)
-    allowed_operations: list[str] = Field(default_factory=list)
     blocked_operations: list[str] = Field(default_factory=list)
     allowed_memory_scopes: list[str] = Field(default_factory=list)
     allowed_context_sections: list[str] = Field(default_factory=list)
@@ -388,6 +389,7 @@ def _empty_orchestration_runtime_options() -> dict[str, Any]:
         "approval_policies": [],
         "trace_policies": [],
         "operation_options": [],
+        "tool_packages": [],
         "task_graph_options": [],
         "memory_scope_options": [],
         "context_section_options": [],
@@ -428,6 +430,7 @@ async def orchestration_runtime_options() -> dict[str, Any]:
             "approval_policies": approval_policies,
             "trace_policies": trace_policies,
             "operation_options": [_operation_option(item) for item in operations],
+            "tool_packages": [item.to_dict() for item in default_tool_packages()],
             "task_graph_options": task_graph_options,
             "memory_scope_options": [_memory_scope_option(item) for item in memory_scopes],
             "context_section_options": [_option(item) for item in context_sections],
@@ -620,7 +623,6 @@ async def upsert_orchestration_agent_runtime_profile(
                 if item is not None
             ),
             extra_allowed_operations=tuple(payload.extra_allowed_operations),
-            allowed_operations=tuple(payload.allowed_operations),
             blocked_operations=tuple(payload.blocked_operations),
             allowed_memory_scopes=tuple(payload.allowed_memory_scopes),
             allowed_context_sections=tuple(payload.allowed_context_sections),

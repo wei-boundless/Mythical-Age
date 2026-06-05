@@ -38,7 +38,7 @@ def default_worker_agent_blueprints() -> tuple[WorkerAgentBlueprint, ...]:
             agent_name_template="开发工作Agent {n}",
             prompt_ref=worker_prompt_ref_for_blueprint("worker.dev.prototype"),
             description=_worker_description("worker.dev.prototype"),
-            allowed_operations=(
+            extra_allowed_operations=(
                 "op.model_response",
                 "op.codebase_search",
                 "op.read_file",
@@ -62,7 +62,7 @@ def default_worker_agent_blueprints() -> tuple[WorkerAgentBlueprint, ...]:
             agent_name_template="探索 Agent {n}",
             prompt_ref=worker_prompt_ref_for_blueprint("worker.explorer"),
             description=_worker_description("worker.explorer"),
-            allowed_operations=(
+            extra_allowed_operations=(
                 "op.model_response",
                 "op.read_file",
                 "op.list_dir",
@@ -86,7 +86,7 @@ def default_worker_agent_blueprints() -> tuple[WorkerAgentBlueprint, ...]:
             agent_name_template="规划 Agent {n}",
             prompt_ref=worker_prompt_ref_for_blueprint("worker.planner"),
             description=_worker_description("worker.planner"),
-            allowed_operations=("op.model_response", "op.read_file", "op.search_files", "op.search_text", "op.git_status", "op.git_diff"),
+            extra_allowed_operations=("op.model_response", "op.read_file", "op.search_files", "op.search_text", "op.git_status", "op.git_diff"),
             blocked_operations=("op.write_file", "op.edit_file", "op.shell", "op.python_repl", "op.memory_write_candidate"),
             allowed_memory_scopes=("conversation_readonly", "state_readonly"),
             allowed_context_sections=("task", "projection", "runtime_contracts", "upstream_outputs", "artifact_refs"),
@@ -99,7 +99,7 @@ def default_worker_agent_blueprints() -> tuple[WorkerAgentBlueprint, ...]:
             agent_name_template="验证 Agent {n}",
             prompt_ref=worker_prompt_ref_for_blueprint("worker.verification"),
             description=_worker_description("worker.verification"),
-            allowed_operations=("op.model_response", "op.read_file", "op.search_text", "op.shell"),
+            extra_allowed_operations=("op.model_response", "op.read_file", "op.search_text", "op.shell"),
             blocked_operations=("op.write_file", "op.edit_file", "op.python_repl", "op.memory_write_candidate"),
             allowed_memory_scopes=("issue_local_readonly", "state_readonly"),
             allowed_context_sections=("task", "projection", "runtime_trace", "assertions", "runtime_contracts", "artifact_refs"),
@@ -112,7 +112,7 @@ def default_worker_agent_blueprints() -> tuple[WorkerAgentBlueprint, ...]:
             agent_name_template="执行 Agent {n}",
             prompt_ref=worker_prompt_ref_for_blueprint("worker.execution"),
             description=_worker_description("worker.execution"),
-            allowed_operations=(
+            extra_allowed_operations=(
                 "op.model_response",
                 "op.read_file",
                 "op.search_files",
@@ -133,7 +133,7 @@ def default_worker_agent_blueprints() -> tuple[WorkerAgentBlueprint, ...]:
             agent_name_template="代码执行 Agent {n}",
             prompt_ref=worker_prompt_ref_for_blueprint("worker.code.executor"),
             description=_worker_description("worker.code.executor"),
-            allowed_operations=(
+            extra_allowed_operations=(
                 "op.model_response",
                 "op.agent_todo",
                 "op.codebase_search",
@@ -167,7 +167,7 @@ def default_worker_agent_blueprints() -> tuple[WorkerAgentBlueprint, ...]:
             agent_name_template="审查 Agent {n}",
             prompt_ref=worker_prompt_ref_for_blueprint("worker.review"),
             description=_worker_description("worker.review"),
-            allowed_operations=("op.model_response", "op.read_file", "op.search_files", "op.search_text", "op.git_diff", "op.git_show"),
+            extra_allowed_operations=("op.model_response", "op.read_file", "op.search_files", "op.search_text", "op.git_diff", "op.git_show"),
             blocked_operations=("op.write_file", "op.edit_file", "op.shell", "op.python_repl", "op.memory_write_candidate"),
             allowed_memory_scopes=("conversation_readonly", "state_readonly"),
             allowed_context_sections=("task", "projection", "runtime_trace", "assertions", "runtime_contracts", "artifact_refs"),
@@ -225,7 +225,7 @@ class WorkerAgentFactory:
         runtime_profile = self.agent_runtime_registry.upsert_profile(
             agent_id=agent.agent_id,
             agent_profile_id=f"{agent.agent_id.removeprefix('agent:').replace(':', '_')}_runtime",
-            allowed_operations=blueprint.allowed_operations,
+            extra_allowed_operations=blueprint.extra_allowed_operations,
             blocked_operations=blueprint.blocked_operations,
             allowed_memory_scopes=blueprint.allowed_memory_scopes,
             allowed_context_sections=blueprint.allowed_context_sections,

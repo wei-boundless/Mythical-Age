@@ -27,6 +27,8 @@ import {
   type OrchestrationAgentRuntimeProfile,
   type OrchestrationAgentUpsertPayload,
   type OrchestrationCapabilityItem,
+  type ToolPackageDefinition,
+  type ToolPackageSelection,
 } from "@/lib/api";
 import { OrchestrationDirectoryRail } from "@/components/workspace/views/orchestration/OrchestrationDirectoryRail";
 import {
@@ -103,7 +105,10 @@ const EMPTY_AGENT_DRAFT: AgentDraft = {
 const EMPTY_RUNTIME_DRAFT: RuntimeDraft = {
   agent_profile_id: "",
   agent_id: "",
+  allowed_tool_packages: [],
+  extra_allowed_operations: ["op.model_response"],
   allowed_operations: ["op.model_response"],
+  final_allowed_operations: ["op.model_response"],
   blocked_operations: [],
   allowed_memory_scopes: [],
   allowed_context_sections: [],
@@ -257,6 +262,40 @@ function normalizeSubagentPolicy(policy?: Partial<OrchestrationAgentRuntimeProfi
   };
 }
 
+function normalizeToolPackageSelections(value?: OrchestrationAgentRuntimeProfile["allowed_tool_packages"]): ToolPackageSelection[] {
+  return Array.isArray(value)
+    ? value
+      .map((item) => ({
+        package_id: String(item?.package_id || "").trim(),
+        enabled: item?.enabled !== false,
+        include_operations: uniqueList(item?.include_operations ?? []),
+        exclude_operations: uniqueList(item?.exclude_operations ?? []),
+      }))
+      .filter((item) => item.package_id)
+    : [];
+}
+
+function packageOperations(selection: ToolPackageSelection, toolPackages: ToolPackageDefinition[]) {
+  if (!selection.enabled) return [];
+  const definition = toolPackages.find((item) => item.package_id === selection.package_id);
+  const base = selection.include_operations.length ? selection.include_operations : definition?.operation_ids ?? [];
+  const excluded = new Set(selection.exclude_operations);
+  return uniqueList(base).filter((operation) => !excluded.has(operation));
+}
+
+function effectiveAllowedOperations(draft: Partial<OrchestrationAgentRuntimeProfile>, toolPackages: ToolPackageDefinition[]) {
+  const blocked = new Set(uniqueList(draft.blocked_operations ?? []));
+  if (!toolPackages.length) {
+    const resolved = uniqueList(draft.final_allowed_operations ?? draft.allowed_operations ?? []);
+    const fallback = resolved.length ? resolved : uniqueList(["op.model_response", ...(draft.extra_allowed_operations ?? [])]);
+    return fallback.filter((operation) => !blocked.has(operation));
+  }
+  const selectedPackages = normalizeToolPackageSelections(draft.allowed_tool_packages);
+  const packageOps = selectedPackages.flatMap((selection) => packageOperations(selection, toolPackages));
+  const extraOps = uniqueList(draft.extra_allowed_operations ?? []);
+  return uniqueList(["op.model_response", ...packageOps, ...extraOps]).filter((operation) => !blocked.has(operation));
+}
+
 function recordOf(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
@@ -336,11 +375,19 @@ function runtimeDraftFrom(
 ): RuntimeDraft {
   const merged = { ...EMPTY_RUNTIME_DRAFT, ...(profile ?? {}), agent_id: agentId };
   const profileId = String(merged.agent_profile_id || `${agentId.replace(/[:]/g, "_")}_runtime`);
-  const allowedOps = uniqueList(merged.allowed_operations).length ? uniqueList(merged.allowed_operations) : ["op.model_response"];
+  const allowedOps = uniqueList(merged.final_allowed_operations ?? merged.allowed_operations).length
+    ? uniqueList(merged.final_allowed_operations ?? merged.allowed_operations)
+    : ["op.model_response"];
+  const extraAllowedOps = uniqueList(merged.extra_allowed_operations ?? []).length
+    ? uniqueList(merged.extra_allowed_operations ?? [])
+    : ["op.model_response"];
   return {
     ...merged,
     agent_profile_id: profileId,
+    allowed_tool_packages: normalizeToolPackageSelections(merged.allowed_tool_packages),
+    extra_allowed_operations: extraAllowedOps,
     allowed_operations: allowedOps,
+    final_allowed_operations: allowedOps,
     blocked_operations: uniqueList(merged.blocked_operations),
     allowed_memory_scopes: uniqueList(merged.allowed_memory_scopes),
     allowed_context_sections: uniqueList(merged.allowed_context_sections),
@@ -356,7 +403,8 @@ function runtimeDraftFrom(
 function runtimePayloadFromDraft(draft: RuntimeDraft) {
   return {
     agent_profile_id: draft.agent_profile_id,
-    allowed_operations: Array.from(new Set(["op.model_response", ...uniqueList(draft.allowed_operations)])),
+    allowed_tool_packages: normalizeToolPackageSelections(draft.allowed_tool_packages),
+    extra_allowed_operations: Array.from(new Set(["op.model_response", ...uniqueList(draft.extra_allowed_operations ?? [])])),
     blocked_operations: uniqueList(draft.blocked_operations),
     allowed_memory_scopes: uniqueList(draft.allowed_memory_scopes),
     allowed_context_sections: uniqueList(draft.allowed_context_sections),
@@ -545,6 +593,7 @@ export function OrchestrationView() {
     [catalog],
   );
   const operationOptionItems = useMemo(() => catalog?.options.operation_options ?? [], [catalog]);
+  const toolPackageOptions = useMemo(() => catalog?.options.tool_packages ?? [], [catalog]);
   const memoryScopeOptionItems = useMemo(() => catalog?.options.memory_scope_options ?? [], [catalog]);
   const contextSectionOptionItems = useMemo(() => catalog?.options.context_section_options ?? [], [catalog]);
   const approvalPolicyOptions = useMemo(() => catalog?.options.approval_policy_options ?? [], [catalog]);
@@ -641,7 +690,7 @@ export function OrchestrationView() {
   const activeDirectoryGroup = directoryGroups.find((group) => group.section === activeSection);
   const agentDeleteBlocked = false;
   const profileMissing = Boolean(selectedAgent && !selectedProfile.agent_profile_id);
-  const allowedOps = uniqueList(runtimeDraft.allowed_operations);
+  const allowedOps = effectiveAllowedOperations(runtimeDraft, toolPackageOptions);
   const blockedOps = uniqueList(runtimeDraft.blocked_operations);
   const overlapOps = allowedOps.filter((item) => blockedOps.includes(item));
   const runtimeSaveBlocked = agentMode === "new" || !agentDraft.agent_id.trim();
@@ -1111,6 +1160,7 @@ export function OrchestrationView() {
                   operationOptions={operationOptions}
                   overlapOps={overlapOps}
                   overlapSummary={displayOptionList(overlapOps, runtimeOptionLabels, "无")}
+                  toolPackageOptions={toolPackageOptions}
                 />
                 </>
               ) : null}
@@ -1131,6 +1181,7 @@ export function OrchestrationView() {
                   runtimeSaveBlocked={runtimeSaveBlocked}
                   saveRuntimeProfile={saveRuntimeProfile}
                   saving={saving}
+                  toolPackageOptions={toolPackageOptions}
                 />
               ) : null}
 

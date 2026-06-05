@@ -1711,15 +1711,17 @@ export type CapabilitySystemAgentCatalog = {
   summary: Record<string, number>;
 };
 
+export type ToolPackageSelection = {
+  package_id: string;
+  enabled: boolean;
+  include_operations: string[];
+  exclude_operations: string[];
+};
+
 export type OrchestrationAgentRuntimeProfile = {
   agent_profile_id: string;
   agent_id: string;
-  allowed_tool_packages?: Array<{
-    package_id: string;
-    enabled: boolean;
-    include_operations: string[];
-    exclude_operations: string[];
-  }>;
+  allowed_tool_packages?: ToolPackageSelection[];
   extra_allowed_operations?: string[];
   allowed_operations: string[];
   final_allowed_operations?: string[];
@@ -1817,11 +1819,16 @@ export type OrchestrationAgentRuntimeCatalog = {
     trace_policy_options?: OrchestrationOption[];
     worker_blueprints?: Array<Record<string, unknown>>;
     capability_items?: OrchestrationCapabilityItem[];
+    tool_packages?: ToolPackageDefinition[];
     model_provider_catalog?: ModelProviderCatalog;
   };
 };
 
-export type OrchestrationAgentRuntimeProfileUpsertPayload = Omit<OrchestrationAgentRuntimeProfile, "agent_id">;
+export type OrchestrationAgentRuntimeProfileUpsertPayload =
+  Omit<OrchestrationAgentRuntimeProfile, "agent_id" | "allowed_operations" | "final_allowed_operations"> & {
+    allowed_tool_packages: ToolPackageSelection[];
+    extra_allowed_operations: string[];
+  };
 
 export type OrchestrationAgentGroupUpsertPayload = OrchestrationAgentGroup;
 

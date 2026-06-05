@@ -239,7 +239,6 @@ def resolve_tool_package_operations(
     selections: tuple[ToolPackageSelection, ...] | list[ToolPackageSelection],
     *,
     extra_allowed_operations: tuple[str, ...] | list[str] = (),
-    legacy_allowed_operations: tuple[str, ...] | list[str] = (),
     blocked_operations: tuple[str, ...] | list[str] = (),
 ) -> tuple[str, ...]:
     package_map = default_tool_package_map()
@@ -255,7 +254,6 @@ def resolve_tool_package_operations(
         resolved.extend(package_ops)
         excluded.update(_string_list(selection.exclude_operations))
     resolved.extend(_string_list(extra_allowed_operations))
-    resolved.extend(_string_list(legacy_allowed_operations))
     blocked = set(_string_list(blocked_operations))
     return tuple(_dedupe([item for item in resolved if item not in excluded and item not in blocked]))
 

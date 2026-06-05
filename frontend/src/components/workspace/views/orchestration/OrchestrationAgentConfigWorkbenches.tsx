@@ -10,14 +10,17 @@ import {
   OrchestrationReadinessCard,
   type OrchestrationOption,
 } from "@/components/workspace/views/orchestration/OrchestrationWorkbenchUi";
-import type { OrchestrationCapabilityItem } from "@/lib/api";
+import type { OrchestrationCapabilityItem, ToolPackageDefinition, ToolPackageSelection } from "@/lib/api";
 
 type RuntimeDraftLike = {
   agent_profile_id?: string;
   approval_policy?: string;
   trace_policy?: string;
   lifecycle_policy?: string;
+  allowed_tool_packages?: ToolPackageSelection[];
+  extra_allowed_operations?: string[];
   allowed_operations?: string[];
+  final_allowed_operations?: string[];
   blocked_operations?: string[];
   allowed_memory_scopes?: string[];
   allowed_context_sections?: string[];
@@ -61,6 +64,55 @@ type AgentDraftLike = {
 
 function dedupe(values: string[]) {
   return Array.from(new Set(values.map((item) => String(item || "").trim()).filter(Boolean)));
+}
+
+function normalizeToolPackageSelections(value?: ToolPackageSelection[]) {
+  return Array.isArray(value)
+    ? value
+      .map((item) => ({
+        package_id: String(item?.package_id || "").trim(),
+        enabled: item?.enabled !== false,
+        include_operations: dedupe(item?.include_operations ?? []),
+        exclude_operations: dedupe(item?.exclude_operations ?? []),
+      }))
+      .filter((item) => item.package_id)
+    : [];
+}
+
+function packageOperations(selection: ToolPackageSelection, toolPackages: ToolPackageDefinition[]) {
+  if (!selection.enabled) return [];
+  const definition = toolPackages.find((item) => item.package_id === selection.package_id);
+  const base = selection.include_operations.length ? selection.include_operations : definition?.operation_ids ?? [];
+  const excluded = new Set(selection.exclude_operations);
+  return dedupe(base).filter((operation) => !excluded.has(operation));
+}
+
+function effectiveAllowedOperations(runtimeDraft: RuntimeDraftLike, toolPackages: ToolPackageDefinition[]) {
+  const blocked = new Set(dedupe(runtimeDraft.blocked_operations ?? []));
+  if (!toolPackages.length) {
+    const resolved = dedupe(runtimeDraft.final_allowed_operations ?? runtimeDraft.allowed_operations ?? []);
+    const fallback = resolved.length ? resolved : dedupe(["op.model_response", ...(runtimeDraft.extra_allowed_operations ?? [])]);
+    return fallback.filter((operation) => !blocked.has(operation));
+  }
+  const packageOps = normalizeToolPackageSelections(runtimeDraft.allowed_tool_packages)
+    .flatMap((selection) => packageOperations(selection, toolPackages));
+  return dedupe(["op.model_response", ...packageOps, ...(runtimeDraft.extra_allowed_operations ?? [])])
+    .filter((operation) => !blocked.has(operation));
+}
+
+function toolPackageOptionItems(toolPackages: ToolPackageDefinition[]): OrchestrationOption[] {
+  return toolPackages.map((item) => ({
+    id: item.package_id,
+    value: item.package_id,
+    label: item.title || item.package_id,
+    description: item.description,
+    category: item.category,
+    metadata: {
+      risk_level: item.risk_level,
+      default_enabled: item.default_enabled,
+      operation_count: item.operation_ids.length,
+    },
+  }));
 }
 
 type CapabilityPool = "skill" | "tool" | "mcp";
@@ -469,6 +521,7 @@ export function OrchestrationRuntimePermissionWorkbench({
   overlapSummary,
   allowedOpsCount,
   blockedOpsCount,
+  toolPackageOptions,
 }: {
   runtimeDraft: RuntimeDraftLike;
   patchRuntimeDraft: (patch: Partial<RuntimeDraftLike>) => void;
@@ -484,6 +537,7 @@ export function OrchestrationRuntimePermissionWorkbench({
   overlapSummary: string;
   allowedOpsCount: number;
   blockedOpsCount: number;
+  toolPackageOptions: ToolPackageDefinition[];
 }) {
   return (
     <section className="boundary-layer-grid boundary-layer-grid--wide">
@@ -535,6 +589,7 @@ export function OrchestrationRuntimePermissionWorkbench({
         overlapSummary={overlapSummary}
         patchRuntimeDraft={patchRuntimeDraft}
         runtimeDraft={runtimeDraft}
+        toolPackageOptions={toolPackageOptions}
       />
     </section>
   );
@@ -551,6 +606,7 @@ export function OrchestrationOperationAuthorizationWorkbench({
   allowedOpsCount,
   blockedOpsCount,
   overlapSummary,
+  toolPackageOptions,
 }: {
   runtimeDraft: RuntimeDraftLike;
   patchRuntimeDraft: (patch: Partial<RuntimeDraftLike>) => void;
@@ -562,8 +618,13 @@ export function OrchestrationOperationAuthorizationWorkbench({
   allowedOpsCount: number;
   blockedOpsCount: number;
   overlapSummary: string;
+  toolPackageOptions: ToolPackageDefinition[];
 }) {
-  const allowedOps = dedupe(runtimeDraft.allowed_operations ?? []);
+  const selectedToolPackages = normalizeToolPackageSelections(runtimeDraft.allowed_tool_packages);
+  const selectedToolPackageIds = selectedToolPackages.filter((item) => item.enabled).map((item) => item.package_id);
+  const packageOptions = useMemo(() => toolPackageOptionItems(toolPackageOptions), [toolPackageOptions]);
+  const extraAllowedOps = dedupe(runtimeDraft.extra_allowed_operations ?? []);
+  const allowedOps = effectiveAllowedOperations(runtimeDraft, toolPackageOptions);
   const blockedOps = dedupe(runtimeDraft.blocked_operations ?? []);
   const allowedSet = useMemo(() => new Set(allowedOps), [allowedOps]);
   const blockedSet = useMemo(() => new Set(blockedOps), [blockedOps]);
@@ -584,14 +645,29 @@ export function OrchestrationOperationAuthorizationWorkbench({
     if (!ids.length) return;
     if (mode === "allow") {
       patchRuntimeDraft({
-        allowed_operations: dedupe([...allowedOps, ...ids]),
+        extra_allowed_operations: dedupe([...extraAllowedOps, ...ids]),
         blocked_operations: dedupe(blockedOps.filter((item) => !ids.includes(item))),
       });
       return;
     }
     patchRuntimeDraft({
-      allowed_operations: dedupe(allowedOps.filter((item) => !ids.includes(item))),
+      extra_allowed_operations: dedupe(extraAllowedOps.filter((item) => !ids.includes(item))),
       blocked_operations: dedupe([...blockedOps, ...ids]),
+    });
+  }
+
+  function patchToolPackageIds(values: string[]) {
+    const existingById = new Map(selectedToolPackages.map((item) => [item.package_id, item]));
+    patchRuntimeDraft({
+      allowed_tool_packages: dedupe(values).map((packageId) => ({
+        ...(existingById.get(packageId) ?? {
+          package_id: packageId,
+          include_operations: [],
+          exclude_operations: [],
+        }),
+        package_id: packageId,
+        enabled: true,
+      })),
     });
   }
 
@@ -694,11 +770,20 @@ export function OrchestrationOperationAuthorizationWorkbench({
           <summary>运行操作明细</summary>
           <OrchestrationOptionSelection
             displayId={displayId}
+            fallbackOptions={toolPackageOptions.map((item) => item.package_id)}
+            label="允许工具包"
+            onChange={patchToolPackageIds}
+            options={packageOptions}
+            selectedValues={selectedToolPackageIds}
+            emptyText="未选择工具包；仅额外允许操作会生效"
+          />
+          <OrchestrationOptionSelection
+            displayId={displayId}
             fallbackOptions={operationOptions}
-            label="允许操作"
-            onChange={(values) => patchRuntimeDraft({ allowed_operations: dedupe(values) })}
+            label="额外允许操作"
+            onChange={(values) => patchRuntimeDraft({ extra_allowed_operations: dedupe(values) })}
             options={operationOptionItems}
-            selectedValues={allowedOps}
+            selectedValues={extraAllowedOps}
           />
           <OrchestrationOptionSelection
             displayId={displayId}
@@ -708,6 +793,17 @@ export function OrchestrationOperationAuthorizationWorkbench({
             options={operationOptionItems}
             selectedValues={blockedOps}
           />
+          <div className="boundary-option-selection">
+            <div className="boundary-option-selection__head">
+              <span>最终允许操作</span>
+              <small>{allowedOps.length} 项，只读派生</small>
+            </div>
+            <div className="boundary-selected-token-list">
+              {allowedOps.length ? allowedOps.map((operation) => (
+                <span className="boundary-selected-token" key={operation}>{displayId(operation)}</span>
+              )) : <span className="boundary-selected-token-list__empty">未解析到可执行操作</span>}
+            </div>
+          </div>
         </details>
       </div>
       <aside className="boundary-card orchestration-permission-inspector">
@@ -903,6 +999,7 @@ export function OrchestrationRuntimeConfigWorkbench({
   runtimeSaveBlocked,
   saveRuntimeProfile,
   saving,
+  toolPackageOptions,
 }: {
   runtimeDraft: RuntimeDraftLike;
   patchRuntimeDraft: (patch: Partial<RuntimeDraftLike>) => void;
@@ -910,13 +1007,15 @@ export function OrchestrationRuntimeConfigWorkbench({
   runtimeSaveBlocked: boolean;
   saveRuntimeProfile: () => Promise<void>;
   saving: "" | "agent" | "runtime" | "group" | "create" | "delete";
+  toolPackageOptions: ToolPackageDefinition[];
 }) {
   const metadata = asRecord(runtimeDraft.metadata);
   const runtimeConfig = runtimeConfigFrom(metadata);
   const config = runtimeConfig.search ?? DEFAULT_SEARCH_RUNTIME_CONFIG;
   const isSearchTemplate = runtimeConfig.runtime_kind === "search_agent" || runtimeConfig.template_id === DEEPSEARCH_RUNTIME_TEMPLATE.template_id;
   const isContextCompactorTemplate = runtimeConfig.runtime_kind === "context_compactor" || runtimeConfig.template_id === CONTEXT_COMPACTOR_RUNTIME_TEMPLATE.template_id;
-  const allowedOps = dedupe(runtimeDraft.allowed_operations ?? []);
+  const extraAllowedOps = dedupe(runtimeDraft.extra_allowed_operations ?? []);
+  const allowedOps = effectiveAllowedOperations(runtimeDraft, toolPackageOptions);
   const blockedOps = dedupe(runtimeDraft.blocked_operations ?? []);
   const requiredOps = isSearchTemplate ? operationsForSearchRuntime(config) : ["op.model_response"];
   const missingOps = requiredOps.filter((operation) => !allowedOps.includes(operation));
@@ -970,7 +1069,7 @@ export function OrchestrationRuntimeConfigWorkbench({
   function applyPermissionPreset() {
     const nextRequiredOps = isSearchTemplate ? operationsForSearchRuntime(config) : ["op.model_response"];
     patchRuntimeDraft({
-      allowed_operations: dedupe([...allowedOps, ...nextRequiredOps]),
+      extra_allowed_operations: dedupe([...extraAllowedOps, ...nextRequiredOps]),
       blocked_operations: dedupe(blockedOps.filter((operation) => !nextRequiredOps.includes(operation))),
       metadata: {
         ...metadata,
@@ -1355,9 +1454,14 @@ export function OrchestrationAssemblyOverviewWorkbench({
   modelSummary: string;
   openLayer: (layer: "identity" | "runtime_permissions" | "model_runtime" | "context_memory" | "collaboration" | "diagnostics") => void;
 }) {
+  const hasRuntimeOperations = Boolean(
+    (runtimeDraft.final_allowed_operations ?? runtimeDraft.allowed_operations ?? []).length
+    || (runtimeDraft.extra_allowed_operations ?? []).length
+    || (runtimeDraft.allowed_tool_packages ?? []).length,
+  );
   const cards = [
     { label: "Agent 身份", value: agentDraft.agent_name || agentDraft.agent_id || "未配置", ready: Boolean(agentDraft.agent_id && agentDraft.agent_name), layer: "identity" as const },
-    { label: "运行操作", value: operationSummary, ready: Boolean((runtimeDraft.allowed_operations ?? []).length), layer: "runtime_permissions" as const },
+    { label: "运行操作", value: operationSummary, ready: hasRuntimeOperations, layer: "runtime_permissions" as const },
     { label: "模型运行", value: modelSummary, ready: true, layer: "model_runtime" as const },
     { label: "记忆边界", value: memorySummary, ready: Boolean((runtimeDraft.allowed_memory_scopes ?? []).length), layer: "context_memory" as const },
     { label: "上下文段", value: contextSummary, ready: Boolean((runtimeDraft.allowed_context_sections ?? []).length), layer: "context_memory" as const },

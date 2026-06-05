@@ -44,7 +44,7 @@ def test_worker_blueprints_bind_prompt_refs_and_operation_boundaries() -> None:
     assert "op.edit_file" in planner.blocked_operations
     assert verifier.prompt_ref == "worker.prompt.verification.v1"
     assert "op.write_file" in verifier.blocked_operations
-    assert "op.shell" in verifier.allowed_operations
+    assert "op.shell" in verifier.extra_allowed_operations
     assert executor.prompt_ref == "worker.prompt.code_executor.v1"
 
 
