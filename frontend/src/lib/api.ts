@@ -2516,6 +2516,19 @@ export type RunMonitorEventPayload = {
     payload: Record<string, unknown>;
     refs: Record<string, unknown>;
     authority: string;
+    public_projection_authority?: string;
+    public_event_type?: string;
+    public_timeline_delta?: PublicChatTimelineItem[];
+    public_timeline?: PublicChatTimelineItem[];
+    public_anchor?: {
+      run_id?: string;
+      task_run_id?: string;
+      turn_run_id?: string;
+      anchor_turn_id?: string;
+      anchor_role?: "assistant" | string;
+    };
+    debug_trace_ref?: string;
+    public_projection_skip_reason?: string;
   };
   updated_at?: number;
 };

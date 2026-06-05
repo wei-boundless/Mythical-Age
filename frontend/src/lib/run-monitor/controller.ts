@@ -53,6 +53,8 @@ export class RunMonitorController {
   private reconnectAttempts = 0;
   private graphAutoAdvanceTimer: number | null = null;
   private graphAutoAdvanceInFlight = false;
+  private lastStreamSessionHydrateAt = 0;
+  private lastStreamSessionHydrateId = "";
 
   constructor(
     private readonly store: Store<StoreState>,
@@ -182,6 +184,9 @@ export class RunMonitorController {
         lastEvent: payload.runtime_event ?? null,
         selectedSignalId: signalIdFromRuntimeEvent(payload.runtime_event, payload.monitor),
       });
+      if (!payload.runtime_event) {
+        this.hydrateCurrentSessionFromStream();
+      }
     }
     if (payload.runtime_event) {
       this.store.setState((prev) => this.host.patchRuntimeAttachmentFromRuntimeEvent(prev, payload.runtime_event as NonNullable<RunMonitorEventPayload["runtime_event"]>));
@@ -360,6 +365,7 @@ export class RunMonitorController {
       this.reconnectAttempts = 0;
       this.clearTimer();
       this.store.setState((prev) => ({ ...prev, runMonitorStreamStatus: "connected", runMonitorError: "" }));
+      this.hydrateCurrentSessionFromStream();
     };
     source.onerror = () => {
       this.closeStream();
@@ -390,6 +396,20 @@ export class RunMonitorController {
       this.eventSource.close();
       this.eventSource = null;
     }
+  }
+
+  private hydrateCurrentSessionFromStream() {
+    if (typeof window === "undefined") return;
+    if (this.host.hasActiveChatStream()) return;
+    const sessionId = String(this.store.getState().currentSessionId || "").trim();
+    if (!sessionId) return;
+    const now = Date.now();
+    if (this.lastStreamSessionHydrateId === sessionId && now - this.lastStreamSessionHydrateAt < 3000) {
+      return;
+    }
+    this.lastStreamSessionHydrateId = sessionId;
+    this.lastStreamSessionHydrateAt = now;
+    void this.host.refreshSessionDetails(sessionId).catch(() => undefined);
   }
 
   private scheduleReconnect() {

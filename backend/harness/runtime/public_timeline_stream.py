@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from hashlib import sha1
 from typing import Any
 
@@ -54,8 +55,18 @@ def _items_for_event(event_type: str, data: dict[str, Any]) -> list[dict[str, An
         return _model_action_admission_items(data)
     if event_type == "turn_tool_observation_recorded":
         return [_turn_tool_observation_item(data)]
+    if event_type == "task_tool_observation_recorded":
+        return [_task_tool_observation_item(data)]
     if event_type == "task_run_lifecycle_event":
         return [_task_run_lifecycle_item(data)]
+    if event_type == "runtime_status":
+        return [_status_item(
+            item_id=_stable_id("status", str(data.get("runtime_task_run_id") or ""), str(data.get("title") or data.get("detail") or "")),
+            title=_visible_text(data.get("title")) or "正在处理",
+            detail=_visible_text(data.get("detail")),
+            state=str(data.get("state") or "running"),
+            phase=str(data.get("phase") or ""),
+        )]
     if event_type == "active_task_steer_accepted":
         return [_status_item(
             item_id=_stable_id("steer", str(data.get("runtime_task_run_id") or ""), str(data.get("summary") or "")),
@@ -124,27 +135,42 @@ def _model_action_admission_items(data: dict[str, Any]) -> list[dict[str, Any]]:
 def _turn_tool_observation_item(data: dict[str, Any]) -> dict[str, Any]:
     event = _record(data.get("event"))
     payload = _record(event.get("payload"))
-    observation = _record(payload.get("tool_observation"))
+    observation = _record(payload.get("tool_observation") or _record(payload.get("preview")).get("tool_observation"))
+    return _tool_observation_item(data=data, event=event, observation=observation)
+
+
+def _task_tool_observation_item(data: dict[str, Any]) -> dict[str, Any]:
+    event = _record(data.get("event"))
+    payload = _record(event.get("payload"))
+    observation = _record(payload.get("observation"))
+    return _tool_observation_item(data=data, event=event, observation=observation)
+
+
+def _tool_observation_item(*, data: dict[str, Any], event: dict[str, Any], observation: dict[str, Any]) -> dict[str, Any]:
     if not observation:
         return {}
-    tool_name = str(observation.get("tool_name") or "").strip()
+    tool_name = _tool_name_from_observation(observation)
     if tool_name == "agent_todo":
         return public_todo_plan_item(public_todo_plan_from_event(event))
     target = _tool_target_from_observation(observation)
-    status = str(observation.get("status") or "").strip().lower()
-    state = "done" if status in {"ok", "success", "done", "completed"} else "error"
+    state = _tool_observation_state(observation)
     detail = _tool_observation_detail(observation, target=target)
-    envelope = _record(observation.get("result_envelope"))
+    payload = _observation_payload(observation)
+    envelope = _observation_envelope(observation)
+    structured_error = _record(observation.get("structured_error")) or _record(payload.get("structured_error"))
+    envelope_structured_error = _record(envelope.get("structured_error"))
     if state == "error" and should_hide_public_tool_observation(
         tool_name,
         target,
         detail,
         observation.get("error"),
         observation.get("text"),
+        payload.get("error"),
+        payload.get("result"),
         envelope.get("error"),
         envelope.get("text"),
-        _record(observation.get("structured_error")).get("message"),
-        _record(envelope.get("structured_error")).get("message"),
+        structured_error.get("message"),
+        envelope_structured_error.get("message"),
     ):
         return {}
     trace_ref = str(event.get("event_id") or "") or _stable_id("tool-observation", tool_name, target or detail)
@@ -370,13 +396,14 @@ def _tool_details_from_event(payload: dict[str, Any]) -> tuple[str, str]:
 
 
 def _tool_target_from_observation(observation: dict[str, Any]) -> str:
-    envelope = _record(observation.get("result_envelope"))
-    args = _record(envelope.get("tool_args"))
+    payload = _observation_payload(observation)
+    envelope = _observation_envelope(observation)
+    args = _record(observation.get("tool_args")) or _record(payload.get("tool_args")) or _record(envelope.get("tool_args"))
     for key in ("path", "file_path", "target_path", "query", "pattern", "command", "url"):
         target = _visible_text(args.get(key), limit=240)
         if target:
             return target
-    structured = _record(envelope.get("structured_payload"))
+    structured = _observation_structured_payload(observation)
     tool_result = _record(structured.get("tool_result"))
     for key in ("path", "file_path", "target_path", "query", "pattern", "command", "url"):
         target = _visible_text(tool_result.get(key), limit=240)
@@ -445,15 +472,31 @@ def _tool_detail(*, summary: str, agent_brief: str, target: str) -> str:
 
 
 def _tool_observation_detail(observation: dict[str, Any], *, target: str) -> str:
-    envelope = _record(observation.get("result_envelope"))
-    tool_name = str(observation.get("tool_name") or envelope.get("tool_name") or "").strip().lower()
+    payload = _observation_payload(observation)
+    envelope = _observation_envelope(observation)
+    tool_name = _tool_name_from_observation(observation).lower()
     if tool_name == "memory_search":
-        return _memory_search_observation_detail(observation.get("text") or envelope.get("text"))
-    structured = _record(envelope.get("structured_payload"))
+        return _memory_search_observation_detail(
+            observation.get("text")
+            or payload.get("result")
+            or payload.get("text")
+            or envelope.get("text")
+            or envelope.get("structured_payload")
+        )
+    structured = _observation_structured_payload(observation)
     tool_result = _record(structured.get("tool_result"))
+    if tool_name == "path_exists":
+        exists = _result_bool(tool_result.get("exists"))
+        if exists is None:
+            exists = _result_bool(payload.get("result"))
+        if exists is True:
+            return "目标路径存在"
+        if exists is False:
+            return "目标路径不存在"
     if tool_name in {"search_text", "search_files", "glob_paths"}:
         return _search_observation_detail(
             observation=observation,
+            payload=payload,
             envelope=envelope,
             structured=structured,
             tool_result=tool_result,
@@ -465,7 +508,7 @@ def _tool_observation_detail(observation: dict[str, Any], *, target: str) -> str
             return "目标路径存在"
         if exists is False:
             return "目标路径不存在"
-    text = _visible_text(observation.get("text") or envelope.get("text"))
+    text = _visible_text(observation.get("text") or payload.get("text") or payload.get("result") or envelope.get("text") or tool_result.get("summary"))
     if text and text != target:
         return text
     return target
@@ -474,12 +517,14 @@ def _tool_observation_detail(observation: dict[str, Any], *, target: str) -> str
 def _search_observation_detail(
     *,
     observation: dict[str, Any],
+    payload: dict[str, Any],
     envelope: dict[str, Any],
     structured: dict[str, Any],
     tool_result: dict[str, Any],
     target: str,
 ) -> str:
     matched_paths = _public_path_list(
+        payload.get("matched_paths"),
         structured.get("matched_paths"),
         envelope.get("matched_paths"),
         tool_result.get("matched_paths"),
@@ -492,6 +537,7 @@ def _search_observation_detail(
         return f"已找到相关引用：{preview}{suffix}"
 
     observed_paths = _public_path_list(
+        payload.get("observed_paths"),
         structured.get("observed_paths"),
         envelope.get("observed_paths"),
         tool_result.get("observed_paths"),
@@ -508,7 +554,7 @@ def _search_observation_detail(
             return f"已找到 {result_count} 处相关引用，涉及 {'、'.join(observed_paths[:3])}"
         return f"已找到 {result_count} 处相关引用"
 
-    text = _visible_text(observation.get("text") or envelope.get("text") or tool_result.get("summary"))
+    text = _visible_text(observation.get("text") or payload.get("text") or payload.get("result") or envelope.get("text") or tool_result.get("summary"))
     if text and text != target:
         return text
     if result_count == 0:
@@ -561,6 +607,98 @@ def _visible_text(value: Any, *, limit: int = 220) -> str:
 
 def _memory_search_observation_detail(value: Any) -> str:
     return memory_search_observation_detail(value)
+
+
+def _tool_name_from_observation(observation: dict[str, Any]) -> str:
+    payload = _observation_payload(observation)
+    envelope = _observation_envelope(observation)
+    structured = _observation_structured_payload(observation)
+    source = str(observation.get("source") or "").strip()
+    if source in {"agent_todo", "system:agent_todo", "tool:agent_todo"}:
+        return "agent_todo"
+    return str(
+        observation.get("tool_name")
+        or payload.get("tool_name")
+        or envelope.get("tool_name")
+        or structured.get("tool_name")
+        or source.removeprefix("tool:")
+        or "",
+    ).strip()
+
+
+def _tool_observation_state(observation: dict[str, Any]) -> str:
+    payload = _observation_payload(observation)
+    envelope = _observation_envelope(observation)
+    structured = _observation_structured_payload(observation)
+    tool_result = _record(structured.get("tool_result"))
+    for value in (
+        observation.get("status"),
+        payload.get("status"),
+        envelope.get("status"),
+        tool_result.get("status"),
+    ):
+        status = str(value or "").strip().lower()
+        if status in {"ok", "success", "done", "completed"}:
+            return "done"
+        if status in {"needs_approval", "waiting_approval"}:
+            return "running"
+        if status in {"failed", "error", "denied", "canceled", "cancelled", "aborted"}:
+            return "error"
+        if status in {"needs_contract"}:
+            return "error"
+    parsed = _parse_result(payload.get("result"))
+    if isinstance(parsed, dict) and (parsed.get("ok") is False or parsed.get("error") or parsed.get("structured_error")):
+        return "error"
+    if observation.get("error") or payload.get("error") or envelope.get("error") or tool_result.get("error"):
+        return "error"
+    return "done"
+
+
+def _observation_payload(observation: dict[str, Any]) -> dict[str, Any]:
+    return _record(observation.get("payload"))
+
+
+def _observation_envelope(observation: dict[str, Any]) -> dict[str, Any]:
+    payload = _observation_payload(observation)
+    return _record(observation.get("result_envelope")) or _record(payload.get("result_envelope"))
+
+
+def _observation_structured_payload(observation: dict[str, Any]) -> dict[str, Any]:
+    payload = _observation_payload(observation)
+    envelope = _observation_envelope(observation)
+    return _record(observation.get("structured_payload")) or _record(payload.get("structured_payload")) or _record(envelope.get("structured_payload"))
+
+
+def _parse_result(value: Any) -> Any:
+    if isinstance(value, (dict, list, bool, int, float)):
+        return value
+    if not isinstance(value, str):
+        return None
+    text = value.strip()
+    if not text:
+        return None
+    lowered = text.lower()
+    if lowered == "true":
+        return True
+    if lowered == "false":
+        return False
+    if lowered == "null":
+        return None
+    try:
+        return json.loads(text)
+    except Exception:
+        return text
+
+
+def _result_bool(value: Any) -> bool | None:
+    parsed = _parse_result(value)
+    if isinstance(parsed, bool):
+        return parsed
+    if isinstance(parsed, dict):
+        for key in ("exists", "ok", "success", "result"):
+            if isinstance(parsed.get(key), bool):
+                return parsed[key]
+    return None
 
 
 def _stable_id(prefix: str, left: str, right: str) -> str:

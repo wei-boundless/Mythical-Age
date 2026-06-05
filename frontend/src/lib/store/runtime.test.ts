@@ -1823,6 +1823,166 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     });
   });
 
+  it("projects public timeline deltas from monitor events without requiring a progress entry", () => {
+    const taskRunId = "taskrun:turn:session:public-delta:1:abc";
+    const store = createStore<StoreState>({
+      ...getDefaultState(),
+      currentSessionId: "session:public-delta",
+      messages: [
+        { id: "user:1", role: "user", content: "开始长任务", toolCalls: [], retrievals: [], sourceIndex: 0 },
+        { id: "assistant:1", role: "assistant", content: "任务已接管。", toolCalls: [], retrievals: [], sourceIndex: 1 },
+      ],
+    });
+    const runtime = new WorkspaceRuntime(store) as unknown as {
+      applyRunMonitorStreamPayload: (payload: Record<string, unknown>) => void;
+    };
+
+    runtime.applyRunMonitorStreamPayload({
+      source: "runtime_event_log",
+      runtime_event: {
+        event_id: "rtevt:public-delta",
+        run_id: taskRunId,
+        event_type: "model_action_request_received",
+        offset: 4,
+        created_at: 14,
+        payload: {
+          model_action_request: {
+            request_id: "act:public-delta",
+            action_type: "respond",
+            public_progress_note: "我正在公开说明当前判断。",
+          },
+        },
+        refs: {},
+        authority: "orchestration.runtime_event",
+        public_projection_authority: "runtime_monitor.public_event_projection.v1",
+        public_event_type: "model_action_admission",
+        public_anchor: {
+          run_id: taskRunId,
+          task_run_id: taskRunId,
+          anchor_turn_id: "turn:session:public-delta:1",
+          anchor_role: "assistant",
+        },
+        public_timeline_delta: [
+          {
+            item_id: "opening:public-delta",
+            kind: "opening_judgment",
+            title: "开局判断",
+            text: "我正在公开说明当前判断。",
+            state: "running",
+          },
+        ],
+      },
+    });
+
+    const attachment = store.getState().messages[1]?.runtimeAttachments?.[0];
+    expect(attachment).toMatchObject({
+      run_id: taskRunId,
+      anchor_turn_id: "turn:session:public-delta:1",
+      summary: "我正在公开说明当前判断。",
+      progress_entries: [],
+    });
+    expect(attachment?.public_timeline).toEqual([
+      expect.objectContaining({
+        item_id: "opening:public-delta",
+        kind: "opening_judgment",
+        text: "我正在公开说明当前判断。",
+      }),
+    ]);
+  });
+
+  it("keeps live monitor public timeline attachments after a stream snapshot hydrates the session", async () => {
+    vi.useRealTimers();
+    const taskRunId = "taskrun:turn:session:hydrate:1:abc";
+    api.getSessionTimeline.mockResolvedValue({
+      messages: [
+        { role: "user", content: "开始长任务" },
+        { role: "assistant", content: "任务已接管。" },
+      ],
+      runtime_attachments: [],
+    });
+    const store = createStore<StoreState>({
+      ...getDefaultState(),
+      currentSessionId: "session:hydrate",
+      sessions: [{
+        id: "session:hydrate",
+        title: "Hydrate",
+        created_at: 1,
+        updated_at: 1,
+        message_count: 2,
+      }],
+      messages: [
+        { id: "user:1", role: "user", content: "开始长任务", toolCalls: [], retrievals: [], sourceIndex: 0 },
+        { id: "assistant:1", role: "assistant", content: "任务已接管。", toolCalls: [], retrievals: [], sourceIndex: 1 },
+      ],
+    });
+    const runtime = new WorkspaceRuntime(store) as unknown as {
+      applyRunMonitorStreamPayload: (payload: Record<string, unknown>) => void;
+    };
+
+    runtime.applyRunMonitorStreamPayload({
+      source: "runtime_event_log",
+      runtime_event: {
+        event_id: "rtevt:hydrate-public-delta",
+        run_id: taskRunId,
+        event_type: "model_action_request_received",
+        offset: 1,
+        created_at: 10,
+        payload: {},
+        refs: {},
+        authority: "orchestration.runtime_event",
+        public_anchor: {
+          run_id: taskRunId,
+          task_run_id: taskRunId,
+          anchor_turn_id: "turn:session:hydrate:1",
+          anchor_role: "assistant",
+        },
+        public_timeline_delta: [
+          {
+            item_id: "opening:hydrate",
+            kind: "opening_judgment",
+            title: "开局判断",
+            text: "这条 live 公开反馈还没有持久化到 session timeline。",
+            state: "running",
+          },
+        ],
+      },
+    });
+    runtime.applyRunMonitorStreamPayload({
+      source: "initial",
+      monitor: monitorForTest([]),
+    });
+    await flushPromises(12);
+
+    expect(api.getSessionTimeline).toHaveBeenCalledWith("session:hydrate", undefined);
+    const attachment = store.getState().messages[1]?.runtimeAttachments?.[0];
+    expect(attachment?.run_id).toBe(taskRunId);
+    expect(attachment?.public_timeline?.[0]).toMatchObject({
+      item_id: "opening:hydrate",
+      text: "这条 live 公开反馈还没有持久化到 session timeline。",
+    });
+  });
+
+  it("does not hydrate session details from monitor snapshots while a chat stream is active", async () => {
+    vi.useRealTimers();
+    const store = createStore<StoreState>({
+      ...getDefaultState(),
+      currentSessionId: "session:active-stream",
+      activeStreamSessionIds: ["session:active-stream"],
+      isStreaming: true,
+    });
+    const runtime = new WorkspaceRuntime(store) as unknown as {
+      applyRunMonitorStreamPayload: (payload: Record<string, unknown>) => void;
+    };
+
+    runtime.applyRunMonitorStreamPayload({
+      source: "initial",
+      monitor: monitorForTest([]),
+    });
+    await flushPromises(4);
+
+    expect(api.getSessionTimeline).not.toHaveBeenCalled();
+  });
+
   it("does not show internal agent todo observations as user-facing observation rows", () => {
     const taskRunId = "taskrun:turn:session:todo-observation:1:abc";
     const store = createStore<StoreState>({

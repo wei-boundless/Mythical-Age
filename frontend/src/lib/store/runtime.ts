@@ -857,7 +857,7 @@ export class WorkspaceRuntime {
   }
 
   private mergeVolatileMessageProgress(refreshedMessages: Message[], currentMessages: Message[]) {
-    if (!currentMessages.some((message) => message.runtimeProgress?.length || message.runtimePublicTimelineDraft?.length)) {
+    if (!currentMessages.some((message) => message.runtimeProgress?.length || message.runtimePublicTimelineDraft?.length || message.runtimeAttachments?.length)) {
       return refreshedMessages;
     }
     const currentBySourceIndex = new Map<number, Message>();
@@ -871,14 +871,19 @@ export class WorkspaceRuntime {
         return message;
       }
       const current = currentBySourceIndex.get(message.sourceIndex);
-      if (!current?.runtimeProgress?.length && !current?.runtimePublicTimelineDraft?.length) {
+      if (!current?.runtimeProgress?.length && !current?.runtimePublicTimelineDraft?.length && !current?.runtimeAttachments?.length) {
         return message;
       }
-      const persistedPublicTimeline = (message.runtimeAttachments ?? []).flatMap((attachment) =>
+      const runtimeAttachments = this.mergeRuntimeAttachments(
+        message.runtimeAttachments,
+        current.runtimeAttachments ?? [],
+      );
+      const persistedPublicTimeline = (runtimeAttachments ?? []).flatMap((attachment) =>
         Array.isArray(attachment.public_timeline) ? attachment.public_timeline : [],
       );
       return {
         ...message,
+        runtimeAttachments,
         runtimeProgress: this.mergeMessageRuntimeProgress(message.runtimeProgress, current.runtimeProgress ?? []),
         runtimePublicTimelineDraft: mergePublicTimelineItems(
           persistedPublicTimeline,
@@ -3425,6 +3430,16 @@ export class WorkspaceRuntime {
     );
   }
 
+  private publicTimelineSummary(items: PublicChatTimelineItem[]) {
+    for (const item of items) {
+      const text = String(item.text ?? item.detail ?? item.public_summary ?? item.title ?? "").trim();
+      if (text) {
+        return text;
+      }
+    }
+    return "";
+  }
+
   private publicTimelineStatusItemFromMonitor(monitor: HarnessSessionMonitor, taskRunId: string): PublicChatTimelineItem | null {
     const taskRun = this.harnessMonitorTaskRun(monitor);
     const status = String(monitor.status ?? taskRun.status ?? "").trim().toLowerCase();
@@ -3522,6 +3537,26 @@ export class WorkspaceRuntime {
         return 0;
       })
       .slice(-MAX_LIVE_RUNTIME_PROGRESS_ENTRIES);
+  }
+
+  private mergeRuntimeAttachments(
+    persisted: SessionRuntimeAttachment[] | undefined,
+    volatile: SessionRuntimeAttachment[],
+  ) {
+    const merged = [...(persisted ?? [])];
+    for (const attachment of volatile) {
+      const runId = this.runtimeAttachmentRunId(attachment);
+      if (!runId) {
+        continue;
+      }
+      const existingIndex = merged.findIndex((item) => this.runtimeAttachmentRunId(item) === runId);
+      if (existingIndex >= 0) {
+        merged[existingIndex] = this.mergeRuntimeAttachment(merged[existingIndex], attachment);
+      } else {
+        merged.push(attachment);
+      }
+    }
+    return merged;
   }
 
   private mergeRuntimeAttachment(existing: SessionRuntimeAttachment | undefined, attachment: SessionRuntimeAttachment): SessionRuntimeAttachment {
@@ -3754,7 +3789,18 @@ export class WorkspaceRuntime {
     return (text.startsWith("{") && text.endsWith("}")) || (text.startsWith("[") && text.endsWith("]"));
   }
 
+  private runtimeEventPublicAnchor(runtimeEvent: RuntimeMonitorEvent): Record<string, unknown> {
+    return runtimeEvent.public_anchor && typeof runtimeEvent.public_anchor === "object" && !Array.isArray(runtimeEvent.public_anchor)
+      ? runtimeEvent.public_anchor as Record<string, unknown>
+      : {};
+  }
+
   private runtimeEventAnchorTurnId(runtimeEvent: RuntimeMonitorEvent, state: StoreState) {
+    const publicAnchor = this.runtimeEventPublicAnchor(runtimeEvent);
+    const publicAnchorTurnId = String(publicAnchor.anchor_turn_id ?? "").trim();
+    if (publicAnchorTurnId.startsWith("turn:")) {
+      return publicAnchorTurnId;
+    }
     const payload = runtimeEvent.payload && typeof runtimeEvent.payload === "object" && !Array.isArray(runtimeEvent.payload)
       ? runtimeEvent.payload
       : {};
@@ -3781,11 +3827,13 @@ export class WorkspaceRuntime {
 
   private patchRuntimeAttachmentFromRuntimeEvent(state: StoreState, runtimeEvent: RuntimeMonitorEvent): StoreState {
     const latestProgressEntry = this.runtimeProgressEntryFromRuntimeEvent(runtimeEvent);
-    if (!latestProgressEntry) {
+    const publicTimelineItems = this.publicTimelineItemsFromRuntimeEvent(runtimeEvent);
+    if (!latestProgressEntry && !publicTimelineItems.length) {
       return state;
     }
-    const runId = String(latestProgressEntry.runId ?? runtimeEvent.run_id ?? runtimeEvent.task_run_id ?? "").trim();
-    const latestTaskRunId = String(latestProgressEntry.taskRunId ?? "").trim();
+    const publicAnchor = this.runtimeEventPublicAnchor(runtimeEvent);
+    const runId = String(publicAnchor.run_id ?? latestProgressEntry?.runId ?? runtimeEvent.run_id ?? runtimeEvent.task_run_id ?? "").trim();
+    const latestTaskRunId = String(publicAnchor.task_run_id ?? latestProgressEntry?.taskRunId ?? "").trim();
     const taskRunId = latestTaskRunId.startsWith("taskrun:")
       ? latestTaskRunId
       : runId.startsWith("taskrun:")
@@ -3795,29 +3843,30 @@ export class WorkspaceRuntime {
     if (!runId || !anchorTurnId) {
       return state;
     }
-    const publicTimelineItems = this.publicTimelineItemsFromRuntimeEvent(runtimeEvent);
     const payload = runtimeEvent.payload && typeof runtimeEvent.payload === "object" && !Array.isArray(runtimeEvent.payload)
       ? runtimeEvent.payload
       : {};
+    const publicSummary = this.publicTimelineSummary(publicTimelineItems);
+    const refs = runtimeEvent.refs && typeof runtimeEvent.refs === "object" && !Array.isArray(runtimeEvent.refs)
+      ? runtimeEvent.refs
+      : {};
     const explicitAnchor = String(
-      (runtimeEvent.refs && typeof runtimeEvent.refs === "object" && !Array.isArray(runtimeEvent.refs)
-        ? runtimeEvent.refs.turn_ref
-        : "")
-      ?? payload.turn_id
-      ?? "",
+      String(publicAnchor.anchor_turn_id ?? "").trim()
+      || String(refs.turn_ref ?? "").trim()
+      || String(payload.turn_id ?? "").trim(),
     ).trim();
     const attachment: SessionRuntimeAttachment = {
       attachment_id: `runtime-attachment:${runId}`,
       run_id: runId,
       anchor_turn_id: anchorTurnId,
-      anchor_role: "assistant",
+      anchor_role: String(publicAnchor.anchor_role ?? "assistant"),
       task_run_id: taskRunId || undefined,
       task_id: String(payload.task_id ?? ""),
       status: String(payload.status ?? "running"),
       terminal_reason: "",
       lifecycle: String(payload.status ?? "running"),
       title: "处理进展",
-      summary: String(payload.public_progress_note ?? payload.summary ?? ""),
+      summary: String(payload.public_progress_note ?? payload.summary ?? publicSummary ?? ""),
       latest_step: {
         step: String(payload.step ?? ""),
         status: String(payload.status ?? ""),
@@ -3829,14 +3878,14 @@ export class WorkspaceRuntime {
         created_at: Number(runtimeEvent.created_at ?? 0),
       },
       latest_step_summary: String(payload.summary ?? ""),
-      latest_public_progress_note: String(payload.public_progress_note ?? payload.summary ?? ""),
+      latest_public_progress_note: String(payload.public_progress_note ?? payload.summary ?? publicSummary ?? ""),
       agent_brief_output: String(payload.agent_brief_output ?? ""),
       latest_event_type: runtimeEvent.event_type,
       event_count: Number(runtimeEvent.offset ?? -1) + 1,
-      progress_entries: [latestProgressEntry],
+      progress_entries: latestProgressEntry ? [latestProgressEntry] : [],
       public_timeline: publicTimelineItems,
       trace_available: true,
-      debug_trace_ref: taskRunId || runId,
+      debug_trace_ref: String(runtimeEvent.debug_trace_ref ?? (taskRunId || runId)),
       updated_at: Number(runtimeEvent.created_at ?? Date.now() / 1000),
     };
     const anchorIndex = Number(anchorTurnId.split(":").at(-1));

@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 
 from api.deps import require_runtime
 from harness.runtime.run_monitor import RuntimeMonitorActionService
+from harness.runtime.runtime_monitor_public_projection import project_runtime_monitor_event_public_delta
 
 router = APIRouter()
 
@@ -102,11 +103,18 @@ async def stream_runtime_monitor_events(request: Request, limit: int = 40):
                         },
                     )
                     continue
+                monitor = service.collect_global_runtime_monitor(limit=requested_limit)
+                raw_event = runtime_event.to_dict()
+                public_projection = project_runtime_monitor_event_public_delta(
+                    raw_event,
+                    runtime_host=runtime_host,
+                    monitor=monitor,
+                )
                 yield _sse(
                     "runtime_monitor_event",
                     {
-                        "runtime_event": runtime_event.to_dict(),
-                        "monitor": service.collect_global_runtime_monitor(limit=requested_limit),
+                        "runtime_event": {**raw_event, **public_projection},
+                        "monitor": monitor,
                         "source": "runtime_event_log",
                     },
                     event_id=runtime_event.event_id,
