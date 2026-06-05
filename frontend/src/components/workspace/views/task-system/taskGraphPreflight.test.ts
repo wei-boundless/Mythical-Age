@@ -290,7 +290,7 @@ describe("TaskGraph preflight", () => {
           edge_id: "edge.a.b",
           source_node_id: "a",
           target_node_id: "b",
-          payload_contract_id: "contract.payload",
+          contract_bindings: { schema: { payload_contract_id: "contract.payload" } },
           working_memory_handoff_policy: { mode: "carry_selected" },
         },
       ],
@@ -348,7 +348,7 @@ describe("TaskGraph preflight", () => {
     expect(report.issues.some((issue) => issue.source === "frontend.preflight.prompt_semantics")).toBe(false);
   });
 
-  it("warns when legacy node prompt has not been consolidated into role prompt", () => {
+  it("reports nodes that have no role prompt semantics", () => {
     const report = buildTaskGraphPreflightReport({
       dirty: false,
       editorIssueCount: 0,
@@ -357,12 +357,7 @@ describe("TaskGraph preflight", () => {
         {
           node_id: "review",
           agent_id: "agent.review",
-          metadata: {
-            legacy_prompt_migration: {
-              legacy_field_names: ["role_identity", "responsibility_scope", "definition_of_done"],
-              migration_status: "pending_role_prompt",
-            },
-          },
+          metadata: {},
         },
       ],
       edges: [],
@@ -385,7 +380,7 @@ describe("TaskGraph preflight", () => {
           edge_id: "edge.a.b",
           source_node_id: "a",
           target_node_id: "b",
-          payload_contract_id: "contract.payload",
+          contract_bindings: { schema: { payload_contract_id: "contract.payload" } },
           working_memory_handoff_policy: { mode: "carry_selected" },
         },
       ],
@@ -415,7 +410,7 @@ describe("TaskGraph preflight", () => {
           source_node_id: "memory.project",
           target_node_id: "draft",
           edge_type: "memory_read",
-          payload_contract_id: "contract.memory.read",
+          contract_bindings: { schema: { payload_contract_id: "contract.memory.read" } },
           metadata: { repository: "memory.project" },
         },
       ],
@@ -444,7 +439,7 @@ describe("TaskGraph preflight", () => {
           source_node_id: "worker",
           target_node_id: "memory.project",
           edge_type: "memory_write_candidate",
-          payload_contract_id: "contract.memory.write_candidate",
+          contract_bindings: { schema: { payload_contract_id: "contract.memory.write_candidate" } },
           metadata: {
             repository: "memory.project",
             collection: "facts",
@@ -479,7 +474,7 @@ describe("TaskGraph preflight", () => {
           source_node_id: "memory.project",
           target_node_id: "writer",
           edge_type: "memory_read",
-          payload_contract_id: "contract.memory.read",
+          contract_bindings: { schema: { payload_contract_id: "contract.memory.read" } },
           metadata: {
             repository: "memory.project",
             collection: "characters",
@@ -514,21 +509,21 @@ describe("TaskGraph preflight", () => {
           source_node_id: "author",
           target_node_id: "memory.project",
           edge_type: "memory_write_candidate",
-          payload_contract_id: "contract.memory.write",
+          contract_bindings: { schema: { payload_contract_id: "contract.memory.write" } },
           metadata: { repository: "memory.project", collection: "world" },
         },
         {
           edge_id: "edge.author.review",
           source_node_id: "author",
           target_node_id: "review",
-          payload_contract_id: "contract.handoff",
+          contract_bindings: { schema: { payload_contract_id: "contract.handoff" } },
         },
         {
           edge_id: "edge.review.memory",
           source_node_id: "review",
           target_node_id: "memory.project",
           edge_type: "memory_commit",
-          payload_contract_id: "contract.memory.commit",
+          contract_bindings: { schema: { payload_contract_id: "contract.memory.commit" } },
           metadata: {
             repository: "memory.project",
             collection: "world",
@@ -598,7 +593,7 @@ describe("TaskGraph preflight", () => {
           source_node_id: "review",
           target_node_id: "draft",
           edge_type: "revision_request",
-          payload_contract_id: "contract.revision",
+          contract_bindings: { schema: { payload_contract_id: "contract.revision" } },
           metadata: { usage_instruction: "按审核结果返修。" },
         },
       ],

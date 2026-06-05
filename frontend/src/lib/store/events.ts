@@ -259,7 +259,7 @@ function answerMetadataFromEvent(data: Record<string, unknown>): Partial<Message
 }
 
 function assistantDoneContentFromEvent(data: Record<string, unknown>) {
-  const content = sanitizeAssistantProtocolText(stringValue(data.content));
+  const content = stringValue(data.content);
   if (content && !isMachineReference(content) && !isRawToolOutputText(content)) {
     return content;
   }
@@ -278,7 +278,7 @@ function assistantDoneContentFromEvent(data: Record<string, unknown>) {
     data.message,
   ];
   for (const candidate of candidates) {
-    const text = sanitizeAssistantProtocolText(stringValue(candidate));
+    const text = stringValue(candidate);
     if (text && !isMachineReference(text) && !isRawToolOutputText(text) && !isRoutineDoneContent(text)) {
       return text;
     }
@@ -325,28 +325,6 @@ function isRawToolOutputText(value: string) {
     || /\b(?:Exit code|Wall time|Output):/i.test(text)
     || /\b(?:authority|diagnostics|matched_version_count|candidate_version_count|result_envelope|structured_payload)\b/i.test(text)
     || ((text.startsWith("{") && text.endsWith("}")) || (text.startsWith("[") && text.endsWith("]")));
-}
-
-const DSML_TOKEN_SOURCE = String.raw`(?:[｜|]\s*){2}\s*DSML\s*(?:[｜|]\s*){2}`;
-const DSML_PARAMETER_FRAGMENT_RE = new RegExp(
-  String.raw`(?:<\s*${DSML_TOKEN_SOURCE}\s*parameter\b\s*)?name\s*=\s*["'][A-Za-z_][\w-]*["']\s+string\s*=\s*["'](?:true|false)["']\s*>[\s\S]*?(?:<\/\s*${DSML_TOKEN_SOURCE}\s*parameter\s*>|$)`,
-  "gi",
-);
-const DSML_BLOCK_RE = new RegExp(
-  String.raw`<\s*${DSML_TOKEN_SOURCE}\s*(?:tool_calls|invoke|parameter)\b[\s\S]*?(?:<\/\s*${DSML_TOKEN_SOURCE}\s*(?:tool_calls|invoke|parameter)\s*>|$)`,
-  "gi",
-);
-const DSML_TAG_FRAGMENT_RE = new RegExp(String.raw`<\/?\s*${DSML_TOKEN_SOURCE}\s*[^>]*>?`, "gi");
-
-function sanitizeAssistantProtocolText(value: string) {
-  const text = stringValue(value);
-  if (!text) return "";
-  return text
-    .replace(DSML_BLOCK_RE, "")
-    .replace(DSML_PARAMETER_FRAGMENT_RE, "")
-    .replace(DSML_TAG_FRAGMENT_RE, "")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
 }
 
 function extractArtifactPaths(value: unknown): string[] {

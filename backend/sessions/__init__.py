@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import logging
 import os
-import re
 import tempfile
 import threading
 import time
@@ -694,14 +693,6 @@ def _same_workspace_root(left: str, right: str) -> bool:
     return left_key == right_key
 
 
-_PUBLIC_PROTOCOL_BLOCK_RE = re.compile(
-    r"<｜｜DSML｜｜tool_calls>.*?</｜｜DSML｜｜tool_calls>",
-    re.DOTALL,
-)
-_PUBLIC_PROTOCOL_PARAMETER_RE = re.compile(
-    r"(?:^|\n)\s*name=\"[^\"]+\"\s+string=\"(?:true|false)\">.*?</｜｜DSML｜｜parameter>",
-    re.DOTALL,
-)
 _PUBLIC_MESSAGE_PROTOCOL_KEYS = {
     "name",
     "reasoning_content",
@@ -734,7 +725,7 @@ def _public_message(payload: dict[str, Any]) -> dict[str, Any] | None:
         return None
     if role == "assistant" and _has_protocol_tool_calls(payload):
         return None
-    content = _strip_public_protocol_blocks(payload.get("content"))
+    content = str(payload.get("content") or "")
     image = payload.get("image")
     has_image = isinstance(image, dict) and bool(str(image.get("src") or "").strip())
     if not content.strip() and not has_image:
@@ -752,15 +743,6 @@ def _public_message(payload: dict[str, Any]) -> dict[str, Any] | None:
 def _has_protocol_tool_calls(payload: dict[str, Any]) -> bool:
     tool_calls = payload.get("tool_calls")
     return isinstance(tool_calls, list) and bool(tool_calls)
-
-
-def _strip_public_protocol_blocks(value: Any) -> str:
-    text = str(value or "")
-    if not text:
-        return ""
-    cleaned = _PUBLIC_PROTOCOL_BLOCK_RE.sub("", text)
-    cleaned = _PUBLIC_PROTOCOL_PARAMETER_RE.sub("", cleaned)
-    return cleaned.strip() if cleaned != text else text
 
 
 def _agent_message(payload: dict[str, Any]) -> dict[str, str] | None:

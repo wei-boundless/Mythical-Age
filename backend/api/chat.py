@@ -7,18 +7,14 @@ from dataclasses import replace
 from typing import Any
 
 from fastapi import APIRouter, Header, HTTPException, Query
-from fastapi.responses import JSONResponse, Response, StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, Field
 
 from api.deps import require_runtime
 from harness.entrypoint import HarnessRuntimeRequest
 from harness.runtime.public_timeline_stream import project_public_timeline_delta
-from runtime.shared.events import RuntimeEvent
 from runtime.shared.runtime_run_registry import RuntimeRun
-from runtime.shared.stream_replay import (
-    TERMINAL_PUBLIC_EVENTS,
-    parse_stream_event_id,
-)
+from runtime.shared.stream_replay import parse_stream_event_id
 from sessions import SessionProjectBindingConflict, validate_session_id
 from task_system.session_scope import assert_optional_session_scope
 
@@ -129,16 +125,6 @@ class ChatRequest(BaseModel):
     editor_context: dict[str, Any] = Field(default_factory=dict)
 
 
-def _error_status(code: str) -> int:
-    if code == "timeout":
-        return 504
-    if code == "rate_limit":
-        return 429
-    if code == "provider_unavailable":
-        return 503
-    return 500
-
-
 @router.post("/chat/runs")
 async def create_chat_run(payload: ChatRequest):
     runtime = require_runtime()
@@ -209,43 +195,6 @@ async def resume_chat_run(stream_run_id: str):
         **_run_response(runtime, run),
         "resume_mode": "attach_existing_run",
     }
-
-
-@router.post("/chat")
-async def chat(payload: ChatRequest):
-    runtime = require_runtime()
-    session_id = validate_session_id(payload.session_id)
-    assert_optional_session_scope(runtime.session_manager, session_id, payload.session_scope)
-    _bind_or_validate_editor_project(runtime, session_id, dict(payload.editor_context or {}))
-    request = _query_request_from_payload(payload, session_id=session_id)
-    run = _create_and_schedule_run(runtime, request)
-
-    if payload.stream:
-        return StreamingResponse(_stream_run_events(runtime, run, after_offset=-1), media_type="text/event-stream")
-
-    terminal_event, terminal_data = await _wait_for_terminal_public_event(runtime, run)
-    if terminal_event == "done":
-        response: dict[str, Any] = {"content": str(terminal_data.get("content", "") or "")}
-        image = terminal_data.get("image")
-        if image is not None:
-            response["image"] = image
-        return JSONResponse(response)
-    if terminal_event == "error":
-        code = str(terminal_data.get("code", "") or "").strip()
-        return JSONResponse(
-            {
-                "error": str(terminal_data.get("error", "") or "Request failed"),
-                "code": code or None,
-            },
-            status_code=_error_status(code),
-        )
-    return JSONResponse(
-        {
-            "error": "Request finished without a final response.",
-            "code": "missing_done",
-        },
-        status_code=500,
-    )
 
 
 def _query_request_from_payload(payload: ChatRequest, *, session_id: str) -> HarnessRuntimeRequest:
@@ -439,36 +388,6 @@ async def _stream_run_events(runtime: Any, run: RuntimeRun, *, after_offset: int
                 return
     finally:
         host.event_log.unsubscribe(subscription)
-
-
-async def _wait_for_terminal_public_event(runtime: Any, run: RuntimeRun) -> tuple[str, dict[str, Any]]:
-    host = runtime.harness_runtime.single_agent_runtime_host
-    replay = host.stream_replay
-    subscription = host.event_log.subscribe(run_id=run.event_log_id)
-    latest_offset = -1
-    try:
-        while True:
-            for event in replay.list_public_events_after(run, after_offset=latest_offset):
-                latest_offset = max(latest_offset, event.offset)
-                public_event, data = _public_event_payload(event)
-                if public_event in TERMINAL_PUBLIC_EVENTS:
-                    return public_event, data
-            event = await subscription.queue.get()
-            if event.offset <= latest_offset or str(event.event_type) != "chat_stream_event":
-                continue
-            latest_offset = max(latest_offset, event.offset)
-            public_event, data = _public_event_payload(event)
-            if public_event in TERMINAL_PUBLIC_EVENTS:
-                return public_event, data
-    finally:
-        host.event_log.unsubscribe(subscription)
-
-
-def _public_event_payload(event: RuntimeEvent) -> tuple[str, dict[str, Any]]:
-    payload = dict(event.payload or {})
-    data = dict(payload.get("data") or {})
-    data.update({"event_offset": event.offset, "runtime_event_id": event.event_id})
-    return str(payload.get("public_event_type") or "message"), data
 
 
 def _resolve_after_offset(run: RuntimeRun, *, after_offset: int | None, last_event_id: str | None) -> int:

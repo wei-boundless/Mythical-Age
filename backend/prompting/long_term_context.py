@@ -5,7 +5,6 @@ from pathlib import Path
 from typing import Callable
 
 from memory_system.static_loader import load_static_context
-from memory_system.layout import durable_memory_layout_from_backend_dir
 
 
 def _strip_leading_markdown_title(content: str) -> str:
@@ -61,14 +60,7 @@ def build_long_term_context_bundle(
     persistent_memory: str | None = None,
 ) -> LongTermContextBundle:
     static_context = load_static_context(base_dir)
-    if persistent_memory is not None:
-        memory_block = persistent_memory
-    else:
-        layout = durable_memory_layout_from_backend_dir(base_dir)
-        if layout.index_path.exists():
-            memory_block = layout.index_path.read_text(encoding="utf-8")
-        else:
-            memory_block = "[missing component: durable_memory/index/MEMORY.md]"
+    memory_block = persistent_memory if persistent_memory is not None else ""
 
     return LongTermContextBundle(
         static_sections=[

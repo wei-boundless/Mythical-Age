@@ -138,7 +138,17 @@ class AgentCliClient:
         }
         if extra_payload:
             body.update(extra_payload)
-        request = self._request("POST", "/chat", body)
+        run = self._json_request("POST", "/chat/runs", body)
+        if not isinstance(run, dict):
+            raise AgentCliClientError("Backend returned an invalid chat run.")
+        stream_run_id = str(run.get("stream_run_id") or "").strip()
+        if not stream_run_id:
+            raise AgentCliClientError("Backend returned a chat run without stream_run_id.")
+        request = self._request(
+            "GET",
+            f"/chat/runs/{_quote_path(stream_run_id)}/events?after_offset=-1",
+            accept="text/event-stream",
+        )
         try:
             if self.stream_timeout is None:
                 response = self._opener(request, timeout=None)
@@ -186,9 +196,16 @@ class AgentCliClient:
             return None
         return json.loads(raw)
 
-    def _request(self, method: str, path: str, body: dict[str, Any] | None = None) -> Request:
+    def _request(
+        self,
+        method: str,
+        path: str,
+        body: dict[str, Any] | None = None,
+        *,
+        accept: str = "application/json",
+    ) -> Request:
         data = None
-        headers = {"Accept": "application/json"}
+        headers = {"Accept": accept}
         if body is not None:
             data = json.dumps(body, ensure_ascii=False).encode("utf-8")
             headers["Content-Type"] = "application/json"

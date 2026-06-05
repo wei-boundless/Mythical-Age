@@ -175,7 +175,7 @@ def _seed_graph(tmp_path: Path) -> None:
                     "linked_graph_id": "graph.design.initialization",
                     "entry_node_id": "input",
                     "exit_node_id": "draft",
-                    "handoff_contract_id": "contract.design.handoff",
+                    "contract_bindings": {"handoff": {"handoff_contract_id": "contract.design.handoff"}},
                     "visibility_policy": "committed_only",
                     "version_ref": "v1",
                 }

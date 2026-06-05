@@ -1050,12 +1050,25 @@ def _level_from_status(status: str) -> str:
 def _observation_title(source: str, *, observation: dict[str, Any] | None = None) -> str:
     if source.startswith("tool:"):
         tool_name = source.removeprefix("tool:").strip()
-        return f"工具观察：{tool_name}" if tool_name else "工具观察"
+        return _tool_result_title(tool_name)
     if dict(observation or {}).get("error"):
-        return "观察到失败"
-    if source:
-        return "观察结果"
-    return "观察结果"
+        return "结果未完成"
+    return "结果已返回"
+
+
+def _tool_result_title(tool_name: str) -> str:
+    normalized = str(tool_name or "").strip().lower()
+    if normalized in {"read_file", "read_path", "stat_path", "list_dir", "path_exists"}:
+        return "上下文已返回"
+    if normalized in {"search_text", "search_files", "glob_paths", "memory_search"}:
+        return "检索结果已返回"
+    if normalized in {"write_file", "edit_file", "apply_patch"}:
+        return "文件更新已返回"
+    if normalized in {"terminal", "shell", "run_command", "powershell"}:
+        return "命令结果已返回"
+    if normalized in {"image_generate", "image_generation", "generate_image"}:
+        return "图像结果已返回"
+    return "结果已返回"
 
 
 def _evidence_type(event_type: str, step: str) -> str:

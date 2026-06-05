@@ -4,6 +4,7 @@ import asyncio
 import inspect
 import json
 import threading
+from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Literal
@@ -13,6 +14,7 @@ from pydantic import BaseModel, Field, field_validator
 from project_layout import ProjectLayout
 from memory_system.storage.models import MemoryNote
 from memory_system.storage.text_utils import normalize_storage_text
+from prompt_library.agent_prompts import MEMORY_SYSTEM_AGENT_MEMORY_MAINTENANCE_PROMPT
 from runtime.model_gateway.model_runtime import utility_accounting_context
 
 from .environment_context import resolve_memory_environment_context
@@ -24,10 +26,72 @@ from .session_emphasis import SessionEmphasisCaptureGate, SessionEmphasisStore
 
 MEMORY_MANAGER_AGENT_ID = "agent:1"
 MEMORY_MANAGER_PROFILE_ID = "memory_system_agent"
+MEMORY_MANAGER_RUNTIME_TEMPLATE_IDS = ("builtin.system.memory_manager", "runtime.template.memory_manager")
+MEMORY_MANAGER_PROMPT_REF = "agent.memory_system_agent.memory_maintenance.work_role.v1"
+MEMORY_MANAGER_ALLOWED_OPERATIONS = {"op.model_response", "op.memory_read", "op.memory_write_candidate"}
+MEMORY_MANAGER_REQUIRED_SCOPES = {
+    "conversation_readonly",
+    "state_readonly",
+    "long_term_candidate",
+    "session_memory_write_candidate",
+    "durable_memory_write_candidate",
+}
+MEMORY_MANAGER_BLOCKED_SIDE_EFFECTS = {
+    "op.write_file",
+    "op.edit_file",
+    "op.shell",
+    "op.python_repl",
+    "op.agent_bounded",
+    "op.web_search",
+}
 ALLOWED_DURABLE_MEMORY_TYPES = {"user", "feedback", "project", "reference"}
 ALLOWED_DURABLE_MEMORY_CLASSES = {"work", "preference"}
 REJECTED_DURABLE_ORIGINS = {"assistant_inferred_fact", "temporary_task_state"}
 REJECTED_EVIDENCE_SOURCE_KINDS = {"assistant_summary", "runtime_state", "unknown"}
+
+
+@dataclass(frozen=True, slots=True)
+class MemoryMaintenanceAgentRegistration:
+    agent_id: str
+    agent_profile_id: str
+    runtime_template_id: str = ""
+    allowed_operations: tuple[str, ...] = ()
+    blocked_operations: tuple[str, ...] = ()
+    allowed_memory_scopes: tuple[str, ...] = ()
+    prompt_refs_by_invocation: dict[str, tuple[str, ...]] | None = None
+    allow_nested_subagents: bool = False
+    authority: str = "memory_system.memory_maintenance_agent_registration"
+
+    def to_dict(self) -> dict[str, Any]:
+        payload = asdict(self)
+        payload["allowed_operations"] = list(self.allowed_operations)
+        payload["blocked_operations"] = list(self.blocked_operations)
+        payload["allowed_memory_scopes"] = list(self.allowed_memory_scopes)
+        payload["prompt_refs_by_invocation"] = {
+            key: list(value)
+            for key, value in dict(self.prompt_refs_by_invocation or {}).items()
+        }
+        return payload
+
+
+def memory_maintenance_registration_from_profile(profile: Any) -> MemoryMaintenanceAgentRegistration:
+    metadata = dict(getattr(profile, "metadata", {}) or {})
+    subagent_policy = getattr(profile, "subagent_policy", None)
+    registration = MemoryMaintenanceAgentRegistration(
+        agent_id=str(getattr(profile, "agent_id", "") or ""),
+        agent_profile_id=str(getattr(profile, "agent_profile_id", "") or ""),
+        runtime_template_id=str(metadata.get("runtime_template_id") or ""),
+        allowed_operations=tuple(str(item) for item in tuple(getattr(profile, "allowed_operations", ()) or ()) if str(item)),
+        blocked_operations=tuple(str(item) for item in tuple(getattr(profile, "blocked_operations", ()) or ()) if str(item)),
+        allowed_memory_scopes=tuple(str(item) for item in tuple(getattr(profile, "allowed_memory_scopes", ()) or ()) if str(item)),
+        prompt_refs_by_invocation={
+            str(key): tuple(str(item) for item in list(value or []) if str(item))
+            for key, value in dict(metadata.get("agent_prompt_refs_by_invocation") or {}).items()
+        },
+        allow_nested_subagents=bool(getattr(subagent_policy, "allow_nested_subagents", False)),
+    )
+    _validate_memory_maintenance_registration(registration)
+    return registration
 
 
 def utc_now_iso() -> str:
@@ -57,6 +121,37 @@ def _main_context_has_compact_pressure(main_context: dict[str, Any]) -> bool:
     if pressure in {"warning", "high", "critical", "compact", "full_compact"}:
         return True
     return bool(main_context.get("compact_required") or main_context.get("needs_compaction"))
+
+
+def _validate_memory_maintenance_registration(registration: MemoryMaintenanceAgentRegistration) -> None:
+    errors: list[str] = []
+    if registration.agent_id != MEMORY_MANAGER_AGENT_ID:
+        errors.append("agent_id_must_be_agent_1")
+    if registration.agent_profile_id != MEMORY_MANAGER_PROFILE_ID:
+        errors.append("agent_profile_id_must_be_memory_system_agent")
+    if registration.runtime_template_id and registration.runtime_template_id not in MEMORY_MANAGER_RUNTIME_TEMPLATE_IDS:
+        errors.append("runtime_template_id_must_be_memory_manager")
+    allowed = set(registration.allowed_operations)
+    if "op.model_response" not in allowed:
+        errors.append("memory_manager_requires_model_response_operation")
+    extra_operations = sorted(allowed - MEMORY_MANAGER_ALLOWED_OPERATIONS)
+    if extra_operations:
+        errors.append("memory_manager_has_disallowed_operations:" + ",".join(extra_operations))
+    blocked = set(registration.blocked_operations)
+    missing_blocked = sorted(MEMORY_MANAGER_BLOCKED_SIDE_EFFECTS - blocked)
+    if missing_blocked:
+        errors.append("memory_manager_missing_blocked_side_effects:" + ",".join(missing_blocked))
+    scopes = set(registration.allowed_memory_scopes)
+    missing_scopes = sorted(MEMORY_MANAGER_REQUIRED_SCOPES - scopes)
+    if missing_scopes:
+        errors.append("memory_manager_missing_memory_scopes:" + ",".join(missing_scopes))
+    prompt_refs = dict(registration.prompt_refs_by_invocation or {})
+    if MEMORY_MANAGER_PROMPT_REF not in set(prompt_refs.get("memory_maintenance") or ()):
+        errors.append("memory_manager_missing_memory_maintenance_prompt_ref")
+    if registration.allow_nested_subagents:
+        errors.append("memory_manager_must_not_allow_nested_subagents")
+    if errors:
+        raise ValueError("invalid registered memory maintenance agent: " + ";".join(errors))
 
 
 class SessionMemoryMaintenanceDraft(BaseModel):
@@ -412,8 +507,15 @@ def _callable_accepts_kwarg(callback: Callable[..., Any], kwarg: str) -> bool:
 class MemoryMaintenanceAgent:
     """Model-backed agent:1 implementation that returns proposals only."""
 
-    def __init__(self, *, message_invoker: MessageInvoker | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        message_invoker: MessageInvoker | None = None,
+        registration: MemoryMaintenanceAgentRegistration,
+    ) -> None:
         self._message_invoker = message_invoker
+        self.registration = registration
+        _validate_memory_maintenance_registration(self.registration)
 
     def set_message_invoker(self, message_invoker: MessageInvoker | None) -> None:
         self._message_invoker = message_invoker
@@ -443,21 +545,7 @@ class MemoryMaintenanceAgent:
         return self._proposal_from_payload(payload)
 
     def system_prompt(self) -> str:
-        return (
-            "你是一名记忆管理员。\n"
-            "你只负责整理当前会话中对后续继续工作有帮助的信息，并提出结构化记忆候选。\n"
-            "你不回答用户，不推进任务，不修复问题，也不替主 Agent 做任务决策。\n"
-            "你需要区分三类内容：会话工作恢复摘要、本会话用户显式强调事项、跨会话长期记忆候选。\n"
-            "Session Memory 只服务当前会话的 compact/recovery，要记录当前目标、工作状态、关键文件、结果、纠错和下一步。\n"
-            "Session Emphasis 只保存用户在本会话中显式强调的要求、纠正、约束和优先级；不要记录 assistant 自己总结出的偏好。\n"
-            "Durable Memory 只保存跨会话仍然有价值、稳定、非显而易见的信息，分类只能是 user、feedback、project。\n"
-            "不要把临时运行状态、工具失败、调度限制、runtime 诊断、可从当前文件或索引重新推导的信息写入长期记忆。\n"
-            "不要保存代码模式、Git 历史、调试方案、已存在于项目指令中的规则，或只对本轮任务有用的过程记录。\n"
-            "你不能决定物理存储路径、跨环境提升、active 注入或删除；这些由系统提交层校验。\n"
-            "如果没有可靠的长期记忆，durable_memory.actions 返回空数组，并说明 skipped_reason。\n"
-            "每条长期记忆写入都必须包含 evidence_excerpt 和 source_message_refs。\n"
-            "你只能输出 JSON，不要输出 Markdown、解释或给用户看的回答。"
-        )
+        return MEMORY_SYSTEM_AGENT_MEMORY_MAINTENANCE_PROMPT
 
     def output_schema_prompt(self) -> str:
         return "请严格输出符合以下结构的 JSON：\n" + json.dumps(self._output_schema_hint(), ensure_ascii=False, indent=2)
@@ -548,6 +636,7 @@ class MemoryMaintenanceAgent:
                 "response_keys": sorted(str(key) for key in payload.keys()),
                 "agent_id": MEMORY_MANAGER_AGENT_ID,
                 "agent_profile_id": MEMORY_MANAGER_PROFILE_ID,
+                "agent_registration": self.registration.to_dict(),
                 "proposal_only": True,
             },
         )
@@ -1075,7 +1164,7 @@ class MemoryMaintenanceCoordinator:
         bundle_summary_refs: list[dict[str, Any]] | None = None,
         memory_environment_context: dict[str, Any] | None = None,
         durable_lane_enabled: bool = True,
-        force: bool = True,
+        force: bool = False,
     ) -> MemoryMaintenanceReceipt:
         safe_session_id = self._safe_session_id(session_id)
         message_count = len(messages or [])

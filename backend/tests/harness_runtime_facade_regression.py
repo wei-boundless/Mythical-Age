@@ -668,6 +668,29 @@ def test_public_stream_projection_emits_agent_feedback_before_tool_action() -> N
     assert items[1]["public_summary"] == "正在搜索引用 requestAnimationFrame"
 
 
+def test_native_tool_call_action_gets_public_agent_intent() -> None:
+    from harness.loop.single_agent_turn import _tool_action_request_from_native_tool_calls
+
+    request = _tool_action_request_from_native_tool_calls(
+        [
+            {
+                "id": "call-search-animation-loop",
+                "name": "search_text",
+                "args": {"query": "requestAnimationFrame"},
+            }
+        ],
+        turn_id="turn:public-native-intent:1",
+        packet_ref="packet:public-native-intent",
+        iteration=1,
+    )
+
+    assert request is not None
+    assert request.public_progress_note == "我先搜索 requestAnimationFrame 的相关引用，再根据结果判断下一步。"
+    assert request.public_action_state["current_judgment"] == request.public_progress_note
+    assert "已发起工具调用" not in request.public_progress_note
+    assert "search_text" not in request.public_progress_note
+
+
 def test_public_stream_projection_simplifies_image_generation_tool() -> None:
     projected = _project_public_stream_event(
         "model_action_admission",
@@ -2595,7 +2618,7 @@ def test_task_tool_batch_group_returns_completed_results_before_interrupt(monkey
                 tool_call={"tool_name": "read_file", "args": {"path": "README.md"}},
             ),
             "admission": SimpleNamespace(decision="allow"),
-            "tool_call": {"tool_name": "read_file", "args": {"path": "README.md"}},
+            "tool_calls": [{"tool_name": "read_file", "args": {"path": "README.md"}}],
         },
         {
             "action_request": SimpleNamespace(
@@ -3364,7 +3387,7 @@ def test_session_runtime_timeline_projects_tool_observation_as_agent_visible_obs
     public_timeline = timeline["runtime_attachments"][0]["public_timeline"]
     assert [item["kind"] for item in entries] == ["observation", "model"]
     assert entries[0]["kind"] == "observation"
-    assert entries[0]["title"] == "工具观察：image_generate"
+    assert entries[0]["title"] == "图像结果已返回"
     assert entries[0]["level"] == "error"
     assert entries[0]["body"] == "工具返回失败：Image API request timed out"
     assert entries[1]["kind"] == "model"
@@ -6775,7 +6798,7 @@ def test_task_execution_action_request_omits_empty_cross_context_fields() -> Non
                 "current_judgment": "需要读取文件确认状态。",
                 "next_action": "调用 read_file。",
             },
-            "tool_call": {"tool_name": "read_file", "args": {"path": "README.md"}},
+            "tool_calls": [{"tool_name": "read_file", "args": {"path": "README.md"}}],
             "selected_skill_ids": [],
             "task_contract_seed": {},
             "completion_contract": {},

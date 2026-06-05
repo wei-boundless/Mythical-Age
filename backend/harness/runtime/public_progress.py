@@ -7,7 +7,7 @@ from typing import Any
 _ACTION_SUMMARIES = {
     "respond": "正在整理回复。",
     "ask_user": "正在整理需要确认的信息。",
-    "tool_call": "已发起工具调用，正在等待工具返回。",
+    "tool_call": "正在执行下一步，拿到结果后继续判断。",
     "request_task_run": "正在建立任务运行。",
     "request_registered_engagement": "正在启动处理流程。",
     "block": "当前步骤遇到边界，正在收口说明。",
@@ -91,7 +91,7 @@ def public_runtime_progress_title(*, step: Any = "", status: Any = "", fallback:
     if step_text.startswith(("model_action_invocation_started", "model_action_received", "task_model_action_invocation_started")):
         return "正在思考"
     if step_text.startswith(("task_tool_", "tool_", "executor_observation", "bounded_observation")):
-        return "等待工具返回"
+        return "等待结果返回"
     if step_text.startswith(("task_completion_repair", "model_action_protocol_repair", "verification")):
         return "补齐证据"
     if step_text.endswith("completed") or status_text == "completed":

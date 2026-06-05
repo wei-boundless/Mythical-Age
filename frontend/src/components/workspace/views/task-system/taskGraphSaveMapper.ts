@@ -126,6 +126,7 @@ export function buildTaskGraphUpsertPayload({
     memory_sharing_policy: String(taskGraphDraft.context_policy.memory_sharing_policy ?? "isolated_by_default"),
   });
   const graphContractBindings = normalizeGraphContractBindings(taskGraphDraft);
+  const graphContractId = contractBindingValue(graphContractBindings, "schema", "graph_contract_id");
   const nodes = draftNodes;
   const edges = draftEdges;
 
@@ -138,7 +139,7 @@ export function buildTaskGraphUpsertPayload({
     output_node_id: taskGraphDraft.output_node_id,
     nodes,
     edges,
-    graph_contract_id: taskGraphDraft.graph_contract_id,
+    graph_contract_id: graphContractId,
     contract_bindings: graphContractBindings,
     default_protocol_id: taskGraphDraft.default_protocol_id,
     working_memory_policy_profile_id: workingMemoryProfileId,
@@ -173,12 +174,13 @@ function mergeSection(bindings: Record<string, unknown>, section: string, patch:
   return compactRecord({ ...bindings, [section]: next });
 }
 
+function contractBindingValue(bindings: Record<string, unknown>, section: string, key: string): string {
+  return String(asRecord(asRecord(bindings)[section])[key] ?? "").trim();
+}
+
 function normalizeGraphContractBindings(taskGraphDraft: TaskGraphDraftV2): Record<string, unknown> {
   let bindings = asRecord(taskGraphDraft.contract_bindings);
   const currentRuntime = asRecord(bindings.runtime);
-  bindings = mergeSection(bindings, "schema", {
-    graph_contract_id: taskGraphDraft.graph_contract_id || undefined,
-  });
   bindings = mergeSection(bindings, "runtime", {
     length_budget: asRecord(currentRuntime.length_budget),
     runtime_policy: asRecord(taskGraphDraft.runtime_policy),
@@ -196,20 +198,15 @@ function normalizeGraphContractBindings(taskGraphDraft: TaskGraphDraftV2): Recor
 function normalizeNodeContractBindings(node: TaskGraphNodeRecord): TaskGraphNodeRecord {
   let bindings = asRecord(node.contract_bindings);
   const currentRuntime = asRecord(bindings.runtime);
-  const legacyMetadata = asRecord(node.metadata);
-  const nodeConfigId = String(node.node_config_id ?? legacyMetadata.node_config_id ?? "").trim();
+  const sourceMetadata = asRecord(node.metadata);
+  const nodeConfigId = String(node.node_config_id ?? "").trim();
   const nodeConfigOverrides = asRecord(node.node_config_overrides);
   const metadata = compactRecord(
     Object.fromEntries(
-      Object.entries(legacyMetadata).filter(([key]) => key !== "node_config_id" && key !== "node_config_overrides"),
+      Object.entries(sourceMetadata).filter(([key]) => key !== "node_config_id" && key !== "node_config_overrides"),
     ),
   );
-  bindings = mergeSection(bindings, "schema", {
-    input_contract_id: String(node.input_contract_id ?? "").trim() || undefined,
-    output_contract_id: String(node.output_contract_id ?? "").trim() || undefined,
-  });
   bindings = mergeSection(bindings, "execution", {
-    node_contract_id: String(node.node_contract_id ?? node.contract_id ?? "").trim() || undefined,
     executor_policy: asRecord(node.executor_policy),
   });
   bindings = mergeSection(bindings, "artifact", {
@@ -234,8 +231,15 @@ function normalizeNodeContractBindings(node: TaskGraphNodeRecord): TaskGraphNode
     notification_policy: asRecord(node.notification_policy),
     failure_policy: asRecord(node.failure_policy),
   });
+  const inputContractId = contractBindingValue(bindings, "schema", "input_contract_id");
+  const outputContractId = contractBindingValue(bindings, "schema", "output_contract_id");
+  const nodeContractId = contractBindingValue(bindings, "execution", "node_contract_id");
   return {
     ...node,
+    contract_id: undefined,
+    input_contract_id: inputContractId || undefined,
+    output_contract_id: outputContractId || undefined,
+    node_contract_id: nodeContractId || undefined,
     ...(nodeConfigId ? { node_config_id: nodeConfigId } : {}),
     ...(Object.keys(nodeConfigOverrides).length ? { node_config_overrides: nodeConfigOverrides } : {}),
     ...(Object.keys(metadata).length ? { metadata } : { metadata: undefined }),
@@ -245,9 +249,6 @@ function normalizeNodeContractBindings(node: TaskGraphNodeRecord): TaskGraphNode
 
 function normalizeEdgeContractBindings(edge: TaskGraphEdgeRecord): TaskGraphEdgeRecord {
   let bindings = asRecord(edge.contract_bindings);
-  bindings = mergeSection(bindings, "schema", {
-    payload_contract_id: String(edge.payload_contract_id ?? edge.contract_id ?? "").trim() || undefined,
-  });
   bindings = mergeSection(bindings, "handoff", {
     ack_policy: String(edge.ack_policy ?? "").trim() || undefined,
     timeout_policy: String(edge.timeout_policy ?? "").trim() || undefined,
@@ -265,5 +266,11 @@ function normalizeEdgeContractBindings(edge: TaskGraphEdgeRecord): TaskGraphEdge
     artifact_ref_policy: asRecord(edge.artifact_ref_policy),
   });
   bindings = mergeSection(bindings, "temporal", asRecord(asRecord(edge.metadata).temporal_semantics));
-  return { ...edge, contract_bindings: bindings };
+  const payloadContractId = contractBindingValue(bindings, "schema", "payload_contract_id");
+  return {
+    ...edge,
+    contract_id: undefined,
+    payload_contract_id: payloadContractId || undefined,
+    contract_bindings: bindings,
+  };
 }

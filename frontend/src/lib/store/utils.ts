@@ -63,17 +63,6 @@ export function looksLikeSkillDocumentPrefix(text: string) {
   );
 }
 
-const PUBLIC_PROTOCOL_BLOCK_RE = /<｜｜DSML｜｜tool_calls>[\s\S]*?<\/｜｜DSML｜｜tool_calls>/g;
-const PUBLIC_PROTOCOL_PARAMETER_RE = /(?:^|\n)\s*name="[^"]+"\s+string="(?:true|false)">[\s\S]*?<\/｜｜DSML｜｜parameter>/g;
-
-function stripPublicProtocolBlocks(text: string) {
-  const raw = String(text || "");
-  const cleaned = raw
-    .replace(PUBLIC_PROTOCOL_BLOCK_RE, "")
-    .replace(PUBLIC_PROTOCOL_PARAMETER_RE, "");
-  return cleaned === raw ? raw : cleaned.trim();
-}
-
 export function sanitizeToolCall(toolCall: ToolCall): ToolCall | null {
   if (isInternalSkillRead(toolCall)) {
     return null;
@@ -157,7 +146,7 @@ export function toUiMessages(history: SessionHistory["messages"], runtimeAttachm
       if (message.role === "assistant" && toolCalls.length > 0) {
         return null;
       }
-      const content = stripPublicProtocolBlocks(message.content ?? "");
+      const content = message.content ?? "";
       if (message.role === "assistant" && looksLikeSkillDocument(content) && toolCalls.length === 0) {
         return null;
       }

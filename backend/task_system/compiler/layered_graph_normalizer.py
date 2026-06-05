@@ -635,11 +635,6 @@ def _timeline_block_payload(payload: dict[str, Any], index: int) -> dict[str, An
     block_id = str(payload.get("block_id") or payload.get("id") or f"timeline_block_{index + 1}").strip()
     contract_bindings = dict(payload.get("contract_bindings") or {})
     metadata = dict(payload.get("metadata") or {})
-    legacy_handoff_contract_id = str(payload.get("handoff_contract_id") or "").strip()
-    if legacy_handoff_contract_id:
-        legacy_contract_fields = dict(metadata.get("legacy_contract_fields") or {})
-        legacy_contract_fields.setdefault("handoff_contract_id", legacy_handoff_contract_id)
-        metadata["legacy_contract_fields"] = legacy_contract_fields
     handoff_contract_id = _timeline_block_handoff_contract_id(payload)
     return {
         "block_id": block_id or f"timeline_block_{index + 1}",
@@ -663,7 +658,7 @@ def _timeline_block_payload(payload: dict[str, Any], index: int) -> dict[str, An
 def _timeline_block_handoff_contract_id(payload: dict[str, Any]) -> str:
     contract_bindings = dict(payload.get("contract_bindings") or {})
     handoff_bindings = dict(contract_bindings.get("handoff") or {})
-    return str(handoff_bindings.get("handoff_contract_id") or payload.get("handoff_contract_id") or "").strip()
+    return str(handoff_bindings.get("handoff_contract_id") or "").strip()
 
 
 def _memory_matrix(

@@ -6,7 +6,6 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
-from context_system import ContextController
 from context_system.budget.presets import get_context_budget_preset
 from project_layout import ProjectLayout
 from runtime.output_boundary import sanitize_visible_assistant_content
@@ -198,15 +197,6 @@ class SessionMemoryLayer:
         budget = self._context_budget()
         return ContextCompactor(
             self.manager(session_id),
-            effective_history_token_budget=int(budget["available_context_tokens"]),
-            **self._compactor_kwargs(session_id),
-        )
-
-    def context_controller(self, session_id: str) -> ContextController:
-        budget = self._context_budget()
-        return ContextController(
-            self.manager(session_id),
-            reserved_output_tokens=int(budget["reserved_output_tokens"]),
             effective_history_token_budget=int(budget["available_context_tokens"]),
             **self._compactor_kwargs(session_id),
         )

@@ -83,6 +83,7 @@ def test_skills_registry_snapshot_matches_scanner_contract() -> None:
     assert registry["skill_count"] == len(skills)
     assert all(item["schema_version"] == 3 for item in registry["skills"])
     assert all("runtime" in item and "prompt" in item for item in registry["skills"])
+    assert all("name" not in item and "description" not in item and "path" not in item for item in registry["skills"])
     assert all(item["validation_errors"] == [] for item in registry["skills"])
 
     prompt = SkillPromptContract(

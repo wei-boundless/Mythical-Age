@@ -12,7 +12,7 @@ describe("TaskGraph timeline layering", () => {
         phase_id: "phase.design",
         entry_node_id: "world.plan",
         exit_node_id: "outline.commit",
-        handoff_contract_id: "contract.design.handoff",
+        contract_bindings: { handoff: { handoff_contract_id: "contract.design.handoff" } },
         visibility_policy: "committed_only",
         version_ref: "v1",
       }],
@@ -23,14 +23,13 @@ describe("TaskGraph timeline layering", () => {
     expect(blocks[0]?.detach_policy).toBe("preserve_version_anchor");
   });
 
-  it("uses timeline block contract_bindings before legacy handoff fields", () => {
+  it("uses timeline block contract_bindings for handoff contracts", () => {
     const blocks = coordinationTimelineBlocks({
       timeline_blocks: [{
         block_id: "block.creation",
         block_type: "creation_graph",
         title: "创作阶段图",
         phase_id: "phase.creation",
-        handoff_contract_id: "contract.legacy.handoff",
         contract_bindings: {
           handoff: { handoff_contract_id: "contract.binding.handoff" },
         },
@@ -84,7 +83,7 @@ describe("TaskGraph timeline layering", () => {
           phase_id: "phase.plan",
           entry_node_id: "plan",
           exit_node_id: "execute",
-          handoff_contract_id: "contract.phase.plan",
+          contract_bindings: { handoff: { handoff_contract_id: "contract.phase.plan" } },
           version_ref: "template",
         }],
       },

@@ -92,7 +92,6 @@ function edgePayloadContractId(edge: Record<string, unknown>) {
     ?? contractBindingSection(edge, "semantic").relation_id,
   );
   return contractBindingValue(edge, "schema", "payload_contract_id")
-    || stringValue(edge.payload_contract_id ?? edge.contract_id)
     || (semanticRelationId ? `semantic:${semanticRelationId}` : "");
 }
 
@@ -292,25 +291,9 @@ export function buildTaskGraphPreflightReport({
     const metadata = node.metadata && typeof node.metadata === "object" && !Array.isArray(node.metadata)
       ? node.metadata as Record<string, unknown>
       : {};
-    const legacyMigration = metadata.legacy_prompt_migration && typeof metadata.legacy_prompt_migration === "object" && !Array.isArray(metadata.legacy_prompt_migration)
-      ? metadata.legacy_prompt_migration as Record<string, unknown>
-      : {};
-    const legacyFieldNames = Array.isArray(legacyMigration.legacy_field_names)
-      ? legacyMigration.legacy_field_names.map((value) => stringValue(value)).filter(Boolean)
-      : [];
     const explicitRolePrompt = stringValue(node.role_prompt ?? metadata.role_prompt ?? node.prompt);
     const hasPromptSemantics = nodePromptSemanticParts(node, metadata).length > 0;
-    if (!explicitRolePrompt && legacyFieldNames.length > 0) {
-      pushIssue(issues, {
-        severity: "warning",
-        scope: "node",
-        target_id: nodeId,
-        title: "旧职责字段尚未收口",
-        detail: "该节点仍保留旧职责字段，请合并为面向 Agent 的角色 Prompt，并明确职责、边界和裁决要求。",
-        source: "frontend.preflight.prompt_semantics",
-      });
-    }
-    if (!hasPromptSemantics && legacyFieldNames.length === 0 && agentId) {
+    if (!hasPromptSemantics && agentId) {
       pushIssue(issues, {
         severity: "info",
         scope: "node",
@@ -347,7 +330,7 @@ export function buildTaskGraphPreflightReport({
 
     const reviewGatePolicy = recordValue(node.review_gate_policy);
     const isReviewGate = reviewGatePolicy.is_review_gate === true || stringValue(node.node_type) === "review_gate";
-    if (isReviewGate && !stringValue(reviewGatePolicy.verdict_contract_id ?? node.output_contract_id)) {
+    if (isReviewGate && !stringValue(reviewGatePolicy.verdict_contract_id ?? contractBindingValue(node, "schema", "output_contract_id"))) {
       pushIssue(issues, {
         severity: "warning",
         scope: "node",

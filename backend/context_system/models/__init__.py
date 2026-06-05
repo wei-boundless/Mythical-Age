@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from context_system.models.context_models import (
     ContextBudget,
-    ContextControllerResult,
     ContextPackage,
     PressureLevel,
     SealedContextLedgerEntry,
@@ -11,7 +10,6 @@ from context_system.models.context_models import (
 
 __all__ = [
     "ContextBudget",
-    "ContextControllerResult",
     "ContextPackage",
     "PressureLevel",
     "SealedContextLedgerEntry",

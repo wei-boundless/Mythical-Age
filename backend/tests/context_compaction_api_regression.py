@@ -215,34 +215,18 @@ def test_auto_compact_if_needed_does_not_use_history_fallback_when_session_press
     assert len(record["messages"]) == original_count
 
 
-def test_compaction_writeback_keeps_protocol_messages_out_of_public_history() -> None:
+def test_compaction_writeback_keeps_structured_tool_messages_out_of_public_history() -> None:
     stored = _stored_messages_after_compact(
         [
             Message(role="user", content="修复 bug"),
             Message(role="tool", content="Edit failed: old_text not found"),
-            Message(
-                role="assistant",
-                content=(
-                    "我看到文件里已经有一部分 timer 递减代码了。\n\n"
-                    "<｜｜DSML｜｜tool_calls>\n"
-                    "<｜｜DSML｜｜invoke name=\"read_file\"></｜｜DSML｜｜invoke>\n"
-                    "</｜｜DSML｜｜tool_calls>"
-                ),
-            ),
-            Message(
-                role="assistant",
-                content=(
-                    "好的，我来进入持续执行流程。\n\n"
-                    "name=\"task_run_goal\" string=\"true\">修复页面消息装载</｜｜DSML｜｜parameter>"
-                ),
-            ),
+            Message(role="assistant", content="已完成修复。"),
         ]
     )
 
     assert stored == [
         {"role": "user", "content": "修复 bug"},
-        {"role": "assistant", "content": "我看到文件里已经有一部分 timer 递减代码了。"},
-        {"role": "assistant", "content": "好的，我来进入持续执行流程。"},
+        {"role": "assistant", "content": "已完成修复。"},
     ]
 
 

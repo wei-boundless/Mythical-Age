@@ -925,6 +925,37 @@ function drawFallbackRect(ctx, x, y, w, h, color, icon) {
   }
 }
 
+// 回退方块渲染：当图片加载失败时，用彩色方块 + 图标替代
+function drawFallbackRect(ctx, x, y, w, h, color, icon) {
+  // 圆角矩形背景
+  const r = 6;
+  ctx.fillStyle = color || "#888";
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  ctx.lineTo(x + r, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.closePath();
+  ctx.fill();
+  // 边框
+  ctx.strokeStyle = "rgba(255,255,255,0.5)";
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+  // 图标/文字
+  if (icon) {
+    ctx.fillStyle = "#fff";
+    ctx.font = (w > 40 ? "16px" : "11px") + " sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(icon, x + w / 2, y + h / 2);
+  }
+}
+
 // 自绘怪物精灵：每种怪物用 Canvas 形状绘制
 function drawMonsterSprite(ctx, mon, x, y, w, h, state) {
   const t = (state.animTick || 0) / 60; // 秒级时间

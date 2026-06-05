@@ -135,6 +135,7 @@ def test_facade_marks_dirty_and_forwards_namespaced_durable_save_event(tmp_path:
             {"role": "assistant", "content": "收到。"},
         ],
         main_context={"task_environment": {"environment_id": "env.coding.test"}},
+        force=True,
     )
     namespace_id = durable_memory_namespace_id_for_task_environment("env.coding.test")
     namespaces = facade.governance_service.describe_runtime_state()["namespaces"]

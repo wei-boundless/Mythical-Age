@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import json
+from types import SimpleNamespace
+
 from memory_system import MemoryFacade
 from memory_system.contracts import MemoryContextCandidate
 from memory_system.runtime_view import MemoryRuntimeView
@@ -9,6 +12,26 @@ from memory_system.storage.models import MemoryNote
 from memory_system.storage.process_state import ContextSlots, ProcessState
 from prompting.builder import _render_context_package_block
 from token_accounting import count_text_tokens
+
+
+def _durable_recall_selector(*note_ids: str):
+    async def invoke(_messages, *, accounting_context=None):
+        return SimpleNamespace(
+            content=json.dumps(
+                {
+                    "should_recall": bool(note_ids),
+                    "selected_note_ids": list(note_ids),
+                    "reason": "test selector",
+                    "confidence": 0.91,
+                    "needs_verification": False,
+                    "manifest_only": False,
+                    "ignore_memory": False,
+                },
+                ensure_ascii=False,
+            )
+        )
+
+    return invoke
 
 
 def test_context_policy_builds_package_from_memory_runtime_view(tmp_path) -> None:
@@ -40,11 +63,12 @@ _Current-turn outputs, conclusions, or artifacts that remain active._
         memory_type="project",
         memory_class="work",
     )
+    facade.memory_manager.save_note(note)
+    facade.durable_memory.set_message_invoker(_durable_recall_selector("context-policy-principle"))
 
     result = facade.bundle_service.build_memory_context_package_result(
         session_id=session_id,
         query="记忆系统原则是什么？",
-        relevant_notes=[note],
         memory_request_profile={
             "requested_memory_layers": ["state", "long_term"],
             "allow_long_term_memory": True,

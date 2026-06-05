@@ -23,19 +23,21 @@ def test_skill_contract_normalizes_and_validates_runtime_fields() -> None:
     assert "技能：演示 Skill" in contract.prompt.render_block()
 
 
-def test_skill_contract_accepts_historical_registry_payload() -> None:
+def test_skill_contract_rejects_historical_flat_registry_payload() -> None:
     contract = SkillContract.from_payload(
         {
             "name": "historic-skill",
             "title": "历史 Skill",
-            "description": "旧版 registry 仍可兼容。",
+            "description": "旧版 registry 扁平结构。",
             "path": "capability_system/skills/builtin/historic-skill/SKILL.md",
         }
     )
 
-    assert contract.runtime.name == "historic-skill"
-    assert contract.prompt.capability == "旧版 registry 仍可兼容。"
-    assert contract.to_registry_record()["schema_version"] == 3
+    assert contract.runtime.name == ""
+    assert "name is required" in contract.validation_errors
+    assert "title is required" in contract.validation_errors
+    assert "description is required" in contract.validation_errors
+    assert "path is required" in contract.validation_errors
 
 
 def test_skill_contract_does_not_default_unknown_route_to_rag() -> None:
@@ -69,15 +71,22 @@ def test_skill_contract_requires_explicit_operation_for_known_routes() -> None:
 def test_skill_contract_preserves_negative_activation_guidance() -> None:
     contract = SkillContract.from_payload(
         {
-            "name": "research-skill",
-            "title": "研究 Skill",
-            "description": "用于验证不适用场景。",
-            "path": "capability_system/skills/builtin/research-skill/SKILL.md",
-            "not_for": ["只需要一条新闻时不要使用。"],
+            "runtime": {
+                "name": "research-skill",
+                "title": "研究 Skill",
+                "description": "用于验证不适用场景。",
+                "path": "capability_system/skills/builtin/research-skill/SKILL.md",
+                "not_for": ["只需要一条新闻时不要使用。"],
+            },
+            "prompt": {
+                "name": "research-skill",
+                "title": "研究 Skill",
+                "capability": "用于验证不适用场景。",
+            },
         }
     )
 
     assert contract.runtime.not_for == ["只需要一条新闻时不要使用。"]
-    assert contract.to_registry_record()["not_for"] == ["只需要一条新闻时不要使用。"]
+    assert contract.to_registry_record()["runtime"]["not_for"] == ["只需要一条新闻时不要使用。"]
 
 

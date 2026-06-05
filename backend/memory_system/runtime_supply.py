@@ -242,7 +242,6 @@ class MemorySupplier:
         plan: MemoryReadPlan,
         query: str | None = None,
         memory_intent: Any | None = None,
-        relevant_notes: list[Any] | None = None,
     ) -> MemoryCandidatePool:
         base_candidates = self._base_candidates(memory_service, session_id=session_id, plan=plan)
         long_term_candidates = (
@@ -253,7 +252,6 @@ class MemorySupplier:
                         plan=plan,
                         query=query,
                         memory_intent=memory_intent,
-                        relevant_notes=relevant_notes,
                     )
                 )
             )
@@ -273,7 +271,6 @@ class MemorySupplier:
         plan: MemoryReadPlan,
         query: str | None = None,
         memory_intent: Any | None = None,
-        relevant_notes: list[Any] | None = None,
     ) -> MemoryCandidatePool:
         base_candidates = self._base_candidates(memory_service, session_id=session_id, plan=plan)
         long_term_candidates = (
@@ -284,7 +281,6 @@ class MemorySupplier:
                         plan=plan,
                         query=query,
                         memory_intent=memory_intent,
-                        relevant_notes=relevant_notes,
                     )
                 )
             )
@@ -328,13 +324,11 @@ class MemorySupplier:
         plan: MemoryReadPlan,
         query: str | None,
         memory_intent: Any | None,
-        relevant_notes: list[Any] | None,
     ) -> dict[str, Any]:
         return {
             "session_id": session_id,
             "query": query,
             "memory_intent": memory_intent,
-            "relevant_notes": relevant_notes,
             "note_limit": plan.note_limit,
             "main_context": plan.main_context,
             "task_summaries": list(plan.task_summaries),
@@ -353,7 +347,6 @@ def build_memory_runtime_view(
     query: str | None = None,
     memory_intent: Any | None = None,
     memory_request_profile: dict[str, Any] | None = None,
-    relevant_notes: list[Any] | None = None,
     note_limit: int = 5,
     orchestrator: MemoryOrchestrator | None = None,
     supplier: MemorySupplier | None = None,
@@ -368,7 +361,6 @@ def build_memory_runtime_view(
         plan=read_plan,
         query=query,
         memory_intent=memory_intent,
-        relevant_notes=relevant_notes,
     )
     return _runtime_view_from_candidate_pool(session_id=session_id, read_plan=read_plan, candidate_pool=candidate_pool)
 
@@ -436,7 +428,6 @@ async def abuild_memory_runtime_view(
     query: str | None = None,
     memory_intent: Any | None = None,
     memory_request_profile: dict[str, Any] | None = None,
-    relevant_notes: list[Any] | None = None,
     note_limit: int = 5,
     orchestrator: MemoryOrchestrator | None = None,
     supplier: MemorySupplier | None = None,
@@ -451,7 +442,6 @@ async def abuild_memory_runtime_view(
         plan=read_plan,
         query=query,
         memory_intent=memory_intent,
-        relevant_notes=relevant_notes,
     )
     return _runtime_view_from_candidate_pool(session_id=session_id, read_plan=read_plan, candidate_pool=candidate_pool)
 

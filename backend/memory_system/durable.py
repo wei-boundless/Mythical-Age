@@ -277,12 +277,8 @@ class DurableMemoryLayer:
         session_summary: str = "",
         recently_surfaced_note_ids: list[str] | None = None,
         recent_tools: list[str] | None = None,
-        selected_notes: list[Any] | None = None,
     ) -> MemoryRecallResult:
         self._ensure_runtime_index()
-        if selected_notes:
-            return self._result_from_preselected_notes(selected_notes)
-
         request = self.build_recall_request(
             query=query,
             memory_intent=memory_intent,
@@ -295,7 +291,7 @@ class DurableMemoryLayer:
         if self._has_running_loop():
             selection = MemoryRecallSelection(
                 should_recall=False,
-                reason="sync_recall_inside_running_loop_requires_preselected_notes_or_async_call",
+                reason="sync_recall_inside_running_loop_requires_async_call",
                 confidence=1.0,
             )
         else:
@@ -317,12 +313,8 @@ class DurableMemoryLayer:
         session_summary: str = "",
         recently_surfaced_note_ids: list[str] | None = None,
         recent_tools: list[str] | None = None,
-        selected_notes: list[Any] | None = None,
     ) -> MemoryRecallResult:
         self._ensure_runtime_index()
-        if selected_notes:
-            return self._result_from_preselected_notes(selected_notes)
-
         request = self.build_recall_request(
             query=query,
             memory_intent=memory_intent,
@@ -422,24 +414,6 @@ class DurableMemoryLayer:
                 lines.append(f"Details: {detail}")
             lines.append("")
         return "\n".join(lines).strip()
-
-    def _result_from_preselected_notes(
-        self,
-        selected_notes: list[Any],
-    ) -> MemoryRecallResult:
-        note_dicts = [self._note_to_dict(note) for note in selected_notes]
-        selected_headers = [self._header_dict_from_note_dict(note) for note in note_dicts]
-        return MemoryRecallResult(
-            selection=MemoryRecallSelection(
-                should_recall=bool(note_dicts),
-                selected_note_ids=[str(item.get("note_id", "") or "") for item in selected_headers],
-                reason="preselected_notes",
-                confidence=1.0 if note_dicts else 0.0,
-            ),
-            selected_headers=selected_headers,
-            selected_notes=note_dicts,
-            rendered_summary=self._render_selected_summary(note_dicts),
-        )
 
     def _result_from_selection(
         self,

@@ -10,8 +10,6 @@ __all__ = [
     "ContextBudgetPreset",
     "ContextCandidateDecision",
     "ContextCompactor",
-    "ContextController",
-    "ContextControllerResult",
     "ContextPackage",
     "ContextPolicyResult",
     "ContextProjection",
@@ -41,8 +39,6 @@ _EXPORTS = {
     "ContextBudgetPreset": ("context_system.budget.presets", "ContextBudgetPreset"),
     "ContextCandidateDecision": ("context_system.policy.contracts", "ContextCandidateDecision"),
     "ContextCompactor": ("context_system.compaction.compactor", "ContextCompactor"),
-    "ContextController": ("context_system.packaging.controller", "ContextController"),
-    "ContextControllerResult": ("context_system.models.context_models", "ContextControllerResult"),
     "ContextPackage": ("context_system.models.context_models", "ContextPackage"),
     "ContextPolicyResult": ("context_system.policy.contracts", "ContextPolicyResult"),
     "ContextProjection": ("context_system.projection.projection", "ContextProjection"),
@@ -76,13 +72,11 @@ if TYPE_CHECKING:
     from context_system.current_turn.turn_binding import BundleItem, TurnBinding, ResolvedBinding
     from context_system.models.context_models import (
         ContextBudget,
-        ContextControllerResult,
         ContextPackage,
         PressureLevel,
         SealedContextLedgerEntry,
         SealedContextReceipt,
     )
-    from context_system.packaging.controller import ContextController
     from context_system.policy import (
         ContextCandidateDecision,
         ContextPolicyResult,

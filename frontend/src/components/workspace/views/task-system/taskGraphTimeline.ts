@@ -35,7 +35,6 @@ export type TaskGraphTimelineFrame = {
   review_gate_node_id?: string;
   loop?: Record<string, unknown>;
   metadata?: Record<string, unknown>;
-  source_frame_type?: string;
 };
 
 export type TaskGraphTimelineBlock = {
@@ -46,7 +45,6 @@ export type TaskGraphTimelineBlock = {
   linked_graph_id?: string;
   entry_node_id?: string;
   exit_node_id?: string;
-  handoff_contract_id?: string;
   visibility_policy?: string;
   version_ref?: string;
   detach_policy?: string;
@@ -68,7 +66,7 @@ export type TaskGraphLifecycleCoordinate = {
   node_id: string;
   phase_id: string;
   sequence_index: number;
-  legacy_timeline_group_id: string;
+  timeline_group_id: string;
   main_chain: boolean;
   blocks_phase_exit: boolean;
 };
@@ -103,15 +101,15 @@ function contractBindingValue(target: Record<string, unknown>, section: string, 
 }
 
 function nodeContractIdOf(node: Record<string, unknown>): string {
-  return contractBindingValue(node, "execution", "node_contract_id") || String(node.node_contract_id ?? node.contract_id ?? "").trim();
+  return contractBindingValue(node, "execution", "node_contract_id");
 }
 
 function nodeOutputContractIdOf(node: Record<string, unknown>): string {
-  return contractBindingValue(node, "schema", "output_contract_id") || String(node.output_contract_id ?? "").trim();
+  return contractBindingValue(node, "schema", "output_contract_id");
 }
 
 export function timelineBlockHandoffContractIdOf(block: Record<string, unknown>): string {
-  return String(asRecord(asRecord(block.contract_bindings).handoff).handoff_contract_id ?? block.handoff_contract_id ?? "").trim();
+  return String(asRecord(asRecord(block.contract_bindings).handoff).handoff_contract_id ?? "").trim();
 }
 
 function asRecordArray(value: unknown): Array<Record<string, unknown>> {
@@ -207,7 +205,6 @@ export function coordinationTimelineFrames(metadata: Record<string, unknown> | u
         review_gate_node_id: String(item.review_gate_node_id ?? "").trim() || undefined,
         loop: asRecord(item.loop),
         metadata: asRecord(item.metadata),
-        source_frame_type: frameType,
       };
     })
     .filter((item) => item.frame_id);
@@ -225,7 +222,6 @@ export function coordinationTimelineBlocks(metadata: Record<string, unknown> | u
         linked_graph_id: String(item.linked_graph_id ?? item.graph_id ?? "").trim() || undefined,
         entry_node_id: String(item.entry_node_id ?? "").trim() || undefined,
         exit_node_id: String(item.exit_node_id ?? "").trim() || undefined,
-        handoff_contract_id: String(item.handoff_contract_id ?? "").trim() || undefined,
         visibility_policy: String(item.visibility_policy ?? "committed_only").trim() || "committed_only",
         version_ref: String(item.version_ref ?? "").trim() || undefined,
         detach_policy: String(item.detach_policy ?? "preserve_version_anchor").trim() || "preserve_version_anchor",
@@ -284,7 +280,7 @@ export function buildTimelinePhases({
         node_id: nodeId,
         phase_id: phase.phase_id,
         sequence_index: nodeSequenceIndex(node),
-        legacy_timeline_group_id: nodeTimelineGroupId(node),
+        timeline_group_id: nodeTimelineGroupId(node),
         main_chain: nodeMainChain(node),
         blocks_phase_exit: nodeBlocksPhaseExit(node),
       };
@@ -377,13 +373,6 @@ export function buildTimelinePreflightIssues(
   }
 
   for (const frame of timelineFrames) {
-    if (frame.source_frame_type === "step_frame") {
-      issues.push({
-        code: "timeline_frame_step_frame_legacy",
-        message: `Frame ${frame.title || frame.frame_id} 使用了已废弃的 step_frame；编辑器不再把运行 step 作为可建模结构。`,
-        severity: "warning",
-      });
-    }
     if (!frame.node_ids.length) {
       issues.push({ code: "timeline_frame_empty", message: `时序 Frame ${frame.title || frame.frame_id} 没有包含节点。`, severity: "warning" });
     }
@@ -431,7 +420,7 @@ export function buildTimelinePreflightIssues(
       issues.push({ code: "timeline_block_exit_unknown", message: `图块 ${block.title || block.block_id} 的出口节点不存在。`, severity: "error", node_id: block.exit_node_id, phase_id: block.phase_id });
     }
     if (!timelineBlockHandoffContractIdOf(block as unknown as Record<string, unknown>)) {
-      issues.push({ code: "timeline_block_handoff_contract_missing", message: `图块 ${block.title || block.block_id} 缺少 handoff_contract_id。`, severity: "warning", phase_id: block.phase_id });
+      issues.push({ code: "timeline_block_handoff_contract_missing", message: `图块 ${block.title || block.block_id} 缺少 contract_bindings.handoff.handoff_contract_id。`, severity: "warning", phase_id: block.phase_id });
     }
     const blockType = String(block.block_type ?? "").trim();
     const requiresLinkedGraph = ["graph_module", "imported_graph", "external_graph", "design_graph"].includes(blockType);

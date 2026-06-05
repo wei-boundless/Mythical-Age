@@ -50,14 +50,30 @@ def test_sse_decoder_rejects_unbounded_buffer() -> None:
         raise AssertionError("decoder accepted an unbounded SSE buffer")
 
 
-def test_client_stream_chat_posts_to_chat_api_and_yields_events() -> None:
-    captured: dict[str, object] = {}
+def test_client_stream_chat_uses_chat_run_api_and_yields_events() -> None:
+    calls: list[dict[str, object]] = []
 
     def opener(request, timeout):
-        captured["url"] = request.full_url
-        captured["method"] = request.get_method()
-        captured["body"] = request.data.decode("utf-8")
-        captured["timeout"] = timeout
+        call = {
+            "url": request.full_url,
+            "method": request.get_method(),
+            "body": request.data.decode("utf-8") if request.data else "",
+            "timeout": timeout,
+            "accept": request.get_header("Accept"),
+        }
+        calls.append(call)
+        if call["method"] == "POST":
+            return _Response(
+                [
+                    json.dumps(
+                        {
+                            "stream_run_id": "strun:cli",
+                            "event_log_id": "chatrun:cli",
+                            "latest_event_offset": -1,
+                        }
+                    ).encode("utf-8")
+                ]
+            )
         return _Response(
             [
                 b'event: content_delta\ndata: {"content": "hello"}\n\n',
@@ -69,31 +85,40 @@ def test_client_stream_chat_posts_to_chat_api_and_yields_events() -> None:
 
     events = list(client.stream_chat(session_id="session-1", message="hi"))
 
-    assert captured["url"] == "http://127.0.0.1:8003/api/chat"
-    assert captured["method"] == "POST"
-    assert '"stream": true' in str(captured["body"])
-    assert '"session_id": "session-1"' in str(captured["body"])
-    assert captured["timeout"] == 34
+    assert calls[0]["url"] == "http://127.0.0.1:8003/api/chat/runs"
+    assert calls[0]["method"] == "POST"
+    assert '"stream": true' in str(calls[0]["body"])
+    assert '"session_id": "session-1"' in str(calls[0]["body"])
+    assert calls[0]["timeout"] == 12
+    assert calls[1]["url"] == "http://127.0.0.1:8003/api/chat/runs/strun%3Acli/events?after_offset=-1"
+    assert calls[1]["method"] == "GET"
+    assert calls[1]["accept"] == "text/event-stream"
+    assert calls[1]["timeout"] == 34
     assert [event.event for event in events] == ["content_delta", "done"]
 
 
 def test_client_stream_chat_uses_no_socket_timeout_by_default() -> None:
-    captured: dict[str, object] = {}
+    timeouts: list[float | None] = []
 
     def opener(request, timeout):
-        captured["timeout"] = timeout
+        timeouts.append(timeout)
+        if request.get_method() == "POST":
+            return _Response([b'{"stream_run_id":"strun:cli","event_log_id":"chatrun:cli"}'])
         return _Response([b'event: done\ndata: {"content": ""}\n\n'])
 
     client = AgentCliClient(opener=opener)
 
     events = list(client.stream_chat(session_id="session-1", message="hi"))
 
-    assert captured["timeout"] is None
+    assert timeouts == [60.0, None]
     assert [event.event for event in events] == ["done"]
 
 
 def test_client_stream_chat_rejects_missing_terminal_event() -> None:
-    def opener(_request, timeout):
+    def opener(request, timeout):
+        if request.get_method() == "POST":
+            assert timeout == 60.0
+            return _Response([b'{"stream_run_id":"strun:cli","event_log_id":"chatrun:cli"}'])
         assert timeout is None
         return _Response([b'event: token\ndata: {"content": "partial"}\n\n'])
 
@@ -111,7 +136,7 @@ def test_client_reports_backend_http_error_detail() -> None:
     def opener(_request, timeout):
         assert timeout > 0
         raise HTTPError(
-            url="http://127.0.0.1:8003/api/chat",
+            url="http://127.0.0.1:8003/api/sessions",
             code=400,
             msg="bad request",
             hdrs=None,

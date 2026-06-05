@@ -2725,22 +2725,6 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(assistant?.answerCanonicalState).toBe("stable_answer");
   });
 
-  it("strips fragmented task contract protocol from done assistant prose", () => {
-    let transition = startStreamingTurn(getDefaultState(), "做成独立的吧");
-    transition = reduceStreamEvent(transition.state, transition.session, "done", {
-      content: '理解了。我已经读完所有源文件，现在需要进入持续处理流程。\nname="completion_criteria" string="true">1. 创建独立目录 2. 复制素材</ | | DSML | | parameter> name="task_run_goal" string="true">将游戏提取为独立静态页面</ | | DSML | | parameter>',
-      answer_channel: "conversation",
-      answer_canonical_state: "stable_answer",
-      answer_persist_policy: "persist_canonical",
-    });
-
-    const assistant = transition.state.messages.at(-1);
-    expect(assistant?.content).toBe("理解了。我已经读完所有源文件，现在需要进入持续处理流程。");
-    expect(assistant?.content).not.toContain("completion_criteria");
-    expect(assistant?.content).not.toContain("task_run_goal");
-    expect(assistant?.content).not.toContain("DSML");
-  });
-
   it("uses assistant_text as visible prose before task handoff done", () => {
     let transition = startStreamingTurn(getDefaultState(), "开始任务");
     transition = reduceStreamEvent(transition.state, transition.session, "assistant_text", {

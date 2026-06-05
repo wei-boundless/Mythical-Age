@@ -196,7 +196,7 @@ class PromptLibraryRegistry:
                 _write_json(_packs_path(self.base_dir), {"packs": normalized})
         return packs
 
-    def migrate_task_graph_node_prompt(
+    def upsert_task_graph_node_role_prompt(
         self,
         *,
         graph_id: str,
@@ -228,11 +228,11 @@ class PromptLibraryRegistry:
             tags=tuple(item for item in ("task_graph", domain_id, graph_id) if item),
             cache_scope="static",
             model_visible=True,
-            source_ref=f"task_graph:{graph_id}#nodes.{node_id}.metadata.role_prompt",
+            source_ref=f"task_graph:{graph_id}#nodes.{node_id}.role_prompt",
             version="v1",
             enabled=True,
             metadata={
-                "managed_by": "prompt_library.task_graph_api_migration",
+                "managed_by": "prompt_library.task_graph_role_prompt",
                 "graph_id": str(graph_id or "").strip(),
                 "graph_title": str(graph_title or "").strip(),
                 "domain_id": str(domain_id or "").strip(),

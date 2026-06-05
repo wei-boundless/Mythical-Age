@@ -14,7 +14,6 @@ import pytest
 
 import sessions as sessions_module
 from sessions import SessionManager, SessionPayloadCorrupt, SessionStorageError, SessionTaskBindingConflict
-from scripts.migrate_legacy_task_session_scope import migrate_legacy_task_session_scope
 
 
 def test_session_manager_exposes_runtime_session_record(tmp_path: Path) -> None:
@@ -265,11 +264,11 @@ def test_session_manager_keeps_api_transcript_hidden_but_loadable(tmp_path: Path
     assert api_history[2]["role"] == "tool"
 
 
-def test_session_manager_public_history_filters_legacy_protocol_messages(tmp_path: Path) -> None:
+def test_session_manager_public_history_filters_structured_tool_protocol_messages(tmp_path: Path) -> None:
     backend_dir = tmp_path / "backend"
     backend_dir.mkdir()
     manager = SessionManager(backend_dir)
-    session_id = manager.create_session(title="Legacy protocol pollution")["id"]
+    session_id = manager.create_session(title="Tool protocol filtering")["id"]
     payload = manager._read_payload(session_id)
     payload["messages"] = [
         {"role": "user", "content": "修复 bug", "turn_id": "turn:1"},
@@ -286,24 +285,6 @@ def test_session_manager_public_history_filters_legacy_protocol_messages(tmp_pat
             "name": "edit_file",
             "tool_call_id": "call_1",
         },
-        {
-            "role": "assistant",
-            "content": (
-                "我看到文件里已经有一部分 timer 递减代码了。\n\n"
-                "<｜｜DSML｜｜tool_calls>\n"
-                "<｜｜DSML｜｜invoke name=\"read_file\"></｜｜DSML｜｜invoke>\n"
-                "</｜｜DSML｜｜tool_calls>"
-            ),
-            "turn_id": "turn:1",
-        },
-        {
-            "role": "assistant",
-            "content": (
-                "好的，我来进入持续执行流程。\n\n"
-                "name=\"task_run_goal\" string=\"true\">修复页面消息装载</｜｜DSML｜｜parameter>"
-            ),
-            "turn_id": "turn:1",
-        },
         {"role": "assistant", "content": "已完成修复。", "turn_id": "turn:2"},
     ]
     manager._write_payload(session_id, payload)
@@ -311,14 +292,10 @@ def test_session_manager_public_history_filters_legacy_protocol_messages(tmp_pat
     public_messages = manager.load_session(session_id)
     public_text = "\n".join(item["content"] for item in public_messages)
 
-    assert [item["role"] for item in public_messages] == ["user", "assistant", "assistant", "assistant"]
+    assert [item["role"] for item in public_messages] == ["user", "assistant"]
     assert "Edit failed" not in public_text
-    assert "DSML" not in public_text
-    assert "我看到文件里已经有一部分 timer 递减代码了。" in public_text
     assert manager.load_session_for_agent(session_id) == [
         {"role": "user", "content": "修复 bug"},
-        {"role": "assistant", "content": "我看到文件里已经有一部分 timer 递减代码了。"},
-        {"role": "assistant", "content": "好的，我来进入持续执行流程。"},
         {"role": "assistant", "content": "已完成修复。"},
     ]
 
@@ -326,27 +303,6 @@ def test_session_manager_public_history_filters_legacy_protocol_messages(tmp_pat
 
     assert truncated["messages"] == [{"role": "user", "content": "修复 bug", "turn_id": "turn:1"}]
 
-
-def test_legacy_task_workspace_view_migrates_to_task_environment_scope(tmp_path: Path) -> None:
-    backend_dir = tmp_path / "backend"
-    backend_dir.mkdir()
-    manager = SessionManager(backend_dir)
-    session = manager.create_session(
-        title="Legacy task session",
-        scope={"workspace_view": "task", "task_environment_id": "env.development.sandbox"},
-    )
-
-    dry_run = migrate_legacy_task_session_scope(backend_dir=backend_dir, dry_run=True)
-    result = migrate_legacy_task_session_scope(backend_dir=backend_dir, dry_run=False)
-    history = manager.get_history(session["id"])
-
-    assert dry_run["changed_count"] == 1
-    assert result["changed_count"] == 1
-    assert history["scope"] == {
-        "workspace_view": "task_environment",
-        "task_environment_id": "env.development.sandbox",
-        "project_id": "",
-    }
 
 
 

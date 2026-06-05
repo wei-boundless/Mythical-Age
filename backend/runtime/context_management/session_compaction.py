@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import re
 from typing import Any, Literal
 
 from memory_system.storage.models import Message
@@ -13,16 +12,6 @@ TOKEN_COUNTER = TokenCounterRegistry()
 CompactionMode = Literal["preview", "run", "auto"]
 PressureLevel = Literal["auto", "microcompact", "full_compact"]
 PressureSource = Literal["context", "history"]
-_PUBLIC_PROTOCOL_BLOCK_RE = re.compile(
-    r"<｜｜DSML｜｜tool_calls>.*?</｜｜DSML｜｜tool_calls>",
-    re.DOTALL,
-)
-_PUBLIC_PROTOCOL_PARAMETER_RE = re.compile(
-    r"(?:^|\n)\s*name=\"[^\"]+\"\s+string=\"(?:true|false)\">.*?</｜｜DSML｜｜parameter>",
-    re.DOTALL,
-)
-
-
 def count_tokens(text: str) -> int:
     return TOKEN_COUNTER.count_text(text, provider="local", model="session_compaction").tokens
 
@@ -653,7 +642,7 @@ def _stored_messages_after_compact(messages: list[Message]) -> list[dict[str, An
             continue
         if message.role not in {"user", "assistant"}:
             continue
-        content = _public_message_content(message.content)
+        content = str(message.content or "")
         if not content:
             continue
         stored.append(_message_to_session_dict(message, content=content))
@@ -669,13 +658,6 @@ def _message_to_session_dict(message: Message, *, content: str) -> dict[str, Any
     if meta:
         payload["meta"] = meta
     return payload
-
-
-def _public_message_content(value: Any) -> str:
-    text = str(value or "")
-    cleaned = _PUBLIC_PROTOCOL_BLOCK_RE.sub("", text)
-    cleaned = _PUBLIC_PROTOCOL_PARAMETER_RE.sub("", cleaned)
-    return cleaned.strip() if cleaned != text else text
 
 
 def _message_preview(message: Message) -> dict[str, Any]:

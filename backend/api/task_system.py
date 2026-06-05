@@ -70,7 +70,7 @@ def _slug_ref(value: object, fallback: str = "node") -> str:
 
 
 def _build_task_graph_node_role_prompt(node: dict[str, object], metadata: dict[str, object]) -> str:
-    role_prompt = str(metadata.get("role_prompt") or "").strip()
+    role_prompt = str(node.get("role_prompt") or metadata.get("role_prompt") or "").strip()
     if role_prompt:
         return role_prompt
     role_identity = str(metadata.get("role_identity") or "").strip()
@@ -90,35 +90,22 @@ def _build_task_graph_node_role_prompt(node: dict[str, object], metadata: dict[s
     )
 
 
-def _strip_task_graph_prompt_metadata(
+def _consolidate_task_graph_prompt_metadata(
     metadata: dict[str, object],
     *,
-    prompt: str = "",
     prompt_resource_id: str = "",
-    migration_status: str = "migrated",
 ) -> dict[str, object]:
-    legacy_values = {
-        key: metadata.get(key)
-        for key in TASK_GRAPH_PROMPT_METADATA_KEYS
-        if str(metadata.get(key) or "").strip()
-    }
     cleaned = {
         key: value
         for key, value in metadata.items()
-        if key not in TASK_GRAPH_PROMPT_METADATA_KEYS
+        if key not in TASK_GRAPH_PROMPT_METADATA_KEYS and key != "legacy_prompt_migration"
     }
-    if legacy_values or prompt:
-        existing_migration = cleaned.get("legacy_prompt_migration")
-        cleaned["legacy_prompt_migration"] = {
-            **(existing_migration if isinstance(existing_migration, dict) else {}),
-            "legacy_field_names": sorted(str(key) for key in legacy_values.keys()),
-            "prompt_resource_id": prompt_resource_id,
-            "migration_status": migration_status,
-        }
+    if prompt_resource_id:
+        cleaned["prompt_resource_id"] = prompt_resource_id
     return cleaned
 
 
-def _migrate_task_graph_legacy_prompt_nodes(
+def _consolidate_task_graph_node_role_prompts(
     base_dir,
     *,
     graph_id: str,
@@ -127,14 +114,15 @@ def _migrate_task_graph_legacy_prompt_nodes(
     nodes: tuple[dict[str, object], ...],
 ) -> tuple[dict[str, object], ...]:
     prompt_registry = PromptLibraryRegistry(base_dir)
-    migrated_nodes: list[dict[str, object]] = []
+    consolidated_nodes: list[dict[str, object]] = []
     for node in nodes:
         next_node = dict(node)
         metadata = dict(next_node.get("metadata") or {})
         prompt = _build_task_graph_node_role_prompt(next_node, metadata)
+        metadata_has_prompt_source = any(key in metadata for key in TASK_GRAPH_PROMPT_METADATA_KEYS)
         prompt_resource_id = ""
-        if prompt:
-            resource = prompt_registry.migrate_task_graph_node_prompt(
+        if prompt and metadata_has_prompt_source:
+            resource = prompt_registry.upsert_task_graph_node_role_prompt(
                 graph_id=graph_id,
                 graph_title=graph_title,
                 domain_id=domain_id,
@@ -142,15 +130,15 @@ def _migrate_task_graph_legacy_prompt_nodes(
                 prompt=prompt,
             )
             prompt_resource_id = resource.resource_id
-        if prompt or any(key in metadata for key in TASK_GRAPH_PROMPT_METADATA_KEYS):
-            next_node["metadata"] = _strip_task_graph_prompt_metadata(
+        if prompt:
+            next_node["role_prompt"] = prompt
+        if metadata_has_prompt_source or "legacy_prompt_migration" in metadata:
+            next_node["metadata"] = _consolidate_task_graph_prompt_metadata(
                 metadata,
-                prompt=prompt,
                 prompt_resource_id=prompt_resource_id,
-                migration_status="migrated" if prompt_resource_id else "pending_no_prompt_resource",
             )
-        migrated_nodes.append(next_node)
-    return tuple(migrated_nodes)
+        consolidated_nodes.append(next_node)
+    return tuple(consolidated_nodes)
 
 
 def _derived_count(effective_items: list[object], explicit_items: list[object], *, key_attr: str) -> int:
@@ -1960,7 +1948,7 @@ async def upsert_task_system_task_graph(
     if payload.graph_id != graph_id:
         payload = payload.model_copy(update={"graph_id": graph_id})
     try:
-        migrated_nodes = _migrate_task_graph_legacy_prompt_nodes(
+        consolidated_nodes = _consolidate_task_graph_node_role_prompts(
             runtime.base_dir,
             graph_id=payload.graph_id,
             graph_title=payload.title,
@@ -1974,7 +1962,7 @@ async def upsert_task_system_task_graph(
             graph_kind=payload.graph_kind,
             entry_node_id=payload.entry_node_id,
             output_node_id=payload.output_node_id,
-            nodes=migrated_nodes,
+            nodes=consolidated_nodes,
             edges=tuple(dict(item) for item in payload.edges),
             graph_contract_id=payload.graph_contract_id,
             contract_bindings=payload.contract_bindings,

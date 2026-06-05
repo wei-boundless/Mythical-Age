@@ -354,7 +354,7 @@ def test_public_chat_timeline_projects_tool_activity_without_raw_trace() -> None
         {
             "item_id": "observation:rtevt:obs",
             "kind": "observation_report",
-            "title": "观察报告",
+            "title": "处理反馈",
             "detail": "目标文件尚未存在，路径检查已完成。",
             "state": "done",
             "trace_refs": ["rtevt:obs"],
@@ -608,7 +608,7 @@ def test_public_chat_timeline_projects_observation_reports_after_tool_work() -> 
     )
 
     assert [item["kind"] for item in timeline] == ["opening_judgment", "work_action", "observation_report"]
-    assert timeline[-1]["title"] == "观察报告"
+    assert timeline[-1]["title"] == "处理反馈"
     assert timeline[-1]["detail"] == "已读到主会话从 public_timeline 渲染运行反馈。"
     assert timeline[-1]["implication"] == "下一步应该根据真实调用链修改公开投影。"
 

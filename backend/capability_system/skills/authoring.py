@@ -32,7 +32,7 @@ def set_skill_prompt_view(path: Path, prompt_view: dict[str, str]) -> dict[str, 
     text = read_text(path)
     meta, body = parse_frontmatter(text)
     metadata = meta.get("metadata") if isinstance(meta.get("metadata"), dict) else {}
-    existing = meta.get("prompt") if isinstance(meta.get("prompt"), dict) else meta.get("prompt_view")
+    existing = meta.get("prompt") if isinstance(meta.get("prompt"), dict) else {}
     if not isinstance(existing, dict):
         existing = {}
     next_prompt = {

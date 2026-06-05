@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from memory_system import MemoryFacade
-from memory_system.contracts import MemoryContextCandidate
 from memory_system.task_durable_memory import TaskDurableMemoryService
 
 
@@ -38,7 +37,7 @@ def test_task_durable_memory_service_can_be_used_standalone(tmp_path) -> None:
     assert {namespace.namespace_id for namespace in namespaces} == {first.namespace_id, second.namespace_id}
 
 
-def test_task_durable_context_candidates_remain_standalone_namespace_scoped(tmp_path) -> None:
+def test_task_durable_records_remain_standalone_namespace_scoped_without_runtime_candidates(tmp_path) -> None:
     service = TaskDurableMemoryService(tmp_path / "standalone_task_durable")
     item = service.create_item(
         task_id="novel.longform",
@@ -58,17 +57,15 @@ def test_task_durable_context_candidates_remain_standalone_namespace_scoped(tmp_
         canonical_statement="不应被当前任务读取。",
     )
 
-    candidates = service.context_candidates(
+    items = service.query_items(
         task_id="novel.longform",
         graph_id="graph:longform",
-        requested_kinds=["timeline_fact"],
+        kind="timeline_fact",
     )
 
-    assert len(candidates) == 1
-    assert all(isinstance(candidate, MemoryContextCandidate) for candidate in candidates)
-    assert candidates[0].memory_layer == "task_durable"
-    assert candidates[0].content_ref == item.task_memory_id
-    assert candidates[0].metadata["task_id"] == "novel.longform"
+    assert not hasattr(service, "context_candidates")
+    assert [record.task_memory_id for record in items] == [item.task_memory_id]
+    assert items[0].task_id == "novel.longform"
 
 
 def test_task_durable_memory_is_not_wired_into_memory_facade(tmp_path) -> None:

@@ -293,7 +293,9 @@ export function createTaskGraphSemanticNodeDraft(
           gate_kind: "quality_gate",
           verdict_key: "review_result",
         },
-        output_contract_id: "contract.review.verdict",
+        contract_bindings: {
+          schema: { output_contract_id: "contract.review.verdict" },
+        },
       }
       : {}),
     ...(kind === "human_gate"

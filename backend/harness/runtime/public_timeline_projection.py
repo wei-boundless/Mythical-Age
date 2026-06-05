@@ -129,7 +129,7 @@ def public_observation_report_item(
     state: str = "done",
     trace_refs: list[str] | None = None,
     implication: Any = "",
-    title: str = "观察报告",
+    title: str = "处理反馈",
 ) -> dict[str, Any]:
     visible_detail = public_text(detail, limit=220)
     if not visible_detail:

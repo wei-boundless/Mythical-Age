@@ -121,7 +121,7 @@ describe("toUiMessages runtime attachments", () => {
     });
   });
 
-  it("filters legacy protocol messages out of the visible chat transcript", () => {
+  it("filters structured tool-call records out of the visible chat transcript", () => {
     const messages = toUiMessages(
       [
         { role: "user", content: "修复 bug" },
@@ -136,37 +136,15 @@ describe("toUiMessages runtime attachments", () => {
           content: "",
           tool_calls: [{ id: "call_2", name: "read_file", args: {}, type: "tool_call" }],
         },
-        {
-          role: "assistant",
-          content: [
-            "我看到文件里已经有一部分 timer 递减代码了。",
-            "",
-            "<｜｜DSML｜｜tool_calls>",
-            "<｜｜DSML｜｜invoke name=\"read_file\"></｜｜DSML｜｜invoke>",
-            "</｜｜DSML｜｜tool_calls>",
-          ].join("\n"),
-        },
-        {
-          role: "assistant",
-          content: [
-            "好的，我来进入持续执行流程。",
-            "",
-            "name=\"task_run_goal\" string=\"true\">修复页面消息装载</｜｜DSML｜｜parameter>",
-          ].join("\n"),
-        },
+        { role: "assistant", content: "我看到文件里已经有一部分 timer 递减代码了。" },
       ] as any,
       [],
     );
 
     expect(messages.map((message) => message.content)).toEqual([
       "修复 bug",
-      [
-        "我看到文件里已经有一部分 timer 递减代码了。",
-        "",
-        "好的，我来进入持续执行流程。",
-      ].join("\n"),
+      "我看到文件里已经有一部分 timer 递减代码了。",
     ]);
     expect(JSON.stringify(messages)).not.toContain("Edit failed");
-    expect(JSON.stringify(messages)).not.toContain("DSML");
   });
 });

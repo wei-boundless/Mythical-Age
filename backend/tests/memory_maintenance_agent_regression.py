@@ -4,9 +4,11 @@ import asyncio
 import json
 from types import SimpleNamespace
 
+from agent_system.profiles.runtime_profile_registry import AgentRuntimeRegistry
 from memory_system import MemoryFacade
-from memory_system.maintenance import MemoryMaintenanceAgent
+from memory_system.maintenance import MEMORY_MANAGER_PROMPT_REF
 from memory_system.storage.models import MemoryNote
+from prompt_library.registry import PromptLibraryRegistry
 
 
 def _agent_payload(*, durable_actions=None):
@@ -48,8 +50,18 @@ def _fake_invoker(payload):
     return invoke
 
 
-def test_memory_maintenance_agent_prompt_is_natural_role_instruction() -> None:
-    prompt = MemoryMaintenanceAgent().system_prompt()
+def test_memory_maintenance_agent_prompt_is_registered_natural_role_instruction(tmp_path) -> None:
+    profile = AgentRuntimeRegistry(tmp_path).get_profile("agent:1")
+    prompt_resource = PromptLibraryRegistry(tmp_path).get_active_resource(MEMORY_MANAGER_PROMPT_REF)
+    facade = MemoryFacade(tmp_path)
+    prompt = facade.maintenance_agent.system_prompt()
+
+    assert profile is not None
+    assert profile.agent_profile_id == "memory_system_agent"
+    assert MEMORY_MANAGER_PROMPT_REF in profile.metadata["agent_prompt_refs_by_invocation"]["memory_maintenance"]
+    assert prompt_resource is not None
+    assert prompt_resource.allowed_agent_refs == ("memory_system_agent",)
+    assert facade.maintenance_agent.registration.agent_id == "agent:1"
 
     assert "你是一名记忆管理员" in prompt
     assert "你不回答用户" in prompt
@@ -109,6 +121,7 @@ def test_session_emphasis_action_writes_pinned_user_steer(tmp_path) -> None:
             {"role": "user", "content": "强调一下：这轮先按计划执行，不要临时扩范围。"},
             {"role": "assistant", "content": "收到。"},
         ],
+        force=True,
     )
 
     assert receipt.status == "succeeded"
@@ -153,6 +166,7 @@ def test_short_horizon_preference_is_routed_out_of_durable_memory(tmp_path) -> N
             {"role": "user", "content": "这轮回答简短一点。"},
             {"role": "assistant", "content": "好的。"},
         ],
+        force=True,
     )
 
     assert receipt.status == "succeeded"
@@ -195,6 +209,7 @@ def test_memory_maintenance_coordinator_writes_session_and_durable_via_agent(tmp
             {"role": "assistant", "content": "已经接通"},
         ],
         turn_id="turn:session-memory-maintenance:1",
+        force=True,
     )
 
     assert receipt.status == "succeeded"
@@ -222,6 +237,7 @@ def test_memory_maintenance_model_call_has_prompt_accounting_context(tmp_path) -
             {"role": "assistant", "content": "已完成一轮检查"},
         ],
         turn_id="turn:session-maintenance-accounting:1",
+        force=True,
     )
 
     assert receipt.status == "succeeded"
@@ -253,6 +269,7 @@ def test_memory_maintenance_agent_session_draft_does_not_overwrite_process_state
         ],
         main_context={"active_goal": "系统权威目标：重构 runtime 读取链"},
         task_summary_refs=[{"query": "重构 runtime 读取链", "summary": "读取链已由 plan 控制。"}],
+        force=True,
     )
 
     manager = facade.session_memory.manager("session-maintenance-state-boundary")
@@ -359,6 +376,7 @@ def test_memory_maintenance_rejects_durable_action_without_evidence(tmp_path) ->
             {"role": "user", "content": "测试"},
             {"role": "assistant", "content": "测试完成"},
         ],
+        force=True,
     )
 
     assert receipt.status == "succeeded"
@@ -463,6 +481,7 @@ def test_memory_maintenance_runtime_state_corruption_fails_visible(tmp_path) -> 
     receipt = facade.run_memory_maintenance_after_commit(
         session_id="session-corrupt-maintenance",
         messages=[{"role": "user", "content": "触发维护"}],
+        force=True,
     )
 
     assert receipt.status == "failed"

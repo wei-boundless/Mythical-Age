@@ -4,7 +4,7 @@ import { ArrowRightLeft, BrainCircuit, FileCheck2, GitBranch, MousePointer2, Plu
 
 import { TaskGraphContractBindingInspector } from "./TaskGraphContractBindingInspector";
 import { TaskGraphInspectorSection, TaskGraphObjectSelectField } from "./TaskGraphInspectorPrimitives";
-import { mergeContractBindingSection } from "./taskGraphContractBindings";
+import { contractBindingValue, mergeContractBindingSection } from "./taskGraphContractBindings";
 import { graphEdgeSource, graphEdgeTarget } from "./taskGraphDraftV2";
 import {
   semanticEdgePatchForRelation,
@@ -224,17 +224,17 @@ export function TaskGraphSmartInspector({
                   emptyLabel="未绑定输入契约"
                   formatOption={formatContract}
                   label="输入契约"
-                  onChange={(value) => onUpdateNode(selectedNodeId, { input_contract_id: value, ...mergeContractBindingSection(selectedNode, "schema", { input_contract_id: value }) })}
+                  onChange={(value) => onUpdateNode(selectedNodeId, mergeContractBindingSection(selectedNode, "schema", { input_contract_id: value }))}
                   options={contractOptions}
-                  value={stringValue(selectedNode.input_contract_id)}
+                  value={contractBindingValue(selectedNode, "schema", "input_contract_id")}
                 />
                 <TaskGraphObjectSelectField
                   emptyLabel="未绑定输出契约"
                   formatOption={formatContract}
                   label="输出契约"
-                  onChange={(value) => onUpdateNode(selectedNodeId, { output_contract_id: value, ...mergeContractBindingSection(selectedNode, "schema", { output_contract_id: value }) })}
+                  onChange={(value) => onUpdateNode(selectedNodeId, mergeContractBindingSection(selectedNode, "schema", { output_contract_id: value }))}
                   options={contractOptions}
-                  value={stringValue(selectedNode.output_contract_id)}
+                  value={contractBindingValue(selectedNode, "schema", "output_contract_id")}
                 />
                 <TaskSystemField label="产物目标" wide>
                   <input disabled={disabled} onChange={(event) => onUpdateNode(selectedNodeId, { artifact_target: event.target.value, output_path: event.target.value })} placeholder="chapter_draft / review_result" value={stringValue(selectedNode.artifact_target ?? selectedNode.output_path)} />
@@ -333,9 +333,9 @@ export function TaskGraphSmartInspector({
             emptyLabel="未绑定载荷契约"
             formatOption={formatContract}
             label="载荷契约"
-            onChange={(value) => onUpdateEdge(selectedEdgeId, { payload_contract_id: value, ...mergeContractBindingSection(edge, "schema", { payload_contract_id: value }) })}
+            onChange={(value) => onUpdateEdge(selectedEdgeId, mergeContractBindingSection(edge, "schema", { payload_contract_id: value }))}
             options={contractOptions}
-            value={stringValue(edge.payload_contract_id)}
+            value={contractBindingValue(edge, "schema", "payload_contract_id")}
             wide
           />
           <TaskSystemField label="使用说明" wide>

@@ -21,7 +21,9 @@ describe("TaskGraph cognition view", () => {
         agent_id: "agent.writer",
         phase_id: "phase.plan",
         sequence_index: 2,
-        output_contract_id: "contract.output",
+        contract_bindings: {
+          schema: { output_contract_id: "contract.output" },
+        },
         artifact_target: "artifacts/draft.md",
         metadata: {
           role_identity: "你是一名任务执行员。",
@@ -54,7 +56,9 @@ describe("TaskGraph cognition view", () => {
         source_node_id: "draft",
         target_node_id: "review",
         edge_type: "structured_handoff",
-        payload_contract_id: "contract.handoff",
+        contract_bindings: {
+          schema: { payload_contract_id: "contract.handoff" },
+        },
         metadata: {
           model_visible_label: "草案交接包",
           usage_instruction: "审核当前草案是否满足契约。",
@@ -104,8 +108,6 @@ describe("TaskGraph cognition view", () => {
         {
           node_id: "draft",
           title: "Draft",
-          input_contract_id: "contract.legacy.input",
-          output_contract_id: "contract.legacy.output",
           contract_bindings: {
             schema: {
               input_contract_id: "contract.binding.input",
@@ -122,7 +124,6 @@ describe("TaskGraph cognition view", () => {
           source_node_id: "draft",
           target_node_id: "review",
           edge_type: "structured_handoff",
-          payload_contract_id: "contract.legacy.payload",
           contract_bindings: { schema: { payload_contract_id: "contract.binding.payload" } },
           metadata: { usage_instruction: "审核绑定契约下的交接包。" },
         },

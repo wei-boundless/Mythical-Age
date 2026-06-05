@@ -3,11 +3,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 import hashlib
 import json
-from typing import TYPE_CHECKING, Any, Literal
-
-if TYPE_CHECKING:
-    from context_system.compaction.compactor import CompactResult
-    from memory_system.storage.models import Message
+from typing import Any, Literal
 
 PressureLevel = Literal["normal", "warning", "microcompact", "full_compact"]
 ContextLedgerSource = Literal["memory_candidate", "retrieval_evidence"]
@@ -223,13 +219,5 @@ class ContextPackage:
             "token_accounting": self.token_accounting,
             "sealed_receipt": self.sealed_receipt.to_dict() if self.sealed_receipt is not None else None,
         }
-
-
-@dataclass(slots=True)
-class ContextControllerResult:
-    messages: list[Message]
-    package: ContextPackage
-    compact_result: CompactResult
-
 
 

@@ -143,7 +143,14 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
             allowed_context_sections=("task", "runtime_trace", "memory_runtime_view", "prompt_manifest", "runtime_contracts"),
             approval_policy="read_only_first",
             lifecycle_policy="system_builtin",
-            metadata={"system_key": "memory_system", "manager_kind": "memory", "runtime_template_id": "builtin.system.memory_manager"},
+            metadata={
+                "system_key": "memory_system",
+                "manager_kind": "memory",
+                "runtime_template_id": "builtin.system.memory_manager",
+                "agent_prompt_refs_by_invocation": {
+                    "memory_maintenance": ["agent.memory_system_agent.memory_maintenance.work_role.v1"],
+                },
+            },
         ),
         AgentRuntimeProfile(
             agent_profile_id="config_system_agent",

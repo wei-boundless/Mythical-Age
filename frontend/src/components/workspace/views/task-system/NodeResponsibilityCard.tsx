@@ -18,26 +18,15 @@ function uniqueStrings(values: Array<string | null | undefined>) {
 }
 
 function metadataAfterRolePromptSave(metadata: Record<string, unknown>, prompt: string) {
-  const {
-    role_identity: roleIdentity,
-    responsibility_scope: responsibilityScope,
-    responsibility_exclusions: responsibilityExclusions,
-    definition_of_done: definitionOfDone,
-    ...rest
-  } = metadata;
-  const consolidatedFieldNames = [
-    roleIdentity ? "role_identity" : "",
-    responsibilityScope ? "responsibility_scope" : "",
-    responsibilityExclusions ? "responsibility_exclusions" : "",
-    definitionOfDone ? "definition_of_done" : "",
-  ].filter(Boolean);
+  const rest = { ...metadata };
+  delete rest.role_identity;
+  delete rest.responsibility_scope;
+  delete rest.responsibility_exclusions;
+  delete rest.definition_of_done;
+  delete rest.legacy_prompt_migration;
   return {
     ...rest,
     role_prompt: prompt,
-    legacy_prompt_migration: {
-      legacy_field_names: consolidatedFieldNames,
-      migration_status: consolidatedFieldNames.length ? "role_prompt_consolidated" : "role_prompt_native",
-    },
   };
 }
 
@@ -106,10 +95,6 @@ export function NodeResponsibilityCard({
     });
   };
 
-  const legacyMigration = asRecord(nodeMetadata.legacy_prompt_migration);
-  const legacyFieldNames = Array.isArray(legacyMigration.legacy_field_names)
-    ? legacyMigration.legacy_field_names.map((value) => String(value ?? "").trim()).filter(Boolean)
-    : [];
   const rolePrompt = String(selectedGraphNode.role_prompt ?? nodeMetadata.role_prompt ?? "").trim();
   const saveRolePrompt = () => {
     const prompt = promptDraft.trim() || buildNodeResponsibilityPrompt(nodeMetadata);
@@ -134,7 +119,6 @@ export function NodeResponsibilityCard({
         <p><span>Agent</span><strong>{String(selectedGraphNode.agent_id ?? "未绑定")}</strong></p>
         <p><span>执行器</span><strong>{String(executorPolicy.default_executor ?? "agent")}</strong></p>
         <p><span>角色 Prompt</span><strong>{rolePrompt ? "已配置" : "草稿待保存"}</strong></p>
-        <p><span>Legacy Prompt</span><strong>{legacyFieldNames.length > 0 ? "待收口" : "无"}</strong></p>
       </div>
 
       <div className="boundary-form">

@@ -130,10 +130,10 @@ def test_prompt_library_stored_resource_overrides_default_resource(tmp_path: Pat
     assert resource.source_ref == "test.override"
 
 
-def test_task_graph_node_prompt_migration_writes_graph_node_role_resource(tmp_path: Path) -> None:
+def test_task_graph_node_role_prompt_writes_graph_node_role_resource(tmp_path: Path) -> None:
     registry = PromptLibraryRegistry(tmp_path)
 
-    resource = registry.migrate_task_graph_node_prompt(
+    resource = registry.upsert_task_graph_node_role_prompt(
         graph_id="graph.demo",
         graph_title="Demo graph",
         domain_id="domain.demo",
@@ -151,6 +151,8 @@ def test_task_graph_node_prompt_migration_writes_graph_node_role_resource(tmp_pa
     assert resource.category == "graph_node"
     assert resource.subtype == "role"
     assert resource.resource_type == "graph_node.role"
+    assert resource.source_ref == "task_graph:graph.demo#nodes.review.role_prompt"
+    assert resource.metadata["managed_by"] == "prompt_library.task_graph_role_prompt"
     assert resource.allowed_invocation_kinds == ()
     assert "applies_to_task_goal_types" not in payload
     assert "applies_to_domains" not in payload

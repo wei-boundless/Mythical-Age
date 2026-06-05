@@ -122,7 +122,6 @@ class MemoryBundleService:
         session_summary: str = "",
         recently_surfaced_note_ids: list[str] | None = None,
         recent_tools: list[str] | None = None,
-        relevant_notes: list[Any] | None = None,
         environment_scope: dict[str, Any] | None = None,
         global_common_allowed: bool = True,
     ):
@@ -135,7 +134,6 @@ class MemoryBundleService:
             session_summary=session_summary,
             recently_surfaced_note_ids=recently_surfaced_note_ids,
             recent_tools=recent_tools,
-            relevant_notes=relevant_notes,
         )
         results = [
             layer.recall_memories(**kwargs)
@@ -155,7 +153,6 @@ class MemoryBundleService:
         session_summary: str = "",
         recently_surfaced_note_ids: list[str] | None = None,
         recent_tools: list[str] | None = None,
-        relevant_notes: list[Any] | None = None,
         environment_scope: dict[str, Any] | None = None,
         global_common_allowed: bool = True,
     ):
@@ -168,7 +165,6 @@ class MemoryBundleService:
             session_summary=session_summary,
             recently_surfaced_note_ids=recently_surfaced_note_ids,
             recent_tools=recent_tools,
-            relevant_notes=relevant_notes,
         )
         results = []
         for layer in self._durable_layers_for_read(environment_scope, global_common_allowed=global_common_allowed):
@@ -186,7 +182,6 @@ class MemoryBundleService:
         session_summary: str,
         recently_surfaced_note_ids: list[str] | None,
         recent_tools: list[str] | None,
-        relevant_notes: list[Any] | None,
     ) -> dict[str, Any]:
         return {
             "query": query,
@@ -197,7 +192,6 @@ class MemoryBundleService:
             "session_summary": session_summary,
             "recently_surfaced_note_ids": recently_surfaced_note_ids,
             "recent_tools": recent_tools,
-            "selected_notes": relevant_notes,
         }
 
     def _durable_layers_for_read(self, environment_scope: dict[str, Any] | None, *, global_common_allowed: bool) -> tuple[Any, ...]:
@@ -240,7 +234,6 @@ class MemoryBundleService:
         query: str | None = None,
         memory_intent: Any | None = None,
         memory_request_profile: dict[str, Any] | None = None,
-        relevant_notes: list[Any] | None = None,
         note_limit: int = 5,
     ):
         return build_runtime_view(
@@ -249,7 +242,6 @@ class MemoryBundleService:
             query=query,
             memory_intent=memory_intent,
             memory_request_profile=memory_request_profile,
-            relevant_notes=relevant_notes,
             note_limit=note_limit,
             orchestrator=self.orchestrator,
             supplier=self.supplier,
@@ -262,7 +254,6 @@ class MemoryBundleService:
         query: str | None = None,
         memory_intent: Any | None = None,
         memory_request_profile: dict[str, Any] | None = None,
-        relevant_notes: list[Any] | None = None,
         note_limit: int = 5,
     ):
         return await abuild_runtime_view(
@@ -271,7 +262,6 @@ class MemoryBundleService:
             query=query,
             memory_intent=memory_intent,
             memory_request_profile=memory_request_profile,
-            relevant_notes=relevant_notes,
             note_limit=note_limit,
             orchestrator=self.orchestrator,
             supplier=self.supplier,
@@ -285,7 +275,6 @@ class MemoryBundleService:
         memory_intent: Any | None = None,
         memory_request_profile: dict[str, Any] | None = None,
         memory_view: Any | None = None,
-        relevant_notes: list[Any] | None = None,
         retrieval_results: list[dict[str, Any]] | None = None,
         note_limit: int = 5,
         available_context_tokens: int | None = None,
@@ -298,7 +287,6 @@ class MemoryBundleService:
                 query=query,
                 memory_intent=memory_intent,
                 memory_request_profile=memory_request_profile,
-                relevant_notes=relevant_notes,
                 note_limit=note_limit,
             )
         return self._build_context_package_result_from_view(
@@ -317,7 +305,6 @@ class MemoryBundleService:
         memory_intent: Any | None = None,
         memory_request_profile: dict[str, Any] | None = None,
         memory_view: Any | None = None,
-        relevant_notes: list[Any] | None = None,
         retrieval_results: list[dict[str, Any]] | None = None,
         note_limit: int = 5,
         available_context_tokens: int | None = None,
@@ -330,7 +317,6 @@ class MemoryBundleService:
                 query=query,
                 memory_intent=memory_intent,
                 memory_request_profile=memory_request_profile,
-                relevant_notes=relevant_notes,
                 note_limit=note_limit,
             )
         return self._build_context_package_result_from_view(
@@ -374,7 +360,6 @@ class MemoryBundleService:
         memory_intent: Any | None = None,
         memory_request_profile: dict[str, Any] | None = None,
         memory_view: Any | None = None,
-        relevant_notes: list[Any] | None = None,
         retrieval_results: list[dict[str, Any]] | None = None,
         note_limit: int = 5,
     ):
@@ -384,7 +369,6 @@ class MemoryBundleService:
             memory_intent=memory_intent,
             memory_request_profile=memory_request_profile,
             memory_view=memory_view,
-            relevant_notes=relevant_notes,
             retrieval_results=retrieval_results,
             note_limit=note_limit,
         )
@@ -398,7 +382,6 @@ class MemoryBundleService:
         query: str | None = None,
         memory_intent: Any | None = None,
         memory_request_profile: dict[str, Any] | None = None,
-        relevant_notes: list[Any] | None = None,
         note_limit: int = 5,
     ):
         request = build_memory_request(
@@ -418,7 +401,6 @@ class MemoryBundleService:
             query=query,
             memory_intent=memory_intent,
             memory_request_profile=request.to_dict(),
-            relevant_notes=relevant_notes,
             note_limit=note_limit,
         )
         context_result = self.build_memory_context_package_result(
@@ -427,7 +409,6 @@ class MemoryBundleService:
             memory_intent=memory_intent,
             memory_request_profile=request.to_dict(),
             memory_view=runtime_view,
-            relevant_notes=relevant_notes,
             note_limit=note_limit,
         )
         return build_memory_bundle(
@@ -477,7 +458,6 @@ class MemoryBundleService:
         session_summary: str = "",
         recently_surfaced_note_ids: list[str] | None = None,
         recent_tools: list[str] | None = None,
-        selected_notes: list[Any] | None = None,
         environment_scope: dict[str, Any] | None = None,
     ):
         layer = self._durable_layer_for_scope(environment_scope)
@@ -490,7 +470,6 @@ class MemoryBundleService:
             session_summary=session_summary,
             recently_surfaced_note_ids=recently_surfaced_note_ids,
             recent_tools=recent_tools,
-            selected_notes=selected_notes,
         )
 
     async def arecall_durable_memories(
@@ -504,7 +483,6 @@ class MemoryBundleService:
         session_summary: str = "",
         recently_surfaced_note_ids: list[str] | None = None,
         recent_tools: list[str] | None = None,
-        selected_notes: list[Any] | None = None,
         environment_scope: dict[str, Any] | None = None,
     ):
         layer = self._durable_layer_for_scope(environment_scope)
@@ -517,7 +495,6 @@ class MemoryBundleService:
             session_summary=session_summary,
             recently_surfaced_note_ids=recently_surfaced_note_ids,
             recent_tools=recent_tools,
-            selected_notes=selected_notes,
         )
 
     def describe_durable_maintenance_runtime(self) -> dict[str, object]:

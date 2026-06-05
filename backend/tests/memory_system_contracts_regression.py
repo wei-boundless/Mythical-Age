@@ -48,6 +48,26 @@ def _fake_invoker(payload):
     return invoke
 
 
+def _durable_recall_selector(*note_ids: str):
+    async def invoke(_messages, *, accounting_context=None):
+        return SimpleNamespace(
+            content=json.dumps(
+                {
+                    "should_recall": bool(note_ids),
+                    "selected_note_ids": list(note_ids),
+                    "reason": "test selector",
+                    "confidence": 0.91,
+                    "needs_verification": False,
+                    "manifest_only": False,
+                    "ignore_memory": False,
+                },
+                ensure_ascii=False,
+            )
+        )
+
+    return invoke
+
+
 def test_state_memory_restore_candidates_remain_candidate_only(tmp_path) -> None:
     session_id = "session-a"
     manager = SessionMemoryManager(tmp_path / session_id)
@@ -331,11 +351,12 @@ def test_long_term_memory_context_candidate_carries_verification_policy(tmp_path
         memory_class="preference",
         confidence="high",
     )
+    facade.memory_manager.save_note(note)
+    facade.durable_memory.set_message_invoker(_durable_recall_selector("answer-style"))
 
     candidates = facade.bundle_service.build_long_term_memory_context_candidates(
         session_id="session-style",
         query="回答风格",
-        relevant_notes=[note],
     )
 
     assert len(candidates) == 1
@@ -384,6 +405,7 @@ def test_durable_memory_write_uses_current_environment_scope(tmp_path) -> None:
             {"role": "assistant", "content": "收到。"},
         ],
         main_context={"task_environment": {"environment_id": "env.coding.test"}},
+        force=True,
     )
 
     env_manager = facade.resolve_durable_memory_manager({"task_environment_id": "env.coding.test"})
@@ -431,6 +453,7 @@ def test_environment_durable_write_uses_memory_environment_context_without_main_
             {"role": "assistant", "content": "收到。"},
         ],
         memory_environment_context={"task_environment_id": "env.coding.test"},
+        force=True,
     )
 
     env_manager = facade.resolve_durable_memory_manager({"task_environment_id": "env.coding.test"})
@@ -473,6 +496,7 @@ def test_maintenance_manifest_includes_current_environment_namespace(tmp_path) -
             {"role": "assistant", "content": "收到。"},
         ],
         memory_environment_context={"task_environment_id": "env.coding.test"},
+        force=True,
     )
 
     assert receipt.status == "succeeded"
@@ -778,11 +802,12 @@ def test_long_term_memory_context_candidates_are_optional_and_do_not_override(tm
         memory_class="work",
         confidence="medium",
     )
+    facade.memory_manager.save_note(note)
+    facade.durable_memory.set_message_invoker(_durable_recall_selector("project-principle"))
 
     candidates = facade.bundle_service.build_long_term_memory_context_candidates(
         session_id="session-g",
         query="记忆系统边界是什么？",
-        relevant_notes=[note],
     )
 
     assert len(candidates) == 1
@@ -829,16 +854,16 @@ _Current-turn outputs, conclusions, or artifacts that remain active._
         memory_type="project",
         memory_class="work",
     )
+    facade.memory_manager.save_note(note)
+    facade.durable_memory.set_message_invoker(_durable_recall_selector("runtime-view-principle"))
 
     default_view = facade.bundle_service.build_memory_runtime_view(
         session_id=session_id,
         query="记忆系统原则是什么？",
-        relevant_notes=[note],
     )
     requested_view = facade.bundle_service.build_memory_runtime_view(
         session_id=session_id,
         query="记忆系统原则是什么？",
-        relevant_notes=[note],
         memory_request_profile={
             "requested_memory_layers": ["state", "long_term"],
             "allow_long_term_memory": True,
@@ -926,7 +951,7 @@ def test_long_term_recall_without_selector_does_not_use_keyword_fallback(tmp_pat
     assert result.selection.reason == "no_durable_memory_selector_configured"
 
 
-def test_preselected_long_term_notes_do_not_require_query_signal(tmp_path) -> None:
+def test_long_term_recall_does_not_accept_preselected_note_bypass(tmp_path) -> None:
     facade = MemoryFacade(tmp_path)
     note = MemoryNote(
         slug="preselected-note",
@@ -937,15 +962,16 @@ def test_preselected_long_term_notes_do_not_require_query_signal(tmp_path) -> No
         memory_type="project",
         memory_class="work",
     )
+    facade.memory_manager.save_note(note)
 
-    result = facade.bundle_service.recall_durable_memories(
-        query="",
-        selected_notes=[note],
-    )
+    try:
+        facade.bundle_service.recall_durable_memories(query="", selected_notes=[note])
+    except TypeError as exc:
+        error = str(exc)
+    else:
+        error = ""
 
-    assert result.selection.reason == "preselected_notes"
-    assert result.selection.should_recall is True
-    assert result.selected_notes[0]["note_id"] == "preselected-note"
+    assert "selected_notes" in error
 
 
 def test_memory_runtime_view_collects_conversation_layer_when_requested(tmp_path) -> None:
@@ -1157,22 +1183,23 @@ def test_context_budget_provider_failure_is_visible(tmp_path) -> None:
         raise AssertionError("Context budget provider failure was silently replaced with a default")
 
 
-def test_context_package_does_not_expand_memory_layers_from_relevant_notes(tmp_path) -> None:
+def test_context_package_does_not_read_long_term_without_read_plan(tmp_path) -> None:
     facade = MemoryFacade(tmp_path)
     note = MemoryNote(
         slug="explicit-long-term-only",
         title="长期记忆必须显式读取",
-        summary="relevant_notes 不能自动打开 long_term。",
+        summary="selector 不能自动打开 long_term。",
         canonical_statement="长期记忆读取必须由 read plan 授权。",
-        body="候选可以被上层预选，但是否注入仍由显式读取计划控制。",
+        body="即使 selector 可以选择候选，是否注入仍由显式读取计划控制。",
         memory_type="project",
         memory_class="work",
     )
+    facade.memory_manager.save_note(note)
+    facade.durable_memory.set_message_invoker(_durable_recall_selector("explicit-long-term-only"))
 
     result = facade.bundle_service.build_memory_context_package_result(
         session_id="session-no-implicit-long-term",
         query="记忆规则是什么？",
-        relevant_notes=[note],
     )
 
     assert result.package.model_visible_sections["relevant_durable_context"] == []
@@ -1198,7 +1225,7 @@ def test_context_budget_provider_empty_payload_is_rejected(tmp_path) -> None:
     facade = MemoryFacade(tmp_path, context_budget_provider=lambda: {})
 
     try:
-        facade.session_memory.context_controller("session-empty-budget")
+        facade.session_memory.compactor("session-empty-budget")
     except ValueError as exc:
         assert "context budget provider returned an empty payload" in str(exc)
     else:

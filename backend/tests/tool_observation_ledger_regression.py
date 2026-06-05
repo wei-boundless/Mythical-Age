@@ -397,8 +397,8 @@ def test_terminal_phase_verification_intent_satisfies_verify_command_without_key
     assert "verify_command" in ledger.records[0].satisfies
 
 
-def test_plain_text_write_and_terminal_do_not_satisfy_hard_evidence() -> None:
-    ledger = ToolObservationLedger(ledger_id="ledger:legacy-text", task_run_id="taskrun:legacy-text")
+def test_unstructured_write_and_terminal_results_do_not_satisfy_hard_evidence() -> None:
+    ledger = ToolObservationLedger(ledger_id="ledger:unstructured", task_run_id="taskrun:unstructured")
     ledger = ledger.append(
         build_tool_observation_record(
             observation_ref="obs:write",
@@ -419,7 +419,10 @@ def test_plain_text_write_and_terminal_do_not_satisfy_hard_evidence() -> None:
     assert ledger.has_write("output/plan.md") is False
     assert ledger.has_verification("pytest") is False
     assert ledger.verification_passed() is False
-    assert ledger.records[0].evidence_source == "legacy_text"
+    assert ledger.records[0].evidence_source == "unstructured_result"
+    assert ledger.records[0].observed_paths == ()
+    assert ledger.records[0].side_effect_hash == ""
+    assert ledger.records[0].debug_hints["reason"] == "missing_result_envelope"
     assert ledger.records[0].debug_hints["hard_evidence_accepted"] is False
 
 

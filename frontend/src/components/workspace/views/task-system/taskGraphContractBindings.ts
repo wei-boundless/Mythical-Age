@@ -5,23 +5,23 @@ export function contractBindingValue(target: Record<string, unknown>, section: s
 }
 
 export function graphContractIdOf(graph: Record<string, unknown>): string {
-  return contractBindingValue(graph, "schema", "graph_contract_id") || String(graph.graph_contract_id ?? "").trim();
+  return contractBindingValue(graph, "schema", "graph_contract_id");
 }
 
 export function nodeInputContractIdOf(node: Record<string, unknown>): string {
-  return contractBindingValue(node, "schema", "input_contract_id") || String(node.input_contract_id ?? "").trim();
+  return contractBindingValue(node, "schema", "input_contract_id");
 }
 
 export function nodeOutputContractIdOf(node: Record<string, unknown>): string {
-  return contractBindingValue(node, "schema", "output_contract_id") || String(node.output_contract_id ?? "").trim();
+  return contractBindingValue(node, "schema", "output_contract_id");
 }
 
 export function nodeExecutionContractIdOf(node: Record<string, unknown>): string {
-  return contractBindingValue(node, "execution", "node_contract_id") || String(node.node_contract_id ?? node.contract_id ?? "").trim();
+  return contractBindingValue(node, "execution", "node_contract_id");
 }
 
 export function edgePayloadContractIdOf(edge: Record<string, unknown>): string {
-  return contractBindingValue(edge, "schema", "payload_contract_id") || String(edge.payload_contract_id ?? edge.contract_id ?? "").trim();
+  return contractBindingValue(edge, "schema", "payload_contract_id");
 }
 
 export function mergeContractBindingSection(

@@ -168,8 +168,8 @@ class SkillContract:
 
     @classmethod
     def from_payload(cls, payload: dict[str, Any]) -> "SkillContract":
-        runtime_payload = payload.get("runtime") if isinstance(payload.get("runtime"), dict) else payload
-        prompt_payload = payload.get("prompt") if isinstance(payload.get("prompt"), dict) else payload.get("prompt_view")
+        runtime_payload = payload.get("runtime") if isinstance(payload.get("runtime"), dict) else {}
+        prompt_payload = payload.get("prompt") if isinstance(payload.get("prompt"), dict) else {}
         runtime = SkillRuntimeContract(
             name=normalize_string(runtime_payload.get("name")),
             title=normalize_string(runtime_payload.get("title")),
@@ -181,7 +181,7 @@ class SkillContract:
             capability_tags=normalize_string_list(runtime_payload.get("capability_tags")),
             preferred_route=normalize_string(runtime_payload.get("preferred_route")),
             forbidden_routes=normalize_string_list(runtime_payload.get("forbidden_routes")),
-            not_for=normalize_string_list(runtime_payload.get("not_for") or runtime_payload.get("forbidden_uses")),
+            not_for=normalize_string_list(runtime_payload.get("not_for")),
             routing_hints=normalize_string_list(runtime_payload.get("routing_hints")),
             examples=normalize_string_list(runtime_payload.get("examples")),
             activation_policy=normalize_string(runtime_payload.get("activation_policy"), "model_visible") or "model_visible",
@@ -216,7 +216,6 @@ class SkillContract:
     def to_registry_record(self) -> dict[str, Any]:
         return {
             "schema_version": 3,
-            **self.runtime.to_dict(),
             "runtime": self.runtime.to_dict(),
             "prompt": self.prompt.to_dict(),
             "validation_errors": list(self.validation_errors),

@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from memory_system import MemoryFacade
+from memory_system.runtime_context_provider import RuntimeMemoryContextProvider
 from harness.entrypoint import HarnessRuntimeFacade
 
 
@@ -10,6 +11,11 @@ def test_assistant_commit_uses_context_state_writeback_for_file_work_objects(tmp
     runtime = HarnessRuntimeFacade.__new__(HarnessRuntimeFacade)
     runtime.session_manager = _SessionManager()
     runtime.memory_facade = MemoryFacade(tmp_path)
+    runtime.runtime_memory_context_provider = RuntimeMemoryContextProvider(
+        bundle_service_getter=lambda: runtime.memory_facade.bundle_service,
+        session_record_loader=lambda _session_id: {},
+        recent_messages_loader=lambda _session_id: [],
+    )
 
     result = HarnessRuntimeFacade._apply_assistant_message_commit(
         runtime,
@@ -109,6 +115,7 @@ def test_memory_maintenance_without_model_does_not_rewrite_pdf_work_object_slots
             {"role": "assistant", "content": "第四页重点看三句。"},
             {"role": "user", "content": "把这份 PDF 的核心结论压成三条行动建议。"},
         ],
+        force=True,
     )
 
     state = facade.session_memory.manager(session_id).load_state()

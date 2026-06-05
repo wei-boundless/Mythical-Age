@@ -243,12 +243,9 @@ def task_graph_node_from_dict(payload: dict[str, Any]) -> TaskGraphNodeDefinitio
     explicit_bindings = _contract_bindings_payload(payload.get("contract_bindings"))
     explicit_schema_bindings = dict(explicit_bindings.get("schema") or {})
     explicit_execution_bindings = dict(explicit_bindings.get("execution") or {})
-    legacy_node_contract_id = str(payload.get("node_contract_id") or payload.get("contract_id") or "").strip()
-    legacy_input_contract_id = str(payload.get("input_contract_id") or "").strip()
-    legacy_output_contract_id = str(payload.get("output_contract_id") or "").strip()
-    node_contract_id = str(explicit_execution_bindings.get("node_contract_id") or legacy_node_contract_id or "").strip()
-    input_contract_id = str(explicit_schema_bindings.get("input_contract_id") or legacy_input_contract_id or "").strip()
-    output_contract_id = str(explicit_schema_bindings.get("output_contract_id") or legacy_output_contract_id or "").strip()
+    node_contract_id = str(explicit_execution_bindings.get("node_contract_id") or "").strip()
+    input_contract_id = str(explicit_schema_bindings.get("input_contract_id") or "").strip()
+    output_contract_id = str(explicit_schema_bindings.get("output_contract_id") or "").strip()
     executor_policy = dict(payload.get("executor_policy") or {})
     memory_read_policy = dict(payload.get("memory_read_policy") or {})
     memory_writeback_policy = dict(payload.get("memory_writeback_policy") or {})
@@ -269,19 +266,12 @@ def task_graph_node_from_dict(payload: dict[str, Any]) -> TaskGraphNodeDefinitio
     execution_mode = str(payload.get("execution_mode") or "sync").strip() or "sync"
     wait_policy = str(payload.get("wait_policy") or "wait_all_upstream_completed").strip() or "wait_all_upstream_completed"
     join_policy = str(payload.get("join_policy") or "all_success").strip() or "all_success"
-    metadata = _legacy_contract_metadata(
-        dict(payload.get("metadata") or {}),
-        {
-            "node_contract_id": legacy_node_contract_id,
-            "input_contract_id": legacy_input_contract_id,
-            "output_contract_id": legacy_output_contract_id,
-        },
-    )
+    metadata = dict(payload.get("metadata") or {})
     return TaskGraphNodeDefinition(
         node_id=str(payload.get("node_id") or payload.get("id") or "").strip(),
         node_type=str(payload.get("node_type") or payload.get("type") or "agent").strip(),
         title=str(payload.get("title") or payload.get("label") or payload.get("node_id") or "未命名节点").strip(),
-        node_config_id=str(payload.get("node_config_id") or dict(payload.get("metadata") or {}).get("node_config_id") or "").strip(),
+        node_config_id=str(payload.get("node_config_id") or "").strip(),
         node_config_overrides=dict(payload.get("node_config_overrides") or {}),
         task_id=str(payload.get("task_id") or "").strip(),
         agent_id=normalize_agent_id(str(payload.get("agent_id") or "").strip()),
@@ -354,8 +344,7 @@ def task_graph_edge_from_dict(payload: dict[str, Any]) -> TaskGraphEdgeDefinitio
     )
     explicit_bindings = _contract_bindings_payload(payload.get("contract_bindings"))
     explicit_schema_bindings = dict(explicit_bindings.get("schema") or {})
-    legacy_payload_contract_id = str(payload.get("payload_contract_id") or payload.get("contract_id") or "").strip()
-    payload_contract_id = str(explicit_schema_bindings.get("payload_contract_id") or legacy_payload_contract_id or "").strip()
+    payload_contract_id = str(explicit_schema_bindings.get("payload_contract_id") or "").strip()
     context_filter_policy = dict(payload.get("context_filter_policy") or {})
     artifact_ref_policy = dict(payload.get("artifact_ref_policy") or {})
     working_memory_handoff_policy = dict(payload.get("working_memory_handoff_policy") or {})
@@ -365,12 +354,7 @@ def task_graph_edge_from_dict(payload: dict[str, Any]) -> TaskGraphEdgeDefinitio
     failure_propagation_policy = str(payload.get("failure_propagation_policy") or "fail_downstream").strip() or "fail_downstream"
     result_delivery_policy = str(payload.get("result_delivery_policy") or "contract_payload_and_refs").strip() or "contract_payload_and_refs"
     failure_policy = dict(payload.get("failure_policy") or {})
-    metadata = _legacy_contract_metadata(
-        dict(payload.get("metadata") or {}),
-        {
-            "payload_contract_id": legacy_payload_contract_id,
-        },
-    )
+    metadata = dict(payload.get("metadata") or {})
     return TaskGraphEdgeDefinition(
         edge_id=str(payload.get("edge_id") or payload.get("id") or "").strip(),
         source_node_id=str(payload.get("source_node_id") or payload.get("from") or payload.get("source") or "").strip(),
@@ -460,17 +444,11 @@ def task_graph_from_dict(payload: dict[str, Any]) -> TaskGraphDefinition:
         runtime_policy["working_memory_profile_id"] = working_memory_policy_profile_id
     explicit_bindings = _contract_bindings_payload(payload.get("contract_bindings"))
     explicit_schema_bindings = dict(explicit_bindings.get("schema") or {})
-    legacy_graph_contract_id = str(payload.get("graph_contract_id") or "").strip()
-    graph_contract_id = str(explicit_schema_bindings.get("graph_contract_id") or legacy_graph_contract_id or "").strip()
+    graph_contract_id = str(explicit_schema_bindings.get("graph_contract_id") or "").strip()
     working_memory_policy = dict(payload.get("working_memory_policy") or {})
     context_policy = dict(payload.get("context_policy") or {})
     loop_frames = tuple(dict(item) for item in list(payload.get("loop_frames") or []) if isinstance(item, dict))
-    metadata = _legacy_contract_metadata(
-        dict(payload.get("metadata") or {}),
-        {
-            "graph_contract_id": legacy_graph_contract_id,
-        },
-    )
+    metadata = dict(payload.get("metadata") or {})
     return TaskGraphDefinition(
         graph_id=graph_id,
         title=str(payload.get("title") or graph_id or "未命名任务图").strip(),
@@ -566,7 +544,6 @@ def validate_task_graph(graph: TaskGraphDefinition) -> tuple[TaskGraphValidation
                 issues.append(TaskGraphValidationIssue(code="node_temporal_expansion_limit_missing", message="节点允许 temporal 扩展时需要配置 max_temporal_expansion_depth", severity="warning", node_id=node.node_id))
             if not _positive_int_policy(node.dynamic_memory_read_policy, "max_dynamic_reads_per_node_run"):
                 issues.append(TaskGraphValidationIssue(code="node_dynamic_read_limit_missing", message="节点动态读取策略缺少 max_dynamic_reads_per_node_run", severity="warning", node_id=node.node_id))
-        issues.extend(_contract_binding_conflict_issues_for_node(node))
     for edge in graph.edges:
         if not edge.edge_id:
             issues.append(TaskGraphValidationIssue(code="edge_missing_id", message="边缺少 edge_id"))
@@ -584,8 +561,6 @@ def validate_task_graph(graph: TaskGraphDefinition) -> tuple[TaskGraphValidation
             issues.append(TaskGraphValidationIssue(code="edge_ack_policy_missing", message="要求 ack 的边必须配置 ack_policy", edge_id=edge.edge_id))
         if edge.working_memory_handoff_policy and not _listish_policy(edge.working_memory_handoff_policy, ("carry_kinds", "carry_scopes", "working_memory_refs")):
             issues.append(TaskGraphValidationIssue(code="edge_working_memory_handoff_policy_shape", message="边工作记忆交接策略缺少 carry_kinds、carry_scopes 或 working_memory_refs", severity="warning", edge_id=edge.edge_id))
-        issues.extend(_contract_binding_conflict_issues_for_edge(edge))
-    issues.extend(_contract_binding_conflict_issues_for_graph(graph))
     return tuple(issues)
 
 
@@ -846,24 +821,6 @@ def _normalize_length_budget_payload(value: Any) -> dict[str, Any]:
     return payload
 
 
-def _legacy_contract_metadata(metadata: dict[str, Any], values: dict[str, Any]) -> dict[str, Any]:
-    legacy_values = {
-        key: str(value or "").strip()
-        for key, value in values.items()
-        if str(value or "").strip()
-    }
-    if not legacy_values:
-        return metadata
-    legacy_contract_fields = dict(metadata.get("legacy_contract_fields") or {})
-    legacy_contract_fields.update(legacy_values)
-    metadata["legacy_contract_fields"] = legacy_contract_fields
-    return metadata
-
-
-def _legacy_contract_fields(metadata: dict[str, Any]) -> dict[str, Any]:
-    return dict((metadata or {}).get("legacy_contract_fields") or {})
-
-
 def _prune_empty_contract_bindings(value: dict[str, Any]) -> dict[str, Any]:
     result: dict[str, Any] = {}
     for key, section in value.items():
@@ -878,87 +835,6 @@ def _prune_empty_contract_bindings(value: dict[str, Any]) -> dict[str, Any]:
         elif section not in ("", None, [], {}):
             result[key] = section
     return result
-
-
-def _binding_value(bindings: dict[str, Any], section: str, key: str) -> Any:
-    payload = dict(bindings.get(section) or {})
-    return payload.get(key)
-
-
-def _contract_binding_conflict_issues_for_graph(graph: TaskGraphDefinition) -> list[TaskGraphValidationIssue]:
-    issues: list[TaskGraphValidationIssue] = []
-    legacy_fields = _legacy_contract_fields(graph.metadata)
-    _append_binding_conflict_issue(
-        issues,
-        scope="graph",
-        legacy_field="graph_contract_id",
-        legacy_value=legacy_fields.get("graph_contract_id", graph.graph_contract_id),
-        binding_path="schema.graph_contract_id",
-        binding_value=_binding_value(graph.contract_bindings, "schema", "graph_contract_id"),
-    )
-    return issues
-
-
-def _contract_binding_conflict_issues_for_node(node: TaskGraphNodeDefinition) -> list[TaskGraphValidationIssue]:
-    issues: list[TaskGraphValidationIssue] = []
-    legacy_fields = _legacy_contract_fields(node.metadata)
-    for legacy_field, section, key, legacy_value in (
-        ("node_contract_id", "execution", "node_contract_id", legacy_fields.get("node_contract_id", node.node_contract_id)),
-        ("input_contract_id", "schema", "input_contract_id", legacy_fields.get("input_contract_id", node.input_contract_id)),
-        ("output_contract_id", "schema", "output_contract_id", legacy_fields.get("output_contract_id", node.output_contract_id)),
-    ):
-        _append_binding_conflict_issue(
-            issues,
-            scope="node",
-            legacy_field=legacy_field,
-            legacy_value=legacy_value,
-            binding_path=f"{section}.{key}",
-            binding_value=_binding_value(node.contract_bindings, section, key),
-            node_id=node.node_id,
-        )
-    return issues
-
-
-def _contract_binding_conflict_issues_for_edge(edge: TaskGraphEdgeDefinition) -> list[TaskGraphValidationIssue]:
-    issues: list[TaskGraphValidationIssue] = []
-    legacy_fields = _legacy_contract_fields(edge.metadata)
-    _append_binding_conflict_issue(
-        issues,
-        scope="edge",
-        legacy_field="payload_contract_id",
-        legacy_value=legacy_fields.get("payload_contract_id", edge.payload_contract_id),
-        binding_path="schema.payload_contract_id",
-        binding_value=_binding_value(edge.contract_bindings, "schema", "payload_contract_id"),
-        edge_id=edge.edge_id,
-    )
-    return issues
-
-
-def _append_binding_conflict_issue(
-    issues: list[TaskGraphValidationIssue],
-    *,
-    scope: str,
-    legacy_field: str,
-    legacy_value: Any,
-    binding_path: str,
-    binding_value: Any,
-    node_id: str = "",
-    edge_id: str = "",
-) -> None:
-    legacy = str(legacy_value or "").strip()
-    binding = str(binding_value or "").strip()
-    if not legacy or not binding or legacy == binding:
-        return
-    issues.append(
-        TaskGraphValidationIssue(
-            code="contract_binding_conflict",
-            message=f"{scope} 的历史字段 {legacy_field} 与 contract_bindings.{binding_path} 冲突：{legacy} != {binding}",
-            severity="error",
-            node_id=node_id,
-            edge_id=edge_id,
-        )
-    )
-
 
 def _normalize_graph_kind(value: Any, nodes: tuple[TaskGraphNodeDefinition, ...]) -> TaskGraphKind:
     raw = str(value or "").strip()

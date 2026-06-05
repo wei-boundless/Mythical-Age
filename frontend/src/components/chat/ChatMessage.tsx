@@ -81,13 +81,11 @@ export function ChatMessage({
     : displayContent;
   const runProjection = isUser ? null : projectAgentRun(publicTimelineItems, messageDisplayContent);
   const hasRunActivity = Boolean(runProjection && hasAgentRunProjection(runProjection));
-  const legacyTaskContractReceipt = !isUser && isLegacyTaskContractReceipt({ content, answerChannel, answerSource });
-  const hideLegacyTaskContractReceipt = legacyTaskContractReceipt && hasRunActivity;
   const shouldRenderContent =
     isUser
     || Boolean(image?.src)
     || imageUnavailable
-    || (!hideLegacyTaskContractReceipt && Boolean(messageDisplayContent.trim()));
+    || Boolean(messageDisplayContent.trim());
   const copyableReplyText = !isUser && shouldRenderContent ? messageDisplayContent.trim() : "";
   const draftValue = draft.trim();
   const sendEditDisabled = submittingEdit || !canEdit || !draftValue;
@@ -269,57 +267,8 @@ function mergedPublicTimelineItems(
 
 function assistantDisplayContent(content: string) {
   const normalized = String(content || "").trim();
-  const protocolCleaned = sanitizeAssistantProtocolText(normalized);
-  const cleaned = protocolCleaned !== normalized ? protocolCleaned : normalized;
-  if (looksLikeRawToolOutput(cleaned)) {
+  if (looksLikeRawToolOutput(normalized)) {
     return "";
-  }
-  if (protocolCleaned !== normalized) {
-    return protocolCleaned;
   }
   return content;
-}
-
-const DSML_TOKEN_SOURCE = String.raw`(?:[｜|]\s*){2}\s*DSML\s*(?:[｜|]\s*){2}`;
-const DSML_PARAMETER_FRAGMENT_RE = new RegExp(
-  String.raw`(?:<\s*${DSML_TOKEN_SOURCE}\s*parameter\b\s*)?name\s*=\s*["'][A-Za-z_][\w-]*["']\s+string\s*=\s*["'](?:true|false)["']\s*>[\s\S]*?(?:<\/\s*${DSML_TOKEN_SOURCE}\s*parameter\s*>|$)`,
-  "gi",
-);
-const DSML_BLOCK_RE = new RegExp(
-  String.raw`<\s*${DSML_TOKEN_SOURCE}\s*(?:tool_calls|invoke|parameter)\b[\s\S]*?(?:<\/\s*${DSML_TOKEN_SOURCE}\s*(?:tool_calls|invoke|parameter)\s*>|$)`,
-  "gi",
-);
-const DSML_TAG_FRAGMENT_RE = new RegExp(String.raw`<\/?\s*${DSML_TOKEN_SOURCE}\s*[^>]*>?`, "gi");
-
-function sanitizeAssistantProtocolText(value: string) {
-  const text = String(value || "");
-  if (!text) {
-    return "";
-  }
-  const cleaned = text
-    .replace(DSML_BLOCK_RE, "")
-    .replace(DSML_PARAMETER_FRAGMENT_RE, "")
-    .replace(DSML_TAG_FRAGMENT_RE, "")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
-  return cleaned;
-}
-
-function isLegacyTaskContractReceipt({
-  content,
-  answerChannel,
-  answerSource,
-}: {
-  content: string;
-  answerChannel?: string;
-  answerSource?: string;
-}) {
-  void answerChannel;
-  void answerSource;
-  const normalized = String(content || "").trim();
-  return (
-    normalized.startsWith("我会按这个目标推进")
-    || normalized.startsWith("我会按这个合同继续推进")
-    || normalized.startsWith("后续进展会汇总在当前会话")
-  );
 }

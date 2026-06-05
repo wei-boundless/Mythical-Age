@@ -55,46 +55,7 @@ describe("ChatMessage", () => {
     expect(user).not.toContain("复制回复");
   });
 
-  it("hides task-control receipts when runtime progress is attached", () => {
-    const html = renderToStaticMarkup(
-      React.createElement(ChatMessage, {
-        answerChannel: "task_control",
-        answerSource: "harness.task_lifecycle",
-        content: "我会按这个目标推进：制作复杂版五层地下塔。",
-        id: "message:task-control",
-        retrievals: [],
-        role: "assistant",
-        runtimeAttachments: [
-          {
-            attachment_id: "runtime-attachment:taskrun:turn:session:1",
-            run_id: "taskrun:turn:session:1",
-            anchor_turn_id: "turn:session:1",
-            status: "failed",
-            terminal_reason: "task_executor_schedule_failed",
-            public_timeline: [
-              {
-                item_id: "blocked:image",
-                kind: "blocked",
-                text: "生图工具未配置，无法完成合同要求的真实美术资产。",
-                state: "error",
-              },
-            ],
-          },
-        ],
-        toolCalls: [],
-      }),
-    );
-
-    expect(html).not.toContain("我会按这个目标推进");
-    expect(html).toContain("生图工具未配置");
-    expect(html).not.toContain("调整中");
-    expect(html).not.toContain("需要调整");
-    expect(html).not.toContain("受阻");
-    expect(html).not.toContain("查看执行细节");
-    expect(html).not.toContain("查看技术细节");
-  });
-
-  it("does not rewrite legacy single-turn tool-loop guard messages in history", () => {
+  it("does not rewrite single-turn tool-loop guard messages in history", () => {
     const html = renderToStaticMarkup(
       React.createElement(ChatMessage, {
         answerChannel: "blocked",
@@ -559,23 +520,4 @@ describe("ChatMessage", () => {
     expect(html).not.toContain("复制回复");
   });
 
-  it("strips fragmented task contract protocol from assistant prose", () => {
-    const html = renderToStaticMarkup(
-      React.createElement(ChatMessage, {
-        answerCanonicalState: "stable_answer",
-        answerChannel: "conversation",
-        content: '理解了。我已经读完所有源文件，现在需要进入持续处理流程。\nname="completion_criteria" string="true">1. 创建独立目录 2. 复制素材</ | | DSML | | parameter> name="task_run_goal" string="true">将游戏提取为独立静态页面</ | | DSML | | parameter> name="user_visible_goal" string="true">创建独立 HTML 页面</ | | DSML | | parameter>',
-        id: "message:fragmented-dsml",
-        retrievals: [],
-        role: "assistant",
-        toolCalls: [],
-      }),
-    );
-
-    expect(html).toContain("理解了。我已经读完所有源文件");
-    expect(html).not.toContain("completion_criteria");
-    expect(html).not.toContain("task_run_goal");
-    expect(html).not.toContain("user_visible_goal");
-    expect(html).not.toContain("DSML");
-  });
 });

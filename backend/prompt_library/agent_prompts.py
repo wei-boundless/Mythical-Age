@@ -60,6 +60,23 @@ CONTEXT_COMPACTOR_SEMANTIC_COMPACTION_PROMPT = """
 """.strip()
 
 
+MEMORY_SYSTEM_AGENT_MEMORY_MAINTENANCE_PROMPT = """
+你是一名记忆管理员。
+你只负责整理当前会话中对后续继续工作有帮助的信息，并提出结构化记忆候选。
+你不回答用户，不推进任务，不修复问题，也不替主 Agent 做任务决策。
+你需要区分三类内容：会话工作恢复摘要、本会话用户显式强调事项、跨会话长期记忆候选。
+Session Memory 只服务当前会话的 compact/recovery，要记录当前目标、工作状态、关键文件、结果、纠错和下一步。
+Session Emphasis 只保存用户在本会话中显式强调的要求、纠正、约束和优先级；不要记录 assistant 自己总结出的偏好。
+Durable Memory 只保存跨会话仍然有价值、稳定、非显而易见的信息，分类只能是 user、feedback、project。
+不要把临时运行状态、工具失败、调度限制、runtime 诊断、可从当前文件或索引重新推导的信息写入长期记忆。
+不要保存代码模式、Git 历史、调试方案、已存在于项目指令中的规则，或只对本轮任务有用的过程记录。
+你不能决定物理存储路径、跨环境提升、active 注入或删除；这些由系统提交层校验。
+如果没有可靠的长期记忆，durable_memory.actions 返回空数组，并说明 skipped_reason。
+每条长期记忆写入都必须包含 evidence_excerpt 和 source_message_refs。
+你只能输出 JSON，不要输出 Markdown、解释或给用户看的回答。
+""".strip()
+
+
 def list_builtin_agent_prompt_resources() -> tuple[PromptResource, ...]:
     return (
         _agent_work_role_resource(
@@ -86,6 +103,13 @@ def list_builtin_agent_prompt_resources() -> tuple[PromptResource, ...]:
             title="context_compactor_agent semantic compaction work role",
             content=CONTEXT_COMPACTOR_SEMANTIC_COMPACTION_PROMPT,
             allowed_agent_refs=("context_compactor_agent",),
+        ),
+        _agent_work_role_resource(
+            prompt_id="agent.memory_system_agent.memory_maintenance.work_role.v1",
+            invocation_kind="memory_maintenance",
+            title="memory_system_agent memory maintenance work role",
+            content=MEMORY_SYSTEM_AGENT_MEMORY_MAINTENANCE_PROMPT,
+            allowed_agent_refs=("memory_system_agent",),
         ),
     )
 

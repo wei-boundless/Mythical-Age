@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import base64
 import sys
 from pathlib import Path
@@ -18,14 +17,6 @@ from bootstrap.app_runtime import app_runtime
 async def _fake_astream(_request):
     yield {"type": "token", "content": "smoke"}
     yield {"type": "done", "content": "smoke result"}
-
-
-async def _fake_error_astream(_request):
-    yield {
-        "type": "error",
-        "error": "model unavailable",
-        "code": "provider_unavailable",
-    }
 
 
 async def _fake_missing_terminal_astream(_request):
@@ -77,11 +68,10 @@ def test_chat_accepts_per_turn_model_selection() -> None:
             session_id = created.json()["id"]
 
             response = client.post(
-                "/api/chat",
+                "/api/chat/runs",
                 json={
                     "message": "hello selected model",
                     "session_id": session_id,
-                    "stream": False,
                     "model_selection": {
                         "provider": "deepseek",
                         "model": "deepseek-v4-flash",
@@ -91,6 +81,9 @@ def test_chat_accepts_per_turn_model_selection() -> None:
             )
 
             assert response.status_code == 200
+            stream = client.get(response.json()["stream_url"])
+            assert stream.status_code == 200
+            assert "event: done" in stream.text
             assert captured["model_selection"] == {
                 "provider": "deepseek",
                 "model": "deepseek-v4-flash",
@@ -115,11 +108,10 @@ def test_chat_routes_gpt_image_2_to_image_generation() -> None:
             session_id = created.json()["id"]
 
             response = client.post(
-                "/api/chat",
+                "/api/chat/runs",
                 json={
                     "message": "a blue glass mountain at sunset",
                     "session_id": session_id,
-                    "stream": False,
                     "model_selection": {
                         "provider": "openai",
                         "model": "gpt-image-2",
@@ -135,8 +127,13 @@ def test_chat_routes_gpt_image_2_to_image_generation() -> None:
             )
 
             assert response.status_code == 200
-            assert response.json()["content"] == "已生成图像。"
-            image = response.json()["image"]
+            stream = client.get(response.json()["stream_url"])
+            assert stream.status_code == 200
+            assert "event: done" in stream.text
+            assert "已生成图像" in stream.text
+            history = client.get(f"/api/sessions/{session_id}/history")
+            assert history.status_code == 200
+            image = history.json()["messages"][-1]["image"]
             generated_path = BACKEND_DIR.parent / "storage" / "generated" / "images" / Path(image["src"]).name
             assert image["src"].startswith(f"/api/image-assets/files/chat-turn-{session_id}-")
             assert image["src"].endswith(".png")
@@ -144,14 +141,7 @@ def test_chat_routes_gpt_image_2_to_image_generation() -> None:
             image_file = client.get(image["src"])
             assert image_file.status_code == 200
             assert image_file.headers["content-type"].startswith("image/png")
-            assert response.json()["image"] == {
-                "src": image["src"],
-                "alt": "a blue glass mountain at sunset",
-                "caption": "revised prompt",
-            }
-            history = client.get(f"/api/sessions/{session_id}/history")
-            assert history.status_code == 200
-            assert history.json()["messages"][-1]["image"] == {
+            assert image == {
                 "src": image["src"],
                 "alt": "a blue glass mountain at sunset",
                 "caption": "revised prompt",
@@ -188,36 +178,14 @@ def test_api_smoke_flow() -> None:
             assert "total_tokens" in tokens.json()
 
             response = client.post(
-                "/api/chat",
+                "/api/chat/runs",
                 json={"message": "hello smoke", "session_id": session_id, "stream": True},
             )
             assert response.status_code == 200
-            assert "event: token" in response.text
-            assert "event: done" in response.text
-        finally:
-            runtime.harness_runtime.astream = original_astream  # type: ignore[method-assign]
-
-
-def test_non_stream_chat_returns_error_status() -> None:
-    with TestClient(app) as client:
-        runtime = app_runtime.require_ready()
-
-        original_astream = runtime.harness_runtime.astream
-        runtime.harness_runtime.astream = _fake_error_astream  # type: ignore[method-assign]
-        try:
-            created = client.post("/api/sessions", json={"title": "Error smoke"})
-            assert created.status_code == 200
-            session_id = created.json()["id"]
-
-            response = client.post(
-                "/api/chat",
-                json={"message": "hello error", "session_id": session_id, "stream": False},
-            )
-            assert response.status_code == 503
-            assert response.json() == {
-                "error": "model unavailable",
-                "code": "provider_unavailable",
-            }
+            stream = client.get(response.json()["stream_url"])
+            assert stream.status_code == 200
+            assert "event: token" in stream.text
+            assert "event: done" in stream.text
         finally:
             runtime.harness_runtime.astream = original_astream  # type: ignore[method-assign]
 
@@ -234,15 +202,17 @@ def test_stream_chat_emits_error_when_runtime_ends_without_terminal_event() -> N
             session_id = created.json()["id"]
 
             response = client.post(
-                "/api/chat",
+                "/api/chat/runs",
                 json={"message": "hello missing terminal", "session_id": session_id, "stream": True},
             )
 
             assert response.status_code == 200
-            assert "event: input_commit_gate" in response.text
-            assert "event: task_intent_decision" in response.text
-            assert "event: error" in response.text
-            assert "missing_terminal_event" in response.text
+            stream = client.get(response.json()["stream_url"])
+            assert stream.status_code == 200
+            assert "event: input_commit_gate" in stream.text
+            assert "event: task_intent_decision" in stream.text
+            assert "event: error" in stream.text
+            assert "missing_terminal_event" in stream.text
         finally:
             runtime.harness_runtime.astream = original_astream  # type: ignore[method-assign]
 
@@ -250,7 +220,7 @@ def test_stream_chat_emits_error_when_runtime_ends_without_terminal_event() -> N
 def test_chat_rejects_invalid_session_id_before_streaming() -> None:
     with TestClient(app) as client:
         response = client.post(
-            "/api/chat",
+            "/api/chat/runs",
             json={"message": "hello", "session_id": "../outside", "stream": True},
         )
         assert response.status_code == 400

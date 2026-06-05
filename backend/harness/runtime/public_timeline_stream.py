@@ -76,7 +76,8 @@ def _items_for_event(event_type: str, data: dict[str, Any]) -> list[dict[str, An
             item_id=_stable_id("stopped", str(data.get("runtime_task_run_id") or ""), str(data.get("reason") or "")),
             title="已停止当前处理",
             detail=_visible_text(data.get("reason") or data.get("content")),
-            state="error",
+            state="stopped",
+            phase="stopped",
         )]
     return []
 
@@ -300,7 +301,7 @@ def _done_item(data: dict[str, Any]) -> dict[str, Any]:
     return {}
 
 
-def _status_item(*, item_id: str, title: str, detail: str = "", state: str) -> dict[str, Any]:
+def _status_item(*, item_id: str, title: str, detail: str = "", state: str, phase: str = "") -> dict[str, Any]:
     return _compact(
         {
             "item_id": item_id,
@@ -308,6 +309,7 @@ def _status_item(*, item_id: str, title: str, detail: str = "", state: str) -> d
             "title": title,
             "detail": detail,
             "state": state,
+            "phase": phase,
         }
     )
 

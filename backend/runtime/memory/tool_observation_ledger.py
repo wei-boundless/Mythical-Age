@@ -177,18 +177,18 @@ def build_tool_observation_record(
     else:
         result_text = str(result or "")
         structured_payload = {}
-        observed_paths = tuple(_legacy_observed_paths_from_args(name, args))
+        observed_paths = ()
         matched_paths = ()
         artifact_refs = ()
         command_receipt = {}
-        status = "error" if _looks_failed(result_text) else "ok"
-    evidence_source = "structured_envelope" if envelope is not None else "legacy_text"
+        status = "error" if _looks_failed(result_text) else "unstructured"
+    evidence_source = "structured_envelope" if envelope is not None else "unstructured_result"
     debug_hints = (
         {}
         if envelope is not None
         else {
-            "legacy_text_preview": result_text[:500],
-            "args_paths": _legacy_observed_paths_from_args(name, args),
+            "reason": "missing_result_envelope",
+            "result_preview": result_text[:500],
             "text_path_candidates": _debug_path_candidates_from_text(result_text),
             "hard_evidence_accepted": False,
         }
@@ -244,7 +244,7 @@ def build_tool_observation_record(
         result_metadata=result_metadata,
         side_effect_hash=(
             _side_effect_hash(name=name, args=args, result_text=result_text)
-            if side_effect_kind in {"write", "verification"}
+            if envelope is not None and side_effect_kind in {"write", "verification"}
             else ""
         ),
         evidence_source=evidence_source,
@@ -385,12 +385,6 @@ def _structured_verification_intent(structured_payload: dict[str, Any] | None) -
 def _side_effect_hash(*, name: str, args: dict[str, Any], result_text: str) -> str:
     raw = repr((name, sorted(args.items()), result_text[:5000]))
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
-
-
-def _legacy_observed_paths_from_args(tool_name: str, args: dict[str, Any]) -> list[str]:
-    if tool_name in {"read_file", "read_structured_file", "stat_path", "path_exists"}:
-        return _dedupe([str(args.get("path") or "").strip()])
-    return []
 
 
 def _debug_path_candidates_from_text(text: str) -> list[str]:

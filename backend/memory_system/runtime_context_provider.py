@@ -73,7 +73,7 @@ class RuntimeMemoryContextProvider:
         )
         allow_long_term = _profile_allows_long_term_memory(agent_runtime_profile) and (
             _memory_intent_requests_read(memory_intent)
-            or should_inject_session_emphasis(
+            or should_consider_long_term_memory(
                 user_message=user_message,
                 task_selection=task_selection,
                 active_work_context=active_work_context,
@@ -273,6 +273,42 @@ def should_inject_session_emphasis(
         "review",
     )
     return any(term in content for term in task_terms)
+
+
+def should_consider_long_term_memory(
+    *,
+    user_message: str,
+    task_selection: dict[str, Any],
+    active_work_context: dict[str, Any] | None,
+    recent_work_outcome: dict[str, Any] | None,
+) -> bool:
+    if task_selection or active_work_context or recent_work_outcome:
+        return True
+    content = str(user_message or "").strip().lower()
+    if not content:
+        return False
+    memory_terms = (
+        "长期记忆",
+        "记忆",
+        "记住",
+        "请记住",
+        "偏好",
+        "以后",
+        "始终",
+        "上次",
+        "之前",
+        "以前",
+        "历史",
+        "规则",
+        "约定",
+        "remember",
+        "memory",
+        "preference",
+        "always",
+        "previous",
+        "history",
+    )
+    return any(term in content for term in memory_terms)
 
 
 def _profile_allows_long_term_memory(agent_runtime_profile: Any) -> bool:

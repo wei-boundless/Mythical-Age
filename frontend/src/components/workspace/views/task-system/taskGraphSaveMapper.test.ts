@@ -57,7 +57,9 @@ describe("TaskGraphDraftV2 mapping", () => {
       task_id: "task.story",
       entry_node_id: "draft",
       output_node_id: "review",
-      graph_contract_id: "contract.story.graph",
+      contract_bindings: {
+        schema: { graph_contract_id: "contract.story.graph" },
+      },
       working_memory_policy_profile_id: "wmprofile.story",
       working_memory_policy: {
         default_scope: "graph_scope",
@@ -126,20 +128,26 @@ describe("TaskGraphDraftV2 mapping", () => {
     expect(payload.enabled).toBe(true);
   });
 
-  it("normalizes graph node and edge contracts into contract_bindings", () => {
+  it("projects canonical contract_bindings into the backend DTO fields", () => {
     const draft = {
       ...emptyTaskGraphDraftV2(),
       graph_id: "graph.test.contracts",
       title: "Contract graph",
-      graph_contract_id: "contract.graph",
+      contract_bindings: {
+        schema: { graph_contract_id: "contract.graph" },
+      },
       nodes: [
         {
           node_id: "draft",
           node_type: "agent",
           title: "Draft",
-          input_contract_id: "contract.input",
-          output_contract_id: "contract.output",
-          node_contract_id: "contract.executor",
+          contract_bindings: {
+            schema: {
+              input_contract_id: "contract.input",
+              output_contract_id: "contract.output",
+            },
+            execution: { node_contract_id: "contract.executor" },
+          },
           memory_read_policy: { readable_scopes: ["baseline"] },
           artifact_policy: { target: "draft.md" },
         },
@@ -150,7 +158,9 @@ describe("TaskGraphDraftV2 mapping", () => {
           source_node_id: "draft",
           target_node_id: "draft",
           edge_type: "handoff",
-          payload_contract_id: "contract.payload",
+          contract_bindings: {
+            schema: { payload_contract_id: "contract.payload" },
+          },
           ack_required: true,
           ack_policy: "explicit_ack",
           metadata: { temporal_semantics: { visibility_timing: "after_commit" } },
@@ -165,6 +175,11 @@ describe("TaskGraphDraftV2 mapping", () => {
       publish_state: "draft",
     });
 
+    expect(payload.graph_contract_id).toBe("contract.graph");
+    expect(payload.nodes[0]?.input_contract_id).toBe("contract.input");
+    expect(payload.nodes[0]?.output_contract_id).toBe("contract.output");
+    expect(payload.nodes[0]?.node_contract_id).toBe("contract.executor");
+    expect(payload.edges[0]?.payload_contract_id).toBe("contract.payload");
     expect((payload.nodes[0]?.contract_bindings as Record<string, Record<string, unknown>> | undefined)?.schema).toEqual({
       input_contract_id: "contract.input",
       output_contract_id: "contract.output",
@@ -200,8 +215,8 @@ describe("TaskGraphDraftV2 mapping", () => {
           node_config_id: "nodecfg.story.writer",
           node_config_overrides: { role_prompt_patch: "只写大纲。" },
           metadata: {
-            node_config_id: "nodecfg.legacy.writer",
-            node_config_overrides: { role_prompt_patch: "legacy" },
+            node_config_id: "nodecfg.stale.writer",
+            node_config_overrides: { role_prompt_patch: "stale" },
             note: "kept",
           },
         },
@@ -221,12 +236,12 @@ describe("TaskGraphDraftV2 mapping", () => {
     expect(payload.nodes[0]?.metadata).toEqual({ note: "kept" });
   });
 
-  it("preserves explicit contract_bindings when legacy contract fields differ", () => {
+  it("ignores stale flat contract fields when contract_bindings are present", () => {
     const draft = {
       ...emptyTaskGraphDraftV2(),
       graph_id: "graph.test.contract-authority",
       title: "Contract authority graph",
-      graph_contract_id: "contract.legacy.graph",
+      graph_contract_id: "contract.stale.graph",
       contract_bindings: {
         schema: { graph_contract_id: "contract.binding.graph" },
       },
@@ -235,9 +250,9 @@ describe("TaskGraphDraftV2 mapping", () => {
           node_id: "draft",
           node_type: "agent",
           title: "Draft",
-          input_contract_id: "contract.legacy.input",
-          output_contract_id: "contract.legacy.output",
-          node_contract_id: "contract.legacy.executor",
+          input_contract_id: "contract.stale.input",
+          output_contract_id: "contract.stale.output",
+          node_contract_id: "contract.stale.executor",
           contract_bindings: {
             schema: {
               input_contract_id: "contract.binding.input",
@@ -253,7 +268,7 @@ describe("TaskGraphDraftV2 mapping", () => {
           source_node_id: "draft",
           target_node_id: "draft",
           edge_type: "handoff",
-          payload_contract_id: "contract.legacy.payload",
+          payload_contract_id: "contract.stale.payload",
           contract_bindings: {
             schema: { payload_contract_id: "contract.binding.payload" },
           },
@@ -283,7 +298,7 @@ describe("TaskGraphDraftV2 mapping", () => {
     });
   });
 
-  it("restores a V2 draft from TaskGraph first-class fields before metadata fallbacks", () => {
+  it("restores a V2 draft from TaskGraph first-class fields before stale metadata copies", () => {
     const graph: TaskGraphRecord = {
       graph_id: "graph.restore",
       title: "Restore graph",
@@ -320,12 +335,12 @@ describe("TaskGraphDraftV2 mapping", () => {
       },
       metadata: {
         task_id: "task.restore",
-        coordinator_agent_id: "agent:legacy",
+        coordinator_agent_id: "agent:stale",
         runtime_policy: {
-          coordinator_agent_id: "agent:legacy_runtime",
+          coordinator_agent_id: "agent:stale_runtime",
         },
         working_memory_policy: {
-          default_scope: "legacy_scope",
+          default_scope: "stale_scope",
         },
       },
     };

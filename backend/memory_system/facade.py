@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Callable
 
+from agent_system.profiles.runtime_profile_registry import AgentRuntimeRegistry
 from project_layout import ProjectLayout
 from orchestration import BackgroundTaskManager
 from .bundle_service import MemoryBundleService
@@ -12,7 +13,12 @@ from .durable import DurableMemoryLayer
 from .environment_context import resolve_memory_environment_context
 from .governance_service import DurableMemoryGovernanceService
 from .layout import environment_durable_memory_scope_from_backend_dir
-from .maintenance import MemoryMaintenanceAgent, MemoryMaintenanceCoordinator
+from .maintenance import (
+    MEMORY_MANAGER_AGENT_ID,
+    MemoryMaintenanceAgent,
+    MemoryMaintenanceCoordinator,
+    memory_maintenance_registration_from_profile,
+)
 from .runtime_services import MemoryRuntimeServices
 from .session_emphasis import SessionEmphasisStore
 from .state_memory import StateMemoryStoreAdapter
@@ -31,7 +37,12 @@ class MemoryFacade:
         self.durable_memory = DurableMemoryLayer(base_dir)
         self._environment_durable_layers: dict[str, DurableMemoryLayer] = {}
         self.memory_manager = self.durable_memory.memory_manager
-        self.maintenance_agent = MemoryMaintenanceAgent()
+        runtime_profile = AgentRuntimeRegistry(base_dir).get_profile(MEMORY_MANAGER_AGENT_ID)
+        if runtime_profile is None:
+            raise RuntimeError("memory maintenance agent runtime profile is not registered")
+        self.maintenance_agent = MemoryMaintenanceAgent(
+            registration=memory_maintenance_registration_from_profile(runtime_profile),
+        )
         self.maintenance_coordinator = MemoryMaintenanceCoordinator(
             base_dir=base_dir,
             session_memory_layer=self.session_memory,
@@ -218,7 +229,7 @@ class MemoryFacade:
         bundle_summary_refs: list[dict[str, Any]] | None = None,
         memory_environment_context: dict[str, Any] | None = None,
         durable_lane_enabled: bool = True,
-        force: bool = True,
+        force: bool = False,
     ):
         return self.maintenance_coordinator.run_after_commit_sync(
             session_id=session_id,
@@ -243,7 +254,7 @@ class MemoryFacade:
         bundle_summary_refs: list[dict[str, Any]] | None = None,
         memory_environment_context: dict[str, Any] | None = None,
         durable_lane_enabled: bool = True,
-        force: bool = True,
+        force: bool = False,
     ):
         return self.enqueue_memory_maintenance_after_commit(
             session_id=session_id,
@@ -290,7 +301,6 @@ class MemoryFacade:
         memory_intent: Any | None = None,
         memory_request_profile: dict[str, Any] | None = None,
         memory_view: Any | None = None,
-        relevant_notes: list[Any] | None = None,
         retrieval_results: list[dict[str, Any]] | None = None,
         note_limit: int = 5,
     ):
@@ -300,7 +310,6 @@ class MemoryFacade:
             memory_intent=memory_intent,
             memory_request_profile=memory_request_profile,
             memory_view=memory_view,
-            relevant_notes=relevant_notes,
             retrieval_results=retrieval_results,
             note_limit=note_limit,
         )
@@ -314,7 +323,6 @@ class MemoryFacade:
         query: str | None = None,
         memory_intent: Any | None = None,
         memory_request_profile: dict[str, Any] | None = None,
-        relevant_notes: list[Any] | None = None,
         note_limit: int = 5,
     ):
         return self.bundle_service.build_memory_bundle(
@@ -324,7 +332,6 @@ class MemoryFacade:
             query=query,
             memory_intent=memory_intent,
             memory_request_profile=memory_request_profile,
-            relevant_notes=relevant_notes,
             note_limit=note_limit,
         )
 

@@ -32,7 +32,7 @@ def test_task_execution_accepts_canonical_tool_calls_array() -> None:
     assert len(action.to_dict()["tool_calls"]) == 2
 
 
-def test_task_execution_normalizes_legacy_single_tool_call() -> None:
+def test_task_execution_rejects_single_tool_call_without_tool_calls_array() -> None:
     action, diagnostics = task_execution_action_request_from_payload(
         {
             "authority": "harness.loop.model_action_request",
@@ -50,9 +50,9 @@ def test_task_execution_normalizes_legacy_single_tool_call() -> None:
         allowed_action_types=("respond", "ask_user", "tool_call", "block"),
     )
 
-    assert diagnostics["status"] == "accepted"
-    assert action is not None
-    assert action.tool_calls == ({"tool_name": "read_file", "name": "read_file", "args": {"path": "README.md"}},)
+    assert action is None
+    assert diagnostics["status"] == "invalid"
+    assert "tool_calls_required_for_tool_call" in diagnostics["validation_errors"]
 
 
 def test_task_execution_rejects_conflicting_tool_call_and_tool_calls() -> None:

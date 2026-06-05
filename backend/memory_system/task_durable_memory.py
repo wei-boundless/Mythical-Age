@@ -8,9 +8,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
 
-from token_accounting import count_text_tokens
-
-from .contracts import MemoryContextCandidate
 from .working_memory_models import WorkingMemoryItem
 
 
@@ -520,83 +517,6 @@ class TaskDurableMemoryService:
     def list_namespaces(self):
         return self.store.list_namespaces()
 
-    def context_candidates(
-        self,
-        *,
-        namespace_id: str = "",
-        domain_id: str = "",
-        task_id: str = "",
-        graph_id: str = "",
-        project_id: str = "",
-        artifact_namespace: str = "",
-        requested_kinds: list[str] | tuple[str, ...] = (),
-        requested_semantics: list[str] | tuple[str, ...] = (),
-        limit: int = 20,
-    ) -> tuple[MemoryContextCandidate, ...]:
-        query_namespace = namespace_id or self.build_namespace_id(
-            domain_id=domain_id,
-            task_id=task_id,
-            graph_id=graph_id,
-            project_id=project_id,
-            artifact_namespace=artifact_namespace,
-        )
-        if not query_namespace and not any([domain_id, task_id, graph_id, project_id, artifact_namespace]):
-            return ()
-        items = self.query_items(
-            namespace_id=query_namespace,
-            domain_id=domain_id,
-            task_id=task_id,
-            graph_id=graph_id,
-            project_id=project_id,
-            artifact_namespace=artifact_namespace,
-            status="active",
-            limit=max(1, min(int(limit or 20), 100)),
-        )
-        kind_filter = set(_strings(requested_kinds))
-        semantics_filter = set(_strings(requested_semantics))
-        candidates: list[MemoryContextCandidate] = []
-        for item in items:
-            if not item.eligible_for_task_injection:
-                continue
-            if kind_filter and item.kind not in kind_filter:
-                continue
-            if semantics_filter and item.memory_semantics not in semantics_filter:
-                continue
-            preview = _render_candidate_preview(item)
-            if not preview:
-                continue
-            candidates.append(
-                MemoryContextCandidate(
-                    candidate_id=f"memory-context:{item.namespace_id}:task-durable:{item.task_memory_id}",
-                    memory_layer="task_durable",
-                    source="task_durable_memory.store",
-                    content_ref=item.task_memory_id,
-                    rendered_preview=preview,
-                    relevance=0.82,
-                    confidence=_confidence(item.confidence),
-                    staleness="task_namespace_scoped",
-                    owner_task_id=item.task_id,
-                    token_estimate=max(1, count_text_tokens(preview)),
-                    budget_class="preferred",
-                    can_override_current_turn=False,
-                    requires_verification_before_use=item.global_promotion_state in {"candidate", "needs_review"},
-                    authority="candidate_only",
-                    metadata={
-                        "namespace_id": item.namespace_id,
-                        "domain_id": item.domain_id,
-                        "task_id": item.task_id,
-                        "graph_id": item.graph_id,
-                        "project_id": item.project_id,
-                        "artifact_namespace": item.artifact_namespace,
-                        "kind": item.kind,
-                        "memory_semantics": item.memory_semantics,
-                        "source_authority": item.authority,
-                        "source_work_memory_ids": list(item.source_work_memory_ids),
-                    },
-                )
-            )
-        return tuple(candidates)
-
     @staticmethod
     def build_namespace_id(**payload: Any) -> str:
         return build_namespace_id(
@@ -638,39 +558,6 @@ def build_namespace_id(
         return ""
     digest = hashlib.sha1("|".join(normalized).encode("utf-8")).hexdigest()[:12]
     return f"tdmns:{digest}"
-
-
-def _render_candidate_preview(item: TaskDurableMemoryItem) -> str:
-    lines = []
-    if item.title:
-        lines.append(f"### {item.title}")
-    lines.append(
-        " / ".join(
-            part
-            for part in (
-                f"namespace={item.namespace_id}",
-                f"kind={item.kind}",
-                f"semantics={item.memory_semantics}",
-                f"task={item.task_id}",
-                f"graph={item.graph_id}",
-            )
-            if part
-        )
-    )
-    if item.summary:
-        lines.append(item.summary)
-    elif item.canonical_statement:
-        lines.append(item.canonical_statement)
-    return "\n".join(line for line in lines if line).strip()
-
-
-def _confidence(value: str) -> float:
-    normalized = str(value or "").lower()
-    if normalized in {"high", "strong"}:
-        return 0.86
-    if normalized in {"low", "weak"}:
-        return 0.42
-    return 0.66
 
 
 def _safe_part(value: Any) -> str:

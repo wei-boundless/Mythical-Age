@@ -193,7 +193,7 @@ def scan_skills(base_dir: Path) -> list[SkillRecord]:
         meta = _parse_frontmatter(text)
         body = _read_skill_body_without_frontmatter(text)
         metadata = meta.get("metadata") if isinstance(meta.get("metadata"), dict) else {}
-        prompt_meta = meta.get("prompt") if isinstance(meta.get("prompt"), dict) else meta.get("prompt_view")
+        prompt_meta = meta.get("prompt") if isinstance(meta.get("prompt"), dict) else {}
         if not isinstance(prompt_meta, dict):
             prompt_meta = {}
         skill_dir = skill_file.parent
@@ -217,7 +217,7 @@ def scan_skills(base_dir: Path) -> list[SkillRecord]:
             capability_tags=_coerce_list(_lookup(meta, "metadata.capability_tags")),
             preferred_route=_coerce_str(_lookup(meta, "metadata.preferred_route")),
             forbidden_routes=_coerce_list(_lookup(meta, "metadata.forbidden_routes")),
-            not_for=_coerce_list(_lookup(meta, "metadata.not_for") or _lookup(meta, "metadata.forbidden_uses")),
+            not_for=_coerce_list(_lookup(meta, "metadata.not_for")),
             routing_hints=_coerce_list(_lookup(meta, "metadata.routing_hints")),
             examples=_coerce_list(_lookup(meta, "metadata.examples")),
             activation_policy=_coerce_str(_lookup(meta, "metadata.activation_policy"), "model_visible") or "model_visible",

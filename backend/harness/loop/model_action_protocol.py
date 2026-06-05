@@ -377,8 +377,6 @@ def _task_execution_tool_calls(raw: dict[str, Any]) -> tuple[tuple[dict[str, Any
     elif _has_non_empty_value(raw_tool_calls):
         errors.append("tool_calls_must_be_array")
         calls = []
-    elif isinstance(raw_tool_call, dict) and raw_tool_call:
-        calls = [raw_tool_call]
     else:
         calls = []
     normalized: list[dict[str, Any]] = []
