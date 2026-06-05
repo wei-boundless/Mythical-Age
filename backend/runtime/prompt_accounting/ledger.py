@@ -45,7 +45,7 @@ class PromptAccountingLedger:
         self._append_jsonl("prompt_stability.jsonl", report.to_dict())
 
     def list_segments(self, *, run_id: str = "", task_run_id: str = "", session_id: str = "") -> list[PromptSegment]:
-        rows = self._read_jsonl("segments.jsonl")
+        rows = self._read_jsonl("segments.jsonl", run_id=run_id, task_run_id=task_run_id, session_id=session_id)
         result: list[PromptSegment] = []
         for row in rows:
             if run_id and str(row.get("run_id") or row.get("task_run_id") or "") != run_id:
@@ -58,7 +58,7 @@ class PromptAccountingLedger:
         return result
 
     def list_segment_maps(self, *, run_id: str = "", task_run_id: str = "", session_id: str = "") -> list[dict[str, Any]]:
-        rows = self._read_jsonl("segment_maps.jsonl")
+        rows = self._read_jsonl("segment_maps.jsonl", run_id=run_id, task_run_id=task_run_id, session_id=session_id)
         result: list[dict[str, Any]] = []
         for row in rows:
             if run_id and str(row.get("run_id") or row.get("task_run_id") or "") != run_id:
@@ -72,7 +72,7 @@ class PromptAccountingLedger:
 
     def list_token_usage(self, *, run_id: str = "", task_run_id: str = "", session_id: str = "") -> list[ModelTokenUsageRecord]:
         records: dict[str, ModelTokenUsageRecord] = {}
-        for row in self._read_jsonl("token_usage.jsonl"):
+        for row in self._read_jsonl("token_usage.jsonl", run_id=run_id, task_run_id=task_run_id, session_id=session_id):
             if run_id and str(row.get("run_id") or row.get("task_run_id") or "") != run_id:
                 continue
             if task_run_id and str(row.get("task_run_id") or "") != task_run_id:
@@ -88,7 +88,7 @@ class PromptAccountingLedger:
 
     def list_prompt_cache(self, *, run_id: str = "", task_run_id: str = "", session_id: str = "") -> list[PromptCacheRecord]:
         records: dict[str, PromptCacheRecord] = {}
-        for row in self._read_jsonl("prompt_cache.jsonl"):
+        for row in self._read_jsonl("prompt_cache.jsonl", run_id=run_id, task_run_id=task_run_id, session_id=session_id):
             if run_id and str(row.get("run_id") or row.get("task_run_id") or "") != run_id:
                 continue
             if task_run_id and str(row.get("task_run_id") or "") != task_run_id:
@@ -111,7 +111,7 @@ class PromptAccountingLedger:
         status: str = "",
     ) -> list[PromptCacheBaselineRecord]:
         records: dict[str, PromptCacheBaselineRecord] = {}
-        for row in self._read_jsonl("prompt_cache_baselines.jsonl"):
+        for row in self._read_jsonl("prompt_cache_baselines.jsonl", run_id=run_id, task_run_id=task_run_id, session_id=session_id):
             if run_id and str(row.get("run_id") or row.get("task_run_id") or "") != run_id:
                 continue
             if task_run_id and str(row.get("task_run_id") or "") != task_run_id:
@@ -166,7 +166,7 @@ class PromptAccountingLedger:
 
     def list_prompt_cache_breaks(self, *, run_id: str = "", task_run_id: str = "", session_id: str = "") -> list[PromptCacheBreakRecord]:
         records: dict[str, PromptCacheBreakRecord] = {}
-        for row in self._read_jsonl("prompt_cache_breaks.jsonl"):
+        for row in self._read_jsonl("prompt_cache_breaks.jsonl", run_id=run_id, task_run_id=task_run_id, session_id=session_id):
             if run_id and str(row.get("run_id") or row.get("task_run_id") or "") != run_id:
                 continue
             if task_run_id and str(row.get("task_run_id") or "") != task_run_id:
@@ -182,7 +182,7 @@ class PromptAccountingLedger:
 
     def list_prompt_stability(self, *, run_id: str = "", task_run_id: str = "", session_id: str = "") -> list[PromptStabilityReport]:
         records: dict[str, PromptStabilityReport] = {}
-        for row in self._read_jsonl("prompt_stability.jsonl"):
+        for row in self._read_jsonl("prompt_stability.jsonl", run_id=run_id, task_run_id=task_run_id, session_id=session_id):
             if run_id and str(row.get("run_id") or row.get("task_run_id") or "") != run_id:
                 continue
             if task_run_id and str(row.get("task_run_id") or "") != task_run_id:
@@ -313,16 +313,23 @@ class PromptAccountingLedger:
             with path.open("a", encoding="utf-8", newline="\n") as handle:
                 handle.write(json.dumps(payload, ensure_ascii=False, sort_keys=True) + "\n")
 
-    def _read_jsonl(self, filename: str) -> list[dict[str, Any]]:
+    def _read_jsonl(self, filename: str, *, run_id: str = "", task_run_id: str = "", session_id: str = "") -> list[dict[str, Any]]:
         path = self.ledger_dir / filename
         if not path.exists():
             return []
         rows: list[dict[str, Any]] = []
         with self._lock:
             lines = path.read_text(encoding="utf-8").splitlines()
+        prefilter = _line_prefilter(
+            run_id=str(run_id or ""),
+            task_run_id=str(task_run_id or ""),
+            session_id=str(session_id or ""),
+        )
         for line in lines:
             stripped = line.strip()
             if not stripped:
+                continue
+            if prefilter and not _line_matches_prefilter(stripped, prefilter):
                 continue
             try:
                 payload = json.loads(stripped)
@@ -449,3 +456,23 @@ def _segment_from_dict(payload: dict[str, Any]) -> PromptSegment:
         metadata=dict(payload.get("metadata") or {}),
         authority=str(payload.get("authority") or "runtime.prompt_accounting.prompt_segment"),
     )
+
+
+def _line_prefilter(*, run_id: str, task_run_id: str, session_id: str) -> tuple[tuple[str, ...], ...]:
+    groups: list[tuple[str, ...]] = []
+    if session_id:
+        groups.append(_json_field_markers("session_id", session_id))
+    if task_run_id:
+        groups.append(_json_field_markers("task_run_id", task_run_id) + _json_field_markers("run_id", task_run_id))
+    elif run_id:
+        groups.append(_json_field_markers("run_id", run_id) + _json_field_markers("task_run_id", run_id))
+    return tuple(groups)
+
+
+def _json_field_markers(field: str, value: str) -> tuple[str, str]:
+    encoded = json.dumps(str(value), ensure_ascii=False)
+    return (f'"{field}": {encoded}', f'"{field}":{encoded}')
+
+
+def _line_matches_prefilter(line: str, groups: tuple[tuple[str, ...], ...]) -> bool:
+    return all(any(marker in line for marker in group) for group in groups)

@@ -1,13 +1,13 @@
 "use client";
 
-import { ArrowUp, BrainCircuit, Play, ShieldCheck, Square } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { ArrowUp, BrainCircuit, ShieldCheck, Square } from "lucide-react";
+import React, { useEffect, useMemo, useState } from "react";
 
 import type { ModelProviderConfig, ImageAssetConfig } from "@/lib/api";
 import type { ChatThinkingMode } from "@/lib/store/types";
 
 export type ChatPrimaryTaskAction = {
-  kind: "interrupt" | "resume";
+  kind: "interrupt";
   onAction: () => Promise<void> | void;
 };
 
@@ -80,13 +80,10 @@ export function ChatInput({
     ? "停止本轮生成"
     : primaryAction === "interrupt"
       ? "中断当前任务"
-      : primaryAction === "resume"
-        ? "继续当前任务"
-        : "发送";
+      : "发送";
   const primaryButtonClassName = [
     "chat-send-button",
     primaryAction === "stop_stream" || primaryAction === "interrupt" ? "chat-stop-button chat-send-button--stop" : "",
-    primaryAction === "resume" ? "chat-send-button--resume" : "",
   ].filter(Boolean).join(" ");
 
   useEffect(() => {
@@ -129,7 +126,7 @@ export function ChatInput({
       onStop();
       return;
     }
-    if (primaryAction === "interrupt" || primaryAction === "resume") {
+    if (primaryAction === "interrupt") {
       await runTaskPrimaryAction();
       return;
     }
@@ -209,8 +206,6 @@ export function ChatInput({
           >
             {primaryAction === "stop_stream" || primaryAction === "interrupt" ? (
               <Square size={15} />
-            ) : primaryAction === "resume" ? (
-              <Play size={16} />
             ) : (
               <ArrowUp size={18} />
             )}

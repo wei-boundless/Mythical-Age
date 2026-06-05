@@ -1682,14 +1682,20 @@ async def _emit_single_agent_protocol_error(
 
 def _single_agent_protocol_error_user_text(code: str) -> str:
     if code == "single_agent_turn_multiple_native_actions":
-        return "模型一次返回了多个系统动作，运行时已停止执行，避免遗漏或误触发。请重新说明要优先执行的目标。"
+        return "我同时拿到了多个可能动作，当前运行已经停住，避免选错方向。请直接说明这一步优先处理哪个目标。"
     if code == "single_agent_turn_multiple_action_sources":
-        return "模型同时返回了 JSON 动作和 native 工具动作，运行时已停止执行，避免重复触发。请重新发起当前请求。"
+        return "这一步出现了两套互相冲突的执行意图，当前运行已经停住，避免重复执行。请直接补一句最新目标，我会按新的输入重新开始。"
     if code == "single_agent_turn_json_action_required":
-        return "当前运行边界要求模型使用 JSON 系统动作，但模型没有返回有效动作，运行时已停止执行。"
+        return "这一步没有形成可安全执行的动作，当前运行已经停住，避免误执行。请直接补充新的目标或修改要求。"
     if code == "single_agent_turn_invalid_json_action":
-        return "模型返回的 JSON 系统动作不符合本轮协议，运行时已停止执行。"
-    return "模型返回的系统动作格式无效，运行时已停止执行，避免误触发工具或任务。"
+        return "这一步的执行意图不完整，当前运行已经停住，避免误执行。请直接补充新的目标或修改要求。"
+    if code in {
+        "single_agent_turn_invalid_native_action",
+        "single_agent_turn_model_protocol_error",
+        "single_agent_turn_protocol_repair_failed",
+    }:
+        return "这一步没有整理出可安全执行的动作，当前运行已经停住。请直接补一句新的目标或修改要求，我会按最新输入重新开始。"
+    return "当前运行没有形成可安全推进的下一步，已经停住。请直接补充新的目标或修改要求，我会按最新输入重新开始。"
 
 
 def _native_tools_for_packet(allowed_action_types: tuple[str, ...], *, available_tools: tuple[dict[str, Any], ...] = ()) -> list[dict[str, Any]]:

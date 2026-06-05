@@ -94,7 +94,7 @@ describe("ChatMessage", () => {
     expect(html).not.toContain("查看技术细节");
   });
 
-  it("softens legacy single-turn tool-loop guard messages in history", () => {
+  it("does not rewrite legacy single-turn tool-loop guard messages in history", () => {
     const html = renderToStaticMarkup(
       React.createElement(ChatMessage, {
         answerChannel: "blocked",
@@ -107,8 +107,9 @@ describe("ChatMessage", () => {
       }),
     );
 
-    expect(html).not.toContain("本轮工具观察次数已达到上限");
-    expect(html).toContain("基于已有事实收口说明");
+    expect(html).toContain("本轮工具观察次数已达到上限");
+    expect(html).not.toContain("基于已有事实收口说明");
+    expect(html).not.toContain("public-run-activity");
   });
 
   it("keeps task opening prose visible before runtime activity", () => {
@@ -261,7 +262,7 @@ describe("ChatMessage", () => {
     expect(html).not.toContain("正在思考");
   });
 
-  it("shows an opening judgment when a run starts with tool activity but no assistant text", () => {
+  it("does not synthesize message-level opening when a run starts with tool activity", () => {
     const html = renderToStaticMarkup(
       React.createElement(ChatMessage, {
         content: "",
@@ -281,11 +282,13 @@ describe("ChatMessage", () => {
       }),
     );
 
-    expect(html).toContain("我先确认项目约定和协作边界");
-    expect(html).toContain("确认项目约定和协作边界");
     expect(html).toContain("我先读取 langchain-agent/AGENTS.md");
+    expect(html.match(/我先读取 langchain-agent\/AGENTS\.md/g)?.length ?? 0).toBe(1);
+    expect(html).not.toContain("我先确认项目约定和协作边界");
     expect(html).not.toContain("开局反馈");
     expect(html).not.toContain("assistant-output-signal");
+    expect(html).toContain("public-run-activity");
+    expect(html).not.toContain("复制回复");
     expect(html).not.toContain("正在思考");
   });
 
@@ -321,5 +324,213 @@ describe("ChatMessage", () => {
     expect(html).not.toContain("public-run-activity__row--done");
     expect(html).not.toContain("public-run-activity__row--current");
     expect(html).not.toContain("public-run-activity__spinner");
+  });
+
+  it("renders final summary as assistant prose instead of leaving only activity feedback", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(ChatMessage, {
+        answerCanonicalState: "stable_answer",
+        answerChannel: "conversation",
+        content: "",
+        id: "message:final-summary-only",
+        retrievals: [],
+        role: "assistant",
+        runtimePublicTimelineDraft: [
+          {
+            item_id: "work:read",
+            kind: "work_action",
+            action_kind: "read",
+            title: "已读取上下文",
+            subject_label: "adventure-island/renderer.ts",
+            observation: "观察：关键上下文已拿到，下一步可以基于文件事实判断。",
+            state: "done",
+          },
+          {
+            item_id: "final:summary",
+            kind: "final_summary",
+            text: "已经确认问题来自 renderer.ts 的类型导入，页面编译已恢复。",
+            state: "done",
+          },
+        ],
+        toolCalls: [],
+      }),
+    );
+
+    expect(html).toContain("已经确认问题来自 renderer.ts 的类型导入");
+    expect(html.match(/已经确认问题来自 renderer\.ts 的类型导入/g)?.length ?? 0).toBe(1);
+    expect(html).not.toContain("收尾总结");
+  });
+
+  it("keeps completed process feedback in activity when no final answer exists", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(ChatMessage, {
+        answerCanonicalState: "stable_answer",
+        answerChannel: "conversation",
+        content: "",
+        id: "message:done-with-only-tool-feedback",
+        retrievals: [],
+        role: "assistant",
+        runtimePublicTimelineDraft: [
+          {
+            item_id: "work:read",
+            kind: "work_action",
+            action_kind: "read",
+            title: "已读取上下文",
+            subject_label: "adventure-island/renderer.ts",
+            observation: "观察：关键上下文已拿到，下一步可以基于文件事实判断。",
+            state: "done",
+          },
+        ],
+        toolCalls: [],
+      }),
+    );
+
+    expect(html).toContain("已读到 adventure-island/renderer.ts");
+    expect(html).not.toContain("还没有形成完整回答");
+    expect(html).toContain("public-run-activity");
+    expect(html).not.toContain("复制回复");
+  });
+
+  it("renders raw file listing output as natural activity instead of assistant prose", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(ChatMessage, {
+        answerCanonicalState: "stable_answer",
+        answerChannel: "conversation",
+        content: "",
+        id: "message:raw-file-listing",
+        retrievals: [],
+        role: "assistant",
+        runtimePublicTimelineDraft: [
+          {
+            item_id: "work:list",
+            kind: "work_action",
+            action_kind: "inspect",
+            title: "已确认目标",
+            observation: "file frontend/src/app/adventure-island/assets.ts 2938 bytes file frontend/src/app/adventure-island/config.ts 5177 bytes file frontend/src/app/adventure-island/game-data.ts 23749 bytes",
+            state: "done",
+          },
+        ],
+        toolCalls: [],
+      }),
+    );
+
+    expect(html).toContain("已确认 app/adventure-island 下的相关文件");
+    expect(html).not.toContain("2938 bytes");
+    expect(html).not.toContain("assets.ts");
+    expect(html).not.toContain("file frontend");
+    expect(html).toContain("public-run-activity");
+  });
+
+  it("renders copied shell output as a folded activity panel instead of assistant prose", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(ChatMessage, {
+        answerCanonicalState: "stable_answer",
+        answerChannel: "conversation",
+        content: "",
+        id: "message:copied-shell-output",
+        retrievals: [],
+        role: "assistant",
+        runtimePublicTimelineDraft: [
+          {
+            item_id: "work:copy-assets",
+            kind: "work_action",
+            action_kind: "run",
+            title: "复制素材",
+            observation: "Copied: game-boss-demon-king.png Copied: game-map-castle.png",
+            state: "done",
+          },
+        ],
+        toolCalls: [],
+      }),
+    );
+
+    expect(html).toContain("已复制 2 个素材文件");
+    expect(html).toContain("public-run-activity__command-output");
+    expect(html).toContain("Ran command");
+    expect(html).toContain("Shell");
+    expect(html).toContain("Copied: game-boss-demon-king.png");
+    expect(html).not.toContain("<p>Copied:");
+    expect(html).not.toContain("观察结果");
+    expect(html).not.toContain("观察：");
+  });
+
+  it("does not render copied shell output when it is stored as assistant content", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(ChatMessage, {
+        answerCanonicalState: "stable_answer",
+        answerChannel: "conversation",
+        content: "Copied: game-boss-demon-king.png Copied: game-map-castle.png",
+        id: "message:copied-shell-content",
+        retrievals: [],
+        role: "assistant",
+        toolCalls: [],
+      }),
+    );
+
+    expect(html).not.toContain("Copied: game-boss-demon-king.png");
+    expect(html).not.toContain("Copied: game-map-castle.png");
+    expect(html).not.toContain("正在思考");
+  });
+
+  it("drops stored read-only shell validator failures without synthesizing activity feedback", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(ChatMessage, {
+        answerCanonicalState: "stable_answer",
+        answerChannel: "conversation",
+        content: "shell command executable is not allowlisted read-only",
+        id: "message:read-only-shell-failure",
+        retrievals: [],
+        role: "assistant",
+        toolCalls: [],
+      }),
+    );
+
+    expect(html).not.toContain("命令被只读权限拦截");
+    expect(html).not.toContain("public-run-activity");
+    expect(html).not.toContain("allowlisted");
+    expect(html).not.toContain("read-only");
+    expect(html).not.toContain("正在思考");
+    expect(html).not.toContain("复制回复");
+  });
+
+  it("drops stored persisted tool result failures without synthesizing activity feedback", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(ChatMessage, {
+        answerCanonicalState: "stable_answer",
+        answerChannel: "conversation",
+        content: "Read persisted tool result failed: D:\\AI应用\\langchain-agent\\backend\\storage\\task_environments\\general\\workspace\\runtime_state\\storage\\runtime_context\\tool-results\\session-fad8ee446.txt",
+        id: "message:persisted-tool-result-failure",
+        retrievals: [],
+        role: "assistant",
+        toolCalls: [],
+      }),
+    );
+
+    expect(html).not.toContain("上一段执行结果没有成功读回");
+    expect(html).not.toContain("public-run-activity");
+    expect(html).not.toContain("Read persisted tool result failed");
+    expect(html).not.toContain("runtime_state");
+    expect(html).not.toContain("tool-results");
+    expect(html).not.toContain("复制回复");
+  });
+
+  it("strips fragmented task contract protocol from assistant prose", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(ChatMessage, {
+        answerCanonicalState: "stable_answer",
+        answerChannel: "conversation",
+        content: '理解了。我已经读完所有源文件，现在需要进入持续处理流程。\nname="completion_criteria" string="true">1. 创建独立目录 2. 复制素材</ | | DSML | | parameter> name="task_run_goal" string="true">将游戏提取为独立静态页面</ | | DSML | | parameter> name="user_visible_goal" string="true">创建独立 HTML 页面</ | | DSML | | parameter>',
+        id: "message:fragmented-dsml",
+        retrievals: [],
+        role: "assistant",
+        toolCalls: [],
+      }),
+    );
+
+    expect(html).toContain("理解了。我已经读完所有源文件");
+    expect(html).not.toContain("completion_criteria");
+    expect(html).not.toContain("task_run_goal");
+    expect(html).not.toContain("user_visible_goal");
+    expect(html).not.toContain("DSML");
   });
 });

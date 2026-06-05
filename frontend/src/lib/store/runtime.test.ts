@@ -1807,6 +1807,12 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       eventType: "step_summary_recorded",
       taskRunId,
     });
+    expect(attachment?.public_timeline?.[0]).toMatchObject({
+      item_id: "live:rtevt:observation:observation",
+      kind: "observation_report",
+      detail: "结果返回失败：Image API request timed out",
+      state: "error",
+    });
   });
 
   it("does not show internal agent todo observations as user-facing observation rows", () => {
@@ -2634,6 +2640,97 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(assistant?.answerPersistPolicy).toBe("persist_canonical");
     expect(assistant?.answerSelectedChannel).toBe("answer_candidate");
     expect(assistant?.answerLeakFlags).toEqual(["internal_protocol_final_text"]);
+  });
+
+  it("uses done summary as assistant prose when final content is absent", () => {
+    let transition = startStreamingTurn(getDefaultState(), "修一下页面反馈");
+    transition = reduceStreamEvent(transition.state, transition.session, "done", {
+      summary: "已完成页面反馈修复，最终正文不应被工具反馈替代。",
+      answer_channel: "conversation",
+      answer_canonical_state: "stable_answer",
+      answer_persist_policy: "persist_canonical",
+    });
+
+    const assistant = transition.state.messages.at(-1);
+    expect(assistant?.role).toBe("assistant");
+    expect(assistant?.content).toBe("已完成页面反馈修复，最终正文不应被工具反馈替代。");
+    expect(assistant?.answerCanonicalState).toBe("stable_answer");
+  });
+
+  it("does not use raw file listing output as done assistant prose", () => {
+    let transition = startStreamingTurn(getDefaultState(), "检查目录");
+    transition = reduceStreamEvent(transition.state, transition.session, "done", {
+      summary: "file frontend/src/app/adventure-island/assets.ts 2938 bytes file frontend/src/app/adventure-island/config.ts 5177 bytes",
+      answer_channel: "conversation",
+      answer_canonical_state: "stable_answer",
+      answer_persist_policy: "persist_canonical",
+    });
+
+    const assistant = transition.state.messages.at(-1);
+    expect(assistant?.role).toBe("assistant");
+    expect(assistant?.content).toBe("");
+    expect(assistant?.answerCanonicalState).toBe("stable_answer");
+  });
+
+  it("does not use copied shell output as done assistant prose", () => {
+    let transition = startStreamingTurn(getDefaultState(), "复制素材");
+    transition = reduceStreamEvent(transition.state, transition.session, "done", {
+      summary: "Copied: game-boss-demon-king.png Copied: game-map-castle.png",
+      answer_channel: "conversation",
+      answer_canonical_state: "stable_answer",
+      answer_persist_policy: "persist_canonical",
+    });
+
+    const assistant = transition.state.messages.at(-1);
+    expect(assistant?.role).toBe("assistant");
+    expect(assistant?.content).toBe("");
+    expect(assistant?.answerCanonicalState).toBe("stable_answer");
+  });
+
+  it("does not use read-only shell validator failures as done assistant prose", () => {
+    let transition = startStreamingTurn(getDefaultState(), "回答这个问题");
+    transition = reduceStreamEvent(transition.state, transition.session, "done", {
+      content: "shell command executable is not allowlisted read-only",
+      answer_channel: "conversation",
+      answer_canonical_state: "stable_answer",
+      answer_persist_policy: "persist_canonical",
+    });
+
+    const assistant = transition.state.messages.at(-1);
+    expect(assistant?.role).toBe("assistant");
+    expect(assistant?.content).toBe("");
+    expect(assistant?.answerCanonicalState).toBe("stable_answer");
+  });
+
+  it("does not use persisted tool result read failures as done assistant prose", () => {
+    let transition = startStreamingTurn(getDefaultState(), "继续吧");
+    transition = reduceStreamEvent(transition.state, transition.session, "done", {
+      content: "Read persisted tool result failed: D:\\AI应用\\langchain-agent\\backend\\storage\\task_environments\\general\\workspace\\runtime_state\\storage\\runtime_context\\tool-results\\session-fad8ee446.txt",
+      answer_channel: "conversation",
+      answer_canonical_state: "stable_answer",
+      answer_persist_policy: "persist_canonical",
+    });
+
+    const assistant = transition.state.messages.at(-1);
+    expect(assistant?.role).toBe("assistant");
+    expect(assistant?.content).toBe("");
+    expect(assistant?.answerCanonicalState).toBe("stable_answer");
+  });
+
+  it("strips fragmented task contract protocol from done assistant prose", () => {
+    let transition = startStreamingTurn(getDefaultState(), "做成独立的吧");
+    transition = reduceStreamEvent(transition.state, transition.session, "done", {
+      content: '理解了。我已经读完所有源文件，现在需要进入持续处理流程。\nname="completion_criteria" string="true">1. 创建独立目录 2. 复制素材</ | | DSML | | parameter> name="task_run_goal" string="true">将游戏提取为独立静态页面</ | | DSML | | parameter>',
+      answer_channel: "conversation",
+      answer_canonical_state: "stable_answer",
+      answer_persist_policy: "persist_canonical",
+    });
+
+    const assistant = transition.state.messages.at(-1);
+    expect(assistant?.content).toBe("理解了。我已经读完所有源文件，现在需要进入持续处理流程。");
+    expect(assistant?.content).not.toContain("completion_criteria");
+    expect(assistant?.content).not.toContain("task_run_goal");
+    expect(assistant?.content).not.toContain("DSML");
   });
 
   it("uses assistant_text as visible prose before task handoff done", () => {

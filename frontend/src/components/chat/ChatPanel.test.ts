@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { sessionContextPressurePresentation, shouldSuppressSessionActivityBar } from "./ChatPanel";
+import { chatMessageRenderKeys, sessionContextPressurePresentation, shouldSuppressSessionActivityBar } from "./ChatPanel";
 import type { Message, TokenStats } from "@/lib/store/types";
 
 function message(patch: Partial<Message>): Message {
@@ -90,7 +90,7 @@ describe("ChatPanel", () => {
     ], false)).toBe(true);
   });
 
-  it("shows remaining context tokens and percent even when pressure is normal", () => {
+  it("shows context pressure ratio even when pressure is normal", () => {
     expect(sessionContextPressurePresentation(tokenStats({
       context_meter: {
         current_context_ratio: 0.03,
@@ -104,64 +104,39 @@ describe("ChatPanel", () => {
       },
       cumulative_transcript_tokens: 52000,
     }))).toEqual({
-      label: "上下文压力",
+      label: "上下文",
       usedPercent: 4,
-      remainingPercent: 96,
       pressurePercentText: "4%",
-      remainingPercentText: "96%",
-      remainingTokens: 866000,
-      remainingTokenText: "距压缩 866.0K",
-      title: "当前 session 上下文压力 4%；距离自动压缩阈值剩余 96%；距压缩 866,000 tokens",
+      tokenRatioText: "34.0K/900.0K",
+      title: "当前上下文 34,000 tokens；自动压缩阈值 900,000 tokens；阈值占比 4%；达到阈值会触发自动压缩",
       levelClass: "normal",
-    });
-  });
-
-  it("uses accumulated session context pressure before latest provider prompt pressure", () => {
-    expect(sessionContextPressurePresentation(tokenStats({
-      context_meter: {
-        current_context_ratio: 0.03,
-        current_context_tokens: 34000,
-        context_window_tokens: 1_000_000,
-        replacement_threshold_tokens: 900000,
-        compaction_pressure_ratio: 34000 / 900000,
-        compaction_remaining_tokens: 866000,
-        compaction_remaining_ratio: 866000 / 900000,
-        pressure_level: "normal",
-      },
-      session_context_pressure: {
-        pressure_tokens: 320000,
-        pressure_ratio: 320000 / 900000,
-        remaining_tokens: 580000,
-        remaining_ratio: 580000 / 900000,
-        threshold_tokens: 900000,
-      },
-      cumulative_transcript_tokens: 300000,
-    }))).toMatchObject({
-      label: "上下文压力",
-      usedPercent: 36,
-      remainingPercent: 64,
-      pressurePercentText: "36%",
-      remainingPercentText: "64%",
-      remainingTokens: 580000,
-      remainingTokenText: "距压缩 580.0K",
     });
   });
 
   it("keeps the context status slot visible while token stats are loading", () => {
     expect(sessionContextPressurePresentation(null)).toEqual({
-      label: "上下文同步中",
+      label: "上下文",
       usedPercent: 0,
-      remainingPercent: 0,
       pressurePercentText: "--",
-      remainingPercentText: "--",
-      remainingTokens: 0,
-      remainingTokenText: "",
+      tokenRatioText: "--",
       title: "正在读取当前 session 上下文状态",
       levelClass: "pending",
     });
   });
 
-  it("shows current session pressure and remaining context when near compaction", () => {
+  it("keeps duplicate persisted message ids from colliding in React keys", () => {
+    expect(chatMessageRenderKeys([
+      message({ id: "history-message:turn:1:assistant", role: "assistant", sourceIndex: 1 }),
+      message({ id: "history-message:turn:1:assistant", role: "assistant", sourceIndex: 2 }),
+      message({ id: "history-message:turn:2:user", role: "user", sourceIndex: 3 }),
+    ])).toEqual([
+      "history-message:turn:1:assistant",
+      "history-message:turn:1:assistant:duplicate-1",
+      "history-message:turn:2:user",
+    ]);
+  });
+
+  it("shows current session pressure ratio when near compaction", () => {
     expect(sessionContextPressurePresentation(tokenStats({
       context_meter: {
         current_context_ratio: 0.82,
@@ -175,14 +150,11 @@ describe("ChatPanel", () => {
       },
       cumulative_transcript_tokens: 2_000_000,
     }))).toEqual({
-      label: "压力偏高",
+      label: "上下文",
       usedPercent: 91,
-      remainingPercent: 9,
       pressurePercentText: "91%",
-      remainingPercentText: "9%",
-      remainingTokens: 80000,
-      remainingTokenText: "距压缩 80.0K",
-      title: "当前 session 上下文压力 91%；距离自动压缩阈值剩余 9%；距压缩 80,000 tokens",
+      tokenRatioText: "820.0K/900.0K",
+      title: "当前上下文 820,000 tokens；自动压缩阈值 900,000 tokens；阈值占比 91%；达到阈值会触发自动压缩",
       levelClass: "warning",
     });
   });
@@ -202,13 +174,10 @@ describe("ChatPanel", () => {
       cumulative_transcript_tokens: 4_000_000,
       history_did_compact: true,
     }))).toMatchObject({
-      label: "已压缩",
+      label: "上下文",
       usedPercent: 13,
-      remainingPercent: 87,
       pressurePercentText: "13%",
-      remainingPercentText: "87%",
-      remainingTokens: 780000,
-      remainingTokenText: "距压缩 780.0K",
+      tokenRatioText: "120.0K/900.0K",
       levelClass: "normal",
     });
   });

@@ -21,11 +21,15 @@ INTERNAL_PROTOCOL_MARKERS = (
     "<｜｜DSML｜｜tool_calls>",
     "<｜｜DSML｜｜invoke",
     "<｜｜DSML｜｜parameter",
+    "DSML",
     "</｜｜DSML｜｜tool_calls>",
     "</｜｜DSML｜｜parameter",
     "tool_calls",
     "invoke name=",
     'name="read_file"',
+    'name="completion_criteria"',
+    'name="task_run_goal"',
+    'name="user_visible_goal"',
     'name="search_text"',
     'name="search_files"',
     'name="spawn_subagent"',
@@ -40,12 +44,18 @@ INTERNAL_PROTOCOL_MARKERS = (
     "_CANONICAL_RESULT::",
 )
 
+_DSML_TOKEN_RE = r"(?:[｜|]\s*){2}\s*DSML\s*(?:[｜|]\s*){2}"
 _TOOL_CALL_XML_RE = re.compile(r"<tool_call[^>]*>.*?(?:</tool_call>)?", re.IGNORECASE | re.DOTALL)
-_DSML_TOOL_CALL_BLOCK_RE = re.compile(r"<｜｜DSML｜｜tool_calls>.*?(?:</｜｜DSML｜｜tool_calls>)?", re.IGNORECASE | re.DOTALL)
-_DSML_INVOKE_BLOCK_RE = re.compile(r"<｜｜DSML｜｜invoke\b.*?(?:</｜｜DSML｜｜invoke>)?", re.IGNORECASE | re.DOTALL)
-_DSML_PARAMETER_BLOCK_RE = re.compile(r"<｜｜DSML｜｜parameter\b.*?(?:</｜｜DSML｜｜parameter>)?", re.IGNORECASE | re.DOTALL)
+_DSML_TOOL_CALL_BLOCK_RE = re.compile(rf"<\s*{_DSML_TOKEN_RE}\s*tool_calls\b.*?(?:</\s*{_DSML_TOKEN_RE}\s*tool_calls\s*>)?", re.IGNORECASE | re.DOTALL)
+_DSML_INVOKE_BLOCK_RE = re.compile(rf"<\s*{_DSML_TOKEN_RE}\s*invoke\b.*?(?:</\s*{_DSML_TOKEN_RE}\s*invoke\s*>)?", re.IGNORECASE | re.DOTALL)
+_DSML_PARAMETER_BLOCK_RE = re.compile(rf"<\s*{_DSML_TOKEN_RE}\s*parameter\b.*?(?:</\s*{_DSML_TOKEN_RE}\s*parameter\s*>)?", re.IGNORECASE | re.DOTALL)
+_DSML_PARAMETER_FRAGMENT_RE = re.compile(
+    rf"(?:<\s*{_DSML_TOKEN_RE}\s*parameter\b\s*)?name\s*=\s*[\"'][A-Za-z_][\w-]*[\"']\s+string\s*=\s*[\"'](?:true|false)[\"']\s*>.*?(?:</\s*{_DSML_TOKEN_RE}\s*parameter\s*>|\Z)",
+    re.IGNORECASE | re.DOTALL,
+)
+_DSML_TAG_FRAGMENT_RE = re.compile(rf"</?\s*{_DSML_TOKEN_RE}\s*[^>]*>?", re.IGNORECASE)
 _HALF_DSML_TOOL_LINE_RE = re.compile(
-    r"^\s*(?:name\s*=\s*[\"'][A-Za-z_][\w-]*[\"']\s*>?|<｜｜DSML｜｜/?parameter\b.*|</?｜｜DSML｜｜[^>]*>?)\s*$",
+    rf"^\s*(?:name\s*=\s*[\"'][A-Za-z_][\w-]*[\"']\s*>?|<\s*{_DSML_TOKEN_RE}\s*/?parameter\b.*|</?\s*{_DSML_TOKEN_RE}\s*[^>]*>?)\s*$",
     re.IGNORECASE | re.MULTILINE,
 )
 _THINK_CLOSE_RE = re.compile(r"</think>", re.IGNORECASE)
@@ -117,6 +127,8 @@ def contains_internal_protocol(text: str) -> bool:
         or bool(_TOOL_AUTOFILL_NOTE_RE.search(normalized))
         or bool(_SEARCH_PROTOCOL_BLOCK_RE.search(normalized))
         or bool(_TOOL_ARG_JSON_OBJECT_RE.search(normalized))
+        or bool(_DSML_PARAMETER_FRAGMENT_RE.search(normalized))
+        or bool(_DSML_TAG_FRAGMENT_RE.search(normalized))
         or bool(_PROTO_ARG_LINE_RE.search(normalized))
         or bool(_INVOKE_TAIL_RE.search(normalized))
     )
@@ -160,6 +172,8 @@ def _sanitize_visible_assistant_content(
     cleaned = _DSML_TOOL_CALL_BLOCK_RE.sub("", cleaned)
     cleaned = _DSML_INVOKE_BLOCK_RE.sub("", cleaned)
     cleaned = _DSML_PARAMETER_BLOCK_RE.sub("", cleaned)
+    cleaned = _DSML_PARAMETER_FRAGMENT_RE.sub("", cleaned)
+    cleaned = _DSML_TAG_FRAGMENT_RE.sub("", cleaned)
     cleaned = _HALF_DSML_TOOL_LINE_RE.sub("", cleaned)
     cleaned = _THINK_CLOSE_RE.sub("", cleaned)
     cleaned = _NO_NEWLINE_MARKER_RE.sub("", cleaned)

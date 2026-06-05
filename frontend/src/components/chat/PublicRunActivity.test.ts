@@ -114,6 +114,31 @@ describe("PublicRunActivity", () => {
     expect(html).not.toContain("rtevt:obs");
   });
 
+  it("keeps shell output in a folded panel attached to the activity", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(PublicRunActivity, {
+        items: [
+          {
+            item_id: "work:copy-assets",
+            kind: "work_action",
+            action_kind: "run",
+            title: "复制素材",
+            observation: "Copied: game-boss-demon-king.png Copied: game-map-castle.png",
+            state: "done",
+          },
+        ],
+      }),
+    );
+
+    expect(html).toContain("已复制 2 个素材文件");
+    expect(html).toContain("public-run-activity__command-output");
+    expect(html).toContain("Ran command");
+    expect(html).toContain("Shell");
+    expect(html).toContain("Copied: game-boss-demon-king.png");
+    expect(html).not.toContain("观察报告");
+    expect(html).not.toContain("观察：");
+  });
+
   it("renders a tool observation report after completed tool activity", () => {
     const html = renderToStaticMarkup(
       React.createElement(PublicRunActivity, {
@@ -248,6 +273,28 @@ describe("PublicRunActivity", () => {
     expect(html).not.toContain("diagnostics");
     expect(html).not.toContain("matched_version_count");
     expect(html).not.toContain("memory_search");
+  });
+
+  it("does not surface raw file listing output from old activity rows", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(PublicRunActivity, {
+        items: [
+          {
+            item_id: "tool:list",
+            kind: "tool_activity",
+            title: "工具已完成 list_dir",
+            detail: "file frontend/src/app/adventure-island/assets.ts 2938 bytes file frontend/src/app/adventure-island/config.ts 5177 bytes file frontend/src/app/adventure-island/game-data.ts 23749 bytes",
+            state: "done",
+          },
+        ],
+      }),
+    );
+
+    expect(html).toContain("已确认 app/adventure-island 下的相关文件");
+    expect(html).not.toContain("2938 bytes");
+    expect(html).not.toContain("assets.ts");
+    expect(html).not.toContain("file frontend");
+    expect(html).not.toContain("list_dir");
   });
 
   it("does not render completion-only receipts or internal event names", () => {

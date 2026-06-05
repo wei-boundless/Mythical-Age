@@ -33,6 +33,25 @@ def test_task_control_text_is_debug_only_not_canonical_memory() -> None:
     assert decision.persist_policy == "persist_debug_only"
 
 
+def test_final_text_boundary_sanitizes_fragmented_ascii_dsml_parameters() -> None:
+    decision = canonical_output_decision_for_final_text(
+        (
+            "理解了。我已经读完所有源文件，现在需要进入持续处理流程。\n"
+            'name="completion_criteria" string="true">1. 创建独立目录 2. 复制素材</ | | DSML | | parameter> '
+            'name="task_run_goal" string="true">将游戏提取为独立静态页面</ | | DSML | | parameter> '
+            'name="user_visible_goal" string="true">创建独立 HTML 页面</ | | DSML | | parameter>'
+        ),
+        answer_channel="conversation",
+        answer_source="test.final_text",
+    )
+
+    assert decision.content == "理解了。我已经读完所有源文件，现在需要进入持续处理流程。"
+    assert "internal_protocol_final_text" in decision.leak_flags
+    assert "completion_criteria" not in decision.content
+    assert "task_run_goal" not in decision.content
+    assert "DSML" not in decision.content
+
+
 def test_final_answer_event_does_not_promote_procedural_promise() -> None:
     event = final_answer_event(
         content="我会先检查文件。",

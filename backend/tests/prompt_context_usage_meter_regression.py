@@ -44,7 +44,7 @@ def test_context_usage_meter_uses_latest_provider_usage_not_cumulative_billing(t
 
     assert billing["exact_total_tokens"] == 101_110
     assert snapshot.provider_anchor_request_id == "modelreq:latest"
-    assert snapshot.current_context_tokens == 110
+    assert snapshot.current_context_tokens == 100
     assert snapshot.cache_hit_rate_latest == 0.8
     assert snapshot.provider_cached_tokens == 80
 
@@ -73,7 +73,7 @@ def test_context_usage_meter_adds_only_pending_messages_after_anchor(tmp_path) -
 
     assert snapshot.estimate_mode == "provider_anchor"
     assert snapshot.estimated_pending_tokens > 0
-    assert snapshot.current_context_tokens == 110 + snapshot.estimated_pending_tokens
+    assert snapshot.current_context_tokens == 100 + snapshot.estimated_pending_tokens
 
 
 def test_context_usage_meter_reports_compaction_remaining_against_replacement_threshold(tmp_path) -> None:
@@ -98,10 +98,10 @@ def test_context_usage_meter_reports_compaction_remaining_against_replacement_th
     assert snapshot.context_window_tokens == 1_000_000
     assert snapshot.input_capacity_tokens == 926_272
     assert snapshot.replacement_threshold_tokens == 900_000
-    assert snapshot.current_context_ratio == 0.0356
-    assert snapshot.compaction_pressure_ratio == 0.039556
-    assert snapshot.compaction_remaining_tokens == 864_400
-    assert snapshot.compaction_remaining_ratio == 0.960444
+    assert snapshot.current_context_ratio == 0.035
+    assert snapshot.compaction_pressure_ratio == 0.038889
+    assert snapshot.compaction_remaining_tokens == 865_000
+    assert snapshot.compaction_remaining_ratio == 0.961111
 
 
 def test_context_usage_meter_uses_newer_local_prediction_until_provider_usage_arrives(tmp_path) -> None:
@@ -205,6 +205,45 @@ def test_context_usage_meter_prefers_agent_runtime_records_over_utility_calls(tm
     assert snapshot.diagnostics["record_count"] == 2
     assert snapshot.diagnostics["raw_record_count"] == 3
     assert snapshot.diagnostics["effective_anchor_request_id"] == "modelreq:rtpacket:turn:session:test:2:single_agent_turn:1:1"
+
+
+def test_context_usage_meter_ignores_protocol_repair_model_response_records(tmp_path) -> None:
+    ledger = PromptAccountingLedger(tmp_path)
+    ledger.record_token_usage(
+        ModelTokenUsageRecord(
+            usage_id="tokuse:modelreq:main:provider_usage",
+            request_id="modelreq:rtpacket:turn:session:test:1:single_agent_turn:1:1",
+            session_id="session:test",
+            provider="deepseek",
+            model="deepseek-v4-pro",
+            source="provider_usage",
+            prompt_tokens=31_000,
+            completion_tokens=400,
+            total_tokens=31_400,
+            created_at=2.0,
+        )
+    )
+    ledger.record_token_usage(
+        ModelTokenUsageRecord(
+            usage_id="tokuse:model-response:repair:provider_usage",
+            request_id="model-response:rtpacket:turn:session:test:1:single_agent_turn:1:tool:1:repair",
+            session_id="session:test",
+            provider="deepseek",
+            model="deepseek-v4-pro",
+            source="provider_usage",
+            prompt_tokens=24_000,
+            completion_tokens=100,
+            total_tokens=24_100,
+            created_at=3.0,
+        )
+    )
+
+    snapshot = ContextUsageMeter(ledger, default_reserved_output_tokens=65_536).build_snapshot(session_id="session:test")
+
+    assert snapshot.provider_anchor_request_id == "modelreq:rtpacket:turn:session:test:1:single_agent_turn:1:1"
+    assert snapshot.current_context_tokens == 31_000
+    assert snapshot.diagnostics["record_count"] == 1
+    assert snapshot.diagnostics["raw_record_count"] == 2
 
 
 def test_context_usage_meter_invalidates_anchor_when_environment_fingerprint_changes(tmp_path) -> None:

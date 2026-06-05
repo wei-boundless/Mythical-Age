@@ -210,6 +210,8 @@ export interface GameState {
   clearedMaps: Set<number>;
   // 背包界面
   showInventory: boolean;
+  // 技能详情界面
+  showSkillsPanel: boolean;
   // 背包选中索引
   selectedInventoryIndex: number;
 }

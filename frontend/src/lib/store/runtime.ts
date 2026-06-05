@@ -61,6 +61,7 @@ const CODING_TASK_ENVIRONMENT_ID = "env.coding.vibe_workspace";
 const DEFAULT_PERMISSION_MODE: PermissionMode = "full_access";
 const DEFAULT_INSPECTOR_PATH = "durable_memory/index/MEMORY.md";
 const FRONTEND_EDITOR_CONTEXT_TEXT_LIMIT = 12000;
+const TOKEN_STATS_MONITOR_REFRESH_INTERVAL_MS = 10_000;
 const LAST_ACTIVE_TASK_ENVIRONMENT_KEY = "agentWorkbench.lastActiveTaskEnvironment";
 const GRAPH_ONLY_TASK_ENVIRONMENT_IDS = new Set(["env.creation.writing"]);
 const CODE_TASK_ENVIRONMENT_IDS = new Set([CODING_TASK_ENVIRONMENT_ID, "env.development.sandbox"]);
@@ -211,6 +212,8 @@ export class WorkspaceRuntime {
   private runMonitorController: RunMonitorController;
   private sessionRefreshTimers: number[] = [];
   private sessionListFailureNotifiedAt = 0;
+  private tokenStatsRefreshInFlight = false;
+  private lastMonitorTokenStatsRefreshAt = 0;
   private streamingSessionCache = new Map<string, Pick<StoreState, "messages" | "orchestrationSnapshot" | "activeTurnSnapshot">>();
   private removedStreamingSessionIds = new Set<string>();
   private streamAbortControllers = new Map<string, AbortController>();
@@ -3406,18 +3409,35 @@ export class WorkspaceRuntime {
       return null;
     }
     const kind = String(entry.kind ?? "").trim();
-    if (kind === "observation") {
-      return null;
-    }
-    const body = this.publicRuntimeText(entry.publicNote || entry.agentBrief || entry.body || entry.title);
+    const bodySource = kind === "observation"
+      ? entry.agentBrief || entry.body || entry.publicNote || entry.title
+      : entry.publicNote || entry.agentBrief || entry.body || entry.title;
+    const body = this.publicRuntimeText(bodySource);
     const title = this.publicRuntimeText(entry.title);
     const rawText = String(entry.publicNote || entry.agentBrief || entry.body || entry.title || "");
     if (this.publicRuntimeTextLooksInternal(body || title || rawText)) {
       return null;
     }
-    const state = entry.level === "error" ? "error" : entry.level === "success" ? "done" : "running";
+    const state = kind === "observation"
+      ? entry.level === "error" ? "error" : "done"
+      : entry.level === "error" ? "error" : entry.level === "success" ? "done" : "running";
     if (state === "done" && kind === "terminal") {
       return null;
+    }
+    if (kind === "observation") {
+      const detail = this.publicRuntimeObservationText(body || title)
+        .replace(/^工具返回失败[：:\s]*/u, "结果返回失败：");
+      if (!detail) {
+        return null;
+      }
+      return {
+        item_id: `live:${entry.id}:observation`,
+        kind: "observation_report",
+        detail,
+        state,
+        stream_state: "done",
+        trace_refs: [entry.id].filter(Boolean),
+      };
     }
     if (kind === "tool" || kind === "verification") {
       const actionKind = this.publicRuntimeActionKind(kind, String(entry.toolName || ""), rawText);
@@ -3450,11 +3470,12 @@ export class WorkspaceRuntime {
       };
     }
     const publicKind = this.publicTimelineKindFromProgressKind(kind);
+    const displayTitle = this.publicRuntimeObservationText(title);
     return {
       item_id: `live:${entry.id}`,
       kind: publicKind,
-      title: title && !["正在思考", "Agent 判断", "观察结果"].includes(title) ? title : body,
-      detail: title && title !== body ? body : "",
+      title: displayTitle && !["正在思考", "Agent 判断"].includes(displayTitle) ? displayTitle : body,
+      detail: displayTitle && displayTitle !== body ? body : "",
       state,
       stream_state: state === "running" ? "streaming" : "done",
       trace_refs: [entry.id].filter(Boolean),
@@ -3484,8 +3505,8 @@ export class WorkspaceRuntime {
       title = "等待确认";
       detail = "需要确认后继续执行。";
     } else if (status === "blocked") {
-      title = "等待调整";
-      detail = "当前处理暂时停住，需要换一种方式继续。";
+      title = "已停住";
+      detail = "当前处理暂时停住，我会换一种方式继续。";
     } else if (staleOrDiagnostic) {
       title = "等待继续";
       detail = "最近没有新的运行动作，继续后会接上现有进度。";
@@ -3529,14 +3550,21 @@ export class WorkspaceRuntime {
     if (/^(已发起工具调用|已经过工具调用)，正在等待工具返回/.test(text)) {
       return "";
     }
-    if (this.publicRuntimeTextLooksStructured(text) || this.publicRuntimeTextLooksRawCommand(text)) {
+    if (
+      this.publicRuntimeTextLooksStructured(text)
+      || this.publicRuntimeTextLooksRawCommand(text)
+      || this.publicRuntimeTextLooksRawListing(text)
+    ) {
       return "";
     }
     return text.length > 180 ? `${text.slice(0, 179)}...` : text;
   }
 
   private publicRuntimeTextLooksInternal(value: string) {
-    return /(agent_turn_terminal|runtime_invocation_packet_compiled|task_execution_packet_compiled|step_summary_recorded)/.test(value)
+    return /Read persisted tool result failed|persisted tool result read failed/i.test(value)
+      || /(?:runtime_context|runtime[-_ ]context)[\\/]+tool-results/i.test(value)
+      || /tool-results[\\/]+session[-_A-Za-z0-9]+/i.test(value)
+      || /(agent_turn_terminal|runtime_invocation_packet_compiled|task_execution_packet_compiled|step_summary_recorded)/.test(value)
       || /^(?:rtevt|taskrun|turnrun|task):/.test(value);
   }
 
@@ -3552,6 +3580,13 @@ export class WorkspaceRuntime {
     return /\b(New-Item|Set-Content|Get-Content|Remove-Item|Move-Item|Copy-Item|npm|pnpm|yarn|pytest|python|powershell|cmd\s*\/c|git|rg|grep|mkdir|touch)\b/i.test(text)
       || /\s-(?:ItemType|Path|Recurse|Force|Filter|Pattern|Command)\b/i.test(text)
       || /[;&|]{1,2}/.test(text);
+  }
+
+  private publicRuntimeTextLooksRawListing(value: string) {
+    const text = String(value || "").trim();
+    if (!text) return false;
+    return /\bfile\s+[^\s]+\s+\d+\s+bytes\b/i.test(text)
+      || /\b\d+\s+bytes\s+(?:file|directory|dir)\b/i.test(text);
   }
 
   private publicRuntimeActionKind(kind: string, toolName: string, rawText: string) {
@@ -3608,13 +3643,18 @@ export class WorkspaceRuntime {
   }
 
   private publicRuntimeObservation(actionKind: string, fallback: string, subject: string) {
-    const fallbackText = this.publicRuntimeText(fallback);
-    if (fallbackText) return fallbackText.startsWith("观察：") ? fallbackText : `观察：${fallbackText}`;
-    if (actionKind === "verify") return "观察：验证已返回，需要根据结果判断是否继续修正。";
-    if (actionKind === "memory") return "观察：记忆检索已返回，下一步会纳入判断。";
-    if (actionKind === "prepare") return "观察：输出准备已确认，可以继续推进。";
-    if (actionKind === "image") return "观察：图像生成已返回，下一步会确认产物是否可用。";
-    return subject ? `观察：${subject} 已返回，我会据此推进下一步。` : "观察：结果已返回，继续根据结果推进下一步。";
+    const fallbackText = this.publicRuntimeObservationText(fallback);
+    if (fallbackText) return fallbackText;
+    if (actionKind === "verify") return "验证已返回，需要根据结果判断是否继续修正。";
+    if (actionKind === "memory") return "记忆检索已返回，下一步会纳入判断。";
+    if (actionKind === "prepare") return "输出准备已确认，可以继续推进。";
+    if (actionKind === "image") return "图像生成已返回，下一步会确认产物是否可用。";
+    return subject ? `${subject} 已返回，我会据此推进下一步。` : "结果已返回，继续根据结果推进下一步。";
+  }
+
+  private publicRuntimeObservationText(value: string) {
+    return this.publicRuntimeText(value)
+      .replace(/^(?:观察结果|观察报告|观察)[：:\s]*/u, "");
   }
 
   private runtimeProgressKindFromStep(step: string): "stage" | "tool" | "verification" | "model" | "observation" | "terminal" {
@@ -4152,6 +4192,43 @@ export class WorkspaceRuntime {
 
   private async refreshRunMonitor() {
     await this.runMonitorController.refresh();
+    void this.refreshCurrentSessionTokenStats("run_monitor_refresh").catch(() => undefined);
+  }
+
+  private async refreshCurrentSessionTokenStats(reason: string) {
+    const now = Date.now();
+    if (now - this.lastMonitorTokenStatsRefreshAt < TOKEN_STATS_MONITOR_REFRESH_INTERVAL_MS) {
+      return;
+    }
+    if (this.tokenStatsRefreshInFlight) {
+      return;
+    }
+    const sessionId = this.store.getState().currentSessionId;
+    if (!sessionId) {
+      return;
+    }
+    this.lastMonitorTokenStatsRefreshAt = now;
+    this.tokenStatsRefreshInFlight = true;
+    try {
+      const scope = this.sessionScopeForSession(sessionId);
+      const tokens = await getSessionTokens(sessionId, scope);
+      if (this.store.getState().currentSessionId !== sessionId) {
+        return;
+      }
+      this.store.setState((prev) => ({
+        ...prev,
+        tokenStats: tokens,
+      }));
+    } catch (error) {
+      console.debug("[workspace-runtime] monitor token refresh skipped", {
+        event: "monitor_token_refresh_failed",
+        sessionId,
+        reason,
+        error: this.errorMessage(error, "会话 token 统计暂时读取失败。"),
+      });
+    } finally {
+      this.tokenStatsRefreshInFlight = false;
+    }
   }
 
   private async runMonitorAction(payload: RuntimeMonitorActionPayload): Promise<RuntimeMonitorActionResult | null> {
@@ -4167,6 +4244,7 @@ export class WorkspaceRuntime {
 
   applyRunMonitorStreamPayload(payload: RunMonitorEventPayload | null) {
     this.runMonitorController.applyStreamPayload(payload);
+    void this.refreshCurrentSessionTokenStats("run_monitor_stream").catch(() => undefined);
   }
 
   private openRunMonitorSignal(signalId: string) {

@@ -69,7 +69,7 @@ const ORCHESTRATION_EDGES: Array<{ id: string; from: string; to: string; label: 
   { id: "prompt-model", from: "prompt", to: "model", label: "模型行动" },
   { id: "model-tool", from: "model", to: "tool", label: "请求工具" },
   { id: "model-output", from: "model", to: "output", label: "候选答案" },
-  { id: "tool-output", from: "tool", to: "output", label: "观察结果" },
+  { id: "tool-output", from: "tool", to: "output", label: "结果返回" },
   { id: "output-persistence", from: "output", to: "persistence", label: "落盘写回" }
 ];
 
@@ -258,6 +258,46 @@ function answerMetadataFromEvent(data: Record<string, unknown>): Partial<Message
   };
 }
 
+function assistantDoneContentFromEvent(data: Record<string, unknown>) {
+  const content = sanitizeAssistantProtocolText(stringValue(data.content));
+  if (content && !isMachineReference(content) && !isRawToolOutputText(content)) {
+    return content;
+  }
+  const completionState = stringValue(data.completion_state);
+  if (completionState === "task_steer_accepted") {
+    return stringValue(data.summary ?? data.message) || "已加入当前任务队列。";
+  }
+  if (isTaskRunHandoffEvent(data)) {
+    return "";
+  }
+  const candidates = [
+    data.final_answer,
+    data.answer,
+    data.summary,
+    data.receipt_summary,
+    data.message,
+  ];
+  for (const candidate of candidates) {
+    const text = sanitizeAssistantProtocolText(stringValue(candidate));
+    if (text && !isMachineReference(text) && !isRawToolOutputText(text) && !isRoutineDoneContent(text)) {
+      return text;
+    }
+  }
+  return "";
+}
+
+function isRoutineDoneContent(value: string) {
+  const text = value.trim().toLowerCase();
+  return [
+    "done",
+    "completed",
+    "success",
+    "回答已生成并写回会话",
+    "会话输出完成",
+    "工具调用已完成，正在根据结果继续。",
+  ].includes(text);
+}
+
 function recordValue(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
     ? value as Record<string, unknown>
@@ -268,7 +308,45 @@ function isMachineReference(value: string) {
   const normalized = value.trim();
   return /^(taskrun|taskinst|turn|run|rtchk|runtime|event)[:_-]/i.test(normalized)
     || /(?:^|\s)(?:harness|backend|runtime|query|agent_system|capability_system|health_system|task_system)(?:\.[A-Za-z0-9_-]+){2,}(?:\s|$)/i.test(normalized)
-    || /\b(?:RuntimeInvocationPacket|runtime packet|answer_source|task_run_id|event_id)\b/i.test(normalized);
+    || /\b(?:RuntimeInvocationPacket|runtime packet|answer_source|task_run_id|event_id)\b/i.test(normalized)
+    || isRawToolOutputText(normalized);
+}
+
+function isRawToolOutputText(value: string) {
+  const text = stringValue(value);
+  if (!text) return false;
+  return /\bfile\s+[^\s]+\s+\d+\s+bytes\b/i.test(text)
+    || /\bCopied:\s+\S+/i.test(text)
+    || /Read persisted tool result failed|persisted tool result read failed/i.test(text)
+    || /(?:runtime_context|runtime[-_ ]context)[\\/]+tool-results/i.test(text)
+    || /tool-results[\\/]+session[-_A-Za-z0-9]+/i.test(text)
+    || /\b(?:not allowlisted read-only|read-only validator|unsupported read-only)\b/i.test(text)
+    || /\b\d+\s+bytes\s+(?:file|directory|dir)\b/i.test(text)
+    || /\b(?:Exit code|Wall time|Output):/i.test(text)
+    || /\b(?:authority|diagnostics|matched_version_count|candidate_version_count|result_envelope|structured_payload)\b/i.test(text)
+    || ((text.startsWith("{") && text.endsWith("}")) || (text.startsWith("[") && text.endsWith("]")));
+}
+
+const DSML_TOKEN_SOURCE = String.raw`(?:[｜|]\s*){2}\s*DSML\s*(?:[｜|]\s*){2}`;
+const DSML_PARAMETER_FRAGMENT_RE = new RegExp(
+  String.raw`(?:<\s*${DSML_TOKEN_SOURCE}\s*parameter\b\s*)?name\s*=\s*["'][A-Za-z_][\w-]*["']\s+string\s*=\s*["'](?:true|false)["']\s*>[\s\S]*?(?:<\/\s*${DSML_TOKEN_SOURCE}\s*parameter\s*>|$)`,
+  "gi",
+);
+const DSML_BLOCK_RE = new RegExp(
+  String.raw`<\s*${DSML_TOKEN_SOURCE}\s*(?:tool_calls|invoke|parameter)\b[\s\S]*?(?:<\/\s*${DSML_TOKEN_SOURCE}\s*(?:tool_calls|invoke|parameter)\s*>|$)`,
+  "gi",
+);
+const DSML_TAG_FRAGMENT_RE = new RegExp(String.raw`<\/?\s*${DSML_TOKEN_SOURCE}\s*[^>]*>?`, "gi");
+
+function sanitizeAssistantProtocolText(value: string) {
+  const text = stringValue(value);
+  if (!text) return "";
+  return text
+    .replace(DSML_BLOCK_RE, "")
+    .replace(DSML_PARAMETER_FRAGMENT_RE, "")
+    .replace(DSML_TAG_FRAGMENT_RE, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
 function extractArtifactPaths(value: unknown): string[] {
@@ -1124,6 +1202,7 @@ export function reduceStreamEvent(
     const partialTimeout = String(data.completion_state ?? "").trim() === "partial_timeout";
     const taskSteerAccepted = String(data.completion_state ?? "").trim() === "task_steer_accepted";
     const answerMetadata = answerMetadataFromEvent(data);
+    const doneContent = assistantDoneContentFromEvent(data);
     return {
       state: patchAssistant(stateWithOrchestration, session.assistantId, (message) =>
         message.content
@@ -1141,9 +1220,7 @@ export function reduceStreamEvent(
           : {
               ...message,
               ...answerMetadata,
-              content: taskSteerAccepted
-                ? String(data.content ?? data.summary ?? "已加入当前任务队列。")
-                : String(data.content ?? ""),
+              content: doneContent,
               runtimePublicTimelineDraft: mergePublicTimelineItems(
                 message.runtimePublicTimelineDraft,
                 publicTimelineDelta,

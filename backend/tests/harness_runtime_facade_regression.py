@@ -2538,7 +2538,12 @@ def test_malformed_agent_action_request_fails_closed() -> None:
 
     events = asyncio.run(_collect())
 
-    assert any(event.get("type") == "done" and "系统动作格式无效" in str(event.get("content") or "") for event in events)
+    done_text = "\n".join(str(event.get("content") or "") for event in events if event.get("type") == "done")
+    assert "已经停住" in done_text
+    assert "模型" not in done_text
+    assert "JSON" not in done_text
+    assert "系统动作" not in done_text
+    assert "协议" not in done_text
     assert any(
         event.get("type") == "done"
         and dict(event).get("terminal_reason") == "single_agent_turn_protocol_repair_failed"

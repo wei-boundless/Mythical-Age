@@ -1,13 +1,18 @@
 "use client";
 
-import { Check, CircleCheck, Copy, Database, Pencil, ShieldCheck, Sparkles, X } from "lucide-react";
+import { Check, Copy, Pencil, X } from "lucide-react";
 import React, { useEffect, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
-import { hasPublicRunActivity, PublicRunActivity } from "@/components/chat/PublicRunActivity";
+import { PublicRunActivity } from "@/components/chat/PublicRunActivity";
 import { RetrievalCard } from "@/components/chat/RetrievalCard";
-import { agentOpeningSignalFromTimeline, cleanRunText } from "@/components/chat/agentRunPresentation";
+import {
+  assistantContentFromPublicTimeline,
+  hasAgentRunProjection,
+  looksLikeRawToolOutput,
+  projectAgentRun,
+} from "@/components/chat/agentRunProjection";
 import type { PublicChatTimelineItem, RetrievalResult, SessionRuntimeAttachment, ToolCall } from "@/lib/api";
 import { mergePublicTimelineItems, publicTimelineTerminalStateFromAnswer } from "@/lib/store/publicTimeline";
 import type { RuntimeProgressEntry } from "@/lib/store/types";
@@ -21,12 +26,6 @@ export function ChatMessage({
   runtimePublicTimelineDraft,
   answerChannel,
   answerCanonicalState,
-  answerPersistPolicy,
-  answerFinalizationPolicy,
-  answerFallbackReason,
-  answerSelectedChannel,
-  answerSelectedSource,
-  answerLeakFlags,
   answerSource,
   retrievals,
   canEdit = false,
@@ -66,7 +65,7 @@ export function ChatMessage({
   const [copiedReply, setCopiedReply] = useState(false);
   const [failedImageSrc, setFailedImageSrc] = useState("");
   const imageUnavailable = Boolean(image?.src && failedImageSrc === image.src);
-  const baseDisplayContent = isUser ? content : assistantDisplayContent({ content, answerChannel, answerSource });
+  const baseDisplayContent = isUser ? content : assistantDisplayContent(content);
   const publicTimelineItems = isUser
     ? []
     : mergedPublicTimelineItems(
@@ -76,26 +75,20 @@ export function ChatMessage({
     );
   const displayContent = isUser
     ? baseDisplayContent
-    : assistantContentFromTimeline(baseDisplayContent, publicTimelineItems);
-  const hasRunActivity = !isUser && hasPublicRunActivity(publicTimelineItems, displayContent);
+    : assistantContentFromPublicTimeline(baseDisplayContent, publicTimelineItems);
+  const messageDisplayContent = isUser
+    ? displayContent
+    : displayContent;
+  const runProjection = isUser ? null : projectAgentRun(publicTimelineItems, messageDisplayContent);
+  const hasRunActivity = Boolean(runProjection && hasAgentRunProjection(runProjection));
   const legacyTaskContractReceipt = !isUser && isLegacyTaskContractReceipt({ content, answerChannel, answerSource });
   const hideLegacyTaskContractReceipt = legacyTaskContractReceipt && hasRunActivity;
-  const boundary = {
-    channel: answerChannel,
-    canonicalState: answerCanonicalState,
-    persistPolicy: answerPersistPolicy,
-    finalizationPolicy: answerFinalizationPolicy,
-    fallbackReason: answerFallbackReason,
-    selectedChannel: answerSelectedChannel,
-    selectedSource: answerSelectedSource,
-    leakFlags: answerLeakFlags,
-  };
   const shouldRenderContent =
     isUser
     || Boolean(image?.src)
     || imageUnavailable
-    || (!hideLegacyTaskContractReceipt && (Boolean(displayContent.trim()) || !hasRunActivity));
-  const copyableReplyText = !isUser && shouldRenderContent ? displayContent.trim() : "";
+    || (!hideLegacyTaskContractReceipt && Boolean(messageDisplayContent.trim()));
+  const copyableReplyText = !isUser && shouldRenderContent ? messageDisplayContent.trim() : "";
   const draftValue = draft.trim();
   const sendEditDisabled = submittingEdit || !canEdit || !draftValue;
   const submitEdit = async () => {
@@ -230,15 +223,14 @@ export function ChatMessage({
             </div>
           ) : (
             <ReactMarkdown remarkPlugins={[remarkGfm]}>
-              {displayContent || "正在思考..."}
+              {messageDisplayContent}
             </ReactMarkdown>
           )}
         </div>
       ) : null}
       {hasRunActivity ? (
-        <PublicRunActivity items={publicTimelineItems} assistantContent={displayContent} />
+        <PublicRunActivity projection={runProjection ?? undefined} />
       ) : null}
-      {!isUser ? <OutputBoundaryStatus {...boundary} /> : null}
     </article>
   );
 }
@@ -275,134 +267,42 @@ function mergedPublicTimelineItems(
   return mergePublicTimelineItems(persisted, runtimePublicTimelineDraft, { terminalState });
 }
 
-function assistantContentFromTimeline(content: string, items: PublicChatTimelineItem[]) {
+function assistantDisplayContent(content: string) {
   const normalized = String(content || "").trim();
-  if (normalized) {
-    return content;
+  const protocolCleaned = sanitizeAssistantProtocolText(normalized);
+  const cleaned = protocolCleaned !== normalized ? protocolCleaned : normalized;
+  if (looksLikeRawToolOutput(cleaned)) {
+    return "";
   }
-  const opening = agentOpeningSignalFromTimeline(items, { baseContent: content, displayContent: content });
-  if (opening?.text) {
-    return opening.text;
-  }
-  const feedback = [...items].reverse().find((item) => String(item.kind || "").trim() === "assistant_text");
-  const text = cleanBoundaryText(feedback?.text || feedback?.detail || feedback?.title);
-  return text || content;
-}
-
-function cleanBoundaryText(value: unknown) {
-  return cleanRunText(value);
-}
-
-function boundaryLabel(state: string, persistPolicy: string, channel: string) {
-  if (state === "stable_answer" && persistPolicy === "persist_canonical") return "稳定答案";
-  if (state === "tool_summary") return "工具摘要";
-  if (state === "progress_only" || persistPolicy === "persist_debug_only") {
-    if (channel === "task_control") return "任务控制消息";
-    if (channel === "ask_user") return "等待补充";
-    if (channel === "active_work_control") return "当前工作控制";
-    if (channel === "blocked") return "处理反馈";
-    return "过程状态";
-  }
-  if (state === "missing_answer" || persistPolicy === "do_not_persist") return "未形成稳定答案";
-  if (state) return state.replace(/_/g, " ");
-  return "";
-}
-
-function shouldShowBoundaryStatus(state: string, persistPolicy: string, leakFlags: string[], fallbackReason: string) {
-  if (!state && !persistPolicy && !leakFlags.length && !fallbackReason) return false;
-  const actionableLeaks = leakFlags.filter((flag) => !isRoutineBoundaryLeakFlag(flag));
-  const routineFallback = fallbackReason.endsWith("_message") || fallbackReason === "task_executor_scheduled";
-  if (actionableLeaks.length > 0) return true;
-  if (fallbackReason && !routineFallback) return true;
-  if (state === "missing_answer" || persistPolicy === "do_not_persist") return true;
-  return false;
-}
-
-function isRoutineBoundaryLeakFlag(flag: string) {
-  return flag === "internal_protocol_final_text"
-    || flag === "inline_pseudo_tool_call_final_text"
-    || flag.endsWith("_final_text");
-}
-
-function OutputBoundaryStatus({
-  channel,
-  canonicalState,
-  persistPolicy,
-  fallbackReason,
-  selectedChannel,
-  leakFlags,
-}: {
-  channel?: string;
-  canonicalState?: string;
-  persistPolicy?: string;
-  finalizationPolicy?: string;
-  fallbackReason?: string;
-  selectedChannel?: string;
-  selectedSource?: string;
-  leakFlags?: string[];
-}) {
-  const state = cleanBoundaryText(canonicalState);
-  const persist = cleanBoundaryText(persistPolicy);
-  const answerChannel = cleanBoundaryText(channel);
-  const selected = cleanBoundaryText(selectedChannel);
-  const reason = cleanBoundaryText(fallbackReason);
-  const leaks = Array.isArray(leakFlags)
-    ? leakFlags.map(cleanBoundaryText).filter((flag) => flag && !isRoutineBoundaryLeakFlag(flag))
-    : [];
-  if (!shouldShowBoundaryStatus(state, persist, leaks, reason)) {
-    return null;
-  }
-  const tone = state === "missing_answer" || persist === "do_not_persist"
-    ? "warning"
-    : state === "progress_only" || persist === "persist_debug_only"
-      ? "debug"
-      : "clean";
-  const Icon = tone === "warning" ? Sparkles : persist === "persist_canonical" ? CircleCheck : Database;
-  return (
-    <div className={`output-boundary-status output-boundary-status--${tone}`} aria-label="输出状态">
-      <span className="output-boundary-status__icon" aria-hidden="true">
-        <Icon size={13} />
-      </span>
-      <span className="output-boundary-status__main">
-        <strong>{boundaryLabel(state, persist, answerChannel)}</strong>
-        <small>{persist === "persist_canonical" ? "可写入记忆" : "不写入长期记忆"}</small>
-      </span>
-      {selected && selected !== answerChannel ? (
-        <code>{selected}</code>
-      ) : null}
-      {leaks.length ? (
-        <span className="output-boundary-status__flag">
-          <ShieldCheck size={12} />
-          已清理内部协议
-        </span>
-      ) : null}
-      {reason && reason !== answerChannel ? <small className="output-boundary-status__reason">{reason}</small> : null}
-    </div>
-  );
-}
-
-function assistantDisplayContent({
-  content,
-  answerChannel,
-  answerSource,
-}: {
-  content: string;
-  answerChannel?: string;
-  answerSource?: string;
-}) {
-  const normalized = String(content || "").trim();
-  const source = String(answerSource || "");
-  const legacyToolLoop =
-    source.includes("single_agent_turn.tool_loop")
-    || normalized.includes("本轮工具观察次数已达到上限")
-    || normalized.includes("连续检查了几次仍没有形成可靠结论");
-  if (!legacyToolLoop) {
-    return content;
-  }
-  if (String(answerChannel || "") === "blocked" || source.includes("tool_loop")) {
-    return "我刚才连续检查了几次，但没有拿到足够的新信息。现在应该基于已有事实收口说明，或等你指定要重点核查的位置。";
+  if (protocolCleaned !== normalized) {
+    return protocolCleaned;
   }
   return content;
+}
+
+const DSML_TOKEN_SOURCE = String.raw`(?:[｜|]\s*){2}\s*DSML\s*(?:[｜|]\s*){2}`;
+const DSML_PARAMETER_FRAGMENT_RE = new RegExp(
+  String.raw`(?:<\s*${DSML_TOKEN_SOURCE}\s*parameter\b\s*)?name\s*=\s*["'][A-Za-z_][\w-]*["']\s+string\s*=\s*["'](?:true|false)["']\s*>[\s\S]*?(?:<\/\s*${DSML_TOKEN_SOURCE}\s*parameter\s*>|$)`,
+  "gi",
+);
+const DSML_BLOCK_RE = new RegExp(
+  String.raw`<\s*${DSML_TOKEN_SOURCE}\s*(?:tool_calls|invoke|parameter)\b[\s\S]*?(?:<\/\s*${DSML_TOKEN_SOURCE}\s*(?:tool_calls|invoke|parameter)\s*>|$)`,
+  "gi",
+);
+const DSML_TAG_FRAGMENT_RE = new RegExp(String.raw`<\/?\s*${DSML_TOKEN_SOURCE}\s*[^>]*>?`, "gi");
+
+function sanitizeAssistantProtocolText(value: string) {
+  const text = String(value || "");
+  if (!text) {
+    return "";
+  }
+  const cleaned = text
+    .replace(DSML_BLOCK_RE, "")
+    .replace(DSML_PARAMETER_FRAGMENT_RE, "")
+    .replace(DSML_TAG_FRAGMENT_RE, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+  return cleaned;
 }
 
 function isLegacyTaskContractReceipt({

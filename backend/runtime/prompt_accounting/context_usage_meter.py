@@ -216,18 +216,25 @@ class ContextUsageMeter:
         return runtime_records or records
 
     def _provider_context_tokens(self, record: ModelTokenUsageRecord) -> int:
+        prompt = int(record.prompt_tokens or 0)
+        if prompt > 0:
+            return prompt
         total = int(record.total_tokens or 0)
         if total > 0:
-            return total
-        return int(record.prompt_tokens or 0) + int(record.completion_tokens or 0) + int(record.reasoning_tokens or 0)
+            completion = int(record.completion_tokens or 0) + int(record.reasoning_tokens or 0)
+            return max(0, total - completion)
+        return 0
 
     def _is_agent_runtime_record(self, record: ModelTokenUsageRecord) -> bool:
+        request_id = str(getattr(record, "request_id", "") or "")
+        if not request_id.startswith("modelreq:"):
+            return False
         diagnostics = dict(getattr(record, "diagnostics", {}) or {})
         if str(diagnostics.get("cache_metric_scope") or "") == "agent_runtime":
             return True
         if str(diagnostics.get("packet_ref") or "").startswith("rtpacket:"):
             return True
-        return "rtpacket:" in str(getattr(record, "request_id", "") or "")
+        return "rtpacket:" in request_id
 
     def _record_newer(self, candidate: ModelTokenUsageRecord | None, baseline: ModelTokenUsageRecord | None) -> bool:
         if candidate is None:

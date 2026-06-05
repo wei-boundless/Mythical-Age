@@ -9,6 +9,7 @@ from runtime.prompt_accounting import (
     PromptAccountingLedger,
     PromptCacheBaselineTracker,
     PromptCachePlanner,
+    PromptCacheRecord,
     extract_provider_usage,
 )
 from runtime.model_gateway import ModelRequestBuilder
@@ -92,6 +93,66 @@ def test_prompt_accounting_ledger_records_prediction_provider_usage_and_cache(tm
     assert summary["cached_tokens"] == 4
     assert summary["cache_savings_tokens"] == 4
     assert cache_records[-1].status == "hit"
+
+
+def test_prompt_accounting_ledger_filters_session_scoped_reads_before_json_projection(tmp_path) -> None:
+    ledger = PromptAccountingLedger(tmp_path)
+    ledger.record_token_usage(
+        ModelTokenUsageRecord(
+            usage_id="tokuse:modelreq:target:provider_usage",
+            request_id="modelreq:target",
+            session_id="session:target",
+            run_id="run:target",
+            source="provider_usage",
+            prompt_tokens=100,
+            total_tokens=110,
+            created_at=1.0,
+        )
+    )
+    ledger.record_token_usage(
+        ModelTokenUsageRecord(
+            usage_id="tokuse:modelreq:other:provider_usage",
+            request_id="modelreq:other",
+            session_id="session:other",
+            run_id="run:other",
+            source="provider_usage",
+            prompt_tokens=900,
+            total_tokens=990,
+            created_at=2.0,
+        )
+    )
+    ledger.record_prompt_cache(
+        PromptCacheRecord(
+            cache_record_id="pcache:target",
+            request_id="modelreq:target",
+            session_id="session:target",
+            run_id="run:target",
+            status="hit",
+            cached_tokens=80,
+            cache_savings_tokens=80,
+            created_at=1.0,
+        )
+    )
+    ledger.record_prompt_cache(
+        PromptCacheRecord(
+            cache_record_id="pcache:other",
+            request_id="modelreq:other",
+            session_id="session:other",
+            run_id="run:other",
+            status="hit",
+            cached_tokens=800,
+            cache_savings_tokens=800,
+            created_at=2.0,
+        )
+    )
+
+    session_summary = ledger.summarize_session("session:target")
+    run_summary = ledger.summarize_run("run:target")
+
+    assert session_summary["total_tokens"] == 110
+    assert session_summary["cache_savings_tokens"] == 80
+    assert run_summary["total_tokens"] == 110
+    assert [record.request_id for record in ledger.list_prompt_cache(session_id="session:target")] == ["modelreq:target"]
 
 
 def test_provider_usage_extractor_handles_openai_anthropic_and_deepseek_shapes() -> None:

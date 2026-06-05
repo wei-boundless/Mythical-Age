@@ -14,6 +14,113 @@ import type {
   Skill,
   Equipment,
 } from "./types";
+
+// ============================================================
+//  技能详情面板
+// ============================================================
+function renderSkillsPanel(ctx: CanvasRenderingContext2D, state: GameState): void {
+  const { GAME_W, GAME_H } = state;
+  const p = state.player;
+  const panelW = 520;
+  const panelH = 420;
+  const panelX = (GAME_W - panelW) / 2;
+  const panelY = (GAME_H - panelH) / 2;
+
+  // 半透明遮罩
+  ctx.fillStyle = "rgba(0,0,0,0.55)";
+  ctx.fillRect(0, 0, GAME_W, GAME_H);
+
+  // 面板背景
+  ctx.fillStyle = "#111133";
+  ctx.strokeStyle = "#8899dd";
+  ctx.lineWidth = 2;
+  roundRect(ctx, panelX, panelY, panelW, panelH, 10);
+  ctx.fill();
+  ctx.stroke();
+
+  // 标题
+  ctx.fillStyle = "#ffd700";
+  ctx.font = "bold 16px sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "top";
+  ctx.fillText("📖 技能详情", panelX + panelW / 2, panelY + 12);
+
+  // 底部提示
+  ctx.fillStyle = "#888";
+  ctx.font = "11px sans-serif";
+  ctx.fillText("按 K 关闭", panelX + panelW / 2, panelY + panelH - 22);
+
+  // ---- 4 技能卡片 2×2 网格 ----
+  const skills = state.player.skills;
+  const cardW = 230;
+  const cardH = 155;
+  const startX = panelX + 22;
+  const startY = panelY + 42;
+  const gapX = 26;
+  const gapY = 18;
+
+  const icons: Record<string, string> = {
+    whirlwind: "🌀", dash_slash: "⚡", holy_shield: "🛡️", light_judgment: "✨",
+  };
+
+  for (let i = 0; i < 4; i++) {
+    const col = i % 2;
+    const row = Math.floor(i / 2);
+    const cx = startX + col * (cardW + gapX);
+    const cy = startY + row * (cardH + gapY);
+    const skill = skills[i];
+    const unlocked = p.level >= skill.unlockLevel;
+
+    // 卡片背景
+    ctx.fillStyle = unlocked ? "#1a1a3a" : "#1a1a1a";
+    ctx.strokeStyle = unlocked ? "#4466aa" : "#333";
+    ctx.lineWidth = 1;
+    roundRect(ctx, cx, cy, cardW, cardH, 6);
+    ctx.fill();
+    ctx.stroke();
+
+    // 图标
+    ctx.font = "22px sans-serif";
+    ctx.textAlign = "left";
+    ctx.textBaseline = "top";
+    ctx.fillText(icons[skill.id] || "❓", cx + 10, cy + 8);
+
+    // 技能名 + 热键
+    ctx.fillStyle = unlocked ? "#ffd700" : "#555";
+    ctx.font = "bold 13px sans-serif";
+    ctx.fillText(`${skill.name}  [${i + 1}]`, cx + 40, cy + 10);
+
+    if (unlocked) {
+      // 数值行
+      const lines = [
+        `💥 伤害: ${skill.damage}`,
+        `💧 MP: ${skill.mpCost}`,
+        `⏱ 冷却: ${skill.cooldownMax / 60}s`,
+        `🕐 持续: ${skill.duration / 60}s`,
+      ];
+      ctx.fillStyle = "#ccc";
+      ctx.font = "11px sans-serif";
+      for (let j = 0; j < lines.length; j++) {
+        ctx.fillText(lines[j], cx + 12, cy + 42 + j * 18);
+      }
+
+      // 描述
+      ctx.fillStyle = "#89b4fa";
+      ctx.font = "10px sans-serif";
+      ctx.fillText(skill.description, cx + 12, cy + 118);
+    } else {
+      // 未解锁提示
+      ctx.fillStyle = "#555";
+      ctx.font = "12px sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(`🔒 Lv.${skill.unlockLevel} 解锁`, cx + cardW / 2, cy + cardH / 2 + 5);
+      ctx.textAlign = "left";
+      ctx.textBaseline = "top";
+    }
+  }
+}
+
 import { getImage, monsterAssetKey, sceneAssetKey } from "./assets";
 import { GAME_W, GAME_H, SKILLS, ATTACK_COOLDOWN } from "./config";
 
@@ -787,6 +894,11 @@ export function renderGame(ctx: CanvasRenderingContext2D, state: GameState): voi
   if (state.showInventory) {
     renderInventoryPanel(ctx, state);
   }
+
+  // 技能详情面板
+  if (state.showSkillsPanel) {
+    renderSkillsPanel(ctx, state);
+  }
 }
 
 // ============================================================
@@ -800,6 +912,7 @@ function renderKeyHints(ctx: CanvasRenderingContext2D): void {
     { key: "Space", desc: "跳跃" },
     { key: "Enter", desc: "对话" },
     { key: "1-4", desc: "技能" },
+    { key: "K", desc: "技能详情" },
     { key: "Tab", desc: "背包" },
   ];
 

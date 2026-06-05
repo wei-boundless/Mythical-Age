@@ -1,7 +1,7 @@
 "use client";
 
 import { MoreHorizontal } from "lucide-react";
-import { useMemo, useState } from "react";
+import React, { useMemo, useState } from "react";
 
 import type { RuntimeMonitorActionPayload } from "@/lib/api";
 import type { RunMonitorSignal } from "@/lib/run-monitor/types";
@@ -12,7 +12,7 @@ type RunMonitorActionMenuProps = {
   onAction: (payload: RuntimeMonitorActionPayload) => void;
 };
 
-const HIDDEN_ACTIONS = new Set(["open", "inspect"]);
+const HIDDEN_ACTIONS = new Set(["open", "inspect", "resume_task"]);
 const DANGER_ACTIONS = new Set(["delete_record"]);
 
 export function RunMonitorActionMenu({ signal, loadingAction, onAction }: RunMonitorActionMenuProps) {

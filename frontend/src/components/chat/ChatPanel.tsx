@@ -25,7 +25,6 @@ export function ChatPanel() {
     currentSessionId,
     taskGraphLiveMonitor,
     pauseActiveTaskRun,
-    resumeActiveTaskRun,
     conversationActiveEnvironment,
     workspaceInitializing,
     modelProviderConfig,
@@ -49,6 +48,7 @@ export function ChatPanel() {
   const currentTaskIsRunning = currentSession ? sessionSummaryIsRunning(currentSession) : false;
   const currentSessionActive = currentSessionReceivingStream || currentTaskIsRunning;
   const suppressFooterActivity = shouldSuppressSessionActivityBar(messages, currentSessionActive);
+  const messageRenderKeys = useMemo(() => chatMessageRenderKeys(messages), [messages]);
   const monitorRecord = taskGraphLiveMonitor as Record<string, unknown> | null;
   const monitorTaskRun = taskGraphLiveMonitor?.task_run ?? {};
   const monitorRuntimeControl = taskGraphLiveMonitor?.runtime_control ?? {};
@@ -77,27 +77,17 @@ export function ChatPanel() {
     && !terminalControlStates.has(monitorControlState)
     && monitorControlState !== "stop_requested"
   );
-  const canResumeSingleAgentTask = Boolean(
-    isSingleAgentTaskMonitor
-    && !currentSessionReceivingStream
-    && taskGraphLiveMonitor?.is_resumable === true,
-  );
   const canInterruptSingleAgentTask = Boolean(
     canControlSingleAgentTask
     && !currentSessionReceivingStream
     && taskGraphLiveMonitor?.is_interruptible === true
   );
-  const chatPrimaryTaskAction = canResumeSingleAgentTask
+  const chatPrimaryTaskAction = canInterruptSingleAgentTask
     ? {
-        kind: "resume" as const,
-        onAction: resumeActiveTaskRun,
+        kind: "interrupt" as const,
+        onAction: pauseActiveTaskRun,
       }
-    : canInterruptSingleAgentTask
-      ? {
-          kind: "interrupt" as const,
-          onAction: pauseActiveTaskRun,
-        }
-      : null;
+    : null;
   const lastEditableUserMessageId = useMemo(() => {
     for (let index = messages.length - 1; index >= 0; index -= 1) {
       const message = messages[index];
@@ -125,13 +115,13 @@ export function ChatPanel() {
             </div>
           ) : null}
 
-          {messages.map((message) => (
+          {messages.map((message, index) => (
             <ChatMessage
               canEdit={!currentSessionActive && message.id === lastEditableUserMessageId}
               content={message.content}
               image={message.image}
               id={message.id}
-              key={message.id}
+              key={messageRenderKeys[index] ?? message.id}
               onResendEdit={resendEditedMessage}
               answerChannel={message.answerChannel}
               answerCanonicalState={message.answerCanonicalState}
@@ -217,6 +207,16 @@ export function shouldSuppressSessionActivityBar(messages: Message[], _active: b
   return hasPublicRunActivity(publicTimeline, latestAssistant.content);
 }
 
+export function chatMessageRenderKeys(messages: Pick<Message, "id" | "role" | "sourceIndex">[]) {
+  const seen = new Map<string, number>();
+  return messages.map((message, index) => {
+    const base = String(message.id || `${message.role}:${message.sourceIndex ?? index}`).trim() || `${message.role}:${index}`;
+    const count = seen.get(base) ?? 0;
+    seen.set(base, count + 1);
+    return count ? `${base}:duplicate-${count}` : base;
+  });
+}
+
 function isMessageLevelAssistantFeedback(item: PublicChatTimelineItem) {
   const kind = String(item.kind || "").trim();
   return (kind === "assistant_text" || kind === "opening_judgment") && Boolean(publicTimelineItemText(item));
@@ -231,8 +231,8 @@ function SessionTokenMeter({ tokenStats }: { tokenStats: TokenStats | null }) {
     <div className={`chat-token-meter chat-token-meter--${presentation.levelClass}`} title={presentation.title}>
       <Gauge size={14} />
       <span>{presentation.label}</span>
-      <strong>{presentation.pressurePercentText}</strong>
-      {presentation.remainingTokenText ? <em>{presentation.remainingTokenText}</em> : null}
+      <strong>{presentation.tokenRatioText}</strong>
+      <span>{presentation.pressurePercentText}</span>
     </div>
   );
 }
@@ -240,13 +240,10 @@ function SessionTokenMeter({ tokenStats }: { tokenStats: TokenStats | null }) {
 export function sessionContextPressurePresentation(tokenStats: TokenStats | null) {
   if (!tokenStats) {
     return {
-      label: "上下文同步中",
+      label: "上下文",
       usedPercent: 0,
-      remainingPercent: 0,
       pressurePercentText: "--",
-      remainingPercentText: "--",
-      remainingTokens: 0,
-      remainingTokenText: "",
+      tokenRatioText: "--",
       title: "正在读取当前 session 上下文状态",
       levelClass: "pending",
     };
@@ -255,34 +252,23 @@ export function sessionContextPressurePresentation(tokenStats: TokenStats | null
   const pressureLevel = String(contextMeter?.pressure_level || tokenStats.history_pressure_level || "normal").trim() || "normal";
   const levelClass = tokenPressureClass(pressureLevel);
   const usedPercent = percentFromRatio(currentSessionContextRatio(tokenStats));
-  const remainingPercent = currentSessionRemainingPercent(tokenStats, usedPercent);
-  const remainingTokens = currentSessionRemainingTokens(tokenStats);
-  const didCompact = Boolean(tokenStats.history_did_compact || tokenStats.history_did_microcompact || tokenStats.history_did_full_compact);
-  const label = didCompact
-    ? "已压缩"
-    : pressureLevel === "full_compact"
-      ? "需要压缩"
-      : pressureLevel === "microcompact"
-        ? "接近压缩"
-        : pressureLevel === "warning"
-          ? "压力偏高"
-          : "上下文压力";
+  const currentTokens = currentContextTokens(tokenStats);
+  const thresholdTokens = compactionThresholdTokens(tokenStats);
+  const tokenRatioText = thresholdTokens > 0
+    ? `${formatTokenCount(currentTokens)}/${formatTokenCount(thresholdTokens)}`
+    : formatTokenCount(currentTokens);
   const pressurePercentText = `${usedPercent}%`;
-  const remainingPercentText = `${remainingPercent}%`;
-  const remainingTokenText = remainingTokens > 0 ? `距压缩 ${formatTokenCount(remainingTokens)}` : "";
   const title = [
-    `当前 session 上下文压力 ${pressurePercentText}`,
-    `距离自动压缩阈值剩余 ${remainingPercentText}`,
-    remainingTokenText ? `距压缩 ${formatExactTokenCount(remainingTokens)} tokens` : "",
+    `当前上下文 ${formatExactTokenCount(currentTokens)} tokens`,
+    thresholdTokens > 0 ? `自动压缩阈值 ${formatExactTokenCount(thresholdTokens)} tokens` : "",
+    `阈值占比 ${pressurePercentText}`,
+    thresholdTokens > 0 ? "达到阈值会触发自动压缩" : "",
   ].filter(Boolean).join("；");
   return {
-    label,
+    label: "上下文",
     usedPercent,
-    remainingPercent,
     pressurePercentText,
-    remainingPercentText,
-    remainingTokens,
-    remainingTokenText,
+    tokenRatioText,
     title,
     levelClass,
   };
@@ -298,11 +284,6 @@ function percentFromRatio(value: unknown) {
 }
 
 function currentSessionContextRatio(tokenStats: TokenStats) {
-  const rawSessionPressureRatio = tokenStats.session_context_pressure?.pressure_ratio;
-  const sessionPressureRatio = Number(rawSessionPressureRatio);
-  if (rawSessionPressureRatio !== undefined && rawSessionPressureRatio !== null && Number.isFinite(sessionPressureRatio)) {
-    return sessionPressureRatio;
-  }
   const rawCompactionRatio = tokenStats.context_meter?.compaction_pressure_ratio;
   const compactionRatio = Number(rawCompactionRatio);
   if (rawCompactionRatio !== undefined && rawCompactionRatio !== null && Number.isFinite(compactionRatio)) {
@@ -316,38 +297,14 @@ function currentSessionContextRatio(tokenStats: TokenStats) {
   return Number(tokenStats.history_usage_ratio || 0);
 }
 
-function currentSessionRemainingPercent(tokenStats: TokenStats, usedPercent: number) {
-  const rawSessionRemainingRatio = tokenStats.session_context_pressure?.remaining_ratio;
-  const sessionRemainingRatio = Number(rawSessionRemainingRatio);
-  if (rawSessionRemainingRatio !== undefined && rawSessionRemainingRatio !== null && Number.isFinite(sessionRemainingRatio)) {
-    return percentFromRatio(sessionRemainingRatio);
-  }
-  const rawRemainingRatio = tokenStats.context_meter?.compaction_remaining_ratio;
-  const remainingRatio = Number(rawRemainingRatio);
-  if (rawRemainingRatio !== undefined && rawRemainingRatio !== null && Number.isFinite(remainingRatio)) {
-    return percentFromRatio(remainingRatio);
-  }
-  return Math.max(0, 100 - usedPercent);
+function currentContextTokens(tokenStats: TokenStats) {
+  const value = Number(tokenStats.context_meter?.current_context_tokens ?? tokenStats.history_tokens ?? 0);
+  return Number.isFinite(value) ? Math.max(0, Math.round(value)) : 0;
 }
 
-function currentSessionRemainingTokens(tokenStats: TokenStats) {
-  const rawSessionRemaining = tokenStats.session_context_pressure?.remaining_tokens;
-  const sessionRemaining = Number(rawSessionRemaining);
-  if (rawSessionRemaining !== undefined && rawSessionRemaining !== null && Number.isFinite(sessionRemaining)) {
-    return Math.max(0, Math.round(sessionRemaining));
-  }
-  const rawCompactionRemaining = tokenStats.context_meter?.compaction_remaining_tokens;
-  const compactionRemaining = Number(rawCompactionRemaining);
-  if (rawCompactionRemaining !== undefined && rawCompactionRemaining !== null && Number.isFinite(compactionRemaining)) {
-    return Math.max(0, Math.round(compactionRemaining));
-  }
-  const replacementThresholdTokens = Number(tokenStats.context_meter?.replacement_threshold_tokens || 0);
-  const currentContextTokens = Number(tokenStats.context_meter?.current_context_tokens || 0);
-  if (Number.isFinite(replacementThresholdTokens) && replacementThresholdTokens > 0 && Number.isFinite(currentContextTokens)) {
-    return Math.max(0, Math.round(replacementThresholdTokens - currentContextTokens));
-  }
-  const historyRemainingTokens = Number(tokenStats.history_remaining_tokens || 0);
-  return Number.isFinite(historyRemainingTokens) ? Math.max(0, Math.round(historyRemainingTokens)) : 0;
+function compactionThresholdTokens(tokenStats: TokenStats) {
+  const value = Number(tokenStats.context_meter?.replacement_threshold_tokens ?? tokenStats.history_budget_tokens ?? 0);
+  return Number.isFinite(value) ? Math.max(0, Math.round(value)) : 0;
 }
 
 function formatTokenCount(value: unknown) {
@@ -360,4 +317,5 @@ function formatTokenCount(value: unknown) {
 function formatExactTokenCount(value: unknown) {
   return Math.max(0, Math.round(Number(value || 0))).toLocaleString("en-US");
 }
+
 

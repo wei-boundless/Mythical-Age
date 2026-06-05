@@ -1,0 +1,52 @@
+import React from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { describe, expect, it } from "vitest";
+
+import { ChatInput } from "./ChatInput";
+
+function renderChatInput(
+  props: Partial<React.ComponentProps<typeof ChatInput>> = {},
+) {
+  return renderToStaticMarkup(
+    React.createElement(ChatInput, {
+      chatThinkingMode: "normal",
+      disabled: false,
+      imageAssetConfig: null,
+      modelProviderConfig: null,
+      onSelectChatModel: () => undefined,
+      onSelectPermissionMode: () => undefined,
+      onSelectThinkingMode: () => undefined,
+      onSend: async () => undefined,
+      onStop: () => undefined,
+      permissionMode: "default",
+      selectedChatModelId: "system-default",
+      streaming: false,
+      supportedPermissionModes: ["default"],
+      taskPrimaryAction: null,
+      ...props,
+    }),
+  );
+}
+
+describe("ChatInput", () => {
+  it("does not expose a continuation button when the composer is empty", () => {
+    const html = renderChatInput();
+
+    expect(html).toContain("aria-label=\"发送\"");
+    expect(html).not.toContain("继续当前任务");
+    expect(html).not.toContain("chat-send-button--resume");
+  });
+
+  it("keeps interruption as the only task-level primary action", () => {
+    const html = renderChatInput({
+      taskPrimaryAction: {
+        kind: "interrupt",
+        onAction: () => undefined,
+      },
+    });
+
+    expect(html).toContain("aria-label=\"中断当前任务\"");
+    expect(html).not.toContain("继续当前任务");
+    expect(html).not.toContain("chat-send-button--resume");
+  });
+});

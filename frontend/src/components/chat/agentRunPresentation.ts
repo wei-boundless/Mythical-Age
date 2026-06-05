@@ -25,12 +25,6 @@ export type AgentRunActionView = {
 
 type AgentRunActionState = "running" | "done" | "error" | "stopped";
 
-export type AgentOpeningSignal = {
-  label: string;
-  text: string;
-  tone: "thinking" | "done" | "error";
-};
-
 const GENERIC_TOOL_WAIT_PREFIXES = [
   "已发起工具调用，正在等待工具返回",
   "已经过工具调用，正在等待工具返回",
@@ -66,134 +60,6 @@ export function sameRunText(left: unknown, right: unknown) {
   const rightText = cleanRunText(right);
   if (!leftText || !rightText) return false;
   return leftText === rightText || leftText.includes(rightText) || rightText.includes(leftText);
-}
-
-export function agentOpeningSignalFromTimeline(
-  items: PublicChatTimelineItem[],
-  options: { baseContent?: string; displayContent?: string } = {},
-): AgentOpeningSignal | null {
-  const assistantItem = [...items].reverse().find((item) => {
-    const kind = cleanRunText(item.kind);
-    return kind === "opening_judgment" || kind === "assistant_text";
-  });
-  const sourceKind = cleanRunText(assistantItem?.kind);
-  const candidateText = cleanRunText(assistantItem?.text || assistantItem?.detail || assistantItem?.title);
-  const baseText = cleanRunText(options.baseContent);
-  const displayText = cleanRunText(options.displayContent);
-  if (!baseText && candidateText && sameRunText(candidateText, displayText)) {
-    return null;
-  }
-  const directText = candidateText && !sameRunText(candidateText, baseText) ? candidateText : "";
-  const fallbackItem = !directText && !baseText ? openingFallbackItem(items) : null;
-  const fallbackText = fallbackItem ? openingTextForItem(fallbackItem) : "";
-  const text = directText || fallbackText;
-  if (!text) {
-    return null;
-  }
-  const state = cleanRunText((directText ? assistantItem : fallbackItem)?.state).toLowerCase();
-  const tone = ["error", "failed", "blocked", "missing"].includes(state)
-    ? "error"
-    : ["done", "ready", "passed", "success"].includes(state)
-      ? "done"
-      : "thinking";
-  return {
-    label: directText
-      ? sourceKind === "opening_judgment"
-        ? "开局反馈"
-        : tone === "error" ? "当前判断" : tone === "done" ? "判断完成" : "当前判断"
-      : tone === "error" ? "当前判断" : tone === "done" ? "判断完成" : "开局反馈",
-    text,
-    tone,
-  };
-}
-
-function openingFallbackItem(items: PublicChatTimelineItem[]) {
-  const actionableItems = items.filter((item) => {
-    const kind = cleanRunText(item.kind);
-    return kind && kind !== "assistant_text" && kind !== "opening_judgment" && kind !== "final_summary";
-  });
-  return [...actionableItems].reverse().find((item) => {
-    const state = cleanRunText(item.state).toLowerCase();
-    return item.stream_state === "streaming" || ["running", "working", "partial", "error", "failed", "blocked", "missing"].includes(state);
-  }) ?? actionableItems.at(-1) ?? null;
-}
-
-function openingTextForItem(item: PublicChatTimelineItem) {
-  const kind = cleanRunText(item.kind);
-  if (kind === "blocked") {
-    const text = shortRunText(item.recovery_hint || item.text || item.title || "当前步骤没有继续条件", 120);
-    return `我先调整当前条件：${text}。`;
-  }
-  if (kind === "artifact") {
-    return "我已经拿到阶段产物，先把结果整理成可读结论。";
-  }
-  if (kind === "verification") {
-    return "我先做结果校验，确认它不是只停留在表面完成。";
-  }
-  if (kind !== "tool_activity" && kind !== "work_action") {
-    const text = shortRunText(item.title || item.text || item.detail, 120);
-    return text ? `我先确认当前进展：${text}。` : "";
-  }
-  const action = actionViewForTimelineItem(item);
-  const target = action.detail;
-  if (action.kind === "read" && /agents\.md/i.test(target)) {
-    return "我先确认项目约定和协作边界，再决定改动范围。";
-  }
-  if (action.kind === "read") {
-    return target
-      ? `我先读取 ${target}，把判断建立在真实上下文上。`
-      : "我先补齐上下文，避免凭空判断。";
-  }
-  if (action.kind === "search") {
-    return target
-      ? `我先搜索 ${target}，定位真正影响输出的调用链。`
-      : "我先定位调用链，找到真正影响主页面输出的位置。";
-  }
-  if (action.kind === "inspect") {
-    return target
-      ? `我先确认 ${target} 的状态，避免后续动作偏离目标。`
-      : "我先确认目标状态，再决定下一步动作。";
-  }
-  if (action.kind === "write" || action.kind === "edit") {
-    return target
-      ? `我已经定位到 ${target}，先把改动落下去，再用结果验一遍。`
-      : "我已经定位到改动层，先把表达改顺，再验证效果。";
-  }
-  if (action.kind === "prepare") {
-    return target
-      ? `我先准备好 ${target}，让后续产物有明确落点。`
-      : "我先把输出位置准备好，后续结果会有明确落点。";
-  }
-  if (action.kind === "memory") {
-    return target
-      ? `我先接上 ${target}，把前面的要求纳入当前判断。`
-      : "我先接上相关记忆，把前面的要求纳入当前判断。";
-  }
-  if (action.kind === "run" || action.kind === "verify") {
-    return target
-      ? `我正在运行 ${target}，用结果判断是否还要继续修正。`
-      : "我先验证当前状态，再决定是否继续修正。";
-  }
-  if (action.kind === "work") {
-    const focus = openingFocusFromSummary(item.public_summary || item.title || item.detail);
-    return focus
-      ? `我先处理 ${focus}，拿到结果后给你明确判断。`
-      : "我已经接上当前任务，先确认关键事实，再给你明确判断。";
-  }
-  return target
-    ? `我先处理 ${target}，再把结果整理成可读结论。`
-    : "我已经接上当前任务，先确认关键事实，再给你明确判断。";
-}
-
-function openingFocusFromSummary(value: unknown) {
-  const text = cleanRunText(value)
-    .replace(/^(?:正在|已)?(?:推进当前步骤|处理当前步骤|处理步骤|结果已返回|步骤已返回)[，,。.\s]*/i, "")
-    .replace(/^(?:正在|已)?(?:读取上下文|搜索引用|确认目标|更新文件|准备输出|运行验证|检索相关记忆)\s*/i, "")
-    .trim();
-  if (!text || isGenericActionTarget(text) || isPureTechnicalToken(text) || looksLikeRawCommand(text) || looksLikeStructuredToolPayload(text)) {
-    return "";
-  }
-  return shortRunText(text, 80);
 }
 
 export function actionViewForTimelineItem(item: PublicChatTimelineItem): AgentRunActionView {
@@ -293,6 +159,7 @@ function publicTargetText(value: unknown, kind: AgentRunActionKind) {
   if (
     !text
     || looksLikeStructuredToolPayload(text)
+    || looksLikeRawFileListing(text)
     || looksLikeRawCommand(text)
     || isPureTechnicalToken(text)
     || isGenericActionTarget(text)
@@ -447,73 +314,77 @@ function observationForAction({
   const result = meaningfulObservationDetail(rawDetail || item.text || item.detail || item.title, detail);
   const semanticObservation = cleanRunText(item.observation);
   if (semanticObservation) {
-    return semanticObservation.startsWith("观察：") ? semanticObservation : `观察：${semanticObservation}`;
+    return stripObservationLabel(semanticObservation);
   }
   if (state === "error") {
-    return `观察：${shortRunText(item.recovery_hint || result || "当前动作没有执行成功，我会换一种方式继续。", 180)}`;
+    return shortRunText(item.recovery_hint || result || "当前动作没有执行成功，我会换一种方式继续。", 180);
   }
   if (state === "stopped") {
-    return "观察：本轮操作已停止。";
+    return "本轮操作已停止。";
   }
   if (state !== "done") {
     return "";
   }
   if (kind === "inspect") {
     if (/不存在|尚未存在|not exist|missing/i.test(result)) {
-      return `观察：${shortRunText(result || "目标还不存在", 90)}，下一步应该创建目标或修正路径。`;
+      return `${shortRunText(result || "目标还不存在", 90)}，下一步应该创建目标或修正路径。`;
     }
     if (/存在|已确认/.test(result)) {
-      return "观察：目标状态已确认，可以继续推进下一步。";
+      return "目标状态已确认，可以继续推进下一步。";
     }
-    return detail ? `观察：已确认 ${detail} 的当前状态。` : "观察：目标状态已确认。";
+    return detail ? `已确认 ${detail} 的当前状态。` : "目标状态已确认。";
   }
   if (kind === "read") {
     if (/agents\.md/i.test(detail)) {
       return result
-        ? `观察：项目约定已读到，${shortRunText(result, 150)}`
-        : "观察：项目约定已确认，后续要受协作边界、固定端口和验证闭环约束。";
+        ? `项目约定已读到，${shortRunText(result, 150)}`
+        : "项目约定已确认，后续要受协作边界、固定端口和验证闭环约束。";
     }
     return result && result !== detail
-      ? `观察：已读到关键信息，${shortRunText(result, 150)}`
-      : "观察：关键上下文已拿到，下一步可以基于文件事实判断。";
+      ? `已读到关键信息，${shortRunText(result, 150)}`
+      : "关键上下文已拿到，下一步可以基于文件事实判断。";
   }
   if (kind === "search") {
     if (/0\s*(?:条|个|matches|results)|没有|未找到|no results/i.test(result)) {
-      return "观察：没有直接命中，下一步需要换关键词或回到调用入口排查。";
+      return "没有直接命中，下一步需要换关键词或回到调用入口排查。";
     }
     return result && result !== detail
-      ? `观察：已定位相关线索，${shortRunText(result, 150)}`
-      : "观察：相关引用已定位，下一步应该收敛到真实改动点。";
+      ? `已定位相关线索，${shortRunText(result, 150)}`
+      : "相关引用已定位，下一步应该收敛到真实改动点。";
   }
   if (kind === "memory") {
     return result && result !== detail
-      ? `观察：已检索相关记忆，${shortRunText(result, 150)}`
-      : "观察：记忆检索已返回，下一步会纳入判断。";
+      ? `已检索相关记忆，${shortRunText(result, 150)}`
+      : "记忆检索已返回，下一步会纳入判断。";
   }
   if (kind === "write" || kind === "edit") {
     return result && result !== detail
-      ? `观察：更新结果已返回，${shortRunText(result, 150)}`
-      : "观察：文件更新已返回，下一步需要用页面或测试验证。";
+      ? `更新结果已返回，${shortRunText(result, 150)}`
+      : "文件更新已返回，下一步需要用页面或测试验证。";
   }
   if (kind === "prepare") {
     return result && result !== detail
-      ? `观察：输出准备已返回，${shortRunText(result, 150)}`
-      : "观察：输出准备已确认，可以继续推进。";
+      ? `输出准备已返回，${shortRunText(result, 150)}`
+      : "输出准备已确认，可以继续推进。";
   }
   if (kind === "image") {
     return result && result !== detail
-      ? `观察：图像生成已返回，${shortRunText(result, 150)}`
-      : "观察：图像生成已返回，下一步会确认产物是否可用。";
+      ? `图像生成已返回，${shortRunText(result, 150)}`
+      : "图像生成已返回，下一步会确认产物是否可用。";
   }
   if (kind === "run") {
     return result
-      ? `观察：验证命令已返回，${shortRunText(result, 150)}`
-      : "观察：验证命令已返回，需要根据结果判断是否继续修正。";
+      ? `验证命令已返回，${shortRunText(result, 150)}`
+      : "验证命令已返回，需要根据结果判断是否继续修正。";
   }
   if (result && result !== detail) {
-    return `观察：${shortRunText(result, 160)}`;
+    return shortRunText(result, 160);
   }
-  return "观察：结果已返回，继续根据结果推进下一步。";
+  return "结果已返回，继续根据结果推进下一步。";
+}
+
+function stripObservationLabel(value: unknown) {
+  return cleanRunText(value).replace(/^(?:观察结果|观察报告|观察)[：:\s]*/u, "");
 }
 
 function meaningfulObservationDetail(value: unknown, target: string) {
@@ -521,7 +392,7 @@ function meaningfulObservationDetail(value: unknown, target: string) {
   if (!text || text === target || compactPathLabel(text) === target || INTERNAL_REFERENCE_PATTERN.test(text)) {
     return "";
   }
-  if (looksLikeStructuredToolPayload(text)) {
+  if (looksLikeStructuredToolPayload(text) || looksLikeRawFileListing(text)) {
     return "";
   }
   if (GENERIC_TOOL_WAIT_PREFIXES.some((prefix) => text.toLowerCase().startsWith(prefix.toLowerCase()))) {
@@ -537,6 +408,13 @@ function looksLikeStructuredToolPayload(value: string) {
     return true;
   }
   return /\b(?:authority|diagnostics|matched_version_count|candidate_version_count|structured_payload|result_envelope)\b/i.test(text);
+}
+
+function looksLikeRawFileListing(value: string) {
+  const text = cleanRunText(value);
+  if (!text) return false;
+  return /\bfile\s+[^\s]+\s+\d+\s+bytes\b/i.test(text)
+    || /\b\d+\s+bytes\s+(?:file|directory|dir)\b/i.test(text);
 }
 
 function looksLikeRawCommand(value: string) {

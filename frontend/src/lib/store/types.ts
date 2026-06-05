@@ -134,16 +134,6 @@ export type TokenStats = {
     compaction_remaining_ratio?: number;
     pressure_level?: string;
   };
-  session_context_pressure?: {
-    pressure_tokens?: number;
-    pressure_ratio?: number;
-    remaining_tokens?: number;
-    remaining_ratio?: number;
-    threshold_tokens?: number;
-    accumulated_history_tokens?: number;
-    non_history_context_tokens?: number;
-    source?: string;
-  };
   cumulative_transcript_tokens?: number;
   cumulative_transcript_message_count?: number;
   compression_saved_tokens?: number;
