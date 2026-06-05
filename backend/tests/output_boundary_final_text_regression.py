@@ -8,7 +8,7 @@ from memory_system.continuity import MemoryMessageAdapter
 from runtime.output_boundary import canonical_output_decision_for_final_text
 
 
-def test_final_text_boundary_sanitizes_protocol_and_marks_stable_answer() -> None:
+def test_final_text_boundary_sanitizes_protocol_without_marking_stable_answer() -> None:
     decision = canonical_output_decision_for_final_text(
         '<tool_call name="read_file">{"path":"x"}</tool_call>\n结论：任务完成。',
         answer_channel="conversation",
@@ -16,8 +16,21 @@ def test_final_text_boundary_sanitizes_protocol_and_marks_stable_answer() -> Non
     )
 
     assert decision.content == "任务完成。"
-    assert decision.canonical_state == "stable_answer"
-    assert decision.persist_policy == "persist_canonical"
+    assert decision.canonical_state == "unstable_answer"
+    assert decision.persist_policy == "persist_debug_only"
+    assert "internal_protocol_final_text" in decision.leak_flags
+
+
+def test_final_text_boundary_blocks_pure_protocol_fragment() -> None:
+    decision = canonical_output_decision_for_final_text(
+        '<｜｜DSML｜｜tool_calls><｜｜DSML｜｜invoke name="search_text"></｜｜DSML｜｜tool_calls>',
+        answer_channel="conversation",
+        answer_source="test.final_text",
+    )
+
+    assert decision.content == "当前输出包含内部工具协议，已阻止作为最终答案。"
+    assert decision.canonical_state == "missing_answer"
+    assert decision.persist_policy == "do_not_persist"
     assert "internal_protocol_final_text" in decision.leak_flags
 
 

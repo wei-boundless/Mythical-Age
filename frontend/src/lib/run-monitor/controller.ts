@@ -400,9 +400,10 @@ export class RunMonitorController {
 
   private hydrateCurrentSessionFromStream() {
     if (typeof window === "undefined") return;
-    if (this.host.hasActiveChatStream()) return;
-    const sessionId = String(this.store.getState().currentSessionId || "").trim();
+    const state = this.store.getState();
+    const sessionId = String(state.currentSessionId || "").trim();
     if (!sessionId) return;
+    if (this.currentSessionHasVisibleActiveStream(state, sessionId)) return;
     const now = Date.now();
     if (this.lastStreamSessionHydrateId === sessionId && now - this.lastStreamSessionHydrateAt < 3000) {
       return;
@@ -410,6 +411,10 @@ export class RunMonitorController {
     this.lastStreamSessionHydrateId = sessionId;
     this.lastStreamSessionHydrateAt = now;
     void this.host.refreshSessionDetails(sessionId).catch(() => undefined);
+  }
+
+  private currentSessionHasVisibleActiveStream(state: StoreState, sessionId: string) {
+    return state.activeStreamSessionIds.includes(sessionId) && state.messages.length > 0;
   }
 
   private scheduleReconnect() {

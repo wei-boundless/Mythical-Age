@@ -145,6 +145,9 @@ export function projectAgentRun(items: PublicChatTimelineItem[], assistantConten
     tone = "soft_error";
   } else if (latestLive && (!latestFeedback || itemPosition(publicItems, latestLive) > itemPosition(publicItems, latestFeedback))) {
     liveAction = actionText(latestLive);
+    if (latestFeedback && kindOf(latestFeedback) === "observation_report") {
+      feedback = feedbackText(latestFeedback);
+    }
     tone = "running";
   } else if (latestFeedback) {
     feedback = feedbackText(latestFeedback);
@@ -161,6 +164,9 @@ export function projectAgentRun(items: PublicChatTimelineItem[], assistantConten
     liveAction = "";
   }
   if (samePublicText(feedback, assistantContent)) {
+    feedback = "";
+  }
+  if (samePublicText(feedback, liveAction)) {
     feedback = "";
   }
 
@@ -482,11 +488,44 @@ function looksLikeToolPlaceholder(value: string) {
 }
 
 function looksLikeRawCommandText(value: string) {
-  const text = String(value || "").trim();
-  if (!text) return false;
-  return /\b(New-Item|Set-Content|Get-Content|Remove-Item|Move-Item|Copy-Item|npm|pnpm|yarn|pytest|python|powershell|cmd\s*\/c|git|rg|grep|mkdir|touch)\b/i.test(text)
-    || /\s-(?:ItemType|Path|Recurse|Force|Filter|Pattern|Command)\b/i.test(text)
-    || /[;&|]{1,2}/.test(text);
+  const lines = String(value || "")
+    .replace(/\r\n/g, "\n")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+  if (!lines.length) return false;
+
+  const commandLines = lines.filter(looksLikeShellCommandLine).length;
+  if (!commandLines) return false;
+
+  const proseLines = lines.filter((line) => !looksLikeShellCommandLine(line) && looksLikeHumanProseLine(line)).length;
+  if (proseLines && commandLines < Math.max(2, lines.length * 0.6)) {
+    return false;
+  }
+  return commandLines === lines.length || lines.length <= 3 || commandLines >= Math.ceil(lines.length * 0.75);
+}
+
+function looksLikeShellCommandLine(line: string) {
+  const normalized = line.replace(/^```(?:\w+)?\s*/i, "").replace(/```$/i, "").trim();
+  if (!normalized) return false;
+  const statusPrefixStripped = normalized
+    .replace(/^(?:正在运行|正在调用|正在执行|已运行|已调用|运行|调用|执行)\s+/u, "")
+    .trim();
+  const promptPattern = /^(?:[$>]|PS\s+[^>]+>)\s*\S+/i;
+  const commandStartPattern = /^(?:New-Item|Set-Content|Get-Content|Remove-Item|Move-Item|Copy-Item|npm|pnpm|yarn|pytest|python|powershell|cmd\s*\/c|git|rg|grep|mkdir|touch)\b/i;
+  return promptPattern.test(normalized)
+    || commandStartPattern.test(normalized)
+    || commandStartPattern.test(statusPrefixStripped)
+    || (/\s-(?:ItemType|Path|Recurse|Force|Filter|Pattern|Command)\b/i.test(normalized) && commandStartPattern.test(normalized));
+}
+
+function looksLikeHumanProseLine(line: string) {
+  const normalized = line.trim();
+  if (!normalized || /^```/.test(normalized)) return false;
+  if (/^#{1,6}\s+\S/.test(normalized)) return true;
+  if (/^\|.*\|$/.test(normalized)) return true;
+  if (/[\u4e00-\u9fa5]{4,}/.test(normalized)) return true;
+  return /[.!?。！？]\s*$/.test(normalized) && /\s/.test(normalized);
 }
 
 function looksLikePersistedToolResultFailure(value: unknown) {
@@ -608,7 +647,15 @@ function observationMatchesAction(
     observation.public_summary,
     observation.title,
   ].filter(Boolean).join(" "));
-  return hasMeaningfulTextOverlap(observationText, itemFingerprintText(running));
+  const actionKind = cleanText(running.action_kind).toLowerCase();
+  if (actionKind === "verify") {
+    return /验证|测试|\b(?:test|tests|passed|failed|pass|fail)\b/i.test(observationText);
+  }
+  if (actionKind === "read" || actionKind === "inspect") {
+    const subject = cleanText(running.subject_label);
+    return Boolean(subject && observationText.includes(subject));
+  }
+  return false;
 }
 
 function sameActionFingerprint(left: PublicChatTimelineItem, right: PublicChatTimelineItem) {

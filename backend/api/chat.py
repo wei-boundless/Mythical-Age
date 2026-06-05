@@ -27,6 +27,7 @@ INTERNAL_STREAM_EVENTS = {
     "runtime_assembly_compiled",
     "runtime_assembly_bound",
     "runtime_invocation_packet",
+    "current_work_boundary_decided",
 }
 INTERNAL_PUBLIC_DATA_KEYS = {
     "runtime_assembly",

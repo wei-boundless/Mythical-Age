@@ -31,7 +31,13 @@ from runtime.prompt_accounting.serializer import normalize_messages
 from runtime.model_gateway.model_response_protocol import model_response_protocol_from_response
 from runtime.model_gateway.protocol_sanitizer import sanitize_messages_for_prompt
 from runtime.model_gateway.model_runtime import stringify_content
-from runtime.output_boundary import CanonicalFinalTextDecision, canonical_output_decision_for_final_text
+from runtime.output_boundary import (
+    CanonicalFinalTextDecision,
+    canonical_output_decision_for_final_text,
+    contains_inline_pseudo_tool_call,
+    contains_internal_protocol,
+    sanitize_visible_assistant_content,
+)
 from runtime.shared.models import TurnRun
 from runtime.tool_runtime import ToolInvocationRequest, ToolObservation, build_round_tool_call_options, build_tool_invocation_id
 from runtime.tool_runtime.provider_tool_call_adapter import tool_calls_for_langchain_messages
@@ -75,6 +81,45 @@ _REPAIRABLE_SINGLE_AGENT_PROTOCOL_ERRORS = {
 }
 
 
+def _meaningful_visible_answer(content: str) -> bool:
+    visible = sanitize_visible_assistant_content(str(content or "")).strip()
+    if not visible:
+        return False
+    if visible in {">", "<", "...", "…", "---", "----"}:
+        return False
+    if contains_internal_protocol(visible) or contains_inline_pseudo_tool_call(visible):
+        return False
+    return any(ch.isalnum() or "\u4e00" <= ch <= "\u9fff" for ch in visible)
+
+
+def _tool_limit_protocol_blocked_text() -> str:
+    return "本轮已经达到工具预算上限，但模型返回了内部工具协议而不是可展示结论。系统已停止本轮输出，避免把工具调用残片当作回答。"
+
+
+def _is_public_terminal_event(event: dict[str, Any]) -> bool:
+    return str(dict(event or {}).get("type") or "").strip() in {"done", "error", "stopped"}
+
+
+def _terminal_reason_from_public_event(event: dict[str, Any], *, fallback: str) -> str:
+    payload = dict(event or {})
+    return str(
+        payload.get("terminal_reason")
+        or payload.get("reason")
+        or payload.get("code")
+        or fallback
+        or str(payload.get("type") or "")
+    ).strip()
+
+
+def _turn_status_from_public_terminal_event(event: dict[str, Any]) -> str:
+    event_type = str(dict(event or {}).get("type") or "").strip()
+    if event_type == "done":
+        return "completed"
+    if event_type == "stopped":
+        return "aborted"
+    return "failed"
+
+
 @dataclass(frozen=True, slots=True)
 class SingleAgentActionParse:
     action_request: ModelActionRequest | None
@@ -99,6 +144,7 @@ async def run_single_agent_turn(
     active_work_context: Any | None,
     model_runtime: Any,
     model_selection: dict[str, Any],
+    stream_run_id: str = "",
     commit_assistant_message: CommitAssistantMessage,
     start_task_from_action_request: StartTaskFromActionRequest,
     apply_active_work_control: ApplyActiveWorkControl,
@@ -112,6 +158,7 @@ async def run_single_agent_turn(
                 session_id=session_id,
                 turn_id=turn_id,
                 agent_profile_ref=str(getattr(agent_runtime_profile, "agent_profile_id", "") or "main_interactive_agent"),
+                stream_run_id=stream_run_id,
             )
             yield {"type": "harness_run_started", "turn_run": turn_run.to_dict(), "event": start_event}
         compiler = RuntimeCompiler()
@@ -151,6 +198,37 @@ async def run_single_agent_turn(
             source="harness.loop.single_agent_turn.initial",
         )
         api_protocol_messages: list[dict[str, Any]] = []
+        async def emit_terminal_then_final(
+            *,
+            content: str,
+            answer_channel: str,
+            answer_source: str,
+            terminal_reason: str,
+            terminal_status: str,
+            final_extra: dict[str, Any] | None = None,
+            has_tool_receipt: bool = False,
+            terminal_payload: dict[str, Any] | None = None,
+        ) -> AsyncIterator[dict[str, Any]]:
+            nonlocal terminal_recorded
+            if runtime_host is not None and turn_run is not None:
+                terminal = _record_turn_terminal(
+                    runtime_host,
+                    turn_run=turn_run,
+                    turn_id=turn_id,
+                    status=terminal_status,
+                    terminal_reason=terminal_reason,
+                    payload=terminal_payload,
+                )
+                terminal_recorded = True
+                yield {"type": "agent_turn_terminal", "event": terminal}
+            yield final_answer_event(
+                content=content,
+                answer_channel=answer_channel,
+                answer_source=answer_source,
+                has_tool_receipt=has_tool_receipt,
+                terminal_reason=terminal_reason,
+                extra=dict(final_extra or {}),
+            )
         response = await _invoke_single_turn_model(
             model_runtime=model_runtime,
             model_messages=model_messages,
@@ -277,18 +355,73 @@ async def run_single_agent_turn(
                     yield synthesis_response
                     content = "我已经连续检查了几次，但无工具收口也没有成功生成可靠回复。本轮先停止，避免继续无效操作。"
                     terminal_status = "failed"
+                    answer_channel = "blocked"
+                    completion_state = "tool_limit_synthesis_failed"
                 else:
-                    content = stringify_content(getattr(synthesis_response, "content", synthesis_response)).strip()
-                    terminal_status = "completed" if content else "failed"
-                    if not content:
-                        content = "我连续检查了几次仍没有形成可靠结论，先停在这里，避免继续无效操作。你可以补充要我重点核查的位置，或让我根据当前已知状态直接说明。"
+                    synthesis_parse = _single_agent_action_request_from_response(
+                        synthesis_response,
+                        request_id=f"model-response:{compilation.packet.packet_id}:tool-limit-synthesis",
+                        turn_id=turn_id,
+                        packet_ref=compilation.packet.packet_id,
+                        iteration=tool_iteration + 1,
+                        allowed_action_types=("respond", "ask_user", "block"),
+                        phase="tool_limit_synthesis",
+                        require_json_action=False,
+                    )
+                    raw_content = stringify_content(getattr(synthesis_response, "content", synthesis_response)).strip()
+                    action_request = synthesis_parse.action_request
+                    if synthesis_parse.error or synthesis_parse.tool_actions or (
+                        action_request is not None and action_request.action_type not in {"respond", "ask_user", "block"}
+                    ):
+                        content = _tool_limit_protocol_blocked_text()
+                        terminal_status = "blocked"
+                        answer_channel = "blocked"
+                        completion_state = "tool_limit_protocol_blocked"
+                    elif action_request is not None and action_request.action_type == "respond":
+                        content = (action_request.final_answer or raw_content).strip()
+                        if contains_internal_protocol(content) or contains_inline_pseudo_tool_call(content):
+                            content = _tool_limit_protocol_blocked_text()
+                            terminal_status = "blocked"
+                            answer_channel = "blocked"
+                            completion_state = "tool_limit_protocol_blocked"
+                        else:
+                            terminal_status = "completed" if _meaningful_visible_answer(content) else "blocked"
+                            answer_channel = "conversation" if terminal_status == "completed" else "blocked"
+                            completion_state = "tool_limit_synthesized" if terminal_status == "completed" else "tool_limit_missing_answer"
+                    elif action_request is not None and action_request.action_type == "ask_user":
+                        content = (action_request.user_question or raw_content).strip()
+                        if contains_internal_protocol(content) or contains_inline_pseudo_tool_call(content):
+                            content = _tool_limit_protocol_blocked_text()
+                            terminal_status = "blocked"
+                            answer_channel = "blocked"
+                            completion_state = "tool_limit_protocol_blocked"
+                        else:
+                            terminal_status = "completed" if _meaningful_visible_answer(content) else "blocked"
+                            answer_channel = "ask_user" if terminal_status == "completed" else "blocked"
+                            completion_state = "tool_limit_ask_user" if terminal_status == "completed" else "tool_limit_missing_answer"
+                    elif action_request is not None and action_request.action_type == "block":
+                        content = (action_request.blocking_reason or raw_content or _tool_limit_protocol_blocked_text()).strip()
+                        terminal_status = "blocked"
+                        answer_channel = "blocked"
+                        completion_state = "tool_limit_blocked"
+                    else:
+                        content = raw_content
+                        if contains_internal_protocol(content) or contains_inline_pseudo_tool_call(content):
+                            content = _tool_limit_protocol_blocked_text()
+                            terminal_status = "blocked"
+                            answer_channel = "blocked"
+                            completion_state = "tool_limit_protocol_blocked"
+                        elif _meaningful_visible_answer(content):
+                            terminal_status = "completed"
+                            answer_channel = "conversation"
+                            completion_state = "tool_limit_synthesized"
+                        else:
+                            content = "我连续检查了几次仍没有形成可靠结论，先停在这里，避免继续无效操作。你可以补充要我重点核查的位置，或让我根据当前已知状态直接说明。"
+                            terminal_status = "blocked"
+                            answer_channel = "blocked"
+                            completion_state = "tool_limit_missing_answer"
                 answer_source = "harness.single_agent_turn.tool_limit_synthesis"
-                answer_channel = "conversation" if terminal_status == "completed" else "blocked"
-                protocol_final = (
-                    _assistant_final_protocol_message(synthesis_response, turn_id=turn_id, include_reasoning=True)
-                    if terminal_status == "completed"
-                    else _assistant_protocol_message_from_content(content, turn_id=turn_id)
-                )
+                protocol_final = _assistant_protocol_message_from_content(content, turn_id=turn_id)
                 await _commit_final_message(
                     commit_assistant_message,
                     session_id=session_id,
@@ -301,23 +434,15 @@ async def run_single_agent_turn(
                         protocol_final,
                     ],
                 )
-                yield final_answer_event(
+                async for event in emit_terminal_then_final(
                     content=content,
                     answer_channel=answer_channel,
                     answer_source=answer_source,
+                    terminal_status=terminal_status,
                     terminal_reason="single_turn_tool_iteration_limit",
-                    extra={"runtime_branch": dict(runtime_branch or {}), "completion_state": "tool_limit_synthesized"},
-                )
-                if runtime_host is not None and turn_run is not None:
-                    terminal = _record_turn_terminal(
-                        runtime_host,
-                        turn_run=turn_run,
-                        turn_id=turn_id,
-                        status=terminal_status,
-                        terminal_reason="single_turn_tool_iteration_limit",
-                    )
-                    terminal_recorded = True
-                    yield {"type": "agent_turn_terminal", "event": terminal}
+                    final_extra={"runtime_branch": dict(runtime_branch or {}), "completion_state": completion_state},
+                ):
+                    yield event
                 return
             tool_iteration += 1
             invocation_rows: list[dict[str, Any]] = []
@@ -564,7 +689,6 @@ async def run_single_agent_turn(
                 native_tools=_native_tools_for_packet(compilation.packet.allowed_action_types, available_tools=compilation.packet.available_tools),
             )
         if isinstance(response, dict) and response.get("type") == "error":
-            yield response
             if runtime_host is not None and turn_run is not None:
                 terminal = _record_turn_terminal(
                     runtime_host,
@@ -575,6 +699,7 @@ async def run_single_agent_turn(
                 )
                 terminal_recorded = True
                 yield {"type": "agent_turn_terminal", "event": terminal}
+            yield response
             return
         if repaired_or_parsed_final_action is not None:
             action_parse = repaired_or_parsed_final_action
@@ -726,23 +851,15 @@ async def run_single_agent_turn(
                     if tool_calls
                     else None,
                 )
-                yield final_answer_event(
+                async for event in emit_terminal_then_final(
                     content=content,
                     answer_channel="blocked",
                     answer_source="harness.single_agent_turn.admission",
+                    terminal_status="blocked",
                     terminal_reason=admission.system_reason or admission.decision,
-                    extra={"runtime_branch": dict(runtime_branch or {}), "admission": admission.to_dict()},
-                )
-                if runtime_host is not None and turn_run is not None:
-                    terminal = _record_turn_terminal(
-                        runtime_host,
-                        turn_run=turn_run,
-                        turn_id=turn_id,
-                        status="blocked",
-                        terminal_reason=admission.system_reason or admission.decision,
-                    )
-                    terminal_recorded = True
-                    yield {"type": "agent_turn_terminal", "event": terminal}
+                    final_extra={"runtime_branch": dict(runtime_branch or {}), "admission": admission.to_dict()},
+                ):
+                    yield event
                 return
             if action_request.action_type == "respond":
                 content = action_request.final_answer or stringify_content(getattr(response, "content", response)).strip()
@@ -756,23 +873,15 @@ async def run_single_agent_turn(
                     answer_channel="conversation",
                     answer_source="harness.single_agent_turn.respond",
                 )
-                yield final_answer_event(
+                async for event in emit_terminal_then_final(
                     content=content,
                     answer_channel="conversation",
                     answer_source="harness.single_agent_turn.respond",
+                    terminal_status="completed",
                     terminal_reason="respond",
-                    extra={"runtime_branch": dict(runtime_branch or {})},
-                )
-                if runtime_host is not None and turn_run is not None:
-                    terminal = _record_turn_terminal(
-                        runtime_host,
-                        turn_run=turn_run,
-                        turn_id=turn_id,
-                        status="completed",
-                        terminal_reason="respond",
-                    )
-                    terminal_recorded = True
-                    yield {"type": "agent_turn_terminal", "event": terminal}
+                    final_extra={"runtime_branch": dict(runtime_branch or {})},
+                ):
+                    yield event
                 return
             if action_request.action_type == "request_task_run":
                 action_request = _action_request_with_api_protocol_prefix(
@@ -785,23 +894,32 @@ async def run_single_agent_turn(
                     ),
                 )
                 request_task_terminal_reason = "task_executor_scheduled"
+                request_task_terminal_status = "completed"
+                lifecycle_public_terminal_events: list[dict[str, Any]] = []
                 async for event in start_task_from_action_request(action_request):
                     if event.get("type") == "task_run_lifecycle_reused_current":
                         request_task_terminal_reason = "session_active_task_exists"
                     elif event.get("type") == "task_run_lifecycle_resumed_current":
                         request_task_terminal_reason = "task_executor_scheduled"
+                    elif _is_public_terminal_event(event):
+                        lifecycle_public_terminal_events.append(dict(event))
+                        request_task_terminal_reason = _terminal_reason_from_public_event(event, fallback=request_task_terminal_reason)
+                        request_task_terminal_status = _turn_status_from_public_terminal_event(event)
+                        continue
                     yield event
                 if runtime_host is not None and turn_run is not None:
                     terminal = _record_turn_terminal(
                         runtime_host,
                         turn_run=turn_run,
                         turn_id=turn_id,
-                        status="completed",
+                        status=request_task_terminal_status,
                         terminal_reason=request_task_terminal_reason,
                         payload={"action_request_ref": action_request.request_id},
                     )
                     terminal_recorded = True
                     yield {"type": "agent_turn_terminal", "event": terminal}
+                for event in lifecycle_public_terminal_events:
+                    yield event
                 return
             if action_request.action_type == "block":
                 content = action_request.blocking_reason or "当前请求无法继续处理。"
@@ -824,23 +942,15 @@ async def run_single_agent_turn(
                     if tool_calls
                     else None,
                 )
-                yield final_answer_event(
+                async for event in emit_terminal_then_final(
                     content=content,
                     answer_channel="blocked",
                     answer_source="harness.single_agent_turn.block",
+                    terminal_status="blocked",
                     terminal_reason="blocked",
-                    extra={"runtime_branch": dict(runtime_branch or {})},
-                )
-                if runtime_host is not None and turn_run is not None:
-                    terminal = _record_turn_terminal(
-                        runtime_host,
-                        turn_run=turn_run,
-                        turn_id=turn_id,
-                        status="blocked",
-                        terminal_reason="blocked",
-                    )
-                    terminal_recorded = True
-                    yield {"type": "agent_turn_terminal", "event": terminal}
+                    final_extra={"runtime_branch": dict(runtime_branch or {})},
+                ):
+                    yield event
                 return
             if action_request.action_type == "ask_user":
                 content = action_request.user_question or "我需要你补充一点信息。"
@@ -863,23 +973,15 @@ async def run_single_agent_turn(
                     if tool_calls
                     else None,
                 )
-                yield final_answer_event(
+                async for event in emit_terminal_then_final(
                     content=content,
                     answer_channel="ask_user",
                     answer_source="harness.single_agent_turn.ask_user",
+                    terminal_status="completed",
                     terminal_reason="ask_user",
-                    extra={"runtime_branch": dict(runtime_branch or {})},
-                )
-                if runtime_host is not None and turn_run is not None:
-                    terminal = _record_turn_terminal(
-                        runtime_host,
-                        turn_run=turn_run,
-                        turn_id=turn_id,
-                        status="completed",
-                        terminal_reason="ask_user",
-                    )
-                    terminal_recorded = True
-                    yield {"type": "agent_turn_terminal", "event": terminal}
+                    final_extra={"runtime_branch": dict(runtime_branch or {})},
+                ):
+                    yield event
                 return
             if action_request.action_type == "active_work_control":
                 active_control = dict(action_request.active_work_control or {})
@@ -926,37 +1028,24 @@ async def run_single_agent_turn(
                     if tool_calls
                     else None,
                 )
-                yield final_answer_event(
+                async for event in emit_terminal_then_final(
                     content=content,
                     answer_channel=answer_channel,
                     answer_source="harness.single_agent_turn.active_work_control",
+                    terminal_status="blocked" if active_status == "blocked" else "completed",
                     terminal_reason=terminal_reason,
-                    extra={
+                    final_extra={
                         "runtime_branch": dict(runtime_branch or {}),
                         "active_work": dict(active_control),
                         "completion_state": "blocked" if active_status == "blocked" else ("task_steer_accepted" if is_task_steer else "completed"),
                         "summary": content if is_task_steer else "",
                     },
-                )
-                if runtime_host is not None and turn_run is not None:
-                    terminal = _record_turn_terminal(
-                        runtime_host,
-                        turn_run=turn_run,
-                        turn_id=turn_id,
-                        status="blocked" if active_status == "blocked" else "completed",
-                        terminal_reason=terminal_reason,
-                    )
-                    terminal_recorded = True
-                    yield {"type": "agent_turn_terminal", "event": terminal}
+                ):
+                    yield event
                 return
 
         content = stringify_content(getattr(response, "content", response)).strip()
         if not content:
-            yield error_event(
-                content="模型没有返回可用的回复内容。",
-                code="single_agent_turn_empty_response",
-                reason="single_agent_turn_empty_response",
-            )
             if runtime_host is not None and turn_run is not None:
                 terminal = _record_turn_terminal(
                     runtime_host,
@@ -967,6 +1056,11 @@ async def run_single_agent_turn(
                 )
                 terminal_recorded = True
                 yield {"type": "agent_turn_terminal", "event": terminal}
+            yield error_event(
+                content="模型没有返回可用的回复内容。",
+                code="single_agent_turn_empty_response",
+                reason="single_agent_turn_empty_response",
+            )
             return
         commit_decision = await _commit_final_message(
             commit_assistant_message,
@@ -991,24 +1085,16 @@ async def run_single_agent_turn(
             "answer_finalization_policy": commit_decision.finalization_policy,
             "answer_fallback_reason": commit_decision.fallback_reason,
         }
-        yield final_answer_event(
+        async for event in emit_terminal_then_final(
             content=content,
             answer_channel="conversation",
             answer_source="harness.single_agent_turn",
             has_tool_receipt=bool(api_protocol_messages),
+            terminal_status="completed",
             terminal_reason="assistant_message",
-            extra={"runtime_branch": dict(runtime_branch or {})},
-        )
-        if runtime_host is not None and turn_run is not None:
-            terminal = _record_turn_terminal(
-                runtime_host,
-                turn_run=turn_run,
-                turn_id=turn_id,
-                status="completed",
-                terminal_reason="assistant_message",
-            )
-            terminal_recorded = True
-            yield {"type": "agent_turn_terminal", "event": terminal}
+            final_extra={"runtime_branch": dict(runtime_branch or {})},
+        ):
+            yield event
         return
     except (GeneratorExit, asyncio.CancelledError):
         if runtime_host is not None and turn_run is not None and not terminal_recorded:
@@ -1654,6 +1740,16 @@ async def _emit_single_agent_protocol_error(
         "answer_finalization_policy": commit_decision.finalization_policy,
         "answer_fallback_reason": commit_decision.fallback_reason,
     }
+    if runtime_host is not None and turn_run is not None:
+        terminal = _record_turn_terminal(
+            runtime_host,
+            turn_run=turn_run,
+            turn_id=turn_id,
+            status="blocked",
+            terminal_reason=code,
+            payload={"protocol_error": {"code": code, "reason": reason, "diagnostics": diagnostics}},
+        )
+        yield {"type": "agent_turn_terminal", "event": terminal}
     yield final_answer_event(
         content=content,
         answer_channel="blocked",
@@ -1668,16 +1764,6 @@ async def _emit_single_agent_protocol_error(
             },
         },
     )
-    if runtime_host is not None and turn_run is not None:
-        terminal = _record_turn_terminal(
-            runtime_host,
-            turn_run=turn_run,
-            turn_id=turn_id,
-            status="blocked",
-            terminal_reason=code,
-            payload={"protocol_error": {"code": code, "reason": reason, "diagnostics": diagnostics}},
-        )
-        yield {"type": "agent_turn_terminal", "event": terminal}
 
 
 def _single_agent_protocol_error_user_text(code: str) -> str:
@@ -2409,7 +2495,7 @@ def _publish_turn_tool_artifacts(
     if not publishable_refs:
         return observation
     try:
-        project_root = ProjectLayout.from_backend_dir(Path(str(getattr(runtime_host, "backend_dir", "") or ".")).resolve()).project_root.resolve()
+        project_root = _turn_tool_artifact_project_root(runtime_host=runtime_host, sandbox_policy=sandbox_policy)
         published_refs = publish_sandbox_artifact_refs(
             project_root=project_root,
             sandbox_policy=sandbox_policy,
@@ -2478,6 +2564,13 @@ def _artifact_ref_path_set(refs: list[dict[str, Any]]) -> set[str]:
     }
 
 
+def _turn_tool_artifact_project_root(*, runtime_host: Any, sandbox_policy: dict[str, Any]) -> Path:
+    workspace_root = str(dict(sandbox_policy or {}).get("workspace_root") or "").strip()
+    if workspace_root:
+        return Path(workspace_root).resolve()
+    return ProjectLayout.from_backend_dir(Path(str(getattr(runtime_host, "backend_dir", "") or ".")).resolve()).project_root.resolve()
+
+
 def _result_envelope_with_published_artifacts(
     envelope: dict[str, Any],
     *,
@@ -2542,7 +2635,12 @@ def _turn_tool_artifact_publish_error_observation(
     )
 
 
-def _single_turn_sandbox_scope(assembly_payload: dict[str, Any], *, runtime_host: Any, turn_id: str) -> dict[str, Any]:
+def _single_turn_sandbox_scope(
+    assembly_payload: dict[str, Any],
+    *,
+    runtime_host: Any,
+    turn_id: str,
+) -> dict[str, Any]:
     environment = dict(assembly_payload.get("task_environment") or {})
     sandbox = dict(environment.get("sandbox_policy") or {})
     storage = dict(environment.get("storage_space") or {})
@@ -2561,11 +2659,12 @@ def _single_turn_sandbox_scope(assembly_payload: dict[str, Any], *, runtime_host
         sandbox_root = str((runtime_root / "sandboxes" / namespace).resolve())
     if storage.get("workspace_root") and "workspace_root" not in sandbox:
         sandbox["workspace_root"] = str(storage.get("workspace_root") or "")
+    workspace_root = Path(str(sandbox.get("workspace_root") or project_root)).resolve()
     return {
         **sandbox,
         "enabled": bool(sandbox.get("enabled") is True),
         "sandbox_root": sandbox_root,
-        "workspace_root": str(sandbox.get("workspace_root") or project_root),
+        "workspace_root": str(workspace_root),
         **scope.to_policy_payload(),
         "read_scopes": ["."],
         "approval_policy": str(sandbox.get("approval_policy") or "sandboxed_side_effects"),
@@ -2578,15 +2677,28 @@ def _single_turn_sandbox_scope(assembly_payload: dict[str, Any], *, runtime_host
 
 def _single_turn_workspace_root(runtime_assembly: Any, *, runtime_host: Any) -> str:
     assembly_payload = runtime_assembly.to_dict() if hasattr(runtime_assembly, "to_dict") else dict(runtime_assembly or {})
-    storage = dict(dict(assembly_payload.get("task_environment") or {}).get("storage_space") or {})
+    environment = dict(assembly_payload.get("task_environment") or {})
+    storage = dict(environment.get("storage_space") or {})
+    sandbox = dict(environment.get("sandbox_policy") or {})
     for candidate in (
         storage.get("workspace_root"),
-        dict(dict(assembly_payload.get("task_environment") or {}).get("sandbox_policy") or {}).get("workspace_root"),
+        sandbox.get("workspace_root"),
     ):
         text = str(candidate or "").strip()
         if text:
             return text
     backend_dir = Path(str(getattr(runtime_host, "backend_dir", "") or assembly_payload.get("backend_dir") or ".")).resolve()
+    tool_runtime_base_dir = getattr(
+        getattr(
+            getattr(getattr(runtime_host, "tool_control_plane", None), "tool_runtime_executor", None),
+            "tool_runtime",
+            None,
+        ),
+        "base_dir",
+        "",
+    )
+    if str(tool_runtime_base_dir or "").strip():
+        return str(tool_runtime_base_dir)
     try:
         return str(ProjectLayout.from_backend_dir(backend_dir).project_root.resolve())
     except Exception:
@@ -2852,9 +2964,11 @@ def _start_turn_runtime(
     session_id: str,
     turn_id: str,
     agent_profile_ref: str,
+    stream_run_id: str = "",
 ) -> tuple[TurnRun, dict[str, Any]]:
     now = time.time()
-    turn_run_id = f"turnrun:{turn_id}"
+    stream_ref = str(stream_run_id or "").strip()
+    turn_run_id = f"turnrun:{stream_ref}" if stream_ref else f"turnrun:{turn_id}:{uuid.uuid4().hex[:8]}"
     turn_run = TurnRun(
         turn_run_id=turn_run_id,
         session_id=session_id,
@@ -2866,6 +2980,7 @@ def _start_turn_runtime(
         updated_at=now,
         diagnostics={
             "turn_id": turn_id,
+            "stream_run_id": stream_ref,
             "source": "harness.loop.single_agent_turn",
             "execution_runtime_kind": "single_agent_turn",
         },
@@ -2875,7 +2990,7 @@ def _start_turn_runtime(
         turn_run_id,
         "agent_turn_received",
         payload={"turn_id": turn_id, "turn_run": turn_run.to_dict()},
-        refs={"turn_ref": turn_id},
+        refs={"turn_ref": turn_id, "turn_run_ref": turn_run.turn_run_id},
     )
     updated = replace(turn_run, updated_at=event.created_at, latest_event_offset=event.offset)
     runtime_host.state_index.upsert_turn_run(updated)

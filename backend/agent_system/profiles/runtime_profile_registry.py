@@ -670,6 +670,7 @@ class AgentRuntimeRegistry:
         agent_id: str,
         agent_profile_id: str = "",
         allowed_tool_packages: tuple[ToolPackageSelection, ...] | None = None,
+        allowed_operations: tuple[str, ...] | None = None,
         extra_allowed_operations: tuple[str, ...] | None = None,
         blocked_operations: tuple[str, ...] = (),
         allowed_memory_scopes: tuple[str, ...] = (),
@@ -691,7 +692,11 @@ class AgentRuntimeRegistry:
         current = self.get_profile(target)
         metadata_payload = dict(metadata or {})
         requested_packages = current.allowed_tool_packages if allowed_tool_packages is None and current else (allowed_tool_packages or ())
-        requested_extra_operations = current.extra_allowed_operations if extra_allowed_operations is None and current else (extra_allowed_operations or ())
+        requested_extra_operations = (
+            tuple(str(item).strip() for item in allowed_operations if str(item).strip())
+            if allowed_operations is not None
+            else current.extra_allowed_operations if extra_allowed_operations is None and current else (extra_allowed_operations or ())
+        )
         raw_blocked_operations = tuple(str(item).strip() for item in blocked_operations if str(item).strip())
         resolved_allowed_operations = resolve_tool_package_operations(
             requested_packages,

@@ -322,6 +322,42 @@ describe("ChatMessage", () => {
     expect(html).not.toContain("收尾总结");
   });
 
+  it("renders runtime attachment activity even before assistant prose is persisted", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(ChatMessage, {
+        content: "",
+        id: "message:runtime-placeholder",
+        retrievals: [],
+        role: "assistant",
+        runtimeAttachments: [
+          {
+            attachment_id: "runtime-attachment:turnrun:turn:session-a:3",
+            run_id: "turnrun:turn:session-a:3",
+            anchor_turn_id: "turn:session-a:3",
+            status: "running",
+            public_timeline: [
+              {
+                item_id: "work:read",
+                kind: "work_action",
+                action_kind: "read",
+                title: "正在读取文件",
+                subject_label: "adventure-island-standalone/index.html",
+                public_summary: "正在读取 adventure-island-standalone/index.html",
+                state: "running",
+                stream_state: "streaming",
+              },
+            ],
+          },
+        ],
+        toolCalls: [],
+      }),
+    );
+
+    expect(html).toContain("public-run-activity");
+    expect(html).toContain("正在读取 adventure-island-standalone/index.html");
+    expect(html).not.toContain("正在思考");
+  });
+
   it("keeps completed process feedback in activity when no final answer exists", () => {
     const html = renderToStaticMarkup(
       React.createElement(ChatMessage, {
@@ -476,6 +512,35 @@ describe("ChatMessage", () => {
     expect(html).not.toContain("Copied: game-boss-demon-king.png");
     expect(html).not.toContain("Copied: game-map-castle.png");
     expect(html).not.toContain("正在思考");
+  });
+
+  it("keeps stable review prose visible when it contains a markdown table", () => {
+    const content = [
+      "我已经读取了约一半的代码，已经发现了几个 bug。",
+      "",
+      "| 代码引用 | 预期文件 | 实际状态 |",
+      "|---|---|---|",
+      "| `game-npc-village-elder.png` | `game-npc-elder.png` | 文件名不匹配 |",
+      "",
+      "代码还有很多没读到，我需要继续完成剩余代码审查、实施修复并实测验证。",
+    ].join("\n");
+    const html = renderToStaticMarkup(
+      React.createElement(ChatMessage, {
+        answerCanonicalState: "stable_answer",
+        answerChannel: "conversation",
+        answerLeakFlags: ["internal_protocol_final_text", "inline_pseudo_tool_call_final_text"],
+        content,
+        id: "message:review-table",
+        retrievals: [],
+        role: "assistant",
+        toolCalls: [],
+      }),
+    );
+
+    expect(html).toContain("我已经读取了约一半的代码");
+    expect(html).toContain("代码引用");
+    expect(html).toContain("game-npc-village-elder.png");
+    expect(html).toContain("复制回复");
   });
 
   it("drops stored read-only shell validator failures without synthesizing activity feedback", () => {

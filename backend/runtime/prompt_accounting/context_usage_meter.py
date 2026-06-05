@@ -41,6 +41,7 @@ class ContextUsageSnapshot:
     provider_cached_tokens: int = 0
     estimated_pending_tokens: int = 0
     current_context_tokens: int = 0
+    compaction_pressure_tokens: int = 0
     current_context_ratio: float = 0.0
     compaction_pressure_ratio: float = 0.0
     compaction_remaining_tokens: int = 0
@@ -159,11 +160,12 @@ class ContextUsageMeter:
             current_context_tokens = observed_context_tokens
             pending_tokens = provider_pending_tokens
 
-        pressure_level = self._pressure_level(current_context_tokens, thresholds)
+        compaction_pressure_tokens = max(0, int(current_context_tokens or 0), int(observed_context_tokens or 0))
+        pressure_level = self._pressure_level(compaction_pressure_tokens, thresholds)
         ratio = round(current_context_tokens / window, 6) if window > 0 else 0.0
         replacement_threshold = int(thresholds.get("replacement") or input_capacity_tokens)
-        compaction_pressure_ratio = round(current_context_tokens / replacement_threshold, 6) if replacement_threshold > 0 else 0.0
-        compaction_remaining_tokens = max(0, replacement_threshold - int(current_context_tokens or 0))
+        compaction_pressure_ratio = round(compaction_pressure_tokens / replacement_threshold, 6) if replacement_threshold > 0 else 0.0
+        compaction_remaining_tokens = max(0, replacement_threshold - int(compaction_pressure_tokens or 0))
         compaction_remaining_ratio = round(compaction_remaining_tokens / replacement_threshold, 6) if replacement_threshold > 0 else 0.0
         cache_rates = self._cache_hit_rates(provider_records)
         latest_cache_hit_rate = self._cache_hit_rate(anchor)
@@ -189,12 +191,13 @@ class ContextUsageMeter:
             provider_cached_tokens=int(getattr(anchor, "cached_tokens", 0) or 0),
             estimated_pending_tokens=pending_tokens,
             current_context_tokens=max(0, int(current_context_tokens or 0)),
+            compaction_pressure_tokens=compaction_pressure_tokens,
             current_context_ratio=ratio,
             compaction_pressure_ratio=compaction_pressure_ratio,
             compaction_remaining_tokens=compaction_remaining_tokens,
             compaction_remaining_ratio=compaction_remaining_ratio,
             pressure_level=pressure_level,
-            auto_replacement_allowed=current_context_tokens >= thresholds["replacement"],
+            auto_replacement_allowed=compaction_pressure_tokens >= thresholds["replacement"],
             cache_hit_rate_latest=latest_cache_hit_rate,
             cache_hit_rate_last_5=cache_rates[5],
             cache_hit_rate_last_10=cache_rates[10],
@@ -211,6 +214,12 @@ class ContextUsageMeter:
                 "pressure_authority": str(session_pressure_source or "provider_accounting"),
                 "session_pressure_supplied": bool(pressure_tokens_supplied),
                 "session_pressure_tokens": max(0, int(session_pressure_tokens or 0)) if pressure_tokens_supplied else 0,
+                "compaction_pressure_tokens": compaction_pressure_tokens,
+                "compaction_pressure_authority": (
+                    "prompt_accounting_observed_pressure"
+                    if int(observed_context_tokens or 0) > int(current_context_tokens or 0)
+                    else str(session_pressure_source or "provider_accounting")
+                ),
                 "provider_observed_context_tokens": max(0, int(observed_context_tokens or 0)),
                 "provider_estimated_pending_tokens": provider_pending_tokens,
                 "provider_context_tokens": provider_context_tokens,

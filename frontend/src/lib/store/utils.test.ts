@@ -81,6 +81,54 @@ describe("toUiMessages runtime attachments", () => {
     });
   });
 
+  it("creates a runtime assistant placeholder when the anchored assistant message is not persisted yet", () => {
+    const attachment: SessionRuntimeAttachment = {
+      attachment_id: "runtime-attachment:turnrun:turn:session-a:3",
+      run_id: "turnrun:turn:session-a:3",
+      anchor_turn_id: "turn:session-a:3",
+      anchor_message_id: "history-message:turn:session-a:3:assistant",
+      anchor_role: "assistant",
+      status: "running",
+      public_timeline: [
+        {
+          item_id: "work:read",
+          kind: "work_action",
+          action_kind: "read",
+          title: "正在读取文件",
+          subject_label: "adventure-island-standalone/index.html",
+          public_summary: "正在读取 adventure-island-standalone/index.html",
+          state: "running",
+        },
+      ],
+    };
+
+    const messages = toUiMessages(
+      [
+        { role: "user", content: "先审查", turn_id: "turn:session-a:1" },
+        { role: "assistant", content: "我先读一部分。", turn_id: "turn:session-a:1" },
+        { role: "user", content: "继续修复", turn_id: "turn:session-a:3" },
+      ],
+      [attachment],
+    );
+
+    expect(messages.map((message) => [message.role, message.content])).toEqual([
+      ["user", "先审查"],
+      ["assistant", "我先读一部分。"],
+      ["user", "继续修复"],
+      ["assistant", ""],
+    ]);
+    expect(messages[1].runtimeAttachments ?? []).toEqual([]);
+    expect(messages[3]).toMatchObject({
+      id: "history-message:turn:session-a:3:assistant",
+      role: "assistant",
+      sourceIndex: 2.5,
+    });
+    expect(messages[3].runtimeAttachments?.[0]).toMatchObject({
+      run_id: "turnrun:turn:session-a:3",
+      anchor_turn_id: "turn:session-a:3",
+    });
+  });
+
   it("preserves assistant answer channel and does not merge task receipts with answers", () => {
     const messages = toUiMessages(
       [

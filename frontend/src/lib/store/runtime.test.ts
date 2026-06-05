@@ -1969,6 +1969,9 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       currentSessionId: "session:active-stream",
       activeStreamSessionIds: ["session:active-stream"],
       isStreaming: true,
+      messages: [
+        { id: "assistant:active-stream", role: "assistant", content: "正在处理。", toolCalls: [], retrievals: [], sourceIndex: 0 },
+      ],
     });
     const runtime = new WorkspaceRuntime(store) as unknown as {
       applyRunMonitorStreamPayload: (payload: Record<string, unknown>) => void;
@@ -3576,6 +3579,95 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       text: "我找到这个会话里仍在运行的任务，正在同步已有进度。",
       state: "running",
     });
+  });
+
+  it("hydrates the selected session when an active stream marker has no visible cache", async () => {
+    const store = createStore({
+      ...getDefaultState(),
+      currentSessionId: "session:stale-active",
+      sessions: [{
+        id: "session:stale-active",
+        title: "Stale active",
+        created_at: 1,
+        updated_at: 2,
+        message_count: 1,
+      }],
+      activeStreamSessionIds: ["session:stale-active"],
+      isStreaming: true,
+      messages: [],
+    });
+    api.getSessionTimeline.mockResolvedValue({
+      messages: [
+        { role: "user", content: "继续修复", turn_id: "turn:session:stale-active:1" },
+      ],
+      runtime_attachments: [{
+        attachment_id: "runtime-attachment:stale-active",
+        run_id: "turnrun:turn:session:stale-active:1",
+        anchor_turn_id: "turn:session:stale-active:1",
+        anchor_message_id: "history-message:turn:session:stale-active:1:assistant",
+        anchor_role: "assistant",
+        status: "running",
+        lifecycle: "running",
+        public_timeline: [{
+          item_id: "work-action:read-context",
+          kind: "work_action",
+          title: "已读取上下文",
+          public_summary: "已读取上下文 adventure-island-standalone/index.html",
+          state: "done",
+        }],
+      }],
+    });
+    const runtime = new WorkspaceRuntime(store);
+
+    const reattached = await (runtime as unknown as {
+      reattachChatRunForSession: (sessionId: string) => Promise<boolean>;
+    }).reattachChatRunForSession("session:stale-active");
+
+    expect(reattached).toBe(true);
+    expect(api.getSessionTimeline).toHaveBeenCalledWith("session:stale-active", undefined);
+    expect(api.streamExistingChatRun).not.toHaveBeenCalled();
+    expect(store.getState().messages.map((message) => message.role)).toEqual(["user", "assistant"]);
+    expect(store.getState().messages[1].runtimeAttachments?.[0]?.public_timeline?.[0]).toMatchObject({
+      title: "已读取上下文",
+    });
+  });
+
+  it("hydrates monitor snapshots when the current active stream has no visible messages", async () => {
+    const store = createStore({
+      ...getDefaultState(),
+      currentSessionId: "session:monitor-empty",
+      activeStreamSessionIds: ["session:monitor-empty"],
+      isStreaming: true,
+      messages: [],
+    });
+    api.getSessionTimeline.mockResolvedValue({
+      messages: [
+        { role: "user", content: "继续", turn_id: "turn:session:monitor-empty:1" },
+      ],
+      runtime_attachments: [{
+        attachment_id: "runtime-attachment:monitor-empty",
+        run_id: "turnrun:turn:session:monitor-empty:1",
+        anchor_turn_id: "turn:session:monitor-empty:1",
+        anchor_message_id: "history-message:turn:session:monitor-empty:1:assistant",
+        anchor_role: "assistant",
+        status: "running",
+        lifecycle: "running",
+        public_timeline: [{
+          item_id: "work-action:monitor-read",
+          kind: "work_action",
+          title: "已同步运行反馈",
+          public_summary: "已同步运行反馈",
+          state: "done",
+        }],
+      }],
+    });
+    const runtime = new WorkspaceRuntime(store);
+
+    runtime.applyRunMonitorStreamPayload({ monitor: monitorForTest([]) });
+    await flushPromises(12);
+
+    expect(api.getSessionTimeline).toHaveBeenCalledWith("session:monitor-empty", undefined);
+    expect(store.getState().messages.map((message) => message.role)).toEqual(["user", "assistant"]);
   });
 
   it("drops an invalid persisted cursor before reattaching the latest active chat run", async () => {

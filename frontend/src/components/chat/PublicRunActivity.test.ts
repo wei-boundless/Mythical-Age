@@ -546,6 +546,37 @@ describe("PublicRunActivity", () => {
     expect(html).not.toContain("观察报告");
   });
 
+  it("renders the last observation and the next live action as a public feedback sequence", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(PublicRunActivity, {
+        items: [
+          {
+            item_id: "observation:sse",
+            kind: "observation_report",
+            detail: "已确认实时事件目前没有走公开投影，只把 raw runtime event 推给前端。",
+            state: "done",
+          },
+          {
+            item_id: "work:projection",
+            kind: "work_action",
+            action_kind: "edit",
+            title: "正在调整前端挂载边界",
+            public_summary: "正在调整前端挂载边界",
+            state: "running",
+            stream_state: "streaming",
+          },
+        ],
+      }),
+    );
+
+    expect(html).toContain("已确认实时事件目前没有走公开投影");
+    expect(html).toContain("正在调整前端挂载边界");
+    expect(html.indexOf("已确认实时事件目前没有走公开投影")).toBeLessThan(
+      html.indexOf("正在调整前端挂载边界"),
+    );
+    expect(html).not.toContain("raw runtime event 推给前端。正在调整");
+  });
+
   it("keeps assistant feedback out of the status lane and renders the active tool action", () => {
     const html = renderToStaticMarkup(
       React.createElement(PublicRunActivity, {

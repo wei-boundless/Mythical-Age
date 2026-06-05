@@ -7,6 +7,7 @@ from typing import Any
 from capability_system.skills.registry import SkillRegistry
 from capability_system.tools.authorization import build_authorized_tool_set
 from permissions.policy import normalize_permission_mode
+from harness.runtime.environment_storage import apply_session_scoped_environment_storage
 from task_system.contracts.runtime_contracts import SkillRuntimeView, skill_runtime_view_from_skill_definition
 from task_system.environments import build_task_environment_catalog, task_environment_registry_from_backend_dir
 
@@ -165,6 +166,7 @@ def assemble_runtime(
         backend_dir=backend_dir,
         selection=selection,
     )
+    task_environment = apply_session_scoped_environment_storage(task_environment, session_id=session_id)
     task_environment = _apply_bound_workspace_root(task_environment, bound_workspace_root)
     task_requested_operations = operation_requests_from_runtime_selection(selection)
     operation_projection = project_operation_authorization(

@@ -4773,6 +4773,8 @@ def _tool_record_from_observation(observation: dict[str, Any], *, current_finger
     status = _observation_status(observation) or str(record.get("status") or "ok")
     if status in {"failed", "denied", "canceled", "error"}:
         record["status"] = "error"
+    elif status == "ok" and str(observation.get("observation_type") or "") == "tool_result":
+        record["status"] = "ok"
     record["source_observation"] = _compact_observation_for_record(observation)
     if payload.get("operation_gate"):
         record["side_effect_kind"] = "gate"

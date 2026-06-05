@@ -41,8 +41,8 @@ export function PublicRunActivity({
         <ActivityLine kind="stopped" text={view.stopped} />
       ) : (
         <>
-          {view.liveAction ? <ActivityLine kind="action" text={view.liveAction} /> : null}
           {view.feedback ? <ActivityLine kind="feedback" text={view.feedback} /> : null}
+          {view.liveAction ? <ActivityLine kind="action" text={view.liveAction} /> : null}
           {view.commandOutput ? <CommandOutputPanel output={view.commandOutput} /> : null}
           {view.todo ? <TodoBlock todo={view.todo} /> : null}
           {view.closeout ? <ActivityLine kind="closeout" label="收尾总结" text={view.closeout} /> : null}

@@ -145,6 +145,10 @@ def _tool_runtime_for_names(tool_base_dir: Path, names: set[str]) -> SimpleNames
     )
 
 
+def _session_artifact_path(session_id: str, namespace: str, filename: str) -> str:
+    return f"mythical-agent/sessions/{session_id}/environments/{namespace}/artifacts/{filename}"
+
+
 def test_explicit_capability_boundary_uses_single_agent_turn_without_task_run() -> None:
     runtime = build_harness_runtime(
         model_runtime=SingleMessageModelRuntimeStub(content="自然对话回复。")
@@ -1193,7 +1197,8 @@ def test_single_agent_turn_side_effect_tool_runs_inside_development_sandbox(tmp_
 
 
 def test_single_agent_turn_publishes_environment_artifact_write_before_reporting_success(tmp_path: Path) -> None:
-    artifact_path = "storage/task_environments/development/sandbox/artifacts/single_turn_artifact.html"
+    session_id = "session-single-turn-artifact-publish"
+    artifact_path = _session_artifact_path(session_id, "development/sandbox", "single_turn_artifact.html")
     model = NativeToolCallSequenceModelRuntimeStub(
         [
             {
@@ -1218,19 +1223,18 @@ def test_single_agent_turn_publishes_environment_artifact_write_before_reporting
             {"content": "artifact 可见。"},
         ]
     )
-    tool_base_dir = _project_backend_dir()
     runtime_root = _runtime_test_root(tmp_path)
     runtime = build_harness_runtime(
         base_dir=runtime_root,
         model_runtime=model,
-        tool_runtime=_tool_runtime_for_names(tool_base_dir, {"write_file", "path_exists"}),
+        tool_runtime=_tool_runtime_for_names(runtime_root, {"write_file", "path_exists"}),
     )
 
     async def _collect(message: str) -> list[dict[str, object]]:
         events: list[dict[str, object]] = []
         async for event in runtime.astream(
             HarnessRuntimeRequest(
-                session_id="session-single-turn-artifact-publish",
+                session_id=session_id,
                 message=message,
                 task_selection={"task_environment_id": "env.development.sandbox"},
             )
@@ -1266,7 +1270,8 @@ def test_single_agent_turn_publishes_environment_artifact_write_before_reporting
 
 
 def test_vibe_coding_artifact_write_creates_environment_dirs_and_publishes(tmp_path: Path) -> None:
-    artifact_path = "storage/task_environments/coding/vibe-workspace/artifacts/vibe_index.html"
+    session_id = "session-vibe-coding-artifact-publish"
+    artifact_path = _session_artifact_path(session_id, "coding/vibe-workspace", "vibe_index.html")
     model = NativeToolCallSequenceModelRuntimeStub(
         [
             {
@@ -1291,19 +1296,18 @@ def test_vibe_coding_artifact_write_creates_environment_dirs_and_publishes(tmp_p
             {"content": "vibe artifact 可见。"},
         ]
     )
-    tool_base_dir = _project_backend_dir()
     runtime_root = _runtime_test_root(tmp_path)
     runtime = build_harness_runtime(
         base_dir=runtime_root,
         model_runtime=model,
-        tool_runtime=_tool_runtime_for_names(tool_base_dir, {"write_file", "path_exists"}),
+        tool_runtime=_tool_runtime_for_names(runtime_root, {"write_file", "path_exists"}),
     )
 
     async def _collect(message: str) -> list[dict[str, object]]:
         events: list[dict[str, object]] = []
         async for event in runtime.astream(
             HarnessRuntimeRequest(
-                session_id="session-vibe-coding-artifact-publish",
+                session_id=session_id,
                 message=message,
                 task_selection={"task_environment_id": "env.coding.vibe_workspace"},
             )
@@ -1312,7 +1316,7 @@ def test_vibe_coding_artifact_write_creates_environment_dirs_and_publishes(tmp_p
         return events
 
     write_events = asyncio.run(_collect("写一个 vibe coding artifact。"))
-    storage_root = runtime_root / "storage/task_environments/coding/vibe-workspace"
+    storage_root = runtime_root / f"mythical-agent/sessions/{session_id}/environments/coding/vibe-workspace"
     artifact_root = storage_root / "artifacts"
     published_file = runtime_root / artifact_path
     write_observation = next(dict(event.get("tool_observation") or {}) for event in write_events if event.get("type") == "tool_observation")
@@ -1655,6 +1659,58 @@ def test_single_agent_turn_tool_loop_synthesizes_answer_without_ninth_tool_call(
     assert model.synthesis_messages[-1]["role"] == "user"
     assert "禁止继续调用工具" in str(model.synthesis_messages[-1]["content"])
     assert not any("本轮工具观察次数已达到上限" in str(item.get("content") or "") for item in runtime.session_manager.messages)
+
+
+def test_single_agent_turn_tool_limit_blocks_protocol_inside_synthesized_respond(tmp_path: Path) -> None:
+    class ProtocolRespondLoopModel(NativeToolCallSequenceModelRuntimeStub):
+        def __init__(self) -> None:
+            super().__init__(
+                [
+                    {
+                        "tool_calls": [
+                            {"id": f"call-exists-{index}", "name": "path_exists", "args": {"path": "requirements.txt"}},
+                        ]
+                    }
+                    for index in range(1, 10)
+                ]
+            )
+
+        async def invoke_messages(self, messages, **_kwargs):
+            del messages
+            return SimpleNamespace(
+                content=json.dumps(
+                    _action_request(
+                        action_type="respond",
+                        final_answer='<｜｜DSML｜｜tool_calls><｜｜DSML｜｜invoke name="search_text"></｜｜DSML｜｜tool_calls>',
+                    ),
+                    ensure_ascii=False,
+                )
+            )
+
+    model = ProtocolRespondLoopModel()
+    runtime = build_harness_runtime(
+        base_dir=_runtime_test_root(tmp_path),
+        model_runtime=model,
+        tool_runtime=_tool_runtime_for_names(_project_backend_dir(), {"path_exists"}),
+    )
+
+    async def _collect() -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime.astream(HarnessRuntimeRequest(session_id="session-tool-limit-protocol-respond", message="反复检查文件。")):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_collect())
+    done = next(event for event in events if event.get("type") == "done")
+    assistant_messages = [dict(item) for item in runtime.session_manager.messages if str(dict(item).get("role") or "") == "assistant"]
+
+    assert model.calls == 9
+    assert done["answer_channel"] == "blocked"
+    assert done["completion_state"] == "tool_limit_protocol_blocked"
+    assert "内部工具协议" in str(done.get("content") or "")
+    assert assistant_messages
+    assert "DSML" not in str(assistant_messages[-1].get("content") or "")
+    assert "search_text" not in str(assistant_messages[-1].get("content") or "")
 
 
 def test_task_executor_guards_duplicate_read_only_tool_call_without_rerunning_tool() -> None:
@@ -2522,6 +2578,57 @@ class _ActiveWorkDecisionModelRuntime:
         if str(getattr(response, "content", "") or "") == "普通回复。":
             return SimpleNamespace(content=json.dumps(_action_request(action_type="respond", final_answer="普通回复。"), ensure_ascii=False))
         return response
+
+
+class _CurrentWorkBoundaryDecisionModelRuntime:
+    def __init__(
+        self,
+        boundary_decisions: list[dict[str, object]],
+        *,
+        normal_final_answer: str = "普通独立回答。",
+    ) -> None:
+        self.boundary_decisions = [dict(item) for item in boundary_decisions]
+        self.normal_final_answer = normal_final_answer
+        self.boundary_decision_count = 0
+        self.single_agent_turn_count = 0
+        self.boundary_inputs: list[str] = []
+
+    async def invoke_messages(self, messages, **_kwargs):
+        text = self._messages_text(messages)
+        if "harness.entrypoint.current_work_boundary" in text or "当前工作边界裁决员" in text:
+            self.boundary_decision_count += 1
+            self.boundary_inputs.append(text)
+            decision = dict(
+                self.boundary_decisions.pop(0)
+                if self.boundary_decisions
+                else {"action": "new_independent_turn_allowed", "relation_to_current_work": "independent_turn"}
+            )
+            decision.setdefault("authority", "harness.entrypoint.current_work_boundary")
+            decision.setdefault("confidence", 0.9)
+            decision.setdefault("reason", "test_boundary_decision")
+            decision.setdefault("evidence", "test boundary evidence")
+            return SimpleNamespace(content=json.dumps(decision, ensure_ascii=False))
+        if "harness.loop.model_action_request" in text or "Single agent turn stable boundary" in text:
+            self.single_agent_turn_count += 1
+            return SimpleNamespace(
+                content=json.dumps(
+                    _action_request(action_type="respond", final_answer=self.normal_final_answer),
+                    ensure_ascii=False,
+                )
+            )
+        return SimpleNamespace(content=self.normal_final_answer)
+
+    async def invoke_messages_with_tools(self, messages, tools, **kwargs):
+        del tools
+        response = await self.invoke_messages(messages, **kwargs)
+        return SimpleNamespace(content=str(getattr(response, "content", "") or ""), tool_calls=[])
+
+    def _messages_text(self, messages) -> str:
+        return "\n\n".join(
+            str(dict(message).get("content") or "")
+            for message in list(messages or [])
+            if isinstance(message, dict)
+        )
 
 
 class _TaskExecutorSequenceModelRuntime:
@@ -5178,13 +5285,14 @@ def test_active_turn_input_goes_through_model_turn_instead_of_registry_steer() -
     assert any(event.get("type") == "done" and "当前工作还在等待继续执行" in str(event.get("content") or "") for event in events)
 
 
-def test_running_active_turn_input_is_queued_without_model_turn() -> None:
-    model = _ActiveWorkDecisionModelRuntime([
+def test_running_active_turn_input_goes_through_current_work_boundary() -> None:
+    model = _CurrentWorkBoundaryDecisionModelRuntime([
         {
-            "action": "answer_about_active_work",
+            "action": "append_instruction_to_active_work",
             "relation_to_current_work": "current_work",
-            "evidence": "不应调用模型",
-            "response": "不应出现。",
+            "evidence": "用户在当前运行任务中追加约束",
+            "response": "已记录补充要求，会在当前执行中参考。",
+            "appended_instruction": "不要生成临时假数据。",
             "confidence": 0.9,
         }
     ])
@@ -5225,18 +5333,107 @@ def test_running_active_turn_input_is_queued_without_model_turn() -> None:
     session_messages = runtime.session_manager.load_session("session-active-work")
 
     assert "single_agent_turn_started" not in event_types
-    assert "active_task_steer_accepted" in event_types
-    assert model.active_work_decision_count == 0
+    assert "current_work_boundary_decided" in event_types
+    assert "active_task_steer_accepted" not in event_types
+    assert model.boundary_decision_count == 1
+    assert model.single_agent_turn_count == 0
     assert updated_task is not None
     assert int(dict(updated_task.diagnostics or {}).get("pending_user_steer_count") or 0) == 1
     assert "active_task_steer_recorded" in trace_event_types
     assert any(
         event.get("type") == "done"
-        and event.get("completion_state") == "task_steer_accepted"
-        and "已加入当前任务队列" in str(event.get("content") or "")
+        and event.get("answer_source") == "harness.current_work_boundary"
+        and event.get("terminal_reason") == "append_instruction_to_active_work"
+        and "已记录补充要求" in str(event.get("content") or "")
         for event in events
     )
-    assert [str(item.get("role") or "") for item in session_messages] == ["user"]
+    assert [str(item.get("role") or "") for item in session_messages] == ["user", "assistant"]
+
+
+def test_current_work_boundary_resumes_waiting_executor_without_single_agent_loop() -> None:
+    model = _CurrentWorkBoundaryDecisionModelRuntime([
+        {
+            "action": "continue_active_work",
+            "relation_to_current_work": "current_work",
+            "continuation_strategy": "same_run_resume",
+            "evidence": "用户要求续接当前等待中的任务",
+            "response": "好，我接着处理当前任务。",
+            "confidence": 0.95,
+        }
+    ])
+    runtime = build_harness_runtime(model_runtime=model)
+    task_run_id = _seed_active_work(runtime, task_run_id="taskrun:current-boundary-resume")
+    host = runtime.single_agent_runtime_host
+
+    async def _collect() -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime.astream(
+            HarnessRuntimeRequest(
+                session_id="session-active-work",
+                message="接着处理刚才那个任务。",
+            )
+        ):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_collect())
+    event_types = [str(event.get("type") or "") for event in events]
+    trace = host.get_trace(task_run_id, include_payloads=True)
+    trace_event_types = [str(dict(item).get("event_type") or "") for item in list(dict(trace or {}).get("events") or [])]
+    updated_task = host.state_index.get_task_run(task_run_id)
+
+    assert "current_work_boundary_decided" in event_types
+    assert "single_agent_turn_started" not in event_types
+    assert "model_action_admission" not in event_types
+    assert model.boundary_decision_count == 1
+    assert model.single_agent_turn_count == 0
+    assert "task_run_resume_requested" in trace_event_types
+    assert "task_run_executor_scheduled" in trace_event_types
+    assert updated_task is not None
+    assert dict(updated_task.diagnostics or {}).get("latest_interaction_turn_id")
+    assert any(
+        event.get("type") == "done"
+        and event.get("answer_source") == "harness.current_work_boundary"
+        and event.get("terminal_reason") == "continue_active_work"
+        and "接着处理" in str(event.get("content") or "")
+        for event in events
+    )
+
+
+def test_current_work_boundary_allows_independent_turn_when_declared_independent() -> None:
+    model = _CurrentWorkBoundaryDecisionModelRuntime(
+        [
+            {
+                "action": "new_independent_turn_allowed",
+                "relation_to_current_work": "independent_turn",
+                "evidence": "用户问题和当前任务无关",
+                "confidence": 0.9,
+            }
+        ],
+        normal_final_answer="这是独立问题的回答。",
+    )
+    runtime = build_harness_runtime(model_runtime=model)
+    _seed_active_work(runtime, task_run_id="taskrun:current-boundary-independent")
+
+    async def _collect() -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime.astream(
+            HarnessRuntimeRequest(
+                session_id="session-active-work",
+                message="解释一下 Python 的闭包是什么。",
+            )
+        ):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_collect())
+    event_types = [str(event.get("type") or "") for event in events]
+
+    assert "current_work_boundary_decided" in event_types
+    assert "single_agent_turn_started" in event_types
+    assert model.boundary_decision_count == 1
+    assert model.single_agent_turn_count == 1
+    assert any(event.get("type") == "done" and event.get("content") == "这是独立问题的回答。" for event in events)
 
 
 def test_active_turn_preserves_user_granted_new_turn_capabilities(tmp_path: Path) -> None:
@@ -5350,6 +5547,49 @@ def test_active_work_control_requires_expected_active_turn_id_for_bound_active_t
         and dict(dict(event.get("event") or {}).get("payload") or {}).get("terminal_reason") == "expected_active_turn_id_required"
         for event in events
     )
+    assert "active_task_steer_recorded" not in event_types
+    assert "task_run_resume_requested" not in event_types
+
+
+def test_current_work_boundary_requires_expected_active_turn_id_for_bound_active_turn() -> None:
+    model = _CurrentWorkBoundaryDecisionModelRuntime([
+        {
+            "action": "continue_active_work",
+            "relation_to_current_work": "current_work",
+            "continuation_strategy": "same_run_resume",
+            "evidence": "用户要求续接当前工作",
+            "response": "不应直接继续。",
+            "confidence": 0.9,
+        }
+    ])
+    runtime = build_harness_runtime(model_runtime=model)
+    task_run_id = _seed_active_work(runtime, task_run_id="taskrun:current-boundary-expected-required")
+    host = runtime.single_agent_runtime_host
+    host.active_turn_registry.start(session_id="session-active-work", turn_id="turn:active:current")
+    host.active_turn_registry.bind_task_run(
+        session_id="session-active-work",
+        turn_id="turn:active:current",
+        task_run_id=task_run_id,
+        state="waiting_executor",
+    )
+
+    async def _collect() -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime.astream(
+            HarnessRuntimeRequest(
+                session_id="session-active-work",
+                message="继续当前工作",
+            )
+        ):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_collect())
+    trace = runtime.single_agent_runtime_host.get_trace(task_run_id, include_payloads=True)
+    event_types = [str(dict(item).get("event_type") or "") for item in list(dict(trace or {}).get("events") or [])]
+
+    assert model.boundary_decision_count == 1
+    assert any(event.get("type") == "done" and "需要刷新会话状态" in str(event.get("content") or "") for event in events)
     assert "active_task_steer_recorded" not in event_types
     assert "task_run_resume_requested" not in event_types
 

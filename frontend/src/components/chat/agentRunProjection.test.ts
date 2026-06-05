@@ -100,7 +100,7 @@ describe("agentRunProjection", () => {
     expect(projection.feedback).not.toContain("验证验证结果");
   });
 
-  it("still shows a genuinely new running action after an earlier observation", () => {
+  it("keeps the latest observation visible when a genuinely new action starts", () => {
     const projection = projectAgentRun([
       {
         item_id: "observation:read",
@@ -120,7 +120,7 @@ describe("agentRunProjection", () => {
       },
     ]);
 
-    expect(projection.feedback).toBe("");
+    expect(projection.feedback).toBe("已读到主会话组件。");
     expect(projection.liveAction).toBe("正在运行验证 前端测试。");
   });
 
@@ -337,5 +337,20 @@ describe("agentRunProjection", () => {
       "file frontend/src/app/adventure-island/assets.ts 2938 bytes file frontend/src/app/adventure-island/config.ts 5177 bytes",
       [],
     )).toBe("");
+  });
+
+  it("keeps human review prose that contains a markdown table", () => {
+    const content = [
+      "我已经读取了约一半的代码，已经发现了几个 bug。",
+      "",
+      "| 代码引用 | 预期文件 | 实际状态 |",
+      "|---|---|---|",
+      "| `game-npc-village-elder.png` | `game-npc-elder.png` | 文件名不匹配 |",
+      "",
+      "代码还有很多没读到，我需要继续完成剩余代码审查、实施修复并实测验证。",
+    ].join("\n");
+
+    expect(looksLikeRawToolOutput(content)).toBe(false);
+    expect(assistantContentFromPublicTimeline(content, [])).toBe(content);
   });
 });

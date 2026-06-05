@@ -27,6 +27,7 @@ from orchestration import (
 )
 from project_layout import ProjectLayout
 from harness.entrypoint.models import HarnessRuntimeRequest
+from harness.entrypoint.current_work_boundary import decide_current_work_boundary
 from api.chat_direct_routes import run_direct_system_route
 from harness.loop.active_work import (
     ActiveWorkContext,
@@ -274,15 +275,6 @@ class HarnessRuntimeFacade:
                     "type": "input_commit_gate",
                     "commit_gate": input_commit_gate.to_dict(),
                 }
-                queued_active_turn_events = await self._queue_active_turn_input_if_requested(
-                    request=request,
-                    turn_id=turn_id,
-                    active_turn=active_turn,
-                )
-                if queued_active_turn_events is not None:
-                    for event in queued_active_turn_events:
-                        yield event
-                    return
                 direct_system_route_event = await run_direct_system_route(
                     base_dir=self.base_dir,
                     request=request,
@@ -342,6 +334,7 @@ class HarnessRuntimeFacade:
                     turn_id=turn_id,
                     user_message=request.message,
                     expected_active_turn_id=str(getattr(request, "expected_active_turn_id", "") or "").strip(),
+                    active_turn_input_policy=str(getattr(request, "active_turn_input_policy", "") or "auto").strip() or "auto",
                     active_turn=active_turn,
                     active_work_candidate=active_work_context,
                     recent_work_outcome_candidate=recent_work_outcome,
@@ -380,6 +373,17 @@ class HarnessRuntimeFacade:
                     "runtime_branch": runtime_branch,
                 }
                 if runtime_branch.get("branch_kind") == "single_agent_turn":
+                    boundary_handled, boundary_events = await self._apply_current_work_boundary_if_required(
+                        request=request,
+                        turn_id=turn_id,
+                        turn_input_facts=turn_input_facts,
+                        active_work_context=active_work_context,
+                        runtime_branch=runtime_branch,
+                    )
+                    for event in boundary_events:
+                        yield event
+                    if boundary_handled:
+                        return
                     async for event in self._run_single_agent_turn(
                         request=request,
                         turn_id=turn_id,
@@ -497,22 +501,12 @@ class HarnessRuntimeFacade:
         async def apply_active_work_control(control_payload: dict[str, Any]) -> str | dict[str, Any]:
             if active_work_context is None:
                 return "当前没有可控制的进行中工作。"
-            expected_active_turn_id = str(getattr(request, "expected_active_turn_id", "") or "").strip()
-            if str(getattr(active_work_context, "authority", "") or "") == "harness.runtime.active_turn_context":
-                active_turn = self.single_agent_runtime_host.active_turn_registry.snapshot(request.session_id)
-                actual_turn_id = str(getattr(active_turn, "turn_id", "") or "").strip()
-                if not expected_active_turn_id:
-                    return {
-                        "status": "blocked",
-                        "terminal_reason": "expected_active_turn_id_required",
-                        "content": "当前有正在运行的任务，需要刷新会话状态后再控制当前工作。",
-                    }
-                if not active_turn or actual_turn_id != expected_active_turn_id:
-                    return {
-                        "status": "blocked",
-                        "terminal_reason": "expected_active_turn_mismatch",
-                        "content": "当前任务状态已变化，请刷新后重试。",
-                    }
+            active_turn_guard = self._active_turn_control_guard(
+                request=request,
+                active_work_context=active_work_context,
+            )
+            if active_turn_guard is not None:
+                return active_turn_guard
             decision = active_work_turn_decision_from_payload(
                 {
                     "authority": "harness.loop.active_work_turn_decision",
@@ -560,103 +554,140 @@ class HarnessRuntimeFacade:
             active_work_context=active_work_context,
             model_runtime=getattr(self.model_response_executor, "model_runtime", None),
             commit_assistant_message=self._apply_assistant_message_commit_async,
+            stream_run_id=str(dict(getattr(request, "runtime_profile", {}) or {}).get("stream_run_id") or ""),
             start_task_from_action_request=start_task,
             apply_active_work_control=apply_active_work_control,
         ):
                 yield event
 
-    async def _queue_active_turn_input_if_requested(
+    def _active_turn_control_guard(
+        self,
+        *,
+        request: HarnessRuntimeRequest,
+        active_work_context: ActiveWorkContext,
+    ) -> dict[str, Any] | None:
+        if str(getattr(active_work_context, "authority", "") or "") != "harness.runtime.active_turn_context":
+            return None
+        expected_active_turn_id = str(getattr(request, "expected_active_turn_id", "") or "").strip()
+        active_turn = self.single_agent_runtime_host.active_turn_registry.snapshot(request.session_id)
+        actual_turn_id = str(getattr(active_turn, "turn_id", "") or "").strip()
+        if not expected_active_turn_id:
+            return {
+                "status": "blocked",
+                "terminal_reason": "expected_active_turn_id_required",
+                "content": "当前有正在运行的任务，需要刷新会话状态后再控制当前工作。",
+            }
+        if not active_turn or actual_turn_id != expected_active_turn_id:
+            return {
+                "status": "blocked",
+                "terminal_reason": "expected_active_turn_mismatch",
+                "content": "当前任务状态已变化，请刷新后重试。",
+            }
+        return None
+
+    async def _apply_current_work_boundary_if_required(
         self,
         *,
         request: HarnessRuntimeRequest,
         turn_id: str,
-        active_turn: Any | None,
-    ) -> list[dict[str, Any]] | None:
-        if str(getattr(request, "active_turn_input_policy", "") or "").strip() != "steer":
-            return None
-        expected_turn_id = str(getattr(request, "expected_active_turn_id", "") or "").strip()
-        if not expected_turn_id:
-            return None
-        host = self.single_agent_runtime_host
-        active_record = host.active_turn_registry.snapshot(request.session_id)
-        if active_record is None:
-            return None
-        if str(getattr(active_record, "turn_id", "") or "").strip() != expected_turn_id:
-            content = "当前任务状态已变化，请刷新后重试。"
-            return [
-                error_event(
-                    content=content,
-                    code="active_turn_mismatch",
-                    reason="active_turn_mismatch",
-                    extra={"active_turn": active_record.to_dict() if hasattr(active_record, "to_dict") else {}},
-                )
-            ]
-        task_run_id = str(getattr(active_record, "bound_task_run_id", "") or "").strip()
-        if not task_run_id:
-            return None
-        task_run = host.state_index.get_task_run(task_run_id)
-        if task_run is None:
-            return None
-        status = str(getattr(task_run, "status", "") or "").strip()
-        diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
-        control = diagnostics.get("runtime_control") if isinstance(diagnostics.get("runtime_control"), dict) else {}
-        control_state = str(dict(control or {}).get("state") or "").strip()
-        if status not in {"created", "running"} or control_state in {"paused", "pause_requested", "stopped", "stop_requested"}:
-            return None
-        if str(getattr(task_run, "execution_runtime_kind", "") or "") != "single_agent_task":
-            return None
-        result = append_user_work_instruction(
-            host,
-            task_run_id,
-            content=request.message,
-            turn_id=turn_id,
-            intent="conversation_queued_while_running",
-            editor_context=dict(getattr(request, "editor_context", {}) or {}),
+        turn_input_facts: Any,
+        active_work_context: ActiveWorkContext | None,
+        runtime_branch: dict[str, Any],
+    ) -> tuple[bool, list[dict[str, Any]]]:
+        if active_work_context is None:
+            return False, []
+        decision = await decide_current_work_boundary(
+            model_runtime=getattr(self.model_response_executor, "model_runtime", None),
+            model_selection=dict(request.model_selection or {}),
+            turn_input_facts=turn_input_facts,
+            active_work_context=active_work_context,
         )
-        if not result.get("ok"):
-            content = active_work_status_reply(self._active_work_context_from_active_turn(request.session_id))
-            return [
-                error_event(
-                    content=content,
-                    code=str(result.get("error") or "active_turn_queue_failed"),
-                    reason=str(result.get("error") or "active_turn_queue_failed"),
-                    extra={"active_turn": active_record.to_dict() if hasattr(active_record, "to_dict") else {}},
-                )
-            ]
-        latest = host.state_index.get_task_run(task_run_id) or task_run
-        active_record = host.active_turn_registry.snapshot(request.session_id) or active_record
-        content = "已加入当前任务队列，会在当前执行中优先纳入。"
-        active_turn_payload = active_record.to_dict() if hasattr(active_record, "to_dict") else {}
-        task_payload = latest.to_dict() if hasattr(latest, "to_dict") else {}
-        steer_payload = dict(result.get("steer") or {})
-        return [
+        decision_payload = decision.to_dict()
+        events: list[dict[str, Any]] = [
             {
-                "type": "active_task_steer_accepted",
-                "summary": content,
-                "status": "queued",
-                "terminal_reason": "conversation_queued_while_running",
-                "active_turn": active_turn_payload,
-                "task_run": task_payload,
-                "steer": steer_payload,
-                "authority": "harness.entrypoint.active_turn_input_queue",
-            },
-            final_answer_event(
-                content=content,
-                answer_channel="active_work_control",
-                answer_source="harness.active_turn_input_queue",
-                terminal_reason="conversation_queued_while_running",
-                extra={
-                    "completion_state": "task_steer_accepted",
-                    "summary": content,
-                    "active_turn": active_turn_payload,
-                    "task_run": {
-                        "task_run_id": str(getattr(latest, "task_run_id", "") or ""),
-                        "status": str(getattr(latest, "status", "") or ""),
-                    },
-                    "steer": steer_payload,
-                },
-            ),
+                "type": "current_work_boundary_decided",
+                "decision": decision_payload,
+                "active_work": active_work_context.to_dict(),
+                "authority": "harness.entrypoint.current_work_boundary",
+            }
         ]
+        if decision.action in {"no_current_work", "new_independent_turn_allowed"}:
+            return False, events
+
+        if decision.action == "block":
+            content = decision.response or "当前工作边界没有允许继续执行，本轮已停止。"
+            answer_channel = "blocked"
+            terminal_reason = "current_work_boundary_blocked"
+        else:
+            active_decision = active_work_turn_decision_from_payload(
+                {
+                    "authority": "harness.loop.active_work_turn_decision",
+                    "action": decision.action,
+                    "response": decision.response,
+                    "appended_instruction": decision.appended_instruction,
+                    "continuation_strategy": decision.continuation_strategy,
+                    "relation_to_current_work": decision.relation_to_current_work,
+                    "evidence": decision.evidence,
+                    "confidence": decision.confidence,
+                    "reason": decision.reason,
+                },
+                user_message=request.message,
+            )
+            if not active_decision.accepted:
+                content = active_work_control_denial_reply(active_decision)
+                answer_channel = "blocked"
+                terminal_reason = active_decision.denied_reason or active_decision.reason or "current_work_boundary_denied"
+            else:
+                active_turn_guard = self._active_turn_control_guard(
+                    request=request,
+                    active_work_context=active_work_context,
+                )
+                if active_turn_guard is not None:
+                    content = str(active_turn_guard.get("content") or "")
+                    answer_channel = "blocked"
+                    terminal_reason = str(active_turn_guard.get("terminal_reason") or "active_turn_control_blocked")
+                else:
+                    content = await self._apply_active_work_turn_decision(
+                        decision=active_decision,
+                        context=active_work_context,
+                        turn_id=turn_id,
+                        user_message=request.message,
+                        editor_context=dict(getattr(request, "editor_context", {}) or {}),
+                    )
+                    answer_channel = "ask_user" if active_decision.action == "ask_user" else "active_work_control"
+                    terminal_reason = active_decision.action
+
+        decision_record = canonical_output_decision_for_final_text(
+            content,
+            answer_channel=answer_channel,
+            answer_source="harness.current_work_boundary",
+            execution_posture="current_work_control",
+            terminal_reason=terminal_reason,
+        )
+        await self._apply_assistant_message_commit_async(
+            request.session_id,
+            {
+                "role": "assistant",
+                "content": decision_record.content,
+                "turn_id": turn_id,
+                **decision_record.to_payload(),
+            },
+        )
+        events.append(
+            final_answer_event(
+                content=decision_record.content,
+                answer_channel=answer_channel,
+                answer_source="harness.current_work_boundary",
+                terminal_reason=terminal_reason,
+                extra={
+                    "runtime_branch": dict(runtime_branch or {}),
+                    "current_work_boundary": decision_payload,
+                    "active_work": active_work_context.to_dict(),
+                    "completion_state": "current_work_boundary_handled",
+                },
+            )
+        )
+        return True, events
 
     async def _run_explicit_contract_task_turn(
         self,

@@ -48,16 +48,16 @@ const ASSET_BASE = "images/";
 // ============================================================
 const imageCache = {};
 const imagePaths = {
-  playerHero: ASSET_BASE + "game-player-hero.png",
+  playerHero: ASSET_BASE + "game-player-hero-v2.png",
   monsterSlime: ASSET_BASE + "game-monster-slime.png",
-  monsterGoblin: ASSET_BASE + "game-monster-goblin.png",
+  monsterGoblin: ASSET_BASE + "game-monster-mushroom.png",
   monsterSkeleton: ASSET_BASE + "game-monster-skeleton.png",
-  monsterDarkMage: ASSET_BASE + "game-monster-dark-mage.png",
-  monsterDragonBoss: ASSET_BASE + "game-monster-dragon-boss.png",
+  monsterDarkMage: ASSET_BASE + "game-monster-dark-knight.png",
+  monsterDragonBoss: ASSET_BASE + "game-boss-demon-king.png",
   mapForest: ASSET_BASE + "game-map-forest.png",
   mapCave: ASSET_BASE + "game-map-cave.png",
   mapCastle: ASSET_BASE + "game-map-castle.png",
-  npcElder: ASSET_BASE + "game-npc-village-elder.png",
+  npcElder: ASSET_BASE + "game-npc-elder.png",
   npcMerchant: ASSET_BASE + "game-npc-merchant.png",
 };
 
@@ -700,9 +700,8 @@ function updatePhysics(state) {
     if (rectCollide(pb, pp) && state.transitionTimer <= 0) {
       state.transitionTimer = 40;
       state.transitionTargetMap = portal.targetMap;
-      // 设置玩家目标位置
-      p.x = portal.targetX;
-      p.y = portal.targetY;
+      state.transitionTargetX = portal.targetX;
+      state.transitionTargetY = portal.targetY;
     }
   }
 }
@@ -712,10 +711,9 @@ function updateNPCInteraction(state) {
   const map = state.maps[state.currentMap];
 
   if (state.keys.has("Enter")) {
-    state.keys.delete("Enter");
-
     // 如果在对话中
     if (state.dialogueActive) {
+      state.keys.delete("Enter");
       advanceDialogue(state);
       return;
     }
@@ -725,6 +723,7 @@ function updateNPCInteraction(state) {
       const nb = { x: npc.x - 20, y: npc.y - 10, w: npc.w + 40, h: npc.h + 20 };
       const pb = { x: p.x, y: p.y, w: p.w, h: p.h };
       if (rectCollide(pb, nb)) {
+        state.keys.delete("Enter");
         startDialogue(state, npc);
         break;
       }
@@ -773,7 +772,6 @@ function updateGame(state) {
       // 重新开始
       const fresh = createInitialState();
       Object.assign(state, fresh);
-      state.maps = buildMaps();
       state.phase = "playing";
       state.keys = new Map();
       state._giftedNpcs = new Set();
@@ -787,6 +785,8 @@ function updateGame(state) {
     if (state.transitionTimer <= 0) {
       state.currentMap = state.transitionTargetMap;
       state.transitionTargetMap = null;
+      state.player.x = state.transitionTargetX;
+      state.player.y = state.transitionTargetY;
     }
     return;
   }
@@ -892,37 +892,6 @@ function drawImg(ctx, key, x, y, w, h) {
     return true;
   }
   return false;
-}
-
-// 回退矩形绘制（图片加载失败时使用）
-function drawFallbackRect(ctx, x, y, w, h, color, icon) {
-  const r = 4; // 圆角半径
-  // 填充
-  ctx.fillStyle = color || "#888";
-  ctx.beginPath();
-  ctx.moveTo(x + r, y);
-  ctx.lineTo(x + w - r, y);
-  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
-  ctx.lineTo(x + w, y + h - r);
-  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
-  ctx.lineTo(x + r, y + h);
-  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
-  ctx.lineTo(x, y + r);
-  ctx.quadraticCurveTo(x, y, x + r, y);
-  ctx.closePath();
-  ctx.fill();
-  // 边框
-  ctx.strokeStyle = "#fff";
-  ctx.lineWidth = 1.5;
-  ctx.stroke();
-  // 文字/图标
-  if (icon) {
-    ctx.fillStyle = "#fff";
-    ctx.font = "bold 14px sans-serif";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillText(icon, x + w / 2, y + h / 2);
-  }
 }
 
 // 回退方块渲染：当图片加载失败时，用彩色方块 + 图标替代

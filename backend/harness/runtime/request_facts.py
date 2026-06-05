@@ -17,6 +17,7 @@ class TurnInputFacts:
     turn_id: str
     user_message: str
     expected_active_turn_id: str = ""
+    active_turn_input_policy: str = "auto"
     active_turn: dict[str, Any] = field(default_factory=dict)
     active_work_candidate: dict[str, Any] = field(default_factory=dict)
     recent_work_outcome_candidate: dict[str, Any] = field(default_factory=dict)
@@ -47,6 +48,7 @@ def build_turn_input_facts(
     turn_id: str,
     user_message: str,
     expected_active_turn_id: str = "",
+    active_turn_input_policy: str = "auto",
     active_turn: Any | None = None,
     active_work_candidate: Any | None = None,
     recent_work_outcome_candidate: dict[str, Any] | None = None,
@@ -59,6 +61,7 @@ def build_turn_input_facts(
         turn_id=str(turn_id or "").strip(),
         user_message=str(user_message or ""),
         expected_active_turn_id=str(expected_active_turn_id or "").strip(),
+        active_turn_input_policy=str(active_turn_input_policy or "auto").strip() or "auto",
         active_turn=_payload_from_object(active_turn),
         active_work_candidate=_payload_from_object(active_work_candidate),
         recent_work_outcome_candidate=dict(recent_work_outcome_candidate or {}),

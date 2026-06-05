@@ -45,10 +45,10 @@ INTERNAL_PROTOCOL_MARKERS = (
 )
 
 _DSML_TOKEN_RE = r"(?:[｜|]\s*){2}\s*DSML\s*(?:[｜|]\s*){2}"
-_TOOL_CALL_XML_RE = re.compile(r"<tool_call[^>]*>.*?(?:</tool_call>)?", re.IGNORECASE | re.DOTALL)
-_DSML_TOOL_CALL_BLOCK_RE = re.compile(rf"<\s*{_DSML_TOKEN_RE}\s*tool_calls\b.*?(?:</\s*{_DSML_TOKEN_RE}\s*tool_calls\s*>)?", re.IGNORECASE | re.DOTALL)
-_DSML_INVOKE_BLOCK_RE = re.compile(rf"<\s*{_DSML_TOKEN_RE}\s*invoke\b.*?(?:</\s*{_DSML_TOKEN_RE}\s*invoke\s*>)?", re.IGNORECASE | re.DOTALL)
-_DSML_PARAMETER_BLOCK_RE = re.compile(rf"<\s*{_DSML_TOKEN_RE}\s*parameter\b.*?(?:</\s*{_DSML_TOKEN_RE}\s*parameter\s*>)?", re.IGNORECASE | re.DOTALL)
+_TOOL_CALL_XML_RE = re.compile(r"<tool_call\b[^>]*>[\s\S]*?(?:</tool_call>|\Z)", re.IGNORECASE)
+_DSML_TOOL_CALL_BLOCK_RE = re.compile(rf"<\s*{_DSML_TOKEN_RE}\s*tool_calls\b[^>]*>[\s\S]*?(?:</\s*{_DSML_TOKEN_RE}\s*tool_calls\s*>|\Z)", re.IGNORECASE)
+_DSML_INVOKE_BLOCK_RE = re.compile(rf"<\s*{_DSML_TOKEN_RE}\s*invoke\b[^>]*>[\s\S]*?(?:</\s*{_DSML_TOKEN_RE}\s*invoke\s*>|\Z)", re.IGNORECASE)
+_DSML_PARAMETER_BLOCK_RE = re.compile(rf"<\s*{_DSML_TOKEN_RE}\s*parameter\b[^>]*>[\s\S]*?(?:</\s*{_DSML_TOKEN_RE}\s*parameter\s*>|\Z)", re.IGNORECASE)
 _DSML_PARAMETER_FRAGMENT_RE = re.compile(
     rf"(?:<\s*{_DSML_TOKEN_RE}\s*parameter\b\s*)?name\s*=\s*[\"'][A-Za-z_][\w-]*[\"']\s+string\s*=\s*[\"'](?:true|false)[\"']\s*>.*?(?:</\s*{_DSML_TOKEN_RE}\s*parameter\s*>|\Z)",
     re.IGNORECASE | re.DOTALL,
@@ -306,6 +306,55 @@ _DEBUG_ONLY_FINAL_TEXT_CHANNELS = {
 }
 
 
+def _meaningful_visible_final_text(text: str) -> bool:
+    normalized = str(text or "").strip()
+    if not normalized:
+        return False
+    if normalized in {">", "<", "...", "…", "---", "----"}:
+        return False
+    if contains_internal_protocol(normalized) or contains_inline_pseudo_tool_call(normalized):
+        return False
+    return any(ch.isalnum() or "\u4e00" <= ch <= "\u9fff" for ch in normalized)
+
+
+def _canonical_visible_final_text(
+    text: str,
+    *,
+    route: str,
+    source: str,
+    execution_posture: str,
+    user_message: str,
+    tool_name: str,
+    retrieval_results: list[dict[str, object]] | None,
+    has_tool_receipt: bool,
+) -> str:
+    visible_text = str(text or "").strip()
+    if not visible_text:
+        return ""
+    candidates: list[OutputCandidate] = []
+    candidate = classify_output_candidate(
+        text=visible_text,
+        route=route,
+        source=source,
+        tool_name=tool_name,
+        has_tool_receipt=has_tool_receipt,
+    )
+    if candidate is not None:
+        candidates.append(candidate)
+    decision = build_output_decision(
+        candidates=candidates,
+        route=route,
+        execution_posture=execution_posture,
+        user_message=user_message,
+        tool_name=tool_name,
+        retrieval_results=retrieval_results,
+        leak_flags=[],
+        has_tool_receipt=has_tool_receipt,
+    )
+    canonical_content = sanitize_visible_assistant_content(decision.canonical_answer).strip()
+    return canonical_content or visible_text
+
+
 def canonical_output_decision_for_final_text(
     content: str,
     *,
@@ -330,6 +379,19 @@ def canonical_output_decision_for_final_text(
 
     normalized_channel = str(answer_channel or "").strip() or "final_answer"
     normalized_source = str(answer_source or "").strip() or "runtime.output_boundary.final_text"
+    if leak_flags and not _meaningful_visible_final_text(visible_text):
+        return CanonicalFinalTextDecision(
+            content="当前输出包含内部工具协议，已阻止作为最终答案。",
+            answer_channel=normalized_channel,
+            answer_source=normalized_source,
+            selected_channel="fallback_answer",
+            selected_source="runtime.output_boundary.protocol_fail_closed",
+            canonical_state="missing_answer",
+            persist_policy="do_not_persist",
+            finalization_policy="none",
+            fallback_reason=str(terminal_reason or completion_state or "internal_protocol_final_text").strip(),
+            leak_flags=leak_flags,
+        )
     if normalized_channel in _DEBUG_ONLY_FINAL_TEXT_CHANNELS:
         return CanonicalFinalTextDecision(
             content=(visible_text or salvage_visible_assistant_content(raw_text)).strip(),
@@ -341,6 +403,29 @@ def canonical_output_decision_for_final_text(
             persist_policy="persist_debug_only",
             finalization_policy="none",
             fallback_reason=str(terminal_reason or completion_state or f"{normalized_channel}_message").strip(),
+            leak_flags=leak_flags,
+        )
+    if leak_flags:
+        canonical_visible = _canonical_visible_final_text(
+            visible_text,
+            route=route,
+            source=normalized_source,
+            execution_posture=execution_posture,
+            user_message=user_message,
+            tool_name=tool_name,
+            retrieval_results=retrieval_results,
+            has_tool_receipt=has_tool_receipt,
+        )
+        return CanonicalFinalTextDecision(
+            content=canonical_visible,
+            answer_channel=normalized_channel,
+            answer_source=normalized_source,
+            selected_channel="fallback_answer",
+            selected_source="runtime.output_boundary.protocol_sanitized",
+            canonical_state="unstable_answer",
+            persist_policy="persist_debug_only",
+            finalization_policy="route_required",
+            fallback_reason=str(terminal_reason or completion_state or "internal_protocol_final_text").strip(),
             leak_flags=leak_flags,
         )
 

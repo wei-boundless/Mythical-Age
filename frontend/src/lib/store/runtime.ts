@@ -1627,7 +1627,13 @@ export class WorkspaceRuntime {
   }
 
   private async reattachChatRunForSession(sessionId: string) {
-    if (this.store.getState().activeStreamSessionIds.includes(sessionId) || this.recoveringStreamSessionIds.has(sessionId)) {
+    if (this.recoveringStreamSessionIds.has(sessionId)) {
+      return true;
+    }
+    if (this.store.getState().activeStreamSessionIds.includes(sessionId)) {
+      if (!this.streamingSessionCache.has(sessionId) || this.visibleSessionNeedsHistoryHydration(sessionId)) {
+        await this.refreshSessionDetails(sessionId).catch(() => undefined);
+      }
       return true;
     }
     this.recoveringStreamSessionIds.add(sessionId);
@@ -1667,6 +1673,11 @@ export class WorkspaceRuntime {
     } finally {
       this.recoveringStreamSessionIds.delete(sessionId);
     }
+  }
+
+  private visibleSessionNeedsHistoryHydration(sessionId: string) {
+    const state = this.store.getState();
+    return state.currentSessionId === sessionId && state.messages.length === 0;
   }
 
   private chatRunCursorAlreadyReachedTerminal(run: { terminal_event?: string; latest_event_offset?: number }, cursor: ChatStreamCursor | null) {

@@ -1,0 +1,120 @@
+1640 |   // 文本
+1641 |   ctx.fillStyle = "#fff";
+1642 |   ctx.font = "15px sans-serif";
+1643 |   ctx.fillText(dl.text, boxX + 16, boxY + 58);
+1644 | 
+1645 |   // 继续提示
+1646 |   ctx.fillStyle = "#aaa";
+1647 |   ctx.font = "12px sans-serif";
+1648 |   ctx.textAlign = "right";
+1649 |   ctx.fillText("按 Enter 继续", boxX + boxW - 16, boxY + boxH - 16);
+1650 |   ctx.textAlign = "left";
+1651 | }
+1652 | 
+1653 | // 背包 UI
+1654 | function renderInventory(ctx, state) {
+1655 |   if (!state.showInventory) return;
+1656 |   const p = state.player;
+1657 | 
+1658 |   const boxX = GAME_W / 2 - 210;
+1659 |   const boxY = 60;
+1660 |   const boxW = 420;
+1661 |   const boxH = Math.min(420, 60 + p.inventory.length * 36 + 40);
+1662 | 
+1663 |   ctx.fillStyle = "rgba(0,0,0,0.85)";
+1664 |   ctx.fillRect(boxX, boxY, boxW, boxH);
+1665 |   ctx.strokeStyle = "#ffd700";
+1666 |   ctx.lineWidth = 2;
+1667 |   ctx.strokeRect(boxX, boxY, boxW, boxH);
+1668 | 
+1669 |   ctx.fillStyle = "#ffd700";
+1670 |   ctx.font = "bold 16px sans-serif";
+1671 |   ctx.textAlign = "center";
+1672 |   ctx.fillText("🎒 背包 (WS/↑↓ 导航, Enter 装备)", boxX + boxW / 2, boxY + 24);
+1673 | 
+1674 |   // 装备槽
+1675 |   const slots = [
+1676 |     { label: "武器", item: p.weapon },
+1677 |     { label: "防具", item: p.armor },
+1678 |     { label: "饰品", item: p.accessory },
+1679 |   ];
+1680 |   let slotY = boxY + 40;
+1681 |   for (const sl of slots) {
+1682 |     const color = sl.item ? "#4caf50" : "#555";
+1683 |     ctx.fillStyle = color;
+1684 |     ctx.font = "12px sans-serif";
+1685 |     ctx.textAlign = "left";
+1686 |     ctx.fillText(sl.label + ": " + (sl.item ? sl.item.icon + " " + sl.item.name : "空"), boxX + 16, slotY);
+1687 |     slotY += 22;
+1688 |   }
+1689 | 
+1690 |   // 物品列表
+1691 |   const listStartY = slotY + 6;
+1692 |   for (let i = 0; i < p.inventory.length; i++) {
+1693 |     const item = p.inventory[i];
+1694 |     const iy = listStartY + i * 36;
+1695 |     const selected = i === state.selectedInventoryIndex;
+1696 | 
+1697 |     if (selected) {
+1698 |       ctx.fillStyle = "rgba(255,215,0,0.2)";
+1699 |       ctx.fillRect(boxX + 8, iy, boxW - 16, 32);
+1700 |       ctx.fillStyle = "#ffd700";
+1701 |     } else {
+1702 |       ctx.fillStyle = "#ccc";
+1703 |     }
+1704 |     ctx.font = "14px sans-serif";
+1705 |     ctx.textAlign = "left";
+1706 |     ctx.fillText((selected ? "▶ " : "  ") + item.icon + " " + item.name + " | " + item.description, boxX + 16, iy + 18);
+1707 |   }
+1708 | 
+1709 |   if (p.inventory.length === 0) {
+1710 |     ctx.fillStyle = "#666";
+1711 |     ctx.font = "13px sans-serif";
+1712 |     ctx.textAlign = "center";
+1713 |     ctx.fillText("背包空空如也", boxX + boxW / 2, listStartY + 30);
+1714 |   }
+1715 | 
+1716 |   ctx.textAlign = "left";
+1717 | }
+1718 | 
+1719 | // 技能详情面板
+1720 | function renderSkillsPanel(ctx, state) {
+1721 |   if (!state.showSkillsPanel) return;
+1722 |   const p = state.player;
+1723 | 
+1724 |   const boxX = GAME_W / 2 - 260;
+1725 |   const boxY = 60;
+1726 |   const boxW = 520;
+1727 |   const boxH = 320;
+1728 | 
+1729 |   ctx.fillStyle = "rgba(0,0,0,0.88)";
+1730 |   ctx.fillRect(boxX, boxY, boxW, boxH);
+1731 |   ctx.strokeStyle = "#9c27b0";
+1732 |   ctx.lineWidth = 2;
+1733 |   ctx.strokeRect(boxX, boxY, boxW, boxH);
+1734 | 
+1735 |   ctx.fillStyle = "#ffd700";
+1736 |   ctx.font = "bold 16px sans-serif";
+1737 |   ctx.textAlign = "center";
+1738 |   ctx.fillText("📜 技能详情 (按 K 关闭)", boxX + boxW / 2, boxY + 24);
+1739 | 
+1740 |   const skills = Object.values(SKILLS);
+1741 |   for (let i = 0; i < skills.length; i++) {
+1742 |     const s = skills[i];
+1743 |     const sy = boxY + 50 + i * 60;
+1744 |     const onCooldown = (p.skillCooldowns[s.id] || 0) > 0;
+1745 |     const cdRemain = Math.ceil((p.skillCooldowns[s.id] || 0) / 60);
+1746 | 
+1747 |     // 图标背景
+1748 |     ctx.fillStyle = s.color;
+1749 |     ctx.fillRect(boxX + 16, sy, 44, 44);
+1750 |     ctx.fillStyle = "#fff";
+1751 |     ctx.font = "22px sans-serif";
+1752 |     ctx.textAlign = "center";
+1753 |     ctx.fillText(s.icon, boxX + 38, sy + 28);
+1754 | 
+1755 |     // 技能名
+1756 |     ctx.fillStyle = "#ffd700";
+1757 |     ctx.font = "bold 15px sans-serif";
+1758 |     ctx.textAlign = "left";
+1759 |     ctx.fillText(s.name, boxX + 76, sy + 14);
