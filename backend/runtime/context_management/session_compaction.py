@@ -49,7 +49,13 @@ def prompt_accounting_ledger(runtime: Any) -> Any:
     return _EmptyPromptAccountingLedger()
 
 
-def build_context_usage_snapshot(runtime: Any, *, session_id: str, raw_messages: list[dict[str, Any]]) -> Any:
+def build_context_usage_snapshot(
+    runtime: Any,
+    *,
+    session_id: str,
+    raw_messages: list[dict[str, Any]],
+    session_record: dict[str, Any] | None = None,
+) -> Any:
     ledger = prompt_accounting_ledger(runtime)
     static = _runtime_static_settings(runtime)
     provider = str(getattr(static, "llm_provider", "") or "")
@@ -61,12 +67,29 @@ def build_context_usage_snapshot(runtime: Any, *, session_id: str, raw_messages:
     )
     context_fingerprint = _messages_context_fingerprint(raw_messages)
     previous_context_fingerprint = _latest_record_context_fingerprint(ledger, session_id=session_id)
+    pressure = _build_session_pressure(
+        runtime,
+        session_id=session_id,
+        raw_messages=raw_messages,
+        session_record=session_record,
+        provider=provider,
+        model=model,
+    )
     return meter.build_snapshot(
         session_id=session_id,
         provider=provider,
         model=model,
         reserved_output_tokens=reserved_output_tokens,
         fallback_messages=raw_messages,
+        session_pressure_tokens=int(pressure.get("tokens") or 0),
+        session_pressure_source="runtime.context_management.session_pressure",
+        session_pressure_diagnostics={
+            "session_pressure": {
+                key: value
+                for key, value in pressure.items()
+                if key != "tokens"
+            }
+        },
         context_fingerprint=context_fingerprint,
         previous_context_fingerprint=previous_context_fingerprint,
     )
@@ -143,6 +166,178 @@ def _json_stable(value: Any) -> Any:
     return repr(value)
 
 
+def _build_session_pressure(
+    runtime: Any,
+    *,
+    session_id: str,
+    raw_messages: list[dict[str, Any]],
+    session_record: dict[str, Any] | None,
+    provider: str,
+    model: str,
+) -> dict[str, Any]:
+    record = dict(session_record or _load_session_record(runtime, session_id=session_id) or {})
+    compressed_context = str(record.get("compressed_context") or "").strip()
+    boundary_created_at = _safe_float(record.get("provider_protocol_compaction_created_at"))
+    api_transcript = _load_api_transcript(runtime, session_id=session_id)
+    public_messages = _public_pressure_messages(raw_messages)
+    protocol_messages, protocol_stats = _protocol_pressure_messages(
+        api_transcript,
+        boundary_created_at=boundary_created_at,
+        compressed_context_present=bool(compressed_context),
+    )
+    compressed_tokens = TOKEN_COUNTER.count_text(compressed_context, provider=provider, model=model).tokens if compressed_context else 0
+    public_tokens = TOKEN_COUNTER.count_messages(public_messages, provider=provider, model=model).tokens if public_messages else 0
+    protocol_tokens = TOKEN_COUNTER.count_messages(protocol_messages, provider=provider, model=model).tokens if protocol_messages else 0
+    return {
+        "tokens": max(0, int(compressed_tokens + public_tokens + protocol_tokens)),
+        "compressed_context_tokens": int(compressed_tokens),
+        "public_history_tokens": int(public_tokens),
+        "provider_protocol_tokens": int(protocol_tokens),
+        "public_message_count": len(public_messages),
+        "api_transcript_message_count": len(api_transcript),
+        "provider_protocol_message_count": len(protocol_messages),
+        "provider_protocol_compaction_created_at": boundary_created_at,
+        "compressed_context_present": bool(compressed_context),
+        **protocol_stats,
+        "authority": "runtime.context_management.session_pressure",
+    }
+
+
+def _load_session_record(runtime: Any, *, session_id: str) -> dict[str, Any]:
+    get_history = getattr(getattr(runtime, "session_manager", None), "get_history", None)
+    if not callable(get_history):
+        return {}
+    try:
+        record = get_history(session_id)
+    except Exception:
+        return {}
+    return dict(record or {}) if isinstance(record, dict) else {}
+
+
+def _load_api_transcript(runtime: Any, *, session_id: str) -> list[dict[str, Any]]:
+    load_session_for_api = getattr(getattr(runtime, "session_manager", None), "load_session_for_api", None)
+    if not callable(load_session_for_api):
+        return []
+    try:
+        transcript = load_session_for_api(session_id)
+    except Exception:
+        return []
+    return [dict(item) for item in list(transcript or []) if isinstance(item, dict)]
+
+
+def _public_pressure_messages(messages: list[dict[str, Any]] | tuple[dict[str, Any], ...]) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    for item in list(messages or []):
+        if not isinstance(item, dict):
+            continue
+        role = str(item.get("role") or item.get("type") or "").strip()
+        if role not in {"user", "assistant"}:
+            continue
+        content = str(item.get("content") or item.get("text") or "")
+        if not content.strip():
+            continue
+        result.append({"role": role, "content": content})
+    return result
+
+
+def _protocol_pressure_messages(
+    transcript: list[dict[str, Any]],
+    *,
+    boundary_created_at: float,
+    compressed_context_present: bool,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    if compressed_context_present and boundary_created_at <= 0:
+        return [], {
+            "provider_protocol_omitted_before_boundary_count": len(transcript),
+            "provider_protocol_omitted_unbounded_compaction": True,
+            "provider_protocol_bounded_chars": 0,
+            "provider_protocol_omitted_chars": 0,
+        }
+    messages: list[dict[str, Any]] = []
+    omitted_before_boundary = 0
+    omitted_chars = 0
+    bounded_chars = 0
+    for item in list(transcript or []):
+        if boundary_created_at > 0 and _message_created_at(item) < boundary_created_at:
+            omitted_before_boundary += 1
+            continue
+        projected, stats = _protocol_pressure_message(item)
+        omitted_chars += int(stats.get("omitted_chars") or 0)
+        bounded_chars += int(stats.get("bounded_chars") or 0)
+        if projected:
+            messages.append(projected)
+    return messages, {
+        "provider_protocol_omitted_before_boundary_count": omitted_before_boundary,
+        "provider_protocol_omitted_unbounded_compaction": False,
+        "provider_protocol_bounded_chars": bounded_chars,
+        "provider_protocol_omitted_chars": omitted_chars,
+    }
+
+
+def _protocol_pressure_message(message: dict[str, Any]) -> tuple[dict[str, Any], dict[str, int]]:
+    role = str(message.get("role") or message.get("type") or "").strip()
+    if role == "tool":
+        content, omitted = _bounded_protocol_text(message.get("content"), limit=3_000)
+        if not content and not str(message.get("tool_call_id") or "").strip():
+            return {}, {"bounded_chars": 0, "omitted_chars": omitted}
+        payload: dict[str, Any] = {"role": "tool", "content": content}
+        tool_call_id = str(message.get("tool_call_id") or "").strip()
+        if tool_call_id:
+            payload["tool_call_id"] = tool_call_id
+        name = str(message.get("name") or "").strip()
+        if name:
+            payload["name"] = name
+        return payload, {"bounded_chars": len(content), "omitted_chars": omitted}
+    if role != "assistant":
+        return {}, {"bounded_chars": 0, "omitted_chars": 0}
+
+    reasoning = str(message.get("reasoning_content") or "").strip()
+    tool_calls = message.get("tool_calls")
+    has_tool_calls = isinstance(tool_calls, list) and bool(tool_calls)
+    if not reasoning and not has_tool_calls:
+        return {}, {"bounded_chars": 0, "omitted_chars": 0}
+
+    payload = {"role": "assistant"}
+    bounded_chars = 0
+    omitted_chars = 0
+    if has_tool_calls:
+        content, content_omitted = _bounded_protocol_text(message.get("content"), limit=4_000)
+        if content:
+            payload["content"] = content
+            bounded_chars += len(content)
+            omitted_chars += content_omitted
+    if reasoning:
+        payload["reasoning_content"] = reasoning
+        bounded_chars += len(reasoning)
+    if has_tool_calls:
+        payload["tool_calls"] = _json_stable(tool_calls)
+        bounded_chars += len(json.dumps(payload["tool_calls"], ensure_ascii=False, sort_keys=True, separators=(",", ":")))
+    if len(payload) <= 1:
+        return {}, {"bounded_chars": 0, "omitted_chars": omitted_chars}
+    return payload, {"bounded_chars": bounded_chars, "omitted_chars": omitted_chars}
+
+
+def _bounded_protocol_text(value: Any, *, limit: int) -> tuple[str, int]:
+    text = str(value or "")
+    if not text:
+        return "", 0
+    limit = max(120, int(limit or 120))
+    if len(text) <= limit:
+        return text, 0
+    return text[:limit].rstrip() + "\n[provider protocol content omitted from pressure estimate]", len(text) - limit
+
+
+def _message_created_at(message: dict[str, Any]) -> float:
+    return _safe_float(message.get("created_at") or message.get("updated_at") or message.get("timestamp"))
+
+
+def _safe_float(value: Any) -> float:
+    try:
+        return max(0.0, float(value or 0.0))
+    except (TypeError, ValueError):
+        return 0.0
+
+
 def compact_session_history(
     runtime: Any,
     *,
@@ -161,7 +356,12 @@ def compact_session_history(
     tokens_before = compactor.conversation_tokens(py_messages)
     history_budget_tokens = int(getattr(compactor, "effective_history_token_budget", 0) or 0)
     history_pressure_level = str(compactor.pressure_level(tokens_before, len(py_messages)) or "normal")
-    snapshot = context_snapshot or build_context_usage_snapshot(runtime, session_id=session_id, raw_messages=raw_messages)
+    snapshot = context_snapshot or build_context_usage_snapshot(
+        runtime,
+        session_id=session_id,
+        raw_messages=raw_messages,
+        session_record=record,
+    )
     context_pressure_level = str(getattr(snapshot, "pressure_level", "normal") or "normal")
     requested_level = str(pressure_level or "auto")
     if requested_level == "auto":
@@ -170,12 +370,7 @@ def compact_session_history(
         effective_level = requested_level
 
     context_replacement_allowed = bool(getattr(snapshot, "auto_replacement_allowed", False))
-    history_replacement_allowed = (
-        mode == "auto"
-        and pressure_source == "history"
-        and effective_level in {"microcompact", "full_compact"}
-    )
-    if mode == "auto" and not context_replacement_allowed and not history_replacement_allowed:
+    if mode == "auto" and not context_replacement_allowed:
         return _not_applied_response(
             session_id=session_id,
             mode=mode,
@@ -231,16 +426,42 @@ def auto_compact_session_if_needed(
         )
     record = get_history(session_id)
     raw_messages = list(record.get("messages") or [])
-    snapshot = build_context_usage_snapshot(runtime, session_id=session_id, raw_messages=raw_messages)
+    if not raw_messages:
+        return _auto_skipped_response(
+            session_id=session_id,
+            skipped_reason="empty_history",
+            raw_message_count=0,
+            compressed_context_present=bool(str(record.get("compressed_context") or "")),
+        )
+    if not _runtime_history_compactor_available(runtime):
+        return _auto_skipped_response(
+            session_id=session_id,
+            skipped_reason="history_compactor_unavailable",
+            raw_message_count=len(raw_messages),
+            compressed_context_present=bool(str(record.get("compressed_context") or "")),
+        )
+    snapshot = build_context_usage_snapshot(
+        runtime,
+        session_id=session_id,
+        raw_messages=raw_messages,
+        session_record=record,
+    )
     return compact_session_history(
         runtime,
         session_id=session_id,
         mode="auto",
         pressure_level="auto",
         reason=reason,
-        pressure_source="context" if bool(getattr(snapshot, "auto_replacement_allowed", False)) else "history",
+        pressure_source="context",
         context_snapshot=snapshot,
     )
+
+
+def _runtime_history_compactor_available(runtime: Any) -> bool:
+    facade = getattr(runtime, "memory_facade", None)
+    adapter = getattr(facade, "adapter", None)
+    session_memory = getattr(facade, "session_memory", None)
+    return callable(getattr(adapter, "to_messages", None)) and callable(getattr(session_memory, "compactor", None))
 
 
 def _auto_skipped_response(

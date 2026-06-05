@@ -25,7 +25,7 @@ def load_scanner_module():
     return module
 
 
-def main() -> None:
+def test_skills_registry_snapshot_matches_scanner_contract() -> None:
     skill_paths = CapabilitySkillPaths.from_base_dir(ROOT)
     scanner = load_scanner_module()
     scanner.refresh_snapshot(ROOT)
@@ -114,10 +114,8 @@ def main() -> None:
     assert "<route_authority>" not in snapshot_text
     assert 'path="' not in snapshot_text
 
-    print(f"ALL PASSED ({len(skills)} skills)")
-
 
 if __name__ == "__main__":
-    main()
+    test_skills_registry_snapshot_matches_scanner_contract()
 
 

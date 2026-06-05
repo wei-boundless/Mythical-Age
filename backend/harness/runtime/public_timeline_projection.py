@@ -240,27 +240,11 @@ def public_observation_text(*, action_kind: str, phase: str, subject_label: str,
     text = public_text(value, limit=180)
     if text and text != subject_label and not _looks_like_raw_command(text) and not _is_tool_token(text):
         if action_kind == "verify":
-            return f"观察：验证已返回，{text}"
+            return f"验证已返回，{text}"
         if action_kind == "prepare":
-            return f"观察：输出准备已返回，{text}"
-        return _ensure_observation_prefix(text)
-    if phase == "adjusting":
-        return "观察：当前步骤没有执行成功，我会换一种方式继续。"
-    if action_kind == "memory":
-        return "观察：记忆检索已返回，下一步会纳入判断。"
-    if action_kind == "read":
-        return "观察：关键上下文已拿到，下一步可以基于文件事实判断。"
-    if action_kind == "search":
-        return "观察：相关引用已定位，下一步应该收敛到真实改动点。"
-    if action_kind == "verify":
-        return "观察：验证已返回，需要根据结果判断是否继续修正。"
-    if action_kind == "image":
-        return "观察：图像生成已返回，下一步会确认产物是否可用。"
-    if action_kind == "prepare":
-        return "观察：输出准备已确认，可以继续推进。"
-    if subject_label:
-        return f"观察：{subject_label} 已返回，我会据此推进下一步。"
-    return "观察：结果已返回，继续根据结果推进下一步。"
+            return f"输出准备已返回，{text}"
+        return text
+    return ""
 
 
 def memory_search_observation_detail(value: Any) -> str:
@@ -392,13 +376,6 @@ def _looks_internal(text: str) -> bool:
 def _is_tool_token(value: str) -> bool:
     text = str(value or "").strip().lower()
     return text in TOOL_NAME_TOKENS or text in {"tool", "工具"}
-
-
-def _ensure_observation_prefix(value: str) -> str:
-    text = public_text(value, limit=180)
-    if not text:
-        return ""
-    return text if text.startswith("观察：") else f"观察：{text}"
 
 
 def _json_record(value: Any) -> dict[str, Any]:

@@ -1789,6 +1789,14 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
             error: "Image API request timed out",
             retryable: true,
           }),
+          public_timeline_delta: [
+            {
+              item_id: "observation:image-timeout",
+              kind: "observation_report",
+              detail: "结果返回失败：Image API request timed out",
+              state: "error",
+            },
+          ],
         },
         refs: { task_run_ref: taskRunId, turn_ref: "turn:session:observation:1" },
         authority: "orchestration.runtime_event",
@@ -1808,7 +1816,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       taskRunId,
     });
     expect(attachment?.public_timeline?.[0]).toMatchObject({
-      item_id: "live:rtevt:observation:observation",
+      item_id: "observation:image-timeout",
       kind: "observation_report",
       detail: "结果返回失败：Image API request timed out",
       state: "error",

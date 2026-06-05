@@ -23,7 +23,7 @@ describe("agentRunProjection", () => {
 
     expect(assistantContentFromPublicTimeline("", items)).toBe("");
     expect(projection.opening).toBe("");
-    expect(projection.liveAction).toContain("我先读取 langchain-agent/AGENTS.md");
+    expect(projection.liveAction).toContain("正在读取文件 langchain-agent/AGENTS.md");
     expect(projection.liveAction).not.toContain("工具");
     expect(hasAgentRunProjection(projection)).toBe(true);
   });
@@ -121,7 +121,25 @@ describe("agentRunProjection", () => {
     ]);
 
     expect(projection.feedback).toBe("");
-    expect(projection.liveAction).toBe("我正在跑前端测试，用结果判断是否还要继续修正。");
+    expect(projection.liveAction).toBe("正在运行验证 前端测试。");
+  });
+
+  it("does not turn a completed action summary into result feedback", () => {
+    const projection = projectAgentRun([
+      {
+        item_id: "work:search",
+        kind: "work_action",
+        action_kind: "search",
+        title: "已搜索引用",
+        subject_label: "requestAnimationFrame",
+        public_summary: "已搜索引用 requestAnimationFrame",
+        state: "done",
+      },
+    ]);
+
+    expect(projection.feedback).toBe("");
+    expect(projection.liveAction).toBe("");
+    expect(hasAgentRunProjection(projection)).toBe(false);
   });
 
   it("makes stopped state exclusive over previous tool failures", () => {
@@ -182,7 +200,7 @@ describe("agentRunProjection", () => {
     expect(hasAgentRunProjection(projection)).toBe(false);
   });
 
-  it("turns raw file listing observations into natural public feedback", () => {
+  it("does not synthesize public feedback from raw file listing observations", () => {
     const projection = projectAgentRun([
       {
         item_id: "work:list",
@@ -194,13 +212,13 @@ describe("agentRunProjection", () => {
       },
     ]);
 
-    expect(projection.feedback).toContain("已确认 app/adventure-island 下的相关文件");
+    expect(projection.feedback).toBe("");
     expect(projection.feedback).not.toContain("2938 bytes");
     expect(projection.feedback).not.toContain("assets.ts");
     expect(projection.feedback).not.toContain("file frontend");
   });
 
-  it("projects copied shell output as natural feedback with folded command output", () => {
+  it("keeps copied shell output only in a folded command output panel", () => {
     const items = [
       {
         item_id: "work:copy-assets",
@@ -214,14 +232,14 @@ describe("agentRunProjection", () => {
     const projection = projectAgentRun(items);
 
     expect(assistantContentFromPublicTimeline("", items)).toBe("");
-    expect(projection.feedback).toBe("已复制 2 个素材文件，下一步会确认目标页面是否能正确引用。");
+    expect(projection.feedback).toBe("");
     expect(projection.feedback).not.toContain("Copied:");
     expect(projection.commandOutput?.label).toBe("终端");
     expect(projection.commandOutput?.content).toContain("Copied: game-boss-demon-king.png");
     expect(projection.commandOutput?.content).toContain("Copied: game-map-castle.png");
   });
 
-  it("classifies read-only shell validator failures as raw internal output", () => {
+  it("drops read-only shell validator failures instead of writing fallback prose", () => {
     const raw = "shell command executable is not allowlisted read-only";
     const projection = projectAgentRun([
       {
@@ -234,11 +252,11 @@ describe("agentRunProjection", () => {
 
     expect(looksLikeRawToolOutput(raw)).toBe(true);
     expect(assistantContentFromPublicTimeline(raw, [])).toBe("");
-    expect(projection.feedback).toBe("命令被只读权限拦截，我会改用允许的读取方式继续。");
+    expect(projection.feedback).toBe("");
     expect(projection.feedback).not.toContain("allowlisted");
   });
 
-  it("classifies persisted tool result read failures as raw internal output", () => {
+  it("drops persisted tool result read failures instead of writing fallback prose", () => {
     const raw = "Read persisted tool result failed: D:\\AI应用\\langchain-agent\\backend\\storage\\task_environments\\general\\workspace\\runtime_state\\storage\\runtime_context\\tool-results\\session-fad8ee446.txt";
     const projection = projectAgentRun([
       {
@@ -251,7 +269,7 @@ describe("agentRunProjection", () => {
 
     expect(looksLikeRawToolOutput(raw)).toBe(true);
     expect(assistantContentFromPublicTimeline(raw, [])).toBe("");
-    expect(projection.feedback).toBe("上一段执行结果没有成功读回，我会重新获取可用结果后继续判断。");
+    expect(projection.feedback).toBe("");
     expect(projection.feedback).not.toContain("runtime_state");
     expect(projection.feedback).not.toContain("tool-results");
   });

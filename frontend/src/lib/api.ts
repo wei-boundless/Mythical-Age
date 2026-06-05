@@ -2551,6 +2551,8 @@ export type HarnessTaskRunLiveMonitor = {
   latest_event?: Record<string, unknown>;
   latest_step?: Record<string, unknown>;
   latest_progress?: Record<string, unknown>;
+  progress_presentation?: Record<string, unknown>;
+  public_timeline?: PublicChatTimelineItem[];
   latest_step_summary?: string;
   latest_step_name?: string;
   latest_step_status?: string;

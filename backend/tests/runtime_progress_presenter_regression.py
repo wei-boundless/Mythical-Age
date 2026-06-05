@@ -346,7 +346,7 @@ def test_public_chat_timeline_projects_tool_activity_without_raw_trace() -> None
             "title": "已确认目标",
             "subject_label": "确认 artifact 路径",
             "public_summary": "已确认目标 确认 artifact 路径",
-            "observation": "观察：目标文件尚未存在，路径检查已完成。",
+            "observation": "目标文件尚未存在，路径检查已完成。",
             "state": "done",
             "stream_state": "done",
             "trace_refs": ["rtevt:obs"],

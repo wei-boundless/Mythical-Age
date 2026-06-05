@@ -11,7 +11,7 @@ if str(ROOT) not in sys.path:
 from agent_system.profiles.runtime_profile_registry import _profile_from_dict
 
 
-def main() -> None:
+def test_runtime_profile_resolves_tool_package_operations() -> None:
     profile = _profile_from_dict(
         {
             "agent_profile_id": "test_profile",
@@ -35,8 +35,6 @@ def main() -> None:
     assert payload["allowed_tool_packages"][0]["package_id"] == "pkg.git.read"
     assert payload["final_allowed_operations"] == payload["allowed_operations"]
 
-    print("ALL PASSED (runtime profile tool packages)")
-
 
 if __name__ == "__main__":
-    main()
+    test_runtime_profile_resolves_tool_package_operations()

@@ -77,6 +77,39 @@ def test_context_usage_meter_adds_only_pending_messages_after_anchor(tmp_path) -
     assert snapshot.current_context_tokens == 100 + snapshot.estimated_pending_tokens
 
 
+def test_context_usage_meter_uses_session_pressure_as_current_context_authority(tmp_path) -> None:
+    ledger = PromptAccountingLedger(tmp_path)
+    ledger.record_token_usage(
+        ModelTokenUsageRecord(
+            usage_id="tokuse:modelreq:latest:provider_usage",
+            request_id="modelreq:latest",
+            session_id="session:test",
+            provider="deepseek",
+            model="deepseek-v4-pro",
+            source="provider_usage",
+            prompt_tokens=100,
+            completion_tokens=10,
+            total_tokens=110,
+            created_at=2.0,
+        )
+    )
+
+    snapshot = ContextUsageMeter(ledger, default_reserved_output_tokens=65_536).build_snapshot(
+        session_id="session:test",
+        session_pressure_tokens=35_000,
+        session_pressure_source="runtime.context_management.session_pressure",
+    )
+
+    assert snapshot.estimate_mode == "session_pressure"
+    assert snapshot.authority == "runtime.context_management.session_pressure_snapshot"
+    assert snapshot.current_context_tokens == 35_000
+    assert snapshot.compaction_pressure_ratio == 0.038889
+    assert snapshot.compaction_remaining_tokens == 865_000
+    assert snapshot.provider_prompt_tokens == 100
+    assert snapshot.diagnostics["pressure_authority"] == "runtime.context_management.session_pressure"
+    assert snapshot.diagnostics["provider_observed_context_tokens"] == 100
+
+
 def test_context_usage_meter_reports_compaction_remaining_against_replacement_threshold(tmp_path) -> None:
     ledger = PromptAccountingLedger(tmp_path)
     ledger.record_token_usage(

@@ -3400,86 +3400,29 @@ export class WorkspaceRuntime {
     };
   }
 
-  private publicTimelineItemFromRuntimeProgressEntry(entry: RuntimeProgressEntry | null): PublicChatTimelineItem | null {
-    if (!entry) {
-      return null;
-    }
-    const eventType = String(entry.eventType ?? "").trim();
-    if (["done", "agent_turn_terminal"].includes(eventType)) {
-      return null;
-    }
-    const kind = String(entry.kind ?? "").trim();
-    const bodySource = kind === "observation"
-      ? entry.agentBrief || entry.body || entry.publicNote || entry.title
-      : entry.publicNote || entry.agentBrief || entry.body || entry.title;
-    const body = this.publicRuntimeText(bodySource);
-    const title = this.publicRuntimeText(entry.title);
-    const rawText = String(entry.publicNote || entry.agentBrief || entry.body || entry.title || "");
-    if (this.publicRuntimeTextLooksInternal(body || title || rawText)) {
-      return null;
-    }
-    const state = kind === "observation"
-      ? entry.level === "error" ? "error" : "done"
-      : entry.level === "error" ? "error" : entry.level === "success" ? "done" : "running";
-    if (state === "done" && kind === "terminal") {
-      return null;
-    }
-    if (kind === "observation") {
-      const detail = this.publicRuntimeObservationText(body || title)
-        .replace(/^工具返回失败[：:\s]*/u, "结果返回失败：");
-      if (!detail) {
-        return null;
-      }
-      return {
-        item_id: `live:${entry.id}:observation`,
-        kind: "observation_report",
-        detail,
-        state,
-        stream_state: "done",
-        trace_refs: [entry.id].filter(Boolean),
-      };
-    }
-    if (kind === "tool" || kind === "verification") {
-      const actionKind = this.publicRuntimeActionKind(kind, String(entry.toolName || ""), rawText);
-      const subject = this.publicRuntimeSubjectLabel(actionKind, rawText);
-      return {
-        item_id: `live:${entry.id}`,
-        kind: "work_action",
-        action_kind: actionKind,
-        phase: state === "error" ? "adjusting" : state === "done" ? "done" : "running",
-        title: this.publicRuntimeActionTitle(actionKind, state),
-        subject_label: subject,
-        public_summary: this.publicRuntimeActionSummary(actionKind, state, subject, body || title),
-        observation: state === "done" ? this.publicRuntimeObservation(actionKind, body || title, subject) : "",
-        recovery_hint: state === "error" ? body || title || "当前步骤没有执行成功，我会换一种方式继续。" : "",
-        state,
-        stream_state: state === "running" ? "streaming" : "done",
-        trace_refs: [entry.id].filter(Boolean),
-      };
-    }
-    if (!body && !title) {
-      return null;
-    }
-    if (state === "error") {
-      return {
-        item_id: `live:${entry.id}`,
-        kind: "blocked",
-        text: body || title || "处理遇到阻塞",
-        state: "error",
-        trace_refs: [entry.id].filter(Boolean),
-      };
-    }
-    const publicKind = this.publicTimelineKindFromProgressKind(kind);
-    const displayTitle = this.publicRuntimeObservationText(title);
-    return {
-      item_id: `live:${entry.id}`,
-      kind: publicKind,
-      title: displayTitle && !["正在思考", "Agent 判断"].includes(displayTitle) ? displayTitle : body,
-      detail: displayTitle && displayTitle !== body ? body : "",
-      state,
-      stream_state: state === "running" ? "streaming" : "done",
-      trace_refs: [entry.id].filter(Boolean),
-    };
+  private publicTimelineItemsFromRecord(value: unknown): PublicChatTimelineItem[] {
+    const record = value && typeof value === "object" && !Array.isArray(value)
+      ? value as Record<string, unknown>
+      : {};
+    const direct = Array.isArray(record.public_timeline)
+      ? record.public_timeline.filter((item): item is PublicChatTimelineItem =>
+        Boolean(item && typeof item === "object" && !Array.isArray(item))
+      )
+      : [];
+    const delta = Array.isArray(record.public_timeline_delta)
+      ? record.public_timeline_delta.filter((item): item is PublicChatTimelineItem =>
+        Boolean(item && typeof item === "object" && !Array.isArray(item))
+      )
+      : [];
+    return mergePublicTimelineItems(direct, delta, { limit: MAX_LIVE_RUNTIME_PROGRESS_ENTRIES });
+  }
+
+  private publicTimelineItemsFromRuntimeEvent(runtimeEvent: RuntimeMonitorEvent): PublicChatTimelineItem[] {
+    return mergePublicTimelineItems(
+      this.publicTimelineItemsFromRecord(runtimeEvent),
+      this.publicTimelineItemsFromRecord(runtimeEvent.payload),
+      { limit: MAX_LIVE_RUNTIME_PROGRESS_ENTRIES },
+    );
   }
 
   private publicTimelineStatusItemFromMonitor(monitor: HarnessSessionMonitor, taskRunId: string): PublicChatTimelineItem | null {
@@ -3525,136 +3468,6 @@ export class WorkspaceRuntime {
       stream_state: "done",
       trace_refs: [taskRunId].filter(Boolean),
     };
-  }
-
-  private publicTimelineKindFromProgressKind(kind: string) {
-    if (kind === "model") return "assistant_text";
-    if (kind === "tool" || kind === "observation") return "work_action";
-    if (kind === "verification") return "verification";
-    if (kind === "terminal") return "final_summary";
-    return "status_update";
-  }
-
-  private publicRuntimeText(value: unknown) {
-    const text = String(value ?? "").replace(/\s+/g, " ").trim();
-    if (!text) {
-      return "";
-    }
-    const lower = text.toLowerCase();
-    if (["done", "completed", "running", "working", "ready_to_finish", "true", "false"].includes(lower)) {
-      return "";
-    }
-    if (text === "回答已生成并写回会话" || text === "会话输出完成" || text === "工具调用已完成，正在根据结果继续。") {
-      return "";
-    }
-    if (/^(已发起工具调用|已经过工具调用)，正在等待工具返回/.test(text)) {
-      return "";
-    }
-    if (
-      this.publicRuntimeTextLooksStructured(text)
-      || this.publicRuntimeTextLooksRawCommand(text)
-      || this.publicRuntimeTextLooksRawListing(text)
-    ) {
-      return "";
-    }
-    return text.length > 180 ? `${text.slice(0, 179)}...` : text;
-  }
-
-  private publicRuntimeTextLooksInternal(value: string) {
-    return /Read persisted tool result failed|persisted tool result read failed/i.test(value)
-      || /(?:runtime_context|runtime[-_ ]context)[\\/]+tool-results/i.test(value)
-      || /tool-results[\\/]+session[-_A-Za-z0-9]+/i.test(value)
-      || /(agent_turn_terminal|runtime_invocation_packet_compiled|task_execution_packet_compiled|step_summary_recorded)/.test(value)
-      || /^(?:rtevt|taskrun|turnrun|task):/.test(value);
-  }
-
-  private publicRuntimeTextLooksStructured(value: string) {
-    const text = String(value || "").trim();
-    if ((text.startsWith("{") && text.endsWith("}")) || (text.startsWith("[") && text.endsWith("]"))) return true;
-    return /\b(authority|diagnostics|matched_version_count|candidate_version_count|result_envelope|structured_payload)\b/i.test(text);
-  }
-
-  private publicRuntimeTextLooksRawCommand(value: string) {
-    const text = String(value || "").trim();
-    if (!text) return false;
-    return /\b(New-Item|Set-Content|Get-Content|Remove-Item|Move-Item|Copy-Item|npm|pnpm|yarn|pytest|python|powershell|cmd\s*\/c|git|rg|grep|mkdir|touch)\b/i.test(text)
-      || /\s-(?:ItemType|Path|Recurse|Force|Filter|Pattern|Command)\b/i.test(text)
-      || /[;&|]{1,2}/.test(text);
-  }
-
-  private publicRuntimeTextLooksRawListing(value: string) {
-    const text = String(value || "").trim();
-    if (!text) return false;
-    return /\bfile\s+[^\s]+\s+\d+\s+bytes\b/i.test(text)
-      || /\b\d+\s+bytes\s+(?:file|directory|dir)\b/i.test(text);
-  }
-
-  private publicRuntimeActionKind(kind: string, toolName: string, rawText: string) {
-    const normalizedTool = toolName.trim().toLowerCase();
-    const raw = rawText.trim().toLowerCase();
-    if (kind === "verification" || /\b(npm\s+test|pnpm\s+test|yarn\s+test|vitest|pytest|ruff|mypy|tsc|eslint)\b/.test(raw)) return "verify";
-    if (normalizedTool === "memory_search" || /记忆|memory_search/.test(raw)) return "memory";
-    if (["image_generate", "image_generation", "generate_image", "image_asset"].includes(normalizedTool)) return "image";
-    if (/\b(new-item|mkdir)\b/.test(raw)) return "prepare";
-    if (/read|读取/.test(normalizedTool)) return "read";
-    if (/search|grep|glob|搜索|检索/.test(normalizedTool)) return "search";
-    if (/write|edit|patch|写入|编辑|更新/.test(normalizedTool)) return "edit";
-    if (/path_exists|stat_path|list_dir|检查|确认/.test(normalizedTool)) return "inspect";
-    return "work";
-  }
-
-  private publicRuntimeSubjectLabel(actionKind: string, rawText: string) {
-    const raw = rawText.trim().toLowerCase();
-    if (actionKind === "verify") {
-      if (/npm\s+test|pnpm\s+test|yarn\s+test|vitest/.test(raw)) return "前端测试";
-      if (/pytest/.test(raw)) return "后端测试";
-      return "验证结果";
-    }
-    if (actionKind === "prepare") {
-      if (/new-item|mkdir/.test(raw)) return /directory/.test(raw) ? "输出目录" : "输出准备";
-      return "输出准备";
-    }
-    if (actionKind === "memory") return "相关记忆";
-    if (actionKind === "image") return "";
-    return "";
-  }
-
-  private publicRuntimeActionTitle(actionKind: string, state: "running" | "done" | "error") {
-    const phase = state === "error" ? 2 : state === "done" ? 1 : 0;
-    const labels: Record<string, [string, string, string]> = {
-      edit: ["正在更新文件", "已更新文件", "更新未完成"],
-      inspect: ["正在确认目标", "已确认目标", "确认目标未完成"],
-      memory: ["正在检索相关记忆", "记忆检索已返回", "记忆检索未完成"],
-      prepare: ["正在准备输出", "输出准备完成", "输出准备未完成"],
-      image: ["正在生成图像", "图像已生成", "图像生成未完成"],
-      read: ["正在读取上下文", "已读取上下文", "读取上下文未完成"],
-      search: ["正在搜索引用", "已搜索引用", "搜索未完成"],
-      verify: ["正在运行验证", "验证已返回", "验证未完成"],
-      work: ["正在处理任务", "结果已返回", "步骤未完成"],
-    };
-    return (labels[actionKind] ?? labels.work)[phase];
-  }
-
-  private publicRuntimeActionSummary(actionKind: string, state: "running" | "done" | "error", subject: string, fallback: string) {
-    const fallbackText = this.publicRuntimeText(fallback);
-    if (fallbackText) return fallbackText;
-    const title = this.publicRuntimeActionTitle(actionKind, state);
-    return subject ? `${title} ${subject}` : title;
-  }
-
-  private publicRuntimeObservation(actionKind: string, fallback: string, subject: string) {
-    const fallbackText = this.publicRuntimeObservationText(fallback);
-    if (fallbackText) return fallbackText;
-    if (actionKind === "verify") return "验证已返回，需要根据结果判断是否继续修正。";
-    if (actionKind === "memory") return "记忆检索已返回，下一步会纳入判断。";
-    if (actionKind === "prepare") return "输出准备已确认，可以继续推进。";
-    if (actionKind === "image") return "图像生成已返回，下一步会确认产物是否可用。";
-    return subject ? `${subject} 已返回，我会据此推进下一步。` : "结果已返回，继续根据结果推进下一步。";
-  }
-
-  private publicRuntimeObservationText(value: string) {
-    return this.publicRuntimeText(value)
-      .replace(/^(?:观察结果|观察报告|观察)[：:\s]*/u, "");
   }
 
   private runtimeProgressKindFromStep(step: string): "stage" | "tool" | "verification" | "model" | "observation" | "terminal" {
@@ -3982,7 +3795,7 @@ export class WorkspaceRuntime {
     if (!runId || !anchorTurnId) {
       return state;
     }
-    const publicItem = this.publicTimelineItemFromRuntimeProgressEntry(latestProgressEntry);
+    const publicTimelineItems = this.publicTimelineItemsFromRuntimeEvent(runtimeEvent);
     const payload = runtimeEvent.payload && typeof runtimeEvent.payload === "object" && !Array.isArray(runtimeEvent.payload)
       ? runtimeEvent.payload
       : {};
@@ -4021,7 +3834,7 @@ export class WorkspaceRuntime {
       latest_event_type: runtimeEvent.event_type,
       event_count: Number(runtimeEvent.offset ?? -1) + 1,
       progress_entries: [latestProgressEntry],
-      public_timeline: publicItem ? [publicItem] : [],
+      public_timeline: publicTimelineItems,
       trace_available: true,
       debug_trace_ref: taskRunId || runId,
       updated_at: Number(runtimeEvent.created_at ?? Date.now() / 1000),
@@ -4086,9 +3899,13 @@ export class WorkspaceRuntime {
       return state;
     }
     const latestProgressEntry = this.runtimeProgressEntryFromMonitor(monitor, taskRunId);
-    const publicItem = this.publicTimelineItemFromRuntimeProgressEntry(latestProgressEntry);
+    const monitorPublicTimeline = this.publicTimelineItemsFromRecord(monitor);
     const monitorStatusItem = this.publicTimelineStatusItemFromMonitor(monitor, taskRunId);
-    const publicTimelineItems = [publicItem, monitorStatusItem].filter((item): item is PublicChatTimelineItem => Boolean(item));
+    const publicTimelineItems = mergePublicTimelineItems(
+      monitorPublicTimeline,
+      monitorStatusItem ? [monitorStatusItem] : [],
+      { limit: MAX_LIVE_RUNTIME_PROGRESS_ENTRIES },
+    );
     const attachment: SessionRuntimeAttachment = {
       attachment_id: `runtime-attachment:${taskRunId}`,
       run_id: taskRunId,

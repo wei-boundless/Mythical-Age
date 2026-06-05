@@ -19,7 +19,7 @@ class _SettingsStub:
         return "accept_edits"
 
 
-def main() -> None:
+def test_tool_scope_contract_limits_skill_visible_tools() -> None:
     scope = SkillToolScope(
         source="skill",
         allowed_tools=("web_search",),
@@ -58,10 +58,8 @@ def main() -> None:
     open_scope = ToolScope(source="skill", reason="no_active_skill")
     assert open_scope.allows("web_search")
 
-    print("ALL PASSED (tool scope contract)")
-
 
 if __name__ == "__main__":
-    main()
+    test_tool_scope_contract_limits_skill_visible_tools()
 
 

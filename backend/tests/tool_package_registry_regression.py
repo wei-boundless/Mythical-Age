@@ -16,7 +16,7 @@ from permissions.operation_packages import (
 from permissions.operations import default_operation_descriptors
 
 
-def main() -> None:
+def test_tool_package_registry_resolves_operation_packages() -> None:
     packages = {item.package_id: item for item in default_tool_packages()}
     operation_ids = {item.operation_id for item in default_operation_descriptors()}
     for package in packages.values():
@@ -61,8 +61,6 @@ def main() -> None:
     assert "op.git_push" not in resolved
     assert "op.read_file" in resolved
 
-    print("ALL PASSED (tool package registry)")
-
 
 if __name__ == "__main__":
-    main()
+    test_tool_package_registry_resolves_operation_packages()

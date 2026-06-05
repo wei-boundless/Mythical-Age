@@ -70,7 +70,12 @@ async def session_tokens(
         if callable(api_transcript_loader)
         else raw_messages
     )
-    context_snapshot = build_context_usage_snapshot(runtime, session_id=session_id, raw_messages=raw_messages)
+    context_snapshot = build_context_usage_snapshot(
+        runtime,
+        session_id=session_id,
+        raw_messages=raw_messages,
+        session_record=record,
+    )
     context_meter = context_snapshot.to_dict()
     system_tokens = int(prompt_usage.get("prompt_tokens") or prompt_usage.get("predicted_total_tokens") or 0)
     message_tokens = _count_tokens(_messages_token_text(raw_messages))

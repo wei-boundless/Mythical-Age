@@ -26,7 +26,7 @@ def _git(cwd: Path, *args: str) -> str:
     return completed.stdout.strip()
 
 
-def main() -> None:
+def test_git_tools_cover_status_stage_commit_branch_and_restore_boundaries() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         repo = Path(tmp)
         _git(repo, "init")
@@ -73,8 +73,6 @@ def main() -> None:
         else:
             raise AssertionError("empty restore paths must be rejected")
 
-        print("ALL PASSED (git tools)")
-
 
 if __name__ == "__main__":
-    main()
+    test_git_tools_cover_status_stage_commit_branch_and_restore_boundaries()

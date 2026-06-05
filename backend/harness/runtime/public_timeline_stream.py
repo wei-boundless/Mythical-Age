@@ -16,7 +16,6 @@ from harness.runtime.public_timeline_projection import (
 _INTERNAL_STEP_SUMMARIES = {
     "turn_started",
     "runtime_packet_compiled",
-    "model_action_received",
     "action_admission_checked",
     "bounded_observation_recorded",
 }
@@ -44,42 +43,42 @@ def project_public_timeline_delta(
     event_type = str(public_event_type or "").strip()
     if not event_type:
         return []
-    item = _item_for_event(event_type, data)
-    return [item] if item else []
+    items = _items_for_event(event_type, data)
+    return [item for item in items if item]
 
 
-def _item_for_event(event_type: str, data: dict[str, Any]) -> dict[str, Any]:
+def _items_for_event(event_type: str, data: dict[str, Any]) -> list[dict[str, Any]]:
     if event_type == "runtime_step_summary":
-        return _runtime_step_summary_item(data)
+        return _runtime_step_summary_items(data)
     if event_type == "model_action_admission":
-        return _model_action_admission_item(data)
+        return _model_action_admission_items(data)
     if event_type == "turn_tool_observation_recorded":
-        return _turn_tool_observation_item(data)
+        return [_turn_tool_observation_item(data)]
     if event_type == "task_run_lifecycle_event":
-        return _task_run_lifecycle_item(data)
+        return [_task_run_lifecycle_item(data)]
     if event_type == "active_task_steer_accepted":
-        return _status_item(
+        return [_status_item(
             item_id=_stable_id("steer", str(data.get("runtime_task_run_id") or ""), str(data.get("summary") or "")),
             title="已收到补充要求",
             detail=_visible_text(data.get("summary")),
             state="running",
-        )
+        )]
     if event_type == "done":
-        return _done_item(data)
+        return [_done_item(data)]
     if event_type == "error":
-        return _blocked_item(
+        return [_blocked_item(
             item_id=_stable_id("error", str(data.get("runtime_task_run_id") or ""), str(data.get("error") or "")),
             text=_visible_text(data.get("error") or data.get("content") or "处理失败"),
             state="error",
-        )
+        )]
     if event_type == "stopped":
-        return _status_item(
+        return [_status_item(
             item_id=_stable_id("stopped", str(data.get("runtime_task_run_id") or ""), str(data.get("reason") or "")),
             title="已停止当前处理",
             detail=_visible_text(data.get("reason") or data.get("content")),
             state="error",
-        )
-    return {}
+        )]
+    return []
 
 
 def _task_run_lifecycle_item(data: dict[str, Any]) -> dict[str, Any]:
@@ -89,17 +88,26 @@ def _task_run_lifecycle_item(data: dict[str, Any]) -> dict[str, Any]:
     return public_todo_plan_item(public_todo_plan_from_event(event))
 
 
-def _model_action_admission_item(data: dict[str, Any]) -> dict[str, Any]:
+def _model_action_admission_items(data: dict[str, Any]) -> list[dict[str, Any]]:
     event = _record(data.get("event"))
     payload = _record(event.get("payload"))
     request = _record(payload.get("model_action_request"))
     action_type = str(request.get("action_type") or "").strip().lower()
+    items: list[dict[str, Any]] = []
+    feedback = _agent_feedback_item_from_model_action(
+        item_id=_stable_id("agent-feedback", str(event.get("event_id") or ""), str(request.get("public_progress_note") or "")),
+        request=request,
+        state="running",
+        trace_ref=str(event.get("event_id") or ""),
+    )
+    if feedback:
+        items.append(feedback)
     if action_type != "tool_call":
-        return {}
+        return items
     tool_name, target = _tool_details_from_event(request)
     trace_ref = str(event.get("event_id") or "") or _stable_id("tool-admission", tool_name, target)
     item_id = _work_action_id(data=data, event=event, tool_name=tool_name, target=target, fallback=trace_ref)
-    return public_work_action_item(
+    action = public_work_action_item(
         item_id=item_id,
         tool_name=tool_name,
         raw_target=target,
@@ -107,6 +115,9 @@ def _model_action_admission_item(data: dict[str, Any]) -> dict[str, Any]:
         state="running",
         trace_refs=[trace_ref],
     )
+    if action:
+        items.append(action)
+    return items
 
 
 def _turn_tool_observation_item(data: dict[str, Any]) -> dict[str, Any]:
@@ -148,14 +159,14 @@ def _turn_tool_observation_item(data: dict[str, Any]) -> dict[str, Any]:
     )
 
 
-def _runtime_step_summary_item(data: dict[str, Any]) -> dict[str, Any]:
+def _runtime_step_summary_items(data: dict[str, Any]) -> list[dict[str, Any]]:
     step = str(data.get("step") or "").strip()
     if not step or step in _INTERNAL_STEP_SUMMARIES:
-        return {}
+        return []
     event = _record(data.get("event"))
     todo = public_todo_plan_item(public_todo_plan_from_event(event))
     if todo:
-        return todo
+        return [todo]
     status = str(data.get("status") or "").strip().lower()
     payload = _record(event.get("payload"))
     summary = _visible_text(data.get("public_progress_note") or data.get("summary"))
@@ -167,7 +178,7 @@ def _runtime_step_summary_item(data: dict[str, Any]) -> dict[str, Any]:
         tool_name, target = _tool_details_from_event(payload)
         detail = _tool_detail(summary=summary, agent_brief=agent_brief, target=target)
         item_id = _work_action_id(data=data, event=event, tool_name=tool_name, target=target or detail, fallback=trace_ref)
-        return public_work_action_item(
+        item = public_work_action_item(
             item_id=item_id,
             tool_name=tool_name,
             raw_target=target,
@@ -175,20 +186,86 @@ def _runtime_step_summary_item(data: dict[str, Any]) -> dict[str, Any]:
             state=state,
             trace_refs=[trace_ref],
         )
+        return [item] if item else []
 
-    prose = _visible_text(agent_brief or summary)
-    if not prose:
+    if _is_status_only_step(step):
+        prose = _visible_text(agent_brief or summary)
+        return [_compact(
+            {
+                "item_id": trace_ref,
+                "kind": "status_update",
+                "title": prose,
+                "text": prose,
+                "state": state,
+                "trace_refs": [trace_ref],
+            }
+        )] if prose else []
+    feedback = _agent_feedback_item_from_model_action(
+        item_id=trace_ref,
+        request={**payload, "public_progress_note": summary},
+        state=state,
+        trace_ref=trace_ref,
+        fallback=agent_brief,
+        force_feedback=True,
+    )
+    return [feedback] if feedback else []
+
+
+def _agent_feedback_item_from_model_action(
+    *,
+    item_id: str,
+    request: dict[str, Any],
+    state: str,
+    trace_ref: str,
+    fallback: Any = "",
+    force_feedback: bool = False,
+) -> dict[str, Any]:
+    action_state = _record(request.get("public_action_state"))
+    text = _visible_agent_feedback(
+        action_state.get("current_judgment")
+        or request.get("current_judgment")
+        or request.get("public_progress_note")
+        or fallback
+    )
+    if not text:
         return {}
+    if force_feedback:
+        next_step = _visible_agent_feedback(action_state.get("next_action") or request.get("next_action"))
+        return _compact(
+            {
+                "item_id": item_id,
+                "kind": "observation_report",
+                "title": "处理反馈",
+                "detail": text,
+                "implication": next_step if next_step and next_step != text else "",
+                "state": state,
+                "trace_refs": [trace_ref] if trace_ref else [],
+            }
+        )
     return _compact(
         {
-            "item_id": trace_ref,
-            "kind": "opening_judgment" if not _is_status_only_step(step) else "status_update",
-            "title": "开局判断" if not _is_status_only_step(step) else prose,
-            "text": prose,
+            "item_id": item_id,
+            "kind": "opening_judgment",
+            "title": "开局判断",
+            "text": text,
             "state": state,
-            "trace_refs": [trace_ref],
+            "trace_refs": [trace_ref] if trace_ref else [],
         }
     )
+
+
+def _visible_agent_feedback(value: Any) -> str:
+    text = _visible_text(value, limit=220)
+    if not text:
+        return ""
+    lowered = text.lower()
+    if any(lowered.startswith(prefix) for prefix in _GENERIC_TOOL_WAIT_PREFIXES):
+        return ""
+    if text in _SUPPRESSED_TEXT or lowered in _SUPPRESSED_TEXT:
+        return ""
+    if text.startswith(("正在调用", "工具已完成", "工具失败")):
+        return ""
+    return text
 
 
 def _done_item(data: dict[str, Any]) -> dict[str, Any]:
@@ -372,6 +449,14 @@ def _tool_observation_detail(observation: dict[str, Any], *, target: str) -> str
         return _memory_search_observation_detail(observation.get("text") or envelope.get("text"))
     structured = _record(envelope.get("structured_payload"))
     tool_result = _record(structured.get("tool_result"))
+    if tool_name in {"search_text", "search_files", "glob_paths"}:
+        return _search_observation_detail(
+            observation=observation,
+            envelope=envelope,
+            structured=structured,
+            tool_result=tool_result,
+            target=target,
+        )
     if str(tool_result.get("kind") or "").strip() == "path_exists":
         exists = tool_result.get("exists")
         if exists is True:
@@ -382,6 +467,79 @@ def _tool_observation_detail(observation: dict[str, Any], *, target: str) -> str
     if text and text != target:
         return text
     return target
+
+
+def _search_observation_detail(
+    *,
+    observation: dict[str, Any],
+    envelope: dict[str, Any],
+    structured: dict[str, Any],
+    tool_result: dict[str, Any],
+    target: str,
+) -> str:
+    matched_paths = _public_path_list(
+        structured.get("matched_paths"),
+        envelope.get("matched_paths"),
+        tool_result.get("matched_paths"),
+        tool_result.get("paths"),
+        tool_result.get("files"),
+    )
+    if matched_paths:
+        preview = "、".join(matched_paths[:3])
+        suffix = f"等 {len(matched_paths)} 处" if len(matched_paths) > 3 else ""
+        return f"已找到相关引用：{preview}{suffix}"
+
+    observed_paths = _public_path_list(
+        structured.get("observed_paths"),
+        envelope.get("observed_paths"),
+        tool_result.get("observed_paths"),
+    )
+    result_count = _safe_int(
+        tool_result.get("result_count")
+        or tool_result.get("match_count")
+        or tool_result.get("count")
+        or structured.get("result_count")
+        or envelope.get("result_count")
+    )
+    if result_count and result_count > 0:
+        if observed_paths:
+            return f"已找到 {result_count} 处相关引用，涉及 {'、'.join(observed_paths[:3])}"
+        return f"已找到 {result_count} 处相关引用"
+
+    text = _visible_text(observation.get("text") or envelope.get("text") or tool_result.get("summary"))
+    if text and text != target:
+        return text
+    if result_count == 0:
+        return "未找到相关引用"
+    return ""
+
+
+def _public_path_list(*values: Any) -> list[str]:
+    result: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        candidates = value if isinstance(value, list) else []
+        for item in candidates:
+            if isinstance(item, dict):
+                raw = item.get("path") or item.get("file") or item.get("href") or item.get("url")
+            else:
+                raw = item
+            text = _visible_text(raw, limit=120)
+            if not text:
+                continue
+            key = text.replace("\\", "/").lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            result.append(text)
+    return result
+
+
+def _safe_int(value: Any) -> int | None:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _timeline_state(status: str) -> str:

@@ -1,43 +1,37 @@
-# Backend Test System
+# Backend Tests
 
-后端测试体系现在以 `test_system.case_registry` 为登记权威，按四层组织：
+后端测试入口以 pytest 为准，默认命令：
 
-- `chain`：验证真实主链的关键接线，例如 RuntimeLoop 事件、测试登记表、HarnessRuntimeFacade adapter、任务-操作 preview。
-- `functional`：验证单个系统合同，例如能力系统、记忆系统、灵魂系统、工具注册、权限服务。
-- `system`：验证跨系统装配、应用 smoke、测试产物持久化和门禁运行。
-- `scenario`：验证长场景与真实实测报告，不作为快速开发门禁。
+```powershell
+python -m pytest
+```
 
-## Entry Points
+`pytest.ini` 只从 `backend/tests` 收集这些活跃用例：
 
-- 链路级门禁：
-  - `python backend/tests/run_regression_gate.py --profile chain`
-- 功能级门禁：
-  - `python backend/tests/run_regression_gate.py --profile functional`
-- 系统级门禁：
-  - `python backend/tests/run_regression_gate.py --profile system`
-- 场景实测：
-  - `python backend/tests/run_regression_gate.py --profile scenario`
+- `*_regression.py`
+- `*_test.py`
+- `test_*.py`
 
-## Case Governance
+## Organization
 
-- 活跃用例必须通过 `backend/tests/run_regression_gate.py` 所使用的测试登记入口进入对应 profile。
-- 旧链路参考用例已退出用例库；需要保留的行为必须重写为 `ACTIVE_CASES` 或前端管理的候选用例。
-- 未确认是否保留的历史用例由登记表自动暴露为 `candidate`，不进入 curated gate。
-- 新增测试文件时，先决定它属于 `chain / functional / system / scenario` 哪一层，再登记 owner、profile、tags 和断言边界。
+- `*_regression.py`：主链路、跨模块合同、权限边界、运行时投影、回归保护。
+- `*_test.py` / `test_*.py`：仍需进入默认门禁的集中单元或模型合同测试。
+- `support/`：测试支撑代码，只放 fixture、stub、trace helper，不放断言用例。
+- `fixtures/`：测试输入资产和小型样例项目。
+- `system_eval/`：长场景、压力实验和人工可读报告；默认 pytest 只收集其中的 `*_regression.py`，实验脚本必须显式运行。
 
-测试治理不再挂在 HealthSystem 子目录下；HealthSystem 只消费测试结果形成健康风险，不承载测试 harness 或测试 agent。
+## Rules
 
-## RuntimeLoop Assertions
+- 不保留指向旧 harness、旧 case registry 或不存在 runner 的测试入口。
+- 不把旧计划书、`__pycache__`、手工实验残留当作测试资产提交。
+- 进入 pytest 命名规则的文件必须提供真实 `test_*` 用例，不能只保留 `main()` 脚本。
+- 新测试必须进入默认 pytest 发现规则；确实不能进入快速门禁的长场景，放入 `system_eval/` 并在对应 README 说明运行方式。
+- 测试应保护当前行为合同，不保护已经退出主链路的内部形状。
 
-当前测试系统优先判断 RuntimeLoop 事实：
+## Focused Commands
 
-- `loop.event=<event_type>`
-- `loop.tool=<tool_name>`
-- `loop.completed`
-- `loop.terminal_reason=<reason>`
-- `tool.pairing_ok`
-- `commit.assistant_session=true`
-- `memory.session_refresh=true`
-- `memory.durable_commit=true`
-
-旧 `plan.* / followup.* / main.*` 断言不再作为新测试核心事实源。需要恢复时，应先接入任务系统、状态记忆或上下文管理的专用 adapter。
+```powershell
+python -m pytest backend/tests/runtime_monitor_projection_test.py -q
+python -m pytest backend/tests/context_compaction_api_regression.py -q
+python -m pytest backend/tests/system_eval/long_scenarios_regression.py -q
+```

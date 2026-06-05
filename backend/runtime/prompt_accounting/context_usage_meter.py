@@ -9,6 +9,7 @@ from .token_counter import TokenCounterRegistry
 
 ContextEstimateMode = Literal[
     "provider_anchor",
+    "session_pressure",
     "local_predicted_no_provider_anchor",
     "local_predicted_anchor_invalid",
     "local_predicted_newer_than_provider",
@@ -61,10 +62,11 @@ class ContextUsageSnapshot:
 
 
 class ContextUsageMeter:
-    """Builds the current context-window meter from the latest provider usage.
+    """Builds the current session pressure meter for a model context window.
 
-    Billing totals remain owned by PromptAccountingLedger summaries. This class
-    only answers how full the next model context is likely to be.
+    Billing totals remain owned by PromptAccountingLedger summaries. Provider
+    records are kept here as cache diagnostics, not as the pressure authority
+    when a deterministic session pressure is supplied by context management.
     """
 
     def __init__(
@@ -94,6 +96,9 @@ class ContextUsageMeter:
         reserved_output_tokens: int | None = None,
         pending_messages: list[Any] | tuple[Any, ...] | None = None,
         fallback_messages: list[Any] | tuple[Any, ...] | None = None,
+        session_pressure_tokens: int | None = None,
+        session_pressure_source: str = "",
+        session_pressure_diagnostics: dict[str, Any] | None = None,
         context_fingerprint: str = "",
         previous_context_fingerprint: str = "",
     ) -> ContextUsageSnapshot:
@@ -116,7 +121,7 @@ class ContextUsageMeter:
             context_fingerprint=context_fingerprint,
             previous_context_fingerprint=previous_context_fingerprint,
         )
-        pending_tokens = self._estimate_pending_tokens(
+        provider_pending_tokens = self._estimate_pending_tokens(
             pending_messages=pending_messages,
             fallback_messages=fallback_messages,
             anchor_created_at=float(getattr(anchor, "created_at", 0.0) or 0.0),
@@ -126,24 +131,33 @@ class ContextUsageMeter:
 
         if anchor is not None and not invalidation_reason and not local_newer_than_provider:
             provider_context_tokens = self._provider_context_tokens(anchor)
-            current_context_tokens = provider_context_tokens + pending_tokens
+            observed_context_tokens = provider_context_tokens + provider_pending_tokens
             estimate_mode: ContextEstimateMode = "provider_anchor"
-            anchor_valid = True
+            provider_anchor_valid = True
         elif local_anchor is not None:
             provider_context_tokens = 0
-            current_context_tokens = int(local_anchor.total_tokens or local_anchor.prompt_tokens or 0) + pending_tokens
+            observed_context_tokens = int(local_anchor.total_tokens or local_anchor.prompt_tokens or 0) + provider_pending_tokens
             if invalidation_reason:
                 estimate_mode = "local_predicted_anchor_invalid"
             elif anchor is not None and local_newer_than_provider:
                 estimate_mode = "local_predicted_newer_than_provider"
             else:
                 estimate_mode = "local_predicted_no_provider_anchor"
-            anchor_valid = False
+            provider_anchor_valid = False
         else:
             provider_context_tokens = 0
-            current_context_tokens = self._estimate_messages(fallback_messages or pending_messages or (), provider=resolved_provider, model=resolved_model)
-            estimate_mode = "empty" if current_context_tokens <= 0 else "local_predicted_no_provider_anchor"
-            anchor_valid = False
+            observed_context_tokens = self._estimate_messages(fallback_messages or pending_messages or (), provider=resolved_provider, model=resolved_model)
+            estimate_mode = "empty" if observed_context_tokens <= 0 else "local_predicted_no_provider_anchor"
+            provider_anchor_valid = False
+
+        pressure_tokens_supplied = session_pressure_tokens is not None
+        if pressure_tokens_supplied:
+            current_context_tokens = max(0, int(session_pressure_tokens or 0))
+            estimate_mode = "session_pressure"
+            pending_tokens = 0
+        else:
+            current_context_tokens = observed_context_tokens
+            pending_tokens = provider_pending_tokens
 
         pressure_level = self._pressure_level(current_context_tokens, thresholds)
         ratio = round(current_context_tokens / window, 6) if window > 0 else 0.0
@@ -186,7 +200,7 @@ class ContextUsageMeter:
             cache_hit_rate_last_10=cache_rates[10],
             cache_hit_rate_last_20=cache_rates[20],
             estimate_mode=estimate_mode,
-            anchor_valid=anchor_valid,
+            anchor_valid=provider_anchor_valid,
             invalidation_reason=invalidation_reason,
             diagnostics={
                 "record_count": len(candidate_records),
@@ -194,6 +208,11 @@ class ContextUsageMeter:
                 "candidate_scope": candidate_scope,
                 "provider_usage_record_count": len(provider_records),
                 "local_prediction_record_count": len(local_records),
+                "pressure_authority": str(session_pressure_source or "provider_accounting"),
+                "session_pressure_supplied": bool(pressure_tokens_supplied),
+                "session_pressure_tokens": max(0, int(session_pressure_tokens or 0)) if pressure_tokens_supplied else 0,
+                "provider_observed_context_tokens": max(0, int(observed_context_tokens or 0)),
+                "provider_estimated_pending_tokens": provider_pending_tokens,
                 "provider_context_tokens": provider_context_tokens,
                 "effective_anchor_source": str(getattr(effective_anchor, "source", "") or ""),
                 "effective_anchor_request_id": str(getattr(effective_anchor, "request_id", "") or ""),
@@ -201,7 +220,13 @@ class ContextUsageMeter:
                 "local_prediction_newer_than_provider": bool(local_newer_than_provider),
                 "context_fingerprint": str(context_fingerprint or ""),
                 "previous_context_fingerprint": str(previous_context_fingerprint or ""),
+                **dict(session_pressure_diagnostics or {}),
             },
+            authority=(
+                "runtime.context_management.session_pressure_snapshot"
+                if pressure_tokens_supplied
+                else "runtime.prompt_accounting.context_usage_snapshot"
+            ),
         )
 
     def _list_token_usage(self, *, session_id: str, run_id: str, task_run_id: str) -> list[ModelTokenUsageRecord]:

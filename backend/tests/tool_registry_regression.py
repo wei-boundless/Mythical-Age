@@ -26,7 +26,7 @@ def load_registry_module():
     return module
 
 
-def main() -> None:
+def test_tool_registry_snapshot_and_selection_contract() -> None:
     tool_paths = CapabilityToolPaths.from_base_dir(ROOT)
     registry_module = load_registry_module()
     registry_module.refresh_tool_registry(ROOT)
@@ -116,10 +116,8 @@ def main() -> None:
     assert runtime_registry.get_by_name("dynamic_test_tool") is fake_tool
     assert runtime_registry.get_by_name("web_search") is None
 
-    print(f"ALL PASSED ({payload['tool_count']} tools)")
-
 
 if __name__ == "__main__":
-    main()
+    test_tool_registry_snapshot_and_selection_contract()
 
 

@@ -9,7 +9,7 @@ from context_system.compaction.compactor import ContextCompactor
 from memory_system.continuity import MemoryMessageAdapter
 from memory_system.storage.models import Message
 from memory_system.storage.session_memory import SessionMemoryManager
-from runtime.context_management.session_compaction import _stored_messages_after_compact, auto_compact_session_if_needed, compact_session_history
+from runtime.context_management.session_compaction import _protocol_pressure_message, _stored_messages_after_compact, auto_compact_session_if_needed, compact_session_history
 from sessions import SessionManager
 
 
@@ -108,8 +108,10 @@ def test_session_tokens_exposes_context_meter_and_billing_totals(tmp_path: Path,
     assert "context_meter" in response
     assert "cache_metrics" in response
     assert "compaction_readiness" in response
-    assert response["context_meter"]["authority"] == "runtime.prompt_accounting.context_usage_snapshot"
+    assert response["context_meter"]["authority"] == "runtime.context_management.session_pressure_snapshot"
+    assert response["context_meter"]["estimate_mode"] == "session_pressure"
     assert response["context_meter"]["current_context_tokens"] > 0
+    assert response["context_meter"]["diagnostics"]["session_pressure"]["provider_protocol_message_count"] == 0
     assert response["context_meter"]["reserved_output_tokens"] == 65_536
     assert response["context_meter"]["input_capacity_tokens"] == 926_272
     assert response["context_meter"]["replacement_threshold_tokens"] == 900_000
@@ -122,6 +124,47 @@ def test_session_tokens_exposes_context_meter_and_billing_totals(tmp_path: Path,
     assert response["history_compaction_strategy"] in {"microcompact", "full_compact"}
     assert response["history_tokens"] < response["raw_history_tokens"]
     assert runtime.session_manager.load_session(session_id) == before
+
+
+def test_session_tokens_counts_only_provider_protocol_messages_as_protocol_pressure(tmp_path: Path, monkeypatch) -> None:
+    runtime, session_id, _old_assistant_prose = _runtime_with_session(tmp_path)
+    monkeypatch.setattr(tokens_api, "require_runtime", lambda: runtime)
+    runtime.session_manager.append_api_messages(
+        session_id,
+        [
+            {
+                "role": "assistant",
+                "turn_id": "turn:tool",
+                "tool_calls": [
+                    {
+                        "id": "call:read-file",
+                        "type": "function",
+                        "function": {"name": "read_file", "arguments": "{\"path\":\"app.py\"}"},
+                    }
+                ],
+            },
+            {
+                "role": "tool",
+                "turn_id": "turn:tool",
+                "tool_call_id": "call:read-file",
+                "content": "tool result line\n" * 80,
+            },
+        ],
+    )
+
+    response = asyncio.run(
+        tokens_api.session_tokens(
+            session_id,
+            workspace_view=None,
+            task_environment_id=None,
+            project_id=None,
+        )
+    )
+
+    pressure = response["context_meter"]["diagnostics"]["session_pressure"]
+    assert pressure["provider_protocol_message_count"] == 2
+    assert pressure["provider_protocol_tokens"] > 0
+    assert pressure["public_message_count"] == 4
 
 
 def test_auto_compact_not_applied_reports_preserved_message_count(tmp_path: Path) -> None:
@@ -139,17 +182,37 @@ def test_auto_compact_not_applied_reports_preserved_message_count(tmp_path: Path
     assert response["preserved_recent_count"] == len(runtime.session_manager.load_session(session_id))
 
 
-def test_auto_compact_if_needed_uses_active_history_pressure_when_provider_prompt_is_low(tmp_path: Path) -> None:
+def test_auto_compact_skips_when_history_compactor_is_unavailable(tmp_path: Path) -> None:
+    session_manager = SessionManager(tmp_path)
+    session_id = session_manager.create_session(title="No compactor")["id"]
+    session_manager.append_messages(session_id, [{"role": "user", "content": "hello"}])
+    runtime = SimpleNamespace(
+        session_manager=session_manager,
+        memory_facade=SimpleNamespace(),
+        settings=SimpleNamespace(static=SimpleNamespace(llm_provider="deepseek", llm_model="deepseek-v4-pro", llm_max_output_tokens=65_536)),
+    )
+
+    response = auto_compact_session_if_needed(runtime, session_id=session_id)
+
+    assert response["applied"] is False
+    assert response["skipped_reason"] == "history_compactor_unavailable"
+    assert response["preserved_recent_count"] == 1
+
+
+def test_auto_compact_if_needed_does_not_use_history_fallback_when_session_pressure_is_below_threshold(tmp_path: Path) -> None:
     runtime, session_id, _old_assistant_prose = _runtime_with_session(tmp_path)
+    original_count = len(runtime.session_manager.load_session(session_id))
 
     response = auto_compact_session_if_needed(runtime, session_id=session_id)
     record = runtime.session_manager.get_history(session_id)
 
-    assert response["applied"] is True
+    assert response["applied"] is False
+    assert response["skipped_reason"] == "below_replacement_threshold"
     assert response["pressure_level"] == "normal"
     assert response["history_pressure_level"] in {"microcompact", "full_compact"}
-    assert response["did_compact"] is True
-    assert len(record["messages"]) < response["original_message_count"]
+    assert response["context_meter"]["estimate_mode"] == "session_pressure"
+    assert response["context_meter"]["auto_replacement_allowed"] is False
+    assert len(record["messages"]) == original_count
 
 
 def test_compaction_writeback_keeps_protocol_messages_out_of_public_history() -> None:
@@ -181,6 +244,22 @@ def test_compaction_writeback_keeps_protocol_messages_out_of_public_history() ->
         {"role": "assistant", "content": "我看到文件里已经有一部分 timer 递减代码了。"},
         {"role": "assistant", "content": "好的，我来进入持续执行流程。"},
     ]
+
+
+def test_protocol_pressure_reasoning_only_does_not_duplicate_public_content() -> None:
+    projected, stats = _protocol_pressure_message(
+        {
+            "role": "assistant",
+            "content": "visible final answer already lives in public history",
+            "reasoning_content": "private reasoning estimate",
+        }
+    )
+
+    assert projected == {
+        "role": "assistant",
+        "reasoning_content": "private reasoning estimate",
+    }
+    assert stats["bounded_chars"] == len("private reasoning estimate")
 
 
 def _runtime_with_session(tmp_path: Path):

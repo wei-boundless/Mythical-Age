@@ -638,6 +638,36 @@ def test_public_stream_projection_emits_live_tool_admission_delta() -> None:
     assert item["public_summary"] == "正在更新文件 artifacts/football.html"
 
 
+def test_public_stream_projection_emits_agent_feedback_before_tool_action() -> None:
+    projected = _project_public_stream_event(
+        "model_action_admission",
+        {
+            "type": "model_action_admission",
+            "event": {
+                "event_id": "rtevt:agent-feedback-before-tool",
+                "payload": {
+                    "model_action_request": {
+                        "action_type": "tool_call",
+                        "public_progress_note": "我先定位主页面里动画循环的真实引用，再判断要改哪里。",
+                        "tool_call": {
+                            "name": "search_text",
+                            "args": {"query": "requestAnimationFrame"},
+                        },
+                    },
+                },
+            },
+        },
+    )
+
+    assert projected is not None
+    _, data = projected
+    items = data["public_timeline_delta"]
+    assert [item["kind"] for item in items] == ["opening_judgment", "work_action"]
+    assert items[0]["text"] == "我先定位主页面里动画循环的真实引用，再判断要改哪里。"
+    assert items[1]["action_kind"] == "search"
+    assert items[1]["public_summary"] == "正在搜索引用 requestAnimationFrame"
+
+
 def test_public_stream_projection_simplifies_image_generation_tool() -> None:
     projected = _project_public_stream_event(
         "model_action_admission",
@@ -670,6 +700,37 @@ def test_public_stream_projection_simplifies_image_generation_tool() -> None:
     assert item["public_summary"] == "正在生成图像"
     assert "image_generate" not in visible
     assert "正在等待工具返回" not in visible
+
+
+def test_public_stream_projection_emits_agent_analysis_after_tool_result() -> None:
+    projected = _project_public_stream_event(
+        "runtime_step_summary",
+        {
+            "type": "runtime_step_summary",
+            "step": "model_action_received:3",
+            "status": "running",
+            "public_progress_note": "已确认动画循环只在入口页面使用，下一步改入口组件即可。",
+            "current_judgment": "已确认动画循环只在入口页面使用。",
+            "event": {
+                "event_id": "rtevt:model-analysis",
+                "payload": {
+                    "step": "model_action_received:3",
+                    "public_progress_note": "已确认动画循环只在入口页面使用，下一步改入口组件即可。",
+                    "public_action_state": {
+                        "current_judgment": "已确认动画循环只在入口页面使用。",
+                        "next_action": "修改入口组件并验证画面。",
+                    },
+                },
+            },
+        },
+    )
+
+    assert projected is not None
+    _, data = projected
+    item = data["public_timeline_delta"][0]
+    assert item["kind"] == "observation_report"
+    assert item["detail"] == "已确认动画循环只在入口页面使用。"
+    assert item["implication"] == "修改入口组件并验证画面。"
 
 
 def test_public_stream_projection_emits_live_tool_result_delta() -> None:
@@ -708,7 +769,7 @@ def test_public_stream_projection_emits_live_tool_result_delta() -> None:
     assert item["kind"] == "work_action"
     assert item["title"] == "已确认目标"
     assert item["subject_label"] == "artifacts/football.html"
-    assert item["observation"] == "观察：目标路径存在"
+    assert item["observation"] == "目标路径存在"
 
 
 def test_public_stream_projection_summarizes_memory_search_without_internal_payload() -> None:
@@ -748,11 +809,47 @@ def test_public_stream_projection_summarizes_memory_search_without_internal_payl
     assert item["kind"] == "work_action"
     assert item["title"] == "记忆检索已返回"
     assert item["subject_label"] == "相关记忆"
-    assert item["observation"] == "观察：记忆检索命中 2 条相关记录"
+    assert item["observation"] == "记忆检索命中 2 条相关记录"
     assert "formal_memory.memory_search_tool" not in visible
     assert "diagnostics" not in visible
     assert "matched_version_count" not in visible
     assert "memory_search" not in visible
+
+
+def test_public_stream_projection_summarizes_search_results_as_observation() -> None:
+    projected = _project_public_stream_event(
+        "turn_tool_observation_recorded",
+        {
+            "type": "turn_tool_observation_recorded",
+            "event": {
+                "event_id": "rtevt:search-result",
+                "payload": {
+                    "tool_observation": {
+                        "tool_name": "search_text",
+                        "status": "ok",
+                        "text": "requestAnimationFrame",
+                        "result_envelope": {
+                            "tool_args": {"query": "requestAnimationFrame"},
+                            "structured_payload": {
+                                "matched_paths": [
+                                    "frontend/src/app/game/page.tsx",
+                                    "frontend/src/app/game/loop.ts",
+                                ],
+                            },
+                        },
+                    },
+                },
+            },
+        },
+    )
+
+    assert projected is not None
+    _, data = projected
+    item = data["public_timeline_delta"][0]
+    assert item["kind"] == "work_action"
+    assert item["action_kind"] == "search"
+    assert item["public_summary"] == "已搜索引用 requestAnimationFrame"
+    assert item["observation"] == "已找到相关引用：frontend/src/app/game/page.tsx、frontend/src/app/game/loop.ts"
 
 
 def test_public_stream_projection_hides_sandbox_boundary_command_failures() -> None:

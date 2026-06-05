@@ -31581,7 +31581,7 @@ html[data-workspace-tone] .agent-workbench {
   grid-column: 1;
   width: min(100%, 1240px);
   max-width: 1240px;
-  justify-self: end;
+  justify-self: start;
   color: #0f172a;
   font-family: "Source Han Sans SC", "Noto Sans CJK SC", "PingFang SC", "Microsoft YaHei", ui-sans-serif, system-ui, sans-serif;
   font-size: 15px;
@@ -31615,7 +31615,7 @@ html[data-workspace-tone] .agent-workbench {
 .agent-workbench .public-run-activity,
 .agent-workbench .chat-image-message {
   grid-column: 1;
-  justify-self: end;
+  justify-self: start;
 }
 
 .agent-workbench .public-run-activity {
@@ -34045,11 +34045,11 @@ body {
 
 .agent-workbench .public-run-activity {
   display: grid;
-  width: min(100%, 74ch);
-  max-width: 74ch;
-  justify-self: end;
+  width: min(100%, 1240px);
+  max-width: 1240px;
+  justify-self: start;
   gap: 6px;
-  margin: 0 0 6px;
+  margin: -2px 0 6px;
   border: 0;
   border-radius: 0;
   background: transparent;
@@ -34081,15 +34081,15 @@ body {
 .agent-workbench .public-run-activity__todo-head p {
   margin: 0;
   color: #243042;
-  font-size: 12.5px;
+  font-size: 13px;
   font-weight: 520;
-  line-height: 1.58;
+  line-height: 1.68;
   overflow-wrap: anywhere;
 }
 
 .agent-workbench .public-run-activity__line--action p {
   color: #66758a;
-  font-size: 12px;
+  font-size: 12.5px;
   font-weight: 460;
 }
 

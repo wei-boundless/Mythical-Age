@@ -95,6 +95,73 @@ def build_public_chat_timeline(
     return items
 
 
+def build_public_chat_timeline_from_progress_entries(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    items: list[dict[str, Any]] = []
+    index_by_key: dict[str, int] = {}
+    has_opening = False
+    for entry in entries:
+        kind = _text(entry.get("kind"))
+        level = _text(entry.get("level"))
+        state = "error" if level == "error" else "done" if level == "success" else "running"
+        refs = [_text(entry.get("id"))] if _text(entry.get("id")) else []
+
+        if kind == "tool":
+            target = _progress_entry_tool_target(entry)
+            body = _visible_text(entry.get("body") or entry.get("agentBrief") or entry.get("publicNote"), limit=220)
+            item = public_work_action_item(
+                item_id=_progress_entry_work_action_id(entry),
+                tool_name=_text(entry.get("toolName")),
+                raw_target=target,
+                summary=target or body or entry.get("title"),
+                observation="" if state == "done" and _looks_like_tool_success_text(body) else body,
+                state=state,
+                trace_refs=refs,
+            )
+            if item:
+                _append_or_replace_progress_item(items, index_by_key, item)
+            continue
+
+        body = _visible_text(entry.get("body") or entry.get("agentBrief") or entry.get("publicNote") or entry.get("title"), limit=220)
+        if not body:
+            continue
+        if kind == "model" and not has_opening and not items:
+            item = {
+                "item_id": _progress_entry_item_id(entry),
+                "kind": "opening_judgment",
+                "title": "开局判断",
+                "text": body,
+                "state": state,
+                "trace_refs": refs,
+            }
+            has_opening = True
+        elif kind == "model":
+            item = public_observation_report_item(
+                item_id=_progress_entry_item_id(entry),
+                detail=body,
+                state=state,
+                trace_refs=refs,
+            )
+        elif state == "error" and kind in {"observation", "runtime_progress", "system"}:
+            item = {
+                "item_id": _progress_entry_item_id(entry),
+                "kind": "blocked",
+                "text": body,
+                "state": "error",
+                "trace_refs": refs,
+            }
+        else:
+            item = {
+                "item_id": _progress_entry_item_id(entry),
+                "kind": "status_update",
+                "title": _visible_text(entry.get("title"), limit=80) or body,
+                "detail": body if body != _visible_text(entry.get("title"), limit=80) else "",
+                "state": state,
+                "trace_refs": refs,
+            }
+        _append_or_replace_progress_item(items, index_by_key, _compact(item))
+    return items
+
+
 def public_todo_plan_item(plan: dict[str, Any]) -> dict[str, Any]:
     todo_plan = _record(plan)
     items = [_public_todo_item(item) for item in list(todo_plan.get("items") or []) if isinstance(item, dict)]
@@ -289,6 +356,18 @@ def _append_item(items: list[dict[str, Any]], seen: set[str], item: dict[str, An
     items.append(item)
 
 
+def _append_or_replace_progress_item(items: list[dict[str, Any]], index_by_key: dict[str, int], item: dict[str, Any]) -> None:
+    key = _dedupe_key(item)
+    if not key:
+        return
+    existing_index = index_by_key.get(key)
+    if existing_index is not None:
+        items[existing_index] = {**items[existing_index], **item}
+        return
+    index_by_key[key] = len(items)
+    items.append(item)
+
+
 def _dedupe_key(item: dict[str, Any]) -> str:
     item_id = _text(item.get("item_id"))
     if item_id:
@@ -423,6 +502,51 @@ def _stable_id(prefix: str, refs: list[str], title: str, detail: str) -> str:
     seed = "|".join([prefix, _text(title), _text(detail)])
     digest = sha1(seed.encode("utf-8", errors="ignore")).hexdigest()[:16]
     return f"{prefix}:{digest}"
+
+
+def _progress_entry_item_id(entry: dict[str, Any]) -> str:
+    entry_id = _text(entry.get("id"))
+    return f"turn-progress:{entry_id}" if entry_id else _stable_id("turn-progress", [], _text(entry.get("title")), _text(entry.get("body")))
+
+
+def _progress_entry_work_action_id(entry: dict[str, Any]) -> str:
+    scope = _text(entry.get("taskRunId") or entry.get("runId"))
+    tool_name = _text(entry.get("toolName"))
+    target = _progress_entry_tool_target(entry)
+    family = _progress_entry_tool_family(tool_name)
+    seed = f"work-action|{scope or family}|{family}|{target or tool_name or entry.get('title')}"
+    digest = sha1(seed.encode("utf-8", errors="ignore")).hexdigest()[:16]
+    return f"work-action:{digest}"
+
+
+def _progress_entry_tool_target(entry: dict[str, Any]) -> str:
+    for item in list(entry.get("meta") or []):
+        if not isinstance(item, dict):
+            continue
+        if _text(item.get("label")) != "目标":
+            continue
+        value = _visible_text(item.get("value"), limit=240)
+        if value:
+            return value
+    return _visible_text(entry.get("body") or entry.get("title"), limit=240)
+
+
+def _progress_entry_tool_family(tool_name: str) -> str:
+    normalized = _text(tool_name).lower()
+    if any(item in normalized for item in ("write", "edit", "patch")):
+        return "write"
+    if "read" in normalized:
+        return "read"
+    if any(item in normalized for item in ("terminal", "shell", "command")):
+        return "run"
+    if "search" in normalized:
+        return "search"
+    return "tool"
+
+
+def _looks_like_tool_success_text(value: str) -> bool:
+    text = _text(value).lower()
+    return text.startswith(("write succeeded", "read succeeded", "tool succeeded", "success:"))
 
 
 def _visible_id(value: Any) -> str:

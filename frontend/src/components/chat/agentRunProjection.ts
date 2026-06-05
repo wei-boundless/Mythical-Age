@@ -1,15 +1,9 @@
 import type { PublicChatTimelineItem } from "@/lib/api";
-import { normalizePublicTimelineItems, publicTimelineItemKey } from "@/lib/store/publicTimeline";
 import {
-  actionSentence as presentedActionSentence,
-  actionViewForTimelineItem,
-  cleanRunText,
-  compactPathLabel,
-  sameRunText,
-  shortRunText,
-  stateClassForTimelineItem,
-  timelineItemText,
-} from "@/components/chat/agentRunPresentation";
+  normalizePublicTimelineItems,
+  publicTimelineItemKey,
+  publicTimelineSemanticKey,
+} from "@/lib/store/publicTimeline";
 
 export type AgentRunProjectionTone = "running" | "done" | "waiting" | "stopped" | "soft_error";
 
@@ -137,13 +131,13 @@ export function projectAgentRun(items: PublicChatTimelineItem[], assistantConten
   let tone: AgentRunProjectionTone = "done";
 
   if (waitingItem) {
-    feedback = waitingText(waitingItem);
+    feedback = statusText(waitingItem);
     tone = "waiting";
   } else if (latestError && (!latestLive || itemPosition(publicItems, latestError) >= itemPosition(publicItems, latestLive))) {
-    feedback = errorFeedbackText(latestError);
+    feedback = feedbackText(latestError);
     tone = "soft_error";
   } else if (latestLive && (!latestFeedback || itemPosition(publicItems, latestLive) > itemPosition(publicItems, latestFeedback))) {
-    liveAction = naturalActionSentence(latestLive);
+    liveAction = actionText(latestLive);
     tone = "running";
   } else if (latestFeedback) {
     feedback = feedbackText(latestFeedback);
@@ -200,10 +194,8 @@ function shouldProjectItem(item: PublicChatTimelineItem, assistantContent: strin
 }
 
 function directAssistantText(items: PublicChatTimelineItem[], assistantContent: string) {
-  const item = [...items].reverse().find((candidate) => {
-    const kind = kindOf(candidate);
-    return kind === "opening_judgment" || kind === "assistant_text";
-  });
+  const item = items.find((candidate) => kindOf(candidate) === "opening_judgment")
+    ?? [...items].reverse().find((candidate) => kindOf(candidate) === "assistant_text");
   const text = cleanBoundaryText(item?.text || item?.detail || item?.title);
   if (!text || isRoutineAssistantTimelineText(text) || looksLikeRawToolOutput(text)) {
     return "";
@@ -246,150 +238,28 @@ function latestFeedbackItem(items: PublicChatTimelineItem[]) {
 
 function feedbackText(item: PublicChatTimelineItem) {
   if (kindOf(item) === "observation_report") {
-    const detail = readableToolObservation(item.detail || item.text || item.title || "当前事实已记录。");
-    return sentence(withNextStepFact(detail, item.implication || item.next_step));
+    return sentence(withNextStepFact(
+      firstProjectionText([item.detail, item.text, item.public_summary, item.title]),
+      item.implication || item.next_step,
+    ));
   }
-  if (stateClass(item) === "error") {
-    return errorFeedbackText(item);
-  }
-  return withNextStepFact(naturalResultFact(actionDisplay(item), item), item.next_step);
-}
-
-function errorFeedbackText(item: PublicChatTimelineItem) {
-  const action = actionDisplay(item);
   if (kindOf(item) === "blocked") {
-    return sentence(blockedFact(textOfItem(item), item.recovery_hint));
+    return sentence(withNextStepFact(
+      firstProjectionText([item.text, item.detail, item.recovery_hint]),
+      item.next_step,
+    ));
   }
-  const raw = genericObservation(action.observation)
-    ? presentedActionSentence(item, "current") || item.recovery_hint || "当前步骤没有执行成功，我会换一种方式继续。"
-    : action.observation || presentedActionSentence(item, "current") || item.recovery_hint || "当前步骤没有执行成功，我会换一种方式继续。";
-  return sentence(blockedFact(raw));
+  if (hasSuppressedPrimaryResult(item)) {
+    return "";
+  }
+  return sentence(withNextStepFact(
+    resultProjectionText(item),
+    item.next_step,
+  ));
 }
 
-function naturalActionSentence(item: PublicChatTimelineItem) {
-  const kind = kindOf(item);
-  if (kind !== "tool_activity" && kind !== "work_action") {
-    return sentence(item.text || item.detail || item.title || "我正在同步当前处理进展。");
-  }
-  const action = actionDisplay(item);
-  const target = visibleActionTarget(action.detail);
-  if (action.kind === "read") {
-    return target
-      ? `我先${objectText("读取", target)}，把判断建立在真实上下文上。`
-      : "我先补齐上下文，避免凭空判断。";
-  }
-  if (action.kind === "search") {
-    return target
-      ? `我先${objectText("搜索", target)}，定位真正影响输出的位置。`
-      : "我先定位调用链，找到真正影响输出的位置。";
-  }
-  if (action.kind === "inspect") {
-    return target
-      ? `我先确认${/[A-Za-z0-9_.\\/:-]/.test(target) ? ` ${target}` : target} 的状态，避免后续动作偏离目标。`
-      : "我先确认目标状态，再决定下一步动作。";
-  }
-  if (action.kind === "write" || action.kind === "edit") {
-    return target
-      ? `我会${objectText("更新", target)}，再用结果验证一遍。`
-      : "我会先把改动落下去，再用结果验证一遍。";
-  }
-  if (action.kind === "run" || action.kind === "verify") {
-    if (target && /测试$/.test(target)) {
-      return `我正在跑${target}，用结果判断是否还要继续修正。`;
-    }
-    return target
-      ? `我正在${objectText("验证", target)}，用结果判断是否还要继续修正。`
-      : "我正在验证当前状态，用结果判断是否还要继续修正。";
-  }
-  if (action.kind === "memory") {
-    return "我先接上相关记忆，把前面的要求纳入当前判断。";
-  }
-  if (action.kind === "prepare") {
-    return target
-      ? `我先${objectText("准备", target)}，让后续产物有明确落点。`
-      : "我先准备输出位置，让后续产物有明确落点。";
-  }
-  if (action.kind === "browse") {
-    return target
-      ? `我先${objectText("读取", target)}，把判断建立在真实资料上。`
-      : "我先读取相关页面，把判断建立在真实资料上。";
-  }
-  if (action.kind === "image") {
-    return "正在生成图像，拿到结果后会确认是否可用。";
-  }
-  return target
-    ? `我先${objectText("处理", target)}，拿到结果后再给你明确判断。`
-    : "我已经接上当前任务，先确认关键事实，再给你明确判断。";
-}
-
-function naturalResultFact(action: ReturnType<typeof actionDisplay>, item: PublicChatTimelineItem) {
-  const itemRawObservation = item.observation || item.detail || item.text || "";
-  if (looksLikeRawToolOutput(itemRawObservation)) {
-    if (rawCopiedPaths(itemRawObservation).length) {
-      return sentence(readableToolObservation(itemRawObservation, action.detail));
-    }
-    if (action.kind === "memory") {
-      return "相关记忆已返回，下一步会纳入判断。";
-    }
-    if (action.kind === "verify" || action.kind === "run") {
-      return "验证已返回，需要根据结果判断是否继续修正。";
-    }
-    return sentence(readableToolObservation(itemRawObservation, action.detail));
-  }
-  const raw = readableToolObservation(action.observation, action.detail, presentedActionSentence(item, "history"));
-  if (/关键上下文已拿到|已读到关键信息/.test(raw)) {
-    return action.detail
-      ? `已${objectText("读到", action.detail)}，下一步可以基于文件事实判断。`
-      : "已读到关键上下文，下一步可以基于文件事实判断。";
-  }
-  if (/相关引用已定位|已定位相关线索/.test(raw)) {
-    return action.detail
-      ? `已定位到${/[A-Za-z0-9_.\\/:-]/.test(action.detail) ? ` ${action.detail}` : action.detail} 的相关线索，下一步会收敛到真正的改动点。`
-      : "已定位到相关线索，下一步会收敛到真正的改动点。";
-  }
-  if (/下的相关文件/.test(raw)) {
-    return sentence(raw);
-  }
-  if (/目标状态已确认|已确认/.test(raw) && action.kind === "inspect") {
-    return action.detail ? `已确认${/[A-Za-z0-9_.\\/:-]/.test(action.detail) ? ` ${action.detail}` : action.detail} 的当前状态。` : "已确认目标当前状态。";
-  }
-  if (/记忆检索已返回/.test(raw)) {
-    return "相关记忆已返回，下一步会纳入判断。";
-  }
-  if (/输出准备/.test(raw)) {
-    return "输出准备已确认，可以继续推进。";
-  }
-  if (/图像生成已返回/.test(raw)) {
-    return "图像生成已返回，下一步会确认产物是否可用。";
-  }
-  return sentence(raw);
-}
-
-function readableToolObservation(value: string, target = "", fallback = "") {
-  const observation = stripPublicFeedbackLabel(value);
-  const rawObservation = friendlyRawToolObservation(observation, target);
-  if (rawObservation) {
-    return rawObservation;
-  }
-  if (observation && !genericObservation(observation)) {
-    return observation;
-  }
-  const fallbackText = stripPublicFeedbackLabel(fallback);
-  const rawFallback = friendlyRawToolObservation(fallbackText, target);
-  if (rawFallback) {
-    return rawFallback;
-  }
-  if (fallbackText && !/动作已返回|结果已返回|执行动作|处理步骤/.test(fallbackText)) {
-    return fallbackText;
-  }
-  const targetText = cleanText(target);
-  return targetText
-    ? `${targetText} 已返回，我会据此推进下一步。`
-    : "结果已返回，我会据此推进下一步。";
-}
-
-function genericObservation(value: string) {
-  return /(?:动作|结果)已返回，继续根据结果推进下一步|当前(?:动作|步骤).*(?:路径|权限|输入).*继续/.test(value);
+function actionText(item: PublicChatTimelineItem) {
+  return sentence(firstProjectionText([item.public_summary, item.text, item.detail, item.title, item.subject_label]));
 }
 
 function closeoutText(items: PublicChatTimelineItem[], assistantContent: string) {
@@ -397,14 +267,14 @@ function closeoutText(items: PublicChatTimelineItem[], assistantContent: string)
   if (!final) return "";
   const state = stateClass(final);
   if (state === "error") {
-    return sentence(blockedFact(final.recovery_hint || textOfItem(final)));
+    return sentence(firstProjectionText([final.recovery_hint, textOfItem(final)]));
   }
   const text = stripPublicFeedbackLabel(final.text || final.detail || final.title || final.path || final.href);
   if (!text || samePublicText(text, assistantContent) || looksLikeRawToolOutput(text)) {
     return "";
   }
   if (kindOf(final) === "artifact") {
-    return sentence(final.title || "产物已生成");
+    return sentence(firstProjectionText([final.title, final.detail, final.path, final.href]));
   }
   return sentence(text);
 }
@@ -448,41 +318,64 @@ function todoProjectionForItem(item: PublicChatTimelineItem): TodoProjection {
   };
 }
 
-function waitingText(item: PublicChatTimelineItem) {
-  return sentence(item.detail || item.text || "当前任务已停在可继续状态，接上后会沿用现有进度。");
-}
-
 function stoppedText(item: PublicChatTimelineItem) {
-  return sentence(item.detail || item.text || item.title || "本轮已停止，当前运行不会继续推进。");
+  return sentence(firstProjectionText([item.detail, item.text, item.title]));
 }
 
-function blockedFact(value: unknown, fallback = "") {
-  const text = stripPublicFeedbackLabel(value) || stripPublicFeedbackLabel(fallback);
-  if (looksLikePersistedToolResultFailure(text)) {
-    return "上一段执行结果没有成功读回，我会重新获取可用结果后继续判断。";
-  }
-  if (/not allowlisted read-only|read-only validator|unsupported read-only/i.test(text)) {
-    return "命令被只读权限拦截，我会改用允许的读取方式继续。";
-  }
-  if (/shell command uses control operators/i.test(text)) {
-    return "命令被安全规则拦截，我会拆成更简单的步骤继续。";
-  }
-  if (/path traversal detected/i.test(text)) {
-    return "路径被安全规则拦截，我会改用项目内可访问路径继续。";
-  }
-  if (/当前(?:动作|步骤).*(?:路径|权限|输入).*继续/.test(text)) {
-    return "当前步骤没有执行成功，我会换一种方式继续。";
-  }
-  if (/permission|denied|权限|拒绝/.test(text)) {
-    return "当前权限不足，我会改用允许的路径或方式继续。";
-  }
-  return text || "这一步没有执行成功，我会换一种方式继续。";
+function statusText(item: PublicChatTimelineItem) {
+  return sentence(firstProjectionText([item.detail, item.text, item.public_summary, item.title]));
 }
 
 function stripPublicFeedbackLabel(value: unknown) {
   return cleanText(value)
     .replace(/^(?:观察结果|观察报告|观察)[：:\s]*/u, "")
     .replace(/^工具返回失败[：:\s]*/u, "结果返回失败：")
+    .trim();
+}
+
+function projectionText(value: unknown) {
+  const text = stripMachineFragments(stripPublicFeedbackLabel(value));
+  if (!text || looksLikeRawToolOutput(text) || looksLikeToolPlaceholder(text) || looksLikeRawCommandText(text)) {
+    return "";
+  }
+  return text;
+}
+
+function firstProjectionText(values: unknown[]) {
+  for (const value of values) {
+    const text = projectionText(value);
+    if (text) return text;
+  }
+  return "";
+}
+
+function resultProjectionText(item: PublicChatTimelineItem) {
+  const result = firstProjectionText([item.observation, item.detail, item.text, item.recovery_hint]);
+  if (!result || sameExactPublicText(result, item.public_summary) || sameExactPublicText(result, item.title)) {
+    return "";
+  }
+  return result;
+}
+
+function hasSuppressedPrimaryResult(item: PublicChatTimelineItem) {
+  return [item.observation, item.detail, item.text].some((value) => {
+    const text = cleanText(value);
+    return Boolean(text && !projectionText(text));
+  });
+}
+
+function stripMachineFragments(value: string) {
+  const text = cleanText(value);
+  if (!text) return "";
+  return text
+    .replace(/\bstorage[\\/]+task_environments[\\/]+[^\\/]+[\\/]+(?:workspace|vibe-workspace)[\\/]+/gi, "")
+    .replace(/\b(?:rtevt|taskrun|turnrun|toolobs|toolinv|rtpacket):[^\s，。；;]+/gi, "")
+    .replace(/\b(?:agent_turn_terminal|runtime_invocation_packet_compiled|task_execution_packet_compiled|step_summary_recorded)\b/gi, "")
+    .replace(/[（(]\s*[a-z][a-z0-9]*(?:_[a-z0-9]+){2,}\s*[）)]/gi, "")
+    .replace(/[：:]\s*[a-z][a-z0-9]*(?:_[a-z0-9]+){2,}[。.]?$/gi, "")
+    .replace(/\s+[a-z][a-z0-9]*(?:_[a-z0-9]+){2,}[。.]?$/gi, "")
+    .replace(/[：:\s]+$/g, "")
+    .replace(/\s+/g, " ")
     .trim();
 }
 
@@ -494,25 +387,23 @@ function cleanText(value: unknown) {
   return cleanRunText(value);
 }
 
+function cleanRunText(value: unknown) {
+  return String(value ?? "").replace(/\s+/g, " ").trim();
+}
+
 function short(value: unknown, limit = 220) {
   return shortRunText(value, limit);
 }
 
+function shortRunText(value: unknown, limit = 220) {
+  const text = cleanRunText(value);
+  return text.length > limit ? `${text.slice(0, Math.max(1, limit - 1))}...` : text;
+}
+
 function sentence(value: unknown) {
-  const text = short(stripPublicFeedbackLabel(value), 240);
+  const text = short(projectionText(value), 240);
   if (!text) return "";
-  if (looksLikeRawToolOutput(text)) {
-    return friendlyRawToolObservation(text) || "";
-  }
   return /[。！？.!?]$/.test(text) ? text : `${text}。`;
-}
-
-function objectText(verb: string, target: string) {
-  return /[A-Za-z0-9_.\\/:-]/.test(target) ? `${verb} ${target}` : `${verb}${target}`;
-}
-
-function actionDisplay(item: PublicChatTimelineItem) {
-  return actionViewForTimelineItem(item);
 }
 
 function kindOf(item: PublicChatTimelineItem | null | undefined) {
@@ -520,40 +411,28 @@ function kindOf(item: PublicChatTimelineItem | null | undefined) {
 }
 
 function stateClass(item: PublicChatTimelineItem) {
-  return stateClassForTimelineItem(item);
+  const state = cleanText(item.state).toLowerCase();
+  if (["stopped", "aborted", "user_aborted", "cancelled", "canceled"].includes(state)) return "stopped";
+  if (["error", "failed", "blocked", "missing"].includes(state) || item.kind === "blocked") return "error";
+  if (["done", "ready", "passed", "success"].includes(state)) return "done";
+  return "running";
 }
 
 function textOfItem(item: PublicChatTimelineItem) {
-  return timelineItemText(item);
+  return cleanText(item.public_summary || item.observation || item.text || item.detail || item.title || item.subject_label || item.path || item.href);
 }
 
 function samePublicText(left: unknown, right: unknown) {
-  return sameRunText(left, right);
+  const leftText = cleanText(left);
+  const rightText = cleanText(right);
+  if (!leftText || !rightText) return false;
+  return leftText === rightText || leftText.includes(rightText) || rightText.includes(leftText);
 }
 
-function friendlyRawToolObservation(value: unknown, target = "") {
-  const text = cleanText(value);
-  if (!text || !looksLikeRawToolOutput(text)) {
-    return "";
-  }
-  const copied = rawCopiedPaths(text);
-  if (copied.length) {
-    return copied.length > 1
-      ? `已复制 ${copied.length} 个素材文件，下一步会确认目标页面是否能正确引用。`
-      : "已复制素材文件，下一步会确认目标页面是否能正确引用。";
-  }
-  if (looksLikePersistedToolResultFailure(text)) {
-    return "上一段执行结果没有成功读回，我会重新获取可用结果后继续判断。";
-  }
-  const subject = cleanText(target) || rawFileListingSubject(text);
-  if (rawFileListingPaths(text).length) {
-    return subject
-      ? `已确认 ${subject} 下的相关文件，下一步会收敛到需要查看的具体文件。`
-      : "已确认相关文件列表，下一步会收敛到需要查看的具体文件。";
-  }
-  return subject
-    ? `${subject} 的返回结果已确认，下一步会基于可用信息继续判断。`
-    : "结果已返回，下一步会基于可用信息继续判断。";
+function sameExactPublicText(left: unknown, right: unknown) {
+  const leftText = projectionText(left);
+  const rightText = projectionText(right);
+  return Boolean(leftText && rightText && leftText === rightText);
 }
 
 export function looksLikeRawToolOutput(value: unknown) {
@@ -565,8 +444,28 @@ export function looksLikeRawToolOutput(value: unknown) {
     || /\b(?:not allowlisted read-only|read-only validator|unsupported read-only)\b/i.test(text)
     || /\b\d+\s+bytes\s+(?:file|directory|dir)\b/i.test(text)
     || /\b(?:Exit code|Wall time|Output):/i.test(text)
+    || looksLikeRawCommandText(text)
     || /\b(?:authority|diagnostics|matched_version_count|candidate_version_count|result_envelope|structured_payload)\b/i.test(text)
     || ((text.startsWith("{") && text.endsWith("}")) || (text.startsWith("[") && text.endsWith("]")));
+}
+
+function looksLikeToolPlaceholder(value: string) {
+  const text = cleanText(value);
+  if (!text) return true;
+  return /^已发起工具调用，正在等待工具返回[：:]/.test(text)
+    || /^已经过工具调用，正在等待工具返回[：:]/.test(text)
+    || /^正在调用(?:\s|工具|$)/i.test(text)
+    || /^工具已完成\s+/i.test(text)
+    || /^工具失败\s+/i.test(text)
+    || /^true$|^false$|^null$|^none$|^ok$|^success$|^done$|^completed$|^running$|^working$/i.test(text);
+}
+
+function looksLikeRawCommandText(value: string) {
+  const text = String(value || "").trim();
+  if (!text) return false;
+  return /\b(New-Item|Set-Content|Get-Content|Remove-Item|Move-Item|Copy-Item|npm|pnpm|yarn|pytest|python|powershell|cmd\s*\/c|git|rg|grep|mkdir|touch)\b/i.test(text)
+    || /\s-(?:ItemType|Path|Recurse|Force|Filter|Pattern|Command)\b/i.test(text)
+    || /[;&|]{1,2}/.test(text);
 }
 
 function looksLikePersistedToolResultFailure(value: unknown) {
@@ -634,29 +533,6 @@ function shortCommandOutput(value: unknown, limit = 2400) {
   return text.length > limit ? `${text.slice(0, Math.max(1, limit - 1))}...` : text;
 }
 
-function rawFileListingSubject(value: unknown) {
-  const paths = rawFileListingPaths(value);
-  if (!paths.length) return "";
-  return compactPathLabel(commonParentDirectory(paths) || paths[0], 80);
-}
-
-function commonParentDirectory(paths: string[]) {
-  const splitPaths = paths
-    .map((path) => path.replace(/\\/g, "/").split("/").filter(Boolean))
-    .filter((parts) => parts.length > 1)
-    .map((parts) => parts.slice(0, -1));
-  if (!splitPaths.length) return "";
-  const common: string[] = [];
-  for (let index = 0; index < splitPaths[0].length; index += 1) {
-    const part = splitPaths[0][index];
-    if (!part || splitPaths.some((candidate) => candidate[index] !== part)) {
-      break;
-    }
-    common.push(part);
-  }
-  return common.join("/");
-}
-
 function feedbackSupersedesRunningAction(
   feedback: PublicChatTimelineItem | null,
   running: PublicChatTimelineItem,
@@ -680,55 +556,30 @@ function observationMatchesAction(
   observation: PublicChatTimelineItem,
   running: PublicChatTimelineItem,
 ) {
-  const action = actionDisplay(running);
-  const text = cleanText([
+  const observationText = cleanText([
     observation.detail,
     observation.text,
     observation.implication,
+    observation.public_summary,
     observation.title,
   ].filter(Boolean).join(" "));
-  if (!text) {
-    return false;
-  }
-  if (action.kind === "verify" || action.kind === "run") {
-    return /(?:验证|测试|命令|运行).*(?:返回|完成|通过|失败|未完成)/.test(text);
-  }
-  if (action.kind === "read") {
-    return /(?:已读到|读取|上下文|关键上下文)/.test(text);
-  }
-  if (action.kind === "search") {
-    return /(?:已定位|搜索|引用|线索|命中)/.test(text);
-  }
-  if (action.kind === "inspect") {
-    return /(?:已确认|目标状态|路径|存在|不存在)/.test(text);
-  }
-  if (action.kind === "edit" || action.kind === "write") {
-    return /(?:更新|写入|编辑|文件).*(?:返回|完成|已)/.test(text);
-  }
-  if (action.kind === "memory") {
-    return /(?:记忆|memory).*(?:返回|命中|检索)/i.test(text);
-  }
-  if (action.kind === "image") {
-    return /(?:图像|图片|生成).*(?:返回|完成|失败)/.test(text);
-  }
-  if (action.kind === "prepare") {
-    return /(?:准备|输出).*(?:返回|完成|确认)/.test(text);
-  }
-  return false;
+  return hasMeaningfulTextOverlap(observationText, itemFingerprintText(running));
 }
 
 function sameActionFingerprint(left: PublicChatTimelineItem, right: PublicChatTimelineItem) {
-  const leftAction = actionDisplay(left);
-  const rightAction = actionDisplay(right);
-  if (leftAction.kind !== rightAction.kind) {
-    return false;
+  const leftSemantic = publicTimelineSemanticKey(left);
+  const rightSemantic = publicTimelineSemanticKey(right);
+  if (leftSemantic && rightSemantic && leftSemantic === rightSemantic) {
+    return true;
   }
-  const leftTarget = comparableActionTarget(leftAction.detail);
-  const rightTarget = comparableActionTarget(rightAction.detail);
-  if (leftTarget && rightTarget) {
-    return leftTarget === rightTarget;
+  const leftKind = cleanText(left.action_kind);
+  const rightKind = cleanText(right.action_kind);
+  const leftSubject = normalizedComparableText(left.subject_label);
+  const rightSubject = normalizedComparableText(right.subject_label);
+  if (leftKind && rightKind && leftKind === rightKind && leftSubject && rightSubject) {
+    return leftSubject === rightSubject;
   }
-  return ["verify", "run", "memory", "image", "prepare"].includes(leftAction.kind);
+  return hasMeaningfulTextOverlap(itemFingerprintText(left), itemFingerprintText(right));
 }
 
 function sharesTraceRef(left: PublicChatTimelineItem, right: PublicChatTimelineItem) {
@@ -739,19 +590,6 @@ function sharesTraceRef(left: PublicChatTimelineItem, right: PublicChatTimelineI
   return (right.trace_refs ?? []).some((ref) => leftRefs.has(cleanText(ref)));
 }
 
-function visibleActionTarget(value: unknown) {
-  const target = cleanText(value);
-  return isGenericActionTargetText(target) ? "" : target;
-}
-
-function comparableActionTarget(value: unknown) {
-  return visibleActionTarget(value).replace(/\\/g, "/").toLowerCase();
-}
-
-function isGenericActionTargetText(value: string) {
-  return /^(?:文件|目录|路径|路径信息|路径状态|目标路径|artifact 路径|目标|当前目标|关键文件|相关代码|代码引用|测试|命令|验证|验证结果|检查|工具|动作|操作|结果|上下文|输出准备)$/i.test(value.trim());
-}
-
 function withNextStepFact(value: unknown, nextStep: unknown) {
   const base = sentence(value);
   const next = sentence(stripPublicFeedbackLabel(nextStep));
@@ -760,6 +598,69 @@ function withNextStepFact(value: unknown, nextStep: unknown) {
   }
   return `${base} ${next}`;
 }
+
+function itemFingerprintText(item: PublicChatTimelineItem) {
+  return cleanText([
+    item.public_summary,
+    item.title,
+    item.subject_label,
+    item.detail,
+    item.text,
+    item.action_kind,
+  ].filter(Boolean).join(" "));
+}
+
+function normalizedComparableText(value: unknown) {
+  return cleanText(value).replace(/\\/g, "/").toLowerCase();
+}
+
+function hasMeaningfulTextOverlap(left: unknown, right: unknown) {
+  const leftTokens = textFeatures(left);
+  if (!leftTokens.size) return false;
+  const rightTokens = textFeatures(right);
+  for (const token of leftTokens) {
+    if (rightTokens.has(token)) return true;
+  }
+  return false;
+}
+
+function textFeatures(value: unknown) {
+  const text = cleanText(value).toLowerCase();
+  const tokens = new Set<string>();
+  for (const match of text.matchAll(/[a-z0-9][a-z0-9_-]{2,}/gi)) {
+    const token = match[0].replace(/[_-]+/g, " ");
+    if (!COMMON_TEXT_FEATURES.has(token)) tokens.add(token);
+  }
+  for (const match of text.matchAll(/[\u4e00-\u9fa5]{2,}/g)) {
+    const segment = match[0];
+    for (let index = 0; index < segment.length - 1; index += 1) {
+      const token = segment.slice(index, index + 2);
+      if (!COMMON_TEXT_FEATURES.has(token)) tokens.add(token);
+    }
+  }
+  return tokens;
+}
+
+const COMMON_TEXT_FEATURES = new Set([
+  "正在",
+  "已经",
+  "当前",
+  "处理",
+  "任务",
+  "结果",
+  "返回",
+  "下一",
+  "一步",
+  "可以",
+  "继续",
+  "根据",
+  "确认",
+  "目标",
+  "上下",
+  "下文",
+  "文件",
+  "状态",
+]);
 
 function isStatusUpdate(item: PublicChatTimelineItem) {
   const kind = kindOf(item);

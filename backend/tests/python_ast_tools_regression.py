@@ -16,7 +16,7 @@ from capability_system.tools.tool_units.python_ast_tools import (  # noqa: E402
 )
 
 
-def main() -> None:
+def test_python_ast_tools_outline_parse_and_symbol_search() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
         package = root / "pkg"
@@ -58,8 +58,6 @@ def main() -> None:
         assert "Greeter.hello" in str(search)
         assert search["structured_payload"]["tool_result"]["result_count"] == 1
 
-    print("ALL PASSED (python ast tools)")
-
 
 if __name__ == "__main__":
-    main()
+    test_python_ast_tools_outline_parse_and_symbol_search()

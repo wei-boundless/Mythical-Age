@@ -1,14 +1,12 @@
 from __future__ import annotations
 
 import json
-from hashlib import sha1
 from typing import Any
 
 from harness.runtime.progress_presenter import build_progress_presentation
-from harness.runtime.public_chat_timeline import build_public_chat_timeline
+from harness.runtime.public_chat_timeline import build_public_chat_timeline, build_public_chat_timeline_from_progress_entries
 from harness.runtime.public_projection_filters import should_hide_public_tool_observation
 from harness.runtime.public_progress import public_runtime_progress_summary, public_runtime_progress_title
-from harness.runtime.public_timeline_projection import public_work_action_item
 
 
 def build_session_runtime_timeline(
@@ -149,7 +147,7 @@ def _turn_runtime_attachment(runtime_host: Any, turn_run: Any, *, history_messag
         "event_count": _event_count(runtime_host, turn_run_id, fallback=len(events)),
         "progress_presentation": {},
         "progress_entries": progress_entries,
-        "public_timeline": _public_timeline_from_progress_entries(progress_entries),
+        "public_timeline": build_public_chat_timeline_from_progress_entries(progress_entries),
         "artifact_refs": _artifact_refs_from_progress_entries(progress_entries),
         "final_answer": "",
         "trace_available": True,
@@ -731,72 +729,6 @@ def _compact_meta(items: list[dict[str, str]]) -> list[dict[str, str]]:
 
 def _record_value(value: Any) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
-
-
-def _public_timeline_from_progress_entries(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    timeline: list[dict[str, Any]] = []
-    for entry in entries:
-        kind = str(entry.get("kind") or "")
-        level = str(entry.get("level") or "")
-        state = "error" if level == "error" else "done" if level == "success" else "running"
-        trace_refs = [str(entry.get("id") or "")]
-        if kind == "tool":
-            target = _progress_entry_tool_target(entry)
-            body = str(entry.get("body") or entry.get("agentBrief") or entry.get("publicNote") or "").strip()
-            timeline.append(
-                public_work_action_item(
-                    item_id=_public_timeline_item_id(entry),
-                    tool_name=str(entry.get("toolName") or ""),
-                    raw_target=target,
-                    summary=target or body or entry.get("title"),
-                    observation="" if state == "done" and _looks_like_tool_success_text(body) else body,
-                    state=state,
-                    trace_refs=[ref for ref in trace_refs if ref],
-                )
-            )
-            continue
-        timeline.append(
-            {
-                "item_id": _public_timeline_item_id(entry),
-                "kind": "assistant_text" if kind == "model" else kind or "runtime_progress",
-                "title": str(entry.get("title") or ""),
-                "detail": str(entry.get("body") or ""),
-                "state": state,
-                "trace_refs": [ref for ref in trace_refs if ref],
-            }
-        )
-    return timeline
-
-
-def _public_timeline_item_id(entry: dict[str, Any]) -> str:
-    kind = str(entry.get("kind") or "")
-    if kind != "tool":
-        return f"turn-progress:{entry.get('id')}"
-    scope = str(entry.get("taskRunId") or entry.get("runId") or "").strip()
-    tool_name = str(entry.get("toolName") or "").strip()
-    target = _progress_entry_tool_target(entry)
-    family = _tool_family(tool_name)
-    digest = sha1(f"work-action|{scope or family}|{family}|{target or tool_name or entry.get('title')}".encode("utf-8", errors="ignore")).hexdigest()[:16]
-    return f"work-action:{digest}"
-
-
-def _progress_entry_tool_target(entry: dict[str, Any]) -> str:
-    for item in list(entry.get("meta") or []):
-        if not isinstance(item, dict):
-            continue
-        label = str(item.get("label") or "").strip()
-        if label == "目标":
-            value = public_runtime_progress_summary(item.get("value") or "").strip()
-            if value:
-                return value[:240]
-    body = public_runtime_progress_summary(entry.get("body") or "").strip()
-    title = public_runtime_progress_summary(entry.get("title") or "").strip()
-    return body or title
-
-
-def _looks_like_tool_success_text(value: str) -> bool:
-    text = str(value or "").strip().lower()
-    return text.startswith(("write succeeded", "read succeeded", "tool succeeded", "success:"))
 
 
 def _artifact_refs_from_progress_entries(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:

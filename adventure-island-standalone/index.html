@@ -395,6 +395,7 @@ function createInitialState() {
     shakeTimer: 0,
     shakeIntensity: 0,
     gameTime: 0,
+    animTick: 0,
     lastAttackTime: 0,
     titleSelectedOption: 0,
   };
@@ -836,6 +837,7 @@ function updateGame(state) {
 
   // 游戏时间
   state.gameTime += 1;
+  state.animTick += 1;
 }
 
 function updateTitle(state) {
@@ -892,18 +894,392 @@ function drawImg(ctx, key, x, y, w, h) {
   return false;
 }
 
-// 回退绘制：彩色矩形+标签
-function drawFallbackRect(ctx, x, y, w, h, color, label) {
-  ctx.fillStyle = color;
-  ctx.fillRect(x, y, w, h);
-  ctx.strokeStyle = "#000";
-  ctx.lineWidth = 1;
-  ctx.strokeRect(x, y, w, h);
-  if (label) {
+// 回退矩形绘制（图片加载失败时使用）
+function drawFallbackRect(ctx, x, y, w, h, color, icon) {
+  const r = 4; // 圆角半径
+  // 填充
+  ctx.fillStyle = color || "#888";
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  ctx.lineTo(x + r, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.closePath();
+  ctx.fill();
+  // 边框
+  ctx.strokeStyle = "#fff";
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+  // 文字/图标
+  if (icon) {
+    ctx.fillStyle = "#fff";
+    ctx.font = "bold 14px sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(icon, x + w / 2, y + h / 2);
+  }
+}
+
+// 自绘怪物精灵：每种怪物用 Canvas 形状绘制
+function drawMonsterSprite(ctx, mon, x, y, w, h, state) {
+  const t = (state.animTick || 0) / 60; // 秒级时间
+
+  if (mon.id.startsWith("slime")) {
+    // === 史莱姆：绿色果冻体，椭圆 + 圆眼 ===
+    const bounce = Math.sin(t * 3 + mon.x * 0.01) * 3;
+    const cx = x + w / 2, cy = y + h / 2 + bounce;
+    const rx = w * 0.48, ry = h * 0.45;
+    // 身体阴影
+    ctx.fillStyle = "#2e7d32";
+    ctx.beginPath();
+    ctx.ellipse(cx, cy + 2, rx, ry, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // 身体
+    const bodyGrad = ctx.createRadialGradient(cx - rx * 0.3, cy - ry * 0.3, rx * 0.1, cx, cy, rx);
+    bodyGrad.addColorStop(0, "#81c784");
+    bodyGrad.addColorStop(1, "#388e3c");
+    ctx.fillStyle = bodyGrad;
+    ctx.beginPath();
+    ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = "#1b5e20";
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    // 眼睛
+    const eyeY = cy - ry * 0.15;
+    for (let sign = -1; sign <= 1; sign += 2) {
+      const ex = cx + sign * rx * 0.35;
+      ctx.fillStyle = "#fff";
+      ctx.beginPath();
+      ctx.arc(ex, eyeY, rx * 0.28, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#111";
+      ctx.beginPath();
+      ctx.arc(ex + sign * 1, eyeY + 1, rx * 0.14, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    // 小嘴
+    ctx.strokeStyle = "#1b5e20";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(cx, cy + ry * 0.2, rx * 0.15, 0.1 * Math.PI, 0.9 * Math.PI);
+    ctx.stroke();
+
+  } else if (mon.id.startsWith("goblin")) {
+    // === 哥布林：三角帽 + 圆头 + 尖耳 + 小棍棒 ===
+    const baseY = y + h;
+    // 腿
+    ctx.fillStyle = "#5d4037";
+    ctx.fillRect(x + w * 0.25, baseY - h * 0.25, w * 0.18, h * 0.25);
+    ctx.fillRect(x + w * 0.57, baseY - h * 0.25, w * 0.18, h * 0.25);
+    // 身体
+    ctx.fillStyle = "#8d6e63";
+    ctx.fillRect(x + w * 0.15, baseY - h * 0.5, w * 0.7, h * 0.25);
+    // 手臂
+    ctx.fillStyle = "#a1887f";
+    ctx.fillRect(x - w * 0.05, baseY - h * 0.5, w * 0.22, h * 0.12); // 左手
+    ctx.fillRect(x + w * 0.7, baseY - h * 0.5, w * 0.1, h * 0.2);   // 右臂
+    // 棍棒
+    ctx.fillStyle = "#795548";
+    ctx.fillRect(x + w * 0.75, baseY - h * 0.55, w * 0.08, h * 0.35);
+    ctx.fillStyle = "#5d4037";
+    ctx.beginPath();
+    ctx.arc(x + w * 0.79, baseY - h * 0.6, w * 0.15, 0, Math.PI * 2);
+    ctx.fill();
+    // 头
+    const headCX = x + w * 0.5, headCY = baseY - h * 0.65;
+    const headR = w * 0.22;
+    ctx.fillStyle = "#c8a96e";
+    ctx.beginPath();
+    ctx.arc(headCX, headCY, headR, 0, Math.PI * 2);
+    ctx.fill();
+    // 尖耳
+    ctx.fillStyle = "#c8a96e";
+    ctx.beginPath();
+    ctx.moveTo(headCX - headR * 0.7, headCY - headR * 0.3);
+    ctx.lineTo(headCX - headR * 1.5, headCY - headR * 1.4);
+    ctx.lineTo(headCX - headR * 0.3, headCY - headR * 0.6);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(headCX + headR * 0.7, headCY - headR * 0.3);
+    ctx.lineTo(headCX + headR * 1.5, headCY - headR * 1.4);
+    ctx.lineTo(headCX + headR * 0.3, headCY - headR * 0.6);
+    ctx.fill();
+    // 帽子（三角帽）
+    ctx.fillStyle = "#d32f2f";
+    ctx.beginPath();
+    ctx.moveTo(headCX - headR * 1.2, headCY - headR * 0.5);
+    ctx.lineTo(headCX + headR * 1.2, headCY - headR * 0.5);
+    ctx.lineTo(headCX, headCY - headR * 2.0);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = "#b71c1c";
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    // 眼睛
+    ctx.fillStyle = "#fff";
+    ctx.beginPath();
+    ctx.arc(headCX - headR * 0.3, headCY - headR * 0.15, headR * 0.22, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(headCX + headR * 0.3, headCY - headR * 0.15, headR * 0.22, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#111";
+    ctx.beginPath();
+    ctx.arc(headCX - headR * 0.25, headCY - headR * 0.1, headR * 0.1, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(headCX + headR * 0.35, headCY - headR * 0.1, headR * 0.1, 0, Math.PI * 2);
+    ctx.fill();
+
+  } else if (mon.id.startsWith("skeleton")) {
+    // === 骷髅兵：白色骷髅头 + 黑洞眼窝 + 肋骨 ===
+    const headCX = x + w / 2, headCY = y + h * 0.2;
+    const headR = w * 0.22;
+    // 头骨
+    ctx.fillStyle = "#e0e0e0";
+    ctx.beginPath();
+    ctx.arc(headCX, headCY, headR, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = "#9e9e9e";
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    // 下颌微收
+    ctx.fillStyle = "#ccc";
+    ctx.fillRect(headCX - headR * 0.5, headCY + headR * 0.5, headR * 1.0, headR * 0.4);
+    // 眼窝
+    for (let sign = -1; sign <= 1; sign += 2) {
+      ctx.fillStyle = "#1a1a1a";
+      ctx.beginPath();
+      ctx.arc(headCX + sign * headR * 0.3, headCY - headR * 0.15, headR * 0.22, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    // 鼻孔三角
+    ctx.fillStyle = "#333";
+    ctx.beginPath();
+    ctx.moveTo(headCX - 3, headCY + headR * 0.2);
+    ctx.lineTo(headCX + 3, headCY + headR * 0.2);
+    ctx.lineTo(headCX, headCY + headR * 0.5);
+    ctx.closePath();
+    ctx.fill();
+    // 颈骨
+    ctx.fillStyle = "#ccc";
+    ctx.fillRect(headCX - w * 0.08, headCY + headR, w * 0.16, h * 0.1);
+    // 肋骨
+    const ribY = headCY + headR + h * 0.1;
+    ctx.strokeStyle = "#bbb";
+    ctx.lineWidth = 2;
+    for (let i = 0; i < 4; i++) {
+      const ry = ribY + i * h * 0.08;
+      ctx.beginPath();
+      ctx.moveTo(x + w * 0.1, ry);
+      ctx.lineTo(x + w * 0.5, ry - w * 0.05);
+      ctx.lineTo(x + w * 0.9, ry);
+      ctx.stroke();
+    }
+    // 脊椎
+    ctx.fillStyle = "#bbb";
+    ctx.fillRect(x + w * 0.4, ribY, w * 0.2, h * 0.35);
+    // 腿骨
+    ctx.fillStyle = "#ccc";
+    ctx.fillRect(x + w * 0.2, y + h * 0.75, w * 0.15, h * 0.25);
+    ctx.fillRect(x + w * 0.65, y + h * 0.75, w * 0.15, h * 0.25);
+    // 手臂
+    ctx.strokeStyle = "#ccc";
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(x + w * 0.1, ribY);
+    ctx.lineTo(x + w * 0.05, y + h * 0.55);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(x + w * 0.9, ribY);
+    ctx.lineTo(x + w * 0.95, y + h * 0.55);
+    ctx.stroke();
+
+  } else if (mon.id.startsWith("darkMage")) {
+    // === 暗黑法师：紫色兜帽长袍 + 黄色发光眼 + 法杖 ===
+    const headCX = x + w / 2, headCY = y + h * 0.18;
+    const headR = w * 0.2;
+    // 长袍
+    ctx.fillStyle = "#4a148c";
+    ctx.beginPath();
+    ctx.moveTo(x + w * 0.1, y + h);
+    ctx.lineTo(x + w * 0.2, headCY + headR);
+    ctx.lineTo(x + w * 0.8, headCY + headR);
+    ctx.lineTo(x + w * 0.9, y + h);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = "#7b1fa2";
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    // 兜帽
+    ctx.fillStyle = "#4a148c";
+    ctx.beginPath();
+    ctx.arc(headCX, headCY + headR * 0.3, headR * 1.3, Math.PI, 2 * Math.PI);
+    ctx.fill();
+    ctx.fillStyle = "#311b92";
+    ctx.beginPath();
+    ctx.arc(headCX, headCY - headR * 0.3, headR * 1.1, Math.PI, 2 * Math.PI);
+    ctx.fill();
+    // 脸（暗处）
+    ctx.fillStyle = "#1a1a2e";
+    ctx.beginPath();
+    ctx.arc(headCX, headCY + headR * 0.1, headR * 0.45, 0, Math.PI * 2);
+    ctx.fill();
+    // 发光眼
+    for (let sign = -1; sign <= 1; sign += 2) {
+      const glow = ctx.createRadialGradient(
+        headCX + sign * headR * 0.2, headCY, 0,
+        headCX + sign * headR * 0.2, headCY, headR * 0.2
+      );
+      glow.addColorStop(0, "#ffee58");
+      glow.addColorStop(0.5, "#f9a825");
+      glow.addColorStop(1, "transparent");
+      ctx.fillStyle = glow;
+      ctx.beginPath();
+      ctx.arc(headCX + sign * headR * 0.2, headCY, headR * 0.2, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    // 法杖
+    ctx.strokeStyle = "#5d4037";
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(x + w * 0.85, headCY + headR);
+    ctx.lineTo(x + w * 0.9, y + h * 0.3);
+    ctx.stroke();
+    // 法杖宝珠
+    const orbGrad = ctx.createRadialGradient(
+      x + w * 0.85, headCY + headR - 2, 0,
+      x + w * 0.85, headCY + headR, w * 0.2
+    );
+    orbGrad.addColorStop(0, "#e040fb");
+    orbGrad.addColorStop(0.5, "#7b1fa2");
+    orbGrad.addColorStop(1, "transparent");
+    ctx.fillStyle = orbGrad;
+    ctx.beginPath();
+    ctx.arc(x + w * 0.85, headCY + headR, w * 0.18, 0, Math.PI * 2);
+    ctx.fill();
+
+  } else if (mon.id.startsWith("dragonBoss")) {
+    // === 魔王·暗龙：暗红龙身 + 双角 + 翼膜 + 燃烧眼 ===
+    const cx = x + w / 2, cy = y + h / 2;
+    // 翼膜（背后）
+    ctx.fillStyle = "rgba(120,20,20,0.6)";
+    for (let sign = -1; sign <= 1; sign += 2) {
+      ctx.beginPath();
+      ctx.moveTo(cx, cy - h * 0.1);
+      ctx.lineTo(cx + sign * w * 0.7, cy - h * 0.3);
+      ctx.lineTo(cx + sign * w * 0.6, cy + h * 0.2);
+      ctx.lineTo(cx + sign * w * 0.2, cy + h * 0.1);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = "#8b0000";
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
+    // 身体
+    const bodyGrad = ctx.createLinearGradient(x, cy, x + w, cy);
+    bodyGrad.addColorStop(0, "#4a0000");
+    bodyGrad.addColorStop(0.3, "#8b0000");
+    bodyGrad.addColorStop(0.7, "#b71c1c");
+    bodyGrad.addColorStop(1, "#4a0000");
+    ctx.fillStyle = bodyGrad;
+    ctx.beginPath();
+    ctx.ellipse(cx, cy, w * 0.42, h * 0.35, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = "#ff5722";
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    // 头
+    const headCX = cx + w * 0.25, headCY = cy - h * 0.15;
+    ctx.fillStyle = "#8b0000";
+    ctx.beginPath();
+    ctx.ellipse(headCX, headCY, w * 0.2, h * 0.18, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = "#ff5722";
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    // 角（双角）
+    ctx.fillStyle = "#3e2723";
+    for (let sign = -1; sign <= 1; sign += 2) {
+      ctx.beginPath();
+      ctx.moveTo(headCX + sign * w * 0.08, headCY - h * 0.14);
+      ctx.lineTo(headCX + sign * w * 0.15, headCY - h * 0.35);
+      ctx.lineTo(headCX + sign * w * 0.04, headCY - h * 0.1);
+      ctx.closePath();
+      ctx.fill();
+    }
+    // 眼睛（燃烧黄）
+    for (let sign = -1; sign <= 1; sign += 2) {
+      const glow = ctx.createRadialGradient(
+        headCX + sign * w * 0.07, headCY - h * 0.03, 0,
+        headCX + sign * w * 0.07, headCY - h * 0.03, w * 0.06
+      );
+      glow.addColorStop(0, "#ffff00");
+      glow.addColorStop(0.4, "#ff8f00");
+      glow.addColorStop(1, "transparent");
+      ctx.fillStyle = glow;
+      ctx.beginPath();
+      ctx.arc(headCX + sign * w * 0.07, headCY - h * 0.03, w * 0.06, 0, Math.PI * 2);
+      ctx.fill();
+      // 瞳孔
+      ctx.fillStyle = "#111";
+      ctx.beginPath();
+      ctx.arc(headCX + sign * w * 0.07, headCY - h * 0.03, w * 0.02, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    // 嘴 / 利齿
+    ctx.fillStyle = "#300";
+    ctx.beginPath();
+    ctx.ellipse(headCX + w * 0.1, headCY + h * 0.05, w * 0.12, h * 0.05, 0, -0.1, Math.PI + 0.1);
+    ctx.fill();
+    // 牙齿
+    ctx.fillStyle = "#fff";
+    for (let i = 0; i < 4; i++) {
+      const tx = headCX + w * 0.02 + i * w * 0.06;
+      ctx.beginPath();
+      ctx.moveTo(tx, headCY + h * 0.03);
+      ctx.lineTo(tx + w * 0.02, headCY + h * 0.1);
+      ctx.lineTo(tx + w * 0.04, headCY + h * 0.03);
+      ctx.closePath();
+      ctx.fill();
+    }
+    // 尾
+    ctx.strokeStyle = "#8b0000";
+    ctx.lineWidth = 5;
+    ctx.beginPath();
+    ctx.moveTo(cx - w * 0.3, cy - h * 0.1);
+    ctx.lineTo(cx - w * 0.5, cy + h * 0.3);
+    ctx.stroke();
+    // 尾尖
+    ctx.fillStyle = "#ff5722";
+    ctx.beginPath();
+    ctx.moveTo(cx - w * 0.5, cy + h * 0.3);
+    ctx.lineTo(cx - w * 0.55, cy + h * 0.4);
+    ctx.lineTo(cx - w * 0.45, cy + h * 0.38);
+    ctx.closePath();
+    ctx.fill();
+    // 腿
+    ctx.fillStyle = "#5d0000";
+    ctx.fillRect(cx - w * 0.25, cy + h * 0.25, w * 0.15, h * 0.15);
+    ctx.fillRect(cx + w * 0.05, cy + h * 0.25, w * 0.15, h * 0.15);
+
+  } else {
+    // 未知怪物：默认绘制
+    ctx.fillStyle = mon.color || "#e53935";
+    ctx.fillRect(x, y, w, h);
+    ctx.strokeStyle = "#000";
+    ctx.lineWidth = 1;
+    ctx.strokeRect(x, y, w, h);
     ctx.fillStyle = "#fff";
     ctx.font = "10px sans-serif";
     ctx.textAlign = "center";
-    ctx.fillText(label, x + w / 2, y + h / 2);
+    ctx.fillText(mon.name || "?", x + w / 2, y + h / 2);
   }
 }
 
@@ -1030,7 +1406,7 @@ function renderNPCs(ctx, npcs, camX) {
 }
 
 // 怪物
-function renderMonsters(ctx, monsters, camX) {
+function renderMonsters(ctx, monsters, camX, state) {
   for (const mon of monsters) {
     if (!mon.alive && mon.deathTimer <= 0) continue;
     const sx = mon.x - camX;
@@ -1047,19 +1423,8 @@ function renderMonsters(ctx, monsters, camX) {
       ctx.globalAlpha = 0.5;
     }
 
-    // 图片或回退
-    let imgKey = null;
-    if (mon.id.startsWith("slime")) imgKey = "monsterSlime";
-    else if (mon.id.startsWith("goblin")) imgKey = "monsterGoblin";
-    else if (mon.id.startsWith("skeleton")) imgKey = "monsterSkeleton";
-    else if (mon.id.startsWith("darkMage")) imgKey = "monsterDarkMage";
-    else if (mon.id.startsWith("dragonBoss")) imgKey = "monsterDragonBoss";
-
-    if (imgKey && !drawImg(ctx, imgKey, sx, mon.y, mon.w, mon.h)) {
-      drawFallbackRect(ctx, sx, mon.y, mon.w, mon.h, mon.color, mon.name);
-    } else if (!imgKey) {
-      drawFallbackRect(ctx, sx, mon.y, mon.w, mon.h, mon.color, mon.name);
-    }
+    // 自绘怪物精灵
+    drawMonsterSprite(ctx, mon, sx, mon.y, mon.w, mon.h, state);
 
     ctx.restore();
 
@@ -1445,7 +1810,7 @@ function renderGame(ctx, state) {
   renderPlatforms(ctx, map, state.cameraX);
   renderPortals(ctx, map.portals, state.cameraX);
   renderNPCs(ctx, map.npcs, state.cameraX);
-  renderMonsters(ctx, map.monsters, state.cameraX);
+  renderMonsters(ctx, map.monsters, state.cameraX, state);
   renderPlayer(ctx, state);
   renderParticles(ctx, state);
   renderFloatingTexts(ctx, state);

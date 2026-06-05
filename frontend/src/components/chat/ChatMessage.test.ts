@@ -144,8 +144,8 @@ describe("ChatMessage", () => {
     );
 
     expect(html).toContain("我先把目标转成可执行任务");
-    expect(html).toContain("我正在验证当前状态");
-    expect(html.indexOf("我先把目标转成可执行任务")).toBeLessThan(html.indexOf("我正在验证当前状态"));
+    expect(html).toContain("正在运行测试");
+    expect(html.indexOf("我先把目标转成可执行任务")).toBeLessThan(html.indexOf("正在运行测试"));
   });
 
   it("hides routine output boundary cleanup state without hiding the assistant message", () => {
@@ -228,10 +228,10 @@ describe("ChatMessage", () => {
     expect(html).toContain("我先检查当前目录和关键文件");
     expect(html).not.toContain("当前判断");
     expect(html.match(/我先检查当前目录和关键文件/g)?.length ?? 0).toBe(1);
-    expect(html).toContain("我正在跑前端测试");
+    expect(html).toContain("正在运行验证 前端测试");
     expect(html).toContain("前端测试");
     expect(html).not.toContain("npm test -- --run src/components/chat");
-    expect(html.indexOf("我先检查当前目录和关键文件")).toBeLessThan(html.indexOf("我正在跑前端测试"));
+    expect(html.indexOf("我先检查当前目录和关键文件")).toBeLessThan(html.indexOf("正在运行验证 前端测试"));
   });
 
   it("renders an explicit opening judgment even before activity rows exist", () => {
@@ -282,8 +282,8 @@ describe("ChatMessage", () => {
       }),
     );
 
-    expect(html).toContain("我先读取 langchain-agent/AGENTS.md");
-    expect(html.match(/我先读取 langchain-agent\/AGENTS\.md/g)?.length ?? 0).toBe(1);
+    expect(html).toContain("正在读取文件 langchain-agent/AGENTS.md");
+    expect(html.match(/正在读取文件 langchain-agent\/AGENTS\.md/g)?.length ?? 0).toBe(1);
     expect(html).not.toContain("我先确认项目约定和协作边界");
     expect(html).not.toContain("开局反馈");
     expect(html).not.toContain("assistant-output-signal");
@@ -316,8 +316,8 @@ describe("ChatMessage", () => {
     );
 
     expect(html).toContain("写好了");
-    expect(html).toContain("public-run-activity");
-    expect(html).toContain("artifacts/football.html 已返回");
+    expect(html).not.toContain("public-run-activity");
+    expect(html).not.toContain("artifacts/football.html 已返回");
     expect(html).not.toContain("观察结果");
     expect(html).not.toContain("观察：");
     expect(html).not.toContain("动作已返回");
@@ -385,7 +385,7 @@ describe("ChatMessage", () => {
       }),
     );
 
-    expect(html).toContain("已读到 adventure-island/renderer.ts");
+    expect(html).toContain("关键上下文已拿到，下一步可以基于文件事实判断");
     expect(html).not.toContain("还没有形成完整回答");
     expect(html).toContain("public-run-activity");
     expect(html).not.toContain("复制回复");
@@ -414,11 +414,10 @@ describe("ChatMessage", () => {
       }),
     );
 
-    expect(html).toContain("已确认 app/adventure-island 下的相关文件");
+    expect(html).not.toContain("public-run-activity");
     expect(html).not.toContain("2938 bytes");
     expect(html).not.toContain("assets.ts");
     expect(html).not.toContain("file frontend");
-    expect(html).toContain("public-run-activity");
   });
 
   it("renders copied shell output as a folded activity panel instead of assistant prose", () => {
@@ -444,7 +443,7 @@ describe("ChatMessage", () => {
       }),
     );
 
-    expect(html).toContain("已复制 2 个素材文件");
+    expect(html).not.toContain("已复制 2 个素材文件");
     expect(html).toContain("public-run-activity__command-output");
     expect(html).toContain("命令输出");
     expect(html).toContain("终端");

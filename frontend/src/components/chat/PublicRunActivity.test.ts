@@ -130,7 +130,8 @@ describe("PublicRunActivity", () => {
       }),
     );
 
-    expect(html).toContain("已复制 2 个素材文件");
+    expect(html).not.toContain("已复制");
+    expect(html).not.toContain("复制素材。");
     expect(html).toContain("public-run-activity__command-output");
     expect(html).toContain("命令输出");
     expect(html).toContain("终端");
@@ -154,7 +155,6 @@ describe("PublicRunActivity", () => {
       }),
     );
 
-    expect(html).toContain("项目约定已读到");
     expect(html).toContain("项目要求固定端口");
     expect(html).not.toContain("观察结果");
     expect(html).not.toContain("观察：");
@@ -267,7 +267,7 @@ describe("PublicRunActivity", () => {
       }),
     );
 
-    expect(html).toContain("相关记忆已返回");
+    expect(html).toBe("");
     expect(html).not.toContain("观察结果");
     expect(html).not.toContain("authority");
     expect(html).not.toContain("diagnostics");
@@ -290,7 +290,7 @@ describe("PublicRunActivity", () => {
       }),
     );
 
-    expect(html).toContain("已确认 app/adventure-island 下的相关文件");
+    expect(html).toBe("");
     expect(html).not.toContain("2938 bytes");
     expect(html).not.toContain("assets.ts");
     expect(html).not.toContain("file frontend");
@@ -339,9 +339,8 @@ describe("PublicRunActivity", () => {
       }),
     );
 
-    expect(html).toContain("我正在跑前端测试");
+    expect(html).toContain("正在运行验证 前端测试");
     expect(html).not.toContain("已读到样式文件");
-    expect(html).not.toContain("正在运行验证 前端测试");
     expect(html).not.toContain("执行中");
     expect(html).not.toContain("实时");
     expect(html).not.toContain("较早的 1 条进展已收起");
@@ -400,7 +399,7 @@ describe("PublicRunActivity", () => {
     expect(html).not.toContain("已读取上下文 artifacts/game.html");
     expect(html).not.toContain("观察：关键上下文已拿到");
     expect(html).not.toContain("已读到 artifacts/game.html");
-    expect(html).toContain("我先搜索相关引用");
+    expect(html).toContain("正在搜索引用 相关引用");
     expect(html).not.toContain("function attack");
     expect(html.match(/storage/g)?.length ?? 0).toBe(0);
     expect(html).not.toContain("public-run-activity__row--history");
@@ -423,7 +422,7 @@ describe("PublicRunActivity", () => {
       }),
     );
 
-    expect(html).toContain("我先确认 artifacts/mythical_sphere.html 的状态");
+    expect(html).toContain("正在检查 artifacts/mythical_sphere.html");
     expect(html).toContain("mythical_sphere.html");
     expect(html).not.toContain("正在调用");
     expect(html).not.toContain("等待工具返回");
@@ -444,7 +443,6 @@ describe("PublicRunActivity", () => {
       }),
     );
 
-    expect(html).toContain("项目约定已读到");
     expect(html).toContain("项目要求先说明判断");
     expect(html).not.toContain("观察结果");
     expect(html).not.toContain("观察：");
@@ -508,10 +506,10 @@ describe("PublicRunActivity", () => {
       }),
     );
 
-    expect(runningHtml).toContain("我正在跑前端测试");
+    expect(runningHtml).toContain("正在运行验证 前端测试");
     expect(runningHtml).not.toContain("22 tests passed");
     expect(doneHtml).toContain("验证已返回，22 tests passed");
-    expect(doneHtml).not.toContain("我正在跑前端测试");
+    expect(doneHtml).not.toContain("正在运行验证 前端测试");
     expect(doneHtml).not.toContain("观察：");
   });
 
@@ -573,7 +571,7 @@ describe("PublicRunActivity", () => {
     expect(html).not.toContain("public-run-activity__agent-message");
     expect(html).not.toContain("我先检查文件写入权限和可用路径");
     expect(html).not.toContain("public-run-activity__row--current");
-    expect(html).toContain("我先确认 output 的状态");
+    expect(html).toContain("output。");
   });
 
   it("does not duplicate the running prefix for generic tool calls", () => {
@@ -591,7 +589,7 @@ describe("PublicRunActivity", () => {
       }),
     );
 
-    expect(html).toContain("我先处理 artifacts/football.html");
+    expect(html).toBe("");
     expect(html).not.toContain("执行动作");
     expect(html).not.toContain("正在正在");
     expect(html).not.toContain("正在调用工具");
@@ -614,7 +612,7 @@ describe("PublicRunActivity", () => {
       }),
     );
 
-    expect(html).toContain("正在生成图像");
+    expect(html).toBe("");
     expect(html).not.toContain("image_generate");
     expect(html).not.toContain("正在调用");
     expect(html).not.toContain("正在推进当前步骤");
@@ -667,7 +665,7 @@ describe("PublicRunActivity", () => {
       }),
     );
 
-    expect(html).toContain("我先接上相关记忆");
+    expect(html).toBe("");
     expect(html).not.toContain("正在处理步骤");
     expect(html).not.toContain("memory_search");
     expect(html).not.toContain("等待工具返回");
@@ -688,7 +686,7 @@ describe("PublicRunActivity", () => {
       }),
     );
 
-    expect(html).toContain("我先准备输出位置");
+    expect(html).toBe("");
     expect(html).not.toContain("New-Item");
     expect(html).not.toContain("ItemType");
     expect(html).not.toContain("frontend/src/app/adventure-island");
@@ -800,7 +798,7 @@ describe("PublicRunActivity", () => {
       }),
     );
 
-    expect(html).toContain("artifacts/test_placeholder 已返回");
+    expect(html).toBe("");
     expect(html).not.toContain("观察：");
     expect(html).not.toContain("动作已返回");
     expect(html).not.toContain("public-run-activity__row--done");
@@ -828,7 +826,7 @@ describe("PublicRunActivity", () => {
       }),
     );
 
-    expect(html).toContain("artifacts/football.html 已返回");
+    expect(html).toBe("");
     expect(html).not.toContain("观察：");
     expect(html).not.toContain("动作已返回");
     expect(html).not.toContain("public-run-activity__row--done");

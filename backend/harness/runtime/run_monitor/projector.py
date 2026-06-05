@@ -3,6 +3,8 @@ from __future__ import annotations
 from typing import Any
 
 from artifact_system.artifact_authority import artifact_refs_from_events, dedupe_artifact_refs
+from harness.runtime.progress_presenter import build_progress_presentation
+from harness.runtime.public_chat_timeline import build_public_chat_timeline
 from harness.runtime.public_progress import public_runtime_progress_summary
 
 from .activity import RuntimeActivityControlContext, activity_is_monitor_visible, activity_sort_rank, with_runtime_activity
@@ -120,6 +122,26 @@ class RuntimeMonitorProjector:
                 *(_artifact_refs_from_event_log(self.event_log, task_run_id) if include_runtime_details else []),
             ]
         )
+        event_records = [item.to_dict() if hasattr(item, "to_dict") else dict(item) for item in events] if include_runtime_details else []
+        progress_presentation = build_progress_presentation(
+            events=event_records,
+            task_run=task_run,
+            monitor={
+                "latest_step": latest_step,
+                "latest_step_summary": summary,
+                "latest_public_progress_note": latest_public_progress_note,
+                "agent_brief_output": agent_brief,
+                "summary": summary,
+            },
+        ) if include_runtime_details else {}
+        public_timeline = build_public_chat_timeline(
+            progress_presentation=progress_presentation,
+            final_answer=str(diagnostics.get("final_answer") or ""),
+            artifact_refs=artifact_refs,
+            status=status,
+            terminal_reason=str(getattr(task_run, "terminal_reason", "") or ""),
+            assistant_text="",
+        ) if progress_presentation else []
         task_instance_id = graph_run_id if kind == "task_graph" and graph_run_id else task_run_id
         resource_refs = self._resource_refs(
             task_run_id=task_run_id,
@@ -185,6 +207,8 @@ class RuntimeMonitorProjector:
             "is_live": resource_class == "dynamic",
             "summary": summary,
             "latest_progress": latest_progress,
+            "progress_presentation": progress_presentation,
+            "public_timeline": public_timeline,
             "latest_event_type": str(latest_event.get("event_type") or ""),
             "latest_event_at": latest_event_at,
             "latest_event": latest_event,
@@ -235,15 +259,26 @@ class RuntimeMonitorProjector:
         return build_envelope(scope="global", items=items, now=now, limit=limit)
 
     def build_session_monitor(self, session_id: str, task_runs: list[Any], *, now: float, limit: int = 20) -> dict[str, Any]:
-        items = [
-            self.project_task_run(item, now=now, include_runtime_details=False, include_graph_runtime=False)
-            for item in sorted(task_runs, key=lambda item: float(getattr(item, "updated_at", 0.0) or 0.0), reverse=True)
-            if not self._is_internal_child_run(item)
-        ]
+        task_runs_by_id: dict[str, Any] = {}
+        items = []
+        for task_run in sorted(task_runs, key=lambda item: float(getattr(item, "updated_at", 0.0) or 0.0), reverse=True):
+            if self._is_internal_child_run(task_run):
+                continue
+            item = self.project_task_run(task_run, now=now, include_runtime_details=False, include_graph_runtime=False)
+            task_runs_by_id[str(item.get("task_run_id") or "")] = task_run
+            items.append(item)
         active_items = self._current_items_by_session([item for item in items if activity_is_monitor_visible(item)])
         visible = active_items[: max(1, min(int(limit or 20), 100))]
         latest = items[0] if items else None
         active = visible[0] if visible else None
+        if active:
+            active_id = str(active.get("task_run_id") or "")
+            source = task_runs_by_id.get(active_id)
+            if source is not None:
+                detailed = self.project_task_run(source, now=now, include_runtime_details=True, include_graph_runtime=False)
+                visible = [detailed if str(item.get("task_run_id") or "") == active_id else item for item in visible]
+                latest = detailed if latest and str(latest.get("task_run_id") or "") == active_id else latest
+                active = detailed
         return build_envelope(
             scope="session",
             items=visible,

@@ -914,6 +914,27 @@ def test_latest_step_summary_is_exposed_from_event_log():
     assert item["latest_step_name"] == "tool_result"
 
 
+def test_project_task_run_exposes_backend_public_timeline():
+    event = EventStub(
+        event_type="step_summary_recorded",
+        created_at=125.0,
+        payload={
+            "step": "model_action_received:1",
+            "status": "running",
+            "summary": "我先确认当前反馈链路，再收敛到单一页面投影。",
+            "public_progress_note": "我先确认当前反馈链路，再收敛到单一页面投影。",
+        },
+    )
+    projector = RuntimeMonitorProjector(EventLogStub({"taskrun:turn:session-a:1:abc": [event]}))
+
+    item = projector.project_task_run(task_run(), now=150.0)
+    public_timeline = list(item.get("public_timeline") or [])
+
+    assert public_timeline
+    assert public_timeline[0]["kind"] == "opening_judgment"
+    assert public_timeline[0]["text"] == "我先确认当前反馈链路，再收敛到单一页面投影。"
+
+
 def test_latest_public_action_state_is_exposed_and_kept_separate_from_wait_heartbeat():
     events = [
         EventStub(
