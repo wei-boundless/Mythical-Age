@@ -60,6 +60,16 @@ function blockedFact(value: unknown, fallback = "") {
   return text || "这一步没有执行成功，我会换一种方式继续。";
 }
 
+function sentence(value: unknown) {
+  const text = shortFact(value, 220);
+  if (!text) return "";
+  return /[。！？.!?]$/.test(text) ? text : `${text}。`;
+}
+
+function objectText(verb: string, target: string) {
+  return /[A-Za-z0-9_.\\/:-]/.test(target) ? `${verb} ${target}` : `${verb}${target}`;
+}
+
 function textOfItem(item: PublicChatTimelineItem) {
   return timelineItemText(item);
 }
@@ -146,6 +156,62 @@ function stateClass(item: PublicChatTimelineItem) {
 
 function actionDisplay(item: PublicChatTimelineItem) {
   return actionViewForTimelineItem(item);
+}
+
+function naturalActionSentence(item: PublicChatTimelineItem) {
+  const kind = cleanText(item.kind);
+  if (kind !== "tool_activity" && kind !== "work_action") {
+    return sentence(item.text || item.detail || item.title || "我正在同步当前处理进展。");
+  }
+  const action = actionDisplay(item);
+  const target = action.detail;
+  if (action.kind === "read") {
+    return target
+      ? `我先${objectText("读取", target)}，把判断建立在真实上下文上。`
+      : "我先补齐上下文，避免凭空判断。";
+  }
+  if (action.kind === "search") {
+    return target
+      ? `我先${objectText("搜索", target)}，定位真正影响输出的位置。`
+      : "我先定位调用链，找到真正影响输出的位置。";
+  }
+  if (action.kind === "inspect") {
+    return target
+      ? `我先确认${/[A-Za-z0-9_.\\/:-]/.test(target) ? ` ${target}` : target} 的状态，避免后续动作偏离目标。`
+      : "我先确认目标状态，再决定下一步动作。";
+  }
+  if (action.kind === "write" || action.kind === "edit") {
+    return target
+      ? `我会${objectText("更新", target)}，再用结果验证一遍。`
+      : "我会先把改动落下去，再用结果验证一遍。";
+  }
+  if (action.kind === "run" || action.kind === "verify") {
+    if (target && /测试$/.test(target)) {
+      return `我正在跑${target}，用结果判断是否还要继续修正。`;
+    }
+    return target
+      ? `我正在${objectText("验证", target)}，用结果判断是否还要继续修正。`
+      : "我正在验证当前状态，用结果判断是否还要继续修正。";
+  }
+  if (action.kind === "memory") {
+    return "我先接上相关记忆，把前面的要求纳入当前判断。";
+  }
+  if (action.kind === "prepare") {
+    return target
+      ? `我先${objectText("准备", target)}，让后续产物有明确落点。`
+      : "我先准备输出位置，让后续产物有明确落点。";
+  }
+  if (action.kind === "browse") {
+    return target
+      ? `我先${objectText("读取", target)}，把判断建立在真实资料上。`
+      : "我先读取相关页面，把判断建立在真实资料上。";
+  }
+  if (action.kind === "image") {
+    return "我正在生成图像，拿到结果后会确认是否可用。";
+  }
+  return target
+    ? `我先${objectText("处理", target)}，拿到结果后再给你明确判断。`
+    : "我已经接上当前任务，先确认关键事实，再给你明确判断。";
 }
 
 function ActivityCopy({ item, variant = "normal" }: { item: PublicChatTimelineItem; variant?: "normal" | "current" | "history" }) {
@@ -258,9 +324,36 @@ function resultFactForItem(item: PublicChatTimelineItem | null) {
   }
   if (kind === "tool_activity" || kind === "work_action") {
     const action = actionDisplay(item);
-    return short(readableToolObservation(action.observation, action.detail, presentedActionSentence(item, "history")), 180);
+    return short(naturalResultFact(action, item), 180);
   }
   return shortFact(textOfItem(item), 180);
+}
+
+function naturalResultFact(action: ReturnType<typeof actionDisplay>, item: PublicChatTimelineItem) {
+  const raw = readableToolObservation(action.observation, action.detail, presentedActionSentence(item, "history"));
+  if (/关键上下文已拿到|已读到关键信息/.test(raw)) {
+    return action.detail
+      ? `已${objectText("读到", action.detail)}，下一步可以基于文件事实判断。`
+      : "已读到关键上下文，下一步可以基于文件事实判断。";
+  }
+  if (/相关引用已定位|已定位相关线索/.test(raw)) {
+    return action.detail
+      ? `已定位到${/[A-Za-z0-9_.\\/:-]/.test(action.detail) ? ` ${action.detail}` : action.detail} 的相关线索，下一步会收敛到真正的改动点。`
+      : "已定位到相关线索，下一步会收敛到真正的改动点。";
+  }
+  if (/目标状态已确认|已确认/.test(raw) && action.kind === "inspect") {
+    return action.detail ? `已确认${/[A-Za-z0-9_.\\/:-]/.test(action.detail) ? ` ${action.detail}` : action.detail} 的当前状态。` : "已确认目标当前状态。";
+  }
+  if (/记忆检索已返回/.test(raw)) {
+    return "相关记忆已返回，下一步会纳入判断。";
+  }
+  if (/输出准备/.test(raw)) {
+    return "输出准备已确认，可以继续推进。";
+  }
+  if (/图像生成已返回/.test(raw)) {
+    return "图像生成已返回，下一步会确认产物是否可用。";
+  }
+  return sentence(raw);
 }
 
 function hasResultFact(item: PublicChatTimelineItem) {
@@ -361,7 +454,6 @@ function finalActivitySummary(plan: ReturnType<typeof activityPlan>) {
   return {
     detail: state === "error" ? "" : finalText || "结果已进入回答收口。",
     item: lastFinal,
-    meta: state === "error" ? "" : "已收口",
     title: state === "error" ? errorText : lastFinal.kind === "artifact" ? "产物就绪" : "收尾总结",
     tone: state === "error" ? "error" : "done",
   };
@@ -371,19 +463,17 @@ function activitySummary(plan: ReturnType<typeof activityPlan>) {
   if (plan.current) {
     if (isStoppedItem(plan.current)) {
       return {
-        detail: short(plan.current.detail || plan.current.text || "你已停止本轮生成。", 180),
+        detail: "",
         item: plan.current,
-        meta: "已停止",
-        title: short(plan.current.title || "已停止本轮生成", 80),
+        title: sentence(plan.current.detail || plan.current.text || "本轮已停止，当前运行不会继续推进。"),
         tone: "stopped",
       };
     }
     if (isWaitingItem(plan.current)) {
       return {
-        detail: short(plan.current.detail || plan.current.text || "当前任务已停在可继续状态，继续后会接上现有进度。", 180),
+        detail: "",
         item: plan.current,
-        meta: "等待",
-        title: short(plan.current.title || "等待继续", 80),
+        title: sentence(plan.current.detail || plan.current.text || "当前任务已停在可继续状态，继续后会接上现有进度。"),
         tone: "waiting",
       };
     }
@@ -394,10 +484,9 @@ function activitySummary(plan: ReturnType<typeof activityPlan>) {
       const todos = Array.isArray(plan.current.todo_items) ? plan.current.todo_items : [];
       const active = todos.find((todo) => cleanText(todo.status) === "in_progress");
       return {
-        detail: active ? `当前：${short(active.active_form || active.content, 160)}` : plan.current.detail || "清单会跟随当前处理持续更新。",
+        detail: active ? sentence(active.active_form || active.content) : sentence(plan.current.detail || "清单会跟随当前处理持续更新。"),
         item: plan.current,
-        meta: plan.current.completion_ready ? "已完成" : "实时",
-        title: plan.current.completion_ready ? "清单完成" : "处理清单",
+        title: plan.current.completion_ready ? "处理清单已完成。" : "我会按处理清单推进当前任务。",
         tone: plan.current.completion_ready ? "done" : "running",
       };
     }
@@ -406,8 +495,7 @@ function activitySummary(plan: ReturnType<typeof activityPlan>) {
       return {
         detail: "",
         item: plan.current,
-        meta: "",
-        title: fact,
+        title: sentence(fact),
         tone: state === "error" ? "error" : "done",
       };
     }
@@ -417,8 +505,7 @@ function activitySummary(plan: ReturnType<typeof activityPlan>) {
       return {
         detail: "",
         item: plan.current,
-        meta: "",
-        title: fact || currentAction || "结果已返回",
+        title: sentence(fact || currentAction || "结果已返回"),
         tone: "done",
       };
     }
@@ -433,8 +520,7 @@ function activitySummary(plan: ReturnType<typeof activityPlan>) {
         ? ""
         : action.observation || resultFactForItem(plan.recentResult),
       item: plan.current,
-      meta: state === "error" ? "" : "实时",
-      title: state === "error" ? short(errorFact, 180) : currentAction || "正在处理任务",
+      title: state === "error" ? sentence(errorFact) : naturalActionSentence(plan.current),
       tone: state === "error" ? "error" : "running",
     };
   }
@@ -447,8 +533,7 @@ function activitySummary(plan: ReturnType<typeof activityPlan>) {
       return {
         detail: "",
         item: lastRecent,
-        meta: "",
-        title: shortFact(lastRecent.detail || lastRecent.implication || "关键事实已记录。", 180),
+        title: sentence(lastRecent.detail || lastRecent.implication || "关键事实已记录。"),
         tone: stateClass(lastRecent) === "error" ? "error" : "done",
       };
     }
@@ -456,37 +541,34 @@ function activitySummary(plan: ReturnType<typeof activityPlan>) {
       return {
         detail: lastRecent.detail || (plan.collapsedCount ? `已完成 ${plan.collapsedCount} 步处理。` : "清单已同步。"),
         item: lastRecent,
-        meta: lastRecent.completion_ready ? "已完成" : "已同步",
-        title: "处理清单",
+        title: lastRecent.completion_ready ? "处理清单已完成。" : "处理清单已同步。",
         tone: lastRecent.completion_ready ? "done" : "running",
       };
     }
     const recentAction = lastRecent ? presentedActionSentence(lastRecent, "history") : "";
     return {
-      detail: recentAction || (plan.collapsedCount ? `已完成 ${plan.collapsedCount} 步处理。` : "关键动作已完成。"),
+      detail: "",
       item: lastRecent,
-      meta: "已同步",
-      title: "运行反馈",
+      title: sentence(recentAction || (plan.collapsedCount ? `已完成 ${plan.collapsedCount} 步处理。` : "关键动作已完成。")),
       tone: "done",
     };
   }
   return {
-    detail: "正在同步处理进展。",
+    detail: "",
     item: null,
-    meta: "实时",
-    title: "处理中",
+    title: "我正在同步当前处理进展。",
     tone: "running",
   };
 }
 
 function ActivitySummaryLine({ summary }: { summary: ReturnType<typeof activitySummary> }) {
+  const detail = sentence(summary.detail);
   return (
     <div className={`public-run-activity__summary public-run-activity__summary--${summary.tone}`}>
-      <span className="public-run-activity__summary-copy">
-        <strong>{summary.title}</strong>
-        {summary.detail ? <small>{summary.detail}</small> : null}
+      <span className="public-run-activity__narrative">
+        <p>{sentence(summary.title)}</p>
+        {detail && !samePublicText(detail, summary.title) ? <p>{detail}</p> : null}
       </span>
-      {summary.tone === "running" || !summary.meta ? null : <em>{summary.meta}</em>}
     </div>
   );
 }

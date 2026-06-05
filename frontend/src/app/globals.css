@@ -8313,10 +8313,24 @@ button:hover {
   padding: 0;
 }
 
-.public-run-activity__status,
-.public-run-activity__status--done,
-.public-run-activity__status--error {
-  display: none;
+.public-run-activity__narrative {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.public-run-activity__narrative p {
+  margin: 0;
+  color: #334155;
+  font-size: 13.5px;
+  font-weight: 430;
+  line-height: 1.64;
+  overflow-wrap: anywhere;
+}
+
+.public-run-activity__narrative p + p {
+  color: #64748b;
+  font-size: 12.5px;
 }
 
 .output-boundary-status {
@@ -34122,81 +34136,35 @@ body {
 }
 
 .agent-workbench .public-run-activity__summary {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 8px;
+  display: block;
   min-width: 0;
   border-bottom: 0;
   padding-bottom: 0;
 }
 
-.agent-workbench .public-run-activity__summary-copy {
+.agent-workbench .public-run-activity__narrative {
   display: grid;
+  gap: 4px;
   min-width: 0;
-  gap: 1px;
 }
 
-.agent-workbench .public-run-activity__summary-copy strong {
-  color: #172033;
-  font-size: 12px;
-  font-weight: 700;
-  line-height: 1.35;
-}
-
-.agent-workbench .public-run-activity__summary-copy small {
-  color: #66758a;
-  font-size: 11px;
-  line-height: 1.42;
+.agent-workbench .public-run-activity__narrative p {
+  margin: 0;
+  color: #263449;
+  font-size: 13px;
+  font-weight: 430;
+  line-height: 1.62;
   overflow-wrap: anywhere;
 }
 
-.agent-workbench .public-run-activity__summary em {
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  color: #64748b;
-  font-size: 10.5px;
-  font-style: normal;
-  font-weight: 680;
-  line-height: 1;
-  padding: 0;
-  white-space: nowrap;
-}
-
-.agent-workbench .public-run-activity--running .public-run-activity__summary em {
-  color: #285fc6;
-}
-
-.agent-workbench .public-run-activity--done .public-run-activity__summary em {
-  color: #147a5c;
-}
-
-.agent-workbench .public-run-activity__summary--done em {
-  color: #147a5c;
-}
-
-.agent-workbench .public-run-activity--error .public-run-activity__summary em {
-  color: #8a6a16;
-}
-
-.agent-workbench .public-run-activity__summary--error em {
-  color: #8a6a16;
-}
-
-.agent-workbench .public-run-activity--waiting .public-run-activity__summary em,
-.agent-workbench .public-run-activity__summary--waiting em {
-  color: #64748b;
+.agent-workbench .public-run-activity__narrative p + p {
+  color: #66758a;
+  font-size: 12px;
 }
 
 .agent-workbench .public-run-activity--stopped {
   border-left-color: rgba(100, 116, 139, 0.32);
   box-shadow: none;
-}
-
-.agent-workbench .public-run-activity--stopped .public-run-activity__summary em,
-.agent-workbench .public-run-activity__summary--stopped em {
-  color: #64748b;
 }
 
 .agent-workbench .public-run-activity__rows {

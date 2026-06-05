@@ -696,6 +696,19 @@ export function updateGame(state: GameState): void {
       state.particles = [];
       state.floatingTexts = [];
 
+      // 关卡切换恢复：30% HP + 20% MP
+      const p = state.player;
+      const hpHeal = Math.floor(p.maxHp * 0.3);
+      const mpHeal = Math.floor(p.maxMp * 0.2);
+      p.hp = Math.min(p.maxHp, p.hp + hpHeal);
+      p.mp = Math.min(p.maxMp, p.mp + mpHeal);
+      if (hpHeal > 0) {
+        state.floatingTexts.push({ x: p.x + p.width / 2, y: p.y - 20, vy: -2, life: 40, text: `+${hpHeal} HP`, color: "#00ff66" });
+      }
+      if (mpHeal > 0) {
+        state.floatingTexts.push({ x: p.x + p.width / 2, y: p.y - 30, vy: -2, life: 40, text: `+${mpHeal} MP`, color: "#6699ff" });
+      }
+
       // Boss 关检查：进入时触发开场对话
       const bossDialogue = getBossDialogue(state.transitionTargetMap, false);
       if (bossDialogue) {
@@ -824,11 +837,11 @@ export function updateGame(state: GameState): void {
     p.attacking = false;
   }
 
-  // 技能输入
-  if (state.keys.has("Digit1")) castSkill(state, "whirlwind", map);
-  if (state.keys.has("Digit2")) castSkill(state, "dash_slash", map);
-  if (state.keys.has("Digit3")) castSkill(state, "holy_shield", map);
-  if (state.keys.has("Digit4")) castSkill(state, "light_judgment", map);
+  // 技能输入（通过 skillKeyJustPressed 一次性触发，page.tsx 会设置并自动清除）
+  if (state.skillKeyJustPressed === "whirlwind")  { castSkill(state, "whirlwind", map);  state.skillKeyJustPressed = null; }
+  if (state.skillKeyJustPressed === "dash_slash")  { castSkill(state, "dash_slash", map);  state.skillKeyJustPressed = null; }
+  if (state.skillKeyJustPressed === "holy_shield") { castSkill(state, "holy_shield", map); state.skillKeyJustPressed = null; }
+  if (state.skillKeyJustPressed === "light_judgment") { castSkill(state, "light_judgment", map); state.skillKeyJustPressed = null; }
 
   // 动画计时
   p.animTimer++;

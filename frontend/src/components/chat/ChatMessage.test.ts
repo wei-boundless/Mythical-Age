@@ -143,8 +143,8 @@ describe("ChatMessage", () => {
     );
 
     expect(html).toContain("我先把目标转成可执行任务");
-    expect(html).toContain("运行验证");
-    expect(html.indexOf("我先把目标转成可执行任务")).toBeLessThan(html.indexOf("运行验证"));
+    expect(html).toContain("我正在验证当前状态");
+    expect(html.indexOf("我先把目标转成可执行任务")).toBeLessThan(html.indexOf("我正在验证当前状态"));
   });
 
   it("hides routine output boundary cleanup state without hiding the assistant message", () => {
@@ -227,10 +227,10 @@ describe("ChatMessage", () => {
     expect(html).toContain("我先检查当前目录和关键文件");
     expect(html).not.toContain("当前判断");
     expect(html.match(/我先检查当前目录和关键文件/g)?.length ?? 0).toBe(1);
-    expect(html).toContain("运行验证");
+    expect(html).toContain("我正在跑前端测试");
     expect(html).toContain("前端测试");
     expect(html).not.toContain("npm test -- --run src/components/chat");
-    expect(html.indexOf("我先检查当前目录和关键文件")).toBeLessThan(html.indexOf("运行验证"));
+    expect(html.indexOf("我先检查当前目录和关键文件")).toBeLessThan(html.indexOf("我正在跑前端测试"));
   });
 
   it("renders an explicit opening judgment even before activity rows exist", () => {
@@ -283,7 +283,7 @@ describe("ChatMessage", () => {
 
     expect(html).toContain("我先确认项目约定和协作边界");
     expect(html).toContain("确认项目约定和协作边界");
-    expect(html).toContain("正在读取 langchain-agent/AGENTS.md");
+    expect(html).toContain("我先读取 langchain-agent/AGENTS.md");
     expect(html).not.toContain("开局反馈");
     expect(html).not.toContain("assistant-output-signal");
     expect(html).not.toContain("正在思考");

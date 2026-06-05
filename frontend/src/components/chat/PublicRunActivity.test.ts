@@ -292,7 +292,9 @@ describe("PublicRunActivity", () => {
       }),
     );
 
-    expect(html).toContain("正在运行验证 前端测试");
+    expect(html).toContain("我正在跑前端测试");
+    expect(html).toContain("已读到样式文件");
+    expect(html).not.toContain("正在运行验证 前端测试");
     expect(html).not.toContain("执行中");
     expect(html).not.toContain("实时");
     expect(html).not.toContain("较早的 1 条进展已收起");
@@ -301,9 +303,7 @@ describe("PublicRunActivity", () => {
     expect(html).not.toContain("读取项目结构");
     expect(html).not.toContain("已确认目标");
     expect(html).not.toContain("已搜索引用 入口组件");
-    expect(html).not.toContain("样式文件");
-    expect(html).toContain("运行验证");
-    expect(html).toContain("关键上下文已拿到");
+    expect(html).not.toContain("已读取上下文 样式文件");
     expect(html).not.toContain("观察：关键上下文已拿到");
     expect(html).not.toContain("npm test");
     expect(html).not.toContain("public-run-activity__row--history");
@@ -351,8 +351,8 @@ describe("PublicRunActivity", () => {
     expect(html).not.toContain("前面已完成");
     expect(html).not.toContain("已读取上下文 artifacts/game.html");
     expect(html).not.toContain("观察：关键上下文已拿到");
-    expect(html).toContain("关键上下文已拿到");
-    expect(html).toContain("正在搜索");
+    expect(html).toContain("已读到 artifacts/game.html");
+    expect(html).toContain("我先搜索相关引用");
     expect(html).not.toContain("function attack");
     expect(html.match(/storage/g)?.length ?? 0).toBe(0);
     expect(html).not.toContain("public-run-activity__row--history");
@@ -375,7 +375,7 @@ describe("PublicRunActivity", () => {
       }),
     );
 
-    expect(html).toContain("正在确认 artifacts/mythical_sphere.html");
+    expect(html).toContain("我先确认 artifacts/mythical_sphere.html 的状态");
     expect(html).toContain("mythical_sphere.html");
     expect(html).not.toContain("正在调用");
     expect(html).not.toContain("等待工具返回");
@@ -451,7 +451,7 @@ describe("PublicRunActivity", () => {
     expect(html).not.toContain("public-run-activity__agent-message");
     expect(html).not.toContain("我先检查文件写入权限和可用路径");
     expect(html).not.toContain("public-run-activity__row--current");
-    expect(html).toContain("正在确认 output");
+    expect(html).toContain("我先确认 output 的状态");
   });
 
   it("does not duplicate the running prefix for generic tool calls", () => {
@@ -469,7 +469,7 @@ describe("PublicRunActivity", () => {
       }),
     );
 
-    expect(html).toContain("正在处理 artifacts/football.html");
+    expect(html).toContain("我先处理 artifacts/football.html");
     expect(html).not.toContain("执行动作");
     expect(html).not.toContain("正在正在");
     expect(html).not.toContain("正在调用工具");
@@ -523,7 +523,6 @@ describe("PublicRunActivity", () => {
       }),
     );
 
-    expect(html).toContain("等待继续");
     expect(html).toContain("当前任务已停在等待队列");
     expect(html).toContain("等待");
     expect(html).not.toContain("执行中");
@@ -546,7 +545,7 @@ describe("PublicRunActivity", () => {
       }),
     );
 
-    expect(html).toContain("正在检索相关记忆");
+    expect(html).toContain("我先接上相关记忆");
     expect(html).not.toContain("正在处理步骤");
     expect(html).not.toContain("memory_search");
     expect(html).not.toContain("等待工具返回");
@@ -567,7 +566,7 @@ describe("PublicRunActivity", () => {
       }),
     );
 
-    expect(html).toContain("正在准备输出");
+    expect(html).toContain("我先准备输出位置");
     expect(html).not.toContain("New-Item");
     expect(html).not.toContain("ItemType");
     expect(html).not.toContain("frontend/src/app/adventure-island");
