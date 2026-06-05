@@ -293,6 +293,65 @@ def test_run_monitor_projects_active_turn_as_primary_signal():
     assert delete_action["enabled"] is False
 
 
+def test_run_monitor_waiting_state_wins_over_running_bucket_residue():
+    monitor = build_runtime_monitor_envelope(
+        items=[
+            {
+                "task_run_id": "taskrun:waiting",
+                "status": "waiting_executor",
+                "lifecycle": "paused",
+                "bucket": "running",
+                "action_required": True,
+                "is_live": True,
+                "title": "等待中的任务",
+                "updated_at": 150.0,
+                "last_activity_at": 150.0,
+                "started_at": 100.0,
+            },
+        ],
+        now=180.0,
+        limit=10,
+    )
+
+    assert monitor["summary"]["active"] == 0
+    assert monitor["summary"]["waiting"] == 1
+    assert monitor["primary"] == []
+    assert monitor["attention"][0]["state"] == "waiting"
+
+
+def test_run_monitor_projects_waiting_active_turn_as_waiting_signal():
+    runtime_host = SimpleNamespace(
+        state_index=StateIndexStub(
+            task_runs=[],
+            turn_runs=[turn_run(turn_run_id="turnrun:session-dev:1", session_id="session-dev", turn_id="turn:session-dev:1")],
+        ),
+        event_log=EventLogStub(),
+        backend_dir=Path.cwd(),
+        run_registry=RunRegistryStub([runtime_run(session_id="session-dev")]),
+        active_turn_registry=ActiveTurnRegistryStub(
+            ActiveTurnRecordStub(
+                session_id="session-dev",
+                turn_id="turn:session-dev:1",
+                turn_run_id="turnrun:session-dev:1",
+                bound_task_run_id="",
+                stream_run_id="strun:test",
+                state="waiting_executor",
+                started_at=100.0,
+                updated_at=126.0,
+            )
+        ),
+    )
+    service = RuntimeMonitorService(runtime_host=runtime_host, freshness_seconds=300.0)
+
+    monitor = service.collect_global_runtime_monitor(limit=20)
+
+    assert monitor["summary"]["active"] == 0
+    assert monitor["summary"]["waiting"] == 1
+    assert monitor["primary"] == []
+    assert monitor["management"]["lanes"]["attention"][0]["signal_id"] == "turnrun:session-dev:1"
+    assert monitor["management"]["lanes"]["attention"][0]["state"] == "waiting"
+
+
 def test_runtime_monitor_management_includes_recent_terminal_records(tmp_path):
     completed = task_run(
         task_run_id="taskrun:completed",

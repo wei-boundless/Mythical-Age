@@ -95,6 +95,7 @@ export type SessionTaskSummary = {
   bucket?: string;
   terminal?: boolean;
   action_required?: boolean;
+  stale?: boolean;
   graph_run_id?: string;
   graph_id?: string;
   graph_harness_config_id?: string;

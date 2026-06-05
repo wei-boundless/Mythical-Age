@@ -1211,8 +1211,8 @@ def test_parent_loop_continue_resets_child_loop_cursor_from_child_start_key(tmp_
                 "initial_inputs": {"chapter_index": 1, "batch_start_index": 1, "batch_end_index": 10},
             },
             {
-                "frame_id": "loop.chapter_batch",
-                "scope_id": "loop.chapter_batch",
+                "frame_id": "module.chapter::loop.chapter_batch",
+                "scope_id": "module.chapter::loop.chapter_batch",
                 "entry_node_id": "outline",
                 "router_node_id": "batch_router",
                 "continue_node_id": "outline",
@@ -1240,7 +1240,7 @@ def test_parent_loop_continue_resets_child_loop_cursor_from_child_start_key(tmp_
             },
         ),
         nodes=(
-            TaskGraphNodeDefinition(node_id="outline", node_type="agent", title="Outline", task_id="task.outline", agent_id="agent:0", loop={"scope_id": "loop.chapter_batch"}),
+            TaskGraphNodeDefinition(node_id="outline", node_type="agent", title="Outline", task_id="task.outline", agent_id="agent:0", loop={"scope_id": "module.chapter::loop.chapter_batch"}),
             TaskGraphNodeDefinition(
                 node_id="draft",
                 node_type="agent",
@@ -1269,9 +1269,9 @@ def test_parent_loop_continue_resets_child_loop_cursor_from_child_start_key(tmp_
                     },
                 },
             ),
-            TaskGraphNodeDefinition(node_id="assemble", node_type="agent", title="Assemble", task_id="task.assemble", agent_id="agent:0", loop={"scope_id": "loop.chapter_batch"}),
-            TaskGraphNodeDefinition(node_id="review", node_type="agent", title="Review", task_id="task.review", agent_id="agent:0", loop={"scope_id": "loop.chapter_batch"}),
-            TaskGraphNodeDefinition(node_id="commit", node_type="agent", title="Commit", task_id="task.commit", agent_id="agent:0", loop={"scope_id": "loop.chapter_batch"}),
+            TaskGraphNodeDefinition(node_id="assemble", node_type="agent", title="Assemble", task_id="task.assemble", agent_id="agent:0", loop={"scope_id": "module.chapter::loop.chapter_batch"}),
+            TaskGraphNodeDefinition(node_id="review", node_type="agent", title="Review", task_id="task.review", agent_id="agent:0", loop={"scope_id": "module.chapter::loop.chapter_batch"}),
+            TaskGraphNodeDefinition(node_id="commit", node_type="agent", title="Commit", task_id="task.commit", agent_id="agent:0", loop={"scope_id": "module.chapter::loop.chapter_batch"}),
             TaskGraphNodeDefinition(
                 node_id="batch_router",
                 node_type="agent",
@@ -1279,10 +1279,10 @@ def test_parent_loop_continue_resets_child_loop_cursor_from_child_start_key(tmp_
                 task_id="task.batch_router",
                 agent_id="agent:0",
                 loop={
-                    "scope_id": "loop.chapter_batch",
+                    "scope_id": "module.chapter::loop.chapter_batch",
                     "route_policy": {
                         "mode": "metric_target",
-                        "scope_id": "loop.chapter_batch",
+                        "scope_id": "module.chapter::loop.chapter_batch",
                         "continue_node_id": "outline",
                         "exit_node_id": "volume_review",
                         "metric_key": "batch_words",
@@ -1354,8 +1354,8 @@ def test_parent_loop_continue_resets_child_loop_cursor_from_child_start_key(tmp_
     assert state.initial_inputs["batch_start_index"] == 11
     assert state.initial_inputs["batch_end_index"] == 20
     assert state.initial_inputs["chapter_index"] == 11
-    assert frames["loop.chapter_batch"]["cursor"] == 11
-    assert frames["loop.chapter_batch"]["active_iteration_id"] == "chapter-batch-11"
+    assert frames["module.chapter::loop.chapter_batch"]["cursor"] == 11
+    assert frames["module.chapter::loop.chapter_batch"]["active_iteration_id"] == "chapter-batch-11"
     assert frames["loop.chapter_unit"]["cursor"] == 11
     assert frames["loop.chapter_unit"]["start"] == 11
     assert frames["loop.chapter_unit"]["end"] == 20

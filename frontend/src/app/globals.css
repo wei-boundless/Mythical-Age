@@ -26215,6 +26215,11 @@ html[data-workspace-tone] .agent-workbench {
   color: var(--workbench-green);
 }
 
+.workbench-runtime-state--waiting,
+.workbench-runtime-state--stopped {
+  color: var(--workbench-muted);
+}
+
 .workbench-toolbar-actions button {
   display: inline-flex;
   align-items: center;
@@ -30610,6 +30615,11 @@ html[data-workspace-tone] .agent-workbench {
   color: var(--console-success);
 }
 
+.workbench-runtime-state--waiting,
+.workbench-runtime-state--stopped {
+  color: var(--console-muted);
+}
+
 .workspace-search,
 .boundary-field input,
 .boundary-field select,
@@ -33689,6 +33699,13 @@ body {
   border-color: rgba(22, 116, 95, 0.24);
   background: #edf8f3;
   color: var(--console-success);
+}
+
+.workbench-runtime-state--waiting,
+.workbench-runtime-state--stopped {
+  border-color: rgba(149, 164, 181, 0.28);
+  background: rgba(247, 249, 251, 0.76);
+  color: var(--console-muted);
 }
 
 .workbench-resize-handle {

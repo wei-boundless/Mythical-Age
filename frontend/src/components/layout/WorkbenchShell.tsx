@@ -22,7 +22,7 @@ import { RunMonitorPanel } from "@/components/layout/RunMonitorPanel";
 import { WorkspaceModeSwitcher } from "@/components/layout/WorkspaceModeSwitcher";
 import { openProjectWorkspaceInVSCode, type CodeEnvironmentTreeNode } from "@/lib/api";
 import type { SessionSummary } from "@/lib/api";
-import { sessionSummaryIsRunning, sessionSummaryTask, sessionTaskStatusLabel } from "@/lib/sessionTaskPresentation";
+import { sessionSummaryIsRunning, sessionSummaryTask, sessionTaskActivityKind, sessionTaskStatusLabel } from "@/lib/sessionTaskPresentation";
 import { useAppStore } from "@/lib/store";
 
 const LEFT_WIDTH_KEY = "agentWorkbench.leftWidth";
@@ -619,13 +619,25 @@ function MainToolbar({
   } = useAppStore();
   const editable = isEditableWorkspacePath(inspectorPath, workspaceContext?.editable_prefixes);
   const currentSession = sessions.find((session) => session.id === currentSessionId) ?? null;
+  const currentTask = currentSession ? sessionTask(currentSession) : undefined;
+  const currentTaskActivity = sessionTaskActivityKind(currentTask);
   const subject = friendlySessionTitle(currentSession?.title, currentSessionId || "");
-  const streaming = Boolean(currentSessionId && activeStreamSessionIds.includes(currentSessionId));
+  const streaming = currentSession
+    ? sessionIsRunning(currentSession, activeStreamSessionIds)
+    : Boolean(currentSessionId && activeStreamSessionIds.includes(currentSessionId));
   const activityLabel = streaming
-    ? sessionActivity.title || sessionActivity.detail || sessionActivity.event || "执行中"
+    ? sessionActivity.title || sessionActivity.detail || sessionActivity.event || "处理中"
+    : currentTaskActivity === "waiting" || currentTaskActivity === "stopped" || currentTaskActivity === "failed"
+      ? sessionTaskStatusLabel(currentTask)
     : inspectorDirty
       ? "有未保存文件"
       : "待命";
+  const runtimeStateClassName = [
+    "workbench-runtime-state",
+    streaming ? "workbench-runtime-state--active" : "",
+    !streaming && currentTaskActivity === "waiting" ? "workbench-runtime-state--waiting" : "",
+    !streaming && currentTaskActivity === "stopped" ? "workbench-runtime-state--stopped" : "",
+  ].filter(Boolean).join(" ");
 
   return (
     <header className="workbench-main-toolbar">
@@ -633,7 +645,7 @@ function MainToolbar({
         <span>会话</span>
         <strong>{subject}</strong>
       </div>
-      <div className={streaming ? "workbench-runtime-state workbench-runtime-state--active" : "workbench-runtime-state"}>
+      <div className={runtimeStateClassName}>
         <CircleDot size={13} />
         <span>{activityLabel}</span>
       </div>

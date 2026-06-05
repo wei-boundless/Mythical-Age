@@ -87,16 +87,21 @@ def _signal_state(item: dict[str, Any]) -> str:
     bucket = str(item.get("bucket") or "").strip()
     lifecycle = str(item.get("lifecycle") or "").strip()
     status = str(item.get("status") or "").strip()
-    if bucket == "running" or lifecycle == "running" or bool(item.get("is_live")):
-        return "active"
     if bucket == "failed" or lifecycle == "failed" or status in {"failed", "aborted", "cancelled", "error"}:
         return "failed"
     if bucket == "completed" or lifecycle == "completed" or status in {"completed", "success"}:
         return "completed"
+    if (
+        status in {"waiting_executor", "waiting_approval", "waiting_user", "blocked"}
+        or lifecycle in {"waiting", "waiting_executor", "waiting_approval", "waiting_user", "action_required", "paused"}
+        or bucket == "waiting"
+        or bool(item.get("action_required"))
+    ):
+        return "waiting"
     if bucket == "diagnostics" or lifecycle == "stale" or bool(item.get("stale")):
         return "stale"
-    if bucket == "waiting" or lifecycle in {"waiting", "action_required"} or bool(item.get("action_required")):
-        return "waiting"
+    if bucket == "running" or lifecycle == "running" or bool(item.get("is_live")):
+        return "active"
     return "attention"
 
 

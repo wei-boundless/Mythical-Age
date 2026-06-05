@@ -1109,6 +1109,12 @@ def _evaluate_loop_route(
     )
     if not cursor_set_by_route:
         patched_inputs = _apply_frame_cursor_patch(inputs=patched_inputs, frame=frame, action=action)
+    if action == "continue":
+        patched_inputs = _apply_child_loop_input_resets(
+            graph_config=graph_config,
+            inputs=patched_inputs,
+            parent_frame=frame,
+        )
     patched_inputs = _apply_derived_fields(patched_inputs, list(route_policy.get("derived_fields") or []))
     continue_node_id = str(route_policy.get("continue_node_id") or frame.get("continue_node_id") or frame.get("entry_node_id") or "").strip()
     exit_node_id = str(route_policy.get("exit_node_id") or frame.get("exit_node_id") or "").strip()
@@ -1292,6 +1298,12 @@ def _evaluate_generic_progress_receipt_route(
     action = "exit" if receipt_complete or (not complete_key and target_key and current_value >= target_value) else "continue"
     if not cursor_set_by_receipt:
         patched_inputs = _apply_frame_cursor_patch(inputs=patched_inputs, frame=frame, action=action)
+    if action == "continue":
+        patched_inputs = _apply_child_loop_input_resets(
+            graph_config=graph_config,
+            inputs=patched_inputs,
+            parent_frame=frame,
+        )
     patched_inputs = _patch_chapter_active_range_for_cursor(
         patched_inputs,
         cursor_key=cursor_key,
@@ -1667,6 +1679,39 @@ def _apply_frame_cursor_patch(*, inputs: dict[str, Any], frame: dict[str, Any], 
     return patched
 
 
+def _apply_child_loop_input_resets(
+    *,
+    graph_config: GraphHarnessConfig,
+    inputs: dict[str, Any],
+    parent_frame: dict[str, Any],
+) -> dict[str, Any]:
+    parent_frame_id = str(parent_frame.get("frame_id") or parent_frame.get("scope_id") or "").strip()
+    if not parent_frame_id:
+        return dict(inputs or {})
+    patched = dict(inputs or {})
+    for raw_child in graph_config.loop_frames:
+        child = _normalize_loop_frame(dict(raw_child))
+        if not _loop_parent_matches(child, parent_frame_id):
+            continue
+        cursor_key = str(child.get("cursor_key") or "").strip()
+        start_key = str(child.get("start_key") or "").strip()
+        if not cursor_key or not start_key:
+            continue
+        start_value = _numeric_value(patched.get(start_key), None)
+        if start_value is None:
+            continue
+        patched[cursor_key] = start_value
+        end_key = str(child.get("end_key") or "").strip()
+        patched = _patch_chapter_active_range_for_cursor(
+            patched,
+            cursor_key=cursor_key,
+            start_value=start_value,
+            end_value=_numeric_value(patched.get(end_key), None) if end_key else None,
+        )
+        patched = _apply_child_loop_input_resets(graph_config=graph_config, inputs=patched, parent_frame=child)
+    return patched
+
+
 def _apply_derived_fields(inputs: dict[str, Any], fields: list[Any]) -> dict[str, Any]:
     patched = dict(inputs)
     for raw_field in fields:
@@ -1804,7 +1849,7 @@ def _reset_child_loop_frames_for_parent_continue(
     patched_frames = {key: dict(value) for key, value in frames.items()}
     for child_frame_id, raw_child in list(patched_frames.items()):
         child = dict(raw_child or {})
-        if str(child.get("parent_scope_id") or "").strip() != parent_frame_id:
+        if not _loop_parent_matches(child, parent_frame_id):
             continue
         cursor_key = str(child.get("cursor_key") or "").strip()
         start_key = str(child.get("start_key") or "").strip()
@@ -1913,10 +1958,25 @@ def _descendant_loop_frame_ids(*, frames: dict[str, dict[str, Any]], parent_fram
         for frame_id, frame in frames.items():
             if frame_id in descendants:
                 continue
-            if str(dict(frame or {}).get("parent_scope_id") or "").strip() == current:
+            if _loop_parent_matches(dict(frame or {}), current):
                 descendants.add(frame_id)
                 pending.append(frame_id)
     return descendants
+
+
+def _loop_parent_matches(frame: dict[str, Any], parent_frame_id: str) -> bool:
+    parent_ref = str(dict(frame or {}).get("parent_scope_id") or "").strip()
+    parent_id = str(parent_frame_id or "").strip()
+    if not parent_ref or not parent_id:
+        return False
+    if parent_ref == parent_id:
+        return True
+    return _loop_scope_tail(parent_ref) == _loop_scope_tail(parent_id)
+
+
+def _loop_scope_tail(value: str) -> str:
+    text = str(value or "").strip()
+    return text.rsplit("::", 1)[-1]
 
 
 def _loop_state_without_descendant_iteration_results(
@@ -2110,22 +2170,9 @@ def _ready_rejected_revision_targets(
             continue
         source_result = dict(state.result_index.get(source) or {})
         verdict = extract_review_verdict(str(source_result.get("handoff_summary") or ""))
-        if review_verdict_is_rejected(verdict) and _rejected_revision_count(state=state, node_id=source) >= 2:
-            continue
         if review_verdict_is_rejected(verdict) and target not in targets:
             targets.append(target)
     return tuple(targets)
-
-
-def _rejected_revision_count(*, state: GraphLoopState, node_id: str) -> int:
-    count = 0
-    for item in list(dict(state.result_history or {}).get(node_id) or []):
-        if not isinstance(item, dict):
-            continue
-        verdict = extract_review_verdict(str(item.get("handoff_summary") or ""))
-        if review_verdict_is_rejected(verdict):
-            count += 1
-    return count
 
 
 def _revision_reset_node_ids(

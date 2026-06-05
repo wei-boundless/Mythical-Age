@@ -5,8 +5,10 @@ export type SessionTaskActivityKind = "idle" | "running" | "waiting" | "complete
 const WAITING_TASK_STATUSES = new Set([
   "action_required",
   "blocked",
+  "diagnostics",
   "paused",
   "pause_requested",
+  "stale",
   "waiting",
   "waiting_approval",
   "waiting_executor",
@@ -33,8 +35,12 @@ function taskStatusValues(task: SessionTaskSummary | undefined) {
 export function sessionTaskActivityKind(task: SessionTaskSummary | undefined): SessionTaskActivityKind {
   if (!task) return "idle";
   const { bucket, lifecycle, status } = taskStatusValues(task);
-  if (task.terminal || COMPLETED_TASK_STATUSES.has(status) || COMPLETED_TASK_STATUSES.has(lifecycle)) {
-    return "completed";
+  if (
+    WAITING_TASK_STATUSES.has(status)
+    || WAITING_TASK_STATUSES.has(lifecycle)
+    || task.stale
+  ) {
+    return "waiting";
   }
   if (FAILED_TASK_STATUSES.has(status) || FAILED_TASK_STATUSES.has(lifecycle)) {
     return "failed";
@@ -42,13 +48,11 @@ export function sessionTaskActivityKind(task: SessionTaskSummary | undefined): S
   if (STOPPED_TASK_STATUSES.has(status) || STOPPED_TASK_STATUSES.has(lifecycle)) {
     return "stopped";
   }
-  if (
-    task.action_required
-    || WAITING_TASK_STATUSES.has(status)
-    || WAITING_TASK_STATUSES.has(lifecycle)
-    || WAITING_TASK_STATUSES.has(bucket)
-  ) {
+  if (task.action_required || WAITING_TASK_STATUSES.has(bucket)) {
     return "waiting";
+  }
+  if (task.terminal || COMPLETED_TASK_STATUSES.has(status) || COMPLETED_TASK_STATUSES.has(lifecycle)) {
+    return "completed";
   }
   if (RUNNING_TASK_STATUSES.has(status) || RUNNING_TASK_STATUSES.has(lifecycle) || bucket === "running") {
     return "running";
@@ -62,12 +66,13 @@ export function sessionTaskStatusLabel(task: SessionTaskSummary | undefined) {
   if (status === "waiting_executor" || lifecycle === "waiting_executor" || status === "waiting_user") return "等待继续";
   if (status === "waiting_approval" || lifecycle === "waiting_approval") return "等待确认";
   if (status === "paused" || lifecycle === "paused" || status === "pause_requested" || lifecycle === "pause_requested") return "已暂停";
-  if (task.action_required || status === "blocked" || lifecycle === "blocked" || lifecycle === "action_required" || bucket === "waiting") return "等待处理";
   const kind = sessionTaskActivityKind(task);
-  if (kind === "running") return "运行中";
-  if (kind === "completed") return "已完成";
   if (kind === "failed") return "失败";
   if (kind === "stopped") return "已停止";
+  if (task.stale || status === "stale" || lifecycle === "stale" || bucket === "diagnostics") return "等待继续";
+  if (task.action_required || status === "blocked" || lifecycle === "blocked" || lifecycle === "action_required" || bucket === "waiting") return "等待处理";
+  if (kind === "running") return "运行中";
+  if (kind === "completed") return "已完成";
   return status || lifecycle || bucket || "任务";
 }
 
@@ -77,11 +82,12 @@ export function sessionSummaryTask(session: SessionSummary) {
 
 export function sessionSummaryIsRunning(session: SessionSummary, activeStreamSessionIds: string[]) {
   const task = sessionSummaryTask(session);
-  if (sessionTaskActivityKind(task) === "waiting") {
+  const taskActivity = sessionTaskActivityKind(task);
+  if (taskActivity === "waiting" || taskActivity === "failed" || taskActivity === "stopped") {
     return false;
   }
   if (activeStreamSessionIds.includes(session.id)) {
     return true;
   }
-  return sessionTaskActivityKind(task) === "running";
+  return taskActivity === "running";
 }

@@ -36,12 +36,34 @@ describe("sessionTaskPresentation", () => {
     expect(sessionSummaryIsRunning(session(waitingTask), ["session:main"])).toBe(false);
   });
 
+  it("lets waiting semantics beat terminal and stale stream residue", () => {
+    const waitingTerminalTask = task({
+      bucket: "running",
+      lifecycle: "paused",
+      status: "waiting_executor",
+      terminal: true,
+    });
+    const staleDiagnosticTask = task({
+      bucket: "diagnostics",
+      lifecycle: "stale",
+      stale: true,
+      status: "running",
+    });
+
+    expect(sessionTaskActivityKind(waitingTerminalTask)).toBe("waiting");
+    expect(sessionSummaryIsRunning(session(waitingTerminalTask), ["session:main"])).toBe(false);
+    expect(sessionTaskStatusLabel(staleDiagnosticTask)).toBe("等待继续");
+    expect(sessionSummaryIsRunning(session(staleDiagnosticTask), ["session:main"])).toBe(false);
+  });
+
   it("marks sessions as running for active streams or true running task state", () => {
     const runningTask = task({ bucket: "running", status: "running" });
     const completedTask = task({ status: "completed", terminal: true });
+    const stoppedTask = task({ status: "user_aborted" });
 
     expect(sessionSummaryIsRunning(session(runningTask), [])).toBe(true);
     expect(sessionSummaryIsRunning(session(completedTask), ["session:main"])).toBe(true);
     expect(sessionSummaryIsRunning(session(completedTask), [])).toBe(false);
+    expect(sessionSummaryIsRunning(session(stoppedTask), ["session:main"])).toBe(false);
   });
 });

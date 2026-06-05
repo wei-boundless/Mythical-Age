@@ -8,6 +8,7 @@ import { ChatMessage } from "@/components/chat/ChatMessage";
 import { hasPublicRunActivity } from "@/components/chat/PublicRunActivity";
 import { SessionActivityBar } from "@/components/chat/SessionActivityBar";
 import type { PublicChatTimelineItem } from "@/lib/api";
+import { sessionSummaryIsRunning } from "@/lib/sessionTaskPresentation";
 import { useAppStore } from "@/lib/store";
 import { mergePublicTimelineItems, publicTimelineItemText, publicTimelineTerminalStateFromAnswer } from "@/lib/store/publicTimeline";
 import { taskEnvironmentDisplayName } from "@/lib/taskEnvironmentDisplay";
@@ -36,10 +37,17 @@ export function ChatPanel() {
     setChatThinkingMode,
     selectedChatModelId,
     setSelectedChatModel,
+    sessions,
     tokenStats,
   } = useAppStore();
   const endRef = useRef<HTMLDivElement | null>(null);
-  const currentSessionStreaming = Boolean(currentSessionId && activeStreamSessionIds.includes(currentSessionId));
+  const currentSession = useMemo(
+    () => sessions.find((session) => session.id === currentSessionId) ?? null,
+    [currentSessionId, sessions],
+  );
+  const currentSessionStreaming = currentSession
+    ? sessionSummaryIsRunning(currentSession, activeStreamSessionIds)
+    : Boolean(currentSessionId && activeStreamSessionIds.includes(currentSessionId));
   const suppressFooterActivity = shouldSuppressSessionActivityBar(messages, currentSessionStreaming);
   const monitorRecord = taskGraphLiveMonitor as Record<string, unknown> | null;
   const monitorTaskRun = taskGraphLiveMonitor?.task_run ?? {};

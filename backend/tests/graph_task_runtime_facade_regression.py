@@ -924,6 +924,90 @@ def test_review_revise_requeues_revision_target_before_downstream_commit() -> No
     assert "commit" not in revised.loop_state.active_work_orders
 
 
+def test_repeated_review_revise_does_not_auto_bypass_revision_target() -> None:
+    runtime = _runtime("graph-review-revise-no-bypass-")
+    registry = TaskFlowRegistry(runtime.base_dir)
+    graph = registry.upsert_task_graph(
+        graph_id="graph.test.review_revise_no_bypass",
+        title="Review Revise No Bypass",
+        graph_kind="multi_agent",
+        entry_node_id="draft",
+        output_node_id="commit",
+        nodes=(
+            {"node_id": "draft", "node_type": "agent", "title": "起草", "task_id": "task.test.draft", "agent_id": "agent:0"},
+            {"node_id": "review", "node_type": "review_gate", "title": "审核", "task_id": "task.test.review", "agent_id": "agent:0"},
+            {"node_id": "commit", "node_type": "memory_commit", "title": "提交", "task_id": "task.test.commit", "agent_id": "agent:0"},
+        ),
+        edges=(
+            {
+                "edge_id": "edge.draft.review",
+                "source_node_id": "draft",
+                "target_node_id": "review",
+                "edge_type": "handoff",
+                "result_delivery_policy": "contract_payload_and_refs",
+            },
+            {
+                "edge_id": "edge.review.commit",
+                "source_node_id": "review",
+                "target_node_id": "commit",
+                "edge_type": "handoff",
+                "result_delivery_policy": "contract_payload_and_refs",
+            },
+            {
+                "edge_id": "edge.review.revise",
+                "source_node_id": "review",
+                "target_node_id": "draft",
+                "edge_type": "revision_request",
+                "semantic_role": "revision",
+                "result_delivery_policy": "contract_payload_and_refs",
+            },
+        ),
+        runtime_policy={"coordinator_agent_id": "agent:0"},
+        publish_state="published",
+        enabled=True,
+    )
+    graph_config = publish_graph_harness_config_for_graph(base_dir=runtime.base_dir, graph_id=graph.graph_id)
+    start = runtime.graph_harness.start_run(session_id="session:test", task_id="", graph_config=graph_config)
+    state = start.loop_state
+    order = start.node_work_orders[0]
+
+    for round_index in range(1, 4):
+        to_review = runtime.graph_harness.accept_node_result(
+            graph_config=graph_config,
+            graph_run_id=start.graph_run.graph_run_id,
+            result=NodeResultEnvelope(
+                result_id=f"nresult:test:draft:no-bypass:{round_index}",
+                graph_run_id=start.graph_run.graph_run_id,
+                task_run_id=start.task_run.task_run_id,
+                node_id="draft",
+                work_order_id=order.work_order_id,
+                handoff_summary=f"第{round_index}轮候选草稿。",
+            ),
+        )
+        review_order = to_review.node_work_orders[0]
+        revised = runtime.graph_harness.accept_node_result(
+            graph_config=graph_config,
+            graph_run_id=start.graph_run.graph_run_id,
+            result=NodeResultEnvelope(
+                result_id=f"nresult:test:review:no-bypass:{round_index}",
+                graph_run_id=start.graph_run.graph_run_id,
+                task_run_id=start.task_run.task_run_id,
+                node_id="review",
+                work_order_id=review_order.work_order_id,
+                handoff_summary="审核裁决：返修\n\n仍需修改后才能进入提交。",
+            ),
+        )
+
+        assert [next_order.node_id for next_order in revised.node_work_orders] == ["draft"]
+        assert revised.loop_state.node_states["commit"]["status"] == "pending"
+        assert revised.loop_state.node_states["draft"]["status"] == "running"
+        assert "commit" not in revised.loop_state.active_work_orders
+        state = revised.loop_state
+        order = revised.node_work_orders[0]
+
+    assert len(state.result_history["review"]) == 3
+
+
 def test_baseline_memory_seed_waits_for_accepted_outline_review() -> None:
     runtime = _runtime("graph-baseline-waits-review-")
     registry = TaskFlowRegistry(runtime.base_dir)
