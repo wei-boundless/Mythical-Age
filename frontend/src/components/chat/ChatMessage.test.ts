@@ -446,12 +446,58 @@ describe("ChatMessage", () => {
 
     expect(html).toContain("已复制 2 个素材文件");
     expect(html).toContain("public-run-activity__command-output");
-    expect(html).toContain("Ran command");
-    expect(html).toContain("Shell");
+    expect(html).toContain("命令输出");
+    expect(html).toContain("终端");
     expect(html).toContain("Copied: game-boss-demon-king.png");
     expect(html).not.toContain("<p>Copied:");
     expect(html).not.toContain("观察结果");
     expect(html).not.toContain("观察：");
+  });
+
+  it("renders persisted observation feedback instead of a stale monitor action placeholder", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(ChatMessage, {
+        content: "好，我接着处理。",
+        id: "message:stale-monitor-action",
+        retrievals: [],
+        role: "assistant",
+        runtimeAttachments: [
+          {
+            attachment_id: "runtime-attachment:taskrun:verify",
+            run_id: "taskrun:verify",
+            anchor_turn_id: "turn:session:2",
+            status: "running",
+            public_timeline: [
+              {
+                item_id: "observation:test",
+                kind: "observation_report",
+                title: "观察报告",
+                detail: "验证已返回，22 tests passed",
+                implication: "下一步会根据测试结果收口。",
+                state: "done",
+              },
+              {
+                item_id: "live:stale-verify",
+                kind: "work_action",
+                action_kind: "verify",
+                title: "正在运行验证",
+                subject_label: "验证结果",
+                public_summary: "正在运行验证 验证结果",
+                state: "running",
+                stream_state: "streaming",
+              },
+            ],
+          },
+        ],
+        toolCalls: [],
+      }),
+    );
+
+    expect(html).toContain("好，我接着处理。");
+    expect(html).toContain("验证已返回，22 tests passed");
+    expect(html).toContain("下一步会根据测试结果收口");
+    expect(html).not.toContain("我正在验证验证结果");
+    expect(html).not.toContain("观察报告");
   });
 
   it("does not render copied shell output when it is stored as assistant content", () => {

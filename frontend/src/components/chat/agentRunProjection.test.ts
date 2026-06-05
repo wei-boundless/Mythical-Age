@@ -72,6 +72,58 @@ describe("agentRunProjection", () => {
     expect(projection.feedback).not.toContain("观察报告");
   });
 
+  it("keeps an observation fact over a stale monitor running action for the same work", () => {
+    const projection = projectAgentRun([
+      {
+        item_id: "observation:test",
+        kind: "observation_report",
+        title: "观察报告",
+        detail: "验证已返回，22 tests passed",
+        implication: "下一步会根据测试结果收口。",
+        state: "done",
+      },
+      {
+        item_id: "live:stale-verify",
+        kind: "work_action",
+        action_kind: "verify",
+        title: "正在运行验证",
+        subject_label: "验证结果",
+        public_summary: "正在运行验证 验证结果",
+        state: "running",
+        stream_state: "streaming",
+      },
+    ]);
+
+    expect(projection.liveAction).toBe("");
+    expect(projection.feedback).toBe("验证已返回，22 tests passed。 下一步会根据测试结果收口。");
+    expect(projection.feedback).not.toContain("观察报告");
+    expect(projection.feedback).not.toContain("验证验证结果");
+  });
+
+  it("still shows a genuinely new running action after an earlier observation", () => {
+    const projection = projectAgentRun([
+      {
+        item_id: "observation:read",
+        kind: "observation_report",
+        detail: "已读到主会话组件。",
+        state: "done",
+      },
+      {
+        item_id: "work:test",
+        kind: "work_action",
+        action_kind: "verify",
+        title: "正在运行验证",
+        subject_label: "前端测试",
+        public_summary: "正在运行验证 前端测试",
+        state: "running",
+        stream_state: "streaming",
+      },
+    ]);
+
+    expect(projection.feedback).toBe("");
+    expect(projection.liveAction).toBe("我正在跑前端测试，用结果判断是否还要继续修正。");
+  });
+
   it("makes stopped state exclusive over previous tool failures", () => {
     const projection = projectAgentRun([
       {
@@ -164,7 +216,7 @@ describe("agentRunProjection", () => {
     expect(assistantContentFromPublicTimeline("", items)).toBe("");
     expect(projection.feedback).toBe("已复制 2 个素材文件，下一步会确认目标页面是否能正确引用。");
     expect(projection.feedback).not.toContain("Copied:");
-    expect(projection.commandOutput?.label).toBe("Shell");
+    expect(projection.commandOutput?.label).toBe("终端");
     expect(projection.commandOutput?.content).toContain("Copied: game-boss-demon-king.png");
     expect(projection.commandOutput?.content).toContain("Copied: game-map-castle.png");
   });

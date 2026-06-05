@@ -1032,7 +1032,7 @@ def test_runtime_compiler_rejects_wrong_invocation_prompt_ref() -> None:
         )
 
 
-def test_single_agent_turn_keeps_compressed_context_outside_recent_history_window() -> None:
+def test_single_agent_turn_keeps_compressed_context_outside_active_history() -> None:
     history = [
         {"role": "assistant", "content": "[Compressed session context]\n此前已经确认项目采用 DeepSeek。"},
         *({"role": "user", "content": f"user-{index}"} for index in range(8)),
@@ -1052,11 +1052,17 @@ def test_single_agent_turn_keeps_compressed_context_outside_recent_history_windo
     )
 
     volatile_payload = _payload_after_title(result.packet.model_messages[-1]["content"], "Single agent turn current request")
-    history_payload = volatile_payload["history"]
+    history_payload = _payload_containing_title(result.packet.model_messages, "Single agent turn session history")
 
+    assert "history" not in volatile_payload
     assert history_payload["session_context"]["compressed_summary"] == "此前已经确认项目采用 DeepSeek。"
-    assert [item["content"] for item in history_payload["recent_turns"]] == [f"user-{index}" for index in range(8)]
-    assert all("[Compressed session context]" not in item["content"] for item in history_payload["recent_turns"])
+    assert [item["content"] for item in history_payload["active_history"]] == [f"user-{index}" for index in range(8)]
+    assert all("[Compressed session context]" not in item["content"] for item in history_payload["active_history"])
+    history_segment = next(segment for segment in result.packet.segment_plan["segments"] if segment["kind"] == "session_history")
+    runtime_segment = next(segment for segment in result.packet.segment_plan["segments"] if segment["kind"] == "dynamic_projection")
+    assert history_segment["cache_role"] == "volatile"
+    assert history_segment["compression_role"] == "summarize"
+    assert history_segment["ordinal"] < runtime_segment["ordinal"]
 
 
 def test_single_agent_turn_projects_vscode_editor_context_as_volatile_request() -> None:
@@ -1157,9 +1163,11 @@ def test_observation_followup_projects_session_context_with_observations() -> No
     )
 
     volatile_payload = _payload_after_title(result.packet.model_messages[-1]["content"], "Observation followup current request")
+    history_payload = _payload_containing_title(result.packet.model_messages, "Observation followup session history")
 
-    assert volatile_payload["history"]["session_context"]["compressed_summary"] == "此前决定优先修结构问题。"
-    assert volatile_payload["history"]["recent_turns"][0]["content"] == "先读文件。"
+    assert "history" not in volatile_payload
+    assert history_payload["session_context"]["compressed_summary"] == "此前决定优先修结构问题。"
+    assert history_payload["active_history"][0]["content"] == "先读文件。"
     assert volatile_payload["observations"]["latest_observations"][0]["summary"] == "read_file ok"
 
 
@@ -1181,12 +1189,14 @@ def test_single_agent_turn_projects_compressed_context_as_session_context() -> N
     )
 
     volatile_payload = _payload_after_title(result.packet.model_messages[-1]["content"], "Single agent turn current request")
+    history_payload = _payload_containing_title(result.packet.model_messages, "Single agent turn session history")
     message_texts = [str(message["content"]) for message in result.packet.model_messages]
 
-    assert volatile_payload["history"]["session_context"]["compressed_summary"] == "此前已经完成项目结构审查。"
+    assert "history" not in volatile_payload
+    assert history_payload["session_context"]["compressed_summary"] == "此前已经完成项目结构审查。"
     assert "[Compressed session context]" not in "\n".join(message_texts)
-    assert [item["content"] for item in volatile_payload["history"]["recent_turns"]] == ["上一轮用户消息", "上一轮助手回复"]
-    assert volatile_payload["history"]["current_user_message_ref"] == "volatile_current_request"
+    assert [item["content"] for item in history_payload["active_history"]] == ["上一轮用户消息", "上一轮助手回复"]
+    assert history_payload["current_user_message_ref"] == "volatile_current_request"
     assert result.packet.invocation_kind == "single_agent_turn"
     context_window = result.packet.diagnostics["prompt_manifest"]["context_window"]
     assert context_window["compressed_summary_present"] is True
@@ -1260,13 +1270,15 @@ def test_single_agent_turn_projects_recent_work_outcome_as_read_only_context() -
     )
 
     volatile_payload = _payload_after_title(result.packet.model_messages[-1]["content"], "Single agent turn current request")
-    outcome = volatile_payload["history"]["session_context"]["recent_work_outcome"]
+    history_payload = _payload_containing_title(result.packet.model_messages, "Single agent turn session history")
+    outcome = history_payload["session_context"]["recent_work_outcome"]
     model_input = "\n".join(str(message.get("content") or "") for message in result.packet.model_messages)
 
     assert outcome["status"] == "failed"
     assert outcome["terminal_reason"] == "task_executor_schedule_failed"
     assert outcome["latest_progress"] == "生图工具未配置，无法完成合同要求的真实美术资产。"
     assert outcome["continuation_state"] == "terminal_or_interrupted_task_record"
+    assert "history" not in volatile_payload
     assert "active_work_context" not in json.dumps(volatile_payload, ensure_ascii=False)
     assert "最近一次终止、阻塞或中断任务的只读事实" in model_input
     context_window = result.packet.diagnostics["prompt_manifest"]["context_window"]
@@ -1361,9 +1373,87 @@ def test_single_agent_turn_replays_only_hot_provider_protocol_tail() -> None:
     assert "tail tool output" in model_text
     assert any(message.get("tool_calls") for message in result.packet.model_messages)
     assert any(
-        int(dict(segment.get("metadata") or {}).get("protocol_truncated_count") or 0) > 0
+        int(dict(dict(segment.get("metadata") or {}).get("protocol_projection") or {}).get("non_protocol_message_count") or 0) == len(cold_history)
         for segment in provider_segments
     )
+
+
+def test_single_agent_turn_replays_provider_protocol_after_compaction_boundary() -> None:
+    result = RuntimeCompiler().compile_single_agent_turn_packet(
+        session_id="session:protocol-after-compact",
+        turn_id="turn:protocol-after-compact:3",
+        agent_invocation_id="aginvoke:protocol-after-compact",
+        user_message="继续。",
+        history=[],
+        session_context={
+            "compressed_context": "旧工具轨迹已压缩成摘要。",
+            "provider_protocol_compaction_created_at": 10.0,
+            "api_transcript": [
+                {
+                    "role": "assistant",
+                    "content": "",
+                    "created_at": 1.0,
+                    "tool_calls": [{"id": "call_old", "name": "read_file", "args": {}, "type": "tool_call"}],
+                },
+                {"role": "tool", "tool_call_id": "call_old", "content": "old tool output", "created_at": 1.0},
+                {
+                    "role": "assistant",
+                    "content": "",
+                    "created_at": 11.0,
+                    "tool_calls": [{"id": "call_new", "name": "read_file", "args": {}, "type": "tool_call"}],
+                },
+                {"role": "tool", "tool_call_id": "call_new", "content": "new tool output", "created_at": 11.0},
+            ],
+        },
+        runtime_assembly={
+            "profile": {"mode": "conversation"},
+            "task_environment": {"environment_id": "env.general.workspace"},
+        },
+    )
+
+    model_text = "\n".join(str(message.get("content") or "") for message in result.packet.model_messages)
+    provider_segments = [
+        segment
+        for segment in result.packet.segment_plan["segments"]
+        if segment["kind"] == "provider_protocol_history"
+    ]
+
+    assert "old tool output" not in model_text
+    assert "new tool output" in model_text
+    assert any(message.get("tool_calls", [{}])[0].get("id") == "call_new" for message in result.packet.model_messages if message.get("tool_calls"))
+    assert any(
+        int(dict(dict(segment.get("metadata") or {}).get("protocol_projection") or {}).get("compaction_boundary_omitted_message_count") or 0) == 2
+        for segment in provider_segments
+    )
+
+
+def test_single_agent_turn_blocks_provider_protocol_when_compressed_without_boundary() -> None:
+    result = RuntimeCompiler().compile_single_agent_turn_packet(
+        session_id="session:protocol-compact-no-boundary",
+        turn_id="turn:protocol-compact-no-boundary:3",
+        agent_invocation_id="aginvoke:protocol-compact-no-boundary",
+        user_message="继续。",
+        history=[],
+        session_context={
+            "compressed_context": "旧工具轨迹已压缩成摘要。",
+            "api_transcript": [
+                {
+                    "role": "assistant",
+                    "content": "",
+                    "created_at": 11.0,
+                    "tool_calls": [{"id": "call_new", "name": "read_file", "args": {}, "type": "tool_call"}],
+                },
+                {"role": "tool", "tool_call_id": "call_new", "content": "new tool output", "created_at": 11.0},
+            ],
+        },
+        runtime_assembly={
+            "profile": {"mode": "conversation"},
+            "task_environment": {"environment_id": "env.general.workspace"},
+        },
+    )
+
+    assert not any(segment["kind"] == "provider_protocol_history" for segment in result.packet.segment_plan["segments"])
+    assert "new tool output" not in "\n".join(str(message.get("content") or "") for message in result.packet.model_messages)
 
 
 def test_single_agent_turn_projects_large_provider_tool_output_to_persisted_preview(tmp_path: Path) -> None:
@@ -1480,7 +1570,7 @@ def test_provider_protocol_projection_preserves_stable_prefix_hashes(tmp_path: P
 
     assert _stable_prefix_hashes(base.segment_plan) == _stable_prefix_hashes(noisy.segment_plan)
     assert any(
-        int(dict(segment.get("metadata") or {}).get("protocol_truncated_count") or 0) > 0
+        int(dict(dict(segment.get("metadata") or {}).get("protocol_projection") or {}).get("non_protocol_message_count") or 0) == 26
         for segment in noisy_protocol_segments
     )
 

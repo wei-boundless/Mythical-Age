@@ -6,7 +6,6 @@ from typing import Any
 from artifact_system.artifact_authority import artifact_ref_value, dedupe_artifact_refs
 from runtime.memory.file_state_store import FileStateAuthorityStore
 
-from .compaction import replacement_history_ref
 from .execution_state_projector import ExecutionStateProjector
 from .history_projector import HistoryProjector
 from .models import (
@@ -102,13 +101,6 @@ class DynamicContextManager:
         )
         context_refs = [
             str(baseline_refs.get("runtime_baseline_hash") or ""),
-            replacement_history_ref(
-                session_id=request.session_id,
-                task_run_id=request.task_run_id,
-                history_projection=history_projection,
-            )
-            if history_projection.get("omitted_history")
-            else "",
         ]
         artifact_refs = dedupe_artifact_refs(
             [
@@ -234,15 +226,30 @@ class DynamicContextManager:
                 refs=(),
             )
         ]
-        if volatile_request:
+        history_projection = dict(volatile_request.get("history") or {}) if isinstance(volatile_request.get("history"), dict) else {}
+        current_request_projection = dict(volatile_request)
+        current_request_projection.pop("history", None)
+        if history_projection:
+            reports.append(
+                VolatileSectionReport(
+                    section_id=f"dynamic_context:{request.invocation_kind}:session_history",
+                    source="session_history",
+                    volatility_reason="active session history and compacted session context change as the conversation advances",
+                    input_chars=estimate_chars({"history": request.history, "session_context": request.session_context}),
+                    output_chars=estimate_chars(history_projection),
+                    projection_strategy="active_history_session_context_projection",
+                    refs=(),
+                )
+            )
+        if current_request_projection:
             reports.append(
                 VolatileSectionReport(
                     section_id=f"dynamic_context:{request.invocation_kind}:current_request",
                     source="current_request",
-                    volatility_reason="current user message and recent history are invocation-local",
-                    input_chars=estimate_chars({"history": request.history, "user_message": request.current_user_message, "observations": request.observations}),
-                    output_chars=estimate_chars(volatile_request),
-                    projection_strategy="history_recent_turns_and_current_request",
+                    volatility_reason="current user message, request envelope, editor snapshot, and observations are invocation-local",
+                    input_chars=estimate_chars({"user_message": request.current_user_message, "observations": request.observations, "editor_context": request.editor_context}),
+                    output_chars=estimate_chars(current_request_projection),
+                    projection_strategy="current_request_without_session_history",
                     refs=(),
                 )
             )

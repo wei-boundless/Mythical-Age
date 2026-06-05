@@ -72,7 +72,7 @@ function ActivityLine({
 function CommandOutputPanel({ output }: { output: AgentRunCommandOutput }) {
   return (
     <details className="public-run-activity__command-output" key={output.key}>
-      <summary>Ran command</summary>
+      <summary>命令输出</summary>
       <div className="public-run-activity__command-shell">
         <span>{output.label}</span>
         <pre>{output.content}</pre>

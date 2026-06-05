@@ -5,7 +5,6 @@ from typing import Any
 
 
 COMPRESSED_CONTEXT_PREFIX = "[Compressed session context]"
-DEFAULT_RECENT_MESSAGE_LIMIT = 12
 
 
 @dataclass(frozen=True, slots=True)
@@ -26,24 +25,19 @@ def assemble_runtime_history(
     *,
     history: list[dict[str, Any]] | None,
     compressed_context: str | None = None,
-    recent_message_limit: int = DEFAULT_RECENT_MESSAGE_LIMIT,
 ) -> HistoryAssemblyResult:
     normalized = _normalize_history(history or [])
     compressed = str(compressed_context or "").strip()
-    limit = max(0, int(recent_message_limit or 0))
-    recent = normalized[-limit:] if limit else []
     assembled: list[dict[str, str]] = []
-    assembled.extend(recent)
+    assembled.extend(normalized)
     return HistoryAssemblyResult(
         model_history=tuple(assembled),
         compressed_context=compressed,
         diagnostics={
             "raw_history_message_count": len(normalized),
             "assembled_history_message_count": len(assembled),
-            "recent_history_message_count": len(recent),
+            "active_history_message_count": len(assembled),
             "compressed_context_included": bool(compressed),
-            "dropped_history_message_count": max(len(normalized) - len(recent), 0),
-            "recent_message_limit": limit,
             "authority": "runtime.history_assembly",
         },
     )

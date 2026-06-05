@@ -10,7 +10,7 @@ if str(BACKEND_DIR) not in sys.path:
 from runtime.shared.history_assembler import COMPRESSED_CONTEXT_PREFIX, assemble_runtime_history
 
 
-def test_history_assembly_keeps_compressed_context_separate_from_recent_messages() -> None:
+def test_history_assembly_keeps_compressed_context_separate_from_active_history() -> None:
     history = [
         {"role": "user", "content": f"user-{index}"}
         for index in range(8)
@@ -19,13 +19,12 @@ def test_history_assembly_keeps_compressed_context_separate_from_recent_messages
     result = assemble_runtime_history(
         history=history,
         compressed_context="此前已经完成项目结构审查。",
-        recent_message_limit=3,
     )
 
     assert result.compressed_context == "此前已经完成项目结构审查。"
-    assert [item["content"] for item in result.model_history] == ["user-5", "user-6", "user-7"]
+    assert [item["content"] for item in result.model_history] == [f"user-{index}" for index in range(8)]
     assert all(not item["content"].startswith(COMPRESSED_CONTEXT_PREFIX) for item in result.model_history)
-    assert result.diagnostics["dropped_history_message_count"] == 5
+    assert result.diagnostics["active_history_message_count"] == 8
     assert result.diagnostics["compressed_context_included"] is True
 
 

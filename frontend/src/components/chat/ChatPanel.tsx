@@ -198,6 +198,9 @@ export function shouldSuppressSessionActivityBar(messages: Message[], _active: b
       }),
     },
   );
+  if (latestAssistant.content.trim()) {
+    return true;
+  }
   if (!latestAssistant.content.trim() && publicTimeline.some(isMessageLevelAssistantFeedback)) {
     return true;
   }
@@ -249,7 +252,17 @@ export function sessionContextPressurePresentation(tokenStats: TokenStats | null
     };
   }
   const contextMeter = tokenStats.context_meter;
-  const pressureLevel = String(contextMeter?.pressure_level || tokenStats.history_pressure_level || "normal").trim() || "normal";
+  if (!contextMeter) {
+    return {
+      label: "上下文",
+      usedPercent: 0,
+      pressurePercentText: "--",
+      tokenRatioText: "--",
+      title: "正在读取当前 session 上下文状态",
+      levelClass: "pending",
+    };
+  }
+  const pressureLevel = String(contextMeter.pressure_level || "normal").trim() || "normal";
   const levelClass = tokenPressureClass(pressureLevel);
   const usedPercent = percentFromRatio(currentSessionContextRatio(tokenStats));
   const currentTokens = currentContextTokens(tokenStats);
@@ -289,21 +302,16 @@ function currentSessionContextRatio(tokenStats: TokenStats) {
   if (rawCompactionRatio !== undefined && rawCompactionRatio !== null && Number.isFinite(compactionRatio)) {
     return compactionRatio;
   }
-  const rawContextRatio = tokenStats.context_meter?.current_context_ratio;
-  const contextRatio = Number(rawContextRatio);
-  if (rawContextRatio !== undefined && rawContextRatio !== null && Number.isFinite(contextRatio)) {
-    return contextRatio;
-  }
-  return Number(tokenStats.history_usage_ratio || 0);
+  return 0;
 }
 
 function currentContextTokens(tokenStats: TokenStats) {
-  const value = Number(tokenStats.context_meter?.current_context_tokens ?? tokenStats.history_tokens ?? 0);
+  const value = Number(tokenStats.context_meter?.current_context_tokens ?? 0);
   return Number.isFinite(value) ? Math.max(0, Math.round(value)) : 0;
 }
 
 function compactionThresholdTokens(tokenStats: TokenStats) {
-  const value = Number(tokenStats.context_meter?.replacement_threshold_tokens ?? tokenStats.history_budget_tokens ?? 0);
+  const value = Number(tokenStats.context_meter?.replacement_threshold_tokens ?? 0);
   return Number.isFinite(value) ? Math.max(0, Math.round(value)) : 0;
 }
 

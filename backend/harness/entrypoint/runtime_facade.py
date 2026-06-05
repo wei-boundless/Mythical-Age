@@ -217,6 +217,9 @@ class HarnessRuntimeFacade:
             "compressed_context": history_assembly.compressed_context,
             "api_transcript": [dict(item) for item in list(api_transcript or []) if isinstance(item, dict)],
         }
+        provider_protocol_compaction_created_at = float(history_record.get("provider_protocol_compaction_created_at") or 0.0)
+        if provider_protocol_compaction_created_at > 0:
+            session_context["provider_protocol_compaction_created_at"] = provider_protocol_compaction_created_at
         conversation_state = dict(history_record.get("conversation_state") or {})
         project_binding = dict(conversation_state.get("project_binding") or {})
         if project_binding:

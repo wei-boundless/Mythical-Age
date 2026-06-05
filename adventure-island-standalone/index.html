@@ -1,0 +1,1507 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>冒险岛</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #111;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+    font-family: 'Microsoft YaHei', 'PingFang SC', sans-serif;
+    overflow: hidden;
+  }
+  canvas { display: block; border: 2px solid #333; border-radius: 4px; }
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+<script>
+"use strict";
+
+// ============================================================
+// 配置常量
+// ============================================================
+const GAME_W = 960;
+const GAME_H = 640;
+const GRAVITY = 0.6;
+const PLAYER_SPEED = 4;
+const PLAYER_JUMP = -12;
+const GROUND_Y = 560;
+const CAMERA_DEADZONE_LEFT = 300;
+const CAMERA_DEADZONE_RIGHT = 500;
+const MP_REGEN_RATE = 0.03;
+const ASSET_BASE = "images/";
+
+// ============================================================
+// 类型定义（JSDoc）
+// ============================================================
+
+// Player, Monster, NPC, Portal, MapData, GameState, Item, Skill, DialogueEntry, Particle, FloatingText
+
+// ============================================================
+// 图片资源管理
+// ============================================================
+const imageCache = {};
+const imagePaths = {
+  playerHero: ASSET_BASE + "game-player-hero.png",
+  monsterSlime: ASSET_BASE + "game-monster-slime.png",
+  monsterGoblin: ASSET_BASE + "game-monster-goblin.png",
+  monsterSkeleton: ASSET_BASE + "game-monster-skeleton.png",
+  monsterDarkMage: ASSET_BASE + "game-monster-dark-mage.png",
+  monsterDragonBoss: ASSET_BASE + "game-monster-dragon-boss.png",
+  mapForest: ASSET_BASE + "game-map-forest.png",
+  mapCave: ASSET_BASE + "game-map-cave.png",
+  mapCastle: ASSET_BASE + "game-map-castle.png",
+  npcElder: ASSET_BASE + "game-npc-village-elder.png",
+  npcMerchant: ASSET_BASE + "game-npc-merchant.png",
+};
+
+function loadImage(key, src) {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => { imageCache[key] = img; resolve(true); };
+    img.onerror = () => { imageCache[key] = null; resolve(false); };
+    img.src = src;
+  });
+}
+
+function loadAllImages() {
+  const promises = Object.entries(imagePaths).map(([k, v]) => loadImage(k, v));
+  return Promise.all(promises);
+}
+
+function getImg(key) {
+  return imageCache[key] || null;
+}
+
+// ============================================================
+// 游戏数据：技能、物品、地图、怪物、NPC、对话
+// ============================================================
+
+const SKILLS = {
+  whirlwind: {
+    id: "whirlwind",
+    name: "旋风斩",
+    description: "旋转攻击周围敌人，造成范围伤害",
+    mpCost: 15,
+    cooldown: 120,
+    damage: 45,
+    range: 80,
+    key: "Digit1",
+    icon: "🌀",
+    color: "#00bcd4",
+    activeDuration: 30,
+  },
+  powerStrike: {
+    id: "powerStrike",
+    name: "强力一击",
+    description: "凝聚力量造成毁灭性单体伤害",
+    mpCost: 30,
+    cooldown: 180,
+    damage: 80,
+    range: 70,
+    key: "Digit2",
+    icon: "⚡",
+    color: "#ff9800",
+    activeDuration: 20,
+  },
+  heal: {
+    id: "heal",
+    name: "治愈术",
+    description: "恢复自身生命值",
+    mpCost: 25,
+    cooldown: 240,
+    healAmount: 50,
+    key: "Digit3",
+    icon: "💚",
+    color: "#4caf50",
+    activeDuration: 0,
+  },
+  shield: {
+    id: "shield",
+    name: "铁壁",
+    description: "获得护盾减免伤害，持续数秒",
+    mpCost: 20,
+    cooldown: 300,
+    shieldAmount: 40,
+    shieldDuration: 180,
+    key: "Digit4",
+    icon: "🛡️",
+    color: "#9c27b0",
+    activeDuration: 0,
+  },
+};
+
+const ITEMS = {
+  ironSword: {
+    id: "ironSword", name: "铁剑", slot: "weapon", atk: 8, def: 0, hp: 0, mp: 0,
+    description: "一把普通的铁剑，攻击+8", icon: "🗡️", rarity: "common",
+  },
+  steelBlade: {
+    id: "steelBlade", name: "钢刃", slot: "weapon", atk: 15, def: 0, hp: 0, mp: 0,
+    description: "精钢打造的利刃，攻击+15", icon: "⚔️", rarity: "rare",
+  },
+  leatherArmor: {
+    id: "leatherArmor", name: "皮甲", slot: "armor", atk: 0, def: 6, hp: 0, mp: 0,
+    description: "轻便的皮甲，防御+6", icon: "🦺", rarity: "common",
+  },
+  ironArmor: {
+    id: "ironArmor", name: "铁甲", slot: "armor", atk: 0, def: 12, hp: 0, mp: 0,
+    description: "坚实的铁甲，防御+12", icon: "🛡️", rarity: "rare",
+  },
+  hpRing: {
+    id: "hpRing", name: "生命戒指", slot: "accessory", atk: 0, def: 0, hp: 30, mp: 0,
+    description: "蕴含生命之力的戒指，HP+30", icon: "💍", rarity: "rare",
+  },
+  mpAmulet: {
+    id: "mpAmulet", name: "魔力护符", slot: "accessory", atk: 0, def: 0, hp: 0, mp: 20,
+    description: "散发魔力波动的护符，MP+20", icon: "📿", rarity: "rare",
+  },
+  sageStone: {
+    id: "sageStone", name: "贤者之石", slot: "accessory", atk: 3, def: 3, hp: 15, mp: 10,
+    description: "传说中的贤者之石，全属性小幅提升，每秒回复HP", icon: "💎", rarity: "legendary",
+  },
+};
+
+// 怪物掉落表
+const MONSTER_DROPS = {
+  slime: [
+    { itemId: "ironSword", rate: 0.05 },
+    { itemId: "leatherArmor", rate: 0.08 },
+  ],
+  goblin: [
+    { itemId: "ironSword", rate: 0.1 },
+    { itemId: "leatherArmor", rate: 0.12 },
+    { itemId: "hpRing", rate: 0.05 },
+  ],
+  skeleton: [
+    { itemId: "steelBlade", rate: 0.08 },
+    { itemId: "ironArmor", rate: 0.1 },
+    { itemId: "mpAmulet", rate: 0.06 },
+  ],
+  darkMage: [
+    { itemId: "steelBlade", rate: 0.12 },
+    { itemId: "ironArmor", rate: 0.15 },
+    { itemId: "sageStone", rate: 0.04 },
+  ],
+  dragonBoss: [
+    { itemId: "sageStone", rate: 0.3 },
+  ],
+};
+
+function createMonster(id, name, x, y, hp, atk, def, exp, gold, w, h, speed, patrolRange, color) {
+  return {
+    id, name, x, y, hp, maxHp: hp, atk, def, exp, gold, w: w || 40, h: h || 50,
+    speed: speed || 1, patrolRange: patrolRange || 100, color: color || "#e53935",
+    alive: true, dir: 1, attackCooldown: 0, hitTimer: 0, deathTimer: 0,
+    originX: x,
+  };
+}
+
+function createNPC(id, name, x, y, w, h, color, dialogues, giftItem, icon) {
+  return { id, name, x, y, w: w || 36, h: h || 50, color: color || "#ffd700", dialogues, giftItem: giftItem || null, icon: icon || "👤" };
+}
+
+function createPortal(id, x, y, w, h, targetMap, targetX, targetY, label) {
+  return { id, x, y, w: w || 40, h: h || 60, targetMap, targetX: targetX || 100, targetY: targetY || GROUND_Y - 60, label: label || "" };
+}
+
+function makeDialogue(text, speaker) {
+  return { text, speaker: speaker || "" };
+}
+
+// 建造地图
+function buildMaps() {
+  const m1 = {
+    id: "forest",
+    name: "新手森林",
+    bgColor: "#2e7d32",
+    bgImageKey: "mapForest",
+    platforms: [
+      { x: 0, y: GROUND_Y, w: 2800, h: 80, color: "#5d4037" },
+      { x: 400, y: 420, w: 200, h: 16, color: "#795548" },
+      { x: 750, y: 340, w: 200, h: 16, color: "#795548" },
+      { x: 1100, y: 420, w: 180, h: 16, color: "#795548" },
+      { x: 1500, y: 360, w: 200, h: 16, color: "#795548" },
+      { x: 2000, y: 420, w: 200, h: 16, color: "#795548" },
+    ],
+    monsters: [
+      createMonster("slime1", "史莱姆", 500, GROUND_Y - 40, 25, 6, 1, 15, 10, 36, 30, 1.2, 120, "#4caf50"),
+      createMonster("slime2", "史莱姆", 800, GROUND_Y - 40, 25, 6, 1, 15, 10, 36, 30, 1.2, 120, "#4caf50"),
+      createMonster("slime3", "史莱姆", 1200, GROUND_Y - 40, 25, 6, 1, 15, 10, 36, 30, 1.2, 120, "#4caf50"),
+      createMonster("goblin1", "哥布林", 1600, GROUND_Y - 50, 45, 10, 2, 30, 20, 32, 48, 1.5, 150, "#ff9800"),
+      createMonster("goblin2", "哥布林", 2000, GROUND_Y - 50, 45, 10, 2, 30, 20, 32, 48, 1.5, 150, "#ff9800"),
+    ],
+    npcs: [
+      createNPC("elder", "村长", 300, GROUND_Y - 50, 36, 50, "#ffd700", [
+        makeDialogue("勇者啊，你终于来了！", "村长"),
+        makeDialogue("森林里出现了许多魔物，村民们都很害怕。", "村长"),
+        makeDialogue("这把铁剑和皮甲送给你，希望能帮上忙。", "村长"),
+        makeDialogue("穿过森林东边的洞穴可以去往更深的地方。", "村长"),
+      ], [{ itemId: "ironSword" }, { itemId: "leatherArmor" }], "👴"),
+      createNPC("merchant1", "旅行商人", 1400, GROUND_Y - 50, 36, 50, "#ffab00", [
+        makeDialogue("嘿，冒险者！我这里有些不错的装备。", "旅行商人"),
+        makeDialogue("前方哥布林很凶的，建议多打点史莱姆练练级。", "旅行商人"),
+        makeDialogue("听说洞穴深处有骷髅兵，它们会掉钢刃哦！", "旅行商人"),
+      ], null, "🧔"),
+    ],
+    portals: [
+      createPortal("toCave", 2600, GROUND_Y - 60, 40, 60, "cave", 80, GROUND_Y - 60, "洞穴入口 →"),
+    ],
+  };
+
+  const m2 = {
+    id: "cave",
+    name: "幽暗洞穴",
+    bgColor: "#37474f",
+    bgImageKey: "mapCave",
+    platforms: [
+      { x: 0, y: GROUND_Y, w: 2800, h: 80, color: "#455a64" },
+      { x: 350, y: 440, w: 160, h: 16, color: "#546e7a" },
+      { x: 650, y: 360, w: 200, h: 16, color: "#546e7a" },
+      { x: 1000, y: 440, w: 180, h: 16, color: "#546e7a" },
+      { x: 1400, y: 340, w: 200, h: 16, color: "#546e7a" },
+      { x: 1900, y: 420, w: 200, h: 16, color: "#546e7a" },
+      { x: 2300, y: 360, w: 180, h: 16, color: "#546e7a" },
+    ],
+    monsters: [
+      createMonster("skeleton1", "骷髅兵", 400, GROUND_Y - 50, 60, 14, 4, 40, 25, 34, 52, 1.3, 130, "#cfd8dc"),
+      createMonster("skeleton2", "骷髅兵", 900, GROUND_Y - 50, 60, 14, 4, 40, 25, 34, 52, 1.3, 130, "#cfd8dc"),
+      createMonster("skeleton3", "骷髅兵", 1500, GROUND_Y - 50, 60, 14, 4, 40, 25, 34, 52, 1.3, 130, "#cfd8dc"),
+      createMonster("darkMage1", "暗黑法师", 2000, GROUND_Y - 54, 80, 18, 3, 60, 35, 32, 56, 1.0, 140, "#7b1fa2"),
+    ],
+    npcs: [
+      createNPC("miner", "矿工", 500, GROUND_Y - 50, 36, 50, "#8d6e63", [
+        makeDialogue("小心！洞穴深处有暗黑法师。", "矿工"),
+        makeDialogue("穿过洞穴最深处可以到达魔王城堡。", "矿工"),
+        makeDialogue("你有治疗技能的话记得多用，这里怪物伤害很高。", "矿工"),
+      ], null, "⛏️"),
+    ],
+    portals: [
+      createPortal("toForest", 40, GROUND_Y - 60, 40, 60, "forest", 2500, GROUND_Y - 60, "← 回到森林"),
+      createPortal("toCastle", 2600, GROUND_Y - 60, 40, 60, "castle", 80, GROUND_Y - 60, "城堡入口 →"),
+    ],
+  };
+
+  const m3 = {
+    id: "castle",
+    name: "魔王城堡",
+    bgColor: "#1a1a2e",
+    bgImageKey: "mapCastle",
+    platforms: [
+      { x: 0, y: GROUND_Y, w: 2400, h: 80, color: "#3e2723" },
+      { x: 300, y: 440, w: 180, h: 16, color: "#4e342e" },
+      { x: 600, y: 360, w: 180, h: 16, color: "#4e342e" },
+      { x: 1000, y: 420, w: 200, h: 16, color: "#4e342e" },
+      { x: 1400, y: 320, w: 200, h: 16, color: "#4e342e" },
+    ],
+    monsters: [
+      createMonster("darkMage2", "暗黑法师", 500, GROUND_Y - 54, 80, 18, 3, 60, 35, 32, 56, 1.0, 140, "#7b1fa2"),
+      createMonster("darkMage3", "暗黑法师", 1100, GROUND_Y - 54, 80, 18, 3, 60, 35, 32, 56, 1.0, 140, "#7b1fa2"),
+      createMonster("dragonBoss", "魔王·暗龙", 1700, GROUND_Y - 90, 300, 25, 8, 200, 100, 80, 90, 1.2, 200, "#b71c1c"),
+    ],
+    npcs: [
+      createNPC("knight", "骑士团长", 200, GROUND_Y - 50, 36, 50, "#90caf9", [
+        makeDialogue("你终于来了，勇者！", "骑士团长"),
+        makeDialogue("魔王就在前方，它是一条远古暗龙。", "骑士团长"),
+        makeDialogue("击败它，世界就能恢复和平！", "骑士团长"),
+        makeDialogue("祝你武运昌隆！", "骑士团长"),
+      ], null, "⚔️"),
+    ],
+    portals: [
+      createPortal("toCave", 40, GROUND_Y - 60, 40, 60, "cave", 2500, GROUND_Y - 60, "← 回到洞穴"),
+    ],
+  };
+
+  return { forest: m1, cave: m2, castle: m3 };
+}
+
+// ============================================================
+// 工具函数
+// ============================================================
+
+function rectCollide(a, b) {
+  return (
+    a.x < b.x + b.w &&
+    a.x + a.w > b.x &&
+    a.y < b.y + b.h &&
+    a.y + a.h > b.y
+  );
+}
+
+function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+
+function totalAtk(p) {
+  let base = 10;
+  if (p.weapon) base += p.weapon.atk || 0;
+  if (p.accessory) base += p.accessory.atk || 0;
+  return base;
+}
+
+function totalDef(p) {
+  let base = 0;
+  if (p.armor) base += p.armor.def || 0;
+  if (p.accessory) base += p.accessory.def || 0;
+  return base;
+}
+
+function hpRegen(p) {
+  let regen = 0;
+  if (p.accessory && p.accessory.id === "sageStone") regen += 2;
+  return regen;
+}
+
+// ============================================================
+// 创建初始状态
+// ============================================================
+
+function createInitialState() {
+  return {
+    phase: "title",
+    maps: buildMaps(),
+    currentMap: "forest",
+    player: {
+      x: 100, y: GROUND_Y - 60, w: 32, h: 48,
+      vx: 0, vy: 0, onGround: false,
+      hp: 100, maxHp: 100, mp: 60, maxMp: 60,
+      level: 1, exp: 0, expToNext: 50, gold: 0,
+      dir: 1,
+      weapon: null, armor: null, accessory: null,
+      inventory: [],
+      attackCooldown: 0, attackTimer: 0,
+      invincibleTimer: 0,
+      shieldTimer: 0, shieldHp: 0,
+      activeSkill: null, activeSkillTimer: 0,
+      skillCooldowns: { whirlwind: 0, powerStrike: 0, heal: 0, shield: 0 },
+    },
+    cameraX: 0,
+    keys: new Map(),
+    particles: [],
+    floatingTexts: [],
+    dialogueActive: false,
+    dialogueNpcId: null,
+    dialogueIndex: 0,
+    dialogueQueue: [],
+    showInventory: false,
+    selectedInventoryIndex: 0,
+    showSkillsPanel: false,
+    transitionTimer: 0,
+    transitionTargetMap: null,
+    shakeTimer: 0,
+    shakeIntensity: 0,
+    gameTime: 0,
+    lastAttackTime: 0,
+    titleSelectedOption: 0,
+  };
+}
+
+// ============================================================
+// 游戏引擎：输入、物理、战斗、更新
+// ============================================================
+
+function handleInput(state) {
+  const p = state.player;
+  const k = state.keys;
+
+  // 方向键
+  if (k.has("ArrowLeft") || k.has("KeyA")) { p.vx = -PLAYER_SPEED; p.dir = -1; }
+  else if (k.has("ArrowRight") || k.has("KeyD")) { p.vx = PLAYER_SPEED; p.dir = 1; }
+  else { p.vx = 0; }
+
+  // 跳跃
+  if ((k.has("ArrowUp") || k.has("KeyW") || k.has("Space")) && p.onGround) {
+    p.vy = PLAYER_JUMP;
+    p.onGround = false;
+  }
+
+  // 普攻
+  if (k.has("KeyJ") && p.attackCooldown <= 0) {
+    p.attackCooldown = 25;
+    p.attackTimer = 12;
+    state._attackPending = true;
+  }
+
+  // 技能（每帧只触发一次，防止按住键时重复释放）
+  if (!state._skillLocked) {
+    for (const skill of Object.values(SKILLS)) {
+      if (k.has(skill.key) && (p.skillCooldowns[skill.id] || 0) <= 0 && p.mp >= skill.mpCost) {
+        useSkill(state, skill);
+        state._skillLocked = true;
+        break;
+      }
+    }
+  }
+}
+
+function useSkill(state, skill) {
+  const p = state.player;
+  p.mp -= skill.mpCost;
+  p.skillCooldowns[skill.id] = skill.cooldown;
+
+  const map = state.maps[state.currentMap];
+
+  if (skill.id === "heal") {
+    p.hp = Math.min(p.maxHp, p.hp + skill.healAmount);
+    state.floatingTexts.push({ text: "+" + skill.healAmount, x: p.x, y: p.y - 20, life: 40, color: "#4caf50" });
+    return;
+  }
+
+  if (skill.id === "shield") {
+    p.shieldHp = skill.shieldAmount;
+    p.shieldTimer = skill.shieldDuration;
+    state.floatingTexts.push({ text: "🛡️+" + skill.shieldAmount, x: p.x, y: p.y - 20, life: 40, color: "#9c27b0" });
+    return;
+  }
+
+  // 攻击技能
+  if (skill.id === "whirlwind") {
+    p.activeSkill = "whirlwind";
+    p.activeSkillTimer = skill.activeDuration;
+  }
+  if (skill.id === "powerStrike") {
+    p.activeSkill = "powerStrike";
+    p.activeSkillTimer = skill.activeDuration;
+    p.attackTimer = 15;
+  }
+
+  // 技能范围伤害
+  const cx = p.x + p.w / 2;
+  const cy = p.y + p.h / 2;
+  const range = skill.range || 80;
+
+  for (const mon of map.monsters) {
+    if (!mon.alive) continue;
+    const mx = mon.x + mon.w / 2;
+    const my = mon.y + mon.h / 2;
+    const dist = Math.sqrt((cx - mx) ** 2 + (cy - my) ** 2);
+    if (dist < range) {
+      const dmg = Math.max(1, skill.damage - mon.def);
+      mon.hp -= dmg;
+      mon.hitTimer = 12;
+      state.floatingTexts.push({ text: "" + dmg, x: mon.x + mon.w / 2, y: mon.y - 5, life: 30, color: skill.color || "#fff" });
+      state.shakeTimer = 6;
+      state.shakeIntensity = 3;
+      if (mon.hp <= 0) {
+        killMonster(state, mon);
+      }
+    }
+  }
+
+  // 粒子特效
+  for (let i = 0; i < 12; i++) {
+    const angle = Math.random() * Math.PI * 2;
+    const spd = 2 + Math.random() * 4;
+    state.particles.push({
+      x: cx, y: cy,
+      vx: Math.cos(angle) * spd,
+      vy: Math.sin(angle) * spd,
+      life: 20 + Math.random() * 15,
+      color: skill.color || "#fff",
+      size: 3 + Math.random() * 4,
+    });
+  }
+}
+
+function killMonster(state, mon) {
+  mon.alive = false;
+  mon.deathTimer = 30;
+  const p = state.player;
+  p.exp += mon.exp;
+  p.gold += mon.gold;
+  state.floatingTexts.push({ text: "+" + mon.exp + " EXP", x: mon.x + mon.w / 2, y: mon.y - 10, life: 35, color: "#ffd700" });
+  state.floatingTexts.push({ text: "+" + mon.gold + " G", x: mon.x + mon.w / 2, y: mon.y + 10, life: 35, color: "#ffd700" });
+
+  // 掉落
+  const drops = MONSTER_DROPS[mon.id.replace(/[0-9]/g, "")] || [];
+  for (const drop of drops) {
+    if (Math.random() < drop.rate) {
+      const item = ITEMS[drop.itemId];
+      if (item) {
+        p.inventory.push({ ...item });
+        state.floatingTexts.push({ text: "🎁 " + item.name, x: mon.x + mon.w / 2, y: mon.y - 25, life: 50, color: "#ffab00" });
+      }
+    }
+  }
+
+  // 升级检查
+  while (p.exp >= p.expToNext) {
+    p.exp -= p.expToNext;
+    p.level += 1;
+    p.expToNext = Math.floor(p.expToNext * 1.4);
+    p.maxHp += 15;
+    p.hp = p.maxHp;
+    p.maxMp += 8;
+    p.mp = p.maxMp;
+    state.floatingTexts.push({ text: "⬆ Lv." + p.level + "!", x: p.x + p.w / 2, y: p.y - 30, life: 60, color: "#ffd700" });
+  }
+}
+
+function playerAttack(state) {
+  const p = state.player;
+  const map = state.maps[state.currentMap];
+  const attackW = 55;
+  const attackH = 44;
+  const ax = p.dir > 0 ? p.x + p.w : p.x - attackW;
+  const ay = p.y + p.h / 2 - attackH / 2;
+
+  for (const mon of map.monsters) {
+    if (!mon.alive) continue;
+    if (rectCollide({ x: ax, y: ay, w: attackW, h: attackH }, { x: mon.x, y: mon.y, w: mon.w, h: mon.h })) {
+      const rawDmg = totalAtk(p) * (1 + Math.random() * 0.3);
+      const dmg = Math.max(1, Math.floor(rawDmg - mon.def));
+      mon.hp -= dmg;
+      mon.hitTimer = 10;
+      state.floatingTexts.push({ text: "" + dmg, x: mon.x + mon.w / 2, y: mon.y - 5, life: 25, color: "#fff" });
+      state.shakeTimer = 4;
+      state.shakeIntensity = 2;
+      if (mon.hp <= 0) {
+        killMonster(state, mon);
+      }
+    }
+  }
+}
+
+function updatePhysics(state) {
+  const p = state.player;
+  const map = state.maps[state.currentMap];
+
+  // 重力
+  p.vy += GRAVITY;
+  p.x += p.vx;
+  p.y += p.vy;
+
+  // 地图边界
+  p.x = clamp(p.x, 0, 2780);
+  if (p.y > GROUND_Y + 200) {
+    // 掉落死亡
+    p.hp = 0;
+    state.phase = "game_over";
+    return;
+  }
+
+  p.onGround = false;
+
+  // 平台碰撞
+  for (const plat of map.platforms) {
+    const pb = { x: plat.x, y: plat.y, w: plat.w, h: plat.h };
+    const pp = { x: p.x, y: p.y, w: p.w, h: p.h };
+
+    if (rectCollide(pp, pb)) {
+      // 从上方落下
+      const overlapTop = (p.y + p.h) - plat.y;
+      const overlapBottom = (plat.y + plat.h) - p.y;
+      const overlapLeft = (p.x + p.w) - plat.x;
+      const overlapRight = (plat.x + plat.w) - p.x;
+      const minOverlap = Math.min(overlapTop, overlapBottom, overlapLeft, overlapRight);
+
+      if (minOverlap === overlapTop && p.vy >= 0) {
+        p.y = plat.y - p.h;
+        p.vy = 0;
+        p.onGround = true;
+      } else if (minOverlap === overlapBottom && p.vy < 0) {
+        p.y = plat.y + plat.h;
+        p.vy = 0;
+      } else if (minOverlap === overlapLeft) {
+        p.x = plat.x - p.w;
+        p.vx = 0;
+      } else if (minOverlap === overlapRight) {
+        p.x = plat.x + plat.w;
+        p.vx = 0;
+      }
+    }
+  }
+
+  // 怪物碰撞伤害
+  if (p.invincibleTimer <= 0) {
+    for (const mon of map.monsters) {
+      if (!mon.alive) continue;
+      const mb = { x: mon.x, y: mon.y, w: mon.w, h: mon.h };
+      const pb = { x: p.x, y: p.y, w: p.w, h: p.h };
+      if (rectCollide(pb, mb)) {
+        let dmg = Math.max(1, mon.atk - totalDef(p));
+        // 护盾吸收
+        if (p.shieldTimer > 0 && p.shieldHp > 0) {
+          const absorbed = Math.min(dmg, p.shieldHp);
+          p.shieldHp -= absorbed;
+          dmg -= absorbed;
+        }
+        if (dmg > 0) {
+          p.hp -= dmg;
+          p.invincibleTimer = 45;
+          state.floatingTexts.push({ text: "-" + dmg, x: p.x + p.w / 2, y: p.y - 5, life: 25, color: "#e53935" });
+          if (p.hp <= 0) {
+            p.hp = 0;
+            state.phase = "game_over";
+          }
+        }
+      }
+    }
+  }
+
+  // 怪物 AI
+  for (const mon of map.monsters) {
+    if (!mon.alive) continue;
+    const distX = Math.abs(p.x - mon.x);
+    const distY = Math.abs(p.y - mon.y);
+
+    if (distX < mon.patrolRange && distY < 200) {
+      // 追踪玩家
+      if (p.x < mon.x) { mon.x -= mon.speed; mon.dir = -1; }
+      else if (p.x > mon.x) { mon.x += mon.speed; mon.dir = 1; }
+
+      // 攻击
+      if (distX < 50 && distY < 60 && mon.attackCooldown <= 0 && p.invincibleTimer <= 0) {
+        mon.attackCooldown = 50;
+        // 伤害在怪物碰撞中处理
+      }
+    } else {
+      // 巡逻
+      mon.x += mon.speed * mon.dir;
+      if (mon.x > mon.originX + mon.patrolRange || mon.x < mon.originX - mon.patrolRange) {
+        mon.dir *= -1;
+      }
+    }
+    mon.attackCooldown = Math.max(0, mon.attackCooldown - 1);
+    mon.hitTimer = Math.max(0, mon.hitTimer - 1);
+    if (mon.deathTimer > 0) mon.deathTimer -= 1;
+  }
+
+  // 摄像机
+  const targetCX = p.x + p.w / 2 - GAME_W / 2;
+  state.cameraX += (targetCX - state.cameraX) * 0.1;
+  state.cameraX = clamp(state.cameraX, 0, 2800 - GAME_W);
+
+  // 粒子
+  for (const pt of state.particles) {
+    pt.x += pt.vx;
+    pt.y += pt.vy;
+    pt.vy += 0.1;
+    pt.life -= 1;
+  }
+  state.particles = state.particles.filter(pt => pt.life > 0);
+
+  // 浮动文字
+  for (const ft of state.floatingTexts) {
+    ft.y -= 1;
+    ft.life -= 1;
+  }
+  state.floatingTexts = state.floatingTexts.filter(ft => ft.life > 0);
+
+  // 传送门触发
+  for (const portal of map.portals) {
+    const pb = { x: portal.x, y: portal.y, w: portal.w, h: portal.h };
+    const pp = { x: p.x, y: p.y, w: p.w, h: p.h };
+    if (rectCollide(pb, pp) && state.transitionTimer <= 0) {
+      state.transitionTimer = 40;
+      state.transitionTargetMap = portal.targetMap;
+      // 设置玩家目标位置
+      p.x = portal.targetX;
+      p.y = portal.targetY;
+    }
+  }
+}
+
+function updateNPCInteraction(state) {
+  const p = state.player;
+  const map = state.maps[state.currentMap];
+
+  if (state.keys.has("Enter")) {
+    state.keys.delete("Enter");
+
+    // 如果在对话中
+    if (state.dialogueActive) {
+      advanceDialogue(state);
+      return;
+    }
+
+    // 检测 NPC 交互
+    for (const npc of map.npcs) {
+      const nb = { x: npc.x - 20, y: npc.y - 10, w: npc.w + 40, h: npc.h + 20 };
+      const pb = { x: p.x, y: p.y, w: p.w, h: p.h };
+      if (rectCollide(pb, nb)) {
+        startDialogue(state, npc);
+        break;
+      }
+    }
+  }
+}
+
+function startDialogue(state, npc) {
+  state.dialogueActive = true;
+  state.dialogueNpcId = npc.id;
+  state.dialogueIndex = 0;
+  state.dialogueQueue = [...npc.dialogues];
+
+  // 首次对话送礼物
+  if (npc.giftItem && !state._giftedNpcs) state._giftedNpcs = new Set();
+  if (npc.giftItem && state._giftedNpcs && !state._giftedNpcs.has(npc.id)) {
+    state._giftedNpcs.add(npc.id);
+    for (const gi of npc.giftItem) {
+      const item = ITEMS[gi.itemId];
+      if (item && state.player.inventory.length < 20) {
+        state.player.inventory.push({ ...item });
+        state.floatingTexts.push({ text: "🎁 获得 " + item.name, x: state.player.x + 16, y: state.player.y - 30, life: 60, color: "#ffd700" });
+      }
+    }
+  }
+}
+
+function advanceDialogue(state) {
+  state.dialogueIndex++;
+  if (state.dialogueIndex >= state.dialogueQueue.length) {
+    state.dialogueActive = false;
+    state.dialogueNpcId = null;
+    state.dialogueIndex = 0;
+    state.dialogueQueue = [];
+  }
+}
+
+function updateGame(state) {
+  if (state.phase === "title") {
+    updateTitle(state);
+    return;
+  }
+  if (state.phase === "victory" || state.phase === "game_over") {
+    if (state.keys.has("Enter")) {
+      state.keys.delete("Enter");
+      // 重新开始
+      const fresh = createInitialState();
+      Object.assign(state, fresh);
+      state.maps = buildMaps();
+      state.phase = "playing";
+      state.keys = new Map();
+      state._giftedNpcs = new Set();
+    }
+    return;
+  }
+
+  // 过渡动画
+  if (state.transitionTimer > 0) {
+    state.transitionTimer -= 1;
+    if (state.transitionTimer <= 0) {
+      state.currentMap = state.transitionTargetMap;
+      state.transitionTargetMap = null;
+    }
+    return;
+  }
+
+  // 不在对话/背包/技能面板时处理输入
+  if (!state.dialogueActive && !state.showInventory && !state.showSkillsPanel) {
+    handleInput(state);
+  }
+
+  updateNPCInteraction(state);
+  updatePhysics(state);
+
+  // 普攻判定
+  const p = state.player;
+  if (state._attackPending) {
+    state._attackPending = false;
+    playerAttack(state);
+  }
+
+  // ===== 递减所有 timer =====
+  if (p.attackCooldown > 0) p.attackCooldown -= 1;
+  if (p.attackTimer > 0) p.attackTimer -= 1;
+  if (p.invincibleTimer > 0) p.invincibleTimer -= 1;
+  if (p.shieldTimer > 0) p.shieldTimer -= 1;
+  if (p.activeSkillTimer > 0) {
+    p.activeSkillTimer -= 1;
+    if (p.activeSkillTimer <= 0) p.activeSkill = null;
+  }
+  for (const skId of Object.keys(p.skillCooldowns)) {
+    if (p.skillCooldowns[skId] > 0) p.skillCooldowns[skId] -= 1;
+  }
+  // 技能键释放锁（所有技能键松开后重置）
+  const anySkillKeyDown = Object.values(SKILLS).some(s => state.keys.has(s.key));
+  if (!anySkillKeyDown) {
+    state._skillLocked = false;
+  }
+  // MP 回复
+  if (p.mp < p.maxMp) {
+    p.mp = Math.min(p.maxMp, p.mp + MP_REGEN_RATE);
+  }
+  // HP 回复（贤者之石）
+  const regen = hpRegen(p);
+  if (regen > 0 && p.hp < p.maxHp) {
+    p.hp = Math.min(p.maxHp, p.hp + regen / 60);
+  }
+  // 震屏递减
+  if (state.shakeTimer > 0) state.shakeTimer -= 1;
+
+  // 游戏时间
+  state.gameTime += 1;
+}
+
+function updateTitle(state) {
+  if (state.keys.has("ArrowUp") || state.keys.has("KeyW")) {
+    state.keys.delete("ArrowUp");
+    state.keys.delete("KeyW");
+    state.titleSelectedOption = Math.max(0, state.titleSelectedOption - 1);
+  }
+  if (state.keys.has("ArrowDown") || state.keys.has("KeyS")) {
+    state.keys.delete("ArrowDown");
+    state.keys.delete("KeyS");
+    state.titleSelectedOption = Math.min(1, state.titleSelectedOption + 1);
+  }
+  if (state.keys.has("Enter")) {
+    state.keys.delete("Enter");
+    if (state.titleSelectedOption === 0) {
+      state.phase = "playing";
+    } else {
+      // 关于（简单显示）
+      state.phase = "playing";
+    }
+  }
+}
+
+// ============================================================
+// 渲染器
+// ============================================================
+
+function drawCenteredText(ctx, text, x, y, color, font) {
+  ctx.fillStyle = color;
+  ctx.font = font;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(text, x, y);
+}
+
+function drawBar(ctx, x, y, w, h, ratio, fgColor, bgColor) {
+  ctx.fillStyle = bgColor || "#333";
+  ctx.fillRect(x, y, w, h);
+  ctx.fillStyle = fgColor;
+  ctx.fillRect(x, y, w * clamp(ratio, 0, 1), h);
+  ctx.strokeStyle = "#fff";
+  ctx.lineWidth = 1;
+  ctx.strokeRect(x, y, w, h);
+}
+
+// 图片绘制助手
+function drawImg(ctx, key, x, y, w, h) {
+  const img = getImg(key);
+  if (img) {
+    ctx.drawImage(img, x, y, w, h);
+    return true;
+  }
+  return false;
+}
+
+// 回退绘制：彩色矩形+标签
+function drawFallbackRect(ctx, x, y, w, h, color, label) {
+  ctx.fillStyle = color;
+  ctx.fillRect(x, y, w, h);
+  ctx.strokeStyle = "#000";
+  ctx.lineWidth = 1;
+  ctx.strokeRect(x, y, w, h);
+  if (label) {
+    ctx.fillStyle = "#fff";
+    ctx.font = "10px sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText(label, x + w / 2, y + h / 2);
+  }
+}
+
+// 标题画面
+function renderTitle(ctx, state) {
+  // 背景
+  const grad = ctx.createLinearGradient(0, 0, 0, GAME_H);
+  grad.addColorStop(0, "#1a237e");
+  grad.addColorStop(0.5, "#0d47a1");
+  grad.addColorStop(1, "#01579b");
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, GAME_W, GAME_H);
+
+  // 标题
+  drawCenteredText(ctx, "🏝️ 冒险岛", GAME_W / 2, 160, "#ffd700", "bold 56px sans-serif");
+  drawCenteredText(ctx, "Adventure Island", GAME_W / 2, 220, "#90caf9", "20px sans-serif");
+
+  // 菜单
+  const options = ["开始游戏", "操作说明"];
+  const startY = 350;
+  for (let i = 0; i < options.length; i++) {
+    const isSelected = i === state.titleSelectedOption;
+    const y = startY + i * 50;
+    if (isSelected) {
+      drawCenteredText(ctx, "▶ " + options[i], GAME_W / 2, y, "#ffd700", "bold 24px sans-serif");
+    } else {
+      drawCenteredText(ctx, "  " + options[i], GAME_W / 2, y, "#aaa", "22px sans-serif");
+    }
+  }
+
+  // 操作提示
+  drawCenteredText(ctx, "移动: WASD/方向键 | 攻击: J | 技能: 1-4", GAME_W / 2, 480, "#888", "15px sans-serif");
+  drawCenteredText(ctx, "背包: Tab | 技能详情: K | 对话: Enter", GAME_W / 2, 510, "#888", "15px sans-serif");
+  drawCenteredText(ctx, "v1.0 - Canvas Game", GAME_W / 2, 590, "#555", "12px sans-serif");
+}
+
+// 胜利画面
+function renderVictory(ctx) {
+  ctx.fillStyle = "#000";
+  ctx.fillRect(0, 0, GAME_W, GAME_H);
+  drawCenteredText(ctx, "🎉 魔王已被击败！🎉", GAME_W / 2, GAME_H / 2 - 30, "#ffd700", "bold 36px sans-serif");
+  drawCenteredText(ctx, "世界恢复了和平，勇者成为传说。", GAME_W / 2, GAME_H / 2 + 15, "#fff", "18px sans-serif");
+  drawCenteredText(ctx, "按 Enter 回到标题", GAME_W / 2, GAME_H / 2 + 55, "#aaa", "16px sans-serif");
+}
+
+// 游戏结束画面
+function renderGameOver(ctx) {
+  ctx.fillStyle = "rgba(0,0,0,0.7)";
+  ctx.fillRect(0, 0, GAME_W, GAME_H);
+  drawCenteredText(ctx, "💀 你倒下了...", GAME_W / 2, GAME_H / 2 - 20, "#e53935", "bold 36px sans-serif");
+  drawCenteredText(ctx, "按 Enter 从失败中站起", GAME_W / 2, GAME_H / 2 + 25, "#aaa", "16px sans-serif");
+}
+
+// 背景
+function renderBackground(ctx, map, camX) {
+  const img = getImg(map.bgImageKey);
+  if (img) {
+    // 平铺背景
+    const pattern = ctx.createPattern(img, "repeat-x");
+    ctx.fillStyle = pattern;
+    ctx.fillRect(0, 0, GAME_W, GAME_H);
+  } else {
+    ctx.fillStyle = map.bgColor;
+    ctx.fillRect(0, 0, GAME_W, GAME_H);
+  }
+}
+
+// 平台
+function renderPlatforms(ctx, map, camX) {
+  for (const plat of map.platforms) {
+    const sx = plat.x - camX;
+    if (sx + plat.w < -50 || sx > GAME_W + 50) continue;
+    ctx.fillStyle = plat.color;
+    ctx.fillRect(sx, plat.y, plat.w, plat.h);
+    // 顶部草地
+    ctx.fillStyle = "#388e3c";
+    ctx.fillRect(sx, plat.y, plat.w, 4);
+  }
+}
+
+// 传送门
+function renderPortals(ctx, portals, camX) {
+  for (const portal of portals) {
+    const sx = portal.x - camX;
+    if (sx + portal.w < -50 || sx > GAME_W + 50) continue;
+
+    // 光柱
+    const grad = ctx.createLinearGradient(sx, portal.y, sx, portal.y + portal.h);
+    grad.addColorStop(0, "rgba(100,180,255,0.8)");
+    grad.addColorStop(0.5, "rgba(200,230,255,0.5)");
+    grad.addColorStop(1, "rgba(100,180,255,0.1)");
+    ctx.fillStyle = grad;
+    ctx.fillRect(sx, portal.y, portal.w, portal.h);
+
+    // 标签
+    if (portal.label) {
+      ctx.fillStyle = "#fff";
+      ctx.font = "bold 13px sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillText(portal.label, sx + portal.w / 2, portal.y - 8);
+    }
+  }
+}
+
+// NPC
+function renderNPCs(ctx, npcs, camX) {
+  for (const npc of npcs) {
+    const sx = npc.x - camX;
+    if (sx + npc.w < -50 || sx > GAME_W + 50) continue;
+
+    const imgKey = npc.id === "elder" ? "npcElder" : (npc.id === "merchant1" ? "npcMerchant" : null);
+    if (imgKey && !drawImg(ctx, imgKey, sx, npc.y, npc.w, npc.h)) {
+      drawFallbackRect(ctx, sx, npc.y, npc.w, npc.h, npc.color, npc.icon);
+    } else if (!imgKey) {
+      drawFallbackRect(ctx, sx, npc.y, npc.w, npc.h, npc.color, npc.icon);
+    }
+
+    // 名字
+    ctx.fillStyle = "#ffd700";
+    ctx.font = "12px sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText(npc.name, sx + npc.w / 2, npc.y - 8);
+  }
+}
+
+// 怪物
+function renderMonsters(ctx, monsters, camX) {
+  for (const mon of monsters) {
+    if (!mon.alive && mon.deathTimer <= 0) continue;
+    const sx = mon.x - camX;
+    if (sx + mon.w < -50 || sx > GAME_W + 50) continue;
+
+    ctx.save();
+
+    // 死亡消失动画
+    if (!mon.alive) {
+      ctx.globalAlpha = mon.deathTimer / 30;
+    }
+    // 受击闪烁
+    if (mon.hitTimer > 0 && mon.hitTimer % 4 < 2) {
+      ctx.globalAlpha = 0.5;
+    }
+
+    // 图片或回退
+    let imgKey = null;
+    if (mon.id.startsWith("slime")) imgKey = "monsterSlime";
+    else if (mon.id.startsWith("goblin")) imgKey = "monsterGoblin";
+    else if (mon.id.startsWith("skeleton")) imgKey = "monsterSkeleton";
+    else if (mon.id.startsWith("darkMage")) imgKey = "monsterDarkMage";
+    else if (mon.id.startsWith("dragonBoss")) imgKey = "monsterDragonBoss";
+
+    if (imgKey && !drawImg(ctx, imgKey, sx, mon.y, mon.w, mon.h)) {
+      drawFallbackRect(ctx, sx, mon.y, mon.w, mon.h, mon.color, mon.name);
+    } else if (!imgKey) {
+      drawFallbackRect(ctx, sx, mon.y, mon.w, mon.h, mon.color, mon.name);
+    }
+
+    ctx.restore();
+
+    // 血条
+    if (mon.alive && mon.hp < mon.maxHp) {
+      drawBar(ctx, sx, mon.y - 10, mon.w, 5, mon.hp / mon.maxHp, "#e53935", "#333");
+    }
+    // 名字
+    if (mon.alive) {
+      ctx.fillStyle = "#fff";
+      ctx.font = "10px sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillText(mon.name, sx + mon.w / 2, mon.y - 14);
+    }
+  }
+}
+
+// 玩家
+function renderPlayer(ctx, state) {
+  const p = state.player;
+  const map = state.maps[state.currentMap];
+  if (!map) return;
+
+  const sx = p.x - state.cameraX;
+  const sy = p.y;
+
+  ctx.save();
+
+  // 无敌闪烁
+  if (p.invincibleTimer > 0 && p.invincibleTimer % 6 < 3) {
+    ctx.globalAlpha = 0.4;
+  }
+
+  // 护盾光环
+  if (p.shieldTimer > 0 && p.shieldHp > 0) {
+    ctx.strokeStyle = "rgba(156,39,176,0.6)";
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(sx + p.w / 2, sy + p.h / 2, Math.max(p.w, p.h) * 0.7, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+
+  // 技能特效
+  if (p.activeSkill === "whirlwind" && p.activeSkillTimer > 0) {
+    ctx.strokeStyle = "rgba(0,188,212,0.7)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(sx + p.w / 2, sy + p.h / 2, 55, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  if (p.activeSkill === "powerStrike" && p.attackTimer > 0) {
+    ctx.fillStyle = "rgba(255,152,0,0.4)";
+    const aw = 55;
+    const ah = 44;
+    const ax = p.dir > 0 ? sx + p.w : sx - aw;
+    const ay = sy + p.h / 2 - ah / 2;
+    ctx.fillRect(ax, ay, aw, ah);
+  }
+
+  // 玩家图片
+  if (!drawImg(ctx, "playerHero", sx, sy, p.w, p.h)) {
+    drawFallbackRect(ctx, sx, sy, p.w, p.h, "#42a5f5", "勇者");
+  }
+
+  ctx.restore();
+
+  // 普攻判定框（调试用）
+  if (p.attackTimer > 0) {
+    const aw = 55;
+    const ah = 44;
+    const ax = p.dir > 0 ? sx + p.w : sx - aw;
+    const ay = sy + p.h / 2 - ah / 2;
+    ctx.strokeStyle = "rgba(255,255,255,0.5)";
+    ctx.lineWidth = 1;
+    ctx.strokeRect(ax, ay, aw, ah);
+  }
+}
+
+// 粒子
+function renderParticles(ctx, state) {
+  const camX = state.cameraX;
+  for (const pt of state.particles) {
+    const sx = pt.x - camX;
+    ctx.fillStyle = pt.color;
+    ctx.globalAlpha = clamp(pt.life / 30, 0, 1);
+    ctx.fillRect(sx - pt.size / 2, pt.y - pt.size / 2, pt.size, pt.size);
+  }
+  ctx.globalAlpha = 1;
+}
+
+// 浮动文字
+function renderFloatingTexts(ctx, state) {
+  const camX = state.cameraX;
+  for (const ft of state.floatingTexts) {
+    const sx = ft.x - camX;
+    ctx.fillStyle = ft.color;
+    ctx.globalAlpha = clamp(ft.life / 40, 0, 1);
+    ctx.font = "bold 14px sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText(ft.text, sx, ft.y);
+  }
+  ctx.globalAlpha = 1;
+}
+
+// HUD
+function renderHUD(ctx, state) {
+  const p = state.player;
+  const map = state.maps[state.currentMap];
+
+  // HP
+  ctx.fillStyle = "#fff";
+  ctx.font = "13px sans-serif";
+  ctx.textAlign = "left";
+  ctx.fillText("HP", 16, 22);
+  drawBar(ctx, 44, 10, 180, 16, p.hp / p.maxHp, "#4caf50", "#333");
+  ctx.fillStyle = "#fff";
+  ctx.font = "12px sans-serif";
+  ctx.fillText(Math.ceil(p.hp) + "/" + p.maxHp, 52, 23);
+
+  // MP
+  ctx.fillText("MP", 244, 22);
+  drawBar(ctx, 272, 10, 140, 12, p.mp / p.maxMp, "#2196f3", "#333");
+  ctx.fillText(Math.floor(p.mp) + "/" + p.maxMp, 280, 23);
+
+  // 等级 & EXP
+  ctx.fillText("Lv." + p.level, 440, 18);
+  drawBar(ctx, 500, 10, 120, 10, p.exp / p.expToNext, "#ffd700", "#333");
+  ctx.fillText("EXP " + p.exp + "/" + p.expToNext, 508, 23);
+
+  // 金币
+  ctx.fillText("💰 " + p.gold, 650, 22);
+
+  // 地图名
+  ctx.fillStyle = "#aaa";
+  ctx.font = "14px sans-serif";
+  ctx.textAlign = "right";
+  ctx.fillText(map ? map.name : "", GAME_W - 16, 22);
+
+  // 攻击力 & 防御力
+  ctx.fillText("⚔" + totalAtk(p) + " 🛡" + totalDef(p), GAME_W - 16, 44);
+
+  // ===== 技能栏（精简版：小图标） =====
+  const skills = Object.values(SKILLS);
+  const barW = skills.length * 52 + 8;
+  const barX = GAME_W - barW - 16;
+  const barY = GAME_H - 48;
+
+  ctx.fillStyle = "rgba(0,0,0,0.5)";
+  ctx.fillRect(barX, barY, barW, 38);
+
+  for (let i = 0; i < skills.length; i++) {
+    const s = skills[i];
+    const sx = barX + 6 + i * 52;
+    const onCooldown = (p.skillCooldowns[s.id] || 0) > 0;
+    const hasMp = p.mp >= s.mpCost;
+
+    ctx.fillStyle = onCooldown ? "#444" : (hasMp ? s.color : "#555");
+    ctx.fillRect(sx, barY + 4, 44, 30);
+    ctx.strokeStyle = onCooldown ? "#666" : "#aaa";
+    ctx.lineWidth = 1;
+    ctx.strokeRect(sx, barY + 4, 44, 30);
+
+    ctx.fillStyle = "#fff";
+    ctx.font = "16px sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText(s.icon, sx + 22, barY + 14);
+
+    // CD 覆盖
+    if (onCooldown) {
+      const cdRatio = p.skillCooldowns[s.id] / s.cooldown;
+      ctx.fillStyle = "rgba(0,0,0,0.5)";
+      ctx.fillRect(sx, barY + 4, 44, 30 * cdRatio);
+    }
+
+    // 快捷键
+    ctx.fillStyle = "#fff";
+    ctx.font = "9px sans-serif";
+    ctx.fillText(s.key.replace("Digit", ""), sx + 22, barY + 30);
+  }
+
+  // 操作提示
+  ctx.fillStyle = "rgba(255,255,255,0.5)";
+  ctx.font = "11px sans-serif";
+  ctx.textAlign = "left";
+  ctx.fillText("Tab:背包 | K:技能详情 | Enter:对话", 16, GAME_H - 10);
+}
+
+// 对话 UI
+function renderDialogue(ctx, state) {
+  if (!state.dialogueActive) return;
+  const dl = state.dialogueQueue[state.dialogueIndex];
+  if (!dl) return;
+
+  const boxX = 80;
+  const boxY = GAME_H - 160;
+  const boxW = GAME_W - 160;
+  const boxH = 120;
+
+  ctx.fillStyle = "rgba(0,0,0,0.85)";
+  ctx.fillRect(boxX, boxY, boxW, boxH);
+  ctx.strokeStyle = "#ffd700";
+  ctx.lineWidth = 2;
+  ctx.strokeRect(boxX, boxY, boxW, boxH);
+
+  // 说话者
+  if (dl.speaker) {
+    ctx.fillStyle = "#ffd700";
+    ctx.font = "bold 16px sans-serif";
+    ctx.textAlign = "left";
+    ctx.fillText(dl.speaker, boxX + 16, boxY + 28);
+  }
+
+  // 文本
+  ctx.fillStyle = "#fff";
+  ctx.font = "15px sans-serif";
+  ctx.fillText(dl.text, boxX + 16, boxY + 58);
+
+  // 继续提示
+  ctx.fillStyle = "#aaa";
+  ctx.font = "12px sans-serif";
+  ctx.textAlign = "right";
+  ctx.fillText("按 Enter 继续", boxX + boxW - 16, boxY + boxH - 16);
+  ctx.textAlign = "left";
+}
+
+// 背包 UI
+function renderInventory(ctx, state) {
+  if (!state.showInventory) return;
+  const p = state.player;
+
+  const boxX = GAME_W / 2 - 210;
+  const boxY = 60;
+  const boxW = 420;
+  const boxH = Math.min(420, 60 + p.inventory.length * 36 + 40);
+
+  ctx.fillStyle = "rgba(0,0,0,0.85)";
+  ctx.fillRect(boxX, boxY, boxW, boxH);
+  ctx.strokeStyle = "#ffd700";
+  ctx.lineWidth = 2;
+  ctx.strokeRect(boxX, boxY, boxW, boxH);
+
+  ctx.fillStyle = "#ffd700";
+  ctx.font = "bold 16px sans-serif";
+  ctx.textAlign = "center";
+  ctx.fillText("🎒 背包 (WS/↑↓ 导航, Enter 装备)", boxX + boxW / 2, boxY + 24);
+
+  // 装备槽
+  const slots = [
+    { label: "武器", item: p.weapon },
+    { label: "防具", item: p.armor },
+    { label: "饰品", item: p.accessory },
+  ];
+  let slotY = boxY + 40;
+  for (const sl of slots) {
+    const color = sl.item ? "#4caf50" : "#555";
+    ctx.fillStyle = color;
+    ctx.font = "12px sans-serif";
+    ctx.textAlign = "left";
+    ctx.fillText(sl.label + ": " + (sl.item ? sl.item.icon + " " + sl.item.name : "空"), boxX + 16, slotY);
+    slotY += 22;
+  }
+
+  // 物品列表
+  const listStartY = slotY + 6;
+  for (let i = 0; i < p.inventory.length; i++) {
+    const item = p.inventory[i];
+    const iy = listStartY + i * 36;
+    const selected = i === state.selectedInventoryIndex;
+
+    if (selected) {
+      ctx.fillStyle = "rgba(255,215,0,0.2)";
+      ctx.fillRect(boxX + 8, iy, boxW - 16, 32);
+      ctx.fillStyle = "#ffd700";
+    } else {
+      ctx.fillStyle = "#ccc";
+    }
+    ctx.font = "14px sans-serif";
+    ctx.textAlign = "left";
+    ctx.fillText((selected ? "▶ " : "  ") + item.icon + " " + item.name + " | " + item.description, boxX + 16, iy + 18);
+  }
+
+  if (p.inventory.length === 0) {
+    ctx.fillStyle = "#666";
+    ctx.font = "13px sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText("背包空空如也", boxX + boxW / 2, listStartY + 30);
+  }
+
+  ctx.textAlign = "left";
+}
+
+// 技能详情面板
+function renderSkillsPanel(ctx, state) {
+  if (!state.showSkillsPanel) return;
+  const p = state.player;
+
+  const boxX = GAME_W / 2 - 260;
+  const boxY = 60;
+  const boxW = 520;
+  const boxH = 320;
+
+  ctx.fillStyle = "rgba(0,0,0,0.88)";
+  ctx.fillRect(boxX, boxY, boxW, boxH);
+  ctx.strokeStyle = "#9c27b0";
+  ctx.lineWidth = 2;
+  ctx.strokeRect(boxX, boxY, boxW, boxH);
+
+  ctx.fillStyle = "#ffd700";
+  ctx.font = "bold 16px sans-serif";
+  ctx.textAlign = "center";
+  ctx.fillText("📜 技能详情 (按 K 关闭)", boxX + boxW / 2, boxY + 24);
+
+  const skills = Object.values(SKILLS);
+  for (let i = 0; i < skills.length; i++) {
+    const s = skills[i];
+    const sy = boxY + 50 + i * 60;
+    const onCooldown = (p.skillCooldowns[s.id] || 0) > 0;
+    const cdRemain = Math.ceil((p.skillCooldowns[s.id] || 0) / 60);
+
+    // 图标背景
+    ctx.fillStyle = s.color;
+    ctx.fillRect(boxX + 16, sy, 44, 44);
+    ctx.fillStyle = "#fff";
+    ctx.font = "22px sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText(s.icon, boxX + 38, sy + 28);
+
+    // 技能名
+    ctx.fillStyle = "#ffd700";
+    ctx.font = "bold 15px sans-serif";
+    ctx.textAlign = "left";
+    ctx.fillText(s.name, boxX + 76, sy + 14);
+
+    // 描述
+    ctx.fillStyle = "#ccc";
+    ctx.font = "13px sans-serif";
+    ctx.fillText(s.description, boxX + 76, sy + 32);
+
+    // 消耗 & CD
+    const statusColor = onCooldown ? "#e53935" : "#aaa";
+    const statusText = onCooldown ? "CD: " + cdRemain + "s" : "就绪";
+    ctx.fillStyle = statusColor;
+    ctx.fillText("快捷键: " + s.key.replace("Digit", "") + " | MP: " + s.mpCost + " | CD: " + (s.cooldown / 60).toFixed(1) + "s | " + statusText, boxX + 76, sy + 50);
+  }
+
+  ctx.textAlign = "left";
+}
+
+// 地图转换过渡
+function renderTransition(ctx, state) {
+  const progress = 1 - state.transitionTimer / 40;
+  ctx.fillStyle = "rgba(0,0,0," + progress + ")";
+  ctx.fillRect(0, 0, GAME_W, GAME_H);
+
+  const nextMap = state.maps[state.transitionTargetMap];
+  if (nextMap) {
+    ctx.fillStyle = "#fff";
+    ctx.font = "bold 22px sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(nextMap.name, GAME_W / 2, GAME_H / 2);
+  }
+}
+
+// 主渲染入口
+function renderGame(ctx, state) {
+  ctx.clearRect(0, 0, GAME_W, GAME_H);
+
+  if (state.phase === "title") { renderTitle(ctx, state); return; }
+  if (state.phase === "victory") { renderVictory(ctx); return; }
+  if (state.phase === "game_over") { renderGameOver(ctx); return; }
+
+  const map = state.maps[state.currentMap];
+  if (!map) return;
+
+  const shakeX = state.shakeTimer > 0 ? (Math.random() - 0.5) * state.shakeIntensity : 0;
+  const shakeY = state.shakeTimer > 0 ? (Math.random() - 0.5) * state.shakeIntensity : 0;
+
+  ctx.save();
+  ctx.translate(shakeX, shakeY);
+
+  renderBackground(ctx, map, state.cameraX);
+  renderPlatforms(ctx, map, state.cameraX);
+  renderPortals(ctx, map.portals, state.cameraX);
+  renderNPCs(ctx, map.npcs, state.cameraX);
+  renderMonsters(ctx, map.monsters, state.cameraX);
+  renderPlayer(ctx, state);
+  renderParticles(ctx, state);
+  renderFloatingTexts(ctx, state);
+
+  if (state.transitionTimer > 0) {
+    renderTransition(ctx, state);
+  }
+
+  ctx.restore();
+
+  // UI 层（不受震屏影响）
+  renderHUD(ctx, state);
+  renderDialogue(ctx, state);
+  renderInventory(ctx, state);
+  renderSkillsPanel(ctx, state);
+}
+
+// ============================================================
+// 主入口：初始化 & 游戏循环
+// ============================================================
+
+const canvas = document.getElementById("game");
+canvas.width = GAME_W;
+canvas.height = GAME_H;
+const ctx = canvas.getContext("2d");
+
+const state = createInitialState();
+state.phase = "title";
+
+// 键盘事件
+window.addEventListener("keydown", (e) => {
+  state.keys.set(e.code, true);
+  e.preventDefault();
+});
+window.addEventListener("keyup", (e) => {
+  state.keys.delete(e.code);
+});
+
+// 背包面板内 Tab/WS 处理
+// 已在 updateGame 中处理 inventory 导航
+
+// 图片加载
+loadAllImages().then(() => {
+  console.log("图片加载完成");
+});
+
+// 游戏循环
+function gameLoop() {
+  updateGame(state);
+  renderGame(ctx, state);
+  requestAnimationFrame(gameLoop);
+}
+
+// 启动
+gameLoop();
+console.log("🏝️ 冒险岛启动成功！");
+</script>
+</body>
+</html>

@@ -58,6 +58,12 @@ describe("ChatPanel", () => {
     expect(shouldSuppressSessionActivityBar([message({})], true)).toBe(false);
   });
 
+  it("hides the footer activity once assistant prose owns the visible turn feedback", () => {
+    expect(shouldSuppressSessionActivityBar([
+      message({ content: "好，我接着处理。" }),
+    ], true)).toBe(true);
+  });
+
   it("hides the footer activity when assistant prose already owns the live feedback", () => {
     expect(shouldSuppressSessionActivityBar([
       message({ runtimePublicTimelineDraft: [{ kind: "assistant_text", text: "我正在接回刚才的运行。", state: "running" }] }),
@@ -115,6 +121,22 @@ describe("ChatPanel", () => {
 
   it("keeps the context status slot visible while token stats are loading", () => {
     expect(sessionContextPressurePresentation(null)).toEqual({
+      label: "上下文",
+      usedPercent: 0,
+      pressurePercentText: "--",
+      tokenRatioText: "--",
+      title: "正在读取当前 session 上下文状态",
+      levelClass: "pending",
+    });
+  });
+
+  it("does not fall back to history budget when context meter is missing", () => {
+    expect(sessionContextPressurePresentation(tokenStats({
+      history_tokens: 800,
+      history_budget_tokens: 1000,
+      history_usage_ratio: 0.8,
+      history_pressure_level: "warning",
+    }))).toEqual({
       label: "上下文",
       usedPercent: 0,
       pressurePercentText: "--",

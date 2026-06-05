@@ -3,6 +3,7 @@ from __future__ import annotations
 from memory_system.storage.models import Message
 from memory_system.storage.session_memory import SessionMemoryManager
 from context_system.compaction.compactor import ContextCompactor
+from runtime.context_management.session_compaction import build_context_usage_snapshot
 from runtime.prompt_accounting import ContextUsageMeter, ModelTokenUsageRecord, PromptAccountingLedger
 
 
@@ -286,6 +287,81 @@ def test_context_usage_meter_invalidates_anchor_when_environment_fingerprint_cha
     assert snapshot.invalidation_reason == "environment_fingerprint_changed"
     assert snapshot.estimate_mode == "local_predicted_anchor_invalid"
     assert snapshot.current_context_tokens == 300
+
+
+def test_session_context_usage_snapshot_passes_active_history_fingerprint(tmp_path) -> None:
+    ledger = PromptAccountingLedger(tmp_path)
+    previous_fingerprint = "sha256:previous-active-history"
+    ledger.record_token_usage(
+        ModelTokenUsageRecord(
+            usage_id="tokuse:modelreq:provider:provider_usage",
+            request_id="modelreq:provider",
+            session_id="session:test",
+            provider="deepseek",
+            model="deepseek-v4-pro",
+            source="provider_usage",
+            prompt_tokens=100,
+            completion_tokens=10,
+            total_tokens=110,
+            created_at=2.0,
+        )
+    )
+    ledger.record_token_usage(
+        ModelTokenUsageRecord(
+            usage_id="tokuse:modelreq:local:local_prediction",
+            request_id="modelreq:local",
+            session_id="session:test",
+            provider="deepseek",
+            model="deepseek-v4-pro",
+            source="local_prediction",
+            prompt_tokens=100,
+            total_tokens=100,
+            created_at=1.0,
+            diagnostics={
+                "prompt_manifest": {
+                    "context_window": {
+                        "active_history_fingerprint": previous_fingerprint,
+                    }
+                }
+            },
+        )
+    )
+    runtime = type(
+        "Runtime",
+        (),
+        {
+            "settings": type(
+                "Settings",
+                (),
+                {
+                    "static": type(
+                        "Static",
+                        (),
+                        {
+                            "llm_provider": "deepseek",
+                            "llm_model": "deepseek-v4-pro",
+                            "llm_max_output_tokens": 65_536,
+                        },
+                    )()
+                },
+            )(),
+            "single_agent_runtime_host": type("Host", (), {"prompt_accounting_ledger": ledger})(),
+        },
+    )()
+
+    snapshot = build_context_usage_snapshot(
+        runtime,
+        session_id="session:test",
+        raw_messages=[
+            {"role": "user", "content": "旧消息"},
+            {"role": "assistant", "content": "新回复让历史发生变化"},
+        ],
+    )
+
+    assert snapshot.anchor_valid is False
+    assert snapshot.invalidation_reason == "environment_fingerprint_changed"
+    assert snapshot.diagnostics["previous_context_fingerprint"] == previous_fingerprint
+    assert snapshot.diagnostics["context_fingerprint"].startswith("sha256:")
 
 
 def test_deepseek_compactor_does_not_full_compact_from_message_count_alone(tmp_path) -> None:

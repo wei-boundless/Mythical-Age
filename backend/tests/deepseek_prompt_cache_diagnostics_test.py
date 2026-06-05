@@ -207,11 +207,8 @@ def test_deepseek_cache_diagnosis_summarizes_context_window_facts(tmp_path: Path
                     "context_window": {
                         "compressed_summary_present": True,
                         "compressed_summary_hash": "sha256:compressed",
-                        "replacement_history_ref": "replacement-history:abcdef1234567890",
-                        "replacement_history_present": True,
                         "raw_history_message_count": 12,
-                        "recent_history_message_count": 6,
-                        "omitted_history_message_count": 6,
+                        "active_history_message_count": 12,
                     },
                 },
                 "created_at": 3,
@@ -225,7 +222,7 @@ def test_deepseek_cache_diagnosis_summarizes_context_window_facts(tmp_path: Path
     assert report["context_window_generation"] == 1
     assert report["compaction_generation"] == 1
     assert report["compressed_summary"] == "yes"
-    assert report["replacement_history"] == "replacement-history:abcdef123456"
+    assert report["active_history_messages"] == 12
 
 
 def test_deepseek_cache_diagnosis_does_not_mix_stable_hashes_across_tasks(tmp_path: Path) -> None:

@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import hashlib
+import json
+import re
 from typing import Any, Literal
 
 from memory_system.storage.models import Message
@@ -10,6 +13,14 @@ TOKEN_COUNTER = TokenCounterRegistry()
 CompactionMode = Literal["preview", "run", "auto"]
 PressureLevel = Literal["auto", "microcompact", "full_compact"]
 PressureSource = Literal["context", "history"]
+_PUBLIC_PROTOCOL_BLOCK_RE = re.compile(
+    r"<｜｜DSML｜｜tool_calls>.*?</｜｜DSML｜｜tool_calls>",
+    re.DOTALL,
+)
+_PUBLIC_PROTOCOL_PARAMETER_RE = re.compile(
+    r"(?:^|\n)\s*name=\"[^\"]+\"\s+string=\"(?:true|false)\">.*?</｜｜DSML｜｜parameter>",
+    re.DOTALL,
+)
 
 
 def count_tokens(text: str) -> int:
@@ -48,12 +59,16 @@ def build_context_usage_snapshot(runtime: Any, *, session_id: str, raw_messages:
         ledger,
         default_reserved_output_tokens=reserved_output_tokens,
     )
+    context_fingerprint = _messages_context_fingerprint(raw_messages)
+    previous_context_fingerprint = _latest_record_context_fingerprint(ledger, session_id=session_id)
     return meter.build_snapshot(
         session_id=session_id,
         provider=provider,
         model=model,
         reserved_output_tokens=reserved_output_tokens,
         fallback_messages=raw_messages,
+        context_fingerprint=context_fingerprint,
+        previous_context_fingerprint=previous_context_fingerprint,
     )
 
 
@@ -68,6 +83,64 @@ def _runtime_static_settings(runtime: Any) -> Any:
         if static is not None:
             return static
     return None
+
+
+def _messages_context_fingerprint(messages: list[dict[str, Any]] | tuple[dict[str, Any], ...]) -> str:
+    normalized = []
+    for item in list(messages or []):
+        if not isinstance(item, dict):
+            continue
+        role = str(item.get("role") or item.get("type") or "").strip()
+        content = str(item.get("content") or item.get("text") or "")
+        if not role or not content:
+            continue
+        payload: dict[str, Any] = {"role": role, "content": content}
+        if item.get("tool_call_id"):
+            payload["tool_call_id"] = str(item.get("tool_call_id") or "")
+        if isinstance(item.get("tool_calls"), list) and item.get("tool_calls"):
+            payload["tool_calls"] = [dict(call) for call in list(item.get("tool_calls") or []) if isinstance(call, dict)]
+        normalized.append(payload)
+    return _stable_hash(normalized)
+
+
+def _latest_record_context_fingerprint(ledger: Any, *, session_id: str) -> str:
+    list_token_usage = getattr(ledger, "list_token_usage", None)
+    if not callable(list_token_usage):
+        return ""
+    records = sorted(
+        list(list_token_usage(session_id=session_id) or []),
+        key=lambda item: float(getattr(item, "created_at", 0.0) or 0.0),
+    )
+    for record in reversed(records):
+        fingerprint = _record_context_fingerprint(record)
+        if fingerprint:
+            return fingerprint
+    return ""
+
+
+def _record_context_fingerprint(record: Any) -> str:
+    diagnostics = dict(getattr(record, "diagnostics", {}) or {})
+    direct = str(diagnostics.get("context_fingerprint") or "").strip()
+    if direct:
+        return direct
+    prompt_manifest = dict(diagnostics.get("prompt_manifest") or {})
+    context_window = dict(prompt_manifest.get("context_window") or {})
+    return str(context_window.get("active_history_fingerprint") or context_window.get("context_fingerprint") or "").strip()
+
+
+def _stable_hash(value: Any) -> str:
+    payload = json.dumps(_json_stable(value), ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return "sha256:" + hashlib.sha256(payload.encode("utf-8", errors="ignore")).hexdigest()
+
+
+def _json_stable(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {str(key): _json_stable(value[key]) for key in sorted(value)}
+    if isinstance(value, (list, tuple)):
+        return [_json_stable(item) for item in value]
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    return repr(value)
 
 
 def compact_session_history(
@@ -96,7 +169,13 @@ def compact_session_history(
     else:
         effective_level = requested_level
 
-    if mode == "auto" and not bool(getattr(snapshot, "auto_replacement_allowed", False)):
+    context_replacement_allowed = bool(getattr(snapshot, "auto_replacement_allowed", False))
+    history_replacement_allowed = (
+        mode == "auto"
+        and pressure_source == "history"
+        and effective_level in {"microcompact", "full_compact"}
+    )
+    if mode == "auto" and not context_replacement_allowed and not history_replacement_allowed:
         return _not_applied_response(
             session_id=session_id,
             mode=mode,
@@ -153,21 +232,13 @@ def auto_compact_session_if_needed(
     record = get_history(session_id)
     raw_messages = list(record.get("messages") or [])
     snapshot = build_context_usage_snapshot(runtime, session_id=session_id, raw_messages=raw_messages)
-    if not bool(getattr(snapshot, "auto_replacement_allowed", False)):
-        return _auto_skipped_response(
-            session_id=session_id,
-            skipped_reason="below_replacement_threshold",
-            context_snapshot=snapshot,
-            raw_message_count=len(raw_messages),
-            compressed_context_present=bool(str(record.get("compressed_context") or "")),
-        )
     return compact_session_history(
         runtime,
         session_id=session_id,
         mode="auto",
         pressure_level="auto",
         reason=reason,
-        pressure_source="context",
+        pressure_source="context" if bool(getattr(snapshot, "auto_replacement_allowed", False)) else "history",
         context_snapshot=snapshot,
     )
 
@@ -359,21 +430,31 @@ def _stored_messages_after_compact(messages: list[Message]) -> list[dict[str, An
         meta = dict(message.meta or {})
         if str(meta.get("kind") or "") == "compact_summary":
             continue
-        if message.role == "system":
+        if message.role not in {"user", "assistant"}:
             continue
-        stored.append(_message_to_session_dict(message))
+        content = _public_message_content(message.content)
+        if not content:
+            continue
+        stored.append(_message_to_session_dict(message, content=content))
     return stored
 
 
-def _message_to_session_dict(message: Message) -> dict[str, Any]:
+def _message_to_session_dict(message: Message, *, content: str) -> dict[str, Any]:
     payload = {
         "role": message.role,
-        "content": message.content,
+        "content": content,
     }
     meta = dict(message.meta or {})
     if meta:
         payload["meta"] = meta
     return payload
+
+
+def _public_message_content(value: Any) -> str:
+    text = str(value or "")
+    cleaned = _PUBLIC_PROTOCOL_BLOCK_RE.sub("", text)
+    cleaned = _PUBLIC_PROTOCOL_PARAMETER_RE.sub("", cleaned)
+    return cleaned.strip() if cleaned != text else text
 
 
 def _message_preview(message: Message) -> dict[str, Any]:

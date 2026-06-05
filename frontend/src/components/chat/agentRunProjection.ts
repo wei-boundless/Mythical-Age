@@ -120,9 +120,17 @@ export function projectAgentRun(items: PublicChatTimelineItem[], assistantConten
   const todoItem = lastOf(publicItems.filter((item) => kindOf(item) === "todo_plan"));
   const todo = todoItem ? todoProjectionForItem(todoItem) : null;
   const actionItems = publicItems.filter(isActionOrFeedbackItem);
-  const latestLive = lastOf(actionItems.filter(isRunningActionItem));
-  const latestError = lastOf(actionItems.filter((item) => stateClass(item) === "error"));
   const latestFeedback = latestFeedbackItem(actionItems);
+  const latestLive = closeout
+    ? null
+    : lastOf(actionItems.filter((item) =>
+      isRunningActionItem(item)
+      && !feedbackSupersedesRunningAction(latestFeedback, item)
+    ));
+  const latestError = lastOf(actionItems.filter((item) =>
+    stateClass(item) === "error"
+    && !feedbackSupersedesRunningAction(latestFeedback, item)
+  ));
 
   let liveAction = "";
   let feedback = "";
@@ -238,12 +246,13 @@ function latestFeedbackItem(items: PublicChatTimelineItem[]) {
 
 function feedbackText(item: PublicChatTimelineItem) {
   if (kindOf(item) === "observation_report") {
-    return sentence(readableToolObservation(item.detail || item.text || item.implication || item.title || "当前事实已记录。"));
+    const detail = readableToolObservation(item.detail || item.text || item.title || "当前事实已记录。");
+    return sentence(withNextStepFact(detail, item.implication || item.next_step));
   }
   if (stateClass(item) === "error") {
     return errorFeedbackText(item);
   }
-  return naturalResultFact(actionDisplay(item), item);
+  return withNextStepFact(naturalResultFact(actionDisplay(item), item), item.next_step);
 }
 
 function errorFeedbackText(item: PublicChatTimelineItem) {
@@ -263,7 +272,7 @@ function naturalActionSentence(item: PublicChatTimelineItem) {
     return sentence(item.text || item.detail || item.title || "我正在同步当前处理进展。");
   }
   const action = actionDisplay(item);
-  const target = action.detail;
+  const target = visibleActionTarget(action.detail);
   if (action.kind === "read") {
     return target
       ? `我先${objectText("读取", target)}，把判断建立在真实上下文上。`
@@ -597,7 +606,7 @@ function commandOutputProjectionForItem(item: PublicChatTimelineItem | null): Ag
   return {
     content: shortCommandOutput(raw),
     key: `${publicTimelineItemKey(item)}:command-output`,
-    label: "Shell",
+    label: "终端",
   };
 }
 
@@ -646,6 +655,110 @@ function commonParentDirectory(paths: string[]) {
     common.push(part);
   }
   return common.join("/");
+}
+
+function feedbackSupersedesRunningAction(
+  feedback: PublicChatTimelineItem | null,
+  running: PublicChatTimelineItem,
+) {
+  if (!feedback || !isRunningActionItem(running)) {
+    return false;
+  }
+  if (sharesTraceRef(feedback, running)) {
+    return true;
+  }
+  if (kindOf(feedback) === "observation_report") {
+    return observationMatchesAction(feedback, running);
+  }
+  if (!isRunningActionItem(feedback) && isActionOrFeedbackItem(feedback)) {
+    return sameActionFingerprint(feedback, running);
+  }
+  return false;
+}
+
+function observationMatchesAction(
+  observation: PublicChatTimelineItem,
+  running: PublicChatTimelineItem,
+) {
+  const action = actionDisplay(running);
+  const text = cleanText([
+    observation.detail,
+    observation.text,
+    observation.implication,
+    observation.title,
+  ].filter(Boolean).join(" "));
+  if (!text) {
+    return false;
+  }
+  if (action.kind === "verify" || action.kind === "run") {
+    return /(?:验证|测试|命令|运行).*(?:返回|完成|通过|失败|未完成)/.test(text);
+  }
+  if (action.kind === "read") {
+    return /(?:已读到|读取|上下文|关键上下文)/.test(text);
+  }
+  if (action.kind === "search") {
+    return /(?:已定位|搜索|引用|线索|命中)/.test(text);
+  }
+  if (action.kind === "inspect") {
+    return /(?:已确认|目标状态|路径|存在|不存在)/.test(text);
+  }
+  if (action.kind === "edit" || action.kind === "write") {
+    return /(?:更新|写入|编辑|文件).*(?:返回|完成|已)/.test(text);
+  }
+  if (action.kind === "memory") {
+    return /(?:记忆|memory).*(?:返回|命中|检索)/i.test(text);
+  }
+  if (action.kind === "image") {
+    return /(?:图像|图片|生成).*(?:返回|完成|失败)/.test(text);
+  }
+  if (action.kind === "prepare") {
+    return /(?:准备|输出).*(?:返回|完成|确认)/.test(text);
+  }
+  return false;
+}
+
+function sameActionFingerprint(left: PublicChatTimelineItem, right: PublicChatTimelineItem) {
+  const leftAction = actionDisplay(left);
+  const rightAction = actionDisplay(right);
+  if (leftAction.kind !== rightAction.kind) {
+    return false;
+  }
+  const leftTarget = comparableActionTarget(leftAction.detail);
+  const rightTarget = comparableActionTarget(rightAction.detail);
+  if (leftTarget && rightTarget) {
+    return leftTarget === rightTarget;
+  }
+  return ["verify", "run", "memory", "image", "prepare"].includes(leftAction.kind);
+}
+
+function sharesTraceRef(left: PublicChatTimelineItem, right: PublicChatTimelineItem) {
+  const leftRefs = new Set((left.trace_refs ?? []).map((ref) => cleanText(ref)).filter(Boolean));
+  if (!leftRefs.size) {
+    return false;
+  }
+  return (right.trace_refs ?? []).some((ref) => leftRefs.has(cleanText(ref)));
+}
+
+function visibleActionTarget(value: unknown) {
+  const target = cleanText(value);
+  return isGenericActionTargetText(target) ? "" : target;
+}
+
+function comparableActionTarget(value: unknown) {
+  return visibleActionTarget(value).replace(/\\/g, "/").toLowerCase();
+}
+
+function isGenericActionTargetText(value: string) {
+  return /^(?:文件|目录|路径|路径信息|路径状态|目标路径|artifact 路径|目标|当前目标|关键文件|相关代码|代码引用|测试|命令|验证|验证结果|检查|工具|动作|操作|结果|上下文|输出准备)$/i.test(value.trim());
+}
+
+function withNextStepFact(value: unknown, nextStep: unknown) {
+  const base = sentence(value);
+  const next = sentence(stripPublicFeedbackLabel(nextStep));
+  if (!base || !next || samePublicText(base, next)) {
+    return base;
+  }
+  return `${base} ${next}`;
 }
 
 function isStatusUpdate(item: PublicChatTimelineItem) {

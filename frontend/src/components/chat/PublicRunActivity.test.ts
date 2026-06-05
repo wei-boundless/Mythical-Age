@@ -132,8 +132,8 @@ describe("PublicRunActivity", () => {
 
     expect(html).toContain("已复制 2 个素材文件");
     expect(html).toContain("public-run-activity__command-output");
-    expect(html).toContain("Ran command");
-    expect(html).toContain("Shell");
+    expect(html).toContain("命令输出");
+    expect(html).toContain("终端");
     expect(html).toContain("Copied: game-boss-demon-king.png");
     expect(html).not.toContain("观察报告");
     expect(html).not.toContain("观察：");
@@ -513,6 +513,39 @@ describe("PublicRunActivity", () => {
     expect(doneHtml).toContain("验证已返回，22 tests passed");
     expect(doneHtml).not.toContain("我正在跑前端测试");
     expect(doneHtml).not.toContain("观察：");
+  });
+
+  it("does not let a stale monitor running action occupy the message after an observation", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(PublicRunActivity, {
+        items: [
+          {
+            item_id: "observation:test",
+            kind: "observation_report",
+            title: "观察报告",
+            detail: "验证已返回，22 tests passed",
+            implication: "下一步会根据测试结果收口。",
+            state: "done",
+          },
+          {
+            item_id: "live:stale-verify",
+            kind: "work_action",
+            action_kind: "verify",
+            title: "正在运行验证",
+            subject_label: "验证结果",
+            public_summary: "正在运行验证 验证结果",
+            state: "running",
+            stream_state: "streaming",
+          },
+        ],
+      }),
+    );
+
+    expect(html).toContain("验证已返回，22 tests passed");
+    expect(html).toContain("下一步会根据测试结果收口");
+    expect(html).not.toContain("我正在验证");
+    expect(html).not.toContain("验证验证结果");
+    expect(html).not.toContain("观察报告");
   });
 
   it("keeps assistant feedback out of the status lane and renders the active tool action", () => {

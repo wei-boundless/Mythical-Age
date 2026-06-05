@@ -432,6 +432,7 @@ class RuntimeCompiler:
         if turn_input_facts:
             dynamic_payload["turn_input_facts"] = _turn_input_facts_model_visible_payload(turn_input_facts)
         volatile_payload = dict(dynamic_context.volatile_request_projection or {})
+        session_history_payload, current_request_payload = _split_volatile_request_payload(volatile_payload)
         model_messages, segment_plan = _model_messages_and_segment_plan(
             packet_id=packet_id,
             invocation_kind="single_agent_turn",
@@ -467,6 +468,12 @@ class RuntimeCompiler:
                     cache_role="session_stable",
                     compression_role="preserve",
                 ),
+                *_session_history_message_specs(
+                    session_history_payload,
+                    title="Single agent turn session history",
+                    source_ref="single_agent_turn_session_history",
+                    metadata=_dynamic_context_segment_metadata(dynamic_context, source="session_history") if session_history_payload else {},
+                ),
                 *_provider_protocol_message_specs(
                     session_context,
                     source_ref="single_agent_turn_api_transcript",
@@ -489,7 +496,7 @@ class RuntimeCompiler:
                 ),
                 _message_spec(
                     role="user",
-                    content=_packet_payload_content("Single agent turn current request", volatile_payload),
+                    content=_packet_payload_content("Single agent turn current request", current_request_payload),
                     kind="volatile_user",
                     source_ref="single_agent_turn_current_request",
                     cache_scope="none",
@@ -1106,7 +1113,8 @@ class RuntimeCompiler:
         )
         if memory_context_payload:
             dynamic_payload["memory_context"] = memory_context_payload
-        volatile_payload = dynamic_context.volatile_request_projection
+        volatile_payload = dict(dynamic_context.volatile_request_projection or {})
+        session_history_payload, current_request_payload = _split_volatile_request_payload(volatile_payload)
         model_messages, segment_plan = _model_messages_and_segment_plan(
             packet_id=packet_id,
             invocation_kind="tool_observation_followup",
@@ -1156,6 +1164,12 @@ class RuntimeCompiler:
                     cache_role="session_stable",
                     compression_role="preserve",
                 ),
+                *_session_history_message_specs(
+                    session_history_payload,
+                    title="Observation followup session history",
+                    source_ref="observation_followup_session_history",
+                    metadata=_dynamic_context_segment_metadata(dynamic_context, source="session_history") if session_history_payload else {},
+                ),
                 *_provider_protocol_message_specs(
                     session_context,
                     source_ref="observation_followup_api_transcript",
@@ -1178,7 +1192,7 @@ class RuntimeCompiler:
                 ),
                 _message_spec(
                     role="user",
-                    content=_packet_payload_content("Observation followup current request", volatile_payload),
+                    content=_packet_payload_content("Observation followup current request", current_request_payload),
                     kind="tool_observations",
                     source_ref="observation_followup_current_request",
                     cache_scope="none",
@@ -1729,6 +1743,42 @@ def _message_spec(
     return payload
 
 
+def _split_volatile_request_payload(payload: dict[str, Any] | None) -> tuple[dict[str, Any], dict[str, Any]]:
+    source = dict(payload or {})
+    history_payload = dict(source.get("history") or {}) if isinstance(source.get("history"), dict) else {}
+    current_request = dict(source)
+    current_request.pop("history", None)
+    session_history = dict(history_payload)
+    return _drop_empty_payload(session_history), _drop_empty_payload(current_request)
+
+
+def _session_history_message_specs(
+    payload: dict[str, Any] | None,
+    *,
+    title: str,
+    source_ref: str,
+    metadata: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    clean_payload = _drop_empty_payload(dict(payload or {}))
+    if not clean_payload:
+        return []
+    return [
+        _message_spec(
+            role="system",
+            content=_packet_payload_content(title, clean_payload),
+            kind="session_history",
+            source_ref=source_ref,
+            cache_scope="none",
+            cache_role="volatile",
+            compression_role="summarize",
+            metadata={
+                **dict(metadata or {}),
+                "authority_class": "natural_history",
+            },
+        )
+    ]
+
+
 def _provider_protocol_message_specs(
     session_context: dict[str, Any] | None,
     *,
@@ -1738,25 +1788,44 @@ def _provider_protocol_message_specs(
     storage_run_id: str = "",
 ) -> list[dict[str, Any]]:
     payload = dict(session_context or {})
-    if str(payload.get("compressed_context") or payload.get("compressed_summary") or "").strip():
+    compressed_context_present = bool(str(payload.get("compressed_context") or payload.get("compressed_summary") or "").strip())
+    compaction_boundary_created_at = _safe_float(payload.get("provider_protocol_compaction_created_at"))
+    if compressed_context_present and compaction_boundary_created_at <= 0:
         return []
+    transcript_candidates = [
+        dict(item)
+        for item in list(payload.get("api_transcript") or payload.get("provider_protocol_history") or [])
+        if isinstance(item, dict)
+    ]
+    boundary_filtered_candidates = _provider_protocol_after_compaction_boundary(
+        transcript_candidates,
+        boundary_created_at=compaction_boundary_created_at,
+    )
     protocol_sanitizer = sanitize_messages_for_prompt(
-        [
-            item
-            for item in list(payload.get("api_transcript") or payload.get("provider_protocol_history") or [])
-            if isinstance(item, dict)
-        ],
+        boundary_filtered_candidates,
         turn_id=str(payload.get("turn_id") or ""),
         source=source_ref,
     )
     raw_transcript = [dict(item) for item in protocol_sanitizer.messages]
+    protocol_transcript = _provider_protocol_hot_messages(raw_transcript)
+    if not protocol_transcript:
+        return []
     transcript, protocol_projection = _project_provider_protocol_replay(
-        raw_transcript,
+        protocol_transcript,
         projection_policy=projection_policy,
         storage_root=storage_root,
         storage_run_id=storage_run_id,
     )
-    protocol_truncated_count = max(0, len(raw_transcript) - len(transcript))
+    protocol_truncated_count = max(0, len(protocol_transcript) - len(transcript))
+    protocol_projection = {
+        **dict(protocol_projection or {}),
+        "raw_transcript_message_count": len(raw_transcript),
+        "raw_transcript_input_message_count": len(transcript_candidates),
+        "compaction_boundary_created_at": compaction_boundary_created_at,
+        "compaction_boundary_omitted_message_count": max(0, len(transcript_candidates) - len(boundary_filtered_candidates)),
+        "hot_protocol_message_count": len(protocol_transcript),
+        "non_protocol_message_count": max(0, len(raw_transcript) - len(protocol_transcript)),
+    }
     result: list[dict[str, Any]] = []
     for index, message in enumerate([item for item in transcript if item is not None], start=1):
         result.append(
@@ -1783,6 +1852,35 @@ def _provider_protocol_message_specs(
             }
         )
     return result
+
+
+def _provider_protocol_after_compaction_boundary(
+    transcript: list[dict[str, Any]],
+    *,
+    boundary_created_at: float,
+) -> list[dict[str, Any]]:
+    if boundary_created_at <= 0:
+        return list(transcript or [])
+    return [
+        dict(message)
+        for message in list(transcript or [])
+        if _safe_float(message.get("created_at") or message.get("updated_at") or message.get("timestamp")) >= boundary_created_at
+    ]
+
+
+def _provider_protocol_hot_messages(transcript: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [message for message in list(transcript or []) if _is_provider_protocol_hot_message(message)]
+
+
+def _is_provider_protocol_hot_message(message: dict[str, Any]) -> bool:
+    role = str(message.get("role") or "").strip()
+    if role == "tool":
+        return True
+    if _assistant_tool_call_ids(message):
+        return True
+    if str(message.get("reasoning_content") or "").strip():
+        return True
+    return False
 
 
 def _select_provider_protocol_replay(
@@ -2166,25 +2264,17 @@ def _context_window_report(
     dynamic_report = dynamic_context.to_report_dict() if dynamic_context is not None else {}
     volatile_request = dict(getattr(dynamic_context, "volatile_request_projection", {}) or {}) if dynamic_context is not None else {}
     history_projection = dict(volatile_request.get("history") or {})
-    omitted_history = dict(history_projection.get("omitted_history") or {})
-    replacement_refs = [
-        str(item or "")
-        for item in list(dynamic_report.get("context_refs") or [])
-        if str(item or "").startswith("replacement-history:")
-    ]
     raw_history = [dict(item) for item in list(history or []) if isinstance(item, dict)]
-    recent_turns = [dict(item) for item in list(history_projection.get("recent_turns") or []) if isinstance(item, dict)]
+    active_history = [dict(item) for item in list(history_projection.get("active_history") or []) if isinstance(item, dict)]
     return _drop_empty_payload(
         {
             "compressed_summary_hash": _stable_json_hash(compressed) if compressed else "",
             "compressed_summary_present": bool(compressed),
             "recent_work_outcome_hash": _stable_json_hash(recent_work_outcome) if recent_work_outcome else "",
             "recent_work_outcome_present": bool(recent_work_outcome),
-            "replacement_history_ref": replacement_refs[0] if replacement_refs else "",
-            "replacement_history_present": bool(replacement_refs),
             "raw_history_message_count": len(raw_history),
-            "recent_history_message_count": len(recent_turns),
-            "omitted_history_message_count": _safe_int(omitted_history.get("turn_count")),
+            "active_history_message_count": len(active_history),
+            "active_history_fingerprint": _stable_json_hash(active_history) if active_history else "",
             "budget_report": dict(dynamic_report.get("budget_report") or {}),
             "dynamic_context_diagnostics": dict(dynamic_report.get("diagnostics") or {}),
             "authority": "harness.runtime.compiler.context_window_report",
@@ -3856,6 +3946,13 @@ def _safe_int(value: Any) -> int:
         return max(0, int(value or 0))
     except (TypeError, ValueError):
         return 0
+
+
+def _safe_float(value: Any) -> float:
+    try:
+        return max(0.0, float(value or 0.0))
+    except (TypeError, ValueError):
+        return 0.0
 
 
 def _artifact_root(environment_payload: dict[str, Any]) -> str:

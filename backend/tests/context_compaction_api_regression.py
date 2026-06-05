@@ -7,8 +7,9 @@ from types import SimpleNamespace
 from api import tokens as tokens_api
 from context_system.compaction.compactor import ContextCompactor
 from memory_system.continuity import MemoryMessageAdapter
+from memory_system.storage.models import Message
 from memory_system.storage.session_memory import SessionMemoryManager
-from runtime.context_management.session_compaction import auto_compact_session_if_needed, compact_session_history
+from runtime.context_management.session_compaction import _stored_messages_after_compact, auto_compact_session_if_needed, compact_session_history
 from sessions import SessionManager
 
 
@@ -76,14 +77,17 @@ def test_full_compact_run_stores_summary_as_compressed_context(tmp_path: Path, m
     )
 
     record = runtime.session_manager.get_history(session_id)
+    api_transcript = runtime.session_manager.load_session_for_api(session_id)
 
     assert response["applied"] is True
     assert response["did_full_compact"] is True
     assert response["compressed_context_present"] is True
     assert "Conversation history was compacted into a checkpoint" in record["compressed_context"]
+    assert record["provider_protocol_compaction_created_at"] > 0
     assert all(item["role"] != "system" for item in record["messages"])
     assert len(record["messages"]) <= 2
-    assert runtime.session_manager.load_session_for_api(session_id)[1]["content"] == old_assistant_prose
+    assert api_transcript[1]["content"] == old_assistant_prose
+    assert api_transcript[1]["created_at"] > 0
 
 
 def test_session_tokens_exposes_context_meter_and_billing_totals(tmp_path: Path, monkeypatch) -> None:
@@ -135,14 +139,48 @@ def test_auto_compact_not_applied_reports_preserved_message_count(tmp_path: Path
     assert response["preserved_recent_count"] == len(runtime.session_manager.load_session(session_id))
 
 
-def test_auto_compact_if_needed_reports_preserved_message_count_when_skipped(tmp_path: Path) -> None:
+def test_auto_compact_if_needed_uses_active_history_pressure_when_provider_prompt_is_low(tmp_path: Path) -> None:
     runtime, session_id, _old_assistant_prose = _runtime_with_session(tmp_path)
 
     response = auto_compact_session_if_needed(runtime, session_id=session_id)
+    record = runtime.session_manager.get_history(session_id)
 
-    assert response["applied"] is False
-    assert response["skipped_reason"] == "below_replacement_threshold"
-    assert response["preserved_recent_count"] == len(runtime.session_manager.load_session(session_id))
+    assert response["applied"] is True
+    assert response["pressure_level"] == "normal"
+    assert response["history_pressure_level"] in {"microcompact", "full_compact"}
+    assert response["did_compact"] is True
+    assert len(record["messages"]) < response["original_message_count"]
+
+
+def test_compaction_writeback_keeps_protocol_messages_out_of_public_history() -> None:
+    stored = _stored_messages_after_compact(
+        [
+            Message(role="user", content="修复 bug"),
+            Message(role="tool", content="Edit failed: old_text not found"),
+            Message(
+                role="assistant",
+                content=(
+                    "我看到文件里已经有一部分 timer 递减代码了。\n\n"
+                    "<｜｜DSML｜｜tool_calls>\n"
+                    "<｜｜DSML｜｜invoke name=\"read_file\"></｜｜DSML｜｜invoke>\n"
+                    "</｜｜DSML｜｜tool_calls>"
+                ),
+            ),
+            Message(
+                role="assistant",
+                content=(
+                    "好的，我来进入持续执行流程。\n\n"
+                    "name=\"task_run_goal\" string=\"true\">修复页面消息装载</｜｜DSML｜｜parameter>"
+                ),
+            ),
+        ]
+    )
+
+    assert stored == [
+        {"role": "user", "content": "修复 bug"},
+        {"role": "assistant", "content": "我看到文件里已经有一部分 timer 递减代码了。"},
+        {"role": "assistant", "content": "好的，我来进入持续执行流程。"},
+    ]
 
 
 def _runtime_with_session(tmp_path: Path):

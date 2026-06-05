@@ -68,7 +68,7 @@ class PromptStabilityReporter:
             provider=segment_map.provider,
             model=segment_map.model,
             session_cache_key=_session_cache_key(segment_map),
-            context_window_generation=1 if context_window.get("replacement_history_ref") else 0,
+            context_window_generation=1 if context_window.get("active_history_message_count") else 0,
             compaction_generation=1 if context_window.get("compressed_summary_hash") else 0,
             stable_prefix_hash=stable_prefix_hash,
             provider_global_prefix_hash=provider_global_prefix_hash,
@@ -175,11 +175,8 @@ def _context_window_summary(*, model_request: Any | None, segment_map: PromptSeg
         {
             "compressed_summary_hash": str(context_window.get("compressed_summary_hash") or ""),
             "compressed_summary_present": bool(context_window.get("compressed_summary_present") or False),
-            "replacement_history_ref": str(context_window.get("replacement_history_ref") or ""),
-            "replacement_history_present": bool(context_window.get("replacement_history_present") or False),
             "raw_history_message_count": _int(context_window.get("raw_history_message_count")),
-            "recent_history_message_count": _int(context_window.get("recent_history_message_count")),
-            "omitted_history_message_count": _int(context_window.get("omitted_history_message_count")),
+            "active_history_message_count": _int(context_window.get("active_history_message_count")),
             "budget_report": dict(context_window.get("budget_report") or {}),
             "dynamic_context_diagnostics": dict(context_window.get("dynamic_context_diagnostics") or {}),
         }

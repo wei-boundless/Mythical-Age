@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import tempfile
 import threading
 import time
@@ -97,6 +98,7 @@ class SessionManager:
             "messages": [],
             "api_transcript": [],
             "compressed_context": "",
+            "provider_protocol_compaction_created_at": 0.0,
             "scope": _normalize_scope(scope),
             "task_binding": {},
             "conversation_state": _normalize_conversation_state(initial_state),
@@ -126,7 +128,7 @@ class SessionManager:
             return True
 
     def load_session(self, session_id: str) -> list[dict[str, Any]]:
-        return list(self._read_payload(session_id).get("messages") or [])
+        return _public_messages(list(self._read_payload(session_id).get("messages") or []))
 
     def load_session_record(self, session_id: str) -> dict[str, Any]:
         return self.get_history(session_id)
@@ -160,10 +162,11 @@ class SessionManager:
             "created_at": float(payload.get("created_at") or 0),
             "updated_at": float(payload.get("updated_at") or 0),
             "compressed_context": str(payload.get("compressed_context") or ""),
+            "provider_protocol_compaction_created_at": _float(payload.get("provider_protocol_compaction_created_at")),
             "scope": _normalize_scope(dict(payload.get("scope") or {})),
             "task_binding": _normalize_task_binding(dict(payload.get("task_binding") or {})),
             "conversation_state": _normalize_conversation_state(dict(payload.get("conversation_state") or {})),
-            "messages": list(payload.get("messages") or []),
+            "messages": _public_messages(list(payload.get("messages") or [])),
         }
 
     def get_task_binding(self, session_id: str) -> dict[str, Any]:
@@ -338,12 +341,16 @@ class SessionManager:
         with self._session_lock(session_id):
             payload = self._read_payload(session_id)
             existing = list(payload.get("messages") or [])
+            now = time.time()
             for item in messages:
-                if isinstance(item, dict):
-                    role = str(item.get("role") or "").strip() or "assistant"
-                    content = str(item.get("content") or "")
-                    message = {**item, "role": role, "content": content}
-                    existing.append(message)
+                if not isinstance(item, dict):
+                    continue
+                message = _public_message(item)
+                if message is None:
+                    continue
+                if not message.get("created_at"):
+                    message["created_at"] = now
+                existing.append(message)
             payload["messages"] = existing
             payload["updated_at"] = time.time()
             self._write_payload(session_id, payload)
@@ -353,11 +360,16 @@ class SessionManager:
         with self._session_lock(session_id):
             payload = self._read_payload(session_id)
             existing = list(payload.get("api_transcript") or [])
+            now = time.time()
+            if str(payload.get("compressed_context") or "").strip() and _float(payload.get("provider_protocol_compaction_created_at")) <= 0:
+                payload["provider_protocol_compaction_created_at"] = now
             for item in messages:
                 if not isinstance(item, dict):
                     continue
                 message = _api_message(item)
                 if message is not None:
+                    if not message.get("created_at"):
+                        message["created_at"] = now
                     existing.append(message)
             payload["api_transcript"] = existing
             payload["updated_at"] = time.time()
@@ -383,14 +395,14 @@ class SessionManager:
             for item in list(messages or []):
                 if not isinstance(item, dict):
                     continue
-                role = str(item.get("role") or "").strip() or "assistant"
-                content = str(item.get("content") or "")
-                if not content:
+                message = _public_message(item)
+                if message is None:
                     continue
-                normalized_messages.append({**item, "role": role, "content": content})
+                normalized_messages.append(message)
             payload["messages"] = normalized_messages
             if compressed_context is not None:
                 payload["compressed_context"] = str(compressed_context or "")
+                payload["provider_protocol_compaction_created_at"] = time.time() if str(compressed_context or "").strip() else 0.0
             payload["updated_at"] = time.time()
             self._write_payload(session_id, payload)
             return self.get_history(session_id)
@@ -399,13 +411,19 @@ class SessionManager:
         with self._session_lock(session_id):
             payload = self._read_payload(session_id)
             messages = list(payload.get("messages") or [])
-            if message_index < 0 or message_index > len(messages):
+            public_entries = _public_messages_with_raw_index(messages)
+            if message_index < 0 or message_index > len(public_entries):
                 raise ValueError("message_index out of range")
-            kept_messages = messages[:message_index]
-            payload["messages"] = kept_messages
+            if message_index == len(public_entries):
+                raw_cutoff = len(messages)
+            else:
+                raw_cutoff = public_entries[message_index][0]
+            kept_raw_messages = messages[:raw_cutoff]
+            kept_public_messages = _public_messages(kept_raw_messages)
+            payload["messages"] = kept_public_messages
             payload["api_transcript"] = _truncated_api_transcript(
                 list(payload.get("api_transcript") or []),
-                kept_messages=kept_messages,
+                kept_messages=kept_public_messages,
             )
             payload["updated_at"] = time.time()
             self._write_payload(session_id, payload)
@@ -425,7 +443,7 @@ class SessionManager:
         return rows
 
     def _summary_from_payload(self, payload: dict[str, Any]) -> dict[str, Any]:
-        messages = list(payload.get("messages") or [])
+        messages = _public_messages(list(payload.get("messages") or []))
         summary = {
             "id": str(payload.get("id") or ""),
             "title": str(payload.get("title") or "New Session"),
@@ -676,6 +694,75 @@ def _same_workspace_root(left: str, right: str) -> bool:
     return left_key == right_key
 
 
+_PUBLIC_PROTOCOL_BLOCK_RE = re.compile(
+    r"<｜｜DSML｜｜tool_calls>.*?</｜｜DSML｜｜tool_calls>",
+    re.DOTALL,
+)
+_PUBLIC_PROTOCOL_PARAMETER_RE = re.compile(
+    r"(?:^|\n)\s*name=\"[^\"]+\"\s+string=\"(?:true|false)\">.*?</｜｜DSML｜｜parameter>",
+    re.DOTALL,
+)
+_PUBLIC_MESSAGE_PROTOCOL_KEYS = {
+    "name",
+    "reasoning_content",
+    "tool_call_id",
+    "tool_calls",
+}
+
+
+def _public_messages(messages: list[Any]) -> list[dict[str, Any]]:
+    return [
+        message
+        for _, message in _public_messages_with_raw_index(messages)
+    ]
+
+
+def _public_messages_with_raw_index(messages: list[Any]) -> list[tuple[int, dict[str, Any]]]:
+    result: list[tuple[int, dict[str, Any]]] = []
+    for index, item in enumerate(list(messages or [])):
+        if not isinstance(item, dict):
+            continue
+        message = _public_message(item)
+        if message is not None:
+            result.append((index, message))
+    return result
+
+
+def _public_message(payload: dict[str, Any]) -> dict[str, Any] | None:
+    role = str(payload.get("role") or "").strip()
+    if role not in {"user", "assistant"}:
+        return None
+    if role == "assistant" and _has_protocol_tool_calls(payload):
+        return None
+    content = _strip_public_protocol_blocks(payload.get("content"))
+    image = payload.get("image")
+    has_image = isinstance(image, dict) and bool(str(image.get("src") or "").strip())
+    if not content.strip() and not has_image:
+        return None
+    message = {
+        key: value
+        for key, value in dict(payload).items()
+        if key not in _PUBLIC_MESSAGE_PROTOCOL_KEYS
+    }
+    message["role"] = role
+    message["content"] = content
+    return message
+
+
+def _has_protocol_tool_calls(payload: dict[str, Any]) -> bool:
+    tool_calls = payload.get("tool_calls")
+    return isinstance(tool_calls, list) and bool(tool_calls)
+
+
+def _strip_public_protocol_blocks(value: Any) -> str:
+    text = str(value or "")
+    if not text:
+        return ""
+    cleaned = _PUBLIC_PROTOCOL_BLOCK_RE.sub("", text)
+    cleaned = _PUBLIC_PROTOCOL_PARAMETER_RE.sub("", cleaned)
+    return cleaned.strip() if cleaned != text else text
+
+
 def _agent_message(payload: dict[str, Any]) -> dict[str, str] | None:
     role = str(payload.get("role") or "").strip()
     if role not in {"user", "assistant"}:
@@ -696,6 +783,9 @@ def _api_message(payload: dict[str, Any]) -> dict[str, Any] | None:
         value = str(payload.get(key) or "").strip()
         if value:
             message[key] = value
+    created_at = _float(payload.get("created_at"))
+    if created_at > 0:
+        message["created_at"] = created_at
     if role == "assistant":
         reasoning_content = str(payload.get("reasoning_content") or "").strip()
         if reasoning_content:
@@ -739,6 +829,13 @@ def _truncated_api_transcript(
         if turn_id and turn_id in kept_turn_ids:
             result.append(message)
     return result
+
+
+def _float(value: Any) -> float:
+    try:
+        return max(0.0, float(value or 0.0))
+    except (TypeError, ValueError):
+        return 0.0
 
 
 def validate_session_id(value: str) -> str:

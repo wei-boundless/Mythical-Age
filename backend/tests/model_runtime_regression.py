@@ -2054,11 +2054,8 @@ def test_model_runtime_prompt_stability_records_context_window_facts(tmp_path: P
                 "context_window": {
                     "compressed_summary_hash": "sha256:compressed",
                     "compressed_summary_present": True,
-                    "replacement_history_ref": "replacement-history:abcdef",
-                    "replacement_history_present": True,
                     "raw_history_message_count": 12,
-                    "recent_history_message_count": 6,
-                    "omitted_history_message_count": 6,
+                    "active_history_message_count": 12,
                 }
             },
         },
@@ -2072,10 +2069,8 @@ def test_model_runtime_prompt_stability_records_context_window_facts(tmp_path: P
     assert report.compaction_generation == 1
     assert report.context_window_generation == 1
     assert context_window["compressed_summary_hash"] == "sha256:compressed"
-    assert context_window["replacement_history_ref"] == "replacement-history:abcdef"
     assert context_window["raw_history_message_count"] == 12
-    assert context_window["recent_history_message_count"] == 6
-    assert context_window["omitted_history_message_count"] == 6
+    assert context_window["active_history_message_count"] == 12
 
 
 def test_model_runtime_prompt_stability_keeps_deepseek_thinking_tool_choice(tmp_path: Path) -> None:
