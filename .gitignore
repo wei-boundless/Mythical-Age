@@ -22,10 +22,13 @@ frontend/orchestration-*.webp
 frontend/output-center-*.png
 frontend/task-system-*.png
 frontend/ui-chat-*.png
+frontend/tmp/
+frontend/public/generated/
 frontend/public/souls/generated/chat-*.png
 frontend/public/souls/generated/debug-*.png
 frontend/public/souls/generated/*test*.png
 frontend/public/souls/generated/tile-*.png
+tmp_projection*.txt
 backend/.env
 backend/storage/
 backend/storage/**

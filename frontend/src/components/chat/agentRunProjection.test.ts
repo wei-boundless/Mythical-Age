@@ -142,6 +142,25 @@ describe("agentRunProjection", () => {
     expect(hasAgentRunProjection(projection)).toBe(false);
   });
 
+  it("turns raw edit failures into readable process feedback before the turn closes", () => {
+    const projection = projectAgentRun([
+      {
+        item_id: "work:edit:error",
+        kind: "work_action",
+        action_kind: "edit",
+        title: "更新未完成",
+        public_summary: "更新未完成",
+        observation: "Edit failed: old_text not found. Read the current file content and retry with exact current text.",
+        state: "error",
+      },
+    ]);
+
+    expect(projection.tone).toBe("soft_error");
+    expect(projection.feedback).toBe("文件更新未完成：当前内容与预期不一致，需要先读取最新片段再修改。");
+    expect(projection.feedback).not.toContain("Edit failed");
+    expect(projection.feedback).not.toContain("old_text");
+  });
+
   it("makes stopped state exclusive over previous tool failures", () => {
     const projection = projectAgentRun([
       {
@@ -180,6 +199,31 @@ describe("agentRunProjection", () => {
 
     expect(projection.closeout).toBe("");
     expect(hasAgentRunProjection(projection)).toBe(false);
+  });
+
+  it("does not keep an earlier failed edit action hanging beside the closeout", () => {
+    const projection = projectAgentRun([
+      {
+        item_id: "work:edit:error",
+        kind: "work_action",
+        action_kind: "edit",
+        title: "更新未完成",
+        public_summary: "更新未完成",
+        observation: "Edit failed: old_text not found. Read the current file content and retry with exact current text.",
+        state: "error",
+      },
+      {
+        item_id: "final:closeout",
+        kind: "final_summary",
+        text: "已完成页面投影修复，最终回答会保留在正文区域。",
+        state: "done",
+      },
+    ]);
+
+    expect(projection.feedback).toBe("");
+    expect(projection.liveAction).toBe("");
+    expect(projection.commandOutput).toBeNull();
+    expect(projection.closeout).toBe("已完成页面投影修复，最终回答会保留在正文区域。");
   });
 
   it("uses final summary as assistant prose when content is otherwise empty", () => {

@@ -365,11 +365,7 @@ def _task_execution_tool_calls(raw: dict[str, Any]) -> tuple[tuple[dict[str, Any
     errors: list[str] = []
     raw_tool_calls = raw.get("tool_calls")
     raw_tool_call = raw.get("tool_call")
-    if (
-        _has_non_empty_value(raw_tool_calls)
-        and _has_non_empty_value(raw_tool_call)
-        and not _tool_call_matches_first(raw_tool_call, raw_tool_calls)
-    ):
+    if _has_non_empty_value(raw_tool_calls) and _has_non_empty_value(raw_tool_call):
         errors.append("tool_call_and_tool_calls_cannot_both_be_present")
     calls: list[Any]
     if isinstance(raw_tool_calls, list):
@@ -402,24 +398,3 @@ def _task_execution_tool_calls(raw: dict[str, Any]) -> tuple[tuple[dict[str, Any
     if not normalized:
         errors.append("tool_calls_required_for_tool_call")
     return tuple(normalized), errors
-
-
-def _tool_call_matches_first(raw_tool_call: Any, raw_tool_calls: Any) -> bool:
-    if not isinstance(raw_tool_call, dict) or not isinstance(raw_tool_calls, list) or not raw_tool_calls:
-        return False
-    first = raw_tool_calls[0]
-    if not isinstance(first, dict):
-        return False
-    left = _canonical_tool_call_for_compare(raw_tool_call)
-    right = _canonical_tool_call_for_compare(first)
-    return bool(left) and left == right
-
-
-def _canonical_tool_call_for_compare(value: dict[str, Any]) -> dict[str, Any]:
-    payload = dict(value or {})
-    tool_name = str(payload.get("tool_name") or payload.get("name") or "").strip()
-    args = payload.get("args") if payload.get("args") is not None else payload.get("tool_args")
-    return {
-        "tool_name": tool_name,
-        "args": dict(args or {}) if isinstance(args, dict) else {},
-    }

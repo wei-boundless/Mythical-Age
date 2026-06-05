@@ -122,6 +122,16 @@ def test_progress_presenter_translates_path_exists_false_without_visible_raw_boo
     assert any(item.get("raw_preview") == "false" for item in presentation["technical_trace"])
 
 
+def test_public_progress_rewrites_raw_edit_failure_for_user_feedback() -> None:
+    text = public_runtime_progress_summary(
+        "Edit failed: old_text not found. Read the current file content and retry with exact current text."
+    )
+
+    assert text == "文件更新未完成：当前内容与预期不一致，需要先读取最新片段再修改。"
+    assert "Edit failed" not in text
+    assert "old_text" not in text
+
+
 def test_progress_presenter_marks_nested_result_envelope_failure_as_error() -> None:
     task_run = _task_run()
     events = [

@@ -59,7 +59,4 @@ def test_tool_scope_contract_limits_skill_visible_tools() -> None:
     assert open_scope.allows("web_search")
 
 
-if __name__ == "__main__":
-    test_tool_scope_contract_limits_skill_visible_tools()
-
 

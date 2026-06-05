@@ -116,7 +116,4 @@ def test_skills_registry_snapshot_matches_scanner_contract() -> None:
     assert 'path="' not in snapshot_text
 
 
-if __name__ == "__main__":
-    test_skills_registry_snapshot_matches_scanner_contract()
-
 

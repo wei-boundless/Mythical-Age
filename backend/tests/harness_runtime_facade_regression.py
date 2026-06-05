@@ -638,6 +638,40 @@ def test_public_stream_projection_emits_live_tool_admission_delta() -> None:
     assert item["public_summary"] == "正在更新文件 artifacts/football.html"
 
 
+def test_public_stream_projection_rewrites_raw_edit_failure_observation() -> None:
+    projected = _project_public_stream_event(
+        "turn_tool_observation_recorded",
+        {
+            "type": "turn_tool_observation_recorded",
+            "event": {
+                "event_id": "rtevt:edit-failed",
+                "payload": {
+                    "tool_observation": {
+                        "tool_name": "edit_file",
+                        "status": "failed",
+                        "text": "Edit failed: old_text not found. Read the current file content and retry with exact current text.",
+                        "result_envelope": {
+                            "tool_name": "edit_file",
+                            "tool_args": {"path": "frontend/src/components/chat/ChatMessage.tsx"},
+                        },
+                    },
+                },
+            },
+        },
+    )
+
+    assert projected is not None
+    _, data = projected
+    visible = json.dumps(data["public_timeline_delta"], ensure_ascii=False)
+    item = data["public_timeline_delta"][0]
+    assert item["kind"] == "work_action"
+    assert item["action_kind"] == "edit"
+    assert item["state"] == "error"
+    assert item["observation"] == "文件更新未完成：当前内容与预期不一致，需要先读取最新片段再修改。"
+    assert "Edit failed" not in visible
+    assert "old_text" not in visible
+
+
 def test_public_stream_projection_emits_agent_feedback_before_tool_action() -> None:
     projected = _project_public_stream_event(
         "model_action_admission",
@@ -2526,7 +2560,7 @@ class _ProtocolRepairPromptProbeModelRuntime:
         self.task_inputs.append(model_input)
         if self.task_invocation_count == 1:
             return SimpleNamespace(
-                content='{"action_type":"tool_call","tool_call":{"tool_name":"write_file","args":{"path":"artifacts/large.html","content":"<html>',
+                content='{"action_type":"tool_call","tool_calls":[{"tool_name":"write_file","args":{"path":"artifacts/large.html","content":"<html>',
                 response_metadata={"finish_reason": "length"},
                 usage_metadata={"output_tokens": 2048},
             )
@@ -2550,7 +2584,8 @@ def _tool_action_request(
     public_progress_note: str = "准备调用工具。",
 ) -> dict[str, object]:
     payload = _action_request(action_type="tool_call", public_progress_note=public_progress_note)
-    payload["tool_call"] = {"tool_name": tool_name, "args": dict(args)}
+    payload.pop("tool_call", None)
+    payload["tool_calls"] = [{"tool_name": tool_name, "args": dict(args)}]
     return payload
 
 

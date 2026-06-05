@@ -763,6 +763,38 @@ describe("PublicRunActivity", () => {
     expect(html).not.toContain("阶段完成");
   });
 
+  it("does not leave a failed edit action hanging during closeout", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(PublicRunActivity, {
+        items: [
+          {
+            item_id: "tool:edit:error",
+            kind: "work_action",
+            action_kind: "edit",
+            title: "更新未完成",
+            public_summary: "更新未完成",
+            observation: "Edit failed: old_text not found. Read the current file content and retry with exact current text.",
+            state: "error",
+          },
+          {
+            item_id: "final:closeout",
+            kind: "final_summary",
+            text: "已完成开局反馈、运行反馈和收尾展示调整。",
+            state: "done",
+          },
+        ],
+        assistantContent: "",
+      }),
+    );
+
+    expect(html).toContain("收尾总结");
+    expect(html).toContain("已完成开局反馈、运行反馈和收尾展示调整。");
+    expect(html).not.toContain("Edit failed");
+    expect(html).not.toContain("old_text");
+    expect(html).not.toContain("文件更新未完成");
+    expect(html).not.toContain("public-run-activity--soft_error");
+  });
+
   it("renders artifact refs from attachment using logical paths only", () => {
     const html = renderToStaticMarkup(
       React.createElement(PublicRunActivity, {

@@ -73,6 +73,3 @@ def test_git_tools_cover_status_stage_commit_branch_and_restore_boundaries() -> 
         else:
             raise AssertionError("empty restore paths must be rejected")
 
-
-if __name__ == "__main__":
-    test_git_tools_cover_status_stage_commit_branch_and_restore_boundaries()

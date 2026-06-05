@@ -18,46 +18,6 @@ from permissions import (
 )
 
 
-def main() -> None:
-    profile = AgentRuntimeProfile(
-        agent_profile_id="main_interactive_agent",
-        agent_id="agent:0",
-        allowed_operations=(
-            "op.model_response",
-            "op.search_text",
-            "op.write_file",
-            "op.edit_file",
-        ),
-        blocked_operations=(),
-    )
-    task_operation = {
-        "task_contract": {"task_id": "task:test:capability"},
-        "operation_requirement": {
-            "required_operations": ["op.model_response"],
-            "optional_operations": [],
-            "denied_operations": [],
-            "metadata": {"approval_policy": "default", "safety_envelope": {"safety_class": "S0_readonly"}},
-        },
-    }
-    _, resource_policy = build_model_response_runtime_admission(
-        task_operation,
-        operation_registry=build_default_operation_registry(),
-        agent_runtime_profile=profile,
-    )
-    state = build_runtime_capability_state(
-        task_operation,
-        resource_policy=resource_policy,
-        agent_runtime_profile=profile,
-        visible_tool_names=[],
-    )
-
-    assert state["profile_write_capable"] is True
-    assert state["turn_write_operation_admitted"] is False
-    assert state["turn_write_tool_visible"] is False
-    assert "op.write_file" in state["agent_profile_operations"]
-    assert "op.write_file" in state["blocked_by_turn_policy_operations"]
-
-
 def test_model_visible_state_operation_uses_turn_permit_without_profile_duplication() -> None:
     profile = AgentRuntimeProfile(
         agent_profile_id="main_interactive_agent",
@@ -189,9 +149,4 @@ class _runtime_assembly_for_tools:
             "task_environment": {"environment_id": "env.general.workspace"},
             "operation_authorization": {},
         }
-
-
-if __name__ == "__main__":
-    main()
-
 

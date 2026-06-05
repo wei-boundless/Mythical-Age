@@ -86,8 +86,9 @@ export function hasProjectedPublicRunActivity(items: PublicChatTimelineItem[], a
 export function projectAgentRun(items: PublicChatTimelineItem[], assistantContent = ""): AgentRunProjection {
   const normalized = normalizePublicTimelineItems(items);
   const opening = directAssistantText(normalized, assistantContent);
+  const terminalFinalOwnedByAssistant = finalAnswerOwnedByAssistant(normalized, assistantContent);
   const publicItems = normalizePublicTimelineItems(
-    normalized.filter((item) => shouldProjectItem(item, assistantContent)),
+    normalized.filter((item) => shouldProjectItem(item, assistantContent, terminalFinalOwnedByAssistant)),
   );
   if (!publicItems.length) {
     return emptyProjection(opening);
@@ -114,17 +115,23 @@ export function projectAgentRun(items: PublicChatTimelineItem[], assistantConten
   const todoItem = lastOf(publicItems.filter((item) => kindOf(item) === "todo_plan"));
   const todo = todoItem ? todoProjectionForItem(todoItem) : null;
   const actionItems = publicItems.filter(isActionOrFeedbackItem);
-  const latestFeedback = latestFeedbackItem(actionItems);
-  const latestLive = closeout
+  const terminalOutcomeOwnsProjection = Boolean(closeout || terminalFinalOwnedByAssistant);
+  const feedbackItems = terminalOutcomeOwnsProjection
+    ? actionItems.filter((item) => stateClass(item) !== "error")
+    : actionItems;
+  const latestFeedback = latestFeedbackItem(feedbackItems);
+  const latestLive = terminalOutcomeOwnsProjection
     ? null
-    : lastOf(actionItems.filter((item) =>
+    : lastOf(feedbackItems.filter((item) =>
       isRunningActionItem(item)
       && !feedbackSupersedesRunningAction(latestFeedback, item)
     ));
-  const latestError = lastOf(actionItems.filter((item) =>
-    stateClass(item) === "error"
-    && !feedbackSupersedesRunningAction(latestFeedback, item)
-  ));
+  const latestError = terminalOutcomeOwnsProjection
+    ? null
+    : lastOf(actionItems.filter((item) =>
+      stateClass(item) === "error"
+      && !feedbackSupersedesRunningAction(latestFeedback, item)
+    ));
 
   let liveAction = "";
   let feedback = "";
@@ -146,7 +153,9 @@ export function projectAgentRun(items: PublicChatTimelineItem[], assistantConten
     tone = "running";
   }
 
-  const commandOutput = commandOutputProjectionForItem(latestFeedback || latestLive);
+  const commandOutput = terminalOutcomeOwnsProjection
+    ? null
+    : commandOutputProjectionForItem(latestFeedback || latestLive);
 
   if (samePublicText(liveAction, assistantContent)) {
     liveAction = "";
@@ -167,12 +176,19 @@ export function projectAgentRun(items: PublicChatTimelineItem[], assistantConten
   };
 }
 
-function shouldProjectItem(item: PublicChatTimelineItem, assistantContent: string) {
+function shouldProjectItem(
+  item: PublicChatTimelineItem,
+  assistantContent: string,
+  terminalFinalOwnedByAssistant = false,
+) {
   const kind = kindOf(item);
   const text = textOfItem(item);
   if (!text) return false;
   if (kind === "assistant_text" || kind === "opening_judgment") return false;
   if ((kind === "assistant_text" || kind === "final_summary") && samePublicText(text, assistantContent)) {
+    return false;
+  }
+  if (terminalFinalOwnedByAssistant && isErroredActionItem(item) && rawFailureProjectionTextOfItem(item)) {
     return false;
   }
   if (assistantContent.trim() && isStaleRawToolFailure(item, text)) {
@@ -335,6 +351,10 @@ function stripPublicFeedbackLabel(value: unknown) {
 
 function projectionText(value: unknown) {
   const text = stripMachineFragments(stripPublicFeedbackLabel(value));
+  const rawFailureText = rawToolFailureProjectionText(text);
+  if (rawFailureText) {
+    return rawFailureText;
+  }
   if (!text || looksLikeRawToolOutput(text) || looksLikeToolPlaceholder(text) || looksLikeRawCommandText(text)) {
     return "";
   }
@@ -440,6 +460,7 @@ export function looksLikeRawToolOutput(value: unknown) {
   if (!text) return false;
   return rawFileListingPaths(text).length > 0
     || rawCopiedPaths(text).length > 0
+    || Boolean(rawToolFailureProjectionText(text))
     || looksLikePersistedToolResultFailure(text)
     || /\b(?:not allowlisted read-only|read-only validator|unsupported read-only)\b/i.test(text)
     || /\b\d+\s+bytes\s+(?:file|directory|dir)\b/i.test(text)
@@ -474,6 +495,30 @@ function looksLikePersistedToolResultFailure(value: unknown) {
   return /Read persisted tool result failed|persisted tool result read failed/i.test(text)
     || /(?:runtime_context|runtime[-_ ]context)[\\/]+tool-results/i.test(text)
     || /tool-results[\\/]+session[-_A-Za-z0-9]+/i.test(text);
+}
+
+function rawToolFailureProjectionText(value: unknown) {
+  const text = cleanText(value);
+  if (!text) return "";
+  if (/^Edit failed:\s*old_text not found\b/i.test(text) || /\bold_text not found\b/i.test(text)) {
+    return "文件更新未完成：当前内容与预期不一致，需要先读取最新片段再修改。";
+  }
+  if (/^Edit failed:\s*file does not exist\b/i.test(text)) {
+    return "文件更新未完成：目标文件不存在，需要先确认路径。";
+  }
+  if (/^Edit failed:\s*path is a directory\b/i.test(text)) {
+    return "文件更新未完成：目标是目录，需要重新确认文件路径。";
+  }
+  if (/^Edit failed:/i.test(text)) {
+    return "文件更新未完成，需要根据返回结果调整后继续。";
+  }
+  if (/^Read failed:/i.test(text)) {
+    return "读取未完成，需要重新确认读取范围后继续。";
+  }
+  if (/^Write failed:/i.test(text)) {
+    return "写入未完成，需要确认目标路径和写入条件后继续。";
+  }
+  return "";
 }
 
 function rawFileListingPaths(value: unknown) {
@@ -685,10 +730,32 @@ function isStoppedItem(item: PublicChatTimelineItem) {
     || (isStatusUpdate(item) && /已停止|已中断|停止本轮/.test(text));
 }
 
+function isErroredActionItem(item: PublicChatTimelineItem) {
+  return isActionOrFeedbackItem(item) && stateClass(item) === "error";
+}
+
 function isStaleRawToolFailure(item: PublicChatTimelineItem, text: string) {
   if (kindOf(item) !== "tool_activity") return false;
   if (stateClass(item) !== "error") return false;
-  return /(?:Tool execution failed|Fetch failed|HTTP\s+4\d\d|HTTP\s+5\d\d|tool_execution_failed)/i.test(text);
+  return Boolean(rawToolFailureProjectionText(text) || rawFailureProjectionTextOfItem(item))
+    || /(?:Tool execution failed|Fetch failed|HTTP\s+4\d\d|HTTP\s+5\d\d|tool_execution_failed)/i.test(text);
+}
+
+function finalAnswerOwnedByAssistant(items: PublicChatTimelineItem[], assistantContent: string) {
+  const final = lastFinalItem(items);
+  if (!final) return false;
+  const text = cleanText(final.text || final.detail || final.title || final.path || final.href);
+  return Boolean(text && !looksLikeRawToolOutput(text) && samePublicText(text, assistantContent));
+}
+
+function rawFailureProjectionTextOfItem(item: PublicChatTimelineItem) {
+  return rawToolFailureProjectionText([
+    item.observation,
+    item.detail,
+    item.text,
+    item.recovery_hint,
+    item.title,
+  ].filter(Boolean).join(" "));
 }
 
 function itemPosition(items: PublicChatTimelineItem[], item: PublicChatTimelineItem | null) {

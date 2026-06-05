@@ -35,6 +35,3 @@ def test_runtime_profile_resolves_tool_package_operations() -> None:
     assert payload["allowed_tool_packages"][0]["package_id"] == "pkg.git.read"
     assert payload["final_allowed_operations"] == payload["allowed_operations"]
 
-
-if __name__ == "__main__":
-    test_runtime_profile_resolves_tool_package_operations()

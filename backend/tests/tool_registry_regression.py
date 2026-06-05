@@ -117,7 +117,4 @@ def test_tool_registry_snapshot_and_selection_contract() -> None:
     assert runtime_registry.get_by_name("web_search") is None
 
 
-if __name__ == "__main__":
-    test_tool_registry_snapshot_and_selection_contract()
-
 

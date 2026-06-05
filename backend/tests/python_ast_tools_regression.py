@@ -58,6 +58,3 @@ def test_python_ast_tools_outline_parse_and_symbol_search() -> None:
         assert "Greeter.hello" in str(search)
         assert search["structured_payload"]["tool_result"]["result_count"] == 1
 
-
-if __name__ == "__main__":
-    test_python_ast_tools_outline_parse_and_symbol_search()

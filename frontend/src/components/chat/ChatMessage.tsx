@@ -26,7 +26,6 @@ export function ChatMessage({
   runtimePublicTimelineDraft,
   answerChannel,
   answerCanonicalState,
-  answerSource,
   retrievals,
   canEdit = false,
   onResendEdit

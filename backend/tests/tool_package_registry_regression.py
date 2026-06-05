@@ -61,6 +61,3 @@ def test_tool_package_registry_resolves_operation_packages() -> None:
     assert "op.git_push" not in resolved
     assert "op.read_file" in resolved
 
-
-if __name__ == "__main__":
-    test_tool_package_registry_resolves_operation_packages()

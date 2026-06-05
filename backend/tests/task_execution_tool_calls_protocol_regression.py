@@ -55,7 +55,7 @@ def test_task_execution_rejects_single_tool_call_without_tool_calls_array() -> N
     assert "tool_calls_required_for_tool_call" in diagnostics["validation_errors"]
 
 
-def test_task_execution_rejects_conflicting_tool_call_and_tool_calls() -> None:
+def test_task_execution_rejects_any_single_tool_call_shadow_when_tool_calls_array_is_present() -> None:
     action, diagnostics = task_execution_action_request_from_payload(
         {
             "authority": "harness.loop.model_action_request",
@@ -68,7 +68,7 @@ def test_task_execution_rejects_conflicting_tool_call_and_tool_calls() -> None:
                 "next_action": "调用 read_file。",
             },
             "tool_call": {"tool_name": "read_file", "args": {"path": "README.md"}},
-            "tool_calls": [{"tool_name": "read_file", "args": {"path": "pyproject.toml"}}],
+            "tool_calls": [{"tool_name": "read_file", "args": {"path": "README.md"}}],
         },
         turn_id="taskrun:test:conflict",
         allowed_action_types=("respond", "ask_user", "tool_call", "block"),
