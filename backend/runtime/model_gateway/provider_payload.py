@@ -5,7 +5,13 @@ import json
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
-from prompt_cache_policy import normalize_cache_role, normalize_compression_role, normalize_prefix_tier
+from prompt_cache_policy import (
+    is_cache_eligible_prefix,
+    is_prefix_eligible_for_tier,
+    normalize_cache_role,
+    normalize_compression_role,
+    normalize_prefix_tier,
+)
 from runtime.prompt_accounting.serializer import canonical_json
 
 
@@ -63,6 +69,7 @@ def build_provider_payload_manifest(
     messages: tuple[dict[str, Any], ...],
     tools: tuple[dict[str, Any], ...],
     segment_bindings: tuple[Any, ...],
+    request_params: dict[str, Any] | None = None,
 ) -> ProviderPayloadManifest:
     segments: list[ProviderPayloadSegment] = []
     covered_message_indexes: set[int] = set()
@@ -72,7 +79,7 @@ def build_provider_payload_manifest(
         key=lambda item: int(getattr(item, "ordinal", 0) or 0),
     )
     for binding in bindings:
-        message_index = int(getattr(binding, "model_message_index", -1) or -1)
+        message_index = _int(getattr(binding, "model_message_index", -1), default=-1)
         if message_index < 0 or message_index >= len(messages):
             continue
         ordinal += 1
@@ -140,6 +147,26 @@ def build_provider_payload_manifest(
                 metadata={**dict(profile.get("metadata") or {}), "tool_count": len(tools)},
             )
         )
+    params = _drop_empty(dict(request_params or {}))
+    if params:
+        ordinal += 1
+        payload = canonical_json({"cache_relevant_params": params})
+        segments.append(
+            ProviderPayloadSegment(
+                segment_id=_segment_id(request_id, ordinal, "provider_params", payload),
+                kind="provider_params",
+                transport_location="request_params",
+                ordinal=ordinal,
+                source_ref="model_request.cache_relevant_params",
+                content_hash=_stable_text_hash(payload),
+                byte_length=len(payload.encode("utf-8", errors="ignore")),
+                cache_scope="none",
+                cache_role="never_cache",
+                prefix_tier="none",
+                compression_role="preserve",
+                metadata={"key_only": True, "param_keys": sorted(str(key) for key in params)},
+            )
+        )
     ordered_segments = tuple(sorted(segments, key=lambda item: item.ordinal))
     seed = {
         "request_id": str(request_id or ""),
@@ -181,7 +208,7 @@ def _tool_schema_cache_profile(
     tool_index = next((segment for segment in segments if segment.kind == "tool_index_stable"), None)
     if tool_index is None:
         return _tool_schema_never_cache("missing_stable_tool_index")
-    message_index = int(dict(tool_index.metadata or {}).get("message_index") or -1)
+    message_index = _int(dict(tool_index.metadata or {}).get("message_index"), default=-1)
     if message_index < 0 or message_index >= len(messages):
         return _tool_schema_never_cache("stable_tool_index_message_missing")
     payload = _parse_titled_json_payload(str(dict(messages[message_index]).get("content") or ""))
@@ -278,16 +305,124 @@ def _short_schema_ref(schema: Any) -> str:
 
 
 def _cache_boundary(segments: tuple[ProviderPayloadSegment, ...]) -> dict[str, Any]:
-    stable = [segment for segment in segments if segment.cache_role in {"cacheable_prefix", "session_stable"}]
+    stable_message_prefix = _contiguous_stable_message_prefix(segments)
+    stable_tools = [
+        segment
+        for segment in segments
+        if segment.transport_location == "tools"
+        and is_cache_eligible_prefix(cache_role=segment.cache_role, prefix_tier=segment.prefix_tier)
+    ]
+    tier_prefixes = {
+        tier: _tier_prefix_diagnostics(segments, tier=tier)
+        for tier in ("provider_global", "session", "task")
+    }
+    selected_tier, selected_prefix = _selected_tier_prefix(tier_prefixes)
+    tool_segments = [segment for segment in segments if segment.transport_location == "tools"]
+    request_param_segments = [segment for segment in segments if segment.transport_location == "request_params"]
+    stable_prefix_segments = _provider_prefix_segments_for_tier(segments, tier=selected_tier)
     return {
-        "stable_segment_count": len(stable),
-        "stable_segment_hash": _stable_text_hash("|".join(segment.content_hash for segment in stable)) if stable else "",
+        "selected_prefix_key_tier": selected_tier,
+        "provider_payload_prefix_hash": str(selected_prefix.get("provider_payload_prefix_hash") or ""),
+        "selected_boundary_segment_id": str(selected_prefix.get("boundary_segment_id") or ""),
+        "stable_segment_count": len(stable_prefix_segments),
+        "stable_segment_hash": str(selected_prefix.get("provider_payload_prefix_hash") or ""),
+        "stable_message_prefix_hash": _segments_hash(stable_message_prefix),
+        "stable_message_prefix_segment_count": len(stable_message_prefix),
+        "tool_catalog_hash": _segments_hash(tool_segments),
+        "stable_tool_catalog_hash": _segments_hash(stable_tools),
+        "cache_sensitive_params_hash": _segments_hash(request_param_segments),
+        "tier_prefixes": tier_prefixes,
         "tool_schema_segment_count": sum(1 for segment in segments if segment.transport_location == "tools"),
         "tool_schema_cache_roles": [
             segment.cache_role for segment in segments if segment.transport_location == "tools"
         ],
         "authority": "runtime.model_gateway.provider_payload.cache_boundary",
     }
+
+
+def _contiguous_stable_message_prefix(segments: tuple[ProviderPayloadSegment, ...]) -> list[ProviderPayloadSegment]:
+    result: list[ProviderPayloadSegment] = []
+    for segment in [item for item in segments if item.transport_location == "messages"]:
+        if is_cache_eligible_prefix(cache_role=segment.cache_role, prefix_tier=segment.prefix_tier):
+            result.append(segment)
+            continue
+        break
+    return result
+
+
+def _contiguous_message_prefix_for_tier(
+    segments: tuple[ProviderPayloadSegment, ...],
+    *,
+    tier: str,
+) -> list[ProviderPayloadSegment]:
+    result: list[ProviderPayloadSegment] = []
+    for segment in [item for item in segments if item.transport_location == "messages"]:
+        if is_prefix_eligible_for_tier(cache_role=segment.cache_role, prefix_tier=segment.prefix_tier, tier=tier):
+            result.append(segment)
+            continue
+        break
+    return result
+
+
+def _tool_prefix_for_tier(
+    segments: tuple[ProviderPayloadSegment, ...],
+    *,
+    tier: str,
+) -> list[ProviderPayloadSegment]:
+    return [
+        segment
+        for segment in segments
+        if segment.transport_location == "tools"
+        and is_prefix_eligible_for_tier(cache_role=segment.cache_role, prefix_tier=segment.prefix_tier, tier=tier)
+    ]
+
+
+def _provider_prefix_segments_for_tier(
+    segments: tuple[ProviderPayloadSegment, ...],
+    *,
+    tier: str,
+) -> list[ProviderPayloadSegment]:
+    if not tier or tier == "none":
+        return []
+    return [
+        *_tool_prefix_for_tier(segments, tier=tier),
+        *_contiguous_message_prefix_for_tier(segments, tier=tier),
+    ]
+
+
+def _tier_prefix_diagnostics(segments: tuple[ProviderPayloadSegment, ...], *, tier: str) -> dict[str, Any]:
+    prefix_segments = _provider_prefix_segments_for_tier(segments, tier=tier)
+    message_segments = [segment for segment in prefix_segments if segment.transport_location == "messages"]
+    tool_segments = [segment for segment in prefix_segments if segment.transport_location == "tools"]
+    boundary = prefix_segments[-1] if prefix_segments else None
+    return {
+        "provider_payload_prefix_hash": _segments_hash(prefix_segments),
+        "message_prefix_hash": _segments_hash(message_segments),
+        "tool_prefix_hash": _segments_hash(tool_segments),
+        "segment_count": len(prefix_segments),
+        "message_segment_count": len(message_segments),
+        "tool_segment_count": len(tool_segments),
+        "segment_ids": [segment.segment_id for segment in prefix_segments],
+        "kinds": [segment.kind for segment in prefix_segments],
+        "boundary_segment_id": boundary.segment_id if boundary is not None else "",
+        "boundary_kind": boundary.kind if boundary is not None else "",
+        "boundary_ordinal": boundary.ordinal if boundary is not None else 0,
+        "boundary_content_hash": boundary.content_hash if boundary is not None else "",
+    }
+
+
+def _selected_tier_prefix(tier_prefixes: dict[str, dict[str, Any]]) -> tuple[str, dict[str, Any]]:
+    for tier in ("task", "session", "provider_global"):
+        payload = dict(tier_prefixes.get(tier) or {})
+        if payload.get("provider_payload_prefix_hash"):
+            return tier, payload
+    return "none", {}
+
+
+def _segments_hash(segments: list[ProviderPayloadSegment]) -> str:
+    if not segments:
+        return ""
+    return _stable_text_hash("|".join(segment.content_hash for segment in segments))
 
 
 def _segment_id(request_id: str, ordinal: int, kind: Any, payload: str) -> str:
@@ -303,6 +438,13 @@ def _digest(value: Any) -> str:
     return hashlib.sha256(payload.encode("utf-8", errors="ignore")).hexdigest()
 
 
+def _int(value: Any, *, default: int = 0) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
 def _json_stable(value: Any) -> Any:
     if isinstance(value, dict):
         return {str(key): _json_stable(value[key]) for key in sorted(value)}
@@ -311,3 +453,7 @@ def _json_stable(value: Any) -> Any:
     if isinstance(value, (str, int, float, bool)) or value is None:
         return value
     return repr(value)
+
+
+def _drop_empty(payload: dict[str, Any]) -> dict[str, Any]:
+    return {str(key): value for key, value in payload.items() if value not in ("", None, [], {})}

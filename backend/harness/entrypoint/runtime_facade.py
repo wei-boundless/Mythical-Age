@@ -139,6 +139,7 @@ class HarnessRuntimeFacade:
                 settings_service=settings_service,
             ),
             session_scope_resolver=self._session_scope_for_monitor,
+            session_manager=session_manager,
             tool_authorization_index=build_tool_authorization_index(
                 list(getattr(tool_runtime, "definitions", []) or [])
             ),

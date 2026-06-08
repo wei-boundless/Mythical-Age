@@ -63,14 +63,24 @@ class PromptCacheBreakDetector:
         cached_tokens = max(int(provider_usage.cached_tokens or 0), int(provider_usage.cache_read_tokens or 0))
         if cached_tokens > 0:
             return None
-        repeated_prefix = [
+        comparable_records = [
             record
             for record in previous_cache_records
-            if record.cache_key == cache_record.cache_key
-            and record.request_id != cache_record.request_id
+            if record.request_id != cache_record.request_id
             and record.status in {"eligible", "hit", "miss"}
+            and _record_scope_matches(record, cache_record)
         ]
-        if not repeated_prefix:
+        repeated_prefix = [
+            record
+            for record in comparable_records
+            if record.cache_key == cache_record.cache_key
+        ]
+        latest_previous = _latest_record(comparable_records)
+        reason = "provider_reported_miss_for_repeated_provider_payload_prefix" if repeated_prefix else _changed_payload_reason(
+            previous=latest_previous,
+            current=cache_record,
+        )
+        if not reason:
             return None
         timestamp = time.time() if created_at is None else float(created_at or 0.0)
         return PromptCacheBreakRecord(
@@ -83,11 +93,102 @@ class PromptCacheBreakDetector:
             session_id=cache_record.session_id,
             cache_key=cache_record.cache_key,
             prefix_hash=cache_record.prefix_hash,
-            reason="provider_reported_miss_for_repeated_stable_prefix",
+            reason=reason,
             created_at=timestamp,
             diagnostics={
                 "provider_usage_ref": provider_usage.usage_id,
                 "previous_request_ids": [record.request_id for record in repeated_prefix[-5:]],
+                "previous_comparable_request_id": latest_previous.request_id if latest_previous is not None else "",
                 "boundary_segment_id": cache_record.boundary_segment_id,
+                "provider_payload": _provider_payload_diagnostics(
+                    previous=latest_previous,
+                    current=cache_record,
+                ),
             },
         )
+
+
+def _record_scope_matches(previous: PromptCacheRecord, current: PromptCacheRecord) -> bool:
+    if previous.provider and current.provider and previous.provider != current.provider:
+        return False
+    if previous.model and current.model and previous.model != current.model:
+        return False
+    if current.task_run_id:
+        return previous.task_run_id == current.task_run_id
+    if current.run_id:
+        return previous.run_id == current.run_id
+    if current.session_id:
+        return previous.session_id == current.session_id
+    return True
+
+
+def _latest_record(records: list[PromptCacheRecord]) -> PromptCacheRecord | None:
+    if not records:
+        return None
+    return sorted(records, key=lambda item: float(item.created_at or 0.0))[-1]
+
+
+def _changed_payload_reason(
+    *,
+    previous: PromptCacheRecord | None,
+    current: PromptCacheRecord,
+) -> str:
+    if previous is None:
+        return ""
+    previous_diag = dict(previous.diagnostics or {})
+    current_diag = dict(current.diagnostics or {})
+    if _diag_value(previous_diag, "stable_message_prefix_hash") != _diag_value(current_diag, "stable_message_prefix_hash"):
+        return "stable_message_prefix_changed"
+    if _diag_value(previous_diag, "tool_catalog_hash") != _diag_value(current_diag, "tool_catalog_hash"):
+        previous_tool_count = _diag_int(previous_diag, "provider_payload_tool_prefix_segment_count")
+        current_tool_count = _diag_int(current_diag, "provider_payload_tool_prefix_segment_count")
+        if previous_tool_count != current_tool_count:
+            return "tool_count_changed"
+        return "tool_schema_hash_changed"
+    if _diag_value(previous_diag, "cache_sensitive_params_hash") != _diag_value(current_diag, "cache_sensitive_params_hash"):
+        return "cache_sensitive_params_changed"
+    if _diag_value(previous_diag, "provider_payload_prefix_hash") != _diag_value(current_diag, "provider_payload_prefix_hash"):
+        return "provider_payload_prefix_changed"
+    return ""
+
+
+def _provider_payload_diagnostics(
+    *,
+    previous: PromptCacheRecord | None,
+    current: PromptCacheRecord,
+) -> dict[str, Any]:
+    previous_diag = dict(getattr(previous, "diagnostics", {}) or {}) if previous is not None else {}
+    current_diag = dict(current.diagnostics or {})
+    keys = (
+        "provider_payload_prefix_hash",
+        "provider_payload_prefix_key_tier",
+        "stable_message_prefix_hash",
+        "tool_catalog_hash",
+        "stable_tool_catalog_hash",
+        "cache_sensitive_params_hash",
+        "provider_payload_tool_prefix_segment_count",
+        "provider_payload_message_prefix_segment_count",
+    )
+    return {
+        key: {
+            "previous": _diag_value(previous_diag, key),
+            "current": _diag_value(current_diag, key),
+        }
+        for key in keys
+        if _diag_value(previous_diag, key) or _diag_value(current_diag, key)
+    }
+
+
+def _diag_value(diagnostics: dict[str, Any], key: str) -> str:
+    value = diagnostics.get(key)
+    if value in (None, ""):
+        provider_payload = dict(diagnostics.get("provider_payload") or {})
+        value = provider_payload.get(key)
+    return str(value or "")
+
+
+def _diag_int(diagnostics: dict[str, Any], key: str) -> int:
+    try:
+        return int(_diag_value(diagnostics, key) or 0)
+    except (TypeError, ValueError):
+        return 0

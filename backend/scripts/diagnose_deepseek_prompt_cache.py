@@ -128,6 +128,7 @@ def diagnose(
     agent_provider_usage = [row for row in provider_usage if str(row.get("request_id") or "") not in non_agent_request_ids]
     scoped_usage = _scope_usage_summary(provider_usage=provider_usage, scope_by_request=scope_by_request)
     unplanned_breaks = [row for row in cache_breaks if str(row.get("reason") or "") == "unplanned_model_call"]
+    cache_break_reason_counts = Counter(str(row.get("reason") or "unknown") for row in cache_breaks)
     prompt_tokens = sum(_int(row.get("prompt_tokens")) for row in provider_usage)
     cached_tokens = sum(max(_int(row.get("cached_tokens")), _int(row.get("cache_read_tokens"))) for row in provider_usage)
     cache_miss_tokens = max(0, prompt_tokens - cached_tokens)
@@ -146,11 +147,13 @@ def diagnose(
     volatile_stable_segments = _find_volatile_stable_segments(segment_maps, limit=limit)
     unstable_stable_segments = _find_unstable_stable_segments(segment_maps, limit=limit)
     stability_by_request = {str(row.get("request_id") or ""): row for row in stability_records}
+    cache_break_by_request = {str(row.get("request_id") or ""): row for row in cache_breaks}
     recent_requests = _recent_requests(
         cache_records=cache_records,
         usage_by_request=usage_by_request,
         local_predictions=local_predictions,
         stability_by_request=stability_by_request,
+        cache_break_by_request=cache_break_by_request,
         limit=limit,
     )
     stability_reports = _recent_stability_reports(stability_records, limit=limit)
@@ -191,6 +194,7 @@ def diagnose(
         "cache_metric_scope_usage": scoped_usage,
         "cache_status_counts": dict(sorted(status_counts.items())),
         "provider_cache_policy_modes": dict(sorted(policy_counts.items())),
+        "cache_break_reason_counts": dict(sorted(cache_break_reason_counts.items())),
     }
     return Diagnosis(
         summary=summary,
@@ -438,6 +442,7 @@ def _recent_requests(
     usage_by_request: dict[str, dict[str, Any]],
     local_predictions: list[dict[str, Any]],
     stability_by_request: dict[str, dict[str, Any]],
+    cache_break_by_request: dict[str, dict[str, Any]],
     limit: int,
 ) -> list[dict[str, Any]]:
     local_by_request = {str(row.get("request_id") or ""): row for row in local_predictions}
@@ -448,6 +453,8 @@ def _recent_requests(
         usage = usage_by_request.get(request_id)
         local = local_by_request.get(request_id)
         stability = stability_by_request.get(request_id) or {}
+        cache_break = cache_break_by_request.get(request_id) or {}
+        cache_diag = dict(row.get("diagnostics") or {})
         cached_tokens = max(_int((usage or {}).get("cached_tokens")), _int((usage or {}).get("cache_read_tokens")))
         prompt_tokens = _int((usage or local or {}).get("prompt_tokens"))
         first_changed = dict(stability.get("first_changed_section") or {})
@@ -467,9 +474,13 @@ def _recent_requests(
                 "stable_prefix_tokens": _int(dict(row.get("diagnostics") or {}).get("stable_prefix_predicted_tokens")),
                 "stable_prefix_segments": _int(dict(row.get("diagnostics") or {}).get("stable_prefix_segment_count")),
                 "prefix_hash": str(row.get("prefix_hash") or ""),
+                "provider_payload_prefix_hash": _short_hash(cache_diag.get("provider_payload_prefix_hash")),
+                "tool_catalog_hash": _short_hash(cache_diag.get("tool_catalog_hash")),
+                "cache_sensitive_params_hash": _short_hash(cache_diag.get("cache_sensitive_params_hash")),
                 "packet_ref": str(dict((usage or local or {}).get("diagnostics") or {}).get("packet_ref") or ""),
                 "first_changed_section": _changed_section_label(first_changed),
                 "likely_break_reason": str(dict(stability.get("diagnostics") or {}).get("likely_break_reason") or ""),
+                "cache_break_reason": str(cache_break.get("reason") or ""),
                 "dynamic_param_hash": str(stability.get("dynamic_param_hash") or "")[:19],
                 "dynamic_param_diff": _dynamic_param_diff_label(dict(dict(stability.get("diagnostics") or {}).get("dynamic_param_diff") or {})),
             }
@@ -483,7 +494,9 @@ def _recent_stability_reports(records: list[dict[str, Any]], *, limit: int) -> l
     for row in rows:
         provider_usage = dict(row.get("provider_usage") or {})
         first_changed = dict(row.get("first_changed_section") or {})
-        context_window = dict(dict(row.get("diagnostics") or {}).get("context_window") or {})
+        diagnostics = dict(row.get("diagnostics") or {})
+        context_window = dict(diagnostics.get("context_window") or {})
+        provider_payload = dict(diagnostics.get("provider_payload") or {})
         result.append(
             {
                 "request_id": str(row.get("request_id") or ""),
@@ -497,12 +510,15 @@ def _recent_stability_reports(records: list[dict[str, Any]], *, limit: int) -> l
                 "stable_section_count": _int(row.get("stable_section_count")),
                 "volatile_token_count": _int(row.get("volatile_token_count")),
                 "stable_prefix_hash": str(row.get("stable_prefix_hash") or "")[:19],
+                "provider_payload_prefix_hash": _short_hash(provider_payload.get("provider_payload_prefix_hash")),
+                "tool_catalog_hash": _short_hash(provider_payload.get("tool_catalog_hash")),
+                "cache_sensitive_params_hash": _short_hash(provider_payload.get("cache_sensitive_params_hash")),
                 "dynamic_param_hash": str(row.get("dynamic_param_hash") or "")[:19],
                 "context_recovery_package": "yes" if context_window.get("context_recovery_package_present") else "",
                 "active_history_messages": _int(context_window.get("active_history_message_count")),
                 "first_changed_section": _changed_section_label(first_changed),
-                "likely_break_reason": str(dict(row.get("diagnostics") or {}).get("likely_break_reason") or ""),
-                "dynamic_param_diff": _dynamic_param_diff_label(dict(dict(row.get("diagnostics") or {}).get("dynamic_param_diff") or {})),
+                "likely_break_reason": str(diagnostics.get("likely_break_reason") or ""),
+                "dynamic_param_diff": _dynamic_param_diff_label(dict(diagnostics.get("dynamic_param_diff") or {})),
                 "cached_tokens": _int(provider_usage.get("cached_tokens")),
                 "hit_rate": _float(provider_usage.get("cache_hit_rate")),
             }
@@ -718,6 +734,7 @@ def _print_report(diagnosis: Diagnosis, *, ledger_dir: Path) -> None:
     print(f"unplanned_model_call_breaks: {summary['unplanned_model_call_breaks']}")
     print(f"cache_status_counts: {json.dumps(summary['cache_status_counts'], ensure_ascii=False, sort_keys=True)}")
     print(f"provider_cache_policy_modes: {json.dumps(summary['provider_cache_policy_modes'], ensure_ascii=False, sort_keys=True)}")
+    print(f"cache_break_reason_counts: {json.dumps(summary['cache_break_reason_counts'], ensure_ascii=False, sort_keys=True)}")
 
     _print_section("issues", payload["issues"], fields=("severity", "code", "message"))
     _print_section(
@@ -738,12 +755,12 @@ def _print_report(diagnosis: Diagnosis, *, ledger_dir: Path) -> None:
     _print_section(
         "recent_requests",
         payload["recent_requests"],
-        fields=("status", "provider_usage", "cache_metric_scope", "call_purpose", "prompt_tokens", "cached_tokens", "hit_rate", "provider_global_prefix_tokens", "session_prefix_tokens", "task_prefix_tokens", "first_changed_section", "dynamic_param_diff", "likely_break_reason", "packet_ref"),
+        fields=("status", "provider_usage", "cache_metric_scope", "call_purpose", "prompt_tokens", "cached_tokens", "hit_rate", "provider_global_prefix_tokens", "session_prefix_tokens", "task_prefix_tokens", "provider_payload_prefix_hash", "tool_catalog_hash", "cache_sensitive_params_hash", "first_changed_section", "dynamic_param_diff", "likely_break_reason", "cache_break_reason", "packet_ref"),
     )
     _print_section(
         "prompt_stability_reports",
         payload["stability_reports"],
-        fields=("request_id", "stable_section_count", "provider_global_prefix_tokens", "session_prefix_tokens", "task_prefix_tokens", "stable_prefix_tokens", "volatile_token_count", "hit_rate", "context_window_generation", "compaction_generation", "context_recovery_package", "active_history_messages", "first_changed_section", "dynamic_param_diff", "likely_break_reason"),
+        fields=("request_id", "stable_section_count", "provider_global_prefix_tokens", "session_prefix_tokens", "task_prefix_tokens", "stable_prefix_tokens", "volatile_token_count", "hit_rate", "provider_payload_prefix_hash", "tool_catalog_hash", "cache_sensitive_params_hash", "context_window_generation", "compaction_generation", "context_recovery_package", "active_history_messages", "first_changed_section", "dynamic_param_diff", "likely_break_reason"),
     )
 
 
@@ -787,6 +804,11 @@ def _dynamic_param_diff_label(value: dict[str, Any]) -> str:
     if not value:
         return ""
     return ",".join(sorted(str(key) for key in value)[:8])
+
+
+def _short_hash(value: Any) -> str:
+    text = str(value or "")
+    return text[:19] if text else ""
 
 
 if __name__ == "__main__":

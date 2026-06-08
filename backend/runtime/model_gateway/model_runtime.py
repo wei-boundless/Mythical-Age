@@ -1147,6 +1147,7 @@ class ModelRuntime:
                 segment_map,
                 provider=spec.provider,
                 model=spec.model,
+                model_request=model_request,
                 created_at=created_at,
             )
             model_request_diagnostics = dict(model_request.diagnostics or {})
@@ -1165,6 +1166,13 @@ class ModelRuntime:
                 "model_request_provider_global_prefix_hash": model_request.provider_global_prefix_hash,
                 "model_request_session_prefix_hash": model_request.session_prefix_hash,
                 "model_request_task_prefix_hash": model_request.task_prefix_hash,
+                "model_request_provider_payload_prefix_hash": model_request.provider_payload_prefix_hash,
+                "model_request_provider_payload_provider_global_prefix_hash": model_request.provider_payload_provider_global_prefix_hash,
+                "model_request_provider_payload_session_prefix_hash": model_request.provider_payload_session_prefix_hash,
+                "model_request_provider_payload_task_prefix_hash": model_request.provider_payload_task_prefix_hash,
+                "model_request_tool_catalog_hash": model_request.tool_catalog_hash,
+                "model_request_stable_tool_catalog_hash": model_request.stable_tool_catalog_hash,
+                "model_request_cache_sensitive_params_hash": model_request.cache_sensitive_params_hash,
                 "prefix_hash_matches_model_request": prefix_hash_matches_model_request,
                 "unplanned_message_count": int(model_request_diagnostics.get("unplanned_message_count") or 0),
                 "bound_segment_count": int(model_request_diagnostics.get("bound_segment_count") or 0),
@@ -1302,6 +1310,13 @@ class ModelRuntime:
                         "provider_global_prefix_hash": str(getattr(model_request, "provider_global_prefix_hash", "") or ""),
                         "session_prefix_hash": str(getattr(model_request, "session_prefix_hash", "") or ""),
                         "task_prefix_hash": str(getattr(model_request, "task_prefix_hash", "") or ""),
+                        "provider_payload_prefix_hash": str(getattr(model_request, "provider_payload_prefix_hash", "") or ""),
+                        "provider_payload_provider_global_prefix_hash": str(getattr(model_request, "provider_payload_provider_global_prefix_hash", "") or ""),
+                        "provider_payload_session_prefix_hash": str(getattr(model_request, "provider_payload_session_prefix_hash", "") or ""),
+                        "provider_payload_task_prefix_hash": str(getattr(model_request, "provider_payload_task_prefix_hash", "") or ""),
+                        "tool_catalog_hash": str(getattr(model_request, "tool_catalog_hash", "") or ""),
+                        "stable_tool_catalog_hash": str(getattr(model_request, "stable_tool_catalog_hash", "") or ""),
+                        "cache_sensitive_params_hash": str(getattr(model_request, "cache_sensitive_params_hash", "") or ""),
                         "duration_seconds": duration_seconds,
                     },
                 )
@@ -1849,13 +1864,13 @@ def _previous_stability_report(
 def _model_request_prefix_hash_for_tier(model_request: Any, *, prefix_key_tier: str) -> str:
     tier = str(prefix_key_tier or "").strip()
     if tier == "task":
-        return str(getattr(model_request, "task_prefix_hash", "") or "")
+        return str(getattr(model_request, "provider_payload_task_prefix_hash", "") or getattr(model_request, "task_prefix_hash", "") or "")
     if tier == "session":
-        return str(getattr(model_request, "session_prefix_hash", "") or "")
+        return str(getattr(model_request, "provider_payload_session_prefix_hash", "") or getattr(model_request, "session_prefix_hash", "") or "")
     if tier == "provider_global":
-        return str(getattr(model_request, "provider_global_prefix_hash", "") or "")
-    if tier == "stable":
-        return str(getattr(model_request, "stable_prefix_hash", "") or "")
+        return str(getattr(model_request, "provider_payload_provider_global_prefix_hash", "") or getattr(model_request, "provider_global_prefix_hash", "") or "")
+    if tier in {"stable", "provider_payload"}:
+        return str(getattr(model_request, "provider_payload_prefix_hash", "") or getattr(model_request, "stable_prefix_hash", "") or "")
     return ""
 
 

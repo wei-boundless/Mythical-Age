@@ -9,6 +9,12 @@ from typing import Any
 from prompt_cache_policy import is_cache_eligible_prefix, is_prefix_eligible_for_tier
 
 from .models import ModelTokenUsageRecord, PromptCacheRecord, PromptSegmentMap
+from .provider_payload_boundary import (
+    provider_payload_boundary_diagnostics,
+    provider_payload_cache_boundary,
+    provider_payload_selected_tier,
+    provider_payload_tier_prefix,
+)
 
 
 def stable_text_hash(text: str) -> str:
@@ -31,6 +37,7 @@ class PromptCachePlanner:
         *,
         provider: str = "",
         model: str = "",
+        model_request: Any | None = None,
         created_at: float | None = None,
     ) -> PromptCacheRecord:
         combined_stable_prefix = []
@@ -77,6 +84,24 @@ class PromptCachePlanner:
             ):
                 break
         timestamp = time.time() if created_at is None else float(created_at or 0.0)
+        provider_boundary = provider_payload_cache_boundary(model_request)
+        if provider_boundary:
+            provider_record = _plan_from_provider_payload_boundary(
+                segment_map=segment_map,
+                provider=str(provider or segment_map.provider or ""),
+                model=str(model or segment_map.model or ""),
+                model_request=model_request,
+                boundary=provider_boundary,
+                timestamp=timestamp,
+                diagnostics=_prefix_diagnostics(
+                    combined_stable_prefix=combined_stable_prefix,
+                    provider_global_prefix=provider_global_prefix,
+                    session_prefix=session_prefix,
+                    task_prefix=task_prefix,
+                ),
+            )
+            if provider_record is not None:
+                return provider_record
         key_tier, key_prefix = _primary_cache_key_prefix(
             provider_global_prefix=provider_global_prefix,
             session_prefix=session_prefix,
@@ -219,3 +244,107 @@ def _primary_cache_key_prefix(
     if provider_global_prefix:
         return "provider_global", provider_global_prefix
     return "none", []
+
+
+def _plan_from_provider_payload_boundary(
+    *,
+    segment_map: PromptSegmentMap,
+    provider: str,
+    model: str,
+    model_request: Any | None,
+    boundary: dict[str, Any],
+    timestamp: float,
+    diagnostics: dict[str, Any],
+) -> PromptCacheRecord | None:
+    key_tier = provider_payload_selected_tier(boundary)
+    selected_prefix = provider_payload_tier_prefix(boundary, key_tier)
+    prefix_hash = str(
+        selected_prefix.get("provider_payload_prefix_hash")
+        or boundary.get("provider_payload_prefix_hash")
+        or ""
+    )
+    boundary_segment_id = str(
+        selected_prefix.get("boundary_segment_id")
+        or boundary.get("selected_boundary_segment_id")
+        or ""
+    )
+    provider_diagnostics = provider_payload_boundary_diagnostics(
+        model_request=model_request,
+        boundary=boundary,
+    )
+    if not prefix_hash:
+        return PromptCacheRecord(
+            cache_record_id=f"pcache:{segment_map.request_id}",
+            request_id=segment_map.request_id,
+            provider=provider,
+            model=model,
+            run_id=segment_map.run_id,
+            task_run_id=segment_map.task_run_id,
+            session_id=segment_map.session_id,
+            scope="none",
+            status="bypassed",
+            cache_safety_reasons=("no_provider_payload_stable_prefix_boundary",),
+            created_at=timestamp,
+            diagnostics={
+                **diagnostics,
+                **provider_diagnostics,
+                "prefix_hash_source": "provider_payload_manifest",
+            },
+        )
+    key = prompt_cache_key(
+        scope="provider_payload_prefix",
+        inputs={
+            "provider": provider,
+            "model": model,
+            "prefix_key_tier": key_tier,
+            "provider_payload_prefix_hash": prefix_hash,
+            "boundary_segment_id": boundary_segment_id,
+            "boundary_kind": str(selected_prefix.get("boundary_kind") or ""),
+            "boundary_ordinal": int(selected_prefix.get("boundary_ordinal") or 0),
+            "boundary_content_hash": str(selected_prefix.get("boundary_content_hash") or ""),
+            "tool_catalog_hash": str(boundary.get("tool_catalog_hash") or ""),
+            "stable_tool_catalog_hash": str(boundary.get("stable_tool_catalog_hash") or ""),
+            "cache_sensitive_params_hash": str(boundary.get("cache_sensitive_params_hash") or ""),
+        },
+    )
+    return PromptCacheRecord(
+        cache_record_id=f"pcache:{segment_map.request_id}",
+        request_id=segment_map.request_id,
+        provider=provider,
+        model=model,
+        run_id=segment_map.run_id,
+        task_run_id=segment_map.task_run_id,
+        session_id=segment_map.session_id,
+        cache_key=key,
+        prefix_hash=prefix_hash,
+        boundary_segment_id=boundary_segment_id,
+        scope="session" if segment_map.session_id else "global",
+        status="eligible",
+        cache_safety_reasons=(),
+        created_at=timestamp,
+        diagnostics={
+            **diagnostics,
+            **provider_diagnostics,
+            "prefix_key_tier": key_tier,
+            "prefix_hash_source": "provider_payload_manifest",
+            "provider_payload_stable_segment_count": int(selected_prefix.get("segment_count") or 0),
+            "provider_payload_message_prefix_segment_count": int(selected_prefix.get("message_segment_count") or 0),
+            "provider_payload_tool_prefix_segment_count": int(selected_prefix.get("tool_segment_count") or 0),
+            "stable_prefix_segment_count": int(selected_prefix.get("message_segment_count") or 0),
+            "stable_prefix_predicted_tokens": _prefix_predicted_tokens_for_tier(
+                diagnostics,
+                tier=key_tier,
+            ),
+        },
+    )
+
+
+def _prefix_predicted_tokens_for_tier(diagnostics: dict[str, Any], *, tier: str) -> int:
+    normalized = str(tier or "").strip()
+    if normalized == "task":
+        return int(diagnostics.get("task_prefix_predicted_tokens") or 0)
+    if normalized == "session":
+        return int(diagnostics.get("session_prefix_predicted_tokens") or 0)
+    if normalized == "provider_global":
+        return int(diagnostics.get("provider_global_prefix_predicted_tokens") or 0)
+    return 0

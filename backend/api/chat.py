@@ -363,7 +363,16 @@ async def _run_chat_to_event_log(runtime: Any, run: RuntimeRun, request: Harness
                 break
     except asyncio.CancelledError:
         logger.info("Chat run background task was cancelled.", extra={"stream_run_id": run.stream_run_id})
-        registry.update_run(run.stream_run_id, status="orphaned", diagnostics={"cancelled": True})
+        current = registry.update_run(
+            run.stream_run_id,
+            status="orphaned",
+            diagnostics={"cancelled": True, "reason": "stream_cancelled"},
+        )
+        host.close_chat_turn_run_for_stream_failure_best_effort(
+            current,
+            code="stream_cancelled",
+            reason="Chat run background task was cancelled.",
+        )
         raise
     except Exception as exc:
         logger.exception("Chat run failed before terminal event.", extra={"stream_run_id": run.stream_run_id})
@@ -376,7 +385,12 @@ async def _run_chat_to_event_log(runtime: Any, run: RuntimeRun, request: Harness
                 "code": "stream_exception",
             },
         )
-        registry.mark_event(current, latest_event_offset=logged.offset, status="failed", terminal_event="error")
+        current = registry.mark_event(current, latest_event_offset=logged.offset, status="failed", terminal_event="error")
+        host.close_chat_turn_run_for_stream_failure_best_effort(
+            current,
+            code="stream_exception",
+            reason=str(exc) or "Chat stream failed.",
+        )
         return
     if not terminal_event:
         current = registry.get_run(run.stream_run_id) or current
@@ -388,7 +402,12 @@ async def _run_chat_to_event_log(runtime: Any, run: RuntimeRun, request: Harness
                 "code": "missing_terminal_event",
             },
         )
-        registry.mark_event(current, latest_event_offset=logged.offset, status="failed", terminal_event="error")
+        current = registry.mark_event(current, latest_event_offset=logged.offset, status="failed", terminal_event="error")
+        host.close_chat_turn_run_for_stream_failure_best_effort(
+            current,
+            code="missing_terminal_event",
+            reason="Chat stream ended without a terminal event.",
+        )
 
 
 async def _stream_run_events(runtime: Any, run: RuntimeRun, *, after_offset: int):

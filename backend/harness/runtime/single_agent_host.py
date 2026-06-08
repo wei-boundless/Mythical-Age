@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
+import logging
 import os
 from pathlib import Path
 import sqlite3
@@ -30,6 +32,9 @@ from runtime.tool_runtime.tool_control_plane import RuntimeToolControlPlane
 from .active_turn import ActiveTurnRegistry
 from langgraph.checkpoint.sqlite import SqliteSaver
 
+logger = logging.getLogger(__name__)
+
+
 class SingleAgentRuntimeHost:
     """Minimal service host for the rebuilt single-agent mainline.
 
@@ -44,6 +49,7 @@ class SingleAgentRuntimeHost:
         operation_gate: OperationGate | None = None,
         permission_mode_provider: Callable[[], str] | None = None,
         session_scope_resolver: Callable[[str], dict[str, Any] | None] | None = None,
+        session_manager: Any | None = None,
         tool_authorization_index: ToolAuthorizationIndex | None = None,
         tool_definitions: list[Any] | tuple[Any, ...] | None = None,
         tool_runtime_executor: Any | None = None,
@@ -56,7 +62,7 @@ class SingleAgentRuntimeHost:
         self.event_log = RuntimeEventLog(self.root_dir, fact_ledger=self.fact_ledger)
         self.run_registry = RuntimeRunRegistry(self.root_dir)
         self.stream_replay = RuntimeStreamReplayService(self.event_log)
-        self._close_unowned_active_chat_runs()
+        self.session_manager = session_manager
         self.prompt_accounting_ledger = PromptAccountingLedger(self.root_dir)
         self.execution_store = RuntimeExecutionStore(self.root_dir)
         self.file_state_store = FileStateAuthorityStore(self.root_dir)
@@ -69,6 +75,7 @@ class SingleAgentRuntimeHost:
             fact_ledger=self.fact_ledger,
         )
         self.active_turn_registry = ActiveTurnRegistry(self)
+        self._close_unowned_active_chat_runs()
         self.graph_checkpoint_store = LangGraphCheckpointStore(_build_graph_checkpoint_saver(self.root_dir))
         self.operation_gate = operation_gate or OperationGate(build_default_operation_registry())
         self.session_scope_resolver = session_scope_resolver
@@ -139,6 +146,15 @@ class SingleAgentRuntimeHost:
                 owner_process_id=self.owner_process_id,
                 owner_instance_id=self.instance_id,
             ):
+                if _orphaned_chat_run_needs_turn_reconciliation(run):
+                    diagnostics = dict(run.diagnostics or {})
+                    failure_code = str(diagnostics.get("reason") or "").strip() or "runtime_process_restarted"
+                    self.close_chat_turn_run_for_stream_failure_best_effort(
+                        run,
+                        code=failure_code,
+                        reason=_orphaned_chat_run_failure_reason(failure_code),
+                        orphaned_by="single_agent_runtime_host.startup_reconciliation",
+                    )
                 continue
             current = self.run_registry.get_run(run.stream_run_id) or run
             event = self.stream_replay.append_public_event(
@@ -150,7 +166,7 @@ class SingleAgentRuntimeHost:
                     "reason": "background_executor_missing_after_restart",
                 },
             )
-            self.run_registry.mark_event(
+            current = self.run_registry.mark_event(
                 current,
                 latest_event_offset=event.offset,
                 status="orphaned",
@@ -160,6 +176,218 @@ class SingleAgentRuntimeHost:
                     "reason": "runtime_process_restarted",
                 },
             )
+            self.close_chat_turn_run_for_stream_failure_best_effort(
+                current,
+                code="runtime_process_restarted",
+                reason="background_executor_missing_after_restart",
+                orphaned_by="single_agent_runtime_host.startup_reconciliation",
+            )
+
+    def close_chat_turn_run_for_stream_failure_best_effort(
+        self,
+        run: RuntimeRun,
+        *,
+        code: str,
+        reason: str = "",
+        orphaned_by: str = "",
+    ) -> dict[str, Any]:
+        try:
+            return self.close_chat_turn_run_for_stream_failure(
+                run,
+                code=code,
+                reason=reason,
+                orphaned_by=orphaned_by,
+            )
+        except Exception:
+            logger.exception(
+                "failed to reconcile chat turn after stream failure",
+                extra={"stream_run_id": getattr(run, "stream_run_id", ""), "failure_code": code},
+            )
+            return {
+                "authority": "single_agent_runtime_host.chat_turn_stream_failure_reconciliation",
+                "stream_run_id": str(getattr(run, "stream_run_id", "") or ""),
+                "turn_run_closed": False,
+                "reason": "reconciliation_failed",
+                "failure_code": str(code or ""),
+            }
+
+    def close_chat_turn_run_for_stream_failure(
+        self,
+        run: RuntimeRun,
+        *,
+        code: str,
+        reason: str = "",
+        orphaned_by: str = "",
+    ) -> dict[str, Any]:
+        current = self.run_registry.get_run(run.stream_run_id) or run
+        turn_run = self._turn_run_for_stream_run(current)
+        if turn_run is None:
+            return {
+                "authority": "single_agent_runtime_host.chat_turn_stream_failure_reconciliation",
+                "stream_run_id": current.stream_run_id,
+                "turn_run_closed": False,
+                "reason": "turn_run_missing",
+            }
+        terminal_event = None
+        failure_code = str(code or "stream_failure").strip() or "stream_failure"
+        failure_reason = str(reason or failure_code).strip() or failure_code
+        if str(getattr(turn_run, "status", "") or "").strip() not in {"completed", "failed", "aborted"}:
+            terminal_event = self.event_log.append(
+                turn_run.turn_run_id,
+                "agent_turn_terminal",
+                payload={
+                    "turn_id": turn_run.turn_id,
+                    "status": "failed",
+                    "terminal_reason": "context_unrecoverable",
+                    "failure_code": failure_code,
+                    "failure_reason": failure_reason,
+                    "stream_run_id": current.stream_run_id,
+                    "orphaned_by": orphaned_by,
+                },
+                refs={
+                    "turn_ref": turn_run.turn_id,
+                    "turn_run_ref": turn_run.turn_run_id,
+                    "stream_run_ref": current.stream_run_id,
+                },
+            )
+            latest = self.state_index.get_turn_run(turn_run.turn_run_id) or turn_run
+            self.state_index.upsert_turn_run(
+                replace(
+                    latest,
+                    status="failed",
+                    updated_at=terminal_event.created_at,
+                    latest_event_offset=terminal_event.offset,
+                    terminal_reason="context_unrecoverable",
+                    diagnostics={
+                        **dict(latest.diagnostics or {}),
+                        "terminal_event_type": "agent_turn_terminal",
+                        "terminal_status": "failed",
+                        "terminal_reason_detail": "context_unrecoverable",
+                        "failure_code": failure_code,
+                        "failure_reason": failure_reason,
+                        "interrupted_stream_run_id": current.stream_run_id,
+                        "orphaned_by": orphaned_by,
+                        "reason": failure_code,
+                    },
+                )
+            )
+        self._release_active_turn_for_stream_failure(
+            session_id=turn_run.session_id,
+            turn_id=turn_run.turn_id,
+            terminal_reason=failure_code,
+        )
+        visible_message_appended = self._append_stream_failure_boundary_message(
+            session_id=turn_run.session_id,
+            turn_id=turn_run.turn_id,
+            stream_run_id=current.stream_run_id,
+            failure_code=failure_code,
+            failure_reason=failure_reason,
+        )
+        return {
+            "authority": "single_agent_runtime_host.chat_turn_stream_failure_reconciliation",
+            "stream_run_id": current.stream_run_id,
+            "turn_run_id": turn_run.turn_run_id,
+            "turn_run_closed": terminal_event is not None,
+            "visible_message_appended": visible_message_appended,
+            "failure_code": failure_code,
+        }
+
+    def _turn_run_for_stream_run(self, run: RuntimeRun) -> Any | None:
+        for turn_run_id in _turn_run_id_candidates_for_runtime_run(run):
+            turn_run = self.state_index.get_turn_run(turn_run_id)
+            if turn_run is not None:
+                return turn_run
+        return None
+
+    def _release_active_turn_for_stream_failure(
+        self,
+        *,
+        session_id: str,
+        turn_id: str,
+        terminal_reason: str,
+    ) -> None:
+        try:
+            record = self.active_turn_registry.snapshot(session_id)
+        except Exception:
+            logger.debug("failed to snapshot active turn during stream failure reconciliation", exc_info=True)
+            return
+        if record is None or str(getattr(record, "turn_id", "") or "") != str(turn_id or ""):
+            return
+        try:
+            self.active_turn_registry.complete(
+                session_id=session_id,
+                expected_turn_id=turn_id,
+                terminal_reason=terminal_reason,
+            )
+        except Exception:
+            logger.debug("failed to complete active turn during stream failure reconciliation", exc_info=True)
+
+    def _append_stream_failure_boundary_message(
+        self,
+        *,
+        session_id: str,
+        turn_id: str,
+        stream_run_id: str,
+        failure_code: str,
+        failure_reason: str,
+    ) -> bool:
+        manager = getattr(self, "session_manager", None)
+        if manager is None:
+            return False
+        load_record = getattr(manager, "load_session_record", None)
+        append_messages = getattr(manager, "append_messages", None)
+        if not callable(load_record) or not callable(append_messages):
+            return False
+        try:
+            history = dict(load_record(session_id) or {})
+        except Exception:
+            logger.debug("failed to load session during stream failure reconciliation", exc_info=True)
+            return False
+        messages = [dict(item) for item in list(history.get("messages") or []) if isinstance(item, dict)]
+        if _session_already_has_assistant_for_turn(messages, turn_id):
+            return False
+        if _session_has_later_public_message(messages, turn_id):
+            return False
+        has_api_transcript = self._session_has_api_transcript(manager, session_id)
+        content = _stream_failure_boundary_content(failure_code)
+        message = {
+            "role": "assistant",
+            "content": content,
+            "turn_id": turn_id,
+            "answer_channel": "blocked",
+            "answer_source": "harness.runtime.stream_failure_reconciliation",
+            "runtime_stream_run_id": stream_run_id,
+            "runtime_failure_code": failure_code,
+            "runtime_failure_reason": failure_reason,
+        }
+        try:
+            append_messages(session_id, [message])
+            append_api = getattr(manager, "append_api_messages", None)
+            if has_api_transcript and callable(append_api):
+                append_api(
+                    session_id,
+                    [
+                        {
+                            "role": "assistant",
+                            "content": content,
+                            "turn_id": turn_id,
+                        }
+                    ],
+                )
+        except Exception:
+            logger.debug("failed to append stream failure boundary message", exc_info=True)
+            return False
+        return True
+
+    def _session_has_api_transcript(self, manager: Any, session_id: str) -> bool:
+        reader = getattr(manager, "_read_payload", None)
+        if not callable(reader):
+            return False
+        try:
+            payload = dict(reader(session_id) or {})
+        except Exception:
+            return False
+        return bool(list(payload.get("api_transcript") or []))
 
     def _current_permission_mode(self) -> str:
         provider = self.permission_mode_provider
@@ -452,3 +680,89 @@ def _active_chat_run_not_owned_by_current_host(
     if run.owner_process_id:
         return int(run.owner_process_id) != int(owner_process_id)
     return True
+
+
+def _orphaned_chat_run_needs_turn_reconciliation(run: RuntimeRun) -> bool:
+    if run.status != "orphaned":
+        return False
+    if not str(run.event_log_id or "").startswith("chatrun:"):
+        return False
+    diagnostics = dict(run.diagnostics or {})
+    reason = str(diagnostics.get("reason") or "").strip()
+    return reason in {"runtime_process_restarted", "stream_cancelled"} or diagnostics.get("cancelled") is True
+
+
+def _orphaned_chat_run_failure_reason(failure_code: str) -> str:
+    code = str(failure_code or "").strip()
+    if code == "stream_cancelled":
+        return "background_executor_cancelled"
+    return "background_executor_missing_after_restart"
+
+
+def _turn_run_id_candidates_for_runtime_run(run: RuntimeRun) -> list[str]:
+    diagnostics = dict(run.diagnostics or {})
+    candidates = [
+        str(diagnostics.get("runtime_turn_run_id") or "").strip(),
+        str(diagnostics.get("turn_run_id") or "").strip(),
+    ]
+    stream_run_id = str(run.stream_run_id or "").strip()
+    if stream_run_id:
+        candidates.append(f"turnrun:{stream_run_id}")
+    seen: set[str] = set()
+    result: list[str] = []
+    for candidate in candidates:
+        if not candidate or candidate in seen:
+            continue
+        seen.add(candidate)
+        result.append(candidate)
+    return result
+
+
+def _session_already_has_assistant_for_turn(messages: list[dict[str, Any]], turn_id: str) -> bool:
+    target_turn_id = str(turn_id or "").strip()
+    if not target_turn_id:
+        return True
+    for message in messages:
+        if str(message.get("turn_id") or "").strip() != target_turn_id:
+            continue
+        if str(message.get("role") or "").strip() == "assistant":
+            return True
+    return False
+
+
+def _session_has_later_public_message(messages: list[dict[str, Any]], turn_id: str) -> bool:
+    target_turn_id = str(turn_id or "").strip()
+    if not target_turn_id:
+        return True
+    seen_target = False
+    for message in messages:
+        message_turn_id = str(message.get("turn_id") or "").strip()
+        if message_turn_id == target_turn_id:
+            seen_target = True
+            continue
+        if seen_target and str(message.get("role") or "").strip() in {"user", "assistant"}:
+            return True
+    return not seen_target
+
+
+def _stream_failure_boundary_content(failure_code: str) -> str:
+    code = str(failure_code or "").strip()
+    if code == "runtime_process_restarted":
+        return (
+            "本轮执行流因运行进程重启中断，工具结果没有交回模型完成收口。"
+            "请重新发送或继续说明要做什么，下一轮会基于当前可见上下文重新处理。"
+        )
+    if code == "missing_terminal_event":
+        return (
+            "本轮执行流结束时没有产生完整终止事件，系统已停止等待，避免继续卡在运行中状态。"
+            "请重新发送或继续说明要做什么，下一轮会基于当前可见上下文重新处理。"
+        )
+    if code == "stream_cancelled":
+        return (
+            "本轮执行流被系统取消，结果没有完成收口。"
+            "请重新发送或继续说明要做什么，下一轮会基于当前可见上下文重新处理。"
+        )
+    return (
+        "本轮执行流异常中断，结果没有完成收口。"
+        "请重新发送或继续说明要做什么，下一轮会基于当前可见上下文重新处理。"
+    )

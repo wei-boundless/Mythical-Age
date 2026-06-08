@@ -13,7 +13,7 @@ from .models import (
     PromptCompositionSlot,
 )
 from .planner import build_prompt_composition_plan
-from .tracing import bind_segments_to_slots
+from .tracing import bind_segments_to_slots, runtime_source_kind_for_segment
 
 
 def build_shadow_prompt_composition_manifest(
@@ -102,7 +102,7 @@ def _runtime_slots_for_unbound_segments(
             continue
         kind = str(segment.get("kind") or "unknown_unplanned").strip() or "unknown_unplanned"
         order = base_order + offset
-        source_kind = "dynamic_context_fragment" if str(segment.get("cache_role") or "") in {"volatile", "never_cache"} else "legacy_runtime_text"
+        source_kind = runtime_source_kind_for_segment(segment)
         slot_id = _runtime_slot_id(
             invocation_kind=invocation_kind,
             packet_id=packet_id,
@@ -154,6 +154,11 @@ def _coverage(*, plan: PromptCompositionPlan, bindings: tuple[Any, ...]) -> dict
         "all_segments_explained": len(bindings) == sum(status_counts.values()),
         "legacy_runtime_text_count": status_counts.get("legacy_runtime_text", 0),
         "dynamic_context_fragment_count": status_counts.get("dynamic_context_fragment", 0),
+        "runtime_action_schema_count": status_counts.get("runtime_action_schema", 0),
+        "runtime_artifact_scope_count": status_counts.get("runtime_artifact_scope", 0),
+        "runtime_contract_count": status_counts.get("runtime_contract", 0),
+        "runtime_protocol_count": status_counts.get("runtime_protocol", 0),
+        "tool_catalog_count": status_counts.get("tool_catalog", 0),
         "registered_prompt_bound_count": status_counts.get("registered_prompt_bound", 0),
         "authority": "prompt_composition.coverage",
     }
@@ -194,10 +199,14 @@ def _plan_id(*, invocation_kind: str, packet_id: str, slots: tuple[PromptComposi
 def _runtime_layer(*, kind: str, source_kind: str) -> str:
     if source_kind == "dynamic_context_fragment":
         return "runtime_dynamic"
-    if kind in {"action_schema_static", "tool_index_stable"}:
+    if source_kind in {"runtime_action_schema", "tool_catalog"}:
         return "capability_stable"
-    if kind in {"task_contract_stable", "task_prompt_contract"}:
+    if source_kind == "runtime_artifact_scope":
+        return "artifact_scope_stable"
+    if source_kind == "runtime_contract":
         return "task_contract_stable"
+    if source_kind == "runtime_protocol":
+        return "runtime_protocol_stable"
     return "legacy_runtime_stable"
 
 

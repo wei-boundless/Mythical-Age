@@ -79,7 +79,7 @@ def test_shadow_manifest_binds_registered_prompts_and_marks_legacy_runtime_text(
     coverage = dict(manifest["coverage"])
     statuses = dict(coverage["segment_binding_status_counts"])
     assert statuses["registered_prompt_bound"] == 1
-    assert statuses["legacy_runtime_text"] == 1
+    assert statuses["runtime_action_schema"] == 1
     assert coverage["registered_prompt_slot_count"] > 0
     assert coverage["runtime_shadow_slot_count"] == 1
 
@@ -103,6 +103,7 @@ def test_runtime_compiler_attaches_shadow_manifest_for_single_agent_turn() -> No
     composition = _assert_shadow_manifest_covers_packet(result.packet)
     coverage = dict(composition["coverage"])
     assert coverage["registered_prompt_bound_count"] >= 1
+    assert coverage["runtime_protocol_count"] >= 1
     assert coverage["dynamic_context_fragment_count"] >= 1
 
 
@@ -124,7 +125,10 @@ def test_runtime_compiler_attaches_shadow_manifest_for_task_execution() -> None:
     composition = _assert_shadow_manifest_covers_packet(result.packet)
     coverage = dict(composition["coverage"])
     assert coverage["registered_prompt_bound_count"] >= 1
-    assert coverage["legacy_runtime_text_count"] >= 1
+    assert coverage["runtime_action_schema_count"] >= 1
+    assert coverage["runtime_artifact_scope_count"] >= 1
+    assert coverage["runtime_contract_count"] >= 1
+    assert coverage["tool_catalog_count"] >= 1
 
 
 def test_runtime_compiler_attaches_shadow_manifest_for_observation_followup() -> None:
@@ -147,6 +151,7 @@ def test_runtime_compiler_attaches_shadow_manifest_for_observation_followup() ->
     composition = _assert_shadow_manifest_covers_packet(result.packet)
     coverage = dict(composition["coverage"])
     assert coverage["registered_prompt_bound_count"] >= 1
+    assert coverage["runtime_contract_count"] >= 1
     assert coverage["dynamic_context_fragment_count"] >= 1
 
 

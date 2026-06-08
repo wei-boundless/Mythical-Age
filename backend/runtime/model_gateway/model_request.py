@@ -49,6 +49,13 @@ class ModelRequestPacket:
     provider_global_prefix_hash: str = ""
     session_prefix_hash: str = ""
     task_prefix_hash: str = ""
+    provider_payload_prefix_hash: str = ""
+    provider_payload_provider_global_prefix_hash: str = ""
+    provider_payload_session_prefix_hash: str = ""
+    provider_payload_task_prefix_hash: str = ""
+    tool_catalog_hash: str = ""
+    stable_tool_catalog_hash: str = ""
+    cache_sensitive_params_hash: str = ""
     cache_policy: ProviderCachePolicy = field(default_factory=lambda: ProviderCachePolicy(provider=""))
     provider_payload_manifest: ProviderPayloadManifest | None = None
     diagnostics: dict[str, Any] = field(default_factory=dict)
@@ -107,7 +114,10 @@ class ModelRequestBuilder:
             messages=normalized_messages,
             tools=normalized_tools,
             segment_bindings=bindings,
+            request_params=dict(dict(metadata or {}).get("cache_relevant_params") or {}),
         )
+        provider_payload_boundary = dict(provider_payload_manifest.cache_boundary or {})
+        provider_payload_tiers = dict(provider_payload_boundary.get("tier_prefixes") or {})
         return ModelRequestPacket(
             request_id=str(request_id or ""),
             provider=str(provider or ""),
@@ -122,12 +132,20 @@ class ModelRequestBuilder:
             provider_global_prefix_hash=tier_hashes["provider_global"],
             session_prefix_hash=tier_hashes["session"],
             task_prefix_hash=tier_hashes["task"],
+            provider_payload_prefix_hash=str(provider_payload_boundary.get("provider_payload_prefix_hash") or ""),
+            provider_payload_provider_global_prefix_hash=str(dict(provider_payload_tiers.get("provider_global") or {}).get("provider_payload_prefix_hash") or ""),
+            provider_payload_session_prefix_hash=str(dict(provider_payload_tiers.get("session") or {}).get("provider_payload_prefix_hash") or ""),
+            provider_payload_task_prefix_hash=str(dict(provider_payload_tiers.get("task") or {}).get("provider_payload_prefix_hash") or ""),
+            tool_catalog_hash=str(provider_payload_boundary.get("tool_catalog_hash") or ""),
+            stable_tool_catalog_hash=str(provider_payload_boundary.get("stable_tool_catalog_hash") or ""),
+            cache_sensitive_params_hash=str(provider_payload_boundary.get("cache_sensitive_params_hash") or ""),
             cache_policy=cache_policy,
             provider_payload_manifest=provider_payload_manifest,
             diagnostics={
                 "planned_segment_count": len(list(plan.get("segments") or [])),
                 "bound_segment_count": len(bindings),
                 "provider_payload_manifest_ref": provider_payload_manifest.manifest_id,
+                "provider_payload_cache_boundary": provider_payload_boundary,
                 "unplanned_message_count": max(0, len(normalized_messages) - len(bindings)),
                 **binding_diagnostics,
                 "prefix_tier_hashes": tier_hashes,

@@ -11,6 +11,11 @@ from prompt_cache_policy import is_cache_eligible_prefix, is_prefix_eligible_for
 
 from .cache_planner import stable_text_hash
 from .models import PromptSegment, PromptSegmentMap
+from .provider_payload_boundary import (
+    provider_payload_boundary_diagnostics,
+    provider_payload_cache_boundary,
+    provider_payload_tier_prefix,
+)
 
 
 PromptCacheBaselineStatus = Literal["active", "invalidated"]
@@ -33,6 +38,13 @@ class PromptCacheBaselineRecord:
     session_prefix_hash: str = ""
     task_prefix_hash: str = ""
     memory_segment_hash: str = ""
+    provider_payload_prefix_hash: str = ""
+    provider_payload_provider_global_prefix_hash: str = ""
+    provider_payload_session_prefix_hash: str = ""
+    provider_payload_task_prefix_hash: str = ""
+    tool_catalog_hash: str = ""
+    stable_tool_catalog_hash: str = ""
+    cache_sensitive_params_hash: str = ""
     previous_baseline_ref: str = ""
     changed_tiers: tuple[str, ...] = ()
     reset_reason: str = ""
@@ -65,6 +77,13 @@ class PromptCacheBaselineRecord:
             session_prefix_hash=str(payload.get("session_prefix_hash") or ""),
             task_prefix_hash=str(payload.get("task_prefix_hash") or ""),
             memory_segment_hash=str(payload.get("memory_segment_hash") or ""),
+            provider_payload_prefix_hash=str(payload.get("provider_payload_prefix_hash") or ""),
+            provider_payload_provider_global_prefix_hash=str(payload.get("provider_payload_provider_global_prefix_hash") or ""),
+            provider_payload_session_prefix_hash=str(payload.get("provider_payload_session_prefix_hash") or ""),
+            provider_payload_task_prefix_hash=str(payload.get("provider_payload_task_prefix_hash") or ""),
+            tool_catalog_hash=str(payload.get("tool_catalog_hash") or ""),
+            stable_tool_catalog_hash=str(payload.get("stable_tool_catalog_hash") or ""),
+            cache_sensitive_params_hash=str(payload.get("cache_sensitive_params_hash") or ""),
             previous_baseline_ref=str(payload.get("previous_baseline_ref") or ""),
             changed_tiers=tuple(str(item) for item in list(payload.get("changed_tiers") or []) if str(item or "")),
             reset_reason=str(payload.get("reset_reason") or ""),
@@ -120,11 +139,22 @@ class PromptCacheBaselineTracker:
             session_prefix_hash=hashes["session"],
             task_prefix_hash=hashes["task"],
             memory_segment_hash=hashes["memory"],
+            provider_payload_prefix_hash=hashes["provider_payload"],
+            provider_payload_provider_global_prefix_hash=hashes["provider_payload_provider_global"],
+            provider_payload_session_prefix_hash=hashes["provider_payload_session"],
+            provider_payload_task_prefix_hash=hashes["provider_payload_task"],
+            tool_catalog_hash=hashes["tool_catalog"],
+            stable_tool_catalog_hash=hashes["stable_tool_catalog"],
+            cache_sensitive_params_hash=hashes["cache_sensitive_params"],
             previous_baseline_ref=previous.baseline_id if previous is not None else "",
             changed_tiers=changed_tiers,
             created_at=timestamp,
             diagnostics={
                 "baseline_segments": _baseline_segment_diagnostics(segment_map),
+                "provider_payload": provider_payload_boundary_diagnostics(
+                    model_request=model_request,
+                    boundary=provider_payload_cache_boundary(model_request),
+                ),
                 "reset_seen": previous is None and generation > 0,
                 "has_previous_active_baseline": previous is not None,
             },
@@ -205,6 +235,10 @@ class PromptCacheBaselineTracker:
 
 def _baseline_hashes(*, segment_map: PromptSegmentMap, model_request: Any | None) -> dict[str, str]:
     tier_hashes = _tier_prefix_hashes(segment_map.segments)
+    provider_boundary = provider_payload_cache_boundary(model_request)
+    provider_global = provider_payload_tier_prefix(provider_boundary, "provider_global")
+    session = provider_payload_tier_prefix(provider_boundary, "session")
+    task = provider_payload_tier_prefix(provider_boundary, "task")
     return {
         "stable": str(getattr(model_request, "stable_prefix_hash", "") or dict(segment_map.metadata or {}).get("stable_prefix_hash") or tier_hashes["stable"]),
         "provider_global": str(
@@ -215,6 +249,25 @@ def _baseline_hashes(*, segment_map: PromptSegmentMap, model_request: Any | None
         "session": str(getattr(model_request, "session_prefix_hash", "") or dict(segment_map.metadata or {}).get("session_prefix_hash") or tier_hashes["session"]),
         "task": str(getattr(model_request, "task_prefix_hash", "") or dict(segment_map.metadata or {}).get("task_prefix_hash") or tier_hashes["task"]),
         "memory": _memory_segment_hash(segment_map.segments),
+        "provider_payload": str(getattr(model_request, "provider_payload_prefix_hash", "") or provider_boundary.get("provider_payload_prefix_hash") or ""),
+        "provider_payload_provider_global": str(
+            getattr(model_request, "provider_payload_provider_global_prefix_hash", "")
+            or provider_global.get("provider_payload_prefix_hash")
+            or ""
+        ),
+        "provider_payload_session": str(
+            getattr(model_request, "provider_payload_session_prefix_hash", "")
+            or session.get("provider_payload_prefix_hash")
+            or ""
+        ),
+        "provider_payload_task": str(
+            getattr(model_request, "provider_payload_task_prefix_hash", "")
+            or task.get("provider_payload_prefix_hash")
+            or ""
+        ),
+        "tool_catalog": str(getattr(model_request, "tool_catalog_hash", "") or provider_boundary.get("tool_catalog_hash") or ""),
+        "stable_tool_catalog": str(getattr(model_request, "stable_tool_catalog_hash", "") or provider_boundary.get("stable_tool_catalog_hash") or ""),
+        "cache_sensitive_params": str(getattr(model_request, "cache_sensitive_params_hash", "") or provider_boundary.get("cache_sensitive_params_hash") or ""),
     }
 
 
@@ -335,6 +388,13 @@ def _changed_tiers(previous: PromptCacheBaselineRecord | None, hashes: dict[str,
         "session": previous.session_prefix_hash,
         "task": previous.task_prefix_hash,
         "memory": previous.memory_segment_hash,
+        "provider_payload": previous.provider_payload_prefix_hash,
+        "provider_payload_provider_global": previous.provider_payload_provider_global_prefix_hash,
+        "provider_payload_session": previous.provider_payload_session_prefix_hash,
+        "provider_payload_task": previous.provider_payload_task_prefix_hash,
+        "tool_catalog": previous.tool_catalog_hash,
+        "stable_tool_catalog": previous.stable_tool_catalog_hash,
+        "cache_sensitive_params": previous.cache_sensitive_params_hash,
     }
     return tuple(tier for tier, previous_hash in checks.items() if str(previous_hash or "") != str(hashes.get(tier) or ""))
 

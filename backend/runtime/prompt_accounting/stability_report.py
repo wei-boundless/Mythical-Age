@@ -9,6 +9,13 @@ from typing import Any
 from prompt_cache_policy import is_cache_eligible_prefix, is_prefix_eligible_for_tier
 
 from .models import ModelTokenUsageRecord, PromptSegment, PromptSegmentMap
+from .provider_payload_boundary import (
+    provider_payload_boundary_diagnostics,
+    provider_payload_cache_boundary,
+    provider_payload_manifest_dict,
+    provider_payload_selected_tier,
+    provider_payload_tier_prefix,
+)
 from .stability_models import PromptStabilityReport, PromptStabilitySection
 
 
@@ -23,31 +30,41 @@ class PromptStabilityReporter:
         created_at: float | None = None,
     ) -> PromptStabilityReport:
         timestamp = time.time() if created_at is None else float(created_at or 0.0)
-        stable_segments, volatile_segments = _split_segments(segment_map.segments)
-        stable_sections = tuple(_section_from_segment(segment) for segment in stable_segments)
-        volatile_sections = tuple(_section_from_segment(segment) for segment in volatile_segments)
+        provider_sections = _provider_payload_sections(model_request=model_request, segment_map=segment_map)
+        if provider_sections is not None:
+            stable_sections, volatile_sections = provider_sections
+        else:
+            stable_segments, volatile_segments = _split_segments(segment_map.segments)
+            stable_sections = tuple(_section_from_segment(segment) for segment in stable_segments)
+            volatile_sections = tuple(_section_from_segment(segment) for segment in volatile_segments)
         tier_prefixes = _tier_prefixes(segment_map.segments)
         dynamic_summary = _dynamic_param_summary(model_request=model_request, segment_map=segment_map)
         dynamic_hash = _stable_hash(dynamic_summary)
         context_window = _context_window_summary(model_request=model_request, segment_map=segment_map)
         changed_sections, first_changed = _diff_stable_sections(previous_report, stable_sections)
+        dynamic_param_diff = _dynamic_param_diff(previous_report, dynamic_summary)
+        dynamic_params_changed = bool(dynamic_param_diff)
         stable_prefix_hash = str(
-            getattr(model_request, "stable_prefix_hash", "")
+            getattr(model_request, "provider_payload_prefix_hash", "")
+            or getattr(model_request, "stable_prefix_hash", "")
             or getattr(cache_record, "prefix_hash", "")
             or _stable_hash([section.content_hash for section in stable_sections])
         )
         provider_global_prefix_hash = str(
-            getattr(model_request, "provider_global_prefix_hash", "")
+            getattr(model_request, "provider_payload_provider_global_prefix_hash", "")
+            or getattr(model_request, "provider_global_prefix_hash", "")
             or dict(getattr(cache_record, "diagnostics", {}) or {}).get("provider_global_prefix_hash")
             or _prefix_hash(tier_prefixes["provider_global"])
         )
         session_prefix_hash = str(
-            getattr(model_request, "session_prefix_hash", "")
+            getattr(model_request, "provider_payload_session_prefix_hash", "")
+            or getattr(model_request, "session_prefix_hash", "")
             or dict(getattr(cache_record, "diagnostics", {}) or {}).get("session_prefix_hash")
             or _prefix_hash(tier_prefixes["session"])
         )
         task_prefix_hash = str(
-            getattr(model_request, "task_prefix_hash", "")
+            getattr(model_request, "provider_payload_task_prefix_hash", "")
+            or getattr(model_request, "task_prefix_hash", "")
             or dict(getattr(cache_record, "diagnostics", {}) or {}).get("task_prefix_hash")
             or _prefix_hash(tier_prefixes["task"])
         )
@@ -55,6 +72,9 @@ class PromptStabilityReporter:
             stable_sections=stable_sections,
             previous_report=previous_report,
             first_changed=first_changed,
+            dynamic_param_diff=dynamic_param_diff,
+            dynamic_params_changed=dynamic_params_changed,
+            model_request=model_request,
         )
         return PromptStabilityReport(
             report_id=f"pstability:{segment_map.request_id}",
@@ -107,12 +127,18 @@ class PromptStabilityReporter:
             "cache_creation_tokens": int(usage.cache_creation_tokens or 0),
             "cache_hit_rate": round(cached_tokens / prompt_tokens, 4) if prompt_tokens > 0 else 0.0,
         }
+        likely_break_reason = _likely_break_reason_with_provider_usage(
+            diagnostics=dict(report.diagnostics or {}),
+            cached_tokens=cached_tokens,
+            prompt_tokens=prompt_tokens,
+        )
         return replace(
             report,
             provider_usage=provider_usage,
             diagnostics={
                 **dict(report.diagnostics or {}),
                 "provider_usage_ref": usage.usage_id,
+                "likely_break_reason": likely_break_reason,
             },
         )
 
@@ -148,11 +174,84 @@ def _section_from_segment(segment: PromptSegment) -> PromptStabilitySection:
     )
 
 
+def _provider_payload_sections(
+    *,
+    model_request: Any | None,
+    segment_map: PromptSegmentMap,
+) -> tuple[tuple[PromptStabilitySection, ...], tuple[PromptStabilitySection, ...]] | None:
+    manifest = provider_payload_manifest_dict(model_request)
+    if not manifest:
+        return None
+    segments = [dict(item) for item in list(manifest.get("segments") or []) if isinstance(item, dict)]
+    if not segments:
+        return None
+    by_id = {str(item.get("segment_id") or ""): item for item in segments}
+    boundary = provider_payload_cache_boundary(model_request)
+    tier = provider_payload_selected_tier(boundary)
+    selected_prefix = provider_payload_tier_prefix(boundary, tier)
+    stable_ids = [str(item) for item in list(selected_prefix.get("segment_ids") or []) if str(item or "")]
+    stable_set = set(stable_ids)
+    token_lookup = _provider_payload_token_lookup(segment_map)
+    stable_sections = tuple(
+        _section_from_provider_payload_segment(
+            by_id[segment_id],
+            ordinal=index + 1,
+            token_lookup=token_lookup,
+        )
+        for index, segment_id in enumerate(stable_ids)
+        if segment_id in by_id
+    )
+    volatile_sections = tuple(
+        _section_from_provider_payload_segment(
+            item,
+            ordinal=_int(item.get("ordinal")),
+            token_lookup=token_lookup,
+        )
+        for item in sorted(segments, key=lambda payload: int(payload.get("ordinal") or 0))
+        if str(item.get("segment_id") or "") not in stable_set
+    )
+    return stable_sections, volatile_sections
+
+
+def _section_from_provider_payload_segment(
+    payload: dict[str, Any],
+    *,
+    ordinal: int,
+    token_lookup: dict[tuple[str, str], int],
+) -> PromptStabilitySection:
+    metadata = dict(payload.get("metadata") or {})
+    kind = str(payload.get("kind") or "")
+    content_hash = str(payload.get("content_hash") or "")
+    return PromptStabilitySection(
+        section_id=str(payload.get("segment_id") or ""),
+        kind=kind,
+        ordinal=max(0, int(ordinal or 0)),
+        source_ref=str(payload.get("source_ref") or ""),
+        cache_role=str(payload.get("cache_role") or "volatile"),
+        prefix_tier=str(payload.get("prefix_tier") or "volatile"),
+        content_hash=content_hash,
+        predicted_tokens=int(token_lookup.get((kind, content_hash)) or token_lookup.get(("", content_hash)) or 0),
+        volatility_reason=str(metadata.get("volatility_reason") or metadata.get("cache_impact") or ""),
+    )
+
+
+def _provider_payload_token_lookup(segment_map: PromptSegmentMap) -> dict[tuple[str, str], int]:
+    result: dict[tuple[str, str], int] = {}
+    for segment in list(segment_map.segments or []):
+        content_hash = str(segment.content_hash or "")
+        if not content_hash:
+            continue
+        result[(str(segment.kind or ""), content_hash)] = int(segment.predicted_tokens or 0)
+        result.setdefault(("", content_hash), int(segment.predicted_tokens or 0))
+    return result
+
+
 def _dynamic_param_summary(*, model_request: Any | None, segment_map: PromptSegmentMap) -> dict[str, Any]:
     tools = list(getattr(model_request, "tools", ()) or [])
     cache_policy = getattr(model_request, "cache_policy", None)
     diagnostics = dict(getattr(model_request, "diagnostics", {}) or {})
     cache_relevant_params = dict(diagnostics.get("cache_relevant_params") or {})
+    provider_boundary = provider_payload_cache_boundary(model_request)
     return _drop_empty(
         {
             "provider": segment_map.provider,
@@ -160,6 +259,8 @@ def _dynamic_param_summary(*, model_request: Any | None, segment_map: PromptSegm
             "request_params": cache_relevant_params,
             "tool_count": len(tools),
             "tools_hash": _stable_hash(tools) if tools else "",
+            "tool_catalog_hash": str(provider_boundary.get("tool_catalog_hash") or ""),
+            "cache_sensitive_params_hash": str(provider_boundary.get("cache_sensitive_params_hash") or ""),
             "cache_policy": cache_policy.to_dict() if hasattr(cache_policy, "to_dict") else {},
         }
     )
@@ -242,13 +343,74 @@ def _diagnostics(
     stable_sections: tuple[PromptStabilitySection, ...],
     previous_report: PromptStabilityReport | None,
     first_changed: dict[str, Any],
+    dynamic_param_diff: dict[str, Any],
+    dynamic_params_changed: bool,
+    model_request: Any | None,
 ) -> dict[str, Any]:
+    stable_prefix_changed = bool(first_changed)
     return _drop_empty(
         {
             "has_previous_report": previous_report is not None,
-            "stable_prefix_changed": bool(first_changed),
+            "stable_prefix_changed": stable_prefix_changed,
+            "dynamic_params_changed": dynamic_params_changed,
+            "dynamic_param_diff": dynamic_param_diff,
+            "likely_break_reason": _likely_break_reason(
+                stable_prefix_changed=stable_prefix_changed,
+                dynamic_params_changed=dynamic_params_changed,
+            ),
+            "provider_payload": provider_payload_boundary_diagnostics(
+                model_request=model_request,
+                boundary=provider_payload_cache_boundary(model_request),
+            ),
         }
     )
+
+
+def _dynamic_param_diff(
+    previous_report: PromptStabilityReport | None,
+    current_summary: dict[str, Any],
+) -> dict[str, Any]:
+    if previous_report is None:
+        return {}
+    return _top_level_diff(dict(previous_report.dynamic_param_summary or {}), dict(current_summary or {}))
+
+
+def _top_level_diff(previous: dict[str, Any], current: dict[str, Any]) -> dict[str, Any]:
+    diff: dict[str, Any] = {}
+    for key in sorted(set(previous) | set(current)):
+        previous_value = previous.get(key)
+        current_value = current.get(key)
+        if _json_stable(previous_value) == _json_stable(current_value):
+            continue
+        diff[str(key)] = {
+            "previous": previous_value,
+            "current": current_value,
+        }
+    return diff
+
+
+def _likely_break_reason(*, stable_prefix_changed: bool, dynamic_params_changed: bool) -> str:
+    if dynamic_params_changed:
+        return "dynamic_request_params_changed"
+    if stable_prefix_changed:
+        return "stable_prefix_changed"
+    return "stable_prefix_unchanged"
+
+
+def _likely_break_reason_with_provider_usage(
+    *,
+    diagnostics: dict[str, Any],
+    cached_tokens: int,
+    prompt_tokens: int,
+) -> str:
+    if int(cached_tokens or 0) > 0:
+        return "provider_cache_hit"
+    existing = str(diagnostics.get("likely_break_reason") or "")
+    if existing and existing != "stable_prefix_unchanged":
+        return existing
+    if int(prompt_tokens or 0) > 0:
+        return "provider_cache_cold_or_expired"
+    return existing or "stable_prefix_unchanged"
 
 
 def _tier_prefixes(segments: tuple[PromptSegment, ...]) -> dict[str, list[PromptSegment]]:

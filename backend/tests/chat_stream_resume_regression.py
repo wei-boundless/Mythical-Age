@@ -14,7 +14,10 @@ if str(BACKEND_DIR) not in sys.path:
 from app import app
 from bootstrap.app_runtime import app_runtime
 from harness.runtime.single_agent_host import SingleAgentRuntimeHost
+from runtime.memory.state_index import RuntimeStateIndex
+from runtime.shared.models import TurnRun
 from runtime.shared.runtime_run_registry import RuntimeRunRegistry
+from sessions import SessionManager
 
 
 async def _fake_resumable_astream(_request):
@@ -278,6 +281,204 @@ def test_runtime_startup_marks_previous_process_active_chat_runs_orphaned(tmp_pa
     assert data["code"] == "runtime_process_restarted"
     assert "agent 没有收到新的模型轮次" in data["error"]
     assert "系统会根据当前任务状态重新判断下一步" not in data["error"]
+
+
+def test_runtime_startup_reconciles_orphaned_chat_turn_run_and_visible_boundary(tmp_path) -> None:
+    backend_dir = tmp_path / "backend"
+    backend_dir.mkdir()
+    runtime_root = tmp_path / "storage" / "runtime_state"
+    session_manager = SessionManager(backend_dir)
+    session_id = session_manager.create_session(title="Interrupted turn")["id"]
+    turn_id = f"turn:{session_id}:1"
+    session_manager.append_messages(
+        session_id,
+        [{"role": "user", "content": "查一下今天 NBA 有没有比赛", "turn_id": turn_id}],
+    )
+    previous_host = SingleAgentRuntimeHost(
+        runtime_root,
+        backend_dir=backend_dir,
+        session_manager=session_manager,
+    )
+    stale = previous_host.run_registry.create_run(
+        session_id=session_id,
+        owner_process_id=previous_host.owner_process_id,
+        owner_instance_id=previous_host.instance_id,
+    )
+    turn_run_id = f"turnrun:{stale.stream_run_id}"
+    previous_host.run_registry.update_run(
+        stale.stream_run_id,
+        diagnostics={"runtime_turn_run_id": turn_run_id},
+    )
+    stale = previous_host.run_registry.mark_running(stale)
+    previous_host.run_registry.mark_event(stale, latest_event_offset=0, status="running")
+    previous_host.state_index.upsert_turn_run(
+        TurnRun(
+            turn_run_id=turn_run_id,
+            session_id=session_id,
+            turn_id=turn_id,
+            status="running",
+            created_at=time.time(),
+            updated_at=time.time(),
+            diagnostics={"stream_run_id": stale.stream_run_id},
+        )
+    )
+    previous_host.active_turn_registry.start(
+        session_id=session_id,
+        turn_id=turn_id,
+        turn_run_id=turn_run_id,
+        stream_run_id=stale.stream_run_id,
+        state="model_turn",
+    )
+
+    host = SingleAgentRuntimeHost(
+        runtime_root,
+        backend_dir=backend_dir,
+        session_manager=session_manager,
+    )
+
+    recovered = host.run_registry.get_run(stale.stream_run_id)
+    assert recovered is not None
+    assert recovered.status == "orphaned"
+    turn_run = host.state_index.get_turn_run(turn_run_id)
+    assert turn_run is not None
+    assert turn_run.status == "failed"
+    assert turn_run.terminal_reason == "context_unrecoverable"
+    assert turn_run.diagnostics["reason"] == "runtime_process_restarted"
+    assert turn_run.diagnostics["interrupted_stream_run_id"] == stale.stream_run_id
+    terminal_events = [
+        event
+        for event in host.event_log.list_events(turn_run_id)
+        if event.event_type == "agent_turn_terminal"
+    ]
+    assert len(terminal_events) == 1
+    terminal_payload = dict(terminal_events[0].payload or {})
+    assert terminal_payload["failure_code"] == "runtime_process_restarted"
+    assert terminal_payload["terminal_reason"] == "context_unrecoverable"
+    assert host.active_turn_registry.snapshot(session_id) is None
+    history = session_manager.load_session_record(session_id)
+    assistant_messages = [
+        item
+        for item in history["messages"]
+        if item.get("role") == "assistant" and item.get("turn_id") == turn_id
+    ]
+    assert len(assistant_messages) == 1
+    assert "工具结果没有交回模型完成收口" in assistant_messages[0]["content"]
+    assert assistant_messages[0]["answer_source"] == "harness.runtime.stream_failure_reconciliation"
+    api_history = session_manager.load_session_for_api(session_id)
+    assert [item["role"] for item in api_history] == ["user", "assistant"]
+
+
+def test_stream_failure_reconciliation_closes_existing_api_transcript(tmp_path) -> None:
+    backend_dir = tmp_path / "backend"
+    backend_dir.mkdir()
+    runtime_root = tmp_path / "storage" / "runtime_state"
+    session_manager = SessionManager(backend_dir)
+    session_id = session_manager.create_session(title="Protocol close")["id"]
+    turn_id = f"turn:{session_id}:1"
+    session_manager.append_messages(
+        session_id,
+        [{"role": "user", "content": "查一下赛程", "turn_id": turn_id}],
+    )
+    session_manager.append_api_messages(
+        session_id,
+        [
+            {"role": "user", "content": "查一下赛程", "turn_id": turn_id},
+            {
+                "role": "assistant",
+                "content": "",
+                "turn_id": turn_id,
+                "tool_calls": [{"id": "call_1", "name": "fetch_url", "args": {}, "type": "tool_call"}],
+            },
+            {"role": "tool", "tool_call_id": "call_1", "content": "HTTP 406", "turn_id": turn_id},
+        ],
+    )
+    host = SingleAgentRuntimeHost(
+        runtime_root,
+        backend_dir=backend_dir,
+        session_manager=session_manager,
+    )
+    run = host.run_registry.create_run(session_id=session_id)
+    turn_run_id = f"turnrun:{run.stream_run_id}"
+    run = host.run_registry.update_run(
+        run.stream_run_id,
+        diagnostics={"runtime_turn_run_id": turn_run_id},
+    )
+    host.state_index.upsert_turn_run(
+        TurnRun(
+            turn_run_id=turn_run_id,
+            session_id=session_id,
+            turn_id=turn_id,
+            status="running",
+            created_at=time.time(),
+            updated_at=time.time(),
+            diagnostics={"stream_run_id": run.stream_run_id},
+        )
+    )
+
+    result = host.close_chat_turn_run_for_stream_failure(
+        run,
+        code="stream_exception",
+        reason="boom",
+    )
+
+    assert result["turn_run_closed"] is True
+    api_history = session_manager.load_session_for_api(session_id)
+    assert [item["role"] for item in api_history] == ["user", "assistant", "tool", "assistant"]
+    assert api_history[-1]["turn_id"] == turn_id
+    assert "异常中断" in api_history[-1]["content"]
+    public_assistant = [
+        item
+        for item in session_manager.load_session_record(session_id)["messages"]
+        if item.get("role") == "assistant"
+    ]
+    assert len(public_assistant) == 1
+    assert public_assistant[0]["answer_source"] == "harness.runtime.stream_failure_reconciliation"
+
+
+def test_runtime_startup_repairs_previously_orphaned_chat_turn_run(tmp_path) -> None:
+    runtime_root = tmp_path / "runtime_state"
+    registry = RuntimeRunRegistry(runtime_root)
+    cases = [
+        ("runtime_process_restarted", {"reason": "runtime_process_restarted"}),
+        ("stream_cancelled", {"reason": "stream_cancelled", "cancelled": True}),
+    ]
+    turn_run_ids: list[tuple[str, str]] = []
+    for index, (failure_code, diagnostics) in enumerate(cases, start=1):
+        stale = registry.create_run(
+            session_id=f"session:already-orphaned:{index}",
+            owner_process_id=999999,
+            owner_instance_id="runtime-instance:previous",
+        )
+        turn_run_id = f"turnrun:{stale.stream_run_id}"
+        registry.update_run(
+            stale.stream_run_id,
+            diagnostics={
+                "runtime_turn_run_id": turn_run_id,
+                **diagnostics,
+            },
+        )
+        stale = registry.mark_running(stale)
+        registry.mark_event(stale, latest_event_offset=0, status="orphaned", terminal_event="error")
+        RuntimeStateIndex(runtime_root).upsert_turn_run(
+            TurnRun(
+                turn_run_id=turn_run_id,
+                session_id=f"session:already-orphaned:{index}",
+                turn_id=f"turn:session:already-orphaned:{index}",
+                status="running",
+                created_at=time.time(),
+                updated_at=time.time(),
+                diagnostics={"stream_run_id": stale.stream_run_id},
+            )
+        )
+        turn_run_ids.append((turn_run_id, failure_code))
+
+    host = SingleAgentRuntimeHost(runtime_root)
+
+    for turn_run_id, failure_code in turn_run_ids:
+        turn_run = host.state_index.get_turn_run(turn_run_id)
+        assert turn_run is not None
+        assert turn_run.status == "failed"
+        assert turn_run.diagnostics["reason"] == failure_code
 
 
 def test_runtime_startup_uses_instance_owner_not_only_process_id_for_recovery(tmp_path) -> None:

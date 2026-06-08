@@ -182,6 +182,61 @@ def test_deepseek_cache_diagnosis_summarizes_dynamic_param_diff(tmp_path: Path) 
     assert result.stability_reports[0]["dynamic_param_diff"] == "request_params"
 
 
+def test_deepseek_cache_diagnosis_summarizes_provider_payload_break_reason(tmp_path: Path) -> None:
+    ledger_dir = tmp_path / "prompt_accounting"
+    ledger_dir.mkdir()
+    _write_jsonl(
+        ledger_dir / "prompt_cache.jsonl",
+        [
+            {
+                **_cache_record("req:tool-break", "key:tool:new", "miss"),
+                "prefix_hash": "sha256:provider-payload-new",
+                "diagnostics": {
+                    "provider_cache_policy": {
+                        "mode": "automatic_prefix",
+                        "provider": "deepseek",
+                    },
+                    "provider_payload_prefix_hash": "sha256:provider-payload-new",
+                    "tool_catalog_hash": "sha256:tool-catalog-new",
+                    "cache_sensitive_params_hash": "sha256:params",
+                },
+            }
+        ],
+    )
+    _write_jsonl(
+        ledger_dir / "token_usage.jsonl",
+        [_provider_usage("req:tool-break", prompt_tokens=1000, cached_tokens=0)],
+    )
+    _write_jsonl(
+        ledger_dir / "prompt_cache_breaks.jsonl",
+        [
+            {
+                "break_id": "pcachebreak:req:tool-break",
+                "request_id": "req:tool-break",
+                "provider": "deepseek",
+                "model": "deepseek-v4-flash",
+                "reason": "tool_schema_hash_changed",
+                "diagnostics": {
+                    "provider_payload": {
+                        "tool_catalog_hash": {
+                            "previous": "sha256:tool-catalog-old",
+                            "current": "sha256:tool-catalog-new",
+                        }
+                    }
+                },
+                "created_at": 3,
+            }
+        ],
+    )
+
+    result = diagnose(ledger_dir=ledger_dir)
+
+    assert result.summary["cache_break_reason_counts"]["tool_schema_hash_changed"] == 1
+    assert result.recent_requests[0]["cache_break_reason"] == "tool_schema_hash_changed"
+    assert result.recent_requests[0]["provider_payload_prefix_hash"] == "sha256:provider-pay"
+    assert result.recent_requests[0]["tool_catalog_hash"] == "sha256:tool-catalog"
+
+
 def test_deepseek_cache_diagnosis_summarizes_context_window_facts(tmp_path: Path) -> None:
     ledger_dir = tmp_path / "prompt_accounting"
     ledger_dir.mkdir()
