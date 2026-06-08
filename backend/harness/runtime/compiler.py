@@ -14,7 +14,6 @@ from prompt_library import (
     default_pack_ref_for_invocation,
 )
 from prompt_library.rules import build_rule_diagnostics
-from prompt_library.tool_prompts import tool_guidance_payload_for_visible_tools
 from prompt_composition import PromptCompositionLayerInput, build_shadow_prompt_composition_manifest
 from artifact_system.artifact_authority import artifact_ref_value, dedupe_artifact_refs, model_visible_artifact_refs, normalize_artifact_ref
 from project_layout import ProjectLayout
@@ -32,6 +31,7 @@ from .environment_prompt_controller import GENERAL_ENVIRONMENT_ID, prompt_mount_
 from .prompt_segment_plan import build_prompt_segment_plan
 from .project_instructions import ProjectInstructionBundle, collect_project_instruction_bundle
 from .sandbox_execution_scope import compile_sandbox_execution_scope, task_safety_envelope_from_assembly
+from .tool_catalog_manifest import ToolCatalogManifest, build_tool_catalog_manifest
 
 
 _SUBAGENT_TOOL_NAMES = {
@@ -328,6 +328,11 @@ class RuntimeCompiler:
             assembly_payload=assembly_payload,
             control_capabilities=control_capabilities,
         )
+        tool_catalog_manifest = build_tool_catalog_manifest(
+            invocation_kind="single_agent_turn",
+            tool_payloads=single_turn_tools,
+            source_ref="runtime_assembly.available_tools",
+        )
         if single_turn_tools and "tool_call" not in allowed_actions:
             allowed_actions = (*allowed_actions, "tool_call")
         effective_control_capabilities = _single_agent_turn_effective_control_capabilities(
@@ -438,8 +443,7 @@ class RuntimeCompiler:
                 prompt_mount_plan=prompt_mount_plan.to_dict(),
             ),
             "output_contract": output_contract,
-            "available_tools": _stable_tool_catalog_payload(single_turn_tools),
-            **tool_guidance_payload_for_visible_tools(single_turn_tools),
+            **tool_catalog_manifest.to_model_visible_payload(include_catalog_hash=False),
             **_project_instruction_model_payload(project_instruction_bundle),
         }
         packet_id = f"rtpacket:{turn_id}:single_agent_turn:1"
@@ -607,6 +611,7 @@ class RuntimeCompiler:
             dynamic_context=dynamic_context,
         )
         _attach_project_instruction_manifest(prompt_manifest, project_instruction_bundle)
+        tool_catalog_manifest_payload = _attach_tool_catalog_manifest(prompt_manifest, tool_catalog_manifest)
         prompt_composition_manifest = _attach_prompt_composition_manifest(
             prompt_manifest,
             invocation_kind="single_agent_turn",
@@ -664,6 +669,7 @@ class RuntimeCompiler:
             model_messages=model_messages,
             segment_plan=segment_plan.to_dict(),
             prompt_composition_manifest=prompt_composition_manifest,
+            tool_catalog_manifest=tool_catalog_manifest_payload,
             prompt_pack_refs=prompt_assembly.prompt_pack_refs,
             available_tools=single_turn_tools,
             allowed_action_types=allowed_actions,
@@ -674,6 +680,7 @@ class RuntimeCompiler:
             diagnostics={
                 "prompt_manifest": prompt_manifest,
                 "segment_plan": segment_plan.to_dict(),
+                "tool_catalog_manifest": tool_catalog_manifest_payload,
                 "model_input_authority": "runtime_invocation_packet.model_messages",
                 "protocol_sanitizer": dict(protocol_sanitizer.diagnostics),
                 "control_capabilities": dict(effective_control_capabilities),
@@ -726,6 +733,11 @@ class RuntimeCompiler:
         permission_policy = dict(profile_payload.get("permission_policy") or {"permission_scope": "task_run_execution"})
         permission_policy.setdefault("permission_scope", str(permission_policy.get("scope") or "task_run_execution"))
         tool_payloads = tuple(dict(item) for item in list(available_tools or []) if isinstance(item, dict))
+        tool_catalog_manifest = build_tool_catalog_manifest(
+            invocation_kind="task_execution",
+            tool_payloads=tool_payloads,
+            source_ref="task_execution.available_tools",
+        )
         graph_slot = _graph_slot_from_contract(contract)
         task_run_context_enabled = _task_run_context_enabled(profile_payload)
         prompt_pack_refs = _prompt_pack_refs_for_invocation(profile_payload, invocation_kind="task_execution")
@@ -861,11 +873,7 @@ class RuntimeCompiler:
             ),
             **_project_instruction_model_payload(project_instruction_bundle),
         }
-        tool_index_payload = {
-            "available_tools": _stable_tool_catalog_payload(tool_payloads),
-            "tool_catalog_hash": _stable_json_hash([dict(item) for item in tool_payloads]),
-            **tool_guidance_payload_for_visible_tools(tool_payloads),
-        }
+        tool_index_payload = tool_catalog_manifest.to_model_visible_payload(include_catalog_hash=True)
         packet_id = f"rtpacket:{task_run_id}:task_execution:{executor_epoch}:{invocation_index}"
         dynamic_context = self.dynamic_context_manager.project(
             DynamicContextInput(
@@ -980,7 +988,7 @@ class RuntimeCompiler:
                     role="system",
                     content=_packet_payload_content("Task execution tool index", tool_index_payload),
                     kind="tool_index_stable",
-                    source_ref=_short_hash(_stable_json_hash([dict(item) for item in tool_payloads])),
+                    source_ref=_short_hash(tool_catalog_manifest.tool_catalog_hash),
                     cache_scope="task",
                     cache_role="session_stable",
                     compression_role="preserve",
@@ -1141,6 +1149,7 @@ class RuntimeCompiler:
             dynamic_context=dynamic_context,
         )
         _attach_project_instruction_manifest(prompt_manifest, project_instruction_bundle)
+        tool_catalog_manifest_payload = _attach_tool_catalog_manifest(prompt_manifest, tool_catalog_manifest)
         prompt_composition_manifest = _attach_prompt_composition_manifest(
             prompt_manifest,
             invocation_kind="task_execution",
@@ -1205,6 +1214,7 @@ class RuntimeCompiler:
             model_messages=model_messages,
             segment_plan=segment_plan.to_dict(),
             prompt_composition_manifest=prompt_composition_manifest,
+            tool_catalog_manifest=tool_catalog_manifest_payload,
             prompt_pack_refs=prompt_assembly.prompt_pack_refs,
             available_tools=tool_payloads,
             allowed_action_types=("respond", "ask_user", "tool_call", "block"),
@@ -1216,6 +1226,7 @@ class RuntimeCompiler:
             diagnostics={
                 "prompt_manifest": prompt_manifest,
                 "segment_plan": segment_plan.to_dict(),
+                "tool_catalog_manifest": tool_catalog_manifest_payload,
                 "model_input_authority": "runtime_invocation_packet.model_messages",
                 "artifact_scope": {
                     **sandbox_execution_scope.to_diagnostics(),
@@ -1254,6 +1265,11 @@ class RuntimeCompiler:
         permission_policy.setdefault("permission_scope", str(permission_policy.get("scope") or "bounded_read_observation"))
         prompt_pack_refs = _prompt_pack_refs_for_invocation(profile_payload, invocation_kind="tool_observation_followup")
         tool_payloads = tuple(dict(item) for item in list(available_tools or []) if isinstance(item, dict))
+        tool_catalog_manifest = build_tool_catalog_manifest(
+            invocation_kind="tool_observation_followup",
+            tool_payloads=tool_payloads,
+            source_ref="tool_observation_followup.available_tools",
+        )
         agent_visible_runtime_projection = _agent_visible_runtime_projection(
             invocation_kind="tool_observation_followup",
             allowed_action_types=("respond", "ask_user", "tool_call", "request_task_run", "request_registered_engagement", "block"),
@@ -1334,9 +1350,7 @@ class RuntimeCompiler:
                 environment_payload,
                 prompt_mount_plan=prompt_mount_plan.to_dict(),
             ),
-            "available_tools": _stable_tool_catalog_payload(tool_payloads),
-            "tool_catalog_hash": _stable_json_hash([dict(item) for item in tool_payloads]),
-            **tool_guidance_payload_for_visible_tools(tool_payloads),
+            **tool_catalog_manifest.to_model_visible_payload(include_catalog_hash=True),
             **_project_instruction_model_payload(project_instruction_bundle),
         }
         packet_id = f"rtpacket:{turn_id}:tool_observation_followup:{len(observations) + 1}"
@@ -1508,6 +1522,7 @@ class RuntimeCompiler:
             dynamic_context=dynamic_context,
         )
         _attach_project_instruction_manifest(prompt_manifest, project_instruction_bundle)
+        tool_catalog_manifest_payload = _attach_tool_catalog_manifest(prompt_manifest, tool_catalog_manifest)
         prompt_composition_manifest = _attach_prompt_composition_manifest(
             prompt_manifest,
             invocation_kind="tool_observation_followup",
@@ -1565,6 +1580,7 @@ class RuntimeCompiler:
             model_messages=model_messages,
             segment_plan=segment_plan.to_dict(),
             prompt_composition_manifest=prompt_composition_manifest,
+            tool_catalog_manifest=tool_catalog_manifest_payload,
             prompt_pack_refs=prompt_assembly.prompt_pack_refs,
             available_tools=tool_payloads,
             allowed_action_types=("respond", "ask_user", "tool_call", "request_task_run", "request_registered_engagement", "block"),
@@ -1576,6 +1592,7 @@ class RuntimeCompiler:
             diagnostics={
                 "prompt_manifest": prompt_manifest,
                 "segment_plan": segment_plan.to_dict(),
+                "tool_catalog_manifest": tool_catalog_manifest_payload,
                 "model_input_authority": "runtime_invocation_packet.model_messages",
             },
         )
@@ -2632,6 +2649,15 @@ def _attach_model_message_metrics(
     prompt_manifest["token_estimate"] = token_estimate
 
 
+def _attach_tool_catalog_manifest(
+    prompt_manifest: dict[str, Any],
+    tool_catalog_manifest: ToolCatalogManifest,
+) -> dict[str, Any]:
+    payload = tool_catalog_manifest.to_dict()
+    prompt_manifest["tool_catalog_manifest"] = payload
+    return payload
+
+
 def _attach_prompt_composition_manifest(
     prompt_manifest: dict[str, Any],
     *,
@@ -3669,36 +3695,6 @@ def _memory_context_model_visible_payload(memory_context: Any) -> dict[str, Any]
     )
 
 
-def _stable_tool_catalog_payload(tool_payloads: tuple[dict[str, Any], ...]) -> list[dict[str, Any]]:
-    catalog: list[dict[str, Any]] = []
-    for item in tool_payloads:
-        tool = dict(item or {})
-        name = str(tool.get("tool_name") or tool.get("name") or "").strip()
-        if not name:
-            continue
-        required_inputs = [str(value) for value in list(tool.get("required_inputs") or []) if str(value)]
-        payload: dict[str, Any] = {
-            "tool_name": name,
-            "operation_id": str(tool.get("operation_id") or ""),
-        }
-        prompt_exposure_policy = str(tool.get("prompt_exposure_policy") or "").strip()
-        if prompt_exposure_policy:
-            payload["prompt_exposure_policy"] = prompt_exposure_policy
-        if required_inputs:
-            payload["required_inputs"] = required_inputs
-        owner_scope = str(tool.get("owner_scope") or "")
-        if owner_scope and owner_scope != "none":
-            payload["owner_scope"] = owner_scope
-        if bool(tool.get("read_only") is True):
-            payload["read_only"] = True
-        input_schema = dict(tool.get("input_schema") or {}) if isinstance(tool.get("input_schema"), dict) else {}
-        if input_schema:
-            payload["input_schema_summary"] = _input_schema_summary(input_schema)
-            payload["input_schema_ref"] = _short_hash(_stable_json_hash(input_schema))
-        catalog.append(payload)
-    return catalog
-
-
 def _skill_candidate_instruction(assembly_payload: dict[str, Any]) -> str:
     cards = render_skill_candidate_cards(
         [
@@ -3744,37 +3740,6 @@ def _active_skill_instruction(*, base_dir: Path, assembly_payload: dict[str, Any
             "source_refs": [],
             "error": "skill_expansion_failed",
         }
-
-
-def _input_schema_summary(schema: dict[str, Any]) -> dict[str, Any]:
-    properties = dict(schema.get("properties") or {})
-    summarized_properties: dict[str, str] = {}
-    for name, value in properties.items():
-        if not isinstance(value, dict):
-            continue
-        field_type = str(value.get("type") or "any")
-        if isinstance(value.get("items"), dict):
-            item_payload = dict(value.get("items") or {})
-            item_type = str(item_payload.get("type") or "any")
-            field_type = f"{field_type}<{item_type}>"
-        parts = [field_type]
-        if value.get("format"):
-            parts.append(f"format={value.get('format')}")
-        if "enum" in value:
-            enum_values = [str(item) for item in list(value.get("enum") or [])]
-            if enum_values:
-                parts.append("enum=" + "|".join(enum_values))
-        if "default" in value:
-            parts.append("default=" + json.dumps(value.get("default"), ensure_ascii=False, separators=(",", ":")))
-        summarized_properties[str(name)] = " ".join(parts)
-    summary: dict[str, Any] = {"properties": summarized_properties}
-    schema_type = str(schema.get("type") or "object")
-    if schema_type != "object":
-        summary["type"] = schema_type
-    required = [str(item) for item in list(schema.get("required") or []) if str(item)]
-    if required:
-        summary["required"] = required
-    return summary
 
 
 def _compact_text(value: Any, *, limit: int = 120) -> str:
