@@ -58,8 +58,8 @@ def test_search_specialists_are_registered_with_separate_authority() -> None:
     assert set(web.metadata["runtime_config"]["search"]["search_sources"]) == {"web"}
     assert "Web" in web.metadata["when_to_use"]
     assert web.metadata["output_contract"]["source_policy"]
-    assert web.metadata["worker_prompt_ref"] == "worker.prompt.web_research.v1"
-    assert web.metadata["agent_prompt_refs_by_invocation"]["task_execution"] == ["worker.prompt.web_research.v1"]
+    assert web.metadata["worker_prompt_ref"] == "worker.prompt.web_research"
+    assert web.metadata["agent_prompt_refs_by_invocation"]["task_execution"] == ["worker.prompt.web_research"]
     assert "source_matrix" in web.metadata["output_contract"]["recommended_fields"]
 
     code = profiles["agent:codebase_searcher"]
@@ -73,27 +73,27 @@ def test_search_specialists_are_registered_with_separate_authority() -> None:
     assert knowledge.allowed_operations == ("op.model_response", "op.mcp_retrieval")
     assert "op.memory_read" in knowledge.blocked_operations
     assert knowledge.metadata["runtime_template_id"] == "runtime.template.knowledge_search"
-    assert knowledge.metadata["worker_prompt_ref"] == "worker.prompt.knowledge_search.v1"
+    assert knowledge.metadata["worker_prompt_ref"] == "worker.prompt.knowledge_search"
     assert knowledge.metadata["agent_prompt_refs_by_invocation"]["task_execution"] == [
-        "worker.prompt.knowledge_search.v1"
+        "worker.prompt.knowledge_search"
     ]
 
     memory = profiles["agent:memory_searcher"]
     assert memory.allowed_operations == ("op.model_response", "op.memory_read")
     assert "op.mcp_retrieval" in memory.blocked_operations
-    assert memory.metadata["worker_prompt_ref"] == "worker.prompt.memory_search.v1"
+    assert memory.metadata["worker_prompt_ref"] == "worker.prompt.memory_search"
     assert memory.metadata["agent_prompt_refs_by_invocation"]["task_execution"] == [
-        "worker.prompt.memory_search.v1"
+        "worker.prompt.memory_search"
     ]
 
     pdf = profiles["agent:pdf_reader"]
-    assert pdf.metadata["worker_prompt_ref"] == "worker.prompt.pdf_analysis.v1"
-    assert pdf.metadata["agent_prompt_refs_by_invocation"]["task_execution"] == ["worker.prompt.pdf_analysis.v1"]
+    assert pdf.metadata["worker_prompt_ref"] == "worker.prompt.pdf_analysis"
+    assert pdf.metadata["agent_prompt_refs_by_invocation"]["task_execution"] == ["worker.prompt.pdf_analysis"]
 
     table = profiles["agent:table_analyst"]
-    assert table.metadata["worker_prompt_ref"] == "worker.prompt.structured_data_analysis.v1"
+    assert table.metadata["worker_prompt_ref"] == "worker.prompt.structured_data_analysis"
     assert table.metadata["agent_prompt_refs_by_invocation"]["task_execution"] == [
-        "worker.prompt.structured_data_analysis.v1"
+        "worker.prompt.structured_data_analysis"
     ]
 
 

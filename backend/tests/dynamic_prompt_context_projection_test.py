@@ -963,7 +963,7 @@ def test_task_execution_uses_invocation_scoped_agent_prompt_refs() -> None:
                 "single_agent_turn": ["agent.main_interactive_agent.single_agent_turn.work_role"],
                 "task_execution": ["agent.main_interactive_agent.task_execution.work_role"],
             },
-            "environment_prompt_refs": ["environment.development.sandbox.orientation.v1"],
+            "environment_prompt_refs": ["environment.development.sandbox.orientation"],
             "task_environment": {
                 "environment_id": "env.development.sandbox",
                 "title": "Development Sandbox",
@@ -1002,7 +1002,7 @@ def test_environment_strategy_prompt_ref_is_rejected_after_strategy_moves_to_age
             runtime_assembly={
                 "profile": {"mode": "professional"},
                 "environment_prompt_refs": [
-                    "environment.development.sandbox.orientation.v1",
+                    "environment.development.sandbox.orientation",
                     obsolete_environment_strategy_ref,
                 ],
                 "task_environment": {
@@ -1055,7 +1055,7 @@ def test_single_agent_turn_keeps_compressed_context_outside_active_history() -> 
     history_payload = _payload_containing_title(result.packet.model_messages, "Single agent turn session history")
 
     assert "history" not in volatile_payload
-    assert history_payload["session_context"]["compressed_summary"] == "此前已经确认项目采用 DeepSeek。"
+    assert history_payload["session_context"]["context_recovery_package"]["content"] == "此前已经确认项目采用 DeepSeek。"
     assert [item["content"] for item in history_payload["active_history"]] == [f"user-{index}" for index in range(8)]
     assert all("[Compressed session context]" not in item["content"] for item in history_payload["active_history"])
     history_segment = next(segment for segment in result.packet.segment_plan["segments"] if segment["kind"] == "session_history")
@@ -1166,7 +1166,7 @@ def test_observation_followup_projects_session_context_with_observations() -> No
     history_payload = _payload_containing_title(result.packet.model_messages, "Observation followup session history")
 
     assert "history" not in volatile_payload
-    assert history_payload["session_context"]["compressed_summary"] == "此前决定优先修结构问题。"
+    assert history_payload["session_context"]["context_recovery_package"]["content"] == "此前决定优先修结构问题。"
     assert history_payload["active_history"][0]["content"] == "先读文件。"
     assert volatile_payload["observations"]["latest_observations"][0]["summary"] == "read_file ok"
 
@@ -1193,14 +1193,14 @@ def test_single_agent_turn_projects_compressed_context_as_session_context() -> N
     message_texts = [str(message["content"]) for message in result.packet.model_messages]
 
     assert "history" not in volatile_payload
-    assert history_payload["session_context"]["compressed_summary"] == "此前已经完成项目结构审查。"
+    assert history_payload["session_context"]["context_recovery_package"]["content"] == "此前已经完成项目结构审查。"
     assert "[Compressed session context]" not in "\n".join(message_texts)
     assert [item["content"] for item in history_payload["active_history"]] == ["上一轮用户消息", "上一轮助手回复"]
     assert history_payload["current_user_message_ref"] == "volatile_current_request"
     assert result.packet.invocation_kind == "single_agent_turn"
     context_window = result.packet.diagnostics["prompt_manifest"]["context_window"]
-    assert context_window["compressed_summary_present"] is True
-    assert str(context_window["compressed_summary_hash"]).startswith("sha256:")
+    assert context_window["context_recovery_package_present"] is True
+    assert str(context_window["context_recovery_package_hash"]).startswith("sha256:")
 
 
 def test_single_agent_turn_projects_runtime_memory_context() -> None:

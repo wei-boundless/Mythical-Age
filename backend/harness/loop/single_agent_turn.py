@@ -28,6 +28,7 @@ from harness.runtime.sandbox_artifacts import (
 )
 from harness.runtime.sandbox_execution_scope import compile_sandbox_execution_scope
 from runtime.prompt_accounting.serializer import normalize_messages
+from runtime.prompt_accounting import ContextUsageMeter
 from runtime.model_gateway.model_response_protocol import model_response_protocol_from_response
 from runtime.model_gateway.protocol_sanitizer import sanitize_messages_for_prompt
 from runtime.model_gateway.model_runtime import stringify_content
@@ -246,6 +247,7 @@ async def run_single_agent_turn(
             native_tools=_native_tools_for_packet(compilation.packet.allowed_action_types, available_tools=compilation.packet.available_tools),
         )
         tool_iteration = 0
+        tool_observation_payloads: list[dict[str, Any]] = []
         repaired_or_parsed_final_action: SingleAgentActionParse | None = None
         while True:
             if isinstance(response, dict) and response.get("type") == "error":
@@ -622,6 +624,8 @@ async def run_single_agent_turn(
                 if observation.status == "needs_approval":
                     observation = _agent_turn_approval_requires_task_run_observation(observation)
                     row["observation"] = observation
+                observation_payload = observation.to_dict()
+                tool_observation_payloads.append(observation_payload)
                 yield observation.to_turn_observation_event()
                 if runtime_host is not None and turn_run is not None:
                     event = runtime_host.event_log.append(
@@ -629,7 +633,7 @@ async def run_single_agent_turn(
                         "turn_tool_observation_recorded",
                         payload={
                             "turn_id": turn_id,
-                            "tool_observation": observation.to_dict(),
+                            "tool_observation": observation_payload,
                         },
                         refs={
                             "turn_ref": turn_id,
@@ -660,28 +664,84 @@ async def run_single_agent_turn(
                 turn_id=turn_id,
                 source="harness.loop.single_agent_turn.tool_followup",
             )
-            followup_segment_plan = _single_agent_turn_followup_segment_plan(
-                base_segment_plan=dict(compilation.packet.segment_plan or {}),
+            followup_segment_plan, followup_prompt_manifest, followup_packet_ref = _single_agent_turn_followup_prompt_context(
+                compilation=compilation,
                 model_messages=model_messages,
-                packet_id=compilation.packet.packet_id,
                 tool_iteration=tool_iteration,
             )
-            followup_prompt_manifest = {
-                **dict(compilation.packet.diagnostics.get("prompt_manifest") or {}),
-                "invocation_kind": "single_agent_turn_tool_followup",
-                "segment_plan_ref": str(followup_segment_plan.get("segment_plan_id") or ""),
-                "followup_iteration": tool_iteration,
-            }
+            mid_turn_snapshot = _mid_turn_context_snapshot(
+                session_id=session_id,
+                run_id=turn_run.turn_run_id if turn_run is not None else "",
+                model_selection=model_selection,
+                model_messages=model_messages,
+            )
+            if mid_turn_snapshot.auto_replacement_allowed:
+                if runtime_host is not None and turn_run is not None:
+                    requested_event = runtime_host.event_log.append(
+                        turn_run.turn_run_id,
+                        "context_compaction_requested",
+                        payload={
+                            "turn_id": turn_id,
+                            "trigger": "mid_turn_tool_observation_followup",
+                            "context_meter": mid_turn_snapshot.to_dict(),
+                            "tool_iteration": tool_iteration,
+                        },
+                        refs={"turn_ref": turn_id, "turn_run_ref": turn_run.turn_run_id},
+                    )
+                    yield {"type": "context_compaction_requested", "event": requested_event.to_dict()}
+                followup_compilation = compiler.compile_observation_followup_packet(
+                    session_id=session_id,
+                    turn_id=turn_id,
+                    agent_invocation_id=agent_invocation_id,
+                    user_message=user_message,
+                    history=history,
+                    session_context=session_context,
+                    observations=tool_observation_payloads,
+                    agent_profile_ref=str(getattr(agent_runtime_profile, "agent_profile_id", "") or "main_interactive_agent"),
+                    model_selection=dict(model_selection or {}),
+                    available_tools=list(compilation.packet.available_tools or []),
+                    runtime_assembly=runtime_assembly,
+                )
+                model_messages = _sanitize_model_messages(
+                    list(followup_compilation.packet.model_messages),
+                    turn_id=turn_id,
+                    source="harness.loop.single_agent_turn.mid_turn_context_recovery_followup",
+                )
+                followup_segment_plan = dict(followup_compilation.packet.segment_plan or {})
+                followup_prompt_manifest = {
+                    **dict(followup_compilation.packet.diagnostics.get("prompt_manifest") or {}),
+                    "invocation_kind": "single_agent_turn_tool_followup",
+                    "mid_turn_context_recovery": True,
+                    "mid_turn_context_meter": mid_turn_snapshot.to_dict(),
+                    "followup_iteration": tool_iteration,
+                    "segment_plan_ref": str(followup_segment_plan.get("segment_plan_id") or ""),
+                }
+                followup_packet_ref = followup_compilation.packet.packet_id
+                if runtime_host is not None and turn_run is not None:
+                    compacted_event = runtime_host.event_log.append(
+                        turn_run.turn_run_id,
+                        "context_compacted",
+                        payload={
+                            "turn_id": turn_id,
+                            "trigger": "mid_turn_tool_observation_followup",
+                            "strategy": "observation_followup_recompile",
+                            "packet_ref": followup_packet_ref,
+                            "preserved_observation_count": len(tool_observation_payloads),
+                            "context_meter": mid_turn_snapshot.to_dict(),
+                        },
+                        refs={"turn_ref": turn_id, "turn_run_ref": turn_run.turn_run_id, "runtime_invocation_packet_ref": followup_packet_ref},
+                    )
+                    yield {"type": "context_compacted", "event": compacted_event.to_dict()}
             response = await _invoke_single_turn_model(
                 model_runtime=model_runtime,
                 model_messages=model_messages,
                 model_selection=dict(model_selection or {}),
                 accounting_context={
-                    "request_id": f"modelreq:{compilation.packet.packet_id}:tool-followup:{tool_iteration}",
+                    "request_id": f"modelreq:{followup_packet_ref}:tool-followup:{tool_iteration}",
                     "session_id": session_id,
                     "run_id": turn_run.turn_run_id if turn_run is not None else "",
                     "turn_id": turn_id,
-                    "packet_ref": compilation.packet.packet_id,
+                    "packet_ref": followup_packet_ref,
                     "source": "harness.single_agent_turn.tool_followup",
                     "segment_plan": followup_segment_plan,
                     "prompt_manifest": followup_prompt_manifest,
@@ -2825,6 +2885,89 @@ def _compact_text(value: Any, *, limit: int = 500) -> str:
     if limit <= 0 or len(text) <= limit:
         return text
     return text[: max(0, limit - 1)].rstrip() + "…"
+
+
+def _single_agent_turn_followup_prompt_context(
+    *,
+    compilation: Any,
+    model_messages: list[dict[str, Any]],
+    tool_iteration: int,
+) -> tuple[dict[str, Any], dict[str, Any], str]:
+    followup_segment_plan = _single_agent_turn_followup_segment_plan(
+        base_segment_plan=dict(compilation.packet.segment_plan or {}),
+        model_messages=model_messages,
+        packet_id=compilation.packet.packet_id,
+        tool_iteration=tool_iteration,
+    )
+    followup_prompt_manifest = {
+        **dict(compilation.packet.diagnostics.get("prompt_manifest") or {}),
+        "invocation_kind": "single_agent_turn_tool_followup",
+        "segment_plan_ref": str(followup_segment_plan.get("segment_plan_id") or ""),
+        "followup_iteration": tool_iteration,
+    }
+    return followup_segment_plan, followup_prompt_manifest, str(compilation.packet.packet_id)
+
+
+def _mid_turn_context_snapshot(
+    *,
+    session_id: str,
+    run_id: str,
+    model_selection: dict[str, Any],
+    model_messages: list[dict[str, Any]],
+) -> Any:
+    selection = dict(model_selection or {})
+    provider = str(selection.get("provider") or selection.get("llm_provider") or "").strip()
+    model = str(selection.get("model") or selection.get("llm_model") or "").strip()
+    reserved = _first_int(
+        selection,
+        "reserved_output_tokens",
+        "max_output_tokens",
+        "max_tokens",
+    )
+    context_window = _first_int(
+        selection,
+        "context_window_tokens",
+        "context_window",
+    )
+    meter = ContextUsageMeter(
+        _EmptyPromptAccountingLedger(),
+        default_reserved_output_tokens=reserved if reserved is not None else 8192,
+    )
+    return meter.build_snapshot(
+        session_id=session_id,
+        run_id=run_id,
+        provider=provider,
+        model=model,
+        context_window_tokens=context_window,
+        reserved_output_tokens=reserved,
+        fallback_messages=list(model_messages or []),
+        session_pressure_source="harness.loop.single_agent_turn.mid_turn_context_meter",
+    )
+
+
+def _first_int(payload: dict[str, Any], *keys: str) -> int | None:
+    for key in keys:
+        if key not in payload:
+            continue
+        value = payload.get(key)
+        if value in (None, ""):
+            continue
+        try:
+            return max(0, int(value))
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
+class _EmptyPromptAccountingLedger:
+    def list_token_usage(self, **_kwargs: Any) -> list[Any]:
+        return []
+
+    def list_prompt_cache(self, **_kwargs: Any) -> list[Any]:
+        return []
+
+    def summarize_session(self, _session_id: str) -> dict[str, Any]:
+        return {}
 
 
 def _single_agent_turn_followup_segment_plan(

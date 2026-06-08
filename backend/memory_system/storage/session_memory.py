@@ -132,6 +132,9 @@ class SessionMemoryManager:
         source: str,
         source_message_refs: list[str] | tuple[str, ...] | None = None,
         summary_content: str = "",
+        covered_event_run_id: str = "",
+        covered_event_offset_start: int | None = None,
+        covered_event_offset_end: int | None = None,
     ) -> dict[str, Any]:
         material_summary = normalize_storage_text(summary_content or self.load())
         if not has_material_session_memory_content(material_summary):
@@ -160,6 +163,12 @@ class SessionMemoryManager:
             "source": str(source or "memory_maintenance_agent"),
             "source_message_refs": [str(item) for item in list(source_message_refs or []) if str(item)],
         }
+        if str(covered_event_run_id or "").strip():
+            payload["covered_event_run_id"] = str(covered_event_run_id or "").strip()
+        if covered_event_offset_start is not None:
+            payload["covered_event_offset_start"] = max(0, int(covered_event_offset_start))
+        if covered_event_offset_end is not None:
+            payload["covered_event_offset_end"] = max(0, int(covered_event_offset_end))
         recovery_payload = self.write_context_recovery_package(
             summary_content=material_summary,
             compaction_state=payload,

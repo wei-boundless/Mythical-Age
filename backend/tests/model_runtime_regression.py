@@ -2052,8 +2052,8 @@ def test_model_runtime_prompt_stability_records_context_window_facts(tmp_path: P
             "segment_plan": segment_plan,
             "prompt_manifest": {
                 "context_window": {
-                    "compressed_summary_hash": "sha256:compressed",
-                    "compressed_summary_present": True,
+                    "context_recovery_package_hash": "sha256:compressed",
+                    "context_recovery_package_present": True,
                     "raw_history_message_count": 12,
                     "active_history_message_count": 12,
                 }
@@ -2068,7 +2068,7 @@ def test_model_runtime_prompt_stability_records_context_window_facts(tmp_path: P
 
     assert report.compaction_generation == 1
     assert report.context_window_generation == 1
-    assert context_window["compressed_summary_hash"] == "sha256:compressed"
+    assert context_window["context_recovery_package_hash"] == "sha256:compressed"
     assert context_window["raw_history_message_count"] == 12
     assert context_window["active_history_message_count"] == 12
 

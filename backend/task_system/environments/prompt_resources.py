@@ -10,7 +10,7 @@ class EnvironmentPromptResourceSpec:
     title: str
     content: str
     subtype: str = "orientation"
-    version: str = "v1"
+    version: str = "2026-06-08"
     cache_scope: str = "static_environment"
 
 
@@ -91,55 +91,55 @@ GENERAL_WORKSPACE_ORIENTATION = """
 def default_environment_prompt_resource_specs() -> tuple[EnvironmentPromptResourceSpec, ...]:
     return (
         EnvironmentPromptResourceSpec(
-            prompt_id="environment.resource.base_workspace.orientation.v1",
+            prompt_id="environment.resource.base_workspace.orientation",
             environment_id="resource.file_profile.base_workspace",
             title="通用项目工作区资源",
             content=BASE_WORKSPACE_RESOURCE_ORIENTATION,
         ),
         EnvironmentPromptResourceSpec(
-            prompt_id="environment.resource.managed_project_workspace.orientation.v1",
+            prompt_id="environment.resource.managed_project_workspace.orientation",
             environment_id="resource.file_profile.managed_project_workspace",
             title="受管项目工作区资源",
             content=MANAGED_PROJECT_WORKSPACE_RESOURCE_ORIENTATION,
         ),
         EnvironmentPromptResourceSpec(
-            prompt_id="environment.resource.sandbox_overlay.orientation.v1",
+            prompt_id="environment.resource.sandbox_overlay.orientation",
             environment_id="resource.sandbox.workspace_overlay",
             title="沙盒工作资源",
             content=SANDBOX_OVERLAY_RESOURCE_ORIENTATION,
         ),
         EnvironmentPromptResourceSpec(
-            prompt_id="environment.resource.writing_manuscript.orientation.v1",
+            prompt_id="environment.resource.writing_manuscript.orientation",
             environment_id="resource.file_profile.writing_manuscript",
             title="写作稿件资源",
             content=WRITING_MANUSCRIPT_RESOURCE_ORIENTATION,
         ),
         EnvironmentPromptResourceSpec(
-            prompt_id="environment.resource.general_workspace.orientation.v1",
+            prompt_id="environment.resource.general_workspace.orientation",
             environment_id="resource.file_profile.general_workspace",
             title="通用工作区资源",
             content=GENERAL_WORKSPACE_RESOURCE_ORIENTATION,
         ),
         EnvironmentPromptResourceSpec(
-            prompt_id="environment.coding.vibe_workspace.orientation.v1",
+            prompt_id="environment.coding.vibe_workspace.orientation",
             environment_id="env.coding.vibe_workspace",
             title="专用 coding 工作区任务环境",
             content=CODING_VIBE_WORKSPACE_ORIENTATION,
         ),
         EnvironmentPromptResourceSpec(
-            prompt_id="environment.development.sandbox.orientation.v1",
+            prompt_id="environment.development.sandbox.orientation",
             environment_id="env.development.sandbox",
             title="开发沙盒任务环境",
             content=DEVELOPMENT_SANDBOX_ORIENTATION,
         ),
         EnvironmentPromptResourceSpec(
-            prompt_id="environment.creation.writing.orientation.v1",
+            prompt_id="environment.creation.writing.orientation",
             environment_id="env.creation.writing",
             title="创作写作任务环境",
             content=CREATION_WRITING_ORIENTATION,
         ),
         EnvironmentPromptResourceSpec(
-            prompt_id="environment.general.workspace.orientation.v1",
+            prompt_id="environment.general.workspace.orientation",
             environment_id="env.general.workspace",
             title="通用工作任务环境",
             content=GENERAL_WORKSPACE_ORIENTATION,
@@ -152,17 +152,17 @@ def environment_resource_prompt_refs(spec: object) -> tuple[str, ...]:
     file_management = getattr(spec, "file_management", None)
     sandbox_policy = getattr(spec, "sandbox_policy", None)
     for profile_ref in tuple(getattr(file_management, "file_profile_refs", ()) or ()):
-        refs.append("runtime.rule.file_management.generic.v1")
+        refs.append("runtime.rule.file_management.generic")
         if profile_ref == "file_profile.base_workspace":
-            refs.append("environment.resource.base_workspace.orientation.v1")
+            refs.append("environment.resource.base_workspace.orientation")
         elif profile_ref == "file_profile.managed_project_workspace":
-            refs.append("environment.resource.managed_project_workspace.orientation.v1")
+            refs.append("environment.resource.managed_project_workspace.orientation")
         elif profile_ref == "file_profile.writing_manuscript":
-            refs.append("environment.resource.writing_manuscript.orientation.v1")
+            refs.append("environment.resource.writing_manuscript.orientation")
         elif profile_ref == "file_profile.general_workspace":
-            refs.append("environment.resource.general_workspace.orientation.v1")
+            refs.append("environment.resource.general_workspace.orientation")
     if str(getattr(sandbox_policy, "sandbox_mode", "") or "") == "workspace_overlay":
-        refs.append("environment.resource.sandbox_overlay.orientation.v1")
+        refs.append("environment.resource.sandbox_overlay.orientation")
     return _dedupe(refs)
 
 

@@ -8,7 +8,7 @@ from typing import Any
 from project_layout import ProjectLayout
 
 
-PROJECT_INSTRUCTIONS_PROMPT_REF = "project.instructions.scoped.v1"
+PROJECT_INSTRUCTIONS_PROMPT_REF = "project.instructions.scoped"
 
 
 @dataclass(frozen=True, slots=True)

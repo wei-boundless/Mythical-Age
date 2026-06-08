@@ -20,7 +20,7 @@ class HistoryProjector:
         policy = dict(projection_policy or {})
         session_payload = _session_context_projection(
             session_context,
-            compressed_summary_chars=int(policy.get("compressed_summary_chars") or 4000),
+            context_recovery_package_chars=int(policy.get("context_recovery_package_chars") or 4000),
         )
         pinned_facts = _session_emphasis_projection(session_context)
         normalized = [
@@ -58,20 +58,45 @@ def _normalize_message(item: dict[str, Any]) -> dict[str, Any]:
     return drop_empty(payload)
 
 
-def _session_context_projection(session_context: dict[str, Any] | None, *, compressed_summary_chars: int) -> dict[str, Any]:
+def _session_context_projection(session_context: dict[str, Any] | None, *, context_recovery_package_chars: int) -> dict[str, Any]:
     payload = dict(session_context or {})
-    compressed = compact_text(
-        payload.get("compressed_context") or payload.get("compressed_summary") or "",
-        limit=max(1000, int(compressed_summary_chars or 4000)),
+    context_recovery_package = _context_recovery_package_projection(
+        payload,
+        limit=max(1000, int(context_recovery_package_chars or 4000)),
     )
     recent_work_outcome = _recent_work_outcome_projection(payload.get("recent_work_outcome"))
     return drop_empty(
         {
-            "compressed_summary": compressed,
+            "context_recovery_package": context_recovery_package,
             "recent_work_outcome": recent_work_outcome,
-            "authority": "harness.runtime.dynamic_context.session_context_projection" if compressed or recent_work_outcome else "",
+            "authority": "harness.runtime.dynamic_context.session_context_projection" if context_recovery_package or recent_work_outcome else "",
         }
     )
+
+
+def _context_recovery_package_projection(payload: dict[str, Any], *, limit: int) -> dict[str, Any]:
+    package = payload.get("context_recovery_package")
+    if isinstance(package, dict) and package:
+        projected = dict(package)
+        coverage = projected.get("coverage")
+        freshness = projected.get("freshness")
+        return drop_empty(
+            {
+                **projected,
+                "coverage": dict(coverage) if isinstance(coverage, dict) else {},
+                "freshness": dict(freshness) if isinstance(freshness, dict) else {},
+                "authority": str(projected.get("authority") or "runtime.context_management.context_recovery_package"),
+            }
+        )
+    compressed_context = compact_text(payload.get("compressed_context") or "", limit=limit)
+    if not compressed_context:
+        return {}
+    return {
+        "content": compressed_context,
+        "format": "markdown",
+        "source": "session_record.compressed_context",
+        "authority": "runtime.context_management.context_recovery_package",
+    }
 
 
 def _session_emphasis_projection(session_context: dict[str, Any] | None) -> list[dict[str, Any]]:

@@ -14,17 +14,19 @@ def test_tool_guidance_resources_are_registered_as_prompt_library_resources(tmp_
     registry = PromptLibraryRegistry(tmp_path)
     resources = {item.resource_id: item for item in registry.list_resources()}
 
-    read_guidance = resources["tool.guidance.read_file.v1"]
-    edit_guidance = resources["tool.guidance.edit_file.v1"]
-    write_guidance = resources["tool.guidance.write_file.v1"]
-    terminal_guidance = resources["tool.guidance.terminal_powershell.v1"]
-    subagent_guidance = resources["tool.guidance.subagent.v1"]
-    browser_guidance = resources["tool.guidance.browser.v1"]
-    web_guidance = resources["tool.guidance.web_fetch.v1"]
+    read_guidance = resources["tool.guidance.read_file"]
+    edit_guidance = resources["tool.guidance.edit_file"]
+    write_guidance = resources["tool.guidance.write_file"]
+    terminal_guidance = resources["tool.guidance.terminal_powershell"]
+    subagent_guidance = resources["tool.guidance.subagent"]
+    browser_guidance = resources["tool.guidance.browser"]
+    web_guidance = resources["tool.guidance.web_fetch"]
 
     assert read_guidance.category == "tool"
     assert read_guidance.owner_layer == "tool"
     assert read_guidance.cache_scope == "static"
+    assert read_guidance.version == "2026-06-08"
+    assert not read_guidance.prompt_id.endswith(".v1")
     assert read_guidance.allowed_invocation_kinds == (
         "single_agent_turn",
         "task_execution",
@@ -71,9 +73,10 @@ def test_tool_guidance_payload_only_uses_visible_schema_plus_guidance_tools() ->
     refs = payload["tool_guidance_refs"]
     content = json.dumps(payload["tool_guidance"], ensure_ascii=False)
 
-    assert "tool.guidance.read_file.v1" in refs
-    assert "tool.guidance.web_fetch.v1" in refs
-    assert "tool.guidance.write_file.v1" not in refs
+    assert "tool.guidance.read_file" in refs
+    assert "tool.guidance.web_fetch" in refs
+    assert "tool.guidance.write_file" not in refs
+    assert "tool.guidance.read_file.v1" not in refs
     assert "python_repl" not in content
     assert payload["tool_guidance_hash"].startswith("sha256:")
 
@@ -119,10 +122,11 @@ def test_task_execution_tool_index_includes_guidance_for_visible_tools_only() ->
     refs = payload["tool_guidance_refs"]
     guidance_text = json.dumps(payload["tool_guidance"], ensure_ascii=False)
 
-    assert "tool.guidance.read_file.v1" in refs
-    assert "tool.guidance.git_read.v1" in refs
-    assert "tool.guidance.write_file.v1" not in refs
-    assert "tool.guidance.git_write.v1" not in refs
+    assert "tool.guidance.read_file" in refs
+    assert "tool.guidance.git_read" in refs
+    assert "tool.guidance.write_file" not in refs
+    assert "tool.guidance.git_write" not in refs
+    assert "tool.guidance.git_read.v1" not in refs
     assert "不要重复读取相同行窗口" in guidance_text
     assert "目标区域当前精确行窗口" in guidance_text
     assert "Git 读取工具只用于获取版本库事实" in guidance_text

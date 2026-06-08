@@ -66,7 +66,7 @@ def _graph_node_runtime_profile(
         "runtime_policy": {
             "source": "graph_slot.node_contract",
             "context_policy": {"task_run_context": "disabled"},
-            "prompt_pack_refs_by_invocation": {"task_execution": ["runtime.pack.graph_node_execution.v1"]},
+            "prompt_pack_refs_by_invocation": {"task_execution": ["runtime.pack.graph_node_execution"]},
             "operation_authorization_projection": {
                 "model_visible": "summary_without_denials",
                 "reason": "图节点只需要知道本轮可用操作；被拒绝操作不参与节点交付判断。",
@@ -109,7 +109,7 @@ def _graph_node_runtime_contract(graph_config: Any, work_order: Any) -> dict[str
             "graph_run_id": work_order.graph_run_id,
             "node_id": work_order.node_id,
             "context_policy": {"task_run_context": "disabled"},
-            "prompt_pack_refs_by_invocation": {"task_execution": ["runtime.pack.graph_node_execution.v1"]},
+            "prompt_pack_refs_by_invocation": {"task_execution": ["runtime.pack.graph_node_execution"]},
             "operation_authorization_projection": {
                 "model_visible": "summary_without_denials",
                 "reason": "图节点只需要知道本轮可用操作；被拒绝操作不参与节点交付判断。",

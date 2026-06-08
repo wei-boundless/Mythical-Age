@@ -17,6 +17,58 @@ def test_prompt_library_lists_only_runtime_agent_and_environment_resources_by_de
 
     resources = registry.list_resources()
     resource_by_id = {item.resource_id: item for item in resources}
+    pack_by_id = {item.pack_id: item for item in registry.list_packs()}
+    migrated_legacy_refs = {
+        "runtime.single_agent_turn.v1",
+        "runtime.task_execution.v1",
+        "runtime.graph_node_execution.v1",
+        "runtime.observation_followup.v1",
+        "runtime.semantic_compaction.v1",
+        "runtime.rule.system_call_protocol.v1",
+        "runtime.rule.intent_feedback.v1",
+        "runtime.rule.tool_use.v1",
+        "runtime.rule.output_boundary.v1",
+        "runtime.rule.error_recovery.v1",
+        "runtime.rule.context_memory.v1",
+        "runtime.rule.permission_denial.v1",
+        "runtime.rule.subagent_delegation.v1",
+        "runtime.rule.subagent_invocation_protocol.v1",
+        "runtime.rule.multi_tool_scheduling.v1",
+        "runtime.rule.plan_mode_boundary.v1",
+        "graph.rule.node_boundary.v1",
+        "graph.rule.node_output_contract.v1",
+        "runtime.rule.file_management.generic.v1",
+        "coding.rule.codebase_inspection.v1",
+        "coding.rule.large_scope_exploration.v1",
+        "coding.rule.editing.v1",
+        "coding.rule.verification.v1",
+        "coding.rule.debug_discipline.v1",
+        "coding.rule.git_safety.v1",
+        "coding.rule.windows_shell.v1",
+        "coding.rule.task_progress.v1",
+        "environment.rule.coding_workspace.v1",
+        "environment.rule.development_sandbox.v1",
+        "environment.rule.writing_workspace.v1",
+        "environment.rule.general_workspace.v1",
+        "environment.resource.base_workspace.orientation.v1",
+        "environment.resource.managed_project_workspace.orientation.v1",
+        "environment.resource.sandbox_overlay.orientation.v1",
+        "environment.resource.writing_manuscript.orientation.v1",
+        "environment.resource.general_workspace.orientation.v1",
+        "environment.coding.vibe_workspace.orientation.v1",
+        "environment.development.sandbox.orientation.v1",
+        "environment.creation.writing.orientation.v1",
+        "environment.general.workspace.orientation.v1",
+    }
+    migrated_legacy_packs = {
+        "runtime.pack.single_agent_turn.v1",
+        "runtime.pack.task_execution.v1",
+        "runtime.pack.graph_node_execution.v1",
+        "runtime.pack.observation_followup.v1",
+        "runtime.pack.semantic_compaction.v1",
+    }
+    assert migrated_legacy_refs.isdisjoint(resource_by_id)
+    assert migrated_legacy_packs.isdisjoint(pack_by_id)
 
     for prompt_ref in FOUNDATION_PROMPT_REFS:
         resource = resource_by_id[prompt_ref]
@@ -37,15 +89,15 @@ def test_prompt_library_lists_only_runtime_agent_and_environment_resources_by_de
         assert "工具列表" not in resource.content
         assert "当前日期" not in resource.content
 
-    assert resource_by_id["runtime.single_agent_turn.v1"].category == "runtime"
-    assert resource_by_id["runtime.task_execution.v1"].category == "runtime"
-    assert resource_by_id["runtime.rule.system_call_protocol.v1"].category == "runtime"
-    assert resource_by_id["runtime.rule.intent_feedback.v1"].category == "runtime"
-    assert resource_by_id["runtime.rule.tool_use.v1"].category == "runtime"
-    assert resource_by_id["runtime.rule.subagent_invocation_protocol.v1"].category == "runtime"
-    assert resource_by_id["runtime.rule.file_management.generic.v1"].resource_type == "environment.file_management_rule"
-    assert resource_by_id["coding.rule.large_scope_exploration.v1"].resource_type == "environment.coding_rule"
-    assert resource_by_id["coding.rule.large_scope_exploration.v1"].cache_scope == "static_environment"
+    assert resource_by_id["runtime.single_agent_turn"].category == "runtime"
+    assert resource_by_id["runtime.task_execution"].category == "runtime"
+    assert resource_by_id["runtime.rule.system_call_protocol"].category == "runtime"
+    assert resource_by_id["runtime.rule.intent_feedback"].category == "runtime"
+    assert resource_by_id["runtime.rule.tool_use"].category == "runtime"
+    assert resource_by_id["runtime.rule.subagent_invocation_protocol"].category == "runtime"
+    assert resource_by_id["runtime.rule.file_management.generic"].resource_type == "environment.file_management_rule"
+    assert resource_by_id["coding.rule.large_scope_exploration"].resource_type == "environment.coding_rule"
+    assert resource_by_id["coding.rule.large_scope_exploration"].cache_scope == "static_environment"
     assert resource_by_id["agent.main_interactive_agent.single_agent_turn.work_role"].allowed_invocation_kinds == ("single_agent_turn",)
     assert resource_by_id["agent.main_interactive_agent.task_execution.work_role"].allowed_invocation_kinds == ("task_execution",)
     assert resource_by_id["agent.main_interactive_agent.task_execution.work_role"].source_ref.startswith("prompt_library.agent_prompts")
@@ -56,9 +108,9 @@ def test_prompt_library_lists_only_runtime_agent_and_environment_resources_by_de
     assert resource_by_id[DEFAULT_PERSONALITY_PROMPT_REF].cache_scope == "session_stable"
     assert resource_by_id[DEFAULT_PERSONALITY_PROMPT_REF].metadata["authority_scope"] == "identity_and_style_only"
     assert "不改变系统规则" in resource_by_id[DEFAULT_PERSONALITY_PROMPT_REF].content
-    assert resource_by_id["environment.general.workspace.orientation.v1"].category == "environment"
-    assert resource_by_id["environment.resource.general_workspace.orientation.v1"].category == "environment"
-    assert resource_by_id["environment.resource.general_workspace.orientation.v1"].allowed_environment_refs == ()
+    assert resource_by_id["environment.general.workspace.orientation"].category == "environment"
+    assert resource_by_id["environment.resource.general_workspace.orientation"].category == "environment"
+    assert resource_by_id["environment.resource.general_workspace.orientation"].allowed_environment_refs == ()
     for prompt_id in GENERAL_LIFECYCLE_PROMPT_IDS:
         resource = resource_by_id[prompt_id]
         assert resource.category == "environment"
@@ -87,29 +139,29 @@ def test_prompt_library_lists_only_runtime_agent_and_environment_resources_by_de
     assert rule_by_id["system.foundation.local_collaboration"].cache_tier == "global_static"
     assert rule_by_id["system.foundation.current_request_authority"].rule_kind == "system.foundation.current_request_authority"
     assert rule_by_id["system.foundation.truth_and_verification"].rule_kind == "system.foundation.truth_and_verification"
-    assert rule_by_id["runtime.task_execution.v1"].rule_kind == "runtime.protocol"
-    assert rule_by_id["runtime.task_execution.v1"].requires == (
-        "runtime.rule.system_call_protocol.v1",
-        "runtime.rule.intent_feedback.v1",
+    assert rule_by_id["runtime.task_execution"].rule_kind == "runtime.protocol"
+    assert rule_by_id["runtime.task_execution"].requires == (
+        "runtime.rule.system_call_protocol",
+        "runtime.rule.intent_feedback",
     )
-    assert rule_by_id["runtime.graph_node_execution.v1"].requires == ("runtime.rule.system_call_protocol.v1",)
-    assert rule_by_id["runtime.rule.system_call_protocol.v1"].rule_kind == "runtime.system_call_protocol"
-    assert rule_by_id["runtime.rule.intent_feedback.v1"].rule_kind == "runtime.intent_feedback"
-    assert rule_by_id["runtime.rule.tool_use.v1"].rule_kind == "runtime.tool_use"
-    assert rule_by_id["runtime.rule.subagent_invocation_protocol.v1"].rule_kind == "runtime.subagent_invocation_protocol"
-    assert rule_by_id["coding.rule.large_scope_exploration.v1"].rule_kind == "coding.large_scope_exploration"
-    assert rule_by_id["coding.rule.large_scope_exploration.v1"].cache_tier == "static_environment"
+    assert rule_by_id["runtime.graph_node_execution"].requires == ("runtime.rule.system_call_protocol",)
+    assert rule_by_id["runtime.rule.system_call_protocol"].rule_kind == "runtime.system_call_protocol"
+    assert rule_by_id["runtime.rule.intent_feedback"].rule_kind == "runtime.intent_feedback"
+    assert rule_by_id["runtime.rule.tool_use"].rule_kind == "runtime.tool_use"
+    assert rule_by_id["runtime.rule.subagent_invocation_protocol"].rule_kind == "runtime.subagent_invocation_protocol"
+    assert rule_by_id["coding.rule.large_scope_exploration"].rule_kind == "coding.large_scope_exploration"
+    assert rule_by_id["coding.rule.large_scope_exploration"].cache_tier == "static_environment"
     assert rule_by_id["agent.main_interactive_agent.task_execution.work_role"].cache_tier == "session_stable"
     assert rule_by_id[DEFAULT_PERSONALITY_PROMPT_REF].rule_kind == "personality.identity_style"
     assert rule_by_id[DEFAULT_PERSONALITY_PROMPT_REF].cache_tier == "session_stable"
     assert rule_by_id[DEFAULT_PERSONALITY_PROMPT_REF].owner_layer == "personality"
-    assert rule_by_id["coding.rule.editing.v1"].requires == ("runtime.rule.file_management.generic.v1",)
+    assert rule_by_id["coding.rule.editing"].requires == ("runtime.rule.file_management.generic",)
 
 
 def test_graph_node_runtime_protocol_includes_respond_action_json_shape(tmp_path: Path) -> None:
     registry = PromptLibraryRegistry(tmp_path)
 
-    resource = registry.get_resource("runtime.graph_node_execution.v1")
+    resource = registry.get_resource("runtime.graph_node_execution")
 
     assert resource is not None
     assert "JSON 顶层必须包含 authority、action_type、public_progress_note、public_action_state 和 final_answer" in resource.content
@@ -137,17 +189,17 @@ def test_prompt_library_upsert_does_not_persist_all_default_resources(tmp_path: 
 
     assert "prompt.user.custom.output" in stored_ids
     assert "system.foundation.local_collaboration" not in stored_ids
-    assert "runtime.single_agent_turn.v1" not in stored_ids
+    assert "runtime.single_agent_turn" not in stored_ids
     assert len(stored_ids) == 1
-    assert registry.get_resource("runtime.single_agent_turn.v1") is not None
+    assert registry.get_resource("runtime.single_agent_turn") is not None
 
 
 def test_prompt_library_stored_resource_overrides_default_resource(tmp_path: Path) -> None:
     registry = PromptLibraryRegistry(tmp_path)
     registry.upsert_resource(
         PromptResource(
-            prompt_id="runtime.single_agent_turn.v1",
-            resource_id="runtime.single_agent_turn.v1",
+            prompt_id="runtime.single_agent_turn",
+            resource_id="runtime.single_agent_turn",
             category="runtime",
             subtype="single_agent_turn",
             resource_type="runtime.single_agent_turn",
@@ -159,7 +211,7 @@ def test_prompt_library_stored_resource_overrides_default_resource(tmp_path: Pat
         )
     )
 
-    resource = registry.get_resource("runtime.single_agent_turn.v1")
+    resource = registry.get_resource("runtime.single_agent_turn")
 
     assert resource is not None
     assert resource.title == "覆盖后的 single agent turn"

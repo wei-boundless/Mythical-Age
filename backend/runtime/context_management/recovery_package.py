@@ -222,15 +222,15 @@ def context_recovery_package_from_session_memory(
         stale_reason=coverage.stale_reason,
         checked_at=time.time(),
     )
-    summary = ContextRecoveryPackage(
+    package = ContextRecoveryPackage(
         current_task=current_task,
         coverage=coverage,
         freshness=freshness,
         source=source,
         **values,
     )
-    summary.coverage.summary_hash = stable_json_hash(_summary_to_dict_without_hash(summary))
-    return summary
+    package.coverage.summary_hash = stable_json_hash(_package_to_dict_without_hash(package))
+    return package
 
 
 def context_recovery_package_from_structured_summary(
@@ -257,19 +257,23 @@ def context_recovery_package_from_structured_summary(
         values[field_name] = _dedupe([*list(values.get(field_name) or []), *_text_list(normalized.get(field_name))])
     if fallback_summary and not any(values.values()):
         values["progress_so_far"] = [_text(fallback_summary)]
-    summary = ContextRecoveryPackage(
+    package = ContextRecoveryPackage(
         current_task=current_task,
         coverage=ContextRecoveryCoverage(created_at=time.time()),
         freshness=ContextRecoveryFreshness(status="fresh", checked_at=time.time()),
         source=source,
         **values,
     )
-    summary.coverage.summary_hash = stable_json_hash(_summary_to_dict_without_hash(summary))
-    return summary
+    package.coverage.summary_hash = stable_json_hash(_package_to_dict_without_hash(package))
+    return package
 
 
-def render_context_recovery_markdown(summary: ContextRecoveryPackage | dict[str, Any], *, include_metadata: bool = True) -> str:
-    package = summary if isinstance(summary, ContextRecoveryPackage) else ContextRecoveryPackage.from_dict(summary)
+def render_context_recovery_markdown(package_or_payload: ContextRecoveryPackage | dict[str, Any], *, include_metadata: bool = True) -> str:
+    package = (
+        package_or_payload
+        if isinstance(package_or_payload, ContextRecoveryPackage)
+        else ContextRecoveryPackage.from_dict(package_or_payload)
+    )
     if not package.is_material():
         return ""
     lines: list[str] = ["# Context Recovery Package", ""]
@@ -304,8 +308,8 @@ def stable_json_hash(value: Any) -> str:
     return "sha256:" + hashlib.sha256(payload.encode("utf-8", errors="ignore")).hexdigest()
 
 
-def _summary_to_dict_without_hash(summary: ContextRecoveryPackage) -> dict[str, Any]:
-    payload = summary.to_dict()
+def _package_to_dict_without_hash(package: ContextRecoveryPackage) -> dict[str, Any]:
+    payload = package.to_dict()
     coverage = dict(payload.get("coverage") or {})
     coverage["summary_hash"] = ""
     payload["coverage"] = coverage

@@ -68,7 +68,7 @@ class PromptStabilityReporter:
             model=segment_map.model,
             session_cache_key=_session_cache_key(segment_map),
             context_window_generation=1 if context_window.get("active_history_message_count") else 0,
-            compaction_generation=1 if context_window.get("compressed_summary_hash") else 0,
+            compaction_generation=1 if context_window.get("context_recovery_package_hash") else 0,
             stable_prefix_hash=stable_prefix_hash,
             provider_global_prefix_hash=provider_global_prefix_hash,
             session_prefix_hash=session_prefix_hash,
@@ -173,8 +173,11 @@ def _context_window_summary(*, model_request: Any | None, segment_map: PromptSeg
     context_window = dict(prompt_manifest.get("context_window") or {})
     return _drop_empty(
         {
-            "compressed_summary_hash": str(context_window.get("compressed_summary_hash") or ""),
-            "compressed_summary_present": bool(context_window.get("compressed_summary_present") or False),
+            "context_recovery_package_hash": str(context_window.get("context_recovery_package_hash") or ""),
+            "context_recovery_package_present": bool(context_window.get("context_recovery_package_present") or False),
+            "context_recovery_package_source": str(context_window.get("context_recovery_package_source") or ""),
+            "context_recovery_package_covered_message_count": _int(context_window.get("context_recovery_package_covered_message_count")),
+            "context_recovery_package_covered_event_offset_end": _int(context_window.get("context_recovery_package_covered_event_offset_end")),
             "raw_history_message_count": _int(context_window.get("raw_history_message_count")),
             "active_history_message_count": _int(context_window.get("active_history_message_count")),
             "budget_report": dict(context_window.get("budget_report") or {}),

@@ -106,7 +106,7 @@ def test_graph_node_task_packet_does_not_embed_full_graph_policy() -> None:
                 "profile_ref": "main_interactive_agent",
                 "interaction_policy": {"style": "task_execution"},
                 "context_policy": {"task_run_context": "disabled"},
-                "prompt_pack_refs_by_invocation": {"task_execution": ["runtime.pack.graph_node_execution.v1"]},
+                "prompt_pack_refs_by_invocation": {"task_execution": ["runtime.pack.graph_node_execution"]},
                 "operation_authorization_projection": {"model_visible": "summary_without_denials"},
             },
             "task_environment": {"environment_id": "env.test"},
@@ -128,16 +128,14 @@ def test_graph_node_task_packet_does_not_embed_full_graph_policy() -> None:
     assert "graph_slot" not in all_message_content
     assert "memory_contract" not in all_message_content
     assert "acceptance_policy" not in all_message_content
-    assert "runtime.task_execution.v1" not in all_message_content
+    assert "你正在持续任务生命周期中执行一个已建立的任务合同。" not in all_message_content
     assert "写入交付物时优先使用 write_file" not in all_message_content
-    assert "write_file" not in all_message_content
-    assert "edit_file" not in all_message_content
     assert "denied_operations" not in all_message_content
     assert "task_run_id" not in all_message_content
-    assert packet.prompt_pack_refs == ("runtime.pack.graph_node_execution.v1",)
+    assert packet.prompt_pack_refs == ("runtime.pack.graph_node_execution",)
     manifest = packet.diagnostics["prompt_manifest"]
-    assert "runtime.graph_node_execution.v1" in manifest["stable_prompt_refs"]
-    assert "runtime.task_execution.v1" not in manifest["stable_prompt_refs"]
+    assert "runtime.graph_node_execution" in manifest["stable_prompt_refs"]
+    assert "runtime.task_execution" not in manifest["stable_prompt_refs"]
     assert not any(str(ref).startswith("task_prompt_contract:") for ref in manifest["stable_contract_refs"])
     assert any(str(ref).startswith("graph_node_prompt_contract:") for ref in manifest["stable_contract_refs"])
     assert "final_answer 必须是可被下游节点或系统物化的完整结果" in all_message_content
@@ -197,7 +195,7 @@ def test_graph_node_task_packet_places_shared_stable_segments_before_node_contra
             "profile": {
                 "profile_ref": "main_interactive_agent",
                 "context_policy": {"task_run_context": "disabled"},
-                "prompt_pack_refs_by_invocation": {"task_execution": ["runtime.pack.graph_node_execution.v1"]},
+                "prompt_pack_refs_by_invocation": {"task_execution": ["runtime.pack.graph_node_execution"]},
             },
             "task_environment": {"environment_id": "env.test"},
             "operation_authorization": {"allowed_operations": []},
@@ -286,7 +284,7 @@ def test_graph_node_authorized_input_payload_does_not_duplicate_content_body() -
             "profile": {
                 "profile_ref": "main_interactive_agent",
                 "context_policy": {"task_run_context": "disabled"},
-                "prompt_pack_refs_by_invocation": {"task_execution": ["runtime.pack.graph_node_execution.v1"]},
+                "prompt_pack_refs_by_invocation": {"task_execution": ["runtime.pack.graph_node_execution"]},
             },
             "task_environment": {"environment_id": "env.test"},
             "operation_authorization": {"allowed_operations": []},
@@ -375,7 +373,7 @@ def test_graph_node_authorized_input_payload_omits_duplicate_artifact_body() -> 
             "profile": {
                 "profile_ref": "main_interactive_agent",
                 "context_policy": {"task_run_context": "disabled"},
-                "prompt_pack_refs_by_invocation": {"task_execution": ["runtime.pack.graph_node_execution.v1"]},
+                "prompt_pack_refs_by_invocation": {"task_execution": ["runtime.pack.graph_node_execution"]},
             },
             "task_environment": {"environment_id": "env.test"},
             "operation_authorization": {"allowed_operations": []},

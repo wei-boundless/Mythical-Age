@@ -512,7 +512,7 @@ class ContextCompactor:
             role="system",
             content=(
                 "Conversation history was compacted into a checkpoint because runtime context pressure became high. "
-                "Use this handoff summary as the recovery point, then rely on the recent real messages that follow it. "
+                "Use this context recovery package as the recovery point, then rely on the recent real messages that follow it. "
                 "Do not infer that omitted raw tool output is still available in this prompt.\n\n"
                 f"{session_summary}"
             ),

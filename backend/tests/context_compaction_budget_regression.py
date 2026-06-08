@@ -171,16 +171,16 @@ def test_session_memory_manager_does_not_persist_template_as_summary(tmp_path) -
 def test_session_memory_compaction_state_writes_context_recovery_package(tmp_path) -> None:
     manager = SessionMemoryManager(tmp_path)
     messages = [
-        Message(role="user", content="请升级压缩交接系统", meta={"message_id": "msg:1"}),
+        Message(role="user", content="请升级压缩恢复系统", meta={"message_id": "msg:1"}),
         Message(role="assistant", content="已确认采用 context recovery package", meta={"message_id": "msg:2"}),
     ]
     summary = "\n".join(
         [
             "# Active Goal",
-            "- 升级压缩交接系统",
+            "- 升级压缩恢复系统",
             "",
             "# Key User Requests",
-            "- 压缩摘要必须服务下一轮上下文交接",
+            "- 压缩摘要必须服务下一轮上下文恢复",
             "",
             "# Files and Functions",
             "- backend/runtime/context_management/recovery_package.py",
@@ -197,18 +197,24 @@ def test_session_memory_compaction_state_writes_context_recovery_package(tmp_pat
         source="agent:1",
         source_message_refs=["message:msg:1", "message:msg:2"],
         summary_content=summary,
+        covered_event_run_id="turnrun:recovery-package-test",
+        covered_event_offset_start=0,
+        covered_event_offset_end=7,
     )
     package = manager.load_context_recovery_package()
 
     assert manager.context_recovery_package_path.exists()
     assert state["context_recovery_package_hash"] == package["coverage"]["summary_hash"]
     assert package["schema_version"] == "runtime-context-recovery-package.v1"
-    assert package["current_task"] == "升级压缩交接系统"
-    assert package["key_user_constraints"] == ["压缩摘要必须服务下一轮上下文交接"]
+    assert package["current_task"] == "升级压缩恢复系统"
+    assert package["key_user_constraints"] == ["压缩摘要必须服务下一轮上下文恢复"]
     assert package["files_artifacts_refs"] == ["backend/runtime/context_management/recovery_package.py"]
     assert package["next_steps"] == ["接入 pre-turn recovery package freshness"]
     assert package["coverage"]["covered_message_count"] == 2
     assert package["coverage"]["covered_message_ids"] == ["msg:1", "msg:2"]
+    assert package["coverage"]["covered_event_run_id"] == "turnrun:recovery-package-test"
+    assert package["coverage"]["covered_event_offset_start"] == 0
+    assert package["coverage"]["covered_event_offset_end"] == 7
     assert package["freshness"]["status"] == "fresh"
     assert "## 当前任务" in manager.context_recovery_markdown()
 

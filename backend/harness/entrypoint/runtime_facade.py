@@ -194,6 +194,57 @@ class HarnessRuntimeFacade:
             "project_id": str(scope.get("project_id") or "").strip(),
         }
 
+    def _context_recovery_package_for_session(self, session_id: str) -> dict[str, Any]:
+        session_memory = getattr(getattr(self, "memory_facade", None), "session_memory", None)
+        manager_factory = getattr(session_memory, "manager", None)
+        if not callable(manager_factory):
+            return {}
+        try:
+            manager = manager_factory(session_id)
+            loader = getattr(manager, "load_context_recovery_package", None)
+            if not callable(loader):
+                return {}
+            payload = loader()
+        except Exception:
+            logger.debug("failed to load context recovery package for session", exc_info=True)
+            return {}
+        return dict(payload) if isinstance(payload, dict) and payload else {}
+
+    def _event_coverage_for_active_turn(self, *, session_id: str, turn_id: str) -> dict[str, Any]:
+        active_registry = getattr(self.single_agent_runtime_host, "active_turn_registry", None)
+        if active_registry is None:
+            return {}
+        try:
+            active_turn = active_registry.snapshot(session_id)
+        except Exception:
+            logger.debug("failed to snapshot active turn for context recovery coverage", exc_info=True)
+            return {}
+        if active_turn is None:
+            return {}
+        if str(getattr(active_turn, "turn_id", "") or "") != str(turn_id or ""):
+            return {}
+        turn_run_id = str(getattr(active_turn, "turn_run_id", "") or "").strip()
+        if not turn_run_id:
+            return {}
+        latest_offset = -1
+        try:
+            turn_run = self.single_agent_runtime_host.state_index.get_turn_run(turn_run_id)
+            latest_offset = int(getattr(turn_run, "latest_event_offset", -1) if turn_run is not None else -1)
+        except Exception:
+            latest_offset = -1
+        if latest_offset < 0:
+            try:
+                latest_offset = max(0, int(self.single_agent_runtime_host.event_log.event_count(turn_run_id)) - 1)
+            except Exception:
+                latest_offset = -1
+        if latest_offset < 0:
+            return {}
+        return {
+            "covered_event_run_id": turn_run_id,
+            "covered_event_offset_start": 0,
+            "covered_event_offset_end": latest_offset,
+        }
+
     async def astream(self, request: HarnessRuntimeRequest):
         history_record = self.session_manager.load_session_record(request.session_id)
         auto_compaction: dict[str, Any] = {}
@@ -221,6 +272,9 @@ class HarnessRuntimeFacade:
             "compressed_context": history_assembly.compressed_context,
             "api_transcript": [dict(item) for item in list(api_transcript or []) if isinstance(item, dict)],
         }
+        context_recovery_package = self._context_recovery_package_for_session(request.session_id)
+        if context_recovery_package:
+            session_context["context_recovery_package"] = context_recovery_package
         provider_protocol_compaction_created_at = float(history_record.get("provider_protocol_compaction_created_at") or 0.0)
         if provider_protocol_compaction_created_at > 0:
             session_context["provider_protocol_compaction_created_at"] = provider_protocol_compaction_created_at
@@ -1679,6 +1733,10 @@ class HarnessRuntimeFacade:
                 turn_id=str(payload.get("turn_id") or ""),
                 task_run_id=str(payload.get("task_run_id") or ""),
                 main_context=main_context,
+            ),
+            event_coverage=self._event_coverage_for_active_turn(
+                session_id=session_id,
+                turn_id=str(payload.get("turn_id") or ""),
             ),
         )
         return {

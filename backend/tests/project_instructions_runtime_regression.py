@@ -28,7 +28,7 @@ def test_single_turn_runtime_injects_root_agents_as_project_instruction(tmp_path
     manifest = packet.diagnostics["prompt_manifest"]
 
     assert "ROOT_PROJECT_INSTRUCTION: use fixed ports." in model_input
-    assert "project.instructions.scoped.v1" in manifest["project_instruction_refs"]
+    assert "project.instructions.scoped" in manifest["project_instruction_refs"]
     assert manifest["project_instructions"]["source_count"] == 1
     assert manifest["project_instructions"]["sources"][0]["path"].endswith("AGENTS.md")
     assert manifest["project_instructions"]["sources"][0]["content_hash"].startswith("sha256:")

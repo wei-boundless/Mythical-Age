@@ -233,7 +233,7 @@ class PromptLibraryRegistry:
             cache_scope="static",
             model_visible=True,
             source_ref=f"task_graph:{graph_id}#nodes.{node_id}.role_prompt",
-            version="v1",
+            version="2026-06-08",
             enabled=True,
             metadata={
                 "managed_by": "prompt_library.task_graph_role_prompt",
@@ -314,7 +314,7 @@ def _environment_prompt_resources_from_definitions(definitions: tuple[Any, ...],
                     model_visible=True,
                     allowed_environment_refs=(environment_id,),
                     source_ref=f"{source_prefix}#{environment_id}.environment_prompts.{prompt_id}",
-                    version=str(prompt.version or "v1"),
+                    version=str(prompt.version or "2026-06-08"),
                     enabled=True,
                     status="active",
                     metadata={

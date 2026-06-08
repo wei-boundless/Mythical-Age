@@ -218,7 +218,7 @@ def _projection_limits(*, allocation_tokens: dict[str, int], long_term_token_cap
     return {
         "recent_history_message_limit": recent_history_message_limit,
         "history_message_chars": history_message_chars,
-        "compressed_summary_chars": _clamp_int(long_term_token_cap * CHARS_PER_TOKEN_ESTIMATE, low=4000, high=96000),
+        "context_recovery_package_chars": _clamp_int(long_term_token_cap * CHARS_PER_TOKEN_ESTIMATE, low=4000, high=96000),
         "tool_trajectory_limit": _clamp_int(recent_history_message_limit // 2, low=8, high=60),
         "tool_trajectory_result_chars": _clamp_int(history_message_chars // 3, low=300, high=2000),
         "latest_observation_limit": latest_observation_limit,

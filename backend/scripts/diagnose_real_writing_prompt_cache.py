@@ -239,7 +239,7 @@ def _compile_work_order_packet(*, base_dir: Path, path: Path) -> dict[str, Any]:
             "profile_ref": work_order.agent_profile_id or "main_interactive_agent",
             "interaction_policy": {"style": "task_execution"},
             "context_policy": {"task_run_context": "disabled"},
-            "prompt_pack_refs_by_invocation": {"task_execution": ["runtime.pack.graph_node_execution.v1"]},
+            "prompt_pack_refs_by_invocation": {"task_execution": ["runtime.pack.graph_node_execution"]},
             "operation_authorization_projection": {"model_visible": "summary_without_denials"},
         },
         "task_environment": {

@@ -498,7 +498,7 @@ def _recent_stability_reports(records: list[dict[str, Any]], *, limit: int) -> l
                 "volatile_token_count": _int(row.get("volatile_token_count")),
                 "stable_prefix_hash": str(row.get("stable_prefix_hash") or "")[:19],
                 "dynamic_param_hash": str(row.get("dynamic_param_hash") or "")[:19],
-                "compressed_summary": "yes" if context_window.get("compressed_summary_present") else "",
+                "context_recovery_package": "yes" if context_window.get("context_recovery_package_present") else "",
                 "active_history_messages": _int(context_window.get("active_history_message_count")),
                 "first_changed_section": _changed_section_label(first_changed),
                 "likely_break_reason": str(dict(row.get("diagnostics") or {}).get("likely_break_reason") or ""),
@@ -743,7 +743,7 @@ def _print_report(diagnosis: Diagnosis, *, ledger_dir: Path) -> None:
     _print_section(
         "prompt_stability_reports",
         payload["stability_reports"],
-        fields=("request_id", "stable_section_count", "provider_global_prefix_tokens", "session_prefix_tokens", "task_prefix_tokens", "stable_prefix_tokens", "volatile_token_count", "hit_rate", "context_window_generation", "compaction_generation", "compressed_summary", "active_history_messages", "first_changed_section", "dynamic_param_diff", "likely_break_reason"),
+        fields=("request_id", "stable_section_count", "provider_global_prefix_tokens", "session_prefix_tokens", "task_prefix_tokens", "stable_prefix_tokens", "volatile_token_count", "hit_rate", "context_window_generation", "compaction_generation", "context_recovery_package", "active_history_messages", "first_changed_section", "dynamic_param_diff", "likely_break_reason"),
     )
 
 

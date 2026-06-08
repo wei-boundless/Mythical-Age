@@ -205,8 +205,8 @@ def test_deepseek_cache_diagnosis_summarizes_context_window_facts(tmp_path: Path
                 "diagnostics": {
                     "likely_break_reason": "provider_cache_cold_or_expired",
                     "context_window": {
-                        "compressed_summary_present": True,
-                        "compressed_summary_hash": "sha256:compressed",
+                        "context_recovery_package_present": True,
+                        "context_recovery_package_hash": "sha256:compressed",
                         "raw_history_message_count": 12,
                         "active_history_message_count": 12,
                     },
@@ -221,7 +221,7 @@ def test_deepseek_cache_diagnosis_summarizes_context_window_facts(tmp_path: Path
 
     assert report["context_window_generation"] == 1
     assert report["compaction_generation"] == 1
-    assert report["compressed_summary"] == "yes"
+    assert report["context_recovery_package"] == "yes"
     assert report["active_history_messages"] == 12
 
 

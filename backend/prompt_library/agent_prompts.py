@@ -148,7 +148,7 @@ def _agent_work_role_resource(
         allowed_invocation_kinds=(invocation_kind,),
         allowed_agent_refs=agent_refs,
         source_ref=f"prompt_library.agent_prompts#{prompt_id}",
-        version="v1",
+        version="2026-06-08",
         enabled=True,
         status="active",
         metadata={
@@ -165,7 +165,7 @@ def _agent_work_role_resource(
                 "cache_tier": "session_stable",
                 "enforcement_mode": "compiler_validated",
                 "authority": "prompt_library.agent_prompt_rule",
-                "version": "v1",
+                "version": "2026-06-08",
                 "status": "active",
             },
         },

@@ -141,6 +141,43 @@ def _message_coverage_payload(message: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
+def _event_coverage_payload(value: dict[str, Any] | None) -> dict[str, Any]:
+    payload = dict(value or {})
+    run_id = str(
+        payload.get("covered_event_run_id")
+        or payload.get("event_run_id")
+        or payload.get("run_id")
+        or ""
+    ).strip()
+    start = _optional_nonnegative_int(
+        payload.get("covered_event_offset_start")
+        if "covered_event_offset_start" in payload
+        else payload.get("event_offset_start")
+    )
+    end = _optional_nonnegative_int(
+        payload.get("covered_event_offset_end")
+        if "covered_event_offset_end" in payload
+        else payload.get("event_offset_end")
+    )
+    result: dict[str, Any] = {}
+    if run_id:
+        result["covered_event_run_id"] = run_id
+    if start is not None:
+        result["covered_event_offset_start"] = start
+    if end is not None:
+        result["covered_event_offset_end"] = end
+    return result
+
+
+def _optional_nonnegative_int(value: Any) -> int | None:
+    if value in (None, ""):
+        return None
+    try:
+        return max(0, int(value))
+    except (TypeError, ValueError):
+        return None
+
+
 def _message_id_from_payload(payload: dict[str, Any], *, meta: dict[str, Any]) -> str:
     for source in (payload, meta):
         for key in ("message_id", "id"):
@@ -429,6 +466,9 @@ class MemoryMaintenanceRequest(BaseModel):
     manifest_headers: list[dict[str, Any]] = Field(default_factory=list)
     decision_context: dict[str, Any] = Field(default_factory=dict)
     source_message_refs: list[str] = Field(default_factory=list)
+    covered_event_run_id: str = Field(default="", exclude=True)
+    covered_event_offset_start: int | None = Field(default=None, exclude=True)
+    covered_event_offset_end: int | None = Field(default=None, exclude=True)
     durable_lane_enabled: bool = True
 
 
@@ -724,6 +764,9 @@ class MemoryCommitter:
             source=MEMORY_MANAGER_AGENT_ID,
             source_message_refs=list(request.source_message_refs or []),
             summary_content=rendered_session,
+            covered_event_run_id=request.covered_event_run_id,
+            covered_event_offset_start=request.covered_event_offset_start,
+            covered_event_offset_end=request.covered_event_offset_end,
         )
 
         emphasis_commit = self.commit_session_emphasis_actions(request, proposal.session_emphasis_actions)
@@ -1198,6 +1241,7 @@ class MemoryMaintenanceCoordinator:
         task_summary_refs: list[dict[str, Any]] | None = None,
         bundle_summary_refs: list[dict[str, Any]] | None = None,
         memory_environment_context: dict[str, Any] | None = None,
+        event_coverage: dict[str, Any] | None = None,
         durable_lane_enabled: bool = True,
         force: bool = False,
     ) -> MemoryMaintenanceReceipt:
@@ -1214,6 +1258,7 @@ class MemoryMaintenanceCoordinator:
                 "task_summary_refs": list(task_summary_refs or []),
                 "bundle_summary_refs": list(bundle_summary_refs or []),
                 "memory_environment_context": dict(memory_environment_context or {}),
+                "event_coverage": dict(event_coverage or {}),
                 "durable_lane_enabled": durable_lane_enabled,
                 "force": force,
             },
@@ -1290,6 +1335,7 @@ class MemoryMaintenanceCoordinator:
                 task_summary_refs=task_summary_refs or [],
                 bundle_summary_refs=bundle_summary_refs or [],
                 memory_environment_context=memory_environment_context or {},
+                event_coverage=event_coverage or {},
                 durable_lane_enabled=durable_lane_enabled,
             )
             self._update_runtime_state_projection(request)
@@ -1353,6 +1399,7 @@ class MemoryMaintenanceCoordinator:
         task_summary_refs: list[dict[str, Any]],
         bundle_summary_refs: list[dict[str, Any]],
         memory_environment_context: dict[str, Any] | None = None,
+        event_coverage: dict[str, Any] | None = None,
         durable_lane_enabled: bool = True,
     ) -> MemoryMaintenanceRequest:
         start = max(0, last_index - 4)
@@ -1370,6 +1417,7 @@ class MemoryMaintenanceCoordinator:
             main_context,
             memory_environment_context=memory_environment_context,
         )
+        normalized_event_coverage = _event_coverage_payload(event_coverage)
         headers = self._manifest_headers_for_decision_context(decision_context, limit=120)
         return MemoryMaintenanceRequest(
             run_id=run_id,
@@ -1390,6 +1438,9 @@ class MemoryMaintenanceCoordinator:
             manifest_headers=headers,
             decision_context=decision_context,
             source_message_refs=source_refs,
+            covered_event_run_id=str(normalized_event_coverage.get("covered_event_run_id") or ""),
+            covered_event_offset_start=normalized_event_coverage.get("covered_event_offset_start"),
+            covered_event_offset_end=normalized_event_coverage.get("covered_event_offset_end"),
             durable_lane_enabled=durable_lane_enabled,
         )
 

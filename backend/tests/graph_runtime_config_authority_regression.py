@@ -30,7 +30,7 @@ def _config(*, config_id: str, model: str = "deepseek-v4-flash", extra_node: boo
                         "credential_ref": "env:DEEPSEEK_WRITING_API_KEY",
                     },
                     "runtime_policy": {
-                        "prompt_pack_refs_by_invocation": {"task_execution": ["runtime.pack.graph_node_execution.v1"]},
+                        "prompt_pack_refs_by_invocation": {"task_execution": ["runtime.pack.graph_node_execution"]},
                         "subagent_policy": {"enabled": True, "allowed_subagent_ids": ["agent:writing_modular_worker"]},
                     },
                 }

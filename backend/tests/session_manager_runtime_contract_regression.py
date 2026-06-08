@@ -177,7 +177,7 @@ def test_session_manager_records_conversation_environment_state_without_pollutin
             "turn_id": "turn:test:1",
             "task_environment_id": "env.coding.vibe_workspace",
             "environment_kind": "coding",
-            "environment_prompt_refs": ["environment.coding.vibe_workspace.orientation.v1"],
+            "environment_prompt_refs": ["environment.coding.vibe_workspace.orientation"],
             "runtime_assembly_id": "rtasm:test",
         },
     )

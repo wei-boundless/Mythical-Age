@@ -129,52 +129,52 @@ class ToolGuidanceItem:
 def list_builtin_tool_prompt_resources() -> tuple[PromptResource, ...]:
     return (
         _tool_guidance_resource(
-            prompt_id="tool.guidance.read_file.v1",
+            prompt_id="tool.guidance.read_file",
             title="Read file tool guidance",
             content=TOOL_READ_FILE_GUIDANCE,
         ),
         _tool_guidance_resource(
-            prompt_id="tool.guidance.edit_file.v1",
+            prompt_id="tool.guidance.edit_file",
             title="Edit file tool guidance",
             content=TOOL_EDIT_FILE_GUIDANCE,
         ),
         _tool_guidance_resource(
-            prompt_id="tool.guidance.write_file.v1",
+            prompt_id="tool.guidance.write_file",
             title="Write file tool guidance",
             content=TOOL_WRITE_FILE_GUIDANCE,
         ),
         _tool_guidance_resource(
-            prompt_id="tool.guidance.terminal_powershell.v1",
+            prompt_id="tool.guidance.terminal_powershell",
             title="PowerShell terminal tool guidance",
             content=TOOL_TERMINAL_POWERSHELL_GUIDANCE,
         ),
         _tool_guidance_resource(
-            prompt_id="tool.guidance.git_read.v1",
+            prompt_id="tool.guidance.git_read",
             title="Git read tool guidance",
             content=TOOL_GIT_READ_GUIDANCE,
         ),
         _tool_guidance_resource(
-            prompt_id="tool.guidance.git_write.v1",
+            prompt_id="tool.guidance.git_write",
             title="Git write tool guidance",
             content=TOOL_GIT_WRITE_GUIDANCE,
         ),
         _tool_guidance_resource(
-            prompt_id="tool.guidance.todo.v1",
+            prompt_id="tool.guidance.todo",
             title="Agent todo tool guidance",
             content=TOOL_TODO_GUIDANCE,
         ),
         _tool_guidance_resource(
-            prompt_id="tool.guidance.subagent.v1",
+            prompt_id="tool.guidance.subagent",
             title="Subagent tool guidance",
             content=TOOL_SUBAGENT_GUIDANCE,
         ),
         _tool_guidance_resource(
-            prompt_id="tool.guidance.browser.v1",
+            prompt_id="tool.guidance.browser",
             title="Browser tool guidance",
             content=TOOL_BROWSER_GUIDANCE,
         ),
         _tool_guidance_resource(
-            prompt_id="tool.guidance.web_fetch.v1",
+            prompt_id="tool.guidance.web_fetch",
             title="Web search and fetch tool guidance",
             content=TOOL_WEB_FETCH_GUIDANCE,
         ),
@@ -246,7 +246,7 @@ def _tool_guidance_resource(*, prompt_id: str, title: str, content: str) -> Prom
         model_visible=True,
         allowed_invocation_kinds=allowed_invocation_kinds,
         source_ref=f"prompt_library.tool_prompts#{prompt_id}",
-        version="v1",
+        version="2026-06-08",
         enabled=True,
         status="active",
         metadata={
@@ -262,6 +262,7 @@ def _tool_guidance_resource(*, prompt_id: str, title: str, content: str) -> Prom
                 cache_tier="global_static",
                 enforcement_mode="compiler_validated",
                 authority="prompt_library.tool_guidance_rule",
+                version="2026-06-08",
             ),
         },
     )
@@ -274,24 +275,24 @@ def _prompt_refs_for_tool_names(tool_names: tuple[str, ...]) -> tuple[str, ...]:
     return tuple(refs)
 
 
-_SUBAGENT_TOOL_REFS = ("tool.guidance.subagent.v1",)
-_GIT_READ_TOOL_REFS = ("tool.guidance.git_read.v1",)
-_GIT_WRITE_TOOL_REFS = ("tool.guidance.git_write.v1",)
+_SUBAGENT_TOOL_REFS = ("tool.guidance.subagent",)
+_GIT_READ_TOOL_REFS = ("tool.guidance.git_read",)
+_GIT_WRITE_TOOL_REFS = ("tool.guidance.git_write",)
 
 _TOOL_GUIDANCE_REFS_BY_NAME: dict[str, tuple[str, ...]] = {
-    "read_file": ("tool.guidance.read_file.v1",),
-    "edit_file": ("tool.guidance.edit_file.v1",),
-    "write_file": ("tool.guidance.write_file.v1",),
-    "terminal": ("tool.guidance.terminal_powershell.v1",),
-    "agent_todo": ("tool.guidance.todo.v1",),
+    "read_file": ("tool.guidance.read_file",),
+    "edit_file": ("tool.guidance.edit_file",),
+    "write_file": ("tool.guidance.write_file",),
+    "terminal": ("tool.guidance.terminal_powershell",),
+    "agent_todo": ("tool.guidance.todo",),
     "spawn_subagent": _SUBAGENT_TOOL_REFS,
     "send_subagent_message": _SUBAGENT_TOOL_REFS,
     "wait_subagent": _SUBAGENT_TOOL_REFS,
     "list_subagents": _SUBAGENT_TOOL_REFS,
     "close_subagent": _SUBAGENT_TOOL_REFS,
-    "browser_control": ("tool.guidance.browser.v1",),
-    "web_search": ("tool.guidance.web_fetch.v1",),
-    "fetch_url": ("tool.guidance.web_fetch.v1",),
+    "browser_control": ("tool.guidance.browser",),
+    "web_search": ("tool.guidance.web_fetch",),
+    "fetch_url": ("tool.guidance.web_fetch",),
     "git_status": _GIT_READ_TOOL_REFS,
     "git_diff": _GIT_READ_TOOL_REFS,
     "git_log": _GIT_READ_TOOL_REFS,

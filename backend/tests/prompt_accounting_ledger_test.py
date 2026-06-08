@@ -540,14 +540,14 @@ def test_model_request_and_segment_map_canonical_hash_ignore_diagnostic_metadata
         messages=messages,
         provider="deepseek",
         model="deepseek-v4-pro",
-        metadata={"prompt_manifest": {"context_window": {"compressed_summary_hash": "sha256:a"}}},
+        metadata={"prompt_manifest": {"context_window": {"context_recovery_package_hash": "sha256:a"}}},
     )
     second_request = ModelRequestBuilder().build(
         request_id="modelreq:canonical:2",
         messages=messages,
         provider="deepseek",
         model="deepseek-v4-pro",
-        metadata={"prompt_manifest": {"context_window": {"compressed_summary_hash": "sha256:b"}}},
+        metadata={"prompt_manifest": {"context_window": {"context_recovery_package_hash": "sha256:b"}}},
     )
     serializer = CanonicalPromptSerializer()
     first_map = serializer.build_segment_map(
@@ -555,14 +555,14 @@ def test_model_request_and_segment_map_canonical_hash_ignore_diagnostic_metadata
         messages=messages,
         provider="deepseek",
         model="deepseek-v4-pro",
-        metadata={"prompt_manifest": {"context_window": {"compressed_summary_hash": "sha256:a"}}},
+        metadata={"prompt_manifest": {"context_window": {"context_recovery_package_hash": "sha256:a"}}},
     )
     second_map = serializer.build_segment_map(
         request_id="modelreq:canonical:2",
         messages=messages,
         provider="deepseek",
         model="deepseek-v4-pro",
-        metadata={"prompt_manifest": {"context_window": {"compressed_summary_hash": "sha256:b"}}},
+        metadata={"prompt_manifest": {"context_window": {"context_recovery_package_hash": "sha256:b"}}},
     )
 
     assert first_request.canonical_hash == second_request.canonical_hash

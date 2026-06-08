@@ -63,42 +63,42 @@ def coding_vibe_workspace_environment() -> TaskEnvironmentDefinition:
         environment_id=record.environment_id,
         environment_prompts=(
             EnvironmentPrompt(
-                prompt_id="environment.coding.vibe_workspace.orientation.v1",
+                prompt_id="environment.coding.vibe_workspace.orientation",
             ),
             EnvironmentPrompt(
-                prompt_id="environment.rule.coding_workspace.v1",
+                prompt_id="environment.rule.coding_workspace",
                 prompt_kind="boundary_rule",
             ),
             EnvironmentPrompt(
-                prompt_id="coding.rule.codebase_inspection.v1",
+                prompt_id="coding.rule.codebase_inspection",
                 prompt_kind="coding_rule",
             ),
             EnvironmentPrompt(
-                prompt_id="coding.rule.large_scope_exploration.v1",
+                prompt_id="coding.rule.large_scope_exploration",
                 prompt_kind="coding_rule",
             ),
             EnvironmentPrompt(
-                prompt_id="coding.rule.editing.v1",
+                prompt_id="coding.rule.editing",
                 prompt_kind="coding_rule",
             ),
             EnvironmentPrompt(
-                prompt_id="coding.rule.verification.v1",
+                prompt_id="coding.rule.verification",
                 prompt_kind="coding_rule",
             ),
             EnvironmentPrompt(
-                prompt_id="coding.rule.debug_discipline.v1",
+                prompt_id="coding.rule.debug_discipline",
                 prompt_kind="coding_rule",
             ),
             EnvironmentPrompt(
-                prompt_id="coding.rule.git_safety.v1",
+                prompt_id="coding.rule.git_safety",
                 prompt_kind="coding_rule",
             ),
             EnvironmentPrompt(
-                prompt_id="coding.rule.windows_shell.v1",
+                prompt_id="coding.rule.windows_shell",
                 prompt_kind="coding_rule",
             ),
             EnvironmentPrompt(
-                prompt_id="coding.rule.task_progress.v1",
+                prompt_id="coding.rule.task_progress",
                 prompt_kind="coding_rule",
             ),
         ),
@@ -205,42 +205,42 @@ def development_sandbox_environment() -> TaskEnvironmentDefinition:
         environment_id=record.environment_id,
         environment_prompts=(
             EnvironmentPrompt(
-                prompt_id="environment.development.sandbox.orientation.v1",
+                prompt_id="environment.development.sandbox.orientation",
             ),
             EnvironmentPrompt(
-                prompt_id="environment.rule.development_sandbox.v1",
+                prompt_id="environment.rule.development_sandbox",
                 prompt_kind="boundary_rule",
             ),
             EnvironmentPrompt(
-                prompt_id="coding.rule.codebase_inspection.v1",
+                prompt_id="coding.rule.codebase_inspection",
                 prompt_kind="coding_rule",
             ),
             EnvironmentPrompt(
-                prompt_id="coding.rule.large_scope_exploration.v1",
+                prompt_id="coding.rule.large_scope_exploration",
                 prompt_kind="coding_rule",
             ),
             EnvironmentPrompt(
-                prompt_id="coding.rule.editing.v1",
+                prompt_id="coding.rule.editing",
                 prompt_kind="coding_rule",
             ),
             EnvironmentPrompt(
-                prompt_id="coding.rule.verification.v1",
+                prompt_id="coding.rule.verification",
                 prompt_kind="coding_rule",
             ),
             EnvironmentPrompt(
-                prompt_id="coding.rule.debug_discipline.v1",
+                prompt_id="coding.rule.debug_discipline",
                 prompt_kind="coding_rule",
             ),
             EnvironmentPrompt(
-                prompt_id="coding.rule.git_safety.v1",
+                prompt_id="coding.rule.git_safety",
                 prompt_kind="coding_rule",
             ),
             EnvironmentPrompt(
-                prompt_id="coding.rule.windows_shell.v1",
+                prompt_id="coding.rule.windows_shell",
                 prompt_kind="coding_rule",
             ),
             EnvironmentPrompt(
-                prompt_id="coding.rule.task_progress.v1",
+                prompt_id="coding.rule.task_progress",
                 prompt_kind="coding_rule",
             ),
         ),
@@ -329,10 +329,10 @@ def creation_writing_environment() -> TaskEnvironmentDefinition:
         environment_id=record.environment_id,
         environment_prompts=(
             EnvironmentPrompt(
-                prompt_id="environment.creation.writing.orientation.v1",
+                prompt_id="environment.creation.writing.orientation",
             ),
             EnvironmentPrompt(
-                prompt_id="environment.rule.writing_workspace.v1",
+                prompt_id="environment.rule.writing_workspace",
                 prompt_kind="boundary_rule",
             ),
         ),
@@ -397,10 +397,10 @@ def general_workspace_environment() -> TaskEnvironmentDefinition:
         environment_id=record.environment_id,
         environment_prompts=(
             EnvironmentPrompt(
-                prompt_id="environment.general.workspace.orientation.v1",
+                prompt_id="environment.general.workspace.orientation",
             ),
             EnvironmentPrompt(
-                prompt_id="environment.rule.general_workspace.v1",
+                prompt_id="environment.rule.general_workspace",
                 prompt_kind="boundary_rule",
             ),
         ),

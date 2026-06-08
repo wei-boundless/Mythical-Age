@@ -38,7 +38,7 @@ def test_coding_runtime_boundary_is_explicit_environment_policy() -> None:
 
 def test_debug_discipline_is_only_bound_to_development_class_environments() -> None:
     registry = default_task_environment_registry()
-    debug_ref = "coding.rule.debug_discipline.v1"
+    debug_ref = "coding.rule.debug_discipline"
 
     coding_refs = {item.prompt_id for item in registry.require("env.coding.vibe_workspace").spec.environment_prompts}
     development_refs = {item.prompt_id for item in registry.require("env.development.sandbox").spec.environment_prompts}

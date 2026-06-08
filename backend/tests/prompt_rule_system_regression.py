@@ -21,12 +21,12 @@ def test_runtime_pack_manifest_reports_prompt_rule_coverage(tmp_path: Path) -> N
     assert prompt_rules["coverage"]["has_runtime_protocol"] is True
     assert prompt_rules["coverage"]["has_system_call_protocol"] is True
     assert prompt_rules["coverage"]["has_intent_feedback"] is True
-    assert "runtime.task_execution.v1" in prompt_rules["rule_refs"]
-    assert "runtime.rule.system_call_protocol.v1" in prompt_rules["rule_refs"]
-    assert "runtime.rule.intent_feedback.v1" in prompt_rules["rule_refs"]
-    assert "runtime.rule.output_boundary.v1" in prompt_rules["rule_refs"]
-    assert "runtime.rule.error_recovery.v1" in prompt_rules["rule_refs"]
-    assert "runtime.rule.subagent_invocation_protocol.v1" in prompt_rules["rule_refs"]
+    assert "runtime.task_execution" in prompt_rules["rule_refs"]
+    assert "runtime.rule.system_call_protocol" in prompt_rules["rule_refs"]
+    assert "runtime.rule.intent_feedback" in prompt_rules["rule_refs"]
+    assert "runtime.rule.output_boundary" in prompt_rules["rule_refs"]
+    assert "runtime.rule.error_recovery" in prompt_rules["rule_refs"]
+    assert "runtime.rule.subagent_invocation_protocol" in prompt_rules["rule_refs"]
     assert prompt_rules["rejected_rules"] == []
 
     compiled = PromptRuleCompiler().compile(assembly.sections, invocation_kind="task_execution")
@@ -44,7 +44,7 @@ def test_runtime_protocol_requires_system_call_protocol_rule(tmp_path: Path) -> 
     assembly = PromptAssemblyService(tmp_path).assemble(
         PromptAssemblyRequest(
             invocation_kind="task_execution",
-            prompt_refs=("runtime.task_execution.v1",),
+            prompt_refs=("runtime.task_execution",),
         )
     )
 
@@ -52,7 +52,7 @@ def test_runtime_protocol_requires_system_call_protocol_rule(tmp_path: Path) -> 
     assert prompt_rules["coverage"]["has_runtime_protocol"] is True
     assert prompt_rules["coverage"]["has_system_call_protocol"] is False
     assert prompt_rules["rejected_rules"][0]["reason"] == "prompt_rule_requirement_missing"
-    assert prompt_rules["rejected_rules"][0]["requires"] == "runtime.rule.system_call_protocol.v1"
+    assert prompt_rules["rejected_rules"][0]["requires"] == "runtime.rule.system_call_protocol"
     with pytest.raises(ValueError, match="prompt_rule_requirement_missing"):
         PromptRuleCompiler().compile(assembly.sections, invocation_kind="task_execution")
 
@@ -61,10 +61,10 @@ def test_foundation_refs_precede_runtime_protocol_in_runtime_packs(tmp_path: Pat
     service = PromptAssemblyService(tmp_path)
 
     pack_cases = (
-        ("single_agent_turn", "runtime.pack.single_agent_turn.v1", "runtime.single_agent_turn.v1"),
-        ("task_execution", "runtime.pack.task_execution.v1", "runtime.task_execution.v1"),
-        ("task_execution", "runtime.pack.graph_node_execution.v1", "runtime.graph_node_execution.v1"),
-        ("tool_observation_followup", "runtime.pack.observation_followup.v1", "runtime.observation_followup.v1"),
+        ("single_agent_turn", "runtime.pack.single_agent_turn", "runtime.single_agent_turn"),
+        ("task_execution", "runtime.pack.task_execution", "runtime.task_execution"),
+        ("task_execution", "runtime.pack.graph_node_execution", "runtime.graph_node_execution"),
+        ("tool_observation_followup", "runtime.pack.observation_followup", "runtime.observation_followup"),
     )
     for invocation_kind, pack_ref, protocol_ref in pack_cases:
         assembly = service.assemble(
@@ -82,12 +82,12 @@ def test_foundation_is_not_in_semantic_compaction_pack(tmp_path: Path) -> None:
     assembly = PromptAssemblyService(tmp_path).assemble(
         PromptAssemblyRequest(
             invocation_kind="semantic_compaction",
-            prompt_pack_refs=("runtime.pack.semantic_compaction.v1",),
+            prompt_pack_refs=("runtime.pack.semantic_compaction",),
         )
     )
 
     assert all(prompt_ref not in assembly.manifest["stable_prompt_refs"] for prompt_ref in FOUNDATION_PROMPT_REFS)
-    assert "runtime.semantic_compaction.v1" in assembly.manifest["stable_prompt_refs"]
+    assert "runtime.semantic_compaction" in assembly.manifest["stable_prompt_refs"]
 
 
 def test_non_graph_runtime_protocol_requires_intent_feedback_rule(tmp_path: Path) -> None:
@@ -95,8 +95,8 @@ def test_non_graph_runtime_protocol_requires_intent_feedback_rule(tmp_path: Path
         PromptAssemblyRequest(
             invocation_kind="task_execution",
             prompt_refs=(
-                "runtime.task_execution.v1",
-                "runtime.rule.system_call_protocol.v1",
+                "runtime.task_execution",
+                "runtime.rule.system_call_protocol",
             ),
         )
     )
@@ -107,7 +107,7 @@ def test_non_graph_runtime_protocol_requires_intent_feedback_rule(tmp_path: Path
     assert prompt_rules["coverage"]["has_intent_feedback"] is False
     assert any(
         item["reason"] == "prompt_rule_requirement_missing"
-        and item["requires"] == "runtime.rule.intent_feedback.v1"
+        and item["requires"] == "runtime.rule.intent_feedback"
         for item in prompt_rules["rejected_rules"]
     )
     with pytest.raises(ValueError, match="prompt_rule_requirement_missing"):
@@ -119,8 +119,8 @@ def test_prompt_rule_compiler_rejects_multiple_runtime_protocols(tmp_path: Path)
         PromptAssemblyRequest(
             invocation_kind="task_execution",
             prompt_refs=(
-                "runtime.task_execution.v1",
-                "runtime.graph_node_execution.v1",
+                "runtime.task_execution",
+                "runtime.graph_node_execution",
             ),
         )
     )
@@ -133,7 +133,7 @@ def test_prompt_rule_compiler_rejects_missing_required_file_management_rule(tmp_
     assembly = PromptAssemblyService(tmp_path).assemble(
         PromptAssemblyRequest(
             invocation_kind="environment",
-            prompt_refs=("coding.rule.editing.v1",),
+            prompt_refs=("coding.rule.editing",),
             task_environment_ref="env.coding.vibe_workspace",
         )
     )
@@ -144,7 +144,7 @@ def test_prompt_rule_compiler_rejects_missing_required_file_management_rule(tmp_
 
 def test_debug_discipline_rule_is_environment_scoped(tmp_path: Path) -> None:
     service = PromptAssemblyService(tmp_path)
-    debug_ref = "coding.rule.debug_discipline.v1"
+    debug_ref = "coding.rule.debug_discipline"
 
     for environment_ref in ("env.coding.vibe_workspace", "env.development.sandbox"):
         assembly = service.assemble(
@@ -293,10 +293,10 @@ def test_coding_rules_do_not_leak_into_writing_environment_runtime_packet() -> N
         runtime_assembly={
             "profile": {"profile_ref": "main_interactive_agent"},
             "environment_prompt_refs": [
-                "runtime.rule.file_management.generic.v1",
-                "environment.resource.writing_manuscript.orientation.v1",
-                "environment.creation.writing.orientation.v1",
-                "environment.rule.writing_workspace.v1",
+                "runtime.rule.file_management.generic",
+                "environment.resource.writing_manuscript.orientation",
+                "environment.creation.writing.orientation",
+                "environment.rule.writing_workspace",
             ],
             "task_environment": {
                 "environment_id": "env.creation.writing",
@@ -309,12 +309,12 @@ def test_coding_rules_do_not_leak_into_writing_environment_runtime_packet() -> N
     manifest = packet.diagnostics["prompt_manifest"]
     assert manifest["prompt_rules"]["coverage"]["has_system_call_protocol"] is True
     assert manifest["prompt_rules"]["coverage"]["has_intent_feedback"] is True
-    assert "runtime.rule.system_call_protocol.v1" in manifest["stable_prompt_refs"]
-    assert "runtime.rule.intent_feedback.v1" in manifest["stable_prompt_refs"]
-    assert "environment.rule.writing_workspace.v1" in manifest["stable_prompt_refs"]
-    assert "coding.rule.editing.v1" not in manifest["stable_prompt_refs"]
-    assert "coding.rule.verification.v1" not in manifest["stable_prompt_refs"]
-    assert "coding.rule.debug_discipline.v1" not in manifest["stable_prompt_refs"]
+    assert "runtime.rule.system_call_protocol" in manifest["stable_prompt_refs"]
+    assert "runtime.rule.intent_feedback" in manifest["stable_prompt_refs"]
+    assert "environment.rule.writing_workspace" in manifest["stable_prompt_refs"]
+    assert "coding.rule.editing" not in manifest["stable_prompt_refs"]
+    assert "coding.rule.verification" not in manifest["stable_prompt_refs"]
+    assert "coding.rule.debug_discipline" not in manifest["stable_prompt_refs"]
     assert "写作环境不继承 coding 的测试、shell、git 或代码编辑规则" in model_input
     assert "你处在 coding 或 development 环境时" not in model_input
     assert "调试纪律" not in model_input
@@ -324,7 +324,7 @@ def test_graph_node_runtime_pack_has_single_graph_protocol(tmp_path: Path) -> No
     assembly = PromptAssemblyService(tmp_path).assemble(
         PromptAssemblyRequest(
             invocation_kind="task_execution",
-            prompt_pack_refs=("runtime.pack.graph_node_execution.v1",),
+            prompt_pack_refs=("runtime.pack.graph_node_execution",),
         )
     )
 
@@ -332,10 +332,10 @@ def test_graph_node_runtime_pack_has_single_graph_protocol(tmp_path: Path) -> No
     assert prompt_rules["coverage"]["has_runtime_protocol"] is True
     assert prompt_rules["coverage"]["has_system_call_protocol"] is True
     assert prompt_rules["coverage"]["has_intent_feedback"] is False
-    assert "runtime.graph_node_execution.v1" in prompt_rules["rule_refs"]
-    assert "runtime.task_execution.v1" not in prompt_rules["rule_refs"]
-    assert "runtime.rule.system_call_protocol.v1" in prompt_rules["rule_refs"]
-    assert "runtime.rule.intent_feedback.v1" not in prompt_rules["rule_refs"]
-    assert "runtime.rule.tool_use.v1" not in prompt_rules["rule_refs"]
-    assert "graph.rule.node_boundary.v1" in prompt_rules["rule_refs"]
+    assert "runtime.graph_node_execution" in prompt_rules["rule_refs"]
+    assert "runtime.task_execution" not in prompt_rules["rule_refs"]
+    assert "runtime.rule.system_call_protocol" in prompt_rules["rule_refs"]
+    assert "runtime.rule.intent_feedback" not in prompt_rules["rule_refs"]
+    assert "runtime.rule.tool_use" not in prompt_rules["rule_refs"]
+    assert "graph.rule.node_boundary" in prompt_rules["rule_refs"]
     assert prompt_rules["rejected_rules"] == []

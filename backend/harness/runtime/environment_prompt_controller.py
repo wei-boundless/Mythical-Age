@@ -10,8 +10,8 @@ GENERAL_ENVIRONMENT_ID = "env.general.workspace"
 ENVIRONMENT_SWITCH_REQUEST_ACTION = "environment_switch_request"
 
 _GENERAL_BASE_FALLBACK_REFS = (
-    "environment.general.workspace.orientation.v1",
-    "environment.rule.general_workspace.v1",
+    "environment.general.workspace.orientation",
+    "environment.rule.general_workspace",
 )
 
 _LIFECYCLE = {
@@ -198,7 +198,7 @@ def _lifecycle_prompt_selection_for_invocation(
     prompt_pack_refs: tuple[str, ...],
 ) -> LifecyclePromptSelection:
     invocation = str(invocation_kind or "").strip()
-    if "runtime.pack.graph_node_execution.v1" in set(prompt_pack_refs):
+    if "runtime.pack.graph_node_execution" in set(prompt_pack_refs):
         return LifecyclePromptSelection()
     refs: list[str] = []
     trigger_reasons: dict[str, str] = {}

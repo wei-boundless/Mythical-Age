@@ -1215,7 +1215,7 @@ def _node_runtime_profile(*, graph_config: GraphHarnessConfig, node: dict[str, A
             "source": "graph_node_config",
             "node_id": str(node.get("node_id") or ""),
             "context_policy": {"task_run_context": "disabled"},
-            "prompt_pack_refs_by_invocation": {"task_execution": ["runtime.pack.graph_node_execution.v1"]},
+            "prompt_pack_refs_by_invocation": {"task_execution": ["runtime.pack.graph_node_execution"]},
             "operation_authorization_projection": {
                 "model_visible": "summary_without_denials",
                 "reason": "图节点只需要知道本轮可用操作；被拒绝操作不参与节点交付判断。",

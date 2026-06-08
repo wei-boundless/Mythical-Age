@@ -222,6 +222,44 @@ function sessionTokenTitle(tokenStats: TokenStats | null, usagePercent: number |
   ].filter(Boolean).join("；");
 }
 
+function contextRecoveryPackageStatus(tokenStats: TokenStats | null) {
+  if (!tokenStats) {
+    return {
+      title: "暂无上下文恢复包状态",
+      value: "暂无",
+    };
+  }
+  const packageStatus = tokenStats.context_recovery_package;
+  const readiness = tokenStats.compaction_readiness;
+  const present = Boolean(packageStatus?.present ?? readiness?.context_recovery_package_present);
+  if (!present) {
+    return {
+      title: "上下文恢复包未生成",
+      value: "未生成",
+    };
+  }
+  const fresh = Boolean(packageStatus?.fresh ?? readiness?.context_recovery_package_fresh);
+  const source = String(packageStatus?.source || readiness?.context_recovery_package_source || "").trim();
+  const coveredMessageCount = Number(packageStatus?.covered_message_count ?? 0);
+  const coveredEventOffsetEnd = Number(packageStatus?.covered_event_offset_end ?? NaN);
+  const staleReason = String(packageStatus?.stale_reason || "").trim();
+  const value = [
+    fresh ? "fresh" : "stale",
+    Number.isFinite(coveredMessageCount) && coveredMessageCount > 0 ? `${Math.round(coveredMessageCount)} 条` : "",
+  ].filter(Boolean).join(" · ");
+  const title = [
+    `上下文恢复包 ${fresh ? "fresh" : "stale"}`,
+    source ? `来源 ${source}` : "",
+    Number.isFinite(coveredMessageCount) && coveredMessageCount > 0 ? `覆盖消息 ${Math.round(coveredMessageCount)} 条` : "",
+    Number.isFinite(coveredEventOffsetEnd) && coveredEventOffsetEnd >= 0 ? `覆盖事件 offset ${Math.round(coveredEventOffsetEnd)}` : "",
+    staleReason ? `失效原因 ${staleReason}` : "",
+  ].filter(Boolean).join("；");
+  return {
+    title,
+    value: value || (fresh ? "fresh" : "stale"),
+  };
+}
+
 function formatFileSize(value: number) {
   if (!value) return "0 B";
   if (value >= 1024 * 1024) return `${(value / 1024 / 1024).toFixed(1)} MB`;
@@ -348,6 +386,7 @@ export function MemoryView() {
   const usagePercent = tokenStats ? percentFromRatio(contextUsageRatio(tokenStats)) : null;
   const remainingPercent = tokenStats ? percentFromRatio(tokenStats.history_remaining_ratio) : null;
   const tokenTitle = sessionTokenTitle(tokenStats, usagePercent, remainingPercent);
+  const recoveryPackageStatus = contextRecoveryPackageStatus(tokenStats);
 
   const loadOverview = useCallback(async () => {
     setLoading(true);
@@ -1159,6 +1198,11 @@ export function MemoryView() {
             <FileText size={16} />
             <span>当前 / 累计</span>
             <strong>{tokenStats ? `${formatTokenCount(currentContextTokenCount(tokenStats))} / ${formatTokenCount(cumulativeTranscriptTokenCount(tokenStats))} · ${tokenPressureLabel(tokenStats.context_meter?.pressure_level || tokenStats.history_pressure_level)}` : "暂无"}</strong>
+          </article>
+          <article title={recoveryPackageStatus.title}>
+            <ShieldCheck size={16} />
+            <span>恢复包</span>
+            <strong>{recoveryPackageStatus.value}</strong>
           </article>
         </div>
       </section>

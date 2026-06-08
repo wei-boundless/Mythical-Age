@@ -1973,9 +1973,9 @@ def _provider_protocol_message_specs(
     storage_run_id: str = "",
 ) -> list[dict[str, Any]]:
     payload = dict(session_context or {})
-    compressed_context_present = bool(str(payload.get("compressed_context") or payload.get("compressed_summary") or "").strip())
+    context_recovery_package_present = bool(_context_recovery_package_payload(payload))
     compaction_boundary_created_at = _safe_float(payload.get("provider_protocol_compaction_created_at"))
-    if compressed_context_present and compaction_boundary_created_at <= 0:
+    if context_recovery_package_present and compaction_boundary_created_at <= 0:
         return []
     transcript_candidates = [
         dict(item)
@@ -2444,7 +2444,12 @@ def _context_window_report(
     dynamic_context: DynamicContextProjection | None = None,
 ) -> dict[str, Any]:
     session_payload = dict(session_context or {})
-    compressed = str(session_payload.get("compressed_context") or session_payload.get("compressed_summary") or "").strip()
+    context_recovery_package = _context_recovery_package_payload(session_payload)
+    package_coverage = (
+        dict(context_recovery_package.get("coverage") or {})
+        if isinstance(context_recovery_package.get("coverage"), dict)
+        else {}
+    )
     recent_work_outcome = dict(session_payload.get("recent_work_outcome") or {}) if isinstance(session_payload.get("recent_work_outcome"), dict) else {}
     dynamic_report = dynamic_context.to_report_dict() if dynamic_context is not None else {}
     volatile_request = dict(getattr(dynamic_context, "volatile_request_projection", {}) or {}) if dynamic_context is not None else {}
@@ -2453,8 +2458,11 @@ def _context_window_report(
     active_history = [dict(item) for item in list(history_projection.get("active_history") or []) if isinstance(item, dict)]
     return _drop_empty_payload(
         {
-            "compressed_summary_hash": _stable_json_hash(compressed) if compressed else "",
-            "compressed_summary_present": bool(compressed),
+            "context_recovery_package_hash": _stable_json_hash(context_recovery_package) if context_recovery_package else "",
+            "context_recovery_package_present": bool(context_recovery_package),
+            "context_recovery_package_source": str(context_recovery_package.get("source") or "") if context_recovery_package else "",
+            "context_recovery_package_covered_message_count": _safe_int(package_coverage.get("covered_message_count")),
+            "context_recovery_package_covered_event_offset_end": _safe_int(package_coverage.get("covered_event_offset_end")),
             "recent_work_outcome_hash": _stable_json_hash(recent_work_outcome) if recent_work_outcome else "",
             "recent_work_outcome_present": bool(recent_work_outcome),
             "raw_history_message_count": len(raw_history),
@@ -2465,6 +2473,25 @@ def _context_window_report(
             "authority": "harness.runtime.compiler.context_window_report",
         }
     )
+
+
+def _context_recovery_package_payload(session_payload: dict[str, Any] | None) -> dict[str, Any]:
+    payload = dict(session_payload or {})
+    package = payload.get("context_recovery_package")
+    if isinstance(package, dict) and package:
+        return {
+            **dict(package),
+            "authority": str(dict(package).get("authority") or "runtime.context_management.context_recovery_package"),
+        }
+    compressed_context = str(payload.get("compressed_context") or "").strip()
+    if not compressed_context:
+        return {}
+    return {
+        "content": compressed_context,
+        "format": "markdown",
+        "source": "session_record.compressed_context",
+        "authority": "runtime.context_management.context_recovery_package",
+    }
 
 
 def _valid_message_index(index: Any, message_chars: list[int]) -> bool:
@@ -2776,8 +2803,8 @@ def _prompt_mount_plan_payload_from_runtime_assembly(assembly_payload: dict[str,
         overlay_prompt_refs: tuple[str, ...] = ()
     else:
         base_candidates = {
-            "environment.general.workspace.orientation.v1",
-            "environment.rule.general_workspace.v1",
+            "environment.general.workspace.orientation",
+            "environment.rule.general_workspace",
         }
         base_prompt_refs = tuple(ref for ref in environment_prompt_refs if ref in base_candidates)
         overlay_prompt_refs = tuple(ref for ref in environment_prompt_refs if ref not in base_candidates)
@@ -3363,17 +3390,6 @@ def _environment_model_visible_payload(
         "authority": "task_system.environment.model_visible_projection",
     }
     return _drop_empty_payload(model_payload)
-
-
-def _session_context_model_visible_payload(session_context: dict[str, Any] | None) -> dict[str, Any]:
-    payload = dict(session_context or {})
-    compressed = str(payload.get("compressed_context") or payload.get("compressed_summary") or "").strip()
-    if not compressed:
-        return {}
-    return {
-        "compressed_summary": compressed,
-        "authority": "runtime.session_context.compressed_summary",
-    }
 
 
 def _memory_context_model_visible_payload(memory_context: Any) -> dict[str, Any]:

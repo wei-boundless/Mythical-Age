@@ -48,7 +48,7 @@ class TaskEnvironmentRecord:
 class EnvironmentPrompt:
     prompt_id: str
     content: str = ""
-    version: str = "v1"
+    version: str = "2026-06-08"
     prompt_kind: str = "orientation"
     cache_scope: str = "static_environment"
 

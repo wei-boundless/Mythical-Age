@@ -30,7 +30,7 @@ def test_development_sandbox_is_not_vibe_coding_workspace() -> None:
     assert development.resource_space.project_file_policy == "file_profile.base_workspace"
     assert development.metadata.get("dedicated_task_environment") is None
     assert development.metadata.get("managed_project_workspace_profile") is None
-    assert "environment.rule.coding_workspace.v1" in coding_prompt_ids
-    assert "environment.rule.development_sandbox.v1" not in coding_prompt_ids
-    assert "environment.rule.development_sandbox.v1" in development_prompt_ids
-    assert "environment.rule.coding_workspace.v1" not in development_prompt_ids
+    assert "environment.rule.coding_workspace" in coding_prompt_ids
+    assert "environment.rule.development_sandbox" not in coding_prompt_ids
+    assert "environment.rule.development_sandbox" in development_prompt_ids
+    assert "environment.rule.coding_workspace" not in development_prompt_ids

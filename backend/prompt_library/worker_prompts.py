@@ -147,7 +147,7 @@ class WorkerPromptSpec:
 
 WORKER_PROMPT_SPECS: tuple[WorkerPromptSpec, ...] = (
     WorkerPromptSpec(
-        prompt_id="worker.prompt.dev_prototype.v1",
+        prompt_id="worker.prompt.dev_prototype",
         title="Development worker prompt",
         content=WORKER_DEV_PROTOTYPE_PROMPT,
         worker_kind="development",
@@ -155,7 +155,7 @@ WORKER_PROMPT_SPECS: tuple[WorkerPromptSpec, ...] = (
         description="局部开发工作 worker，处理父任务授权的实现、检查或素材整理。",
     ),
     WorkerPromptSpec(
-        prompt_id="worker.prompt.explorer.v1",
+        prompt_id="worker.prompt.explorer",
         title="Explorer worker prompt",
         content=WORKER_EXPLORER_PROMPT,
         worker_kind="explorer",
@@ -163,7 +163,7 @@ WORKER_PROMPT_SPECS: tuple[WorkerPromptSpec, ...] = (
         description="只读探索 worker，返回代码、资料、来源和不确定性。",
     ),
     WorkerPromptSpec(
-        prompt_id="worker.prompt.web_research.v1",
+        prompt_id="worker.prompt.web_research",
         title="Web research worker prompt",
         content=WORKER_WEB_RESEARCH_PROMPT,
         worker_kind="web_research",
@@ -171,7 +171,7 @@ WORKER_PROMPT_SPECS: tuple[WorkerPromptSpec, ...] = (
         description="网络研究 worker，核验外部当前信息、官方来源和 URL 证据。",
     ),
     WorkerPromptSpec(
-        prompt_id="worker.prompt.knowledge_search.v1",
+        prompt_id="worker.prompt.knowledge_search",
         title="Knowledge search worker prompt",
         content=WORKER_KNOWLEDGE_SEARCH_PROMPT,
         worker_kind="knowledge_search",
@@ -179,7 +179,7 @@ WORKER_PROMPT_SPECS: tuple[WorkerPromptSpec, ...] = (
         description="知识库检索 worker，返回 RAG/知识材料证据和限制。",
     ),
     WorkerPromptSpec(
-        prompt_id="worker.prompt.memory_search.v1",
+        prompt_id="worker.prompt.memory_search",
         title="Memory search worker prompt",
         content=WORKER_MEMORY_SEARCH_PROMPT,
         worker_kind="memory_search",
@@ -187,7 +187,7 @@ WORKER_PROMPT_SPECS: tuple[WorkerPromptSpec, ...] = (
         description="记忆检索 worker，区分历史记忆和当前事实。",
     ),
     WorkerPromptSpec(
-        prompt_id="worker.prompt.pdf_analysis.v1",
+        prompt_id="worker.prompt.pdf_analysis",
         title="PDF analysis worker prompt",
         content=WORKER_PDF_ANALYSIS_PROMPT,
         worker_kind="pdf_analysis",
@@ -195,7 +195,7 @@ WORKER_PROMPT_SPECS: tuple[WorkerPromptSpec, ...] = (
         description="PDF 阅读 worker，返回页码、片段证据和限制。",
     ),
     WorkerPromptSpec(
-        prompt_id="worker.prompt.structured_data_analysis.v1",
+        prompt_id="worker.prompt.structured_data_analysis",
         title="Structured data analysis worker prompt",
         content=WORKER_STRUCTURED_DATA_PROMPT,
         worker_kind="structured_data_analysis",
@@ -203,7 +203,7 @@ WORKER_PROMPT_SPECS: tuple[WorkerPromptSpec, ...] = (
         description="结构化数据 worker，按字段和口径返回可复核分析。",
     ),
     WorkerPromptSpec(
-        prompt_id="worker.prompt.planner.v1",
+        prompt_id="worker.prompt.planner",
         title="Planner worker prompt",
         content=WORKER_PLANNER_PROMPT,
         worker_kind="planner",
@@ -211,7 +211,7 @@ WORKER_PROMPT_SPECS: tuple[WorkerPromptSpec, ...] = (
         description="只读规划 worker，拆解方案、风险和验证路径。",
     ),
     WorkerPromptSpec(
-        prompt_id="worker.prompt.verification.v1",
+        prompt_id="worker.prompt.verification",
         title="Verification worker prompt",
         content=WORKER_VERIFICATION_PROMPT,
         worker_kind="verification",
@@ -219,7 +219,7 @@ WORKER_PROMPT_SPECS: tuple[WorkerPromptSpec, ...] = (
         description="独立验证 worker，输出 PASS、FAIL 或 PARTIAL 裁决。",
     ),
     WorkerPromptSpec(
-        prompt_id="worker.prompt.execution.v1",
+        prompt_id="worker.prompt.execution",
         title="Bounded execution worker prompt",
         content=WORKER_EXECUTION_PROMPT,
         worker_kind="execution",
@@ -227,7 +227,7 @@ WORKER_PROMPT_SPECS: tuple[WorkerPromptSpec, ...] = (
         description="边界执行 worker，完成父任务授权的局部实现或修复。",
     ),
     WorkerPromptSpec(
-        prompt_id="worker.prompt.code_executor.v1",
+        prompt_id="worker.prompt.code_executor",
         title="Code executor worker prompt",
         content=WORKER_CODE_EXECUTOR_PROMPT,
         worker_kind="code_execution",
@@ -235,7 +235,7 @@ WORKER_PROMPT_SPECS: tuple[WorkerPromptSpec, ...] = (
         description="代码执行 worker，完成清晰边界内的代码修改和验证。",
     ),
     WorkerPromptSpec(
-        prompt_id="worker.prompt.review.v1",
+        prompt_id="worker.prompt.review",
         title="Review worker prompt",
         content=WORKER_REVIEW_PROMPT,
         worker_kind="review",
@@ -294,7 +294,7 @@ def _worker_prompt_resource(spec: WorkerPromptSpec) -> PromptResource:
         model_visible=True,
         allowed_invocation_kinds=allowed_invocation_kinds,
         source_ref=f"prompt_library.worker_prompts#{spec.prompt_id}",
-        version="v1",
+        version="2026-06-08",
         enabled=True,
         status="active",
         metadata={
@@ -312,6 +312,7 @@ def _worker_prompt_resource(spec: WorkerPromptSpec) -> PromptResource:
                 cache_tier="session_stable",
                 enforcement_mode="compiler_validated",
                 authority="prompt_library.worker_prompt_rule",
+                version="2026-06-08",
             ),
         },
     )

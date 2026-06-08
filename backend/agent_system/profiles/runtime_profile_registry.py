@@ -305,9 +305,9 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
                 "subagent_task_kind": "knowledge_search",
                 "subagent_task_kinds": ("knowledge_search", "knowledge_retrieval", "evidence_lookup", "retrieval"),
                 "runtime_template_id": "runtime.template.knowledge_search",
-                "worker_prompt_ref": "worker.prompt.knowledge_search.v1",
+                "worker_prompt_ref": "worker.prompt.knowledge_search",
                 "agent_prompt_refs_by_invocation": {
-                    "task_execution": ["worker.prompt.knowledge_search.v1"],
+                    "task_execution": ["worker.prompt.knowledge_search"],
                 },
             },
         ),
@@ -324,9 +324,9 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
                 "worker_kind": "pdf_analysis",
                 "subagent_task_kind": "pdf_reading",
                 "runtime_template_id": "builtin.specialist.pdf_reader",
-                "worker_prompt_ref": "worker.prompt.pdf_analysis.v1",
+                "worker_prompt_ref": "worker.prompt.pdf_analysis",
                 "agent_prompt_refs_by_invocation": {
-                    "task_execution": ["worker.prompt.pdf_analysis.v1"],
+                    "task_execution": ["worker.prompt.pdf_analysis"],
                 },
             },
         ),
@@ -343,9 +343,9 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
                 "worker_kind": "structured_data_analysis",
                 "subagent_task_kind": "table_analysis",
                 "runtime_template_id": "builtin.specialist.table_analyst",
-                "worker_prompt_ref": "worker.prompt.structured_data_analysis.v1",
+                "worker_prompt_ref": "worker.prompt.structured_data_analysis",
                 "agent_prompt_refs_by_invocation": {
-                    "task_execution": ["worker.prompt.structured_data_analysis.v1"],
+                    "task_execution": ["worker.prompt.structured_data_analysis"],
                 },
             },
         ),
@@ -398,9 +398,9 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
                 },
                 "context_policy": "fresh_specialist_summary_and_refs_only",
                 "runtime_template_id": "builtin.specialist.web_researcher",
-                "worker_prompt_ref": "worker.prompt.web_research.v1",
+                "worker_prompt_ref": "worker.prompt.web_research",
                 "agent_prompt_refs_by_invocation": {
-                    "task_execution": ["worker.prompt.web_research.v1"],
+                    "task_execution": ["worker.prompt.web_research"],
                 },
                 "runtime_config": {
                     "template_id": "runtime.template.deepsearch",
@@ -520,9 +520,9 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
                 "subagent_task_kind": "memory_search",
                 "subagent_task_kinds": ("memory_search", "memory_lookup", "memory_recall"),
                 "runtime_template_id": "runtime.template.memory_search",
-                "worker_prompt_ref": "worker.prompt.memory_search.v1",
+                "worker_prompt_ref": "worker.prompt.memory_search",
                 "agent_prompt_refs_by_invocation": {
-                    "task_execution": ["worker.prompt.memory_search.v1"],
+                    "task_execution": ["worker.prompt.memory_search"],
                 },
                 "runtime_config": {
                     "template_id": "runtime.template.memory_search",
@@ -558,9 +558,9 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
                 ),
                 "when_to_use": "当主 Agent 已有候选回答、产物或执行证据，但需要独立检查是否满足用户目标、是否缺少证据、是否需要返工时使用。",
                 "runtime_template_id": "builtin.specialist.verifier",
-                "worker_prompt_ref": "worker.prompt.verification.v1",
+                "worker_prompt_ref": "worker.prompt.verification",
                 "agent_prompt_refs_by_invocation": {
-                    "task_execution": ["worker.prompt.verification.v1"],
+                    "task_execution": ["worker.prompt.verification"],
                 },
                 "output_contract": {
                     "required_fields": ("verdict", "checks", "risks"),
