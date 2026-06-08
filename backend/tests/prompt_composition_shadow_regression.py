@@ -5,7 +5,7 @@ from pathlib import Path
 from harness.runtime.compiler import RuntimeCompiler
 from harness.runtime.prompt_segment_plan import build_prompt_segment_plan
 from prompt_composition import PromptCompositionLayerInput, build_shadow_prompt_composition_manifest
-from prompt_library import PromptAssemblyRequest, PromptAssemblyService
+from prompt_library import PromptAssemblyRequest, PromptAssemblyResult, PromptAssemblyService, PromptSection
 
 
 def _backend_dir() -> Path:
@@ -78,10 +78,159 @@ def test_shadow_manifest_binds_registered_prompts_and_marks_legacy_runtime_text(
 
     coverage = dict(manifest["coverage"])
     statuses = dict(coverage["segment_binding_status_counts"])
+    cache_boundary = dict(manifest["diagnostics"]["cache_boundary"])
     assert statuses["registered_prompt_bound"] == 1
     assert statuses["runtime_action_schema"] == 1
     assert coverage["registered_prompt_slot_count"] > 0
     assert coverage["runtime_shadow_slot_count"] == 1
+    assert cache_boundary["status"] == "ok"
+    assert cache_boundary["prefix_tier_sequence"] == ["provider_global", "session"]
+
+
+def test_shadow_manifest_flags_stable_segment_after_volatile_boundary() -> None:
+    segment_plan = build_prompt_segment_plan(
+        packet_id="packet:prompt-composition-volatile-break",
+        invocation_kind="task_execution",
+        message_specs=[
+            {
+                "role": "system",
+                "content": "global runtime",
+                "kind": "global_static",
+                "source_ref": "runtime.test",
+                "cache_scope": "global",
+                "cache_role": "cacheable_prefix",
+                "prefix_tier": "provider_global",
+                "compression_role": "preserve",
+            },
+            {
+                "role": "user",
+                "content": "current user message",
+                "kind": "volatile_user",
+                "source_ref": "turn.current",
+                "cache_scope": "none",
+                "cache_role": "volatile",
+                "prefix_tier": "volatile",
+                "compression_role": "summarize",
+            },
+            {
+                "role": "system",
+                "content": "late task contract",
+                "kind": "task_contract_stable",
+                "source_ref": "contract.late",
+                "cache_scope": "task",
+                "cache_role": "session_stable",
+                "prefix_tier": "task",
+                "compression_role": "preserve",
+            },
+        ],
+    )
+
+    manifest = build_shadow_prompt_composition_manifest(
+        invocation_kind="task_execution",
+        packet_id="packet:prompt-composition-volatile-break",
+        layers=(),
+        segment_plan=segment_plan.to_dict(),
+    ).to_dict()
+
+    cache_boundary = dict(manifest["diagnostics"]["cache_boundary"])
+    violations = list(cache_boundary["segment_prefix_violations"])
+
+    assert cache_boundary["status"] == "warning"
+    assert violations[0]["code"] == "stable_segment_after_volatile_boundary"
+    assert violations[0]["kind"] == "task_contract_stable"
+
+
+def test_shadow_manifest_flags_layer_cache_policy_mismatch() -> None:
+    assembly = PromptAssemblyResult(
+        assembly_id="promptasm:session-role",
+        invocation_kind="single_agent_turn",
+        sections=(
+            PromptSection(
+                section_id="agent.role:1",
+                prompt_ref="agent.role.session",
+                category="agent",
+                subtype="role",
+                title="Agent Role",
+                content="你是一名会话级 agent。",
+                owner_layer="agent",
+                cache_scope="session_stable",
+                source_ref="agent.role.session",
+                order=1,
+            ),
+        ),
+    )
+    segment_plan = build_prompt_segment_plan(
+        packet_id="packet:prompt-composition-layer-mismatch",
+        invocation_kind="single_agent_turn",
+        message_specs=[
+            {
+                "role": "system",
+                "content": assembly.content,
+                "kind": "global_static",
+                "source_ref": "agent.role.session",
+                "cache_scope": "global",
+                "cache_role": "cacheable_prefix",
+                "prefix_tier": "provider_global",
+                "compression_role": "preserve",
+            },
+        ],
+    )
+
+    manifest = build_shadow_prompt_composition_manifest(
+        invocation_kind="single_agent_turn",
+        packet_id="packet:prompt-composition-layer-mismatch",
+        layers=(
+            PromptCompositionLayerInput(
+                layer_id="wrong_global_layer",
+                slot_layer="global_static",
+                assembly=assembly,
+                message_kinds=("global_static",),
+                lifecycle="global_static",
+            ),
+        ),
+        segment_plan=segment_plan.to_dict(),
+    ).to_dict()
+
+    cache_boundary = dict(manifest["diagnostics"]["cache_boundary"])
+    violations = list(cache_boundary["layer_cache_policy_violations"])
+
+    assert cache_boundary["status"] == "warning"
+    assert violations[0]["code"] == "slot_prefix_tier_outside_layer_policy"
+    assert violations[0]["layer"] == "global_static"
+
+
+def test_shadow_manifest_reports_legacy_stable_runtime_text_samples() -> None:
+    segment_plan = build_prompt_segment_plan(
+        packet_id="packet:prompt-composition-legacy-stable",
+        invocation_kind="task_execution",
+        message_specs=[
+            {
+                "role": "system",
+                "content": "compiler generated stable header",
+                "kind": "compiler_header_stable",
+                "source_ref": "compiler.header",
+                "cache_scope": "session",
+                "cache_role": "session_stable",
+                "prefix_tier": "session",
+                "compression_role": "preserve",
+            },
+        ],
+    )
+
+    manifest = build_shadow_prompt_composition_manifest(
+        invocation_kind="task_execution",
+        packet_id="packet:prompt-composition-legacy-stable",
+        layers=(),
+        segment_plan=segment_plan.to_dict(),
+    ).to_dict()
+
+    coverage = dict(manifest["coverage"])
+    sample = coverage["legacy_runtime_text_samples"][0]
+    assert coverage["legacy_runtime_text_count"] == 1
+    assert coverage["stable_unregistered_segment_count"] == 1
+    assert coverage["runtime_shadow_slot_source_kind_counts"]["legacy_runtime_text"] == 1
+    assert sample["kind"] == "compiler_header_stable"
+    assert sample["source_ref"] == "compiler.header"
 
 
 def test_runtime_compiler_attaches_shadow_manifest_for_single_agent_turn() -> None:

@@ -165,7 +165,7 @@ def test_single_agent_turn_read_only_tool_executes_through_control_plane_and_fol
     assert dict(list(replayed_tool_call["tool_calls"])[0]).get("id") == "call-read-requirements"
     assert replayed_tool_result["tool_call_id"] == "call-read-requirements"
 
-def test_single_agent_turn_stream_policy_emits_content_delta_before_done(tmp_path: Path) -> None:
+def test_single_agent_turn_stream_policy_emits_assistant_text_frame_before_done(tmp_path: Path) -> None:
     model = StreamingMessageModelRuntimeStub(chunks=["第一段", "，第二段。"])
     runtime = build_harness_runtime(
         base_dir=_runtime_test_root(tmp_path),
@@ -181,7 +181,7 @@ def test_single_agent_turn_stream_policy_emits_content_delta_before_done(tmp_pat
                 model_selection={
                     "stream_policy": {
                         "enabled": True,
-                        "emit_content_delta": True,
+                        "emit_assistant_text_delta": True,
                     }
                 },
             )
@@ -190,13 +190,15 @@ def test_single_agent_turn_stream_policy_emits_content_delta_before_done(tmp_pat
         return events
 
     events = asyncio.run(_collect())
-    deltas = [str(event.get("content") or "") for event in events if event.get("type") == "content_delta"]
+    deltas = [str(event.get("content") or "") for event in events if event.get("type") == "assistant_text_delta"]
+    final = next(event for event in events if event.get("type") == "assistant_text_final")
     done = next(event for event in events if event.get("type") == "done")
 
-    assert deltas == ["第一段", "，第二段。"]
+    assert "".join(deltas) == "第一段，第二段。"
+    assert final["content"] == "第一段，第二段。"
     assert done["content"] == "第一段，第二段。"
     event_types = [event.get("type") for event in events]
-    assert event_types.index("content_delta") < event_types.index("done")
+    assert event_types.index("assistant_text_delta") < event_types.index("assistant_text_final") < event_types.index("done")
 
 def test_single_agent_turn_stream_policy_does_not_emit_json_action_delta(tmp_path: Path) -> None:
     action = json.dumps(
@@ -221,7 +223,7 @@ def test_single_agent_turn_stream_policy_does_not_emit_json_action_delta(tmp_pat
                 model_selection={
                     "stream_policy": {
                         "enabled": True,
-                        "emit_content_delta": True,
+                        "emit_assistant_text_delta": True,
                     }
                 },
             )
@@ -231,7 +233,8 @@ def test_single_agent_turn_stream_policy_does_not_emit_json_action_delta(tmp_pat
 
     events = asyncio.run(_collect())
 
-    assert [event for event in events if event.get("type") == "content_delta"] == []
+    assert [event for event in events if event.get("type") == "assistant_text_delta"] == []
+    assert any(event.get("type") == "assistant_text_final" and str(event.get("content") or "") == "流式安全收口。" for event in events)
     assert any(event.get("type") == "done" and str(event.get("content") or "") == "流式安全收口。" for event in events)
 
 def test_single_agent_turn_mid_turn_context_replacement_persists_recovery_package_and_recompiles_followup(tmp_path: Path) -> None:

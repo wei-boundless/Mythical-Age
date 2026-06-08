@@ -33,7 +33,7 @@ from .environment_prompt_controller import GENERAL_ENVIRONMENT_ID, prompt_mount_
 from .prompt_segment_plan import build_prompt_segment_plan
 from .project_instructions import ProjectInstructionBundle, collect_project_instruction_bundle
 from .sandbox_execution_scope import compile_sandbox_execution_scope, task_safety_envelope_from_assembly
-from .task_contract_manifest import TaskContractManifest, build_task_contract_manifest
+from .task_contract_manifest import TaskContractManifest, build_task_contract_manifest_from_contract
 from .tool_catalog_manifest import ToolCatalogManifest, build_tool_catalog_manifest
 
 
@@ -864,11 +864,12 @@ class RuntimeCompiler:
         action_schema_payload = action_schema_manifest.to_model_visible_payload()
         agent_function_shared_payload = _graph_agent_function_shared_stable_payload(contract)
         graph_task_shared_payload = _graph_task_shared_stable_payload(contract)
-        task_contract_manifest = build_task_contract_manifest(
+        task_contract_manifest = build_task_contract_manifest_from_contract(
             invocation_kind="task_execution",
-            model_visible_contract=_task_contract_stable_payload(contract),
+            contract=contract,
             planning_protocol=planning_protocol,
             source_ref=str(contract.get("contract_id") or "task_execution_contract"),
+            graph_node_context=_graph_node_stable_contract_context(graph_slot) if graph_slot else {},
         )
         task_contract_payload = task_contract_manifest.to_model_visible_payload()
         graph_node_runtime_context_payload = (
@@ -4364,106 +4365,6 @@ def _dedupe_strings(values: Any) -> list[str]:
         seen.add(text)
         result.append(text)
     return result
-
-
-def _task_contract_stable_payload(contract: dict[str, Any]) -> dict[str, Any]:
-    payload = dict(contract or {})
-    graph_slot = _graph_slot_from_contract(payload)
-    if graph_slot:
-        return _drop_empty_payload(
-            {
-                "contract_id": "graph_node_contract",
-                "contract_source": str(payload.get("contract_source") or "graph_node_work_order"),
-                "task_environment_id": str(payload.get("task_environment_id") or ""),
-                "origin": _graph_task_contract_origin_model_visible(dict(payload.get("origin") or {})),
-                "graph_node_context": _graph_node_stable_contract_context(graph_slot),
-                "completion_criteria": _string_list(payload.get("completion_criteria")),
-                "authority": "harness.runtime.graph_node_contract.model_visible",
-            }
-        )
-    resource_requirements = dict(payload.get("resource_requirements") or {})
-    permission_requirements = dict(payload.get("permission_requirements") or {})
-    return _drop_empty_payload(
-        {
-            "title": str(payload.get("title") or "").strip(),
-            "user_visible_goal": str(payload.get("user_visible_goal") or "").strip(),
-            "task_run_goal": str(payload.get("task_run_goal") or "").strip(),
-            "task_environment_id": str(payload.get("task_environment_id") or "").strip(),
-            "plan_ref": str(payload.get("plan_ref") or payload.get("approved_plan_ref") or "").strip(),
-            "plan_requirements": dict(payload.get("plan_requirements") or {}) if isinstance(payload.get("plan_requirements"), dict) else {},
-            "implementation_lock": dict(payload.get("implementation_lock") or {}) if isinstance(payload.get("implementation_lock"), dict) else {},
-            "required_artifacts": [
-                dict(item) for item in list(payload.get("required_artifacts") or []) if isinstance(item, dict)
-            ],
-            "required_verifications": [
-                dict(item) for item in list(payload.get("required_verifications") or []) if isinstance(item, dict)
-            ],
-            "completion_criteria": _string_list(payload.get("completion_criteria")),
-            "constraints": _string_list(payload.get("constraints")),
-            "forbidden_actions": _string_list(payload.get("forbidden_actions")),
-            "resource_requirements": _resource_requirements_stable_payload(resource_requirements) if resource_requirements else {},
-            "permission_requirements": permission_requirements,
-            "acceptance_policy": dict(payload.get("acceptance_policy") or {}),
-            "recovery_policy": dict(payload.get("recovery_policy") or {}),
-            "authority": "harness.runtime.task_contract.model_visible",
-        }
-    )
-
-
-def _graph_task_contract_origin_model_visible(origin: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "origin_kind": str(origin.get("origin_kind") or ""),
-        "origin_authority": str(origin.get("origin_authority") or ""),
-        "node_id": str(origin.get("node_id") or ""),
-        "authority": "harness.runtime.graph_task_contract_origin.model_visible_projection",
-    }
-
-
-def _resource_requirements_stable_payload(resource_requirements: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "graph_state": _graph_state_model_visible_payload(dict(resource_requirements.get("graph_state") or {})),
-        "input_package": _input_package_stable_payload(dict(resource_requirements.get("input_package") or {})),
-        "context_refs": dict(resource_requirements.get("context_refs") or {}),
-        "artifact_space_ref": str(resource_requirements.get("artifact_space_ref") or ""),
-        "memory_space_ref": str(resource_requirements.get("memory_space_ref") or ""),
-        "file_access_table_refs": [str(item) for item in list(resource_requirements.get("file_access_table_refs") or []) if str(item)],
-        "artifact_repository_targets": [
-            dict(item) for item in list(resource_requirements.get("artifact_repository_targets") or []) if isinstance(item, dict)
-        ],
-        "memory_repository_targets": [
-            dict(item) for item in list(resource_requirements.get("memory_repository_targets") or []) if isinstance(item, dict)
-        ],
-    }
-
-
-def _graph_state_model_visible_payload(graph_state: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "completed_node_ids": [str(item) for item in list(graph_state.get("completed_node_ids") or []) if str(item)],
-        "failed_node_ids": [str(item) for item in list(graph_state.get("failed_node_ids") or []) if str(item)],
-        "upstream_node_ids": [str(item) for item in list(graph_state.get("upstream_node_ids") or []) if str(item)],
-        "available_result_node_ids": [str(item) for item in list(graph_state.get("available_result_node_ids") or []) if str(item)],
-        "authority": "harness.runtime.graph_state.model_visible_projection",
-    }
-
-
-def _input_package_stable_payload(input_package: dict[str, Any]) -> dict[str, Any]:
-    payload = dict(input_package or {})
-    payload["inbound_context"] = _inbound_context_stable_payload(payload.get("inbound_context"))
-    payload.pop("upstream_results", None)
-    payload.pop("upstream_handoff_packets", None)
-    payload.pop("handoff_packets", None)
-    if "task_environment" in payload:
-        payload["task_environment"] = {
-            "environment_id": str(dict(payload.get("task_environment") or {}).get("environment_id") or ""),
-            "task_environment_id": str(dict(payload.get("task_environment") or {}).get("task_environment_id") or ""),
-            "storage_space": dict(dict(payload.get("task_environment") or {}).get("storage_space") or {}),
-            "authority": str(dict(payload.get("task_environment") or {}).get("authority") or ""),
-        }
-    for key in ("memory_view", "artifact_view", "file_view"):
-        if isinstance(payload.get(key), dict):
-            payload[key] = _bounded_view_payload(dict(payload.get(key) or {}))
-    payload.pop("hidden_control_refs", None)
-    return payload
 
 
 def _inbound_context_stable_payload(value: Any) -> list[dict[str, Any]]:

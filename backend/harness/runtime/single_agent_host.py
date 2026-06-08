@@ -676,10 +676,57 @@ def _active_chat_run_not_owned_by_current_host(
     if not str(run.event_log_id or "").startswith("chatrun:"):
         return False
     if run.owner_instance_id:
-        return run.owner_instance_id != owner_instance_id
+        if run.owner_instance_id == owner_instance_id:
+            return False
+        if run.owner_process_id and _process_is_alive(int(run.owner_process_id)):
+            return False
+        return True
     if run.owner_process_id:
-        return int(run.owner_process_id) != int(owner_process_id)
+        run_owner_pid = int(run.owner_process_id)
+        if run_owner_pid == int(owner_process_id):
+            return False
+        return not _process_is_alive(run_owner_pid)
     return True
+
+
+def _process_is_alive(process_id: int) -> bool:
+    pid = int(process_id or 0)
+    if pid <= 0:
+        return False
+    if pid == os.getpid():
+        return True
+    if os.name != "nt":
+        try:
+            os.kill(pid, 0)
+            return True
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True
+        except OSError:
+            return False
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        process_query_limited_information = 0x1000
+        synchronize = 0x00100000
+        still_active = 259
+        handle = ctypes.windll.kernel32.OpenProcess(
+            process_query_limited_information | synchronize,
+            False,
+            pid,
+        )
+        if not handle:
+            return False
+        try:
+            exit_code = wintypes.DWORD()
+            ok = ctypes.windll.kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code))
+            return bool(ok) and int(exit_code.value) == still_active
+        finally:
+            ctypes.windll.kernel32.CloseHandle(handle)
+    except Exception:
+        return False
 
 
 def _orphaned_chat_run_needs_turn_reconciliation(run: RuntimeRun) -> bool:

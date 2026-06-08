@@ -3,14 +3,13 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from fastapi.testclient import TestClient
-
 from app import app
 from bootstrap.app_runtime import app_runtime
 from capability_system.mcp.client import ExternalMCPConfigStore, ExternalMCPManager
 from capability_system.mcp.client.permission import check_external_mcp_tool_permission
 from capability_system.mcp.client.models import ExternalMCPServerConfig
 from capability_system.mcp.server.tool_pool import build_mcp_tool_pool
+from tests.support.app_client import isolated_app_client
 
 
 def _fake_server_config(backend_dir: Path) -> ExternalMCPServerConfig:
@@ -131,7 +130,7 @@ def test_external_mcp_api_catalog_and_tool_call() -> None:
     try:
         store.upsert_server(_fake_server_config(backend_dir))
 
-        with TestClient(app) as client:
+        with isolated_app_client(app) as client:
             app_runtime.require_ready()
             catalog_response = client.get("/api/mcp-system/management/catalog")
             assert catalog_response.status_code == 200

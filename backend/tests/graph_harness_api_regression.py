@@ -247,26 +247,92 @@ def test_task_graph_start_api_returns_node_work_order_for_published_config(tmp_p
                 request,
             )
         )
-        with pytest.raises(HTTPException) as conflict:
-            asyncio.run(
-                orchestration_api.start_task_graph_harness_run(
-                    graph.graph_id,
-                    request,
-                )
-            )
     finally:
         orchestration_api.require_runtime = original  # type: ignore[assignment]
 
     assert payload["graph_id"] == graph.graph_id
     assert payload["graph_run_id"]
     assert payload["graph_harness_config_id"]
+    assert payload["launch_session_id"] == request.session_id
+    assert payload["graph_session_id"] != request.session_id
     assert payload["node_work_orders"][0]["node_id"] == "produce"
     assert payload["node_work_orders"][0]["work_kind"] == "agent"
     assert payload["graph_run"]["graph_id"] == graph.graph_id
-    assert runtime.session_manager.get_task_binding(request.session_id)["graph_run_id"] == payload["graph_run_id"]
-    assert conflict.value.status_code == 409
+    assert payload["graph_run"]["session_id"] == payload["graph_session_id"]
+    assert runtime.session_manager.get_task_binding(request.session_id) == {}
+    assert runtime.session_manager.get_task_binding(payload["graph_session_id"])["graph_run_id"] == payload["graph_run_id"]
     assert set(payload).issuperset({"graph_run", "graph_loop_state", "node_work_orders", "checkpoint"})
     assert payload["checkpoint"]["state"]["graph_id"] == graph.graph_id
+
+
+def test_task_graph_start_api_uses_published_project_binding_without_conversation_scope(tmp_path: Path) -> None:
+    backend_dir = tmp_path / "backend"
+    graph = TaskGraphDefinition(
+        graph_id="graph.test.project_bound_start",
+        title="Project Bound Start",
+        graph_kind="multi_agent",
+        publish_state="published",
+        enabled=True,
+        entry_node_id="produce",
+        output_node_id="produce",
+        runtime_policy={
+            "coordinator_agent_id": "agent:0",
+            "task_environment_id": "env.coding.vibe_workspace",
+            "project_id": "project.development.codebase.langchain_agent",
+        },
+        nodes=(
+            TaskGraphNodeDefinition(
+                node_id="produce",
+                node_type="agent",
+                title="Produce",
+                task_id="task.test.project_bound_start.produce",
+                agent_id="agent:0",
+            ),
+        ),
+    )
+    registry = TaskFlowRegistry(backend_dir)
+    registry.upsert_task_graph(
+        graph_id=graph.graph_id,
+        title=graph.title,
+        graph_kind=graph.graph_kind,
+        entry_node_id=graph.entry_node_id,
+        output_node_id=graph.output_node_id,
+        nodes=tuple(node.to_dict() for node in graph.nodes),
+        runtime_policy=graph.runtime_policy,
+        publish_state="published",
+        enabled=True,
+    )
+    publish_graph_harness_config_for_graph(base_dir=backend_dir, graph_id=graph.graph_id)
+    runtime = _runtime_with_graph_harness(base_dir=backend_dir, runtime_root=tmp_path / "runtime_state")
+    launch_session = runtime.session_manager.create_session(title="Launch chat")
+
+    original = orchestration_api.require_runtime
+    orchestration_api.require_runtime = lambda: runtime  # type: ignore[assignment]
+    try:
+        payload = asyncio.run(
+            orchestration_api.start_task_graph_harness_run(
+                graph.graph_id,
+                orchestration_api.TaskGraphRunStartRequest(
+                    session_id=str(launch_session["id"]),
+                    session_scope=None,
+                    initial_inputs={"project_id": "project.user.supplied"},
+                    dispatch_ready=True,
+                ),
+            )
+        )
+    finally:
+        orchestration_api.require_runtime = original  # type: ignore[assignment]
+
+    assert payload["launch_session_id"] == launch_session["id"]
+    assert payload["graph_session_id"] != launch_session["id"]
+    assert payload["graph_run"]["workspace_view"] == "project"
+    assert payload["graph_run"]["task_environment_id"] == "env.coding.vibe_workspace"
+    assert payload["graph_run"]["project_id"] == "project.development.codebase.langchain_agent"
+    assert payload["task_run"]["diagnostics"]["runtime_scope"]["project_id"] == "project.development.codebase.langchain_agent"
+    assert runtime.session_manager.get_task_binding(str(launch_session["id"])) == {}
+    graph_session = runtime.session_manager.get_history(payload["graph_session_id"])
+    assert graph_session["scope"]["project_id"] == "project.development.codebase.langchain_agent"
+    assert runtime.session_manager.get_task_binding(payload["graph_session_id"])["graph_run_id"] == payload["graph_run_id"]
 
 
 def test_task_graph_start_api_rejects_stale_published_config_as_conflict(tmp_path: Path) -> None:

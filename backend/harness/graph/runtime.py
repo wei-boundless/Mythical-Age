@@ -376,8 +376,8 @@ def _graph_runtime_scope(
         "task_run_id": str(task_run_id or ""),
     }
     project_id = _first_scope_value(
-        scope.get("project_id"),
         binding_contract.get("project_id"),
+        scope.get("project_id"),
         diagnostics.get("project_id"),
         initial_inputs.get("project_id"),
         initial_inputs.get("project_ref"),
@@ -390,7 +390,7 @@ def _graph_runtime_scope(
     )
     if project_id:
         scope["project_id"] = project_id
-        scope["workspace_view"] = str(scope.get("workspace_view") or binding_contract.get("workspace_view") or "project").strip() or "project"
+        scope["workspace_view"] = str(binding_contract.get("workspace_view") or scope.get("workspace_view") or "project").strip() or "project"
         scope["graph_binding_mode"] = str(binding_contract.get("binding_mode") or "project_scoped")
         scope.setdefault("scope_source", "harness.graph_runtime.explicit_project_scope")
     elif scope_id:

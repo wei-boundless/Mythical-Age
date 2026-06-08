@@ -3,13 +3,12 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from fastapi.testclient import TestClient
-
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 from app import app
+from tests.support.app_client import isolated_app_client
 
 
 WRITING_SCOPE = {
@@ -20,7 +19,7 @@ WRITING_SCOPE = {
 
 
 def test_session_detail_rejects_wrong_task_environment_scope() -> None:
-    with TestClient(app) as client:
+    with isolated_app_client(app) as client:
         created = client.post(
             "/api/sessions",
             json={"title": "Scoped writing", "scope": WRITING_SCOPE},
@@ -42,7 +41,7 @@ def test_session_detail_rejects_wrong_task_environment_scope() -> None:
 
 
 def test_task_environment_session_resolver_creates_project_scoped_session() -> None:
-    with TestClient(app) as client:
+    with isolated_app_client(app) as client:
         response = client.post(
             "/api/task-environments/env.creation.writing/sessions/resolve",
             json={
@@ -62,7 +61,7 @@ def test_task_environment_session_resolver_creates_project_scoped_session() -> N
 
 
 def test_graph_run_start_rejects_session_scope_that_does_not_match_session() -> None:
-    with TestClient(app) as client:
+    with isolated_app_client(app) as client:
         created = client.post(
             "/api/sessions",
             json={"title": "Writing graph", "scope": WRITING_SCOPE},

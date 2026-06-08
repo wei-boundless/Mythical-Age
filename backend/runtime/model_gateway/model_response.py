@@ -8,6 +8,13 @@ from dataclasses import is_dataclass, replace
 from types import SimpleNamespace
 from typing import Any
 
+from runtime.model_gateway.assistant_stream_frame import (
+    assistant_message_ref,
+    assistant_stream_repair_event,
+    assistant_text_final_event,
+    content_sha256,
+)
+from runtime.model_gateway.assistant_stream_normalizer import AssistantStreamNormalizer
 from runtime.model_gateway.model_response_protocol import model_response_protocol_from_response
 from runtime.model_gateway.model_runtime import ModelRuntimeError, stringify_content, utility_accounting_context
 from task_system.runtime_semantics.protocol_boundary import detect_protocol_leak
@@ -65,12 +72,22 @@ class ModelResponseRuntimeExecutor:
         plain_streamer = getattr(self.model_runtime, "astream_messages", None)
         stream_policy = dict(model_stream_policy or {})
         stream_enabled = bool(stream_policy.get("enabled") is True)
-        emit_content_delta = bool(stream_policy.get("emit_content_delta") is not False)
+        emit_assistant_text_delta = bool(stream_policy.get("emit_assistant_text_delta", stream_policy.get("emit_content_delta", True)) is not False)
+        emit_legacy_content_delta = bool(stream_policy.get("legacy_content_delta_public_stream") is True)
         accounting_context = _accounting_context_from_directive(
             directive,
             stream_policy=stream_policy,
             model_messages=model_messages,
         )
+        stream_ref = str(accounting_context.get("request_id") or directive.directive_id)
+        message_ref = assistant_message_ref(turn_id=str(accounting_context.get("turn_id") or ""), stream_ref=stream_ref)
+        assistant_normalizer = AssistantStreamNormalizer(
+            stream_ref=stream_ref,
+            message_ref=message_ref,
+            turn_run_id=str(accounting_context.get("turn_run_id") or ""),
+            task_run_id=str(accounting_context.get("task_run_id") or ""),
+            answer_source="runtime_directive:model_response",
+        ) if stream_enabled and emit_assistant_text_delta else None
         response_timeout_seconds = _model_response_timeout_seconds(
             self.model_runtime,
             model_spec=model_spec,
@@ -82,7 +99,8 @@ class ModelResponseRuntimeExecutor:
             timeout_seconds=response_timeout_seconds,
             tool_call_options=tool_call_options,
         )
-        delta_index = 0
+        public_delta_count = 0
+        legacy_delta_index = 0
         raw_content = ""
         partial_timeout_metadata: dict[str, Any] = {}
         response: Any = None
@@ -105,15 +123,19 @@ class ModelResponseRuntimeExecutor:
                     if not delta_text:
                         continue
                     raw_content += delta_text
-                    if emit_content_delta:
-                        delta_index += 1
+                    if assistant_normalizer is not None:
+                        for frame_event in assistant_normalizer.observe_delta(delta_text):
+                            public_delta_count += 1
+                            yield frame_event
+                    if emit_legacy_content_delta:
+                        legacy_delta_index += 1
                         yield {
                             "type": "content_delta",
                             "content": delta_text,
-                            "delta_index": delta_index,
+                            "delta_index": legacy_delta_index,
                             "delta_chars": len(delta_text),
                             "accumulated_chars": len(raw_content),
-                            "stream_ref": directive.directive_id,
+                            "stream_ref": stream_ref,
                         }
                 response = aggregated_chunk if aggregated_chunk is not None else raw_content
             elif stream_enabled and callable(plain_streamer):
@@ -130,15 +152,19 @@ class ModelResponseRuntimeExecutor:
                     if not delta_text:
                         continue
                     raw_content += delta_text
-                    if emit_content_delta:
-                        delta_index += 1
+                    if assistant_normalizer is not None:
+                        for frame_event in assistant_normalizer.observe_delta(delta_text):
+                            public_delta_count += 1
+                            yield frame_event
+                    if emit_legacy_content_delta:
+                        legacy_delta_index += 1
                         yield {
                             "type": "content_delta",
                             "content": delta_text,
-                            "delta_index": delta_index,
+                            "delta_index": legacy_delta_index,
                             "delta_chars": len(delta_text),
                             "accumulated_chars": len(raw_content),
-                            "stream_ref": directive.directive_id,
+                            "stream_ref": stream_ref,
                         }
                 response = raw_content
             elif tools and callable(tool_invoker):
@@ -167,8 +193,12 @@ class ModelResponseRuntimeExecutor:
                 )
         except ModelRuntimeError as exc:
             if stream_enabled and exc.retryable and _stream_recovery_enabled(stream_policy):
+                if assistant_normalizer is not None:
+                    for frame_event in assistant_normalizer.flush():
+                        public_delta_count += 1
+                        yield frame_event
                 fallback_timeout_seconds = _stream_recovery_timeout_seconds(stream_policy)
-                if delta_index > 0:
+                if public_delta_count > 0:
                     yield {
                         "type": "stream_recovery",
                         "status": "suppressed",
@@ -177,7 +207,7 @@ class ModelResponseRuntimeExecutor:
                         "provider": exc.provider,
                         "model": exc.model,
                         "detail": exc.detail,
-                        "partial_delta_count": delta_index,
+                        "partial_delta_count": public_delta_count,
                         "fallback_timeout_seconds": fallback_timeout_seconds,
                         "directive_ref": directive.directive_id,
                     }
@@ -201,7 +231,7 @@ class ModelResponseRuntimeExecutor:
                     "provider": exc.provider,
                     "model": exc.model,
                     "detail": exc.detail,
-                    "partial_delta_count": delta_index,
+                    "partial_delta_count": public_delta_count,
                     "fallback_timeout_seconds": fallback_timeout_seconds,
                     "directive_ref": directive.directive_id,
                 }
@@ -228,7 +258,7 @@ class ModelResponseRuntimeExecutor:
                         "provider": exc.provider,
                         "model": exc.model,
                         "detail": f"non-stream fallback exceeded {fallback_timeout_seconds:g}s",
-                        "partial_delta_count": delta_index,
+                        "partial_delta_count": public_delta_count,
                         "fallback_timeout_seconds": fallback_timeout_seconds,
                         "directive_ref": directive.directive_id,
                     }
@@ -253,7 +283,7 @@ class ModelResponseRuntimeExecutor:
                         "provider": fallback_exc.provider,
                         "model": fallback_exc.model,
                         "detail": fallback_exc.detail,
-                        "partial_delta_count": delta_index,
+                        "partial_delta_count": public_delta_count,
                         "fallback_timeout_seconds": fallback_timeout_seconds,
                         "directive_ref": directive.directive_id,
                     }
@@ -278,7 +308,7 @@ class ModelResponseRuntimeExecutor:
                         "provider": exc.provider,
                         "model": exc.model,
                         "detail": str(fallback_exc) or fallback_exc.__class__.__name__,
-                        "partial_delta_count": delta_index,
+                        "partial_delta_count": public_delta_count,
                         "fallback_timeout_seconds": fallback_timeout_seconds,
                         "directive_ref": directive.directive_id,
                     }
@@ -297,7 +327,7 @@ class ModelResponseRuntimeExecutor:
                     "code": exc.code,
                     "provider": exc.provider,
                     "model": exc.model,
-                    "partial_delta_count": delta_index,
+                    "partial_delta_count": public_delta_count,
                     "fallback_timeout_seconds": fallback_timeout_seconds,
                     "directive_ref": directive.directive_id,
                 }
@@ -321,7 +351,7 @@ class ModelResponseRuntimeExecutor:
                     "completion_state": "partial_timeout",
                     "terminal_reason": "model_response_timeout_after_partial_output",
                     "timeout_seconds": response_timeout_seconds,
-                    "partial_delta_count": delta_index,
+                    "partial_delta_count": public_delta_count,
                     "provider": str(getattr(model_spec, "provider", "") or ""),
                     "model": str(getattr(model_spec, "model", "") or ""),
                     "detail": f"model response exceeded {response_timeout_seconds:g}s after partial output",
@@ -364,16 +394,24 @@ class ModelResponseRuntimeExecutor:
         tool_calls = [dict(item) for item in protocol_result.native_tool_calls]
         reasoning_content = str(additional_kwargs.get("reasoning_content") or "").strip()
         stream_preview_text = ""
-        if stream_enabled and delta_index <= 0:
+        if stream_enabled and public_delta_count <= 0 and not (assistant_normalizer is not None and assistant_normalizer.observed_content.strip()):
             stream_preview_text = raw_content.strip()
-        if stream_preview_text and emit_content_delta:
+        if stream_preview_text and assistant_normalizer is not None and not tool_calls:
+            for frame_event in assistant_normalizer.observe_delta(stream_preview_text):
+                public_delta_count += 1
+                yield frame_event
+            for frame_event in assistant_normalizer.flush():
+                public_delta_count += 1
+                yield frame_event
+        if stream_preview_text and emit_legacy_content_delta:
+            legacy_delta_index += 1
             yield {
                 "type": "content_delta",
                 "content": stream_preview_text,
-                "delta_index": 1,
+                "delta_index": legacy_delta_index,
                 "delta_chars": len(stream_preview_text),
                 "accumulated_chars": len(stream_preview_text),
-                "stream_ref": directive.directive_id,
+                "stream_ref": stream_ref,
                 "is_final_chunk": bool(tool_calls),
             }
         if tool_calls and tools:
@@ -437,6 +475,20 @@ class ModelResponseRuntimeExecutor:
         content = sanitize_visible_assistant_content(output_response.canonical_answer).strip()
         if not content:
             content = "我已接入新的单 agent 主链，但这轮模型没有返回可展示内容。"
+        for frame_event in _assistant_final_stream_events(
+            assistant_normalizer,
+            content=content,
+            stream_ref=stream_ref,
+            message_ref=message_ref,
+            turn_run_id=str(accounting_context.get("turn_run_id") or ""),
+            task_run_id=str(accounting_context.get("task_run_id") or ""),
+            answer_channel=output_response.selected_channel,
+            answer_source="runtime_directive:model_response",
+            answer_canonical_state=str(partial_timeout_metadata.get("answer_canonical_state") or output_response.canonical_state),
+            answer_persist_policy=str(partial_timeout_metadata.get("answer_persist_policy") or output_response.persist_policy),
+            terminal_reason=str(partial_timeout_metadata.get("terminal_reason") or "completed"),
+        ):
+            yield frame_event
 
         runtime_commit_gate = build_blocked_runtime_commit_gate(
             task_id=directive.task_id,
@@ -497,6 +549,58 @@ class ModelResponseRuntimeExecutor:
         return str(tool_name or "").strip()
 
 
+def _assistant_final_stream_events(
+    normalizer: AssistantStreamNormalizer | None,
+    *,
+    content: str,
+    stream_ref: str,
+    message_ref: str,
+    turn_run_id: str,
+    task_run_id: str,
+    answer_channel: str,
+    answer_source: str,
+    answer_canonical_state: str,
+    answer_persist_policy: str,
+    terminal_reason: str,
+) -> list[dict[str, Any]]:
+    sequence = 1
+    events: list[dict[str, Any]] = []
+    if normalizer is not None:
+        events.extend(normalizer.flush())
+        normalizer.mark_final_content(content)
+        sequence = normalizer.next_sequence()
+        if normalizer.latest_sequence > 0 and content_sha256(normalizer.emitted_content) != content_sha256(content):
+            events.append(
+                assistant_stream_repair_event(
+                    replacement_content=content,
+                    stream_ref=stream_ref,
+                    message_ref=message_ref,
+                    turn_run_id=turn_run_id,
+                    task_run_id=task_run_id,
+                    repair_sequence=sequence,
+                    applies_after_sequence=normalizer.latest_sequence,
+                    expected_content_sha256=content_sha256(normalizer.emitted_content),
+                )
+            )
+            sequence += 1
+    events.append(
+        assistant_text_final_event(
+            content=content,
+            stream_ref=stream_ref,
+            message_ref=message_ref,
+            turn_run_id=turn_run_id,
+            task_run_id=task_run_id,
+            sequence=sequence,
+            answer_channel=answer_channel,
+            answer_source=answer_source,
+            answer_canonical_state=answer_canonical_state,
+            answer_persist_policy=answer_persist_policy,
+            terminal_reason=terminal_reason,
+        )
+    )
+    return events
+
+
 def _model_only_finalization(directive: RuntimeDirective) -> bool:
     diagnostics = dict(getattr(directive, "diagnostics", {}) or {})
     return bool(diagnostics.get("model_only") is True)
@@ -544,6 +648,7 @@ def _accounting_context_from_directive(
         "session_id": session_id,
         "task_run_id": task_run_id,
         "turn_id": str(diagnostics.get("turn_id") or ""),
+        "turn_run_id": str(diagnostics.get("turn_run_id") or diagnostics.get("runtime_turn_run_id") or ""),
         "packet_ref": str(diagnostics.get("runtime_invocation_packet_ref") or diagnostics.get("packet_ref") or ""),
         "source": source,
     }

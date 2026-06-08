@@ -165,7 +165,7 @@ def test_stream_retryable_error_with_partial_output_suppresses_non_stream_fallba
 
     events = asyncio.run(_collect())
 
-    assert any(event.get("type") == "content_delta" and event.get("content") == "partial" for event in events)
+    assert any(event.get("type") == "assistant_text_delta" and event.get("content") == "partial" for event in events)
     assert any(
         event.get("type") == "stream_recovery"
         and event.get("status") == "suppressed"
@@ -223,7 +223,7 @@ def test_stream_recovery_with_partial_output_does_not_start_hanging_fallback() -
 
     events = asyncio.run(_collect())
 
-    assert any(event.get("type") == "content_delta" and event.get("content") == "partial" for event in events)
+    assert any(event.get("type") == "assistant_text_delta" and event.get("content") == "partial" for event in events)
     assert any(
         event.get("type") == "stream_recovery"
         and event.get("status") == "suppressed"
@@ -293,7 +293,7 @@ def test_stream_model_response_timeout_after_partial_output_commits_partial_done
 
     events = asyncio.run(_collect())
 
-    assert any(event.get("type") == "content_delta" and event.get("content") == "partial answer" for event in events)
+    assert any(event.get("type") == "assistant_text_delta" and event.get("content") == "partial answer" for event in events)
     assert not any(event.get("type") == "error" and event.get("error") == "model_response_timeout" for event in events)
     assert events[-1]["type"] == "done"
     assert events[-1]["content"] == "partial answer"
@@ -320,7 +320,7 @@ def test_stream_preview_does_not_emit_hidden_reasoning_content() -> None:
     events = asyncio.run(_collect())
 
     assert not any(
-        event.get("type") == "content_delta" and event.get("content") == "hidden chain"
+        event.get("type") == "assistant_text_delta" and event.get("content") == "hidden chain"
         for event in events
     )
 

@@ -10,6 +10,14 @@ from typing import Any
 
 
 STABLE_CACHE_ROLES = {"cacheable_prefix", "session_stable"}
+DEFAULT_LEDGER_TAIL_MB = 32
+LEDGER_JSONL_FILES = (
+    "token_usage.jsonl",
+    "prompt_cache.jsonl",
+    "segment_maps.jsonl",
+    "prompt_stability.jsonl",
+    "prompt_cache_breaks.jsonl",
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -46,11 +54,19 @@ def main() -> int:
     parser.add_argument("--provider", default="deepseek", help="Provider filter. Use empty string for all providers.")
     parser.add_argument("--min-prefix-repeats", type=int, default=2, help="Minimum repeated prefix group size to report.")
     parser.add_argument("--limit", type=int, default=12, help="Maximum rows per detailed section.")
+    parser.add_argument(
+        "--ledger-tail-mb",
+        type=int,
+        default=DEFAULT_LEDGER_TAIL_MB,
+        help="Read only the last N MiB per JSONL ledger file. Use 0 with --full-ledger for complete reads.",
+    )
+    parser.add_argument("--full-ledger", action="store_true", help="Read complete ledger files instead of the tail window.")
     parser.add_argument("--json", action="store_true", help="Print machine-readable JSON.")
     args = parser.parse_args()
 
     base_dir = Path(args.base_dir).resolve()
     ledger_dir = Path(args.ledger_dir).resolve() if args.ledger_dir else _default_ledger_dir(base_dir)
+    ledger_tail_mb = 0 if args.full_ledger else max(0, int(args.ledger_tail_mb or 0))
     diagnosis = diagnose(
         ledger_dir=ledger_dir,
         session_id=args.session_id,
@@ -59,6 +75,7 @@ def main() -> int:
         provider=args.provider,
         min_prefix_repeats=max(1, int(args.min_prefix_repeats or 1)),
         limit=max(1, int(args.limit or 1)),
+        ledger_tail_mb=ledger_tail_mb,
     )
     if args.json:
         print(json.dumps(diagnosis.to_dict(), ensure_ascii=False, indent=2, sort_keys=True))
@@ -76,37 +93,61 @@ def diagnose(
     provider: str = "deepseek",
     min_prefix_repeats: int = 2,
     limit: int = 12,
+    ledger_tail_mb: int = DEFAULT_LEDGER_TAIL_MB,
 ) -> Diagnosis:
+    tail_bytes = _ledger_tail_bytes(ledger_tail_mb)
+    token_usage_rows = _read_jsonl(ledger_dir / "token_usage.jsonl", tail_bytes=tail_bytes)
+    cache_record_rows = _read_jsonl(ledger_dir / "prompt_cache.jsonl", tail_bytes=tail_bytes)
+    segment_map_rows = _read_jsonl(ledger_dir / "segment_maps.jsonl", tail_bytes=tail_bytes)
+    stability_record_rows = _read_jsonl(ledger_dir / "prompt_stability.jsonl", tail_bytes=tail_bytes)
+    cache_break_rows = _read_jsonl(ledger_dir / "prompt_cache_breaks.jsonl", tail_bytes=tail_bytes)
+    created_at_floor = _tail_window_created_at_floor(
+        ledger_dir=ledger_dir,
+        tail_bytes=tail_bytes,
+        rows_by_name={
+            "token_usage.jsonl": token_usage_rows,
+            "prompt_cache.jsonl": cache_record_rows,
+            "segment_maps.jsonl": segment_map_rows,
+            "prompt_stability.jsonl": stability_record_rows,
+            "prompt_cache_breaks.jsonl": cache_break_rows,
+        },
+    )
+    if created_at_floor:
+        token_usage_rows = _filter_created_at_floor(token_usage_rows, created_at_floor)
+        cache_record_rows = _filter_created_at_floor(cache_record_rows, created_at_floor)
+        segment_map_rows = _filter_created_at_floor(segment_map_rows, created_at_floor)
+        stability_record_rows = _filter_created_at_floor(stability_record_rows, created_at_floor)
+        cache_break_rows = _filter_created_at_floor(cache_break_rows, created_at_floor)
     token_usage = _filter_rows(
-        _dedupe_latest(_read_jsonl(ledger_dir / "token_usage.jsonl"), key_fields=("usage_id",)),
+        _dedupe_latest(token_usage_rows, key_fields=("usage_id",)),
         session_id=session_id,
         run_id=run_id,
         task_run_id=task_run_id,
         provider=provider,
     )
     cache_records = _filter_rows(
-        _dedupe_latest(_read_jsonl(ledger_dir / "prompt_cache.jsonl"), key_fields=("cache_record_id",)),
+        _dedupe_latest(cache_record_rows, key_fields=("cache_record_id",)),
         session_id=session_id,
         run_id=run_id,
         task_run_id=task_run_id,
         provider=provider,
     )
     segment_maps = _filter_rows(
-        _read_jsonl(ledger_dir / "segment_maps.jsonl"),
+        segment_map_rows,
         session_id=session_id,
         run_id=run_id,
         task_run_id=task_run_id,
         provider=provider,
     )
     stability_records = _filter_rows(
-        _dedupe_latest(_read_jsonl(ledger_dir / "prompt_stability.jsonl"), key_fields=("report_id",)),
+        _dedupe_latest(stability_record_rows, key_fields=("report_id",)),
         session_id=session_id,
         run_id=run_id,
         task_run_id=task_run_id,
         provider=provider,
     )
     cache_breaks = _filter_rows(
-        _dedupe_latest(_read_jsonl(ledger_dir / "prompt_cache_breaks.jsonl"), key_fields=("break_id",)),
+        _dedupe_latest(cache_break_rows, key_fields=("break_id",)),
         session_id=session_id,
         run_id=run_id,
         task_run_id=task_run_id,
@@ -170,6 +211,11 @@ def diagnose(
     summary = {
         "provider": provider or "all",
         "ledger_dir": str(ledger_dir),
+        "ledger_read_window": _ledger_read_window_report(
+            ledger_dir=ledger_dir,
+            ledger_tail_mb=ledger_tail_mb,
+            created_at_floor=created_at_floor,
+        ),
         "filters": {
             "session_id": session_id,
             "run_id": run_id,
@@ -212,20 +258,78 @@ def _default_ledger_dir(base_dir: Path) -> Path:
     return project_root / "storage" / "runtime_state" / "prompt_accounting"
 
 
-def _read_jsonl(path: Path) -> list[dict[str, Any]]:
+def _ledger_tail_bytes(ledger_tail_mb: int) -> int:
+    mb = max(0, int(ledger_tail_mb or 0))
+    return mb * 1024 * 1024
+
+
+def _ledger_read_window_report(*, ledger_dir: Path, ledger_tail_mb: int, created_at_floor: float = 0.0) -> dict[str, Any]:
+    tail_bytes = _ledger_tail_bytes(ledger_tail_mb)
+    files: dict[str, dict[str, Any]] = {}
+    for name in LEDGER_JSONL_FILES:
+        path = ledger_dir / name
+        size = path.stat().st_size if path.exists() else 0
+        window_start = max(0, size - tail_bytes) if tail_bytes and size > tail_bytes else 0
+        files[name] = {
+            "file_size_bytes": size,
+            "read_mode": "tail" if window_start else "full",
+            "tail_bytes": tail_bytes if window_start else 0,
+            "window_start_bytes": window_start,
+        }
+    return {
+        "mode": "full" if tail_bytes <= 0 else "tail",
+        "tail_mb": max(0, int(ledger_tail_mb or 0)),
+        "created_at_floor": created_at_floor,
+        "files": files,
+        "note": "tail mode reports recent-window diagnostics; use --full-ledger for complete historical totals",
+    }
+
+
+def _tail_window_created_at_floor(
+    *,
+    ledger_dir: Path,
+    tail_bytes: int,
+    rows_by_name: dict[str, list[dict[str, Any]]],
+) -> float:
+    if tail_bytes <= 0:
+        return 0.0
+    floors: list[float] = []
+    for name, rows in rows_by_name.items():
+        path = ledger_dir / name
+        if not path.exists() or path.stat().st_size <= tail_bytes:
+            continue
+        timestamps = [_float(row.get("created_at")) for row in rows if _float(row.get("created_at")) > 0]
+        if timestamps:
+            floors.append(min(timestamps))
+    return max(floors) if floors else 0.0
+
+
+def _filter_created_at_floor(rows: list[dict[str, Any]], created_at_floor: float) -> list[dict[str, Any]]:
+    floor = float(created_at_floor or 0.0)
+    if floor <= 0:
+        return rows
+    return [row for row in rows if _float(row.get("created_at")) >= floor]
+
+
+def _read_jsonl(path: Path, *, tail_bytes: int = 0) -> list[dict[str, Any]]:
     if not path.exists():
         return []
     rows: list[dict[str, Any]] = []
-    for line in path.read_text(encoding="utf-8", errors="ignore").splitlines():
-        stripped = line.strip()
-        if not stripped:
-            continue
-        try:
-            payload = json.loads(stripped)
-        except JSONDecodeError:
-            continue
-        if isinstance(payload, dict):
-            rows.append(payload)
+    with path.open("rb") as handle:
+        size = path.stat().st_size
+        if tail_bytes > 0 and size > tail_bytes:
+            handle.seek(max(0, size - tail_bytes))
+            handle.readline()
+        for raw_line in handle:
+            stripped = raw_line.decode("utf-8", errors="ignore").strip()
+            if not stripped:
+                continue
+            try:
+                payload = json.loads(stripped)
+            except JSONDecodeError:
+                continue
+            if isinstance(payload, dict):
+                rows.append(payload)
     return rows
 
 
@@ -477,10 +581,15 @@ def _recent_requests(
                 "provider_payload_prefix_hash": _short_hash(cache_diag.get("provider_payload_prefix_hash")),
                 "tool_catalog_hash": _short_hash(cache_diag.get("tool_catalog_hash")),
                 "cache_sensitive_params_hash": _short_hash(cache_diag.get("cache_sensitive_params_hash")),
+                "assembly_request_fingerprint": _short_hash(cache_diag.get("assembly_request_fingerprint")),
+                "section_fingerprint": _short_hash(cache_diag.get("section_fingerprint")),
+                "prompt_composition_status": str(cache_diag.get("prompt_composition_cache_boundary_status") or ""),
+                "prompt_composition_violations": _prompt_composition_violation_label(cache_diag),
                 "packet_ref": str(dict((usage or local or {}).get("diagnostics") or {}).get("packet_ref") or ""),
                 "first_changed_section": _changed_section_label(first_changed),
                 "likely_break_reason": str(dict(stability.get("diagnostics") or {}).get("likely_break_reason") or ""),
                 "cache_break_reason": str(cache_break.get("reason") or ""),
+                "cache_break_detail": _cache_break_detail_label(dict(cache_break.get("diagnostics") or {})),
                 "dynamic_param_hash": str(stability.get("dynamic_param_hash") or "")[:19],
                 "dynamic_param_diff": _dynamic_param_diff_label(dict(dict(stability.get("diagnostics") or {}).get("dynamic_param_diff") or {})),
             }
@@ -706,6 +815,13 @@ def _print_report(diagnosis: Diagnosis, *, ledger_dir: Path) -> None:
     summary = payload["summary"]
     print(f"ledger_dir: {ledger_dir}")
     print(f"provider: {summary['provider']}")
+    read_window = dict(summary.get("ledger_read_window") or {})
+    print(
+        "ledger_read_window: "
+        f"mode={read_window.get('mode', '')} "
+        f"tail_mb={read_window.get('tail_mb', '')} "
+        f"created_at_floor={read_window.get('created_at_floor', '')}"
+    )
     print(
         "records: "
         f"provider_usage={summary['provider_usage_records']} "
@@ -755,7 +871,7 @@ def _print_report(diagnosis: Diagnosis, *, ledger_dir: Path) -> None:
     _print_section(
         "recent_requests",
         payload["recent_requests"],
-        fields=("status", "provider_usage", "cache_metric_scope", "call_purpose", "prompt_tokens", "cached_tokens", "hit_rate", "provider_global_prefix_tokens", "session_prefix_tokens", "task_prefix_tokens", "provider_payload_prefix_hash", "tool_catalog_hash", "cache_sensitive_params_hash", "first_changed_section", "dynamic_param_diff", "likely_break_reason", "cache_break_reason", "packet_ref"),
+        fields=("status", "provider_usage", "cache_metric_scope", "call_purpose", "prompt_tokens", "cached_tokens", "hit_rate", "provider_global_prefix_tokens", "session_prefix_tokens", "task_prefix_tokens", "provider_payload_prefix_hash", "tool_catalog_hash", "cache_sensitive_params_hash", "assembly_request_fingerprint", "section_fingerprint", "prompt_composition_status", "prompt_composition_violations", "first_changed_section", "dynamic_param_diff", "likely_break_reason", "cache_break_reason", "cache_break_detail", "packet_ref"),
     )
     _print_section(
         "prompt_stability_reports",
@@ -804,6 +920,39 @@ def _dynamic_param_diff_label(value: dict[str, Any]) -> str:
     if not value:
         return ""
     return ",".join(sorted(str(key) for key in value)[:8])
+
+
+def _prompt_composition_violation_label(cache_diag: dict[str, Any]) -> str:
+    layer_count = _int(cache_diag.get("prompt_composition_layer_violation_count"))
+    segment_count = _int(cache_diag.get("prompt_composition_segment_violation_count"))
+    parts = []
+    if layer_count:
+        parts.append(f"layer={layer_count}")
+    if segment_count:
+        parts.append(f"segment={segment_count}")
+    return ",".join(parts)
+
+
+def _cache_break_detail_label(diagnostics: dict[str, Any]) -> str:
+    changed: list[str] = []
+    for group_name in ("prompt_assembly", "provider_payload"):
+        group = dict(diagnostics.get(group_name) or {})
+        for key, payload in sorted(group.items()):
+            if not isinstance(payload, dict):
+                continue
+            previous = payload.get("previous")
+            current = payload.get("current")
+            if _json_compare_key(previous) == _json_compare_key(current):
+                continue
+            changed.append(f"{group_name}.{key}")
+    return ",".join(changed[:8])
+
+
+def _json_compare_key(value: Any) -> str:
+    try:
+        return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    except TypeError:
+        return repr(value)
 
 
 def _short_hash(value: Any) -> str:

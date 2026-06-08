@@ -9,6 +9,17 @@ RESOURCE_COMMIT_TYPES = {"memory_commit", "memory_write_candidate", "artifact_co
 EVENT_TYPES = {"event", "event_emit", "event_subscribe", "event_notify"}
 AUDIT_TYPES = {"audit", "audit_report", "audit_observation"}
 REVIEW_TYPES = {"revision_request", "review_feedback", "repair_feedback", "conditional_feedback", "repair_route"}
+FLOW_PACKET_PROTOCOL_KINDS = {
+    "node_handoff",
+    "resource_read",
+    "resource_write_candidate",
+    "resource_commit",
+    "review_feedback",
+    "conditional_route",
+    "event_signal",
+    "audit_observation",
+}
+STATE_ONLY_PROTOCOL_KINDS = {"control_dependency", "barrier_join", "human_gate", "a2a_session"}
 
 
 def build_edge_contract_index(
@@ -44,6 +55,7 @@ def build_edge_contract(
     semantic_role = str(edge_protocol.get("semantic_role") or edge.get("semantic_role") or "").strip()
     payload_contract_id = str(edge_protocol.get("payload_contract_id") or edge.get("payload_contract_id") or "").strip()
     packet_contract_id = str(edge_protocol.get("packet_contract_id") or edge.get("packet_contract_id") or payload_contract_id).strip()
+    produces_flow_packet = _produces_flow_packet(protocol_kind)
     return _drop_empty(
         {
             "contract_id": f"edge-contract:{edge_id}",
@@ -61,6 +73,8 @@ def build_edge_contract(
                 {
                     "kind": protocol_kind,
                     "direction": "bidirectional" if protocol_kind == "a2a_session" else "unidirectional",
+                    "interaction_pattern": _interaction_pattern(protocol_kind),
+                    "produces_flow_packet": produces_flow_packet,
                     "legacy_edge_type": str(edge_protocol.get("edge_type") or edge.get("edge_type") or ""),
                 }
             ),
@@ -74,6 +88,7 @@ def build_edge_contract(
             ),
             "packet": _drop_empty(
                 {
+                    "packet_type": f"flow_packet.{protocol_kind}" if produces_flow_packet else "",
                     "payload_contract_id": payload_contract_id,
                     "packet_contract_id": packet_contract_id,
                     "source_output_selector": _first_text(
@@ -105,9 +120,9 @@ def build_edge_contract(
                 "propagation_policy": str(edge.get("failure_propagation_policy") or "fail_downstream"),
             },
             "trace": {
-                "persist_packet": protocol_kind not in {"control_dependency"},
+                "persist_packet": produces_flow_packet,
                 "receipt_required": True,
-                "checkpoint_policy": "edge_packet_replayable",
+                "checkpoint_policy": "edge_packet_replayable" if produces_flow_packet else "edge_state_only",
             },
             "legacy_protocol_projection": dict(edge_protocol),
             "authority": "task_system.compiled_edge_contract",
@@ -140,6 +155,31 @@ def edge_protocol_kind(*, edge: dict[str, Any], edge_protocol: dict[str, Any]) -
     if scheduler_role == "dependency" and edge_type == "control":
         return "control_dependency"
     return "node_handoff"
+
+
+def _produces_flow_packet(protocol_kind: str) -> bool:
+    if protocol_kind in STATE_ONLY_PROTOCOL_KINDS:
+        return False
+    if protocol_kind in FLOW_PACKET_PROTOCOL_KINDS:
+        return True
+    return protocol_kind.startswith("resource_") or protocol_kind.endswith("_signal") or protocol_kind.endswith("_observation")
+
+
+def _interaction_pattern(protocol_kind: str) -> str:
+    return {
+        "node_handoff": "source_result_to_target_context",
+        "resource_read": "resource_context_projection",
+        "resource_write_candidate": "resource_write_candidate_projection",
+        "resource_commit": "resource_commit_receipt_projection",
+        "review_feedback": "review_feedback_to_revision_target",
+        "conditional_route": "conditional_feedback_route",
+        "event_signal": "event_notification",
+        "audit_observation": "audit_observation_record",
+        "control_dependency": "state_dependency_only",
+        "barrier_join": "state_join_only",
+        "human_gate": "manual_release_gate",
+        "a2a_session": "agent_session_channel",
+    }.get(protocol_kind, "source_result_to_target_context")
 
 
 def _packet_visibility(*, edge: dict[str, Any]) -> dict[str, Any]:

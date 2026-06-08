@@ -6,7 +6,9 @@ from pathlib import Path
 from typing import Any
 
 from harness import GraphHarness
+from harness.graph.models import safe_id
 from harness.runtime import AgentRuntimeServices
+from sessions import SessionManager
 from task_system.registry.flow_registry import TaskFlowRegistry
 
 from .models import EngagementContract, EngagementEvent, EngagementRunRecord
@@ -91,24 +93,54 @@ class EngagementDispatcher:
                 "closeout": dict(blocked.closeout),
             }
         graph_harness = _graph_harness_from_runtime_host(runtime_host)
-        start = graph_harness.start_run(
-            session_id=session_id,
-            task_id=contract.plan_id,
+        graph_scope = _engagement_graph_scope(graph_config=graph_config, contract=contract)
+        graph_session_manager = SessionManager(self.backend_dir)
+        graph_session_id = _create_engagement_graph_session(
+            session_manager=graph_session_manager,
             graph_config=graph_config,
-            initial_inputs={
-                "startup_parameters": dict(contract.startup_parameters or {}),
-                "engagement_contract_ref": contract.contract_id,
-                "engagement_plan_ref": contract.plan_id,
-                "engagement_run_ref": run.engagement_run_id,
-            },
-            diagnostics={
-                "source": "task_system.engagement.graph_task_run",
-                "engagement_contract_ref": contract.contract_id,
-                "engagement_plan_ref": contract.plan_id,
-                "engagement_run_ref": run.engagement_run_id,
-            },
-            dispatch_ready=bool(startup_policy.get("dispatch_ready", True)),
+            scope=graph_scope,
         )
+        try:
+            start = graph_harness.start_run(
+                session_id=graph_session_id,
+                task_id=contract.plan_id,
+                graph_config=graph_config,
+                initial_inputs={
+                    "startup_parameters": dict(contract.startup_parameters or {}),
+                    "engagement_contract_ref": contract.contract_id,
+                    "engagement_plan_ref": contract.plan_id,
+                    "engagement_run_ref": run.engagement_run_id,
+                    "runtime_scope": graph_scope,
+                },
+                diagnostics={
+                    "source": "task_system.engagement.graph_task_run",
+                    "launch_session_id": str(session_id or ""),
+                    "graph_root_session_id": graph_session_id,
+                    "session_scope": graph_scope,
+                    "session_scope_key": _scope_key(graph_scope),
+                    "workspace_view": str(graph_scope.get("workspace_view") or ""),
+                    "task_environment_id": str(graph_scope.get("task_environment_id") or ""),
+                    "project_id": str(graph_scope.get("project_id") or ""),
+                    "runtime_scope": graph_scope,
+                    "engagement_contract_ref": contract.contract_id,
+                    "engagement_plan_ref": contract.plan_id,
+                    "engagement_run_ref": run.engagement_run_id,
+                },
+                dispatch_ready=bool(startup_policy.get("dispatch_ready", True)),
+            )
+            graph_session_manager.bind_session_graph_instance(
+                graph_session_id,
+                graph_run_id=start.graph_run.graph_run_id,
+                task_run_id=start.task_run.task_run_id,
+                graph_id=graph_config.graph_id,
+                graph_harness_config_id=graph_config.config_id,
+                session_scope=graph_scope,
+                task_environment_id=str(graph_scope.get("task_environment_id") or ""),
+                project_id=str(graph_scope.get("project_id") or ""),
+            )
+        except Exception:
+            graph_session_manager.delete_session(graph_session_id)
+            raise
         updated = self.runs.update_run(
             run.engagement_run_id,
             status="running",
@@ -156,4 +188,71 @@ def _graph_harness_from_runtime_host(runtime_host: Any) -> GraphHarness:
         return graph_harness
     return GraphHarness(
         services=AgentRuntimeServices.from_runtime_host(runtime_host),
+    )
+
+
+def _engagement_graph_scope(*, graph_config: Any, contract: EngagementContract) -> dict[str, str]:
+    binding = _graph_binding_contract(graph_config)
+    task_environment_id = str(
+        binding.get("task_environment_id")
+        or getattr(graph_config, "task_environment_id", "")
+        or contract.task_environment_id
+        or ""
+    ).strip()
+    startup_parameters = dict(contract.startup_parameters or {})
+    project_id = str(
+        binding.get("project_id")
+        or startup_parameters.get("project_id")
+        or startup_parameters.get("workspace_project_id")
+        or ""
+    ).strip()
+    workspace_view = str(binding.get("workspace_view") or ("project" if project_id else "task_environment")).strip()
+    return {
+        "workspace_view": workspace_view or ("project" if project_id else "task_environment"),
+        "task_environment_id": task_environment_id,
+        "project_id": project_id,
+        "scope_source": "task_system.engagement.graph_binding_contract",
+    }
+
+
+def _graph_binding_contract(graph_config: Any) -> dict[str, Any]:
+    contracts = dict(getattr(graph_config, "contracts", {}) or {})
+    environment = dict(getattr(graph_config, "environment", {}) or {})
+    control = dict(getattr(graph_config, "control", {}) or {})
+    return dict(
+        contracts.get("graph_binding_contract")
+        or control.get("graph_binding")
+        or environment.get("graph_binding")
+        or {}
+    )
+
+
+def _create_engagement_graph_session(
+    *,
+    session_manager: SessionManager,
+    graph_config: Any,
+    scope: dict[str, str],
+) -> str:
+    graph_id = str(getattr(graph_config, "graph_id", "") or "graph")
+    session_id = f"graph-session-{safe_id(graph_id)}-{uuid.uuid4().hex[:12]}"
+    title = str(getattr(graph_config, "graph_title", "") or graph_id)
+    session_manager.create_session(
+        session_id=session_id,
+        title=f"Graph run - {title}",
+        scope={
+            "workspace_view": str(scope.get("workspace_view") or ""),
+            "task_environment_id": str(scope.get("task_environment_id") or ""),
+            "project_id": str(scope.get("project_id") or ""),
+        },
+    )
+    return session_id
+
+
+def _scope_key(scope: dict[str, Any]) -> str:
+    return "|".join(
+        [
+            str(scope.get("workspace_view") or "").strip(),
+            str(scope.get("task_environment_id") or "").strip(),
+            str(scope.get("project_id") or "").strip(),
+        ]
     )

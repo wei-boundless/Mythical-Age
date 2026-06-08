@@ -191,7 +191,11 @@ class RuntimeRunRegistry:
             raise KeyError(f"RuntimeRun not found: {stream_run_id}")
         merged_diagnostics = dict(current.diagnostics or {})
         if diagnostics:
-            merged_diagnostics.update(dict(diagnostics))
+            for key, value in dict(diagnostics).items():
+                if value is None:
+                    merged_diagnostics.pop(str(key), None)
+                else:
+                    merged_diagnostics[str(key)] = value
         return self.upsert(
             replace(
                 current,

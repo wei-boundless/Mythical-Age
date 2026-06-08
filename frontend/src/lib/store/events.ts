@@ -12,10 +12,8 @@ import {
 import { projectRuntimeStreamEvent, type RuntimeVisibilityProjection } from "../runtimeVisibilityProjection";
 import { shouldDisplayAssistantStreamContent } from "./assistantContentVisibility";
 
-import type { Message, RuntimeProgressEntry, StoreState, UserReceipt } from "./types";
+import type { AssistantTextStreamState, Message, RuntimeProgressEntry, StoreState, UserReceipt } from "./types";
 import {
-  looksLikeSkillDocument,
-  looksLikeSkillDocumentPrefix,
   makeId
 } from "./utils";
 import { mergePublicTimelineItems, publicTimelineTerminalStateFromEvent, sanitizePublicTimelineItems } from "./publicTimeline";
@@ -133,7 +131,7 @@ function stageStatusForEvent(event: string, data: Record<string, unknown>) {
   if (event === "retrieval" || event.startsWith("worker")) {
     return "检索证据";
   }
-  if (event === "token" || event === "content_delta" || event === "answer_candidate" || event === "assistant_text") {
+  if (event === "token" || event === "content_delta" || event === "assistant_text_delta" || event === "assistant_text_final" || event === "assistant_stream_repair" || event === "answer_candidate" || event === "assistant_text") {
     return "生成回答";
   }
   if (event === "output_boundary") {
@@ -309,6 +307,153 @@ function isRoutineDoneContent(value: string) {
     "会话输出完成",
     "工具调用已完成，正在根据结果继续。",
   ].includes(text);
+}
+
+function mergeAssistantTextDeltaEvent(
+  state: StoreState,
+  assistantId: string,
+  data: Record<string, unknown>,
+): StoreState {
+  const content = stringValue(data.content);
+  const sequence = numberValue(data.sequence);
+  if (!content || sequence <= 0) {
+    return state;
+  }
+  const current = state.assistantTextStreamsByMessageId[assistantId];
+  if (current && sequence <= current.latestSequence) {
+    return state;
+  }
+  if (current && sequence !== current.latestSequence + 1) {
+    return {
+      ...state,
+      assistantTextStreamsByMessageId: {
+        ...state.assistantTextStreamsByMessageId,
+        [assistantId]: {
+          ...current,
+          repairState: "pending",
+        },
+      },
+    };
+  }
+  const previousContent = current?.canonicalContent ?? "";
+  const expectedStart = optionalNumberValue(data.content_utf8_start);
+  const repairState = expectedStart !== null && expectedStart !== utf8ByteLength(previousContent)
+    ? "pending"
+    : current?.repairState ?? "none";
+  const canonicalContent = `${previousContent}${content}`;
+  const streamState: AssistantTextStreamState = {
+    messageId: assistantId,
+    messageRef: stringValue(data.message_ref) || current?.messageRef || "",
+    streamRef: stringValue(data.stream_ref) || current?.streamRef || "",
+    latestSequence: sequence,
+    canonicalContent,
+    canonicalContentSha256: stringValue(data.accumulated_sha256) || current?.canonicalContentSha256 || "",
+    accumulatedUtf8Bytes: optionalNumberValue(data.accumulated_utf8_bytes) ?? utf8ByteLength(canonicalContent),
+    finalReceived: false,
+    terminal: false,
+    repairState,
+    displayHintsBySequence: {
+      ...(current?.displayHintsBySequence ?? {}),
+      [sequence]: recordValue(data.display_hint),
+    },
+  };
+  const withStream = {
+    ...state,
+    assistantTextStreamsByMessageId: {
+      ...state.assistantTextStreamsByMessageId,
+      [assistantId]: streamState,
+    },
+  };
+  if (!state.chatStreamDisplayEnabled) {
+    return withStream;
+  }
+  return patchAssistant(withStream, assistantId, (message) => ({ ...message, content: canonicalContent }));
+}
+
+function mergeAssistantTextFinalEvent(
+  state: StoreState,
+  assistantId: string,
+  data: Record<string, unknown>,
+): StoreState {
+  const content = stringValue(data.content);
+  const sequence = numberValue(data.sequence);
+  const current = state.assistantTextStreamsByMessageId[assistantId];
+  const streamState: AssistantTextStreamState = {
+    messageId: assistantId,
+    messageRef: stringValue(data.message_ref) || current?.messageRef || "",
+    streamRef: stringValue(data.stream_ref) || current?.streamRef || "",
+    latestSequence: Math.max(sequence, current?.latestSequence ?? 0),
+    canonicalContent: content,
+    canonicalContentSha256: stringValue(data.content_sha256) || current?.canonicalContentSha256 || "",
+    accumulatedUtf8Bytes: optionalNumberValue(data.content_utf8_bytes) ?? utf8ByteLength(content),
+    finalReceived: true,
+    terminal: true,
+    repairState: current?.repairState === "pending" ? "applied" : current?.repairState ?? "none",
+    displayHintsBySequence: current?.displayHintsBySequence ?? {},
+  };
+  const withStream = {
+    ...state,
+    assistantTextStreamsByMessageId: {
+      ...state.assistantTextStreamsByMessageId,
+      [assistantId]: streamState,
+    },
+  };
+  return patchAssistant(withStream, assistantId, (message) => ({
+    ...message,
+    ...answerMetadataFromEvent(data),
+    content,
+  }));
+}
+
+function mergeAssistantStreamRepairEvent(
+  state: StoreState,
+  assistantId: string,
+  data: Record<string, unknown>,
+): StoreState {
+  const replacement = stringValue(data.replacement_content);
+  if (!replacement) {
+    return state;
+  }
+  const current = state.assistantTextStreamsByMessageId[assistantId];
+  const repairSequence = numberValue(data.repair_sequence);
+  const streamState: AssistantTextStreamState = {
+    messageId: assistantId,
+    messageRef: stringValue(data.message_ref) || current?.messageRef || "",
+    streamRef: stringValue(data.stream_ref) || current?.streamRef || "",
+    latestSequence: Math.max(repairSequence, current?.latestSequence ?? 0),
+    canonicalContent: replacement,
+    canonicalContentSha256: stringValue(data.replacement_content_sha256) || current?.canonicalContentSha256 || "",
+    accumulatedUtf8Bytes: utf8ByteLength(replacement),
+    finalReceived: current?.finalReceived ?? false,
+    terminal: current?.terminal ?? false,
+    repairState: "applied",
+    displayHintsBySequence: current?.displayHintsBySequence ?? {},
+  };
+  const withStream = {
+    ...state,
+    assistantTextStreamsByMessageId: {
+      ...state.assistantTextStreamsByMessageId,
+      [assistantId]: streamState,
+    },
+  };
+  if (!state.chatStreamDisplayEnabled && !streamState.finalReceived) {
+    return withStream;
+  }
+  return patchAssistant(withStream, assistantId, (message) => ({ ...message, content: replacement }));
+}
+
+function numberValue(value: unknown) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : 0;
+}
+
+function optionalNumberValue(value: unknown) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : null;
+}
+
+function utf8ByteLength(value: string) {
+  return new TextEncoder().encode(String(value || "")).length;
 }
 
 function recordValue(value: unknown): Record<string, unknown> {
@@ -548,7 +693,7 @@ function eventNodeId(event: string) {
   if (event.startsWith("tool")) {
     return "tool";
   }
-  if (event === "token" || event === "content_delta" || event === "answer_candidate" || event === "assistant_text" || event === "debug") {
+  if (event === "token" || event === "content_delta" || event === "assistant_text_delta" || event === "assistant_text_final" || event === "assistant_stream_repair" || event === "answer_candidate" || event === "assistant_text" || event === "debug") {
     return "model";
   }
   if (event === "done" || event === "error") {
@@ -644,6 +789,9 @@ function publicStreamEventLabel(event: string) {
   const map: Record<string, string> = {
     answer_candidate: "正在整理回答",
     assistant_text: "正在整理回答",
+    assistant_text_delta: "正在生成回答",
+    assistant_text_final: "正在整理回答",
+    assistant_stream_repair: "正在校准回答",
     active_task_steer_accepted: "已收到补充要求",
     behavior_trace: "处理路径已检查",
     content_delta: "正在生成回答",
@@ -812,7 +960,7 @@ function updateOrchestrationSnapshot(
     }
   ];
   const autoVisited = new Set<string>(["runtime", "agent-turn"]);
-  if (["context_management", "memory_context", "prompt_manifest", "worker_start", "token", "content_delta", "answer_candidate", "assistant_text", "done"].includes(event)) {
+  if (["context_management", "memory_context", "prompt_manifest", "worker_start", "token", "content_delta", "assistant_text_delta", "assistant_text_final", "assistant_stream_repair", "answer_candidate", "assistant_text", "done"].includes(event)) {
     autoVisited.add("runtime");
     autoVisited.add("agent-turn");
   }
@@ -1252,25 +1400,31 @@ export function reduceStreamEvent(
     };
   }
 
-  if (event === "token" || event === "content_delta") {
-    if (!stateWithTimelineDraft.chatStreamDisplayEnabled) {
-      return {
-        state: stateWithTimelineDraft,
-        session,
-      };
-    }
+  if (event === "assistant_text_delta") {
     return {
-      state: patchAssistant(stateWithTimelineDraft, session.assistantId, (message) => {
-        const nextContent = `${message.content}${String(data.content ?? "")}`;
-        if (
-          (!message.content.trim() && looksLikeSkillDocumentPrefix(nextContent)) ||
-          looksLikeSkillDocument(nextContent)
-        ) {
-          return message;
-        }
-        return { ...message, content: nextContent };
-      }),
+      state: mergeAssistantTextDeltaEvent(stateWithTimelineDraft, session.assistantId, data),
       session
+    };
+  }
+
+  if (event === "assistant_stream_repair") {
+    return {
+      state: mergeAssistantStreamRepairEvent(stateWithTimelineDraft, session.assistantId, data),
+      session
+    };
+  }
+
+  if (event === "assistant_text_final") {
+    return {
+      state: mergeAssistantTextFinalEvent(stateWithTimelineDraft, session.assistantId, data),
+      session
+    };
+  }
+
+  if (event === "token" || event === "content_delta") {
+    return {
+      state: stateWithTimelineDraft,
+      session,
     };
   }
 
@@ -1279,6 +1433,8 @@ export function reduceStreamEvent(
     const taskSteerAccepted = String(data.completion_state ?? "").trim() === "task_steer_accepted";
     const answerMetadata = answerMetadataFromEvent(data);
     const doneContent = assistantDoneContentFromEvent(data);
+    const assistantTextStream = stateWithTimelineDraft.assistantTextStreamsByMessageId[session.assistantId];
+    const allowDoneContentFallback = !assistantTextStream;
     return {
       state: patchAssistant(stateWithTimelineDraft, session.assistantId, (message) =>
         message.content.trim()
@@ -1293,10 +1449,21 @@ export function reduceStreamEvent(
               stageStatus: taskSteerAccepted ? "已收到补充要求" : partialTimeout ? "部分完成" : "完成",
               image: (data.image as Message["image"]) ?? message.image ?? null
             }
-          : {
+          : allowDoneContentFallback && doneContent ? {
               ...message,
               ...answerMetadata,
               content: doneContent,
+              runtimePublicTimelineDraft: mergePublicTimelineItems(
+                message.runtimePublicTimelineDraft,
+                publicTimelineDelta,
+                { terminalState: terminalTimelineState },
+              ),
+              stageStatus: taskSteerAccepted ? "已收到补充要求" : partialTimeout ? "部分完成" : "完成",
+              image: (data.image as Message["image"]) ?? message.image ?? null
+            }
+          : {
+              ...message,
+              ...answerMetadata,
               runtimePublicTimelineDraft: mergePublicTimelineItems(
                 message.runtimePublicTimelineDraft,
                 publicTimelineDelta,

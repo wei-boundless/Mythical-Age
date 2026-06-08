@@ -6,7 +6,14 @@ import pytest
 
 from agent_system.profiles.runtime_profile_registry import default_agent_runtime_profiles
 from harness.runtime.compiler import RuntimeCompiler
-from prompt_library import FOUNDATION_PROMPT_REFS, PromptAssemblyRequest, PromptAssemblyService, PromptRuleCompiler, PromptSection
+from prompt_library import (
+    FOUNDATION_PROMPT_REFS,
+    PromptAssemblyRequest,
+    PromptAssemblyService,
+    PromptRuleCompiler,
+    PromptSection,
+    build_runtime_prompt_manifest,
+)
 from prompt_library.rules import rule_metadata
 
 
@@ -28,6 +35,11 @@ def test_runtime_pack_manifest_reports_prompt_rule_coverage(tmp_path: Path) -> N
     assert "runtime.rule.error_recovery" in prompt_rules["rule_refs"]
     assert "runtime.rule.subagent_invocation_protocol" in prompt_rules["rule_refs"]
     assert prompt_rules["rejected_rules"] == []
+    assert assembly.manifest["assembly_request_fingerprint"].startswith("sha256:")
+    assert assembly.manifest["section_fingerprint"].startswith("sha256:")
+    assert assembly.manifest["cache_boundary"]["global_static_section_count"] == len(assembly.sections)
+    assert assembly.manifest["cache_boundary"]["session_stable_section_count"] == 0
+    assert assembly.manifest["layer_summary"]["section_count"] == len(assembly.sections)
 
     compiled = PromptRuleCompiler().compile(assembly.sections, invocation_kind="task_execution")
     assert "runtime.protocol" in compiled.rule_kinds
@@ -38,6 +50,43 @@ def test_runtime_pack_manifest_reports_prompt_rule_coverage(tmp_path: Path) -> N
     assert "runtime.turn_decision_alignment" in compiled.rule_kinds
     assert "runtime.output_boundary" in compiled.rule_kinds
     assert "runtime.subagent_invocation_protocol" in compiled.rule_kinds
+
+
+def test_prompt_assembly_manifest_fingerprints_are_stable_and_request_sensitive(tmp_path: Path) -> None:
+    service = PromptAssemblyService(tmp_path)
+
+    first = service.assemble(PromptAssemblyRequest(invocation_kind="task_execution"))
+    second = service.assemble(PromptAssemblyRequest(invocation_kind="task_execution"))
+    explicit = service.assemble(
+        PromptAssemblyRequest(
+            invocation_kind="task_execution",
+            prompt_pack_refs=("runtime.pack.task_execution",),
+        )
+    )
+
+    assert first.manifest["assembly_request_fingerprint"] == second.manifest["assembly_request_fingerprint"]
+    assert first.manifest["section_fingerprint"] == second.manifest["section_fingerprint"]
+    assert first.manifest["assembly_request_fingerprint"] != explicit.manifest["assembly_request_fingerprint"]
+    assert first.manifest["section_fingerprint"] == explicit.manifest["section_fingerprint"]
+    assert first.manifest["cache_boundary"]["section_fingerprint"] == first.manifest["section_fingerprint"]
+    assert first.manifest["cache_boundary"]["prefix_tier_order"][0] == "provider_global"
+
+
+def test_runtime_prompt_manifest_carries_prompt_assembly_cache_fingerprints(tmp_path: Path) -> None:
+    assembly = PromptAssemblyService(tmp_path).assemble(
+        PromptAssemblyRequest(invocation_kind="task_execution")
+    )
+
+    runtime_manifest = build_runtime_prompt_manifest(
+        invocation_kind="task_execution",
+        assembly=assembly,
+        packet_id="rtpacket:prompt-fingerprint",
+    ).to_dict()
+
+    assert runtime_manifest["cache_boundary"]["assembly_request_fingerprint"] == assembly.manifest["assembly_request_fingerprint"]
+    assert runtime_manifest["cache_boundary"]["section_fingerprint"] == assembly.manifest["section_fingerprint"]
+    assert runtime_manifest["cache_boundary"]["assembly_cache_boundary"]["section_fingerprint"] == assembly.manifest["section_fingerprint"]
+    assert runtime_manifest["diagnostics"]["assembly_layer_summary"]["section_count"] == len(assembly.sections)
 
 
 def test_runtime_protocol_requires_system_call_protocol_rule(tmp_path: Path) -> None:

@@ -5,6 +5,7 @@ from types import SimpleNamespace
 
 from harness.runtime.runtime_monitor_public_projection import (
     PUBLIC_PROJECTION_AUTHORITY,
+    project_public_timeline_from_events,
     project_runtime_monitor_event_public_delta,
 )
 
@@ -118,6 +119,37 @@ def test_runtime_monitor_admission_checked_recovers_action_request_for_public_de
     assert kinds == ["opening_judgment", "work_action"]
     assert projection["public_timeline_delta"][0]["text"] == "我先读取当前前端 store 的实时事件合并逻辑。"
     assert projection["public_timeline_delta"][1]["subject_label"] == "store/runtime.ts"
+
+
+def test_completed_public_timeline_settles_opening_judgment_state() -> None:
+    timeline = project_public_timeline_from_events(
+        [
+            _event(
+                event_id="rtevt:opening",
+                offset=1,
+                payload={
+                    "model_action_request": {
+                        "request_id": "act:respond",
+                        "action_type": "respond",
+                        "public_progress_note": "我先确认链路状态。",
+                        "public_action_state": {
+                            "current_judgment": "我先确认链路状态。",
+                        },
+                    },
+                },
+                refs={"action_request_ref": "act:respond"},
+            )
+        ],
+        run_id="turnrun:session-public:1",
+        status="completed",
+        final_answer="链路已经完成收口。",
+        assistant_text="",
+    )
+
+    opening = next(item for item in timeline if item["kind"] == "opening_judgment")
+    final = next(item for item in timeline if item["kind"] == "final_summary")
+    assert opening["state"] == "done"
+    assert final["state"] == "done"
 
 
 def test_runtime_monitor_task_tool_observation_projects_payload_observation_without_raw_bool() -> None:

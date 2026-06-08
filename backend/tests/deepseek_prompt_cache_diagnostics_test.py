@@ -59,6 +59,39 @@ def test_deepseek_cache_diagnosis_does_not_flag_first_cold_miss(tmp_path: Path) 
     assert not any(issue["code"] == "repeated_prefix_provider_miss" for issue in result.issues)
 
 
+def test_deepseek_cache_diagnosis_reads_recent_tail_window_for_large_ledgers(tmp_path: Path) -> None:
+    ledger_dir = tmp_path / "prompt_accounting"
+    ledger_dir.mkdir()
+    _write_jsonl(
+        ledger_dir / "prompt_cache.jsonl",
+        [
+            {**_cache_record("req:old-small", "key:old", "miss"), "created_at": 1},
+            {**_cache_record("req:tail", "key:tail", "hit"), "created_at": 2},
+        ],
+    )
+    _write_jsonl(
+        ledger_dir / "token_usage.jsonl",
+        [
+            {
+                **_provider_usage("req:old-small", prompt_tokens=100, cached_tokens=0),
+                "diagnostics": {"padding": "x" * (1024 * 1024 + 512)},
+                "created_at": 1,
+            },
+            {**_provider_usage("req:tail", prompt_tokens=100, cached_tokens=80), "created_at": 2},
+        ],
+    )
+
+    result = diagnose(ledger_dir=ledger_dir, ledger_tail_mb=1)
+
+    read_window = result.summary["ledger_read_window"]
+    assert read_window["files"]["token_usage.jsonl"]["read_mode"] == "tail"
+    assert read_window["files"]["prompt_cache.jsonl"]["read_mode"] == "full"
+    assert read_window["created_at_floor"] == 2
+    assert result.summary["cache_records"] == 1
+    assert result.summary["provider_usage_records"] == 1
+    assert result.recent_requests[0]["request_id"] == "req:tail"
+
+
 def test_deepseek_cache_diagnosis_flags_volatile_stable_segment(tmp_path: Path) -> None:
     ledger_dir = tmp_path / "prompt_accounting"
     ledger_dir.mkdir()
@@ -235,6 +268,71 @@ def test_deepseek_cache_diagnosis_summarizes_provider_payload_break_reason(tmp_p
     assert result.recent_requests[0]["cache_break_reason"] == "tool_schema_hash_changed"
     assert result.recent_requests[0]["provider_payload_prefix_hash"] == "sha256:provider-pay"
     assert result.recent_requests[0]["tool_catalog_hash"] == "sha256:tool-catalog"
+
+
+def test_deepseek_cache_diagnosis_summarizes_prompt_assembly_break_detail(tmp_path: Path) -> None:
+    ledger_dir = tmp_path / "prompt_accounting"
+    ledger_dir.mkdir()
+    _write_jsonl(
+        ledger_dir / "prompt_cache.jsonl",
+        [
+            {
+                **_cache_record("req:assembly-break", "key:assembly:new", "miss"),
+                "prefix_hash": "sha256:section-new",
+                "diagnostics": {
+                    "provider_cache_policy": {
+                        "mode": "automatic_prefix",
+                        "provider": "deepseek",
+                    },
+                    "assembly_request_fingerprint": "sha256:req-new",
+                    "section_fingerprint": "sha256:sec-new",
+                    "prompt_composition_cache_boundary_status": "warning",
+                    "prompt_composition_layer_violation_count": 1,
+                    "prompt_composition_segment_violation_count": 2,
+                },
+            }
+        ],
+    )
+    _write_jsonl(
+        ledger_dir / "token_usage.jsonl",
+        [_provider_usage("req:assembly-break", prompt_tokens=1000, cached_tokens=0)],
+    )
+    _write_jsonl(
+        ledger_dir / "prompt_cache_breaks.jsonl",
+        [
+            {
+                "break_id": "pcachebreak:req:assembly-break",
+                "request_id": "req:assembly-break",
+                "provider": "deepseek",
+                "model": "deepseek-v4-flash",
+                "reason": "prompt_section_fingerprint_changed",
+                "diagnostics": {
+                    "prompt_assembly": {
+                        "assembly_request_fingerprint": {
+                            "previous": "sha256:req-same",
+                            "current": "sha256:req-same",
+                        },
+                        "section_fingerprint": {
+                            "previous": "sha256:sec-old",
+                            "current": "sha256:sec-new",
+                        },
+                    }
+                },
+                "created_at": 3,
+            }
+        ],
+    )
+
+    result = diagnose(ledger_dir=ledger_dir)
+
+    assert result.summary["cache_break_reason_counts"]["prompt_section_fingerprint_changed"] == 1
+    recent = result.recent_requests[0]
+    assert recent["cache_break_reason"] == "prompt_section_fingerprint_changed"
+    assert recent["cache_break_detail"] == "prompt_assembly.section_fingerprint"
+    assert recent["assembly_request_fingerprint"] == "sha256:req-new"
+    assert recent["section_fingerprint"] == "sha256:sec-new"
+    assert recent["prompt_composition_status"] == "warning"
+    assert recent["prompt_composition_violations"] == "layer=1,segment=2"
 
 
 def test_deepseek_cache_diagnosis_summarizes_context_window_facts(tmp_path: Path) -> None:

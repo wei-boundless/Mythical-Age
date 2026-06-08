@@ -2134,6 +2134,11 @@ class HarnessRuntimeFacade:
             logger.debug("failed to record turn environment snapshot", exc_info=True)
 
     def _apply_assistant_message_commit(self, session_id: str, payload: dict[str, Any]):
+        self._remove_superseded_stream_failure_boundary(
+            session_id=session_id,
+            turn_id=str(payload.get("turn_id") or ""),
+            answer_source=str(payload.get("answer_source") or ""),
+        )
         appended = self.session_manager.append_messages(
             session_id,
             [
@@ -2219,6 +2224,19 @@ class HarnessRuntimeFacade:
             **self._memory_receipt_commit_payload(receipt),
             "file_work_context_writeback": bool(main_context or task_summary_refs or bundle_summary_refs),
         }
+
+    def _remove_superseded_stream_failure_boundary(self, *, session_id: str, turn_id: str, answer_source: str) -> None:
+        if not str(turn_id or "").strip():
+            return
+        if str(answer_source or "").strip() == "harness.runtime.stream_failure_reconciliation":
+            return
+        remover = getattr(self.session_manager, "remove_stream_failure_boundary_messages", None)
+        if not callable(remover):
+            return
+        try:
+            remover(session_id, turn_id=turn_id)
+        except Exception:
+            logger.debug("failed to remove superseded stream failure boundary", exc_info=True)
 
     async def _apply_assistant_message_commit_async(self, session_id: str, payload: dict[str, Any]):
         return self._apply_assistant_message_commit(session_id, payload)

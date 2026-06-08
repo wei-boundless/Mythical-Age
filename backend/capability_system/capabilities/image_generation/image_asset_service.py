@@ -412,7 +412,11 @@ class ImageAssetService:
             return {"data": None, "attempts": [attempt], "api_error": {"code": "non_json_response", "retryable": False, "message": detail}}
 
     def _asset_response(self, output_path: Path, filename: str, *, reused: bool) -> dict[str, Any]:
-        project_path = output_path.resolve().relative_to(self.project_root).as_posix()
+        project_path = _asset_project_path(
+            output_path=output_path,
+            project_root=self.project_root,
+            filename=filename,
+        )
         return {
             "asset_path": f"{IMAGE_ASSET_ROUTE_PREFIX}/{filename}",
             "asset_url": f"{IMAGE_ASSET_ROUTE_PREFIX}/{filename}",
@@ -682,6 +686,13 @@ def _dedupe_strings(values: list[str]) -> list[str]:
         seen.add(text)
         result.append(text)
     return result
+
+
+def _asset_project_path(*, output_path: Path, project_root: Path, filename: str) -> str:
+    try:
+        return output_path.resolve().relative_to(project_root.resolve()).as_posix()
+    except ValueError:
+        return f"{IMAGE_ASSET_STORE_RELATIVE_DIR}/{filename}"
 
 
 def _parse_image_size(value: str) -> tuple[int, int] | None:

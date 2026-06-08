@@ -1,5 +1,13 @@
 from __future__ import annotations
 
+from runtime.model_gateway.assistant_stream_frame import (
+    ASSISTANT_STREAM_FRAME_SCHEMA_VERSION,
+    ASSISTANT_STREAM_REPAIR_EVENT,
+    ASSISTANT_TEXT_DELTA_EVENT,
+    ASSISTANT_TEXT_FINAL_EVENT,
+    AssistantStreamFrame,
+)
+from runtime.model_gateway.assistant_stream_normalizer import AssistantStreamNormalizer
 from runtime.model_gateway.model_request import ModelRequestBuilder, ModelRequestPacket, ModelRequestSegmentBinding
 from runtime.model_gateway.model_response import ModelResponseRuntimeExecutor
 from runtime.model_gateway.model_response_protocol import ModelResponseProtocolResult, model_response_protocol_from_response
@@ -11,6 +19,12 @@ __all__ = [
     "ModelRequestPacket",
     "ModelRequestSegmentBinding",
     "ModelResponseRuntimeExecutor",
+    "ASSISTANT_STREAM_FRAME_SCHEMA_VERSION",
+    "ASSISTANT_STREAM_REPAIR_EVENT",
+    "ASSISTANT_TEXT_DELTA_EVENT",
+    "ASSISTANT_TEXT_FINAL_EVENT",
+    "AssistantStreamFrame",
+    "AssistantStreamNormalizer",
     "ModelResponseProtocolResult",
     "ModelRuntime",
     "ModelRuntimeError",

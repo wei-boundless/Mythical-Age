@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import sys
 import threading
 import time
@@ -14,15 +15,26 @@ if str(BACKEND_DIR) not in sys.path:
 from app import app
 from bootstrap.app_runtime import app_runtime
 from harness.runtime.single_agent_host import SingleAgentRuntimeHost
+from runtime.model_gateway.assistant_stream_frame import content_sha256, utf8_byte_length
 from runtime.memory.state_index import RuntimeStateIndex
 from runtime.shared.models import TurnRun
 from runtime.shared.runtime_run_registry import RuntimeRunRegistry
 from sessions import SessionManager
+from tests.support.app_client import isolated_app_client
 
 
 async def _fake_resumable_astream(_request):
-    yield {"type": "token", "content": "alpha"}
-    yield {"type": "token", "content": "beta"}
+    yield _assistant_delta(sequence=1, content="alpha", accumulated="alpha")
+    yield _assistant_delta(sequence=2, content=" beta", accumulated="alpha beta")
+    yield {
+        "type": "assistant_text_final",
+        "sequence": 3,
+        "content": "alpha beta",
+        "content_utf8_bytes": utf8_byte_length("alpha beta"),
+        "content_sha256": content_sha256("alpha beta"),
+        "answer_channel": "conversation",
+        "answer_source": "test.fake_stream",
+    }
     yield {"type": "done", "content": "alpha beta"}
 
 
@@ -49,6 +61,23 @@ def _create_chat_run(client: TestClient, *, session_id: str, message: str) -> di
     return response.json()
 
 
+def _assistant_delta(*, sequence: int, content: str, accumulated: str) -> dict:
+    start = utf8_byte_length(accumulated) - utf8_byte_length(content)
+    end = utf8_byte_length(accumulated)
+    return {
+        "type": "assistant_text_delta",
+        "sequence": sequence,
+        "content": content,
+        "content_utf8_start": start,
+        "content_utf8_end": end,
+        "content_utf8_bytes": utf8_byte_length(content),
+        "accumulated_utf8_bytes": end,
+        "accumulated_sha256": content_sha256(accumulated),
+        "answer_channel": "conversation",
+        "answer_source": "test.fake_stream",
+    }
+
+
 def _wait_for_run(runtime, stream_run_id: str, predicate, *, timeout_seconds: float = 2):
     deadline = time.time() + timeout_seconds
     while time.time() < deadline:
@@ -60,7 +89,7 @@ def _wait_for_run(runtime, stream_run_id: str, predicate, *, timeout_seconds: fl
 
 
 def test_chat_run_event_stream_replays_after_offset_with_sse_ids() -> None:
-    with TestClient(app) as client:
+    with isolated_app_client(app) as client:
         runtime = app_runtime.require_ready()
         original_astream = runtime.harness_runtime.astream
         runtime.harness_runtime.astream = _fake_resumable_astream  # type: ignore[method-assign]
@@ -74,7 +103,8 @@ def test_chat_run_event_stream_replays_after_offset_with_sse_ids() -> None:
             assert first_stream.status_code == 200
             assert "id: " in first_stream.text
             assert "retry: 1500" in first_stream.text
-            assert "event: token" in first_stream.text
+            assert "event: assistant_text_delta" in first_stream.text
+            assert "event: assistant_text_final" in first_stream.text
             assert "event: done" in first_stream.text
             assert '"event_offset": 1' in first_stream.text
 
@@ -94,8 +124,63 @@ def test_chat_run_event_stream_replays_after_offset_with_sse_ids() -> None:
             runtime.harness_runtime.astream = original_astream  # type: ignore[method-assign]
 
 
+def test_chat_run_replay_skips_superseded_terminal_events() -> None:
+    with isolated_app_client(app) as client:
+        runtime = app_runtime.require_ready()
+        host = runtime.harness_runtime.single_agent_runtime_host
+        session_id = _create_session(client, "Superseded stream terminal")
+        try:
+            run = host.run_registry.create_run(session_id=session_id)
+            run = host.run_registry.mark_running(run)
+            first = host.stream_replay.append_public_event(
+                run,
+                public_event_type="assistant_text_delta",
+                data=_assistant_delta(sequence=1, content="old", accumulated="old"),
+            )
+            host.run_registry.mark_event(run, latest_event_offset=first.offset, status="running")
+            interrupted = host.stream_replay.append_public_event(
+                run,
+                public_event_type="error",
+                data={"code": "runtime_process_restarted", "error": "old terminal"},
+            )
+            host.run_registry.mark_event(
+                run,
+                latest_event_offset=interrupted.offset,
+                status="failed",
+                terminal_event="error",
+            )
+            resumed = host.stream_replay.append_public_event(
+                run,
+                public_event_type="assistant_text_delta",
+                data=_assistant_delta(sequence=2, content="resumed", accumulated="oldresumed"),
+            )
+            host.run_registry.mark_event(run, latest_event_offset=resumed.offset, status="running")
+            done = host.stream_replay.append_public_event(
+                run,
+                public_event_type="done",
+                data={"content": "resumed answer"},
+            )
+            host.run_registry.mark_event(
+                run,
+                latest_event_offset=done.offset,
+                status="completed",
+                terminal_event="done",
+            )
+
+            replay = client.get(f"/api/chat/runs/{run.stream_run_id}/events?after_offset=-1")
+
+            assert replay.status_code == 200
+            assert "event: error" not in replay.text
+            assert "runtime_process_restarted" not in replay.text
+            assert "resumed" in replay.text
+            assert "event: done" in replay.text
+            assert "resumed answer" in replay.text
+        finally:
+            client.delete(f"/api/sessions/{session_id}")
+
+
 def test_latest_active_chat_run_returns_no_content_when_absent() -> None:
-    with TestClient(app) as client:
+    with isolated_app_client(app) as client:
         session_id = _create_session(client, "No active run")
 
         latest = client.get(f"/api/chat/sessions/{session_id}/latest-run?active_only=true")
@@ -105,7 +190,7 @@ def test_latest_active_chat_run_returns_no_content_when_absent() -> None:
 
 
 def test_task_handoff_done_is_not_returned_as_active_chat_run() -> None:
-    with TestClient(app) as client:
+    with isolated_app_client(app) as client:
         runtime = app_runtime.require_ready()
         original_astream = runtime.harness_runtime.astream
         runtime.harness_runtime.astream = _fake_scheduled_task_handoff_astream  # type: ignore[method-assign]
@@ -133,7 +218,7 @@ def test_task_handoff_done_is_not_returned_as_active_chat_run() -> None:
 
 
 def test_latest_active_chat_run_prefers_primary_stream_over_active_turn_steer() -> None:
-    with TestClient(app) as client:
+    with isolated_app_client(app) as client:
         runtime = app_runtime.require_ready()
         host = runtime.harness_runtime.single_agent_runtime_host
         session_id = _create_session(client, "Primary run over steer")
@@ -165,7 +250,7 @@ def test_latest_active_chat_run_prefers_primary_stream_over_active_turn_steer() 
 
 
 def test_latest_active_chat_run_keeps_auto_active_turn_runs_reconnectable() -> None:
-    with TestClient(app) as client:
+    with isolated_app_client(app) as client:
         runtime = app_runtime.require_ready()
         host = runtime.harness_runtime.single_agent_runtime_host
         session_id = _create_session(client, "Auto active run remains latest")
@@ -197,7 +282,7 @@ def test_latest_active_chat_run_keeps_auto_active_turn_runs_reconnectable() -> N
 
 
 def test_chat_run_event_stream_resumes_from_last_event_id_header() -> None:
-    with TestClient(app) as client:
+    with isolated_app_client(app) as client:
         runtime = app_runtime.require_ready()
         original_astream = runtime.harness_runtime.astream
         runtime.harness_runtime.astream = _fake_resumable_astream  # type: ignore[method-assign]
@@ -219,7 +304,7 @@ def test_chat_run_event_stream_resumes_from_last_event_id_header() -> None:
 
 
 def test_chat_run_resume_is_attach_only_and_does_not_reexecute_turn() -> None:
-    with TestClient(app) as client:
+    with isolated_app_client(app) as client:
         runtime = app_runtime.require_ready()
         original_astream = runtime.harness_runtime.astream
         calls = {"count": 0}
@@ -247,7 +332,7 @@ def test_chat_run_resume_is_attach_only_and_does_not_reexecute_turn() -> None:
 
 
 def test_disconnected_event_stream_does_not_cancel_background_chat_run() -> None:
-    with TestClient(app) as client:
+    with isolated_app_client(app) as client:
         runtime = app_runtime.require_ready()
         original_astream = runtime.harness_runtime.astream
         calls = {"count": 0}
@@ -319,6 +404,54 @@ def test_runtime_startup_marks_previous_process_active_chat_runs_orphaned(tmp_pa
     assert "系统会根据当前任务状态重新判断下一步" not in data["error"]
 
 
+def test_runtime_startup_does_not_orphan_live_owner_chat_runs(tmp_path) -> None:
+    registry = RuntimeRunRegistry(tmp_path)
+    live = registry.create_run(
+        session_id="session:live-owner",
+        owner_process_id=os.getpid(),
+        owner_instance_id="runtime-instance:live-owner",
+    )
+    live = registry.mark_running(live)
+    registry.mark_event(live, latest_event_offset=0, status="running")
+
+    host = SingleAgentRuntimeHost(tmp_path)
+
+    recovered = host.run_registry.get_run(live.stream_run_id)
+    assert recovered is not None
+    assert recovered.status == "running"
+    assert recovered.terminal_event == ""
+    assert host.stream_replay.list_public_events_after(recovered, after_offset=-1) == []
+
+
+def test_runtime_run_registry_can_clear_stale_failure_diagnostics(tmp_path) -> None:
+    registry = RuntimeRunRegistry(tmp_path)
+    run = registry.create_run(session_id="session:diag")
+    failed = registry.update_run(
+        run.stream_run_id,
+        status="orphaned",
+        diagnostics={
+            "reason": "runtime_process_restarted",
+            "orphaned_by": "test",
+            "runtime_turn_run_id": "turnrun:diag",
+        },
+    )
+
+    completed = registry.mark_event(
+        failed,
+        latest_event_offset=7,
+        status="completed",
+        terminal_event="done",
+        diagnostics={
+            "reason": None,
+            "orphaned_by": None,
+            "runtime_turn_run_id": "turnrun:diag",
+        },
+    )
+
+    assert completed.status == "completed"
+    assert completed.diagnostics == {"runtime_turn_run_id": "turnrun:diag"}
+
+
 def test_runtime_startup_reconciles_orphaned_chat_turn_run_and_visible_boundary(tmp_path) -> None:
     backend_dir = tmp_path / "backend"
     backend_dir.mkdir()
@@ -337,8 +470,8 @@ def test_runtime_startup_reconciles_orphaned_chat_turn_run_and_visible_boundary(
     )
     stale = previous_host.run_registry.create_run(
         session_id=session_id,
-        owner_process_id=previous_host.owner_process_id,
-        owner_instance_id=previous_host.instance_id,
+        owner_process_id=999999,
+        owner_instance_id="runtime-instance:previous-process",
     )
     turn_run_id = f"turnrun:{stale.stream_run_id}"
     previous_host.run_registry.update_run(
@@ -517,7 +650,7 @@ def test_runtime_startup_repairs_previously_orphaned_chat_turn_run(tmp_path) -> 
         assert turn_run.diagnostics["reason"] == failure_code
 
 
-def test_runtime_startup_uses_instance_owner_not_only_process_id_for_recovery(tmp_path) -> None:
+def test_runtime_startup_keeps_same_process_live_instance_owned_run(tmp_path) -> None:
     host = SingleAgentRuntimeHost(tmp_path)
     current = host.run_registry.create_run(
         session_id="session:current",
@@ -531,5 +664,6 @@ def test_runtime_startup_uses_instance_owner_not_only_process_id_for_recovery(tm
 
     recovered = same_process_new_instance_host.run_registry.get_run(current.stream_run_id)
     assert recovered is not None
-    assert recovered.status == "orphaned"
+    assert recovered.status == "running"
+    assert recovered.terminal_event == ""
 

@@ -31,6 +31,13 @@ from harness.runtime.sandbox_artifacts import (
 from harness.runtime.sandbox_execution_scope import compile_sandbox_execution_scope
 from runtime.prompt_accounting.serializer import normalize_messages
 from runtime.prompt_accounting import ContextUsageMeter
+from runtime.model_gateway.assistant_stream_frame import (
+    assistant_message_ref,
+    assistant_stream_repair_event,
+    assistant_text_final_event,
+    content_sha256,
+)
+from runtime.model_gateway.assistant_stream_normalizer import AssistantStreamNormalizer
 from runtime.model_gateway.model_response_protocol import model_response_protocol_from_response
 from runtime.model_gateway.protocol_sanitizer import sanitize_messages_for_prompt
 from runtime.model_gateway.model_runtime import stringify_content
@@ -224,6 +231,7 @@ async def run_single_agent_turn(
             source="harness.loop.single_agent_turn.initial",
         )
         api_protocol_messages: list[dict[str, Any]] = []
+        assistant_stream_normalizer: AssistantStreamNormalizer | None = None
         async def emit_terminal_then_final(
             *,
             content: str,
@@ -235,7 +243,17 @@ async def run_single_agent_turn(
             has_tool_receipt: bool = False,
             terminal_payload: dict[str, Any] | None = None,
         ) -> AsyncIterator[dict[str, Any]]:
-            nonlocal terminal_recorded
+            nonlocal terminal_recorded, assistant_stream_normalizer
+            for frame_event in _assistant_final_stream_events(
+                assistant_stream_normalizer,
+                content=content,
+                answer_channel=answer_channel,
+                answer_source=answer_source,
+                terminal_reason=terminal_reason,
+                answer_canonical_state="stable_answer" if terminal_status == "completed" else terminal_status,
+                answer_persist_policy="persist_canonical",
+            ):
+                yield frame_event
             if runtime_host is not None and turn_run is not None:
                 terminal = _record_turn_terminal(
                     runtime_host,
@@ -271,10 +289,11 @@ async def run_single_agent_turn(
                 "prompt_manifest": dict(compilation.packet.diagnostics.get("prompt_manifest") or {}),
             },
             native_tools=_native_tools_for_packet(compilation.packet.allowed_action_types, available_tools=compilation.packet.available_tools),
-            allow_content_delta=not single_agent_requires_json_action,
+            allow_assistant_text_delta=not single_agent_requires_json_action,
         ):
             if model_event.get("type") == _INTERNAL_MODEL_RESPONSE_EVENT:
                 response = model_event.get("response")
+                assistant_stream_normalizer = model_event.get("assistant_stream_normalizer")
                 continue
             yield model_event
         tool_iteration = 0
@@ -384,10 +403,11 @@ async def run_single_agent_turn(
                         },
                     },
                     native_tools=[],
-                    allow_content_delta=True,
+                    allow_assistant_text_delta=True,
                 ):
                     if model_event.get("type") == _INTERNAL_MODEL_RESPONSE_EVENT:
                         synthesis_response = model_event.get("response")
+                        assistant_stream_normalizer = model_event.get("assistant_stream_normalizer")
                         continue
                     yield model_event
                 if isinstance(synthesis_response, dict) and synthesis_response.get("type") == "error":
@@ -852,10 +872,11 @@ async def run_single_agent_turn(
                     "prompt_manifest": followup_prompt_manifest,
                 },
                 native_tools=_native_tools_for_packet(compilation.packet.allowed_action_types, available_tools=compilation.packet.available_tools),
-                allow_content_delta=not single_agent_requires_json_action,
+                allow_assistant_text_delta=not single_agent_requires_json_action,
             ):
                 if model_event.get("type") == _INTERNAL_MODEL_RESPONSE_EVENT:
                     response = model_event.get("response")
+                    assistant_stream_normalizer = model_event.get("assistant_stream_normalizer")
                     continue
                 yield model_event
         if isinstance(response, dict) and response.get("type") == "error":
@@ -1277,6 +1298,62 @@ async def run_single_agent_turn(
         raise
 
 
+def _assistant_final_stream_events(
+    normalizer: AssistantStreamNormalizer | None,
+    *,
+    content: str,
+    answer_channel: str,
+    answer_source: str,
+    terminal_reason: str,
+    answer_canonical_state: str,
+    answer_persist_policy: str,
+    stream_ref: str = "",
+    message_ref: str = "",
+    turn_run_id: str = "",
+    task_run_id: str = "",
+) -> list[dict[str, Any]]:
+    stream_ref = str(stream_ref or getattr(normalizer, "stream_ref", "") or "")
+    message_ref = str(message_ref or getattr(normalizer, "message_ref", "") or assistant_message_ref(stream_ref=stream_ref))
+    turn_run_id = str(turn_run_id or getattr(normalizer, "turn_run_id", "") or "")
+    task_run_id = str(task_run_id or getattr(normalizer, "task_run_id", "") or "")
+    sequence = 1
+    events: list[dict[str, Any]] = []
+    if normalizer is not None:
+        events.extend(normalizer.flush())
+        normalizer.mark_final_content(content)
+        sequence = normalizer.next_sequence()
+        if normalizer.latest_sequence > 0 and content_sha256(normalizer.emitted_content) != content_sha256(content):
+            events.append(
+                assistant_stream_repair_event(
+                    replacement_content=content,
+                    stream_ref=stream_ref,
+                    message_ref=message_ref,
+                    turn_run_id=turn_run_id,
+                    task_run_id=task_run_id,
+                    repair_sequence=sequence,
+                    applies_after_sequence=normalizer.latest_sequence,
+                    expected_content_sha256=content_sha256(normalizer.emitted_content),
+                )
+            )
+            sequence += 1
+    events.append(
+        assistant_text_final_event(
+            content=content,
+            stream_ref=stream_ref,
+            message_ref=message_ref,
+            turn_run_id=turn_run_id,
+            task_run_id=task_run_id,
+            sequence=sequence,
+            answer_channel=answer_channel,
+            answer_source=answer_source,
+            answer_canonical_state=answer_canonical_state,
+            answer_persist_policy=answer_persist_policy,
+            terminal_reason=terminal_reason,
+        )
+    )
+    return events
+
+
 async def _invoke_single_turn_model(
     *,
     model_runtime: Any,
@@ -1338,7 +1415,7 @@ async def _invoke_single_turn_model_with_stream_events(
     model_selection: dict[str, Any],
     accounting_context: dict[str, Any],
     native_tools: list[dict[str, Any]],
-    allow_content_delta: bool,
+    allow_assistant_text_delta: bool,
 ) -> AsyncIterator[dict[str, Any]]:
     stream_policy = dict(dict(model_selection or {}).get("stream_policy") or {})
     stream_enabled = bool(stream_policy.get("enabled") is True)
@@ -1350,7 +1427,7 @@ async def _invoke_single_turn_model_with_stream_events(
             accounting_context=accounting_context,
             native_tools=native_tools,
         )
-        yield {"type": _INTERNAL_MODEL_RESPONSE_EVENT, "response": response}
+        yield {"type": _INTERNAL_MODEL_RESPONSE_EVENT, "response": response, "assistant_stream_normalizer": None}
         return
 
     model_messages = _sanitize_model_messages(
@@ -1360,8 +1437,17 @@ async def _invoke_single_turn_model_with_stream_events(
     )
     tool_streamer = getattr(model_runtime, "astream_messages_with_tools", None)
     plain_streamer = getattr(model_runtime, "astream_messages", None)
-    emit_content_delta = bool(stream_policy.get("emit_content_delta") is not False) and bool(allow_content_delta)
-    delta_index = 0
+    emit_assistant_text_delta = bool(stream_policy.get("emit_assistant_text_delta", stream_policy.get("emit_content_delta", True)) is not False) and bool(allow_assistant_text_delta)
+    emit_legacy_content_delta = bool(stream_policy.get("legacy_content_delta_public_stream") is True) and bool(allow_assistant_text_delta)
+    stream_ref = str(accounting_context.get("request_id") or "")
+    assistant_normalizer = AssistantStreamNormalizer(
+        stream_ref=stream_ref,
+        message_ref=assistant_message_ref(turn_id=str(accounting_context.get("turn_id") or ""), stream_ref=stream_ref),
+        turn_run_id=str(accounting_context.get("run_id") or accounting_context.get("turn_run_id") or ""),
+        task_run_id=str(accounting_context.get("task_run_id") or ""),
+        answer_source=str(accounting_context.get("source") or "harness.single_agent_turn"),
+    ) if emit_assistant_text_delta else None
+    legacy_delta_index = 0
     raw_content = ""
     aggregated_response: Any = None
     try:
@@ -1379,11 +1465,14 @@ async def _invoke_single_turn_model_with_stream_events(
                 if not delta_text:
                     continue
                 raw_content += delta_text
-                if emit_content_delta and _public_stream_delta_allowed(raw_content):
-                    delta_index += 1
+                if assistant_normalizer is not None:
+                    for frame_event in assistant_normalizer.observe_delta(delta_text):
+                        yield frame_event
+                if emit_legacy_content_delta and _public_stream_delta_allowed(raw_content):
+                    legacy_delta_index += 1
                     yield _single_agent_content_delta_event(
                         delta_text,
-                        delta_index=delta_index,
+                        delta_index=legacy_delta_index,
                         raw_content=raw_content,
                         accounting_context=accounting_context,
                     )
@@ -1398,11 +1487,14 @@ async def _invoke_single_turn_model_with_stream_events(
                 if not delta_text:
                     continue
                 raw_content += delta_text
-                if emit_content_delta and _public_stream_delta_allowed(raw_content):
-                    delta_index += 1
+                if assistant_normalizer is not None:
+                    for frame_event in assistant_normalizer.observe_delta(delta_text):
+                        yield frame_event
+                if emit_legacy_content_delta and _public_stream_delta_allowed(raw_content):
+                    legacy_delta_index += 1
                     yield _single_agent_content_delta_event(
                         delta_text,
-                        delta_index=delta_index,
+                        delta_index=legacy_delta_index,
                         raw_content=raw_content,
                         accounting_context=accounting_context,
                     )
@@ -1414,12 +1506,13 @@ async def _invoke_single_turn_model_with_stream_events(
                 accounting_context=accounting_context,
                 native_tools=native_tools,
             )
-            yield {"type": _INTERNAL_MODEL_RESPONSE_EVENT, "response": response}
+            yield {"type": _INTERNAL_MODEL_RESPONSE_EVENT, "response": response, "assistant_stream_normalizer": assistant_normalizer}
             return
     except Exception as exc:
         logger.exception("single agent turn streaming model invocation failed")
         yield {
             "type": _INTERNAL_MODEL_RESPONSE_EVENT,
+            "assistant_stream_normalizer": assistant_normalizer,
             "response": error_event(
                 content="模型生成本轮回复时失败。",
                 code="single_agent_turn_model_failed",
@@ -1428,7 +1521,7 @@ async def _invoke_single_turn_model_with_stream_events(
         }
         return
     response = aggregated_response if aggregated_response is not None else raw_content
-    yield {"type": _INTERNAL_MODEL_RESPONSE_EVENT, "response": response}
+    yield {"type": _INTERNAL_MODEL_RESPONSE_EVENT, "response": response, "assistant_stream_normalizer": assistant_normalizer}
 
 
 def _merge_model_stream_chunk(current: Any, chunk: Any) -> Any:
@@ -2045,6 +2138,19 @@ async def _emit_single_agent_protocol_error(
         "answer_finalization_policy": commit_decision.finalization_policy,
         "answer_fallback_reason": commit_decision.fallback_reason,
     }
+    for frame_event in _assistant_final_stream_events(
+        None,
+        content=content,
+        answer_channel="blocked",
+        answer_source="harness.single_agent_turn.protocol_error",
+        terminal_reason=code,
+        answer_canonical_state=commit_decision.canonical_state,
+        answer_persist_policy=commit_decision.persist_policy,
+        stream_ref=f"single_agent_protocol_error:{turn_id}",
+        message_ref=assistant_message_ref(turn_id=turn_id, stream_ref=f"single_agent_protocol_error:{turn_id}"),
+        turn_run_id=turn_run.turn_run_id if turn_run is not None else "",
+    ):
+        yield frame_event
     if runtime_host is not None and turn_run is not None:
         terminal = _record_turn_terminal(
             runtime_host,

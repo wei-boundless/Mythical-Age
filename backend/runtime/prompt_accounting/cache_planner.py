@@ -84,6 +84,15 @@ class PromptCachePlanner:
             ):
                 break
         timestamp = time.time() if created_at is None else float(created_at or 0.0)
+        diagnostics = {
+            **_prefix_diagnostics(
+                combined_stable_prefix=combined_stable_prefix,
+                provider_global_prefix=provider_global_prefix,
+                session_prefix=session_prefix,
+                task_prefix=task_prefix,
+            ),
+            **_prompt_manifest_cache_diagnostics(segment_map),
+        }
         provider_boundary = provider_payload_cache_boundary(model_request)
         if provider_boundary:
             provider_record = _plan_from_provider_payload_boundary(
@@ -93,12 +102,7 @@ class PromptCachePlanner:
                 model_request=model_request,
                 boundary=provider_boundary,
                 timestamp=timestamp,
-                diagnostics=_prefix_diagnostics(
-                    combined_stable_prefix=combined_stable_prefix,
-                    provider_global_prefix=provider_global_prefix,
-                    session_prefix=session_prefix,
-                    task_prefix=task_prefix,
-                ),
+                diagnostics=diagnostics,
             )
             if provider_record is not None:
                 return provider_record
@@ -120,12 +124,7 @@ class PromptCachePlanner:
                 status="bypassed",
                 cache_safety_reasons=("no_stable_prefix_boundary",),
                 created_at=timestamp,
-                diagnostics=_prefix_diagnostics(
-                    combined_stable_prefix=combined_stable_prefix,
-                    provider_global_prefix=provider_global_prefix,
-                    session_prefix=session_prefix,
-                    task_prefix=task_prefix,
-                ),
+                diagnostics=diagnostics,
             )
         boundary = key_prefix[-1]
         prefix_hash = stable_text_hash("|".join(segment.content_hash for segment in key_prefix))
@@ -140,12 +139,6 @@ class PromptCachePlanner:
                 "boundary_ordinal": boundary.ordinal,
                 "boundary_content_hash": boundary.content_hash,
             },
-        )
-        diagnostics = _prefix_diagnostics(
-            combined_stable_prefix=combined_stable_prefix,
-            provider_global_prefix=provider_global_prefix,
-            session_prefix=session_prefix,
-            task_prefix=task_prefix,
         )
         return PromptCacheRecord(
             cache_record_id=f"pcache:{segment_map.request_id}",
@@ -229,6 +222,42 @@ def _prefix_diagnostics(
         "session_prefix_predicted_tokens": sum(int(item.predicted_tokens or 0) for item in session_prefix),
         "task_prefix_predicted_tokens": sum(int(item.predicted_tokens or 0) for item in task_prefix),
     }
+
+
+def _prompt_manifest_cache_diagnostics(segment_map: PromptSegmentMap) -> dict[str, Any]:
+    metadata = dict(getattr(segment_map, "metadata", {}) or {})
+    manifest = dict(metadata.get("prompt_manifest") or {})
+    cache_boundary = dict(manifest.get("cache_boundary") or {})
+    manifest_diagnostics = dict(manifest.get("diagnostics") or {})
+    composition = dict(manifest.get("prompt_composition") or {})
+    composition_diagnostics = dict(composition.get("diagnostics") or {})
+    composition_cache_boundary = dict(composition_diagnostics.get("cache_boundary") or {})
+    assembly_request_fingerprint = str(
+        cache_boundary.get("assembly_request_fingerprint")
+        or manifest_diagnostics.get("assembly_request_fingerprint")
+        or ""
+    )
+    section_fingerprint = str(
+        cache_boundary.get("section_fingerprint")
+        or manifest_diagnostics.get("section_fingerprint")
+        or ""
+    )
+    return _drop_empty(
+        {
+            "prompt_manifest_ref": str(manifest.get("manifest_id") or ""),
+            "assembly_request_fingerprint": assembly_request_fingerprint,
+            "section_fingerprint": section_fingerprint,
+            "prompt_composition_manifest_ref": str(composition.get("manifest_id") or ""),
+            "prompt_composition_cache_boundary_status": str(composition_cache_boundary.get("status") or ""),
+            "prompt_composition_prefix_tier_sequence": list(composition_cache_boundary.get("prefix_tier_sequence") or []),
+            "prompt_composition_layer_violation_count": len(
+                list(composition_cache_boundary.get("layer_cache_policy_violations") or [])
+            ),
+            "prompt_composition_segment_violation_count": len(
+                list(composition_cache_boundary.get("segment_prefix_violations") or [])
+            ),
+        }
+    )
 
 
 def _primary_cache_key_prefix(
@@ -348,3 +377,7 @@ def _prefix_predicted_tokens_for_tier(diagnostics: dict[str, Any], *, tier: str)
     if normalized == "provider_global":
         return int(diagnostics.get("provider_global_prefix_predicted_tokens") or 0)
     return 0
+
+
+def _drop_empty(payload: dict[str, Any]) -> dict[str, Any]:
+    return {str(key): value for key, value in payload.items() if value not in ("", None, [], {})}

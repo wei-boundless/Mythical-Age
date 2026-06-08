@@ -134,6 +134,7 @@ def project_public_timeline_from_events(
     )
     if final_item:
         _append_or_replace_public_item(items, index_by_key, final_item)
+    items = _settle_completed_model_body_items(items, status=status)
     return _trim_public_timeline_items(items, limit)
 
 
@@ -361,6 +362,21 @@ def _trim_public_timeline_items(items: list[dict[str, Any]], limit: int | None) 
             break
         selected.add(index)
     return [item for index, item in enumerate(items) if index in selected]
+
+
+def _settle_completed_model_body_items(items: list[dict[str, Any]], *, status: str) -> list[dict[str, Any]]:
+    if _text(status).lower() not in {"completed", "success", "succeeded", "done"}:
+        return items
+    settled: list[dict[str, Any]] = []
+    for item in list(items or []):
+        payload = dict(item or {})
+        state = _text(payload.get("state")).lower()
+        if _is_model_body_item(payload) and state in {"running", "working", "partial"}:
+            payload["state"] = "done"
+            if _text(payload.get("stream_state")) == "streaming":
+                payload["stream_state"] = "done"
+        settled.append(_compact(payload))
+    return settled
 
 
 def _is_model_body_item(item: dict[str, Any]) -> bool:

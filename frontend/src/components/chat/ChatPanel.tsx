@@ -153,7 +153,7 @@ export function ChatPanel() {
               runtimeAttachments={message.runtimeAttachments}
               runtimeProgress={message.runtimeProgress}
               stageStatus={message.stageStatus}
-              streamingContent={message.id === liveAssistantMessageId}
+              streamingContent={chatStreamDisplayEnabled && message.id === liveAssistantMessageId}
               toolCalls={message.toolCalls}
             />
           ))}

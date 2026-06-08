@@ -183,6 +183,76 @@ def test_prompt_cache_planner_uses_longest_stable_prefix_key_for_automatic_cache
     assert cache_record.diagnostics["task_prefix_segment_count"] == 2
 
 
+def test_prompt_cache_planner_carries_prompt_manifest_cache_fingerprints() -> None:
+    messages = [
+        {"role": "system", "content": "global runtime"},
+        {"role": "user", "content": "current state"},
+    ]
+    segment_plan = {
+        "segments": [
+            {
+                "model_message_index": 0,
+                "kind": "global_static",
+                "source_ref": "runtime.test",
+                "cache_scope": "global",
+                "cache_role": "cacheable_prefix",
+                "prefix_tier": "provider_global",
+                "compression_role": "preserve",
+            },
+            {
+                "model_message_index": 1,
+                "kind": "volatile_user",
+                "source_ref": "state.test",
+                "cache_scope": "none",
+                "cache_role": "volatile",
+                "prefix_tier": "volatile",
+                "compression_role": "summarize",
+            },
+        ]
+    }
+    segment_map = CanonicalPromptSerializer().build_segment_map(
+        request_id="modelreq:planner-manifest-fingerprints",
+        messages=messages,
+        provider="deepseek",
+        model="deepseek-v4-flash",
+        segment_plan=segment_plan,
+        metadata={
+            "prompt_manifest": {
+                "manifest_id": "rtprompt:cache-fingerprint",
+                "cache_boundary": {
+                    "assembly_request_fingerprint": "sha256:assembly-request",
+                    "section_fingerprint": "sha256:sections",
+                },
+                "prompt_composition": {
+                    "manifest_id": "pcomp:cache-fingerprint",
+                    "diagnostics": {
+                        "cache_boundary": {
+                            "status": "warning",
+                            "prefix_tier_sequence": ["provider_global", "volatile"],
+                            "layer_cache_policy_violations": [{"code": "slot_prefix_tier_outside_layer_policy"}],
+                            "segment_prefix_violations": [
+                                {"code": "stable_segment_after_volatile_boundary"},
+                                {"code": "stable_segment_after_volatile_boundary"},
+                            ],
+                        }
+                    },
+                },
+            }
+        },
+    )
+
+    cache_record = PromptCachePlanner().plan(segment_map, provider="deepseek", model="deepseek-v4-flash")
+
+    assert cache_record.diagnostics["prompt_manifest_ref"] == "rtprompt:cache-fingerprint"
+    assert cache_record.diagnostics["assembly_request_fingerprint"] == "sha256:assembly-request"
+    assert cache_record.diagnostics["section_fingerprint"] == "sha256:sections"
+    assert cache_record.diagnostics["prompt_composition_manifest_ref"] == "pcomp:cache-fingerprint"
+    assert cache_record.diagnostics["prompt_composition_cache_boundary_status"] == "warning"
+    assert cache_record.diagnostics["prompt_composition_prefix_tier_sequence"] == ["provider_global", "volatile"]
+    assert cache_record.diagnostics["prompt_composition_layer_violation_count"] == 1
+    assert cache_record.diagnostics["prompt_composition_segment_violation_count"] == 2
+
+
 def test_compression_budget_reports_tiered_cache_impact() -> None:
     decision = CompressionBudgetPlanner().plan(
         [

@@ -57,6 +57,7 @@ def build_shadow_prompt_composition_manifest(
     bindings = bind_segments_to_slots(segments=segments, slots=plan.slots)
     graph = build_prompt_composition_graph(plan)
     coverage = _coverage(plan=plan, bindings=bindings)
+    cache_boundary = _cache_boundary_diagnostics(plan=plan, segments=segments)
     seed = {
         "invocation_kind": invocation_kind,
         "packet_id": packet_id,
@@ -77,6 +78,7 @@ def build_shadow_prompt_composition_manifest(
         diagnostics={
             **dict(diagnostics or {}),
             "segment_plan_ref": str(segment_plan.get("segment_plan_id") or ""),
+            "cache_boundary": cache_boundary,
             "provider_request_content_changed": False,
             "authority": "prompt_composition.shadow_manifest_builder",
         },
@@ -145,14 +147,34 @@ def _coverage(*, plan: PromptCompositionPlan, bindings: tuple[Any, ...]) -> dict
         status_counts[status] = status_counts.get(status, 0) + 1
     registered_slots = [slot for slot in plan.slots if slot.source_kind == "registered_prompt"]
     runtime_slots = [slot for slot in plan.slots if slot.source_kind != "registered_prompt"]
+    runtime_slot_source_counts: dict[str, int] = {}
+    for slot in runtime_slots:
+        source_kind = str(slot.source_kind or "unknown")
+        runtime_slot_source_counts[source_kind] = runtime_slot_source_counts.get(source_kind, 0) + 1
+    stable_unregistered_bindings = [
+        binding
+        for binding in bindings
+        if str(binding.binding_status or "") != "registered_prompt_bound"
+        and str(binding.cache_role or "") in {"cacheable_prefix", "session_stable"}
+        and str(binding.prefix_tier or "") not in {"volatile", "none"}
+    ]
+    legacy_runtime_bindings = [
+        binding
+        for binding in stable_unregistered_bindings
+        if str(binding.binding_status or "") == "legacy_runtime_text"
+    ]
     return {
         "slot_count": len(plan.slots),
         "registered_prompt_slot_count": len(registered_slots),
         "runtime_shadow_slot_count": len(runtime_slots),
+        "runtime_shadow_slot_source_kind_counts": runtime_slot_source_counts,
         "segment_count": len(bindings),
         "segment_binding_status_counts": status_counts,
         "all_segments_explained": len(bindings) == sum(status_counts.values()),
+        "stable_unregistered_segment_count": len(stable_unregistered_bindings),
+        "stable_unregistered_segment_samples": _binding_samples(stable_unregistered_bindings),
         "legacy_runtime_text_count": status_counts.get("legacy_runtime_text", 0),
+        "legacy_runtime_text_samples": _binding_samples(legacy_runtime_bindings),
         "dynamic_context_fragment_count": status_counts.get("dynamic_context_fragment", 0),
         "runtime_action_schema_count": status_counts.get("runtime_action_schema", 0),
         "runtime_artifact_scope_count": status_counts.get("runtime_artifact_scope", 0),
@@ -162,6 +184,21 @@ def _coverage(*, plan: PromptCompositionPlan, bindings: tuple[Any, ...]) -> dict
         "registered_prompt_bound_count": status_counts.get("registered_prompt_bound", 0),
         "authority": "prompt_composition.coverage",
     }
+
+
+def _binding_samples(bindings: list[Any], *, limit: int = 5) -> list[dict[str, Any]]:
+    return [
+        {
+            "segment_id": str(binding.segment_id or ""),
+            "kind": str(binding.kind or ""),
+            "source_ref": str(binding.source_ref or ""),
+            "cache_role": str(binding.cache_role or ""),
+            "prefix_tier": str(binding.prefix_tier or ""),
+            "binding_status": str(binding.binding_status or ""),
+            "binding_reason": str(binding.binding_reason or ""),
+        }
+        for binding in bindings[:limit]
+    ]
 
 
 def _runtime_slot_id(*, invocation_kind: str, packet_id: str, order: int, kind: str, source_ref: str) -> str:
@@ -220,3 +257,158 @@ def _runtime_lifecycle(segment: dict[str, Any]) -> str:
     if prefix_tier == "task":
         return "task_stable"
     return "session_stable"
+
+
+_PREFIX_TIER_ORDER = {
+    "provider_global": 1,
+    "session": 2,
+    "task": 3,
+    "volatile": 4,
+    "none": 5,
+}
+
+_LAYER_CACHE_POLICY = {
+    "global_static": {
+        "allowed_prefix_tiers": {"provider_global"},
+        "allowed_cache_roles": {"cacheable_prefix"},
+    },
+    "environment_stable": {
+        "allowed_prefix_tiers": {"session"},
+        "allowed_cache_roles": {"cacheable_prefix", "session_stable"},
+    },
+    "lifecycle_stable": {
+        "allowed_prefix_tiers": {"session"},
+        "allowed_cache_roles": {"cacheable_prefix", "session_stable"},
+    },
+    "personality_stable": {
+        "allowed_prefix_tiers": {"session"},
+        "allowed_cache_roles": {"session_stable"},
+    },
+    "agent_stable": {
+        "allowed_prefix_tiers": {"session"},
+        "allowed_cache_roles": {"session_stable"},
+    },
+    "capability_stable": {
+        "allowed_prefix_tiers": {"session", "task"},
+        "allowed_cache_roles": {"session_stable"},
+    },
+    "artifact_scope_stable": {
+        "allowed_prefix_tiers": {"task"},
+        "allowed_cache_roles": {"session_stable"},
+    },
+    "task_contract_stable": {
+        "allowed_prefix_tiers": {"task"},
+        "allowed_cache_roles": {"session_stable"},
+    },
+    "runtime_protocol_stable": {
+        "allowed_prefix_tiers": {"session"},
+        "allowed_cache_roles": {"session_stable"},
+    },
+    "runtime_dynamic": {
+        "allowed_prefix_tiers": {"volatile", "none"},
+        "allowed_cache_roles": {"volatile", "never_cache"},
+    },
+}
+
+
+def _cache_boundary_diagnostics(
+    *,
+    plan: PromptCompositionPlan,
+    segments: tuple[dict[str, Any], ...],
+) -> dict[str, Any]:
+    layer_violations = _layer_cache_policy_violations(plan.slots)
+    segment_violations = _segment_prefix_violations(segments)
+    prefix_counts: dict[str, int] = {}
+    cache_role_counts: dict[str, int] = {}
+    for segment in segments:
+        prefix_tier = str(segment.get("prefix_tier") or "volatile").strip() or "volatile"
+        cache_role = str(segment.get("cache_role") or "volatile").strip() or "volatile"
+        prefix_counts[prefix_tier] = prefix_counts.get(prefix_tier, 0) + 1
+        cache_role_counts[cache_role] = cache_role_counts.get(cache_role, 0) + 1
+    return {
+        "status": "warning" if layer_violations or segment_violations else "ok",
+        "prefix_tier_counts": prefix_counts,
+        "cache_role_counts": cache_role_counts,
+        "prefix_tier_sequence": [
+            str(segment.get("prefix_tier") or "volatile").strip() or "volatile"
+            for segment in segments
+        ],
+        "layer_cache_policy_violations": layer_violations,
+        "segment_prefix_violations": segment_violations,
+        "deepseek_prefix_principle": (
+            "provider payload cache is prefix based; stable provider_global/session/task "
+            "segments must remain contiguous and byte stable before volatile content"
+        ),
+        "authority": "prompt_composition.cache_boundary_diagnostics",
+    }
+
+
+def _layer_cache_policy_violations(slots: tuple[PromptCompositionSlot, ...]) -> list[dict[str, Any]]:
+    violations: list[dict[str, Any]] = []
+    for slot in slots:
+        policy = _LAYER_CACHE_POLICY.get(str(slot.layer or ""))
+        if not policy:
+            continue
+        allowed_tiers = set(policy["allowed_prefix_tiers"])
+        allowed_roles = set(policy["allowed_cache_roles"])
+        if slot.prefix_tier not in allowed_tiers:
+            violations.append(
+                {
+                    "code": "slot_prefix_tier_outside_layer_policy",
+                    "slot_id": slot.slot_id,
+                    "layer": slot.layer,
+                    "source_ref": slot.source_ref or slot.prompt_ref,
+                    "prefix_tier": slot.prefix_tier,
+                    "allowed_prefix_tiers": sorted(allowed_tiers),
+                }
+            )
+        if slot.cache_role not in allowed_roles:
+            violations.append(
+                {
+                    "code": "slot_cache_role_outside_layer_policy",
+                    "slot_id": slot.slot_id,
+                    "layer": slot.layer,
+                    "source_ref": slot.source_ref or slot.prompt_ref,
+                    "cache_role": slot.cache_role,
+                    "allowed_cache_roles": sorted(allowed_roles),
+                }
+            )
+    return violations
+
+
+def _segment_prefix_violations(segments: tuple[dict[str, Any], ...]) -> list[dict[str, Any]]:
+    violations: list[dict[str, Any]] = []
+    previous_rank = 0
+    previous_tier = ""
+    volatile_seen = False
+    for segment in sorted(segments, key=lambda item: int(item.get("ordinal") or 0)):
+        prefix_tier = str(segment.get("prefix_tier") or "volatile").strip() or "volatile"
+        cache_role = str(segment.get("cache_role") or "volatile").strip() or "volatile"
+        rank = _PREFIX_TIER_ORDER.get(prefix_tier, 99)
+        stable = cache_role in {"cacheable_prefix", "session_stable"} and prefix_tier not in {"volatile", "none"}
+        if volatile_seen and stable:
+            violations.append(
+                {
+                    "code": "stable_segment_after_volatile_boundary",
+                    "segment_id": str(segment.get("segment_id") or ""),
+                    "kind": str(segment.get("kind") or ""),
+                    "prefix_tier": prefix_tier,
+                    "cache_role": cache_role,
+                }
+            )
+        if stable and previous_rank and rank < previous_rank:
+            violations.append(
+                {
+                    "code": "prefix_tier_order_regression",
+                    "segment_id": str(segment.get("segment_id") or ""),
+                    "kind": str(segment.get("kind") or ""),
+                    "previous_prefix_tier": previous_tier,
+                    "prefix_tier": prefix_tier,
+                }
+            )
+        if prefix_tier in {"volatile", "none"} or cache_role in {"volatile", "never_cache"}:
+            volatile_seen = True
+        if stable:
+            previous_rank = rank
+            previous_tier = prefix_tier
+    return violations

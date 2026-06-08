@@ -4,14 +4,13 @@ import base64
 import sys
 from pathlib import Path
 
-from fastapi.testclient import TestClient
-
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 from app import app
 from bootstrap.app_runtime import app_runtime
+from tests.support.app_client import isolated_app_client
 
 
 async def _fake_astream(_request):
@@ -30,19 +29,9 @@ async def _fake_image_generate(self, **kwargs):
     output_path = self.asset_dir / filename
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_bytes(base64.b64decode(_ONE_PIXEL_PNG_BASE64))
-    project_path = output_path.resolve().relative_to(self.project_root).as_posix()
-    return {
-        "asset_path": f"/api/image-assets/files/{filename}",
-        "path": project_path,
-        "project_path": project_path,
-        "file_path": str(output_path),
-        "absolute_path": str(output_path),
-        "storage_authority": "image_asset_store",
-        "bypass_sandbox_publish": True,
-        "reused": False,
-        "bytes": output_path.stat().st_size,
-        "revised_prompt": "revised prompt",
-    }
+    response = self._asset_response(output_path, filename, reused=False)
+    response["revised_prompt"] = "revised prompt"
+    return response
 
 
 _ONE_PIXEL_PNG_BASE64 = (
@@ -58,7 +47,7 @@ def test_chat_accepts_per_turn_model_selection() -> None:
         captured["model_selection"] = dict(request.model_selection)
         yield {"type": "done", "content": "ok"}
 
-    with TestClient(app) as client:
+    with isolated_app_client(app) as client:
         runtime = app_runtime.require_ready()
         original_astream = runtime.harness_runtime.astream
         runtime.harness_runtime.astream = fake_astream  # type: ignore[method-assign]
@@ -94,7 +83,7 @@ def test_chat_accepts_per_turn_model_selection() -> None:
 
 
 def test_chat_routes_gpt_image_2_to_image_generation() -> None:
-    with TestClient(app) as client:
+    with isolated_app_client(app) as client:
         original_generate = None
         from capability_system.capabilities.image_generation.image_asset_service import ImageAssetService
 
@@ -134,7 +123,7 @@ def test_chat_routes_gpt_image_2_to_image_generation() -> None:
             history = client.get(f"/api/sessions/{session_id}/history")
             assert history.status_code == 200
             image = history.json()["messages"][-1]["image"]
-            generated_path = BACKEND_DIR.parent / "storage" / "generated" / "images" / Path(image["src"]).name
+            generated_path = Path(client.isolated_storage_root) / "generated" / "images" / Path(image["src"]).name
             assert image["src"].startswith(f"/api/image-assets/files/chat-turn-{session_id}-")
             assert image["src"].endswith(".png")
             assert generated_path.exists()
@@ -155,7 +144,7 @@ def test_chat_routes_gpt_image_2_to_image_generation() -> None:
 
 
 def test_api_smoke_flow() -> None:
-    with TestClient(app) as client:
+    with isolated_app_client(app) as client:
         runtime = app_runtime.require_ready()
 
         original_astream = runtime.harness_runtime.astream
@@ -191,7 +180,7 @@ def test_api_smoke_flow() -> None:
 
 
 def test_session_summary_endpoint_reads_single_session() -> None:
-    with TestClient(app) as client:
+    with isolated_app_client(app) as client:
         created = client.post("/api/sessions", json={"title": "Single summary"})
         assert created.status_code == 200
         session_id = created.json()["id"]
@@ -204,8 +193,23 @@ def test_session_summary_endpoint_reads_single_session() -> None:
         assert "messages" not in summary.json()
 
 
+def test_app_test_client_uses_isolated_runtime_storage() -> None:
+    real_sessions_dir = BACKEND_DIR.parent / "storage" / "sessions"
+    with isolated_app_client(app) as client:
+        created = client.post("/api/sessions", json={"title": "Isolated test storage"})
+        assert created.status_code == 200
+        session_id = created.json()["id"]
+        isolated_path = Path(client.isolated_storage_root) / "sessions" / f"{session_id}.json"
+        real_path = real_sessions_dir / f"{session_id}.json"
+
+        runtime = app_runtime.require_ready()
+        assert Path(runtime.session_manager.sessions_dir).resolve() == (Path(client.isolated_storage_root) / "sessions").resolve()
+        assert isolated_path.exists()
+        assert not real_path.exists()
+
+
 def test_workbench_current_session_ref_is_persisted() -> None:
-    with TestClient(app) as client:
+    with isolated_app_client(app) as client:
         created = client.post("/api/sessions", json={"title": "Workbench current"})
         assert created.status_code == 200
         session_id = created.json()["id"]
@@ -227,7 +231,7 @@ def test_workbench_current_session_ref_is_persisted() -> None:
 
 
 def test_workbench_current_session_ref_persists_authoritative_session_scope() -> None:
-    with TestClient(app) as client:
+    with isolated_app_client(app) as client:
         created = client.post(
             "/api/sessions",
             json={
@@ -256,7 +260,7 @@ def test_workbench_current_session_ref_persists_authoritative_session_scope() ->
 
 
 def test_stream_chat_emits_error_when_runtime_ends_without_terminal_event() -> None:
-    with TestClient(app) as client:
+    with isolated_app_client(app) as client:
         runtime = app_runtime.require_ready()
 
         original_astream = runtime.harness_runtime.astream
@@ -283,7 +287,7 @@ def test_stream_chat_emits_error_when_runtime_ends_without_terminal_event() -> N
 
 
 def test_chat_rejects_invalid_session_id_before_streaming() -> None:
-    with TestClient(app) as client:
+    with isolated_app_client(app) as client:
         response = client.post(
             "/api/chat/runs",
             json={"message": "hello", "session_id": "../outside", "stream": True},
@@ -293,7 +297,7 @@ def test_chat_rejects_invalid_session_id_before_streaming() -> None:
 
 
 def test_session_messages_can_be_truncated_for_edit_resend() -> None:
-    with TestClient(app) as client:
+    with isolated_app_client(app) as client:
         runtime = app_runtime.require_ready()
         created = client.post("/api/sessions", json={"title": "Edit resend"})
         assert created.status_code == 200
@@ -317,7 +321,7 @@ def test_session_messages_can_be_truncated_for_edit_resend() -> None:
 
 
 def test_removed_agent_control_plane_routes_stay_absent() -> None:
-    with TestClient(app) as client:
+    with isolated_app_client(app) as client:
         response = client.get("/api/agents/catalog")
         assert response.status_code == 404
 

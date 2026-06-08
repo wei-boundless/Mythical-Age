@@ -3112,9 +3112,31 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
 
   it("renders new runtime answer events before final done", () => {
     let transition = startStreamingTurn(getDefaultState(), "你好");
-    transition = reduceStreamEvent(transition.state, transition.session, "content_delta", { content: "你好，" });
-    transition = reduceStreamEvent(transition.state, transition.session, "content_delta", { content: "我在。" });
+    transition = reduceStreamEvent(transition.state, transition.session, "assistant_text_delta", {
+      sequence: 1,
+      content: "你好，",
+      content_utf8_start: 0,
+      accumulated_utf8_bytes: 9,
+      accumulated_sha256: "sha256:partial-1",
+    });
+    transition = reduceStreamEvent(transition.state, transition.session, "assistant_text_delta", {
+      sequence: 2,
+      content: "我在。",
+      content_utf8_start: 9,
+      accumulated_utf8_bytes: 18,
+      accumulated_sha256: "sha256:partial-2",
+    });
     transition = reduceStreamEvent(transition.state, transition.session, "answer_candidate", { content: "候选答案不应覆盖已有流式内容。" });
+    transition = reduceStreamEvent(transition.state, transition.session, "assistant_text_final", {
+      sequence: 3,
+      content: "你好，我在。",
+      content_sha256: "sha256:final",
+      answer_channel: "conversation",
+      answer_canonical_state: "stable_answer",
+      answer_persist_policy: "persist_canonical",
+      answer_selected_channel: "answer_candidate",
+      answer_leak_flags: ["internal_protocol_final_text"],
+    });
     transition = reduceStreamEvent(transition.state, transition.session, "done", {
       content: "最终 done 不应重复覆盖已有流式内容。",
       answer_channel: "conversation",
@@ -3134,13 +3156,28 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(assistant?.answerLeakFlags).toEqual(["internal_protocol_final_text"]);
   });
 
+  it("does not append legacy content_delta after typed stream cutover", () => {
+    let transition = startStreamingTurn(getDefaultState(), "你好");
+    transition = reduceStreamEvent(transition.state, transition.session, "content_delta", { content: "旧流式内容。" });
+
+    const assistant = transition.state.messages.at(-1);
+    expect(assistant?.role).toBe("assistant");
+    expect(assistant?.content).toBe("");
+  });
+
   it("keeps streamed deltas out of the visible assistant message when stream display is disabled", () => {
     let transition = startStreamingTurn({
       ...getDefaultState(),
       chatStreamDisplayEnabled: false,
     }, "你好");
-    transition = reduceStreamEvent(transition.state, transition.session, "content_delta", { content: "你好，" });
-    transition = reduceStreamEvent(transition.state, transition.session, "token", { content: "我在。" });
+    transition = reduceStreamEvent(transition.state, transition.session, "assistant_text_delta", {
+      sequence: 1,
+      content: "你好，",
+      content_utf8_start: 0,
+      accumulated_utf8_bytes: 9,
+      accumulated_sha256: "sha256:partial-1",
+    });
+    transition = reduceStreamEvent(transition.state, transition.session, "token", { content: "旧 token 不应显示。" });
     transition = reduceStreamEvent(transition.state, transition.session, "answer_candidate", {
       content: "提前候选答案不应显示。",
       answer_channel: "conversation",
@@ -3153,8 +3190,16 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       answer_canonical_state: "stable_answer",
       answer_persist_policy: "persist_canonical",
     });
-    transition = reduceStreamEvent(transition.state, transition.session, "done", {
+    expect(transition.state.messages.at(-1)?.content).toBe("");
+    transition = reduceStreamEvent(transition.state, transition.session, "assistant_text_final", {
+      sequence: 2,
       content: "最终回答。",
+      content_sha256: "sha256:final",
+      answer_channel: "conversation",
+      answer_canonical_state: "stable_answer",
+    });
+    transition = reduceStreamEvent(transition.state, transition.session, "done", {
+      content: "done 不应覆盖 final。",
       answer_channel: "conversation",
       answer_canonical_state: "stable_answer",
     });
@@ -3948,7 +3993,8 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       recoveryFeedbackDuringAttach = store.getState().messages
         .flatMap((message) => message.runtimePublicTimelineDraft ?? [])
         .find((item) => item.item_id === "stream-restore:strun:resume");
-      handlers.onEvent("content_delta", { content: "续", event_offset: 4 });
+      handlers.onEvent("assistant_text_delta", { sequence: 1, content: "续", content_utf8_start: 0, event_offset: 4 });
+      handlers.onEvent("assistant_text_final", { sequence: 2, content: "续接完成", content_sha256: "sha256:resume", event_offset: 5 });
       handlers.onEvent("done", { content: "续接完成", event_offset: 5 });
       return { terminalEvent: "done", streamRunId: "strun:resume", eventLogId: "chatrun:resume", lastEventOffset: 5 };
     });
@@ -4010,7 +4056,8 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       recoveryFeedbackDuringAttach = store.getState().messages
         .flatMap((message) => message.runtimePublicTimelineDraft ?? [])
         .find((item) => item.item_id === "stream-restore:strun:latest");
-      handlers.onEvent("content_delta", { content: "恢复", event_offset: 1 });
+      handlers.onEvent("assistant_text_delta", { sequence: 1, content: "恢复", content_utf8_start: 0, event_offset: 1 });
+      handlers.onEvent("assistant_text_final", { sequence: 2, content: "恢复完成", content_sha256: "sha256:latest", event_offset: 2 });
       handlers.onEvent("done", { content: "恢复完成", event_offset: 2 });
       return { terminalEvent: "done", streamRunId: "strun:latest", eventLogId: "chatrun:latest", lastEventOffset: 2 };
     });
@@ -4493,7 +4540,8 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       stream_policy: {
         enabled: true,
         mode: "model_text_stream",
-        emit_content_delta: true,
+        emit_assistant_text_delta: true,
+        legacy_content_delta_public_stream: false,
         source: "frontend.chat_stream_display_toggle",
       },
     });
@@ -4630,7 +4678,8 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       stream_policy: {
         enabled: true,
         mode: "model_text_stream",
-        emit_content_delta: true,
+        emit_assistant_text_delta: true,
+        legacy_content_delta_public_stream: false,
         source: "frontend.chat_stream_display_toggle",
       },
     });
@@ -4719,7 +4768,8 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       stream_policy: {
         enabled: false,
         mode: "disabled",
-        emit_content_delta: false,
+        emit_assistant_text_delta: false,
+        legacy_content_delta_public_stream: false,
         source: "frontend.chat_stream_display_toggle",
       },
     });

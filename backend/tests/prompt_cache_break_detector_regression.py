@@ -116,6 +116,139 @@ def test_cache_break_detector_attributes_miss_to_cache_sensitive_params_change()
     assert record.reason == "cache_sensitive_params_changed"
 
 
+def test_cache_break_detector_attributes_miss_to_prompt_assembly_request_change() -> None:
+    previous = _cache_record(
+        request_id="modelreq:assembly:1",
+        cache_key="key:assembly:old",
+        prefix_hash="hash:assembly:old",
+        diagnostics={
+            "prompt_manifest_ref": "rtprompt:old",
+            "assembly_request_fingerprint": "sha256:assembly-request:old",
+            "section_fingerprint": "sha256:sections:same",
+        },
+        created_at=1.0,
+    )
+    current = _cache_record(
+        request_id="modelreq:assembly:2",
+        cache_key="key:assembly:new",
+        prefix_hash="hash:assembly:new",
+        diagnostics={
+            "prompt_manifest_ref": "rtprompt:new",
+            "assembly_request_fingerprint": "sha256:assembly-request:new",
+            "section_fingerprint": "sha256:sections:same",
+        },
+        created_at=2.0,
+    )
+
+    record = PromptCacheBreakDetector().detect(
+        cache_record=current,
+        provider_usage=_provider_usage("modelreq:assembly:2"),
+        previous_cache_records=[previous],
+        created_at=3.0,
+    )
+
+    assert record is not None
+    assert record.reason == "prompt_assembly_request_changed"
+    assert record.diagnostics["prompt_assembly"]["assembly_request_fingerprint"] == {
+        "previous": "sha256:assembly-request:old",
+        "current": "sha256:assembly-request:new",
+    }
+    assert record.diagnostics["prompt_assembly"]["section_fingerprint"] == {
+        "previous": "sha256:sections:same",
+        "current": "sha256:sections:same",
+    }
+
+
+def test_cache_break_detector_attributes_miss_to_prompt_section_fingerprint_change() -> None:
+    previous = _cache_record(
+        request_id="modelreq:section:1",
+        cache_key="key:section:old",
+        prefix_hash="hash:section:old",
+        diagnostics={
+            "prompt_composition_manifest_ref": "pcomp:section",
+            "prompt_composition_cache_boundary_status": "ok",
+            "prompt_composition_layer_violation_count": 0,
+            "prompt_composition_segment_violation_count": 0,
+            "assembly_request_fingerprint": "sha256:assembly-request:same",
+            "section_fingerprint": "sha256:sections:old",
+        },
+        created_at=1.0,
+    )
+    current = _cache_record(
+        request_id="modelreq:section:2",
+        cache_key="key:section:new",
+        prefix_hash="hash:section:new",
+        diagnostics={
+            "prompt_composition_manifest_ref": "pcomp:section",
+            "prompt_composition_cache_boundary_status": "warning",
+            "prompt_composition_layer_violation_count": 1,
+            "prompt_composition_segment_violation_count": 2,
+            "assembly_request_fingerprint": "sha256:assembly-request:same",
+            "section_fingerprint": "sha256:sections:new",
+        },
+        created_at=2.0,
+    )
+
+    record = PromptCacheBreakDetector().detect(
+        cache_record=current,
+        provider_usage=_provider_usage("modelreq:section:2"),
+        previous_cache_records=[previous],
+        created_at=3.0,
+    )
+
+    assert record is not None
+    assert record.reason == "prompt_section_fingerprint_changed"
+    assert record.diagnostics["prompt_assembly"]["section_fingerprint"] == {
+        "previous": "sha256:sections:old",
+        "current": "sha256:sections:new",
+    }
+    assert record.diagnostics["prompt_assembly"]["prompt_composition_cache_boundary_status"] == {
+        "previous": "ok",
+        "current": "warning",
+    }
+    assert record.diagnostics["prompt_assembly"]["prompt_composition_segment_violation_count"] == {
+        "previous": 0,
+        "current": 2,
+    }
+
+
+def test_cache_break_detector_does_not_blame_missing_legacy_prompt_assembly_fingerprint() -> None:
+    previous = _cache_record(
+        request_id="modelreq:legacy:1",
+        cache_key="key:legacy:old",
+        prefix_hash="hash:legacy:old",
+        diagnostics={
+            "stable_message_prefix_hash": "hash:messages",
+            "tool_catalog_hash": "hash:tool:old",
+            "provider_payload_tool_prefix_segment_count": 1,
+        },
+        created_at=1.0,
+    )
+    current = _cache_record(
+        request_id="modelreq:legacy:2",
+        cache_key="key:legacy:new",
+        prefix_hash="hash:legacy:new",
+        diagnostics={
+            "stable_message_prefix_hash": "hash:messages",
+            "tool_catalog_hash": "hash:tool:new",
+            "provider_payload_tool_prefix_segment_count": 1,
+            "assembly_request_fingerprint": "sha256:assembly-request:new",
+            "section_fingerprint": "sha256:sections:new",
+        },
+        created_at=2.0,
+    )
+
+    record = PromptCacheBreakDetector().detect(
+        cache_record=current,
+        provider_usage=_provider_usage("modelreq:legacy:2"),
+        previous_cache_records=[previous],
+        created_at=3.0,
+    )
+
+    assert record is not None
+    assert record.reason == "tool_schema_hash_changed"
+
+
 def _cache_record(
     *,
     request_id: str,

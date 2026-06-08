@@ -20,7 +20,11 @@ class ProjectLayout:
             project_root = resolved_backend.parent
         else:
             project_root = resolved_backend
-        storage_root = project_root / "storage"
+        storage_root = _resolve_path_env(
+            "APP_STORAGE_ROOT",
+            default=project_root / "storage",
+            base_dir=project_root,
+        )
         return cls(
             backend_dir=resolved_backend,
             project_root=project_root,

@@ -26,6 +26,7 @@ TERMINAL_STREAM_EVENTS = {"done", "error", "stopped"}
 TERMINAL_RUN_STATUSES = {"completed", "failed", "stopped", "orphaned"}
 INTERNAL_STREAM_EVENTS = {
     "debug",
+    "content_delta",
     "runtime_assembly_compiled",
     "runtime_assembly_bound",
     "runtime_invocation_packet",
@@ -84,7 +85,58 @@ PUBLIC_EVENT_DATA_ALLOWLIST = {
         "answer_source",
     },
     "token": {"content"},
-    "content_delta": {"content"},
+    "assistant_text_delta": {
+        "frame_schema_version",
+        "event_type",
+        "frame_id",
+        "stream_ref",
+        "message_ref",
+        "turn_run_id",
+        "task_run_id",
+        "sequence",
+        "content",
+        "content_utf8_start",
+        "content_utf8_end",
+        "content_utf8_bytes",
+        "accumulated_utf8_bytes",
+        "accumulated_sha256",
+        "answer_channel",
+        "answer_source",
+        "visibility",
+        "markdown_state",
+        "display_hint",
+    },
+    "assistant_text_final": {
+        "frame_schema_version",
+        "event_type",
+        "stream_ref",
+        "message_ref",
+        "turn_run_id",
+        "task_run_id",
+        "sequence",
+        "content",
+        "content_utf8_bytes",
+        "content_sha256",
+        "answer_channel",
+        "answer_source",
+        "answer_canonical_state",
+        "answer_persist_policy",
+        "terminal_reason",
+    },
+    "assistant_stream_repair": {
+        "frame_schema_version",
+        "event_type",
+        "stream_ref",
+        "message_ref",
+        "turn_run_id",
+        "task_run_id",
+        "repair_sequence",
+        "applies_after_sequence",
+        "reason",
+        "expected_content_sha256",
+        "replacement_content",
+        "replacement_content_sha256",
+    },
     "done": {
         "content",
         "image",
@@ -352,6 +404,8 @@ async def _run_chat_to_event_log(runtime: Any, run: RuntimeRun, request: Harness
                 }.items()
                 if value
             }
+            if public_event_type != "error":
+                diagnostics.update({"orphaned_by": None, "reason": None, "cancelled": None})
             current = registry.mark_event(
                 current,
                 latest_event_offset=logged.offset,
@@ -418,10 +472,19 @@ async def _stream_run_events(runtime: Any, run: RuntimeRun, *, after_offset: int
     latest_offset = int(after_offset)
     try:
         yield "retry: 1500\n\n"
-        for event in replay.list_public_events_after(run, after_offset=latest_offset):
+        replay_events = replay.list_public_events_after(run, after_offset=latest_offset)
+        latest_terminal_offset = max(
+            (event.offset for event in replay_events if replay.is_terminal_event(event)),
+            default=-1,
+        )
+        for event in replay_events:
             latest_offset = max(latest_offset, event.offset)
-            yield replay.to_public_sse(run, event)
-            if replay.is_terminal_event(event):
+            current = registry.get_run(run.stream_run_id) or run
+            is_terminal = replay.is_terminal_event(event)
+            if is_terminal and event.offset < latest_terminal_offset:
+                continue
+            yield replay.to_public_sse(current, event)
+            if is_terminal:
                 return
         while True:
             current = registry.get_run(run.stream_run_id) or run

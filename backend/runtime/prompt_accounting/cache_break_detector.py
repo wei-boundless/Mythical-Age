@@ -104,6 +104,10 @@ class PromptCacheBreakDetector:
                     previous=latest_previous,
                     current=cache_record,
                 ),
+                "prompt_assembly": _prompt_assembly_diagnostics(
+                    previous=latest_previous,
+                    current=cache_record,
+                ),
             },
         )
 
@@ -137,6 +141,15 @@ def _changed_payload_reason(
         return ""
     previous_diag = dict(previous.diagnostics or {})
     current_diag = dict(current.diagnostics or {})
+    if _diag_present_on_both(previous_diag, current_diag, "assembly_request_fingerprint") and (
+        _diag_value(previous_diag, "assembly_request_fingerprint")
+        != _diag_value(current_diag, "assembly_request_fingerprint")
+    ):
+        return "prompt_assembly_request_changed"
+    if _diag_present_on_both(previous_diag, current_diag, "section_fingerprint") and (
+        _diag_value(previous_diag, "section_fingerprint") != _diag_value(current_diag, "section_fingerprint")
+    ):
+        return "prompt_section_fingerprint_changed"
     if _diag_value(previous_diag, "stable_message_prefix_hash") != _diag_value(current_diag, "stable_message_prefix_hash"):
         return "stable_message_prefix_changed"
     if _diag_value(previous_diag, "tool_catalog_hash") != _diag_value(current_diag, "tool_catalog_hash"):
@@ -179,11 +192,51 @@ def _provider_payload_diagnostics(
     }
 
 
-def _diag_value(diagnostics: dict[str, Any], key: str) -> str:
+def _prompt_assembly_diagnostics(
+    *,
+    previous: PromptCacheRecord | None,
+    current: PromptCacheRecord,
+) -> dict[str, Any]:
+    previous_diag = dict(getattr(previous, "diagnostics", {}) or {}) if previous is not None else {}
+    current_diag = dict(current.diagnostics or {})
+    keys = (
+        "prompt_manifest_ref",
+        "assembly_request_fingerprint",
+        "section_fingerprint",
+        "prompt_composition_manifest_ref",
+        "prompt_composition_cache_boundary_status",
+        "prompt_composition_prefix_tier_sequence",
+        "prompt_composition_layer_violation_count",
+        "prompt_composition_segment_violation_count",
+    )
+    return {
+        key: {
+            "previous": _diag_raw(previous_diag, key),
+            "current": _diag_raw(current_diag, key),
+        }
+        for key in keys
+        if _diag_raw(previous_diag, key) not in (None, "", [], {})
+        or _diag_raw(current_diag, key) not in (None, "", [], {})
+    }
+
+
+def _diag_present_on_both(previous: dict[str, Any], current: dict[str, Any], key: str) -> bool:
+    return bool(_diag_value(previous, key)) and bool(_diag_value(current, key))
+
+
+def _diag_raw(diagnostics: dict[str, Any], key: str) -> Any:
     value = diagnostics.get(key)
     if value in (None, ""):
         provider_payload = dict(diagnostics.get("provider_payload") or {})
         value = provider_payload.get(key)
+    if value in (None, ""):
+        prompt_assembly = dict(diagnostics.get("prompt_assembly") or {})
+        value = prompt_assembly.get(key)
+    return value
+
+
+def _diag_value(diagnostics: dict[str, Any], key: str) -> str:
+    value = _diag_raw(diagnostics, key)
     return str(value or "")
 
 

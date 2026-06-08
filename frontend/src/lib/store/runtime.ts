@@ -3014,7 +3014,8 @@ export class WorkspaceRuntime {
     return {
       enabled,
       mode: enabled ? "model_text_stream" : "disabled",
-      emit_content_delta: enabled,
+      emit_assistant_text_delta: enabled,
+      legacy_content_delta_public_stream: false,
       source: "frontend.chat_stream_display_toggle",
     };
   }

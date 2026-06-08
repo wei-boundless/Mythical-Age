@@ -57,6 +57,20 @@ export type Message = {
   } | null;
 };
 
+export type AssistantTextStreamState = {
+  messageId: string;
+  messageRef: string;
+  streamRef: string;
+  latestSequence: number;
+  canonicalContent: string;
+  canonicalContentSha256: string;
+  accumulatedUtf8Bytes: number;
+  finalReceived: boolean;
+  terminal: boolean;
+  repairState: "none" | "pending" | "applied" | "failed";
+  displayHintsBySequence: Record<number, Record<string, unknown>>;
+};
+
 export type SessionActivityLevel = "idle" | "running" | "waiting" | "success" | "warning" | "error" | "stopped";
 export type RuntimeMonitorStreamStatus = "connecting" | "connected" | "fallback" | "closed";
 
@@ -336,6 +350,7 @@ export type StoreState = {
   conversationActiveEnvironment: ConversationTaskEnvironment | null;
   workspaceInitializing: boolean;
   messages: Message[];
+  assistantTextStreamsByMessageId: Record<string, AssistantTextStreamState>;
   isStreaming: boolean;
   activeStreamSessionIds: string[];
   sessionActivity: SessionActivityState;

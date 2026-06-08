@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from harness.runtime import SingleAgentRuntimeHost
+from sessions import SessionManager
 from task_system.engagement import EngagementPlanRepository, EngagementService
 from task_system.compiler.graph_harness_config_publisher import publish_graph_harness_config_for_graph
 from task_system.graphs.task_graph_models import TaskGraphDefinition, TaskGraphNodeDefinition
@@ -107,11 +108,16 @@ def test_engagement_graph_task_run_starts_published_graph_harness(tmp_path: Path
     assert result["decision"] == "started"
     assert result["execution_strategy"] == "graph_task_run"
     assert result["graph_run"]["graph_id"] == graph.graph_id
+    assert result["graph_run"]["session_id"] != "session:test"
+    assert result["graph_run"]["session_id"].startswith("graph-session-")
     assert result["graph_harness_config"]["config_id"] == graph_config.config_id
     assert result["task_run"]["diagnostics"]["graph_id"] == graph.graph_id
+    assert result["task_run"]["diagnostics"]["launch_session_id"] == "session:test"
     assert result["node_work_orders"][0]["node_id"] == "main"
     assert result["engagement_run"]["task_run_id"] == result["task_run"]["task_run_id"]
     assert result["engagement_run"]["workflow_run_id"] == result["graph_run"]["graph_run_id"]
+    graph_session = SessionManager(backend_dir).get_history(result["graph_run"]["session_id"])
+    assert graph_session["task_binding"]["graph_run_id"] == result["graph_run"]["graph_run_id"]
 
 
 def test_engagement_graph_task_run_requires_published_graph_config(tmp_path: Path) -> None:

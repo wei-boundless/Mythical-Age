@@ -15,7 +15,7 @@ if str(BACKEND_DIR) not in sys.path:
 
 from app import app
 from bootstrap.app_runtime import app_runtime
-from fastapi.testclient import TestClient
+from tests.support.app_client import isolated_app_client
 
 
 async def _fake_health_executor_stream(
@@ -190,7 +190,7 @@ def test_health_conversation_session_uses_orchestration_config_not_payload_overr
 
 
 def test_health_conversation_message_fails_closed_until_agent_config_is_rebuilt() -> None:
-    with TestClient(app) as client:
+    with isolated_app_client(app) as client:
         runtime = app_runtime.require_ready()
         original_stream = runtime.harness_runtime.model_response_executor.stream
         runtime.harness_runtime.model_response_executor.stream = _fake_health_executor_stream  # type: ignore[method-assign]
@@ -234,7 +234,7 @@ def test_health_conversation_message_fails_closed_until_agent_config_is_rebuilt(
 
 
 def test_health_conversation_without_bound_issue_returns_block_message() -> None:
-    with TestClient(app) as client:
+    with isolated_app_client(app) as client:
         session = client.post("/api/health-system/conversation-sessions", json={})
         assert session.status_code == 200
         session_id = session.json()["session"]["session_id"]
@@ -250,7 +250,7 @@ def test_health_conversation_without_bound_issue_returns_block_message() -> None
 
 
 def test_health_system_monitor_governance_and_task_record_maintenance_contracts() -> None:
-    with TestClient(app) as client:
+    with isolated_app_client(app) as client:
         maintenance = client.get("/api/health-system/task-records/maintenance?min_age_seconds=0")
         assert maintenance.status_code == 200
         maintenance_payload = maintenance.json()

@@ -121,12 +121,19 @@ class PromptAssemblyService:
             ],
         }
         digest = hashlib.sha256(json.dumps(assembly_seed, sort_keys=True).encode("utf-8")).hexdigest()[:16]
+        section_fingerprint = _stable_payload_hash(_section_fingerprint_payload(tuple(sections)))
         manifest = {
+            "assembly_request_fingerprint": _stable_payload_hash(
+                _request_fingerprint_payload(request=request, resolved_pack_refs=pack_refs)
+            ),
+            "section_fingerprint": section_fingerprint,
             "stable_prompt_refs": [item.prompt_ref for item in sections if item.prompt_ref],
             "stable_contract_refs": [item.source_ref for item in sections if not item.prompt_ref],
             "prompt_pack_refs": list(pack_refs),
             "rejected_refs": [dict(item) for item in rejected],
             "cache_scope_order": [item.cache_scope for item in sections],
+            "cache_boundary": _assembly_cache_boundary_report(tuple(sections)),
+            "layer_summary": _assembly_layer_summary(tuple(sections)),
             "prompt_precedence": _prompt_precedence_report(tuple(sections)),
             "contract_section_count": len([item for item in sections if not item.prompt_ref]),
             "authority": "prompt_library.prompt_assembly_manifest",
@@ -250,6 +257,113 @@ def _prompt_section_layer(section: PromptSection) -> str:
     if resource_type == "worker_prompt":
         return "agent"
     return "unknown"
+
+
+def _request_fingerprint_payload(
+    *,
+    request: PromptAssemblyRequest,
+    resolved_pack_refs: tuple[str, ...],
+) -> dict[str, Any]:
+    payload = request.to_dict()
+    task_contract = dict(payload.pop("task_prompt_contract", {}) or {})
+    graph_contract = dict(payload.pop("graph_node_prompt_contract", {}) or {})
+    metadata = dict(payload.pop("metadata", {}) or {})
+    return {
+        **payload,
+        "resolved_prompt_pack_refs": list(resolved_pack_refs),
+        "task_prompt_contract_hash": _stable_payload_hash(task_contract) if task_contract else "",
+        "graph_node_prompt_contract_hash": _stable_payload_hash(graph_contract) if graph_contract else "",
+        "metadata_hash": _stable_payload_hash(metadata) if metadata else "",
+    }
+
+
+def _section_fingerprint_payload(sections: tuple[PromptSection, ...]) -> list[dict[str, Any]]:
+    return [
+        {
+            "prompt_ref": section.prompt_ref,
+            "source_ref": section.source_ref,
+            "category": section.category,
+            "subtype": section.subtype,
+            "owner_layer": section.owner_layer,
+            "assembly_layer": _prompt_section_layer(section),
+            "cache_scope": section.cache_scope,
+            "content_hash": _stable_text_hash(section.content),
+            "order": section.order,
+        }
+        for section in sections
+    ]
+
+
+def _assembly_cache_boundary_report(sections: tuple[PromptSection, ...]) -> dict[str, Any]:
+    cache_scope_counts: dict[str, int] = {}
+    prefix_tier_counts: dict[str, int] = {}
+    for section in sections:
+        cache_scope = str(section.cache_scope or "static").strip() or "static"
+        prefix_tier = _prefix_tier_from_cache_scope(cache_scope)
+        cache_scope_counts[cache_scope] = cache_scope_counts.get(cache_scope, 0) + 1
+        prefix_tier_counts[prefix_tier] = prefix_tier_counts.get(prefix_tier, 0) + 1
+    return {
+        "cache_scope_counts": cache_scope_counts,
+        "prefix_tier_counts": prefix_tier_counts,
+        "cache_scope_order": [section.cache_scope for section in sections],
+        "prefix_tier_order": [_prefix_tier_from_cache_scope(section.cache_scope) for section in sections],
+        "stable_section_count": len(sections),
+        "global_static_section_count": prefix_tier_counts.get("provider_global", 0),
+        "session_stable_section_count": prefix_tier_counts.get("session", 0),
+        "task_stable_section_count": prefix_tier_counts.get("task", 0),
+        "volatile_section_count": prefix_tier_counts.get("volatile", 0) + prefix_tier_counts.get("none", 0),
+        "section_fingerprint": _stable_payload_hash(_section_fingerprint_payload(sections)) if sections else "",
+        "authority": "prompt_library.prompt_assembly_cache_boundary",
+    }
+
+
+def _assembly_layer_summary(sections: tuple[PromptSection, ...]) -> dict[str, Any]:
+    owner_layer_counts: dict[str, int] = {}
+    assembly_layer_counts: dict[str, int] = {}
+    for section in sections:
+        owner_layer = str(section.owner_layer or "unknown").strip() or "unknown"
+        assembly_layer = _prompt_section_layer(section)
+        owner_layer_counts[owner_layer] = owner_layer_counts.get(owner_layer, 0) + 1
+        assembly_layer_counts[assembly_layer] = assembly_layer_counts.get(assembly_layer, 0) + 1
+    return {
+        "owner_layer_counts": owner_layer_counts,
+        "assembly_layer_counts": assembly_layer_counts,
+        "ordered_layers": [_prompt_section_layer(section) for section in sections],
+        "section_count": len(sections),
+        "authority": "prompt_library.prompt_assembly_layer_summary",
+    }
+
+
+def _prefix_tier_from_cache_scope(cache_scope: str) -> str:
+    scope = str(cache_scope or "").strip()
+    if scope in {"static", "global"}:
+        return "provider_global"
+    if scope in {"static_environment", "session", "session_stable"}:
+        return "session"
+    if scope in {"task", "task_stable"}:
+        return "task"
+    if scope in {"none"}:
+        return "none"
+    return "volatile"
+
+
+def _stable_payload_hash(value: Any) -> str:
+    payload = json.dumps(_json_stable(value), ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return "sha256:" + hashlib.sha256(payload.encode("utf-8", errors="ignore")).hexdigest()
+
+
+def _stable_text_hash(value: str) -> str:
+    return "sha256:" + hashlib.sha256(str(value or "").encode("utf-8", errors="ignore")).hexdigest()
+
+
+def _json_stable(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {str(key): _json_stable(value[key]) for key in sorted(value)}
+    if isinstance(value, (list, tuple)):
+        return [_json_stable(item) for item in value]
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    return repr(value)
 
 
 _CONTRACT_FIELD_SPECS = (

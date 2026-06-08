@@ -156,7 +156,7 @@ class SessionManager:
             for item in list(payload.get("api_transcript") or [])
             if isinstance(item, dict)
         ]
-        transcript = [item for item in transcript if item is not None]
+        transcript = _suppress_superseded_stream_failure_boundaries([item for item in transcript if item is not None])
         if transcript:
             return transcript
         return self.load_session_for_agent(session_id)
@@ -383,6 +383,37 @@ class SessionManager:
             payload["updated_at"] = time.time()
             self._write_payload(session_id, payload)
             return existing
+
+    def remove_stream_failure_boundary_messages(self, session_id: str, *, turn_id: str) -> dict[str, Any]:
+        target_turn_id = str(turn_id or "").strip()
+        if not target_turn_id:
+            return {
+                "removed_messages": 0,
+                "removed_api_messages": 0,
+                "authority": "sessions.stream_failure_boundary_cleanup",
+            }
+        with self._session_lock(session_id):
+            payload = self._read_payload(session_id)
+            messages = list(payload.get("messages") or [])
+            api_transcript = list(payload.get("api_transcript") or [])
+            kept_messages, removed_messages = _remove_stream_failure_boundary_messages_for_turn(
+                messages,
+                turn_id=target_turn_id,
+            )
+            kept_api_transcript, removed_api_messages = _remove_stream_failure_boundary_messages_for_turn(
+                api_transcript,
+                turn_id=target_turn_id,
+            )
+            if removed_messages or removed_api_messages:
+                payload["messages"] = kept_messages
+                payload["api_transcript"] = kept_api_transcript
+                payload["updated_at"] = time.time()
+                self._write_payload(session_id, payload)
+            return {
+                "removed_messages": removed_messages,
+                "removed_api_messages": removed_api_messages,
+                "authority": "sessions.stream_failure_boundary_cleanup",
+            }
 
     def append_api_messages(self, session_id: str, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
         with self._session_lock(session_id):
@@ -743,10 +774,10 @@ _PUBLIC_MESSAGE_PROTOCOL_KEYS = {
 
 
 def _public_messages(messages: list[Any]) -> list[dict[str, Any]]:
-    return [
+    return _suppress_superseded_stream_failure_boundaries([
         message
         for _, message in _public_messages_with_raw_index(messages)
-    ]
+    ])
 
 
 def _public_messages_with_raw_index(messages: list[Any]) -> list[tuple[int, dict[str, Any]]]:
@@ -784,6 +815,77 @@ def _public_message(payload: dict[str, Any]) -> dict[str, Any] | None:
 def _has_protocol_tool_calls(payload: dict[str, Any]) -> bool:
     tool_calls = payload.get("tool_calls")
     return isinstance(tool_calls, list) and bool(tool_calls)
+
+
+_STREAM_FAILURE_BOUNDARY_SOURCE = "harness.runtime.stream_failure_reconciliation"
+_STREAM_FAILURE_BOUNDARY_MARKERS = (
+    "执行流因运行进程重启中断",
+    "工具结果没有交回模型完成收口",
+    "执行流结束时没有产生完整终止事件",
+    "执行流被系统取消",
+    "执行流异常中断",
+)
+
+
+def _suppress_superseded_stream_failure_boundaries(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    normalized = [dict(item) for item in list(messages or []) if isinstance(item, dict)]
+    result: list[dict[str, Any]] = []
+    for index, message in enumerate(normalized):
+        turn_id = str(message.get("turn_id") or "").strip()
+        if (
+            turn_id
+            and _is_stream_failure_boundary_message(message)
+            and _has_later_non_boundary_assistant_for_turn(normalized, start_index=index + 1, turn_id=turn_id)
+        ):
+            continue
+        result.append(message)
+    return result
+
+
+def _has_later_non_boundary_assistant_for_turn(messages: list[dict[str, Any]], *, start_index: int, turn_id: str) -> bool:
+    target_turn_id = str(turn_id or "").strip()
+    if not target_turn_id:
+        return False
+    for item in messages[start_index:]:
+        if str(item.get("turn_id") or "").strip() != target_turn_id:
+            continue
+        if str(item.get("role") or "").strip() != "assistant":
+            continue
+        if _is_stream_failure_boundary_message(item):
+            continue
+        content = str(item.get("content") or "").strip()
+        image = item.get("image")
+        has_image = isinstance(image, dict) and bool(str(image.get("src") or "").strip())
+        if content or has_image:
+            return True
+    return False
+
+
+def _remove_stream_failure_boundary_messages_for_turn(messages: list[Any], *, turn_id: str) -> tuple[list[Any], int]:
+    target_turn_id = str(turn_id or "").strip()
+    kept: list[Any] = []
+    removed = 0
+    for item in list(messages or []):
+        if (
+            isinstance(item, dict)
+            and str(item.get("turn_id") or "").strip() == target_turn_id
+            and _is_stream_failure_boundary_message(item)
+        ):
+            removed += 1
+            continue
+        kept.append(item)
+    return kept, removed
+
+
+def _is_stream_failure_boundary_message(message: dict[str, Any]) -> bool:
+    if str(message.get("role") or "").strip() != "assistant":
+        return False
+    if str(message.get("answer_source") or "").strip() == _STREAM_FAILURE_BOUNDARY_SOURCE:
+        return True
+    if str(message.get("runtime_failure_code") or "").strip():
+        return True
+    content = str(message.get("content") or "")
+    return any(marker in content for marker in _STREAM_FAILURE_BOUNDARY_MARKERS)
 
 
 def _agent_message(payload: dict[str, Any]) -> dict[str, str] | None:

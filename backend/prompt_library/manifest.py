@@ -62,6 +62,11 @@ def build_runtime_prompt_manifest(
     }
     digest = hashlib.sha256(json.dumps(manifest_seed, sort_keys=True).encode("utf-8")).hexdigest()[:16]
     cache_scope_counts = _cache_scope_counts(assembly)
+    assembly_manifest = dict(assembly.manifest or {})
+    assembly_cache_boundary = dict(assembly_manifest.get("cache_boundary") or {})
+    assembly_layer_summary = dict(assembly_manifest.get("layer_summary") or {})
+    assembly_request_fingerprint = str(assembly_manifest.get("assembly_request_fingerprint") or "")
+    section_fingerprint = str(assembly_manifest.get("section_fingerprint") or "")
     prompt_rules = dict(assembly.manifest.get("prompt_rules") or {})
     static_count = sum(
         count
@@ -81,6 +86,9 @@ def build_runtime_prompt_manifest(
             "static_section_count": static_count,
             "stable_prompt_section_count": len(assembly.sections),
             "cache_scope_counts": cache_scope_counts,
+            "assembly_cache_boundary": assembly_cache_boundary,
+            "assembly_request_fingerprint": assembly_request_fingerprint,
+            "section_fingerprint": section_fingerprint,
             "static_cache_scopes": sorted(scope for scope in cache_scope_counts if _is_static_cache_scope(scope)),
             "volatile_state_after_stable_sections": True,
         },
@@ -91,6 +99,9 @@ def build_runtime_prompt_manifest(
         diagnostics={
             "packet_id": packet_id,
             "prompt_assembly_id": assembly.assembly_id,
+            "assembly_request_fingerprint": assembly_request_fingerprint,
+            "section_fingerprint": section_fingerprint,
+            "assembly_layer_summary": assembly_layer_summary,
             "prompt_precedence": dict(assembly.manifest.get("prompt_precedence") or {}),
         },
     )
